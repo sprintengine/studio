@@ -326,7 +326,7 @@ export interface MobileControlSprintEngineSnapshot {
   roster?: Record<string, MobileControlRosterEntry>;
   runSummary?: Record<string, string | number | boolean | null>;
   planReview?: Record<string, string | number | boolean | null>;
-  /** Folder-store lock reports and stale-lock warnings. Optional for back-compat. */
+  /** Folder-store lock reports and stale-lock warnings. */
   locks?: MobileControlSprintEngineLockState;
   /** Latest projection activity entry plus total event count. */
   activity?: MobileControlSprintEngineActivitySummary;

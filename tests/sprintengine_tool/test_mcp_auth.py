@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import json
 import os
 
 import pytest
@@ -147,7 +145,7 @@ def test_allowed_roots_reject_out_of_scope_and_platform_confused_paths(tmp_path)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path / "allowed"])
 
     out_of_scope = server.call_tool("sprintengine.summary", {"statePath": str(fixture.state_path)}, actor("workspace-user"))
-    platform_confused = server.call_tool("sprintengine.summary", {"statePath": r"C:\workspace\.multi-code\sprintengine\state.yaml"}, actor("workspace-user"))
+    platform_confused = server.call_tool("sprintengine.summary", {"statePath": r"C:\workspace\.multi-code\sprintengine\run.yaml"}, actor("workspace-user"))
 
     assert out_of_scope["ok"] is False
     assert out_of_scope["error"]["code"] == "state_path_not_allowed"
@@ -182,7 +180,7 @@ def test_authenticated_mcp_user_can_invoke_artifact_review_with_payload_actor(tm
             "recommendedTasks": [],
         }
     ]
-    fixture.state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    write_state(fixture.state_path, state)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
     approved = server.call_tool(

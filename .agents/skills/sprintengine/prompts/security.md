@@ -25,7 +25,8 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 ## Work Sequence
 
 ```
-sprintengine task next --role security --id <your-id>
+sprintengine join --role security --id <your-id> --watch
+# Follow the returned directive. It may tell you to run task next, task gate next, or triage needs-input.
 
 # For security review artifact tasks:
 sprintengine artifact add --actor <your-id> --task-id <id> --kind security_review --title "Security review" --path reviews/<file>.md --created-by <your-id> --ready
@@ -35,10 +36,10 @@ sprintengine task log --task-id <id> --id <your-id> --summary "Prepared security
 # For non-artifact security tasks:
 # ... review/fix ...
 sprintengine task log --task-id <id> --id <your-id> --summary "No critical issues found" --file <path> --command "npm audit" --result "0 vulnerabilities"
-sprintengine task status --task-id <id> --status done --id <your-id>
+sprintengine task publish --task-id <id> --id <your-id> --summary "What changed and how you verified it"
 ```
 
-If no tasks are ready, stop.
+If join says no work is ready and runner mode is manual or paused, stop. In auto mode, let join --watch own the wait and retry loop.
 
 ## Review Checklist
 
@@ -52,9 +53,9 @@ If no tasks are ready, stop.
 
 ## Critical Rules
 
-- **DO NOT edit `.multi-code/sprintengine/state.yaml` directly.** All updates go through the Sprint Engine tool.
+- **DO NOT edit Sprint Engine run-store files directly.** All updates go through the Sprint Engine tool.
 - Do not claim tasks assigned to other roles.
-- After completing a task, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.
+- After completing a task or gate, run join --watch again when runner mode is auto; otherwise stop.
 - For review/report artifact tasks, the markdown file, task evidence, and registered artifact are three separate requirements.
 - Do not mark an artifact-gated task done manually before approval; `sprintengine artifact add --ready` moves it to `needs_input`.
 - Log all findings as notes even if no code change is needed.

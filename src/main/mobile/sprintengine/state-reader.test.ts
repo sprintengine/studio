@@ -14,8 +14,8 @@ void main()
 
 async function main(): Promise<void> {
   await assertProjectionIsPreferredForState()
-  await assertStateYamlIsUsedWhenProjectionMissing()
-  await assertMalformedProjectionDoesNotFallBackToStateYaml()
+  await assertProjectionIsRequired()
+  await assertMalformedProjectionFails()
   await assertFindReadyTaskAcceptsProjectionReadyStatus()
   await assertFindReadyTaskPreservesChangesRequestedStatus()
   await assertFindReadyTaskBlocksWhenDependencyNotDone()
@@ -23,7 +23,7 @@ async function main(): Promise<void> {
   await assertFindReadyTaskRejectsRoleMismatch()
   await assertFindArtifactReadsFromProjection()
   await assertActiveAgentResolvedViaProjectionRoster()
-  await assertIdleAgentResolvedViaProjectionRosterWithoutStateYaml()
+  await assertIdleAgentResolvedViaProjectionRosterWithoutRunYamlPayload()
 }
 
 async function writeFixture(state: {
@@ -33,7 +33,7 @@ async function writeFixture(state: {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'mobile-state-reader-'))
   const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', 'team')
   await mkdir(teamDirectory, { recursive: true })
-  const statePath = join(teamDirectory, 'state.yaml')
+  const statePath = join(teamDirectory, 'run.yaml')
   await writeFile(statePath, state.stateContent ?? '{}', 'utf8')
   if (state.projection !== null && state.projection !== undefined) {
     await writeFile(join(teamDirectory, 'projection.json'), JSON.stringify(state.projection), 'utf8')
@@ -51,7 +51,7 @@ async function assertProjectionIsPreferredForState(): Promise<void> {
     roster: { 'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T1' } },
   }
   const { statePath } = await writeFixture({
-    // legacy state file says T2 still has T1 as todo — projection wins
+    // run.yaml graph mirror says T2 still has T1 as todo; projection wins
     stateContent: JSON.stringify({
       tasks: [
         { id: 'T1', role: 'developer', status: 'todo', dependsOn: [] },
@@ -70,7 +70,7 @@ async function assertProjectionIsPreferredForState(): Promise<void> {
   assert.deepEqual(Object.keys(raw.sprintEngineAgents ?? {}), ['developer-1'])
 }
 
-async function assertStateYamlIsUsedWhenProjectionMissing(): Promise<void> {
+async function assertProjectionIsRequired(): Promise<void> {
   const { statePath } = await writeFixture({
     stateContent: JSON.stringify({
       tasks: [{ id: 'T1', role: 'developer', status: 'todo', dependsOn: [] }],
@@ -80,13 +80,13 @@ async function assertStateYamlIsUsedWhenProjectionMissing(): Promise<void> {
     projection: null,
   })
   const validated = validateSprintEngineStatePath(statePath)
-  const raw = await readRawSprintEngineState(validated)
-  assert.equal(raw.tasks?.length, 1)
-  assert.equal(raw.artifacts?.length, 1)
-  assert.equal(Object.keys(raw.sprintEngineAgents ?? {}).length, 1)
+  await assert.rejects(
+    () => readRawSprintEngineState(validated),
+    (error: Error) => error.message.includes('projection.json'),
+  )
 }
 
-async function assertMalformedProjectionDoesNotFallBackToStateYaml(): Promise<void> {
+async function assertMalformedProjectionFails(): Promise<void> {
   const { teamDirectory, statePath } = await writeFixture({
     stateContent: JSON.stringify({
       tasks: [{ id: 'T1', role: 'developer', status: 'todo', dependsOn: [] }],
@@ -253,7 +253,7 @@ async function assertActiveAgentResolvedViaProjectionRoster(): Promise<void> {
   await assertKnownActiveSprintEngineAgent(taskValidated, 'frontend-7')
 }
 
-async function assertIdleAgentResolvedViaProjectionRosterWithoutStateYaml(): Promise<void> {
+async function assertIdleAgentResolvedViaProjectionRosterWithoutRunYamlPayload(): Promise<void> {
   const { statePath } = await writeFixture({
     stateContent: '{"tasks":',
     projection: {

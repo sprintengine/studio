@@ -1,9 +1,15 @@
-# SprintEngine State Schema
+# SprintEngine Run Store Schema
 
 The shared Sprint Engine coordination files are:
 
-- `.multi-code/sprintengine/<team-slug>/state.yaml`
-  - machine-readable kanban board and run state
+- `.multi-code/sprintengine/<team-slug>/run.yaml`
+  - run metadata, creation metadata, roster, task graph, and policy
+- `.multi-code/sprintengine/<team-slug>/projection.json`
+  - read-only normalized app/mobile projection
+- `.multi-code/sprintengine/<team-slug>/tasks/<status>/*.json`
+  - materialized task cards by board column
+- `.multi-code/sprintengine/<team-slug>/artifacts/<status>/*.json`
+  - materialized artifact cards by review status
 - `.multi-code/sprintengine/<team-slug>/handover.md`
   - optional incoming planning context created before the sprintengine architect starts
 - `.multi-code/sprintengine/<team-slug>/plan.md`
@@ -11,14 +17,15 @@ The shared Sprint Engine coordination files are:
 - `.multi-code/sprintengine/<team-slug>/plan-reviews/<agent-id>.md`
   - specialist-authored markdown review of the current architect plan
 
-The Python tool is the preferred write path for `.multi-code/sprintengine/state.yaml`.
+The Python tool is the only write path for Sprint Engine run-store files.
 
-Legacy root-level `.multi-code/sprintengine/plan.md` files are not canonical for named runs. Agents should use the active team's `architect_plan` artifact path from state instead.
+Agents should use the active team's `architect_plan` artifact path from the projection or CLI prompt.
 
 Use `sprintengine handover --name <team> --goal "..." --handover <path>` to create a named team bootstrap and canonical `handover.md`.
 Use `sprintengine handover --name <team> --goal "..." --handover-stdin` when an active planning agent should stream its full handover through the Python tool.
 Use `sprintengine summary` to print a read-only completion summary from task evidence.
-Use `sprintengine task next --role <role> --id <agent-id>` for normal worker task claiming.
+Use `sprintengine join --role <role> --id <agent-id> --watch` for agent startup and continuation. The join directive tells agents when to run `task next`, `task gate next`, or `triage needs-input`.
+Use `sprintengine task next --role <role> --id <agent-id>` for normal worker task claiming when the join directive tells the agent to claim or resume implementation work.
 Use `sprintengine task claim --task-id <id> --id <agent-id>` when a specific ready task must be claimed.
 Use `sprintengine task status`, `sprintengine task note`, and `sprintengine task log` to update task status, notes, and evidence.
 Use `Sprint Engine plan add-task` to build the task board one task at a time while planning.
@@ -31,7 +38,7 @@ Use `sprintengine artifact ready --artifact-id <id> --id <agent-id>` to move an 
 Use `sprintengine artifact approve --artifact-id <id> --id <actor>` to approve an artifact and complete the linked task once all non-superseded linked artifacts are approved.
 Use `sprintengine artifact request-changes --artifact-id <id> --id <actor> --feedback "..."` to record feedback and reopen the linked task.
 Artifact-producing workers register artifacts and stop in `needs_input`; implementation workers wait for approved artifact dependencies before building.
-The app uses narrow IPC to request artifact review mutations through the Python tool; workers and renderer code must not edit state files directly.
+The app uses narrow IPC to request artifact review mutations through the Python tool; workers and renderer code must not edit run-store files directly.
 
 ## Task Card Fields
 
@@ -53,7 +60,7 @@ The app uses narrow IPC to request artifact review mutations through the Python 
 - `acceptanceCriteria`
   - Repeatable verifiable outcomes for completion.
 - `implementationNotes`
-  - Repeatable low-level details distilled from `plan.md`, such as functions to update, state transitions, API contracts, edge cases, migration constraints, compatibility requirements, and rollback notes.
+  - Repeatable low-level details distilled from `plan.md`, such as functions to update, state transitions, API contracts, edge cases, and rollback notes.
 - `evidence`
   - `summary`
   - `touchedFiles`
@@ -73,7 +80,7 @@ The app uses narrow IPC to request artifact review mutations through the Python 
   - `suggestedImprovement` (optional, short text)
   - `issues` (optional)
     - Prompt/process improvement signals reported by the agent for the user to review.
-    - Existing swarms and feedback records may omit this field.
+    - Feedback records may omit this optional field.
     - `id`
     - `category`: `system_prompt`, `role_prompt`, `task_card`, `acceptance_criteria`, `context`, `tooling`, `coordination`, `validation`, `permissions`, `ui`, or `other`
     - `severity`: `low`, `medium`, or `high`
@@ -86,7 +93,7 @@ The app uses narrow IPC to request artifact review mutations through the Python 
     - `status` (optional): `new`, `reviewed`, `applied`, `rejected`, or `deferred`; omitted values are treated as `new`
   - `findings` (optional)
     - Role-specific review findings reported by agents, such as bugs, security issues, requirement violations, and test gaps.
-    - Existing swarms and feedback records may omit this field.
+    - Feedback records may omit this optional field.
     - `id`
     - `kind`: `code_bug`, `security_issue`, `product_requirement_violation`, `test_gap`, `accessibility_issue`, `performance_issue`, `reliability_issue`, `documentation_gap`, or `other`
     - `severity`: `critical`, `high`, `medium`, or `low`
@@ -99,7 +106,8 @@ The app uses narrow IPC to request artifact review mutations through the Python 
     - `status` (optional): `open`, `accepted`, `fixed`, `rejected`, or `deferred`; omitted values are treated as `open`
 - `notes`
 - `needsInput` (optional; set when a task is in `needs_input` and needs routed attention)
-  - `kind`: `architect`, `user`, `artifact`, `tooling`, `verification`, or `other`
+  - `kind`: `architect`, `user`, or `owner`
+  - `reason`: `task_scope`, `artifact_review`, `tooling`, `verification`, `product_decision`, or `blocked_other`
   - `question`
   - `suggestedResolution` (optional)
   - `reportedBy` (optional)
@@ -110,8 +118,6 @@ The app uses narrow IPC to request artifact review mutations through the Python 
 When feedback is supplied, the tool also appends a normalized record to `.multi-code/sprintengine/<team-slug>/metrics/agent-feedback.jsonl`. This JSONL file is append-only benchmark/analytics history; `task.feedback` is only the latest compact task-linked value for UI and summaries.
 
 ## Artifact Fields
-
-Top-level `artifacts` is optional for compatibility. Missing artifact arrays are treated as empty.
 
 - `id`
 - `kind`

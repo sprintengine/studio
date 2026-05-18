@@ -47,7 +47,7 @@ from sprintengine_core.tool import (
     cmd_task_release,
     cmd_task_resolve_input,
     cmd_task_status,
-    load_state,
+    load_mutation_state,
 )
 
 from .auth import MUTATING_TOOLS, ActorContext, AuthorizationError, authorize_tool
@@ -168,10 +168,10 @@ class SprintEngineMcpServer:
             "sprintengine.artifact.request_changes": cmd_artifact_request_changes,
         }
         if tool_name == "sprintengine.feedback.summarize":
-            state = load_state(state_path)
+            state = load_mutation_state(state_path)
             return {"ok": True, "summary": analyze_feedback_metrics(state_path.parent, state)["summary"]}
         if tool_name == "sprintengine.feedback.recommend_actions":
-            state = load_state(state_path)
+            state = load_mutation_state(state_path)
             return {"ok": True, "recommendations": analyze_feedback_metrics(state_path.parent, state)["recommendations"]}
         handler = handlers[tool_name]
         args = self._namespace(tool_name, state_path, payload, actor)

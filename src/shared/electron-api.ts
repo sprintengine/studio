@@ -686,6 +686,13 @@ export type SprintEngineStateInitializeInput = {
   artifacts?: unknown[]
 }
 
+export type SprintEngineRunnerMode = 'auto' | 'manual' | 'paused'
+
+export type SprintEngineRunnerSetInput = {
+  statePath: string
+  mode: SprintEngineRunnerMode
+}
+
 export type MultiloopInitInput = {
   workspaceRoot: string
   loopName: string
@@ -1058,6 +1065,7 @@ export type ElectronApi = {
   updateSprintEngineTask: (input: SprintEngineTaskUpdateInput) => Promise<SprintEngineArtifactCommandResult>
   createSprintEngineTask: (input: SprintEngineTaskCreateInput) => Promise<SprintEngineArtifactCommandResult>
   commentSprintEngineTask: (input: SprintEngineTaskCommentInput) => Promise<SprintEngineArtifactCommandResult>
+  setSprintEngineRunnerMode: (input: SprintEngineRunnerSetInput) => Promise<SprintEngineArtifactCommandResult>
   readSprintEngineProjection: (statePath: string) => Promise<SprintEngineProjectionReadResult>
   initializeSwitchboard: (workspaceRoot: string) => Promise<SwitchboardInitApiResult>
   readSwitchboardTasks: (workspaceRoot: string) => Promise<SwitchboardReadResult>

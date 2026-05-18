@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from helpers import (
@@ -18,12 +16,13 @@ from helpers import (
     get_task,
     read_state,
     task,
+    write_state,
 )
 
 
 def test_fixture_guard_rejects_real_repo_swarm_state() -> None:
     with pytest.raises(AssertionError, match="real repo Sprint Engine state"):
-        assert_disposable_state_path(REPO_ROOT / "sprintengine" / "real-team" / "state.yaml")
+        assert_disposable_state_path(REPO_ROOT / "sprintengine" / "real-team" / "run.yaml")
 
 
 def test_cli_runner_parses_json_and_asserts_ready_state(tmp_path) -> None:
@@ -115,7 +114,7 @@ def test_feedback_assertions_cover_state_and_metrics_jsonl(tmp_path) -> None:
     )
     state = read_state(fixture.state_path)
     state["sprintengine"]["qualityPolicy"] = {"enabled": False}
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    write_state(fixture.state_path, state)
 
     fixture.cli.run(
         "task",

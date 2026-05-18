@@ -28,19 +28,27 @@ export function prependAgentIdentifier(
   return `${prefix}${prompt}`
 }
 
-function quoteShellArg(value: string): string {
-  return JSON.stringify(value)
-}
-
-function buildWindowsSprintEngineToolCommand(command: string, workspaceRoot?: string): string {
-  const python = workspaceRoot
-    ? `${workspaceRoot.replace(/[\\/]+$/u, '')}\\.venv\\Scripts\\python.exe`
-    : '.\\.venv\\Scripts\\python.exe'
-  return `& ${quotePowerShellArg(python)} .\\scripts\\sprintengine_tool.py ${command}`
+function quotePosixArg(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`
 }
 
 function quotePowerShellArg(value: string): string {
-  return `"${value.replace(/"/g, '`"')}"`
+  return `'${value.replace(/'/g, "''")}'`
+}
+
+function renderPosixSprintEngineArgs(args: string[]): string {
+  return args.map((arg) => /^[A-Za-z0-9._:/=-]+$/.test(arg) ? arg : quotePosixArg(arg)).join(' ')
+}
+
+function renderPowerShellSprintEngineArgs(args: string[]): string {
+  return args.map((arg) => /^[A-Za-z0-9._:/=-]+$/.test(arg) ? arg : quotePowerShellArg(arg)).join(' ')
+}
+
+function buildWindowsSprintEngineToolCommand(args: string[], workspaceRoot?: string): string {
+  const python = workspaceRoot
+    ? `${workspaceRoot.replace(/[\\/]+$/u, '')}\\.venv\\Scripts\\python.exe`
+    : '.\\.venv\\Scripts\\python.exe'
+  return `& ${quotePowerShellArg(python)} .\\scripts\\sprintengine_tool.py ${renderPowerShellSprintEngineArgs(args)}`
 }
 
 export function buildSprintEngineStartupPrompt(
@@ -57,12 +65,10 @@ export function buildSprintEngineStartupPrompt(
   } = {}
 ): string {
   const commandMode = options.commandMode ?? (role === 'architect' ? 'init' : 'join')
-  const rosterFlags = commandMode === 'init' && options.rosterArgs?.length
-    ? ` ${options.rosterArgs.map((arg) => `--agent ${quoteShellArg(arg)}`).join(' ')}`
-    : ''
-  const sprintEngineCommand = commandMode === 'init'
-    ? `init --goal ${quoteShellArg(goal)}${rosterFlags}`
-    : `join --role ${role} --id ${agentId}`
+  const sprintEngineArgs = commandMode === 'init'
+    ? ['init', '--goal', goal, ...(options.rosterArgs ?? []).flatMap((arg) => ['--agent', arg])]
+    : ['join', '--role', role, '--id', agentId, '--watch']
+  const sprintEngineCommand = renderPosixSprintEngineArgs(sprintEngineArgs)
   const command = commandMode === 'init'
     ? `Run \`sprintengine ${sprintEngineCommand}\` to receive your full prompt and instructions.`
     : `Run \`sprintengine ${sprintEngineCommand}\` to receive your full prompt and next directive.`
@@ -88,14 +94,14 @@ export function buildSprintEngineStartupPrompt(
     'Fetch the canonical Sprint Engine instructions from the Python tool.',
     context.length > 0 ? context.join('\n') : null,
     autonomousPlanningOverride,
-    `You are assigned role: ${role}. Only claim and work Sprint Engine tasks whose role exactly matches ${role}. Use the Sprint Engine join/task-next flow with this same agent id. If no ${role} task is ready, wait briefly with a foreground sleep/backoff, then retry while this Sprint Engine roster session remains active. Do not leave a background polling loop running, and stop all idle retrying as soon as a task is returned. After you claim one task, focus only on that task: complete it, publish evidence, mark it done, then stop. Stop earlier if auto mode is paused, you are blocked, you need user input, the terminal is being shut down, or your context window is about 70% full. If you move a task to needs_input, --needs-input-kind is the actor who must act: use architect for task-card/scope/artifact-review/tooling/verification blockers, user for product decisions or approvals, and owner when you are waiting for your own external condition. Add --needs-input-reason such as task_scope, artifact_review, tooling, verification, product_decision, or blocked_other; include --needs-input-artifact-id for artifact_review blockers when available. Include --needs-input-question and, when useful, --needs-input-suggested-resolution. If you receive a Sprint Engine notification that your blocked task was resolved, re-read the task card, notes, acceptance criteria, and evidence, then continue that same task; if the notification says the task is complete, stop. At about 70% context, publish a concise continuation note, compact or restart, fetch your Soul again, rerun the Sprint Engine join command with this same id, and continue. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
+    `You are assigned role: ${role}. Use the Sprint Engine join watch flow with this same agent id; the CLI owns polling and will tell you whether to claim a normal task, resume work, triage needs_input, or claim a quality gate. Only claim work assigned to your role. If no ${role} work is ready and runner mode is auto, the CLI will sleep/backoff and poll again. Do not create your own background polling loop. After you claim one task or gate, focus only on that work: complete it, publish evidence or a gate verdict, then run the same join watch command again if runner mode is auto. Stop earlier if auto mode is paused, you are blocked, you need user input, the terminal is being shut down, or your context window is about 70% full. If you move a task to needs_input, --needs-input-kind is the actor who must act: use architect for task-card/scope/artifact-review/tooling/verification blockers, user for product decisions or approvals, and owner when you are waiting for your own external condition. Add --needs-input-reason such as task_scope, artifact_review, tooling, verification, product_decision, or blocked_other; include --needs-input-artifact-id for artifact_review blockers when available. Include --needs-input-question and, when useful, --needs-input-suggested-resolution. If you receive a Sprint Engine notification that your blocked task was resolved, re-read the task card, notes, acceptance criteria, and evidence, then continue that same task; if the notification says the task is complete, stop. At about 70% context, publish a concise continuation note, compact or restart, fetch your Soul again, rerun the Sprint Engine join watch command with this same id, and continue. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
     commandMode === 'join' && options.sprintEngineStatePath
-      ? `If the shared Sprint Engine state file does not exist yet or the join command reports that state is missing, wait briefly and retry the same join command. Do not create a different state file and do not stop just because the architect has not initialized the run yet.`
+      ? `If the shared Sprint Engine run file does not exist yet or the join command reports that the run is missing, wait briefly and retry the same join command. Do not create a different run file and do not stop just because the architect has not initialized the run yet.`
       : null,
     [
       'On Windows, prefer the repo virtual environment command if `sprintengine` or global Python is unreliable:',
       '```powershell',
-      buildWindowsSprintEngineToolCommand(sprintEngineCommand, options.workspaceRoot),
+      buildWindowsSprintEngineToolCommand(sprintEngineArgs, options.workspaceRoot),
       '```',
     ].join('\n'),
     command,

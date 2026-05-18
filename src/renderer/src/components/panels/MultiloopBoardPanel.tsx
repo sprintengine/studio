@@ -75,8 +75,7 @@ import {
 } from '../../utils/multiloop'
 import { autoRunReasonToLabel, selectMultiloopAutoRunCandidates, type MultiloopAutoRunSelection } from '../../utils/multiloopAutoRun'
 import { parseMultiloopStateFile } from '../../utils/multiloopStateFile'
-import { parseSprintEngineStateFile } from '../../utils/sprintengineStateFile'
-import { buildSprintEngineAgentRosterForState, buildSprintEngineRosterCommandArgs, sprintEngineRoleLabels } from '../../utils/sprintengine'
+import { buildSprintEngineAgentRosterForState, buildSprintEngineRosterCommandArgs, normalizeSprintEngineProjection, sprintEngineRoleLabels } from '../../utils/sprintengine'
 
 type Props = {
   workspaceId: WorkspaceId
@@ -513,10 +512,12 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
       ...current,
       [link.statePath]: { status: 'loading', path: link.statePath },
     }))
-    void window.api.readfile(resolvedStatePath)
-      .then((content) => {
+    void window.api.readSprintEngineProjection(resolvedStatePath)
+      .then((projection) => {
         if (cancelled()) return
-        const parsed = parseSprintEngineStateFile(content, link.teamSlug)
+        if (!projection.ok) throw new Error(projection.message)
+        const parsed = normalizeSprintEngineProjection(projection.data, link.teamSlug)
+        if (!parsed) throw new Error('Sprint Engine projection was malformed.')
         setLinkedSprintEngineStatesByPath((current) => ({ ...current, [link.statePath]: parsed }))
         setLinkedExecutionReadStatesByPath((current) => ({
           ...current,
@@ -744,7 +745,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
   const openLinkedStateFile = async (link: NonNullable<MultiloopMilestone['sprintEngine']>) => {
     const path = resolveProjectPath(link.statePath, workspaceRoot)
     const content = await window.api.readfile(path)
-    openFile(workspaceId, path, link.statePath.split(/[\\/]/u).pop() || 'state.yaml', content)
+    openFile(workspaceId, path, link.statePath.split(/[\\/]/u).pop() || 'run.yaml', content)
   }
 
   const overflowItems: OverflowMenuItem[] = []

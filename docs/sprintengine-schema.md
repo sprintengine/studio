@@ -2,9 +2,7 @@
 
 Sprint Engine is Multicode's local execution authority for specialist runs.
 Current runs use a folder-backed store under `.multi-code/sprintengine/<team>/`.
-The compatibility `state.yaml` file can still exist during staged migration, but
-new coordination code should treat the folder store and normalized projection as
-the durable read contract.
+The folder store and normalized projection are the durable read contract.
 
 Agents and app code must not hand-edit Sprint Engine store files. Mutations go
 through the Sprint Engine CLI/tool boundary so locking, ready queue refresh,
@@ -16,7 +14,6 @@ Each team folder contains these store files and directories:
 
 ```text
 .multi-code/sprintengine/<team>/
-  state.yaml
   run.yaml
   projection.json
   events.jsonl
@@ -45,11 +42,10 @@ Each team folder contains these store files and directories:
   runner/
 ```
 
-`state.yaml` is the legacy compatibility file. It is not a safe manual editing
-surface. Folder-store files are also not safe manual editing surfaces. Use
-commands such as `sprintengine task next`, `sprintengine task log`,
+Folder-store files are not safe manual editing surfaces. Use commands such as
+`sprintengine join --watch`, `sprintengine task next`, `sprintengine task log`,
 `sprintengine task status`, `sprintengine artifact add`, and
-`sprintengine migrate`.
+`sprintengine runner set`.
 
 ## `run.yaml`
 
@@ -66,8 +62,9 @@ commands such as `sprintengine task next`, `sprintengine task log`,
   `dependsOn`.
 - `artifacts`: compact artifact entries with `id`, `status`, `kind`, and
   `taskId`.
-- `migration`: source, backup path, counts, timestamps, and compatibility
-  metadata when the run has been migrated from `state.yaml`.
+- `runner`: durable runner policy (`manual`, `auto`, or `paused`) plus polling
+  and completion settings.
+- `creation`: run creation metadata such as source and timestamp.
 - `updatedAt`: UTC timestamp of the latest store sync.
 
 The graph mirror lets readiness refresh validate dependency references and
@@ -295,14 +292,12 @@ with:
 
 Examples include `task_claimed`, `task_evidence_appended`,
 `task_status_changed`, `artifact_added`, `artifact_ready_for_review`,
-`artifact_approved`, and `folder_store_migrated`.
+`artifact_approved`, and `runner_policy_updated`.
 
 ## Locks
 
-The folder store is the preferred mutation source when `run.yaml` and task
-folders exist. `state.yaml` is a compatibility mirror for legacy tools and may
-be absent or stale between writes; consumers should read `projection.json`, not
-`state.yaml`, for migrated runs.
+The folder store is the mutation source. Consumers should read
+`projection.json` or `sprintengine projection`, not folder internals.
 
 The store uses lock files to serialize high-risk operations:
 
@@ -311,7 +306,6 @@ The store uses lock files to serialize high-risk operations:
 - `runner/claim.queue.lock`: narrow queue lock for task claim selection.
 - `runner/gate.queue.lock`: narrow queue lock for gate claim and verdict
   selection.
-- `state.yaml.lock`: legacy compatibility state lock for unmigrated runs.
 - `runner/run.lock.json`: run-level status marker.
 - `runner/ready.lock.json`: ready runner status marker.
 
@@ -337,6 +331,13 @@ Readiness refresh rejects unknown dependencies and cycles. The CLI command is:
 sprintengine task refresh-ready
 ```
 
+Agents should start and continue with:
+
+```bash
+sprintengine join --role <role> --id <agent-id> --watch
+```
+
+When join directs normal implementation work,
 `sprintengine task next --role <role> --id <agent-id>` claims under the
 folder-store run lock plus the claim queue lock, prioritizing
 `changes_requested` rework before normal ready work without changing its status
@@ -355,14 +356,12 @@ Consumers should use the normalized projection instead of reading folder files:
 sprintengine projection
 ```
 
-The projection reads real folder-store files for migrated and new runs. It
-falls back to legacy `state.yaml` only when the folder store has not been
-initialized.
+The projection reads real folder-store files for initialized runs.
 
 Projection fields include:
 
 - `projectionVersion`
-- `source`: `folder_store` or `state_yaml_fallback`
+- `source`: `folder_store`
 - `generatedAt`, `updatedAt`
 - `run`
 - `roster`
@@ -393,15 +392,13 @@ Each projected task includes gate and comment context for UI/mobile consumers:
 Projection consumers should use these fields instead of parsing task folders,
 artifact folders, metrics files, or comments from folder internals.
 
-## Migration Compatibility
+## Runner Policy
 
-`sprintengine migrate --actor <actor-id>` is idempotent. It creates the folder
-store from `state.yaml`, writes `state.migration-backup.yaml`, appends migration
-activity and events once, writes metrics records, refreshes the ready queue, and
-records migration metadata in `run.yaml`.
-
-After migration, reads should prefer folder-store projection data. The legacy
-`state.yaml` file can remain as a compatibility mirror during rollout.
+Runner policy is stored in `run.yaml` and projected under `run.runner`.
+`manual` means `join --watch` returns idle immediately when no work is ready.
+`auto` means `join --watch` sleeps and polls until work appears, the run
+completes, the mode changes, or a diagnostic max-wait limit is reached.
+`paused` stops auto polling without losing the roster or task graph.
 
 ## Verification Commands
 

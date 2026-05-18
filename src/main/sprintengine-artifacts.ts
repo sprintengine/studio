@@ -1,10 +1,11 @@
 import { existsSync } from 'fs'
-import { mkdir, readFile, stat, writeFile } from 'fs/promises'
+import { mkdir, readFile, stat } from 'fs/promises'
 import { spawn } from 'child_process'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type {
   SprintEngineArtifactCommandResult,
   SprintEngineProjectionReadResult,
+  SprintEngineRunnerSetInput,
   SprintEngineStateInitializeInput,
   SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
@@ -95,12 +96,12 @@ const autoApprovableArtifactKinds = new Set([
 
 function validateSprintEngineStatePath(input: unknown): ValidSprintEngineStatePath {
   if (typeof input !== 'string' || !input.trim()) {
-    throw new Error('A Sprint Engine state path is required.')
+    throw new Error('A Sprint Engine run path is required.')
   }
 
   const rawStatePath = input.trim()
   if (!isAbsolute(rawStatePath)) {
-    throw new Error('Sprint Engine state path must be absolute.')
+    throw new Error('Sprint Engine run path must be absolute.')
   }
 
   const statePath = resolve(rawStatePath)
@@ -110,12 +111,12 @@ function validateSprintEngineStatePath(input: unknown): ValidSprintEngineStatePa
   const workspaceRoot = dirname(multiCodeDirectory)
 
   if (
-    basename(statePath) !== 'state.yaml'
+    basename(statePath) !== 'run.yaml'
     || basename(sprintEngineDirectory) !== 'sprintengine'
     || basename(multiCodeDirectory) !== '.multi-code'
     || workspaceRoot === multiCodeDirectory
   ) {
-    throw new Error('Sprint Engine state path must point to .multi-code/sprintengine/<team>/state.yaml.')
+    throw new Error('Sprint Engine run path must point to .multi-code/sprintengine/<team>/run.yaml.')
   }
 
   return { statePath, teamDirectory, workspaceRoot }
@@ -235,28 +236,49 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
   }
 }
 
-function buildInitialSprintEngineStateContent(payload: SerializableSprintEngineStatePayload): string {
-  return `${JSON.stringify({
-    sprintengine: {
-      name: payload.name,
-      goal: payload.goal,
-      status: 'planning',
-      rosterConfigured: true,
-    },
-    tasks: payload.tasks,
-    agents: payload.agents,
-    events: payload.events,
-    artifacts: payload.artifacts,
-    roles: {},
-  }, null, 2)}\n`
-}
-
 function getSprintEngineMcpPythonExecutable(workspaceRoot: string): string {
   const venvPython = process.platform === 'win32'
     ? join(workspaceRoot, '.venv', 'Scripts', 'python.exe')
     : join(workspaceRoot, '.venv', 'bin', 'python')
   if (existsSync(venvPython)) return venvPython
   return process.platform === 'win32' ? 'python' : 'python3'
+}
+
+function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: SerializableSprintEngineStatePayload): string[] {
+  const args = ['scripts/sprintengine_tool.py', '--state', state.statePath, 'init', '--goal', payload.goal || payload.name]
+  for (const [agentId, agent] of Object.entries(payload.agents)) {
+    if (!agent || typeof agent !== 'object' || Array.isArray(agent)) continue
+    const role = (agent as Record<string, unknown>).role
+    if (typeof role === 'string' && role.trim()) {
+      args.push('--agent', `${role.trim()}:${agentId}`)
+    }
+  }
+  return args
+}
+
+function runSprintEngineCli(state: ValidSprintEngineStatePath, args: string[]): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolvePromise) => {
+    const child = spawn(getSprintEngineMcpPythonExecutable(state.workspaceRoot), args, {
+      cwd: state.workspaceRoot,
+      env: {
+        ...process.env,
+        PYTHONPATH: [state.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
+      },
+      windowsHide: true,
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.on('data', (chunk) => { stderr += chunk })
+    child.on('error', (error) => {
+      resolvePromise({ exitCode: 1, stdout, stderr: stderr || error.message })
+    })
+    child.on('close', (exitCode) => {
+      resolvePromise({ exitCode, stdout, stderr })
+    })
+  })
 }
 
 function runSprintEngineMcpTool(
@@ -327,7 +349,7 @@ async function requireSprintEngineMcpAuthority(
   }
 }
 
-function parseSprintEngineStateForArtifactReview(content: string): {
+function parseSprintEngineProjectionForArtifactReview(content: string): {
   tasks: SprintEngineTaskRecord[]
   artifacts: SprintEngineArtifactRecord[]
 } {
@@ -397,11 +419,18 @@ function getArtifactAutoApprovalBlocker(
   return null
 }
 
+async function readSprintEngineProjectionForArtifactReview(state: ValidSprintEngineStatePath): Promise<{
+  tasks: SprintEngineTaskRecord[]
+  artifacts: SprintEngineArtifactRecord[]
+}> {
+  const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
+  return parseSprintEngineProjectionForArtifactReview(projectionContent)
+}
+
 async function assertAutoApprovalAllowed(state: ValidSprintEngineStatePath, artifactId: string): Promise<SprintEngineArtifactRecord> {
-  const stateContent = await readFile(state.statePath, 'utf8')
-  const { tasks, artifacts } = parseSprintEngineStateForArtifactReview(stateContent)
+  const { tasks, artifacts } = await readSprintEngineProjectionForArtifactReview(state)
   const artifact = artifacts.find((candidate) => candidate.id === artifactId)
-  if (!artifact) throw new Error('Requested artifact was not found in the Sprint Engine state.')
+  if (!artifact) throw new Error('Requested artifact was not found in the Sprint Engine projection.')
 
   const blocker = getArtifactAutoApprovalBlocker(artifact, tasks, artifacts)
   if (blocker) throw new Error(blocker)
@@ -426,6 +455,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   updateTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
   createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
   commentTask(payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult>
+  setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
 } {
   return {
@@ -465,7 +495,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         if (mode === 'auto-run') {
           if (action !== 'approve') throw new Error('Auto-run can only approve eligible artifacts.')
           const artifact = await assertAutoApprovalAllowed(state, artifactId)
-          const stateContent = await readFile(state.statePath, 'utf8')
+          const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
           return {
             ok: true,
             data: {
@@ -474,7 +504,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
               authorizedUserId: actor.id,
               artifactId,
               artifact,
-              stateContent,
+              projectionContent,
             },
           }
         }
@@ -501,7 +531,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           }
         }
 
-        const stateContent = await readFile(state.statePath, 'utf8')
+        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
         return {
           ok: true,
           data: {
@@ -509,7 +539,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
             actor: reviewPayload.id,
             authorizedUserId: actor.id,
             artifactId,
-            stateContent,
+            projectionContent,
             tool: toolResult.response.result,
           },
         }
@@ -542,14 +572,14 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           }
         }
 
-        const stateContent = await readFile(state.statePath, 'utf8')
+        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
         return {
           ok: true,
           data: {
             action: 'ready',
             actor: actor.id,
             taskId,
-            stateContent,
+            projectionContent,
             tool: toolResult.response.result,
           },
         }
@@ -564,14 +594,23 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         const actor = await requireSprintEngineMcpAuthority(deps)
         const initialState = resolveInitialSprintEngineStatePayload(payload)
         await mkdir(state.teamDirectory, { recursive: true })
-        await writeFile(state.statePath, buildInitialSprintEngineStateContent(initialState), { encoding: 'utf8', flag: 'wx' })
-        const stateContent = await readFile(state.statePath, 'utf8')
+        const toolResult = await runSprintEngineCli(state, sprintEngineInitArgs(state, initialState))
+        if (toolResult.exitCode !== 0) {
+          return {
+            ok: false,
+            message: toolResult.stderr.trim() || toolResult.stdout.trim() || 'The sprintengine init command failed.',
+            stdout: toolResult.stdout,
+            stderr: toolResult.stderr,
+            exitCode: toolResult.exitCode ?? 'unknown',
+          }
+        }
+        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
         return {
           ok: true,
           data: {
             action: 'initialize-state',
             actor: actor.id,
-            stateContent,
+            projectionContent,
           },
         }
       } catch (error) {
@@ -615,14 +654,14 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           }
         }
 
-        const stateContent = await readFile(state.statePath, 'utf8')
+        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
         return {
           ok: true,
           data: {
             action: 'update-task',
             actor: actor.id,
             taskId,
-            stateContent,
+            projectionContent,
             tool: toolResult.response.result,
           },
         }
@@ -664,14 +703,14 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
 
         const result = toolResult.response.result as { task?: { id?: unknown } }
         const taskId = typeof result.task?.id === 'string' ? result.task.id : null
-        const stateContent = await readFile(state.statePath, 'utf8')
+        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
         return {
           ok: true,
           data: {
             action: 'create-task',
             actor: actor.id,
             taskId,
-            stateContent,
+            projectionContent,
             tool: toolResult.response.result,
           },
         }
@@ -705,15 +744,55 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           }
         }
 
-        const stateContent = await readFile(state.statePath, 'utf8')
+        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
         return {
           ok: true,
           data: {
             action: 'comment-task',
             actor: actor.id,
             taskId,
-            stateContent,
+            projectionContent,
             tool: toolResult.response.result,
+          },
+        }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    async setRunnerMode(payload) {
+      try {
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const mode = payload?.mode
+        if (mode !== 'auto' && mode !== 'manual' && mode !== 'paused') {
+          throw new Error('Runner mode must be auto, manual, or paused.')
+        }
+        const toolResult = await runSprintEngineCli(state, [
+          '--state',
+          state.statePath,
+          'runner',
+          'set',
+          '--mode',
+          mode,
+          '--actor',
+          'ui',
+        ])
+        if (toolResult.exitCode !== 0) {
+          return {
+            ok: false,
+            message: toolResult.stderr.trim() || toolResult.stdout.trim() || 'The sprintengine runner command failed.',
+            stdout: toolResult.stdout,
+            stderr: toolResult.stderr,
+            exitCode: toolResult.exitCode ?? 'unknown',
+          }
+        }
+        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
+        return {
+          ok: true,
+          data: {
+            action: 'runner-set-mode',
+            mode,
+            projectionContent,
           },
         }
       } catch (error) {

@@ -50,7 +50,7 @@ RUN_LOCK_FILE = "runner/run.queue.lock"
 READY_QUEUE_LOCK_FILE = "runner/ready.queue.lock"
 CLAIM_QUEUE_LOCK_FILE = "runner/claim.queue.lock"
 GATE_QUEUE_LOCK_FILE = "runner/gate.queue.lock"
-STATE_COMPATIBILITY_KEYS = ("source", "sourceBundle")
+RUN_SOURCE_KEYS = ("source", "sourceBundle")
 DEFAULT_QUALITY_POLICY = {
     "enabled": True,
     "rosterDriven": True,
@@ -87,6 +87,13 @@ DEFAULT_QUALITY_POLICY = {
             "focus": "product acceptance and user-facing behavior",
         },
     },
+}
+DEFAULT_RUNNER_POLICY = {
+    "mode": "manual",
+    "pollIntervalSeconds": 10,
+    "idleBackoffSeconds": 30,
+    "maxBackoffSeconds": 120,
+    "stopWhenComplete": True,
 }
 GATE_PHASES = {"review", "testing", "product"}
 GATE_STATUSES = {"pending", "in_progress", "approved", "changes_requested", "blocked", "skipped"}
@@ -166,6 +173,28 @@ def normalize_quality_policy(raw: Any) -> dict[str, Any]:
             "focus": str(override.get("focus") or defaults["focus"]).strip(),
         }
     return normalized
+
+
+def _positive_int(value: Any, fallback: int, *, minimum: int = 1, maximum: int = 3600) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return max(minimum, min(maximum, parsed))
+
+
+def normalize_runner_policy(raw: Any) -> dict[str, Any]:
+    policy = raw if isinstance(raw, dict) else {}
+    mode = str(policy.get("mode") or DEFAULT_RUNNER_POLICY["mode"]).strip().lower()
+    if mode not in {"auto", "manual", "paused"}:
+        mode = str(DEFAULT_RUNNER_POLICY["mode"])
+    return {
+        "mode": mode,
+        "pollIntervalSeconds": _positive_int(policy.get("pollIntervalSeconds"), int(DEFAULT_RUNNER_POLICY["pollIntervalSeconds"])),
+        "idleBackoffSeconds": _positive_int(policy.get("idleBackoffSeconds"), int(DEFAULT_RUNNER_POLICY["idleBackoffSeconds"])),
+        "maxBackoffSeconds": _positive_int(policy.get("maxBackoffSeconds"), int(DEFAULT_RUNNER_POLICY["maxBackoffSeconds"])),
+        "stopWhenComplete": _bool_value(policy.get("stopWhenComplete"), bool(DEFAULT_RUNNER_POLICY["stopWhenComplete"])),
+    }
 
 
 def roster_roles_from_state(state: dict[str, Any]) -> set[str]:
@@ -405,6 +434,7 @@ def initialize_run_store(
                 "status": status,
                 "rosterConfigured": roster_configured,
                 "graphPolicy": {"readiness": "dependency"},
+                "runner": dict(DEFAULT_RUNNER_POLICY),
                 "agents": {},
                 "roles": {},
                 "sprintengine": {
@@ -415,7 +445,7 @@ def initialize_run_store(
                 },
                 "tasks": [],
                 "artifacts": [],
-                "migration": {"source": "state.yaml-compat", "createdAt": now_iso()},
+                "creation": {"source": "folder_store", "createdAt": now_iso()},
             },
         )
     events_path = team_dir / EVENTS_FILE
@@ -549,7 +579,8 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
     agents = state.get("agents") if isinstance(state.get("agents"), dict) else {}
     roles = state.get("roles") if isinstance(state.get("roles"), dict) else {}
     run = load_run_yaml(team_dir)
-    migration = run.get("migration") if isinstance(run.get("migration"), dict) else {}
+    creation = run.get("creation") if isinstance(run.get("creation"), dict) else {}
+    runner_policy = normalize_runner_policy(state.get("runner") if isinstance(state.get("runner"), dict) else run.get("runner"))
     quality_policy = normalize_quality_fields(state, run)
     run.update(
         {
@@ -559,6 +590,7 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
             "status": sprintengine.get("status") or "planning",
             "rosterConfigured": bool(sprintengine.get("rosterConfigured")),
             "graphPolicy": run.get("graphPolicy") or {"readiness": "dependency"},
+            "runner": runner_policy,
             "qualityPolicy": quality_policy,
             "agents": agents,
             "roles": roles,
@@ -586,10 +618,10 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
             "updatedAt": now_iso(),
         }
     )
-    for key in STATE_COMPATIBILITY_KEYS:
+    for key in RUN_SOURCE_KEYS:
         if key in state:
             run[key] = state[key]
-    run["migration"] = migration or {"source": "state.yaml-compat", "createdAt": now_iso()}
+    run["creation"] = creation or {"source": "folder_store", "createdAt": now_iso()}
     atomic_write_yaml(team_dir / RUN_FILE, run)
 
 
@@ -704,46 +736,6 @@ def sync_state_to_store(team_dir: Path, state: dict[str, Any], *, state_path: Pa
         return refresh
 
 
-def record_migration_metadata(team_dir: Path, metadata: dict[str, Any]) -> dict[str, Any]:
-    run = load_run_yaml(team_dir)
-    existing = run.get("migration") if isinstance(run.get("migration"), dict) else {}
-    merged = {**existing, **metadata, "updatedAt": now_iso()}
-    if "createdAt" not in merged:
-        merged["createdAt"] = now_iso()
-    run["migration"] = merged
-    atomic_write_yaml(team_dir / RUN_FILE, run)
-    return merged
-
-
-def sync_feedback_metrics(team_dir: Path, records: list[dict[str, Any]]) -> Path:
-    output = team_dir / FEEDBACK_FILE
-    existing_records: list[dict[str, Any]] = []
-    if output.exists():
-        for line in output.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                parsed = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(parsed, dict):
-                existing_records.append(parsed)
-    if not records and not existing_records:
-        if not output.exists():
-            atomic_write_text(output, "")
-        return output
-    seen: set[str] = set()
-    unique_records: list[dict[str, Any]] = []
-    for record in [*existing_records, *records]:
-        key = json.dumps(record, sort_keys=True)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique_records.append(record)
-    atomic_write_text(output, "".join(json.dumps(record, sort_keys=True) + "\n" for record in unique_records))
-    return output
-
-
 def materialized_ready_task_ids(team_dir: Path) -> list[str]:
     ready_dir = team_dir / "tasks" / "ready"
     if not ready_dir.exists():
@@ -811,8 +803,8 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
     reconstructed_sprintengine.setdefault("goal", run.get("goal") or "")
     reconstructed_sprintengine.setdefault("status", run.get("status") or "planning")
     reconstructed_sprintengine.setdefault("rosterConfigured", bool(run.get("rosterConfigured")))
-    if isinstance(run.get("migration"), dict):
-        reconstructed_sprintengine.setdefault("migration", run["migration"])
+    if isinstance(run.get("creation"), dict):
+        reconstructed_sprintengine.setdefault("creation", run["creation"])
 
     agents = run.get("agents") if isinstance(run.get("agents"), dict) else {}
     roles = run.get("roles") if isinstance(run.get("roles"), dict) else {}
@@ -825,31 +817,18 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
     tasks.sort(key=lambda task: task_order.get(str(task.get("id") or ""), len(task_order)))
     state = {
         "sprintengine": reconstructed_sprintengine,
+        "runner": normalize_runner_policy(run.get("runner")),
         "tasks": tasks,
         "artifacts": [_semantic_artifact_from_folder_record(artifact) for artifact in _artifacts_from_folder_store(team_dir)],
         "events": read_jsonl_file(team_dir / EVENTS_FILE),
         "agents": agents,
         "roles": roles,
     }
-    for key in STATE_COMPATIBILITY_KEYS:
+    for key in RUN_SOURCE_KEYS:
         if key in run:
             state[key] = run[key]
     normalize_quality_fields(state, run)
     return state
-
-
-def _board_column_for_legacy_task(task: dict[str, Any], tasks_by_id: dict[str, dict[str, Any]]) -> str:
-    status = str(task.get("status") or "todo")
-    if status in {"in_progress", "needs_input", "done", "canceled"}:
-        return status
-    if status == "changes_requested":
-        return "changes_requested"
-    if task.get("ownerAgentId"):
-        return status if status in TASK_STATUSES else "todo"
-    dependencies = [str(dep) for dep in task.get("dependsOn", []) or [] if str(dep)]
-    if all(tasks_by_id.get(dep, {}).get("status") == "done" for dep in dependencies):
-        return "ready"
-    return "todo"
 
 
 def _normalize_projection_task(task: dict[str, Any], *, board_column: str) -> dict[str, Any]:
@@ -1000,7 +979,7 @@ def _build_projection_run_summary(
 
 def _projection_locks(team_dir: Path, state_path: Path | None) -> dict[str, Any]:
     lock_paths = {
-        "state": (state_path or team_dir / "state.yaml").with_suffix(".yaml.lock"),
+        "runFile": (state_path or team_dir / RUN_FILE).with_suffix(".yaml.lock"),
         "run": team_dir / RUN_LOCK_FILE,
         "readyQueue": team_dir / READY_QUEUE_LOCK_FILE,
         "claimQueue": team_dir / CLAIM_QUEUE_LOCK_FILE,
@@ -1032,24 +1011,10 @@ def _projection_locks(team_dir: Path, state_path: Path | None) -> dict[str, Any]
     return {"locks": lock_reports, "states": state_files, "warnings": warnings}
 
 
-def _fallback_run_from_state(team_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
-    sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
-    return {
-        "schemaVersion": 1,
-        "name": sprintengine.get("name") or team_dir.name,
-        "goal": sprintengine.get("goal") or "",
-        "status": sprintengine.get("status") or "planning",
-        "rosterConfigured": bool(sprintengine.get("rosterConfigured")),
-        "updatedAt": sprintengine.get("updatedAt") or now_iso(),
-        "migration": {"source": "state.yaml-legacy-read"},
-    }
-
-
 def build_projection(
     team_dir: Path,
     *,
     state_path: Path | None = None,
-    fallback_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     folder_store_ready = (team_dir / RUN_FILE).exists() and (team_dir / "tasks").exists()
     if folder_store_ready:
@@ -1061,24 +1026,10 @@ def build_projection(
         events = read_jsonl_file(team_dir / EVENTS_FILE)
         feedback = read_jsonl_file(team_dir / FEEDBACK_FILE)
         roster = run.get("agents") if isinstance(run.get("agents"), dict) else {}
-        if not roster and isinstance(fallback_state, dict):
-            roster = fallback_state.get("agents", {})
         quality_policy = normalize_quality_policy(run.get("qualityPolicy") if isinstance(run.get("qualityPolicy"), dict) else {})
+        runner_policy = normalize_runner_policy(run.get("runner"))
     else:
-        source = "state_yaml_fallback"
-        state = fallback_state or {}
-        run = _fallback_run_from_state(team_dir, state)
-        raw_tasks = [task for task in state.get("tasks", []) or [] if isinstance(task, dict)]
-        tasks_by_id = {str(task.get("id")): task for task in raw_tasks if task.get("id")}
-        tasks = [
-            _normalize_projection_task(task, board_column=_board_column_for_legacy_task(task, tasks_by_id))
-            for task in raw_tasks
-        ]
-        artifacts = [dict(artifact, folderStatus=artifact.get("status") or "draft") for artifact in state.get("artifacts", []) or [] if isinstance(artifact, dict)]
-        events = [event for event in state.get("events", []) or [] if isinstance(event, dict)]
-        feedback = []
-        roster = state.get("agents", {})
-        quality_policy = normalize_quality_policy(state.get("sprintengine", {}).get("qualityPolicy") if isinstance(state.get("sprintengine"), dict) else {})
+        raise ValueError(f"Sprint Engine folder store is not initialized at {team_dir}.")
 
     artifacts_by_task: dict[str, list[dict[str, Any]]] = {}
     for artifact in artifacts:
@@ -1110,8 +1061,9 @@ def build_projection(
             "status": run.get("status") or "planning",
             "rosterConfigured": bool(run.get("rosterConfigured")),
             "updatedAt": updated_at,
-            "migration": run.get("migration") if isinstance(run.get("migration"), dict) else {},
+            "creation": run.get("creation") if isinstance(run.get("creation"), dict) else {},
             "qualityPolicy": quality_policy,
+            "runner": runner_policy,
         },
         "roster": roster if isinstance(roster, dict) else {},
         "tasks": tasks,
@@ -1136,7 +1088,7 @@ def build_projection(
 
 
 def write_projection_file(team_dir: Path, state: dict[str, Any], *, state_path: Path | None = None) -> Path:
-    projection = build_projection(team_dir, state_path=state_path, fallback_state=state)
+    projection = build_projection(team_dir, state_path=state_path)
     atomic_write_json(team_dir / PROJECTION_FILE, projection)
     return team_dir / PROJECTION_FILE
 

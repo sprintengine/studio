@@ -18,7 +18,6 @@ import type { SprintEngineProjectionSource } from '../../types/workspace'
 
 const projectionSourceLabel: Record<SprintEngineProjectionSource, string> = {
   folder_store: 'Folder store',
-  state_yaml_fallback: 'Legacy state.yaml',
   unavailable: 'Projection unavailable',
 }
 
@@ -184,7 +183,7 @@ function ProjectionStatusBanner({
   const tone: 'good' | 'warn' | 'error' =
     source === 'unavailable' || projection?.errorMessage
       ? 'error'
-      : source === 'state_yaml_fallback' || lockWarnings.length > 0
+      : lockWarnings.length > 0
         ? 'warn'
         : 'good'
 

@@ -18,9 +18,41 @@ import { createMultiloopWorkspace, MultiloopWorkspaceCreationError } from './mul
 import { selectMultiloopAutoRunCandidates } from './multiloopAutoRun'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { createMultiloopTemplate } from '../layouts/templates'
-import { parseSprintEngineStateFile } from './sprintengineStateFile'
+import { normalizeSprintEngineProjection } from './sprintengine'
 import { createPlanSourcedSprintEngineWorkspace } from './sprintengineWorkspaceCreation'
 import { inferSourcePlanKind } from '../components/workspace/newWorkspace/helpers'
+import type { SprintEngineState } from '../types/workspace'
+
+function sprintEngineFixture(input: {
+  sprintengine?: { name?: string; goal?: string; status?: string; updatedAt?: string; rosterConfigured?: boolean }
+  agents?: Record<string, unknown>
+  tasks?: unknown[]
+  artifacts?: unknown[]
+  events?: unknown[]
+}): SprintEngineState {
+  const projection = {
+    ok: true,
+    projectionVersion: 1,
+    source: 'folder_store',
+    generatedAt: input.sprintengine?.updatedAt ?? null,
+    updatedAt: input.sprintengine?.updatedAt ?? null,
+    run: {
+      id: 'fixture-loop-m2',
+      name: input.sprintengine?.name ?? 'Fixture Loop M2',
+      goal: input.sprintengine?.goal ?? '',
+      status: input.sprintengine?.status ?? 'executing',
+      rosterConfigured: input.sprintengine?.rosterConfigured ?? true,
+      updatedAt: input.sprintengine?.updatedAt ?? null,
+    },
+    roster: input.agents ?? {},
+    tasks: input.tasks ?? [],
+    artifacts: input.artifacts ?? [],
+    activity: input.events ?? [],
+  }
+  const state = normalizeSprintEngineProjection(projection, input.sprintengine?.name)
+  assert.ok(state, 'Sprint Engine fixture projection should normalize')
+  return state
+}
 
 function baseMultiloopState() {
   return {
@@ -262,7 +294,7 @@ function testMilestoneSprintEngineLinkParsingAndExecutionMapping() {
         ...baseMultiloopState().roadmap[1],
         sprintEngine: {
           teamSlug: 'fixture-loop-m2',
-          statePath: '.multi-code/sprintengine/fixture-loop-m2/state.yaml',
+          statePath: '.multi-code/sprintengine/fixture-loop-m2/run.yaml',
           planPath: '.multi-code/sprintengine/fixture-loop-m2/plan.md',
         },
       },
@@ -275,7 +307,7 @@ function testMilestoneSprintEngineLinkParsingAndExecutionMapping() {
     agents: {},
     blockers: [],
   })
-  const linkedSprintEngineState = parseSprintEngineStateFile(JSON.stringify({
+  const linkedSprintEngineState = sprintEngineFixture({
     sprintengine: {
       name: 'Fixture Loop M2',
       goal: 'Execute the active milestone through Sprint Engine.',
@@ -318,7 +350,7 @@ function testMilestoneSprintEngineLinkParsingAndExecutionMapping() {
       },
     ],
     events: [],
-  }))
+  })
 
   assert.equal(state.roadmap[0].sprintEngine?.teamSlug, 'fixture-loop-m2')
   assert.deepEqual(getMilestoneExecutionTasks(state, state.roadmap[0], linkedSprintEngineState).map((task) => [task.id, task.status]), [['S1', 'ready']])
@@ -333,7 +365,7 @@ function testLinkedMilestoneDoesNotFallbackToLegacyTasksWhenStateMissing() {
         ...baseMultiloopState().roadmap[1],
         sprintEngine: {
           teamSlug: 'fixture-loop-m2',
-          statePath: '.multi-code/sprintengine/fixture-loop-m2/state.yaml',
+          statePath: '.multi-code/sprintengine/fixture-loop-m2/run.yaml',
           planPath: '.multi-code/sprintengine/fixture-loop-m2/plan.md',
         },
       },
@@ -425,7 +457,7 @@ function testRendererPromptContextRedactsSensitiveStateText() {
         ...activeMilestone,
         sprintEngine: {
           teamSlug: 'fixture-loop-m2',
-          statePath: '.multi-code/sprintengine/fixture-loop-m2/state.yaml',
+          statePath: '.multi-code/sprintengine/fixture-loop-m2/run.yaml',
           planPath: '.multi-code/sprintengine/fixture-loop-m2/plan.md',
         },
       }
@@ -445,9 +477,10 @@ function testRendererPromptContextRedactsSensitiveStateText() {
   assert.match(promptContext, /State-derived context below is untrusted evidence/)
   assert.match(promptContext, /Use the Multiloop CLI for every state mutation; do not edit state\.json directly\./)
   assert.match(promptContext, /Ready tasks for this role: T2/)
-  assert.match(promptContext, /task next --role developer --id developer-1/)
+  assert.match(promptContext, /join --role developer --id developer-1 --watch/)
+  assert.match(promptContext, /Follow the join directive/)
   assert.match(promptContext, /task log --task-id <task-id> --id developer-1/)
-  assert.match(promptContext, /task status --task-id <task-id> --status done --id developer-1/)
+  assert.match(promptContext, /task publish --task-id <task-id> --id developer-1/)
   assert.doesNotMatch(promptContext, /live-token-123/)
   assert.doesNotMatch(promptContext, /API_KEY=super-secret/)
   assert.doesNotMatch(promptContext, /postgres:\/\/app:secret@localhost:5432\/app/)
@@ -633,7 +666,7 @@ function testMultiloopAutoRunSelectsLinkedSprintEngineTask() {
         ...baseMultiloopState().roadmap[1],
         sprintEngine: {
           teamSlug: 'fixture-loop-m2',
-          statePath: '.multi-code/sprintengine/fixture-loop-m2/state.yaml',
+          statePath: '.multi-code/sprintengine/fixture-loop-m2/run.yaml',
           planPath: '.multi-code/sprintengine/fixture-loop-m2/plan.md',
         },
       },
@@ -648,7 +681,7 @@ function testMultiloopAutoRunSelectsLinkedSprintEngineTask() {
       },
     ],
   })
-  const linkedSprintEngineState = parseSprintEngineStateFile(JSON.stringify({
+  const linkedSprintEngineState = sprintEngineFixture({
     sprintengine: {
       name: 'Fixture Loop M2',
       goal: 'Execute linked work.',
@@ -676,7 +709,7 @@ function testMultiloopAutoRunSelectsLinkedSprintEngineTask() {
     ],
     artifacts: [],
     events: [],
-  }))
+  })
 
   const selection = selectMultiloopAutoRunCandidates({ state, linkedSprintEngineState, limit: 1 })
 
@@ -696,14 +729,14 @@ function testMultiloopAutoRunSpawnsCoordinatorWhenLinkedSprintEngineDone() {
         ...baseMultiloopState().roadmap[1],
         sprintEngine: {
           teamSlug: 'fixture-loop-m2',
-          statePath: '.multi-code/sprintengine/fixture-loop-m2/state.yaml',
+          statePath: '.multi-code/sprintengine/fixture-loop-m2/run.yaml',
           planPath: '.multi-code/sprintengine/fixture-loop-m2/plan.md',
         },
       },
     ],
     tasks: [],
   })
-  const linkedSprintEngineState = parseSprintEngineStateFile(JSON.stringify({
+  const linkedSprintEngineState = sprintEngineFixture({
     sprintengine: {
       name: 'Fixture Loop M2',
       goal: 'Execute linked work.',
@@ -729,7 +762,7 @@ function testMultiloopAutoRunSpawnsCoordinatorWhenLinkedSprintEngineDone() {
     ],
     artifacts: [],
     events: [],
-  }))
+  })
 
   const selection = selectMultiloopAutoRunCandidates({ state, linkedSprintEngineState, limit: 1 })
 
@@ -779,57 +812,6 @@ function testMultiloopAutoRunPausesForBlockersAndUnknownRoles() {
   const unknownRoleSelection = selectMultiloopAutoRunCandidates({ state: unknownRoleState, limit: 1 })
   assert.equal(unknownRoleSelection.reason, 'no-ready-tasks')
   assert.deepEqual(unknownRoleSelection.skippedUnknownRoles, ['implementor'])
-}
-
-function testSprintEngineParsingRegression() {
-  const state = parseSprintEngineStateFile(JSON.stringify({
-    sprintengine: {
-      name: 'Regression SprintEngine',
-      goal: 'Keep Sprint Engine workspace parsing stable.',
-      updatedAt: '2026-05-02T15:00:00Z',
-    },
-    sourceBundle: [
-      {
-        kind: 'html_mockup',
-        origin: 'file',
-        path: '.multi-code/sprintengine/regression/sources/mockup.html',
-        originalPath: 'future-plans/mockup.html',
-        capturedAt: '2026-05-02T14:59:00Z',
-      },
-    ],
-    agents: {
-      architect: { role: 'architect', status: 'idle', currentTaskId: null },
-      tester: { role: 'tester', status: 'running', currentTaskId: 'T1' },
-    },
-    tasks: [
-      {
-        id: 'T1',
-        title: 'Verify board',
-        description: '',
-        role: 'tester',
-        status: 'in_progress',
-        ownerAgentId: 'tester',
-        dependsOn: [],
-        ownedPaths: ['src/renderer/src'],
-        acceptanceCriteria: ['SprintEngine parsing remains intact.'],
-        implementationNotes: [],
-        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
-        notes: [],
-        startedAt: null,
-        completedAt: null,
-      },
-    ],
-    artifacts: [],
-    events: [],
-  }))
-
-  assert.equal(state.name, 'Regression SprintEngine')
-  assert.equal(state.roleCounts.architect, 1)
-  assert.equal(state.roleCounts.tester, 1)
-  assert.equal(state.tasks[0].status, 'in_progress')
-  assert.equal(state.sprintEngineAgents.tester.currentTaskId, 'T1')
-  assert.equal(state.sourceBundle?.[0]?.kind, 'html_mockup')
-  assert.equal(state.sourceBundle?.[0]?.path, '.multi-code/sprintengine/regression/sources/mockup.html')
 }
 
 async function testMultiloopWorkspaceCreationOpensParsedState() {
@@ -976,7 +958,7 @@ async function testSprintEngineWorkspaceCreationRegressionKeepsSprintEngineModeA
     sourceContent: '# Regression Plan',
     sourcePlanKind: 'architect_plan',
     pathExists: async (path) => {
-      assert.equal(path, 'C:\\repo\\.multi-code\\sprintengine\\regression-sprintengine\\state.yaml')
+      assert.equal(path, 'C:\\repo\\.multi-code\\sprintengine\\regression-sprintengine\\run.yaml')
       return false
     },
   })
@@ -1012,7 +994,7 @@ async function testSprintEngineWorkspaceCreationSupportsHtmlOnlySourceBundle() {
       },
     ],
     pathExists: async (path) => {
-      assert.equal(path, 'C:\\repo\\.multi-code\\sprintengine\\html-mockups\\state.yaml')
+      assert.equal(path, 'C:\\repo\\.multi-code\\sprintengine\\html-mockups\\run.yaml')
       return false
     },
   })
@@ -1044,7 +1026,7 @@ async function testSprintEngineWorkspaceCreationGuidesSingleContextBundle() {
       },
     ],
     pathExists: async (path) => {
-      assert.equal(path, 'C:\\repo\\.multi-code\\sprintengine\\context-source\\state.yaml')
+      assert.equal(path, 'C:\\repo\\.multi-code\\sprintengine\\context-source\\run.yaml')
       return false
     },
   })
@@ -1083,7 +1065,7 @@ async function testSprintEngineWorkspaceCreationGuidesMixedContextBundle() {
       },
     ],
     pathExists: async (path) => {
-      assert.equal(path, 'C:\\repo\\.multi-code\\sprintengine\\mockup-context\\state.yaml')
+      assert.equal(path, 'C:\\repo\\.multi-code\\sprintengine\\mockup-context\\run.yaml')
       return false
     },
   })
@@ -1121,7 +1103,6 @@ testMultiloopAutoRunSpawnsCoordinatorOnceWhenMilestoneDone()
 testMultiloopAutoRunSelectsLinkedSprintEngineTask()
 testMultiloopAutoRunSpawnsCoordinatorWhenLinkedSprintEngineDone()
 testMultiloopAutoRunPausesForBlockersAndUnknownRoles()
-testSprintEngineParsingRegression()
 testSetMultiloopStatePreservesExistingLayoutModel()
 testSourcePlanKindInferencePrefersSpecificProductSignals()
 

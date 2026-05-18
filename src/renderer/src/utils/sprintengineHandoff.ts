@@ -118,7 +118,7 @@ export function buildPlanFileSprintEngineHandoffPrompt({
     `Source snapshot: ${contentLines} total text line${contentLines === 1 ? '' : 's'} selected by the user.`,
     `Target state path: \`${statePath}\``,
     '',
-    'The renderer has only created local workspace metadata and this startup prompt. Canonical sprintengine files must be created by the Sprint Engine tool. Do not write `state.yaml`, `handover.md`, task state, or artifact state directly.',
+    'The renderer has only created local workspace metadata and this startup prompt. Canonical sprintengine files must be created by the Sprint Engine tool. Do not write run-store files, `handover.md`, task state, or artifact state directly.',
     '',
     hasExplicitSourceBundle
       ? 'First run the sprintengine handover command below. It tells the Sprint Engine tool to copy the selected source file(s) into the team sources directory, so the run is tied to those files instead of only to the short objective. If the team already exists, or if handover reports a collision or failure, stop and report that to the user instead of overwriting anything.'
@@ -138,6 +138,6 @@ export function buildPlanFileSprintEngineHandoffPrompt({
       ? `Roster constraint: the architect must create tasks only for these selected Sprint Engine agents: ${rosterArgs.join(', ')}. If a specialist role is absent from this roster, do not create tasks for that role.`
       : null,
     sourceTypeGuidance(hasExplicitSourceBundle, bundle, sourcePlanKind),
-    `After initialization, do not treat \`sprintengine init\` as task assignment. Agents should use the normal ready-task flow with \`sprintengine task next --role <role> --id <agent-id>\`. Product and architect agents must read the imported source file(s) in the Sprint Engine team folder when their own task is claimed, and should treat those files as incoming context.`,
+    `After initialization, do not treat \`sprintengine init\` as task assignment. Agents should use the join-watch flow with \`sprintengine join --role <role> --id <agent-id> --watch\`; the CLI will direct them to claim implementation tasks, quality gates, or needs_input triage when work is ready. Product and architect agents must read the imported source file(s) in the Sprint Engine team folder when their own work is claimed, and should treat those files as incoming context.`,
   ].join('\n')
 }

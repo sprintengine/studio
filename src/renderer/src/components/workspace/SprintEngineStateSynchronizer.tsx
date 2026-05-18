@@ -4,7 +4,6 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { basename as getBaseName, parentPath as getParentDirectoryPath } from '../../utils/paths'
 import { normalizeSprintEngineProjection } from '../../utils/sprintengine'
-import { parseSprintEngineStateFile } from '../../utils/sprintengineStateFile'
 import type { SprintEngineState } from '../../types/workspace'
 
 const SPRINTENGINE_STATE_WATCH_DEBOUNCE_MS = 120
@@ -14,6 +13,19 @@ const SPRINTENGINE_STATE_RECOVERY_MAX_MS = 120_000
 const SPRINTENGINE_STATE_UNCHANGED_LOG_INTERVAL_MS = 30_000
 
 type SprintEngineStateRefreshCause = 'initial' | 'watch' | 'recovery'
+
+function sprintEngineStateSignature(state: SprintEngineState): string {
+  const { projection, ...semanticState } = state
+  return JSON.stringify({
+    ...semanticState,
+    projection: projection
+      ? {
+        ...projection,
+        generatedAt: null,
+      }
+      : projection,
+  })
+}
 
 export default function SprintEngineStateSynchronizer({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId) ?? null)
@@ -70,35 +82,21 @@ export default function SprintEngineStateSynchronizer({ workspaceId }: { workspa
       const startedAt = performance.now()
       readCountRef.current += 1
       try {
-        // Prefer the normalized projection (folder-store source of truth).
-        // It carries board columns, activity timelines, lock warnings, and
-        // run-summary fields the panels now render. Falls back to legacy
-        // state.yaml parsing for unmigrated runs without projection.json.
         const projectionResult = await window.api.readSprintEngineProjection(stateFilePath)
         let parsed: SprintEngineState | null = null
         let signature: string | null = null
-        let projectionUnavailableMessage: string | null = null
 
         if (projectionResult.ok) {
-          signature = JSON.stringify(projectionResult.data)
           parsed = normalizeSprintEngineProjection(projectionResult.data, getBaseName(sprintEngineDirectory))
-        } else {
-          projectionUnavailableMessage = projectionResult.message
+          if (parsed) {
+            signature = sprintEngineStateSignature(parsed)
+          }
         }
 
         if (!parsed) {
-          const content = await window.api.readfile(stateFilePath)
-          signature = content
-          const fallback = parseSprintEngineStateFile(content, getBaseName(sprintEngineDirectory))
-          parsed = {
-            ...fallback,
-            projection: {
-              source: 'unavailable',
-              updatedAt: fallback.updatedAt ?? null,
-              generatedAt: null,
-              ...(projectionUnavailableMessage ? { errorMessage: projectionUnavailableMessage } : {}),
-            },
-          }
+          throw new Error(projectionResult.ok
+            ? 'Sprint Engine projection was malformed.'
+            : projectionResult.message)
         }
 
         const changed = signature !== lastSyncedContentRef.current
@@ -147,7 +145,7 @@ export default function SprintEngineStateSynchronizer({ workspaceId }: { workspa
           message: error instanceof Error ? error.message : String(error),
           readCount: readCountRef.current,
         })
-        // The Sprint Engine tool may not have written projection.json or state.yaml yet.
+        // The Sprint Engine tool may not have written projection.json yet.
         scheduleRecovery()
       }
     }
@@ -156,9 +154,7 @@ export default function SprintEngineStateSynchronizer({ workspaceId }: { workspa
       try {
         stopWatching = await window.api.watchPath(sprintEngineDirectory, (event) => {
           if (event.path) {
-            const isStateFile = event.path.endsWith('state.yaml')
-              || event.path.endsWith('projection.json')
-            if (!isStateFile) return
+            if (!event.path.endsWith('projection.json')) return
           }
           if (debounce !== null) window.clearTimeout(debounce)
           debounce = window.setTimeout(() => { void readExternalState('watch') }, SPRINTENGINE_STATE_WATCH_DEBOUNCE_MS)

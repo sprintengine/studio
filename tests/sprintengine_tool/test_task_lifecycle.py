@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import json
 
 from fixtures import (
     SwarmCli,
@@ -15,7 +14,9 @@ from fixtures import (
     read_state,
     task,
     task_ids_by_status,
+    write_state,
 )
+from sprintengine_core.tool import runner_watch_delay_seconds
 
 
 FIXED_MTIME_NS = 1_700_000_000_000_000_000
@@ -182,20 +183,21 @@ def test_task_status_needs_input_records_reason_and_artifact_id(tmp_path) -> Non
     assert "A6" in triage["prompt"]
 
 
-def test_legacy_artifact_needs_input_routes_to_architect_triage(tmp_path) -> None:
-    blocked_task = task("T1", "Review legacy artifact", "code_reviewer", "needs_input", owner="code_reviewer")
+def test_artifact_review_needs_input_routes_to_architect_triage(tmp_path) -> None:
+    blocked_task = task("T1", "Review artifact", "code_reviewer", "needs_input", owner="code_reviewer")
     blocked_task["needsInput"] = {
-        "kind": "artifact",
+        "kind": "architect",
+        "reason": "artifact_review",
         "question": "Artifact A6 is ready for review.",
         "reportedBy": "code_reviewer",
         "reportedAt": "2026-05-14T00:00:00Z",
     }
-    fixture = create_team(tmp_path, "legacy-artifact-routes-to-architect", [blocked_task])
+    fixture = create_team(tmp_path, "artifact-review-routes-to-architect", [blocked_task])
 
     triage = fixture.cli.run("triage", "needs-input", "--id", "architect")
 
     assert [entry["id"] for entry in triage["tasks"]] == ["T1"]
-    assert triage["tasks"][0]["needsInput"]["kind"] == "artifact"
+    assert triage["tasks"][0]["needsInput"]["kind"] == "architect"
     assert triage["tasks"][0]["needsInput"]["reason"] == "artifact_review"
     assert "artifact_review" in triage["prompt"]
 
@@ -337,9 +339,8 @@ def test_task_publish_skips_missing_phase_gates_and_can_complete(tmp_path) -> No
     first = fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Ready for testing.")
     state = read_state(fixture.state_path)
     get_task(state, "T1")["qualityGates"][0]["status"] = "approved"
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
     get_task(state, "T1")["status"] = "in_progress"
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    write_state(fixture.state_path, state)
     second = fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Testing passed.")
 
     assert first["nextStatus"] == "testing"
@@ -387,6 +388,131 @@ def test_rework_publish_records_response_and_resets_required_gates(tmp_path) -> 
     assert [gate["status"] for gate in task_record["qualityGates"]] == ["pending", "pending"]
 
 
+def test_republish_after_blocked_needs_input_resets_prior_gate_verdicts(tmp_path) -> None:
+    record = gated_task("in_progress", owner="developer-fixture")
+    record["qualityGates"][0]["status"] = "approved"
+    record["qualityGates"][0]["attempts"] = [
+        {
+            "id": "GA-001",
+            "status": "approved",
+            "role": "code_reviewer",
+            "claimedBy": "code-reviewer",
+            "startedAt": "2026-05-17T00:00:00Z",
+            "completedAt": "2026-05-17T00:01:00Z",
+            "summary": "Approved before later rework.",
+        }
+    ]
+    record["qualityGates"][1]["id"] = "spec-review"
+    record["qualityGates"][1]["phase"] = "review"
+    record["qualityGates"][1]["role"] = "spec_reviewer"
+    record["qualityGates"][1]["status"] = "blocked"
+    record["qualityGates"][1]["attempts"] = [
+        {
+            "id": "GA-001",
+            "status": "blocked",
+            "role": "spec_reviewer",
+            "claimedBy": "spec-reviewer",
+            "startedAt": "2026-05-17T00:02:00Z",
+            "completedAt": "2026-05-17T00:03:00Z",
+            "summary": "Blocked on architect scope.",
+        }
+    ]
+    record["comments"] = [
+        {
+            "id": "C1",
+            "type": "needs_input",
+            "actor": "spec-reviewer",
+            "authorAgentId": "spec-reviewer",
+            "authorRole": "spec_reviewer",
+            "source": "agent",
+            "body": "Blocked on architect scope.",
+            "createdAt": "2026-05-17T00:03:00Z",
+            "data": {"gateId": "spec-review", "verdict": "blocked"},
+        }
+    ]
+    fixture = create_team(tmp_path, "publish-after-blocked-needs-input", [record])
+
+    payload = fixture.cli.run(
+        "task",
+        "publish",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--summary",
+        "Addressed architect scope resolution.",
+    )
+
+    assert payload["nextStatus"] == "review"
+    assert payload["comment"]["type"] == "implementation_response"
+    assert payload["comment"]["data"]["feedbackCommentIds"] == ["C1"]
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert [gate["status"] for gate in task_record["qualityGates"]] == ["pending", "pending"]
+    assert_task_status(state, "T1", "review")
+
+
+def test_runner_set_persists_policy_and_projection(tmp_path) -> None:
+    fixture = create_team(tmp_path, "runner-policy", [task("T1", "Implement", "developer")])
+
+    payload = fixture.cli.run("runner", "set", "--mode", "auto", "--poll-interval-seconds", "2", "--idle-backoff-seconds", "3")
+
+    assert payload["runner"]["mode"] == "auto"
+    assert payload["runner"]["pollIntervalSeconds"] == 2
+    state = read_state(fixture.state_path)
+    assert state["runner"]["mode"] == "auto"
+    projection = fixture.cli.run("projection")
+    assert projection["run"]["runner"]["mode"] == "auto"
+
+
+def test_runner_watch_delay_progressively_caps() -> None:
+    policy = {"pollIntervalSeconds": 2, "idleBackoffSeconds": 3, "maxBackoffSeconds": 10}
+
+    assert [runner_watch_delay_seconds(policy, attempts) for attempts in range(1, 6)] == [2, 3, 6, 10, 10]
+
+
+def test_join_watch_returns_idle_in_manual_mode_without_work(tmp_path) -> None:
+    fixture = create_team(tmp_path, "join-watch-manual-idle", [task("T1", "Frontend work", "frontend", "todo")])
+
+    payload = fixture.cli.run("join", "--role", "developer", "--id", "developer-1", "--watch", "--max-wait-seconds", "0")
+
+    assert payload["action"] == "idle"
+    assert payload["runner"]["mode"] == "manual"
+    assert "Runner mode is manual" in payload["message"]
+
+
+def test_join_watch_returns_ready_gate_before_normal_task(tmp_path) -> None:
+    review_task = gated_task("review", owner="developer-fixture")
+    review_task["qualityGates"][0]["id"] = "spec-review"
+    review_task["qualityGates"][0]["role"] = "spec_reviewer"
+    normal_task = task("T2", "Spec reviewer normal task", "spec_reviewer")
+    fixture = create_team(tmp_path, "join-watch-gate-first", [review_task, normal_task])
+    fixture.cli.run("runner", "set", "--mode", "auto")
+
+    payload = fixture.cli.run("join", "--role", "spec_reviewer", "--id", "spec_reviewer", "--watch", "--max-wait-seconds", "0")
+
+    assert payload["action"] == "gate_work"
+    assert payload["gate"]["role"] == "spec_reviewer"
+    assert payload["task"]["id"] == "T1"
+
+
+def test_join_watch_routes_architect_needs_input_before_ready_task(tmp_path) -> None:
+    blocked = task("T1", "Needs architect decision", "developer", "needs_input", owner="developer-1")
+    blocked["needsInput"] = {
+        "kind": "architect",
+        "reason": "task_scope",
+        "question": "Should this task own the shared contract?",
+    }
+    ready_architect = task("T2", "Architect normal task", "architect")
+    fixture = create_team(tmp_path, "join-watch-architect-triage", [blocked, ready_architect])
+    fixture.cli.run("runner", "set", "--mode", "auto")
+
+    payload = fixture.cli.run("join", "--role", "architect", "--id", "architect", "--watch", "--max-wait-seconds", "0")
+
+    assert payload["action"] == "needs_input_triage"
+    assert "triage needs-input" in payload["prompt"]
+
+
 def test_task_status_done_rejects_open_required_quality_gates(tmp_path) -> None:
     for gate_status in ["pending", "in_progress", "changes_requested", "blocked"]:
         record = gated_task()
@@ -398,7 +524,7 @@ def test_task_status_done_rejects_open_required_quality_gates(tmp_path) -> None:
         fixture = create_team(tmp_path, f"done-rejects-{gate_status.replace('_', '-')}", [record])
         state = read_state(fixture.state_path)
         state["sprintengine"]["rosterConfigured"] = True
-        fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+        write_state(fixture.state_path, state)
 
         rejected = fixture.cli.run_failure(
             "task",
@@ -506,7 +632,7 @@ def test_gated_phase_and_rework_statuses_keep_run_executing(tmp_path) -> None:
         fixture = create_team(tmp_path, f"run-executing-{status.replace('_', '-')}", [record])
         state = read_state(fixture.state_path)
         state["sprintengine"]["status"] = "planned"
-        fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+        write_state(fixture.state_path, state)
 
         fixture.cli.run("task", "status", "--task-id", "T1", "--status", status, "--id", "developer-fixture")
 
@@ -519,7 +645,7 @@ def test_task_publish_to_review_keeps_run_executing(tmp_path) -> None:
     fixture = create_team(tmp_path, "publish-review-run-executing", [gated_task()])
     state = read_state(fixture.state_path)
     state["sprintengine"]["status"] = "planned"
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    write_state(fixture.state_path, state)
 
     payload = fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Ready.")
 
@@ -539,7 +665,7 @@ def test_done_and_canceled_tasks_complete_run(tmp_path) -> None:
     )
     state = read_state(fixture.state_path)
     state["sprintengine"]["status"] = "planned"
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    write_state(fixture.state_path, state)
 
     fixture.cli.run("task", "status", "--task-id", "T2", "--status", "canceled", "--id", "tester-fixture")
 
@@ -558,7 +684,7 @@ def test_all_canceled_tasks_complete_run_as_terminal_state(tmp_path) -> None:
     )
     state = read_state(fixture.state_path)
     state["sprintengine"]["status"] = "planned"
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    write_state(fixture.state_path, state)
 
     fixture.cli.run("task", "status", "--task-id", "T1", "--status", "canceled", "--id", "developer-fixture")
 
@@ -824,7 +950,7 @@ def test_manual_dispatch_ready_task_is_claimable_after_dependencies_complete(tmp
 
 
 def test_product_and_architect_approval_gates_control_downstream_readiness(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "approval-gates" / "state.yaml"
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "approval-gates" / "run.yaml"
     cli = SwarmCli(state_path)
 
     init_payload = cli.run("init", "--goal", "Exercise approval gates")
@@ -881,7 +1007,7 @@ def test_product_and_architect_approval_gates_control_downstream_readiness(tmp_p
 
 
 def test_init_respects_selected_roster_without_product_gate(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "rostered-team" / "state.yaml"
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "rostered-team" / "run.yaml"
     cli = SwarmCli(state_path)
 
     payload = cli.run(
@@ -905,7 +1031,7 @@ def test_init_respects_selected_roster_without_product_gate(tmp_path) -> None:
 
 
 def test_architect_cannot_add_tasks_for_roles_absent_from_roster(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "rostered-plan" / "state.yaml"
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "rostered-plan" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run(
         "init",
@@ -944,7 +1070,7 @@ def test_architect_cannot_add_tasks_for_roles_absent_from_roster(tmp_path) -> No
 
 
 def test_roster_add_allows_later_specialist_tasks(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "roster-expand" / "state.yaml"
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "roster-expand" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run(
         "init",
@@ -1063,7 +1189,7 @@ def test_completed_agent_ids_can_claim_a_second_ready_task(tmp_path) -> None:
     )
     state = read_state(fixture.state_path)
     state["sprintengine"]["qualityPolicy"] = {"enabled": False}
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    write_state(fixture.state_path, state)
 
     fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
     fixture.cli.run(
@@ -1170,7 +1296,7 @@ def test_task_log_records_scope_expansions_and_summary_surfaces_them(tmp_path) -
     )
     state = read_state(fixture.state_path)
     state["sprintengine"]["qualityPolicy"] = {"enabled": False}
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    write_state(fixture.state_path, state)
 
     payload = fixture.cli.run(
         "task",

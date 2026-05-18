@@ -4,6 +4,7 @@ import type {
   SprintEngineArtifactCommandResult,
   SprintEngineProjectionReadResult,
   SprintEngineStateInitializeInput,
+  SprintEngineRunnerSetInput,
   SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
   SprintEngineTaskUpdateInput,
@@ -52,6 +53,10 @@ export const sprintEngineApi = {
     input: SprintEngineTaskCommentInput
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:task:comment', input),
+  setSprintEngineRunnerMode: (
+    input: SprintEngineRunnerSetInput
+  ): Promise<SprintEngineArtifactCommandResult> =>
+    ipcRenderer.invoke('sprintengine:runner:set-mode', input),
   readSprintEngineProjection: (
     statePath: string
   ): Promise<SprintEngineProjectionReadResult> =>
@@ -67,5 +72,6 @@ export const sprintEngineApi = {
   | 'updateSprintEngineTask'
   | 'createSprintEngineTask'
   | 'commentSprintEngineTask'
+  | 'setSprintEngineRunnerMode'
   | 'readSprintEngineProjection'
 >

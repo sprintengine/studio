@@ -10,7 +10,6 @@ from .tool import (
     cmd_handover,
     cmd_init,
     cmd_join,
-    cmd_migrate,
     cmd_plan_add_dependency,
     cmd_plan_add_task,
     cmd_plan_address_reviews,
@@ -28,9 +27,7 @@ from .tool import (
     cmd_task_next,
     cmd_task_note,
     cmd_task_status,
-    load_state,
     main,
-    save_state,
     with_locked_state,
 )
 
@@ -44,7 +41,6 @@ __all__ = [
     "cmd_handover",
     "cmd_init",
     "cmd_join",
-    "cmd_migrate",
     "cmd_plan_add_dependency",
     "cmd_plan_add_task",
     "cmd_plan_address_reviews",
@@ -62,8 +58,6 @@ __all__ = [
     "cmd_task_next",
     "cmd_task_note",
     "cmd_task_status",
-    "load_state",
     "main",
-    "save_state",
     "with_locked_state",
 ]

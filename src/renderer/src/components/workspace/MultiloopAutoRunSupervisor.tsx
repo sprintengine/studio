@@ -16,8 +16,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { ensureAgentTabInLayoutModel, focusOrAddAgentTab } from '../../utils/modelRegistry'
 import { parseMultiloopStateFile } from '../../utils/multiloopStateFile'
 import { getActiveMultiloopMilestone } from '../../utils/multiloop'
-import { parseSprintEngineStateFile } from '../../utils/sprintengineStateFile'
-import { buildSprintEngineRosterCommandArgs, sprintEngineRoleLabels } from '../../utils/sprintengine'
+import { buildSprintEngineRosterCommandArgs, normalizeSprintEngineProjection, sprintEngineRoleLabels } from '../../utils/sprintengine'
 import {
   agentCliSupportsConversationResume,
   agentCliUsesStableSessionIdForResume,
@@ -156,8 +155,9 @@ async function readLinkedSprintEngineState(
   if (!link) return null
 
   try {
-    const content = await window.api.readfile(resolveProjectPath(link.statePath, workspace.folderPath))
-    return parseSprintEngineStateFile(content, link.teamSlug)
+    const projection = await window.api.readSprintEngineProjection(resolveProjectPath(link.statePath, workspace.folderPath))
+    if (!projection.ok) throw new Error(projection.message)
+    return normalizeSprintEngineProjection(projection.data, link.teamSlug)
   } catch (error) {
     await publishDiagnostic({
       level: 'warning',

@@ -10,7 +10,7 @@ function isSprintEngineStateFilePath(input: string): boolean {
   const workspaceRoot = dirname(multiCodeDirectory)
 
   return (
-    basename(statePath) === 'state.yaml'
+    basename(statePath) === 'run.yaml'
     && basename(sprintEngineDirectory) === 'sprintengine'
     && basename(multiCodeDirectory) === '.multi-code'
     && workspaceRoot !== multiCodeDirectory
@@ -90,7 +90,7 @@ async function directorySubtreeContainsSprintEngineStatePath(directoryPath: stri
 
     for (const entry of entries) {
       const entryPath = resolve(currentDirectory, entry.name)
-      if (entry.name === 'state.yaml' && isSprintEngineStateFilePath(entryPath)) {
+      if (entry.name === 'run.yaml' && isSprintEngineStateFilePath(entryPath)) {
         return true
       }
       if (entry.isDirectory() && await visit(entryPath)) {
@@ -107,7 +107,7 @@ async function directorySubtreeContainsSprintEngineStatePath(directoryPath: stri
 export async function assertNotDirectSprintEngineStateMutation(targetPath: string): Promise<void> {
   const realTargetPath = await getRealMutationTargetPath(targetPath)
   if (isSprintEngineStateFilePath(targetPath) || (realTargetPath && isSprintEngineStateFilePath(realTargetPath))) {
-    throw new Error('Sprint Engine state files must be updated through the Sprint Engine tool.')
+    throw new Error('Sprint Engine run-store files must be updated through the Sprint Engine tool.')
   }
 
   const existingDirectoryPath = await getExistingDirectoryPath(targetPath)
@@ -116,13 +116,13 @@ export async function assertNotDirectSprintEngineStateMutation(targetPath: strin
   }
 
   if (await directorySubtreeContainsSprintEngineStatePath(existingDirectoryPath)) {
-    throw new Error('Sprint Engine state files must be updated through the Sprint Engine tool.')
+    throw new Error('Sprint Engine run-store files must be updated through the Sprint Engine tool.')
   }
 
   const realDirectoryPath = realTargetPath && realTargetPath !== resolve(existingDirectoryPath)
     ? await getExistingDirectoryPath(realTargetPath)
     : null
   if (realDirectoryPath && await directorySubtreeContainsSprintEngineStatePath(realDirectoryPath)) {
-    throw new Error('Sprint Engine state files must be updated through the Sprint Engine tool.')
+    throw new Error('Sprint Engine run-store files must be updated through the Sprint Engine tool.')
   }
 }

@@ -306,7 +306,7 @@ export function buildMultiloopLaunchContextLines({
   const commandStatePath = boundedMultiloopPromptContext(statePath, 'multiloop/<loop>/state.json')
   const safeAgentId = boundedMultiloopPromptContext(agentId, 'set-a-stable-agent-id')
   const sprintEngineStatePath = currentMilestone?.sprintEngine?.statePath
-    ? boundedMultiloopPromptContext(currentMilestone.sprintEngine.statePath, '.multi-code/sprintengine/<team>/state.yaml')
+    ? boundedMultiloopPromptContext(currentMilestone.sprintEngine.statePath, '.multi-code/sprintengine/<team>/run.yaml')
     : null
   return [
     '---',
@@ -353,9 +353,10 @@ function buildMultiloopRoleCommandLines(
   if (role && !['product', 'tester', 'security', 'code_reviewer', 'performance'].includes(role)) {
     if (sprintEngineStatePath) {
       return [
-        `Claim work first: sprintengine --state ${sprintEngineStatePath} task next --role ${role} --id ${agentId}`,
+        `Join Sprint Engine first: sprintengine --state ${sprintEngineStatePath} join --role ${role} --id ${agentId} --watch`,
+        'Follow the join directive; it may tell you to claim normal work, resume work, triage needs_input, or claim a quality gate.',
         `Log evidence before handoff: sprintengine --state ${sprintEngineStatePath} task log --task-id <task-id> --id ${agentId} --summary "<summary>" --file <path> --command "<command>" --result "<result>"`,
-        `Mark completion after evidence: sprintengine --state ${sprintEngineStatePath} task status --task-id <task-id> --status done --id ${agentId}`,
+        `Publish completion after evidence: sprintengine --state ${sprintEngineStatePath} task publish --task-id <task-id> --id ${agentId} --summary "<summary>"`,
       ]
     }
     return [

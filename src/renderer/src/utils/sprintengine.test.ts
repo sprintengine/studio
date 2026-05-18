@@ -30,10 +30,9 @@ function fakeProjection(overrides: Partial<Record<string, unknown>> = {}): Recor
       status: 'executing',
       rosterConfigured: true,
       updatedAt: '2026-05-16T20:00:00Z',
-      migration: {
-        source: 'state.yaml',
+      creation: {
+        source: 'folder_store',
         createdAt: '2026-05-16T19:51:02Z',
-        migratedAt: '2026-05-16T20:00:14Z',
       },
     },
     roster: {
@@ -137,8 +136,33 @@ assert.equal(state!.projection?.source, 'folder_store')
 assert.equal(state!.projection?.generatedAt, '2026-05-16T20:00:00Z')
 assert.equal(state!.locks?.warnings.length, 1)
 assert.equal(state!.locks?.warnings[0]?.ageSeconds, 360)
-assert.equal(state!.migration?.source, 'state.yaml')
+assert.equal(state!.creation?.source, 'folder_store')
 assert.equal(state!.tasks.length, 3)
+
+const runnerState = normalizeSprintEngineProjection(fakeProjection({
+  run: {
+    id: 'run-id',
+    name: 'Sample Run',
+    goal: 'Test goal',
+    status: 'executing',
+    rosterConfigured: true,
+    updatedAt: '2026-05-16T20:00:00Z',
+    runner: {
+      mode: 'auto',
+      pollIntervalSeconds: 4,
+      idleBackoffSeconds: 12,
+      maxBackoffSeconds: 90,
+      stopWhenComplete: false,
+    },
+  },
+}))
+assert.deepEqual(runnerState?.runner, {
+  mode: 'auto',
+  pollIntervalSeconds: 4,
+  idleBackoffSeconds: 12,
+  maxBackoffSeconds: 90,
+  stopWhenComplete: false,
+})
 
 const doneTask = state!.tasks.find((task) => task.id === 'T1')!
 assert.equal(doneTask.boardColumn, 'done')
@@ -168,10 +192,10 @@ assert.equal(isSprintEngineTaskLaunchable(readyTask, state!), true)
 assert.equal(isSprintEngineTaskLaunchable(changesRequestedTask, state!), true)
 assert.equal(isSprintEngineTaskLaunchable(doneTask, state!), false)
 
-// Legacy task without a boardColumn falls back to the computed column.
-const legacyTask: SprintEngineTask = {
+// Task without a boardColumn falls back to the computed column.
+const taskWithoutBoardColumn: SprintEngineTask = {
   id: 'L1',
-  title: 'Legacy',
+  title: 'Task without board column',
   description: '',
   role: 'developer',
   status: 'todo',
@@ -186,7 +210,7 @@ const legacyTask: SprintEngineTask = {
   startedAt: null,
   completedAt: null,
 }
-assert.equal(getSprintEngineTaskBoardColumn(legacyTask, state!.tasks), 'ready')
+assert.equal(getSprintEngineTaskBoardColumn(taskWithoutBoardColumn, state!.tasks), 'ready')
 
 // Activity is returned newest-first.
 const sortedActivity = getSprintEngineTaskActivityDescending(doneTask)
@@ -451,6 +475,36 @@ const visibleColumns = getSprintEngineVisibleBoardColumns(gatedState!).map((colu
 assert.deepEqual(
   visibleColumns,
   ['todo', 'ready', 'changes_requested', 'in_progress', 'review', 'testing', 'needs_input', 'done'],
+)
+
+const reviewTaskWithoutBoardColumnState = normalizeSprintEngineProjection({
+  ...fakeProjection({
+    run: { rosterConfigured: false },
+    tasks: [
+      {
+        id: 'LEGACY-REVIEW',
+        title: 'Task in review without board column',
+        description: '',
+        role: 'developer',
+        status: 'review',
+        ownedPaths: [],
+        dependsOn: [],
+        acceptanceCriteria: [],
+        implementationNotes: [],
+        notes: [],
+        comments: [],
+        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+        startedAt: null,
+        completedAt: null,
+        ownerAgentId: 'developer-1',
+      },
+    ],
+  }),
+})
+assert.deepEqual(
+  getActiveSprintEngineLifecyclePhases(reviewTaskWithoutBoardColumnState!),
+  ['review'],
+  'review status keeps review column visible even without boardColumn'
 )
 
 // When neither policy nor tasks call for lifecycle phases, the board hides

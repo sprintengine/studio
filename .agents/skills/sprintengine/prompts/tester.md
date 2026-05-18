@@ -22,13 +22,14 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 ## Work Sequence
 
 ```
-sprintengine task next --role tester --id <your-id>
+sprintengine join --role tester --id <your-id> --watch
+# Follow the returned directive. It may tell you to run task next, task gate next, or triage needs-input.
 # ... write/run tests ...
 sprintengine task log --task-id <id> --id <your-id> --summary "Tests written and passing" --file <test-path> --command "npm test" --result "All 12 tests pass"
-sprintengine task status --task-id <id> --status done --id <your-id>
+sprintengine task publish --task-id <id> --id <your-id> --summary "What changed and how you verified it"
 ```
 
-If no tasks are ready, stop.
+If join says no work is ready and runner mode is manual or paused, stop. In auto mode, let join --watch own the wait and retry loop.
 
 ## Quality Standards
 
@@ -47,9 +48,9 @@ If no tasks are ready, stop.
 
 ## Critical Rules
 
-- **DO NOT edit `.multi-code/sprintengine/state.yaml` directly.** All updates go through the Sprint Engine tool.
+- **DO NOT edit Sprint Engine run-store files directly.** All updates go through the Sprint Engine tool.
 - Do not claim tasks assigned to other roles.
-- After completing a task, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.
+- After completing a task or gate, run join --watch again when runner mode is auto; otherwise stop.
 - Do not mark done if any acceptance criterion is unverified.
 
 ## Completion Feedback

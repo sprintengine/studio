@@ -8,7 +8,7 @@ import type {
   SprintEngineProjectionLockReport,
   SprintEngineProjectionLockWarning,
   SprintEngineProjectionLocks,
-  SprintEngineProjectionMigration,
+  SprintEngineProjectionCreation,
   SprintEngineProjectionSource,
   SprintEngineQualityGate,
   SprintEngineQualityGateAttempt,
@@ -20,6 +20,7 @@ import type {
   SprintEngineRecordedArtifact,
   SprintEngineRole,
   SprintEngineRoleCounts,
+  SprintEngineRunnerPolicy,
   SprintEngineRuntimeAgent,
   SprintEngineSkillMap,
   SprintEngineTaskActivityEntry,
@@ -297,7 +298,7 @@ const sprintEngineTaskSourceSyncStatuses: readonly SprintEngineTaskSourceSyncSta
 const sprintEngineTaskDispatchModes: readonly SprintEngineTaskDispatchMode[] = ['dependency', 'manual']
 const sprintEngineTaskDispatchStatuses: readonly SprintEngineTaskDispatchStatus[] = ['todo', 'ready']
 const sprintEngineTaskDispatchTriagedByValues: readonly SprintEngineTaskDispatchTriagedBy[] = ['none', 'user', 'architect']
-const sprintEngineNeedsInputKinds: readonly SprintEngineNeedsInputKind[] = ['architect', 'user', 'owner', 'artifact', 'tooling', 'verification', 'other']
+const sprintEngineNeedsInputKinds: readonly SprintEngineNeedsInputKind[] = ['architect', 'user', 'owner']
 const sprintEngineNeedsInputReasons: readonly SprintEngineNeedsInputReason[] = ['task_scope', 'artifact_review', 'tooling', 'verification', 'product_decision', 'blocked_other']
 
 const sprintEngineTaskActivityTypes: readonly SprintEngineTaskActivityType[] = [
@@ -592,6 +593,27 @@ function normalizeSprintEngineQualityPolicy(input: unknown): SprintEngineQuality
   }
 }
 
+function positiveNumberOrDefault(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.round(value)
+    : fallback
+}
+
+function normalizeSprintEngineRunnerPolicy(input: unknown): SprintEngineRunnerPolicy | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const record = input as Record<string, unknown>
+  const mode = record.mode === 'auto' || record.mode === 'paused' || record.mode === 'manual'
+    ? record.mode
+    : 'manual'
+  return {
+    mode,
+    pollIntervalSeconds: positiveNumberOrDefault(record.pollIntervalSeconds, 10),
+    idleBackoffSeconds: positiveNumberOrDefault(record.idleBackoffSeconds, 30),
+    maxBackoffSeconds: positiveNumberOrDefault(record.maxBackoffSeconds, 120),
+    stopWhenComplete: record.stopWhenComplete !== false,
+  }
+}
+
 function isFeedbackIssueCategory(value: unknown): value is SprintEngineTaskFeedbackIssueCategory {
   return feedbackIssueCategories.includes(value as SprintEngineTaskFeedbackIssueCategory)
 }
@@ -703,18 +725,14 @@ function normalizeSprintEngineTaskNeedsInput(value: unknown): SprintEngineTaskNe
 
   const record = value as Record<string, unknown>
   if (!isSprintEngineNeedsInputKind(record.kind)) return undefined
-  const legacyReasonByKind: Record<SprintEngineNeedsInputKind, SprintEngineNeedsInputReason> = {
+  const defaultReasonByKind: Record<SprintEngineNeedsInputKind, SprintEngineNeedsInputReason> = {
     architect: 'task_scope',
     user: 'product_decision',
     owner: 'blocked_other',
-    artifact: 'artifact_review',
-    tooling: 'tooling',
-    verification: 'verification',
-    other: 'blocked_other',
   }
   const reason = isSprintEngineNeedsInputReason(record.reason)
     ? record.reason
-    : legacyReasonByKind[record.kind]
+    : defaultReasonByKind[record.kind]
   const artifactId = optionalTrimmedString(record.artifactId)
   const suggestedResolution = optionalTrimmedString(record.suggestedResolution)
   const reportedBy = optionalTrimmedString(record.reportedBy)
@@ -1132,7 +1150,7 @@ export type SprintEngineLocalAgentLike = {
  *      that are not on the roster are ignored).
  *   2. localExited override: if the renderer agent state shows the CLI has
  *      exited and no fresh start has been requested, treat the agent as
- *      exited regardless of what state.yaml claims.
+ *      exited regardless of the projected run-store agent state.
  *   3. showFocusAgentAction: hidden when the focus agent's role already has a
  *      dedicated role-task launch surfaced by the panel.
  */
@@ -1437,8 +1455,9 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     artifacts: normalizeSprintEngineArtifacts(input.artifacts),
     ...(input.projection ? { projection: input.projection } : {}),
     ...(input.locks ? { locks: input.locks } : {}),
-    ...(input.migration ? { migration: input.migration } : {}),
+    ...(input.creation ? { creation: input.creation } : {}),
     ...(input.qualityPolicy ? { qualityPolicy: input.qualityPolicy } : {}),
+    ...(input.runner ? { runner: input.runner } : {}),
   }
 }
 
@@ -1489,26 +1508,22 @@ function normalizeProjectionLocks(value: unknown): SprintEngineProjectionLocks |
   return { locks, warnings }
 }
 
-function normalizeProjectionMigration(value: unknown): SprintEngineProjectionMigration | undefined {
+function normalizeProjectionCreation(value: unknown): SprintEngineProjectionCreation | undefined {
   if (!value || typeof value !== 'object') return undefined
   const record = value as Record<string, unknown>
   const source = optionalTrimmedString(record.source)
   const createdAt = optionalTrimmedString(record.createdAt)
   const updatedAt = optionalTrimmedString(record.updatedAt)
-  const migratedAt = optionalTrimmedString(record.migratedAt)
-  const backupPath = optionalTrimmedString(record.backupPath)
-  if (!source && !createdAt && !updatedAt && !migratedAt && !backupPath) return undefined
+  if (!source && !createdAt && !updatedAt) return undefined
   return {
     ...(source ? { source } : {}),
     ...(createdAt ? { createdAt } : {}),
     ...(updatedAt ? { updatedAt } : {}),
-    ...(migratedAt ? { migratedAt } : {}),
-    ...(backupPath ? { backupPath } : {}),
   }
 }
 
 function projectionSourceValue(value: unknown): SprintEngineProjectionSource {
-  return value === 'folder_store' || value === 'state_yaml_fallback' || value === 'unavailable'
+  return value === 'folder_store' || value === 'unavailable'
     ? value
     : 'folder_store'
 }
@@ -1535,9 +1550,7 @@ function normalizeProjectionRoster(value: unknown): Record<string, SprintEngineR
 /**
  * Convert a folder-store `projection.json` payload into the SprintEngineState
  * shape the renderer panels consume. The projection is the single source of
- * truth for board columns, activity, lock warnings, and run metadata; the
- * existing legacy `state.yaml` parser is a fallback when projection.json is
- * not yet available (e.g. unmigrated runs).
+ * truth for board columns, activity, lock warnings, and run metadata.
  */
 export function normalizeSprintEngineProjection(
   input: unknown,
@@ -1597,9 +1610,12 @@ export function normalizeSprintEngineProjection(
       generatedAt: optionalTrimmedString(record.generatedAt) ?? null,
     },
     ...(normalizeProjectionLocks(record.locks) ? { locks: normalizeProjectionLocks(record.locks) } : {}),
-    ...(normalizeProjectionMigration(runRecord.migration) ? { migration: normalizeProjectionMigration(runRecord.migration) } : {}),
+    ...(normalizeProjectionCreation(runRecord.creation) ? { creation: normalizeProjectionCreation(runRecord.creation) } : {}),
     ...(normalizeSprintEngineQualityPolicy(runRecord.qualityPolicy)
       ? { qualityPolicy: normalizeSprintEngineQualityPolicy(runRecord.qualityPolicy) }
+      : {}),
+    ...(normalizeSprintEngineRunnerPolicy(runRecord.runner)
+      ? { runner: normalizeSprintEngineRunnerPolicy(runRecord.runner) }
       : {}),
   }
 
@@ -1681,7 +1697,7 @@ export function getActiveSprintEngineLifecyclePhases(
     : new Set<SprintEngineQualityGatePhase>()
   const phasesFromTasks = new Set<SprintEngineQualityGatePhase>()
   for (const task of sprintEngineState.tasks) {
-    const column = task.boardColumn
+    const column = task.boardColumn ?? task.status
     if (column && isSprintEngineQualityGatePhase(column)) phasesFromTasks.add(column)
   }
   return sprintEngineLifecyclePhaseColumns.filter(

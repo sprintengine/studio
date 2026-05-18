@@ -53,21 +53,19 @@ import {
  getSprintEngineVisibleBoardColumns,
  isSprintEngineTaskClaimableColumn,
  isSprintEngineTaskLaunchable,
+ normalizeSprintEngineProjection,
  sprintEngineRoleAccent,
  sprintEngineRoleLabels,
  sprintEngineTaskStateLabel,
  type SprintEngineAgentRosterItem,
 } from '../../utils/sprintengine'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
-import {
- parseSprintEngineStateFile,
-} from '../../utils/sprintengineStateFile'
 import { focusOrAddAgentTab, focusOrAddFileTab } from '../../utils/modelRegistry'
 import { publishDiagnostic, publishDiagnosticSync } from '../../utils/diagnostics'
 import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
 import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
 import { isEditableTarget } from '../../utils/keyboard'
-import { isAbsoluteFilePath, joinFilePath, basename as getBaseName, parentPath as getParentDirectoryPath } from '../../utils/paths'
+import { basename, isAbsoluteFilePath, joinFilePath, parentPath } from '../../utils/paths'
 import {
  artifactTimestampMs,
  getSprintEngineInboxArtifacts,
@@ -146,8 +144,8 @@ function resolveArtifactPathForEditor(statePath: string, artifactPathInput: stri
  throw new Error('Only workspace artifact file paths can be opened.')
  }
 
- const teamDirectory = getParentDirectoryPath(statePath)
- const workspaceRoot = getParentDirectoryPath(getParentDirectoryPath(getParentDirectoryPath(teamDirectory)))
+ const teamDirectory = parentPath(statePath)
+ const workspaceRoot = parentPath(parentPath(parentPath(teamDirectory)))
  const targetPath = isAbsoluteFilePath(artifactPath)
  ? artifactPath
  : [
@@ -202,18 +200,18 @@ function buildWorkerRespawnStartupPrompt(
  role: SprintEngineRole,
  agentId: string
 ): string {
- return [
- 'Fetch the canonical Sprint Engine instructions from the Python tool.',
- `You are assigned role: ${role}. Only claim and work Sprint Engine tasks whose role exactly matches ${role}. Use the Sprint Engine join/task-next flow with this same agent id. If no ${role} task is ready, wait briefly with a foreground sleep/backoff, then retry while this Sprint Engine roster session remains active. Do not leave a background polling loop running, and stop all idle retrying as soon as a task is returned. After you claim one task, focus only on that task: complete it, publish evidence, mark it done, then stop. Stop earlier if you are blocked, you need user input, or your context window is about 70% full. At about 70% context, publish a concise continuation note, compact or restart, fetch your Soul again, rerun the Sprint Engine join command with this same id, and continue. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
- 'On Windows, prefer the repo virtual environment command if `sprintengine` or global Python is unreliable:',
- [
- '```powershell',
- `& ".\\.venv\\Scripts\\python.exe" .\\scripts\\sprintengine_tool.py join --role ${role} --id ${agentId}`,
- '```',
- ].join('\n'),
- 'Otherwise run:',
- `\`\`\`\nsprintengine join --role ${role} --id ${agentId}\n\`\`\``,
- ].filter(Boolean).join('\n\n')
+	 return [
+	 'Fetch the canonical Sprint Engine instructions from the Python tool.',
+	 `You are assigned role: ${role}. Only claim and work Sprint Engine tasks or quality gates whose role exactly matches ${role}. Use the Sprint Engine join-watch flow with this same agent id; the CLI owns polling and will tell you whether to claim a normal task, resume work, triage needs_input, or claim a quality gate. Do not create your own sleep/retry loop. After you claim one task or gate, focus only on that work: complete it, publish evidence or a gate verdict, then run the same join-watch command again if runner mode is auto. Stop earlier if runner mode is manual or paused, you are blocked, you need user input, or your context window is about 70% full. At about 70% context, publish a concise continuation note, compact or restart, fetch your Soul again, rerun the Sprint Engine join-watch command with this same id, and continue. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
+	 'On Windows, prefer the repo virtual environment command if `sprintengine` or global Python is unreliable:',
+	 [
+	 '```powershell',
+	 `& ".\\.venv\\Scripts\\python.exe" .\\scripts\\sprintengine_tool.py join --role ${role} --id ${agentId} --watch`,
+	 '```',
+	 ].join('\n'),
+	 'Otherwise run:',
+	 `\`\`\`\nsprintengine join --role ${role} --id ${agentId} --watch\n\`\`\``,
+	 ].filter(Boolean).join('\n\n')
 }
 
 function SprintEngineSettingsPopover({
@@ -405,7 +403,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  const folderPath = folderReadyPath
  const agents = workspace?.agents ?? {}
  const terminalSessions = useTerminalSessions()
- const autoEnabled = workspace?.sprintEngineAutoState?.enabled ?? false
+ const runnerMode = sprintEngineState?.runner?.mode ?? ((workspace?.sprintEngineAutoState?.enabled ?? false) ? 'auto' : 'manual')
+ const autoEnabled = runnerMode === 'auto'
  const autoApproveArtifacts = workspace?.sprintEngineAutoState?.autoApproveArtifacts ?? false
  const cliPermissionPreset = workspace?.sprintEngineAutoState?.cliPermissionPreset ?? 'default'
 
@@ -809,12 +808,14 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  try {
  const stateFilePath = await resolveReadableSprintEngineStatePath()
  if (!stateFilePath) throw new Error('No workspace folder is ready.')
- const content = await window.api.readfile(stateFilePath)
- const parsed = parseSprintEngineStateFile(content, getBaseName(getParentDirectoryPath(stateFilePath)))
+ const projection = await window.api.readSprintEngineProjection(stateFilePath)
+ if (!projection.ok) throw new Error(projection.message)
+ const parsed = normalizeSprintEngineProjection(projection.data, sprintEngineContext?.teamName)
+ if (!parsed) throw new Error('Sprint Engine projection was malformed.')
  setSprintEngineState(workspaceId, parsed)
  setSyncState({
  status: 'live',
- message: `Refreshed ${parsed.tasks.length} tasks from ${stateFilePath}`,
+ message: `Refreshed ${parsed.tasks.length} tasks from projection.json`,
  })
  } catch (error) {
  setSyncState({
@@ -843,15 +844,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  const result = await window.api.readySprintEngineTask(sprintEngineContext.statePath, task.id)
  if (!result.ok) throw new Error(result.message)
 
- const data = result.data && typeof result.data === 'object'
- ? result.data as { stateContent?: unknown }
- : {}
- if (typeof data.stateContent === 'string') {
- const parsed = parseSprintEngineStateFile(data.stateContent, sprintEngineContext.teamName)
- setSprintEngineState(workspaceId, parsed)
- } else {
  await refreshSprintEngineState()
- }
 
  setTaskReadyActions((current) => ({
  ...current,
@@ -910,7 +903,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  const content = await window.api.readfile(artifactPath)
  return {
  path: artifactPath,
- name: getBaseName(artifactPath) || artifact.title || artifact.id,
+ name: basename(artifactPath) || artifact.title || artifact.id,
  content,
  }
  }
@@ -1184,7 +1177,27 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  }
 
  const toggleAuto = () => {
- setSprintEngineAutoEnabled(workspaceId, !autoEnabled)
+ const nextEnabled = !autoEnabled
+ setSprintEngineAutoEnabled(workspaceId, nextEnabled)
+ if (!sprintEngineContext?.statePath) return
+ void window.api.setSprintEngineRunnerMode({
+ statePath: sprintEngineContext.statePath,
+ mode: nextEnabled ? 'auto' : 'paused',
+ }).then(async (result) => {
+ if (!result.ok) {
+ setSprintEngineAutoEnabled(workspaceId, autoEnabled)
+ await publishDiagnostic({
+ level: 'warning',
+ source: 'sprintengine',
+ title: 'Roster runner mode was not updated',
+ message: result.message,
+ workspaceId,
+ workspaceName: workspace?.name,
+ })
+ return
+ }
+ await refreshSprintEngineState()
+ })
  }
 
  const toggleArtifactAutoApproval = () => {
@@ -1847,7 +1860,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  Architect Audit
  </h3>
  <p className="mt-2 text-[13px] leading-6 text-[color:var(--text-muted)]">
- The Architect will back up state.yaml, check each task in order, and update task status through the sprintengine Python tool.
+ The Architect will inspect the run store, check each task in order, and update task status through the sprintengine Python tool.
  </p>
  </div>
  <CloseIconButton
@@ -2711,6 +2724,6 @@ function buildRosterRevisionPrompt(role: SprintEngineRole, agentId: string, team
  '',
  'Then inspect the current plan, task graph, completed evidence, and open risks. If this new specialist should do work, add only the needed task cards with normal `Sprint Engine plan add-task` commands and correct dependencies. If no task is needed, record a concise rationale in the architect terminal and stop.',
  '',
- 'Do not implement work yourself. Do not create tasks for unrelated roles. Do not edit state.yaml directly.',
+ 'Do not implement work yourself. Do not create tasks for unrelated roles. Do not edit Sprint Engine run-store files directly.',
  ].join('\n')
 }

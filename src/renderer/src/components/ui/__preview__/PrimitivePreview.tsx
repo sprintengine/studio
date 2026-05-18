@@ -204,7 +204,7 @@ export function PrimitivePreview() {
       <Section title="Definition list">
         <DefinitionList
           items={[
-            { term: 'Source', description: 'Sprint engine state.yaml (canonical)' },
+            { term: 'Source', description: 'Sprint Engine projection (canonical)' },
             { term: 'Owner', description: 'frontend-1' },
             { term: 'Status', description: 'In progress' },
             { term: 'Updated', description: '2 minutes ago' },

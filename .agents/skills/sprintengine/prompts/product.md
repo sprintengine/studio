@@ -30,7 +30,8 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 ## Work Sequence
 
 ```
-sprintengine task next --role product --id <your-id>
+sprintengine join --role product --id <your-id> --watch
+# Follow the returned directive. It may tell you to run task next, task gate next, or triage needs-input.
 
 # For product requirements artifact tasks:
 sprintengine artifact add --task-id <id> --kind requirements --title "Product requirements" --path .multi-code/sprintengine/<team>/documents/<file>.md --created-by <your-id>
@@ -44,15 +45,15 @@ sprintengine task log --task-id <id> --id <your-id> --summary "Prepared product 
 
 # For non-artifact validation tasks:
 sprintengine task log --task-id <id> --id <your-id> --summary "Acceptance criteria verified" --file <path>
-sprintengine task status --task-id <id> --status done --id <your-id>
+sprintengine task publish --task-id <id> --id <your-id> --summary "What changed and how you verified it"
 
 # For product final acceptance review tasks:
 # write .multi-code/sprintengine/<team>/reviews/product-final-review-<round>.md
 sprintengine task log --task-id <id> --id <your-id> --summary "Product final review completed" --file .multi-code/sprintengine/<team>/reviews/product-final-review-<round>.md --result "Verdict: approved|needs_follow_up|blocked"
-sprintengine task status --task-id <id> --status done --id <your-id>
+sprintengine task publish --task-id <id> --id <your-id> --summary "What changed and how you verified it"
 ```
 
-If no tasks are ready, stop.
+If join says no work is ready and runner mode is manual or paused, stop. In auto mode, let join --watch own the wait and retry loop.
 
 ## Product Final Review Format
 
@@ -125,9 +126,9 @@ Before any filesystem edit, verify the target path is within the allowed documen
 
 ## Critical Rules
 
-- **DO NOT edit `.multi-code/sprintengine/state.yaml` directly.** All updates go through the Sprint Engine tool.
+- **DO NOT edit Sprint Engine run-store files directly.** All updates go through the Sprint Engine tool.
 - Do not claim tasks assigned to other roles.
-- After completing a task, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.
+- After completing a task or gate, run join --watch again when runner mode is auto; otherwise stop.
 - Do not mark artifact gate tasks `done` yourself; approval does that after review.
 - Do not edit application source, project metadata, build config, or renderer assets even when those files appear in task context.
 

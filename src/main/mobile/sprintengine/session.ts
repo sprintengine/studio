@@ -244,14 +244,14 @@ function buildStartupPrompt(input: {
     `${input.label}: ${input.label} - Fetch the canonical Sprint Engine instructions from the Python tool.`,
     `Worker cwd: ${input.executionCwd}`,
     `Shared Sprint Engine state: ${input.statePath}`,
-    `You are assigned role: ${input.role}. Only claim and work Sprint Engine tasks whose role exactly matches ${input.role}. Keep picking up ready ${input.role} tasks with this same agent id until no ${input.role} task is ready, you are blocked, you need user input, or your context window is about 70% full. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
+    `You are assigned role: ${input.role}. Only claim and work Sprint Engine tasks or quality gates whose role exactly matches ${input.role}. Use the Sprint Engine join-watch flow with this same agent id; the CLI owns polling and will tell you whether to claim a normal task, resume work, triage needs_input, or claim a quality gate. Do not create your own sleep/retry loop. After one task or gate completes, rerun the same join-watch command if runner mode is auto. Stop if runner mode is manual or paused, you are blocked, you need user input, or your context window is about 70% full. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
     'Use the repo virtual environment directly on Windows if `sprintengine` or global Python is unreliable:',
     [
       '```powershell',
-      `& ${quotePowerShellArg(windowsPython)} .\\scripts\\sprintengine_tool.py join --role ${input.role} --id ${input.agentId}`,
+      `& ${quotePowerShellArg(windowsPython)} .\\scripts\\sprintengine_tool.py join --role ${input.role} --id ${input.agentId} --watch`,
       '```',
     ].join('\n'),
-    `Otherwise run \`sprintengine join --role ${input.role} --id ${input.agentId}\` to receive your full prompt and next directive.`,
+    `Otherwise run \`sprintengine join --role ${input.role} --id ${input.agentId} --watch\` to receive your full prompt and next directive.`,
   ].join('\n\n')
 }
 

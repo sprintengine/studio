@@ -638,7 +638,7 @@ async function assertSnapshotSkipsMalformedStateFiles(): Promise<void> {
     artifacts: [],
   })
   const malformedStatePath = await writeStateText(
-    `${String.raw`{"sprintengine":{"name":"Bad"},"tasks":[{"evidence":{"commandsRan":[".multi-code\sprintengine\state.yaml"]}}]}`}\n`
+    `${String.raw`{"sprintengine":{"name":"Bad"},"tasks":[{"evidence":{"commandsRan":[".multi-code\sprintengine\run.yaml"]}}]}`}\n`
   )
   const service = new MobileSprintEngineSnapshotService()
 
@@ -656,7 +656,7 @@ async function writeStateFixture(state: Record<string, unknown>): Promise<string
   const workspacePath = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-snapshot-'))
   const teamDirectory = join(workspacePath, '.multi-code', 'sprintengine', 'team')
   await mkdir(teamDirectory, { recursive: true })
-  const statePath = join(teamDirectory, 'state.yaml')
+  const statePath = join(teamDirectory, 'run.yaml')
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
   return statePath
 }
@@ -665,7 +665,7 @@ async function writeStateText(content: string): Promise<string> {
   const workspacePath = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-snapshot-'))
   const teamDirectory = join(workspacePath, '.multi-code', 'sprintengine', 'team')
   await mkdir(teamDirectory, { recursive: true })
-  const statePath = join(teamDirectory, 'state.yaml')
+  const statePath = join(teamDirectory, 'run.yaml')
   await writeFile(statePath, content, 'utf8')
   return statePath
 }

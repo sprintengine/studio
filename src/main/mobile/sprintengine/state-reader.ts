@@ -27,9 +27,8 @@ type RawSprintEngineState = {
 /**
  * Read the normalized Sprint Engine state used by mobile command readiness
  * checks. The folder-store projection (`projection.json`) is the source of
- * truth for migrated/new runs; the legacy `state.yaml` parser is the fallback
- * for runs that have not been migrated yet. The projection's `roster` is
- * translated to `sprintEngineAgents` so downstream readers see one shape.
+ * truth. The projection's `roster` is translated to `sprintEngineAgents` so
+ * downstream readers see one shape.
  */
 export async function readRawSprintEngineState(state: ValidSprintEngineStatePath): Promise<RawSprintEngineState> {
   const projectionPath = join(dirname(state.statePath), 'projection.json')
@@ -44,19 +43,12 @@ export async function readRawSprintEngineState(state: ValidSprintEngineStatePath
         : {},
     }
   } catch (error) {
-    if (!isFileNotFoundError(error)) {
-      throw new MobileSprintEngineCommandError(
-        'internal_error',
-        `Sprint Engine projection could not be read from projection.json: ${error instanceof Error ? error.message : String(error)}`,
-        false
-      )
-    }
-    return JSON.parse(await readFile(state.statePath, 'utf8')) as RawSprintEngineState
+    throw new MobileSprintEngineCommandError(
+      'internal_error',
+      `Sprint Engine projection could not be read from projection.json: ${error instanceof Error ? error.message : String(error)}`,
+      false
+    )
   }
-}
-
-function isFileNotFoundError(error: unknown): boolean {
-  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
 }
 
 export async function findSprintEngineArtifact(

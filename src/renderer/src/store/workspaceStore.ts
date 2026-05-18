@@ -457,7 +457,7 @@ function mapMigrationWorkspaces(
 function defaultUsageTelemetrySettings(): UsageTelemetrySettings {
   return {
     sendUsageData: false,
-    localDevExportEnabled: import.meta.env.DEV,
+    localDevExportEnabled: import.meta.env?.DEV === true,
     lastExportAt: null,
     exportDiagnostics: true,
   }
@@ -807,6 +807,7 @@ function normalizeSprintEngineAutoPendingSpawn(
   return typeof input?.taskId === 'string' && typeof input.agentId === 'string'
     ? {
       taskId: input.taskId,
+      ...(typeof input.gateId === 'string' && input.gateId ? { gateId: input.gateId } : {}),
       agentId: input.agentId,
       ...(typeof input.startedAt === 'number' ? { startedAt: input.startedAt } : {}),
     }

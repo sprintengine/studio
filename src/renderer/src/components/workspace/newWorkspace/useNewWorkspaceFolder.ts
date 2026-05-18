@@ -3,9 +3,9 @@ import {
   getExistingSprintEngineStateFilePath,
   getSprintEngineStateFilePath,
   getSprintEngineDirectoryPath,
-  parseSprintEngineStateFile,
   slugifySprintEngineName,
 } from '../../../utils/sprintengineStateFile'
+import { normalizeSprintEngineProjection } from '../../../utils/sprintengine'
 import type {
   SprintEngineState,
   SprintEngineWorkspaceContext,
@@ -49,10 +49,12 @@ async function scanExistingTeams(folderPath: string): Promise<ExistingTeam[]> {
   for (const entry of entries) {
     if (!entry.isDir) continue
     try {
-      const content = await window.api.readfile(
+      const projection = await window.api.readSprintEngineProjection(
         getExistingSprintEngineStateFilePath(folderPath, entry.name),
       )
-      const state = parseSprintEngineStateFile(content, entry.name)
+      if (!projection.ok) continue
+      const state = normalizeSprintEngineProjection(projection.data, entry.name)
+      if (!state) continue
       const displayName = getExistingTeamDisplayName(entry.name, state)
       teams.push({
         slug: entry.name,

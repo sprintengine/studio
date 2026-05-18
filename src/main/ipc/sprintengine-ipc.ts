@@ -2,6 +2,7 @@ import type { IpcMain } from 'electron'
 import type {
   SprintEngineArtifactCommandResult,
   SprintEngineProjectionReadResult,
+  SprintEngineRunnerSetInput,
   SprintEngineStateInitializeInput,
   SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
@@ -43,6 +44,7 @@ type SprintEngineIpcDependencies = {
   updateTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
   createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
   commentTask(payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult>
+  setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
 }
 
@@ -81,6 +83,10 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:task:comment', async (_, payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult> => {
     return deps.commentTask(payload)
+  })
+
+  ipcMain.handle('sprintengine:runner:set-mode', async (_, payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.setRunnerMode(payload)
   })
 
   ipcMain.handle('sprintengine:projection:read', async (_, payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult> => {

@@ -207,6 +207,7 @@ registerSprintEngineIpc(ipcMain, {
   updateTask: sprintEngineArtifacts.updateTask,
   createTask: sprintEngineArtifacts.createTask,
   commentTask: sprintEngineArtifacts.commentTask,
+  setRunnerMode: sprintEngineArtifacts.setRunnerMode,
   readProjection: sprintEngineArtifacts.readProjection,
 })
 
