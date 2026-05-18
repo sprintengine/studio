@@ -978,9 +978,17 @@ export type AppSettings = {
 
 export type GuidedBriefHasUi = 'yes' | 'no'
 
+export type GuidedBriefRoleCliDefaults = {
+  product: AgentCli
+  architect: AgentCli
+  frontend: AgentCli
+}
+
 export type GuidedBriefStage =
   | 'strategist-working'
   | 'strategist-ready'
+  | 'architect-working'
+  | 'architect-ready'
   | 'designer-working'
   | 'designer-ready'
   | 'handoff'
@@ -997,14 +1005,25 @@ export type GuidedBriefRuntimeState = {
   workspaceName: string
   idea: string
   hasUi: GuidedBriefHasUi
+  wantsProductDiscussion: boolean
+  wantsArchitectureDiscussion: boolean
+  wantsFrontendDiscussion: boolean
+  guidedRoleCliDefaults: GuidedBriefRoleCliDefaults
+  buildRoleCounts: SprintEngineRoleCounts
+  buildRoleCliDefaults: Required<SprintEngineRoleCliDefaults>
+  buildCliPermissionPreset: SprintEngineCliPermissionPreset
+  buildStartRunner: boolean
+  buildAutoApproveArtifacts: boolean
   stage: GuidedBriefStage
   acceptedProductBrief: GuidedBriefAcceptedArtifact | null
+  acceptedArchitecturePlan: GuidedBriefAcceptedArtifact | null
   acceptedUiDirection: GuidedBriefAcceptedArtifact | null
   acceptedMockups: GuidedBriefAcceptedArtifact[]
   activeMockupPath: string | null
   // Persisted so the renderer reattaches to the same PTY across HMR / refresh
-  // instead of spawning a fresh strategist or designer.
+  // instead of spawning a fresh strategist, architect, or designer.
   strategistSessionId: string | null
+  architectSessionId: string | null
   designerSessionId: string | null
 }
 

@@ -31,7 +31,8 @@ export type DesignerSessionStatus =
 
 export type UseDesignerSessionInput = {
   workspaceRoot: string
-  acceptedBriefSnapshotPath: string
+  acceptedBriefSnapshotPath?: string
+  acceptedArchitecturePlanPath?: string | null
   cli: AgentCli
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
   enabled: boolean
@@ -64,6 +65,7 @@ function hasContent(value: string): boolean {
 export function useDesignerSession({
   workspaceRoot,
   acceptedBriefSnapshotPath,
+  acceptedArchitecturePlanPath,
   cli,
   cliRuntimes,
   enabled,
@@ -109,6 +111,7 @@ export function useDesignerSession({
         kind: 'designer',
         workspaceRoot,
         acceptedBriefSnapshotPath,
+        acceptedArchitecturePlanPath,
         sessionId: resolvedSessionId,
         cli,
         inspirationDirectoryPath: INSPIRATION_DIRECTORY_NAME,

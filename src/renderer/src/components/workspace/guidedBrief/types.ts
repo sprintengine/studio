@@ -24,6 +24,8 @@ export function isMidStageGuidedRuntime(state: GuidedBriefRuntimeState | null): 
   switch (state.stage) {
     case 'strategist-working':
     case 'strategist-ready':
+    case 'architect-working':
+    case 'architect-ready':
     case 'designer-working':
     case 'designer-ready':
     case 'handoff':
@@ -39,43 +41,70 @@ export type GuidedBriefRuntimeProgress = {
   done: number
 }
 
-export function progressForStage(
-  stage: GuidedBriefStage,
+export type GuidedBriefProgressOptions = {
+  wantsProductDiscussion?: boolean
+  wantsArchitectureDiscussion?: boolean
+  wantsFrontendDiscussion?: boolean
+}
+
+function guidedBriefStageOrder(
   hasUi: GuidedBriefHasUi,
-): GuidedBriefRuntimeProgress {
-  const total = hasUi === 'yes' ? 4 : 3
-  if (hasUi === 'yes') {
-    switch (stage) {
-      case 'strategist-working':
-        return { total, active: 1, done: 1 }
-      case 'strategist-ready':
-        return { total, active: 1, done: 1 }
-      case 'designer-working':
-      case 'designer-ready':
-        return { total, active: 2, done: 2 }
-      case 'handoff':
-        return { total, active: 3, done: 3 }
-    }
-  }
+  options: GuidedBriefProgressOptions = {},
+): GuidedBriefStage[] {
+  const wantsProductDiscussion = options.wantsProductDiscussion ?? true
+  const wantsArchitectureDiscussion = options.wantsArchitectureDiscussion ?? false
+  const wantsFrontendDiscussion = options.wantsFrontendDiscussion ?? hasUi === 'yes'
+  const stages: GuidedBriefStage[] = []
+  if (wantsProductDiscussion) stages.push('strategist-working')
+  if (wantsArchitectureDiscussion) stages.push('architect-working')
+  if (hasUi === 'yes' && wantsFrontendDiscussion) stages.push('designer-working')
+  stages.push('handoff')
+  return stages
+}
+
+function stageFamily(stage: GuidedBriefStage): GuidedBriefStage {
   switch (stage) {
-    case 'strategist-working':
     case 'strategist-ready':
-      return { total, active: 1, done: 1 }
-    case 'designer-working':
+      return 'strategist-working'
+    case 'architect-ready':
+      return 'architect-working'
     case 'designer-ready':
-    case 'handoff':
-      return { total, active: 2, done: 2 }
+      return 'designer-working'
+    default:
+      return stage
   }
 }
 
-export function stepCounterLabel(stage: GuidedBriefStage, hasUi: GuidedBriefHasUi): string {
-  const progress = progressForStage(stage, hasUi)
+export function progressForStage(
+  stage: GuidedBriefStage,
+  hasUi: GuidedBriefHasUi,
+  options: GuidedBriefProgressOptions = {},
+): GuidedBriefRuntimeProgress {
+  const order = guidedBriefStageOrder(hasUi, options)
+  const total = order.length + 1
+  const family = stageFamily(stage)
+  const foundIndex = order.indexOf(family)
+  const index = foundIndex >= 0 ? foundIndex : order.length - 1
+  const active = index >= 0 ? index + 1 : order.length
+  return { total, active, done: active }
+}
+
+export function stepCounterLabel(
+  stage: GuidedBriefStage,
+  hasUi: GuidedBriefHasUi,
+  options: GuidedBriefProgressOptions = {},
+): string {
+  const progress = progressForStage(stage, hasUi, options)
   const step = Math.min(progress.total, progress.active + 1)
   switch (stage) {
     case 'strategist-working':
       return `Step ${step} of ${progress.total} · strategist working`
     case 'strategist-ready':
       return `Step ${step} of ${progress.total} · brief ready`
+    case 'architect-working':
+      return `Step ${step} of ${progress.total} · architect working`
+    case 'architect-ready':
+      return `Step ${step} of ${progress.total} · plan ready`
     case 'designer-working':
       return `Step ${step} of ${progress.total} · designer working`
     case 'designer-ready':

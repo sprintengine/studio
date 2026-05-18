@@ -14,6 +14,7 @@ export type { GuidedBriefSpecialistKind }
 
 export const GUIDED_BRIEF_SPECIALIST_MARKERS: Record<GuidedBriefSpecialistKind, string> = {
   strategist: 'BRIEF_READY',
+  architect: 'ARCHITECTURE_PLAN_READY',
   designer: 'MOCKUP_SET_READY',
 }
 
@@ -76,7 +77,8 @@ export type GuidedBriefStrategistSessionInput = {
 export type GuidedBriefDesignerSessionInput = {
   kind: 'designer'
   workspaceRoot: string
-  acceptedBriefSnapshotPath: string
+  acceptedBriefSnapshotPath?: string
+  acceptedArchitecturePlanPath?: string | null
   sessionId?: string
   cli?: AgentCli
   cols?: number
@@ -86,8 +88,21 @@ export type GuidedBriefDesignerSessionInput = {
   mockupPath?: string
 }
 
+export type GuidedBriefArchitectSessionInput = {
+  kind: 'architect'
+  workspaceRoot: string
+  acceptedBriefSnapshotPath?: string | null
+  sessionId?: string
+  cli?: AgentCli
+  cols?: number
+  rows?: number
+  ideaSeedPath?: string
+  architecturePlanPath?: string
+}
+
 export type StartGuidedBriefSpecialistSessionInput =
   | GuidedBriefStrategistSessionInput
+  | GuidedBriefArchitectSessionInput
   | GuidedBriefDesignerSessionInput
 
 export type StartGuidedBriefSpecialistSessionOptions = {
@@ -160,9 +175,20 @@ function promptForInput(input: StartGuidedBriefSpecialistSessionInput, marker: s
     })
   }
 
+  if (input.kind === 'architect') {
+    return buildGuidedBriefSpecialistStartupPrompt({
+      kind: 'architect',
+      ideaSeedPath: input.ideaSeedPath,
+      acceptedBriefSnapshotPath: input.acceptedBriefSnapshotPath,
+      architecturePlanPath: input.architecturePlanPath,
+      marker,
+    })
+  }
+
   return buildGuidedBriefSpecialistStartupPrompt({
     kind: 'designer',
     acceptedBriefSnapshotPath: input.acceptedBriefSnapshotPath,
+    acceptedArchitecturePlanPath: input.acceptedArchitecturePlanPath,
     inspirationDirectoryPath: input.inspirationDirectoryPath,
     uiDirectionPath: input.uiDirectionPath,
     mockupPath: input.mockupPath,
@@ -173,6 +199,15 @@ function promptForInput(input: StartGuidedBriefSpecialistSessionInput, marker: s
 function markerDetectionForInput(input: StartGuidedBriefSpecialistSessionInput, marker: string): GuidedBriefMarkerDetection {
   if (input.kind === 'strategist') {
     const artifactPath = input.requirementsPath ?? 'product/requirements.md'
+    return {
+      marker,
+      artifactPath,
+      watchPath: artifactPath,
+    }
+  }
+
+  if (input.kind === 'architect') {
+    const artifactPath = input.architecturePlanPath ?? 'architecture/plan.md'
     return {
       marker,
       artifactPath,
@@ -276,7 +311,11 @@ export async function startGuidedBriefSpecialistSession(
       rawTerminal: {
         sessionId,
         cwd: input.workspaceRoot,
-        label: input.kind === 'strategist' ? 'Product Strategist terminal' : 'Frontend Designer terminal',
+        label: input.kind === 'strategist'
+          ? 'Product Strategist terminal'
+          : input.kind === 'architect'
+            ? 'Architect terminal'
+            : 'Frontend Designer terminal',
       },
       prompt,
       stop: () => options.terminalApi.terminalKill(sessionId),

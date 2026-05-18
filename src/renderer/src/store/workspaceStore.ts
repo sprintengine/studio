@@ -21,6 +21,7 @@ import type {
   MultiloopState,
   MultiloopWorkspaceContext,
   SprintEngineRole,
+  SprintEngineRoleCounts,
   SprintEngineRoleCliDefaults,
   AgentCli,
   AppSettings,
@@ -723,20 +724,57 @@ function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeState | nu
   const stage = (
     candidate.stage === 'strategist-working'
     || candidate.stage === 'strategist-ready'
+    || candidate.stage === 'architect-working'
+    || candidate.stage === 'architect-ready'
     || candidate.stage === 'designer-working'
     || candidate.stage === 'designer-ready'
     || candidate.stage === 'handoff'
   )
     ? candidate.stage
     : 'strategist-working'
+  const wantsProductDiscussion = typeof candidate.wantsProductDiscussion === 'boolean'
+    ? candidate.wantsProductDiscussion
+    : true
+  const wantsArchitectureDiscussion = typeof candidate.wantsArchitectureDiscussion === 'boolean'
+    ? candidate.wantsArchitectureDiscussion
+    : false
+  const wantsFrontendDiscussion = typeof candidate.wantsFrontendDiscussion === 'boolean'
+    ? candidate.wantsFrontendDiscussion && candidate.hasUi === 'yes'
+    : candidate.hasUi === 'yes'
+  const roleCliDefaults = normalizeSprintEngineRoleCliDefaults(candidate.guidedRoleCliDefaults)
+  const buildRoleCliDefaults = normalizeSprintEngineRoleCliDefaults(candidate.buildRoleCliDefaults)
+  const buildRoleCounts = normalizeSprintEngineRoleCounts(candidate.buildRoleCounts, defaultGuidedBriefBuildRoleCounts(candidate.hasUi))
+  const buildCliPermissionPreset = candidate.buildCliPermissionPreset === 'default'
+    || candidate.buildCliPermissionPreset === 'auto_workspace'
+    || candidate.buildCliPermissionPreset === 'bypass_all'
+    ? candidate.buildCliPermissionPreset
+    : 'default'
 
   return {
     workspaceRoot: candidate.workspaceRoot,
     workspaceName: candidate.workspaceName,
     idea: candidate.idea,
     hasUi: candidate.hasUi,
+    wantsProductDiscussion,
+    wantsArchitectureDiscussion,
+    wantsFrontendDiscussion,
+    guidedRoleCliDefaults: {
+      product: roleCliDefaults.product,
+      architect: roleCliDefaults.architect,
+      frontend: roleCliDefaults.frontend,
+    },
+    buildRoleCounts,
+    buildRoleCliDefaults,
+    buildCliPermissionPreset,
+    buildStartRunner: typeof candidate.buildStartRunner === 'boolean'
+      ? candidate.buildStartRunner
+      : true,
+    buildAutoApproveArtifacts: typeof candidate.buildAutoApproveArtifacts === 'boolean'
+      ? candidate.buildAutoApproveArtifacts
+      : false,
     stage,
     acceptedProductBrief: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedProductBrief),
+    acceptedArchitecturePlan: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedArchitecturePlan),
     acceptedUiDirection: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedUiDirection),
     acceptedMockups: Array.isArray(candidate.acceptedMockups)
       ? candidate.acceptedMockups
@@ -747,6 +785,10 @@ function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeState | nu
     strategistSessionId:
       typeof candidate.strategistSessionId === 'string' && candidate.strategistSessionId.trim()
         ? candidate.strategistSessionId
+        : null,
+    architectSessionId:
+      typeof candidate.architectSessionId === 'string' && candidate.architectSessionId.trim()
+        ? candidate.architectSessionId
         : null,
     designerSessionId:
       typeof candidate.designerSessionId === 'string' && candidate.designerSessionId.trim()
@@ -864,6 +906,30 @@ const defaultSprintEngineRoleCliDefaults = (): Required<SprintEngineRoleCliDefau
   tester: 'codex',
   security: 'codex',
 })
+
+const defaultGuidedBriefBuildRoleCounts = (hasUi: GuidedBriefRuntimeState['hasUi'] = 'yes'): SprintEngineRoleCounts => ({
+  architect: 1,
+  product: 1,
+  frontend: hasUi === 'yes' ? 1 : 0,
+  developer: 1,
+  code_reviewer: 1,
+  spec_reviewer: 1,
+  performance: 0,
+  tester: 1,
+  security: 0,
+})
+
+function normalizeSprintEngineRoleCounts(input: unknown, fallback: SprintEngineRoleCounts): SprintEngineRoleCounts {
+  const candidate = input && typeof input === 'object' ? input as Partial<Record<SprintEngineRole, unknown>> : {}
+  const next = { ...fallback }
+  ;(Object.keys(fallback) as SprintEngineRole[]).forEach((role) => {
+    const value = candidate[role]
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      next[role] = Math.max(role === 'architect' ? 1 : 0, Math.min(10, Math.floor(value)))
+    }
+  })
+  return next
+}
 
 function normalizeSprintEngineRoleCliDefaults(
   input: SprintEngineRoleCliDefaults | null | undefined

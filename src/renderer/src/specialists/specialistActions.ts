@@ -192,7 +192,7 @@ export function buildSpecialistSoulStartupPrompt(action: SpecialistAction): stri
   ].join('\n')
 }
 
-export type GuidedBriefSpecialistKind = 'strategist' | 'designer'
+export type GuidedBriefSpecialistKind = 'strategist' | 'architect' | 'designer'
 
 export type GuidedBriefSpecialistPromptInput =
   | {
@@ -202,13 +202,33 @@ export type GuidedBriefSpecialistPromptInput =
       marker?: string
     }
   | {
+      kind: 'architect'
+      ideaSeedPath?: string
+      acceptedBriefSnapshotPath?: string | null
+      architecturePlanPath?: string
+      marker?: string
+    }
+  | {
       kind: 'designer'
-      acceptedBriefSnapshotPath: string
+      acceptedBriefSnapshotPath?: string
+      acceptedArchitecturePlanPath?: string | null
       inspirationDirectoryPath?: string
       uiDirectionPath?: string
       mockupPath?: string
       marker?: string
     }
+
+function guidedBriefInterviewInstructions(role: 'product strategist' | 'architect' | 'frontend designer'): string[] {
+  return [
+    `Conduct a guided ${role} interview before writing the artifact.`,
+    'Ask exactly one question at a time.',
+    'For each question, state the decision type, your recommended answer, why you recommend it, and what changes if the user chooses differently.',
+    'Walk the design tree in dependency order: resolve upstream product, workflow, data, architecture, interface, UX, reliability, security, performance, and scope decisions before asking downstream implementation questions.',
+    'If a question can be answered by inspecting the project files, docs, Knowledge Graph, or existing commands, inspect those sources before asking. If this is a new codebase and no source exists, say the assumption you are making.',
+    'Continue interviewing until you and the user have a shared, explicit understanding of the artifact you are about to write.',
+    'Do not ask bundled questionnaires. Do not skip unresolved branches by hiding them as assumptions.',
+  ]
+}
 
 export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecialistPromptInput): string {
   if (input.kind === 'strategist') {
@@ -226,8 +246,40 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
       'Treat the returned text as your role, judgment, and quality bar.',
       '',
       `Read \`${ideaSeedPath}\` before asking follow-up questions.`,
+      ...guidedBriefInterviewInstructions('product strategist'),
       `Write the accepted product brief to \`${requirementsPath}\`.`,
       `When and only when \`${requirementsPath}\` exists and is ready for user review, emit this exact marker on its own line:`,
+      '',
+      marker,
+      '',
+      'Do not create or mutate Sprint Engine state. This Guided brief flow hands off to Sprint Engine later.',
+      'If the `souls` command is unavailable, stop and report that the Souls CLI is unavailable instead of guessing the role prompt.',
+    ].join('\n')
+  }
+
+  if (input.kind === 'architect') {
+    const marker = input.marker ?? 'ARCHITECTURE_PLAN_READY'
+    const ideaSeedPath = input.ideaSeedPath ?? 'product/idea-seed.md'
+    const architecturePlanPath = input.architecturePlanPath ?? 'architecture/plan.md'
+
+    return [
+      'Fetch your Soul from the Souls CLI before doing any architecture work.',
+      '',
+      '```bash',
+      'souls get architect',
+      '```',
+      '',
+      'Treat the returned text as your role, judgment, and quality bar.',
+      '',
+      `Read \`${ideaSeedPath}\` before asking follow-up questions.`,
+      input.acceptedBriefSnapshotPath
+        ? `Read the accepted product brief snapshot at \`${input.acceptedBriefSnapshotPath}\` before planning.`
+        : 'No accepted product brief is available; use the idea seed as the product source of truth and make uncertainty explicit.',
+      ...guidedBriefInterviewInstructions('architect'),
+      `Write the accepted architecture plan to \`${architecturePlanPath}\`.`,
+      'The architecture plan must cover goal, confirmed requirements, assumptions, open questions, architecture direction, real data/source-of-truth contracts, UI/API/service contracts where relevant, implementation tasks, verification strategy, risks, migration or rollback notes where relevant, and deferred work.',
+      'The plan must not depend on template data, sample data, hardcoded demo entities, fake API responses, placeholder persistence, mocked services, or stubbed commands outside tests.',
+      `When and only when \`${architecturePlanPath}\` exists and is ready for user review, emit this exact marker on its own line:`,
       '',
       marker,
       '',
@@ -250,8 +302,13 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
     '',
     'Treat the returned text as your role, judgment, and quality bar.',
     '',
-    `Read the accepted product brief snapshot at \`${input.acceptedBriefSnapshotPath}\` before designing.`,
+    input.acceptedArchitecturePlanPath
+      ? `Read the accepted architecture plan snapshot at \`${input.acceptedArchitecturePlanPath}\` before designing.`
+      : input.acceptedBriefSnapshotPath
+        ? `Read the accepted product brief snapshot at \`${input.acceptedBriefSnapshotPath}\` before designing.`
+        : 'No accepted product brief or architecture plan is available; read `product/idea-seed.md` and make uncertainty explicit.',
     `If the user has dropped inspiration files into \`${inspirationDirectoryPath}\`, read them through the existing CLI image-input path before drafting.`,
+    ...guidedBriefInterviewInstructions('frontend designer'),
     `Write UX direction to \`${uiDirectionPath}\`.`,
     `Write the reviewable HTML mockup to \`${mockupPath}\`.`,
     `When and only when \`${uiDirectionPath}\` and the mockup HTML exist and are ready for user review, emit this exact marker on its own line:`,

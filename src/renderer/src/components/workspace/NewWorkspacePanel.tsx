@@ -26,6 +26,7 @@ import type {
   SprintEngineState,
   SprintEngineWorkspaceContext,
   WorkspaceMode,
+  GuidedBriefRoleCliDefaults,
 } from '../../types/workspace'
 import {
   createPlanSourcedSprintEngineWorkspace,
@@ -38,6 +39,8 @@ import {
 import {
   GuidedBriefWorkspaceError,
   scaffoldGuidedBriefWorkspace,
+  writeGuidedBriefBuildHandoff,
+  type GuidedBriefAcceptedArtifact,
 } from '../../utils/guidedBriefWorkspace'
 import { GuidedBriefFlow } from './guidedBrief/GuidedBriefFlow'
 import { GuidedBriefCloseConfirmation } from './guidedBrief/GuidedBriefCloseConfirmation'
@@ -47,6 +50,8 @@ import { joinWorkspacePath as joinGuidedWorkspacePath } from './guidedBrief/path
 import {
   countSprintEngineAgents,
   createInitialSprintEngineState,
+  sprintEngineRoleLabels,
+  sprintEngineRoleOrder,
 } from '../../utils/sprintengine'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import MulticodeMark from '../brand/MulticodeMark'
@@ -189,6 +194,49 @@ const guidedBriefSprintEngineRoleCounts: SprintEngineRoleCounts = {
   security: 0,
 }
 
+function guidedBriefBuildRoleCountsForSurface(hasUi: GuidedBriefHasUi): SprintEngineRoleCounts {
+  return {
+    ...guidedBriefSprintEngineRoleCounts,
+    frontend: hasUi === 'yes' ? guidedBriefSprintEngineRoleCounts.frontend : 0,
+  }
+}
+
+function sprintEngineRosterSummary(roleCounts: SprintEngineRoleCounts): string[] {
+  return sprintEngineRoleOrder
+    .filter((role) => roleCounts[role] > 0)
+    .map((role) => `${sprintEngineRoleLabels[role]}: ${roleCounts[role]}`)
+}
+
+const initialGuidedBriefRoleCliDefaults: GuidedBriefRoleCliDefaults = {
+  product: initialSprintEngineRoleCliDefaults.product,
+  architect: initialSprintEngineRoleCliDefaults.architect,
+  frontend: initialSprintEngineRoleCliDefaults.frontend,
+}
+
+async function buildGuidedBriefSprintEngineSourceBundle(
+  workspaceRoot: string,
+  handoffPath: string,
+  handoffContent: string,
+  architecturePlan: GuidedBriefAcceptedArtifact | null,
+): Promise<SprintEngineSourceBundleItem[] | undefined> {
+  if (!architecturePlan) return undefined
+  const architectureContent = await window.api.readfile(joinGuidedWorkspacePath(workspaceRoot, architecturePlan.path))
+  return [
+    {
+      kind: 'product_plan',
+      sourcePath: handoffPath,
+      sourceRelativePath: handoffPath,
+      sourceContent: handoffContent,
+    },
+    {
+      kind: 'architect_plan',
+      sourcePath: architecturePlan.path,
+      sourceRelativePath: architecturePlan.path,
+      sourceContent: architectureContent,
+    },
+  ]
+}
+
 
 export type NewWorkspacePanelInitialState = {
   mode?: CreationMode
@@ -278,12 +326,17 @@ export default function NewWorkspacePanel({
 
   const [guidedIdea, setGuidedIdea] = useState('')
   const [guidedHasUi, setGuidedHasUi] = useState<GuidedBriefHasUi | null>(null)
+  const [guidedWantsProduct, setGuidedWantsProduct] = useState(true)
+  const [guidedWantsArchitecture, setGuidedWantsArchitecture] = useState(false)
+  const [guidedWantsFrontend, setGuidedWantsFrontend] = useState(true)
+  const [guidedRoleCliDefaults, setGuidedRoleCliDefaults] = useState<GuidedBriefRoleCliDefaults>(
+    initialGuidedBriefRoleCliDefaults,
+  )
   const [guidedError, setGuidedError] = useState<string | null>(null)
   const [guidedRuntimeState, setGuidedRuntimeState] = useState<GuidedBriefRuntimeState | null>(null)
   const [viewingIdeaAfterCommit, setViewingIdeaAfterCommit] = useState(false)
   const [closeConfirmation, setCloseConfirmation] = useState(false)
 
-  const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli ?? 'codex')
   const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
 
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
@@ -696,6 +749,10 @@ export default function NewWorkspacePanel({
     setSeRoleCliDefaults((current) => ({ ...current, [role]: cli }))
   }
 
+  const setGuidedRoleCli = (role: keyof GuidedBriefRoleCliDefaults, cli: AgentCli) => {
+    setGuidedRoleCliDefaults((current) => ({ ...current, [role]: cli }))
+  }
+
   const sprintEngineConfig = useMemo<SprintEngineMockConfig>(
     () => ({
       name: seTeamName.trim() || 'Sprint Engine Team',
@@ -737,18 +794,59 @@ export default function NewWorkspacePanel({
             writeFile: window.api.writefile,
           },
         })
+        const wantsFrontendDiscussion = guidedHasUi === 'yes' && guidedWantsFrontend
+        const initialStage: GuidedBriefRuntimeState['stage'] = guidedWantsProduct
+          ? 'strategist-working'
+          : guidedWantsArchitecture
+            ? 'architect-working'
+            : wantsFrontendDiscussion
+              ? 'designer-working'
+              : 'handoff'
+        if (initialStage === 'handoff') {
+          await writeGuidedBriefBuildHandoff({
+            workspaceRoot: folderPath,
+            idea: guidedIdea,
+            hasUi: guidedHasUi,
+            productBrief: null,
+            architecturePlan: null,
+            requireMockups: false,
+            confirmedDecisions: [
+              guidedHasUi === 'yes'
+                ? 'Application includes a visual UI, but no frontend design stage was requested.'
+                : 'No visual UI is required.',
+              'Product strategy discussion was not requested.',
+              'Architecture discussion was not requested.',
+            ],
+            filesystem: {
+              ensureDir: window.api.ensureDir,
+              readFile: window.api.readfile,
+              writeFile: window.api.writefile,
+            },
+          })
+        }
         const workspaceLabel = toTitleName(basename(folderPath)) || name.trim() || 'Guided brief'
         const runtimeState: GuidedBriefRuntimeState = {
           workspaceRoot: folderPath,
           workspaceName: workspaceLabel,
           idea: guidedIdea,
           hasUi: guidedHasUi,
-          stage: 'strategist-working',
+          wantsProductDiscussion: guidedWantsProduct,
+          wantsArchitectureDiscussion: guidedWantsArchitecture,
+          wantsFrontendDiscussion,
+          guidedRoleCliDefaults,
+          buildRoleCounts: guidedBriefBuildRoleCountsForSurface(guidedHasUi),
+          buildRoleCliDefaults: seRoleCliDefaults,
+          buildCliPermissionPreset: cliPermissionPreset,
+          buildStartRunner: seStartRunner,
+          buildAutoApproveArtifacts: seAutoApproveArtifacts,
+          stage: initialStage,
           acceptedProductBrief: null,
+          acceptedArchitecturePlan: null,
           acceptedUiDirection: null,
           acceptedMockups: [],
           activeMockupPath: null,
           strategistSessionId: null,
+          architectSessionId: null,
           designerSessionId: null,
         }
         addWorkspace(createGuidedBriefTemplate(), {
@@ -991,24 +1089,62 @@ export default function NewWorkspacePanel({
 
   const handleGuidedStartBuild = async (
     runtimeState: GuidedBriefRuntimeState,
-    runOptions: { startRunner: boolean; autoApproveArtifacts: boolean } = {
+    runOptions: {
+      startRunner: boolean
+      autoApproveArtifacts: boolean
+      roleCounts: SprintEngineRoleCounts
+      roleCliDefaults: Required<SprintEngineRoleCliDefaults>
+      cliPermissionPreset: SprintEngineCliPermissionPreset
+    } = {
       startRunner: seStartRunner,
       autoApproveArtifacts: seAutoApproveArtifacts,
+      roleCounts: runtimeState.buildRoleCounts,
+      roleCliDefaults: runtimeState.buildRoleCliDefaults,
+      cliPermissionPreset: runtimeState.buildCliPermissionPreset,
     },
   ) => {
     if (!sprintEngineAccess.allowed) {
       await startLogin()
       throw new Error('Sign in to use Sprint Engine mode.')
     }
-    if (!runtimeState.acceptedProductBrief) {
+    if (runtimeState.wantsProductDiscussion && !runtimeState.acceptedProductBrief) {
       throw new Error('Accept the product brief before starting the build.')
     }
-    if (runtimeState.hasUi === 'yes' && (!runtimeState.acceptedUiDirection || runtimeState.acceptedMockups.length === 0)) {
+    if (runtimeState.wantsArchitectureDiscussion && !runtimeState.acceptedArchitecturePlan) {
+      throw new Error('Accept the architecture plan before starting the build.')
+    }
+    if (runtimeState.hasUi === 'yes' && runtimeState.wantsFrontendDiscussion && (!runtimeState.acceptedUiDirection || runtimeState.acceptedMockups.length === 0)) {
       throw new Error('Accept the UI direction and mockups before starting the build.')
     }
 
+    await writeGuidedBriefBuildHandoff({
+      workspaceRoot: runtimeState.workspaceRoot,
+      idea: runtimeState.idea,
+      hasUi: runtimeState.hasUi,
+      productBrief: runtimeState.acceptedProductBrief,
+      architecturePlan: runtimeState.acceptedArchitecturePlan,
+      uiDirection: runtimeState.acceptedUiDirection,
+      mockups: runtimeState.acceptedMockups,
+      requireMockups: runtimeState.hasUi === 'yes' && runtimeState.wantsFrontendDiscussion,
+      confirmedDecisions: [
+        runtimeState.hasUi === 'yes' ? 'Application includes a visual UI.' : 'No visual UI is required.',
+      ],
+      roster: sprintEngineRosterSummary(runOptions.roleCounts),
+      validationNotes: ['Validate implementation against accepted Guided brief artifact snapshot hashes.'],
+      filesystem: {
+        ensureDir: window.api.ensureDir,
+        readFile: window.api.readfile,
+        writeFile: window.api.writefile,
+      },
+    })
     const sourcePath = guidedBriefBuildHandoffRelativePath()
     const sourceContent = await window.api.readfile(joinGuidedWorkspacePath(runtimeState.workspaceRoot, sourcePath))
+    const sourceBundle = await buildGuidedBriefSprintEngineSourceBundle(
+      runtimeState.workspaceRoot,
+      sourcePath,
+      sourceContent,
+      runtimeState.acceptedArchitecturePlan,
+    )
     const goal = guidedBriefSprintEngineGoal(sourceContent, runtimeState.hasUi)
 
     try {
@@ -1019,13 +1155,14 @@ export default function NewWorkspacePanel({
         sourcePath,
         sourceContent,
         sourcePlanKind: 'product_plan',
-        roleCounts: guidedBriefSprintEngineRoleCounts,
-        roleCliDefaults: seRoleCliDefaults,
+        sourceBundle,
+        roleCounts: runOptions.roleCounts,
+        roleCliDefaults: runOptions.roleCliDefaults,
         sprintEngineAutoState: {
           enabled: runOptions.startRunner,
           autoApproveArtifacts: runOptions.autoApproveArtifacts,
-          cliPermissionPreset,
-          maxConcurrentAgents: countSprintEngineAgents(guidedBriefSprintEngineRoleCounts),
+          cliPermissionPreset: runOptions.cliPermissionPreset,
+          maxConcurrentAgents: countSprintEngineAgents(runOptions.roleCounts),
         },
         pathExists: window.api.pathExists,
       })
@@ -1072,7 +1209,6 @@ export default function NewWorkspacePanel({
             onBackToIdea={() => setViewingIdeaAfterCommit(true)}
             onClose={requestClose}
             onStartBuild={handleGuidedStartBuild}
-            cli={lastSelectedCli}
             cliRuntimes={appCliRuntimes}
           />
         </div>
@@ -1296,8 +1432,18 @@ export default function NewWorkspacePanel({
               }}
               onChangeHasUi={(value) => {
                 setGuidedHasUi(value)
+                if (value === 'no') setGuidedWantsFrontend(false)
+                if (value === 'yes') setGuidedWantsFrontend(true)
                 setGuidedError(null)
               }}
+              wantsProductDiscussion={guidedWantsProduct}
+              wantsArchitectureDiscussion={guidedWantsArchitecture}
+              wantsFrontendDiscussion={guidedWantsFrontend}
+              roleCliDefaults={guidedRoleCliDefaults}
+              onChangeWantsProductDiscussion={setGuidedWantsProduct}
+              onChangeWantsArchitectureDiscussion={setGuidedWantsArchitecture}
+              onChangeWantsFrontendDiscussion={setGuidedWantsFrontend}
+              onSetRoleCli={setGuidedRoleCli}
               folderPath={folderPath}
               error={guidedError}
             />
@@ -1365,8 +1511,10 @@ export default function NewWorkspacePanel({
           // Tear down any running guided-brief PTYs — runtime state is about to
           // be discarded, so the session ids would otherwise leak.
           const strategistId = guidedRuntimeState?.strategistSessionId
+          const architectId = guidedRuntimeState?.architectSessionId
           const designerId = guidedRuntimeState?.designerSessionId
           if (strategistId) void window.api.terminalKill(strategistId).catch(() => {})
+          if (architectId) void window.api.terminalKill(architectId).catch(() => {})
           if (designerId) void window.api.terminalKill(designerId).catch(() => {})
           onClose()
         }}
@@ -1768,6 +1916,14 @@ function GuidedIdeaStep({
   hasUi,
   onChangeIdea,
   onChangeHasUi,
+  wantsProductDiscussion,
+  wantsArchitectureDiscussion,
+  wantsFrontendDiscussion,
+  roleCliDefaults,
+  onChangeWantsProductDiscussion,
+  onChangeWantsArchitectureDiscussion,
+  onChangeWantsFrontendDiscussion,
+  onSetRoleCli,
   folderPath,
   error,
 }: {
@@ -1775,6 +1931,14 @@ function GuidedIdeaStep({
   hasUi: GuidedBriefHasUi | null
   onChangeIdea: (value: string) => void
   onChangeHasUi: (value: GuidedBriefHasUi) => void
+  wantsProductDiscussion: boolean
+  wantsArchitectureDiscussion: boolean
+  wantsFrontendDiscussion: boolean
+  roleCliDefaults: GuidedBriefRoleCliDefaults
+  onChangeWantsProductDiscussion: (value: boolean) => void
+  onChangeWantsArchitectureDiscussion: (value: boolean) => void
+  onChangeWantsFrontendDiscussion: (value: boolean) => void
+  onSetRoleCli: (role: keyof GuidedBriefRoleCliDefaults, cli: AgentCli) => void
   folderPath: string | null
   error: string | null
 }) {
@@ -1815,9 +1979,37 @@ function GuidedIdeaStep({
             onSelect={() => onChangeHasUi('no')}
           />
         </div>
-        <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          If yes, a designer stage will run after the brief is approved.
-        </span>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <FieldLabel>Guided discussions</FieldLabel>
+        <div className="flex flex-col gap-2">
+          <GuidedRoleToggle
+            checked={wantsProductDiscussion}
+            title="Product strategist"
+            body="Sharpens the product brief before planning."
+            cli={roleCliDefaults.product}
+            onChangeCli={(cli) => onSetRoleCli('product', cli)}
+            onChange={onChangeWantsProductDiscussion}
+          />
+          <GuidedRoleToggle
+            checked={wantsArchitectureDiscussion}
+            title="Architect"
+            body="Interviews through architecture decisions and writes architecture/plan.md."
+            cli={roleCliDefaults.architect}
+            onChangeCli={(cli) => onSetRoleCli('architect', cli)}
+            onChange={onChangeWantsArchitectureDiscussion}
+          />
+          <GuidedRoleToggle
+            checked={hasUi === 'yes' && wantsFrontendDiscussion}
+            disabled={hasUi !== 'yes'}
+            title="Frontend engineer"
+            body={hasUi === 'yes' ? 'Designs UI direction and reviewable mockups.' : 'Available only for visual apps.'}
+            cli={roleCliDefaults.frontend}
+            onChangeCli={(cli) => onSetRoleCli('frontend', cli)}
+            onChange={onChangeWantsFrontendDiscussion}
+          />
+        </div>
       </div>
 
       {folderPath ? (
@@ -1833,6 +2025,57 @@ function GuidedIdeaStep({
           {error}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+function GuidedRoleToggle({
+  checked,
+  disabled = false,
+  title,
+  body,
+  cli,
+  onChange,
+  onChangeCli,
+}: {
+  checked: boolean
+  disabled?: boolean
+  title: string
+  body: string
+  cli: AgentCli
+  onChange: (value: boolean) => void
+  onChangeCli: (cli: AgentCli) => void
+}) {
+  return (
+    <div
+      className={`flex items-start justify-between gap-3 rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] px-3 py-2.5 ${
+        disabled ? 'opacity-55' : 'hover:border-[color:var(--color-5)]'
+      }`}
+    >
+      <span className="min-w-0">
+        <span className="block text-[12px] font-semibold text-[color:var(--text-strong)]">{title}</span>
+        <span className="mt-0.5 block text-[12px] leading-4 text-[color:var(--text-muted)]">{body}</span>
+      </span>
+      <span className="flex shrink-0 items-center gap-2">
+        <Select<AgentCli>
+          ariaLabel={`${title} CLI`}
+          items={[
+            { value: 'codex', label: 'Codex' },
+            { value: 'claude', label: 'Claude' },
+          ]}
+          value={cli}
+          onChange={onChangeCli}
+          disabled={disabled || !checked}
+          className="w-[120px]"
+        />
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(event) => onChange(event.currentTarget.checked)}
+          className="h-4 w-4 shrink-0 accent-[color:var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[color:var(--accent-primary)] disabled:cursor-not-allowed"
+        />
+      </span>
     </div>
   )
 }

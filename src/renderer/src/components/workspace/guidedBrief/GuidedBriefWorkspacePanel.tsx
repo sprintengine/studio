@@ -1,17 +1,21 @@
 import { useState } from 'react'
 import type {
-  AgentCli,
   GuidedBriefRuntimeState,
-  SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
+  SprintEngineSourceBundleItem,
 } from '../../../types/workspace'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import {
   createPlanSourcedSprintEngineWorkspace,
   PlanSourcedSprintEngineWorkspaceError,
 } from '../../../utils/sprintengineWorkspaceCreation'
-import { countSprintEngineAgents } from '../../../utils/sprintengine'
-import { GuidedBriefFlow } from './GuidedBriefFlow'
+import {
+  countSprintEngineAgents,
+  sprintEngineRoleLabels,
+  sprintEngineRoleOrder,
+} from '../../../utils/sprintengine'
+import { writeGuidedBriefBuildHandoff } from '../../../utils/guidedBriefWorkspace'
+import { GuidedBriefFlow, type GuidedBriefRunOptions } from './GuidedBriefFlow'
 import { guidedBriefBuildHandoffRelativePath, guidedBriefSprintEngineGoal } from './handoff'
 import { joinWorkspacePath } from './paths'
 
@@ -19,58 +23,91 @@ type Props = {
   workspaceId: string
 }
 
-const guidedBriefSprintEngineRoleCounts: SprintEngineRoleCounts = {
-  architect: 1,
-  product: 1,
-  frontend: 1,
-  developer: 1,
-  code_reviewer: 1,
-  spec_reviewer: 1,
-  performance: 0,
-  tester: 1,
-  security: 0,
+async function buildGuidedBriefSprintEngineSourceBundle(
+  workspaceRoot: string,
+  handoffPath: string,
+  handoffContent: string,
+  architecturePlan: GuidedBriefRuntimeState['acceptedArchitecturePlan'],
+): Promise<SprintEngineSourceBundleItem[] | undefined> {
+  if (!architecturePlan) return undefined
+  const architectureContent = await window.api.readfile(joinWorkspacePath(workspaceRoot, architecturePlan.path))
+  return [
+    {
+      kind: 'product_plan',
+      sourcePath: handoffPath,
+      sourceRelativePath: handoffPath,
+      sourceContent: handoffContent,
+    },
+    {
+      kind: 'architect_plan',
+      sourcePath: architecturePlan.path,
+      sourceRelativePath: architecturePlan.path,
+      sourceContent: architectureContent,
+    },
+  ]
 }
 
-const guidedBriefRoleCliDefaults: Required<SprintEngineRoleCliDefaults> = {
-  architect: 'codex',
-  product: 'codex',
-  frontend: 'codex',
-  developer: 'codex',
-  code_reviewer: 'codex',
-  spec_reviewer: 'codex',
-  performance: 'codex',
-  tester: 'codex',
-  security: 'codex',
+function sprintEngineRosterSummary(roleCounts: SprintEngineRoleCounts): string[] {
+  return sprintEngineRoleOrder
+    .filter((role) => roleCounts[role] > 0)
+    .map((role) => `${sprintEngineRoleLabels[role]}: ${roleCounts[role]}`)
 }
 
 export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((candidate) => candidate.id === workspaceId) ?? null)
   const setGuidedBriefState = useWorkspaceStore((s) => s.setGuidedBriefState)
   const authState = useWorkspaceStore((s) => s.authState)
-  const cli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli ?? 'codex')
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
-  const cliPermissionPreset = useWorkspaceStore((s) => s.appSettings.lastAgentSpawnPermissionPreset ?? 'default')
   const [viewingIdea, setViewingIdea] = useState(false)
 
   const runtimeState = workspace?.guidedBriefState ?? null
 
   const startBuild = async (
     state: GuidedBriefRuntimeState,
-    runOptions: { startRunner: boolean; autoApproveArtifacts: boolean },
+    runOptions: GuidedBriefRunOptions,
   ) => {
     if (!authState.authenticated) {
       await window.api.authLogin(authState.selectedOrganization?.id ?? null)
       throw new Error('Sign in to use Sprint Engine mode.')
     }
-    if (!state.acceptedProductBrief) {
+    if (state.wantsProductDiscussion && !state.acceptedProductBrief) {
       throw new Error('Accept the product brief before starting the build.')
     }
-    if (state.hasUi === 'yes' && (!state.acceptedUiDirection || state.acceptedMockups.length === 0)) {
+    if (state.wantsArchitectureDiscussion && !state.acceptedArchitecturePlan) {
+      throw new Error('Accept the architecture plan before starting the build.')
+    }
+    if (state.hasUi === 'yes' && state.wantsFrontendDiscussion && (!state.acceptedUiDirection || state.acceptedMockups.length === 0)) {
       throw new Error('Accept the UI direction and mockups before starting the build.')
     }
 
+    await writeGuidedBriefBuildHandoff({
+      workspaceRoot: state.workspaceRoot,
+      idea: state.idea,
+      hasUi: state.hasUi,
+      productBrief: state.acceptedProductBrief,
+      architecturePlan: state.acceptedArchitecturePlan,
+      uiDirection: state.acceptedUiDirection,
+      mockups: state.acceptedMockups,
+      requireMockups: state.hasUi === 'yes' && state.wantsFrontendDiscussion,
+      confirmedDecisions: [
+        state.hasUi === 'yes' ? 'Application includes a visual UI.' : 'No visual UI is required.',
+      ],
+      roster: sprintEngineRosterSummary(runOptions.roleCounts),
+      validationNotes: ['Validate implementation against accepted Guided brief artifact snapshot hashes.'],
+      filesystem: {
+        ensureDir: window.api.ensureDir,
+        readFile: window.api.readfile,
+        writeFile: window.api.writefile,
+      },
+    })
     const sourcePath = guidedBriefBuildHandoffRelativePath()
     const sourceContent = await window.api.readfile(joinWorkspacePath(state.workspaceRoot, sourcePath))
+    const sourceBundle = await buildGuidedBriefSprintEngineSourceBundle(
+      state.workspaceRoot,
+      sourcePath,
+      sourceContent,
+      state.acceptedArchitecturePlan,
+    )
     const goal = guidedBriefSprintEngineGoal(sourceContent, state.hasUi)
 
     try {
@@ -81,13 +118,14 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
         sourcePath,
         sourceContent,
         sourcePlanKind: 'product_plan',
-        roleCounts: guidedBriefSprintEngineRoleCounts,
-        roleCliDefaults: guidedBriefRoleCliDefaults,
+        sourceBundle,
+        roleCounts: runOptions.roleCounts,
+        roleCliDefaults: runOptions.roleCliDefaults,
         sprintEngineAutoState: {
           enabled: runOptions.startRunner,
           autoApproveArtifacts: runOptions.autoApproveArtifacts,
-          cliPermissionPreset,
-          maxConcurrentAgents: countSprintEngineAgents(guidedBriefSprintEngineRoleCounts),
+          cliPermissionPreset: runOptions.cliPermissionPreset,
+          maxConcurrentAgents: countSprintEngineAgents(runOptions.roleCounts),
         },
         pathExists: window.api.pathExists,
       })
@@ -146,7 +184,6 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
       onChange={(next) => setGuidedBriefState(workspaceId, next)}
       onBackToIdea={() => setViewingIdea(true)}
       onStartBuild={startBuild}
-      cli={cli as AgentCli}
       cliRuntimes={cliRuntimes}
     />
   )

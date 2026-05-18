@@ -111,6 +111,36 @@ assert.match(uiHandoff, /Dashboard mockup: `mockups\/\.versions\/mockuphash\.htm
 assert.match(uiHandoff, /UI direction: `product\/\.versions\/uihash\.md` \(uihash\)/, 'has-UI handoff records UI direction snapshot')
 assert.match(uiHandoff, /Which accounting system should import first\?/, 'has-UI handoff records open questions')
 
+assert.throws(
+  () => buildGuidedBriefBuildHandoffMarkdown({
+    idea: 'Create a dashboard for invoice trends.',
+    hasUi: 'yes',
+    productBrief: null,
+    requireMockups: true,
+  }),
+  /mockups-required/,
+  'UI handoff can explicitly require mockups',
+)
+
+const skippedFrontendHandoff = buildGuidedBriefBuildHandoffMarkdown({
+  idea: 'Create a dashboard for invoice trends.',
+  hasUi: 'yes',
+  productBrief: null,
+  architecturePlan: {
+    title: 'Architecture plan',
+    hash: 'planhash',
+    path: 'product/.versions/planhash.md',
+  },
+  requireMockups: false,
+})
+assert.match(skippedFrontendHandoff, /Product brief: not requested/, 'skipped product handoff is explicit')
+assert.match(skippedFrontendHandoff, /No accepted mockups recorded/, 'skipped frontend handoff no longer throws')
+assert.match(
+  skippedFrontendHandoff,
+  /Build the accepted Guided brief artifacts into a production-ready visual application\./,
+  'skipped frontend goal does not reference missing mockups',
+)
+
 const uiFs = createMemoryFilesystem()
 uiFs.files.set('/workspace/mockups/dashboard.html', '<main>Dashboard</main>')
 const uiMockup = await snapshotGuidedBriefArtifact({

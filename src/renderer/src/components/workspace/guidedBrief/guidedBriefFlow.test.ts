@@ -9,6 +9,39 @@ import {
   type GuidedBriefRuntimeState,
 } from './types'
 
+const guidedDefaults = {
+  guidedRoleCliDefaults: {
+    product: 'codex' as const,
+    architect: 'codex' as const,
+    frontend: 'codex' as const,
+  },
+  buildRoleCounts: {
+    architect: 1,
+    product: 1,
+    frontend: 1,
+    developer: 1,
+    code_reviewer: 1,
+    spec_reviewer: 1,
+    performance: 0,
+    tester: 1,
+    security: 0,
+  },
+  buildRoleCliDefaults: {
+    architect: 'codex' as const,
+    product: 'codex' as const,
+    frontend: 'codex' as const,
+    developer: 'codex' as const,
+    code_reviewer: 'codex' as const,
+    spec_reviewer: 'codex' as const,
+    performance: 'codex' as const,
+    tester: 'codex' as const,
+    security: 'codex' as const,
+  },
+  buildCliPermissionPreset: 'default' as const,
+  buildStartRunner: true,
+  buildAutoApproveArtifacts: false,
+}
+
 assert.equal(joinWorkspacePath('/workspace', 'product', 'requirements.md'), '/workspace/product/requirements.md')
 assert.equal(joinWorkspacePath('/workspace/', 'product'), '/workspace/product')
 assert.equal(joinWorkspacePath('C:\\workspace', 'product', 'requirements.md'), 'C:\\workspace\\product\\requirements.md')
@@ -28,6 +61,22 @@ assert.equal(designerWorkingHasUi.active, 2)
 
 const handoffHasUi = progressForStage('handoff', 'yes')
 assert.equal(handoffHasUi.active, 3)
+
+const architectWorkingHasUi = progressForStage('architect-working', 'yes', {
+  wantsProductDiscussion: true,
+  wantsArchitectureDiscussion: true,
+  wantsFrontendDiscussion: true,
+})
+assert.equal(architectWorkingHasUi.total, 5, 'architecture adds one progress dash')
+assert.equal(architectWorkingHasUi.active, 2)
+assert.match(
+  stepCounterLabel('architect-ready', 'yes', {
+    wantsProductDiscussion: true,
+    wantsArchitectureDiscussion: true,
+    wantsFrontendDiscussion: true,
+  }),
+  /Step 3 of 5 · plan ready/,
+)
 
 const strategistWorkingNoUi = progressForStage('strategist-working', 'no')
 assert.equal(strategistWorkingNoUi.total, 3, 'no-UI flow has three progress dashes')
@@ -58,32 +107,48 @@ assert.match(stepCounterLabel('designer-working', 'yes'), /Step 3 of 4 · design
 assert.match(stepCounterLabel('designer-ready', 'yes'), /Step 3 of 4 · mockups ready/)
 
 const hasUiChecklist = guidedBriefHandoffChecklist({
+  ...guidedDefaults,
   workspaceRoot: '/workspace',
   workspaceName: 'Workspace',
   idea: 'Build a dashboard.',
   hasUi: 'yes',
+  wantsProductDiscussion: true,
+  wantsArchitectureDiscussion: true,
+  wantsFrontendDiscussion: true,
   stage: 'handoff',
   acceptedProductBrief: { kind: 'product', title: 'Product brief', path: 'product/.versions/brief.md', hash: 'briefhash' },
+  acceptedArchitecturePlan: { kind: 'product', title: 'Architecture plan', path: 'product/.versions/plan.md', hash: 'planhash' },
   acceptedUiDirection: { kind: 'product', title: 'UI direction', path: 'product/.versions/ui.md', hash: 'uihash' },
   acceptedMockups: [{ kind: 'mockup', title: 'Dashboard', path: 'mockups/.versions/app.html', hash: 'mockhash' }],
   activeMockupPath: 'mockups/app.html',
+  strategistSessionId: null,
+  architectSessionId: null,
+  designerSessionId: null,
 })
 assert.deepEqual(
   hasUiChecklist.map((item) => item.label),
-  ['Accepted brief', 'UI direction', 'Dashboard', 'Build handoff'],
-  'has-UI handoff lists brief, UI direction, mockups, and build handoff',
+  ['Accepted brief', 'Architecture plan', 'UI direction', 'Dashboard', 'Build handoff'],
+  'has-UI handoff lists brief, architecture plan, UI direction, mockups, and build handoff',
 )
 
 const noUiChecklist = guidedBriefHandoffChecklist({
+  ...guidedDefaults,
   workspaceRoot: '/workspace',
   workspaceName: 'Workspace',
   idea: 'Build a service.',
   hasUi: 'no',
+  wantsProductDiscussion: true,
+  wantsArchitectureDiscussion: false,
+  wantsFrontendDiscussion: false,
   stage: 'handoff',
   acceptedProductBrief: { kind: 'product', title: 'Product brief', path: 'product/.versions/brief.md', hash: 'briefhash' },
+  acceptedArchitecturePlan: null,
   acceptedUiDirection: null,
   acceptedMockups: [{ kind: 'mockup', title: 'Ignored', path: 'mockups/.versions/app.html', hash: 'mockhash' }],
   activeMockupPath: null,
+  strategistSessionId: null,
+  architectSessionId: null,
+  designerSessionId: null,
 })
 assert.deepEqual(
   noUiChecklist.map((item) => item.label),
@@ -129,22 +194,30 @@ assert.equal(
 // session has been launched and before the build is handed off. Idle state
 // and the no-runtime case keep the pre-runtime close behaviour intact.
 const baseRuntime: GuidedBriefRuntimeState = {
+  ...guidedDefaults,
   workspaceRoot: '/workspace',
   workspaceName: 'Workspace',
   idea: 'Build something.',
   hasUi: 'yes',
+  wantsProductDiscussion: true,
+  wantsArchitectureDiscussion: false,
+  wantsFrontendDiscussion: true,
   stage: 'strategist-working',
   acceptedProductBrief: null,
+  acceptedArchitecturePlan: null,
   acceptedUiDirection: null,
   acceptedMockups: [],
   activeMockupPath: null,
   strategistSessionId: null,
+  architectSessionId: null,
   designerSessionId: null,
 }
 
 assert.equal(isMidStageGuidedRuntime(null), false, 'no runtime → no confirmation')
 assert.equal(isMidStageGuidedRuntime(baseRuntime), true, 'strategist-working triggers confirmation')
 assert.equal(isMidStageGuidedRuntime({ ...baseRuntime, stage: 'strategist-ready' }), true)
+assert.equal(isMidStageGuidedRuntime({ ...baseRuntime, stage: 'architect-working' }), true)
+assert.equal(isMidStageGuidedRuntime({ ...baseRuntime, stage: 'architect-ready' }), true)
 assert.equal(isMidStageGuidedRuntime({ ...baseRuntime, stage: 'designer-working' }), true)
 assert.equal(isMidStageGuidedRuntime({ ...baseRuntime, stage: 'designer-ready' }), true)
 assert.equal(isMidStageGuidedRuntime({ ...baseRuntime, stage: 'handoff' }), true, 'handoff confirms until Start the build')

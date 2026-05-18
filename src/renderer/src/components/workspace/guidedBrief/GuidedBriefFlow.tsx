@@ -1,14 +1,23 @@
 import { useEffect, useState } from 'react'
 import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electron-api'
+import type {
+  SprintEngineCliPermissionPreset,
+  SprintEngineRole,
+  SprintEngineRoleCliDefaults,
+  SprintEngineRoleCounts,
+} from '../../../types/workspace'
 import {
   snapshotGuidedBriefArtifact,
   GuidedBriefWorkspaceError,
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
 import { CloseIconButton, StatusDot, Tooltip, WizardProgress } from '../../ui'
+import { SprintEngineRosterTable } from '../newWorkspace/SprintEngineRosterTable'
+import { CliPermissionPresetRow } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
 import { MockupPreviewPane } from './MockupPreviewPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
+import { useArchitectSession } from './useArchitectSession'
 import { useDesignerSession, type DesignerMockupFile } from './useDesignerSession'
 import { useStrategistSession } from './useStrategistSession'
 import { joinWorkspacePath } from './paths'
@@ -27,6 +36,9 @@ import {
 export type GuidedBriefRunOptions = {
   startRunner: boolean
   autoApproveArtifacts: boolean
+  roleCounts: SprintEngineRoleCounts
+  roleCliDefaults: Required<SprintEngineRoleCliDefaults>
+  cliPermissionPreset: SprintEngineCliPermissionPreset
 }
 
 type Props = {
@@ -38,7 +50,6 @@ type Props = {
     runtimeState: GuidedBriefRuntimeState,
     runOptions: GuidedBriefRunOptions,
   ) => Promise<void>
-  cli: AgentCli
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
 }
 
@@ -48,18 +59,23 @@ export function GuidedBriefFlow({
   onBackToIdea,
   onClose,
   onStartBuild,
-  cli,
   cliRuntimes,
 }: Props) {
-  const { stage, hasUi, workspaceRoot, workspaceName, acceptedProductBrief } = runtimeState
-  const progress = progressForStage(stage, hasUi)
-  const counter = stepCounterLabel(stage, hasUi)
+  const { stage, hasUi, workspaceRoot, workspaceName, acceptedProductBrief, acceptedArchitecturePlan } = runtimeState
+  const progressOptions = {
+    wantsProductDiscussion: runtimeState.wantsProductDiscussion,
+    wantsArchitectureDiscussion: runtimeState.wantsArchitectureDiscussion,
+    wantsFrontendDiscussion: runtimeState.wantsFrontendDiscussion,
+  }
+  const progress = progressForStage(stage, hasUi, progressOptions)
+  const counter = stepCounterLabel(stage, hasUi, progressOptions)
   const inStrategistStage = stage === 'strategist-working' || stage === 'strategist-ready'
+  const inArchitectStage = stage === 'architect-working' || stage === 'architect-ready'
   const inDesignerStage = stage === 'designer-working' || stage === 'designer-ready'
 
   const strategist = useStrategistSession({
     workspaceRoot,
-    cli,
+    cli: runtimeState.guidedRoleCliDefaults.product,
     cliRuntimes,
     enabled: inStrategistStage,
     sessionId: runtimeState.strategistSessionId,
@@ -69,18 +85,33 @@ export function GuidedBriefFlow({
     },
   })
 
-  // The designer reads the accepted product brief from product/.versions/<sha>.md.
-  // The terminal session is spawned with cwd=workspaceRoot, so the agent sees
-  // a project-relative path, matching the project's path-rule for agent prompts.
   const acceptedBriefRelativePath = acceptedProductBrief?.path ?? null
+  const architect = useArchitectSession({
+    workspaceRoot,
+    acceptedBriefSnapshotPath: acceptedBriefRelativePath,
+    cli: runtimeState.guidedRoleCliDefaults.architect,
+    cliRuntimes,
+    enabled: inArchitectStage,
+    sessionId: runtimeState.architectSessionId,
+    onAssignSessionId: (id) => {
+      if (runtimeState.architectSessionId === id) return
+      onChange({ ...runtimeState, architectSessionId: id })
+    },
+  })
+
+  // The designer prefers the accepted architecture plan, then the product
+  // brief, then the idea seed. The PTY cwd is workspaceRoot, so prompt paths
+  // stay project-relative for the agent.
+  const acceptedArchitecturePlanRelativePath = acceptedArchitecturePlan?.path ?? null
   const designer = useDesignerSession({
     workspaceRoot,
-    acceptedBriefSnapshotPath: acceptedBriefRelativePath ?? '',
-    cli,
+    acceptedBriefSnapshotPath: acceptedBriefRelativePath ?? undefined,
+    acceptedArchitecturePlanPath: acceptedArchitecturePlanRelativePath,
+    cli: runtimeState.guidedRoleCliDefaults.frontend,
     cliRuntimes,
     enabled:
       hasUi === 'yes' &&
-      acceptedBriefRelativePath !== null &&
+      runtimeState.wantsFrontendDiscussion &&
       inDesignerStage,
     sessionId: runtimeState.designerSessionId,
     onAssignSessionId: (id) => {
@@ -96,6 +127,13 @@ export function GuidedBriefFlow({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, strategist.readiness.isReady])
+
+  useEffect(() => {
+    if (stage === 'architect-working' && architect.readiness.isReady) {
+      onChange({ ...runtimeState, stage: 'architect-ready' })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, architect.readiness.isReady])
 
   // Designer working → ready as soon as real mockup files exist (or marker +
   // files). Real file presence is the contractual gate; marker alone is a hint.
@@ -124,10 +162,7 @@ export function GuidedBriefFlow({
   const [acceptError, setAcceptError] = useState<string | null>(null)
   const [startingBuild, setStartingBuild] = useState(false)
   const [startBuildError, setStartBuildError] = useState<string | null>(null)
-  const [startRunner, setStartRunner] = useState(true)
-  const [autoApproveArtifacts, setAutoApproveArtifacts] = useState(false)
-
-  const effectiveAutoApprove = startRunner && autoApproveArtifacts
+  const effectiveAutoApprove = runtimeState.buildStartRunner && runtimeState.buildAutoApproveArtifacts
 
   const acceptStrategistBrief = async () => {
     if (!strategist.readiness.fileReady) return
@@ -150,7 +185,7 @@ export function GuidedBriefFlow({
         hash: snapshot.hash,
         path: snapshot.path,
       }
-      const nextStage: GuidedBriefStage = hasUi === 'yes' ? 'designer-working' : 'handoff'
+      const nextStage = nextGuidedBriefStage({ ...runtimeState, acceptedProductBrief: accepted }, 'strategist')
       // The strategist's job is done — kill the PTY and clear the persisted id
       // so it does not reattach on the next render.
       const strategistSessionIdToKill = runtimeState.strategistSessionId
@@ -160,13 +195,19 @@ export function GuidedBriefFlow({
         acceptedProductBrief: accepted,
         strategistSessionId: null,
       }
-      if (hasUi === 'no') {
+      if (nextStage === 'handoff') {
         await writeGuidedBriefBuildHandoff({
           workspaceRoot,
           idea: runtimeState.idea,
           hasUi,
           productBrief: accepted,
-          confirmedDecisions: ['No visual UI is required.'],
+          architecturePlan: runtimeState.acceptedArchitecturePlan,
+          requireMockups: false,
+          confirmedDecisions: [
+            hasUi === 'yes'
+              ? 'Application includes a visual UI, but no frontend design stage was requested.'
+              : 'No visual UI is required.',
+          ],
           filesystem: {
             ensureDir: window.api.ensureDir,
             readFile: window.api.readfile,
@@ -185,10 +226,69 @@ export function GuidedBriefFlow({
     }
   }
 
+  const acceptArchitectPlan = async () => {
+    if (!architect.readiness.fileReady) return
+    setAccepting(true)
+    setAcceptError(null)
+    try {
+      const snapshot = await snapshotGuidedBriefArtifact({
+        workspaceRoot,
+        sourcePath: architect.architecturePlanPath,
+        kind: 'product',
+        filesystem: {
+          ensureDir: window.api.ensureDir,
+          readFile: window.api.readfile,
+          writeFile: window.api.writefile,
+        },
+      })
+      const accepted: GuidedBriefAcceptedArtifact = {
+        kind: 'product',
+        title: 'Architecture plan',
+        hash: snapshot.hash,
+        path: snapshot.path,
+      }
+      const nextStage = nextGuidedBriefStage({ ...runtimeState, acceptedArchitecturePlan: accepted }, 'architect')
+      const architectSessionIdToKill = runtimeState.architectSessionId
+      const nextState = {
+        ...runtimeState,
+        stage: nextStage,
+        acceptedArchitecturePlan: accepted,
+        architectSessionId: null,
+      }
+      if (nextStage === 'handoff') {
+        await writeGuidedBriefBuildHandoff({
+          workspaceRoot,
+          idea: runtimeState.idea,
+          hasUi,
+          productBrief: runtimeState.acceptedProductBrief,
+          architecturePlan: accepted,
+          requireMockups: false,
+          confirmedDecisions: [
+            hasUi === 'yes' ? 'Application includes a visual UI.' : 'No visual UI is required.',
+          ],
+          validationNotes: ['Validate implementation against the accepted architecture plan snapshot hash.'],
+          filesystem: {
+            ensureDir: window.api.ensureDir,
+            readFile: window.api.readfile,
+            writeFile: window.api.writefile,
+          },
+        })
+      }
+      onChange(nextState)
+      if (architectSessionIdToKill) {
+        void window.api.terminalKill(architectSessionIdToKill).catch(() => {})
+      }
+    } catch (error) {
+      setAcceptError(formatAcceptError(error, 'plan'))
+    } finally {
+      setAccepting(false)
+    }
+  }
+
   const acceptDesignerMockups = async () => {
     // Real-file evidence: every mockup file in mockups/ is snapshotted.
     if (!designer.readiness.mockupsAvailable) return
-    if (!runtimeState.acceptedProductBrief) {
+    if (!runtimeState.acceptedProductBrief && runtimeState.wantsProductDiscussion) {
       setAcceptError('Accept the product brief before accepting mockups.')
       return
     }
@@ -235,8 +335,10 @@ export function GuidedBriefFlow({
         idea: runtimeState.idea,
         hasUi,
         productBrief: runtimeState.acceptedProductBrief,
+        architecturePlan: runtimeState.acceptedArchitecturePlan,
         uiDirection: acceptedUiDirection,
         mockups: acceptedMockups,
+        requireMockups: true,
         confirmedDecisions: ['Application includes a visual UI.'],
         validationNotes: ['Validate implementation against the accepted brief, UI direction, and mockup snapshot hashes.'],
         filesystem: {
@@ -269,8 +371,10 @@ export function GuidedBriefFlow({
     accepting,
     startingBuild,
     strategist,
+    architect,
     designer,
     onAcceptStrategist: () => void acceptStrategistBrief(),
+    onAcceptArchitect: () => void acceptArchitectPlan(),
     onAcceptDesigner: () => void acceptDesignerMockups(),
     onStartBuild: () => void startBuild(),
   })
@@ -281,8 +385,11 @@ export function GuidedBriefFlow({
     setStartBuildError(null)
     try {
       await onStartBuild(runtimeState, {
-        startRunner,
+        startRunner: runtimeState.buildStartRunner,
         autoApproveArtifacts: effectiveAutoApprove,
+        roleCounts: runtimeState.buildRoleCounts,
+        roleCliDefaults: runtimeState.buildRoleCliDefaults,
+        cliPermissionPreset: runtimeState.buildCliPermissionPreset,
       })
     } catch (error) {
       setStartBuildError(error instanceof Error ? error.message : 'Could not start the build.')
@@ -330,6 +437,16 @@ export function GuidedBriefFlow({
             requirementsPath={strategist.requirementsPath}
             productDirectoryPath={joinWorkspacePath(workspaceRoot, 'product')}
           />
+        ) : inArchitectStage ? (
+          <ArchitectBody
+            stage={stage}
+            session={architect.session}
+            starting={architect.status === 'starting' || architect.status === 'idle'}
+            errorMessage={architect.error}
+            isLive={architect.status === 'running' || architect.status === 'ready'}
+            architecturePlanPath={architect.architecturePlanPath}
+            architectureDirectoryPath={joinWorkspacePath(workspaceRoot, 'architecture')}
+          />
         ) : inDesignerStage ? (
           <DesignerBody
             stage={stage}
@@ -343,10 +460,7 @@ export function GuidedBriefFlow({
         ) : (
           <HandoffBody
             runtimeState={runtimeState}
-            startRunner={startRunner}
-            onChangeStartRunner={setStartRunner}
-            autoApproveArtifacts={autoApproveArtifacts}
-            onChangeAutoApproveArtifacts={setAutoApproveArtifacts}
+            onChange={onChange}
           />
         )}
       </main>
@@ -381,7 +495,7 @@ export function GuidedBriefFlow({
   )
 }
 
-function formatAcceptError(error: unknown, kind: 'brief' | 'mockup'): string {
+function formatAcceptError(error: unknown, kind: 'brief' | 'plan' | 'mockup'): string {
   if (error instanceof GuidedBriefWorkspaceError) return `Could not snapshot the ${kind} (${error.code}).`
   if (error instanceof Error) return error.message
   return `Could not snapshot the ${kind}.`
@@ -392,13 +506,38 @@ function titleForMockup(mockup: DesignerMockupFile): string {
   return base ? base.replace(/\b\w/g, (char) => char.toUpperCase()) : mockup.name
 }
 
+function nextGuidedBriefStage(
+  state: GuidedBriefRuntimeState,
+  completed: 'strategist' | 'architect' | 'designer' | 'none',
+): GuidedBriefStage {
+  if (completed === 'none' && state.wantsProductDiscussion) return 'strategist-working'
+  if (
+    completed !== 'architect' &&
+    state.wantsArchitectureDiscussion &&
+    !state.acceptedArchitecturePlan
+  ) {
+    return 'architect-working'
+  }
+  if (
+    completed !== 'designer' &&
+    state.hasUi === 'yes' &&
+    state.wantsFrontendDiscussion &&
+    state.acceptedMockups.length === 0
+  ) {
+    return 'designer-working'
+  }
+  return 'handoff'
+}
+
 function renderPrimaryAction({
   stage,
   accepting,
   startingBuild,
   strategist,
+  architect,
   designer,
   onAcceptStrategist,
+  onAcceptArchitect,
   onAcceptDesigner,
   onStartBuild,
 }: {
@@ -406,8 +545,10 @@ function renderPrimaryAction({
   accepting: boolean
   startingBuild: boolean
   strategist: ReturnType<typeof useStrategistSession>
+  architect: ReturnType<typeof useArchitectSession>
   designer: ReturnType<typeof useDesignerSession>
   onAcceptStrategist: () => void
+  onAcceptArchitect: () => void
   onAcceptDesigner: () => void
   onStartBuild: () => void
 }) {
@@ -415,6 +556,14 @@ function renderPrimaryAction({
     const disabled = !strategist.readiness.fileReady || accepting
     return (
       <PrimaryButton onClick={onAcceptStrategist} disabled={disabled}>
+        {accepting ? 'Accepting…' : 'Accept · continue'}
+      </PrimaryButton>
+    )
+  }
+  if (stage === 'architect-ready') {
+    const disabled = !architect.readiness.fileReady || accepting
+    return (
+      <PrimaryButton onClick={onAcceptArchitect} disabled={disabled}>
         {accepting ? 'Accepting…' : 'Accept · continue'}
       </PrimaryButton>
     )
@@ -437,6 +586,8 @@ function renderPrimaryAction({
   const waitingReason =
     stage === 'designer-working'
       ? 'Waiting for mockups/app.html and product/ui-direction.md, or the MOCKUP_SET_READY marker.'
+      : stage === 'architect-working'
+        ? 'Waiting for architecture/plan.md, or the ARCHITECTURE_PLAN_READY marker.'
       : stage === 'strategist-working'
         ? 'Waiting for product/requirements.md, or the BRIEF_READY marker.'
         : 'Waiting for the agent to finish.'
@@ -553,6 +704,50 @@ function StrategistBody({
   )
 }
 
+function ArchitectBody({
+  stage,
+  session,
+  starting,
+  errorMessage,
+  isLive,
+  architecturePlanPath,
+  architectureDirectoryPath,
+}: {
+  stage: GuidedBriefStage
+  session: ReturnType<typeof useArchitectSession>['session']
+  starting: boolean
+  errorMessage: string | null
+  isLive: boolean
+  architecturePlanPath: string
+  architectureDirectoryPath: string
+}) {
+  const ready = stage === 'architect-ready'
+
+  return (
+    <div
+      className={`grid h-full min-h-0 gap-5 px-6 py-6 motion-safe:transition-[grid-template-columns] motion-safe:duration-[220ms] motion-safe:ease-[cubic-bezier(0.2,0.8,0.2,1)] ${
+        ready ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)]' : 'grid-cols-[minmax(0,720px)] justify-center'
+      }`}
+    >
+      <ConversationPane
+        session={session}
+        starting={starting}
+        errorMessage={errorMessage}
+        specialistName="Architect"
+        specialistSubline={
+          ready
+            ? 'Plan ready · ask anything else if needed'
+            : 'Resolving architecture decisions — answer in the terminal'
+        }
+        isLive={isLive}
+      />
+      {ready ? (
+        <RenderedBriefPane briefPath={architecturePlanPath} watchDirectoryPath={architectureDirectoryPath} />
+      ) : null}
+    </div>
+  )
+}
+
 function DesignerBody({
   stage,
   session,
@@ -599,20 +794,39 @@ function DesignerBody({
 
 function HandoffBody({
   runtimeState,
-  startRunner,
-  onChangeStartRunner,
-  autoApproveArtifacts,
-  onChangeAutoApproveArtifacts,
+  onChange,
 }: {
   runtimeState: GuidedBriefRuntimeState
-  startRunner: boolean
-  onChangeStartRunner: (value: boolean) => void
-  autoApproveArtifacts: boolean
-  onChangeAutoApproveArtifacts: (value: boolean) => void
+  onChange: (next: GuidedBriefRuntimeState) => void
 }) {
   const [handoffStatus, setHandoffStatus] = useState<'loading' | 'ready' | 'missing'>('loading')
   const handoffPath = joinWorkspacePath(runtimeState.workspaceRoot, guidedBriefBuildHandoffRelativePath())
   const checklist = guidedBriefHandoffChecklist(runtimeState)
+  const totalAgents = Object.values(runtimeState.buildRoleCounts).reduce(
+    (total, count) => total + Math.max(0, count),
+    0,
+  )
+
+  const setBuildRoleCount = (role: SprintEngineRole, count: number) => {
+    const min = role === 'architect' ? 1 : 0
+    onChange({
+      ...runtimeState,
+      buildRoleCounts: {
+        ...runtimeState.buildRoleCounts,
+        [role]: Math.max(min, Math.min(10, Math.floor(count))),
+      },
+    })
+  }
+
+  const setBuildRoleCli = (role: SprintEngineRole, cli: AgentCli) => {
+    onChange({
+      ...runtimeState,
+      buildRoleCliDefaults: {
+        ...runtimeState.buildRoleCliDefaults,
+        [role]: cli,
+      },
+    })
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -629,8 +843,8 @@ function HandoffBody({
   }, [handoffPath])
 
   return (
-    <div className="flex h-full items-center justify-center px-6 py-6">
-      <div className="flex w-full max-w-[560px] flex-col gap-4 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-5">
+    <div className="flex h-full items-start justify-center overflow-auto px-6 py-6">
+      <div className="flex w-full max-w-[760px] flex-col gap-4 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-5">
         <div className="flex flex-col gap-1">
           <span className="text-[13px] font-semibold text-[color:var(--text-strong)]">
             Ready to start the Sprint Engine build
@@ -658,9 +872,32 @@ function HandoffBody({
           ))}
         </div>
         <div className="flex flex-col gap-2 border-t border-[color:var(--bg-surface-raised)] pt-4">
+          <div className="flex items-baseline justify-between">
+            <span className="text-[12px] font-medium text-[color:var(--text-default)]">
+              Build roster
+            </span>
+            <span className="text-[11px] tabular-nums text-[color:var(--text-muted)]">
+              {totalAgents} specialist{totalAgents === 1 ? '' : 's'}
+            </span>
+          </div>
+          <SprintEngineRosterTable
+            roleCounts={runtimeState.buildRoleCounts}
+            roleCliDefaults={runtimeState.buildRoleCliDefaults}
+            disabled={false}
+            onSetCount={setBuildRoleCount}
+            onSetCli={setBuildRoleCli}
+          />
+        </div>
+        <div className="flex flex-col gap-2 border-t border-[color:var(--bg-surface-raised)] pt-4">
           <span className="text-[12px] font-medium text-[color:var(--text-default)]">
             Run settings
           </span>
+          <div className="overflow-hidden rounded-md border border-[color:var(--border-default)]">
+            <CliPermissionPresetRow
+              preset={runtimeState.buildCliPermissionPreset}
+              onChange={(preset) => onChange({ ...runtimeState, buildCliPermissionPreset: preset })}
+            />
+          </div>
           <label className="flex items-start justify-between gap-3 py-0.5">
             <span className="min-w-0">
               <span className="block text-[12px] font-medium text-[color:var(--text-default)]">
@@ -672,14 +909,14 @@ function HandoffBody({
             </span>
             <input
               type="checkbox"
-              checked={startRunner}
-              onChange={(event) => onChangeStartRunner(event.currentTarget.checked)}
+              checked={runtimeState.buildStartRunner}
+              onChange={(event) => onChange({ ...runtimeState, buildStartRunner: event.currentTarget.checked })}
               className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[color:var(--accent-primary)]"
             />
           </label>
           <label
             className={`flex items-start justify-between gap-3 py-0.5 ${
-              startRunner ? '' : 'opacity-60'
+              runtimeState.buildStartRunner ? '' : 'opacity-60'
             }`}
           >
             <span className="min-w-0">
@@ -692,9 +929,9 @@ function HandoffBody({
             </span>
             <input
               type="checkbox"
-              checked={autoApproveArtifacts}
-              disabled={!startRunner}
-              onChange={(event) => onChangeAutoApproveArtifacts(event.currentTarget.checked)}
+              checked={runtimeState.buildAutoApproveArtifacts}
+              disabled={!runtimeState.buildStartRunner}
+              onChange={(event) => onChange({ ...runtimeState, buildAutoApproveArtifacts: event.currentTarget.checked })}
               className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[color:var(--accent-primary)] disabled:cursor-not-allowed"
             />
           </label>

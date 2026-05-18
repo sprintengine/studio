@@ -43,9 +43,11 @@ export type GuidedBriefBuildHandoffInput = {
   workspaceRoot: string
   idea: string
   hasUi: GuidedBriefHasUi
-  productBrief: GuidedBriefAcceptedArtifact
+  productBrief?: GuidedBriefAcceptedArtifact | null
+  architecturePlan?: GuidedBriefAcceptedArtifact | null
   uiDirection?: GuidedBriefAcceptedArtifact | null
   mockups?: GuidedBriefAcceptedArtifact[]
+  requireMockups?: boolean
   confirmedDecisions?: string[]
   openQuestions?: string[]
   mvpScope?: string[]
@@ -163,6 +165,7 @@ export async function scaffoldGuidedBriefWorkspace({
 }: GuidedBriefScaffoldInput): Promise<GuidedBriefScaffoldResult> {
   const root = trimRequired(workspaceRoot, 'missing-root')
   const productDirectoryPath = await filesystem.ensureDir(root, 'product')
+  await filesystem.ensureDir(root, 'architecture')
   const mockupsDirectoryPath = await filesystem.ensureDir(root, 'mockups')
   const productVersionsDirectoryPath = await filesystem.ensureDir(productDirectoryPath, '.versions')
   const mockupsVersionsDirectoryPath = await filesystem.ensureDir(mockupsDirectoryPath, '.versions')
@@ -208,8 +211,10 @@ export function buildGuidedBriefBuildHandoffMarkdown({
   idea,
   hasUi,
   productBrief,
+  architecturePlan,
   uiDirection,
   mockups,
+  requireMockups,
   confirmedDecisions,
   openQuestions,
   mvpScope,
@@ -218,15 +223,17 @@ export function buildGuidedBriefBuildHandoffMarkdown({
   risks,
   validationNotes,
 }: Omit<GuidedBriefBuildHandoffInput, 'workspaceRoot' | 'filesystem'>): string {
-  if (hasUi === 'yes' && (!mockups || mockups.length === 0)) {
+  if (requireMockups && (!mockups || mockups.length === 0)) {
     throw new GuidedBriefWorkspaceError('mockups-required')
   }
 
   const trimmedIdea = trimRequired(idea, 'missing-idea')
   const goal = suggestedSprintEngineGoal?.trim()
-    || (hasUi === 'yes'
+    || (mockups?.length
       ? 'Build the accepted product brief and UI mockup into a production-ready application.'
-      : 'Build the accepted product brief into a production-ready script or service.')
+      : hasUi === 'yes'
+        ? 'Build the accepted Guided brief artifacts into a production-ready visual application.'
+        : 'Build the accepted Guided brief artifacts into a production-ready script or service.')
 
   return [
     '# Guided App Brief Build Handoff',
@@ -237,7 +244,8 @@ export function buildGuidedBriefBuildHandoffMarkdown({
     '',
     '## Accepted Artifacts',
     '',
-    `- Product brief: \`${productBrief.path}\` (${productBrief.hash})`,
+    ...(productBrief ? [`- Product brief: \`${productBrief.path}\` (${productBrief.hash})`] : ['- Product brief: not requested.']),
+    ...(architecturePlan ? [`- Architecture plan: \`${architecturePlan.path}\` (${architecturePlan.hash})`] : []),
     ...(uiDirection ? [`- UI direction: \`${uiDirection.path}\` (${uiDirection.hash})`] : []),
     ...artifactList(mockups, hasUi === 'yes' ? 'No accepted mockups recorded.' : 'No UI mockups required for this script or service.'),
     '',
@@ -251,7 +259,7 @@ export function buildGuidedBriefBuildHandoffMarkdown({
     '',
     '## MVP Scope',
     '',
-    ...markdownList(mvpScope, 'Implement the accepted product brief without adding unapproved scope.'),
+    ...markdownList(mvpScope, 'Implement only the accepted Guided brief artifacts without adding unapproved scope.'),
     '',
     '## Suggested Sprint Engine Goal',
     '',
@@ -278,7 +286,8 @@ export async function writeGuidedBriefBuildHandoff(input: GuidedBriefBuildHandof
   const handoffPath = joinWorkspacePath(root, 'product', 'build-handoff.md')
   const content = buildGuidedBriefBuildHandoffMarkdown({
     ...input,
-    productBrief: normalizeAcceptedArtifact(root, input.productBrief),
+    productBrief: input.productBrief ? normalizeAcceptedArtifact(root, input.productBrief) : input.productBrief,
+    architecturePlan: input.architecturePlan ? normalizeAcceptedArtifact(root, input.architecturePlan) : input.architecturePlan,
     uiDirection: input.uiDirection ? normalizeAcceptedArtifact(root, input.uiDirection) : input.uiDirection,
     mockups: input.mockups?.map((artifact) => normalizeAcceptedArtifact(root, artifact)),
   })

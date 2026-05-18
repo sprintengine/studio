@@ -61,13 +61,25 @@ assert.match(strategistPrompt, /\nBRIEF_READY\n/, 'strategist prompt emits BRIEF
 const designerPrompt = buildGuidedBriefSpecialistStartupPrompt({
   kind: 'designer',
   acceptedBriefSnapshotPath: 'product/.versions/brief.md',
+  acceptedArchitecturePlanPath: 'product/.versions/architecture.md',
   mockupPath: 'mockups/app.html',
 })
 assert.match(designerPrompt, /souls get frontend/, 'designer prompt requires frontend Soul')
-assert.match(designerPrompt, /product\/\.versions\/brief\.md/, 'designer prompt reads accepted brief snapshot')
+assert.match(designerPrompt, /product\/\.versions\/architecture\.md/, 'designer prompt reads accepted architecture snapshot when available')
 assert.match(designerPrompt, /product\/ui-direction\.md/, 'designer prompt writes UI direction')
 assert.match(designerPrompt, /mockups\/app\.html/, 'designer prompt writes mockup HTML')
 assert.match(designerPrompt, /\nMOCKUP_SET_READY\n/, 'designer prompt emits MOCKUP_SET_READY marker')
+
+const architectPrompt = buildGuidedBriefSpecialistStartupPrompt({
+  kind: 'architect',
+  acceptedBriefSnapshotPath: 'product/.versions/brief.md',
+  architecturePlanPath: 'architecture/plan.md',
+})
+assert.match(architectPrompt, /souls get architect/, 'architect prompt requires architect Soul')
+assert.match(architectPrompt, /product\/\.versions\/brief\.md/, 'architect prompt reads accepted brief snapshot')
+assert.match(architectPrompt, /architecture\/plan\.md/, 'architect prompt writes architecture plan')
+assert.match(architectPrompt, /one question at a time/, 'architect prompt includes the shared interview protocol')
+assert.match(architectPrompt, /\nARCHITECTURE_PLAN_READY\n/, 'architect prompt emits ARCHITECTURE_PLAN_READY marker')
 
 assert.equal(containsGuidedBriefMarker('working\nBRIEF_READY\n', 'BRIEF_READY'), true)
 assert.equal(containsGuidedBriefMarker('working BRIEF_READY but not a marker line', 'BRIEF_READY'), false)
@@ -149,6 +161,23 @@ if (result.ok) {
 
   await result.session.stop()
   assert.deepEqual(api.killed, ['guided-brief-test'], 'stop() is the explicit kill path used on accept / close')
+}
+
+const architectApi = createTerminalApi()
+const architectResult = await startGuidedBriefSpecialistSession(
+  {
+    kind: 'architect',
+    workspaceRoot: '/workspace',
+    acceptedBriefSnapshotPath: 'product/.versions/brief.md',
+    sessionId: 'persisted-architect-id',
+  },
+  { terminalApi: architectApi },
+)
+assert.equal(architectResult.ok, true, 'architect session starts')
+if (architectResult.ok) {
+  assert.equal(architectApi.spawned[0]?.sessionId, 'persisted-architect-id')
+  assert.match(architectApi.spawned[0]?.prompt ?? '', /souls get architect/, 'architect session sends architecture startup prompt')
+  assert.equal(architectResult.session.markerDetection.artifactPath, 'architecture/plan.md')
 }
 
 // Reattach path: a hook that was given a persisted sessionId must reuse it
