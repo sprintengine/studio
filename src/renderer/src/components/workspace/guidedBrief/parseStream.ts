@@ -1,10 +1,3 @@
-export type ConversationTurn = {
-  id: string
-  speaker: 'spec' | 'user'
-  content: string
-  createdAt: number
-}
-
 // ANSI CSI sequences (color codes, cursor moves, line clears, etc.).
 const ANSI_CSI = /\x1b\[[0-9;?]*[a-zA-Z]/g
 // ANSI OSC sequences (window title etc.). Terminated by BEL or ST.
@@ -35,67 +28,4 @@ export function stripAnsiAndOverwrites(text: string): string {
     return parts[parts.length - 1] ?? ''
   })
   return lines.join('\n')
-}
-
-export type AppendChunkInput = {
-  chunk: string
-  turns: ConversationTurn[]
-  now: number
-  nextSpecTurnId: () => string
-}
-
-/** Pure update: append a fresh agent chunk into the turn list. */
-export function appendSpecChunk({
-  chunk,
-  turns,
-  now,
-  nextSpecTurnId,
-}: AppendChunkInput): ConversationTurn[] {
-  const cleaned = stripAnsiAndOverwrites(chunk)
-  if (!cleaned || !hasVisibleText(cleaned)) return turns
-  const last = turns[turns.length - 1]
-  if (last && last.speaker === 'spec') {
-    const updated = { ...last, content: last.content + cleaned }
-    return [...turns.slice(0, -1), updated]
-  }
-  return [
-    ...turns,
-    {
-      id: nextSpecTurnId(),
-      speaker: 'spec' as const,
-      content: cleaned,
-      createdAt: now,
-    },
-  ]
-}
-
-function hasVisibleText(text: string): boolean {
-  return /[^\s]/.test(text)
-}
-
-export type AppendUserTurnInput = {
-  message: string
-  turns: ConversationTurn[]
-  now: number
-  nextUserTurnId: () => string
-}
-
-/** Pure update: push a user message as a new turn. */
-export function appendUserTurn({
-  message,
-  turns,
-  now,
-  nextUserTurnId,
-}: AppendUserTurnInput): ConversationTurn[] {
-  const trimmed = message.trim()
-  if (!trimmed) return turns
-  return [
-    ...turns,
-    {
-      id: nextUserTurnId(),
-      speaker: 'user' as const,
-      content: trimmed,
-      createdAt: now,
-    },
-  ]
 }

@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from sprintengine_core import store as folder_store
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPRINTENGINE_COMMAND = REPO_ROOT / "scripts" / "sprintengine"
@@ -25,8 +27,8 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
 
 def assert_disposable_state_path(state_path: Path) -> None:
     resolved = state_path.resolve()
-    if resolved.name != "state.yaml":
-        raise AssertionError(f"SprintEngine fixture state must be named state.yaml: {state_path}")
+    if resolved.name != "run.yaml":
+        raise AssertionError(f"SprintEngine fixture run path must be named run.yaml: {state_path}")
     if _is_relative_to(resolved, REAL_REPO_SPRINTENGINE_ROOT):
         raise AssertionError(f"Refusing to run harness against real repo Sprint Engine state: {state_path}")
 
@@ -138,18 +140,17 @@ def base_state(name: str, tasks: list[dict[str, Any]]) -> dict[str, Any]:
 
 def write_state(state_path: Path, state: dict[str, Any]) -> None:
     assert_disposable_state_path(state_path)
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    folder_store.sync_state_to_store(state_path.parent, state, state_path=state_path)
 
 
 def read_state(state_path: Path) -> dict[str, Any]:
     assert_disposable_state_path(state_path)
-    return json.loads(state_path.read_text(encoding="utf-8"))
+    return folder_store.state_from_folder_store(state_path.parent)
 
 
 def create_team(tmp_path: Path, name: str, tasks: list[dict[str, Any]]) -> SwarmTeamFixture:
     team_dir = tmp_path / ".multi-code" / "sprintengine" / name
-    state_path = team_dir / "state.yaml"
+    state_path = team_dir / "run.yaml"
     write_state(state_path, base_state(name, tasks))
     return SwarmTeamFixture(team_dir=team_dir, state_path=state_path, cli=SwarmCli(state_path))
 

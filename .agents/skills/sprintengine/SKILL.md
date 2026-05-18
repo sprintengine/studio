@@ -1,9 +1,9 @@
 ---
 name: sprintengine
-description: Coordinate sprintengine task claiming, status updates, evidence publishing, artifact review gates, projections, migration, and plan reviews for projects that use named `.multi-code/sprintengine/<team>/` run stores and `plan.md` files. Use when acting as a sprintengine architect or worker in this repo's sprintengine-mode workflow.
+description: Coordinate sprintengine task claiming, status updates, evidence publishing, artifact review gates, projections, and plan reviews for projects that use named `.multi-code/sprintengine/<team>/` run stores and `plan.md` files. Use when acting as a sprintengine architect or worker in this repo's sprintengine-mode workflow.
 ---
 
-Use the bundled coordination command instead of hand-editing Sprint Engine store files. This includes `.multi-code/sprintengine/state.yaml`, named `.multi-code/sprintengine/<team>/state.yaml` files, `run.yaml`, `projection.json`, task JSON files, artifact JSON files, `events.jsonl`, `metrics/agent-feedback.jsonl`, runner status files, and lock files.
+Use the bundled coordination command instead of hand-editing Sprint Engine store files. This includes `run.yaml`, `projection.json`, task JSON files, artifact JSON files, `events.jsonl`, `metrics/agent-feedback.jsonl`, runner status files, and lock files under `.multi-code/sprintengine/<team>/`.
 
 Primary command:
 
@@ -22,27 +22,28 @@ API discovery:
 - On Windows, if `.\scripts\sprintengine.cmd` cannot run, immediately retry with the repo venv command: `& ".\.venv\Scripts\python.exe" ".\scripts\sprintengine_tool.py" --help`.
 - For Verify Progress / recovery audits, run `sprintengine recover` and follow the returned prompt. Recovery is an integrity pass: it must keep implementation work stopped, but it may tighten acceptance criteria, add missing real-integration/verification tasks, or fix dependencies when the existing plan would let fake product behavior count as done.
 - Before using a command group or action for the first time, run its `--help` and follow the exact flags shown by the tool.
-- Current command groups are `handover`, `init`, `recover`, `migrate`, `projection`, `join`, `triage`, `task`, `plan`, `artifact`, `summary`, and `merge`.
+- Current command groups are `handover`, `init`, `recover`, `projection`, `join`, `runner`, `triage`, `task`, `plan`, `artifact`, `summary`, and `merge`.
 - Worker commands live under `sprintengine task`: use `task next`, `task claim`, `task publish`, `task status`, `task log`, `task comment`, `task gate`, `task note`, and `task list`.
 - `sprintengine task log` uses repeatable `--file`, `--command`, and `--result` flags. When a task requires a small directly related edit outside `ownedPaths`, also add repeatable `--scope-expansion-json '{"path":"<project-relative-path>","reason":"<why this companion edit is required>","risk":"<low|medium|high or short risk>"}'`.
-- When moving a task to `needs_input`, classify who must resolve it with `--needs-input-kind` (`architect`, `user`, or `owner`) plus `--needs-input-question`; add `--needs-input-reason` (`task_scope`, `artifact_review`, `tooling`, `verification`, `product_decision`, or `blocked_other`) when available. Use `architect` for stale plans, impossible acceptance criteria, wrong paths, architectural scope mismatches, or artifact reviews so the UI can route the blocker to the architect. Legacy kind values (`artifact`, `tooling`, `verification`, `other`) are still accepted for compatibility but should not be used for new blockers.
+- When moving a task to `needs_input`, classify who must resolve it with `--needs-input-kind` (`architect`, `user`, or `owner`) plus `--needs-input-question`; add `--needs-input-reason` (`task_scope`, `artifact_review`, `tooling`, `verification`, `product_decision`, or `blocked_other`) when available. Use `architect` for stale plans, impossible acceptance criteria, wrong paths, architectural scope mismatches, or artifact reviews so the UI can route the blocker to the architect.
 - Architects can triage architect-actionable blockers with `sprintengine triage needs-input --id architect`; this returns a bounded prompt for task-card or task-graph repair, not application-source implementation.
 - `sprintengine task status --status done`, `sprintengine task gate verdict`, and `sprintengine artifact ready` accept optional `0`-`100` agent feedback flags such as `--confidence-pct`, `--task-clarity-pct`, and `--hallucination-risk-pct`, short text fields such as `--top-friction`, repeatable `--issue-json` prompt/process improvement signals, and repeatable `--finding-json` role-specific review findings. Omit them when unavailable; existing completion commands remain valid.
 - Agent identity is the stable sprintengine slot id such as `frontend`, `product`, `developer-1`, or `developer-2`, not the Claude session id. If Claude restarts, reuse the same `--id` to continue that slot's active work.
 - If calling the Python script directly instead of the `sprintengine` function, put global `--state <path>` before the subcommand.
 - All file paths written into task cards, evidence, artifacts, reviews, plans, or handoffs must be relative to the project root. Never use absolute or machine-specific paths in `--path`, `--file`, artifact paths, markdown artifacts, or task notes.
-- For app, mobile, or read-only tooling, use `sprintengine projection` or the generated `projection.json` read contract. Do not parse `tasks/`, `artifacts/`, `events.jsonl`, metrics files, lock files, or legacy `state.yaml` directly for migrated runs. Projection tasks include quality gates, gate summaries, latest comments, latest open feedback, and recorded artifact references.
+- For app, mobile, or read-only tooling, use `sprintengine projection` or the generated `projection.json` read contract. Do not parse `tasks/`, `artifacts/`, `events.jsonl`, metrics files, or lock files directly. Projection tasks include quality gates, gate summaries, latest comments, latest open feedback, and recorded artifact references.
 - Do not move files between task or artifact status folders by hand. Folder location, embedded status mirrors, ready queue materialization, activity, events, metrics, and projection updates must be produced by Sprint Engine commands.
 
 Worker workflow:
 
-1. Read the active team's approved `architect_plan` artifact path from `.multi-code/sprintengine/<team>/state.yaml`, normally `.multi-code/sprintengine/<team>/plan.md`, for the human-authored plan and task context. Do not search for or use any other `plan.md`.
-2. Run `sprintengine --help` and `sprintengine task next --help` before the first claim in a fresh terminal. On Windows PowerShell, run `.\scripts\sprintengine.cmd --help` and `.\scripts\sprintengine.cmd task next --help`.
-3. Run `sprintengine task next --role <your-role> --id <your-agent-id>` to atomically claim the next ready task for your role. On Windows PowerShell, run `.\scripts\sprintengine.cmd task next --role <your-role> --id <your-agent-id>`.
-4. If this Claude process was restarted, reuse the same `--id`; `task next` returns that slot's existing active task before claiming new work.
-5. If no task is ready, stop and do not manually edit shared state.
-6. Treat `ownedPaths` as the primary edit surface and collision boundary, not a ban on obvious companion edits. Prefer owned paths, but small directly required companion edits for correctness, integration, type safety, tests, or cleaner structure are allowed when logged as scope expansions. Move to `needs_input` with kind `architect` before broad expansion, product scope changes, major ownership boundary changes, or likely overlap with another active task.
-7. Update only your own task card with:
+1. Read the active team's approved `architect_plan` artifact path from the Sprint Engine projection or CLI prompt, normally `.multi-code/sprintengine/<team>/plan.md`, for the human-authored plan and task context. Do not search for or use any other `plan.md`.
+2. Run `sprintengine --help` and `sprintengine join --help` before the first claim in a fresh terminal. On Windows PowerShell, run `.\scripts\sprintengine.cmd --help` and `.\scripts\sprintengine.cmd join --help`.
+3. Run `sprintengine join --role <your-role> --id <your-agent-id> --watch` to receive the next directive for your role. On Windows PowerShell, run `.\scripts\sprintengine.cmd join --role <your-role> --id <your-agent-id> --watch`.
+4. If this Claude process was restarted, reuse the same `--id`; `join --watch` returns that slot's active task or active gate before offering new work.
+5. Follow the join directive. It may tell you to run `task next`, `task gate next`, or `triage needs-input`; those commands perform the actual atomic claim or reconnect under the Sprint Engine locks.
+6. If no task is ready and Auto Mode is on, `join --watch` sleeps/backoffs and polls again. If Auto Mode is off and no task is ready, stop and do not manually edit shared state.
+7. Treat `ownedPaths` as the primary edit surface and collision boundary, not a ban on obvious companion edits. Prefer owned paths, but small directly required companion edits for correctness, integration, type safety, tests, or cleaner structure are allowed when logged as scope expansions. Move to `needs_input` with kind `architect` before broad expansion, product scope changes, major ownership boundary changes, or likely overlap with another active task.
+8. Update only your own task card with:
    - `sprintengine task status`
    - `sprintengine task note`
    - `sprintengine task log`
@@ -50,18 +51,18 @@ Worker workflow:
    - `sprintengine task comment add/list` when adding or inspecting structured handoff comments
    - `sprintengine task gate list/next/claim/verdict` when your role is reviewing, testing, or product-accepting a gate
    - `sprintengine artifact add` / `sprintengine artifact ready` when your task explicitly produces an artifact
-8. Before marking work `done`, publish:
+9. Before marking work `done`, publish:
    - summary
    - touched files
    - scope expansions for touched files outside owned paths, if any
    - commands run
    - results
    - optional completion feedback percentages on the final status or artifact-ready command when you can assess them
-9. After marking one task `done`, stop. A fresh agent must be spawned for additional work.
+10. After completing one task or gate, run the same `join --watch` command again when Auto Mode is on. Stop when Auto Mode is off, the run is complete, the task is blocked on user input, or the join directive tells you to stop.
 
 Quality gate workflow:
 
-- Status/folder column, claimability, and quality requirements are separate. `todo`, `ready`, `in_progress`, `review`, `testing`, `product`, `changes_requested`, `needs_input`, `done`, and `canceled` are board/lifecycle columns. Normal implementation claimability comes from `task next`; quality requirements live in `qualityGates`.
+- Status/folder column, claimability, and quality requirements are separate. `todo`, `ready`, `in_progress`, `review`, `testing`, `product`, `changes_requested`, `needs_input`, `done`, and `canceled` are board/lifecycle columns. Startup and continuation come from `join --watch`; normal implementation claims still happen through `task next` when join directs it, while quality requirements live in `qualityGates`.
 - Implementers on gated tasks should log evidence and then run `sprintengine task publish --task-id <task-id> --id <agent-id> --summary "..."`. Publish creates an `implementation_summary` or `implementation_response` comment and routes the task to the next required phase or `done`.
 - Reviewers, testers, product reviewers, and architects should claim gates with `sprintengine task gate next --role <role> --id <agent-id>` or `sprintengine task gate claim --task-id <task-id> --gate-id <gate-id> --role <role> --id <agent-id>`.
 - Gate claim responses include the plan path, task card, owned paths, acceptance criteria, evidence, touched files, commands/results, linked artifacts, latest implementation summary/response, open feedback, prior attempts, and gate focus. Treat implementation summary/response comments as claims to audit against evidence, not as proof.
@@ -72,7 +73,7 @@ Quality gate workflow:
 
 Architect workflow:
 
-1. New sprintengine runs start with product intake. Do not plan until the product intake artifact is approved, unless you are resuming a legacy architect-first sprintengine.
+1. New sprintengine runs start with product intake. Do not plan until the product intake artifact is approved.
 2. Treat `.multi-code/sprintengine/<team>/plan.md` for the active team as the final artifact you create, not as a source of truth that already exists. Do not read, copy, or overwrite another team's `plan.md`.
 3. Study the approved product artifact, repository, and current implementation deeply before planning.
 4. Ask the user clarifying questions until they confirm the intended outcome, constraints, and acceptance criteria.
@@ -85,7 +86,7 @@ Architect workflow:
 11. During architect final review, never reopen completed tasks. If product, security, performance, code review, validation, or architect findings require follow-up work, create new tasks and also create a later architect final review task that depends on those follow-ups.
 12. During user review, revise the board with `Sprint Engine plan update-task`, `Sprint Engine plan delete-task`, `Sprint Engine plan add-dependency`, and `Sprint Engine plan remove-dependency`.
 13. Tell the user the plan is ready for review in the app. The user can inspect it, request specialist plan reviews, or manually spawn specialists from the UI.
-14. Do not manually edit `.multi-code/sprintengine/state.yaml`, `run.yaml`, task files, artifact files, events, metrics, projections, runner files, or locks.
+14. Do not manually edit `run.yaml`, task files, artifact files, events, metrics, projections, runner files, or locks.
 
 Use plan reviews when the architect has drafted a complete plan and wants the specialist roster to critique it before execution:
 
@@ -99,6 +100,7 @@ Common commands:
 
 ```bash
 sprintengine task list --role frontend
+sprintengine join --role frontend --id frontend-1 --watch
 sprintengine task next --role frontend --id frontend-1
 sprintengine task claim --task-id T3 --id frontend-1
 sprintengine task status --task-id T3 --status in_progress --id frontend-1
@@ -132,14 +134,14 @@ sprintengine summary
 Rules:
 
 - Only claim tasks that are ready for your role.
-- Prefer `sprintengine task next` for normal worker execution because it claims under the Sprint Engine state lock.
+- Prefer `sprintengine join --role <role> --id <agent-id> --watch` for agent startup and continuation. Use `task next` only when the join directive tells you to claim or resume normal implementation work.
 - Only update your own task card.
 - Append evidence before moving work to `done`.
-- Complete one task per agent, then stop.
+- Complete one task or gate at a time. When Auto Mode is on, return to `join --watch`; otherwise stop.
 - Use `sprintengine summary` after all tasks are done to summarize touched files, commands, validation results, and manual verification notes.
 - Do not rewrite the overall plan unless you are explicitly acting as the architect.
 - Architect-created follow-up work from final review must be followed by another architect final review task. Completed tasks stay done; create new tasks for fixes or verification.
-- Plan reviewers write only their own markdown file in `plan-reviews/`; they do not update `state.yaml`, `run.yaml`, task files, artifact files, events, metrics, locks, claim tasks, or change the task graph.
+- Plan reviewers write only their own markdown file in `plan-reviews/`; they do not update `run.yaml`, task files, artifact files, events, metrics, locks, claim tasks, or change the task graph.
 - Architects address plan reviews with `Sprint Engine plan address-reviews --actor architect`, then revise `plan.md` directly and task cards through `Sprint Engine plan` commands.
 - App and mobile read paths should consume normalized Sprint Engine projections. They must not parse folder-store internals or mutate Sprint Engine files directly.
 - The Python tool is for agent and local coordination commands. UI review actions should focus or message the relevant agent terminal; that agent then uses the Sprint Engine tool.

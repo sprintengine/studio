@@ -251,7 +251,7 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
     'Treat the returned text as your role, judgment, and quality bar.',
     '',
     `Read the accepted product brief snapshot at \`${input.acceptedBriefSnapshotPath}\` before designing.`,
-    `If the user references inspiration images as \`[attached: <relative-path>]\`, read those files from \`${inspirationDirectoryPath}\` through the existing CLI image-input path.`,
+    `If the user has dropped inspiration files into \`${inspirationDirectoryPath}\`, read them through the existing CLI image-input path before drafting.`,
     `Write UX direction to \`${uiDirectionPath}\`.`,
     `Write the reviewable HTML mockup to \`${mockupPath}\`.`,
     `When and only when \`${uiDirectionPath}\` and the mockup HTML exist and are ready for user review, emit this exact marker on its own line:`,

@@ -49,9 +49,9 @@ const VIEWS_FOR_MODE: Record<string, { label: string; views: ViewItem[] }> = {
   sprintengine: {
     label: 'Sprint Engine',
     views: [
-      { component: 'sprintengine-project', name: 'Project' },
-      { component: 'sprintengine-task-graph', name: 'Task Graph' },
-      { component: 'sprintengine-kanban', name: 'Kanban' },
+      { component: 'sprintengine-inbox', name: 'Inbox' },
+      { component: 'sprintengine-roster', name: 'Roster' },
+      { component: 'sprintengine-tasks', name: 'Tasks' },
     ],
   },
   multiloop: {

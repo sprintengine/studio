@@ -51,6 +51,8 @@ export type SprintEngineQualityGateAttempt = {
   id?: string
   status?: SprintEngineQualityGateStatus
   actor?: string
+  role?: SprintEngineRole
+  claimedBy?: string
   startedAt?: string
   completedAt?: string
   verdict?: string
@@ -90,6 +92,14 @@ export type SprintEngineQualityPolicy = {
   gates: Record<string, SprintEngineQualityPolicyGate>
 }
 
+export type SprintEngineRunnerPolicy = {
+  mode: 'auto' | 'off'
+  pollIntervalSeconds: number
+  idleBackoffSeconds: number
+  maxBackoffSeconds: number
+  stopWhenComplete: boolean
+}
+
 export type SprintEngineTaskCommentType =
   | 'implementation_summary'
   | 'implementation_response'
@@ -111,7 +121,7 @@ export type SprintEngineRecordedArtifact = {
   createdAt?: string
 }
 
-export type SprintEngineNeedsInputKind = 'architect' | 'user' | 'owner' | 'artifact' | 'tooling' | 'verification' | 'other'
+export type SprintEngineNeedsInputKind = 'architect' | 'user' | 'owner'
 export type SprintEngineNeedsInputReason =
   | 'task_scope'
   | 'artifact_review'
@@ -379,7 +389,7 @@ export type SprintEngineTaskActivityEntry = {
   artifactStatus?: string
 }
 
-export type SprintEngineProjectionSource = 'folder_store' | 'state_yaml_fallback' | 'unavailable'
+export type SprintEngineProjectionSource = 'folder_store' | 'unavailable'
 
 export type SprintEngineProjectionLockReport = {
   name: string
@@ -400,12 +410,10 @@ export type SprintEngineProjectionLocks = {
   warnings: SprintEngineProjectionLockWarning[]
 }
 
-export type SprintEngineProjectionMigration = {
+export type SprintEngineProjectionCreation = {
   source?: string
   createdAt?: string
   updatedAt?: string
-  migratedAt?: string
-  backupPath?: string
 }
 
 export type SprintEngineProjectionStatus = {
@@ -418,6 +426,7 @@ export type SprintEngineProjectionStatus = {
 
 export type SprintEngineAutoPendingSpawn = {
   taskId: string
+  gateId?: string
   agentId: string
   startedAt?: number
 }
@@ -715,7 +724,7 @@ export type SprintEngineTask = {
   boardColumn?: SprintEngineTaskBoardColumn
   /** Folder-store directory name the task currently lives under (e.g. "in_progress", "ready"). */
   folderStatus?: string
-  /** Semantic status field embedded in the task file, mirrored from `status` for legacy callers. */
+  /** Semantic task lifecycle status embedded in the task file. */
   stateStatus?: SprintEngineTaskStatus
   /** Canonical handoff timeline, oldest first. */
   activity?: SprintEngineTaskActivityEntry[]
@@ -747,10 +756,12 @@ export type SprintEngineState = {
   projection?: SprintEngineProjectionStatus
   /** Folder-store lock reports + warnings (stale locks etc). */
   locks?: SprintEngineProjectionLocks
-  /** Migration metadata recorded by the folder store. */
-  migration?: SprintEngineProjectionMigration
+  /** Run creation metadata recorded by the folder store. */
+  creation?: SprintEngineProjectionCreation
   /** Roster-driven quality policy from run.yaml; drives lifecycle column visibility. */
   qualityPolicy?: SprintEngineQualityPolicy
+  /** Durable agent polling policy from run.yaml. */
+  runner?: SprintEngineRunnerPolicy
 }
 
 export type SprintEngineMockConfig = Pick<SprintEngineState, 'name' | 'goal' | 'roleCounts'>
@@ -834,6 +845,32 @@ export type McpCatalogServer = Omit<McpServerConfig, 'enabled' | 'scope' | 'sour
   defaultClients?: McpClientTarget[]
   recommendedScope?: McpScope
   setupNotes?: string
+}
+
+export type SkillPackHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode' | 'agents'
+export type SkillPackSource = 'bundled' | 'custom'
+
+export type SkillPackEntry = {
+  id: string
+  slug: string
+  name: string
+  category?: string
+  description?: string
+  version?: string
+  sourceUrl?: string
+  installedDirName?: string
+  harnesses: SkillPackHarness[]
+  source: SkillPackSource
+  installedAt?: string
+}
+
+export type SkillPackCatalogEntry = Omit<SkillPackEntry, 'source' | 'installedAt'> & {
+  recommended?: boolean
+  setupNotes?: string
+}
+
+export type SkillPackSettings = {
+  installed: Record<string, SkillPackEntry>
 }
 
 export type AgentExecution = {
@@ -925,6 +962,7 @@ export type LearningSettings = {
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
   mcp: McpSettings
+  skillPacks: SkillPackSettings
   lastSelectedCli: AgentCli
   lastSelectedSpecialist: SpecialistActionId
   lastSelectedMultiloopRole: MultiloopRole
@@ -964,6 +1002,10 @@ export type GuidedBriefRuntimeState = {
   acceptedUiDirection: GuidedBriefAcceptedArtifact | null
   acceptedMockups: GuidedBriefAcceptedArtifact[]
   activeMockupPath: string | null
+  // Persisted so the renderer reattaches to the same PTY across HMR / refresh
+  // instead of spawning a fresh strategist or designer.
+  strategistSessionId: string | null
+  designerSessionId: string | null
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'

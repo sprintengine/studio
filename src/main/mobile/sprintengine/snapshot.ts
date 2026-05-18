@@ -539,8 +539,8 @@ export class MobileSprintEngineSnapshotService {
 
 export async function readSprintEngineSnapshot(statePathInput: string): Promise<MobileSprintEngineSnapshot> {
   const statePath = resolve(statePathInput)
-  if (basename(statePath) !== 'state.yaml') {
-    throw new Error('Sprint Engine snapshot state path must point to a state.yaml file.')
+  if (basename(statePath) !== 'run.yaml') {
+    throw new Error('Sprint Engine snapshot path must point to a run.yaml file.')
   }
 
   const teamDirectory = dirname(statePath)

@@ -34,6 +34,5 @@ export function useFlipReorder(listRef: RefObject<HTMLElement | null>, dependenc
     }
 
     previousRectsRef.current = newRects
-    void dependency
-  })
+  }, [dependency, listRef])
 }

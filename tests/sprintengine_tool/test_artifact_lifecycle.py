@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from helpers import (
     assert_artifact_status,
     assert_event_type,
@@ -11,6 +9,7 @@ from helpers import (
     get_task,
     read_state,
     task,
+    write_state,
 )
 from sprintengine_core import store
 from sprintengine_mcp import SprintEngineMcpServer
@@ -154,7 +153,7 @@ def test_superseded_artifacts_are_not_reviewable_or_approval_blocking(tmp_path) 
     task_record = get_task(state_after_failures, "T1")
     task_record["status"] = "in_progress"
     task_record.pop("qualityGates", None)
-    fixture.state_path.write_text(json.dumps(state_after_failures, indent=2) + "\n", encoding="utf-8")
+    write_state(fixture.state_path, state_after_failures)
 
     done = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "architect-fixture")
     assert done["ok"] is True
@@ -182,7 +181,7 @@ def test_authenticated_mcp_user_approval_preserves_payload_actor_and_role_indepe
             "recommendedTasks": [],
         }
     ]
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    write_state(fixture.state_path, state)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
     approved = server.call_tool(

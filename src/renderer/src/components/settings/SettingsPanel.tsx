@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import type { AgentCli, McpCatalogServer, McpSettings } from '../../types/workspace'
+import type {
+  AgentCli,
+  McpCatalogServer,
+  McpSettings,
+  SkillPackCatalogEntry,
+  SkillPackEntry,
+  SkillPackSettings,
+} from '../../types/workspace'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { WorkspacePanel } from '../ui/WorkspacePanel'
 import {
@@ -25,6 +32,11 @@ import {
   mcpIconSlug,
   mcpServerFromCatalog,
 } from './McpCatalog'
+import {
+  SkillPackInfoPanel,
+  SkillPackTile,
+  groupSkillPackCatalog,
+} from './SkillPacksCatalog'
 import { MetaCell, formatNullableDate } from './SettingsAtoms'
 import MulticodeMark from '../brand/MulticodeMark'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
@@ -53,6 +65,7 @@ type GitHubTokenUiStatus = Awaited<ReturnType<typeof window.api.getGitHubTokenSt
 const EMPTY_SEARCH_EXCLUDES: string[] = []
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
+const EMPTY_SKILL_PACK_SETTINGS: SkillPackSettings = { installed: {} }
 
 const MCP_TRANSPORT_ITEMS: SelectItem<'stdio' | 'http'>[] = [
   { value: 'stdio', label: 'stdio' },
@@ -64,6 +77,7 @@ type SettingsTabId =
   | 'github'
   | 'agents'
   | 'mcps'
+  | 'skill-packs'
   | 'file-search'
   | 'knowledge-graph'
   | 'learn'
@@ -75,6 +89,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
   { id: 'github', label: 'GitHub', description: 'Issue import token' },
   { id: 'agents', label: 'Agents', description: 'CLI runtime commands' },
   { id: 'mcps', label: 'MCPs', description: 'Agent tool integrations' },
+  { id: 'skill-packs', label: 'Skill packs', description: 'Curated agent skills for this project' },
   { id: 'file-search', label: 'File search', description: 'Index exclude patterns' },
   { id: 'knowledge-graph', label: 'Knowledge graph', description: 'Project knowledge' },
   { id: 'learn', label: 'Learn', description: 'Tips and lessons' },
@@ -88,6 +103,7 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     || value === 'github'
     || value === 'agents'
     || value === 'mcps'
+    || value === 'skill-packs'
     || value === 'file-search'
     || value === 'knowledge-graph'
     || value === 'learn'
@@ -310,6 +326,12 @@ export default function SettingsPanel({
   const setMcpSyncEnabled = useWorkspaceStore((s) => s.setMcpSyncEnabled)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
   const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
+  const skillPackSettings = useWorkspaceStore(
+    (s) => s.appSettings.skillPacks ?? EMPTY_SKILL_PACK_SETTINGS,
+  )
+  const setSkillPacksInstalled = useWorkspaceStore((s) => s.setSkillPacksInstalled)
+  const upsertSkillPack = useWorkspaceStore((s) => s.upsertSkillPack)
+  const removeSkillPackFromStore = useWorkspaceStore((s) => s.removeSkillPack)
   const setSearchExcludes = useWorkspaceStore((s) => s.setSearchExcludes)
   const setProjectKnowledgeRoot = useWorkspaceStore((s) => s.setProjectKnowledgeRoot)
   const setUsageTelemetrySettings = useWorkspaceStore((s) => s.setUsageTelemetrySettings)
@@ -340,6 +362,10 @@ export default function SettingsPanel({
   const [mcpMessage, setMcpMessage] = useState<string | null>(null)
   const [mcpPending, setMcpPending] = useState(false)
   const [selectedCatalogId, setSelectedCatalogId] = useState<string | null>(null)
+  const [skillPackCatalog, setSkillPackCatalog] = useState<SkillPackCatalogEntry[]>([])
+  const [skillPackMessage, setSkillPackMessage] = useState<string | null>(null)
+  const [skillPackPendingId, setSkillPackPendingId] = useState<string | null>(null)
+  const [selectedSkillPackId, setSelectedSkillPackId] = useState<string | null>(null)
   const [customMcpId, setCustomMcpId] = useState('')
   const [customMcpName, setCustomMcpName] = useState('')
   const [customMcpCommand, setCustomMcpCommand] = useState('')
@@ -362,6 +388,7 @@ export default function SettingsPanel({
     github: null,
     agents: null,
     mcps: null,
+    'skill-packs': null,
     'file-search': null,
     'knowledge-graph': null,
     learn: null,
@@ -554,6 +581,62 @@ export default function SettingsPanel({
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    if (typeof window.api.skillPackListCatalog !== 'function') {
+      setSkillPackMessage('Skill packs need an app restart before this tab is available.')
+      return () => {
+        cancelled = true
+      }
+    }
+    void window.api.skillPackListCatalog().then((result) => {
+      if (cancelled) return
+      if (result.ok) {
+        setSkillPackCatalog(result.packs)
+      } else {
+        setSkillPackMessage(result.message)
+      }
+    }).catch((error) => {
+      if (!cancelled) {
+        setSkillPackMessage(
+          error instanceof Error ? error.message : 'Unable to load skill-pack catalog.',
+        )
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!activeProjectRoot) {
+      setSkillPacksInstalled([])
+      return
+    }
+    if (typeof window.api.skillPackListInstalled !== 'function') return
+    let cancelled = false
+    void window.api
+      .skillPackListInstalled({ workspaceRoot: activeProjectRoot })
+      .then((result) => {
+        if (cancelled) return
+        if (result.ok) {
+          setSkillPacksInstalled(result.installed)
+        } else {
+          setSkillPackMessage(result.message)
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setSkillPackMessage(
+            error instanceof Error ? error.message : 'Unable to read installed skill packs.',
+          )
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeProjectRoot, setSkillPacksInstalled])
 
   const syncMcps = useCallback(async () => {
     if (!activeProjectRoot) {
@@ -791,6 +874,12 @@ export default function SettingsPanel({
     : null
   const activeMcpServers = Object.values(mcpSettings.servers).filter((server) => server.enabled)
 
+  const groupedSkillPackCatalog = groupSkillPackCatalog(skillPackCatalog)
+  const selectedSkillPack = selectedSkillPackId
+    ? skillPackCatalog.find((pack) => pack.id === selectedSkillPackId) ?? null
+    : null
+  const installedSkillPacks = Object.values(skillPackSettings.installed)
+
   const mcpSyncDescriptor = getSettingDescriptor('mcp-sync-enabled')
   const searchExcludesDescriptor = getSettingDescriptor('search-excludes')
   const telemetrySendDescriptor = getSettingDescriptor('usage-telemetry-send-data')
@@ -809,6 +898,68 @@ export default function SettingsPanel({
         : `${server.name} added.`)
     }
   }, [mcpSettings.servers, removeMcpServer, upsertMcpServer])
+
+  const toggleSkillPack = useCallback(
+    async (pack: SkillPackCatalogEntry) => {
+      if (!activeProjectRoot) {
+        setSkillPackMessage('Open a workspace folder before installing skill packs.')
+        return
+      }
+      const installed = skillPackSettings.installed[pack.id]
+      setSkillPackPendingId(pack.id)
+      setSkillPackMessage(null)
+      try {
+        if (installed) {
+          const result = await window.api.skillPackRemove({
+            workspaceRoot: activeProjectRoot,
+            slug: pack.slug,
+            installedDirName: pack.installedDirName,
+          })
+          if (result.ok) {
+            removeSkillPackFromStore(pack.id)
+            setSkillPackMessage(`${pack.name} removed.`)
+          } else {
+            setSkillPackMessage(result.message)
+          }
+        } else {
+          const result = await window.api.skillPackInstall({
+            workspaceRoot: activeProjectRoot,
+            slug: pack.slug,
+            harnesses: pack.harnesses,
+            installedDirName: pack.installedDirName,
+          })
+          if (result.ok) {
+            const entry: SkillPackEntry = {
+              ...result.installed,
+              id: pack.id,
+              name: pack.name,
+              category: pack.category,
+              description: pack.description,
+              version: pack.version,
+              sourceUrl: pack.sourceUrl,
+              installedDirName: pack.installedDirName ?? result.installed.installedDirName,
+            }
+            upsertSkillPack(entry)
+            setSkillPackMessage(
+              pack.setupNotes ? `${pack.name} installed. ${pack.setupNotes}` : `${pack.name} installed.`,
+            )
+          } else {
+            setSkillPackMessage(result.message)
+          }
+        }
+      } catch (error) {
+        setSkillPackMessage(error instanceof Error ? error.message : 'Skill pack action failed.')
+      } finally {
+        setSkillPackPendingId(null)
+      }
+    },
+    [
+      activeProjectRoot,
+      removeSkillPackFromStore,
+      skillPackSettings.installed,
+      upsertSkillPack,
+    ],
+  )
 
   const selectSettingsTab = useCallback((tabId: SettingsTabId) => {
     setActiveSettingsTab(tabId)
@@ -1222,6 +1373,142 @@ export default function SettingsPanel({
 
           <MessageBlock tone={mcpMessage ? 'accent' : 'neutral'}>
             {mcpMessage || 'Workspace-scoped sync writes Codex config to .codex/config.toml and Claude config to .mcp.json. Existing terminals are unchanged.'}
+          </MessageBlock>
+        </div>
+      ) : null}
+
+      {activeSettingsTab === 'skill-packs' ? (
+        <div
+          role="tabpanel"
+          id="settings-panel-skill-packs"
+          aria-labelledby="settings-tab-skill-packs"
+          className="space-y-5"
+        >
+          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+            Curated agent skills installed into this workspace via the open{' '}
+            <code className="font-mono">skills</code> ecosystem. Each pack writes to whichever
+            harness directories already exist in the project (
+            <code className="font-mono">.claude/</code>, <code className="font-mono">.codex/</code>,
+            <code className="font-mono">.cursor/</code>, etc.).
+          </p>
+
+          <section className="space-y-2 border-t border-[color:var(--border-subtle)] pt-4">
+            <div className="flex items-baseline justify-between gap-3">
+              <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Installed</h4>
+              {installedSkillPacks.length ? (
+                <span className="tabular-nums text-[11px] font-medium text-[color:var(--text-subtle)]">
+                  {installedSkillPacks.length} installed
+                </span>
+              ) : null}
+            </div>
+            {installedSkillPacks.length === 0 ? (
+              <MessageBlock tone="neutral">
+                Nothing installed yet. Pick a pack from the catalog below.
+              </MessageBlock>
+            ) : (
+              <ul className="divide-y divide-[color:var(--border-subtle)]">
+                {installedSkillPacks.map((pack) => (
+                  <li
+                    key={pack.id}
+                    className="flex flex-wrap items-center justify-between gap-3 py-2.5"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+                        {pack.name}
+                      </div>
+                      <div className="mt-0.5 truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
+                        {pack.slug}
+                        {pack.harnesses.length ? ` · ${pack.harnesses.join(', ')}` : ''}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const catalogEntry = skillPackCatalog.find((entry) => entry.id === pack.id)
+                        if (catalogEntry) {
+                          void toggleSkillPack(catalogEntry)
+                          return
+                        }
+                        void toggleSkillPack({
+                          id: pack.id,
+                          slug: pack.slug,
+                          name: pack.name,
+                          installedDirName: pack.installedDirName,
+                          harnesses: pack.harnesses,
+                        })
+                      }}
+                      disabled={skillPackPendingId === pack.id}
+                      className="text-[12px] font-semibold text-[color:var(--text-subtle)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline disabled:cursor-progress"
+                    >
+                      {skillPackPendingId === pack.id ? 'Removing' : 'Remove'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <div className="flex gap-4 border-t border-[color:var(--border-subtle)] pt-4">
+            <section className="min-w-0 flex-1 space-y-4">
+              <div className="flex items-baseline justify-between gap-3">
+                <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">
+                  Bundled catalog
+                </h4>
+                {skillPackCatalog.length ? (
+                  <span className="tabular-nums text-[11px] font-medium text-[color:var(--text-subtle)]">
+                    {skillPackCatalog.length} packs
+                  </span>
+                ) : null}
+              </div>
+              <div className="space-y-5">
+                {groupedSkillPackCatalog.map(([category, packs]) => (
+                  <div key={category} className="space-y-2">
+                    <div className="flex items-center gap-3">
+                      <span className="text-[12px] font-medium text-[color:var(--text-muted)]">
+                        {category}
+                      </span>
+                      <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
+                      <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-subtle)]">
+                        {packs.length}
+                      </span>
+                    </div>
+                    <div
+                      className={`grid grid-cols-2 gap-2 sm:grid-cols-3 ${selectedSkillPack ? '' : 'lg:grid-cols-4'}`}
+                    >
+                      {packs.map((pack) => (
+                        <SkillPackTile
+                          key={pack.id}
+                          pack={pack}
+                          installed={Boolean(skillPackSettings.installed[pack.id])}
+                          pending={skillPackPendingId === pack.id}
+                          selected={selectedSkillPackId === pack.id}
+                          onToggle={() => void toggleSkillPack(pack)}
+                          onInfo={() =>
+                            setSelectedSkillPackId((current) =>
+                              current === pack.id ? null : pack.id,
+                            )
+                          }
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+            {selectedSkillPack ? (
+              <SkillPackInfoPanel
+                pack={selectedSkillPack}
+                installed={Boolean(skillPackSettings.installed[selectedSkillPack.id])}
+                pending={skillPackPendingId === selectedSkillPack.id}
+                onToggle={() => void toggleSkillPack(selectedSkillPack)}
+                onClose={() => setSelectedSkillPackId(null)}
+              />
+            ) : null}
+          </div>
+
+          <MessageBlock tone={skillPackMessage ? 'accent' : 'neutral'}>
+            {skillPackMessage
+              || 'Install runs `npx skills add <slug>` inside the workspace root and writes files into the harness directories that already exist.'}
           </MessageBlock>
         </div>
       ) : null}

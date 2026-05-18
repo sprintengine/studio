@@ -7,7 +7,7 @@ from typing import Any
 
 STATE_PATH_PROPERTY = {
     "type": "string",
-    "description": "Path to the active Sprint Engine state.yaml file. Must resolve under an allowed root.",
+    "description": "Path to the active Sprint Engine run.yaml file. Must resolve under an allowed root.",
 }
 
 ACTOR_SCHEMA = {

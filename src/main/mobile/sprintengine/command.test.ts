@@ -32,7 +32,7 @@ async function main(): Promise<void> {
   await assertTaskStartUsesDesktopSessionOrchestration()
   await assertTaskStartUsesAuthorizedDiscoveredStateOutsideServiceCwd()
   await assertTaskStartRejectsBlockedDependencies()
-  await assertTaskStartConsultsProjectionWhenStateYamlIsStale()
+  await assertTaskStartConsultsProjectionWhenRunYamlGraphMirrorIsStale()
   await assertFollowUpUsesKnownAgentSessionOrchestration()
   await assertFollowUpUsesAuthorizedDiscoveredStateOutsideServiceCwd()
   await assertFollowUpRejectsTerminalControlCharacters()
@@ -171,13 +171,13 @@ async function assertArtifactRequestChangesInvokesSprintEngineTool(): Promise<vo
 
 function assertAutoRunArtifactApproveArgsUseCanonicalActor(): void {
   assert.deepEqual(buildSprintEngineArtifactReviewArgs({
-    statePath: '/workspace/.multi-code/sprintengine/team/state.yaml',
+    statePath: '/workspace/.multi-code/sprintengine/team/run.yaml',
     action: 'approve',
     artifactId: 'A1',
     actorId: 'auto-run',
   }), [
     '--state',
-    '/workspace/.multi-code/sprintengine/team/state.yaml',
+    '/workspace/.multi-code/sprintengine/team/run.yaml',
     'artifact',
     'approve',
     '--artifact-id',
@@ -526,16 +526,15 @@ async function assertTaskStartRejectsBlockedDependencies(): Promise<void> {
   assert.equal(startCount, 0)
 }
 
-async function assertTaskStartConsultsProjectionWhenStateYamlIsStale(): Promise<void> {
-  // Folder-store runs may have a stale state.yaml (or one with the legacy
-  // pre-projection shape). The mobile command service must read readiness
-  // from projection.json so it observes the up-to-date board, not a stale
-  // mirror.
+async function assertTaskStartConsultsProjectionWhenRunYamlGraphMirrorIsStale(): Promise<void> {
+  // The run.yaml graph mirror can lag behind projection.json. The mobile
+  // command service must read readiness from projection.json so it observes the
+  // up-to-date board, not a stale graph mirror.
   const fixture = await writeSprintEngineFixture(
     'task-projection-team',
     '.multi-code/sprintengine/task-projection-team/documents/requirements.md',
     {
-      // Legacy state.yaml says T2 is still blocked by an unfinished T1.
+      // run.yaml says T2 is still blocked by an unfinished T1.
       tasks: [
         task('T1', 'architect', 'todo'),
         task('T2', 'developer', 'todo', { dependsOn: ['T1'] }),
@@ -742,8 +741,8 @@ async function assertFilesystemMutationHandlersProtectSprintEngineStateAliases()
   const sprintEngineDirectory = join(workspaceRoot, '.multi-code', 'sprintengine')
   const teamDirectory = join(sprintEngineDirectory, 'team')
   await mkdir(teamDirectory, { recursive: true })
-  const statePath = join(teamDirectory, 'state.yaml')
-  await writeFile(statePath, 'canonical Sprint Engine state\n', 'utf8')
+  const statePath = join(teamDirectory, 'run.yaml')
+  await writeFile(statePath, 'canonical Sprint Engine run\n', 'utf8')
 
   const stateSymlinkPath = join(workspaceRoot, 'state-link.yaml')
   const teamSymlinkPath = join(workspaceRoot, 'team-link')
@@ -755,12 +754,12 @@ async function assertFilesystemMutationHandlersProtectSprintEngineStateAliases()
   )
 
   await assertRejectsSprintEngineStateMutation(() => handlers.writeFile(statePath, 'blocked'))
-  await assertRejectsSprintEngineStateMutation(() => handlers.writeFile(join(teamDirectory, '..', 'team', 'state.yaml'), 'blocked'))
+  await assertRejectsSprintEngineStateMutation(() => handlers.writeFile(join(teamDirectory, '..', 'team', 'run.yaml'), 'blocked'))
   if (hasStateSymlink) {
     await assertRejectsSprintEngineStateMutation(() => handlers.writeFile(stateSymlinkPath, 'blocked'))
   }
   if (hasTeamSymlink) {
-    await assertRejectsSprintEngineStateMutation(() => handlers.writeFile(join(teamSymlinkPath, 'state.yaml'), 'blocked'))
+    await assertRejectsSprintEngineStateMutation(() => handlers.writeFile(join(teamSymlinkPath, 'run.yaml'), 'blocked'))
   }
 
   if (hasStateSymlink) {
@@ -769,7 +768,7 @@ async function assertFilesystemMutationHandlersProtectSprintEngineStateAliases()
   if (hasTeamSymlink) {
     const renameSourceThroughAlias = join(teamSymlinkPath, 'rename-source.txt')
     await writeFile(renameSourceThroughAlias, 'safe source\n', 'utf8')
-    await assertRejectsSprintEngineStateMutation(() => handlers.rename(renameSourceThroughAlias, 'state.yaml'))
+    await assertRejectsSprintEngineStateMutation(() => handlers.rename(renameSourceThroughAlias, 'run.yaml'))
   }
 
   const copyDestination = join(workspaceRoot, 'copy-destination')
@@ -790,7 +789,7 @@ async function assertFilesystemMutationHandlersProtectSprintEngineStateAliases()
     await assertRejectsSprintEngineStateMutation(() => handlers.delete(teamSymlinkPath))
   }
 
-  assert.equal(await readFile(statePath, 'utf8'), 'canonical Sprint Engine state\n')
+  assert.equal(await readFile(statePath, 'utf8'), 'canonical Sprint Engine run\n')
 
   const safeDirectory = join(workspaceRoot, 'safe')
   const safeCopyDestination = join(workspaceRoot, 'safe-copy')
@@ -948,7 +947,7 @@ async function importMainProcessIpcHandlers(): Promise<FilesystemMutationHandler
 async function assertRejectsSprintEngineStateMutation(action: () => Promise<unknown>): Promise<void> {
   await assert.rejects(
     action,
-    (error) => error instanceof Error && error.message === 'Sprint Engine state files must be updated through the Sprint Engine tool.'
+    (error) => error instanceof Error && error.message === 'Sprint Engine run-store files must be updated through the Sprint Engine tool.'
   )
 }
 
@@ -964,8 +963,8 @@ async function writeSprintEngineFixture(
   const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', sprintEngineId)
   await mkdir(join(teamDirectory, 'documents'), { recursive: true })
   await writeFile(join(teamDirectory, 'documents', 'requirements.md'), '# Requirements\n', 'utf8')
-  const statePath = join(teamDirectory, 'state.yaml')
-  await writeFile(statePath, `${JSON.stringify({
+  const statePath = join(teamDirectory, 'run.yaml')
+  const runState = {
     sprintengine: {
       name: sprintEngineId,
       updatedAt: '2026-04-28T19:44:00.000Z',
@@ -982,6 +981,16 @@ async function writeSprintEngineFixture(
         taskId: 'T1',
       },
     ],
+  }
+  await writeFile(statePath, `${JSON.stringify(runState, null, 2)}\n`, 'utf8')
+  await writeFile(join(teamDirectory, 'projection.json'), `${JSON.stringify({
+    run: {
+      name: sprintEngineId,
+      updatedAt: '2026-04-28T19:44:00.000Z',
+    },
+    tasks: runState.tasks,
+    artifacts: runState.artifacts,
+    roster: runState.sprintEngineAgents,
   }, null, 2)}\n`, 'utf8')
   await readSprintEngineSnapshot(statePath)
   return { workspaceRoot, statePath }

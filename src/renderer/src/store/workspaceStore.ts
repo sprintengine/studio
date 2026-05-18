@@ -38,6 +38,9 @@ import type {
   WorkspaceHighlight,
   McpServerConfig,
   McpSettings,
+  SkillPackEntry,
+  SkillPackHarness,
+  SkillPackSettings,
   GuidedBriefRuntimeState,
 } from '../types/workspace'
 import {
@@ -122,6 +125,9 @@ interface WorkspaceStore {
   setMcpSyncEnabled: (enabled: boolean) => void
   upsertMcpServer: (server: McpServerConfig) => void
   removeMcpServer: (serverId: string) => void
+  setSkillPacksInstalled: (installed: SkillPackEntry[]) => void
+  upsertSkillPack: (pack: SkillPackEntry) => void
+  removeSkillPack: (id: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   setLastSelectedMultiloopRole: (role: MultiloopRole) => void
@@ -290,6 +296,7 @@ const defaultAppSettings = (): AppSettings => ({
     },
   },
   mcp: defaultMcpSettings(),
+  skillPacks: defaultSkillPackSettings(),
   lastSelectedCli: 'claude',
   lastSelectedSpecialist: 'architect',
   lastSelectedMultiloopRole: 'coordinator',
@@ -390,6 +397,70 @@ function normalizeMcpSettings(value: unknown): McpSettings {
   }
 }
 
+const SKILL_PACK_HARNESSES: readonly SkillPackHarness[] = [
+  'claude',
+  'codex',
+  'cursor',
+  'gemini',
+  'opencode',
+  'agents',
+]
+
+function defaultSkillPackSettings(): SkillPackSettings {
+  return { installed: {} }
+}
+
+function normalizeSkillPackId(value: unknown): string {
+  return typeof value === 'string'
+    ? value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+    : ''
+}
+
+function normalizeSkillPack(value: unknown): SkillPackEntry | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Partial<SkillPackEntry>
+  const id = normalizeSkillPackId(candidate.id)
+  const slug = typeof candidate.slug === 'string' ? candidate.slug.trim() : ''
+  const name = typeof candidate.name === 'string' && candidate.name.trim()
+    ? candidate.name.trim()
+    : id
+  if (!id || !slug) return null
+  const harnesses = Array.isArray(candidate.harnesses)
+    ? candidate.harnesses.filter((h): h is SkillPackHarness =>
+        SKILL_PACK_HARNESSES.includes(h as SkillPackHarness),
+      )
+    : []
+  const source = candidate.source === 'custom' ? 'custom' : 'bundled'
+  return {
+    id,
+    slug,
+    name,
+    category: typeof candidate.category === 'string' ? candidate.category.trim() || undefined : undefined,
+    description: typeof candidate.description === 'string' ? candidate.description.trim() || undefined : undefined,
+    version: typeof candidate.version === 'string' ? candidate.version.trim() || undefined : undefined,
+    sourceUrl: typeof candidate.sourceUrl === 'string' ? candidate.sourceUrl.trim() || undefined : undefined,
+    installedDirName: typeof candidate.installedDirName === 'string'
+      ? candidate.installedDirName.trim() || undefined
+      : undefined,
+    harnesses,
+    source,
+    installedAt: typeof candidate.installedAt === 'string' ? candidate.installedAt : undefined,
+  }
+}
+
+function normalizeSkillPackSettings(value: unknown): SkillPackSettings {
+  if (!value || typeof value !== 'object') return defaultSkillPackSettings()
+  const candidate = value as Partial<SkillPackSettings>
+  const installed: Record<string, SkillPackEntry> = {}
+  if (candidate.installed && typeof candidate.installed === 'object') {
+    for (const entry of Object.values(candidate.installed)) {
+      const normalized = normalizeSkillPack(entry)
+      if (normalized) installed[normalized.id] = normalized
+    }
+  }
+  return { installed }
+}
+
 function normalizeProjectKnowledgeRoots(
   roots: unknown,
   workspaces: Workspace[]
@@ -422,6 +493,7 @@ function normalizeAppSettings(settings: Partial<AppSettings> | undefined, worksp
       ...(settings?.cliRuntimes ?? {}),
     },
     mcp: normalizeMcpSettings(settings?.mcp),
+    skillPacks: normalizeSkillPackSettings(settings?.skillPacks),
     lastSelectedCli: settings?.lastSelectedCli ?? defaults.lastSelectedCli,
     lastSelectedSpecialist: settings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
     lastSelectedMultiloopRole: settings?.lastSelectedMultiloopRole ?? defaults.lastSelectedMultiloopRole,
@@ -457,7 +529,7 @@ function mapMigrationWorkspaces(
 function defaultUsageTelemetrySettings(): UsageTelemetrySettings {
   return {
     sendUsageData: false,
-    localDevExportEnabled: import.meta.env.DEV,
+    localDevExportEnabled: import.meta.env?.DEV === true,
     lastExportAt: null,
     exportDiagnostics: true,
   }
@@ -672,6 +744,14 @@ function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeState | nu
         .filter((artifact): artifact is GuidedBriefRuntimeState['acceptedMockups'][number] => artifact != null)
       : [],
     activeMockupPath: typeof candidate.activeMockupPath === 'string' ? candidate.activeMockupPath : null,
+    strategistSessionId:
+      typeof candidate.strategistSessionId === 'string' && candidate.strategistSessionId.trim()
+        ? candidate.strategistSessionId
+        : null,
+    designerSessionId:
+      typeof candidate.designerSessionId === 'string' && candidate.designerSessionId.trim()
+        ? candidate.designerSessionId
+        : null,
   }
 }
 
@@ -807,6 +887,7 @@ function normalizeSprintEngineAutoPendingSpawn(
   return typeof input?.taskId === 'string' && typeof input.agentId === 'string'
     ? {
       taskId: input.taskId,
+      ...(typeof input.gateId === 'string' && input.gateId ? { gateId: input.gateId } : {}),
       agentId: input.agentId,
       ...(typeof input.startedAt === 'number' ? { startedAt: input.startedAt } : {}),
     }
@@ -1044,9 +1125,9 @@ const sprintEngineTabsLayoutModel = (
         type: 'tabset',
         weight: options?.includeAgentTabs === false ? 100 : 58,
         children: [
-          { type: 'tab', name: 'Project', component: 'sprintengine-project' },
-          { type: 'tab', name: 'Task Graph', component: 'sprintengine-task-graph' },
-          { type: 'tab', name: 'Kanban', component: 'sprintengine-kanban' },
+          { type: 'tab', name: 'Inbox', component: 'sprintengine-inbox' },
+          { type: 'tab', name: 'Roster', component: 'sprintengine-roster' },
+          { type: 'tab', name: 'Tasks', component: 'sprintengine-tasks' },
         ],
       },
       ...(options?.includeAgentTabs === false
@@ -1126,11 +1207,20 @@ function ensureMultiloopLayoutModel(model: IJsonModel | null | undefined): IJson
 }
 
 function isLegacySprintEngineLayout(model: IJsonModel): boolean {
+  // Anything that doesn't already contain the new three-tab shape is
+  // treated as legacy and rewritten to Inbox / Roster / Tasks. Covers the
+  // single-panel `'sprintengine'` shape, the retired `-project`/`-task-graph`
+  // /`-kanban`/`-map`/`-terminals` flex tabs, and any partial layout.
   const serialized = JSON.stringify(model)
-  if (serialized.includes('"component":"sprintengine"') && !serialized.includes('"component":"sprintengine-project"')) return true
-  if (serialized.includes('"component":"sprintengine-terminals"')) return true
-
-  return false
+  const hasNewShape =
+    serialized.includes('"component":"sprintengine-inbox"')
+    || serialized.includes('"component":"sprintengine-roster"')
+    || serialized.includes('"component":"sprintengine-tasks"')
+  if (hasNewShape) return false
+  return (
+    serialized.includes('"component":"sprintengine')
+    // Catches all sprintengine-prefixed legacy components.
+  )
 }
 
 function migrateSprintEngineLayout(ws: Workspace): Workspace {
@@ -1412,6 +1502,36 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const current = normalizeMcpSettings(state.appSettings.mcp)
           delete current.servers[normalizeMcpId(serverId)]
           state.appSettings.mcp = current
+        }),
+
+      setSkillPacksInstalled: (installed) =>
+        set((state) => {
+          const next: Record<string, SkillPackEntry> = {}
+          for (const entry of installed) {
+            const normalized = normalizeSkillPack(entry)
+            if (normalized) next[normalized.id] = normalized
+          }
+          state.appSettings.skillPacks = { installed: next }
+        }),
+
+      upsertSkillPack: (pack) =>
+        set((state) => {
+          const normalized = normalizeSkillPack(pack)
+          if (!normalized) return
+          const current = normalizeSkillPackSettings(state.appSettings.skillPacks)
+          state.appSettings.skillPacks = {
+            installed: {
+              ...current.installed,
+              [normalized.id]: normalized,
+            },
+          }
+        }),
+
+      removeSkillPack: (id) =>
+        set((state) => {
+          const current = normalizeSkillPackSettings(state.appSettings.skillPacks)
+          delete current.installed[normalizeSkillPackId(id)]
+          state.appSettings.skillPacks = current
         }),
 
       setLastSelectedCli: (cli) =>

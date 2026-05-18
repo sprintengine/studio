@@ -679,10 +679,10 @@ export default function WorkspaceManager() {
         toggleWorkspacePanel(activeWorkspaceId, 'editor')
       } else if (command === 'toggle-git') {
         toggleWorkspacePanel(activeWorkspaceId, 'git')
-      } else if (command === 'open-sprintengine-kanban') {
+      } else if (command === 'open-sprintengine-tasks') {
         const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId)
         if (workspace?.mode === 'sprintengine' || workspace?.sprintEngineContext) {
-          focusOrAddComponentTab(activeWorkspaceId, 'sprintengine-kanban', 'Kanban')
+          focusOrAddComponentTab(activeWorkspaceId, 'sprintengine-tasks', 'Tasks')
         }
       }
     })

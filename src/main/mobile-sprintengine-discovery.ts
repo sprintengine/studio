@@ -21,7 +21,7 @@ async function discoverSprintEngineStatePaths(workspaceRoot: string): Promise<st
     entries
       .filter((entry) => entry.isDirectory())
       .map(async (entry) => {
-        const statePath = join(sprintEngineRoot, entry.name, 'state.yaml')
+        const statePath = join(sprintEngineRoot, entry.name, 'run.yaml')
         return (await pathExists(statePath)) ? statePath : null
       })
   )

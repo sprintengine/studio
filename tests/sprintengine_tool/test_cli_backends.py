@@ -4,7 +4,6 @@ import json
 import os
 import subprocess
 import sys
-import textwrap
 
 from helpers import REPO_ROOT, create_team, get_task, read_state, task
 
@@ -59,50 +58,15 @@ def test_direct_core_backend_is_default_and_preserves_cli_json_shape(tmp_path) -
     assert audit_rows(fixture.team_dir) == []
 
 
-def test_direct_core_reads_legacy_yaml_state_without_rewriting_for_read_only_commands(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "legacy-yaml" / "state.yaml"
+def test_direct_core_rejects_uninitialized_run_store(tmp_path) -> None:
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "uninitialized" / "run.yaml"
     state_path.parent.mkdir(parents=True)
-    state_path.write_text(
-        textwrap.dedent(
-            """\
-            sprintengine:
-              name: legacy-yaml
-              goal: Fixture sprintengine legacy-yaml
-              status: executing
-            tasks:
-              - id: T1
-                title: YAML route
-                description: YAML route
-                role: developer
-                status: todo
-                ownerAgentId:
-                dependsOn: []
-                ownedPaths: []
-                acceptanceCriteria: []
-                implementationNotes: []
-                evidence:
-                  summary: ""
-                  touchedFiles: []
-                  commandsRan: []
-                  results: []
-                notes: []
-                startedAt:
-                completedAt:
-            agents: {}
-            events: []
-            artifacts: []
-            roles: {}
-            """
-        ),
-        encoding="utf-8",
-    )
-    before = state_path.read_text(encoding="utf-8")
+    state_path.write_text("not: a run store\n", encoding="utf-8")
 
     completed = run_swarm(["--state", str(state_path), "task", "list", "--role", "developer"])
 
-    payload = parse_stdout_json(completed)
-    assert [record["id"] for record in payload["readyTasks"]] == ["T1"]
-    assert state_path.read_text(encoding="utf-8") == before
+    assert completed.returncode != 0
+    assert "folder store is not initialized" in completed.stderr
 
 
 def test_explicit_mcp_backend_preserves_success_shape_and_emits_audit(tmp_path) -> None:
@@ -246,7 +210,7 @@ def test_mcp_backend_errors_disclose_backend_mode_for_unsupported_command(tmp_pa
             "--backend",
             "mcp-local",
             "--state",
-            str(tmp_path / ".multi-code" / "sprintengine" / "state.yaml"),
+            str(tmp_path / ".multi-code" / "sprintengine" / "run.yaml"),
             "handover",
             "--name",
             "unsupported",

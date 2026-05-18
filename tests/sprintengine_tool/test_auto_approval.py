@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import json
 import re
 from pathlib import Path
 
@@ -12,6 +10,7 @@ from helpers import (
     get_artifact,
     read_state,
     task,
+    write_state,
 )
 
 
@@ -156,7 +155,7 @@ def test_auto_approval_policy_allows_only_approved_artifact_kinds(tmp_path) -> N
             "recommendedTasks": [],
         },
     ]
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    write_state(fixture.state_path, state)
 
     assert collect_fixture_auto_approval_intents(fixture, enabled=True) == ["A1"]
 
@@ -208,7 +207,7 @@ def test_electron_auto_run_prompts_idle_running_agents_for_ready_work() -> None:
 
     assert "function sendContinuationPromptsToIdleAgents" in supervisor_source
     assert "Sprint Engine roster runner found a ready" in supervisor_source
-    assert "sprintengine join --role ${task.role} --id ${agentId}" in supervisor_source
+    assert "sprintengine join --role ${task.role} --id ${agentId} --watch" in supervisor_source
     assert "await sendContinuationPromptsToIdleAgents(" in supervisor_source
     assert "continuation-prompt-sent" in supervisor_source
 
@@ -226,9 +225,10 @@ def test_sprintengine_agent_prompts_do_not_continue_polling_after_claim() -> Non
 
     assert "Keep polling for ready" not in combined_source
     assert "then poll again" not in combined_source
-    assert "Do not leave a background polling loop running" in combined_source
-    assert "stop all idle retrying as soon as a task is returned" in combined_source
-    assert "After you claim one task, focus only on that task" in combined_source
+    assert "Do not create your own background polling loop" in combined_source
+    assert "Do not create your own sleep/retry loop" in combined_source
+    assert "After you claim one task or gate, focus only on that work" in combined_source
+    assert "join --role ${task.role} --id ${agentId} --watch" in combined_source
 
 
 def test_electron_auto_run_clears_stale_spawn_state_before_retrying() -> None:
@@ -256,3 +256,15 @@ def test_electron_roster_runner_starts_roster_agents_without_task_named_workers(
     assert "candidate-pick-ready-task-waiting-for-roster-agent" in supervisor_source
     assert "function buildAutoRunAgentId" not in supervisor_source
     assert "buildAutoRunAgentId(task.role, task.id)" not in supervisor_source
+
+
+def test_electron_roster_runner_uses_durable_or_requested_auto_mode() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
+        encoding="utf-8"
+    )
+
+    assert "const runnerMode = workspace?.sprintEngineState?.runner?.mode" in supervisor_source
+    assert "return runnerMode === 'auto' || getSprintEngineAutoState(workspace).enabled" in supervisor_source
+    assert "async function ensureDurableAutoMode" in supervisor_source
+    assert "mode: 'auto'" in supervisor_source

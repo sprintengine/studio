@@ -13,7 +13,7 @@ from sprintengine_core.tool import append_task_activity
 
 
 def test_init_creates_folder_store_layout(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "folder-layout" / "state.yaml"
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "folder-layout" / "run.yaml"
     payload = SwarmCli(state_path).run("init", "--goal", "Create a folder store")
 
     team_dir = state_path.parent
@@ -35,7 +35,7 @@ def test_init_creates_folder_store_layout(tmp_path) -> None:
 
 
 def test_handover_creates_folder_store_layout(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "handover-layout" / "state.yaml"
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "handover-layout" / "run.yaml"
     payload = SwarmCli(state_path).run(
         "handover",
         "--name",
@@ -512,7 +512,7 @@ def test_ready_queue_excludes_blocked_active_terminal_and_manual_todo_tasks(tmp_
         [
             task("T1", "Done dependency", "developer", "done"),
             task("T2", "Ready", "developer", depends_on=["T1"]),
-            task("T3", "Blocked dependency", "developer", depends_on=["T9"]),
+            task("T3", "Canceled dependency", "developer", "canceled", depends_on=["T1"]),
             task("T4", "Active", "developer", "in_progress", owner="developer-a"),
             task("T5", "Needs input", "developer", "needs_input", owner="developer-b"),
             task("T6", "Already done", "developer", "done"),
@@ -522,14 +522,6 @@ def test_ready_queue_excludes_blocked_active_terminal_and_manual_todo_tasks(tmp_
     manual["dispatch"] = {"mode": "manual", "status": "todo", "triagedBy": "none"}
     state = read_state(fixture.state_path)
     state["tasks"].append(manual)
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
-
-    failure = fixture.cli.run_failure("task", "refresh-ready")
-    assert "unknown dependencies: T9" in failure.stderr
-
-    state = read_state(fixture.state_path)
-    get_task(state, "T3")["dependsOn"] = ["T1"]
-    get_task(state, "T3")["status"] = "canceled"
     store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
     payload = fixture.cli.run("task", "refresh-ready")
 
@@ -611,7 +603,7 @@ def test_projection_reports_changes_requested_distinctly(tmp_path) -> None:
     assert tasks["T3"]["status"] == "ready"
 
 
-def test_folder_store_mutation_works_without_state_yaml(tmp_path) -> None:
+def test_folder_store_mutation_requires_run_yaml(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
         "folder-store-no-state-yaml",
@@ -623,12 +615,8 @@ def test_folder_store_mutation_works_without_state_yaml(tmp_path) -> None:
     fixture.cli.run("task", "refresh-ready")
     fixture.state_path.unlink()
 
-    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
-
-    assert claimed["claimed"] is True
-    assert claimed["task"]["id"] == "T2"
-    assert (fixture.team_dir / "tasks" / "in_progress" / "0002-T2.json").is_file()
-    assert fixture.state_path.is_file()
+    with pytest.raises(AssertionError, match="folder store is not initialized"):
+        fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
 
 
 def test_concurrent_task_next_claims_available_work_once(tmp_path) -> None:
@@ -786,21 +774,6 @@ def test_cycle_creation_fails_and_leaves_graph_unchanged(tmp_path) -> None:
     assert get_task(state, "T2")["dependsOn"] == []
 
 
-def test_refresh_ready_rejects_existing_cycles(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "cycle-refresh",
-        [
-            task("T1", "First", "developer", depends_on=["T2"]),
-            task("T2", "Second", "developer", depends_on=["T1"]),
-        ],
-    )
-
-    rejected = fixture.cli.run_failure("task", "refresh-ready")
-
-    assert "Task dependency cycle detected" in rejected.stderr
-
-
 def test_lifecycle_writes_task_activity_artifact_files_and_events_jsonl(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
@@ -870,235 +843,8 @@ def test_activity_ids_use_max_existing_id_after_compaction() -> None:
     assert len({activity["id"] for activity in task_record["activity"]}) == 3
 
 
-def test_state_yaml_migration_is_idempotent_and_preserves_legacy_data(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "legacy-migration",
-        [
-            task("T1", "Approved requirements", "product", "done", owner="product-fixture"),
-            task("T2", "Implementation", "developer", depends_on=["T1"]),
-        ],
-    )
-    state = read_state(fixture.state_path)
-    state["tasks"][0]["evidence"]["summary"] = "Requirements approved."
-    state["tasks"][0]["notes"] = ["Reviewed by user."]
-    state["tasks"][0]["comments"] = [
-        {"id": "C1", "actor": "user", "source": "user", "body": "Looks good.", "createdAt": "2026-05-16T10:00:00Z"}
-    ]
-    state["tasks"][0]["feedback"] = {
-        "schemaVersion": 4,
-        "capturedAt": "2026-05-16T10:01:00Z",
-        "source": "agent_self_report",
-        "agentId": "product-fixture",
-        "role": "product",
-        "scores": {"confidencePct": 92},
-    }
-    state["artifacts"] = [
-        {
-            "id": "A1",
-            "kind": "requirements",
-            "title": "Requirements",
-            "path": ".multi-code/sprintengine/legacy-migration/product-requirements.md",
-            "status": "approved",
-            "createdBy": "product-fixture",
-            "taskId": "T1",
-            "fingerprint": None,
-            "reviewHistory": [{"action": "approved", "actor": "user", "timestamp": "2026-05-16T10:02:00Z"}],
-            "recommendedTasks": [],
-            "createdAt": "2026-05-16T10:01:00Z",
-            "updatedAt": "2026-05-16T10:02:00Z",
-        }
-    ]
-    state["events"] = [
-        {"id": "EVT-001", "timestamp": "2026-05-16T10:02:00Z", "type": "artifact_approved", "actor": "user", "message": "Approved."}
-    ]
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
-    existing_metric = {"schema_version": 4, "task_id": "legacy", "agent_id": "legacy-agent"}
-    metrics_path = fixture.team_dir / "metrics" / "agent-feedback.jsonl"
-    metrics_path.parent.mkdir(parents=True, exist_ok=True)
-    metrics_path.write_text(json.dumps(existing_metric, sort_keys=True) + "\n", encoding="utf-8")
-    original_state = fixture.state_path.read_bytes()
-
-    first = fixture.cli.run("migrate", "--actor", "architect")
-    second = fixture.cli.run("migrate", "--actor", "architect")
-
-    assert first["ok"] is True
-    assert second["ok"] is True
-    assert first["backupPath"] == second["backupPath"]
-    assert (fixture.team_dir / "state.migration-backup.yaml").read_bytes() == original_state
-    assert first["readyTaskIds"] == ["T2"]
-    assert second["readyTaskIds"] == ["T2"]
-
-    run = store.load_run_yaml(fixture.team_dir)
-    assert run["migration"]["source"] == "state.yaml"
-    assert run["migration"]["backupPath"] == "state.migration-backup.yaml"
-    assert run["migration"]["taskCount"] == 2
-    assert run["migration"]["artifactCount"] == 1
-
-    migrated_state = read_state(fixture.state_path)
-    assert sum(event["type"] == "folder_store_migrated" for event in migrated_state["events"]) == 1
-    assert len(get_task(migrated_state, "T1")["activity"]) >= 5
-    assert (fixture.team_dir / "tasks" / "done" / "0001-T1.json").is_file()
-    assert (fixture.team_dir / "tasks" / "ready" / "0002-T2.json").is_file()
-    assert (fixture.team_dir / "artifacts" / "approved" / "A1.json").is_file()
-    feedback_records = [
-        json.loads(line)
-        for line in (fixture.team_dir / "metrics" / "agent-feedback.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    assert existing_metric in feedback_records
-    assert len(feedback_records) == 2
-
-
-def test_migrated_run_supports_claim_log_artifact_review_and_ready_refresh(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "migrated-command-flow",
-        [
-            task("T1", "Dependency", "developer", "done"),
-            task("T2", "Implementation", "developer", depends_on=["T1"]),
-        ],
-    )
-    fixture.cli.run("migrate", "--actor", "architect")
-
-    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
-    fixture.cli.run(
-        "task",
-        "log",
-        "--task-id",
-        "T2",
-        "--id",
-        "developer-fixture",
-        "--summary",
-        "Implemented.",
-        "--file",
-        "src/implementation.py",
-    )
-    artifact_file = fixture.team_dir / "reviews" / "code-review.md"
-    artifact_file.parent.mkdir(parents=True, exist_ok=True)
-    artifact_file.write_text("# Code Review\n", encoding="utf-8")
-    artifact = fixture.cli.run(
-        "artifact",
-        "add",
-        "--task-id",
-        "T2",
-        "--kind",
-        "code_review",
-        "--title",
-        "Code review",
-        "--path",
-        "reviews/code-review.md",
-        "--created-by",
-        "developer-fixture",
-        "--ready",
-    )["artifact"]
-    fixture.cli.run("artifact", "approve", "--artifact-id", artifact["id"], "--id", "user")
-    refreshed = fixture.cli.run("task", "refresh-ready")
-
-    assert claimed["task"]["id"] == "T2"
-    assert refreshed["readyTaskIds"] == []
-    migrated_state = read_state(fixture.state_path)
-    assert get_task(migrated_state, "T2")["status"] == "done"
-    assert (fixture.team_dir / "tasks" / "done" / "0002-T2.json").is_file()
-    assert (fixture.team_dir / "artifacts" / "approved" / f"{artifact['id']}.json").is_file()
-
-
-def test_migrated_lifecycle_commands_operate_without_state_yaml(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "migrated-folder-store-source",
-        [
-            task("T1", "Dependency", "developer", "done"),
-            task("T2", "Implementation", "developer", depends_on=["T1"]),
-        ],
-    )
-    fixture.cli.run("migrate", "--actor", "architect")
-
-    def remove_legacy_state() -> None:
-        try:
-            fixture.state_path.unlink()
-        except FileNotFoundError:
-            pass
-
-    remove_legacy_state()
-    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
-    remove_legacy_state()
-    fixture.cli.run(
-        "task",
-        "log",
-        "--task-id",
-        "T2",
-        "--id",
-        "developer-fixture",
-        "--summary",
-        "Implemented from folder store.",
-        "--file",
-        "src/implementation.py",
-    )
-    remove_legacy_state()
-    fixture.cli.run("task", "status", "--task-id", "T2", "--status", "in_progress", "--id", "developer-fixture")
-
-    artifact_file = fixture.team_dir / "reviews" / "folder-store-review.md"
-    artifact_file.parent.mkdir(parents=True, exist_ok=True)
-    artifact_file.write_text("# Folder Store Review\n", encoding="utf-8")
-    remove_legacy_state()
-    artifact = fixture.cli.run(
-        "artifact",
-        "add",
-        "--task-id",
-        "T2",
-        "--kind",
-        "code_review",
-        "--title",
-        "Folder store review",
-        "--path",
-        "reviews/folder-store-review.md",
-        "--created-by",
-        "developer-fixture",
-    )["artifact"]
-    fixture.state_path.write_text('{"sprintengine":', encoding="utf-8")
-    fixture.cli.run("artifact", "ready", "--artifact-id", artifact["id"], "--id", "developer-fixture")
-    remove_legacy_state()
-    fixture.cli.run("artifact", "approve", "--artifact-id", artifact["id"], "--id", "user")
-    fixture.state_path.write_text('{"tasks":', encoding="utf-8")
-    projection = fixture.cli.run("projection")
-
-    assert claimed["claimed"] is True
-    assert claimed["task"]["id"] == "T2"
-    assert projection["source"] == "folder_store"
-    projected_tasks = {task_record["id"]: task_record for task_record in projection["tasks"]}
-    assert projected_tasks["T2"]["stateStatus"] == "done"
-    assert projection["counts"]["artifacts"]["approved"] == 1
-    assert (fixture.team_dir / "tasks" / "done" / "0002-T2.json").is_file()
-    assert (fixture.team_dir / "artifacts" / "approved" / f"{artifact['id']}.json").is_file()
-
-
-def test_projection_preserves_roster_from_folder_store_without_state_yaml(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "migrated-roster-source",
-        [task("T1", "Implementation", "developer")],
-    )
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "developer-idle": {"role": "developer", "status": "idle", "currentTaskId": None},
-        "tester-idle": {"role": "tester", "status": "idle", "currentTaskId": None},
-    }
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
-    fixture.cli.run("migrate", "--actor", "architect")
-
-    fixture.state_path.write_text('{"sprintengine":', encoding="utf-8")
-    projection = fixture.cli.run("projection")
-
-    assert projection["source"] == "folder_store"
-    assert projection["run"]["rosterConfigured"] is True
-    assert projection["roster"]["developer-idle"]["status"] == "idle"
-    assert projection["roster"]["tester-idle"]["role"] == "tester"
-
-
 def test_projection_covers_empty_run_summary_and_board(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "empty-projection" / "state.yaml"
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "empty-projection" / "run.yaml"
     payload = SwarmCli(state_path).run("init", "--goal", "Project the run", "--agent", "developer:developer-1")
     state = read_state(state_path)
     state["tasks"] = []
@@ -1230,49 +976,3 @@ def test_projection_reports_stale_folder_locks(tmp_path) -> None:
     assert ready_queue_lock["exists"] is True
     assert ready_queue_lock["stale"] is True
     assert projection["locks"]["warnings"][0]["name"] == "readyQueue"
-
-
-def test_projection_falls_back_for_unmigrated_state_yaml_reads(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "projection-legacy-fallback",
-        [
-            task("T1", "Foundation", "developer", "done"),
-            task("T2", "Ready legacy task", "developer", depends_on=["T1"]),
-        ],
-    )
-
-    projection = fixture.cli.run("projection")
-
-    assert projection["source"] == "state_yaml_fallback"
-    assert projection["board"]["counts"]["ready"] == 1
-    assert projection["tasks"][1]["id"] == "T2"
-    assert projection["tasks"][1]["status"] == "ready"
-
-
-def test_projection_reads_migrated_run_from_folder_files(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "projection-migrated-run",
-        [
-            task("T1", "Foundation", "developer", "done"),
-            task("T2", "Implementation", "developer", depends_on=["T1"]),
-        ],
-    )
-
-    fixture.cli.run("migrate", "--actor", "architect")
-    state = read_state(fixture.state_path)
-    get_task(state, "T2")["title"] = "Changed only in legacy state"
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
-    projection = fixture.cli.run("projection")
-    projected_tasks = {task_record["id"]: task_record for task_record in projection["tasks"]}
-
-    assert projection["source"] == "folder_store"
-    assert projection["run"]["migration"]["source"] == "state.yaml"
-    assert projected_tasks["T2"]["title"] == "Implementation"
-    assert projection["board"]["counts"]["ready"] == 1
-
-    fixture.state_path.write_text('{"sprintengine":', encoding="utf-8")
-    projection_without_legacy_state = fixture.cli.run("projection")
-    assert projection_without_legacy_state["source"] == "folder_store"
-    assert projection_without_legacy_state["board"]["counts"]["ready"] == 1

@@ -162,6 +162,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "resources/skill-packs",
+        "to": "skill-packs",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {

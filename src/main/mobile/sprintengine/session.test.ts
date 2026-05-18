@@ -38,8 +38,8 @@ async function assertTaskStartUsesCurrentWorkspace(): Promise<void> {
   assert.equal(spawned.length, 1)
   assert.equal(spawned[0].executionMode, 'current_workspace')
   assert.equal(spawned[0].cwd, fixture.workspaceRoot)
-  assert.match(spawned[0].initialPrompt, /\\.venv\\Scripts\\python\.exe" \.\\scripts\\sprintengine_tool\.py join --role developer --id developer-1/u)
-  assert.match(spawned[0].initialPrompt, /Otherwise run `sprintengine join --role developer --id developer-1`/u)
+  assert.match(spawned[0].initialPrompt, /\\.venv\\Scripts\\python\.exe" \.\\scripts\\sprintengine_tool\.py join --role developer --id developer-1 --watch/u)
+  assert.match(spawned[0].initialPrompt, /Otherwise run `sprintengine join --role developer --id developer-1 --watch`/u)
 }
 
 async function assertTaskStartRejectsTerminalLimit(): Promise<void> {
@@ -166,7 +166,7 @@ async function writeFixture(sprintEngineId: string): Promise<{
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-session-'))
   const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', sprintEngineId)
   await mkdir(teamDirectory, { recursive: true })
-  const statePath = join(teamDirectory, 'state.yaml')
+  const statePath = join(teamDirectory, 'run.yaml')
   await writeFile(statePath, `${JSON.stringify({
     sprintengine: {
       name: sprintEngineId,

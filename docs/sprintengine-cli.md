@@ -2,13 +2,13 @@
 
 Sprint Engine is the local execution authority for specialist runs. The CLI is
 the supported mutation boundary for task claiming, task status changes, evidence
-logging, artifact lifecycle, roster updates, migration, ready queue refresh, and
+logging, artifact lifecycle, roster updates, ready queue refresh, runner policy, and
 projection reads.
 
-Do not edit `.multi-code/sprintengine/<team>/state.yaml`, `run.yaml`, task JSON
-files, artifact JSON files, `events.jsonl`, metrics files, or lock files by
-hand. Use the CLI so locks, folder moves, activity, events, metrics, and
-`projection.json` stay synchronized.
+Do not edit `.multi-code/sprintengine/<team>/run.yaml`, task JSON files,
+artifact JSON files, `events.jsonl`, metrics files, `projection.json`, runner
+files, or lock files by hand. Use the CLI so locks, folder moves, activity,
+events, metrics, and projections stay synchronized.
 
 ## Command Portability
 
@@ -37,7 +37,7 @@ Windows direct Python fallback:
 ```
 
 When calling `scripts/sprintengine_tool.py` directly, put global flags such as
-`--state <state-file>` before the command group.
+`--state <run.yaml>` before the command group.
 
 ## Common Worker Flow
 
@@ -46,7 +46,7 @@ ready task for their exact role, log evidence, then publish or mark the task
 done:
 
 ```bash
-sprintengine join --role developer --id developer-1
+sprintengine join --role developer --id developer-1 --watch
 sprintengine task next --role developer --id developer-1
 sprintengine task log --task-id T8 --id developer-1 --summary "Updated Sprint Engine docs" --file docs/sprintengine-cli.md --command "uv run --with pytest --with PyYAML python -m pytest tests/sprintengine_tool -q" --result "Passed"
 sprintengine task status --task-id T8 --status done --id developer-1 --confidence-pct 90 --hallucination-risk-pct 5
@@ -84,8 +84,8 @@ Current command groups:
 - `handover`: create a team bootstrap and handoff context.
 - `init`: initialize a run.
 - `recover`: run an integrity recovery audit prompt.
-- `migrate`: idempotently migrate `state.yaml` to the folder store.
 - `projection`: read the normalized run projection.
+- `runner`: read or update the durable runner policy.
 - `roster`: add or list canonical roster members.
 - `join`: receive the role prompt and next directive.
 - `triage`: inspect architect-actionable blockers.
@@ -108,15 +108,14 @@ The projection command is the stable read API:
 sprintengine projection
 ```
 
-It reads real folder-store files for migrated and new runs. It includes run
+It reads real folder-store files for initialized runs. It includes run
 metadata, roster, tasks, board columns, artifacts, lock status, stale-lock
 warnings, activity, feedback, ready counts, needs-input counts, run summary
-fields, and per-task quality gate/comment context. It falls back to
-`state.yaml` only when reading an unmigrated run.
+fields, runner policy, and per-task quality gate/comment context.
 
 Renderer and mobile code should consume projection data or `projection.json`;
 they should not parse task folders, artifact folders, locks, events, metrics, or
-`state.yaml` directly for migrated runs.
+run-store internals directly.
 
 ## Task Commands
 
@@ -230,25 +229,21 @@ sprintengine artifact request-changes --artifact-id A1 --id user --feedback "Nar
 `ready_for_review` and moves the linked task to `needs_input` when human review
 is required.
 
-## Migration
+## Runner Policy
 
-Run migration once or repeatedly; it is idempotent:
+The durable runner policy lives in `run.yaml` and is exposed in projection:
 
 ```bash
-sprintengine migrate --actor architect
+sprintengine runner status
+sprintengine runner set --mode auto
+sprintengine runner set --mode off
 ```
 
-Migration writes folder-store files, creates `state.migration-backup.yaml`,
-records migration metadata in `run.yaml`, appends migration activity and events
-once, refreshes `tasks/ready/`, writes metrics JSONL, and emits
-`projection.json`.
-
-Compatibility note: after migration, `run.yaml`, task files, artifact files,
-events, metrics, and `projection.json` are the authoritative run store.
-`state.yaml` may remain present as a compatibility mirror, but commands and
-projection reads prefer folder-store data when `run.yaml` and task folders
-exist. Only unmigrated runs should use the `state_yaml_fallback` projection
-source.
+Agents should start and continue with `join --watch`. When Auto Mode is on,
+`join --watch` sleeps and polls under the CLI until work is available or Auto
+Mode is turned off. When Auto Mode is off, idle agents stop. The renderer
+should launch and monitor roster terminals;
+the CLI decides which task, gate, or triage directive an agent receives.
 
 ## DAG Readiness
 
@@ -278,9 +273,8 @@ by moving task files by hand.
 The CLI serializes folder-store mutations with `runner/run.queue.lock`,
 materialization with `runner/ready.queue.lock`, and claim selection with
 `runner/claim.queue.lock`. Gate claim and verdict selection uses
-`runner/gate.queue.lock`. `state.yaml.lock` is used only for legacy unmigrated
-runs. The projection reports lock status and stale-lock warnings so app and
-mobile consumers do not need to inspect lock files.
+`runner/gate.queue.lock`. The projection reports lock status and stale-lock
+warnings so app and mobile consumers do not need to inspect lock files.
 
 Use recovery when a run needs an integrity audit:
 

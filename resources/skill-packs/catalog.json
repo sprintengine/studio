@@ -1,0 +1,47 @@
+{
+  "packs": [
+    {
+      "id": "impeccable",
+      "slug": "pbakaus/impeccable",
+      "name": "Impeccable",
+      "category": "Design",
+      "description": "Design skills, anti-pattern detection, and 23 verbs (polish, critique, audit, distill, harden, animate, live, etc.) that make AI agents produce production-grade UIs instead of generic SaaS templates.",
+      "version": "2.1.9",
+      "sourceUrl": "https://github.com/pbakaus/impeccable",
+      "installedDirName": "impeccable",
+      "harnesses": ["claude", "codex", "cursor", "gemini", "opencode", "agents"],
+      "recommended": true,
+      "setupNotes": "Reads PRODUCT.md and DESIGN.md from your project root. Run `impeccable teach` after install to set them up if missing."
+    },
+    {
+      "id": "taste-skill",
+      "slug": "leonxlnx/taste-skill",
+      "name": "Taste",
+      "category": "Design",
+      "description": "Gives agents better visual taste. Stops generic, boring, AI-generated output by enforcing a curated reference bar across hierarchy, density, and type pairing.",
+      "sourceUrl": "https://github.com/leonxlnx/taste-skill",
+      "installedDirName": "taste",
+      "harnesses": ["claude", "codex", "cursor", "agents"]
+    },
+    {
+      "id": "ui-ux-pro-max",
+      "slug": "nextlevelbuilder/ui-ux-pro-max-skill",
+      "name": "UI/UX Pro Max",
+      "category": "Design",
+      "description": "Design-intelligence skill for production UI/UX work across web, mobile, and dashboard surfaces.",
+      "sourceUrl": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
+      "installedDirName": "ui-ux-pro-max",
+      "harnesses": ["claude", "codex", "cursor", "agents"]
+    },
+    {
+      "id": "frontend-design",
+      "slug": "anthropics/skills/frontend-design",
+      "name": "Frontend Design (Anthropic)",
+      "category": "Design",
+      "description": "The upstream Anthropic frontend-design skill. Strong, opinionated reference for layout, typography, color, and component composition.",
+      "sourceUrl": "https://github.com/anthropics/skills/tree/main/skills/frontend-design",
+      "installedDirName": "frontend-design",
+      "harnesses": ["claude", "agents"]
+    }
+  ]
+}

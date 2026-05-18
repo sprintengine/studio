@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electron-api'
 import {
+  createGuidedBriefSessionId,
   startGuidedBriefSpecialistSession,
   type GuidedBriefSessionLifecycle,
   type GuidedBriefSpecialistSession,
@@ -34,6 +35,10 @@ export type UseDesignerSessionInput = {
   cli: AgentCli
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
   enabled: boolean
+  // Persisted PTY id (survives renderer HMR / reload). When provided, the main
+  // process reattaches to the existing session and replays its buffer.
+  sessionId: string | null
+  onAssignSessionId: (sessionId: string) => void
 }
 
 export type UseDesignerSessionResult = {
@@ -43,9 +48,7 @@ export type UseDesignerSessionResult = {
   session: GuidedBriefSpecialistSession | null
   uiDirectionPath: string
   mockupsDirectoryPath: string
-  inspirationDirectoryPath: string
   mockups: DesignerMockupFile[]
-  primaryMockupRelativePath: string
 }
 
 const UI_DIRECTION_RELATIVE_PATH = 'product/ui-direction.md'
@@ -64,6 +67,8 @@ export function useDesignerSession({
   cli,
   cliRuntimes,
   enabled,
+  sessionId,
+  onAssignSessionId,
 }: UseDesignerSessionInput): UseDesignerSessionResult {
   const [status, setStatus] = useState<DesignerSessionStatus>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -74,12 +79,15 @@ export function useDesignerSession({
 
   const uiDirectionAbsolutePath = joinWorkspacePath(workspaceRoot, UI_DIRECTION_RELATIVE_PATH)
   const mockupsDirectoryPath = joinWorkspacePath(workspaceRoot, MOCKUPS_DIRECTORY_NAME)
-  const inspirationDirectoryPath = joinWorkspacePath(workspaceRoot, INSPIRATION_DIRECTORY_NAME)
 
   const startedRef = useRef(false)
+  const assignSessionIdRef = useRef(onAssignSessionId)
+  assignSessionIdRef.current = onAssignSessionId
 
-  // Start the designer session once the consumer marks it enabled. The
-  // accepted brief snapshot path is required and must already exist.
+  // Start (or reattach to) the designer session once the consumer marks it
+  // enabled. The accepted brief snapshot path is required and must already
+  // exist. A persisted sessionId reattaches to the existing PTY (main replays
+  // its buffer) so HMR / renderer reloads do not restart the agent.
   useEffect(() => {
     if (!enabled) return
     if (startedRef.current) return
@@ -88,12 +96,20 @@ export function useDesignerSession({
     let cancelled = false
     let activeSession: GuidedBriefSpecialistSession | null = null
 
+    // Mint and persist synchronously before terminalSpawn — see the matching
+    // comment in useStrategistSession for the mid-spawn refresh rationale.
+    const resolvedSessionId = sessionId ?? createGuidedBriefSessionId()
+    if (!sessionId) {
+      assignSessionIdRef.current(resolvedSessionId)
+    }
+
     setStatus('starting')
     void startGuidedBriefSpecialistSession(
       {
         kind: 'designer',
         workspaceRoot,
         acceptedBriefSnapshotPath,
+        sessionId: resolvedSessionId,
         cli,
         inspirationDirectoryPath: INSPIRATION_DIRECTORY_NAME,
         uiDirectionPath: UI_DIRECTION_RELATIVE_PATH,
@@ -102,8 +118,6 @@ export function useDesignerSession({
       {
         terminalApi: {
           terminalSpawn: window.api.terminalSpawn,
-          terminalWrite: window.api.terminalWrite,
-          terminalWriteFast: window.api.terminalWriteFast,
           terminalKill: window.api.terminalKill,
           onTerminalData: window.api.onTerminalData,
           onTerminalExit: window.api.onTerminalExit,
@@ -128,7 +142,8 @@ export function useDesignerSession({
       },
     ).then((result) => {
       if (cancelled) {
-        if (result.ok) void result.session.stop().catch(() => {})
+        // PTY survives across remounts — explicit teardown happens on stage
+        // transitions and on user-confirmed close, not on cleanup.
         return
       }
       if (!result.ok) {
@@ -138,15 +153,15 @@ export function useDesignerSession({
       }
       activeSession = result.session
       setSession(result.session)
+      // Defensive: same id we passed in. Call again to self-heal any closure
+      // skew between mount and resolve.
+      assignSessionIdRef.current(result.session.sessionId)
     })
 
     return () => {
       cancelled = true
       const current = activeSession
-      if (current) {
-        current.dispose()
-        void current.stop().catch(() => {})
-      }
+      if (current) current.dispose()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled])
@@ -270,8 +285,6 @@ export function useDesignerSession({
     session,
     uiDirectionPath: uiDirectionAbsolutePath,
     mockupsDirectoryPath,
-    inspirationDirectoryPath,
     mockups,
-    primaryMockupRelativePath: PRIMARY_MOCKUP_RELATIVE_PATH,
   }
 }

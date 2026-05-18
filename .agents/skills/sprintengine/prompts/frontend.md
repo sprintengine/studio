@@ -25,7 +25,8 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 ## Work Sequence
 
 ```
-sprintengine task next --role frontend --id <your-id>
+sprintengine join --role frontend --id <your-id> --watch
+# Follow the returned directive. It may tell you to run task next, task gate next, or triage needs-input.
 # For mockup/design artifact tasks:
 sprintengine artifact add --task-id <id> --kind html_mockup --title "Feature mockup" --path .multi-code/sprintengine/<team>/designs/<file>.html --created-by <your-id>
 sprintengine artifact ready --artifact-id <artifact-id> --id <your-id>
@@ -34,10 +35,10 @@ sprintengine task log --task-id <id> --id <your-id> --summary "Prepared frontend
 # For production UI tasks:
 # ... build the approved UI ...
 sprintengine task log --task-id <id> --id <your-id> --summary "What you built" --file <path> --command "npm run typecheck" --result "Passed"
-sprintengine task status --task-id <id> --status done --id <your-id>
+sprintengine task publish --task-id <id> --id <your-id> --summary "What changed and how you verified it"
 ```
 
-If no tasks are ready, stop.
+If join says no work is ready and Auto Mode is off, stop. When Auto Mode is on, let join --watch own the wait and retry loop.
 
 ## Quality Standards
 
@@ -62,9 +63,9 @@ If no tasks are ready, stop.
 
 ## Critical Rules
 
-- **DO NOT edit `.multi-code/sprintengine/state.yaml` directly.** All updates go through the Sprint Engine tool.
+- **DO NOT edit Sprint Engine run-store files directly.** All updates go through the Sprint Engine tool.
 - Do not claim tasks assigned to other roles.
-- After completing a task, stop unless your current launch instructions explicitly tell you to keep claiming ready tasks.
+- After completing a task or gate, run join --watch again when Auto Mode is on; otherwise stop.
 - Do not mark mockup artifact gate tasks `done` yourself; approval does that after review.
 - Do not skip logging evidence before marking done.
 

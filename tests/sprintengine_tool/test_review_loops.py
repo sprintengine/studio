@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from helpers import (
     assert_artifact_status,
     assert_board_column,
@@ -12,6 +10,7 @@ from helpers import (
     get_task,
     read_state,
     task,
+    write_state,
 )
 
 
@@ -98,7 +97,7 @@ def test_task_completes_only_after_all_non_superseded_artifacts_are_approved(tmp
 
     state = read_state(fixture.state_path)
     get_artifact(state, "A3")["status"] = "superseded"
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    write_state(fixture.state_path, state)
 
     first = fixture.cli.run("artifact", "approve", "--artifact-id", "A1", "--id", "user")
     assert first["taskCompleted"] is False
@@ -223,7 +222,7 @@ def test_gate_approved_verdict_waits_for_parallel_phase_gates_then_advances(tmp_
     )
     state = read_state(fixture.state_path)
     state["sprintengine"]["status"] = "planned"
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    write_state(fixture.state_path, state)
     second = fixture.cli.run(
         "task",
         "gate",
@@ -256,7 +255,7 @@ def test_gate_failed_verdict_creates_open_feedback_and_routes_to_changes_request
     claim_gate(fixture, "code_reviewer", "code-reviewer")
     state = read_state(fixture.state_path)
     state["sprintengine"]["status"] = "planned"
-    fixture.state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    write_state(fixture.state_path, state)
 
     verdict = fixture.cli.run(
         "task",

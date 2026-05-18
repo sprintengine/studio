@@ -366,7 +366,7 @@ def test_mcp_feedback_tools_return_sanitized_summary_and_recommendations(tmp_pat
         [task("T1", "Feedback", "developer", status="done", owner="developer-a")],
     )
     metrics_dir = fixture.team_dir / "metrics"
-    metrics_dir.mkdir()
+    metrics_dir.mkdir(exist_ok=True)
     (metrics_dir / "agent-feedback.jsonl").write_text(
         json.dumps(
             {

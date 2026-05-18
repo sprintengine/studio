@@ -10,6 +10,7 @@ import type {
   SprintEngineRole,
   SprintEngineState,
   SprintEngineEvent,
+  SprintEngineQualityGate,
   SprintEngineTask,
   Workspace,
 } from '../../types/workspace'
@@ -17,13 +18,18 @@ import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode, prep
 import {
   buildSprintEngineAgentRosterForState,
   buildSprintEngineRosterCommandArgs,
-  getOpenSprintEngineQualityGates,
   getSprintEngineArtifactAutoApprovalEligibility,
   getSprintEngineTaskBoardColumn,
   isSprintEngineTaskLaunchable,
+  normalizeSprintEngineProjection,
   sprintEngineRoleLabels,
 } from '../../utils/sprintengine'
-import { parseSprintEngineStateFile } from '../../utils/sprintengineStateFile'
+import {
+  getActiveSprintEngineAutoRunGateClaims,
+  getClaimableSprintEngineAutoRunGates,
+  isSprintEngineAutoPendingSpawnStillRelevant,
+  sprintEngineAutoRunWorkKey,
+} from '../../utils/sprintengineAutoRun'
 import { publishDiagnostic } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
@@ -60,6 +66,7 @@ type AutoRunCandidate = {
   label: string
   role: SprintEngineRole
   taskId: string
+  gateId?: string
   startupPromptOverride?: string
 }
 
@@ -96,6 +103,11 @@ function quoteShellArg(value: string): string {
 
 function getSprintEngineAutoState(workspace: Workspace | null | undefined): SprintEngineAutoState {
   return workspace?.sprintEngineAutoState ?? DEFAULT_AUTO_STATE
+}
+
+function isSprintEngineRunnerActive(workspace: Workspace | null | undefined): boolean {
+  const runnerMode = workspace?.sprintEngineState?.runner?.mode
+  return runnerMode === 'auto' || getSprintEngineAutoState(workspace).enabled
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -191,8 +203,12 @@ async function refreshAutoWorkspaceState(
 
   try {
     const startedAt = performance.now()
-    const content = await window.api.readfile(stateFilePath)
-    if (!options.force && lastContentByWorkspace.current.get(workspace.id) === content) {
+    const projectionResult = await window.api.readSprintEngineProjection(stateFilePath)
+    if (!projectionResult.ok) {
+      throw new Error(projectionResult.message)
+    }
+    const signature = JSON.stringify(projectionResult.data)
+    if (!options.force && lastContentByWorkspace.current.get(workspace.id) === signature) {
       logPerfEvent('SprintEngineAutoRun', 'refresh-state', {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
@@ -202,8 +218,9 @@ async function refreshAutoWorkspaceState(
       return workspace.sprintEngineState
     }
 
-    lastContentByWorkspace.current.set(workspace.id, content)
-    const parsedState = parseSprintEngineStateFile(content, workspace.sprintEngineContext.teamSlug)
+    lastContentByWorkspace.current.set(workspace.id, signature)
+    const parsedState = normalizeSprintEngineProjection(projectionResult.data, workspace.sprintEngineContext.teamSlug)
+    if (!parsedState) throw new Error('Sprint Engine projection was malformed.')
     useWorkspaceStore.getState().setSprintEngineState(workspace.id, parsedState)
     logPerfEvent('SprintEngineAutoRun', 'refresh-state', {
       workspaceId: workspace.id,
@@ -220,8 +237,49 @@ async function refreshAutoWorkspaceState(
       workspaceName: workspace.name,
       message: error instanceof Error ? error.message : String(error),
     })
-    // Auto mode can be enabled before the agent-managed state file exists.
+    // Auto Mode can be enabled before the agent-managed state file exists.
     return null
+  }
+}
+
+async function ensureDurableAutoMode(
+  workspace: Workspace,
+  sprintEngineState: SprintEngineState,
+  lastContentByWorkspace: MutableRefObject<Map<string, string>>
+): Promise<{ workspace: Workspace; sprintEngineState: SprintEngineState } | null> {
+  if (!workspace.sprintEngineContext || sprintEngineState.runner?.mode === 'auto') {
+    return { workspace, sprintEngineState }
+  }
+
+  const stateFileExists = await window.api.pathExists(workspace.sprintEngineContext.statePath).catch(() => false)
+  if (!stateFileExists) return { workspace, sprintEngineState }
+
+  const result = await window.api.setSprintEngineRunnerMode({
+    statePath: workspace.sprintEngineContext.statePath,
+    mode: 'auto',
+  }).catch((error): { ok: false; message: string } => ({
+    ok: false,
+    message: error instanceof Error ? error.message : String(error),
+  }))
+
+  if (!result.ok) {
+    await publishDiagnostic({
+      level: 'warning',
+      source: 'sprintengine',
+      title: 'Auto Mode was not started',
+      message: result.message,
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+    })
+    return null
+  }
+
+  const refreshedState = await refreshAutoWorkspaceState(workspace, lastContentByWorkspace, { force: true })
+  const refreshedWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
+  if (!refreshedWorkspace || !refreshedState) return null
+  return {
+    workspace: refreshedWorkspace,
+    sprintEngineState: refreshedWorkspace.sprintEngineState ?? refreshedState,
   }
 }
 
@@ -552,9 +610,12 @@ function pickNextAutoRuns(
     rosterCount: roster.length,
   })
   const rosterById = Object.fromEntries(roster.map((agent) => [agent.id, agent]))
-  const pendingTaskIds = new Set(options.pendingSpawns.map((pending) => pending.taskId))
+  const workKeyForCandidate = (task: SprintEngineTask, gateId?: string) =>
+    sprintEngineAutoRunWorkKey({ taskId: task.id, gateId })
+  const pendingWorkKeys = new Set(options.pendingSpawns.map((pending) => sprintEngineAutoRunWorkKey(pending)))
   const pendingAgentIds = new Set(options.pendingSpawns.map((pending) => pending.agentId))
   const selectedTaskIds = new Set<string>()
+  const selectedWorkKeys = new Set<string>()
   const selectedAgentIds = new Set<string>()
   const candidates: AutoRunCandidate[] = []
 
@@ -580,10 +641,11 @@ function pickNextAutoRuns(
     task: SprintEngineTask,
     agentId: string,
     fallbackLabel: string,
-    options2: { allowSharedTask?: boolean; agentRole?: SprintEngineRole } = {}
+    options2: { allowSharedTask?: boolean; agentRole?: SprintEngineRole; gateId?: string } = {}
   ) => {
     if (candidates.length >= options.limit) return false
-    if (pendingTaskIds.has(task.id)) return false
+    const workKey = workKeyForCandidate(task, options2.gateId)
+    if (pendingWorkKeys.has(workKey) || selectedWorkKeys.has(workKey)) return false
     if (!options2.allowSharedTask && selectedTaskIds.has(task.id)) return false
     if (
       pendingAgentIds.has(agentId)
@@ -599,14 +661,16 @@ function pickNextAutoRuns(
       label: workspace.agents[agentId]?.name ?? fallbackLabel,
       role: options2.agentRole ?? task.role,
       taskId: task.id,
+      ...(options2.gateId ? { gateId: options2.gateId } : {}),
     })
     selectedTaskIds.add(task.id)
+    selectedWorkKeys.add(workKey)
     selectedAgentIds.add(agentId)
     return true
   }
 
   const activeTasks = sprintEngineState.tasks.filter((task) =>
-    task.status === 'in_progress' && Boolean(task.ownerAgentId)
+    (task.status === 'in_progress' || task.status === 'changes_requested') && Boolean(task.ownerAgentId)
   )
   logPerfEvent('SprintEngineAutoRun', 'candidate-pick-active-tasks', {
     workspaceId: workspace.id,
@@ -642,6 +706,7 @@ function pickNextAutoRuns(
 
   const readyTasks = sprintEngineState.tasks.filter((task) =>
     isSprintEngineTaskLaunchable(task, sprintEngineState)
+    || (task.status === 'changes_requested' && Boolean(task.ownerAgentId))
   )
   logPerfEvent('SprintEngineAutoRun', 'candidate-pick-ready-tasks', {
     workspaceId: workspace.id,
@@ -736,8 +801,31 @@ function pickNextAutoRuns(
 
   for (const task of gatedPhaseTasks) {
     if (candidates.length >= options.limit) break
-    const openGates = getOpenSprintEngineQualityGates(task)
-    for (const gate of openGates) {
+    const activeGateClaims = getActiveSprintEngineAutoRunGateClaims(task, sprintEngineState.tasks)
+    for (const claim of activeGateClaims) {
+      if (candidates.length >= options.limit) break
+      const reviewerAgent = rosterById[claim.claimedBy] ?? {
+        id: claim.claimedBy,
+        label: claim.claimedBy,
+        role: claim.gate.role,
+      }
+      addCandidate(task, reviewerAgent.id, reviewerAgent.label, {
+        allowSharedTask: true,
+        agentRole: claim.gate.role,
+        gateId: claim.gate.id,
+      })
+      logPerfEvent('SprintEngineAutoRun', 'candidate-pick-gated-resume-result', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        taskId: task.id,
+        gateId: claim.gate.id,
+        gateRole: claim.gate.role,
+        selectedAgentId: reviewerAgent.id,
+      })
+    }
+
+    const claimableGates = getClaimableSprintEngineAutoRunGates(task, sprintEngineState.tasks)
+    for (const gate of claimableGates) {
       if (candidates.length >= options.limit) break
       const reviewerAgentId = findReusableRoleAgent(gate.role)
       // Missing roster roles do not create dead launch queues — we simply skip
@@ -760,6 +848,7 @@ function pickNextAutoRuns(
       addCandidate(task, reviewerAgent.id, reviewerAgent.label, {
         allowSharedTask: true,
         agentRole: gate.role,
+        gateId: gate.id,
       })
       logPerfEvent('SprintEngineAutoRun', 'candidate-pick-gated-result', {
         workspaceId: workspace.id,
@@ -875,7 +964,23 @@ function buildSprintEngineContinuationPrompt(task: SprintEngineTask, agentId: st
   return [
     `Sprint Engine roster runner found a ready ${task.role} task for this idle terminal.`,
     `Task: ${task.id} - ${task.title}`,
-    `Run \`sprintengine join --role ${task.role} --id ${agentId}\` to receive the current directive, then claim and work the next ready ${task.role} task with this same agent id. If no task is returned, wait briefly with a foreground sleep/backoff and retry while this Sprint Engine roster session remains active. Do not leave a background polling loop running, and stop all idle retrying as soon as a task is returned.`,
+    `Run \`sprintengine join --role ${task.role} --id ${agentId} --watch\` to receive the current directive. The CLI owns polling and backoff; do not create your own retry loop.`,
+  ].join('\n')
+}
+
+function buildSprintEngineGateContinuationPrompt(
+  task: SprintEngineTask,
+  gate: SprintEngineQualityGate,
+  agentId: string,
+  claimed: boolean
+): string {
+  return [
+    claimed
+      ? 'Sprint Engine roster runner found an active quality gate already claimed by this terminal.'
+      : 'Sprint Engine roster runner found a quality gate ready for this terminal.',
+    `Task: ${task.id} - ${task.title}`,
+    `Gate: ${gate.id} (${gate.phase} / ${gate.role})`,
+    `Run \`sprintengine join --role ${gate.role} --id ${agentId} --watch\` to receive the current directive. The CLI will tell you whether to resume or claim the gate, and what to do after the verdict.`,
   ].join('\n')
 }
 
@@ -1027,7 +1132,9 @@ async function sendContinuationPromptsToIdleAgents(
     if (!runtimeAgent) continue
 
     const task = readyTasks.find((candidate) =>
-      candidate.role === runtimeAgent.role && !claimedTaskIds.has(candidate.id)
+      candidate.role === runtimeAgent.role
+      && !claimedTaskIds.has(candidate.id)
+      && (!candidate.ownerAgentId || candidate.ownerAgentId === agentId)
     )
     if (!task) continue
 
@@ -1054,6 +1161,79 @@ async function sendContinuationPromptsToIdleAgents(
       taskId: task.id,
       sessionId: session.sessionId,
     })
+  }
+}
+
+async function sendGateContinuationPromptsToAgents(
+  workspace: Workspace,
+  sprintEngineState: SprintEngineState,
+  runningAgentIds: Set<string>,
+  continuationCapacity: RunningContinuationCapacity,
+  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
+): Promise<void> {
+  const now = Date.now()
+  const usedIdleAgentIds = new Set<string>()
+  const gatedPhaseTasks = sprintEngineState.tasks.filter((task) => {
+    const column = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
+    return column === 'review' || column === 'testing' || column === 'product'
+  })
+
+  for (const task of gatedPhaseTasks) {
+    for (const claim of getActiveSprintEngineAutoRunGateClaims(task, sprintEngineState.tasks)) {
+      const agentId = claim.claimedBy
+      if (!runningAgentIds.has(agentId)) continue
+      const key = continuationMessageKey(workspace, `${task.id}:${claim.gate.id}`, agentId)
+      const previous = sentContinuationMessages.current.get(key)
+      if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
+      const session = await findRunningAgentSession(workspace, agentId)
+      if (!session) continue
+      await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(
+        buildSprintEngineGateContinuationPrompt(task, claim.gate, agentId, true)
+      ))
+      sentContinuationMessages.current.set(key, { sentAt: now })
+      logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-sent', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId,
+        role: claim.gate.role,
+        taskId: task.id,
+        gateId: claim.gate.id,
+        claimed: true,
+        sessionId: session.sessionId,
+      })
+    }
+
+    for (const gate of getClaimableSprintEngineAutoRunGates(task, sprintEngineState.tasks)) {
+      const agentId = [...continuationCapacity.agentIds].find((candidateId) => {
+        if (usedIdleAgentIds.has(candidateId)) return false
+        const runtimeAgent = sprintEngineState.sprintEngineAgents[candidateId]
+        return runtimeAgent?.role === gate.role
+      })
+      if (!agentId) continue
+      const key = continuationMessageKey(workspace, `${task.id}:${gate.id}`, agentId)
+      const previous = sentContinuationMessages.current.get(key)
+      if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) {
+        usedIdleAgentIds.add(agentId)
+        continue
+      }
+      const session = await findRunningAgentSession(workspace, agentId)
+      if (!session) continue
+      await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(
+        buildSprintEngineGateContinuationPrompt(task, gate, agentId, false)
+      ))
+      sentContinuationMessages.current.set(key, { sentAt: now })
+      usedIdleAgentIds.add(agentId)
+      logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-sent', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId,
+        role: gate.role,
+        taskId: task.id,
+        gateId: gate.id,
+        claimed: false,
+        sessionId: session.sessionId,
+      })
+    }
   }
 }
 
@@ -1130,7 +1310,9 @@ async function reconcileAutoRunPendingSpawns(
   for (const pending of pendingSpawns) {
     const pendingTask = sprintEngineState.tasks.find((task) => task.id === pending.taskId)
     const pendingTaskStillReady = pendingTask
-      ? isSprintEngineTaskLaunchable(pendingTask, sprintEngineState)
+      ? pending.gateId
+        ? isSprintEngineAutoPendingSpawnStillRelevant(pending, pendingTask, sprintEngineState.tasks)
+        : isSprintEngineTaskLaunchable(pendingTask, sprintEngineState)
       : false
     const pendingAgent = workspace.agents[pending.agentId]
     const pendingAgentHasProcess = await agentHasRunningProcess(workspace, pending.agentId)
@@ -1182,6 +1364,7 @@ async function spawnAutoRunCandidate(
   const sprintEngineStatePath = workspace.sprintEngineContext.statePath
   const pendingSpawn = {
     taskId: nextRun.taskId,
+    ...(nextRun.gateId ? { gateId: nextRun.gateId } : {}),
     agentId: nextRun.agentId,
     startedAt: Date.now(),
   }
@@ -1418,7 +1601,7 @@ async function startMissingRosterAgents(
   mcpSettings: McpSettings,
   inFlightSpawns: MutableRefObject<Set<string>>
 ): Promise<'started' | 'failed' | 'none'> {
-  if (!getSprintEngineAutoState(workspace).enabled || !workspace.sprintEngineContext) return 'none'
+  if (!isSprintEngineRunnerActive(workspace) || !workspace.sprintEngineContext) return 'none'
 
   const stateFileExists = await window.api.pathExists(workspace.sprintEngineContext.statePath).catch(() => false)
   const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
@@ -1582,6 +1765,11 @@ async function superviseWorkspace(
     autoApproveArtifacts: autoState.autoApproveArtifacts,
   })
 
+  const durableAutoMode = await ensureDurableAutoMode(workspace, sprintEngineState, lastContentByWorkspace)
+  if (!durableAutoMode) return
+  workspace = durableAutoMode.workspace
+  sprintEngineState = durableAutoMode.sprintEngineState
+
   if (autoState.enabled && autoState.autoApproveArtifacts) {
     const approvalResult = await sendApprovalToNextEligibleArtifactProducer(
       workspace,
@@ -1742,6 +1930,23 @@ async function superviseWorkspace(
     continuationCapacity,
     sentContinuationMessages
   )
+  await sendGateContinuationPromptsToAgents(
+    workspace,
+    sprintEngineState,
+    runningAgentIds,
+    continuationCapacity,
+    sentContinuationMessages
+  )
+
+  if (sprintEngineState.runner?.mode === 'auto') {
+    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      reason: 'cli-runner-agent-polling',
+      elapsedMs: Math.round(performance.now() - superviseStartedAt),
+    })
+    return
+  }
 
   if (sprintEngineState.tasks.length > 0 && sprintEngineState.tasks.every((task) => task.status === 'done')) {
     useWorkspaceStore.getState().setSprintEngineAutoEnabled(workspace.id, false)
@@ -1908,7 +2113,7 @@ export default function SprintEngineAutoRunSupervisor() {
         const { workspaces, appSettings, activeWorkspaceId } = useWorkspaceStore.getState()
         const now = Date.now()
         const autoWorkspaces = workspaces.filter((workspace) =>
-          getSprintEngineAutoState(workspace).enabled
+          isSprintEngineRunnerActive(workspace)
         ).filter((workspace) => {
           if (workspace.id === activeWorkspaceId) return true
 
@@ -1929,7 +2134,7 @@ export default function SprintEngineAutoRunSupervisor() {
           autoWorkspaces: autoWorkspaces.map((workspace) => ({
             id: workspace.id,
             name: workspace.name,
-            enabled: getSprintEngineAutoState(workspace).enabled,
+            enabled: isSprintEngineRunnerActive(workspace),
             keepDoneAgentTerminals: getSprintEngineAutoState(workspace).keepDoneAgentTerminals,
           })),
         })

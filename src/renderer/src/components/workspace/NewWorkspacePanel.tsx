@@ -11,7 +11,9 @@ import type {
   AgentCli,
   FuturePlanWorkspaceSource,
   LayoutTemplate,
+  McpCatalogServer,
   MultiloopAutoState,
+  SkillPackCatalogEntry,
   SprintEngineAutoState,
   SprintEngineCliPermissionPreset,
   SprintEngineMockConfig,
@@ -68,6 +70,8 @@ const MODES: CreationMode[] = ['standard', 'switchboard', 'sprintengine', 'multi
 type StepId =
   | 'workspace'
   | 'mode'
+  | 'mcp-servers'
+  | 'skill-packs'
   | 'standard-layout'
   | 'multiloop-goal'
   | 'sprintengine-team'
@@ -75,11 +79,11 @@ type StepId =
   | 'guided-idea'
 
 const STEPS_BY_MODE: Record<CreationMode, StepId[]> = {
-  standard: ['workspace', 'mode', 'standard-layout'],
-  switchboard: ['workspace', 'mode'],
-  multiloop: ['workspace', 'mode', 'multiloop-goal'],
-  sprintengine: ['workspace', 'mode', 'sprintengine-team', 'sprintengine-roster'],
-  'guided-brief': ['workspace', 'mode', 'guided-idea'],
+  standard: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'standard-layout'],
+  switchboard: ['workspace', 'mode', 'mcp-servers', 'skill-packs'],
+  multiloop: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'multiloop-goal'],
+  sprintengine: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'sprintengine-team', 'sprintengine-roster'],
+  'guided-brief': ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'guided-idea'],
 }
 
 const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
@@ -90,6 +94,14 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
   mode: {
     title: 'Choose a mode',
     subtitle: 'How will you use this workspace?',
+  },
+  'mcp-servers': {
+    title: 'Pick MCP servers',
+    subtitle: 'Agent tool integrations for this project. Optional — skip and add later from Settings.',
+  },
+  'skill-packs': {
+    title: 'Pick skill packs',
+    subtitle: 'Curated agent skills installed into this project on creation. Optional — skip and add later from Settings.',
   },
   'standard-layout': {
     title: 'Pick an IDE layout',
@@ -273,6 +285,88 @@ export default function NewWorkspacePanel({
 
   const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli ?? 'codex')
   const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+
+  const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
+  const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
+  const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
+  const [integrationsMcpCatalog, setIntegrationsMcpCatalog] = useState<McpCatalogServer[]>([])
+  const [integrationsSkillPackCatalog, setIntegrationsSkillPackCatalog] = useState<SkillPackCatalogEntry[]>([])
+  const [integrationsMessage] = useState<string | null>(null)
+  const [selectedSkillPackIds, setSelectedSkillPackIds] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    let cancelled = false
+    if (typeof window.api.mcpListCatalog === 'function') {
+      void window.api.mcpListCatalog().then((result) => {
+        if (cancelled) return
+        if (result.ok) setIntegrationsMcpCatalog(result.servers)
+      }).catch(() => {})
+    }
+    if (typeof window.api.skillPackListCatalog === 'function') {
+      void window.api.skillPackListCatalog().then((result) => {
+        if (cancelled) return
+        if (result.ok) setIntegrationsSkillPackCatalog(result.packs)
+      }).catch(() => {})
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const toggleMcpInWizard = (server: McpCatalogServer) => {
+    const enabled = Boolean(mcpSettings?.servers[server.id]?.enabled)
+    if (enabled) {
+      removeMcpServer(server.id)
+    } else {
+      upsertMcpServer({
+        id: server.id,
+        name: server.name,
+        category: server.category,
+        description: server.description,
+        transport: server.transport,
+        command: server.command,
+        args: server.args ?? [],
+        url: server.url,
+        env: server.env,
+        envVarNames: server.envVarNames ?? [],
+        headers: server.headers,
+        enabled: true,
+        required: false,
+        clients: server.defaultClients?.length ? server.defaultClients : server.clients,
+        scope: server.recommendedScope ?? 'workspace',
+        source: 'bundled',
+        riskLevel: server.riskLevel,
+        auth: server.auth,
+        capabilities: server.capabilities,
+        sourceUrl: server.sourceUrl,
+      })
+    }
+  }
+
+  const toggleSkillPackInWizard = (pack: SkillPackCatalogEntry) => {
+    setSelectedSkillPackIds((current) => {
+      const next = new Set(current)
+      if (next.has(pack.id)) next.delete(pack.id)
+      else next.add(pack.id)
+      return next
+    })
+  }
+
+  const triggerSelectedSkillPackInstalls = (workspaceRoot: string | null) => {
+    if (!workspaceRoot) return
+    if (typeof window.api.skillPackInstall !== 'function') return
+    const picks = integrationsSkillPackCatalog.filter((pack) => selectedSkillPackIds.has(pack.id))
+    for (const pack of picks) {
+      void window.api
+        .skillPackInstall({
+          workspaceRoot,
+          slug: pack.slug,
+          harnesses: pack.harnesses,
+          installedDirName: pack.installedDirName,
+        })
+        .catch(() => {})
+    }
+  }
 
   const [isCreating, setIsCreating] = useState(false)
 
@@ -654,6 +748,8 @@ export default function NewWorkspacePanel({
           acceptedUiDirection: null,
           acceptedMockups: [],
           activeMockupPath: null,
+          strategistSessionId: null,
+          designerSessionId: null,
         }
         addWorkspace(createGuidedBriefTemplate(), {
           name: workspaceLabel,
@@ -661,6 +757,7 @@ export default function NewWorkspacePanel({
           mode: 'guided-brief',
           guidedBriefState: runtimeState,
         })
+        triggerSelectedSkillPackInstalls(folderPath)
         onClose()
       } catch (error) {
         setGuidedError(
@@ -698,6 +795,7 @@ export default function NewWorkspacePanel({
           multiloopContext: created.context,
           multiloopAutoState,
         })
+        triggerSelectedSkillPackInstalls(folderPath)
         persistLastPermissionPreset()
         onClose()
       } catch (error) {
@@ -714,6 +812,7 @@ export default function NewWorkspacePanel({
 
     if (mode === 'switchboard') {
       if (!folderPath) return
+      triggerSelectedSkillPackInstalls(folderPath)
       onCreate({
         template: createSwitchboardTemplate(),
         name: name.trim() || 'Switchboard',
@@ -733,6 +832,7 @@ export default function NewWorkspacePanel({
           goal: loadedState.goal,
           roleCounts: loadedState.roleCounts,
         })
+        triggerSelectedSkillPackInstalls(folderPath)
         onCreate({
           template,
           name: loadedState.name,
@@ -800,6 +900,7 @@ export default function NewWorkspacePanel({
             },
             pathExists: window.api.pathExists,
           })
+          triggerSelectedSkillPackInstalls(folderPath)
           persistLastPermissionPreset()
           onClose()
         } catch (error) {
@@ -825,6 +926,7 @@ export default function NewWorkspacePanel({
             slugifySprintEngineName(sprintEngineState.name),
           )
         : null
+      triggerSelectedSkillPackInstalls(folderPath)
       onCreate({
         template,
         name: sprintEngineState.name,
@@ -845,6 +947,7 @@ export default function NewWorkspacePanel({
 
     // Standard
     const template = LAYOUT_TEMPLATES.find((t) => t.id === layoutId) ?? LAYOUT_TEMPLATES[0]
+    triggerSelectedSkillPackInstalls(folderPath)
     onCreate({
       template,
       name: name.trim(),
@@ -926,6 +1029,7 @@ export default function NewWorkspacePanel({
         },
         pathExists: window.api.pathExists,
       })
+      triggerSelectedSkillPackInstalls(runtimeState.workspaceRoot)
       persistLastPermissionPreset()
       onClose()
     } catch (error) {
@@ -1080,6 +1184,24 @@ export default function NewWorkspacePanel({
               onSelect={handleSelectMode}
               folderPath={folderPath}
               folderHint={folderPath ? folderHints.get(folderPath) ?? null : null}
+            />
+          ) : null}
+
+          {step === 'mcp-servers' ? (
+            <McpServersStep
+              mcpCatalog={integrationsMcpCatalog}
+              mcpSettings={mcpSettings ?? null}
+              onToggleMcp={toggleMcpInWizard}
+              message={integrationsMessage}
+            />
+          ) : null}
+
+          {step === 'skill-packs' ? (
+            <SkillPacksStep
+              skillPackCatalog={integrationsSkillPackCatalog}
+              selectedSkillPackIds={selectedSkillPackIds}
+              onToggleSkillPack={toggleSkillPackInWizard}
+              message={integrationsMessage}
             />
           ) : null}
 
@@ -1240,6 +1362,12 @@ export default function NewWorkspacePanel({
         onCancel={() => setCloseConfirmation(false)}
         onConfirm={() => {
           setCloseConfirmation(false)
+          // Tear down any running guided-brief PTYs — runtime state is about to
+          // be discarded, so the session ids would otherwise leak.
+          const strategistId = guidedRuntimeState?.strategistSessionId
+          const designerId = guidedRuntimeState?.designerSessionId
+          if (strategistId) void window.api.terminalKill(strategistId).catch(() => {})
+          if (designerId) void window.api.terminalKill(designerId).catch(() => {})
           onClose()
         }}
       />
@@ -1377,6 +1505,164 @@ function ModeStep({
           <ModeCard key={m} mode={m} active={mode === m} onSelect={onSelect} />
         ))}
       </div>
+    </div>
+  )
+}
+
+function McpServersStep({
+  mcpCatalog,
+  mcpSettings,
+  onToggleMcp,
+  message,
+}: {
+  mcpCatalog: McpCatalogServer[]
+  mcpSettings: { servers: Record<string, { enabled: boolean }> } | null
+  onToggleMcp: (server: McpCatalogServer) => void
+  message: string | null
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+        Selected servers are saved to this project and synced to Codex and Claude config from
+        Settings.
+      </p>
+      {mcpCatalog.length === 0 ? (
+        <p className="text-[11px] text-[color:var(--text-subtle)]">Catalog loading…</p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {mcpCatalog.map((server) => {
+            const enabled = Boolean(mcpSettings?.servers[server.id]?.enabled)
+            return (
+              <li key={server.id}>
+                <button
+                  type="button"
+                  onClick={() => onToggleMcp(server)}
+                  aria-pressed={enabled}
+                  className={`
+                    grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-3 rounded-md border px-3.5 py-2.5 text-left
+                    transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                    ${enabled
+                      ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
+                      : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
+                  `}
+                >
+                  <span
+                    aria-hidden
+                    className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
+                      enabled
+                        ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
+                        : 'border-[color:var(--border-default)]'
+                    }`}
+                  >
+                    {enabled ? (
+                      <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <polyline points="1.5,5 4,7.5 8.5,2.5" />
+                      </svg>
+                    ) : null}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+                      {server.name}
+                    </span>
+                    <span className="mt-0.5 block truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
+                      {server.transport} · {server.category ?? 'Other'}
+                    </span>
+                  </span>
+                  {server.recommendedScope === 'user' ? (
+                    <span className="font-mono text-[10px] text-[color:var(--text-subtle)]">user</span>
+                  ) : null}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {message ? (
+        <p className="text-[11px] leading-4 text-[color:var(--text-muted)]">{message}</p>
+      ) : null}
+    </div>
+  )
+}
+
+function SkillPacksStep({
+  skillPackCatalog,
+  selectedSkillPackIds,
+  onToggleSkillPack,
+  message,
+}: {
+  skillPackCatalog: SkillPackCatalogEntry[]
+  selectedSkillPackIds: Set<string>
+  onToggleSkillPack: (pack: SkillPackCatalogEntry) => void
+  message: string | null
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+        Each selected pack runs <code className="font-mono">npx skills add</code> against the
+        workspace root after creation, writing into whichever harness directories already exist
+        (.claude, .codex, .cursor, …).
+      </p>
+      {skillPackCatalog.length === 0 ? (
+        <p className="text-[11px] text-[color:var(--text-subtle)]">Catalog loading…</p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {skillPackCatalog.map((pack) => {
+            const selected = selectedSkillPackIds.has(pack.id)
+            return (
+              <li key={pack.id}>
+                <button
+                  type="button"
+                  onClick={() => onToggleSkillPack(pack)}
+                  aria-pressed={selected}
+                  className={`
+                    grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-3 rounded-md border px-3.5 py-2.5 text-left
+                    transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                    ${selected
+                      ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
+                      : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
+                  `}
+                >
+                  <span
+                    aria-hidden
+                    className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
+                      selected
+                        ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
+                        : 'border-[color:var(--border-default)]'
+                    }`}
+                  >
+                    {selected ? (
+                      <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <polyline points="1.5,5 4,7.5 8.5,2.5" />
+                      </svg>
+                    ) : null}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+                      {pack.name}
+                      {pack.recommended ? (
+                        <span className="ml-2 font-mono text-[10px] font-medium text-[color:var(--text-subtle)]">
+                          recommended
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="mt-0.5 block truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
+                      {pack.slug}
+                    </span>
+                  </span>
+                  {pack.version ? (
+                    <span className="font-mono text-[10px] text-[color:var(--text-subtle)]">
+                      v{pack.version}
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {message ? (
+        <p className="text-[11px] leading-4 text-[color:var(--text-muted)]">{message}</p>
+      ) : null}
     </div>
   )
 }
@@ -2079,6 +2365,10 @@ function isStepReady(
       return readiness.workspaceStepReady
     case 'mode':
       return true
+    case 'mcp-servers':
+      return true
+    case 'skill-packs':
+      return true
     case 'standard-layout':
       return readiness.standardLayoutStepReady
     case 'multiloop-goal':
@@ -2131,6 +2421,10 @@ function getStepBlockingMessage(args: {
       return 'Press Continue to choose a mode.'
     case 'mode':
       return `Continue with ${labelFor(mode)}, or pick another.`
+    case 'mcp-servers':
+      return 'Pick MCP servers, or skip to add them later from Settings.'
+    case 'skill-packs':
+      return 'Pick skill packs, or skip to add them later from Settings.'
     case 'standard-layout':
       return 'Pick a layout, then create.'
     case 'multiloop-goal':

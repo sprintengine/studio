@@ -56,8 +56,6 @@ export type GuidedBriefTerminalApi = {
     shellOnly?: boolean,
     metadata?: TerminalSpawnMetadata,
   ) => Promise<TerminalSpawnResult>
-  terminalWrite: (sessionId: string, data: string) => Promise<void>
-  terminalWriteFast: (sessionId: string, data: string) => void
   terminalKill: (sessionId: string) => Promise<void>
   onTerminalData: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalExit: (sessionId: string, cb: (code: number) => void) => () => void
@@ -107,8 +105,6 @@ export type GuidedBriefSpecialistSession = {
   markerDetection: GuidedBriefMarkerDetection
   rawTerminal: GuidedBriefRawTerminalTarget
   prompt: string
-  sendMessage: (message: string) => Promise<void>
-  writeRaw: (data: string) => void
   stop: () => Promise<void>
   dispose: () => void
 }
@@ -147,8 +143,11 @@ function createSessionId(): string {
   return createUuidV4()
 }
 
-function bracketedTerminalPaste(text: string): string {
-  return `\x1b[200~${text.replace(/\r?\n/g, '\n')}\x1b[201~\r`
+// Hooks need to mint and persist a sessionId synchronously *before* calling
+// terminalSpawn so a renderer refresh mid-spawn does not orphan the PTY. The
+// adapter still falls back to its own generator when no sessionId is passed.
+export function createGuidedBriefSessionId(): string {
+  return createSessionId()
 }
 
 function promptForInput(input: StartGuidedBriefSpecialistSessionInput, marker: string): string {
@@ -280,8 +279,6 @@ export async function startGuidedBriefSpecialistSession(
         label: input.kind === 'strategist' ? 'Product Strategist terminal' : 'Frontend Designer terminal',
       },
       prompt,
-      sendMessage: (message) => options.terminalApi.terminalWrite(sessionId, bracketedTerminalPaste(message)),
-      writeRaw: (data) => options.terminalApi.terminalWriteFast(sessionId, data),
       stop: () => options.terminalApi.terminalKill(sessionId),
       dispose,
     },
