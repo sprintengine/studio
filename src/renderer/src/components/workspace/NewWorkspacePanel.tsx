@@ -654,6 +654,8 @@ export default function NewWorkspacePanel({
           acceptedUiDirection: null,
           acceptedMockups: [],
           activeMockupPath: null,
+          strategistSessionId: null,
+          designerSessionId: null,
         }
         addWorkspace(createGuidedBriefTemplate(), {
           name: workspaceLabel,
@@ -1240,6 +1242,12 @@ export default function NewWorkspacePanel({
         onCancel={() => setCloseConfirmation(false)}
         onConfirm={() => {
           setCloseConfirmation(false)
+          // Tear down any running guided-brief PTYs — runtime state is about to
+          // be discarded, so the session ids would otherwise leak.
+          const strategistId = guidedRuntimeState?.strategistSessionId
+          const designerId = guidedRuntimeState?.designerSessionId
+          if (strategistId) void window.api.terminalKill(strategistId).catch(() => {})
+          if (designerId) void window.api.terminalKill(designerId).catch(() => {})
           onClose()
         }}
       />

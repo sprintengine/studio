@@ -672,6 +672,14 @@ function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeState | nu
         .filter((artifact): artifact is GuidedBriefRuntimeState['acceptedMockups'][number] => artifact != null)
       : [],
     activeMockupPath: typeof candidate.activeMockupPath === 'string' ? candidate.activeMockupPath : null,
+    strategistSessionId:
+      typeof candidate.strategistSessionId === 'string' && candidate.strategistSessionId.trim()
+        ? candidate.strategistSessionId
+        : null,
+    designerSessionId:
+      typeof candidate.designerSessionId === 'string' && candidate.designerSessionId.trim()
+        ? candidate.designerSessionId
+        : null,
   }
 }
 

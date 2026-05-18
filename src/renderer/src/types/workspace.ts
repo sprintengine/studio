@@ -975,6 +975,10 @@ export type GuidedBriefRuntimeState = {
   acceptedUiDirection: GuidedBriefAcceptedArtifact | null
   acceptedMockups: GuidedBriefAcceptedArtifact[]
   activeMockupPath: string | null
+  // Persisted so the renderer reattaches to the same PTY across HMR / refresh
+  // instead of spawning a fresh strategist or designer.
+  strategistSessionId: string | null
+  designerSessionId: string | null
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'

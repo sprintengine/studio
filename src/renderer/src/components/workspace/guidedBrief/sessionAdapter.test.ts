@@ -2,24 +2,27 @@ import assert from 'node:assert/strict'
 import { buildGuidedBriefSpecialistStartupPrompt } from '../../../specialists/specialistActions'
 import {
   containsGuidedBriefMarker,
+  createGuidedBriefSessionId,
   startGuidedBriefSpecialistSession,
   type GuidedBriefTerminalApi,
 } from './sessionAdapter'
 
 function createTerminalApi(): GuidedBriefTerminalApi & {
   spawned: Array<{ sessionId: string; prompt?: string; cwd?: string }>
-  writes: string[]
+  killed: string[]
+  dataHandlerCount: () => number
   emitData: (sessionId: string, chunk: string) => void
 } {
   const dataHandlers = new Map<string, (chunk: string) => void>()
   const exitHandlers = new Map<string, (code: number) => void>()
   const errorHandlers = new Map<string, (message: string) => void>()
   const spawned: Array<{ sessionId: string; prompt?: string; cwd?: string }> = []
-  const writes: string[] = []
+  const killed: string[] = []
 
   return {
     spawned,
-    writes,
+    killed,
+    dataHandlerCount: () => dataHandlers.size,
     emitData(sessionId, chunk) {
       dataHandlers.get(sessionId)?.(chunk)
     },
@@ -27,13 +30,9 @@ function createTerminalApi(): GuidedBriefTerminalApi & {
       spawned.push({ sessionId, prompt: initialPrompt, cwd })
       return { ok: true, sessionId }
     },
-    async terminalWrite(_sessionId, data) {
-      writes.push(data)
+    async terminalKill(sessionId) {
+      killed.push(sessionId)
     },
-    terminalWriteFast(_sessionId, data) {
-      writes.push(data)
-    },
-    async terminalKill() {},
     onTerminalData(sessionId, cb) {
       dataHandlers.set(sessionId, cb)
       return () => dataHandlers.delete(sessionId)
@@ -139,7 +138,45 @@ if (result.ok) {
   assert.deepEqual(markers, ['BRIEF_READY'], 'adapter detects marker from real terminal output')
   assert.ok(lifecycles.includes('ready'), 'marker moves lifecycle to ready')
 
-  await result.session.sendMessage('Please tighten the MVP scope.')
-  assert.match(api.writes[0] ?? '', /\x1b\[200~/, 'stdin uses bracketed paste')
-  assert.match(api.writes[0] ?? '', /Please tighten the MVP scope\./, 'stdin includes user message')
+  // Cleanup contract: dispose() releases listeners only — it must not kill the
+  // PTY. The renderer hook calls dispose() on every unmount (HMR / refresh /
+  // stage transition), and the PTY needs to survive so the next mount can
+  // reattach via the persisted sessionId. stop() is the explicit teardown the
+  // flow calls only on stage completion or user-confirmed close.
+  result.session.dispose()
+  assert.deepEqual(api.killed, [], 'dispose() must not call terminalKill — PTY survives renderer remount')
+  assert.equal(api.dataHandlerCount(), 0, 'dispose() releases the data listener')
+
+  await result.session.stop()
+  assert.deepEqual(api.killed, ['guided-brief-test'], 'stop() is the explicit kill path used on accept / close')
 }
+
+// Reattach path: a hook that was given a persisted sessionId must reuse it
+// verbatim so spawnTerminalFromIpc reattaches in main instead of spawning a
+// fresh agent.
+const reattachApi = createTerminalApi()
+const reattachResult = await startGuidedBriefSpecialistSession(
+  {
+    kind: 'designer',
+    workspaceRoot: '/workspace',
+    acceptedBriefSnapshotPath: 'product/.versions/brief.md',
+    sessionId: 'persisted-designer-id',
+  },
+  { terminalApi: reattachApi },
+)
+assert.equal(reattachResult.ok, true, 'reattach spawn returns ok')
+if (reattachResult.ok) {
+  assert.equal(reattachApi.spawned[0]?.sessionId, 'persisted-designer-id', 'persisted sessionId is reused, not regenerated')
+  assert.equal(reattachResult.session.sessionId, 'persisted-designer-id', 'session exposes the persisted id back to the hook')
+}
+
+// Eager-persist contract: hooks call createGuidedBriefSessionId() to mint an
+// id synchronously and persist it BEFORE terminalSpawn. The returned id must
+// be a valid UUIDv4 so the same id can be passed back in on reattach.
+const eagerId = createGuidedBriefSessionId()
+assert.match(
+  eagerId,
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+  'createGuidedBriefSessionId() returns a UUIDv4 the hook can persist eagerly',
+)
+assert.notEqual(eagerId, createGuidedBriefSessionId(), 'every call mints a fresh id')

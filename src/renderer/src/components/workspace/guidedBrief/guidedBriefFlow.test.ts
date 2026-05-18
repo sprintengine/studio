@@ -1,12 +1,7 @@
 import assert from 'node:assert/strict'
 import { guidedBriefHandoffChecklist, guidedBriefSprintEngineGoal } from './handoff'
 import { joinWorkspacePath, basename } from './paths'
-import {
-  appendSpecChunk,
-  appendUserTurn,
-  stripAnsiAndOverwrites,
-  type ConversationTurn,
-} from './parseStream'
+import { stripAnsiAndOverwrites } from './parseStream'
 import {
   isMidStageGuidedRuntime,
   progressForStage,
@@ -101,8 +96,9 @@ assert.equal(
   'Ship the accepted build.',
 )
 
-// Parsed conversation: strip ANSI escape sequences, collapse \r overwrites,
-// drop control characters that would render as garbage in a plain-English view.
+// stripAnsiAndOverwrites is the only parseStream export kept after the
+// composer/transcript was removed — sessionAdapter still uses it for marker
+// detection on the raw terminal stream.
 assert.equal(
   stripAnsiAndOverwrites('\x1b[31mhello\x1b[0m world'),
   'hello world',
@@ -129,83 +125,6 @@ assert.equal(
   'control characters are removed',
 )
 
-let counter = 0
-const nextSpecId = () => {
-  counter += 1
-  return `spec-${counter}`
-}
-const nextUserId = () => {
-  counter += 1
-  return `user-${counter}`
-}
-
-let turns: ConversationTurn[] = []
-turns = appendSpecChunk({
-  chunk: '\x1b[32mStrategist: tell me about your idea\x1b[0m\n',
-  turns,
-  now: 1,
-  nextSpecTurnId: nextSpecId,
-})
-assert.equal(turns.length, 1, 'first chunk creates a spec turn')
-assert.equal(turns[0].speaker, 'spec')
-assert.equal(turns[0].content, 'Strategist: tell me about your idea\n')
-
-turns = appendSpecChunk({
-  chunk: 'follow-up question?\n',
-  turns,
-  now: 2,
-  nextSpecTurnId: nextSpecId,
-})
-assert.equal(turns.length, 1, 'consecutive spec chunks merge into the same turn')
-assert.equal(turns[0].content, 'Strategist: tell me about your idea\nfollow-up question?\n')
-
-turns = appendUserTurn({
-  message: 'I want to swap shifts at my cafe.',
-  turns,
-  now: 3,
-  nextUserTurnId: nextUserId,
-})
-assert.equal(turns.length, 2, 'user send opens a new turn')
-assert.equal(turns[1].speaker, 'user')
-assert.equal(turns[1].content, 'I want to swap shifts at my cafe.')
-
-turns = appendSpecChunk({
-  chunk: 'Got it. Who approves swaps today?\n',
-  turns,
-  now: 4,
-  nextSpecTurnId: nextSpecId,
-})
-assert.equal(turns.length, 3, 'the next spec chunk after a user turn opens a fresh spec turn')
-assert.equal(turns[2].speaker, 'spec')
-
-const emptyAfterStrip = appendSpecChunk({
-  chunk: '\x1b[2J\x1b[H',
-  turns,
-  now: 5,
-  nextSpecTurnId: nextSpecId,
-})
-assert.strictEqual(emptyAfterStrip, turns, 'a chunk that strips to empty does not mutate the turn list')
-
-const whitespaceOnlyTerminalRedraw = appendSpecChunk({
-  chunk: '\r\n      \r\n',
-  turns,
-  now: 6,
-  nextSpecTurnId: nextSpecId,
-})
-assert.strictEqual(
-  whitespaceOnlyTerminalRedraw,
-  turns,
-  'terminal redraw whitespace does not create an invisible auto-scrolling turn',
-)
-
-const emptyUserTurn = appendUserTurn({
-  message: '   ',
-  turns,
-  now: 7,
-  nextUserTurnId: nextUserId,
-})
-assert.strictEqual(emptyUserTurn, turns, 'whitespace-only user sends do not create a turn')
-
 // Mid-stage close gate: confirmation should fire only after the strategist
 // session has been launched and before the build is handed off. Idle state
 // and the no-runtime case keep the pre-runtime close behaviour intact.
@@ -219,6 +138,8 @@ const baseRuntime: GuidedBriefRuntimeState = {
   acceptedUiDirection: null,
   acceptedMockups: [],
   activeMockupPath: null,
+  strategistSessionId: null,
+  designerSessionId: null,
 }
 
 assert.equal(isMidStageGuidedRuntime(null), false, 'no runtime → no confirmation')

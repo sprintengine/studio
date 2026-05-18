@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electron-api'
 import {
+  createGuidedBriefSessionId,
   startGuidedBriefSpecialistSession,
   type GuidedBriefSessionLifecycle,
   type GuidedBriefSpecialistSession,
@@ -26,6 +27,10 @@ export type UseStrategistSessionInput = {
   cli: AgentCli
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
   enabled?: boolean
+  // Persisted PTY id (survives renderer HMR / reload). When provided, the main
+  // process reattaches to the existing session and replays its buffer.
+  sessionId: string | null
+  onAssignSessionId: (sessionId: string) => void
 }
 
 export type UseStrategistSessionResult = {
@@ -48,6 +53,8 @@ export function useStrategistSession({
   cli,
   cliRuntimes,
   enabled = true,
+  sessionId,
+  onAssignSessionId,
 }: UseStrategistSessionInput): UseStrategistSessionResult {
   const [status, setStatus] = useState<StrategistSessionStatus>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -59,8 +66,13 @@ export function useStrategistSession({
   const productDirectoryPath = joinWorkspacePath(workspaceRoot, 'product')
 
   const startedRef = useRef(false)
+  const assignSessionIdRef = useRef(onAssignSessionId)
+  assignSessionIdRef.current = onAssignSessionId
 
-  // Start the strategist session exactly once per mount.
+  // Start (or reattach to) the strategist session exactly once per mount. A
+  // persisted sessionId means the main process keeps the PTY alive across
+  // renderer reloads — spawning with the same id reattaches and replays the
+  // buffer instead of starting a fresh agent.
   useEffect(() => {
     if (!enabled) return
     if (startedRef.current) return
@@ -69,11 +81,21 @@ export function useStrategistSession({
     let cancelled = false
     let activeSession: GuidedBriefSpecialistSession | null = null
 
+    // Mint and persist the sessionId synchronously before the terminalSpawn IPC
+    // is even queued. A renderer reload mid-spawn would otherwise leave the
+    // generated id only in the adapter's resolved promise (which never fires
+    // after a reload), orphaning the PTY in main.
+    const resolvedSessionId = sessionId ?? createGuidedBriefSessionId()
+    if (!sessionId) {
+      assignSessionIdRef.current(resolvedSessionId)
+    }
+
     setStatus('starting')
     void startGuidedBriefSpecialistSession(
       {
         kind: 'strategist',
         workspaceRoot,
+        sessionId: resolvedSessionId,
         cli,
         ideaSeedPath: IDEA_SEED_RELATIVE_PATH,
         requirementsPath: REQUIREMENTS_RELATIVE_PATH,
@@ -81,8 +103,6 @@ export function useStrategistSession({
       {
         terminalApi: {
           terminalSpawn: window.api.terminalSpawn,
-          terminalWrite: window.api.terminalWrite,
-          terminalWriteFast: window.api.terminalWriteFast,
           terminalKill: window.api.terminalKill,
           onTerminalData: window.api.onTerminalData,
           onTerminalExit: window.api.onTerminalExit,
@@ -107,7 +127,9 @@ export function useStrategistSession({
       },
     ).then((result) => {
       if (cancelled) {
-        if (result.ok) void result.session.stop().catch(() => {})
+        // Do not kill the PTY here — the session id stays in runtime state so
+        // the next mount can reattach. Explicit teardown happens on stage
+        // transitions and on user-confirmed close.
         return
       }
       if (!result.ok) {
@@ -117,15 +139,15 @@ export function useStrategistSession({
       }
       activeSession = result.session
       setSession(result.session)
+      // Defensive: the adapter returns the same id we passed in, but call the
+      // setter again so any closure-skew between mount and resolve self-heals.
+      assignSessionIdRef.current(result.session.sessionId)
     })
 
     return () => {
       cancelled = true
       const current = activeSession
-      if (current) {
-        current.dispose()
-        void current.stop().catch(() => {})
-      }
+      if (current) current.dispose()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled])

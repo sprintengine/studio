@@ -6,7 +6,7 @@ import {
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
 import { CloseIconButton, StatusDot, Tooltip, WizardProgress } from '../../ui'
-import { ConversationPane, type ConversationView } from './ConversationPane'
+import { ConversationPane } from './ConversationPane'
 import { MockupPreviewPane } from './MockupPreviewPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
 import { useDesignerSession, type DesignerMockupFile } from './useDesignerSession'
@@ -62,6 +62,11 @@ export function GuidedBriefFlow({
     cli,
     cliRuntimes,
     enabled: inStrategistStage,
+    sessionId: runtimeState.strategistSessionId,
+    onAssignSessionId: (id) => {
+      if (runtimeState.strategistSessionId === id) return
+      onChange({ ...runtimeState, strategistSessionId: id })
+    },
   })
 
   // The designer reads the accepted product brief from product/.versions/<sha>.md.
@@ -77,6 +82,11 @@ export function GuidedBriefFlow({
       hasUi === 'yes' &&
       acceptedBriefRelativePath !== null &&
       inDesignerStage,
+    sessionId: runtimeState.designerSessionId,
+    onAssignSessionId: (id) => {
+      if (runtimeState.designerSessionId === id) return
+      onChange({ ...runtimeState, designerSessionId: id })
+    },
   })
 
   // Strategist working → ready as soon as a real signal arrives.
@@ -114,10 +124,8 @@ export function GuidedBriefFlow({
   const [acceptError, setAcceptError] = useState<string | null>(null)
   const [startingBuild, setStartingBuild] = useState(false)
   const [startBuildError, setStartBuildError] = useState<string | null>(null)
-  const [conversationView, setConversationView] = useState<ConversationView>('raw')
   const [startRunner, setStartRunner] = useState(true)
   const [autoApproveArtifacts, setAutoApproveArtifacts] = useState(false)
-  const showTerminalDisclosure = inStrategistStage || inDesignerStage
 
   const effectiveAutoApprove = startRunner && autoApproveArtifacts
 
@@ -143,10 +151,14 @@ export function GuidedBriefFlow({
         path: snapshot.path,
       }
       const nextStage: GuidedBriefStage = hasUi === 'yes' ? 'designer-working' : 'handoff'
+      // The strategist's job is done — kill the PTY and clear the persisted id
+      // so it does not reattach on the next render.
+      const strategistSessionIdToKill = runtimeState.strategistSessionId
       const nextState = {
         ...runtimeState,
         stage: nextStage,
         acceptedProductBrief: accepted,
+        strategistSessionId: null,
       }
       if (hasUi === 'no') {
         await writeGuidedBriefBuildHandoff({
@@ -163,6 +175,9 @@ export function GuidedBriefFlow({
         })
       }
       onChange(nextState)
+      if (strategistSessionIdToKill) {
+        void window.api.terminalKill(strategistSessionIdToKill).catch(() => {})
+      }
     } catch (error) {
       setAcceptError(formatAcceptError(error, 'brief'))
     } finally {
@@ -230,12 +245,18 @@ export function GuidedBriefFlow({
           writeFile: window.api.writefile,
         },
       })
+      // The designer's job is done — kill the PTY and clear the persisted id.
+      const designerSessionIdToKill = runtimeState.designerSessionId
       onChange({
         ...runtimeState,
         stage: 'handoff',
         acceptedUiDirection,
         acceptedMockups,
+        designerSessionId: null,
       })
+      if (designerSessionIdToKill) {
+        void window.api.terminalKill(designerSessionIdToKill).catch(() => {})
+      }
     } catch (error) {
       setAcceptError(formatAcceptError(error, 'mockup'))
     } finally {
@@ -308,7 +329,6 @@ export function GuidedBriefFlow({
             isLive={strategist.status === 'running' || strategist.status === 'ready'}
             requirementsPath={strategist.requirementsPath}
             productDirectoryPath={joinWorkspacePath(workspaceRoot, 'product')}
-            conversationView={conversationView}
           />
         ) : inDesignerStage ? (
           <DesignerBody
@@ -319,9 +339,6 @@ export function GuidedBriefFlow({
             isLive={designer.status === 'running' || designer.status === 'ready'}
             mockups={designer.mockups}
             mockupsDirectoryPath={designer.mockupsDirectoryPath}
-            workspaceRoot={workspaceRoot}
-            inspirationDirectoryPath={designer.inspirationDirectoryPath}
-            conversationView={conversationView}
           />
         ) : (
           <HandoffBody
@@ -335,22 +352,6 @@ export function GuidedBriefFlow({
       </main>
 
       <footer className="flex shrink-0 items-center gap-3 border-t border-[color:var(--bg-surface-raised)] px-5 py-3">
-        {showTerminalDisclosure ? (
-          <button
-            type="button"
-            onClick={() =>
-              setConversationView((current) => (current === 'raw' ? 'parsed' : 'raw'))
-            }
-            aria-pressed={conversationView === 'raw'}
-            className="
-              text-[12px] text-[color:var(--text-muted)] underline-offset-2 transition-colors
-              hover:text-[color:var(--text-default)] hover:underline
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-            "
-          >
-            {conversationView === 'raw' ? 'Show transcript' : 'Show terminal'}
-          </button>
-        ) : null}
         <span className="min-w-0 flex-1 truncate text-[12px] text-[color:var(--text-subtle)]">
           {counter}
         </span>
@@ -516,7 +517,6 @@ function StrategistBody({
   isLive,
   requirementsPath,
   productDirectoryPath,
-  conversationView,
 }: {
   stage: GuidedBriefStage
   session: ReturnType<typeof useStrategistSession>['session']
@@ -525,7 +525,6 @@ function StrategistBody({
   isLive: boolean
   requirementsPath: string
   productDirectoryPath: string
-  conversationView: ConversationView
 }) {
   const ready = stage === 'strategist-ready'
 
@@ -543,11 +542,9 @@ function StrategistBody({
         specialistSubline={
           ready
             ? 'Brief ready · ask anything else if needed'
-            : 'Asking about the idea — answer in plain English'
+            : 'Asking about the idea — answer in the terminal'
         }
         isLive={isLive}
-        composerPlaceholder={ready ? 'Ask a change or add a detail…' : 'Type your answer. Plain English.'}
-        view={conversationView}
       />
       {ready ? (
         <RenderedBriefPane briefPath={requirementsPath} watchDirectoryPath={productDirectoryPath} />
@@ -564,9 +561,6 @@ function DesignerBody({
   isLive,
   mockups,
   mockupsDirectoryPath,
-  workspaceRoot,
-  inspirationDirectoryPath,
-  conversationView,
 }: {
   stage: GuidedBriefStage
   session: ReturnType<typeof useDesignerSession>['session']
@@ -575,9 +569,6 @@ function DesignerBody({
   isLive: boolean
   mockups: DesignerMockupFile[]
   mockupsDirectoryPath: string
-  workspaceRoot: string
-  inspirationDirectoryPath: string
-  conversationView: ConversationView
 }) {
   const ready = stage === 'designer-ready'
 
@@ -595,16 +586,9 @@ function DesignerBody({
         specialistSubline={
           ready
             ? `${mockups.length} screen${mockups.length === 1 ? '' : 's'} ready · ask for a change anytime`
-            : 'Drafting the screens — paste inspiration or describe what you want'
+            : 'Drafting the screens — describe what you want in the terminal'
         }
         isLive={isLive}
-        composerPlaceholder={
-          ready
-            ? 'Ask for a change to the screen on the right…'
-            : 'Describe the look, or paste an inspiration screenshot.'
-        }
-        imagePaste={{ workspaceRoot, inspirationDirectoryPath }}
-        view={conversationView}
       />
       {ready ? (
         <MockupPreviewPane mockups={mockups} watchDirectoryPath={mockupsDirectoryPath} />
