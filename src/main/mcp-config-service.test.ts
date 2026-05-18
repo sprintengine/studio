@@ -4,14 +4,35 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { McpSettings } from '../shared/electron-api'
-import { createMcpConfigService } from './mcp-config-service'
+import type { PluginManifest } from '../shared/plugin-manifest'
+import { createMcpConfigService, type PluginLookup } from './mcp-config-service'
+import { createPluginRegistry } from './plugin-registry'
+
+const BUNDLED_ROOT = join(process.cwd(), 'resources', 'plugins')
 
 async function main(): Promise<void> {
+  const registry = createPluginRegistry({
+    bundledRoot: BUNDLED_ROOT,
+    userRoot: join(process.cwd(), '.does-not-exist', 'multicode', 'plugins'),
+  })
+  const report = registry.loadSync()
+  assert.deepEqual(report.rejected, [], `bundled plugins should validate: ${JSON.stringify(report.rejected)}`)
+  const lookupPlugin: PluginLookup = (id) => {
+    const plugin = registry.get(id)
+    return plugin ? { manifest: plugin.manifest as PluginManifest } : undefined
+  }
+
   const temp = await mkdtemp(join(tmpdir(), 'multicode-mcp-config-'))
   const workspaceRoot = join(temp, 'workspace')
   await mkdir(workspaceRoot, { recursive: true })
 
-  const service = createMcpConfigService()
+  const homeRoot = join(temp, 'home')
+  await mkdir(homeRoot, { recursive: true })
+
+  const service = createMcpConfigService({
+    lookupPlugin,
+    homeDir: () => homeRoot,
+  })
   const codexSettings: McpSettings = {
     syncEnabled: true,
     servers: {

@@ -1,0 +1,85 @@
+{
+  "id": "pi",
+  "displayName": "Pi",
+  "publisher": "community",
+  "version": 1,
+  "binary": "pi",
+  "variables": {
+    "model": {
+      "type": "string",
+      "label": "Model",
+      "default": "",
+      "required": true
+    },
+    "provider": {
+      "type": "enum",
+      "label": "Provider",
+      "options": ["anthropic", "openai", "google", "ollama"],
+      "default": "anthropic"
+    }
+  },
+  "permissionPresets": {
+    "default": {
+      "label": "Default",
+      "args": []
+    },
+    "auto": {
+      "label": "Auto-approve workspace edits",
+      "args": []
+    },
+    "bypass": {
+      "label": "Bypass all approvals (dangerous)",
+      "args": []
+    }
+  },
+  "launch": {
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      "--session",
+      "{{sessionId}}"
+    ],
+    "env": {
+      "PI_PROVIDER": "{{provider}}",
+      "PI_MODEL": "{{model}}"
+    }
+  },
+  "resume": {
+    "supported": true,
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      "--session",
+      "{{sessionId}}",
+      "--resume"
+    ]
+  },
+  "promptInjection": {
+    "mode": "send-after-ready",
+    "readiness": {
+      "type": "output-match",
+      "pattern": "VERIFY-prompt-pattern",
+      "timeoutMs": 15000
+    }
+  },
+  "completion": {
+    "mode": "output-sentinel",
+    "sentinel": "[sprint-engine:done]",
+    "fallback": {
+      "mode": "idle-at-prompt",
+      "idleMs": 30000,
+      "promptPattern": "VERIFY-prompt-pattern"
+    }
+  },
+  "mcpConfig": {
+    "path": "~/.config/pi/mcp.json",
+    "format": "generic"
+  },
+  "capabilities": {
+    "resumeSession": true,
+    "sessionIdFromCaller": true,
+    "toolUse": true,
+    "mcpServers": true,
+    "imageInput": false
+  }
+}

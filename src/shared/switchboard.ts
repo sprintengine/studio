@@ -400,6 +400,29 @@ export type SwitchboardExecutionStatus = 'launching' | 'active' | 'missing' | 's
 export type SwitchboardExecutionProviderRef = Record<string, string | number | boolean | null>
 export type SwitchboardRunnerExecutionKind = 'switchboard_task' | 'watchtower_review' | 'watchtower_triage'
 
+export type SwitchboardAgentInjectionMode =
+  | 'positional-arg'
+  | 'stdin-pipe'
+  | 'send-after-ready'
+
+export type SwitchboardAgentReadinessSignal = {
+  type: 'output-match'
+  pattern: string
+  timeoutMs: number
+}
+
+export type SwitchboardAgentInjectionSpec = {
+  mode: SwitchboardAgentInjectionMode
+  readiness?: SwitchboardAgentReadinessSignal
+}
+
+export type SwitchboardAgentCompletionMode = 'process-exit' | 'output-sentinel'
+
+export type SwitchboardAgentCompletionSpec = {
+  mode: SwitchboardAgentCompletionMode
+  sentinel?: string
+}
+
 export type SwitchboardAgentSpawnDescriptor = {
   executionId: string
   system: 'switchboard' | 'watchtower'
@@ -411,6 +434,13 @@ export type SwitchboardAgentSpawnDescriptor = {
   env?: Record<string, string>
   prompt?: string
   cli?: 'codex' | 'claude'
+  // Phase 3 (BYO-CLI billing fix): when present, the runtime injects the
+  // prompt via the named mode instead of always using stdin-pipe with EOF.
+  injection?: SwitchboardAgentInjectionSpec
+  // When `completion.mode === 'output-sentinel'`, the runtime watches the
+  // pty output for the sentinel literal and disposes the session as soon
+  // as it sees one, instead of waiting for the process to exit.
+  completion?: SwitchboardAgentCompletionSpec
 }
 
 export type SwitchboardRunnerStartInput = {

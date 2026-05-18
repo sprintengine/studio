@@ -1,0 +1,56 @@
+{
+  "id": "claude-code",
+  "displayName": "Claude Code",
+  "publisher": "anthropic",
+  "version": 1,
+  "binary": "claude",
+  "permissionPresets": {
+    "default": {
+      "label": "Default (Claude prompts for permissions)",
+      "args": []
+    },
+    "auto_workspace": {
+      "label": "Auto-approve workspace edits",
+      "args": ["--permission-mode", "auto"]
+    },
+    "bypass_all": {
+      "label": "Bypass all approvals (dangerous)",
+      "args": ["--permission-mode", "bypassPermissions"]
+    }
+  },
+  "launch": {
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      "--session-id",
+      "{{sessionId}}",
+      { "valueIf": "prompt", "value": "{{prompt}}" }
+    ]
+  },
+  "resume": {
+    "supported": true,
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      "--resume",
+      "{{sessionId}}",
+      { "valueIf": "prompt", "value": "{{prompt}}" }
+    ]
+  },
+  "promptInjection": {
+    "mode": "positional-arg"
+  },
+  "completion": {
+    "mode": "process-exit"
+  },
+  "mcpConfig": {
+    "path": "{{workspaceRoot}}/.mcp.json",
+    "format": "claude-code"
+  },
+  "capabilities": {
+    "resumeSession": true,
+    "sessionIdFromCaller": true,
+    "toolUse": true,
+    "mcpServers": true
+  }
+}

@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
 import { unlink } from 'fs/promises'
 import { join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
+import { buildAgentShellCommand, pluginIdForCli, renderAgentLaunchArgv } from './agent-launch-render'
 import { withMulticodeCliPath } from './cli-install'
 
 export type ShellLaunchConfig = {
@@ -657,41 +658,78 @@ function buildNativeAgentLaunchPowerShellScript(
   cliRuntime: CliRuntimeSettings,
   cliPermissionPreset: SprintEngineCliPermissionPreset = 'default'
 ): string {
-  const permissionArgs = getCliPermissionArgs(cli, cliPermissionPreset)
-  const command = cliRuntime.command || cli
-  const promptArg = cli === 'codex' ? nativeWindowsCodexPromptArg(initialPrompt) : initialPrompt
-  const args = cli === 'codex'
-    ? [
-        ...permissionArgs,
-        ...(resume ? ['resume'] : []),
-        '-C',
-        cwd,
-        ...(!resume && promptArg ? [promptArg] : []),
-      ]
-    : [
-        ...permissionArgs,
-        resume ? '--resume' : '--session-id',
-        sessionId,
-        ...(promptArg ? [promptArg] : []),
-      ]
+  // Codex keeps its legacy Windows path because of two plugin-specific
+  // behaviours that do not generalise: a `-C cwd` flag the Windows codex CLI
+  // requires for workspace propagation, and an npm-shim detection that
+  // unwraps codex.cmd/codex.ps1 to a direct node.exe invocation. These will
+  // move into the plugin manifest when the plugin schema gains executable
+  // hooks (post v1).
+  if (pluginIdForCli(cli) === 'codex') {
+    return buildCodexLegacyNativeAgentLaunchPowerShellScript(
+      sessionId,
+      resume,
+      cwd,
+      initialPrompt,
+      cliRuntime,
+      cliPermissionPreset
+    )
+  }
+
+  const { argv, binary } = renderAgentLaunchArgv({
+    cli,
+    sessionId,
+    resume,
+    initialPrompt,
+    cliRuntime,
+    cliPermissionPreset,
+  })
+  // argv[0] is the binary; the remainder are the arguments PowerShell needs
+  // to base64-encode for round-trip safety through nested quoting layers.
+  const args = argv.slice(1)
+  return [
+    `$ErrorActionPreference = 'Continue'`,
+    `Set-Location -LiteralPath ${quotePowerShell(cwd)}`,
+    `$command = ${quotePowerShell(binary)}`,
+    `$arguments = @(${args.map((arg) => powerShellBase64Literal(arg)).join(', ')})`,
+    `& $command @arguments`,
+  ].join('\r\n')
+}
+
+function buildCodexLegacyNativeAgentLaunchPowerShellScript(
+  sessionId: string,
+  resume: boolean,
+  cwd: string,
+  initialPrompt: string | undefined,
+  cliRuntime: CliRuntimeSettings,
+  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default'
+): string {
+  void sessionId
+  const permissionArgs = getCliPermissionArgs('codex', cliPermissionPreset)
+  const command = cliRuntime.command || 'codex'
+  const promptArg = nativeWindowsCodexPromptArg(initialPrompt)
+  const args = [
+    ...permissionArgs,
+    ...(resume ? ['resume'] : []),
+    '-C',
+    cwd,
+    ...(!resume && promptArg ? [promptArg] : []),
+  ]
 
   return [
     `$ErrorActionPreference = 'Continue'`,
     `Set-Location -LiteralPath ${quotePowerShell(cwd)}`,
     `$command = ${quotePowerShell(command)}`,
     `$arguments = @(${args.map((arg) => powerShellBase64Literal(arg)).join(', ')})`,
-    ...(cli === 'codex' ? [
-      `$resolvedCommand = Get-Command $command -ErrorAction SilentlyContinue`,
-      `$resolvedSource = if ($resolvedCommand) { $resolvedCommand.Source } else { $null }`,
-      `$resolvedLeaf = if ($resolvedSource) { Split-Path -Leaf $resolvedSource } else { '' }`,
-      `$isCodexNpmShim = $resolvedLeaf -in @('codex.cmd', 'codex.ps1')`,
-      `if ($isCodexNpmShim) {`,
-      `  $codexJs = Join-Path (Split-Path -Parent $resolvedSource) 'node_modules\\@openai\\codex\\bin\\codex.js'`,
-      `  if (!(Test-Path -LiteralPath $codexJs)) { throw "Codex npm shim detected, but codex.js was not found at $codexJs." }`,
-      `  $command = 'node.exe'`,
-      `  $arguments = @($codexJs) + $arguments`,
-      `}`,
-    ] : []),
+    `$resolvedCommand = Get-Command $command -ErrorAction SilentlyContinue`,
+    `$resolvedSource = if ($resolvedCommand) { $resolvedCommand.Source } else { $null }`,
+    `$resolvedLeaf = if ($resolvedSource) { Split-Path -Leaf $resolvedSource } else { '' }`,
+    `$isCodexNpmShim = $resolvedLeaf -in @('codex.cmd', 'codex.ps1')`,
+    `if ($isCodexNpmShim) {`,
+    `  $codexJs = Join-Path (Split-Path -Parent $resolvedSource) 'node_modules\\@openai\\codex\\bin\\codex.js'`,
+    `  if (!(Test-Path -LiteralPath $codexJs)) { throw "Codex npm shim detected, but codex.js was not found at $codexJs." }`,
+    `  $command = 'node.exe'`,
+    `  $arguments = @($codexJs) + $arguments`,
+    `}`,
     `& $command @arguments`,
   ].join('\r\n')
 }
@@ -704,65 +742,12 @@ function buildAgentLaunchCommand(
   cliRuntime?: CliRuntimeSettings,
   cliPermissionPreset: SprintEngineCliPermissionPreset = 'default'
 ): string {
-  if (cli === 'claude') {
-    return buildClaudeLaunchCommand(sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset)
-  }
-  return buildCodexLaunchCommand(resume, initialPrompt, cliRuntime, cliPermissionPreset)
-}
-
-function buildCommandAvailabilityCheck(cli: AgentCli, command: string): string {
-  return [
-    `if ! command -v ${quotePosixCommand(command)} >/dev/null 2>&1; then`,
-    `echo ${quotePosix(`${cli === 'codex' ? 'Codex' : 'Claude'} CLI was not found. Check the ${cli} command in Multicode Settings.`)};`,
-    'else',
-  ].join(' ')
-}
-
-function buildCodexLaunchCommand(
-  resume = false,
-  initialPrompt?: string,
-  cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default'
-): string {
-  const promptArg = initialPrompt ? ` ${quotePosix(initialPrompt)}` : ''
-  const configuredCommand = cliRuntime?.command?.trim()
-  const permissionArgs = getCliPermissionArgs('codex', cliPermissionPreset).map(quotePosixCommand)
-  const permissionArgText = permissionArgs.length ? ` ${permissionArgs.join(' ')}` : ''
-
-  return [
-    buildCommandAvailabilityCheck('codex', configuredCommand || 'codex'),
-    resume
-      ? `${quotePosixCommand(configuredCommand || 'codex')}${permissionArgText} resume;`
-      : `${quotePosixCommand(configuredCommand || 'codex')}${permissionArgText}${promptArg};`,
-    'fi',
-  ].join(' ')
-}
-
-function buildClaudeLaunchCommand(
-  sessionId: string,
-  resume = false,
-  initialPrompt?: string,
-  cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default'
-): string {
-  const quotedSessionId = quotePosix(sessionId)
-  const claudeCommand = quotePosixCommand(cliRuntime?.command?.trim() || 'claude')
-  const configuredCommand = cliRuntime?.command?.trim() || 'claude'
-  const promptArg = initialPrompt ? ` ${quotePosix(initialPrompt)}` : ''
-  const permissionArgs = getCliPermissionArgs('claude', cliPermissionPreset).map(quotePosixCommand)
-  const permissionArgText = permissionArgs.length ? ` ${permissionArgs.join(' ')}` : ''
-
-  if (!resume) {
-    return [
-      buildCommandAvailabilityCheck('claude', configuredCommand),
-      `${claudeCommand}${permissionArgText} --session-id ${quotedSessionId}${promptArg};`,
-      'fi',
-    ].join(' ')
-  }
-
-  return [
-    buildCommandAvailabilityCheck('claude', configuredCommand),
-    `${claudeCommand}${permissionArgText} --resume ${quotedSessionId}${promptArg};`,
-    'fi',
-  ].join(' ')
+  return buildAgentShellCommand({
+    cli,
+    sessionId,
+    resume,
+    initialPrompt,
+    cliRuntime,
+    cliPermissionPreset,
+  })
 }

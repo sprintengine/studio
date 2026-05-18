@@ -1,6 +1,12 @@
-import { app } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { homedir } from 'os'
 import { dirname, delimiter, isAbsolute, join } from 'path'
+
+// Lazy electron so the module is importable from node-only test bundles.
+function loadElectron(): typeof import('electron') {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('electron')
+}
 import type {
   AgentCli,
   McpCatalogResult,
@@ -15,9 +21,14 @@ import type {
   McpSyncTarget,
   McpValidationIssue,
 } from '../shared/electron-api'
+import type { PluginManifest, PluginMcpConfigSpec } from '../shared/plugin-manifest'
+import { pluginIdForCli } from './agent-launch-render'
+import { getPluginById } from './plugin-registry-instance'
 
 const MANAGED_START = '# >>> multicode mcp managed'
 const MANAGED_END = '# <<< multicode mcp managed'
+
+export type PluginLookup = (id: string) => { manifest: PluginManifest } | undefined
 
 export type McpConfigService = {
   listCatalog(): McpCatalogResult
@@ -25,12 +36,24 @@ export type McpConfigService = {
   sync(input: McpSyncInput): McpSyncResult
 }
 
-export function createMcpConfigService(): McpConfigService {
+export type McpConfigServiceOptions = {
+  lookupPlugin?: PluginLookup
+  homeDir?: () => string
+}
+
+export function createMcpConfigService(options: McpConfigServiceOptions = {}): McpConfigService {
+  const lookupPlugin: PluginLookup = options.lookupPlugin ?? ((id) => getPluginById(id))
+  const homeDir = options.homeDir ?? (() => homedir())
   return {
     listCatalog,
-    previewSync: (input) => syncMcpConfig({ ...input, write: false }),
-    sync: (input) => syncMcpConfig({ ...input, write: true }),
+    previewSync: (input) => syncMcpConfig({ ...input, write: false }, { lookupPlugin, homeDir }),
+    sync: (input) => syncMcpConfig({ ...input, write: true }, { lookupPlugin, homeDir }),
   }
+}
+
+type SyncContext = {
+  lookupPlugin: PluginLookup
+  homeDir: () => string
 }
 
 function listCatalog(): McpCatalogResult {
@@ -56,21 +79,22 @@ function listCatalog(): McpCatalogResult {
 }
 
 function findCatalogPath(): string | null {
-  const candidates = app.isPackaged
+  const electron = loadElectron()
+  const candidates = electron.app.isPackaged
     ? [
         join(process.resourcesPath, 'mcps', 'catalog.json'),
-        join(app.getAppPath(), 'resources', 'mcps', 'catalog.json'),
+        join(electron.app.getAppPath(), 'resources', 'mcps', 'catalog.json'),
       ]
     : [
         join(process.cwd(), 'resources', 'mcps', 'catalog.json'),
-        join(app.getAppPath(), 'resources', 'mcps', 'catalog.json'),
+        join(electron.app.getAppPath(), 'resources', 'mcps', 'catalog.json'),
         join(__dirname, '..', '..', 'resources', 'mcps', 'catalog.json'),
         join(__dirname, '..', '..', '..', 'resources', 'mcps', 'catalog.json'),
       ]
   return candidates.find((candidate) => existsSync(candidate)) ?? null
 }
 
-function syncMcpConfig(input: McpSyncInput): McpSyncResult {
+function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult {
   const settings = normalizeSettings(input.settings)
   const clients = normalizeClients(input.clients)
   const issues: McpValidationIssue[] = []
@@ -101,14 +125,29 @@ function syncMcpConfig(input: McpSyncInput): McpSyncResult {
       .filter((server) => server.clients.includes(client))
       .map((server) => server.id)
     if (clientServers.length === 0 && knownClientServerIds.length === 0) continue
-    if (client === 'codex') {
-      const target = syncCodex(input.workspaceRoot, clientServers, input.write === true)
-      targets.push(target)
+
+    const pluginId = pluginIdForCli(client)
+    const plugin = context.lookupPlugin(pluginId)
+    if (!plugin || !plugin.manifest.mcpConfig) {
+      issues.push({
+        level: 'warning',
+        client,
+        message: `Plugin "${pluginId}" does not declare an mcpConfig block; skipping MCP sync for this CLI.`,
+      })
       continue
     }
-    const claudeResult = syncClaude(input.workspaceRoot, clientServers, knownClientServerIds, input.write === true)
-    targets.push(claudeResult.target)
-    issues.push(...claudeResult.issues)
+
+    const formatTargets = syncForFormat({
+      client,
+      plugin: plugin.manifest,
+      workspaceRoot: input.workspaceRoot,
+      servers: clientServers,
+      knownServerIds: knownClientServerIds,
+      write: input.write === true,
+      context,
+    })
+    targets.push(...formatTargets.targets)
+    issues.push(...formatTargets.issues)
   }
 
   const syncBlocking = issues.find((issue) => issue.level === 'error')
@@ -245,41 +284,96 @@ function commandExists(command: string): boolean {
   return pathValue.split(delimiter).some((dir) => names.some((name) => existsSync(join(dir, name))))
 }
 
-function targetPath(client: McpClientTarget, scope: McpScope, workspaceRoot: string): string {
-  if (client === 'codex') {
-    return scope === 'user'
-      ? join(app.getPath('home'), '.codex', 'config.toml')
-      : join(workspaceRoot, '.codex', 'config.toml')
-  }
-  return join(workspaceRoot, '.mcp.json')
-}
-
-function syncCodex(workspaceRoot: string, servers: McpServerConfig[], write: boolean): McpSyncTarget {
-  const scope = servers.some((server) => server.scope === 'user') ? 'user' : 'workspace'
-  const path = targetPath('codex', scope, workspaceRoot)
-  if (write) {
-    const previous = existsSync(path) ? readFileSync(path, 'utf8') : ''
-    mkdirSync(dirname(path), { recursive: true })
-    writeFileSync(path, replaceManagedBlock(previous, renderCodexManagedBlock(servers)), 'utf8')
-  }
-  return { client: 'codex', path, serverIds: servers.map((server) => server.id) }
-}
-
-function syncClaude(
+function resolveMcpTargetPath(
+  spec: PluginMcpConfigSpec,
+  scope: McpScope,
   workspaceRoot: string,
-  servers: McpServerConfig[],
-  knownServerIds: string[],
+  homeDir: () => string
+): string | null {
+  const template = scope === 'user' ? spec.userPath : spec.path
+  if (!template) return null
+  const substituted = template
+    .replace(/\{\{\s*workspaceRoot\s*\}\}/g, workspaceRoot)
+    .replace(/\{\{\s*home\s*\}\}/g, homeDir())
+    .replace(/^~(?=\/|$)/, homeDir())
+  return substituted
+}
+
+type SyncForFormatInput = {
+  client: AgentCli
+  plugin: PluginManifest
+  workspaceRoot: string
+  servers: McpServerConfig[]
+  knownServerIds: string[]
   write: boolean
-): { target: McpSyncTarget; issues: McpValidationIssue[] } {
+  context: SyncContext
+}
+
+function syncForFormat(input: SyncForFormatInput): {
+  targets: McpSyncTarget[]
+  issues: McpValidationIssue[]
+} {
+  const format = input.plugin.mcpConfig!.format
+  switch (format) {
+    case 'codex':
+      return {
+        targets: [syncCodex(input)],
+        issues: [],
+      }
+    case 'claude-code': {
+      const result = syncClaude(input)
+      return { targets: [result.target], issues: result.issues }
+    }
+    case 'opencode':
+    case 'generic':
+      return {
+        targets: [],
+        issues: [
+          {
+            level: 'warning',
+            client: input.client,
+            message: `MCP sync writer for format "${format}" is not implemented yet; declared in plugin "${input.plugin.id}".`,
+          },
+        ],
+      }
+  }
+}
+
+function syncCodex(input: SyncForFormatInput): McpSyncTarget {
+  const { plugin, servers, workspaceRoot, write, context, client } = input
+  const scope: McpScope = servers.some((server) => server.scope === 'user') ? 'user' : 'workspace'
+  const resolved = resolveMcpTargetPath(plugin.mcpConfig!, scope, workspaceRoot, context.homeDir)
+  if (!resolved) {
+    return { client, path: '', serverIds: servers.map((server) => server.id) }
+  }
+  if (write) {
+    const previous = existsSync(resolved) ? readFileSync(resolved, 'utf8') : ''
+    mkdirSync(dirname(resolved), { recursive: true })
+    writeFileSync(resolved, replaceManagedBlock(previous, renderCodexManagedBlock(servers)), 'utf8')
+  }
+  return { client, path: resolved, serverIds: servers.map((server) => server.id) }
+}
+
+function syncClaude(input: SyncForFormatInput): {
+  target: McpSyncTarget
+  issues: McpValidationIssue[]
+} {
+  const { plugin, servers, knownServerIds, workspaceRoot, write, context, client } = input
   const workspaceServers = servers.filter((server) => server.scope === 'workspace')
   const userServers = servers.filter((server) => server.scope === 'user')
   const issues = userServers.map((server): McpValidationIssue => ({
     level: server.required ? 'error' : 'warning',
-    client: 'claude',
+    client,
     serverId: server.id,
     message: `Claude user-scoped MCP sync is not implemented yet for ${server.name}; use workspace scope or claude mcp add.`,
   }))
-  const path = targetPath('claude', 'workspace', workspaceRoot)
+  const path = resolveMcpTargetPath(plugin.mcpConfig!, 'workspace', workspaceRoot, context.homeDir)
+  if (!path) {
+    return {
+      target: { client, path: '', serverIds: workspaceServers.map((server) => server.id) },
+      issues,
+    }
+  }
   if (write && (workspaceServers.length > 0 || knownServerIds.length > 0)) {
     mkdirSync(dirname(path), { recursive: true })
     let existing: Record<string, unknown> = {}
@@ -289,11 +383,11 @@ function syncClaude(
       } catch {
         issues.push({
           level: 'error',
-          client: 'claude',
+          client,
           message: `.mcp.json is not valid JSON. Fix it before syncing Claude MCPs.`,
         })
         return {
-          target: { client: 'claude', path, serverIds: workspaceServers.map((server) => server.id) },
+          target: { client, path, serverIds: workspaceServers.map((server) => server.id) },
           issues,
         }
       }
@@ -311,7 +405,7 @@ function syncClaude(
     writeFileSync(path, `${JSON.stringify({ ...existing, mcpServers: nextServers }, null, 2)}\n`, 'utf8')
   }
   return {
-    target: { client: 'claude', path, serverIds: workspaceServers.map((server) => server.id) },
+    target: { client, path, serverIds: workspaceServers.map((server) => server.id) },
     issues,
   }
 }

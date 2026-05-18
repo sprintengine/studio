@@ -1,0 +1,70 @@
+{
+  "id": "aider",
+  "displayName": "Aider",
+  "publisher": "paul-gauthier",
+  "version": 1,
+  "binary": "aider",
+  "variables": {
+    "model": {
+      "type": "string",
+      "label": "Model",
+      "default": "claude-sonnet-4-6",
+      "required": true
+    }
+  },
+  "permissionPresets": {
+    "default": {
+      "label": "Default (asks for confirmation)",
+      "args": []
+    },
+    "yes_always": {
+      "label": "Auto-approve, manage commits manually",
+      "args": ["--yes-always", "--no-auto-commits"]
+    },
+    "yolo": {
+      "label": "Auto-approve and auto-commit",
+      "args": ["--yes-always", "--auto-commits"]
+    }
+  },
+  "launch": {
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      { "spreadIf": "files" }
+    ],
+    "env": {
+      "AIDER_MODEL": "{{model}}"
+    }
+  },
+  "resume": {
+    "supported": true,
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" }
+    ]
+  },
+  "promptInjection": {
+    "mode": "send-after-ready",
+    "readiness": {
+      "type": "output-match",
+      "pattern": "^aider>\\s",
+      "timeoutMs": 20000
+    }
+  },
+  "completion": {
+    "mode": "output-sentinel",
+    "sentinel": "[sprint-engine:done]",
+    "fallback": {
+      "mode": "idle-at-prompt",
+      "idleMs": 30000,
+      "promptPattern": "^aider>\\s"
+    }
+  },
+  "capabilities": {
+    "resumeSession": true,
+    "sessionIdFromCaller": false,
+    "toolUse": true,
+    "mcpServers": false,
+    "chatHistoryFile": ".aider.chat.history.md"
+  }
+}
