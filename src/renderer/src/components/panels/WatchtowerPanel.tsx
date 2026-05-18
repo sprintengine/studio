@@ -10,11 +10,12 @@ import {
 } from '../ui/ActionFeedback'
 import {
   WATCHTOWER_REVIEW_PRESETS,
+  WATCHTOWER_REVIEW_SECTORS,
   getWatchtowerReviewSector,
   type WatchtowerReviewPresetId,
 } from '../../utils/watchtowerReview'
 import { getSpecialistAction } from '../../specialists/specialistActions'
-import type { McpSettings, SpecialistActionId } from '../../types/workspace'
+import type { McpSettings, SpecialistActionId, WatchtowerReviewSectorId } from '../../types/workspace'
 import type {
   SwitchboardComment,
   SwitchboardTaskRecord,
@@ -38,7 +39,16 @@ import {
   sourceLabel,
   useSwitchboardData,
 } from '../../utils/switchboardBoard'
-import { filterInboxTasks } from '../../utils/watchtower'
+import {
+  EMPTY_INBOX_FILTERS,
+  INBOX_CREATED_RANGES,
+  filterInboxTasks,
+  getInboxCreatedRange,
+  hasActiveInboxFilters,
+  taskReviewSectors,
+  type InboxCreatedRangeId,
+  type InboxFilters,
+} from '../../utils/watchtower'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { describeExecutionTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { focusOrAddFileTab, hasAgentTab } from '../../utils/modelRegistry'
@@ -46,10 +56,12 @@ import {
   Banner,
   DefinitionList,
   FilePreviewPane,
+  FOCUS_RING_CLASS,
   GhostButton,
   InboxRow,
   OverflowMenu,
   PanelHeader,
+  Popover,
   PrimaryButton,
   Section,
   Select,
@@ -215,7 +227,25 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   const folderPath = workspace?.folderPath ?? null
   const { state, tasks, problems, refresh } = useSwitchboardData(folderPath)
 
-  const inbox = useMemo(() => filterInboxTasks(tasks), [tasks])
+  const allInbox = useMemo(() => filterInboxTasks(tasks), [tasks])
+  const [filters, setFilters] = useState<InboxFilters>(EMPTY_INBOX_FILTERS)
+  const inbox = useMemo(() => filterInboxTasks(tasks, filters), [tasks, filters])
+  const sectorCounts = useMemo(() => {
+    const counts = new Map<WatchtowerReviewSectorId, number>()
+    for (const record of allInbox) {
+      for (const sector of taskReviewSectors(record)) {
+        counts.set(sector, (counts.get(sector) ?? 0) + 1)
+      }
+    }
+    return counts
+  }, [allInbox])
+  useEffect(() => {
+    if (filters.sectors.length === 0) return
+    const stillPresent = filters.sectors.filter((sector) => (sectorCounts.get(sector) ?? 0) > 0)
+    if (stillPresent.length !== filters.sectors.length) {
+      setFilters((current) => ({ ...current, sectors: stillPresent }))
+    }
+  }, [filters.sectors, sectorCounts])
   const [runs, setRuns] = useState<WatchtowerRun[]>([])
   const [importResult, setImportResult] = useState<SwitchboardImportResult | null>(null)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
@@ -666,12 +696,12 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   const overflowItems = useMemo<OverflowMenuItem[]>(() => {
     const items: OverflowMenuItem[] = []
     if (activeRun) {
-      // When a review is running, the PanelHeader's primary action is "View"
-      // (open the drawer). Starting a new review survives here in the overflow
-      // so the capability isn't lost — just demoted from primary.
+      // When a review is running, the primary action becomes "Open review".
+      // Starting another review survives here in the overflow so the capability
+      // isn't lost — just demoted from primary.
       items.push({
         id: 'watchtower.review.start',
-        label: isPending('startReview') ? 'Starting…' : 'Start another review…',
+        label: isPending('startReview') ? 'Starting…' : 'Run another review…',
         disabled: isPending('startReview'),
         onSelect: () => setReviewOpen(true),
       })
@@ -738,7 +768,11 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
   }
 
   const inboxStatus = feedback.statuses.inboxList ?? null
-  const inboxEmptyText = inboxEmptyMessage(state.kind, runs)
+  const filtersActive = hasActiveInboxFilters(filters)
+  const inboxEmptyText =
+    filtersActive && allInbox.length > 0
+      ? 'No inbox tasks match the current filters.'
+      : inboxEmptyMessage(state.kind, runs)
 
   return (
     <div className="relative flex h-full min-h-0 bg-[color:var(--bg-app)] text-[color:var(--text-default)]">
@@ -754,15 +788,15 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
                 onClick={() => setDrawerOpen(true)}
                 aria-label="Open active review"
               >
-                View
+                Open review
               </PrimaryButton>
             ) : (
               <PrimaryButton
                 onClick={() => setReviewOpen(true)}
                 disabled={isPending('startReview')}
-                aria-label="Open review preset chooser"
+                aria-label="Run a review"
               >
-                {isPending('startReview') ? 'Starting…' : 'Review'}
+                {isPending('startReview') ? 'Starting…' : 'Run review'}
               </PrimaryButton>
             )
           }
@@ -804,6 +838,11 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
             />
           </div>
         ) : null}
+        <InboxFilterBar
+          filters={filters}
+          onChange={setFilters}
+          sectorCounts={sectorCounts}
+        />
 
         <div
           tabIndex={0}
@@ -1074,6 +1113,552 @@ function EmptyDetail() {
         Select an inbox task to inspect, edit, comment, or promote.
       </div>
     </div>
+  )
+}
+
+type FilterStep = 'root' | 'sectors' | 'created'
+
+function InboxFilterBar({
+  filters,
+  onChange,
+  sectorCounts,
+}: {
+  filters: InboxFilters
+  onChange: (next: InboxFilters) => void
+  sectorCounts: Map<WatchtowerReviewSectorId, number>
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerStep, setPickerStep] = useState<FilterStep>('root')
+  const [chipOpen, setChipOpen] = useState<'sectors' | 'created' | null>(null)
+  const filtersActive = hasActiveInboxFilters(filters)
+
+  const openPicker = useCallback((step: FilterStep) => {
+    setPickerStep(step)
+    setPickerOpen(true)
+  }, [])
+
+  const closePicker = useCallback(() => {
+    setPickerOpen(false)
+    setPickerStep('root')
+  }, [])
+
+  const updateSearch = useCallback(
+    (value: string) => onChange({ ...filters, search: value }),
+    [filters, onChange]
+  )
+  const toggleSector = useCallback(
+    (sector: WatchtowerReviewSectorId) => {
+      const exists = filters.sectors.includes(sector)
+      onChange({
+        ...filters,
+        sectors: exists ? filters.sectors.filter((id) => id !== sector) : [...filters.sectors, sector],
+      })
+    },
+    [filters, onChange]
+  )
+  const setCreated = useCallback(
+    (next: InboxCreatedRangeId | null) => onChange({ ...filters, createdRange: next }),
+    [filters, onChange]
+  )
+  const clearAll = useCallback(() => onChange(EMPTY_INBOX_FILTERS), [onChange])
+
+  const sectorChipLabel = useMemo(() => {
+    if (filters.sectors.length === 0) return null
+    if (filters.sectors.length === 1) return getWatchtowerReviewSector(filters.sectors[0]).label
+    return `${getWatchtowerReviewSector(filters.sectors[0]).label} +${filters.sectors.length - 1}`
+  }, [filters.sectors])
+
+  const sectorCountsList = useMemo(
+    () =>
+      WATCHTOWER_REVIEW_SECTORS.map((sector) => ({
+        sector,
+        count: sectorCounts.get(sector.id) ?? 0,
+      })).filter((entry) => entry.count > 0),
+    [sectorCounts]
+  )
+
+  return (
+    <div className="flex flex-col gap-1.5 border-b border-[color:var(--border-default)] px-3 py-1.5">
+      <InboxSearchInput value={filters.search} onChange={updateSearch} />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Popover
+          open={pickerOpen}
+          onOpenChange={(next) => (next ? openPicker('root') : closePicker())}
+          ariaLabel="Add inbox filter"
+          popupRole="menu"
+          surfaceClassName="min-w-[200px] py-1"
+          renderTrigger={({ ref, triggerProps }) => (
+            <button
+              ref={ref}
+              type="button"
+              {...triggerProps}
+              onClick={() => (pickerOpen ? closePicker() : openPicker('root'))}
+              className={[
+                'interactive inline-flex h-7 items-center gap-1 rounded-[5px] border border-dashed',
+                'border-[color:var(--border-default)] bg-transparent px-2 text-[12px]',
+                'text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)]',
+                FOCUS_RING_CLASS,
+              ].join(' ')}
+            >
+              <FilterGlyph />
+              <span>Filter</span>
+            </button>
+          )}
+        >
+          {pickerStep === 'root' ? (
+            <FilterRootMenu
+              hasSectors={sectorCountsList.length > 0}
+              onPickSectors={() => setPickerStep('sectors')}
+              onPickCreated={() => setPickerStep('created')}
+            />
+          ) : pickerStep === 'sectors' ? (
+            <SectorPicker
+              sectors={sectorCountsList}
+              selected={filters.sectors}
+              onToggle={toggleSector}
+              onBack={() => setPickerStep('root')}
+              onClear={() => onChange({ ...filters, sectors: [] })}
+            />
+          ) : (
+            <CreatedPicker
+              value={filters.createdRange}
+              onChange={(next) => {
+                setCreated(next)
+                closePicker()
+              }}
+              onBack={() => setPickerStep('root')}
+              onClear={() => {
+                setCreated(null)
+                closePicker()
+              }}
+            />
+          )}
+        </Popover>
+
+        {filters.sectors.length > 0 ? (
+          <FilterChip
+            label="Type"
+            value={sectorChipLabel ?? ''}
+            open={chipOpen === 'sectors'}
+            onOpenChange={(open) => setChipOpen(open ? 'sectors' : null)}
+            onRemove={() => onChange({ ...filters, sectors: [] })}
+            removeAriaLabel="Remove type filter"
+          >
+            <SectorPicker
+              sectors={sectorCountsList}
+              selected={filters.sectors}
+              onToggle={toggleSector}
+              onClear={() => {
+                onChange({ ...filters, sectors: [] })
+                setChipOpen(null)
+              }}
+            />
+          </FilterChip>
+        ) : null}
+
+        {filters.createdRange ? (
+          <FilterChip
+            label="Created"
+            value={getInboxCreatedRange(filters.createdRange).label}
+            open={chipOpen === 'created'}
+            onOpenChange={(open) => setChipOpen(open ? 'created' : null)}
+            onRemove={() => setCreated(null)}
+            removeAriaLabel="Remove created filter"
+          >
+            <CreatedPicker
+              value={filters.createdRange}
+              onChange={(next) => {
+                setCreated(next)
+                setChipOpen(null)
+              }}
+              onClear={() => {
+                setCreated(null)
+                setChipOpen(null)
+              }}
+            />
+          </FilterChip>
+        ) : null}
+
+        {filtersActive ? (
+          <GhostButton onClick={clearAll} aria-label="Clear all inbox filters" className="ml-auto">
+            Clear all
+          </GhostButton>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function FilterGlyph() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 11 11"
+      aria-hidden="true"
+      focusable="false"
+      className="shrink-0"
+    >
+      <path
+        d="M1.5 2h8L7 6v3l-3-1.5V6L1.5 2z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        fill="none"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function InboxSearchInput({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (next: string) => void
+}) {
+  return (
+    <div
+      className={[
+        'flex h-7 items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)]',
+        'bg-[color:var(--bg-surface-raised)] px-2 text-[12px]',
+        'focus-within:border-[color:var(--accent-primary)]',
+      ].join(' ')}
+    >
+      <SearchGlyph />
+      <input
+        type="search"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Search inbox"
+        aria-label="Search inbox"
+        className="min-w-0 flex-1 bg-transparent text-[color:var(--text-default)] outline-none placeholder:text-[color:var(--text-muted)]"
+      />
+      {value ? (
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          aria-label="Clear search"
+          className="shrink-0 text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]"
+        >
+          <CrossGlyph />
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+function SearchGlyph() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 11 11"
+      aria-hidden="true"
+      focusable="false"
+      className="shrink-0 text-[color:var(--text-muted)]"
+    >
+      <circle cx="4.5" cy="4.5" r="3" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      <path d="M7 7l2.5 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function CrossGlyph() {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 10 10"
+      aria-hidden="true"
+      focusable="false"
+      className="shrink-0"
+    >
+      <path d="M2.5 2.5l5 5M7.5 2.5l-5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function FilterRootMenu({
+  hasSectors,
+  onPickSectors,
+  onPickCreated,
+}: {
+  hasSectors: boolean
+  onPickSectors: () => void
+  onPickCreated: () => void
+}) {
+  return (
+    <ul role="none" className="text-[12px]">
+      <li role="none">
+        <button
+          type="button"
+          role="menuitem"
+          onClick={onPickSectors}
+          disabled={!hasSectors}
+          className={[
+            'flex w-full items-center justify-between gap-3 px-2.5 py-1.5 text-left',
+            'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
+            'disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent',
+          ].join(' ')}
+        >
+          <span>Review type</span>
+          <ChevronGlyph />
+        </button>
+      </li>
+      <li role="none">
+        <button
+          type="button"
+          role="menuitem"
+          onClick={onPickCreated}
+          className="flex w-full items-center justify-between gap-3 px-2.5 py-1.5 text-left text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+        >
+          <span>Created</span>
+          <ChevronGlyph />
+        </button>
+      </li>
+    </ul>
+  )
+}
+
+function ChevronGlyph() {
+  return (
+    <svg
+      width="8"
+      height="8"
+      viewBox="0 0 8 8"
+      aria-hidden="true"
+      focusable="false"
+      className="shrink-0 text-[color:var(--text-muted)]"
+    >
+      <path d="M2.5 1.5L5 4 2.5 6.5" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function SectorPicker({
+  sectors,
+  selected,
+  onToggle,
+  onBack,
+  onClear,
+}: {
+  sectors: Array<{ sector: { id: WatchtowerReviewSectorId; label: string }; count: number }>
+  selected: WatchtowerReviewSectorId[]
+  onToggle: (sector: WatchtowerReviewSectorId) => void
+  onBack?: () => void
+  onClear: () => void
+}) {
+  const selectedSet = useMemo(() => new Set(selected), [selected])
+  return (
+    <div className="min-w-[220px] py-1 text-[12px]">
+      {onBack ? <PickerHeader title="Review type" onBack={onBack} /> : null}
+      <ul role="menu" className="max-h-[260px] overflow-y-auto">
+        {sectors.map(({ sector, count }) => {
+          const checked = selectedSet.has(sector.id)
+          return (
+            <li key={sector.id} role="none">
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={checked}
+                onClick={() => onToggle(sector.id)}
+                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              >
+                <CheckboxGlyph checked={checked} />
+                <span className="min-w-0 flex-1 truncate">{sector.label}</span>
+                <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">{count}</span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      {selected.length > 0 ? (
+        <div className="border-t border-[color:var(--border-default)] px-1 pt-1">
+          <button
+            type="button"
+            onClick={onClear}
+            className="w-full rounded-[5px] px-2 py-1.5 text-left text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          >
+            Clear selection
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function CreatedPicker({
+  value,
+  onChange,
+  onBack,
+  onClear,
+}: {
+  value: InboxCreatedRangeId | null
+  onChange: (next: InboxCreatedRangeId) => void
+  onBack?: () => void
+  onClear: () => void
+}) {
+  return (
+    <div className="min-w-[180px] py-1 text-[12px]">
+      {onBack ? <PickerHeader title="Created" onBack={onBack} /> : null}
+      <ul role="menu">
+        {INBOX_CREATED_RANGES.map((range) => {
+          const active = value === range.id
+          return (
+            <li key={range.id} role="none">
+              <button
+                type="button"
+                role="menuitemradio"
+                aria-checked={active}
+                onClick={() => onChange(range.id)}
+                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              >
+                <RadioGlyph active={active} />
+                <span className="min-w-0 flex-1 truncate">{range.label}</span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      {value ? (
+        <div className="border-t border-[color:var(--border-default)] px-1 pt-1">
+          <button
+            type="button"
+            onClick={onClear}
+            className="w-full rounded-[5px] px-2 py-1.5 text-left text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          >
+            Clear selection
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function PickerHeader({ title, onBack }: { title: string; onBack: () => void }) {
+  return (
+    <div className="flex items-center gap-1.5 border-b border-[color:var(--border-default)] px-2 py-1.5">
+      <button
+        type="button"
+        onClick={onBack}
+        aria-label="Back to filters"
+        className="shrink-0 text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]"
+      >
+        <BackGlyph />
+      </button>
+      <span className="text-[12px] font-medium text-[color:var(--text-strong)]">{title}</span>
+    </div>
+  )
+}
+
+function BackGlyph() {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 10 10"
+      aria-hidden="true"
+      focusable="false"
+      className="shrink-0"
+    >
+      <path d="M6 2L3 5l3 3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function CheckboxGlyph({ checked }: { checked: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={[
+        'inline-flex h-3 w-3 shrink-0 items-center justify-center rounded-[3px] border',
+        checked
+          ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
+          : 'border-[color:var(--border-strong)] bg-transparent',
+      ].join(' ')}
+    >
+      {checked ? (
+        <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true" focusable="false">
+          <path d="M1.5 4l1.5 1.5L6.5 2" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : null}
+    </span>
+  )
+}
+
+function RadioGlyph({ active }: { active: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={[
+        'inline-flex h-3 w-3 shrink-0 items-center justify-center rounded-full border',
+        active ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-strong)]',
+      ].join(' ')}
+    >
+      {/* design-tokens-allow: radio-button inner fill — not a status idiom, must remain inside the radio glyph */}
+      {active ? <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--accent-primary)]" /> : null}
+    </span>
+  )
+}
+
+function FilterChip({
+  label,
+  value,
+  open,
+  onOpenChange,
+  onRemove,
+  removeAriaLabel,
+  children,
+}: {
+  label: string
+  value: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onRemove: () => void
+  removeAriaLabel: string
+  children: React.ReactNode
+}) {
+  return (
+    <span className="inline-flex h-7 items-center rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[12px]">
+      <Popover
+        open={open}
+        onOpenChange={onOpenChange}
+        ariaLabel={`Edit ${label.toLowerCase()} filter`}
+        popupRole="menu"
+        surfaceClassName="py-0"
+        renderTrigger={({ ref, triggerProps }) => (
+          <button
+            ref={ref}
+            type="button"
+            {...triggerProps}
+            onClick={() => onOpenChange(!open)}
+            className={[
+              'inline-flex h-full items-center gap-1.5 rounded-l-[5px] px-2',
+              'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
+              FOCUS_RING_CLASS,
+            ].join(' ')}
+          >
+            <span className="text-[color:var(--text-muted)]">{label}</span>
+            <span className="font-medium">{value}</span>
+          </button>
+        )}
+      >
+        {children}
+      </Popover>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={removeAriaLabel}
+        className={[
+          'inline-flex h-full items-center justify-center rounded-r-[5px] border-l border-[color:var(--border-default)] px-1.5',
+          'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
+          FOCUS_RING_CLASS,
+        ].join(' ')}
+      >
+        <CrossGlyph />
+      </button>
+    </span>
   )
 }
 
