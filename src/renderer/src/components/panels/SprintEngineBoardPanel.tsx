@@ -33,6 +33,7 @@ import { useTerminalSessions } from '../../hooks/useTerminalSessions'
 import type {
  AgentCli,
  AgentExecution,
+ AgentState,
  SprintEngineArtifact,
  SprintEngineCliPermissionPreset,
  SprintEngineRole,
@@ -1701,6 +1702,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  <SprintEngineProjectView
  sprintEngineState={sprintEngineState}
  roster={roster}
+ agents={agents}
  runtimeAgents={runtimeAgents}
  runPhase={runPhase}
  doneCount={doneCount}
@@ -2263,6 +2265,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 function SprintEngineProjectView({
  sprintEngineState,
  roster,
+ agents,
  runtimeAgents,
  runPhase,
  doneCount,
@@ -2280,6 +2283,7 @@ function SprintEngineProjectView({
 }: {
  sprintEngineState: SprintEngineState
  roster: SprintEngineAgentRosterItem[]
+ agents: Record<string, AgentState>
  runtimeAgents: RuntimeAgentView[]
  runPhase: string
  doneCount: number
@@ -2531,6 +2535,8 @@ function SprintEngineProjectView({
  const runtime = runtimeAgents.find((entry) => entry.agentId === agent.id) ?? null
  const hasLiveTerminal = isAgentTerminalLive(agent.id)
  const statusKey = runtime?.status ?? (hasLiveTerminal ? 'running' : 'idle')
+ const displayName = agents[agent.id]?.name?.trim() || agent.label
+ const roleSlotLabel = agent.label !== displayName ? agent.label : null
  const currentTask = runtime?.currentTaskId
  ? sprintEngineState.tasks.find((task) => task.id === runtime.currentTaskId) ?? null
  : null
@@ -2551,11 +2557,13 @@ function SprintEngineProjectView({
  <span className="min-w-0 flex-1 space-y-0.5">
  <span className="flex min-w-0 items-baseline gap-2">
  <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
- {agent.label}
+ {displayName}
  </span>
- <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">
- {sprintEngineRoleLabels[agent.role]}
+ {roleSlotLabel ? (
+ <span className="min-w-0 shrink truncate text-[11px] text-[color:var(--text-muted)]">
+ {roleSlotLabel}
  </span>
+ ) : null}
  </span>
  <span className="flex min-w-0 items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
  <span className="flex shrink-0 items-center gap-1.5">
@@ -2571,11 +2579,6 @@ function SprintEngineProjectView({
  ) : (
  <span className="text-[color:var(--text-disabled)]">No active task</span>
  )}
- {hasLiveTerminal ? (
- <span className="ml-auto shrink-0 text-[11px] text-[color:var(--text-muted)]">
- Terminal live
- </span>
- ) : null}
  </span>
  </span>
  </button>
