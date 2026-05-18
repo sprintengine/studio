@@ -817,7 +817,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           <div
             role="status"
             aria-live="polite"
-            className="flex items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1.5 text-[12px]"
+            className="flex items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px]"
           >
             <StatusDot tone="warn" pulse label="Agents running" />
             <span className="font-medium text-[color:var(--text-strong)]">
@@ -832,7 +832,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           </div>
         ) : null}
         {inboxStatus ? (
-          <div className="flex items-center gap-2 border-b border-[color:var(--border-default)] px-3 py-1.5">
+          <div className="flex items-center gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
             <ActionStatusChip
               status={inboxStatus}
               onDismiss={inboxStatus.tone === 'error' ? () => feedback.dismiss('inboxList') : undefined}
@@ -1181,8 +1181,8 @@ function InboxFilterBar({
   const hasChips = filters.sectors.length > 0 || filters.createdRange !== null
 
   return (
-    <div className="flex flex-col gap-1.5 border-b border-[color:var(--border-default)] px-3 py-1.5">
-      <div className="flex items-center gap-1.5">
+    <div className="flex flex-col gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
+      <div className="flex items-center gap-2">
         <InboxSearchInput value={filters.search} onChange={updateSearch} />
         <Popover
           open={pickerOpen}
@@ -1243,7 +1243,7 @@ function InboxFilterBar({
       </div>
 
       {hasChips ? (
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-2">
           {filters.sectors.length > 0 ? (
             <FilterChip
               label="Type"
