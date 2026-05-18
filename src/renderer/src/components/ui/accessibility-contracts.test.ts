@@ -268,8 +268,8 @@ assert.ok(
 )
 expectIncludes(sprintEnginePanel, '[aria-label="Sprint Engine overflow"]', 'Sprint Engine settings restores focus to overflow trigger')
 expectIncludes(sprintEnginePanel, 'role="tabpanel"', 'Sprint Engine views expose tabpanel semantics')
-expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-project"', 'Sprint Engine project panel is labelled by its tab')
-expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-task-graph"', 'Sprint Engine task graph panel is labelled by its tab')
-expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-kanban"', 'Sprint Engine kanban panel is labelled by its tab')
+expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-inbox"', 'Sprint Engine inbox panel is labelled by its tab')
+expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-roster"', 'Sprint Engine roster panel is labelled by its tab')
+expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-tasks"', 'Sprint Engine tasks panel is labelled by its tab')
 
 console.log('Accessibility primitive contracts passed')

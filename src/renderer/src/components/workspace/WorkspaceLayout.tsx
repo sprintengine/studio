@@ -390,13 +390,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           )))
         case 'sprintengine':
           return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} />)
-        case 'sprintengine-project':
-        case 'sprintengine-map':
-          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="project" />)
-        case 'sprintengine-task-graph':
-          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="task-graph" />)
-        case 'sprintengine-kanban':
-          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="kanban" />)
+        case 'sprintengine-inbox':
+          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="inbox" />)
+        case 'sprintengine-roster':
+          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="roster" />)
+        case 'sprintengine-tasks':
+          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="tasks" />)
         case 'multiloop-board':
           return timedPanel(
             'MultiloopBoardPanel',

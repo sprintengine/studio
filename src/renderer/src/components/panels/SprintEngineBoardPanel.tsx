@@ -3,10 +3,8 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
  BoardLane,
  CloseIconButton,
- PanelHeader,
  Tabs,
  OverflowMenu,
- PrimaryButton,
  GhostButton,
  Popover,
  RoleAvatar,
@@ -177,6 +175,11 @@ const roleSummaries: Record<SprintEngineRole, string> = {
 interface Props {
  workspaceId: string
  fixedView?: SprintEngineView
+ /** When a host pins the Tasks tab to a single layout (Graph or Kanban),
+  *  this hides the inline switcher and locks the rendered layout to that
+  *  choice. Used when Tasks is mounted as a standalone flex tab that
+  *  should not expose the switcher. */
+ fixedTasksLayout?: SprintEngineTasksLayout
 }
 
 type SyncState = {
@@ -185,7 +188,8 @@ type SyncState = {
 }
 
 
-type SprintEngineView = 'project' | 'task-graph' | 'kanban'
+type SprintEngineView = 'inbox' | 'roster' | 'tasks'
+type SprintEngineTasksLayout = 'graph' | 'kanban'
 
 type SpawnDialogState = {
  agentId: string
@@ -336,7 +340,7 @@ function SprintEngineSettingsPopover({
  )
 }
 
-export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props) {
+export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTasksLayout }: Props) {
  const workspace = useWorkspaceStore(
  (s) => s.workspaces.find((w) => w.id === workspaceId) ?? null
  )
@@ -378,11 +382,13 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  useEffect(() => {
  if (selectedTaskId !== null) setSelectedArtifactId(null)
  }, [selectedTaskId])
- const [activeView, setActiveView] = useState<SprintEngineView>('project')
+ const [activeView, setActiveView] = useState<SprintEngineView>('inbox')
+ // The Tasks tab carries an inline layout switcher (Graph / Kanban). The
+ // selection is persisted across tab switches so jumping away and back
+ // returns to the same layout. When the host pins a layout via
+ // `fixedTasksLayout` the switcher is hidden and the pinned value wins.
+ const [activeTasksLayout, setActiveTasksLayout] = useState<SprintEngineTasksLayout>('kanban')
  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
- useEffect(() => {
- if (selectedAgentId !== null) setSelectedArtifactId(null)
- }, [selectedAgentId])
  const [spawnDialog, setSpawnDialog] = useState<SpawnDialogState | null>(null)
  const [recoveryDialog, setRecoveryDialog] = useState<RecoveryDialogState | null>(null)
  const [cliPickerOpen, setCliPickerOpen] = useState(false)
@@ -401,6 +407,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  const sprintEngineState = workspace?.sprintEngineState ?? null
  const sprintEngineContext = workspace?.sprintEngineContext ?? null
  const effectiveView = fixedView ?? activeView
+ const effectiveTasksLayout: SprintEngineTasksLayout = fixedTasksLayout ?? activeTasksLayout
  const folderPath = folderReadyPath
  const agents = workspace?.agents ?? {}
  const terminalSessions = useTerminalSessions()
@@ -655,10 +662,12 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  return () => window.clearTimeout(handle)
  }, [recentlyMovedTaskIds])
 
- // Close the docked task-detail inspector with Escape from non-kanban views.
- // Kanban view has its own Escape handler scoped to the board grid.
+ // Close the docked task-detail inspector with Escape from non-kanban
+ // surfaces. The Kanban layout owns its own Escape handler scoped to the
+ // board grid; everywhere else this global listener restores focus.
+ const tasksKanbanActive = effectiveView === 'tasks' && effectiveTasksLayout === 'kanban'
  useEffect(() => {
- if (!selectedTaskId || effectiveView === 'kanban') return
+ if (!selectedTaskId || tasksKanbanActive) return
  const onKeyDown = (event: KeyboardEvent) => {
  if (event.key !== 'Escape') return
  if (isEditableTarget(event.target)) return
@@ -667,11 +676,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  }
  window.addEventListener('keydown', onKeyDown)
  return () => window.removeEventListener('keydown', onKeyDown)
- }, [selectedTaskId, effectiveView])
+ }, [selectedTaskId, tasksKanbanActive])
 
  const handleKanbanKeyDown = useCallback(
  (event: React.KeyboardEvent<HTMLDivElement>) => {
- if (effectiveView !== 'kanban') return
+ if (!tasksKanbanActive) return
  if (isEditableTarget(event.target)) return
  if (event.metaKey || event.ctrlKey || event.altKey) return
 
@@ -730,7 +739,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  else if (event.key === 'ArrowRight' || event.key === 'l') goHorizontal(1)
  else if (event.key === 'ArrowLeft' || event.key === 'h') goHorizontal(-1)
  },
- [boardColumns, effectiveView, selectedTaskId]
+ [boardColumns, tasksKanbanActive, selectedTaskId]
  )
 
  const reviewArtifacts = useMemo(
@@ -772,8 +781,19 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  const runPhase = getRunPhase(sprintEngineState, runtimeAgents)
  const allTasksDone = sprintEngineState.tasks.length > 0 && doneCount === sprintEngineState.tasks.length
  const runSummary = buildRunSummary(sprintEngineState.tasks)
+ const totalTasks = sprintEngineState.tasks.length
+ const progressPct = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0
+ const runPhaseTone: Tone =
+ runPhase === 'Complete'
+ ? 'good'
+ : runPhase === 'Running'
+ ? 'accent'
+ : 'neutral'
+ const projectionUnavailable = sprintEngineState.projection?.source === 'unavailable'
+ const projectionErrorMessage = sprintEngineState.projection?.errorMessage
+ const lockWarnings = sprintEngineState.locks?.warnings ?? []
+ const hasProjectionBanner = projectionUnavailable || Boolean(projectionErrorMessage) || lockWarnings.length > 0
  const architectAgentId = roster.find((agent) => agent.role === 'architect')?.id ?? null
- const resolvedSelectedAgentId = selectedAgentId ?? architectAgentId ?? roster[0]?.id ?? null
  const workerRoles: SprintEngineRole[] = ['developer', 'frontend', 'product', 'code_reviewer', 'spec_reviewer', 'performance', 'tester', 'security']
  const roleTaskLaunches = workerRoles.flatMap((role) => {
  const activeTask = sprintEngineState.tasks.find((task) =>
@@ -1097,6 +1117,17 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  const focusAgentRole = focusAgentRoster?.role ?? focusAgent?.role ?? null
  const showFocusAgentAction = Boolean(focusAgent)
  && (!focusAgentRole || focusAgentRole === 'architect' || !roleTaskLaunchSet.has(focusAgentRole))
+ const focusAgentLabel = focusAgent
+ ? focusAgentHasLiveTerminal
+ ? `Focus ${focusAgentRoster?.label ?? focusAgent.agentId}`
+ : `Spawn ${focusAgentRoster?.label ?? focusAgent.agentId}`
+ : ''
+ const runFocusAgentAction = () => {
+ if (!focusAgent || !showFocusAgentAction) return false
+ if (focusAgentHasLiveTerminal) openAgentTerminal(focusAgent.agentId)
+ else openSpawnDialog(focusAgent.agentId)
+ return true
+ }
  const selectedTaskBoardColumn = selectedTask
  ? getSprintEngineTaskBoardColumn(selectedTask, sprintEngineState.tasks)
  : null
@@ -1130,15 +1161,28 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  const inspectorSelectedArtifact = selectedArtifactId
  ? reviewArtifacts.find((artifact) => artifact.id === selectedArtifactId) ?? null
  : null
- const inspectorSelection: SprintEngineInspectorSelection | null = previewedArtifact
- ? { kind: 'artifact-preview', artifact: previewedArtifact }
- : inspectorSelectedArtifact
- ? { kind: 'artifact', artifact: inspectorSelectedArtifact }
- : selectedTask
- ? { kind: 'task', task: selectedTask }
- : inspectorSelectedAgent
- ? { kind: 'agent', agent: inspectorSelectedAgent }
- : null
+ // Selection-to-inspector mapping is scoped by the active tab so a row
+ // selected on one tab does not light up the right pane of another. The
+ // artifact preview is the one exception: it's an in-place file preview the
+ // inbox/tasks tab launches itself and always takes precedence over a stale
+ // sibling selection.
+ const inspectorSelection: SprintEngineInspectorSelection | null = (() => {
+ if (previewedArtifact) {
+ return { kind: 'artifact-preview', artifact: previewedArtifact }
+ }
+ if (effectiveView === 'inbox') {
+ if (inspectorSelectedArtifact) return { kind: 'artifact', artifact: inspectorSelectedArtifact }
+ if (selectedTask) return { kind: 'task', task: selectedTask }
+ return null
+ }
+ if (effectiveView === 'roster') {
+ if (inspectorSelectedAgent) return { kind: 'agent', agent: inspectorSelectedAgent }
+ return null
+ }
+ // tasks: graph and kanban both drive task detail.
+ if (selectedTask) return { kind: 'task', task: selectedTask }
+ return null
+ })()
  const closeInspector = () => {
  setSelectedTaskId(null)
  setSelectedAgentId(null)
@@ -1427,64 +1471,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  setSelectedAgentId(architectAgentId)
  }
 
- // State-bound primary action: exactly one button surfaces in the header. The
- // priority ladder mirrors the run lifecycle — verify when complete, hand off
- // ready worker work, focus a stuck agent, spawn architect during planning.
- const chromePrimaryAction: { label: string; onClick: () => void } | null = (() => {
- if (allTasksDone && architectAgentId) {
- return { label: 'Verify progress', onClick: openRecoveryDialog }
- }
- const firstLaunch = roleTaskLaunches[0]
- if (firstLaunch) {
- const ownerAgentId = firstLaunch.task.ownerAgentId
- const targetAgentId = ownerAgentId ?? firstLaunch.agent?.id ?? null
- const targetHasLiveTerminal = targetAgentId ? isAgentTerminalLive(targetAgentId) : false
- const targetLabel = ownerAgentId
- ? firstLaunch.agent?.label ?? ownerAgentId
- : firstLaunch.agent?.label ?? sprintEngineRoleLabels[firstLaunch.role]
- const label = ownerAgentId
- ? targetHasLiveTerminal
- ? `Open ${targetLabel}`
- : `Respawn ${targetLabel}`
- : targetHasLiveTerminal
- ? `Open ${targetLabel}`
- : `Spawn ${sprintEngineRoleLabels[firstLaunch.role]}`
- return {
- label,
- onClick: () => {
- if (!ownerAgentId && targetAgentId && targetHasLiveTerminal) {
- openAgentTerminal(targetAgentId)
- } else {
- openReadyTaskWorker(firstLaunch.task)
- }
- },
- }
- }
- if (showFocusAgentAction && focusAgent) {
- const label = focusAgentHasLiveTerminal
- ? `Open ${focusAgentRoster?.label ?? focusAgent.agentId}`
- : `Spawn ${focusAgentRoster?.label ?? focusAgent.agentId}`
- return {
- label,
- onClick: () => {
- if (focusAgentHasLiveTerminal) {
- openAgentTerminal(focusAgent.agentId)
- } else {
- openSpawnDialog(focusAgent.agentId)
- }
- },
- }
- }
- if (architectAgentId && showPlanningActions) {
- const liveArchitect = isAgentTerminalLive(architectAgentId)
- return {
- label: liveArchitect ? 'Open Architect' : 'Spawn Architect',
- onClick: () => openSpawnDialog(architectAgentId),
- }
- }
- return null
- })()
-
  const chromeOverflowItems: OverflowMenuItem[] = (() => {
  const items: OverflowMenuItem[] = []
  items.push({
@@ -1494,16 +1480,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  shortcut: '⌘ R',
  disabled: !folderPath || manualRefreshBusy,
  })
- if (focusAgent && !chromePrimaryAction) {
+ if (focusAgent && showFocusAgentAction) {
  items.push({
  id: 'focus-agent',
- label: focusAgentHasLiveTerminal
- ? `Focus ${focusAgentRoster?.label ?? focusAgent.agentId}`
- : `Spawn ${focusAgentRoster?.label ?? focusAgent.agentId}`,
- onSelect: () => {
- if (focusAgentHasLiveTerminal) openAgentTerminal(focusAgent.agentId)
- else openSpawnDialog(focusAgent.agentId)
- },
+ label: focusAgentLabel,
+ onSelect: runFocusAgentAction,
  })
  }
  items.push({ kind: 'separator', id: 'sep-1' })
@@ -1561,14 +1542,14 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  return items
  })()
 
- const chromePrimaryButton = chromePrimaryAction ? (
- <PrimaryButton onClick={chromePrimaryAction.onClick}>{chromePrimaryAction.label}</PrimaryButton>
- ) : null
-
+ const inboxArtifactCount = useMemo(
+ () => getSprintEngineInboxArtifacts(reviewArtifacts).length,
+ [reviewArtifacts]
+ )
  const chromeTabItems: TabItem<SprintEngineView>[] = [
- { id: 'project', label: 'Project' },
- { id: 'task-graph', label: 'Graph' },
- { id: 'kanban', label: 'Kanban' },
+ { id: 'inbox', label: 'Inbox', count: inboxArtifactCount > 0 ? inboxArtifactCount : undefined },
+ { id: 'roster', label: 'Roster', count: roster.length > 0 ? roster.length : undefined },
+ { id: 'tasks', label: 'Tasks', count: sprintEngineState.tasks.length > 0 ? sprintEngineState.tasks.length : undefined },
  ]
 
  // Listen for CommandPalette dispatches and the cross-cutting ⌘ , chord so the
@@ -1614,10 +1595,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  focusOrAddComponentTab(workspaceId, 'sprintengine-plan-reader', 'Architect Plan')
  break
  case 'sprintengine.focus.agent':
- if (focusAgent && showFocusAgentAction) {
- if (focusAgentHasLiveTerminal) openAgentTerminal(focusAgent.agentId)
- else openSpawnDialog(focusAgent.agentId)
- } else {
+ if (!runFocusAgentAction()) {
  publishDiagnosticSync({
  level: 'info',
  source: 'sprintengine',
@@ -1634,14 +1612,22 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  case 'sprintengine.refresh.board':
  if (folderPath && !manualRefreshBusy) void refreshSprintEngineState()
  break
- case 'sprintengine.goto.project':
- if (!fixedView) setActiveView('project')
+ case 'sprintengine.goto.inbox':
+ if (!fixedView) setActiveView('inbox')
+ break
+ case 'sprintengine.goto.roster':
+ if (!fixedView) setActiveView('roster')
+ break
+ case 'sprintengine.goto.tasks':
+ if (!fixedView) setActiveView('tasks')
  break
  case 'sprintengine.goto.graph':
- if (!fixedView) setActiveView('task-graph')
+ if (!fixedView) setActiveView('tasks')
+ if (!fixedTasksLayout) setActiveTasksLayout('graph')
  break
  case 'sprintengine.goto.kanban':
- if (!fixedView) setActiveView('kanban')
+ if (!fixedView) setActiveView('tasks')
+ if (!fixedTasksLayout) setActiveTasksLayout('kanban')
  break
  case 'sprintengine.open.settings':
  case 'open.settings':
@@ -1671,19 +1657,21 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  }
  }, [])
 
- return (
- <div className="relative flex h-full flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-strong)]">
- {/* Sprint Engine chrome — PanelHeader + Tabs + state-bound primary + overflow.
- Auto-runner, approve-all, CLI preset, and verify-progress live in the
- Settings popover. Sync status is announced via aria-live; visible
- workspace status bar wiring is owed to a follow-up task. */}
- <div className="relative shrink-0 bg-[color:var(--bg-surface)]">
- <PanelHeader
- tool="sprintengine"
- title="Sprint Engine"
- count={sprintEngineState.tasks.length}
- primaryAction={chromePrimaryButton}
- overflow={
+ // Hero strip: the run's identity (status dot + name + done/total) and the
+ // single overflow menu that hosts settings, the runner, plan actions, and
+ // verify-progress. Replaces the generic panel header entirely — the panel
+ // title and total count were both redundant with the tab strip and per-tab
+ // content; the focus-agent primary button moved into the overflow menu.
+ const runHero = (
+ <header className="relative shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2.5">
+ <div className="flex items-center gap-2">
+ <StatusDot tone={runPhaseTone} label={`Run phase: ${runPhase}`} />
+ <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+ {sprintEngineState.name}
+ </h2>
+ <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">
+ {doneCount}/{totalTasks}
+ </span>
  <Popover
  open={settingsOpen}
  onOpenChange={setSettingsOpen}
@@ -1705,9 +1693,76 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  onClose={() => setSettingsOpen(false)}
  />
  </Popover>
- }
+ </div>
+ <div
+ className="pointer-events-none absolute inset-x-0 bottom-[-1px] h-[2px]"
+ role="progressbar"
+ aria-valuemin={0}
+ aria-valuemax={totalTasks}
+ aria-valuenow={doneCount}
+ aria-label={`${doneCount} of ${totalTasks} tasks done`}
+ >
+ <div
+ className="absolute inset-y-0 left-0 bg-[color:var(--accent-primary)] transition-[width]"
+ style={{ width: `${progressPct}%` }}
  />
+ </div>
+ </header>
+ )
+
+ const projectionBanner = hasProjectionBanner ? (
+ <div
+ role="status"
+ className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5"
+ >
+ <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+ <span className="inline-flex items-center gap-1.5">
+ <StatusDot tone={projectionUnavailable ? 'error' : 'warn'} />
+ <span className="font-mono text-[11px] text-[color:var(--text-muted)]">
+ {projectionUnavailable ? 'Projection unavailable' : 'Projection warning'}
+ </span>
+ </span>
+ {projectionErrorMessage ? (
+ <span className="text-[color:var(--tone-error)] [overflow-wrap:anywhere]">
+ {projectionErrorMessage}
+ </span>
+ ) : null}
+ {lockWarnings.map((warning) => (
+ <span key={warning.name} className="text-[color:var(--tone-warn)]">
+ <span className="font-mono">{warning.name}</span>{' '}
+ stale {formatSprintEngineLockAge(warning.ageSeconds)}
+ </span>
+ ))}
+ </div>
+ </div>
+ ) : null
+
+ const runCompleteBanner = allTasksDone ? (
+ <Section
+ title="Run complete"
+ level={3}
+ action={
+ <GhostButton onClick={() => focusOrAddComponentTab(workspaceId, 'sprintengine-run-summary', 'Run Summary')}>
+ View run summary
+ </GhostButton>
+ }
+ className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]"
+ >
+ <div className="text-[12px] text-[color:var(--text-default)]">
+ Review uncommitted workspace changes and manually test the feature.
+ </div>
+ <div className="mt-1 text-[11px] text-[color:var(--text-muted)]">
+ {runSummary.touchedFiles.length} files touched · {runSummary.commandsRan.length} commands recorded · {runSummary.results.length} validation results
+ </div>
+ </Section>
+ ) : null
+
+ return (
+ <div className="relative flex h-full flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-strong)]">
+ {runHero}
+
  {!fixedView ? (
+ <div className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
  <Tabs<SprintEngineView>
  ariaLabel="Sprint Engine view"
  items={chromeTabItems}
@@ -1716,81 +1771,109 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  idPrefix="sprintengine-view"
  className="px-3"
  />
+ </div>
  ) : null}
+
  <div className="sr-only" role="status" aria-live="polite">
  {syncState.message}
  </div>
- </div>
 
+ {projectionBanner}
+ {runCompleteBanner}
  {folderStatusBanner}
 
- {effectiveView === 'project' ? (
+ {effectiveView === 'inbox' ? (
  <div
- id="sprintengine-view-panel-project"
+ id="sprintengine-view-panel-inbox"
  role="tabpanel"
- aria-labelledby="sprintengine-view-tab-project"
- tabIndex={0}
+ aria-labelledby="sprintengine-view-tab-inbox"
  className="flex min-h-0 flex-1"
  >
- <SprintEngineProjectView
+ <SprintEngineInboxView
+ sprintEngineState={sprintEngineState}
+ reviewArtifacts={reviewArtifacts}
+ runPhase={runPhase}
+ selectedArtifactId={selectedArtifactId}
+ onSelectArtifact={setSelectedArtifactId}
+ onSelectTask={setSelectedTaskId}
+ inspectorContent={renderInspectorPanel()}
+ />
+ </div>
+ ) : null}
+
+ {effectiveView === 'roster' ? (
+ <div
+ id="sprintengine-view-panel-roster"
+ role="tabpanel"
+ aria-labelledby="sprintengine-view-tab-roster"
+ className="flex min-h-0 flex-1"
+ >
+ <SprintEngineRosterView
  sprintEngineState={sprintEngineState}
  roster={roster}
  agents={agents}
  runtimeAgents={runtimeAgents}
- runPhase={runPhase}
- doneCount={doneCount}
- allTasksDone={allTasksDone}
- runSummary={runSummary}
- onViewRunSummary={() =>
- focusOrAddComponentTab(workspaceId, 'sprintengine-run-summary', 'Run Summary')
- }
- reviewArtifacts={reviewArtifacts}
- selectedAgentId={resolvedSelectedAgentId}
+ selectedAgentId={selectedAgentId}
  onSelectAgent={(agentId) => setSelectedAgentId(agentId)}
- onSelectTask={setSelectedTaskId}
  onAddRole={(role) => {
  void confirmAddMember(role)
  }}
- selectedArtifactId={selectedArtifactId}
- onSelectArtifact={setSelectedArtifactId}
  isAgentTerminalLive={isAgentTerminalLive}
  inspectorContent={renderInspectorPanel()}
  />
  </div>
  ) : null}
 
- {effectiveView === 'task-graph' ? (
+ {effectiveView === 'tasks' ? (
  <div
- id="sprintengine-view-panel-task-graph"
+ id="sprintengine-view-panel-tasks"
  role="tabpanel"
- aria-labelledby="sprintengine-view-tab-task-graph"
- tabIndex={0}
- className="flex min-h-0 flex-1"
+ aria-labelledby="sprintengine-view-tab-tasks"
+ className={`flex min-h-0 flex-1 flex-col bg-[color:var(--bg-app)] ${effectiveTasksLayout === 'kanban' ? 'focus:outline-none' : ''}`}
+ tabIndex={effectiveTasksLayout === 'kanban' ? 0 : -1}
+ onKeyDown={effectiveTasksLayout === 'kanban' ? handleKanbanKeyDown : undefined}
+ aria-label={effectiveTasksLayout === 'kanban' ? 'Sprint Engine kanban' : undefined}
  >
+ {!fixedTasksLayout ? (
+ <div className="flex shrink-0 items-center gap-1 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1.5">
+ <div
+ role="group"
+ aria-label="Tasks layout"
+ className="inline-flex items-center gap-0.5 rounded border border-[color:var(--border-default)] bg-[color:var(--bg-app)] p-0.5"
+ >
+ {(['graph', 'kanban'] as SprintEngineTasksLayout[]).map((layout) => {
+ const active = effectiveTasksLayout === layout
+ const label = layout === 'graph' ? 'Graph' : 'Kanban'
+ return (
+ <button
+ key={layout}
+ type="button"
+ aria-pressed={active}
+ onClick={() => setActiveTasksLayout(layout)}
+ className={`interactive rounded px-2 py-0.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
+ active
+ ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
+ : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]'
+ }`}
+ >
+ {label}
+ </button>
+ )
+ })}
+ </div>
+ </div>
+ ) : null}
+
+ <div className="flex min-h-0 flex-1">
+ {effectiveTasksLayout === 'graph' ? (
  <SprintEngineTaskGraphView
  sprintEngineState={sprintEngineState}
  rosterById={rosterById}
  selectedTaskId={selectedTaskId}
  onSelectTask={setSelectedTaskId}
  />
- {renderInspectorAside()}
- </div>
- ) : null}
-
- {effectiveView === 'kanban' ? (
- <div
- id="sprintengine-view-panel-kanban"
- role="tabpanel"
- aria-labelledby="sprintengine-view-tab-kanban"
- className="flex min-h-0 flex-1 bg-[color:var(--bg-app)] focus:outline-none"
- tabIndex={0}
- onKeyDown={handleKanbanKeyDown}
- aria-label="Sprint Engine kanban"
- >
+ ) : (
  <div className="flex min-w-0 flex-1 flex-col">
- {/* Inner Kanban header dropped; panel-level PanelHeader carries the
- count and the Tabs strip carries the view name. Keyboard hint is
- announced to AT via the kanban container aria-label. */}
  <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto px-1.5 py-2">
  {sprintEngineState.tasks.length === 0 ? (
  <div className="flex h-full min-h-[320px] w-full items-center justify-center p-6 text-center">
@@ -1813,10 +1896,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  flipKey={column.cards.map((card) => card.id).join(',')}
  >
  {column.cards.map((task) => {
- // Kanban card surface is intentionally minimal — status dot, ID,
- // title, role glyph. All chips, attention quotes, artifact pills,
- // mobile-decision flags, action buttons, and the Ready gate move
- // to the inspector aside on selection.
  const boardColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
  const cardTone: Tone =
  task.status === 'done'
@@ -1870,8 +1949,10 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  }) : null}
  </div>
  </div>
+ )}
 
  {renderInspectorAside()}
+ </div>
  </div>
  ) : null}
 
@@ -2295,62 +2376,38 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 }
 
 
-function SprintEngineProjectView({
+function SprintEngineEmptyDetail({ message }: { message: string }) {
+ return (
+ <section className="flex min-w-0 flex-1 items-center justify-center bg-[color:var(--bg-app)] p-6 text-center">
+ <p className="max-w-md text-[12px] leading-5 text-[color:var(--text-muted)]">
+ {message}
+ </p>
+ </section>
+ )
+}
+
+// Inbox tab: list + detail. The artifact queue sits in the primary content
+// column on the left; the inspector fills the remaining width when something
+// is selected, and a quiet empty state when not. This matches Watchtower's
+// two-pane chrome — the roster lives on its own tab now, so the right pane
+// never has to compete for width with a third column.
+function SprintEngineInboxView({
  sprintEngineState,
- roster,
- agents,
- runtimeAgents,
- runPhase,
- doneCount,
- allTasksDone,
- runSummary,
- onViewRunSummary,
  reviewArtifacts,
- selectedAgentId,
- onSelectAgent,
- onSelectTask,
- onAddRole,
+ runPhase,
  selectedArtifactId,
  onSelectArtifact,
- isAgentTerminalLive,
+ onSelectTask,
  inspectorContent,
 }: {
  sprintEngineState: SprintEngineState
- roster: SprintEngineAgentRosterItem[]
- agents: Record<string, AgentState>
- runtimeAgents: RuntimeAgentView[]
- runPhase: string
- doneCount: number
- allTasksDone: boolean
- runSummary: ReturnType<typeof buildRunSummary>
- onViewRunSummary: () => void
  reviewArtifacts: SprintEngineArtifact[]
- selectedAgentId: string | null
- onSelectAgent: (agentId: string) => void
- onSelectTask: (taskId: string) => void
- onAddRole: (role: SprintEngineRole) => void
+ runPhase: string
  selectedArtifactId: string | null
  onSelectArtifact: (artifactId: string | null) => void
- isAgentTerminalLive: (agentId: string) => boolean
- // When set, takes the focal center slot and demotes the roster to a
- // right rail. When null, the roster fills the center as the panel's
- // primary content. The parent owns whether a selection exists.
+ onSelectTask: (taskId: string) => void
  inspectorContent: React.ReactNode
 }) {
- // runPhase → semantic tone for the project name's status dot.
- const runPhaseTone: Tone =
- runPhase === 'Complete'
- ? 'good'
- : runPhase === 'Running'
- ? 'accent'
- : runPhase === 'Tasked'
- ? 'neutral'
- : 'neutral'
- const totalTasks = sprintEngineState.tasks.length
- const progressPct = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0
- const dispatchRoleAdd = (role: SprintEngineRole) => {
- onAddRole(role)
- }
  const tasksById = useMemo(
  () => Object.fromEntries(sprintEngineState.tasks.map((task) => [task.id, task])),
  [sprintEngineState.tasks]
@@ -2368,9 +2425,6 @@ function SprintEngineProjectView({
  .filter(({ blockers }) => blockers.length > 0)
  ), [reviewArtifacts, sprintEngineState.tasks])
 
- // Selection feeds the existing inspector aside (the same one the kanban
- // task cards and roster rows use). The parent owns the state so a click
- // here lights up the inspector sibling rendered next to this view.
  const inboxEmptyMessage = sprintEngineInboxEmptyMessage(runPhase)
  const handleInboxKeyDown = useCallback(
  (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -2409,6 +2463,111 @@ function SprintEngineProjectView({
  [inboxArtifacts, onSelectArtifact, selectedArtifactId]
  )
 
+ const hasInspector = inspectorContent !== null && inspectorContent !== undefined
+
+ return (
+ <div className="flex min-h-0 flex-1 min-w-0">
+ <SidePane as="section" side="left" width="lg" ariaLabel="Awaiting review">
+ <div className="flex flex-1 flex-col overflow-auto">
+ <div
+ tabIndex={0}
+ onKeyDown={handleInboxKeyDown}
+ className="focus:outline-none"
+ role="region"
+ aria-label="Inbox artifacts (use arrow keys)"
+ >
+ {inboxArtifacts.length === 0 ? (
+ <div className="px-3 py-6 text-[12px] leading-5 text-[color:var(--text-muted)]">
+ {inboxEmptyMessage}
+ </div>
+ ) : (
+ <ul>
+ {inboxArtifacts.map((artifact) => (
+ <li key={artifact.id}>
+ <SprintEngineInboxRow
+ artifact={artifact}
+ task={tasksById[artifact.taskId]}
+ selected={selectedArtifactId === artifact.id}
+ onSelect={() => onSelectArtifact(artifact.id)}
+ />
+ </li>
+ ))}
+ </ul>
+ )}
+ </div>
+
+ {blockedByArtifacts.length > 0 ? (
+ <div role="region" aria-label="Tasks blocked by review">
+ <Section
+ title="Blocked by review"
+ count={blockedByArtifacts.length}
+ level={3}
+ inset={false}
+ className="border-t border-[color:var(--border-default)]"
+ >
+ <ul>
+ {blockedByArtifacts.map(({ task, blockers }) => (
+ <li key={task.id}>
+ <SprintEngineBlockedByRow
+ task={task}
+ blockers={blockers}
+ selected={false}
+ onSelect={() => onSelectTask(task.id)}
+ />
+ </li>
+ ))}
+ </ul>
+ </Section>
+ </div>
+ ) : null}
+ </div>
+ </SidePane>
+
+ {hasInspector ? (
+ <section
+ className="flex min-w-0 flex-1 flex-col"
+ aria-label="Selected item detail"
+ >
+ {inspectorContent}
+ </section>
+ ) : (
+ <SprintEngineEmptyDetail
+ message={
+ inboxArtifacts.length > 0
+ ? 'Pick an artifact on the left to review evidence, approve, or request changes.'
+ : 'Nothing is queued for review. New artifacts land here as workers finish and reviewers gate them.'
+ }
+ />
+ )}
+ </div>
+ )
+}
+
+// Roster tab: agent list + detail. Mirrors the Inbox shape — roster on the
+// left, inspector (with agent-specific actions) on the right when an agent
+// is selected. Add-member affordance sticks to the foot of the list rail so
+// it stays one click away regardless of how many agents are on board.
+function SprintEngineRosterView({
+ sprintEngineState,
+ roster,
+ agents,
+ runtimeAgents,
+ selectedAgentId,
+ onSelectAgent,
+ onAddRole,
+ isAgentTerminalLive,
+ inspectorContent,
+}: {
+ sprintEngineState: SprintEngineState
+ roster: SprintEngineAgentRosterItem[]
+ agents: Record<string, AgentState>
+ runtimeAgents: RuntimeAgentView[]
+ selectedAgentId: string | null
+ onSelectAgent: (agentId: string) => void
+ onAddRole: (role: SprintEngineRole) => void
+ isAgentTerminalLive: (agentId: string) => boolean
+ inspectorContent: React.ReactNode
+}) {
  const rosterCountByRole = useMemo(() => {
  const counts = Object.fromEntries(addableRoles.map((role) => [role, 0])) as Record<SprintEngineRole, number>
  for (const agent of roster) {
@@ -2417,21 +2576,11 @@ function SprintEngineProjectView({
  return counts
  }, [roster])
 
- const projectionUnavailable = sprintEngineState.projection?.source === 'unavailable'
- const projectionErrorMessage = sprintEngineState.projection?.errorMessage
- const lockWarnings = sprintEngineState.locks?.warnings ?? []
- const hasProjectionBanner = projectionUnavailable || Boolean(projectionErrorMessage) || lockWarnings.length > 0
-
- // Selection state decides the inner layout:
- //   no inspector → 2-pane: inbox (left) + roster (center, focal)
- //   inspector    → 3-pane: inbox (left) + inspector (center, focal) + roster (right rail)
- // This mirrors Watchtower's inbox→detail focal model when an artifact is
- // open, and reverts to a roster-led empty state when nothing is selected.
  const hasInspector = inspectorContent !== null && inspectorContent !== undefined
- const rosterPanelBody = (
- <>
- <PanelHeader title="Roster" count={roster.length} />
 
+ return (
+ <div className="flex min-h-0 flex-1 min-w-0">
+ <SidePane as="section" side="left" width="lg" ariaLabel="Roster agents">
  <div className="flex-1 overflow-auto">
  {roster.length === 0 ? (
  <div className="px-3 py-6 text-[12px] leading-5 text-[color:var(--text-subtle)]">
@@ -2495,17 +2644,21 @@ function SprintEngineProjectView({
  })}
  </ol>
  )}
+ </div>
 
- <section aria-label="Add a roster member" className="border-t border-[color:var(--border-default)]">
- <div className="flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
- <h3 className="truncate text-[11px] font-semibold text-[color:var(--text-muted)]">
+ <section
+ aria-label="Add a roster member"
+ className="shrink-0 border-t border-[color:var(--border-default)] bg-[color:var(--bg-surface)]"
+ >
+ <div className="flex items-center justify-between gap-3 px-3 py-2">
+ <h4 className="truncate text-[11px] font-semibold text-[color:var(--text-muted)]">
  Add member
- </h3>
+ </h4>
  <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]">
  {addableRoles.length} roles
  </span>
  </div>
- <div className="flex flex-wrap gap-1.5 px-3 py-2.5">
+ <div className="flex flex-wrap gap-1.5 px-3 pb-2.5">
  {addableRoles.map((role) => {
  const count = rosterCountByRole[role] ?? 0
  const addLabel = `${count > 0 ? 'Add another' : 'Add'} ${sprintEngineRoleLabels[role]}`
@@ -2513,7 +2666,7 @@ function SprintEngineProjectView({
  <Tooltip key={role} content={addLabel}>
  <button
  type="button"
- onClick={() => dispatchRoleAdd(role)}
+ onClick={() => onAddRole(role)}
  aria-label={addLabel}
  className="interactive inline-flex items-center gap-1.5 rounded border border-dashed border-[color:var(--border-strong)] px-2 py-1 text-[11px] font-medium text-[color:var(--text-default)] transition-colors hover:border-[color:var(--accent-primary-soft)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
  >
@@ -2530,168 +2683,24 @@ function SprintEngineProjectView({
  })}
  </div>
  </section>
- </div>
- </>
- )
-
- return (
- <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-default)]">
- {hasProjectionBanner ? (
- <div
- role="status"
- className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5"
- >
- <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
- <span className="inline-flex items-center gap-1.5">
- <StatusDot tone={projectionUnavailable ? 'error' : 'warn'} />
- <span className="font-mono text-[11px] text-[color:var(--text-muted)]">
- {projectionUnavailable ? 'Projection unavailable' : 'Projection warning'}
- </span>
- </span>
- {projectionErrorMessage ? (
- <span className="text-[color:var(--tone-error)] [overflow-wrap:anywhere]">
- {projectionErrorMessage}
- </span>
- ) : null}
- {lockWarnings.map((warning) => (
- <span key={warning.name} className="text-[color:var(--tone-warn)]">
- <span className="font-mono">{warning.name}</span>{' '}
- stale {formatSprintEngineLockAge(warning.ageSeconds)}
- </span>
- ))}
- </div>
- </div>
- ) : null}
- {/* Run-complete sits above the project header as a quiet Section, replacing
- the prior celebratory green banner. Visible only when allTasksDone. */}
- {allTasksDone ? (
- <Section
- title="Run complete"
- level={3}
- action={
- <GhostButton onClick={onViewRunSummary}>View run summary</GhostButton>
- }
- className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]"
- >
- <div className="text-[12px] text-[color:var(--text-default)]">
- Review uncommitted workspace changes and manually test the feature.
- </div>
- <div className="mt-1 text-[11px] text-[color:var(--text-muted)]">
- {runSummary.touchedFiles.length} files touched · {runSummary.commandsRan.length} commands recorded · {runSummary.results.length} validation results
- </div>
- </Section>
- ) : null}
- {/* Project hero collapsed to: status dot + project name + count + 2 px
- progress hairline overlaid on the header's bottom border. Goal text and
- plan reader live in the outer panel overflow (Read plan), not the hero. */}
- <header className="relative shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2.5">
- <div className="flex items-center gap-2">
- <StatusDot tone={runPhaseTone} label={`Run phase: ${runPhase}`} />
- <h2 className="min-w-0 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
- {sprintEngineState.name}
- </h2>
- <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">
- {doneCount}/{totalTasks}
- </span>
- </div>
- <div
- className="pointer-events-none absolute inset-x-0 bottom-[-1px] h-[2px]"
- role="progressbar"
- aria-valuemin={0}
- aria-valuemax={totalTasks}
- aria-valuenow={doneCount}
- aria-label={`${doneCount} of ${totalTasks} tasks done`}
- >
- <div
- className="absolute inset-y-0 left-0 bg-[color:var(--accent-primary)] transition-[width]"
- style={{ width: `${progressPct}%` }}
- />
- </div>
- </header>
-
- <div className="flex min-h-0 flex-1 min-w-0">
- <SidePane as="section" side="left" width="lg" ariaLabelledBy="sprintengine-inbox-title">
- <PanelHeader
- tool="sprintengine"
- title="Inbox"
- titleId="sprintengine-inbox-title"
- count={inboxArtifacts.length}
- />
-
- <div
- tabIndex={0}
- onKeyDown={handleInboxKeyDown}
- className="flex-1 overflow-auto focus:outline-none"
- aria-label="Inbox artifacts"
- >
- {inboxArtifacts.length === 0 ? (
- <div className="px-3 py-6 text-[12px] leading-5 text-[color:var(--text-muted)]">
- {inboxEmptyMessage}
- </div>
- ) : (
- <ul>
- {inboxArtifacts.map((artifact) => (
- <li key={artifact.id}>
- <SprintEngineInboxRow
- artifact={artifact}
- task={tasksById[artifact.taskId]}
- selected={selectedArtifactId === artifact.id}
- onSelect={() => onSelectArtifact(artifact.id)}
- />
- </li>
- ))}
- </ul>
- )}
-
- {blockedByArtifacts.length > 0 ? (
- <Section
- title="Blocked by review"
- count={blockedByArtifacts.length}
- level={3}
- inset={false}
- className="border-t border-[color:var(--border-default)]"
- >
- <ul>
- {blockedByArtifacts.map(({ task, blockers }) => (
- <li key={task.id}>
- <SprintEngineBlockedByRow
- task={task}
- blockers={blockers}
- selected={false}
- onSelect={() => onSelectTask(task.id)}
- />
- </li>
- ))}
- </ul>
- </Section>
- ) : null}
- </div>
  </SidePane>
 
  {hasInspector ? (
- <>
  <section
  className="flex min-w-0 flex-1 flex-col"
- aria-label="Selected item detail"
+ aria-label="Selected agent detail"
  >
  {inspectorContent}
  </section>
- <aside
- className="flex w-[320px] shrink-0 flex-col border-l border-[color:var(--border-default)]"
- aria-label="Roster"
- >
- {rosterPanelBody}
- </aside>
- </>
  ) : (
- <section
- className="flex min-w-0 flex-1 flex-col"
- aria-label="Roster"
- >
- {rosterPanelBody}
- </section>
+ <SprintEngineEmptyDetail
+ message={
+ roster.length > 0
+ ? 'Select an agent on the left to open their terminal, see current task, or focus the session.'
+ : 'Add a role from the footer to put the first agent on the roster.'
+ }
+ />
  )}
- </div>
  </div>
  )
 }

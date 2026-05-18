@@ -104,9 +104,11 @@ export default function CommandPalette({ onClose, onNewWorkspace, onSpawnSpecial
             ? [{ id: 'sprintengine.focus.agent', label: 'Sprint Engine: Focus active agent', run: runPanel('sprintengine.focus.agent') }]
             : []),
           { id: 'sprintengine.refresh.board', label: 'Sprint Engine: Refresh board', run: runPanel('sprintengine.refresh.board') },
-          { id: 'sprintengine.goto.project', label: 'Sprint Engine: Project view', run: runPanel('sprintengine.goto.project') },
-          { id: 'sprintengine.goto.graph', label: 'Sprint Engine: Graph view', run: runPanel('sprintengine.goto.graph') },
-          { id: 'sprintengine.goto.kanban', label: 'Sprint Engine: Kanban view', run: runPanel('sprintengine.goto.kanban') },
+          { id: 'sprintengine.goto.inbox', label: 'Sprint Engine: Inbox', run: runPanel('sprintengine.goto.inbox') },
+          { id: 'sprintengine.goto.roster', label: 'Sprint Engine: Roster', run: runPanel('sprintengine.goto.roster') },
+          { id: 'sprintengine.goto.tasks', label: 'Sprint Engine: Tasks', run: runPanel('sprintengine.goto.tasks') },
+          { id: 'sprintengine.goto.graph', label: 'Sprint Engine: Tasks → Graph layout', run: runPanel('sprintengine.goto.graph') },
+          { id: 'sprintengine.goto.kanban', label: 'Sprint Engine: Tasks → Kanban layout', run: runPanel('sprintengine.goto.kanban') },
           { id: 'sprintengine.open.settings', label: 'Sprint Engine: Settings', shortcut: '⌘ ,', run: runPanel('sprintengine.open.settings') },
         ]
       : []

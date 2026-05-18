@@ -15,20 +15,20 @@ const agentTab = (id: string, name = id) => ({
 })
 const editorTab = { type: 'tab', name: 'Editor', component: 'editor' }
 const explorerTab = { type: 'tab', name: 'Files', component: 'explorer' }
-const sprintEngineProjectTab = () => ({
+const sprintEngineInboxTab = () => ({
   type: 'tab',
-  name: 'Project',
-  component: 'sprintengine-project',
+  name: 'Inbox',
+  component: 'sprintengine-inbox',
 })
-const sprintEngineTaskGraphTab = () => ({
+const sprintEngineRosterTab = () => ({
   type: 'tab',
-  name: 'Task Graph',
-  component: 'sprintengine-task-graph',
+  name: 'Roster',
+  component: 'sprintengine-roster',
 })
-const sprintEngineKanbanTab = () => ({
+const sprintEngineTasksTab = () => ({
   type: 'tab',
-  name: 'Kanban',
-  component: 'sprintengine-kanban',
+  name: 'Tasks',
+  component: 'sprintengine-tasks',
 })
 const multiloopBoardTab = () => ({
   type: 'tab',
@@ -99,9 +99,9 @@ export function createSprintEngineTemplate(_config: SprintEngineMockConfig): Lay
             type: 'tabset',
             weight: 100,
             children: [
-              sprintEngineProjectTab(),
-              sprintEngineTaskGraphTab(),
-              sprintEngineKanbanTab(),
+              sprintEngineInboxTab(),
+              sprintEngineRosterTab(),
+              sprintEngineTasksTab(),
             ],
           },
         ],
