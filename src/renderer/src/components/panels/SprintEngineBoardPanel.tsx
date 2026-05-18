@@ -300,7 +300,6 @@ function SprintEngineSettingsPopover({
  <span id="sprintengine-settings-approve-label">Approve all artifacts</span>
  <Switch
  checked={autoApproveArtifacts}
- disabled={!autoEnabled}
  onChange={onToggleArtifactAutoApproval}
  ariaLabelledBy="sprintengine-settings-approve-label"
  />
@@ -1202,7 +1201,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  }
 
  const toggleArtifactAutoApproval = () => {
- if (!autoEnabled) return
  setSprintEngineAutoApproveArtifacts(workspaceId, !autoApproveArtifacts)
  }
 
@@ -1511,7 +1509,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  id: 'approve-all-artifacts',
  label: autoApproveArtifacts ? 'Stop approving all artifacts' : 'Approve all artifacts',
  onSelect: toggleArtifactAutoApproval,
- disabled: !autoEnabled,
  })
  items.push({ kind: 'separator', id: 'sep-3' })
  items.push({
