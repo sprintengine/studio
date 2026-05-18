@@ -107,7 +107,8 @@ function getSprintEngineAutoState(workspace: Workspace | null | undefined): Spri
 
 function isSprintEngineRunnerActive(workspace: Workspace | null | undefined): boolean {
   const runnerMode = workspace?.sprintEngineState?.runner?.mode
-  return runnerMode === 'auto' || getSprintEngineAutoState(workspace).enabled
+  const autoState = getSprintEngineAutoState(workspace)
+  return runnerMode === 'auto' || autoState.enabled || autoState.autoApproveArtifacts
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -460,7 +461,7 @@ async function sendApprovalToNextEligibleArtifactProducer(
   autoApprovalDiagnostics: MutableRefObject<Map<string, number>>
 ): Promise<'sent' | 'failed' | 'none'> {
   const autoState = getSprintEngineAutoState(workspace)
-  if (!autoState.enabled || !autoState.autoApproveArtifacts || !workspace.sprintEngineContext) {
+  if (!autoState.autoApproveArtifacts || !workspace.sprintEngineContext) {
     return 'none'
   }
 
@@ -1755,7 +1756,9 @@ async function superviseWorkspace(
   const superviseStartedAt = performance.now()
   let sprintEngineState = workspace.sprintEngineState
   const autoState = getSprintEngineAutoState(workspace)
-  if (!autoState.enabled || !workspace.folderPath || !sprintEngineState || !workspace.sprintEngineContext) return
+  const runnerActive = sprintEngineState?.runner?.mode === 'auto' || autoState.enabled
+  const approvalActive = autoState.autoApproveArtifacts
+  if ((!runnerActive && !approvalActive) || !workspace.folderPath || !sprintEngineState || !workspace.sprintEngineContext) return
 
   logPerfEvent('SprintEngineAutoRun', 'supervise-start', {
     workspaceId: workspace.id,
@@ -1765,12 +1768,14 @@ async function superviseWorkspace(
     autoApproveArtifacts: autoState.autoApproveArtifacts,
   })
 
-  const durableAutoMode = await ensureDurableAutoMode(workspace, sprintEngineState, lastContentByWorkspace)
-  if (!durableAutoMode) return
-  workspace = durableAutoMode.workspace
-  sprintEngineState = durableAutoMode.sprintEngineState
+  if (runnerActive) {
+    const durableAutoMode = await ensureDurableAutoMode(workspace, sprintEngineState, lastContentByWorkspace)
+    if (!durableAutoMode) return
+    workspace = durableAutoMode.workspace
+    sprintEngineState = durableAutoMode.sprintEngineState
+  }
 
-  if (autoState.enabled && autoState.autoApproveArtifacts) {
+  if (approvalActive) {
     const approvalResult = await sendApprovalToNextEligibleArtifactProducer(
       workspace,
       sprintEngineState,
@@ -1807,6 +1812,16 @@ async function superviseWorkspace(
       })
       return
     }
+  }
+
+  if (!runnerActive) {
+    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      reason: 'artifact-approval-only',
+      elapsedMs: Math.round(performance.now() - superviseStartedAt),
+    })
+    return
   }
 
   logPerfEvent('SprintEngineAutoRun', 'reconcile-pending-start', {

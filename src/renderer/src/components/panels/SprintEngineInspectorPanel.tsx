@@ -53,6 +53,7 @@ import {
   CloseIconButton,
   DefinitionList,
   FilePreviewPane,
+  FOCUS_RING_CLASS,
   GhostButton,
   InboxRow,
   PrimaryButton,
@@ -78,7 +79,6 @@ import {
   type ArtifactActionState,
   type RuntimeAgentView,
   type SprintEngineInspectorSelection,
-  type TaskReadyActionState,
 } from './sprintEngineInspector'
 
 export function SprintEngineTaskStatusIcon({
@@ -726,22 +726,47 @@ function TaskOwnerLine({
   ownerLabel,
   runtimeAgents,
   isAgentTerminalLive,
+  onOpenAgentTerminal,
 }: {
   task: SprintEngineTask
   ownerLabel: string
   runtimeAgents: RuntimeAgentView[]
   isAgentTerminalLive: (agentId: string) => boolean
+  onOpenAgentTerminal: (agentId: string) => void
 }) {
   const ownerAgent = task.ownerAgentId
     ? runtimeAgents.find((entry) => entry.agentId === task.ownerAgentId)
     : null
   const ownerStatus = ownerAgent?.status ?? null
-  const hasLiveTerminal = task.ownerAgentId ? isAgentTerminalLive(task.ownerAgentId) : false
+  const ownerAgentId = task.ownerAgentId
+  const hasLiveTerminal = ownerAgentId ? isAgentTerminalLive(ownerAgentId) : false
+  const canOpenTerminal = Boolean(ownerAgentId && hasLiveTerminal)
+
+  const identityCluster = (
+    <>
+      <RoleAvatar role={task.role} size="sm" ariaLabel="" />
+      <span className="text-[color:var(--text-default)]">{ownerLabel}</span>
+    </>
+  )
 
   return (
     <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
-      <RoleAvatar role={task.role} size="sm" ariaLabel="" />
-      <span className="text-[color:var(--text-default)]">{ownerLabel}</span>
+      {canOpenTerminal && ownerAgentId ? (
+        <button
+          type="button"
+          onClick={() => onOpenAgentTerminal(ownerAgentId)}
+          aria-label={`Open ${ownerLabel} terminal`}
+          className={
+            'interactive -mx-1.5 inline-flex items-center gap-2 rounded px-1.5 py-0.5 ' +
+            'transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ' +
+            FOCUS_RING_CLASS
+          }
+        >
+          {identityCluster}
+        </button>
+      ) : (
+        <span className="inline-flex items-center gap-2">{identityCluster}</span>
+      )}
       {ownerStatus ? (
         <>
           <span className="text-[color:var(--text-disabled)]">·</span>
@@ -1157,18 +1182,11 @@ export function SprintEngineInspectorPanel({
   selectedTaskStatusLabel,
   selectedTaskOwnerLabel,
   selectedTaskNeedsInputNote,
-  selectedTaskCanMarkReady,
-  selectedTaskCanSpawnWorker,
-  selectedTaskCanManageWorker,
-  selectedTaskOwnerCliRunning,
   selectedTaskArtifacts,
   selectedTaskArtifactBlockers,
-  taskReadyActions,
   artifactActions,
   onClose,
   onSelectTask,
-  onMarkTaskReady,
-  onOpenReadyTaskWorker,
   onOpenArtifact,
   onApproveArtifact,
   onRequestArtifactChanges,
@@ -1186,18 +1204,11 @@ export function SprintEngineInspectorPanel({
   selectedTaskStatusLabel: string
   selectedTaskOwnerLabel: string
   selectedTaskNeedsInputNote: string | null
-  selectedTaskCanMarkReady: boolean
-  selectedTaskCanSpawnWorker: boolean
-  selectedTaskCanManageWorker: boolean
-  selectedTaskOwnerCliRunning: boolean
   selectedTaskArtifacts: SprintEngineArtifact[]
   selectedTaskArtifactBlockers: ReturnType<typeof getSprintEngineArtifactDependencyBlockers>
-  taskReadyActions: Record<string, TaskReadyActionState>
   artifactActions: Record<string, ArtifactActionState>
   onClose: () => void
   onSelectTask: (taskId: string) => void
-  onMarkTaskReady: (task: SprintEngineTask) => void | Promise<void>
-  onOpenReadyTaskWorker: (task: SprintEngineTask) => void
   onOpenArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
   onApproveArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
   onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
@@ -1340,33 +1351,6 @@ export function SprintEngineInspectorPanel({
   // Task mode (default branch).
   const selectedTask = selection.task
   const tone = boardColumnTone(selectedTaskBoardColumn)
-  const ownerHasLiveTerminal = selectedTaskOwnerCliRunning
-
-  // Single primary action by state precedence — the user opens this panel
-  // to take one action; we pick the one that fits the current state.
-  const readyPending = taskReadyActions[selectedTask.id]?.status === 'pending'
-  let primaryAction: React.ReactNode = null
-  if (selectedTaskCanMarkReady) {
-    primaryAction = (
-      <PrimaryButton onClick={() => void onMarkTaskReady(selectedTask)} disabled={readyPending}>
-        {readyPending ? 'Marking…' : 'Move to ready'}
-      </PrimaryButton>
-    )
-  } else if (selectedTask.ownerAgentId && selectedTaskCanManageWorker && ownerHasLiveTerminal) {
-    primaryAction = (
-      <PrimaryButton onClick={() => onOpenReadyTaskWorker(selectedTask)}>Open terminal</PrimaryButton>
-    )
-  } else if (selectedTaskCanSpawnWorker) {
-    primaryAction = (
-      <PrimaryButton onClick={() => onOpenReadyTaskWorker(selectedTask)}>
-        Spawn {sprintEngineRoleLabels[selectedTask.role]}
-      </PrimaryButton>
-    )
-  } else if (selectedTask.ownerAgentId && selectedTaskCanManageWorker) {
-    primaryAction = (
-      <GhostButton onClick={() => onOpenReadyTaskWorker(selectedTask)}>Respawn</GhostButton>
-    )
-  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -1385,10 +1369,7 @@ export function SprintEngineInspectorPanel({
               {selectedTask.title}
             </h3>
           </div>
-          <div className="flex items-center gap-1.5">
-            {primaryAction}
-            <CloseIconButton onClick={onClose} aria-label="Close task detail" />
-          </div>
+          <CloseIconButton onClick={onClose} aria-label="Close task detail" />
         </div>
       </header>
 
@@ -1398,7 +1379,6 @@ export function SprintEngineInspectorPanel({
         selectedTaskNeedsInputNote={selectedTaskNeedsInputNote}
         selectedTaskArtifacts={selectedTaskArtifacts}
         selectedTaskArtifactBlockers={selectedTaskArtifactBlockers}
-        taskReadyActions={taskReadyActions}
         artifactActions={artifactActions}
         tasksById={tasksById}
         runtimeAgents={runtimeAgents}
@@ -1419,7 +1399,6 @@ function SprintEngineTaskBody({
   selectedTaskNeedsInputNote,
   selectedTaskArtifacts,
   selectedTaskArtifactBlockers,
-  taskReadyActions,
   artifactActions,
   tasksById,
   runtimeAgents,
@@ -1435,7 +1414,6 @@ function SprintEngineTaskBody({
   selectedTaskNeedsInputNote: string | null
   selectedTaskArtifacts: SprintEngineArtifact[]
   selectedTaskArtifactBlockers: ReturnType<typeof getSprintEngineArtifactDependencyBlockers>
-  taskReadyActions: Record<string, TaskReadyActionState>
   artifactActions: Record<string, ArtifactActionState>
   tasksById: Record<string, SprintEngineTask>
   runtimeAgents: RuntimeAgentView[]
@@ -1451,9 +1429,6 @@ function SprintEngineTaskBody({
   const activityEntries = getSprintEngineTaskActivityDescending(selectedTask)
   const openFeedbackComments = getOpenSprintEngineFeedbackComments(selectedTask)
 
-  const readyActionMessage = taskReadyActions[selectedTask.id]?.message ?? null
-  const readyActionError = taskReadyActions[selectedTask.id]?.status === 'error'
-
   return (
     <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
       <TaskOwnerLine
@@ -1461,6 +1436,7 @@ function SprintEngineTaskBody({
         ownerLabel={selectedTaskOwnerLabel}
         runtimeAgents={runtimeAgents}
         isAgentTerminalLive={isAgentTerminalLive}
+        onOpenAgentTerminal={onOpenAgentTerminal}
       />
 
       {selectedTaskNeedsInputNote ? (
@@ -1509,18 +1485,6 @@ function SprintEngineTaskBody({
       <TaskActivityFeed entries={activityEntries} emptyLabel="No activity recorded yet." />
 
       <TaskOpenFeedbackComments comments={openFeedbackComments} />
-
-      {readyActionMessage ? (
-        <div
-          className={`text-[12px] leading-5 ${
-            readyActionError
-              ? 'text-[color:var(--tone-error)]'
-              : 'text-[color:var(--text-muted)]'
-          }`}
-        >
-          {readyActionMessage}
-        </div>
-      ) : null}
 
       {/* Compact details — secondary metadata. Hairline-divided, untitled
           section headings reserved for hierarchy that earns them. */}

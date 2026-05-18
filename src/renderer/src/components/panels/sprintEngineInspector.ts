@@ -53,11 +53,6 @@ export type ArtifactActionState = {
   message: string
 }
 
-export type TaskReadyActionState = {
-  status: 'pending' | 'success' | 'error'
-  message: string
-}
-
 export function runtimeStatusTone(status: string): Tone {
   switch (status) {
     case 'running':

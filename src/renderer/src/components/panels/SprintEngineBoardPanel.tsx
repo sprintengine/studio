@@ -50,7 +50,6 @@ import {
  getSprintEngineArtifactsByTaskId,
  getSprintEngineTaskBoardColumn,
  getSprintEngineVisibleBoardColumns,
- isSprintEngineTaskClaimableColumn,
  isSprintEngineTaskLaunchable,
  normalizeSprintEngineProjection,
  sprintEngineRoleAccent,
@@ -74,7 +73,6 @@ import {
  type ArtifactActionState,
  type RuntimeAgentView,
  type SprintEngineInspectorSelection,
- type TaskReadyActionState,
 } from './sprintEngineInspector'
 import {
  SprintEngineInspectorPanel,
@@ -199,24 +197,6 @@ type SpawnDialogState = {
 
 type RecoveryDialogState = {
  cli: AgentCli
-}
-
-function buildWorkerRespawnStartupPrompt(
- role: SprintEngineRole,
- agentId: string
-): string {
-	 return [
-	 'Fetch the canonical Sprint Engine instructions from the Python tool.',
-	 `You are assigned role: ${role}. Only claim and work Sprint Engine tasks or quality gates whose role exactly matches ${role}. Use the Sprint Engine join-watch flow with this same agent id; the CLI owns polling and will tell you whether to claim a normal task, resume work, triage needs_input, or claim a quality gate. Do not create your own sleep/retry loop. After you claim one task or gate, focus only on that work: complete it, publish evidence or a gate verdict, then run the same join-watch command again if Auto Mode is on. Stop earlier if Auto Mode is off, you are blocked, you need user input, or your context window is about 70% full. At about 70% context, publish a concise continuation note, compact or restart, fetch your Soul again, rerun the Sprint Engine join-watch command with this same id, and continue. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
-	 'On Windows, prefer the repo virtual environment command if `sprintengine` or global Python is unreliable:',
-	 [
-	 '```powershell',
-	 `& ".\\.venv\\Scripts\\python.exe" .\\scripts\\sprintengine_tool.py join --role ${role} --id ${agentId} --watch`,
-	 '```',
-	 ].join('\n'),
-	 'Otherwise run:',
-	 `\`\`\`\nsprintengine join --role ${role} --id ${agentId} --watch\n\`\`\``,
-	 ].filter(Boolean).join('\n\n')
 }
 
 function SprintEngineSettingsPopover({
@@ -398,7 +378,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const [manualRefreshBusy, setManualRefreshBusy] = useState(false)
  const [autoRunnerControlEnabled, setAutoRunnerControlEnabled] = useState<boolean | null>(null)
  const [artifactActions, setArtifactActions] = useState<Record<string, ArtifactActionState>>({})
- const [taskReadyActions, setTaskReadyActions] = useState<Record<string, TaskReadyActionState>>({})
  const [syncState, setSyncState] = useState<SyncState>({
  status: 'idle',
  message: 'Waiting for a Sprint Engine workspace folder.',
@@ -855,40 +834,20 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  }
  }
 
- const markTaskReady = async (task: SprintEngineTask) => {
- if (!sprintEngineContext?.statePath) {
- setSyncState({
- status: 'error',
- message: 'This Sprint Engine workspace is missing its selected team context.',
- })
- return
- }
-
- setTaskReadyActions((current) => ({
- ...current,
- [task.id]: { status: 'pending', message: 'Moving task to Ready...' },
- }))
+ const applySprintEngineProjectionContent = (projectionContent: unknown): boolean => {
+ if (typeof projectionContent !== 'string') return false
  try {
- const result = await window.api.readySprintEngineTask(sprintEngineContext.statePath, task.id)
- if (!result.ok) throw new Error(result.message)
-
- await refreshSprintEngineState()
-
- setTaskReadyActions((current) => ({
- ...current,
- [task.id]: { status: 'success', message: 'Task moved to Ready.' },
- }))
+ const projection = JSON.parse(projectionContent) as unknown
+ const parsed = normalizeSprintEngineProjection(projection, sprintEngineContext?.teamName)
+ if (!parsed) return false
+ setSprintEngineState(workspaceId, parsed)
  setSyncState({
  status: 'live',
- message: `Moved ${task.id} to Ready.`,
+ message: `Refreshed ${parsed.tasks.length} tasks from projection.json`,
  })
- } catch (error) {
- const message = error instanceof Error ? error.message : 'Failed to move task to Ready.'
- setTaskReadyActions((current) => ({
- ...current,
- [task.id]: { status: 'error', message },
- }))
- setSyncState({ status: 'error', message })
+ return true
+ } catch {
+ return false
  }
  }
 
@@ -1138,15 +1097,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const selectedTaskNeedsInputNote = selectedTask?.status === 'needs_input'
  ? selectedTask.notes[0] || 'Worker is waiting for input.'
  : null
- const selectedTaskCanMarkReady = selectedTask?.status === 'todo'
- && !selectedTask.ownerAgentId
- && selectedTask.dispatch?.mode === 'manual'
- && selectedTask.dispatch.status !== 'ready'
- const selectedTaskCanSpawnWorker = isSprintEngineTaskClaimableColumn(selectedTaskBoardColumn) && !selectedTask?.ownerAgentId
- const selectedTaskCanManageWorker = selectedTask?.status === 'in_progress' || selectedTask?.status === 'needs_input'
- const selectedTaskOwnerHasLiveTerminal = selectedTask?.ownerAgentId
- ? isAgentTerminalLive(selectedTask.ownerAgentId)
- : false
  const selectedTaskArtifacts = selectedTask
  ? [...(artifactsByTaskId[selectedTask.id] ?? [])].sort((a, b) => {
  const timestampDelta = artifactTimestampMs(b) - artifactTimestampMs(a)
@@ -1202,18 +1152,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  selectedTaskStatusLabel={selectedTaskStatusLabel}
  selectedTaskOwnerLabel={selectedTaskOwnerLabel}
  selectedTaskNeedsInputNote={selectedTaskNeedsInputNote}
- selectedTaskCanMarkReady={selectedTaskCanMarkReady}
- selectedTaskCanSpawnWorker={selectedTaskCanSpawnWorker}
- selectedTaskCanManageWorker={selectedTaskCanManageWorker}
- selectedTaskOwnerCliRunning={selectedTaskOwnerHasLiveTerminal}
  selectedTaskArtifacts={selectedTaskArtifacts}
  selectedTaskArtifactBlockers={selectedTaskArtifactBlockers}
- taskReadyActions={taskReadyActions}
  artifactActions={artifactActions}
  onClose={closeInspector}
  onSelectTask={setSelectedTaskId}
- onMarkTaskReady={markTaskReady}
- onOpenReadyTaskWorker={openReadyTaskWorker}
  onOpenArtifact={openArtifact}
  onApproveArtifact={approveArtifact}
  onRequestArtifactChanges={requestArtifactChanges}
@@ -1264,7 +1207,10 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  })
  return
  }
- await refreshSprintEngineState()
+ const projectionApplied = applySprintEngineProjectionContent(
+ (result.data as { projectionContent?: unknown } | undefined)?.projectionContent
+ )
+ if (!projectionApplied) await refreshSprintEngineState()
  setAutoRunnerControlEnabled(null)
  }).catch(async (error) => {
  setAutoRunnerControlEnabled(autoEnabled)
@@ -1380,46 +1326,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  if (!started) return
  setCliPickerOpen(false)
  setSpawnDialog(null)
- }
-
- const openReadySpawnDialogForRole = (role: SprintEngineRole) => {
- const existing = roster.find((agent) =>
- agent.role === role
- && runtimeAgentById[agent.id]?.status !== 'done'
- && !isAgentTerminalLive(agent.id)
- )
- ?? roster.find((agent) =>
- agent.role === role
- && runtimeAgentById[agent.id]?.status !== 'done'
- )
- const agent = existing ?? addSprintEngineMember(workspaceId, role)
- if (!agent) return
-
- openSpawnDialog(agent.id)
- }
-
- const openReadyTaskWorker = (task: SprintEngineTask) => {
- if (task.ownerAgentId) {
- const agentId = task.ownerAgentId
- const agent = rosterById[agentId]
- const fallbackLabel = agent?.label ?? agentId
- const label = getAgentName(agentId, fallbackLabel)
-
- if (isAgentTerminalLive(agentId)) {
- openAgentTerminal(agentId)
- return
- }
-
- setSelectedAgentId(agentId)
- void startAgentTerminalWhenReady(agentId, label, agents[agentId]?.cli ?? 'codex', {
- freshSession: true,
- agentName: getCustomAgentName(agentId, fallbackLabel),
- startupPrompt: buildWorkerRespawnStartupPrompt(agent?.role ?? task.role, agentId),
- })
- return
- }
-
- openReadySpawnDialogForRole(task.role)
  }
 
  const openRecoveryDialog = () => {

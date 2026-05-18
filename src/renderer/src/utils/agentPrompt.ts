@@ -115,9 +115,5 @@ export function getSprintEngineStartupCommandMode(
 ): 'init' | 'join' {
   if (role !== 'architect') return 'join'
   if (agentId !== 'architect') return 'join'
-
-  const hasCompletedArchitectTask = sprintEngineState?.tasks.some((task) =>
-    task.role === 'architect' && task.status === 'done'
-  )
-  return hasCompletedArchitectTask ? 'join' : 'init'
+  return sprintEngineState?.tasks.length ? 'join' : 'init'
 }

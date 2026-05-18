@@ -226,9 +226,10 @@ def test_sprintengine_agent_prompts_do_not_continue_polling_after_claim() -> Non
     assert "Keep polling for ready" not in combined_source
     assert "then poll again" not in combined_source
     assert "Do not create your own background polling loop" in combined_source
-    assert "Do not create your own sleep/retry loop" in combined_source
     assert "After you claim one task or gate, focus only on that work" in combined_source
     assert "join --role ${task.role} --id ${agentId} --watch" in combined_source
+    assert "buildWorkerRespawnStartupPrompt" not in combined_source
+    assert "readySprintEngineTask" not in combined_source
 
 
 def test_electron_auto_run_clears_stale_spawn_state_before_retrying() -> None:
@@ -265,6 +266,18 @@ def test_electron_roster_runner_uses_durable_or_requested_auto_mode() -> None:
     )
 
     assert "const runnerMode = workspace?.sprintEngineState?.runner?.mode" in supervisor_source
-    assert "return runnerMode === 'auto' || getSprintEngineAutoState(workspace).enabled" in supervisor_source
+    assert "return runnerMode === 'auto' || autoState.enabled || autoState.autoApproveArtifacts" in supervisor_source
     assert "async function ensureDurableAutoMode" in supervisor_source
     assert "mode: 'auto'" in supervisor_source
+
+
+def test_electron_auto_approval_runs_without_roster_runner_enabled() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
+        encoding="utf-8"
+    )
+
+    assert "const approvalActive = autoState.autoApproveArtifacts" in supervisor_source
+    assert "if ((!runnerActive && !approvalActive)" in supervisor_source
+    assert "if (approvalActive) {" in supervisor_source
+    assert "reason: 'artifact-approval-only'" in supervisor_source

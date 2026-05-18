@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { getSprintEngineStartupCommandMode } from './agentPrompt'
 import {
   formatSprintEngineLockAge,
   getActiveSprintEngineLifecyclePhases,
@@ -191,6 +192,35 @@ assert.equal(getSprintEngineTaskBoardColumn(doneTask, state!.tasks), 'done')
 assert.equal(isSprintEngineTaskLaunchable(readyTask, state!), true)
 assert.equal(isSprintEngineTaskLaunchable(changesRequestedTask, state!), true)
 assert.equal(isSprintEngineTaskLaunchable(doneTask, state!), false)
+
+assert.equal(getSprintEngineStartupCommandMode('developer', 'developer-1', state), 'join')
+assert.equal(getSprintEngineStartupCommandMode('architect', 'architect-2', state), 'join')
+assert.equal(getSprintEngineStartupCommandMode('architect', 'architect', null), 'init')
+assert.equal(getSprintEngineStartupCommandMode('architect', 'architect', { tasks: [] }), 'init')
+assert.equal(
+  getSprintEngineStartupCommandMode('architect', 'architect', {
+    tasks: [
+      {
+        id: 'T0',
+        title: 'Review architect plan artifact',
+        description: '',
+        role: 'architect',
+        status: 'todo',
+        ownerAgentId: null,
+        dependsOn: [],
+        ownedPaths: [],
+        acceptanceCriteria: [],
+        implementationNotes: [],
+        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+        notes: [],
+        comments: [],
+        startedAt: null,
+        completedAt: null,
+      },
+    ],
+  }),
+  'join'
+)
 
 // Task without a boardColumn falls back to the computed column.
 const taskWithoutBoardColumn: SprintEngineTask = {
