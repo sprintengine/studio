@@ -183,7 +183,7 @@ def test_join_returns_worker_prompt_and_resume_directive(tmp_path) -> None:
             "Only claim and work tasks whose Sprint Engine `task.role` exactly matches `developer`.",
             "interpret that as ready `developer` tasks only.",
             "Do not run `sprintengine task claim`, `sprintengine task status`, `sprintengine artifact ready`, `sprintengine plan`, or similar mutating commands for another role's task",
-            "After completion, run `sprintengine join --role developer --id developer-fixture --watch` again if runner mode is auto; otherwise stop.",
+            "After completion, run `sprintengine join --role developer --id developer-fixture --watch` again if Auto Mode is on; otherwise stop.",
             "# Project-Relative Paths",
             "Never use absolute or machine-specific paths",
             "pass only project-root-relative paths",

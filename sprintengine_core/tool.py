@@ -24,8 +24,8 @@ from sprintengine_core import store as folder_store
 
 
 VALID_TASK_STATUSES = {"todo", "in_progress", "review", "testing", "product", "changes_requested", "needs_input", "done", "canceled"}
-ACTIVE_TASK_STATUSES = {"in_progress", "needs_input"}
-RUN_EXECUTING_TASK_STATUSES = ACTIVE_TASK_STATUSES | {"review", "testing", "product", "changes_requested"}
+ACTIVE_TASK_STATUSES = {"in_progress", "needs_input", "changes_requested"}
+RUN_EXECUTING_TASK_STATUSES = ACTIVE_TASK_STATUSES | {"review", "testing", "product"}
 VALID_ROLES = {"architect", "product", "developer", "frontend", "tester", "security", "code_reviewer", "spec_reviewer", "performance"}
 VALID_TASK_COMMENT_TYPES = {
     "implementation_summary",
@@ -3996,7 +3996,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 f"{gate_boundary_instruction()}\n\n"
                 f"{worker_execution_workspace_block(state, args.state)}\n\n"
                 f"When complete, submit the gate result with `sprintengine task gate verdict`, then run "
-                f"`sprintengine join --role {args.role} --id {args.id} --watch` again if runner mode is auto; otherwise stop.\n\n"
+                f"`sprintengine join --role {args.role} --id {args.id} --watch` again if Auto Mode is on; otherwise stop.\n\n"
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
@@ -4020,7 +4020,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 f"{completion_instruction()}"
                 f"If you notice a prompt or process issue that would help improve future Sprint Engine runs, include it with repeatable `--issue-json` on your final feedback command. "
                 f"If your role reviews work, report concrete bugs, security issues, requirement violations, or test gaps with repeatable `--finding-json`. "
-                f"After completion, run `sprintengine join --role {args.role} --id {args.id} --watch` again if runner mode is auto; otherwise stop.\n\n"
+                f"After completion, run `sprintengine join --role {args.role} --id {args.id} --watch` again if Auto Mode is on; otherwise stop.\n\n"
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
@@ -4052,7 +4052,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 f"{gate_boundary_instruction()}\n\n"
                 f"{worker_execution_workspace_block(state, args.state)}\n\n"
                 f"When complete, submit the gate result with `sprintengine task gate verdict`, then run "
-                f"`sprintengine join --role {args.role} --id {args.id} --watch` again if runner mode is auto; otherwise stop.\n\n"
+                f"`sprintengine join --role {args.role} --id {args.id} --watch` again if Auto Mode is on; otherwise stop.\n\n"
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
@@ -4077,7 +4077,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             f"{completion_instruction()}"
             f"If you notice a prompt or process issue that would help improve future Sprint Engine runs, include it with repeatable `--issue-json` on your final feedback command. "
             f"If your role reviews work, report concrete bugs, security issues, requirement violations, or test gaps with repeatable `--finding-json`. "
-            f"After completion, run `sprintengine join --role {args.role} --id {args.id} --watch` again if runner mode is auto; otherwise stop.\n\n"
+            f"After completion, run `sprintengine join --role {args.role} --id {args.id} --watch` again if Auto Mode is on; otherwise stop.\n\n"
             "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
             "All updates must go through the Sprint Engine tool.**"
         )
@@ -4101,11 +4101,11 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
         if action not in {"idle"}:
             return result
         if policy.get("mode") != "auto":
-            result["message"] = f"{result.get('message', 'No work is ready')} Runner mode is {policy.get('mode')}; stop now."
+            result["message"] = f"{result.get('message', 'No work is ready')} Auto Mode is off; stop now."
             return result
         elapsed = time.monotonic() - started_at
         if max_wait_seconds is not None and elapsed >= float(max_wait_seconds):
-            result["message"] = f"{result.get('message', 'No work is ready')} Runner mode is auto; max wait elapsed."
+            result["message"] = f"{result.get('message', 'No work is ready')} Auto Mode is on; max wait elapsed."
             return result
         delay_seconds = runner_watch_delay_seconds(policy, attempts)
         if max_wait_seconds is not None:
@@ -5361,6 +5361,7 @@ Entry points (return full system prompt for the agent):
   sprintengine projection
   sprintengine join --role developer --id developer-1 --watch
   sprintengine runner set --mode auto
+  sprintengine runner set --mode off
   sprintengine triage needs-input --id architect
   sprintengine merge start --id architect --target main
 
@@ -5551,7 +5552,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("join", help="Join Sprint Engine as worker, returns full role prompt.")
     p.add_argument("--role", required=True, choices=sorted(VALID_ROLES))
     p.add_argument("--id", required=True, help="Stable agent id, e.g. developer-1.")
-    p.add_argument("--watch", action="store_true", help="Poll according to runner.mode until work is available or the runner is not auto.")
+    p.add_argument("--watch", action="store_true", help="Poll until work is available, Auto Mode is off, or the run is complete.")
     p.add_argument("--max-wait-seconds", type=float, help="Maximum watch duration before returning idle; primarily useful for tests and diagnostics.")
     p.set_defaults(handler=cmd_join)
 
@@ -5563,7 +5564,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(handler=cmd_runner_status)
 
     p = runner_sub.add_parser("set", help="Update the durable runner policy.")
-    p.add_argument("--mode", choices=["auto", "manual", "paused"])
+    p.add_argument("--mode", choices=["auto", "off"], help="auto polls for ready work; off stops idle polling.")
     p.add_argument("--poll-interval-seconds", type=int, help="Initial idle poll delay for join --watch.")
     p.add_argument("--idle-backoff-seconds", type=int, help="Base delay for subsequent idle join --watch polls.")
     p.add_argument("--max-backoff-seconds", type=int, help="Maximum capped delay for progressive idle join --watch backoff.")

@@ -41,7 +41,7 @@ Worker workflow:
 3. Run `sprintengine join --role <your-role> --id <your-agent-id> --watch` to receive the next directive for your role. On Windows PowerShell, run `.\scripts\sprintengine.cmd join --role <your-role> --id <your-agent-id> --watch`.
 4. If this Claude process was restarted, reuse the same `--id`; `join --watch` returns that slot's active task or active gate before offering new work.
 5. Follow the join directive. It may tell you to run `task next`, `task gate next`, or `triage needs-input`; those commands perform the actual atomic claim or reconnect under the Sprint Engine locks.
-6. If no task is ready and runner mode is auto, `join --watch` sleeps/backoffs and polls again. If runner mode is manual or paused and no task is ready, stop and do not manually edit shared state.
+6. If no task is ready and Auto Mode is on, `join --watch` sleeps/backoffs and polls again. If Auto Mode is off and no task is ready, stop and do not manually edit shared state.
 7. Treat `ownedPaths` as the primary edit surface and collision boundary, not a ban on obvious companion edits. Prefer owned paths, but small directly required companion edits for correctness, integration, type safety, tests, or cleaner structure are allowed when logged as scope expansions. Move to `needs_input` with kind `architect` before broad expansion, product scope changes, major ownership boundary changes, or likely overlap with another active task.
 8. Update only your own task card with:
    - `sprintengine task status`
@@ -58,7 +58,7 @@ Worker workflow:
    - commands run
    - results
    - optional completion feedback percentages on the final status or artifact-ready command when you can assess them
-10. After completing one task or gate, run the same `join --watch` command again when runner mode is auto. Stop when the runner is manual, paused, complete, blocked on user input, or the join directive tells you to stop.
+10. After completing one task or gate, run the same `join --watch` command again when Auto Mode is on. Stop when Auto Mode is off, the run is complete, the task is blocked on user input, or the join directive tells you to stop.
 
 Quality gate workflow:
 
@@ -137,7 +137,7 @@ Rules:
 - Prefer `sprintengine join --role <role> --id <agent-id> --watch` for agent startup and continuation. Use `task next` only when the join directive tells you to claim or resume normal implementation work.
 - Only update your own task card.
 - Append evidence before moving work to `done`.
-- Complete one task or gate at a time. In auto runner mode, return to `join --watch`; otherwise stop.
+- Complete one task or gate at a time. When Auto Mode is on, return to `join --watch`; otherwise stop.
 - Use `sprintengine summary` after all tasks are done to summarize touched files, commands, validation results, and manual verification notes.
 - Do not rewrite the overall plan unless you are explicitly acting as the architect.
 - Architect-created follow-up work from final review must be followed by another architect final review task. Completed tasks stay done; create new tasks for fixes or verification.

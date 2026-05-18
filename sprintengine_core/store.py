@@ -89,7 +89,7 @@ DEFAULT_QUALITY_POLICY = {
     },
 }
 DEFAULT_RUNNER_POLICY = {
-    "mode": "manual",
+    "mode": "off",
     "pollIntervalSeconds": 10,
     "idleBackoffSeconds": 30,
     "maxBackoffSeconds": 120,
@@ -186,7 +186,7 @@ def _positive_int(value: Any, fallback: int, *, minimum: int = 1, maximum: int =
 def normalize_runner_policy(raw: Any) -> dict[str, Any]:
     policy = raw if isinstance(raw, dict) else {}
     mode = str(policy.get("mode") or DEFAULT_RUNNER_POLICY["mode"]).strip().lower()
-    if mode not in {"auto", "manual", "paused"}:
+    if mode not in {"auto", "off"}:
         mode = str(DEFAULT_RUNNER_POLICY["mode"])
     return {
         "mode": mode,

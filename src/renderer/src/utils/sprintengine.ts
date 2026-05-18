@@ -602,9 +602,9 @@ function positiveNumberOrDefault(value: unknown, fallback: number): number {
 function normalizeSprintEngineRunnerPolicy(input: unknown): SprintEngineRunnerPolicy | undefined {
   if (!input || typeof input !== 'object') return undefined
   const record = input as Record<string, unknown>
-  const mode = record.mode === 'auto' || record.mode === 'paused' || record.mode === 'manual'
+  const mode = record.mode === 'auto' || record.mode === 'off'
     ? record.mode
-    : 'manual'
+    : 'off'
   return {
     mode,
     pollIntervalSeconds: positiveNumberOrDefault(record.pollIntervalSeconds, 10),

@@ -203,7 +203,7 @@ function buildWorkerRespawnStartupPrompt(
 ): string {
 	 return [
 	 'Fetch the canonical Sprint Engine instructions from the Python tool.',
-	 `You are assigned role: ${role}. Only claim and work Sprint Engine tasks or quality gates whose role exactly matches ${role}. Use the Sprint Engine join-watch flow with this same agent id; the CLI owns polling and will tell you whether to claim a normal task, resume work, triage needs_input, or claim a quality gate. Do not create your own sleep/retry loop. After you claim one task or gate, focus only on that work: complete it, publish evidence or a gate verdict, then run the same join-watch command again if runner mode is auto. Stop earlier if runner mode is manual or paused, you are blocked, you need user input, or your context window is about 70% full. At about 70% context, publish a concise continuation note, compact or restart, fetch your Soul again, rerun the Sprint Engine join-watch command with this same id, and continue. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
+	 `You are assigned role: ${role}. Only claim and work Sprint Engine tasks or quality gates whose role exactly matches ${role}. Use the Sprint Engine join-watch flow with this same agent id; the CLI owns polling and will tell you whether to claim a normal task, resume work, triage needs_input, or claim a quality gate. Do not create your own sleep/retry loop. After you claim one task or gate, focus only on that work: complete it, publish evidence or a gate verdict, then run the same join-watch command again if Auto Mode is on. Stop earlier if Auto Mode is off, you are blocked, you need user input, or your context window is about 70% full. At about 70% context, publish a concise continuation note, compact or restart, fetch your Soul again, rerun the Sprint Engine join-watch command with this same id, and continue. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
 	 'On Windows, prefer the repo virtual environment command if `sprintengine` or global Python is unreliable:',
 	 [
 	 '```powershell',
@@ -283,7 +283,7 @@ function SprintEngineSettingsPopover({
  <Section title="Run" level={3} inset={true}>
  <div className="flex flex-col gap-2">
  <div className="flex items-center justify-between gap-3 text-[12px] text-[color:var(--text-default)]">
- <span id="sprintengine-settings-auto-label">Auto roster runner</span>
+ <span id="sprintengine-settings-auto-label">Auto mode</span>
  <Switch
  checked={autoEnabled}
  onChange={onToggleAuto}
@@ -390,6 +390,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  const [addMemberOpen, setAddMemberOpen] = useState(false)
  const [addMemberRole, setAddMemberRole] = useState<SprintEngineRole>('developer')
  const [manualRefreshBusy, setManualRefreshBusy] = useState(false)
+ const [autoRunnerControlEnabled, setAutoRunnerControlEnabled] = useState<boolean | null>(null)
  const [artifactActions, setArtifactActions] = useState<Record<string, ArtifactActionState>>({})
  const [taskReadyActions, setTaskReadyActions] = useState<Record<string, TaskReadyActionState>>({})
  const [syncState, setSyncState] = useState<SyncState>({
@@ -403,10 +404,17 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  const folderPath = folderReadyPath
  const agents = workspace?.agents ?? {}
  const terminalSessions = useTerminalSessions()
- const runnerMode = sprintEngineState?.runner?.mode ?? ((workspace?.sprintEngineAutoState?.enabled ?? false) ? 'auto' : 'manual')
- const autoEnabled = runnerMode === 'auto'
+ const projectedRunnerMode = sprintEngineState?.runner?.mode
+ const projectedAutoEnabled = projectedRunnerMode
+ ? projectedRunnerMode === 'auto'
+ : workspace?.sprintEngineAutoState?.enabled ?? false
+ const autoEnabled = autoRunnerControlEnabled ?? projectedAutoEnabled
  const autoApproveArtifacts = workspace?.sprintEngineAutoState?.autoApproveArtifacts ?? false
  const cliPermissionPreset = workspace?.sprintEngineAutoState?.cliPermissionPreset ?? 'default'
+
+ useEffect(() => {
+ setAutoRunnerControlEnabled(null)
+ }, [sprintEngineContext?.statePath])
 
  const resolveReadableSprintEngineStatePath = async (): Promise<string | null> => {
  if (!folderPath) return null
@@ -769,7 +777,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  const workerRoles: SprintEngineRole[] = ['developer', 'frontend', 'product', 'code_reviewer', 'spec_reviewer', 'performance', 'tester', 'security']
  const roleTaskLaunches = workerRoles.flatMap((role) => {
  const activeTask = sprintEngineState.tasks.find((task) =>
- task.role === role && (task.status === 'in_progress' || task.status === 'needs_input')
+ task.role === role && (task.status === 'in_progress' || task.status === 'needs_input' || task.status === 'changes_requested')
  )
  const readyTask = readyTasks.find((task) => task.role === role && !task.ownerAgentId)
  const task = activeTask ?? readyTask
@@ -1137,8 +1145,10 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  setSelectedArtifactId(null)
  setPreviewedArtifact(null)
  }
- const renderInspectorAside = () => inspectorSelection ? (
- <SidePane side="right" width="md" ariaLabel="Sprint Engine inspector">
+ // Inspector body, sans wrapper chrome. The project view embeds this in
+ // the focal center slot when something is selected; task-graph and kanban
+ // views keep the right-side aside via renderInspectorAside().
+ const renderInspectorPanel = () => inspectorSelection ? (
  <SprintEngineInspectorPanel
  selection={inspectorSelection}
  sprintEngineState={sprintEngineState}
@@ -1169,8 +1179,16 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  onOpenAgentTerminal={openAgentTerminal}
  isAgentTerminalLive={isAgentTerminalLive}
  />
- </SidePane>
  ) : null
+ const renderInspectorAside = () => {
+ const panel = renderInspectorPanel()
+ if (!panel) return null
+ return (
+ <SidePane side="right" width="md" ariaLabel="Sprint Engine inspector">
+ {panel}
+ </SidePane>
+ )
+ }
  const activateView = (view: SprintEngineView) => {
  if (fixedView) return
  setActiveView(view)
@@ -1178,13 +1196,19 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
 
  const toggleAuto = () => {
  const nextEnabled = !autoEnabled
+ const nextMode = nextEnabled ? 'auto' : 'off'
+ setAutoRunnerControlEnabled(nextEnabled)
  setSprintEngineAutoEnabled(workspaceId, nextEnabled)
- if (!sprintEngineContext?.statePath) return
+ if (!sprintEngineContext?.statePath) {
+ setAutoRunnerControlEnabled(autoEnabled)
+ return
+ }
  void window.api.setSprintEngineRunnerMode({
  statePath: sprintEngineContext.statePath,
- mode: nextEnabled ? 'auto' : 'paused',
+ mode: nextMode,
  }).then(async (result) => {
  if (!result.ok) {
+ setAutoRunnerControlEnabled(autoEnabled)
  setSprintEngineAutoEnabled(workspaceId, autoEnabled)
  await publishDiagnostic({
  level: 'warning',
@@ -1197,6 +1221,18 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  return
  }
  await refreshSprintEngineState()
+ setAutoRunnerControlEnabled(null)
+ }).catch(async (error) => {
+ setAutoRunnerControlEnabled(autoEnabled)
+ setSprintEngineAutoEnabled(workspaceId, autoEnabled)
+ await publishDiagnostic({
+ level: 'warning',
+ source: 'sprintengine',
+ title: 'Roster runner mode was not updated',
+ message: error instanceof Error ? error.message : String(error),
+ workspaceId,
+ workspaceName: workspace?.name,
+ })
  })
  }
 
@@ -1718,8 +1754,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView }: Props
  selectedArtifactId={selectedArtifactId}
  onSelectArtifact={setSelectedArtifactId}
  isAgentTerminalLive={isAgentTerminalLive}
+ inspectorContent={renderInspectorPanel()}
  />
- {renderInspectorAside()}
  </div>
  ) : null}
 
@@ -2277,6 +2313,7 @@ function SprintEngineProjectView({
  selectedArtifactId,
  onSelectArtifact,
  isAgentTerminalLive,
+ inspectorContent,
 }: {
  sprintEngineState: SprintEngineState
  roster: SprintEngineAgentRosterItem[]
@@ -2295,6 +2332,10 @@ function SprintEngineProjectView({
  selectedArtifactId: string | null
  onSelectArtifact: (artifactId: string | null) => void
  isAgentTerminalLive: (agentId: string) => boolean
+ // When set, takes the focal center slot and demotes the roster to a
+ // right rail. When null, the roster fills the center as the panel's
+ // primary content. The parent owns whether a selection exists.
+ inspectorContent: React.ReactNode
 }) {
  // runPhase → semantic tone for the project name's status dot.
  const runPhaseTone: Tone =
@@ -2380,6 +2421,118 @@ function SprintEngineProjectView({
  const projectionErrorMessage = sprintEngineState.projection?.errorMessage
  const lockWarnings = sprintEngineState.locks?.warnings ?? []
  const hasProjectionBanner = projectionUnavailable || Boolean(projectionErrorMessage) || lockWarnings.length > 0
+
+ // Selection state decides the inner layout:
+ //   no inspector → 2-pane: inbox (left) + roster (center, focal)
+ //   inspector    → 3-pane: inbox (left) + inspector (center, focal) + roster (right rail)
+ // This mirrors Watchtower's inbox→detail focal model when an artifact is
+ // open, and reverts to a roster-led empty state when nothing is selected.
+ const hasInspector = inspectorContent !== null && inspectorContent !== undefined
+ const rosterPanelBody = (
+ <>
+ <PanelHeader title="Roster" count={roster.length} />
+
+ <div className="flex-1 overflow-auto">
+ {roster.length === 0 ? (
+ <div className="px-3 py-6 text-[12px] leading-5 text-[color:var(--text-subtle)]">
+ No agents on roster yet. Pick a role below to add the first member.
+ </div>
+ ) : (
+ <ol aria-label="Roster agents">
+ {roster.map((agent) => {
+ const runtime = runtimeAgents.find((entry) => entry.agentId === agent.id) ?? null
+ const hasLiveTerminal = isAgentTerminalLive(agent.id)
+ const statusKey = runtime?.status ?? (hasLiveTerminal ? 'running' : 'idle')
+ const displayName = agents[agent.id]?.name?.trim() || agent.label
+ const roleSlotLabel = agent.label !== displayName ? agent.label : null
+ const currentTask = runtime?.currentTaskId
+ ? sprintEngineState.tasks.find((task) => task.id === runtime.currentTaskId) ?? null
+ : null
+ const selected = selectedAgentId === agent.id
+ return (
+ <li key={agent.id}>
+ <button
+ type="button"
+ onClick={() => onSelectAgent(agent.id)}
+ aria-pressed={selected}
+ className={`interactive relative flex w-full min-w-0 gap-2.5 px-3 py-2.5 text-left border-b border-[color:var(--border-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] focus-visible:ring-inset ${
+ selected
+ ? 'bg-[color:var(--bg-hover)] pl-[9px] text-[color:var(--text-strong)] before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r before:bg-[color:var(--accent-primary)]'
+ : 'hover:bg-[color:var(--bg-surface)] text-[color:var(--text-default)]'
+ }`}
+ >
+ <RoleAvatar role={agent.role} size="md" className="mt-0.5" ariaLabel="" />
+ <span className="min-w-0 flex-1 space-y-0.5">
+ <span className="flex min-w-0 items-baseline gap-2">
+ <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+ {displayName}
+ </span>
+ {roleSlotLabel ? (
+ <span className="min-w-0 shrink truncate text-[11px] text-[color:var(--text-muted)]">
+ {roleSlotLabel}
+ </span>
+ ) : null}
+ </span>
+ <span className="flex min-w-0 items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
+ <span className="flex shrink-0 items-center gap-1.5">
+ <StatusDot tone={runtimeStatusTone(statusKey)} />
+ <span className="capitalize">{statusKey}</span>
+ </span>
+ {currentTask ? (
+ <span className="min-w-0 truncate">
+ <span className="font-mono text-[color:var(--text-muted)]">{currentTask.id}</span>
+ <span className="text-[color:var(--text-disabled)]"> · </span>
+ <span>{currentTask.title}</span>
+ </span>
+ ) : (
+ <span className="text-[color:var(--text-disabled)]">No active task</span>
+ )}
+ </span>
+ </span>
+ </button>
+ </li>
+ )
+ })}
+ </ol>
+ )}
+
+ <section aria-label="Add a roster member" className="border-t border-[color:var(--border-default)]">
+ <div className="flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
+ <h3 className="truncate text-[11px] font-semibold text-[color:var(--text-muted)]">
+ Add member
+ </h3>
+ <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]">
+ {addableRoles.length} roles
+ </span>
+ </div>
+ <div className="flex flex-wrap gap-1.5 px-3 py-2.5">
+ {addableRoles.map((role) => {
+ const count = rosterCountByRole[role] ?? 0
+ const addLabel = `${count > 0 ? 'Add another' : 'Add'} ${sprintEngineRoleLabels[role]}`
+ return (
+ <Tooltip key={role} content={addLabel}>
+ <button
+ type="button"
+ onClick={() => dispatchRoleAdd(role)}
+ aria-label={addLabel}
+ className="interactive inline-flex items-center gap-1.5 rounded border border-dashed border-[color:var(--border-strong)] px-2 py-1 text-[11px] font-medium text-[color:var(--text-default)] transition-colors hover:border-[color:var(--accent-primary-soft)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+ >
+ <RoleAvatar role={role} size="xs" ariaLabel="" />
+ <span>{sprintEngineRoleLabels[role]}</span>
+ {count > 0 ? (
+ <span className="ml-0.5 rounded bg-[color:var(--bg-hover)] px-1 tabular-nums text-[color:var(--text-muted)]">
+ {count}
+ </span>
+ ) : null}
+ </button>
+ </Tooltip>
+ )
+ })}
+ </div>
+ </section>
+ </div>
+ </>
+ )
 
  return (
  <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-default)]">
@@ -2515,112 +2668,29 @@ function SprintEngineProjectView({
  </div>
  </SidePane>
 
+ {hasInspector ? (
+ <>
+ <section
+ className="flex min-w-0 flex-1 flex-col"
+ aria-label="Selected item detail"
+ >
+ {inspectorContent}
+ </section>
+ <aside
+ className="flex w-[320px] shrink-0 flex-col border-l border-[color:var(--border-default)]"
+ aria-label="Roster"
+ >
+ {rosterPanelBody}
+ </aside>
+ </>
+ ) : (
  <section
  className="flex min-w-0 flex-1 flex-col"
  aria-label="Roster"
  >
- <PanelHeader title="Roster" count={roster.length} />
-
- <div className="flex-1 overflow-auto">
- {roster.length === 0 ? (
- <div className="px-3 py-6 text-[12px] leading-5 text-[color:var(--text-subtle)]">
- No agents on roster yet. Pick a role below to add the first member.
- </div>
- ) : (
- <ol aria-label="Roster agents">
- {roster.map((agent) => {
- const runtime = runtimeAgents.find((entry) => entry.agentId === agent.id) ?? null
- const hasLiveTerminal = isAgentTerminalLive(agent.id)
- const statusKey = runtime?.status ?? (hasLiveTerminal ? 'running' : 'idle')
- const displayName = agents[agent.id]?.name?.trim() || agent.label
- const roleSlotLabel = agent.label !== displayName ? agent.label : null
- const currentTask = runtime?.currentTaskId
- ? sprintEngineState.tasks.find((task) => task.id === runtime.currentTaskId) ?? null
- : null
- const selected = selectedAgentId === agent.id
- return (
- <li key={agent.id}>
- <button
- type="button"
- onClick={() => onSelectAgent(agent.id)}
- aria-pressed={selected}
- className={`interactive relative flex w-full min-w-0 gap-2.5 px-3 py-2.5 text-left border-b border-[color:var(--border-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] focus-visible:ring-inset ${
- selected
- ? 'bg-[color:var(--bg-hover)] pl-[9px] text-[color:var(--text-strong)] before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r before:bg-[color:var(--accent-primary)]'
- : 'hover:bg-[color:var(--bg-surface)] text-[color:var(--text-default)]'
- }`}
- >
- <RoleAvatar role={agent.role} size="md" className="mt-0.5" ariaLabel="" />
- <span className="min-w-0 flex-1 space-y-0.5">
- <span className="flex min-w-0 items-baseline gap-2">
- <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
- {displayName}
- </span>
- {roleSlotLabel ? (
- <span className="min-w-0 shrink truncate text-[11px] text-[color:var(--text-muted)]">
- {roleSlotLabel}
- </span>
- ) : null}
- </span>
- <span className="flex min-w-0 items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
- <span className="flex shrink-0 items-center gap-1.5">
- <StatusDot tone={runtimeStatusTone(statusKey)} />
- <span className="capitalize">{statusKey}</span>
- </span>
- {currentTask ? (
- <span className="min-w-0 truncate">
- <span className="font-mono text-[color:var(--text-muted)]">{currentTask.id}</span>
- <span className="text-[color:var(--text-disabled)]"> · </span>
- <span>{currentTask.title}</span>
- </span>
- ) : (
- <span className="text-[color:var(--text-disabled)]">No active task</span>
- )}
- </span>
- </span>
- </button>
- </li>
- )
- })}
- </ol>
- )}
-
- <section aria-label="Add a roster member" className="border-t border-[color:var(--border-default)]">
- <div className="flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
- <h3 className="truncate text-[11px] font-semibold text-[color:var(--text-muted)]">
- Add member
- </h3>
- <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]">
- {addableRoles.length} roles
- </span>
- </div>
- <div className="flex flex-wrap gap-1.5 px-3 py-2.5">
- {addableRoles.map((role) => {
- const count = rosterCountByRole[role] ?? 0
- const addLabel = `${count > 0 ? 'Add another' : 'Add'} ${sprintEngineRoleLabels[role]}`
- return (
- <Tooltip key={role} content={addLabel}>
- <button
- type="button"
- onClick={() => dispatchRoleAdd(role)}
- aria-label={addLabel}
- className="interactive inline-flex items-center gap-1.5 rounded border border-dashed border-[color:var(--border-strong)] px-2 py-1 text-[11px] font-medium text-[color:var(--text-default)] transition-colors hover:border-[color:var(--accent-primary-soft)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
- >
- <RoleAvatar role={role} size="xs" ariaLabel="" />
- <span>{sprintEngineRoleLabels[role]}</span>
- {count > 0 ? (
- <span className="ml-0.5 rounded bg-[color:var(--bg-hover)] px-1 tabular-nums text-[color:var(--text-muted)]">
- {count}
- </span>
- ) : null}
- </button>
- </Tooltip>
- )
- })}
- </div>
+ {rosterPanelBody}
  </section>
- </div>
- </section>
+ )}
  </div>
  </div>
  )

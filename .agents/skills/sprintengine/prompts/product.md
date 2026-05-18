@@ -53,7 +53,7 @@ sprintengine task log --task-id <id> --id <your-id> --summary "Product final rev
 sprintengine task publish --task-id <id> --id <your-id> --summary "What changed and how you verified it"
 ```
 
-If join says no work is ready and runner mode is manual or paused, stop. In auto mode, let join --watch own the wait and retry loop.
+If join says no work is ready and Auto Mode is off, stop. When Auto Mode is on, let join --watch own the wait and retry loop.
 
 ## Product Final Review Format
 
@@ -128,7 +128,7 @@ Before any filesystem edit, verify the target path is within the allowed documen
 
 - **DO NOT edit Sprint Engine run-store files directly.** All updates go through the Sprint Engine tool.
 - Do not claim tasks assigned to other roles.
-- After completing a task or gate, run join --watch again when runner mode is auto; otherwise stop.
+- After completing a task or gate, run join --watch again when Auto Mode is on; otherwise stop.
 - Do not mark artifact gate tasks `done` yourself; approval does that after review.
 - Do not edit application source, project metadata, build config, or renderer assets even when those files appear in task context.
 

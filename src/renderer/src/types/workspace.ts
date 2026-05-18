@@ -93,7 +93,7 @@ export type SprintEngineQualityPolicy = {
 }
 
 export type SprintEngineRunnerPolicy = {
-  mode: 'auto' | 'manual' | 'paused'
+  mode: 'auto' | 'off'
   pollIntervalSeconds: number
   idleBackoffSeconds: number
   maxBackoffSeconds: number

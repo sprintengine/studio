@@ -764,8 +764,8 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
       try {
         const state = validateSprintEngineStatePath(payload?.statePath)
         const mode = payload?.mode
-        if (mode !== 'auto' && mode !== 'manual' && mode !== 'paused') {
-          throw new Error('Runner mode must be auto, manual, or paused.')
+        if (mode !== 'auto' && mode !== 'off') {
+          throw new Error('Runner mode must be auto or off.')
         }
         const toolResult = await runSprintEngineCli(state, [
           '--state',

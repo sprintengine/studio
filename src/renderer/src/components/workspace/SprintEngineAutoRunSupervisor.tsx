@@ -107,8 +107,7 @@ function getSprintEngineAutoState(workspace: Workspace | null | undefined): Spri
 
 function isSprintEngineRunnerActive(workspace: Workspace | null | undefined): boolean {
   const runnerMode = workspace?.sprintEngineState?.runner?.mode
-  if (runnerMode) return runnerMode === 'auto'
-  return getSprintEngineAutoState(workspace).enabled
+  return runnerMode === 'auto' || getSprintEngineAutoState(workspace).enabled
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -238,8 +237,49 @@ async function refreshAutoWorkspaceState(
       workspaceName: workspace.name,
       message: error instanceof Error ? error.message : String(error),
     })
-    // Auto mode can be enabled before the agent-managed state file exists.
+    // Auto Mode can be enabled before the agent-managed state file exists.
     return null
+  }
+}
+
+async function ensureDurableAutoMode(
+  workspace: Workspace,
+  sprintEngineState: SprintEngineState,
+  lastContentByWorkspace: MutableRefObject<Map<string, string>>
+): Promise<{ workspace: Workspace; sprintEngineState: SprintEngineState } | null> {
+  if (!workspace.sprintEngineContext || sprintEngineState.runner?.mode === 'auto') {
+    return { workspace, sprintEngineState }
+  }
+
+  const stateFileExists = await window.api.pathExists(workspace.sprintEngineContext.statePath).catch(() => false)
+  if (!stateFileExists) return { workspace, sprintEngineState }
+
+  const result = await window.api.setSprintEngineRunnerMode({
+    statePath: workspace.sprintEngineContext.statePath,
+    mode: 'auto',
+  }).catch((error): { ok: false; message: string } => ({
+    ok: false,
+    message: error instanceof Error ? error.message : String(error),
+  }))
+
+  if (!result.ok) {
+    await publishDiagnostic({
+      level: 'warning',
+      source: 'sprintengine',
+      title: 'Auto Mode was not started',
+      message: result.message,
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+    })
+    return null
+  }
+
+  const refreshedState = await refreshAutoWorkspaceState(workspace, lastContentByWorkspace, { force: true })
+  const refreshedWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
+  if (!refreshedWorkspace || !refreshedState) return null
+  return {
+    workspace: refreshedWorkspace,
+    sprintEngineState: refreshedWorkspace.sprintEngineState ?? refreshedState,
   }
 }
 
@@ -630,7 +670,7 @@ function pickNextAutoRuns(
   }
 
   const activeTasks = sprintEngineState.tasks.filter((task) =>
-    task.status === 'in_progress' && Boolean(task.ownerAgentId)
+    (task.status === 'in_progress' || task.status === 'changes_requested') && Boolean(task.ownerAgentId)
   )
   logPerfEvent('SprintEngineAutoRun', 'candidate-pick-active-tasks', {
     workspaceId: workspace.id,
@@ -666,6 +706,7 @@ function pickNextAutoRuns(
 
   const readyTasks = sprintEngineState.tasks.filter((task) =>
     isSprintEngineTaskLaunchable(task, sprintEngineState)
+    || (task.status === 'changes_requested' && Boolean(task.ownerAgentId))
   )
   logPerfEvent('SprintEngineAutoRun', 'candidate-pick-ready-tasks', {
     workspaceId: workspace.id,
@@ -1091,7 +1132,9 @@ async function sendContinuationPromptsToIdleAgents(
     if (!runtimeAgent) continue
 
     const task = readyTasks.find((candidate) =>
-      candidate.role === runtimeAgent.role && !claimedTaskIds.has(candidate.id)
+      candidate.role === runtimeAgent.role
+      && !claimedTaskIds.has(candidate.id)
+      && (!candidate.ownerAgentId || candidate.ownerAgentId === agentId)
     )
     if (!task) continue
 
@@ -1721,6 +1764,11 @@ async function superviseWorkspace(
     agentCount: Object.keys(sprintEngineState.sprintEngineAgents).length,
     autoApproveArtifacts: autoState.autoApproveArtifacts,
   })
+
+  const durableAutoMode = await ensureDurableAutoMode(workspace, sprintEngineState, lastContentByWorkspace)
+  if (!durableAutoMode) return
+  workspace = durableAutoMode.workspace
+  sprintEngineState = durableAutoMode.sprintEngineState
 
   if (autoState.enabled && autoState.autoApproveArtifacts) {
     const approvalResult = await sendApprovalToNextEligibleArtifactProducer(

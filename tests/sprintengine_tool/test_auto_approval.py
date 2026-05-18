@@ -258,12 +258,13 @@ def test_electron_roster_runner_starts_roster_agents_without_task_named_workers(
     assert "buildAutoRunAgentId(task.role, task.id)" not in supervisor_source
 
 
-def test_electron_roster_runner_projection_mode_overrides_legacy_toggle() -> None:
+def test_electron_roster_runner_uses_durable_or_requested_auto_mode() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
         encoding="utf-8"
     )
 
     assert "const runnerMode = workspace?.sprintEngineState?.runner?.mode" in supervisor_source
-    assert "if (runnerMode) return runnerMode === 'auto'" in supervisor_source
-    assert "return getSprintEngineAutoState(workspace).enabled" in supervisor_source
+    assert "return runnerMode === 'auto' || getSprintEngineAutoState(workspace).enabled" in supervisor_source
+    assert "async function ensureDurableAutoMode" in supervisor_source
+    assert "mode: 'auto'" in supervisor_source

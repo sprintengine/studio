@@ -464,6 +464,10 @@ def test_runner_set_persists_policy_and_projection(tmp_path) -> None:
     projection = fixture.cli.run("projection")
     assert projection["run"]["runner"]["mode"] == "auto"
 
+    off_payload = fixture.cli.run("runner", "set", "--mode", "off")
+    assert off_payload["runner"]["mode"] == "off"
+    assert read_state(fixture.state_path)["runner"]["mode"] == "off"
+
 
 def test_runner_watch_delay_progressively_caps() -> None:
     policy = {"pollIntervalSeconds": 2, "idleBackoffSeconds": 3, "maxBackoffSeconds": 10}
@@ -471,14 +475,14 @@ def test_runner_watch_delay_progressively_caps() -> None:
     assert [runner_watch_delay_seconds(policy, attempts) for attempts in range(1, 6)] == [2, 3, 6, 10, 10]
 
 
-def test_join_watch_returns_idle_in_manual_mode_without_work(tmp_path) -> None:
-    fixture = create_team(tmp_path, "join-watch-manual-idle", [task("T1", "Frontend work", "frontend", "todo")])
+def test_join_watch_returns_idle_when_auto_mode_is_off_without_work(tmp_path) -> None:
+    fixture = create_team(tmp_path, "join-watch-auto-off-idle", [task("T1", "Frontend work", "frontend", "todo")])
 
     payload = fixture.cli.run("join", "--role", "developer", "--id", "developer-1", "--watch", "--max-wait-seconds", "0")
 
     assert payload["action"] == "idle"
-    assert payload["runner"]["mode"] == "manual"
-    assert "Runner mode is manual" in payload["message"]
+    assert payload["runner"]["mode"] == "off"
+    assert "Auto Mode is off" in payload["message"]
 
 
 def test_join_watch_returns_ready_gate_before_normal_task(tmp_path) -> None:
@@ -1176,6 +1180,42 @@ def test_active_task_reconnect_and_join_do_not_rewrite_state(tmp_path) -> None:
     )
     assert join_payload["action"] == "resume"
     assert join_payload["task"]["id"] == "T1"
+
+
+def test_join_and_task_next_resume_owned_changes_requested_rework(tmp_path) -> None:
+    rework_task = task("T1", "Needs implementation rework", "frontend", "changes_requested")
+    rework_task["ownerAgentId"] = "frontend-1"
+    fixture = create_team(tmp_path, "owned-rework-resume", [rework_task])
+
+    other_agent = fixture.cli.run(
+        "join",
+        "--role",
+        "frontend",
+        "--id",
+        "frontend-2",
+        "--watch",
+        "--max-wait-seconds",
+        "0",
+    )
+    assert other_agent["action"] == "idle"
+
+    join_payload = fixture.cli.run(
+        "join",
+        "--role",
+        "frontend",
+        "--id",
+        "frontend-1",
+        "--watch",
+        "--max-wait-seconds",
+        "0",
+    )
+    assert join_payload["action"] == "resume"
+    assert join_payload["task"]["id"] == "T1"
+
+    next_payload = fixture.cli.run("task", "next", "--role", "frontend", "--id", "frontend-1")
+    assert next_payload["claimed"] is False
+    assert next_payload["reason"] == "agent_already_has_active_task"
+    assert next_payload["task"]["id"] == "T1"
 
 
 def test_completed_agent_ids_can_claim_a_second_ready_task(tmp_path) -> None:

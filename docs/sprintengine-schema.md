@@ -62,7 +62,7 @@ Folder-store files are not safe manual editing surfaces. Use commands such as
   `dependsOn`.
 - `artifacts`: compact artifact entries with `id`, `status`, `kind`, and
   `taskId`.
-- `runner`: durable runner policy (`manual`, `auto`, or `paused`) plus polling
+- `runner`: durable runner policy (`auto` or `off`) plus polling
   and completion settings.
 - `creation`: run creation metadata such as source and timestamp.
 - `updatedAt`: UTC timestamp of the latest store sync.
@@ -395,10 +395,9 @@ artifact folders, metrics files, or comments from folder internals.
 ## Runner Policy
 
 Runner policy is stored in `run.yaml` and projected under `run.runner`.
-`manual` means `join --watch` returns idle immediately when no work is ready.
-`auto` means `join --watch` sleeps and polls until work appears, the run
-completes, the mode changes, or a diagnostic max-wait limit is reached.
-`paused` stops auto polling without losing the roster or task graph.
+`off` means `join --watch` returns idle immediately when no work is ready.
+`auto` means `join --watch` sleeps and polls until work appears, Auto Mode is
+turned off, the run completes, or a diagnostic max-wait limit is reached.
 
 ## Verification Commands
 

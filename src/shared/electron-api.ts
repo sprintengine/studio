@@ -686,7 +686,7 @@ export type SprintEngineStateInitializeInput = {
   artifacts?: unknown[]
 }
 
-export type SprintEngineRunnerMode = 'auto' | 'manual' | 'paused'
+export type SprintEngineRunnerMode = 'auto' | 'off'
 
 export type SprintEngineRunnerSetInput = {
   statePath: string

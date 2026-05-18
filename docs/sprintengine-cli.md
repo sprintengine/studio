@@ -236,12 +236,13 @@ The durable runner policy lives in `run.yaml` and is exposed in projection:
 ```bash
 sprintengine runner status
 sprintengine runner set --mode auto
-sprintengine runner set --mode paused
+sprintengine runner set --mode off
 ```
 
-Agents should start and continue with `join --watch`. When runner mode is
-`auto`, `join --watch` sleeps and polls under the CLI until work is available
-or the mode changes. The renderer should launch and monitor roster terminals;
+Agents should start and continue with `join --watch`. When Auto Mode is on,
+`join --watch` sleeps and polls under the CLI until work is available or Auto
+Mode is turned off. When Auto Mode is off, idle agents stop. The renderer
+should launch and monitor roster terminals;
 the CLI decides which task, gate, or triage directive an agent receives.
 
 ## DAG Readiness
