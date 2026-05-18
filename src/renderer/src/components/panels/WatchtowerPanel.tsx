@@ -69,6 +69,7 @@ import {
   SidePaneHeader,
   Skeleton,
   StatusDot,
+  Tooltip,
   type OverflowMenuItem,
   type Tone,
 } from '../ui'
@@ -1177,32 +1178,37 @@ function InboxFilterBar({
     [sectorCounts]
   )
 
+  const hasChips = filters.sectors.length > 0 || filters.createdRange !== null
+
   return (
     <div className="flex flex-col gap-1.5 border-b border-[color:var(--border-default)] px-3 py-1.5">
-      <InboxSearchInput value={filters.search} onChange={updateSearch} />
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex items-center gap-1.5">
+        <InboxSearchInput value={filters.search} onChange={updateSearch} />
         <Popover
           open={pickerOpen}
           onOpenChange={(next) => (next ? openPicker('root') : closePicker())}
           ariaLabel="Add inbox filter"
           popupRole="menu"
+          placement="bottom-end"
           surfaceClassName="min-w-[200px] py-1"
           renderTrigger={({ ref, triggerProps }) => (
-            <button
-              ref={ref}
-              type="button"
-              {...triggerProps}
-              onClick={() => (pickerOpen ? closePicker() : openPicker('root'))}
-              className={[
-                'interactive inline-flex h-7 items-center gap-1 rounded-[5px] border border-dashed',
-                'border-[color:var(--border-default)] bg-transparent px-2 text-[12px]',
-                'text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)]',
-                FOCUS_RING_CLASS,
-              ].join(' ')}
-            >
-              <FilterGlyph />
-              <span>Filter</span>
-            </button>
+            <Tooltip content="Filter">
+              <button
+                ref={ref}
+                type="button"
+                {...triggerProps}
+                onClick={() => (pickerOpen ? closePicker() : openPicker('root'))}
+                aria-label="Filter inbox"
+                className={[
+                  'interactive inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] border border-dashed',
+                  'border-[color:var(--border-default)] bg-transparent',
+                  'text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)]',
+                  FOCUS_RING_CLASS,
+                ].join(' ')}
+              >
+                <FilterGlyph />
+              </button>
+            </Tooltip>
           )}
         >
           {pickerStep === 'root' ? (
@@ -1234,57 +1240,61 @@ function InboxFilterBar({
             />
           )}
         </Popover>
-
-        {filters.sectors.length > 0 ? (
-          <FilterChip
-            label="Type"
-            value={sectorChipLabel ?? ''}
-            open={chipOpen === 'sectors'}
-            onOpenChange={(open) => setChipOpen(open ? 'sectors' : null)}
-            onRemove={() => onChange({ ...filters, sectors: [] })}
-            removeAriaLabel="Remove type filter"
-          >
-            <SectorPicker
-              sectors={sectorCountsList}
-              selected={filters.sectors}
-              onToggle={toggleSector}
-              onClear={() => {
-                onChange({ ...filters, sectors: [] })
-                setChipOpen(null)
-              }}
-            />
-          </FilterChip>
-        ) : null}
-
-        {filters.createdRange ? (
-          <FilterChip
-            label="Created"
-            value={getInboxCreatedRange(filters.createdRange).label}
-            open={chipOpen === 'created'}
-            onOpenChange={(open) => setChipOpen(open ? 'created' : null)}
-            onRemove={() => setCreated(null)}
-            removeAriaLabel="Remove created filter"
-          >
-            <CreatedPicker
-              value={filters.createdRange}
-              onChange={(next) => {
-                setCreated(next)
-                setChipOpen(null)
-              }}
-              onClear={() => {
-                setCreated(null)
-                setChipOpen(null)
-              }}
-            />
-          </FilterChip>
-        ) : null}
-
-        {filtersActive ? (
-          <GhostButton onClick={clearAll} aria-label="Clear all inbox filters" className="ml-auto">
-            Clear all
-          </GhostButton>
-        ) : null}
       </div>
+
+      {hasChips ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {filters.sectors.length > 0 ? (
+            <FilterChip
+              label="Type"
+              value={sectorChipLabel ?? ''}
+              open={chipOpen === 'sectors'}
+              onOpenChange={(open) => setChipOpen(open ? 'sectors' : null)}
+              onRemove={() => onChange({ ...filters, sectors: [] })}
+              removeAriaLabel="Remove type filter"
+            >
+              <SectorPicker
+                sectors={sectorCountsList}
+                selected={filters.sectors}
+                onToggle={toggleSector}
+                onClear={() => {
+                  onChange({ ...filters, sectors: [] })
+                  setChipOpen(null)
+                }}
+              />
+            </FilterChip>
+          ) : null}
+
+          {filters.createdRange ? (
+            <FilterChip
+              label="Created"
+              value={getInboxCreatedRange(filters.createdRange).label}
+              open={chipOpen === 'created'}
+              onOpenChange={(open) => setChipOpen(open ? 'created' : null)}
+              onRemove={() => setCreated(null)}
+              removeAriaLabel="Remove created filter"
+            >
+              <CreatedPicker
+                value={filters.createdRange}
+                onChange={(next) => {
+                  setCreated(next)
+                  setChipOpen(null)
+                }}
+                onClear={() => {
+                  setCreated(null)
+                  setChipOpen(null)
+                }}
+              />
+            </FilterChip>
+          ) : null}
+
+          {filtersActive ? (
+            <GhostButton onClick={clearAll} aria-label="Clear all inbox filters" className="ml-auto">
+              Clear all
+            </GhostButton>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -1320,7 +1330,7 @@ function InboxSearchInput({
   return (
     <div
       className={[
-        'flex h-7 items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)]',
+        'flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)]',
         'bg-[color:var(--bg-surface-raised)] px-2 text-[12px]',
         'focus-within:border-[color:var(--accent-primary)]',
       ].join(' ')}
@@ -1330,9 +1340,8 @@ function InboxSearchInput({
         type="search"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="Search inbox"
         aria-label="Search inbox"
-        className="min-w-0 flex-1 bg-transparent text-[color:var(--text-default)] outline-none placeholder:text-[color:var(--text-muted)]"
+        className="min-w-0 flex-1 bg-transparent text-[color:var(--text-default)] outline-none"
       />
       {value ? (
         <button
