@@ -59,6 +59,7 @@ import {
   FOCUS_RING_CLASS,
   GhostButton,
   InboxRow,
+  InboxSearchInput,
   OverflowMenu,
   PanelHeader,
   Popover,
@@ -1183,7 +1184,11 @@ function InboxFilterBar({
   return (
     <div className="flex flex-col gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
       <div className="flex items-center gap-2">
-        <InboxSearchInput value={filters.search} onChange={updateSearch} />
+        <InboxSearchInput
+          value={filters.search}
+          onChange={updateSearch}
+          ariaLabel="Search inbox"
+        />
         <Popover
           open={pickerOpen}
           onOpenChange={(next) => (next ? openPicker('root') : closePicker())}
@@ -1316,59 +1321,6 @@ function FilterGlyph() {
         fill="none"
         strokeLinejoin="round"
       />
-    </svg>
-  )
-}
-
-function InboxSearchInput({
-  value,
-  onChange,
-}: {
-  value: string
-  onChange: (next: string) => void
-}) {
-  return (
-    <div
-      className={[
-        'flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)]',
-        'bg-[color:var(--bg-surface-raised)] px-2 text-[12px]',
-        'focus-within:border-[color:var(--accent-primary)]',
-      ].join(' ')}
-    >
-      <SearchGlyph />
-      <input
-        type="search"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        aria-label="Search inbox"
-        className="min-w-0 flex-1 bg-transparent text-[color:var(--text-default)] outline-none"
-      />
-      {value ? (
-        <button
-          type="button"
-          onClick={() => onChange('')}
-          aria-label="Clear search"
-          className="shrink-0 text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]"
-        >
-          <CrossGlyph />
-        </button>
-      ) : null}
-    </div>
-  )
-}
-
-function SearchGlyph() {
-  return (
-    <svg
-      width="11"
-      height="11"
-      viewBox="0 0 11 11"
-      aria-hidden="true"
-      focusable="false"
-      className="shrink-0 text-[color:var(--text-muted)]"
-    >
-      <circle cx="4.5" cy="4.5" r="3" stroke="currentColor" strokeWidth="1.2" fill="none" />
-      <path d="M7 7l2.5 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
   )
 }

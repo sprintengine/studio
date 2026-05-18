@@ -6,6 +6,8 @@ import {
  Tabs,
  OverflowMenu,
  GhostButton,
+ InboxSearchInput,
+ PanelHeader,
  Popover,
  RoleAvatar,
  SidePane,
@@ -2292,11 +2294,15 @@ function SprintEngineEmptyDetail({ message }: { message: string }) {
  )
 }
 
+const SPRINTENGINE_INBOX_TITLE_ID = 'sprintengine-inbox-title'
+
 // Inbox tab: list + detail. The artifact queue sits in the primary content
 // column on the left; the inspector fills the remaining width when something
 // is selected, and a quiet empty state when not. This matches Watchtower's
 // two-pane chrome — the roster lives on its own tab now, so the right pane
-// never has to compete for width with a third column.
+// never has to compete for width with a third column. The "Inbox · N"
+// header and search live inside the list pane so the active tab carries
+// its own identity (the panel-wide hero shows run status, not list state).
 function SprintEngineInboxView({
  sprintEngineState,
  reviewArtifacts,
@@ -2322,6 +2328,26 @@ function SprintEngineInboxView({
  () => getSprintEngineInboxArtifacts(reviewArtifacts),
  [reviewArtifacts]
  )
+ const [search, setSearch] = useState('')
+ const visibleArtifacts = useMemo(() => {
+ const query = search.trim().toLowerCase()
+ if (!query) return inboxArtifacts
+ return inboxArtifacts.filter((artifact) => {
+ const task = tasksById[artifact.taskId]
+ const haystack = [
+ artifact.id,
+ artifact.title,
+ artifact.kind,
+ artifact.createdBy,
+ task?.id,
+ task?.title,
+ ]
+ .filter(Boolean)
+ .join(' ')
+ .toLowerCase()
+ return haystack.includes(query)
+ })
+ }, [inboxArtifacts, search, tasksById])
  const blockedByArtifacts = useMemo(() => (
  sprintEngineState.tasks
  .map((task) => ({
@@ -2332,33 +2358,46 @@ function SprintEngineInboxView({
  ), [reviewArtifacts, sprintEngineState.tasks])
 
  const inboxEmptyMessage = sprintEngineInboxEmptyMessage(runPhase)
+ const filteringActive = search.trim().length > 0
+ const emptyMessage =
+ filteringActive && inboxArtifacts.length > 0
+ ? 'No inbox artifacts match the current search.'
+ : inboxEmptyMessage
+
+ // Drop a selection when the search has filtered it out so the inspector
+ // never shows an artifact that isn't visible in the list.
+ useEffect(() => {
+ if (selectedArtifactId && !visibleArtifacts.some((artifact) => artifact.id === selectedArtifactId)) {
+ onSelectArtifact(null)
+ }
+ }, [selectedArtifactId, visibleArtifacts, onSelectArtifact])
  const handleInboxKeyDown = useCallback(
  (event: React.KeyboardEvent<HTMLDivElement>) => {
  if (isEditableTarget(event.target)) return
- if (inboxArtifacts.length === 0) return
+ if (visibleArtifacts.length === 0) return
  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
  event.preventDefault()
  const currentIndex = selectedArtifactId
- ? inboxArtifacts.findIndex((artifact) => artifact.id === selectedArtifactId)
+ ? visibleArtifacts.findIndex((artifact) => artifact.id === selectedArtifactId)
  : -1
  const delta = event.key === 'ArrowDown' ? 1 : -1
  let nextIndex: number
  if (currentIndex === -1) {
- nextIndex = event.key === 'ArrowDown' ? 0 : inboxArtifacts.length - 1
+ nextIndex = event.key === 'ArrowDown' ? 0 : visibleArtifacts.length - 1
  } else {
- nextIndex = (currentIndex + delta + inboxArtifacts.length) % inboxArtifacts.length
+ nextIndex = (currentIndex + delta + visibleArtifacts.length) % visibleArtifacts.length
  }
- onSelectArtifact(inboxArtifacts[nextIndex].id)
+ onSelectArtifact(visibleArtifacts[nextIndex].id)
  return
  }
  if (event.key === 'Home') {
  event.preventDefault()
- onSelectArtifact(inboxArtifacts[0].id)
+ onSelectArtifact(visibleArtifacts[0].id)
  return
  }
  if (event.key === 'End') {
  event.preventDefault()
- onSelectArtifact(inboxArtifacts[inboxArtifacts.length - 1].id)
+ onSelectArtifact(visibleArtifacts[visibleArtifacts.length - 1].id)
  return
  }
  if (event.key === 'Escape' && selectedArtifactId) {
@@ -2366,14 +2405,26 @@ function SprintEngineInboxView({
  onSelectArtifact(null)
  }
  },
- [inboxArtifacts, onSelectArtifact, selectedArtifactId]
+ [visibleArtifacts, onSelectArtifact, selectedArtifactId]
  )
 
  const hasInspector = inspectorContent !== null && inspectorContent !== undefined
 
  return (
  <div className="flex min-h-0 flex-1 min-w-0">
- <SidePane as="section" side="left" width="lg" ariaLabel="Awaiting review">
+ <SidePane as="section" side="left" width="lg" ariaLabelledBy={SPRINTENGINE_INBOX_TITLE_ID}>
+ <PanelHeader
+ title="Inbox"
+ titleId={SPRINTENGINE_INBOX_TITLE_ID}
+ count={visibleArtifacts.length}
+ />
+ <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
+ <InboxSearchInput
+ value={search}
+ onChange={setSearch}
+ ariaLabel="Search inbox artifacts"
+ />
+ </div>
  <div className="flex flex-1 flex-col overflow-auto">
  <div
  tabIndex={0}
@@ -2382,13 +2433,13 @@ function SprintEngineInboxView({
  role="region"
  aria-label="Inbox artifacts (use arrow keys)"
  >
- {inboxArtifacts.length === 0 ? (
+ {visibleArtifacts.length === 0 ? (
  <div className="px-3 py-6 text-[12px] leading-5 text-[color:var(--text-muted)]">
- {inboxEmptyMessage}
+ {emptyMessage}
  </div>
  ) : (
  <ul>
- {inboxArtifacts.map((artifact) => (
+ {visibleArtifacts.map((artifact) => (
  <li key={artifact.id}>
  <SprintEngineInboxRow
  artifact={artifact}

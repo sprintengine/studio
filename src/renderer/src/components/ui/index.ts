@@ -4,6 +4,7 @@
 
 export { PanelHeader } from './PanelHeader'
 export { InboxRow } from './InboxRow'
+export { InboxSearchInput } from './InboxSearchInput'
 export { Section } from './Section'
 export { DefinitionList } from './DefinitionList'
 export type { DefinitionItem } from './DefinitionList'
