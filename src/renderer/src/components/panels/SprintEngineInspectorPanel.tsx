@@ -3,36 +3,37 @@
 // the orchestrator stays focused on state coordination and IPC plumbing while
 // the inspector owns its own rendering, sub-components, and detail formatting.
 //
+// Task-mode layout (after the 2026-05 redesign):
+//   header → owner line → conditional callouts (blocker / needs input /
+//   open findings) → description + AC → quality gates (with inline
+//   reviewer terminal) → scores line → activity feed (filter chips +
+//   chronological timeline) → compact details.
+//
 // Data shaping lives next door in `sprintEngineInspector.ts`; the orchestrator
 // passes hydrated derived values via props rather than letting the inspector
 // reach back into the store directly.
 
-import React from 'react'
-import {
-  feedbackFindingAreaLabels,
-  feedbackFindingKindLabels,
-  feedbackFindingSeverityLabels,
-  feedbackFindingStatusLabels,
-  feedbackIssueCategoryLabels,
-  feedbackIssueSeverityLabels,
-  feedbackIssueStatusLabels,
-  feedbackScoreLabels,
-} from '../../utils/sprintengineRunSummary'
+import React, { useMemo, useState } from 'react'
 import type {
   SprintEngineArtifact,
   SprintEngineQualityGate,
   SprintEngineQualityGatePhase,
-  SprintEngineRecordedArtifact,
   SprintEngineTask,
   SprintEngineTaskActivityEntry,
+  SprintEngineTaskActivityType,
   SprintEngineTaskBoardColumn,
   SprintEngineTaskComment,
-  SprintEngineTaskFeedback,
   SprintEngineTaskFeedbackFinding,
   SprintEngineTaskFeedbackIssue,
 } from '../../types/workspace'
 import {
-  getLatestSprintEngineTaskComment,
+  feedbackFindingAreaLabels,
+  feedbackFindingKindLabels,
+  feedbackFindingSeverityLabels,
+  feedbackIssueCategoryLabels,
+  feedbackIssueSeverityLabels,
+} from '../../utils/sprintengineRunSummary'
+import {
   getOpenSprintEngineFeedbackComments,
   getOpenSprintEngineFeedbackFindings,
   getOpenSprintEngineFeedbackIssues,
@@ -42,10 +43,8 @@ import {
   getSprintEngineTaskQualityGates,
   sprintEngineArtifactKindLabels,
   sprintEngineArtifactStatusLabels,
-  sprintEngineQualityGatePhaseLabels,
   sprintEngineQualityGateStatusLabels,
   sprintEngineRoleLabels,
-  sprintEngineTaskActivityLabels,
   sprintEngineTaskBoardColumns,
   sprintEngineTaskCommentTypeLabels,
 } from '../../utils/sprintengine'
@@ -60,6 +59,7 @@ import {
   RoleAvatar,
   StatusDot,
   type DefinitionItem,
+  type Tone,
 } from '../ui'
 import {
   SOURCE_HANDOFF_ARTIFACT_ID,
@@ -154,6 +154,20 @@ export function SprintEngineTaskStatusIcon({
   )
 }
 
+function boardColumnTone(column: SprintEngineTaskBoardColumn | null): Tone {
+  switch (column) {
+    case 'done':
+      return 'good'
+    case 'in_progress':
+    case 'needs_input':
+      return 'warn'
+    case 'ready':
+      return 'accent'
+    default:
+      return 'neutral'
+  }
+}
+
 function SectionList({
   title,
   items,
@@ -165,7 +179,7 @@ function SectionList({
 }) {
   return (
     <div>
-      <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">{title}</div>
+      <div className="mb-2 text-[11px] font-semibold text-[color:var(--text-muted)]">{title}</div>
       {items.length > 0 ? (
         <ul className="space-y-1.5 text-[color:var(--text-default)]">
           {items.map((item) => (
@@ -182,237 +196,12 @@ function SectionList({
   )
 }
 
-function AgentFeedback({ feedback }: { feedback: SprintEngineTaskFeedback }) {
-  const scores = feedbackScoreLabels.flatMap((metric) => {
-    const value = feedback.scores[metric.key]
-    return typeof value === 'number' ? [{ ...metric, value }] : []
-  })
-
-  return (
-    <div>
-      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <div className="text-[10px] font-bold text-[color:var(--text-disabled)]">Agent Feedback</div>
-        <div className="text-[11px] text-[color:var(--text-disabled)]">
-          {feedback.agentId} - {formatTimestamp(feedback.capturedAt)}
-        </div>
-      </div>
-      {scores.length > 0 ? (
-        <div className="grid gap-x-4 gap-y-2 md:grid-cols-2">
-          {scores.map((metric) => (
-            <div key={metric.key} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 text-[12px]">
-              <span className="text-[color:var(--text-muted)]">{metric.label}</span>
-              <span className="font-mono text-[color:var(--text-strong)]">{metric.value}%</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-      {feedback.topFriction ? (
-        <div className="mt-3 text-[12px] text-[color:var(--text-default)]">
-          <span className="text-[color:var(--text-muted)]">Top friction: </span>
-          {feedback.topFriction}
-        </div>
-      ) : null}
-      {feedback.suggestedImprovement ? (
-        <div className="mt-1 text-[12px] text-[color:var(--text-default)]">
-          <span className="text-[color:var(--text-muted)]">Suggested improvement: </span>
-          {feedback.suggestedImprovement}
-        </div>
-      ) : null}
-      {feedback.issues && feedback.issues.length > 0 ? (
-        <PromptImprovementIssues issues={feedback.issues} className="mt-4" />
-      ) : null}
-      {feedback.findings && feedback.findings.length > 0 ? (
-        <RoleFindings findings={feedback.findings} className="mt-4" />
-      ) : null}
-    </div>
-  )
-}
-
-function PromptImprovementIssues({
-  issues,
-  className = '',
-}: {
-  issues: SprintEngineTaskFeedbackIssue[]
-  className?: string
-}) {
-  if (issues.length === 0) return null
-
-  return (
-    <div className={className}>
-      <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">
-        Prompt Improvement Signals
-      </div>
-      <div className="space-y-3">
-        {issues.map((issue) => (
-          <div key={issue.id} className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-3">
-            <div className="flex flex-wrap items-center gap-2 text-[11px]">
-              <span className="font-semibold text-[color:var(--text-strong)]">{issue.title}</span>
-              <span className="text-[color:var(--text-disabled)]">{feedbackIssueCategoryLabels[issue.category]}</span>
-              <span className="text-[color:var(--text-disabled)]">{feedbackIssueSeverityLabels[issue.severity]}</span>
-              <span className="text-[color:var(--text-disabled)]">{feedbackIssueStatusLabels[issue.status ?? 'new']}</span>
-              {issue.target ? <span className="font-mono text-[color:var(--text-muted)]">{issue.target}</span> : null}
-            </div>
-            <div className="mt-2 text-[12px] leading-5 text-[color:var(--text-default)]">{issue.detail}</div>
-            {issue.evidence ? (
-              <div className="mt-2 text-[12px] leading-5 text-[color:var(--text-muted)]">Evidence: {issue.evidence}</div>
-            ) : null}
-            {issue.suggestedPromptChange ? (
-              <div className="mt-2 text-[12px] leading-5 text-[color:var(--text-default)]">
-                <span className="text-[color:var(--text-muted)]">Prompt change: </span>
-                {issue.suggestedPromptChange}
-              </div>
-            ) : null}
-            {issue.suggestedProcessChange ? (
-              <div className="mt-1 text-[12px] leading-5 text-[color:var(--text-default)]">
-                <span className="text-[color:var(--text-muted)]">Process change: </span>
-                {issue.suggestedProcessChange}
-              </div>
-            ) : null}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function RoleFindings({
-  findings,
-  className = '',
-}: {
-  findings: SprintEngineTaskFeedbackFinding[]
-  className?: string
-}) {
-  if (findings.length === 0) return null
-
-  return (
-    <div className={className}>
-      <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Role Findings</div>
-      <div className="space-y-3">
-        {findings.map((finding) => (
-          <div key={finding.id} className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-3">
-            <div className="flex flex-wrap items-center gap-2 text-[11px]">
-              <span className="font-semibold text-[color:var(--text-strong)]">{finding.title}</span>
-              <span className="text-[color:var(--text-disabled)]">{feedbackFindingKindLabels[finding.kind]}</span>
-              <span className="text-[color:var(--text-disabled)]">{feedbackFindingSeverityLabels[finding.severity]}</span>
-              <span className="text-[color:var(--text-disabled)]">{feedbackFindingAreaLabels[finding.area]}</span>
-              <span className="text-[color:var(--text-disabled)]">{feedbackFindingStatusLabels[finding.status ?? 'open']}</span>
-              {finding.requirementId ? <span className="font-mono text-[color:var(--text-muted)]">{finding.requirementId}</span> : null}
-              {finding.file ? <span className="font-mono text-[color:var(--text-muted)] [overflow-wrap:anywhere]">{finding.file}</span> : null}
-            </div>
-            <div className="mt-2 text-[12px] leading-5 text-[color:var(--text-default)]">{finding.detail}</div>
-            {finding.recommendation ? (
-              <div className="mt-2 text-[12px] leading-5 text-[color:var(--text-default)]">
-                <span className="text-[color:var(--text-muted)]">Recommendation: </span>
-                {finding.recommendation}
-              </div>
-            ) : null}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function ActivityTimeline({
-  entries,
-  emptyLabel,
-}: {
-  entries: SprintEngineTaskActivityEntry[]
-  emptyLabel: string
-}) {
-  if (entries.length === 0) {
-    return (
-      <div>
-        <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Activity</div>
-        <div className="text-[12px] text-[color:var(--text-disabled)]">{emptyLabel}</div>
-      </div>
-    )
-  }
-
-  return (
-    <div>
-      <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Activity</div>
-      <ol className="space-y-1.5 text-[12px] leading-5 text-[color:var(--text-default)]">
-        {entries.map((entry) => {
-          const timestamp = entry.timestamp
-          const absolute = timestamp ? new Date(timestamp).toLocaleString() : undefined
-          const relative = timestamp ? formatRelativeTime(timestamp) : '—'
-          const detail = entry.type === 'status_change' && entry.status
-            ? `${entry.message} (→ ${entry.status})`
-            : entry.message
-          return (
-            <li
-              key={entry.id}
-              className="grid grid-cols-[6.5rem_auto_minmax(0,1fr)_auto] items-baseline gap-2"
-            >
-              <span className="font-mono text-[10px] text-[color:var(--text-muted)]">
-                {sprintEngineTaskActivityLabels[entry.type]}
-              </span>
-              <span className="font-mono text-[11px] text-[color:var(--text-muted)]">{entry.actor}</span>
-              <span className="[overflow-wrap:anywhere]">{detail}</span>
-              <span
-                title={absolute}
-                className="tabular-nums font-mono text-[11px] text-[color:var(--text-disabled)]"
-              >
-                {relative}
-              </span>
-            </li>
-          )
-        })}
-      </ol>
-    </div>
-  )
-}
-
-function OpenFeedbackSummary({
-  issues,
-  findings,
-}: {
-  issues: SprintEngineTaskFeedbackIssue[]
-  findings: SprintEngineTaskFeedbackFinding[]
-}) {
-  if (issues.length === 0 && findings.length === 0) return null
-  return (
-    <div className="border-l border-[color:var(--tone-warn-soft)] pl-3">
-      <div className="mb-2 text-[10px] font-bold text-[color:var(--tone-warn)]">
-        Open Feedback ({issues.length + findings.length})
-      </div>
-      <ul className="space-y-1.5 text-[12px] leading-5 text-[color:var(--text-default)]">
-        {issues.map((issue) => (
-          <li key={issue.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-2">
-            <span className="font-mono text-[10px] text-[color:var(--tone-warn)]">Issue</span>
-            <span className="[overflow-wrap:anywhere]">
-              <span className="font-semibold text-[color:var(--text-strong)]">{issue.title}</span>
-              {issue.detail ? <span className="ml-2 text-[color:var(--text-muted)]">{issue.detail}</span> : null}
-            </span>
-            <span className="font-mono text-[10px] uppercase text-[color:var(--text-disabled)]">
-              {feedbackIssueSeverityLabels[issue.severity]}
-            </span>
-          </li>
-        ))}
-        {findings.map((finding) => (
-          <li key={finding.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-2">
-            <span className="font-mono text-[10px] text-[color:var(--tone-warn)]">Finding</span>
-            <span className="[overflow-wrap:anywhere]">
-              <span className="font-semibold text-[color:var(--text-strong)]">{finding.title}</span>
-              {finding.detail ? <span className="ml-2 text-[color:var(--text-muted)]">{finding.detail}</span> : null}
-            </span>
-            <span className="font-mono text-[10px] uppercase text-[color:var(--text-disabled)]">
-              {feedbackFindingSeverityLabels[finding.severity]}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function qualityGateStatusTone(status: SprintEngineQualityGate['status']): 'good' | 'warn' | 'error' | 'accent' | 'neutral' {
+function qualityGateStatusTone(status: SprintEngineQualityGate['status']): Tone {
   switch (status) {
     case 'approved':
       return 'good'
     case 'in_progress':
-      return 'accent'
+      return 'warn'
     case 'changes_requested':
     case 'blocked':
       return 'warn'
@@ -421,94 +210,6 @@ function qualityGateStatusTone(status: SprintEngineQualityGate['status']): 'good
     default:
       return 'neutral'
   }
-}
-
-function QualityGatesSection({ gates }: { gates: SprintEngineQualityGate[] }) {
-  if (gates.length === 0) {
-    return null
-  }
-
-  const phases: SprintEngineQualityGatePhase[] = ['review', 'testing', 'product']
-  const visiblePhases = phases.filter((phase) => gates.some((gate) => gate.phase === phase))
-
-  return (
-    <div>
-      <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Quality Gates</div>
-      <ul className="space-y-2 text-[12px] leading-5">
-        {visiblePhases.flatMap((phase) =>
-          gates.filter((gate) => gate.phase === phase).map((gate) => {
-            const tone = qualityGateStatusTone(gate.status)
-            const attemptCount = gate.attempts.length
-            const latestAttempt = gate.attempts[gate.attempts.length - 1]
-            return (
-              <li key={`${phase}:${gate.id}`} className="grid grid-cols-[auto_auto_minmax(0,1fr)_auto] items-baseline gap-2">
-                <span className="mt-[0.35rem] inline-flex">
-                  <StatusDot tone={tone} />
-                </span>
-                <span className="font-mono text-[10px] uppercase tracking-normal text-[color:var(--text-muted)]">
-                  {sprintEngineQualityGatePhaseLabels[gate.phase]}
-                </span>
-                <span className="[overflow-wrap:anywhere]">
-                  <span className="font-semibold text-[color:var(--text-strong)]">{sprintEngineRoleLabels[gate.role]}</span>
-                  <span className="ml-2 text-[color:var(--text-disabled)]">
-                    {sprintEngineQualityGateStatusLabels[gate.status]}
-                  </span>
-                  {gate.required ? null : (
-                    <span className="ml-2 text-[color:var(--text-disabled)]">Optional</span>
-                  )}
-                  {gate.focus ? (
-                    <span className="ml-2 text-[color:var(--text-muted)]">{gate.focus}</span>
-                  ) : null}
-                  {latestAttempt?.verdict ? (
-                    <span className="ml-2 text-[color:var(--text-muted)]">
-                      Last verdict: {latestAttempt.verdict}
-                      {latestAttempt.actor ? ` (${latestAttempt.actor})` : ''}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="tabular-nums text-[10px] font-mono text-[color:var(--text-disabled)]">
-                  {attemptCount === 0 ? '—' : `${attemptCount} attempt${attemptCount === 1 ? '' : 's'}`}
-                </span>
-              </li>
-            )
-          })
-        )}
-      </ul>
-    </div>
-  )
-}
-
-function ImplementationHandoff({ task }: { task: SprintEngineTask }) {
-  const summary = getLatestSprintEngineTaskComment(task, 'implementation_summary')
-  const response = getLatestSprintEngineTaskComment(task, 'implementation_response')
-  if (!summary && !response) return null
-
-  return (
-    <div>
-      <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Implementation Handoff</div>
-      <div className="space-y-3">
-        {summary ? <TaskCommentRow comment={summary} /> : null}
-        {response ? <TaskCommentRow comment={response} /> : null}
-      </div>
-    </div>
-  )
-}
-
-function OpenFeedbackComments({ comments }: { comments: SprintEngineTaskComment[] }) {
-  if (comments.length === 0) return null
-
-  return (
-    <div className="border-l border-[color:var(--tone-warn-soft)] pl-3">
-      <div className="mb-2 text-[10px] font-bold text-[color:var(--tone-warn)]">
-        Open Feedback Comments ({comments.length})
-      </div>
-      <div className="space-y-3">
-        {comments.map((comment) => (
-          <TaskCommentRow key={comment.id} comment={comment} />
-        ))}
-      </div>
-    </div>
-  )
 }
 
 function TaskCommentRow({ comment }: { comment: SprintEngineTaskComment }) {
@@ -543,40 +244,6 @@ function TaskCommentRow({ comment }: { comment: SprintEngineTaskComment }) {
           ))}
         </div>
       ) : null}
-    </div>
-  )
-}
-
-function RecordedArtifactsSection({ artifacts }: { artifacts: SprintEngineRecordedArtifact[] }) {
-  if (artifacts.length === 0) return null
-
-  return (
-    <div>
-      <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Recorded Review Artifacts</div>
-      <ul className="space-y-1.5 text-[12px] leading-5">
-        {artifacts.map((artifact) => (
-          <li key={artifact.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-2">
-            <span className="font-mono text-[10px] text-[color:var(--text-muted)]">{artifact.id}</span>
-            <span className="[overflow-wrap:anywhere]">
-              <span className="font-semibold text-[color:var(--text-strong)]">{artifact.title ?? artifact.path ?? artifact.id}</span>
-              {artifact.kind ? (
-                <span className="ml-2 text-[color:var(--text-disabled)]">{artifact.kind}</span>
-              ) : null}
-              {artifact.gateId ? (
-                <span className="ml-2 text-[color:var(--text-disabled)]">gate {artifact.gateId}</span>
-              ) : null}
-              {artifact.path ? (
-                <div className="mt-0.5 font-mono text-[11px] text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
-                  {artifact.path}
-                </div>
-              ) : null}
-            </span>
-            <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-disabled)]">
-              {artifact.createdAt ? formatRelativeTime(artifact.createdAt) : '—'}
-            </span>
-          </li>
-        ))}
-      </ul>
     </div>
   )
 }
@@ -902,9 +569,9 @@ export function SprintEngineArtifactList({
     <div>
       {hideHeader ? null : (
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div className="text-[10px] font-bold text-[color:var(--text-disabled)]">{title}</div>
+          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">{title}</div>
           {artifacts.length > 0 ? (
-            <span className="text-[11px] font-semibold text-[color:var(--text-disabled)]">
+            <span className="text-[11px] text-[color:var(--text-disabled)]">
               {formatArtifactSummary(artifacts)}
             </span>
           ) : null}
@@ -1009,7 +676,7 @@ function ArtifactBlockerList({
   if (blockers.length === 0) return null
   return (
     <div className="border-l border-[color:var(--tone-warn-soft)] pl-3 text-sm text-[color:var(--tone-warn)]">
-      <div className="text-[10px] font-bold text-[color:var(--tone-warn)]">Blocked by review</div>
+      <div className="text-[11px] font-semibold text-[color:var(--tone-warn)]">Blocked by review</div>
       <div className="mt-2 space-y-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
         {blockers.map((blocker) => (
           <div key={blocker.taskId} className="space-y-1">
@@ -1029,6 +696,457 @@ function ArtifactBlockerList({
     </div>
   )
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Task body sub-components — owner, quality gates, scores, findings,
+// activity feed, compact details. Each is small, single-purpose, and
+// designed for the 320–560 px side-pane the inspector lives in.
+// ──────────────────────────────────────────────────────────────────────────
+
+function findGateAgent(
+  gate: SprintEngineQualityGate,
+  task: SprintEngineTask,
+  runtimeAgents: RuntimeAgentView[],
+): RuntimeAgentView | null {
+  const claimed = gate.attempts
+    .map((attempt) => attempt.claimedBy)
+    .filter((id): id is string => Boolean(id))
+  for (const agentId of claimed) {
+    const agent = runtimeAgents.find((entry) => entry.agentId === agentId)
+    if (agent) return agent
+  }
+  const byRoleOnThisTask = runtimeAgents.find(
+    (entry) => entry.role === gate.role && entry.currentTaskId === task.id,
+  )
+  return byRoleOnThisTask ?? null
+}
+
+function TaskOwnerLine({
+  task,
+  ownerLabel,
+  runtimeAgents,
+  isAgentTerminalLive,
+}: {
+  task: SprintEngineTask
+  ownerLabel: string
+  runtimeAgents: RuntimeAgentView[]
+  isAgentTerminalLive: (agentId: string) => boolean
+}) {
+  const ownerAgent = task.ownerAgentId
+    ? runtimeAgents.find((entry) => entry.agentId === task.ownerAgentId)
+    : null
+  const ownerStatus = ownerAgent?.status ?? null
+  const hasLiveTerminal = task.ownerAgentId ? isAgentTerminalLive(task.ownerAgentId) : false
+
+  return (
+    <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+      <RoleAvatar role={task.role} size="sm" ariaLabel="" />
+      <span className="text-[color:var(--text-default)]">{ownerLabel}</span>
+      {ownerStatus ? (
+        <>
+          <span className="text-[color:var(--text-disabled)]">·</span>
+          <span className="inline-flex items-center gap-1.5">
+            <StatusDot tone={runtimeStatusTone(ownerStatus)} />
+            <span>{ownerStatus.replace(/_/g, ' ')}</span>
+          </span>
+        </>
+      ) : null}
+      {hasLiveTerminal ? (
+        <span className="ml-1 text-[10px] text-[color:var(--text-disabled)]">live</span>
+      ) : null}
+    </div>
+  )
+}
+
+function TaskCallout({
+  tone,
+  label,
+  children,
+}: {
+  tone: 'warn' | 'error'
+  label: string
+  children: React.ReactNode
+}) {
+  const toneColor = tone === 'error' ? 'var(--tone-error)' : 'var(--tone-warn)'
+  return (
+    <div
+      className="border-l pl-3 text-[12px] leading-5"
+      style={{ borderColor: toneColor, color: toneColor }}
+    >
+      <div className="text-[11px] font-semibold" style={{ color: toneColor }}>
+        {label}
+      </div>
+      <div className="mt-1 text-[color:var(--text-default)]">{children}</div>
+    </div>
+  )
+}
+
+function TaskQualityGates({
+  task,
+  runtimeAgents,
+  isAgentTerminalLive,
+  onOpenAgentTerminal,
+}: {
+  task: SprintEngineTask
+  runtimeAgents: RuntimeAgentView[]
+  isAgentTerminalLive: (agentId: string) => boolean
+  onOpenAgentTerminal: (agentId: string) => void
+}) {
+  const gates = getSprintEngineTaskQualityGates(task)
+  if (gates.length === 0) return null
+
+  const phases: SprintEngineQualityGatePhase[] = ['review', 'testing', 'product']
+  const ordered = phases.flatMap((phase) => gates.filter((gate) => gate.phase === phase))
+
+  return (
+    <div>
+      <div className="mb-2 text-[11px] font-semibold text-[color:var(--text-muted)]">
+        Quality gates
+      </div>
+      <ul className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
+        {ordered.map((gate) => {
+          const agent = findGateAgent(gate, task, runtimeAgents)
+          const isInProgress = gate.status === 'in_progress'
+          const agentHasLiveTerminal = agent ? isAgentTerminalLive(agent.agentId) : false
+          const showOpenTerminal = isInProgress && agent && agentHasLiveTerminal
+          const latestAttempt = gate.attempts[gate.attempts.length - 1]
+          return (
+            <li
+              key={`${gate.phase}:${gate.id}`}
+              className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 py-2"
+            >
+              <StatusDot tone={qualityGateStatusTone(gate.status)} />
+              <div className="min-w-0">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[12.5px] text-[color:var(--text-strong)]">
+                    {sprintEngineRoleLabels[gate.role]}
+                  </span>
+                  <span className="text-[11px] text-[color:var(--text-muted)]">
+                    {sprintEngineQualityGateStatusLabels[gate.status]}
+                  </span>
+                  {!gate.required ? (
+                    <span className="text-[11px] text-[color:var(--text-disabled)]">optional</span>
+                  ) : null}
+                </div>
+                {latestAttempt?.verdict ? (
+                  <div className="mt-0.5 truncate text-[11px] text-[color:var(--text-muted)]">
+                    {latestAttempt.verdict}
+                    {latestAttempt.actor ? ` · ${latestAttempt.actor}` : ''}
+                  </div>
+                ) : gate.focus ? (
+                  <div className="mt-0.5 truncate text-[11px] text-[color:var(--text-muted)]">
+                    {gate.focus}
+                  </div>
+                ) : null}
+              </div>
+              {showOpenTerminal && agent ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenAgentTerminal(agent.agentId)}
+                  className="interactive rounded px-2 py-1 text-[11px] font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--accent-primary-soft)]"
+                >
+                  Open terminal
+                </button>
+              ) : (
+                <span aria-hidden="true" />
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+function TaskScoresLine({ task }: { task: SprintEngineTask }) {
+  const feedback = task.feedback
+  if (!feedback) return null
+  const confidence = feedback.scores.confidencePct
+  const hallucination = feedback.scores.hallucinationRiskPct
+  if (typeof confidence !== 'number' && typeof hallucination !== 'number') return null
+
+  const captured = feedback.capturedAt ? formatRelativeTime(feedback.capturedAt) : null
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-[color:var(--text-muted)]">
+      {typeof confidence === 'number' ? (
+        <span>
+          Confidence{' '}
+          <span className="tabular-nums font-mono text-[color:var(--text-strong)]">
+            {Math.round(confidence)}%
+          </span>
+        </span>
+      ) : null}
+      {typeof hallucination === 'number' ? (
+        <span>
+          Hallucination{' '}
+          <span
+            className="tabular-nums font-mono"
+            style={{
+              color:
+                hallucination >= 30
+                  ? 'var(--tone-error)'
+                  : hallucination >= 10
+                    ? 'var(--tone-warn)'
+                    : 'var(--text-strong)',
+            }}
+          >
+            {Math.round(hallucination)}%
+          </span>
+        </span>
+      ) : null}
+      <span className="text-[color:var(--text-disabled)]">
+        from <span className="font-mono">{feedback.agentId}</span>
+        {captured ? `, ${captured}` : ''}
+      </span>
+    </div>
+  )
+}
+
+function TaskOpenFindings({
+  issues,
+  findings,
+}: {
+  issues: SprintEngineTaskFeedbackIssue[]
+  findings: SprintEngineTaskFeedbackFinding[]
+}) {
+  if (issues.length === 0 && findings.length === 0) return null
+  const total = issues.length + findings.length
+
+  return (
+    <div>
+      <div className="mb-2 flex items-baseline gap-2">
+        <span className="text-[11px] font-semibold text-[color:var(--tone-warn)]">
+          Open findings
+        </span>
+        <span className="tabular-nums text-[11px] text-[color:var(--text-disabled)]">{total}</span>
+      </div>
+      <ul className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
+        {findings.map((finding) => (
+          <li key={finding.id} className="py-2 text-[12px] leading-5 text-[color:var(--text-default)]">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[color:var(--text-muted)]">
+              <span className="text-[color:var(--tone-warn)]">
+                {feedbackFindingSeverityLabels[finding.severity]}
+              </span>
+              <span>{feedbackFindingKindLabels[finding.kind]}</span>
+              <span>·</span>
+              <span>{feedbackFindingAreaLabels[finding.area]}</span>
+              {finding.file ? (
+                <>
+                  <span>·</span>
+                  <span className="font-mono text-[10.5px] [overflow-wrap:anywhere]">
+                    {finding.file}
+                  </span>
+                </>
+              ) : null}
+            </div>
+            <div className="mt-1 text-[color:var(--text-strong)]">{finding.title}</div>
+            <div className="mt-0.5 text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
+              {finding.detail}
+            </div>
+            {finding.recommendation ? (
+              <div className="mt-0.5 text-[color:var(--text-default)]">
+                <span className="text-[color:var(--text-muted)]">→ </span>
+                {finding.recommendation}
+              </div>
+            ) : null}
+          </li>
+        ))}
+        {issues.map((issue) => (
+          <li key={issue.id} className="py-2 text-[12px] leading-5 text-[color:var(--text-default)]">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[color:var(--text-muted)]">
+              <span className="text-[color:var(--tone-warn)]">
+                {feedbackIssueSeverityLabels[issue.severity]}
+              </span>
+              <span>prompt {feedbackIssueCategoryLabels[issue.category].toLowerCase()}</span>
+              {issue.target ? (
+                <>
+                  <span>·</span>
+                  <span className="font-mono text-[10.5px]">{issue.target}</span>
+                </>
+              ) : null}
+            </div>
+            <div className="mt-1 text-[color:var(--text-strong)]">{issue.title}</div>
+            <div className="mt-0.5 text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
+              {issue.detail}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// Activity feed — the spine. Replaces five legacy stacked sections
+// (Activity, Implementation Handoff, Open Feedback Comments, ready-action
+// messages, Recorded Artifacts) with one filterable chronological list.
+// Sub-filter chips reduce the stream by entry type without hiding any data.
+
+type ActivityFilter = 'all' | 'reviews' | 'comments' | 'status' | 'evidence'
+
+const ACTIVITY_FILTERS: Array<{ key: ActivityFilter; label: string }> = [
+  { key: 'all', label: 'All' },
+  { key: 'reviews', label: 'Reviews' },
+  { key: 'comments', label: 'Comments' },
+  { key: 'status', label: 'Status' },
+  { key: 'evidence', label: 'Evidence' },
+]
+
+const ACTIVITY_TYPE_TO_FILTER: Record<SprintEngineTaskActivityType, Exclude<ActivityFilter, 'all'>> = {
+  comment: 'comments',
+  status_change: 'status',
+  claim: 'status',
+  evidence: 'evidence',
+  feedback: 'reviews',
+  needs_input: 'comments',
+  artifact: 'reviews',
+  system: 'status',
+}
+
+function activityEntryTone(entry: SprintEngineTaskActivityEntry): Tone {
+  if (entry.type === 'needs_input') return 'warn'
+  if (entry.type === 'feedback') return 'accent'
+  if (entry.type === 'artifact') {
+    if (entry.artifactStatus === 'approved') return 'good'
+    if (entry.artifactStatus === 'changes_requested') return 'error'
+    if (entry.artifactStatus === 'ready_for_review') return 'warn'
+    return 'accent'
+  }
+  if (entry.type === 'status_change') {
+    if (entry.status === 'done') return 'good'
+    if (entry.status === 'needs_input') return 'warn'
+    return 'neutral'
+  }
+  return 'neutral'
+}
+
+function activityVerb(entry: SprintEngineTaskActivityEntry): string {
+  switch (entry.type) {
+    case 'comment':
+      return 'commented'
+    case 'status_change':
+      return entry.status ? `moved to ${entry.status.replace(/_/g, ' ')}` : 'changed status'
+    case 'claim':
+      return 'claimed'
+    case 'evidence':
+      return 'recorded evidence'
+    case 'feedback':
+      return 'captured feedback'
+    case 'needs_input':
+      return 'flagged needs input'
+    case 'artifact':
+      return entry.artifactStatus
+        ? `artifact ${entry.artifactStatus.replace(/_/g, ' ')}`
+        : 'recorded artifact'
+    case 'system':
+      return 'system event'
+    default:
+      return 'updated'
+  }
+}
+
+function TaskActivityFeed({
+  entries,
+  emptyLabel,
+}: {
+  entries: SprintEngineTaskActivityEntry[]
+  emptyLabel: string
+}) {
+  const [filter, setFilter] = useState<ActivityFilter>('all')
+
+  const filteredEntries = useMemo(() => {
+    if (filter === 'all') return entries
+    return entries.filter((entry) => ACTIVITY_TYPE_TO_FILTER[entry.type] === filter)
+  }, [entries, filter])
+
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Activity</div>
+        <div className="flex gap-0.5" role="group" aria-label="Filter activity">
+          {ACTIVITY_FILTERS.map((option) => {
+            const active = filter === option.key
+            return (
+              <button
+                key={option.key}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setFilter(option.key)}
+                className={`interactive rounded px-2 py-1 text-[11px] transition-colors ${
+                  active
+                    ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
+                    : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
+                }`}
+              >
+                {option.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {filteredEntries.length === 0 ? (
+        <div className="text-[12px] text-[color:var(--text-disabled)]">
+          {entries.length === 0 ? emptyLabel : 'No entries match this filter.'}
+        </div>
+      ) : (
+        <ol className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
+          {filteredEntries.map((entry) => {
+            const tone = activityEntryTone(entry)
+            const absolute = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : undefined
+            const relative = entry.timestamp ? formatRelativeTime(entry.timestamp) : '—'
+            return (
+              <li
+                key={entry.id}
+                className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-2 py-2.5 text-[12px] leading-5 text-[color:var(--text-default)]"
+              >
+                <span className="mt-[0.35rem]">
+                  <StatusDot tone={tone} />
+                </span>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[color:var(--text-muted)]">
+                    <span className="font-mono text-[11px] text-[color:var(--text-default)]">
+                      {entry.actor}
+                    </span>
+                    <span>{activityVerb(entry)}</span>
+                  </div>
+                  <div className="mt-0.5 text-[color:var(--text-default)] [overflow-wrap:anywhere]">
+                    {entry.message}
+                  </div>
+                </div>
+                <span
+                  title={absolute}
+                  className="tabular-nums font-mono text-[10.5px] text-[color:var(--text-disabled)]"
+                >
+                  {relative}
+                </span>
+              </li>
+            )
+          })}
+        </ol>
+      )}
+    </div>
+  )
+}
+
+function TaskOpenFeedbackComments({ comments }: { comments: SprintEngineTaskComment[] }) {
+  if (comments.length === 0) return null
+  return (
+    <div>
+      <div className="mb-2 text-[11px] font-semibold text-[color:var(--tone-warn)]">
+        Open feedback ({comments.length})
+      </div>
+      <div className="space-y-3">
+        {comments.map((comment) => (
+          <TaskCommentRow key={comment.id} comment={comment} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Inspector panel — task / artifact / agent / preview branches.
+// ──────────────────────────────────────────────────────────────────────────
 
 export function SprintEngineInspectorPanel({
   selection,
@@ -1221,52 +1339,56 @@ export function SprintEngineInspectorPanel({
 
   // Task mode (default branch).
   const selectedTask = selection.task
+  const tone = boardColumnTone(selectedTaskBoardColumn)
+  const ownerHasLiveTerminal = selectedTaskOwnerCliRunning
+
+  // Single primary action by state precedence — the user opens this panel
+  // to take one action; we pick the one that fits the current state.
+  const readyPending = taskReadyActions[selectedTask.id]?.status === 'pending'
+  let primaryAction: React.ReactNode = null
+  if (selectedTaskCanMarkReady) {
+    primaryAction = (
+      <PrimaryButton onClick={() => void onMarkTaskReady(selectedTask)} disabled={readyPending}>
+        {readyPending ? 'Marking…' : 'Move to ready'}
+      </PrimaryButton>
+    )
+  } else if (selectedTask.ownerAgentId && selectedTaskCanManageWorker && ownerHasLiveTerminal) {
+    primaryAction = (
+      <PrimaryButton onClick={() => onOpenReadyTaskWorker(selectedTask)}>Open terminal</PrimaryButton>
+    )
+  } else if (selectedTaskCanSpawnWorker) {
+    primaryAction = (
+      <PrimaryButton onClick={() => onOpenReadyTaskWorker(selectedTask)}>
+        Spawn {sprintEngineRoleLabels[selectedTask.role]}
+      </PrimaryButton>
+    )
+  } else if (selectedTask.ownerAgentId && selectedTaskCanManageWorker) {
+    primaryAction = (
+      <GhostButton onClick={() => onOpenReadyTaskWorker(selectedTask)}>Respawn</GhostButton>
+    )
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="border-b border-[color:var(--border-default)] px-5 py-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
-              <span className="font-mono tabular-nums text-[12px] text-[color:var(--text-muted)]">{selectedTask.id}</span>
+              <StatusDot tone={tone} />
+              <span>{selectedTaskStatusLabel}</span>
               <span>·</span>
-              <span className="flex items-center gap-1.5">
-                <SprintEngineTaskStatusIcon
-                  column={selectedTaskBoardColumn ?? 'todo'}
-                  className="h-3 w-3 text-[color:var(--text-muted)]"
-                />
-                {selectedTaskStatusLabel}
+              <span className="font-mono tabular-nums text-[color:var(--text-muted)]">
+                {selectedTask.id}
               </span>
-              <span>·</span>
-              <span>{sprintEngineRoleLabels[selectedTask.role]}</span>
             </div>
             <h3 className="mt-2 text-[18px] font-semibold leading-7 text-[color:var(--text-strong)]">
               {selectedTask.title}
             </h3>
           </div>
-          <CloseIconButton onClick={onClose} aria-label="Close task detail" />
-        </div>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {selectedTaskCanMarkReady ? (
-            <button
-              type="button"
-              disabled={taskReadyActions[selectedTask.id]?.status === 'pending'}
-              onClick={() => void onMarkTaskReady(selectedTask)}
-              className="h-7 rounded border border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn-soft)] px-2.5 text-[11px] font-semibold text-[color:var(--tone-warn)] interactive transition-colors hover:bg-[color:var(--tone-warn-soft)] disabled:cursor-wait disabled:opacity-60"
-            >
-              Move To Ready
-            </button>
-          ) : null}
-          {selectedTaskCanSpawnWorker || (selectedTask.ownerAgentId && selectedTaskCanManageWorker) ? (
-            <button
-              type="button"
-              onClick={() => onOpenReadyTaskWorker(selectedTask)}
-              className="h-7 rounded border border-[color:var(--border-strong)] px-2.5 text-[11px] font-medium text-[color:var(--text-default)] interactive transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]"
-            >
-              {selectedTask.ownerAgentId
-                ? selectedTaskOwnerCliRunning ? 'Open Terminal' : 'Respawn'
-                : `Spawn ${sprintEngineRoleLabels[selectedTask.role]}`}
-            </button>
-          ) : null}
+          <div className="flex items-center gap-1.5">
+            {primaryAction}
+            <CloseIconButton onClick={onClose} aria-label="Close task detail" />
+          </div>
         </div>
       </header>
 
@@ -1279,10 +1401,13 @@ export function SprintEngineInspectorPanel({
         taskReadyActions={taskReadyActions}
         artifactActions={artifactActions}
         tasksById={tasksById}
+        runtimeAgents={runtimeAgents}
         onSelectTask={onSelectTask}
         onOpenArtifact={onOpenArtifact}
         onApproveArtifact={onApproveArtifact}
         onRequestArtifactChanges={onRequestArtifactChanges}
+        onOpenAgentTerminal={onOpenAgentTerminal}
+        isAgentTerminalLive={isAgentTerminalLive}
       />
     </div>
   )
@@ -1297,10 +1422,13 @@ function SprintEngineTaskBody({
   taskReadyActions,
   artifactActions,
   tasksById,
+  runtimeAgents,
   onSelectTask,
   onOpenArtifact,
   onApproveArtifact,
   onRequestArtifactChanges,
+  onOpenAgentTerminal,
+  isAgentTerminalLive,
 }: {
   selectedTask: SprintEngineTask
   selectedTaskOwnerLabel: string
@@ -1310,174 +1438,196 @@ function SprintEngineTaskBody({
   taskReadyActions: Record<string, TaskReadyActionState>
   artifactActions: Record<string, ArtifactActionState>
   tasksById: Record<string, SprintEngineTask>
+  runtimeAgents: RuntimeAgentView[]
   onSelectTask: (taskId: string) => void
   onOpenArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
   onApproveArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
   onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
+  onOpenAgentTerminal: (agentId: string) => void
+  isAgentTerminalLive: (agentId: string) => boolean
 }) {
   const openIssues = getOpenSprintEngineFeedbackIssues(selectedTask.feedback)
   const openFindings = getOpenSprintEngineFeedbackFindings(selectedTask.feedback)
   const activityEntries = getSprintEngineTaskActivityDescending(selectedTask)
-  const qualityGates = getSprintEngineTaskQualityGates(selectedTask)
   const openFeedbackComments = getOpenSprintEngineFeedbackComments(selectedTask)
-  const recordedArtifacts = selectedTask.recordedArtifacts ?? []
 
   const readyActionMessage = taskReadyActions[selectedTask.id]?.message ?? null
   const readyActionError = taskReadyActions[selectedTask.id]?.status === 'error'
 
   return (
     <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
+      <TaskOwnerLine
+        task={selectedTask}
+        ownerLabel={selectedTaskOwnerLabel}
+        runtimeAgents={runtimeAgents}
+        isAgentTerminalLive={isAgentTerminalLive}
+      />
+
       {selectedTaskNeedsInputNote ? (
-        <div className="border-l border-[color:var(--tone-warn-soft)] pl-3 text-sm text-[color:var(--tone-warn)]">
-          <div className="text-[10px] font-bold text-[color:var(--tone-warn)]">Needs Input</div>
-          <div className="mt-2 leading-6">{selectedTaskNeedsInputNote}</div>
-          <div className="mt-2 text-[12px] text-[color:var(--tone-warn)]">
+        <TaskCallout tone="warn" label="Needs input">
+          <div>{selectedTaskNeedsInputNote}</div>
+          <div className="mt-1 text-[11px] text-[color:var(--text-muted)]">
             Respond in the worker CLI to unblock this task.
           </div>
-        </div>
+        </TaskCallout>
       ) : null}
 
       {selectedTaskArtifactBlockers.length > 0 ? (
         <ArtifactBlockerList blockers={selectedTaskArtifactBlockers} />
       ) : null}
 
-      <OpenFeedbackSummary issues={openIssues} findings={openFindings} />
+      <TaskOpenFindings issues={openIssues} findings={openFindings} />
 
-      <OpenFeedbackComments comments={openFeedbackComments} />
+      {/* Description — top of the body, untitled; typography carries
+          the hierarchy. */}
+      <div className="text-[13px] leading-6 text-[color:var(--text-default)]">
+        {selectedTask.description || (
+          <span className="text-[color:var(--text-disabled)]">No description recorded.</span>
+        )}
+      </div>
 
-      <QualityGatesSection gates={qualityGates} />
+      {selectedTask.acceptanceCriteria.length > 0 ? (
+        <ul className="space-y-1 text-[12.5px] text-[color:var(--text-default)]">
+          {selectedTask.acceptanceCriteria.map((criterion) => (
+            <li key={criterion} className="grid grid-cols-[14px_minmax(0,1fr)] items-baseline gap-1">
+              <span className="text-[11px] text-[color:var(--text-disabled)]" aria-hidden="true">·</span>
+              <span className="[overflow-wrap:anywhere]">{criterion}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
-      <ImplementationHandoff task={selectedTask} />
+      <TaskQualityGates
+        task={selectedTask}
+        runtimeAgents={runtimeAgents}
+        isAgentTerminalLive={isAgentTerminalLive}
+        onOpenAgentTerminal={onOpenAgentTerminal}
+      />
 
-      <RecordedArtifactsSection artifacts={recordedArtifacts} />
+      <TaskScoresLine task={selectedTask} />
+
+      <TaskActivityFeed entries={activityEntries} emptyLabel="No activity recorded yet." />
+
+      <TaskOpenFeedbackComments comments={openFeedbackComments} />
 
       {readyActionMessage ? (
         <div
-          className={`border-l pl-3 text-[12px] leading-5 ${
+          className={`text-[12px] leading-5 ${
             readyActionError
-              ? 'border-[color:var(--tone-error-soft)] text-[color:var(--tone-error)]'
-              : 'border-[color:var(--border-strong)] text-[color:var(--text-muted)]'
+              ? 'text-[color:var(--tone-error)]'
+              : 'text-[color:var(--text-muted)]'
           }`}
         >
           {readyActionMessage}
         </div>
       ) : null}
 
-      <ActivityTimeline
-        entries={activityEntries}
-        emptyLabel="No activity recorded yet."
-      />
+      {/* Compact details — secondary metadata. Hairline-divided, untitled
+          section headings reserved for hierarchy that earns them. */}
+      <div className="border-t border-[color:var(--border-subtle)] pt-4">
+        <DefinitionList
+          layout="compact-grid"
+          items={[
+            { term: 'Source', description: formatTaskSourceLabel(selectedTask) },
+            { term: 'Owner', description: selectedTaskOwnerLabel },
+            {
+              term: 'Depends on',
+              description: selectedTask.dependsOn.length > 0 ? selectedTask.dependsOn.join(', ') : 'None',
+            },
+            {
+              term: selectedTask.completedAt ? 'Completed' : 'Started',
+              description: formatTimestamp(selectedTask.completedAt ?? selectedTask.startedAt),
+            },
+          ]}
+        />
 
-      <details className="group" open>
-        <summary className="cursor-pointer list-none text-[10px] font-bold text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]">
-          <span className="mr-1 inline-block transition-transform group-open:rotate-90" aria-hidden="true">›</span>
-          Details
-        </summary>
-        <div className="mt-4 space-y-5">
-          <DefinitionList
-            layout="compact-grid"
-            items={[
-              { term: 'Source', description: formatTaskSourceLabel(selectedTask) },
-              { term: 'Owner', description: selectedTaskOwnerLabel },
-              { term: 'Dependencies', description: selectedTask.dependsOn.join(', ') || 'None' },
-              {
-                term: selectedTask.completedAt ? 'Completed' : 'Started',
-                description: formatTimestamp(selectedTask.completedAt ?? selectedTask.startedAt),
-              },
-            ]}
-          />
-
-          {selectedTask.source?.type === 'github' ? (
-            <div className="border-l border-[color:var(--border-strong)] pl-3">
-              <div className="text-[10px] font-bold text-[color:var(--text-disabled)]">GitHub Issue</div>
-              <div className="mt-1 truncate text-sm text-[color:var(--text-default)]">
-                {selectedTask.source.repo ? `${selectedTask.source.repo} ` : ''}
-                {selectedTask.source.externalId ? `#${selectedTask.source.externalId}` : ''}
+        {selectedTask.source?.type === 'github' ? (
+          <div className="mt-3 text-[12px] leading-5 text-[color:var(--text-default)]">
+            <span className="text-[color:var(--text-muted)]">GitHub issue · </span>
+            <span>
+              {selectedTask.source.repo ? `${selectedTask.source.repo} ` : ''}
+              {selectedTask.source.externalId ? `#${selectedTask.source.externalId}` : ''}
+            </span>
+            {formatTaskSyncStatusLabel(selectedTask) ? (
+              <div className="mt-1 text-[11px] text-[color:var(--tone-warn)]">
+                {formatTaskSyncStatusDescription(selectedTask)}
               </div>
-              {formatTaskSyncStatusLabel(selectedTask) ? (
-                <div className="mt-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
-                  {formatTaskSyncStatusDescription(selectedTask)}
-                </div>
-              ) : null}
-              {selectedTask.source.externalUrl ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    window.open(selectedTask.source?.externalUrl, '_blank', 'noopener,noreferrer')
-                  }}
-                  className="mt-2 rounded px-2 py-1 text-[11px] font-semibold text-[color:var(--tone-warn)] interactive transition-colors hover:bg-[color:var(--tone-warn-soft)]"
-                >
-                  Open Issue
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-
-          {selectedTask.triage ? (
-            <div className="border-l border-[color:var(--tone-warn)] pl-3 text-sm text-[color:var(--tone-warn)]">
-              <div className="text-[10px] font-bold text-[color:var(--tone-warn)]">Architect Triage</div>
-              <div className="mt-2 leading-6">{selectedTask.triage.summary}</div>
-            </div>
-          ) : null}
-
-          <div>
-            <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Description</div>
-            <div>{selectedTask.description || 'No description recorded.'}</div>
+            ) : null}
+            {selectedTask.source.externalUrl ? (
+              <button
+                type="button"
+                onClick={() => {
+                  window.open(selectedTask.source?.externalUrl, '_blank', 'noopener,noreferrer')
+                }}
+                className="mt-1 text-[11px] text-[color:var(--accent-primary)] interactive transition-colors hover:text-[color:var(--accent-primary-hover)]"
+              >
+                Open issue →
+              </button>
+            ) : null}
           </div>
+        ) : null}
 
-          <SectionList
-            title="Acceptance Criteria"
-            items={selectedTask.acceptanceCriteria}
-            emptyLabel="No acceptance criteria recorded."
-          />
-          <SectionList title="Owned Paths" items={selectedTask.ownedPaths} emptyLabel="No owned paths recorded." />
-          <SectionList
-            title="Implementation Notes"
-            items={selectedTask.implementationNotes}
-            emptyLabel="No implementation notes recorded."
-          />
-          <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
-          <SectionList
-            title="Comments"
-            items={selectedTask.comments.map((comment) => `${comment.actor}: ${comment.body}`)}
-            emptyLabel="No comments recorded."
-          />
-
-          <SprintEngineArtifactList
-            artifacts={selectedTaskArtifacts}
-            tasksById={tasksById}
-            actions={artifactActions}
-            emptyLabel="No review artifacts are attached to this task."
-            onSelectTask={onSelectTask}
-            onOpenArtifact={(artifact) => void onOpenArtifact(artifact)}
-            onApproveArtifact={(artifact) => void onApproveArtifact(artifact)}
-            onRequestArtifactChanges={onRequestArtifactChanges}
-          />
-
-          <div>
-            <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Evidence Summary</div>
-            <div>{selectedTask.evidence.summary || 'No completion summary recorded yet.'}</div>
+        {selectedTask.triage ? (
+          <div className="mt-3 border-l border-[color:var(--tone-warn-soft)] pl-3 text-[12px] leading-5 text-[color:var(--text-default)]">
+            <div className="text-[11px] font-semibold text-[color:var(--tone-warn)]">
+              Architect triage
+            </div>
+            <div className="mt-1">{selectedTask.triage.summary}</div>
           </div>
+        ) : null}
 
-          {selectedTask.feedback ? <AgentFeedback feedback={selectedTask.feedback} /> : null}
+        {/* Additional reference sections collapsed to keep the surface
+            quiet. Open on demand. */}
+        <details className="group mt-4">
+          <summary className="cursor-pointer list-none text-[11px] font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]">
+            <span className="mr-1 inline-block transition-transform group-open:rotate-90" aria-hidden="true">›</span>
+            More
+          </summary>
+          <div className="mt-3 space-y-4">
+            <SectionList title="Owned paths" items={selectedTask.ownedPaths} emptyLabel="No owned paths recorded." />
+            <SectionList
+              title="Implementation notes"
+              items={selectedTask.implementationNotes}
+              emptyLabel="No implementation notes recorded."
+            />
+            <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
 
-          <SectionList
-            title="Commands Run"
-            items={selectedTask.evidence.commandsRan}
-            emptyLabel="No commands recorded."
-          />
-          <SectionList
-            title="Results"
-            items={selectedTask.evidence.results}
-            emptyLabel="No test or validation results recorded."
-          />
-          <SectionList
-            title="Touched Files"
-            items={selectedTask.evidence.touchedFiles}
-            emptyLabel="No touched files recorded."
-          />
-        </div>
-      </details>
+            <SprintEngineArtifactList
+              artifacts={selectedTaskArtifacts}
+              tasksById={tasksById}
+              actions={artifactActions}
+              emptyLabel="No review artifacts are attached to this task."
+              onSelectTask={onSelectTask}
+              onOpenArtifact={(artifact) => void onOpenArtifact(artifact)}
+              onApproveArtifact={(artifact) => void onApproveArtifact(artifact)}
+              onRequestArtifactChanges={onRequestArtifactChanges}
+            />
+
+            <div>
+              <div className="mb-2 text-[11px] font-semibold text-[color:var(--text-muted)]">
+                Evidence summary
+              </div>
+              <div>{selectedTask.evidence.summary || 'No completion summary recorded yet.'}</div>
+            </div>
+
+            <SectionList
+              title="Commands run"
+              items={selectedTask.evidence.commandsRan}
+              emptyLabel="No commands recorded."
+            />
+            <SectionList
+              title="Results"
+              items={selectedTask.evidence.results}
+              emptyLabel="No test or validation results recorded."
+            />
+            <SectionList
+              title="Touched files"
+              items={selectedTask.evidence.touchedFiles}
+              emptyLabel="No touched files recorded."
+            />
+          </div>
+        </details>
+      </div>
     </div>
   )
 }
