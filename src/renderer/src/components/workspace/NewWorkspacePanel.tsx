@@ -70,7 +70,8 @@ const MODES: CreationMode[] = ['standard', 'switchboard', 'sprintengine', 'multi
 type StepId =
   | 'workspace'
   | 'mode'
-  | 'integrations'
+  | 'mcp-servers'
+  | 'skill-packs'
   | 'standard-layout'
   | 'multiloop-goal'
   | 'sprintengine-team'
@@ -78,11 +79,11 @@ type StepId =
   | 'guided-idea'
 
 const STEPS_BY_MODE: Record<CreationMode, StepId[]> = {
-  standard: ['workspace', 'mode', 'integrations', 'standard-layout'],
-  switchboard: ['workspace', 'mode', 'integrations'],
-  multiloop: ['workspace', 'mode', 'integrations', 'multiloop-goal'],
-  sprintengine: ['workspace', 'mode', 'integrations', 'sprintengine-team', 'sprintengine-roster'],
-  'guided-brief': ['workspace', 'mode', 'integrations', 'guided-idea'],
+  standard: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'standard-layout'],
+  switchboard: ['workspace', 'mode', 'mcp-servers', 'skill-packs'],
+  multiloop: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'multiloop-goal'],
+  sprintengine: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'sprintengine-team', 'sprintengine-roster'],
+  'guided-brief': ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'guided-idea'],
 }
 
 const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
@@ -94,9 +95,13 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
     title: 'Choose a mode',
     subtitle: 'How will you use this workspace?',
   },
-  integrations: {
-    title: 'Add integrations',
-    subtitle: 'MCP servers and skill packs for this project. All optional — skip and add later from Settings.',
+  'mcp-servers': {
+    title: 'Pick MCP servers',
+    subtitle: 'Agent tool integrations for this project. Optional — skip and add later from Settings.',
+  },
+  'skill-packs': {
+    title: 'Pick skill packs',
+    subtitle: 'Curated agent skills installed into this project on creation. Optional — skip and add later from Settings.',
   },
   'standard-layout': {
     title: 'Pick an IDE layout',
@@ -1182,11 +1187,17 @@ export default function NewWorkspacePanel({
             />
           ) : null}
 
-          {step === 'integrations' ? (
-            <IntegrationsStep
+          {step === 'mcp-servers' ? (
+            <McpServersStep
               mcpCatalog={integrationsMcpCatalog}
               mcpSettings={mcpSettings ?? null}
               onToggleMcp={toggleMcpInWizard}
+              message={integrationsMessage}
+            />
+          ) : null}
+
+          {step === 'skill-packs' ? (
+            <SkillPacksStep
               skillPackCatalog={integrationsSkillPackCatalog}
               selectedSkillPackIds={selectedSkillPackIds}
               onToggleSkillPack={toggleSkillPackInWizard}
@@ -1498,150 +1509,157 @@ function ModeStep({
   )
 }
 
-function IntegrationsStep({
+function McpServersStep({
   mcpCatalog,
   mcpSettings,
   onToggleMcp,
-  skillPackCatalog,
-  selectedSkillPackIds,
-  onToggleSkillPack,
   message,
 }: {
   mcpCatalog: McpCatalogServer[]
   mcpSettings: { servers: Record<string, { enabled: boolean }> } | null
   onToggleMcp: (server: McpCatalogServer) => void
+  message: string | null
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+        Selected servers are saved to this project and synced to Codex and Claude config from
+        Settings.
+      </p>
+      {mcpCatalog.length === 0 ? (
+        <p className="text-[11px] text-[color:var(--text-subtle)]">Catalog loading…</p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {mcpCatalog.map((server) => {
+            const enabled = Boolean(mcpSettings?.servers[server.id]?.enabled)
+            return (
+              <li key={server.id}>
+                <button
+                  type="button"
+                  onClick={() => onToggleMcp(server)}
+                  aria-pressed={enabled}
+                  className={`
+                    grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-3 rounded-md border px-3.5 py-2.5 text-left
+                    transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                    ${enabled
+                      ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
+                      : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
+                  `}
+                >
+                  <span
+                    aria-hidden
+                    className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
+                      enabled
+                        ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
+                        : 'border-[color:var(--border-default)]'
+                    }`}
+                  >
+                    {enabled ? (
+                      <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <polyline points="1.5,5 4,7.5 8.5,2.5" />
+                      </svg>
+                    ) : null}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+                      {server.name}
+                    </span>
+                    <span className="mt-0.5 block truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
+                      {server.transport} · {server.category ?? 'Other'}
+                    </span>
+                  </span>
+                  {server.recommendedScope === 'user' ? (
+                    <span className="font-mono text-[10px] text-[color:var(--text-subtle)]">user</span>
+                  ) : null}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {message ? (
+        <p className="text-[11px] leading-4 text-[color:var(--text-muted)]">{message}</p>
+      ) : null}
+    </div>
+  )
+}
+
+function SkillPacksStep({
+  skillPackCatalog,
+  selectedSkillPackIds,
+  onToggleSkillPack,
+  message,
+}: {
   skillPackCatalog: SkillPackCatalogEntry[]
   selectedSkillPackIds: Set<string>
   onToggleSkillPack: (pack: SkillPackCatalogEntry) => void
   message: string | null
 }) {
   return (
-    <div className="flex flex-col gap-6">
-      <section className="flex flex-col gap-2">
-        <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">MCP servers</h4>
-        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Agent tool integrations. Selected servers are saved to this project and synced to Codex
-          and Claude config from Settings.
-        </p>
-        {mcpCatalog.length === 0 ? (
-          <p className="text-[11px] text-[color:var(--text-subtle)]">Catalog loading…</p>
-        ) : (
-          <ul className="flex flex-col gap-1.5">
-            {mcpCatalog.map((server) => {
-              const enabled = Boolean(mcpSettings?.servers[server.id]?.enabled)
-              return (
-                <li key={server.id}>
-                  <button
-                    type="button"
-                    onClick={() => onToggleMcp(server)}
-                    aria-pressed={enabled}
-                    className={`
-                      grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-3 rounded-md border px-3.5 py-2.5 text-left
-                      transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-                      ${enabled
-                        ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
-                        : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
-                    `}
+    <div className="flex flex-col gap-3">
+      <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+        Each selected pack runs <code className="font-mono">npx skills add</code> against the
+        workspace root after creation, writing into whichever harness directories already exist
+        (.claude, .codex, .cursor, …).
+      </p>
+      {skillPackCatalog.length === 0 ? (
+        <p className="text-[11px] text-[color:var(--text-subtle)]">Catalog loading…</p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {skillPackCatalog.map((pack) => {
+            const selected = selectedSkillPackIds.has(pack.id)
+            return (
+              <li key={pack.id}>
+                <button
+                  type="button"
+                  onClick={() => onToggleSkillPack(pack)}
+                  aria-pressed={selected}
+                  className={`
+                    grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-3 rounded-md border px-3.5 py-2.5 text-left
+                    transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                    ${selected
+                      ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
+                      : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
+                  `}
+                >
+                  <span
+                    aria-hidden
+                    className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
+                      selected
+                        ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
+                        : 'border-[color:var(--border-default)]'
+                    }`}
                   >
-                    <span
-                      aria-hidden
-                      className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
-                        enabled
-                          ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
-                          : 'border-[color:var(--border-default)]'
-                      }`}
-                    >
-                      {enabled ? (
-                        <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                          <polyline points="1.5,5 4,7.5 8.5,2.5" />
-                        </svg>
+                    {selected ? (
+                      <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <polyline points="1.5,5 4,7.5 8.5,2.5" />
+                      </svg>
+                    ) : null}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+                      {pack.name}
+                      {pack.recommended ? (
+                        <span className="ml-2 font-mono text-[10px] font-medium text-[color:var(--text-subtle)]">
+                          recommended
+                        </span>
                       ) : null}
                     </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
-                        {server.name}
-                      </span>
-                      <span className="mt-0.5 block truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
-                        {server.transport} · {server.category ?? 'Other'}
-                      </span>
+                    <span className="mt-0.5 block truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
+                      {pack.slug}
                     </span>
-                    {server.recommendedScope === 'user' ? (
-                      <span className="font-mono text-[10px] text-[color:var(--text-subtle)]">user</span>
-                    ) : null}
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </section>
-
-      <section className="flex flex-col gap-2">
-        <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Skill packs</h4>
-        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Curated agent skills installed into this project on creation. Each pack writes to whichever
-          harness directories already exist (.claude, .codex, .cursor, …).
-        </p>
-        {skillPackCatalog.length === 0 ? (
-          <p className="text-[11px] text-[color:var(--text-subtle)]">Catalog loading…</p>
-        ) : (
-          <ul className="flex flex-col gap-1.5">
-            {skillPackCatalog.map((pack) => {
-              const selected = selectedSkillPackIds.has(pack.id)
-              return (
-                <li key={pack.id}>
-                  <button
-                    type="button"
-                    onClick={() => onToggleSkillPack(pack)}
-                    aria-pressed={selected}
-                    className={`
-                      grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-3 rounded-md border px-3.5 py-2.5 text-left
-                      transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-                      ${selected
-                        ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
-                        : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
-                    `}
-                  >
-                    <span
-                      aria-hidden
-                      className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
-                        selected
-                          ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
-                          : 'border-[color:var(--border-default)]'
-                      }`}
-                    >
-                      {selected ? (
-                        <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                          <polyline points="1.5,5 4,7.5 8.5,2.5" />
-                        </svg>
-                      ) : null}
+                  </span>
+                  {pack.version ? (
+                    <span className="font-mono text-[10px] text-[color:var(--text-subtle)]">
+                      v{pack.version}
                     </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
-                        {pack.name}
-                        {pack.recommended ? (
-                          <span className="ml-2 font-mono text-[10px] font-medium text-[color:var(--text-subtle)]">
-                            recommended
-                          </span>
-                        ) : null}
-                      </span>
-                      <span className="mt-0.5 block truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
-                        {pack.slug}
-                      </span>
-                    </span>
-                    {pack.version ? (
-                      <span className="font-mono text-[10px] text-[color:var(--text-subtle)]">
-                        v{pack.version}
-                      </span>
-                    ) : null}
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </section>
-
+                  ) : null}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
       {message ? (
         <p className="text-[11px] leading-4 text-[color:var(--text-muted)]">{message}</p>
       ) : null}
@@ -2347,7 +2365,9 @@ function isStepReady(
       return readiness.workspaceStepReady
     case 'mode':
       return true
-    case 'integrations':
+    case 'mcp-servers':
+      return true
+    case 'skill-packs':
       return true
     case 'standard-layout':
       return readiness.standardLayoutStepReady
@@ -2401,8 +2421,10 @@ function getStepBlockingMessage(args: {
       return 'Press Continue to choose a mode.'
     case 'mode':
       return `Continue with ${labelFor(mode)}, or pick another.`
-    case 'integrations':
-      return 'Pick MCPs and skill packs, or skip to keep this workspace minimal.'
+    case 'mcp-servers':
+      return 'Pick MCP servers, or skip to add them later from Settings.'
+    case 'skill-packs':
+      return 'Pick skill packs, or skip to add them later from Settings.'
     case 'standard-layout':
       return 'Pick a layout, then create.'
     case 'multiloop-goal':
