@@ -314,6 +314,12 @@ const gatedProjection = fakeProjection({
       },
     },
   },
+  roster: {
+    architect: { role: 'architect', status: 'idle', currentTaskId: null },
+    code_reviewer: { role: 'code_reviewer', status: 'idle', currentTaskId: null },
+    tester: { role: 'tester', status: 'idle', currentTaskId: null },
+    'developer-1': { role: 'developer', status: 'running', currentTaskId: 'G1' },
+  },
   tasks: [
     {
       id: 'G1',
@@ -505,6 +511,154 @@ const visibleColumns = getSprintEngineVisibleBoardColumns(gatedState!).map((colu
 assert.deepEqual(
   visibleColumns,
   ['todo', 'ready', 'changes_requested', 'in_progress', 'review', 'testing', 'needs_input', 'done'],
+)
+
+const noProductRosterState = normalizeSprintEngineProjection(fakeProjection({
+  run: {
+    id: 'run-id',
+    name: 'No Product Roster Run',
+    goal: 'Test goal',
+    status: 'executing',
+    rosterConfigured: true,
+    updatedAt: '2026-05-16T20:00:00Z',
+    qualityPolicy: {
+      enabled: true,
+      rosterDriven: true,
+      lifecyclePhases: ['review', 'testing', 'product'],
+      gates: {
+        architect: { phase: 'review', role: 'architect', required: true },
+        code_reviewer: { phase: 'review', role: 'code_reviewer', required: true },
+        spec_reviewer: { phase: 'review', role: 'spec_reviewer', required: true },
+        tester: { phase: 'testing', role: 'tester', required: true },
+        product: { phase: 'product', role: 'product', required: true },
+      },
+    },
+  },
+  roster: {
+    architect: { role: 'architect', status: 'idle', currentTaskId: null },
+    code_reviewer: { role: 'code_reviewer', status: 'idle', currentTaskId: null },
+    spec_reviewer: { role: 'spec_reviewer', status: 'idle', currentTaskId: null },
+    tester: { role: 'tester', status: 'idle', currentTaskId: null },
+    'developer-1': { role: 'developer', status: 'idle', currentTaskId: null },
+  },
+  tasks: [],
+}))
+assert.deepEqual(
+  getActiveSprintEngineLifecyclePhases(noProductRosterState!),
+  ['review', 'testing'],
+  'roster-driven policy hides product when no product role is rostered'
+)
+assert.deepEqual(
+  getSprintEngineVisibleBoardColumns(noProductRosterState!).map((column) => column.key),
+  ['todo', 'ready', 'changes_requested', 'in_progress', 'review', 'testing', 'needs_input', 'done'],
+)
+
+const frontendOnlyGateState = normalizeSprintEngineProjection(fakeProjection({
+  run: {
+    id: 'run-id',
+    name: 'Frontend Gate Run',
+    goal: 'Test goal',
+    status: 'executing',
+    rosterConfigured: true,
+    updatedAt: '2026-05-16T20:00:00Z',
+    qualityPolicy: {
+      enabled: true,
+      rosterDriven: true,
+      lifecyclePhases: ['review', 'testing', 'product'],
+      gates: {
+        code_reviewer: { phase: 'review', role: 'code_reviewer', required: true },
+        tester: { phase: 'testing', role: 'tester', required: true },
+        product: { phase: 'product', role: 'product', required: true },
+      },
+    },
+  },
+  roster: {
+    frontend: { role: 'frontend', status: 'idle', currentTaskId: null },
+    'developer-1': { role: 'developer', status: 'idle', currentTaskId: null },
+  },
+  tasks: [
+    {
+      id: 'F1',
+      title: 'Frontend implementation',
+      description: '',
+      role: 'frontend',
+      status: 'todo',
+      folderStatus: 'todo',
+      stateStatus: 'todo',
+      boardColumn: 'todo',
+      ownedPaths: ['src/renderer/src/components/Foo.tsx'],
+      dependsOn: [],
+      acceptanceCriteria: [],
+      implementationNotes: [],
+      notes: [],
+      comments: [],
+      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+      activity: [],
+      startedAt: null,
+      completedAt: null,
+      ownerAgentId: null,
+      qualityGates: [
+        {
+          id: 'frontend_review',
+          phase: 'review',
+          role: 'frontend',
+          status: 'pending',
+          required: true,
+          allowSelfReview: true,
+          attempts: [],
+        },
+      ],
+    },
+  ],
+}))
+assert.deepEqual(
+  getActiveSprintEngineLifecyclePhases(frontendOnlyGateState!),
+  ['review'],
+  'task-level frontend gates keep review visible even when static policy roles are absent'
+)
+
+const noProductRosterWithActiveProductTask = normalizeSprintEngineProjection(fakeProjection({
+  run: {
+    id: 'run-id',
+    name: 'Active Product Task Run',
+    goal: 'Test goal',
+    status: 'executing',
+    rosterConfigured: true,
+    updatedAt: '2026-05-16T20:00:00Z',
+    qualityPolicy: noProductRosterState!.qualityPolicy,
+  },
+  roster: {
+    architect: { role: 'architect', status: 'idle', currentTaskId: null },
+    tester: { role: 'tester', status: 'idle', currentTaskId: null },
+  },
+  tasks: [
+    {
+      id: 'P1',
+      title: 'Legacy task in product',
+      description: '',
+      role: 'developer',
+      status: 'product',
+      folderStatus: 'product',
+      stateStatus: 'in_progress',
+      boardColumn: 'product',
+      ownedPaths: [],
+      dependsOn: [],
+      acceptanceCriteria: [],
+      implementationNotes: [],
+      notes: [],
+      comments: [],
+      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+      activity: [],
+      startedAt: '2026-05-16T19:30:00Z',
+      completedAt: null,
+      ownerAgentId: 'developer-1',
+    },
+  ],
+}))
+assert.deepEqual(
+  getActiveSprintEngineLifecyclePhases(noProductRosterWithActiveProductTask!),
+  ['review', 'testing', 'product'],
+  'active product-folder tasks keep the product column visible for compatibility'
 )
 
 const reviewTaskWithoutBoardColumnState = normalizeSprintEngineProjection({

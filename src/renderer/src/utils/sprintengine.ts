@@ -129,6 +129,11 @@ export const sprintEngineTaskBoardColumns: { key: SprintEngineTaskBoardColumn; l
 
 const sprintEngineLifecyclePhaseColumns: SprintEngineQualityGatePhase[] = ['review', 'testing', 'product']
 
+type SprintEngineLifecyclePhaseState = Pick<SprintEngineState, 'tasks' | 'qualityPolicy'> & Partial<Pick<
+  SprintEngineState,
+  'rosterConfigured' | 'sprintEngineAgents'
+>>
+
 function isSprintEngineQualityGatePhase(value: unknown): value is SprintEngineQualityGatePhase {
   return value === 'review' || value === 'testing' || value === 'product'
 }
@@ -1689,12 +1694,35 @@ export function formatSprintEngineLockAge(ageSeconds: number | null | undefined)
  * mock states keep their compact layout).
  */
 export function getActiveSprintEngineLifecyclePhases(
-  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'qualityPolicy'> | null | undefined
+  sprintEngineState: SprintEngineLifecyclePhaseState | null | undefined
 ): SprintEngineQualityGatePhase[] {
   if (!sprintEngineState) return []
-  const phasesFromPolicy = sprintEngineState.qualityPolicy?.enabled
-    ? new Set(sprintEngineState.qualityPolicy.lifecyclePhases)
-    : new Set<SprintEngineQualityGatePhase>()
+  const phasesFromPolicy = new Set<SprintEngineQualityGatePhase>()
+  const policy = sprintEngineState.qualityPolicy
+  if (policy?.enabled) {
+    const configuredLifecyclePhases = new Set(policy.lifecyclePhases)
+    const rosterRoles = new Set(
+      Object.values(sprintEngineState.sprintEngineAgents ?? {}).map((agent) => agent.role)
+    )
+    const canFilterByRoster = Boolean(policy.rosterDriven && sprintEngineState.rosterConfigured && rosterRoles.size > 0)
+    const gateRoleIsRelevant = (role: SprintEngineRole): boolean => !canFilterByRoster || rosterRoles.has(role)
+    if (canFilterByRoster) {
+      for (const gate of Object.values(policy.gates)) {
+        if (configuredLifecyclePhases.has(gate.phase) && gateRoleIsRelevant(gate.role)) {
+          phasesFromPolicy.add(gate.phase)
+        }
+      }
+    } else {
+      for (const phase of policy.lifecyclePhases) phasesFromPolicy.add(phase)
+    }
+    for (const task of sprintEngineState.tasks) {
+      for (const gate of task.qualityGates ?? []) {
+        if (configuredLifecyclePhases.has(gate.phase) && gateRoleIsRelevant(gate.role)) {
+          phasesFromPolicy.add(gate.phase)
+        }
+      }
+    }
+  }
   const phasesFromTasks = new Set<SprintEngineQualityGatePhase>()
   for (const task of sprintEngineState.tasks) {
     const column = task.boardColumn ?? task.status
@@ -1711,7 +1739,7 @@ export function getActiveSprintEngineLifecyclePhases(
  * tasks demand them; the rest of the column vocabulary is fixed.
  */
 export function getSprintEngineVisibleBoardColumns(
-  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'qualityPolicy'> | null | undefined
+  sprintEngineState: SprintEngineLifecyclePhaseState | null | undefined
 ): { key: SprintEngineTaskBoardColumn; label: string }[] {
   const activePhases = new Set<SprintEngineQualityGatePhase>(
     getActiveSprintEngineLifecyclePhases(sprintEngineState)
