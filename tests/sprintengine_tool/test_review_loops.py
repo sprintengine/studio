@@ -288,6 +288,55 @@ def test_gate_failed_verdict_creates_open_feedback_and_routes_to_changes_request
     assert get_task(state, "T1")["qualityGates"][0]["status"] == "changes_requested"
 
 
+def test_late_parallel_gate_approval_does_not_escape_changes_requested(tmp_path) -> None:
+    fixture = create_team(tmp_path, "parallel-approval-after-changes", [gated_review_task()])
+    claim_gate(fixture, "code_reviewer", "code-reviewer")
+    claim_gate(fixture, "spec_reviewer", "spec-reviewer")
+
+    fixture.cli.run(
+        "task",
+        "gate",
+        "verdict",
+        "--task-id",
+        "T1",
+        "--gate-id",
+        "code-review",
+        "--role",
+        "code_reviewer",
+        "--id",
+        "code-reviewer",
+        "--verdict",
+        "changes_requested",
+        "--summary",
+        "Implementation misses the changes requested route.",
+        "--required-action",
+        "Keep the task in changes_requested until implementation republishes.",
+    )
+    approved = fixture.cli.run(
+        "task",
+        "gate",
+        "verdict",
+        "--task-id",
+        "T1",
+        "--gate-id",
+        "spec-review",
+        "--role",
+        "spec_reviewer",
+        "--id",
+        "spec-reviewer",
+        "--verdict",
+        "approved",
+        "--summary",
+        "Spec review passed independently.",
+    )
+
+    assert approved["nextStatus"] == "changes_requested"
+    state = read_state(fixture.state_path)
+    assert_task_status(state, "T1", "changes_requested")
+    task_record = get_task(state, "T1")
+    assert [gate["status"] for gate in task_record["qualityGates"][:2]] == ["changes_requested", "approved"]
+
+
 def test_gate_blocked_verdict_requires_and_records_needs_input(tmp_path) -> None:
     fixture = create_team(tmp_path, "gate-blocked-needs-input", [gated_review_task()])
     claim_gate(fixture, "spec_reviewer", "spec-reviewer")
@@ -398,3 +447,15 @@ def test_gate_skip_rationale_and_recorded_artifact_do_not_block(tmp_path) -> Non
     assert artifact["status"] == "recorded"
     assert get_task(state, "T1")["qualityGates"][1]["skipRationale"] == "Spec reviewer is redundant for this documented follow-up."
     assert_task_status(state, "T1", "testing")
+
+
+def test_join_routes_review_roles_to_gate_next_when_only_gate_is_ready(tmp_path) -> None:
+    fixture = create_team(tmp_path, "join-gate-directive", [gated_review_task()])
+
+    payload = fixture.cli.run("join", "--role", "code_reviewer", "--id", "code-reviewer")
+
+    assert payload["action"] == "gate_work"
+    assert payload["readyGateCount"] == 1
+    assert payload["gate"]["id"] == "code-review"
+    assert "sprintengine task gate next --role code_reviewer --id code-reviewer" in payload["prompt"]
+    assert payload["prompt"].rfind("sprintengine task gate next --role code_reviewer --id code-reviewer") > payload["prompt"].rfind("sprintengine task next --role code_reviewer")

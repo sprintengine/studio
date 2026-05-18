@@ -296,6 +296,28 @@ def test_task_publish_records_implementation_summary_and_routes_to_next_phase(tm
     assert task_record["comments"][0]["body"] == "Implemented the backend path."
 
 
+def test_task_publish_persists_structured_summary_data(tmp_path) -> None:
+    fixture = create_team(tmp_path, "publish-summary-data", [gated_task()])
+
+    payload = fixture.cli.run(
+        "task",
+        "publish",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--summary",
+        "Implemented the backend path.",
+        "--summary-data-json",
+        '{"changedContracts":[{"name":"task lifecycle"}],"verification":[{"command":"pytest","result":"passed"}],"reviewerFocus":["routing"]}',
+    )
+
+    assert payload["comment"]["type"] == "implementation_summary"
+    assert payload["comment"]["data"]["changedContracts"][0]["name"] == "task lifecycle"
+    assert payload["comment"]["data"]["verification"][0]["result"] == "passed"
+    assert payload["comment"]["data"]["reviewerFocus"] == ["routing"]
+
+
 def test_task_publish_skips_missing_phase_gates_and_can_complete(tmp_path) -> None:
     record = gated_task()
     record["qualityGates"] = [
@@ -442,6 +464,42 @@ def test_task_status_done_allows_legacy_and_closed_gate_tasks(tmp_path) -> None:
     assert_task_status(state, "T1", "done")
 
 
+def test_artifact_approval_does_not_bypass_open_quality_gates(tmp_path) -> None:
+    record = gated_task(owner="developer-fixture")
+    fixture = create_team(tmp_path, "artifact-approval-open-gates", [record])
+    artifact_path = fixture.team_dir / "reviews" / "handoff.md"
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text("# Handoff\n", encoding="utf-8")
+
+    fixture.cli.run(
+        "artifact",
+        "add",
+        "--actor",
+        "developer-fixture",
+        "--artifact-id",
+        "A1",
+        "--task-id",
+        "T1",
+        "--kind",
+        "code_review",
+        "--title",
+        "Handoff",
+        "--path",
+        "reviews/handoff.md",
+        "--created-by",
+        "developer-fixture",
+        "--ready",
+    )
+    approved = fixture.cli.run("artifact", "approve", "--artifact-id", "A1", "--id", "user")
+
+    assert approved["taskCompleted"] is False
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert task_record["status"] == "needs_input"
+    assert task_record["completedAt"] is None
+    assert [gate["status"] for gate in task_record["qualityGates"]] == ["pending", "pending"]
+
+
 def test_gated_phase_and_rework_statuses_keep_run_executing(tmp_path) -> None:
     for status in ["review", "testing", "product", "changes_requested"]:
         record = task("T1", f"{status} work", "developer", "in_progress", owner="developer-fixture")
@@ -527,6 +585,8 @@ def test_task_comment_add_and_list_use_structured_comment_shape(tmp_path) -> Non
         "Implementation note.",
         "--path",
         "sprintengine_core/tool.py",
+        "--data-json",
+        '{"reviewerFocus":["path validation"]}',
     )
     listed = fixture.cli.run("task", "comment", "list", "--task-id", "T1")
 
@@ -534,6 +594,7 @@ def test_task_comment_add_and_list_use_structured_comment_shape(tmp_path) -> Non
     assert added["comment"]["type"] == "implementation_summary"
     assert added["comment"]["authorAgentId"] == "developer-fixture"
     assert added["comment"]["authorRole"] == "developer"
+    assert added["comment"]["data"]["reviewerFocus"] == ["path validation"]
     assert listed["comments"] == [added["comment"]]
 
 
