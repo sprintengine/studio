@@ -81,6 +81,21 @@ assert.equal(
   }).cliPermissionPreset,
   'default',
 )
+assert.equal(
+  normalizeAgentState({
+    ...defaultAgent('agent-normalize-fallback'),
+    cli: undefined,
+  }, 'claude').cli,
+  'claude',
+)
+assert.equal(
+  normalizeAgentState({
+    ...defaultAgent('agent-legacy'),
+    name: 'Recovered Agent',
+    cli: undefined,
+  }).cli,
+  'codex',
+)
 
 const carrier: { workspaces: Workspace[] } = {
   workspaces: [

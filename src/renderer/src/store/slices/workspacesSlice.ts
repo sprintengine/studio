@@ -178,6 +178,17 @@ export interface WorkspacesSliceDependencies {
 type WorkspacesSliceCarrier = WorkspacesSliceState & { appSettings: AppSettings }
 type WorkspacesSliceSet = (mutator: (state: WorkspacesSliceCarrier) => void) => void
 
+function requireSprintEngineRoleCli(
+  roleCliDefaults: Required<SprintEngineRoleCliDefaults>,
+  role: SprintEngineRole
+): AgentCli {
+  const cli = roleCliDefaults[role]
+  if (cli !== 'codex' && cli !== 'claude') {
+    throw new Error(`Missing Sprint Engine CLI default for role "${role}".`)
+  }
+  return cli
+}
+
 export function createWorkspacesSlice(
   set: WorkspacesSliceSet,
   deps: WorkspacesSliceDependencies
@@ -310,6 +321,9 @@ export function createWorkspacesSlice(
           ? deps.normalizeSprintEngineRoleCliDefaults(options?.sprintEngineRoleCliDefaults)
           : undefined
         if (sprintEngineState) {
+          if (!sprintEngineRoleCliDefaults) {
+            throw new Error('Missing Sprint Engine CLI defaults for workspace creation.')
+          }
           buildSprintEngineAgentRosterForState(sprintEngineState).forEach((agent) => {
             agents[agent.id] = {
               ...deps.defaultAgent(
@@ -317,7 +331,7 @@ export function createWorkspacesSlice(
                 deps.pickWorkspaceAgentName(agents),
                 'sprintengine'
               ),
-              cli: sprintEngineRoleCliDefaults?.[agent.role] ?? 'codex',
+              cli: requireSprintEngineRoleCli(sprintEngineRoleCliDefaults, agent.role),
             }
           })
         }

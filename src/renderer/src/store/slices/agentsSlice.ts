@@ -71,9 +71,15 @@ export const defaultEditorState = (): EditorState => ({
   activeFilePath: null,
 })
 
-export function normalizeAgentState(agent: AgentState): AgentState {
+export function normalizeAgentCli(agent: Partial<AgentState>, fallback: AgentCli = 'codex'): AgentCli {
+  if (agent.cli === 'codex' || agent.cli === 'claude') return agent.cli
+  return fallback
+}
+
+export function normalizeAgentState(agent: AgentState, fallbackCli: AgentCli = 'codex'): AgentState {
   return {
     ...agent,
+    cli: normalizeAgentCli(agent, fallbackCli),
     execution: normalizeAgentExecution(agent.execution),
     cliPermissionPreset: normalizeCliPermissionPreset(agent.cliPermissionPreset),
   }

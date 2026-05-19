@@ -87,6 +87,17 @@ export function normalizeSprintEngineRoleCliDefaults(
   return next
 }
 
+function requireSprintEngineRoleCli(
+  roleCliDefaults: Required<SprintEngineRoleCliDefaults>,
+  role: SprintEngineRole
+): AgentCli {
+  const cli = roleCliDefaults[role]
+  if (cli !== 'codex' && cli !== 'claude') {
+    throw new Error(`Missing Sprint Engine CLI default for role "${role}".`)
+  }
+  return cli
+}
+
 function normalizeSprintEngineAutoPendingSpawn(
   input: Partial<SprintEngineAutoPendingSpawn> | null | undefined
 ): SprintEngineAutoPendingSpawn | null {
@@ -581,7 +592,7 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         const roleCliDefaults = normalizeSprintEngineRoleCliDefaults(ws.sprintEngineRoleCliDefaults)
         ws.agents[agentId] = {
           ...defaultAgent(agentId, agentLabel, 'sprintengine'),
-          cli: roleCliDefaults[role],
+          cli: requireSprintEngineRoleCli(roleCliDefaults, role),
         }
         ws.agents = reconcileSprintEngineAgents(ws.agents, ws.sprintEngineState)
         ws.sprintEngineState.events.push({

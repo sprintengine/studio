@@ -7,7 +7,7 @@ import type {
 } from '../../types/workspace'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { normalizeSprintEngineState } from '../../utils/sprintengine'
-import { defaultEditorState, normalizeAgentState } from './agentsSlice'
+import { defaultEditorState, normalizeAgentCli, normalizeAgentState } from './agentsSlice'
 import {
   ensureGuidedBriefLayoutModel,
   normalizeGuidedBriefState,
@@ -42,7 +42,7 @@ import { mapMigrationWorkspaces } from './normalizers'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 45
+export const WORKSPACE_STORE_VERSION = 46
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
 export type WorkspaceMigrationState = {
@@ -566,6 +566,21 @@ export function migratePersistedWorkspaceState(
     if (migrationState.workspaceRegistryEmptyState === undefined) {
       migrationState.workspaceRegistryEmptyState = null
     }
+  }
+  if (version < 46) {
+    const fallbackCli = normalizeAgentCli(
+      { cli: migrationState.appSettings?.lastSelectedCli },
+      'claude',
+    )
+    mapMigrationWorkspaces(migrationState, (ws) => ({
+      ...ws,
+      agents: Object.fromEntries(
+        Object.entries(ws.agents ?? {}).map(([id, agent]) => [
+          id,
+          normalizeAgentState({ ...agent, id }, fallbackCli),
+        ]),
+      ),
+    }))
   }
 
   return state as never
