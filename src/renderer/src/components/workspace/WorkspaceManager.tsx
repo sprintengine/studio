@@ -911,7 +911,12 @@ export default function WorkspaceManager() {
     if (!model) return
 
     const newId = `terminal-${nanoid(6)}`
-    const targetTabset = model.getActiveTabset() ?? firstTabset(model)
+    // Sprint Engine surfaces are narrow on purpose, so when a terminal is
+    // already open we stack the new one as a sibling tab in that same tabset
+    // (typically the right-hand pane) instead of opening a new tile.
+    const existingTerminalTabset =
+      activeWorkspace?.mode === 'sprintengine' ? firstTerminalTabset(model) : null
+    const targetTabset = existingTerminalTabset ?? model.getActiveTabset() ?? firstTabset(model)
     if (!targetTabset) return
 
     model.doAction(
@@ -1443,6 +1448,17 @@ function firstTabset(model: Model): TabSetNode | null {
   model.visitNodes((node) => {
     if (found) return
     if (node instanceof TabSetNode) found = node
+  })
+  return found
+}
+
+function firstTerminalTabset(model: Model): TabSetNode | null {
+  let found: TabSetNode | null = null
+  model.visitNodes((node) => {
+    if (found) return
+    if (!(node instanceof TabNode) || node.getComponent() !== 'terminal') return
+    const parent = node.getParent()
+    if (parent instanceof TabSetNode) found = parent
   })
   return found
 }

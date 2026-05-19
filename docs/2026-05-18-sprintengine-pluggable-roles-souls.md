@@ -1,7 +1,7 @@
 # Sprint Engine: Pluggable Roles + Composable Souls
 
 Date: 2026-05-18
-Status: Design ready for implementation after MCP wake-up feasibility is proven
+Status: Design requires runtime revision after MCP wake-up feasibility
 Estimated scope: One integrated implementation with an early feasibility checkpoint.
 
 ## Mission
@@ -13,8 +13,8 @@ After this work:
 - Sprint Engine is **role-agnostic**. Tasks carry role strings; the registry decides what each role does.
 - Roles are **composed from skills**, not authored as monolithic prompts. A "developer" soul is `["principal-engineer-identity", "core-principles", "risk-workflow", "no-mock-runtime", "post-change-self-review"]`. A user-defined "marketer" reuses the same shared skills plus its own identity and domain skills.
 - The **local MCP server becomes the preferred machine interface**. Agents should eventually talk to it for soul retrieval, task ops, gate verdicts, heartbeats, and dispatch. The CLI continues to exist for human use and compatibility.
-- **Server-side dispatch with subscriptions.** Sprint Engine picks which idle agent gets the next task, pushes a dispatch notification, and updates state. We still need to prove MCP notifications can actually wake or resume each target CLI before depending on this for production flow.
-- **State-as-contract.** No output sentinels, no stdout heuristics. The agent's MCP calls into Sprint Engine are the completion signals. The runtime listens to state changes via MCP subscriptions and manages terminal lifecycle from those after the wake-up/resume behavior is proven.
+- **Server-side dispatch with Multicode-managed wake-up.** Sprint Engine can still choose work and record dispatch state, but the 2026-05-19 feasibility pass did not prove that target CLIs wake or resume from server-originated MCP notifications. Multicode must remain responsible for spawning, focusing, or injecting terminal input to resume agents until a separate compatibility effort proves direct MCP wake-up.
+- **State-as-contract.** No output sentinels, no stdout heuristics. The agent's Sprint Engine calls are the completion signals. The runtime may listen to state changes via projection updates or compatible MCP subscriptions, but Multicode remains responsible for terminal lifecycle and wake/resume behavior.
 
 The work also positions Sprint Engine for **eventual extraction as a standalone package**. Today everything lives in this repo; nothing in the design assumes Multicode is the only consumer. A standalone Sprint Engine user runs `sprintengine mcp serve --workspace .` and connects their MCP-capable CLI (Claude Code, Codex, OpenCode, etc.) to it directly if those CLIs can support the required notification/resume behavior. Multicode hosts the same MCP server with extra plugin-scope configuration on top.
 
@@ -22,7 +22,7 @@ The work also positions Sprint Engine for **eventual extraction as a standalone 
 
 This is one product change, not a compatibility roadmap. The end goal is the MCP-dispatched, pluggable-role Sprint Engine described here.
 
-The only early checkpoint is technical feasibility: before rewriting the runtime around MCP push notifications, prove whether the target CLIs can actually be woken or resumed by local MCP server notifications. If that is possible, implement the full notification-driven design. If it is not possible, the design needs to change before implementation continues; do not quietly keep a polling loop and call it done.
+The early checkpoint is complete enough to reject direct MCP wake-up as a production assumption for current planning. The isolated harness can emit delayed server-originated notifications, but Codex 0.130.0 and Claude Code 2.1.144 did not establish a connected idle MCP session with the harness. The runtime design must therefore keep Multicode terminal/session orchestration responsible for waking or resuming agents. MCP remains useful as a state and operation boundary after a CLI connection is established, but WP6/WP7 must not depend on direct server notifications waking idle model sessions.
 
 ## Compatibility Stance
 
@@ -39,7 +39,7 @@ After the checkpoint, implement the work as one coherent replacement:
 
 - Replace hardcoded role/soul registries with a search-path-backed role and skill registry.
 - Keep the Sprint Engine coordination prompt layer owned by Sprint Engine.
-- Move agent lifecycle, heartbeat, dispatch, task/gate ops, and runtime terminal management onto the MCP notification/state contract.
+- Move agent lifecycle, heartbeat, dispatch, and task/gate ops toward the MCP/state contract where real clients support it, while keeping terminal lifecycle and wake/resume behavior under Multicode control.
 - Let users override bundled roles or add new roles by dropping schema-valid files into configured local folders.
 - Keep the roster extensible: task role strings come from configured roles, not a hardcoded enum.
 
@@ -69,9 +69,9 @@ The Sprint Engine run-files cluster is the durable contract:
 
 Every state mutation goes through the MCP server (or the CLI calling the same `sprintengine_core` library, which goes through the same file-locking). The UI reads `projection.json`; the runtime listens to MCP change notifications; standalone tools can poll the projection or subscribe over MCP. One contract, many consumers.
 
-### Server-side dispatch with subscriptions
+### Server-side dispatch with Multicode wake-up
 
-Agents are passive recipients of dispatch, not active claimers. This depends on the MCP wake-up/resume feasibility checkpoint.
+Agents should no longer be planned as purely passive recipients of MCP dispatch notifications. The MCP wake-up/resume feasibility checkpoint did not prove that Codex or Claude Code can be resumed by server-originated notifications, so the production runtime must use Multicode's terminal/session supervisor to wake, focus, or inject the next directive when work is assigned.
 
 **Lifecycle:**
 
@@ -86,9 +86,10 @@ Agent calls sprintengine.subscribe(agent_id)
 
 [Time passes. Work lands. Server's scheduler picks this agent for a task or gate.]
 
-Server emits notification: sprintengine.dispatch { agentId, target: { taskId | gateId, role, reason } }
+Server records dispatch target { agentId, target: { taskId | gateId, role, reason } }
   → server has already recorded the assignment in the folder store
-Agent receives notification
+Multicode observes dispatch/state change and wakes or focuses the target terminal
+Agent receives the directive through the terminal/session path
 Agent does its work, calling MCP tools to read task details, write comments, log evidence
 Agent calls sprintengine.task.publish or sprintengine.gate.publish when done
   → server records the verdict, advances state per progression rules, dispatches next agent
@@ -126,7 +127,7 @@ The server does everything that's a deterministic function of state. The archite
 - Reviewing a `changes_requested` verdict and deciding if the rework is straightforward (rework gate handles it) or if new follow-up tasks are needed.
 - Final signoff.
 
-**Key shift**: the architect becomes a continuously-present worker. It joins via `agent.join` like every other role, subscribes, sits idle, and the server dispatches it when judgment is needed. The architect prompt drops the "remember to schedule final reviews after impl completes" prose after dispatch notifications are proven.
+**Key shift**: the architect can become a continuously-present worker, but the runtime must not rely on MCP notifications alone to resume it. The architect joins like every other role, the server records when architect judgment is needed, and Multicode wakes or focuses the terminal/session so the architect receives the directive.
 
 ## Schema
 
@@ -459,6 +460,8 @@ Use these packages as the task graph. The dependencies are about implementation 
 
 **Goal:** Prove whether the desired notification-driven runtime is technically possible before rewriting the runner.
 
+**Current status, 2026-05-19:** Design revision required. The isolated harness can emit a delayed server-originated notification, but Codex 0.130.0 timed out during MCP startup against the harness and Claude Code 2.1.144 closed stdin before `initialize`/failed health checks. No required real target CLI proved `direct_mcp_wake` or `terminal_input_required`. Treat direct MCP wake-up as unsupported for current planning and revise WP6/WP7 around Multicode-managed terminal/session wake-up.
+
 **Owns:** `sprintengine_mcp/`, a small feasibility harness under `tests/` or `validation/`, notes in this design doc.
 
 **Work:**
@@ -597,6 +600,7 @@ Use these packages as the task graph. The dependencies are about implementation 
 - Test Codex, Claude Code, and any BYO-CLI integration points that are expected to participate in Sprint Engine.
 - Record the exact supported pattern per CLI: server notification wakes model, runtime must inject terminal input, or unsupported.
 - If direct MCP wake-up is unsupported, stop and revise this design before continuing the runtime rewrite.
+- As of the 2026-05-19 revalidation pass, protocol notification delivery is verified only outside target CLIs. Codex and Claude Code did not complete a connected idle MCP session with the harness, so runtime work must proceed only with a revised design where Multicode wakes or focuses agent terminals and MCP notifications/state are not the sole wake mechanism.
 
 ### Phase A — Schema, search path, and soul-skill composition mechanic
 
@@ -619,7 +623,7 @@ Use these packages as the task graph. The dependencies are about implementation 
 
 - Sprint Engine MCP server gains the agent-lifecycle tools (`agent.join`, `agent.heartbeat`, `agent.leave`, `subscribe`) and the discovery tools (`roles.list`, `role.get`, `soul.get`, `skill.*`).
 - Server tracks agents in `run.yaml`'s agents map with new `heartbeatAt`, `subscribedAt`, `status` fields.
-- Notification machinery (server → subscribed agents): the server can push `sprintengine.dispatch`, `sprintengine.cancel`, `sprintengine.run.status_changed` events.
+- Optional notification machinery (server → compatible subscribed clients): the server can expose `sprintengine.dispatch`, `sprintengine.cancel`, and `sprintengine.run.status_changed` events, but production runtime correctness must not depend on those notifications waking Codex or Claude Code.
 - A reconciliation tick (every N seconds) detects agents past the 90s heartbeat threshold, releases their claims, marks them dead.
 
 ### Phase D — Server-side dispatch + state-driven progression
@@ -636,7 +640,7 @@ Use these packages as the task graph. The dependencies are about implementation 
 ### Phase E — Task/gate/artifact ops via MCP, runtime integration
 
 - Full MCP tool surface (task ops, gate ops, artifact ops, architect/plan ops) — all behavior the CLI does, exposed as MCP tools.
-- Multicode runtime: replaces the existing terminal-spawn-and-pty-watch flow with subscribe-to-MCP-events. Spawns worker terminals on demand based on scheduler events. Reads `projection.json` and MCP notifications for UI updates.
+- Multicode runtime: keeps terminal/session orchestration as the wake/resume authority. It may read `projection.json`, server dispatch state, and compatible MCP notifications as input signals, but it must spawn, focus, or inject terminal directives itself when work is assigned.
 - Renderer: subscribes to MCP `run.subscribe` for reactive state. Drops `Record<SprintEngineRole, X>` patterns in favour of registry-driven maps.
 - Removal of the legacy `--print` / output-sentinel / state.yaml code paths (already gone on main, but verify nothing crept back).
 

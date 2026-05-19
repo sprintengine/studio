@@ -1,0 +1,4 @@
+{"atMonotonic": 1104935.90041025, "delayMs": 1500, "event": "start", "framing": "headers"}
+{"atMonotonic": 1104965.880956291, "event": "exit", "reason": "stdin_closed_before_initialize"}
+{"atMonotonic": 1104989.908280916, "delayMs": 1500, "event": "start", "framing": "headers"}
+{"atMonotonic": 1105019.873224583, "event": "exit", "reason": "stdin_closed_before_initialize"}
