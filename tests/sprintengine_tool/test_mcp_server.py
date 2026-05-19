@@ -26,6 +26,8 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.init",
         "sprintengine.recover",
         "sprintengine.roster.add",
+        "sprintengine.roster.retire",
+        "sprintengine.roster.replenish",
         "sprintengine.roster.list",
         "sprintengine.join",
         "sprintengine.summary",

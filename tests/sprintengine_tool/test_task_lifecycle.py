@@ -1261,6 +1261,153 @@ def test_completed_agent_ids_can_claim_a_second_ready_task(tmp_path) -> None:
     assert_task_status(state, "T2", "in_progress")
 
 
+def test_retired_agent_ids_cannot_claim_more_work(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "retired-agent-no-reuse",
+        [
+            task("T1", "First implementation", "developer"),
+            task("T2", "Second implementation", "developer"),
+        ],
+    )
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["qualityPolicy"] = {"enabled": False}
+    write_state(fixture.state_path, state)
+
+    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+    fixture.cli.run(
+        "task",
+        "log",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--summary",
+        "Completed the first task.",
+        "--file",
+        "tests/sprintengine_tool/test_task_lifecycle.py",
+        "--command",
+        "pytest tests/sprintengine_tool/test_task_lifecycle.py",
+        "--result",
+        "Passed",
+    )
+    fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-fixture")
+
+    retired = fixture.cli.run(
+        "roster",
+        "retire",
+        "--id",
+        "developer-fixture",
+        "--reason",
+        "context capacity near limit",
+    )
+    assert retired["action"] == "retired"
+    assert retired["agent"]["status"] == "retired"
+
+    join_payload = fixture.cli.run("join", "--role", "developer", "--id", "developer-fixture")
+    assert join_payload["action"] == "retired"
+
+    rejected = fixture.cli.run_failure("task", "next", "--role", "developer", "--id", "developer-fixture")
+    assert "is retired and cannot claim more Sprint Engine work" in rejected.stderr
+
+    state = read_state(fixture.state_path)
+    assert state["agents"]["developer-fixture"]["status"] == "retired"
+    assert_task_status(state, "T2", "todo")
+    assert_event_type(state, "roster_member_retired")
+
+
+def test_roster_replenish_adds_replacement_for_retired_capacity_with_open_work(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "retired-agent-replenish",
+        [
+            task("T1", "Completed implementation", "developer", "done"),
+            task("T2", "Remaining implementation", "developer"),
+        ],
+    )
+    state = read_state(fixture.state_path)
+    state["agents"] = {
+        "developer-1": {
+            "role": "developer",
+            "status": "retired",
+            "currentTaskId": None,
+            "retiredAt": "2026-05-19T00:00:00Z",
+            "retiredReason": "context capacity near limit",
+        }
+    }
+    state["sprintengine"]["rosterConfigured"] = True
+    write_state(fixture.state_path, state)
+
+    replenished = fixture.cli.run("roster", "replenish", "--role", "developer", "--actor", "runner")
+    assert replenished["action"] == "replenished"
+    assert replenished["created"][0]["id"] == "developer-2"
+
+    next_payload = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
+    assert next_payload["claimed"] is True
+    assert next_payload["task"]["id"] == "T2"
+
+    state = read_state(fixture.state_path)
+    assert state["agents"]["developer-1"]["replacedByAgentId"] == "developer-2"
+    assert state["agents"]["developer-2"]["status"] == "running"
+    assert_event_type(state, "roster_replacement_added")
+
+
+def test_roster_replenish_preserves_multi_agent_role_capacity(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "retired-agent-replenish-capacity",
+        [task("T1", "Remaining implementation", "developer")],
+    )
+    state = read_state(fixture.state_path)
+    state["agents"] = {
+        "developer-1": {
+            "role": "developer",
+            "status": "retired",
+            "currentTaskId": None,
+            "retiredAt": "2026-05-19T00:00:00Z",
+            "retiredReason": "context capacity near limit",
+        },
+        "developer-2": {
+            "role": "developer",
+            "status": "idle",
+            "currentTaskId": None,
+        },
+    }
+    state["sprintengine"]["rosterConfigured"] = True
+    write_state(fixture.state_path, state)
+
+    replenished = fixture.cli.run("roster", "replenish", "--role", "developer", "--actor", "runner")
+    assert replenished["action"] == "replenished"
+    assert replenished["created"][0]["id"] == "developer-3"
+
+    second = fixture.cli.run("roster", "replenish", "--role", "developer", "--actor", "runner")
+    assert second["action"] == "none"
+
+    state = read_state(fixture.state_path)
+    assert state["agents"]["developer-1"]["replacedByAgentId"] == "developer-3"
+    assert state["agents"]["developer-2"]["status"] == "idle"
+    assert state["agents"]["developer-3"]["status"] == "idle"
+
+
+def test_roster_retire_rejects_active_task_owner(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "retire-active-task-rejected",
+        [task("T1", "Active implementation", "developer")],
+    )
+
+    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+    rejected = fixture.cli.run_failure(
+        "roster",
+        "retire",
+        "--id",
+        "developer-fixture",
+        "--reason",
+        "context capacity near limit",
+    )
+    assert "still owns active task" in rejected.stderr
+
+
 def test_task_claiming_is_restricted_to_the_requested_role(tmp_path) -> None:
     fixture = create_team(
         tmp_path,

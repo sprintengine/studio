@@ -360,7 +360,7 @@ export type SprintEngineTaskNeedsInput = {
   resumeRequestedAt?: string
 }
 
-export type SprintEngineRuntimeAgentStatus = 'idle' | 'running' | 'needs_input' | 'done'
+export type SprintEngineRuntimeAgentStatus = 'idle' | 'running' | 'needs_input' | 'done' | 'retired'
 
 export type SprintEngineRuntimeAgent = {
   role: SprintEngineRole

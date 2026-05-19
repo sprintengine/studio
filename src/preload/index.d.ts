@@ -87,6 +87,7 @@ import type {
   SpecialistActionId as SharedSpecialistActionId,
   SprintEngineArtifactCommandResult as SharedSprintEngineArtifactCommandResult,
   SprintEngineProjectionReadResult as SharedSprintEngineProjectionReadResult,
+  SprintEngineRosterReplenishInput as SharedSprintEngineRosterReplenishInput,
   SprintEngineCliPermissionPreset as SharedSprintEngineCliPermissionPreset,
   SessionActivity as SharedSessionActivity,
   TerminalKind as SharedTerminalKind,
@@ -204,6 +205,7 @@ declare global {
   type WindowState = SharedWindowState
   type SprintEngineArtifactCommandResult = SharedSprintEngineArtifactCommandResult
   type SprintEngineProjectionReadResult = SharedSprintEngineProjectionReadResult
+  type SprintEngineRosterReplenishInput = SharedSprintEngineRosterReplenishInput
   type MultiloopInitInput = SharedMultiloopInitInput
   type MultiloopInitResult = SharedMultiloopInitResult
   type SessionUser = SharedSessionUser

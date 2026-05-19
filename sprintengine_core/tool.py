@@ -27,6 +27,7 @@ VALID_TASK_STATUSES = {"todo", "in_progress", "review", "testing", "product", "c
 ACTIVE_TASK_STATUSES = {"in_progress", "needs_input", "changes_requested"}
 RUN_EXECUTING_TASK_STATUSES = ACTIVE_TASK_STATUSES | {"review", "testing", "product"}
 VALID_ROLES = {"architect", "product", "developer", "frontend", "tester", "security", "code_reviewer", "spec_reviewer", "performance"}
+TERMINAL_AGENT_STATUSES = {"retired"}
 VALID_TASK_COMMENT_TYPES = {
     "implementation_summary",
     "implementation_response",
@@ -602,10 +603,16 @@ def ensure_role_in_roster(state: Dict[str, Any], role: str) -> None:
         )
 
 
-def ensure_agent_in_roster(state: Dict[str, Any], agent_id: str, role: str) -> None:
+def agent_is_retired(agent: Optional[Dict[str, Any]]) -> bool:
+    return isinstance(agent, dict) and agent.get("status") in TERMINAL_AGENT_STATUSES
+
+
+def ensure_agent_in_roster(state: Dict[str, Any], agent_id: str, role: str, *, allow_retired: bool = False) -> None:
+    existing_agent = state.get("agents", {}).get(agent_id)
+    if agent_is_retired(existing_agent) and not allow_retired:
+        raise SystemExit(f"Agent {agent_id!r} is retired and cannot claim more Sprint Engine work.")
     if not roster_is_configured(state):
         return
-    existing_agent = state.get("agents", {}).get(agent_id)
     if not isinstance(existing_agent, dict):
         raise SystemExit(f"Agent {agent_id!r} is not in this Sprint Engine roster.")
     if existing_agent.get("role") != role:
@@ -632,6 +639,44 @@ def add_roster_agent(state: Dict[str, Any], role: str, agent_id: str, actor: str
     state.setdefault("sprintengine", {})["rosterConfigured"] = True
     append_event(state, "roster_member_added", actor, f"{actor} added {clean_id} to the Sprint Engine roster as {role}.")
     return agent
+
+
+def next_replacement_agent_id(state: Dict[str, Any], role: str) -> str:
+    agents = state.get("agents", {})
+    used = {str(agent_id) for agent_id in agents.keys()}
+    pattern = re.compile(rf"^{re.escape(role)}(?:-(\d+))?$")
+    highest = 0
+    for agent_id in used:
+        match = pattern.match(agent_id)
+        if not match:
+            continue
+        highest = max(highest, int(match.group(1) or "1"))
+    candidate_index = max(2, highest + 1)
+    while True:
+        candidate = f"{role}-{candidate_index}"
+        if candidate not in used:
+            return candidate
+        candidate_index += 1
+
+
+def role_has_open_work(state: Dict[str, Any], role: str) -> bool:
+    for task in state.get("tasks", []) or []:
+        if not isinstance(task, dict):
+            continue
+        if task.get("role") == role and task.get("status") not in {"done", "canceled"}:
+            return True
+        for gate in task_quality_gates(task):
+            if gate.get("role") == role and gate.get("status") in {"pending", "in_progress", "changes_requested", "blocked"}:
+                return True
+    return False
+
+
+def retired_agent_has_live_replacement(state: Dict[str, Any], retired_agent: Dict[str, Any]) -> bool:
+    replacement_id = str(retired_agent.get("replacedByAgentId") or "").strip()
+    if not replacement_id:
+        return False
+    replacement = state.get("agents", {}).get(replacement_id)
+    return isinstance(replacement, dict) and not agent_is_retired(replacement)
 
 
 def set_if_changed(record: Dict[str, Any], key: str, value: Any) -> bool:
@@ -1006,6 +1051,13 @@ def reconcile_agent(state: Dict[str, Any], agent_id: str, role: str) -> Dict[str
     if active_task:
         dirty = set_agent_active(agent, active_task) or dirty
         return {"agent": agent, "activeTask": active_task, "repairs": repairs, "dirty": dirty}
+
+    if agent_is_retired(agent):
+        dirty = set_if_changed(agent, "currentTaskId", None) or dirty
+        if "currentGateId" in agent:
+            agent.pop("currentGateId", None)
+            dirty = True
+        return {"agent": agent, "activeTask": None, "repairs": repairs, "dirty": dirty}
 
     if agent.get("status") == "done":
         dirty = set_if_changed(agent, "currentTaskId", None) or dirty
@@ -3958,6 +4010,11 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             "`owner` when you are waiting on your own external condition. Add `--needs-input-reason tooling` for "
             "missing commands/dependencies, or `--needs-input-reason verification` when real validation cannot be completed. "
             "Include `--needs-input-question` and, when useful, `--needs-input-suggested-resolution`. Otherwise, mark it done. "
+            "If the task is too large for one agent or needs decomposition, use `needs_input` with "
+            "`--needs-input-kind architect --needs-input-reason task_scope`; do not retire to signal task scope problems. "
+            "After you finish your current work and should not accept more work because of context capacity, run "
+            "`sprintengine roster retire --id <your-agent-id> --reason \"context capacity near limit\"`. "
+            "Sprint Engine decides whether to replenish the roster; do not try to spawn your own replacement. "
         )
 
     def role_boundary_instruction() -> str:
@@ -3996,9 +4053,19 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
         return bool(tasks) and all(task.get("status") == "done" for task in tasks)
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        ensure_agent_in_roster(state, args.id, args.role)
+        ensure_agent_in_roster(state, args.id, args.role, allow_retired=True)
         runtime = reconcile_agent(state, args.id, args.role)
         agent = runtime["agent"]
+        if agent_is_retired(agent):
+            return {
+                "ok": True,
+                "role": args.role,
+                "agentId": args.id,
+                "action": "retired",
+                "runner": runner_policy(state),
+                "message": "This Sprint Engine agent is retired and must not claim more work. Stop now.",
+                "write": runtime["dirty"],
+            }
         active = runtime["activeTask"]
         active_gate = find_active_gate_claim(state, args.id, args.role)
         pending_gates = [
@@ -4236,6 +4303,113 @@ def cmd_roster_add(args: argparse.Namespace) -> Dict[str, Any]:
             "role": args.role,
             "agent": agent,
         }
+
+    return with_locked_state(args.state, run)
+
+
+def cmd_roster_retire(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        clean_id = args.id.strip()
+        if not clean_id:
+            raise SystemExit("--id cannot be empty.")
+        reason = (args.reason or "").strip()
+        if not reason:
+            raise SystemExit("--reason is required.")
+
+        agent = state.get("agents", {}).get(clean_id)
+        if not isinstance(agent, dict):
+            raise SystemExit(f"Agent {clean_id!r} is not in this Sprint Engine roster.")
+        role = str(agent.get("role") or "").strip()
+        if role not in VALID_ROLES:
+            raise SystemExit(f"Agent {clean_id!r} does not have a valid Sprint Engine role.")
+
+        active_task = next(
+            (
+                task
+                for task in state.get("tasks", []) or []
+                if isinstance(task, dict)
+                and task.get("ownerAgentId") == clean_id
+                and task.get("status") in ACTIVE_TASK_STATUSES
+            ),
+            None,
+        )
+        if active_task:
+            raise SystemExit(
+                f"Agent {clean_id!r} still owns active task {active_task.get('id')!r}; "
+                "finish it, route it to needs_input, or have the architect release it before retiring."
+            )
+
+        active_gate = find_active_gate_claim(state, clean_id, role)
+        if active_gate:
+            raise SystemExit(
+                f"Agent {clean_id!r} still owns active gate {active_gate['gate'].get('id')!r} "
+                f"on task {active_gate['task'].get('id')!r}; submit a verdict before retiring."
+            )
+
+        already_retired = agent_is_retired(agent)
+        agent["status"] = "retired"
+        agent["currentTaskId"] = None
+        agent.pop("currentGateId", None)
+        agent.setdefault("retiredAt", now_iso())
+        agent["retiredReason"] = reason
+        actor = (args.actor or clean_id).strip() or clean_id
+        event = append_event(
+            state,
+            "roster_member_retired",
+            actor,
+            f"{actor} retired Sprint Engine roster member {clean_id}.",
+            {"agentId": clean_id, "role": role, "reason": reason},
+        )
+        return {
+            "ok": True,
+            "action": "already_retired" if already_retired else "retired",
+            "agentId": clean_id,
+            "role": role,
+            "agent": agent,
+            "event": event,
+        }
+
+    return with_locked_state(args.state, run)
+
+
+def cmd_roster_replenish(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        actor = (args.actor or "runner").strip() or "runner"
+        roles = [args.role] if getattr(args, "role", None) else sorted(VALID_ROLES)
+        created = []
+        for role in roles:
+            if role not in VALID_ROLES:
+                raise SystemExit(f"Invalid roster role {role!r}.")
+            retired_for_role = [
+                agent_id
+                for agent_id, agent in state.get("agents", {}).items()
+                if (
+                    isinstance(agent, dict)
+                    and agent.get("role") == role
+                    and agent_is_retired(agent)
+                    and not retired_agent_has_live_replacement(state, agent)
+                )
+            ]
+            if not retired_for_role:
+                continue
+            if not role_has_open_work(state, role):
+                continue
+            for retired_id in retired_for_role:
+                replacement_id = next_replacement_agent_id(state, role)
+                replacement = add_roster_agent(state, role, replacement_id, actor)
+                retired_agent = state.get("agents", {}).get(retired_id)
+                if isinstance(retired_agent, dict):
+                    retired_agent["replacedByAgentId"] = replacement_id
+                append_event(
+                    state,
+                    "roster_replacement_added",
+                    actor,
+                    f"{actor} added replacement Sprint Engine roster member {replacement_id} for retired {role} capacity.",
+                    {"agentId": replacement_id, "role": role, "replaces": [str(retired_id)]},
+                )
+                created.append({"id": replacement_id, "role": role, "agent": replacement, "replaces": [str(retired_id)]})
+
+        return {"ok": True, "action": "replenished" if created else "none", "created": created}
 
     return with_locked_state(args.state, run)
 
@@ -5573,6 +5747,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id", required=True, help="Stable agent id, e.g. security or developer-2.")
     p.add_argument("--actor", default="architect")
     p.set_defaults(handler=cmd_roster_add)
+
+    p = roster_sub.add_parser("retire", help="Mark a roster member retired so it cannot claim more Sprint Engine work.")
+    p.add_argument("--id", required=True, help="Stable agent id, e.g. developer-1.")
+    p.add_argument("--reason", required=True, help="Why this agent is retiring, e.g. context capacity near limit.")
+    p.add_argument("--actor", help="Actor recording the retirement; defaults to --id.")
+    p.set_defaults(handler=cmd_roster_retire)
+
+    p = roster_sub.add_parser("replenish", help="Let Sprint Engine add replacement roster slots for retired capacity when open work remains.")
+    p.add_argument("--role", choices=sorted(VALID_ROLES), help="Limit replenishment to one role.")
+    p.add_argument("--actor", default="runner")
+    p.set_defaults(handler=cmd_roster_replenish)
 
     p = roster_sub.add_parser("list", help="List the canonical Sprint Engine roster.")
     p.set_defaults(handler=cmd_roster_list)

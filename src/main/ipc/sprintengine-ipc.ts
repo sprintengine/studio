@@ -2,6 +2,7 @@ import type { IpcMain } from 'electron'
 import type {
   SprintEngineArtifactCommandResult,
   SprintEngineProjectionReadResult,
+  SprintEngineRosterReplenishInput,
   SprintEngineRunnerSetInput,
   SprintEngineStateInitializeInput,
   SprintEngineTaskCommentInput,
@@ -45,6 +46,7 @@ type SprintEngineIpcDependencies = {
   createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
   commentTask(payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult>
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
+  replenishRoster(payload: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
 }
 
@@ -87,6 +89,10 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:runner:set-mode', async (_, payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult> => {
     return deps.setRunnerMode(payload)
+  })
+
+  ipcMain.handle('sprintengine:roster:replenish', async (_, payload: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.replenishRoster(payload)
   })
 
   ipcMain.handle('sprintengine:projection:read', async (_, payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult> => {

@@ -147,6 +147,13 @@ def _mcp_payload(args) -> tuple[str, dict]:
     if group == "roster":
         if action == "add":
             return "sprintengine.roster.add", {**base, "role": args.role, "id": args.id, "actor": args.actor}
+        if action == "retire":
+            return "sprintengine.roster.retire", {**base, "id": args.id, "reason": args.reason, "actor": args.actor}
+        if action == "replenish":
+            payload = {**base, "actor": args.actor}
+            if args.role:
+                payload["role"] = args.role
+            return "sprintengine.roster.replenish", payload
         if action == "list":
             return "sprintengine.roster.list", base
         raise SystemExit(f"MCP backend does not support roster action: {action}")

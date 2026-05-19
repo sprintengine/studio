@@ -749,6 +749,11 @@ export type SprintEngineRunnerSetInput = {
   mode: SprintEngineRunnerMode
 }
 
+export type SprintEngineRosterReplenishInput = {
+  statePath: string
+  role?: SprintEngineTaskMutationRole
+}
+
 export type MultiloopInitInput = {
   workspaceRoot: string
   loopName: string
@@ -1126,6 +1131,7 @@ export type ElectronApi = {
   createSprintEngineTask: (input: SprintEngineTaskCreateInput) => Promise<SprintEngineArtifactCommandResult>
   commentSprintEngineTask: (input: SprintEngineTaskCommentInput) => Promise<SprintEngineArtifactCommandResult>
   setSprintEngineRunnerMode: (input: SprintEngineRunnerSetInput) => Promise<SprintEngineArtifactCommandResult>
+  replenishSprintEngineRoster: (input: SprintEngineRosterReplenishInput) => Promise<SprintEngineArtifactCommandResult>
   readSprintEngineProjection: (statePath: string) => Promise<SprintEngineProjectionReadResult>
   initializeSwitchboard: (workspaceRoot: string) => Promise<SwitchboardInitApiResult>
   readSwitchboardTasks: (workspaceRoot: string) => Promise<SwitchboardReadResult>

@@ -3,6 +3,7 @@ import type {
   ElectronApi,
   SprintEngineArtifactCommandResult,
   SprintEngineProjectionReadResult,
+  SprintEngineRosterReplenishInput,
   SprintEngineStateInitializeInput,
   SprintEngineRunnerSetInput,
   SprintEngineTaskCommentInput,
@@ -57,6 +58,10 @@ export const sprintEngineApi = {
     input: SprintEngineRunnerSetInput
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:runner:set-mode', input),
+  replenishSprintEngineRoster: (
+    input: SprintEngineRosterReplenishInput
+  ): Promise<SprintEngineArtifactCommandResult> =>
+    ipcRenderer.invoke('sprintengine:roster:replenish', input),
   readSprintEngineProjection: (
     statePath: string
   ): Promise<SprintEngineProjectionReadResult> =>
@@ -73,5 +78,6 @@ export const sprintEngineApi = {
   | 'createSprintEngineTask'
   | 'commentSprintEngineTask'
   | 'setSprintEngineRunnerMode'
+  | 'replenishSprintEngineRoster'
   | 'readSprintEngineProjection'
 >

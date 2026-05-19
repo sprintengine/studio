@@ -36,6 +36,8 @@ from sprintengine_core.tool import (
     cmd_recover,
     cmd_roster_add,
     cmd_roster_list,
+    cmd_roster_replenish,
+    cmd_roster_retire,
     cmd_summary,
     cmd_task_claim,
     cmd_task_list,
@@ -140,6 +142,8 @@ class SprintEngineMcpServer:
             "sprintengine.init": cmd_init,
             "sprintengine.recover": cmd_recover,
             "sprintengine.roster.add": cmd_roster_add,
+            "sprintengine.roster.retire": cmd_roster_retire,
+            "sprintengine.roster.replenish": cmd_roster_replenish,
             "sprintengine.roster.list": cmd_roster_list,
             "sprintengine.join": cmd_join,
             "sprintengine.summary": cmd_summary,
@@ -193,6 +197,10 @@ class SprintEngineMcpServer:
             base.update(role=payload["role"], id=payload["id"])
         elif tool_name == "sprintengine.roster.add":
             base.update(role=payload["role"], id=payload["id"], actor=payload.get("actor") or (actor.id if actor else "architect"))
+        elif tool_name == "sprintengine.roster.retire":
+            base.update(id=payload["id"], reason=payload["reason"], actor=payload.get("actor") or (actor.id if actor else payload["id"]))
+        elif tool_name == "sprintengine.roster.replenish":
+            base.update(role=payload.get("role"), actor=payload.get("actor") or (actor.id if actor else "runner"))
         elif tool_name == "sprintengine.roster.list":
             pass
         elif tool_name == "sprintengine.task.next":

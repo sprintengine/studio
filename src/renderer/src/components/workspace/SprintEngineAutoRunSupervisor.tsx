@@ -645,6 +645,8 @@ function pickNextAutoRuns(
     options2: { allowSharedTask?: boolean; agentRole?: SprintEngineRole; gateId?: string } = {}
   ) => {
     if (candidates.length >= options.limit) return false
+    const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
+    if (runtimeAgent?.status === 'retired') return false
     const workKey = workKeyForCandidate(task, options2.gateId)
     if (pendingWorkKeys.has(workKey) || selectedWorkKeys.has(workKey)) return false
     if (!options2.allowSharedTask && selectedTaskIds.has(task.id)) return false
@@ -928,7 +930,7 @@ async function getRunningContinuationCapacityByRole(
     if (!sessionBelongsToWorkspaceSprintEngine(session, workspace)) continue
 
     const runtimeAgent = sprintEngineState.sprintEngineAgents[session.agentId]
-    if (!runtimeAgent || runtimeAgent.status === 'needs_input') continue
+    if (!runtimeAgent || runtimeAgent.status === 'needs_input' || runtimeAgent.status === 'retired') continue
 
     const currentTask = runtimeAgent.currentTaskId
       ? sprintEngineState.tasks.find((task) => task.id === runtimeAgent.currentTaskId)
@@ -1044,6 +1046,20 @@ async function deliverAgentNotificationEvents(
     const targetAgentId = event.targetAgentId
     if (!targetAgentId) continue
     const deliveryKey = agentNotificationDeliveryKey(workspace, event)
+    const runtimeAgent = sprintEngineState.sprintEngineAgents[targetAgentId]
+    if (runtimeAgent?.status === 'retired') {
+      sentAgentNotificationEvents.current.add(deliveryKey)
+      useWorkspaceStore.getState().markSprintEngineAgentNotificationDelivered(workspace.id, deliveryKey)
+      logPerfEvent('SprintEngineAutoRun', 'agent-notification-skipped-retired', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        eventId: event.id,
+        agentId: targetAgentId,
+        taskId: event.taskId ?? null,
+        notificationKind: event.notificationKind ?? null,
+      })
+      continue
+    }
     const prompt = buildAgentNotificationPrompt(event)
     const session = await findRunningAgentSession(workspace, targetAgentId)
     if (session) {
@@ -1075,7 +1091,6 @@ async function deliverAgentNotificationEvents(
     }
 
     const rosterAgent = rosterById.get(targetAgentId)
-    const runtimeAgent = sprintEngineState.sprintEngineAgents[targetAgentId]
     const role = rosterAgent?.role ?? runtimeAgent?.role
     if (!role) continue
     const result = await spawnAutoRunCandidate(
@@ -1609,6 +1624,16 @@ async function startMissingRosterAgents(
   let started = false
 
   for (const agent of roster) {
+    const runtimeAgent = sprintEngineState.sprintEngineAgents[agent.id]
+    if (runtimeAgent?.status === 'retired') {
+      logPerfEvent('SprintEngineAutoRun', 'roster-spawn-skipped-retired', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId: agent.id,
+        role: agent.role,
+      })
+      continue
+    }
     if (!stateFileExists) {
       logPerfEvent('SprintEngineAutoRun', 'roster-spawn-before-state', {
         workspaceId: workspace.id,
@@ -1663,6 +1688,46 @@ async function startMissingRosterAgents(
   }
 
   return started ? 'started' : 'none'
+}
+
+async function replenishRetiredRosterCapacity(
+  workspace: Workspace,
+  sprintEngineState: SprintEngineState
+): Promise<'changed' | 'failed' | 'none'> {
+  if (!workspace.sprintEngineContext || sprintEngineState.runner?.mode !== 'auto') return 'none'
+  const hasRetiredAgent = Object.values(sprintEngineState.sprintEngineAgents)
+    .some((agent) => agent.status === 'retired')
+  if (!hasRetiredAgent) return 'none'
+
+  const result = await window.api.replenishSprintEngineRoster({
+    statePath: workspace.sprintEngineContext.statePath,
+  })
+  if (!result.ok) {
+    await publishDiagnostic({
+      level: 'warning',
+      source: 'sprintengine',
+      title: 'Roster replenishment failed',
+      message: result.message,
+      details: result.stderr || result.stdout,
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+    })
+    return 'failed'
+  }
+
+  const projectionContent = (result.data as { projectionContent?: unknown } | undefined)?.projectionContent
+  if (typeof projectionContent !== 'string') return 'none'
+  const projection = JSON.parse(projectionContent) as unknown
+  const parsedState = normalizeSprintEngineProjection(projection, workspace.sprintEngineContext.teamSlug)
+  if (!parsedState) return 'none'
+  useWorkspaceStore.getState().setSprintEngineState(workspace.id, parsedState)
+  const created = ((result.data as { tool?: { created?: unknown[] } } | undefined)?.tool?.created ?? []).length
+  logPerfEvent('SprintEngineAutoRun', 'roster-replenish', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    created,
+  })
+  return created > 0 ? 'changed' : 'none'
 }
 
 async function signalArchitectForNeedsInputTriage(
@@ -1924,6 +1989,18 @@ async function superviseWorkspace(
       workspaceName: workspace.name,
       reason: 'task-needs-input',
       taskIds: runningNeedsInputTaskIds,
+      elapsedMs: Math.round(performance.now() - superviseStartedAt),
+    })
+    return
+  }
+
+  const replenishResult = await replenishRetiredRosterCapacity(workspace, sprintEngineState)
+  if (replenishResult === 'failed') return
+  if (replenishResult === 'changed') {
+    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      reason: 'roster-replenished',
       elapsedMs: Math.round(performance.now() - superviseStartedAt),
     })
     return

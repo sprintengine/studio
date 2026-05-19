@@ -1540,7 +1540,7 @@ function normalizeProjectionRoster(value: unknown): Record<string, SprintEngineR
     if (!agent || typeof agent !== 'object') continue
     const record = agent as Record<string, unknown>
     if (!isSprintEngineRole(record.role)) continue
-    const status = record.status === 'running' || record.status === 'needs_input' || record.status === 'done'
+    const status = record.status === 'running' || record.status === 'needs_input' || record.status === 'done' || record.status === 'retired'
       ? record.status
       : 'idle' as const
     result[agentId] = {

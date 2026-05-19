@@ -10,6 +10,8 @@ AUDITED_TOOLS = {
     "sprintengine.init",
     "sprintengine.recover",
     "sprintengine.roster.add",
+    "sprintengine.roster.retire",
+    "sprintengine.roster.replenish",
     "sprintengine.roster.list",
     "sprintengine.join",
     "sprintengine.task.next",

@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'pat
 import type {
   SprintEngineArtifactCommandResult,
   SprintEngineProjectionReadResult,
+  SprintEngineRosterReplenishInput,
   SprintEngineRunnerSetInput,
   SprintEngineStateInitializeInput,
   SprintEngineTaskCommentInput,
@@ -456,6 +457,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
   commentTask(payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult>
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
+  replenishRoster(payload: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
 } {
   return {
@@ -793,6 +795,45 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
             action: 'runner-set-mode',
             mode,
             projectionContent,
+          },
+        }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    async replenishRoster(payload) {
+      try {
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const args = [
+          '--state',
+          state.statePath,
+          'roster',
+          'replenish',
+          '--actor',
+          'runner',
+        ]
+        if (payload?.role) {
+          args.push('--role', resolveTaskRole(payload.role))
+        }
+        const toolResult = await runSprintEngineCli(state, args)
+        if (toolResult.exitCode !== 0) {
+          return {
+            ok: false,
+            message: toolResult.stderr.trim() || toolResult.stdout.trim() || 'The sprintengine roster command failed.',
+            stdout: toolResult.stdout,
+            stderr: toolResult.stderr,
+            exitCode: toolResult.exitCode ?? 'unknown',
+          }
+        }
+        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
+        const tool = JSON.parse(toolResult.stdout || '{}') as unknown
+        return {
+          ok: true,
+          data: {
+            action: 'roster-replenish',
+            projectionContent,
+            tool,
           },
         }
       } catch (error) {
