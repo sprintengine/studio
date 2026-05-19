@@ -16,6 +16,7 @@ import { switchboardApi } from './api/switchboard'
 import { terminalApi } from './api/terminal'
 import { updateApi } from './api/update'
 import { windowApi } from './api/window'
+import { workspaceBackupApi } from './api/workspace-backup'
 
 const api = {
   platform: process.platform,
@@ -37,6 +38,7 @@ const api = {
   ...terminalApi,
   ...updateApi,
   ...appMenuApi,
+  ...workspaceBackupApi,
 } satisfies ElectronApi
 
 contextBridge.exposeInMainWorld('api', api)

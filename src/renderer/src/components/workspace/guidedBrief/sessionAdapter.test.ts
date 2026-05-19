@@ -56,6 +56,11 @@ const strategistPrompt = buildGuidedBriefSpecialistStartupPrompt({
 assert.match(strategistPrompt, /souls get product/, 'strategist prompt requires product Soul')
 assert.match(strategistPrompt, /product\/idea-seed\.md/, 'strategist prompt reads idea seed')
 assert.match(strategistPrompt, /product\/requirements\.md/, 'strategist prompt writes requirements')
+assert.match(
+  strategistPrompt,
+  /2-4 concrete multiple-choice options/,
+  'strategist prompt requires concrete multiple-choice interview options',
+)
 assert.match(strategistPrompt, /\nBRIEF_READY\n/, 'strategist prompt emits BRIEF_READY marker')
 
 const designerPrompt = buildGuidedBriefSpecialistStartupPrompt({
@@ -79,6 +84,11 @@ assert.match(architectPrompt, /souls get architect/, 'architect prompt requires 
 assert.match(architectPrompt, /product\/\.versions\/brief\.md/, 'architect prompt reads accepted brief snapshot')
 assert.match(architectPrompt, /architecture\/plan\.md/, 'architect prompt writes architecture plan')
 assert.match(architectPrompt, /one question at a time/, 'architect prompt includes the shared interview protocol')
+assert.match(
+  architectPrompt,
+  /recommended option first and clearly labeled "Recommended"/,
+  'architect prompt labels the recommended multiple-choice option',
+)
 assert.match(architectPrompt, /\nARCHITECTURE_PLAN_READY\n/, 'architect prompt emits ARCHITECTURE_PLAN_READY marker')
 
 assert.equal(containsGuidedBriefMarker('working\nBRIEF_READY\n', 'BRIEF_READY'), true)

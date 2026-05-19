@@ -1,16 +1,13 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import type { IJsonModel } from 'flexlayout-react'
-import { nanoid } from 'nanoid'
 import type {
   Workspace,
   WorkspaceId,
-  WorkspaceMode,
   LayoutTemplate,
   AgentState,
   AgentId,
-  EditorState,
   SprintEngineAutoPendingSpawn,
   SprintEngineAutoState,
   SprintEngineCliPermissionPreset,
@@ -21,89 +18,87 @@ import type {
   MultiloopState,
   MultiloopWorkspaceContext,
   SprintEngineRole,
-  SprintEngineRoleCounts,
   SprintEngineRoleCliDefaults,
   AgentCli,
   AppSettings,
-  LearningSettings,
   UsageTelemetrySettings,
   CliRuntimeSettings,
-  AgentKind,
   SpecialistActionId,
   MultiloopRole,
   AgentExecution,
   WorkspaceWorktreeState,
   WorktreeEntry,
-  WorkspaceMemoryConfig,
   MemoryGraphSettings,
   WorkspaceHighlight,
   McpServerConfig,
-  McpSettings,
   SkillPackEntry,
-  SkillPackHarness,
-  SkillPackSettings,
   GuidedBriefRuntimeState,
 } from '../types/workspace'
+import { createGuidedBriefSlice } from './slices/guidedBriefSlice'
+import { createAuthSlice } from './slices/authSlice'
+import { createSettingsSlice, normalizeAppSettings } from './slices/settingsSlice'
 import {
-  DEFAULT_GRAPH_SETTINGS,
-  normalizeGraphSettings,
-} from '../components/memory/memoryGraphTypes'
-import { getSpecialistAction } from '../specialists/specialistActions'
-import { pickRandomAgentName } from '../utils/agentNames'
-import { detectLanguage } from '../utils/files'
+  createWorkspacesSlice,
+  type WorkspacesSliceDependencies,
+} from './slices/workspacesSlice'
 import {
-  buildSprintEngineAgentRosterForState,
-  createDefaultSprintEngineRoleCounts,
-  createInitialSprintEngineState,
-  getNextSprintEngineAgentId,
-  normalizeSprintEngineState,
-} from '../utils/sprintengine'
+  createLayoutSlice,
+  ensureMultiloopLayoutModel,
+  migrateSprintEngineLayout,
+  multiloopTabsLayoutModel,
+  sprintEngineTabsLayoutModel,
+} from './slices/layoutSlice'
 import {
-  getSprintEngineDirectoryPath,
-  getSprintEngineStateFilePath,
-  slugifySprintEngineName,
-} from '../utils/sprintengineStateFile'
+  createAgentsSlice,
+  defaultAgent,
+  defaultEditorState,
+  isPathOrChild,
+  normalizeAgentState,
+  pickWorkspaceAgentName,
+} from './slices/agentsSlice'
 import {
-  getMultiloopDirectoryPath,
-  getMultiloopStateFilePath,
-  slugifyMultiloopName,
-} from '../utils/multiloopStateFile'
+  createRunStateSlice,
+  normalizeMultiloopAutoState,
+  normalizeMultiloopWorkspaceContext,
+  normalizeSprintEngineAutoState,
+  normalizeSprintEngineRoleCliDefaults,
+  normalizeSprintEngineWorkspaceContext,
+} from './slices/runStateSlice'
 import {
-  deleteEditorBuffer,
-  moveEditorBuffer,
-  remapEditorBuffers,
-  removeEditorBuffersForPath,
-  setEditorBuffer,
-} from '../utils/editorBuffers'
-import { normalizeProjectRootKey } from '../utils/projectKnowledge'
-import { agentCliUsesStableSessionIdForResume } from '../utils/agentCliResume'
-
-const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
-const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
-const MAX_RECENT_WORKSPACE_FOLDERS = 12
-
-function workspaceFolderKey(value: string | null | undefined): string | null {
-  const normalized = normalizeProjectRootKey(value)
-  return normalized ? normalized.toLowerCase() : null
-}
-
-function migrateLegacyWorkspaceStorageKey(): void {
-  try {
-    if (typeof window === 'undefined') return
-    if (window.localStorage.getItem(WORKSPACE_STORAGE_KEY)) return
-
-    const legacyState = window.localStorage.getItem(LEGACY_WORKSPACE_STORAGE_KEY)
-    if (legacyState) window.localStorage.setItem(WORKSPACE_STORAGE_KEY, legacyState)
-  } catch {
-    // Persist will fall back to a fresh store if localStorage is unavailable.
-  }
-}
+  createWorktreesSlice,
+  defaultWorkspaceWorktreeState,
+  normalizeWorkspaceWorktreeState,
+} from './slices/worktreesSlice'
+import {
+  createMemorySlice,
+  defaultWorkspaceMemoryConfig,
+} from './slices/memorySlice'
+import { normalizeWorkspaceForPartialize } from './slices/normalizers'
+import {
+  APP_SETTINGS_STORAGE_KEY,
+  WORKSPACE_STORAGE_KEY,
+  WORKSPACE_STORE_VERSION,
+  type HydrationDiagnostic,
+  type HydrationStorageSource,
+  type PersistedStateClassification,
+  type WorkspaceMigrationState,
+  classifyPersistedWorkspaceState,
+  isDangerousEmptyClassification,
+  migrateLegacyWorkspaceStorageKey,
+  migratePersistedWorkspaceState,
+} from './slices/persistenceSlice'
+import {
+  isLegacyV44WorkspaceEnvelope,
+  splitLegacyV44Envelope,
+} from './repositories/workspaceRegistry'
+import type { WorkspaceRegistryEmptyState } from '../types/workspace'
 
 migrateLegacyWorkspaceStorageKey()
 
 interface WorkspaceStore {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
+  workspaceRegistryEmptyState: WorkspaceRegistryEmptyState | null
   appSettings: AppSettings
   authState: MulticodeAuthState
   sidebarCollapsed: boolean
@@ -244,2611 +239,509 @@ interface WorkspaceStore {
   ) => void
 }
 
-const defaultLearningSettings = (): LearningSettings => ({
-  showTipsOnStartup: true,
-  lastShownTipId: null,
-  seenTipIds: [],
-  completedLessonIds: [],
-})
-
-function normalizeLearningStringList(value: unknown, max = 200): string[] {
-  if (!Array.isArray(value)) return []
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const entry of value) {
-    if (typeof entry !== 'string') continue
-    const trimmed = entry.trim()
-    if (!trimmed || seen.has(trimmed)) continue
-    seen.add(trimmed)
-    out.push(trimmed)
-    if (out.length >= max) break
-  }
-  return out
+const workspacesSliceDeps: WorkspacesSliceDependencies = {
+  defaultAgent,
+  defaultEditorState,
+  defaultWorkspaceMemoryConfig,
+  defaultWorkspaceWorktreeState,
+  normalizeAgentState,
+  normalizeWorkspaceWorktreeState,
+  normalizeSprintEngineWorkspaceContext,
+  normalizeMultiloopWorkspaceContext,
+  normalizeSprintEngineAutoState,
+  normalizeMultiloopAutoState,
+  normalizeSprintEngineRoleCliDefaults,
+  multiloopTabsLayoutModel,
+  sprintEngineTabsLayoutModel,
+  ensureMultiloopLayoutModel,
+  migrateSprintEngineLayout,
+  pickWorkspaceAgentName,
+  isPathOrChild,
 }
 
-function normalizeLearningSettings(input: unknown): LearningSettings {
-  const defaults = defaultLearningSettings()
-  if (!input || typeof input !== 'object') return defaults
-  const candidate = input as Partial<LearningSettings>
+// Module-level hydration context: getItem populates it during async hydrate;
+// onRehydrateStorage reads it once after the store finishes hydrating and emits
+// a single structured diagnostic log entry so persistence failures and recoveries
+// are observable instead of silent.
+type HydrationContext = {
+  storageSource: HydrationStorageSource
+  classification: PersistedStateClassification
+  persistedWorkspaceCount: number
+  parseError?: string
+  recoveryError?: string
+}
+
+const hydrationContext: HydrationContext = {
+  storageSource: 'fresh',
+  classification: 'dangerous_empty_missing_storage',
+  persistedWorkspaceCount: 0,
+}
+
+function getPersistedWorkspaceCount(raw: string | null): number {
+  if (!raw) return 0
+  try {
+    const envelope = JSON.parse(raw) as { state?: { workspaces?: unknown } }
+    const workspaces = envelope?.state?.workspaces
+    return Array.isArray(workspaces) ? workspaces.length : 0
+  } catch {
+    return 0
+  }
+}
+
+const BACKUP_WRITE_DEBOUNCE_MS = 250
+let backupWriteTimer: ReturnType<typeof setTimeout> | null = null
+let pendingBackupValue: string | null = null
+
+function scheduleBackupWrite(serializedEnvelope: string): void {
+  if (typeof window === 'undefined') return
+  const api = window.api
+  if (!api || typeof api.workspaceBackupWrite !== 'function') return
+
+  pendingBackupValue = serializedEnvelope
+  if (backupWriteTimer) clearTimeout(backupWriteTimer)
+  backupWriteTimer = setTimeout(() => {
+    backupWriteTimer = null
+    const value = pendingBackupValue
+    pendingBackupValue = null
+    if (value === null) return
+    void api
+      .workspaceBackupWrite({
+        version: WORKSPACE_STORE_VERSION,
+        writtenAt: new Date().toISOString(),
+        data: value,
+      })
+      .catch((error: unknown) => {
+        console.warn('[workspaceStore] backup write failed', {
+          message: error instanceof Error ? error.message : 'unknown',
+        })
+      })
+  }, BACKUP_WRITE_DEBOUNCE_MS)
+}
+
+// Two-key split persistence (T23). The custom storage adapter is the only
+// place workspace-registry and app-settings keys are read/written, so non-
+// workspace state changes physically cannot serialize the workspace registry:
+//   setItem extracts registry fields → writes multicode-workspaces ONLY when
+//                                      those fields changed (dedup)
+//   setItem extracts settings fields → writes multicode-app-settings ONLY
+//                                      when those fields changed (dedup)
+// A setSidebarCollapsed call ends up in the dedup'd settings write; the
+// workspace-registry key is untouched, so it cannot be wiped by construction.
+
+type RegistryEnvelopeState = {
+  workspaces: unknown
+  activeWorkspaceId: unknown
+  workspaceRegistryEmptyState: unknown
+}
+
+type SettingsEnvelopeState = {
+  appSettings: unknown
+  sidebarCollapsed: unknown
+}
+
+let lastWrittenRegistrySerialized: string | null = null
+let lastWrittenSettingsSerialized: string | null = null
+
+function extractRegistryFields(state: Record<string, unknown>): RegistryEnvelopeState {
   return {
-    showTipsOnStartup:
-      typeof candidate.showTipsOnStartup === 'boolean'
-        ? candidate.showTipsOnStartup
-        : defaults.showTipsOnStartup,
-    lastShownTipId:
-      typeof candidate.lastShownTipId === 'string' && candidate.lastShownTipId.trim()
-        ? candidate.lastShownTipId.trim()
-        : null,
-    seenTipIds: normalizeLearningStringList(candidate.seenTipIds),
-    completedLessonIds: normalizeLearningStringList(candidate.completedLessonIds),
-    dismissedVersion:
-      typeof candidate.dismissedVersion === 'string' && candidate.dismissedVersion.trim()
-        ? candidate.dismissedVersion.trim()
-        : undefined,
+    workspaces: state.workspaces,
+    activeWorkspaceId: state.activeWorkspaceId,
+    workspaceRegistryEmptyState: state.workspaceRegistryEmptyState,
   }
 }
 
-const defaultAppSettings = (): AppSettings => ({
-  cliRuntimes: {
-    codex: { command: 'codex', useWsl: false },
-    claude: {
-      command: 'claude',
-      useWsl: typeof window !== 'undefined' && window.api?.platform === 'win32',
-    },
+function extractSettingsFields(state: Record<string, unknown>): SettingsEnvelopeState {
+  return {
+    appSettings: state.appSettings,
+    sidebarCollapsed: state.sidebarCollapsed,
+  }
+}
+
+function readWorkspaceRegistryKey(): { raw: string | null; envelope: { state: RegistryEnvelopeState; version: number } | null } {
+  if (typeof window === 'undefined') return { raw: null, envelope: null }
+  let raw: string | null = null
+  try {
+    raw = window.localStorage.getItem(WORKSPACE_STORAGE_KEY)
+  } catch (error) {
+    hydrationContext.parseError = error instanceof Error ? error.message : 'localStorage_read_failed'
+    return { raw: null, envelope: null }
+  }
+  if (!raw) return { raw, envelope: null }
+  try {
+    const parsed = JSON.parse(raw) as { state?: RegistryEnvelopeState; version?: number }
+    if (!parsed?.state) return { raw, envelope: null }
+    return { raw, envelope: { state: parsed.state, version: parsed.version ?? 0 } }
+  } catch {
+    return { raw, envelope: null }
+  }
+}
+
+function readSettingsKey(): { raw: string | null; envelope: { state: SettingsEnvelopeState; version: number } | null } {
+  if (typeof window === 'undefined') return { raw: null, envelope: null }
+  let raw: string | null = null
+  try {
+    raw = window.localStorage.getItem(APP_SETTINGS_STORAGE_KEY)
+  } catch {
+    return { raw: null, envelope: null }
+  }
+  if (!raw) return { raw, envelope: null }
+  try {
+    const parsed = JSON.parse(raw) as { state?: SettingsEnvelopeState; version?: number }
+    if (!parsed?.state) return { raw, envelope: null }
+    return { raw, envelope: { state: parsed.state, version: parsed.version ?? 0 } }
+  } catch {
+    return { raw, envelope: null }
+  }
+}
+
+const workspaceStateStorage: StateStorage = {
+  getItem: (_name: string): string | null => {
+    if (typeof window === 'undefined') {
+      hydrationContext.storageSource = 'fresh'
+      hydrationContext.classification = 'dangerous_empty_missing_storage'
+      hydrationContext.persistedWorkspaceCount = 0
+      return null
+    }
+
+    // Cold-load: try registry key first. If it's a legacy v44 envelope (single
+    // key holding both registry + settings), split it on the fly and write the
+    // settings half to APP_SETTINGS_STORAGE_KEY so subsequent writes use the
+    // new shape. The persist middleware's migrate ladder still upgrades the
+    // workspace fields through version 45.
+    const registry = readWorkspaceRegistryKey()
+    let registryState = registry.envelope?.state ?? null
+    let registryVersion = registry.envelope?.version ?? 0
+    let legacyExtractedSettings: SettingsEnvelopeState | null = null
+
+    if (registry.raw && isLegacyV44WorkspaceEnvelope(registry.raw)) {
+      const split = splitLegacyV44Envelope(registry.raw)
+      if (split) {
+        registryState = {
+          workspaces: split.registry.state.workspaces,
+          activeWorkspaceId: split.registry.state.activeWorkspaceId,
+          workspaceRegistryEmptyState: null,
+        }
+        registryVersion = split.registry.version
+        if (split.extractedSettings) {
+          legacyExtractedSettings = split.extractedSettings as SettingsEnvelopeState
+          try {
+            window.localStorage.setItem(
+              APP_SETTINGS_STORAGE_KEY,
+              JSON.stringify({ state: split.extractedSettings, version: registryVersion }),
+            )
+          } catch {
+            // Best-effort; settings fields are still merged below in memory.
+          }
+        }
+      }
+    }
+
+    const classification = classifyPersistedWorkspaceState({ rawLocalStorage: registry.raw })
+    hydrationContext.classification = classification
+    hydrationContext.persistedWorkspaceCount = getPersistedWorkspaceCount(registry.raw)
+
+    if (classification === 'present') {
+      hydrationContext.storageSource = 'localStorage'
+    } else {
+      // Dangerous empty hydrations leave storageSource as 'fresh' here; the
+      // post-hydrate recovery kickoff may upgrade it to 'backup' before the
+      // canonical diagnostic emits.
+      hydrationContext.storageSource = 'fresh'
+    }
+
+    // Merge registry + settings into the single envelope zustand expects.
+    const settings = readSettingsKey()
+    const settingsState = legacyExtractedSettings ?? settings.envelope?.state ?? null
+    const mergedState: Record<string, unknown> = {
+      ...(registryState ?? {}),
+      ...(settingsState ?? {}),
+    }
+    // If everything is absent we treat this as a true cold-start. Zustand will
+    // create the store from defaults; partialize will not write until a real
+    // mutation happens.
+    if (!registryState && !settingsState) return null
+
+    const version = Math.max(registryVersion, settings.envelope?.version ?? 0)
+    // Seed the dedup baselines so the first post-hydrate setItem can decide
+    // whether to re-serialize each key.
+    lastWrittenRegistrySerialized = JSON.stringify(extractRegistryFields(mergedState))
+    lastWrittenSettingsSerialized = JSON.stringify(extractSettingsFields(mergedState))
+    return JSON.stringify({ state: mergedState, version })
   },
-  mcp: defaultMcpSettings(),
-  skillPacks: defaultSkillPackSettings(),
-  lastSelectedCli: 'claude',
-  lastSelectedSpecialist: 'architect',
-  lastSelectedMultiloopRole: 'coordinator',
-  lastAgentSpawnPermissionPreset: 'default',
-  specialistCliDefaults: {},
-  multiloopRoleCliDefaults: {},
-  searchExcludes: [],
-  projectKnowledgeRoots: {},
-  recentWorkspaceFolders: [],
-  usageTelemetry: defaultUsageTelemetrySettings(),
-  learning: defaultLearningSettings(),
-})
 
-function defaultMcpSettings(): McpSettings {
-  return {
-    syncEnabled: false,
-    servers: {},
-  }
-}
-
-function normalizeMcpId(value: unknown): string {
-  return typeof value === 'string'
-    ? value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
-    : ''
-}
-
-function normalizeMcpStringList(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value
-    .filter((item): item is string => typeof item === 'string')
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
-
-function normalizeMcpRecord(value: unknown): Record<string, string> | undefined {
-  if (!value || typeof value !== 'object') return undefined
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && Boolean(entry[0].trim()))
-    .map(([key, item]) => [key.trim(), item] as const)
-  return entries.length ? Object.fromEntries(entries) : undefined
-}
-
-function normalizeMcpServer(value: unknown): McpServerConfig | null {
-  if (!value || typeof value !== 'object') return null
-  const candidate = value as Partial<McpServerConfig>
-  const id = normalizeMcpId(candidate.id)
-  const name = typeof candidate.name === 'string' && candidate.name.trim() ? candidate.name.trim() : id
-  const transport = candidate.transport === 'http' || candidate.transport === 'sse' ? candidate.transport : 'stdio'
-  const clients = normalizeMcpStringList(candidate.clients).filter((client): client is AgentCli => client === 'codex' || client === 'claude')
-  const scope = candidate.scope === 'user' ? 'user' : 'workspace'
-  const source = candidate.source === 'custom' ? 'custom' : 'bundled'
-  const riskLevel = (
-    candidate.riskLevel === 'network'
-    || candidate.riskLevel === 'local-command'
-    || candidate.riskLevel === 'secrets'
-  ) ? candidate.riskLevel : 'low'
-
-  if (!id || !name || clients.length === 0) return null
-  if (transport === 'stdio' && !(typeof candidate.command === 'string' && candidate.command.trim())) return null
-  if ((transport === 'http' || transport === 'sse') && !(typeof candidate.url === 'string' && candidate.url.trim())) return null
-
-  return {
-    id,
-    name,
-    ...(typeof candidate.description === 'string' && candidate.description.trim()
-      ? { description: candidate.description.trim() }
-      : {}),
-    transport,
-    ...(typeof candidate.command === 'string' && candidate.command.trim() ? { command: candidate.command.trim() } : {}),
-    args: normalizeMcpStringList(candidate.args),
-    ...(typeof candidate.url === 'string' && candidate.url.trim() ? { url: candidate.url.trim() } : {}),
-    ...(normalizeMcpRecord(candidate.env) ? { env: normalizeMcpRecord(candidate.env) } : {}),
-    envVarNames: normalizeMcpStringList(candidate.envVarNames),
-    ...(normalizeMcpRecord(candidate.headers) ? { headers: normalizeMcpRecord(candidate.headers) } : {}),
-    enabled: candidate.enabled === true,
-    required: candidate.required === true,
-    clients,
-    scope,
-    source,
-    riskLevel,
-  }
-}
-
-function normalizeMcpSettings(value: unknown): McpSettings {
-  const defaults = defaultMcpSettings()
-  if (!value || typeof value !== 'object') return defaults
-  const candidate = value as Partial<McpSettings>
-  const servers: Record<string, McpServerConfig> = {}
-  if (candidate.servers && typeof candidate.servers === 'object') {
-    for (const server of Object.values(candidate.servers)) {
-      const normalized = normalizeMcpServer(server)
-      if (normalized) servers[normalized.id] = normalized
+  setItem: (_name: string, value: string): void => {
+    if (typeof window === 'undefined') return
+    let envelope: { state?: Record<string, unknown>; version?: number } | null = null
+    try {
+      envelope = JSON.parse(value) as { state?: Record<string, unknown>; version?: number }
+    } catch (error) {
+      console.warn('[workspaceStore] persist envelope parse failed', {
+        message: error instanceof Error ? error.message : 'unknown',
+      })
+      return
     }
-  }
-  return {
-    syncEnabled: candidate.syncEnabled === true,
-    servers,
-  }
-}
+    if (!envelope?.state) return
+    const version = envelope.version ?? WORKSPACE_STORE_VERSION
+    const fullState = envelope.state
 
-const SKILL_PACK_HARNESSES: readonly SkillPackHarness[] = [
-  'claude',
-  'codex',
-  'cursor',
-  'gemini',
-  'opencode',
-  'agents',
-]
-
-function defaultSkillPackSettings(): SkillPackSettings {
-  return { installed: {} }
-}
-
-function normalizeSkillPackId(value: unknown): string {
-  return typeof value === 'string'
-    ? value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
-    : ''
-}
-
-function normalizeSkillPack(value: unknown): SkillPackEntry | null {
-  if (!value || typeof value !== 'object') return null
-  const candidate = value as Partial<SkillPackEntry>
-  const id = normalizeSkillPackId(candidate.id)
-  const slug = typeof candidate.slug === 'string' ? candidate.slug.trim() : ''
-  const name = typeof candidate.name === 'string' && candidate.name.trim()
-    ? candidate.name.trim()
-    : id
-  if (!id || !slug) return null
-  const harnesses = Array.isArray(candidate.harnesses)
-    ? candidate.harnesses.filter((h): h is SkillPackHarness =>
-        SKILL_PACK_HARNESSES.includes(h as SkillPackHarness),
-      )
-    : []
-  const source = candidate.source === 'custom' ? 'custom' : 'bundled'
-  return {
-    id,
-    slug,
-    name,
-    category: typeof candidate.category === 'string' ? candidate.category.trim() || undefined : undefined,
-    description: typeof candidate.description === 'string' ? candidate.description.trim() || undefined : undefined,
-    version: typeof candidate.version === 'string' ? candidate.version.trim() || undefined : undefined,
-    sourceUrl: typeof candidate.sourceUrl === 'string' ? candidate.sourceUrl.trim() || undefined : undefined,
-    installedDirName: typeof candidate.installedDirName === 'string'
-      ? candidate.installedDirName.trim() || undefined
-      : undefined,
-    harnesses,
-    source,
-    installedAt: typeof candidate.installedAt === 'string' ? candidate.installedAt : undefined,
-  }
-}
-
-function normalizeSkillPackSettings(value: unknown): SkillPackSettings {
-  if (!value || typeof value !== 'object') return defaultSkillPackSettings()
-  const candidate = value as Partial<SkillPackSettings>
-  const installed: Record<string, SkillPackEntry> = {}
-  if (candidate.installed && typeof candidate.installed === 'object') {
-    for (const entry of Object.values(candidate.installed)) {
-      const normalized = normalizeSkillPack(entry)
-      if (normalized) installed[normalized.id] = normalized
+    // Registry key — dedup'd. Settings writes that don't touch workspace
+    // fields produce an identical serialized payload and the localStorage
+    // write is skipped, which gives the AC2/AC3 by-construction guarantee.
+    const registryFields = extractRegistryFields(fullState)
+    const registrySerialized = JSON.stringify(registryFields)
+    if (registrySerialized !== lastWrittenRegistrySerialized) {
+      try {
+        window.localStorage.setItem(
+          WORKSPACE_STORAGE_KEY,
+          JSON.stringify({ state: registryFields, version }),
+        )
+      } catch (error) {
+        console.warn('[workspaceStore] localStorage registry write failed', {
+          message: error instanceof Error ? error.message : 'unknown',
+        })
+      }
+      lastWrittenRegistrySerialized = registrySerialized
+      // Backup mirror only when the registry has actual workspaces — the
+      // intentional empty case (registryFields.workspaces=[],
+      // workspaceRegistryEmptyState non-null) is honored locally but not
+      // promoted to the userData backup, because backup is the last-known-
+      // good non-empty mirror and stays out of intent decisions (AC4).
+      if (Array.isArray(registryFields.workspaces) && registryFields.workspaces.length > 0) {
+        scheduleBackupWrite(JSON.stringify({ state: registryFields, version }))
+      }
     }
-  }
-  return { installed }
-}
 
-function normalizeProjectKnowledgeRoots(
-  roots: unknown,
-  workspaces: Workspace[]
-): Record<string, string | null> {
-  const normalized: Record<string, string | null> = {}
-
-  if (roots && typeof roots === 'object') {
-    for (const [projectRoot, relativeRoot] of Object.entries(roots as Record<string, unknown>)) {
-      const key = normalizeProjectRootKey(projectRoot)
-      const root = normalizeMemoryRelativeRoot(relativeRoot)
-      if (key && root) normalized[key] = root
+    // Settings key — also dedup'd. Workspace registry mutations that don't
+    // touch settings produce identical settings payloads here, so the
+    // settings key is left alone.
+    const settingsFields = extractSettingsFields(fullState)
+    const settingsSerialized = JSON.stringify(settingsFields)
+    if (settingsSerialized !== lastWrittenSettingsSerialized) {
+      try {
+        window.localStorage.setItem(
+          APP_SETTINGS_STORAGE_KEY,
+          JSON.stringify({ state: settingsFields, version }),
+        )
+      } catch (error) {
+        console.warn('[workspaceStore] localStorage settings write failed', {
+          message: error instanceof Error ? error.message : 'unknown',
+        })
+      }
+      lastWrittenSettingsSerialized = settingsSerialized
     }
-  }
-
-  for (const workspace of workspaces) {
-    const projectRoot = normalizeProjectRootKey(workspace.folderPath)
-    const relativeRoot = normalizeMemoryRelativeRoot(workspace.memory?.relativeRoot)
-    if (projectRoot && relativeRoot && !normalized[projectRoot]) normalized[projectRoot] = relativeRoot
-  }
-
-  return normalized
-}
-
-function normalizeAppSettings(settings: Partial<AppSettings> | undefined, workspaces: Workspace[]): AppSettings {
-  const defaults = defaultAppSettings()
-  return {
-    ...defaults,
-    cliRuntimes: {
-      ...defaults.cliRuntimes,
-      ...(settings?.cliRuntimes ?? {}),
-    },
-    mcp: normalizeMcpSettings(settings?.mcp),
-    skillPacks: normalizeSkillPackSettings(settings?.skillPacks),
-    lastSelectedCli: settings?.lastSelectedCli ?? defaults.lastSelectedCli,
-    lastSelectedSpecialist: settings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
-    lastSelectedMultiloopRole: settings?.lastSelectedMultiloopRole ?? defaults.lastSelectedMultiloopRole,
-    lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
-    specialistCliDefaults: normalizeCliDefaults(settings?.specialistCliDefaults),
-    multiloopRoleCliDefaults: normalizeCliDefaults(settings?.multiloopRoleCliDefaults),
-    searchExcludes: normalizeSearchExcludes(settings?.searchExcludes),
-    projectKnowledgeRoots: normalizeProjectKnowledgeRoots(settings?.projectKnowledgeRoots, workspaces),
-    recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
-      settings?.recentWorkspaceFolders,
-      workspaces.map((ws) => ws.folderPath)
-    ),
-    usageTelemetry: normalizeUsageTelemetrySettings(settings?.usageTelemetry),
-    learning: normalizeLearningSettings(settings?.learning),
-  }
-}
-
-type WorkspaceMigrationState = {
-  workspaces: Workspace[]
-  activeWorkspaceId?: WorkspaceId | null
-  appSettings?: Partial<AppSettings> & {
-    cliCommands?: Partial<Record<AgentCli, string>>
-  }
-}
-
-function mapMigrationWorkspaces(
-  state: WorkspaceMigrationState,
-  migrate: (workspace: Workspace) => Workspace
-): void {
-  state.workspaces = state.workspaces.map(migrate)
-}
-
-function defaultUsageTelemetrySettings(): UsageTelemetrySettings {
-  return {
-    sendUsageData: false,
-    localDevExportEnabled: import.meta.env?.DEV === true,
-    lastExportAt: null,
-    exportDiagnostics: true,
-  }
-}
-
-function normalizeUsageTelemetrySettings(settings: unknown): UsageTelemetrySettings {
-  const defaults = defaultUsageTelemetrySettings()
-  if (!settings || typeof settings !== 'object') return defaults
-
-  const candidate = settings as Partial<UsageTelemetrySettings>
-  return {
-    sendUsageData:
-      typeof candidate.sendUsageData === 'boolean'
-        ? candidate.sendUsageData
-        : defaults.sendUsageData,
-    localDevExportEnabled:
-      typeof candidate.localDevExportEnabled === 'boolean'
-        ? candidate.localDevExportEnabled
-        : defaults.localDevExportEnabled,
-    lastExportAt:
-      typeof candidate.lastExportAt === 'string' || candidate.lastExportAt === null
-        ? candidate.lastExportAt
-        : defaults.lastExportAt,
-    exportDiagnostics:
-      typeof candidate.exportDiagnostics === 'boolean'
-        ? candidate.exportDiagnostics
-        : defaults.exportDiagnostics,
-  }
-}
-
-function normalizeSearchExcludes(patterns: unknown): string[] {
-  if (!Array.isArray(patterns)) return []
-  const seen = new Set<string>()
-  const normalized: string[] = []
-
-  patterns.forEach((pattern) => {
-    if (typeof pattern !== 'string') return
-    const value = pattern.trim().replace(/\\/g, '/').replace(/^!+/u, '')
-    if (!value || seen.has(value)) return
-    seen.add(value)
-    normalized.push(value)
-  })
-
-  return normalized.slice(0, 100)
-}
-
-function normalizeRecentWorkspaceFolders(
-  folders: unknown,
-  additionalFolders: unknown = []
-): string[] {
-  const candidates = [
-    ...(Array.isArray(folders) ? folders : []),
-    ...(Array.isArray(additionalFolders) ? additionalFolders : []),
-  ]
-  const seen = new Set<string>()
-  const normalized: string[] = []
-
-  candidates.forEach((folder) => {
-    if (typeof folder !== 'string') return
-    const value = folder.trim()
-    if (!value) return
-
-    const key = value.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase() || value
-    if (seen.has(key)) return
-    seen.add(key)
-    normalized.push(value)
-  })
-
-  return normalized.slice(0, MAX_RECENT_WORKSPACE_FOLDERS)
-}
-
-const defaultAuthState = (): MulticodeAuthState => ({
-  authenticated: false,
-  user: null,
-  selectedOrganization: null,
-  entitlements: null,
-  status: 'checking',
-  entitlementStatus: 'missing',
-  message: null,
-  lastRefreshAt: null,
-  graceExpiresAt: null,
-})
-
-const defaultAgentExecution = (): AgentExecution => ({
-  mode: 'current_workspace',
-  worktreeId: null,
-  cwd: null,
-})
-
-function normalizeAgentExecution(input: Partial<AgentExecution> | null | undefined): AgentExecution {
-  const mode = input?.mode === 'worktree' ? 'worktree' : 'current_workspace'
-  const worktreeId = typeof input?.worktreeId === 'string' && input.worktreeId.trim()
-    ? input.worktreeId.trim()
-    : null
-  const cwd = typeof input?.cwd === 'string' && input.cwd.trim()
-    ? input.cwd
-    : null
-
-  if (mode === 'current_workspace') return defaultAgentExecution()
-
-  return {
-    mode,
-    worktreeId,
-    cwd,
-  }
-}
-
-const defaultWorkspaceWorktreeState = (): WorkspaceWorktreeState => ({
-  containerPath: null,
-  entries: {},
-  updatedAt: null,
-})
-
-const defaultWorkspaceMemoryConfig = (): WorkspaceMemoryConfig => ({
-  relativeRoot: null,
-  graphSettings: { ...DEFAULT_GRAPH_SETTINGS },
-})
-
-function isAbsolutePath(value: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('/') || value.startsWith('\\\\')
-}
-
-function normalizeMemoryRelativeRoot(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const normalized = value.trim().replace(/\\/g, '/').replace(/\/+$/u, '')
-  if (!normalized || normalized === '.' || isAbsolutePath(normalized)) return null
-  return normalized
-}
-
-function normalizeWorkspaceMemoryConfig(
-  input: Partial<WorkspaceMemoryConfig> | null | undefined
-): WorkspaceMemoryConfig {
-  return {
-    relativeRoot: normalizeMemoryRelativeRoot(input?.relativeRoot),
-    graphSettings: normalizeGraphSettings(input?.graphSettings),
-  }
-}
-
-function normalizeWorkspaceMode(
-  input: unknown,
-  sprintEngineState?: SprintEngineState | null,
-  multiloopState?: MultiloopState | null
-): WorkspaceMode {
-  if (multiloopState) return 'multiloop'
-  if (sprintEngineState) return 'sprintengine'
-  if (
-    input === 'standard'
-    || input === 'sprintengine'
-    || input === 'switchboard'
-    || input === 'multiloop'
-    || input === 'guided-brief'
-  ) {
-    return input
-  }
-  return 'standard'
-}
-
-function normalizeGuidedBriefAcceptedArtifact(input: unknown): GuidedBriefRuntimeState['acceptedProductBrief'] {
-  if (!input || typeof input !== 'object') return null
-  const candidate = input as Partial<NonNullable<GuidedBriefRuntimeState['acceptedProductBrief']>>
-  if (
-    (candidate.kind !== 'product' && candidate.kind !== 'mockup')
-    || typeof candidate.title !== 'string'
-    || typeof candidate.hash !== 'string'
-    || typeof candidate.path !== 'string'
-  ) {
-    return null
-  }
-  return {
-    kind: candidate.kind,
-    title: candidate.title,
-    hash: candidate.hash,
-    path: candidate.path,
-  }
-}
-
-function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeState | null {
-  if (!input || typeof input !== 'object') return null
-  const candidate = input as Partial<GuidedBriefRuntimeState>
-  if (
-    typeof candidate.workspaceRoot !== 'string'
-    || !candidate.workspaceRoot.trim()
-    || typeof candidate.workspaceName !== 'string'
-    || !candidate.workspaceName.trim()
-    || typeof candidate.idea !== 'string'
-    || !candidate.idea.trim()
-    || (candidate.hasUi !== 'yes' && candidate.hasUi !== 'no')
-  ) {
-    return null
-  }
-  const stage = (
-    candidate.stage === 'strategist-working'
-    || candidate.stage === 'strategist-ready'
-    || candidate.stage === 'architect-working'
-    || candidate.stage === 'architect-ready'
-    || candidate.stage === 'designer-working'
-    || candidate.stage === 'designer-ready'
-    || candidate.stage === 'handoff'
-  )
-    ? candidate.stage
-    : 'strategist-working'
-  const wantsProductDiscussion = typeof candidate.wantsProductDiscussion === 'boolean'
-    ? candidate.wantsProductDiscussion
-    : true
-  const wantsArchitectureDiscussion = typeof candidate.wantsArchitectureDiscussion === 'boolean'
-    ? candidate.wantsArchitectureDiscussion
-    : false
-  const wantsFrontendDiscussion = typeof candidate.wantsFrontendDiscussion === 'boolean'
-    ? candidate.wantsFrontendDiscussion && candidate.hasUi === 'yes'
-    : candidate.hasUi === 'yes'
-  const roleCliDefaults = normalizeSprintEngineRoleCliDefaults(candidate.guidedRoleCliDefaults)
-  const buildRoleCliDefaults = normalizeSprintEngineRoleCliDefaults(candidate.buildRoleCliDefaults)
-  const buildRoleCounts = normalizeSprintEngineRoleCounts(candidate.buildRoleCounts, defaultGuidedBriefBuildRoleCounts(candidate.hasUi))
-  const buildCliPermissionPreset = candidate.buildCliPermissionPreset === 'default'
-    || candidate.buildCliPermissionPreset === 'auto_workspace'
-    || candidate.buildCliPermissionPreset === 'bypass_all'
-    ? candidate.buildCliPermissionPreset
-    : 'default'
-
-  return {
-    workspaceRoot: candidate.workspaceRoot,
-    workspaceName: candidate.workspaceName,
-    idea: candidate.idea,
-    hasUi: candidate.hasUi,
-    wantsProductDiscussion,
-    wantsArchitectureDiscussion,
-    wantsFrontendDiscussion,
-    guidedRoleCliDefaults: {
-      product: roleCliDefaults.product,
-      architect: roleCliDefaults.architect,
-      frontend: roleCliDefaults.frontend,
-    },
-    buildRoleCounts,
-    buildRoleCliDefaults,
-    buildCliPermissionPreset,
-    buildStartRunner: typeof candidate.buildStartRunner === 'boolean'
-      ? candidate.buildStartRunner
-      : true,
-    buildAutoApproveArtifacts: typeof candidate.buildAutoApproveArtifacts === 'boolean'
-      ? candidate.buildAutoApproveArtifacts
-      : false,
-    stage,
-    acceptedProductBrief: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedProductBrief),
-    acceptedArchitecturePlan: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedArchitecturePlan),
-    acceptedUiDirection: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedUiDirection),
-    acceptedMockups: Array.isArray(candidate.acceptedMockups)
-      ? candidate.acceptedMockups
-        .map(normalizeGuidedBriefAcceptedArtifact)
-        .filter((artifact): artifact is GuidedBriefRuntimeState['acceptedMockups'][number] => artifact != null)
-      : [],
-    activeMockupPath: typeof candidate.activeMockupPath === 'string' ? candidate.activeMockupPath : null,
-    strategistSessionId:
-      typeof candidate.strategistSessionId === 'string' && candidate.strategistSessionId.trim()
-        ? candidate.strategistSessionId
-        : null,
-    architectSessionId:
-      typeof candidate.architectSessionId === 'string' && candidate.architectSessionId.trim()
-        ? candidate.architectSessionId
-        : null,
-    designerSessionId:
-      typeof candidate.designerSessionId === 'string' && candidate.designerSessionId.trim()
-        ? candidate.designerSessionId
-        : null,
-  }
-}
-
-function normalizeWorktreeEntry(input: Partial<WorktreeEntry> | null | undefined): WorktreeEntry | null {
-  if (!input || typeof input.id !== 'string' || !input.id.trim()) return null
-  if (typeof input.path !== 'string' || !input.path.trim()) return null
-
-  const status = (
-    input.status === 'assigned'
-    || input.status === 'missing'
-    || input.status === 'removing'
-    || input.status === 'error'
-  )
-    ? input.status
-    : 'available'
-  const now = Date.now()
-
-  return {
-    id: input.id.trim(),
-    path: input.path,
-    branch: typeof input.branch === 'string' && input.branch.trim() ? input.branch : null,
-    ownerAgentId:
-      typeof input.ownerAgentId === 'string' && input.ownerAgentId.trim()
-        ? input.ownerAgentId
-        : null,
-    status,
-    createdAt: typeof input.createdAt === 'number' ? input.createdAt : now,
-    updatedAt: typeof input.updatedAt === 'number' ? input.updatedAt : now,
-    missingAt:
-      status === 'missing'
-        ? typeof input.missingAt === 'number'
-          ? input.missingAt
-          : now
-        : null,
-  }
-}
-
-function normalizeWorkspaceWorktreeState(
-  input: Partial<WorkspaceWorktreeState> | null | undefined
-): WorkspaceWorktreeState {
-  const entries = Object.fromEntries(
-    Object.values(input?.entries ?? {})
-      .map((entry) => normalizeWorktreeEntry(entry))
-      .filter((entry): entry is WorktreeEntry => Boolean(entry))
-      .map((entry) => [entry.id, entry])
-  )
-
-  return {
-    containerPath:
-      typeof input?.containerPath === 'string' && input.containerPath.trim()
-        ? input.containerPath
-        : null,
-    entries,
-    updatedAt: typeof input?.updatedAt === 'number' ? input.updatedAt : null,
-  }
-}
-
-const defaultAgent = (id: AgentId, name = id, kind: AgentKind = 'general'): AgentState => ({
-  id,
-  name,
-  status: 'idle',
-  execution: defaultAgentExecution(),
-  messages: [],
-  streamBuffer: '',
-  cliSessionId: undefined,
-  cliStartRequested: false,
-  cliRestartNonce: 0,
-  cliHasLaunched: false,
-  cliOnboardingPromptSent: false,
-  cliResumeAvailable: false,
-  cli: 'codex' as AgentCli,
-  cliPermissionPreset: 'default',
-  cliStartupPrompt: undefined,
-  kind,
-  specialistId: undefined,
-  multiloopRole: undefined,
-})
-
-const defaultEditorState = (): EditorState => ({
-  openFiles: [],
-  activeFilePath: null,
-})
-
-const defaultSprintEngineAutoState = (): SprintEngineAutoState => ({
-  enabled: false,
-  autoApproveArtifacts: false,
-  keepDoneAgentTerminals: false,
-  cliPermissionPreset: 'default',
-  maxConcurrentAgents: 3,
-  pendingSpawns: [],
-  deliveredAgentNotificationEventKeys: [],
-})
-
-const defaultMultiloopAutoState = (): MultiloopAutoState => ({
-  enabled: false,
-  cliPermissionPreset: 'default',
-  maxConcurrentAgents: 1,
-  coordinatorAutoSpawnKey: null,
-  pendingSpawns: [],
-})
-
-const defaultSprintEngineRoleCliDefaults = (): Required<SprintEngineRoleCliDefaults> => ({
-  architect: 'codex',
-  product: 'codex',
-  frontend: 'codex',
-  developer: 'codex',
-  code_reviewer: 'codex',
-  spec_reviewer: 'codex',
-  performance: 'codex',
-  tester: 'codex',
-  security: 'codex',
-})
-
-const defaultGuidedBriefBuildRoleCounts = (hasUi: GuidedBriefRuntimeState['hasUi'] = 'yes'): SprintEngineRoleCounts => ({
-  architect: 1,
-  product: 1,
-  frontend: hasUi === 'yes' ? 1 : 0,
-  developer: 1,
-  code_reviewer: 1,
-  spec_reviewer: 1,
-  performance: 0,
-  tester: 1,
-  security: 0,
-})
-
-function normalizeSprintEngineRoleCounts(input: unknown, fallback: SprintEngineRoleCounts): SprintEngineRoleCounts {
-  const candidate = input && typeof input === 'object' ? input as Partial<Record<SprintEngineRole, unknown>> : {}
-  const next = { ...fallback }
-  ;(Object.keys(fallback) as SprintEngineRole[]).forEach((role) => {
-    const value = candidate[role]
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      next[role] = Math.max(role === 'architect' ? 1 : 0, Math.min(10, Math.floor(value)))
-    }
-  })
-  return next
-}
-
-function normalizeSprintEngineRoleCliDefaults(
-  input: SprintEngineRoleCliDefaults | null | undefined
-): Required<SprintEngineRoleCliDefaults> {
-  const defaults = defaultSprintEngineRoleCliDefaults()
-  const next = { ...defaults }
-
-  Object.keys(defaults).forEach((role) => {
-    const value = input?.[role as SprintEngineRole]
-    if (value === 'codex' || value === 'claude') {
-      next[role as SprintEngineRole] = value
-    }
-  })
-
-  return next
-}
-
-function normalizeSprintEngineAutoPendingSpawn(
-  input: Partial<SprintEngineAutoPendingSpawn> | null | undefined
-): SprintEngineAutoPendingSpawn | null {
-  return typeof input?.taskId === 'string' && typeof input.agentId === 'string'
-    ? {
-      taskId: input.taskId,
-      ...(typeof input.gateId === 'string' && input.gateId ? { gateId: input.gateId } : {}),
-      agentId: input.agentId,
-      ...(typeof input.startedAt === 'number' ? { startedAt: input.startedAt } : {}),
-    }
-    : null
-}
-
-function isMultiloopAutoRole(input: unknown): input is MultiloopRole | SprintEngineRole {
-  return input === 'coordinator'
-    || input === 'architect'
-    || input === 'product'
-    || input === 'developer'
-    || input === 'frontend'
-    || input === 'tester'
-    || input === 'security'
-    || input === 'code_reviewer'
-    || input === 'spec_reviewer'
-    || input === 'performance'
-}
-
-function normalizeMultiloopAutoPendingSpawn(
-  input: Partial<MultiloopAutoPendingSpawn> | null | undefined
-): MultiloopAutoPendingSpawn | null {
-  if (!input || !isMultiloopAutoRole(input.role) || typeof input.agentId !== 'string') return null
-
-  return {
-    role: input.role,
-    agentId: input.agentId,
-    taskId: typeof input.taskId === 'string' ? input.taskId : null,
-    ...(typeof input.startedAt === 'number' ? { startedAt: input.startedAt } : {}),
-  }
-}
-
-function normalizeCliPermissionPreset(
-  input: SprintEngineCliPermissionPreset | null | undefined
-): SprintEngineCliPermissionPreset {
-  return input === 'auto_workspace' || input === 'bypass_all' ? input : 'default'
-}
-
-function normalizeCliDefaults<K extends string>(
-  input: Partial<Record<K, AgentCli>> | null | undefined
-): Partial<Record<K, AgentCli>> {
-  if (!input || typeof input !== 'object') return {}
-  const result: Partial<Record<K, AgentCli>> = {}
-  for (const [key, value] of Object.entries(input)) {
-    if (value === 'codex' || value === 'claude') {
-      result[key as K] = value
-    }
-  }
-  return result
-}
-
-function normalizeSprintEngineAutoState(
-  input: (
-    Partial<SprintEngineAutoState> & {
-      pending?: SprintEngineAutoPendingSpawn | null
-      deliveredAgentNotificationEventIds?: string[]
-    }
-  ) | null | undefined
-): SprintEngineAutoState {
-  const legacyPending = normalizeSprintEngineAutoPendingSpawn(input?.pending)
-  const pendingSpawns = Array.isArray(input?.pendingSpawns)
-    ? input.pendingSpawns
-      .map((pending) => normalizeSprintEngineAutoPendingSpawn(pending))
-      .filter((pending): pending is SprintEngineAutoPendingSpawn => Boolean(pending))
-    : legacyPending
-      ? [legacyPending]
-      : []
-  const deliveredAgentNotificationEventKeysInput =
-    Array.isArray(input?.deliveredAgentNotificationEventKeys)
-      ? input.deliveredAgentNotificationEventKeys
-      : Array.isArray(input?.deliveredAgentNotificationEventIds)
-        ? input.deliveredAgentNotificationEventIds
-        : []
-  const deliveredAgentNotificationEventKeys = deliveredAgentNotificationEventKeysInput.length > 0
-    ? deliveredAgentNotificationEventKeysInput
-      .filter((eventKey): eventKey is string => typeof eventKey === 'string' && eventKey.trim().length > 0)
-    : []
-  const cliPermissionPreset = normalizeCliPermissionPreset(input?.cliPermissionPreset)
-  const maxConcurrentAgents =
-    typeof input?.maxConcurrentAgents === 'number' && Number.isFinite(input.maxConcurrentAgents)
-      ? Math.max(1, Math.min(10, Math.floor(input.maxConcurrentAgents)))
-      : 3
-
-  return {
-    enabled: Boolean(input?.enabled),
-    autoApproveArtifacts: Boolean(input?.autoApproveArtifacts),
-    keepDoneAgentTerminals: Boolean(input?.keepDoneAgentTerminals),
-    cliPermissionPreset,
-    maxConcurrentAgents,
-    pendingSpawns,
-    deliveredAgentNotificationEventKeys,
-  }
-}
-
-function normalizeMultiloopAutoState(
-  input: Partial<MultiloopAutoState> | null | undefined
-): MultiloopAutoState {
-  const pendingSpawns = Array.isArray(input?.pendingSpawns)
-    ? input.pendingSpawns
-      .map((pending) => normalizeMultiloopAutoPendingSpawn(pending))
-      .filter((pending): pending is MultiloopAutoPendingSpawn => Boolean(pending))
-    : []
-
-  const maxConcurrentAgents =
-    typeof input?.maxConcurrentAgents === 'number' && Number.isFinite(input.maxConcurrentAgents)
-      ? Math.max(1, Math.min(4, Math.floor(input.maxConcurrentAgents)))
-      : 1
-
-  return {
-    enabled: Boolean(input?.enabled),
-    cliPermissionPreset: normalizeCliPermissionPreset(input?.cliPermissionPreset),
-    maxConcurrentAgents,
-    coordinatorAutoSpawnKey:
-      typeof input?.coordinatorAutoSpawnKey === 'string'
-        ? input.coordinatorAutoSpawnKey
-        : null,
-    pendingSpawns,
-  }
-}
-
-function createSprintEngineWorkspaceContext(
-  folderPath: string | null | undefined,
-  teamName: string | null | undefined,
-  teamSlug?: string | null
-): SprintEngineWorkspaceContext | null {
-  if (!folderPath || !teamName?.trim()) return null
-
-  const slug = teamSlug?.trim() || slugifySprintEngineName(teamName)
-  return {
-    teamName: teamName.trim(),
-    teamSlug: slug,
-    teamDirectoryPath: getSprintEngineDirectoryPath(folderPath, slug),
-    statePath: getSprintEngineStateFilePath(folderPath, slug),
-  }
-}
-
-function normalizeSprintEngineWorkspaceContext(
-  input: Partial<SprintEngineWorkspaceContext> | null | undefined,
-  folderPath: string | null | undefined,
-  sprintEngineState: SprintEngineState | null
-): SprintEngineWorkspaceContext | null {
-  if (!sprintEngineState) return null
-
-  if (input?.teamSlug && input.teamName) {
-    return createSprintEngineWorkspaceContext(folderPath, input.teamName, input.teamSlug)
-  }
-
-  return createSprintEngineWorkspaceContext(folderPath, sprintEngineState?.name)
-}
-
-function createMultiloopWorkspaceContext(
-  folderPath: string | null | undefined,
-  loopName: string | null | undefined,
-  loopSlug?: string | null
-): MultiloopWorkspaceContext | null {
-  if (!folderPath || !loopName?.trim()) return null
-
-  const slug = loopSlug?.trim() || slugifyMultiloopName(loopName)
-  return {
-    loopName: loopName.trim(),
-    loopSlug: slug,
-    loopDirectoryPath: getMultiloopDirectoryPath(folderPath, slug),
-    statePath: getMultiloopStateFilePath(folderPath, slug),
-  }
-}
-
-function isCompleteMultiloopWorkspaceContext(
-  input: Partial<MultiloopWorkspaceContext> | null | undefined
-): input is MultiloopWorkspaceContext {
-  return Boolean(
-    input?.loopName?.trim()
-    && input.loopSlug?.trim()
-    && input.loopDirectoryPath?.trim()
-    && input.statePath?.trim()
-  )
-}
-
-function normalizeMultiloopWorkspaceContext(
-  input: Partial<MultiloopWorkspaceContext> | null | undefined,
-  folderPath: string | null | undefined,
-  multiloopState: MultiloopState | null
-): MultiloopWorkspaceContext | null {
-  const loopName = input?.loopName ?? multiloopState?.loop.displayName ?? multiloopState?.loop.name
-
-  if (folderPath && loopName) {
-    return createMultiloopWorkspaceContext(folderPath, loopName, input?.loopSlug)
-  }
-
-  if (isCompleteMultiloopWorkspaceContext(input)) {
-    return {
-      loopName: input.loopName.trim(),
-      loopSlug: input.loopSlug.trim(),
-      loopDirectoryPath: input.loopDirectoryPath,
-      statePath: input.statePath,
-    }
-  }
-
-  return null
-}
-
-const sprintEngineAgentTab = (id: string, name: string) => ({
-  type: 'tab',
-  name,
-  component: 'agent',
-  config: { agentId: id },
-})
-
-function isDefaultSprintEngineAgentName(name: string | undefined, fallbackLabel: string): boolean {
-  return !name || name === fallbackLabel
-}
-
-function pickWorkspaceAgentName(agents: Workspace['agents']): string {
-  return pickRandomAgentName(Object.values(agents).map((agent) => agent.name))
-}
-
-function normalizeAgentState(agent: AgentState): AgentState {
-  return {
-    ...agent,
-    execution: normalizeAgentExecution(agent.execution),
-    cliPermissionPreset: normalizeCliPermissionPreset(agent.cliPermissionPreset),
-  }
-}
-
-const sprintEngineTabsLayoutModel = (
-  sprintEngineState: SprintEngineState | null,
-  agents: Workspace['agents'] = {},
-  options?: { includeAgentTabs?: boolean }
-): IJsonModel => ({
-  global: { tabSetEnableDrop: true, tabEnableClose: true },
-  borders: [],
-  layout: {
-    type: 'row',
-    children: [
-      {
-        type: 'tabset',
-        weight: options?.includeAgentTabs === false ? 100 : 58,
-        children: [
-          { type: 'tab', name: 'Inbox', component: 'sprintengine-inbox' },
-          { type: 'tab', name: 'Roster', component: 'sprintengine-roster' },
-          { type: 'tab', name: 'Tasks', component: 'sprintengine-tasks' },
-        ],
-      },
-      ...(options?.includeAgentTabs === false
-        ? []
-        : [{
-          type: 'tabset',
-          weight: 42,
-          children: buildSprintEngineAgentRosterForState(sprintEngineState).map((agent) =>
-            sprintEngineAgentTab(agent.id, agents[agent.id]?.name ?? agent.label)
-          ),
-        }]),
-    ],
   },
-})
 
-const multiloopTabsLayoutModel = (): IJsonModel => ({
-  global: { tabSetEnableDrop: true, tabEnableClose: true },
-  borders: [],
-  layout: {
-    type: 'row',
-    children: [
-      {
-        type: 'tabset',
-        weight: 100,
-        children: [
-          { type: 'tab', name: 'Multiloop', component: 'multiloop-board' },
-        ],
-      },
-    ],
+  removeItem: (_name: string): void => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.removeItem(WORKSPACE_STORAGE_KEY)
+      window.localStorage.removeItem(APP_SETTINGS_STORAGE_KEY)
+    } catch {
+      // Removal is best-effort.
+    }
+    lastWrittenRegistrySerialized = null
+    lastWrittenSettingsSerialized = null
   },
-})
-
-const guidedBriefLayoutModel = (): IJsonModel => ({
-  global: { tabSetEnableDrop: true, tabEnableClose: false },
-  borders: [],
-  layout: {
-    type: 'row',
-    children: [
-      {
-        type: 'tabset',
-        weight: 100,
-        children: [
-          { type: 'tab', name: 'Guided Brief', component: 'guided-brief' },
-        ],
-      },
-    ],
-  },
-})
-
-function hasGuidedBriefLayout(model: unknown): boolean {
-  return modelContainsComponent(model, 'guided-brief')
 }
 
-function ensureGuidedBriefLayoutModel(model: IJsonModel | undefined): IJsonModel {
-  return model && hasGuidedBriefLayout(model) ? model : guidedBriefLayoutModel()
-}
-
-function modelContainsComponent(value: unknown, component: string): boolean {
-  if (!value) return false
-  if (Array.isArray(value)) {
-    return value.some((entry) => modelContainsComponent(entry, component))
-  }
-  if (typeof value !== 'object') return false
-
-  const record = value as Record<string, unknown>
-  if (record.component === component) return true
-
-  return Object.values(record).some((entry) => modelContainsComponent(entry, component))
-}
-
-function hasMultiloopBoardLayout(model: IJsonModel | null | undefined): boolean {
-  return modelContainsComponent(model, 'multiloop-board')
-}
-
-function ensureMultiloopLayoutModel(model: IJsonModel | null | undefined): IJsonModel {
-  return model && hasMultiloopBoardLayout(model) ? model : multiloopTabsLayoutModel()
-}
-
-function isLegacySprintEngineLayout(model: IJsonModel): boolean {
-  // Anything that doesn't already contain the new three-tab shape is
-  // treated as legacy and rewritten to Inbox / Roster / Tasks. Covers the
-  // single-panel `'sprintengine'` shape, the retired `-project`/`-task-graph`
-  // /`-kanban`/`-map`/`-terminals` flex tabs, and any partial layout.
-  const serialized = JSON.stringify(model)
-  const hasNewShape =
-    serialized.includes('"component":"sprintengine-inbox"')
-    || serialized.includes('"component":"sprintengine-roster"')
-    || serialized.includes('"component":"sprintengine-tasks"')
-  if (hasNewShape) return false
-  return (
-    serialized.includes('"component":"sprintengine')
-    // Catches all sprintengine-prefixed legacy components.
-  )
-}
-
-function migrateSprintEngineLayout(ws: Workspace): Workspace {
-  if (ws.mode !== 'sprintengine' && !ws.sprintEngineState) return ws
-
-  if (!isLegacySprintEngineLayout(ws.layoutModel)) return ws
-
-  return {
-    ...ws,
-    layoutModel: sprintEngineTabsLayoutModel(ws.sprintEngineState, ws.agents),
-  }
-}
-
-function migrateSprintEngineAgentNames(ws: Workspace): Workspace {
-  const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
-  if (ws.mode !== 'sprintengine' && !sprintEngineState) return ws
-
-  const agents = reconcileSprintEngineAgents(ws.agents ?? {}, sprintEngineState)
-  return {
-    ...ws,
-    sprintEngineState,
-    agents,
-    layoutModel: sprintEngineTabsLayoutModel(sprintEngineState, agents),
-  }
-}
-
-function stripSettingsTabsFromLayoutNode(node: unknown): unknown {
-  if (!node || typeof node !== 'object') return node
-  const record = node as Record<string, unknown>
-
-  if (record.type === 'tab' && record.component === 'settings') return null
-
-  const rawChildren = record.children
-  if (!Array.isArray(rawChildren)) return record
-
-  const nextChildren = rawChildren
-    .map((child) => stripSettingsTabsFromLayoutNode(child))
-    .filter((child) => child !== null && child !== undefined)
-
-  if ((record.type === 'tabset' || record.type === 'row') && nextChildren.length === 0) {
-    return null
+// Run after the synchronous hydrate completes. For non-dangerous classifications
+// this is a no-op that immediately emits the canonical hydration diagnostic. For
+// dangerous classifications it reads the userData backup over IPC, validates
+// that the backup classifies as `present`, and replays the recovered envelope
+// into the store before emitting the final diagnostic. Either way exactly one
+// `[workspaceStore] hydration` log entry fires per cold load, and it reflects
+// the final storageSource (`localStorage`, `backup`, or `fresh`) plus any
+// parse/recovery error.
+async function attemptBackupRecovery(): Promise<void> {
+  if (typeof window === 'undefined') {
+    emitHydrationDiagnostic()
+    return
   }
 
-  const next: Record<string, unknown> = { ...record, children: nextChildren }
-  if (record.type === 'tabset' && typeof record.selected === 'number') {
-    next.selected = nextChildren.length === 0
-      ? 0
-      : Math.max(0, Math.min(record.selected, nextChildren.length - 1))
+  // Re-read and re-classify from the current localStorage. The recovery
+  // function is module-load-once in production, but tests rebind the storage
+  // mock between cases and call it again; trusting the previous hydration
+  // context would carry stale values into the new scenario.
+  let raw: string | null = null
+  try {
+    raw = window.localStorage.getItem(WORKSPACE_STORAGE_KEY)
+  } catch (error) {
+    hydrationContext.parseError = error instanceof Error ? error.message : 'localStorage_read_failed'
   }
-  return next
-}
+  hydrationContext.classification = classifyPersistedWorkspaceState({ rawLocalStorage: raw })
+  hydrationContext.persistedWorkspaceCount = getPersistedWorkspaceCount(raw)
+  hydrationContext.storageSource = hydrationContext.classification === 'present' ? 'localStorage' : 'fresh'
+  hydrationContext.recoveryError = undefined
 
-function stripSettingsTabsFromLayout(layoutModel: unknown): unknown {
-  if (!layoutModel || typeof layoutModel !== 'object') return layoutModel
-  const model = layoutModel as Record<string, unknown>
-  const layout = model.layout
-  if (!layout || typeof layout !== 'object') return layoutModel
-  const nextLayout = stripSettingsTabsFromLayoutNode(layout)
-  return { ...model, layout: nextLayout ?? layout }
-}
+  if (!isDangerousEmptyClassification(hydrationContext.classification)) {
+    emitHydrationDiagnostic()
+    return
+  }
 
-function isPathOrChild(path: string, parentPath: string): boolean {
-  if (path === parentPath) return true
-  const separator = parentPath.includes('\\') && !parentPath.includes('/') ? '\\' : '/'
-  return path.startsWith(`${parentPath}${separator}`)
-}
+  // Honor the in-memory or on-disk intent record: if the user explicitly
+  // removed all workspaces, do not overwrite that decision with a stale
+  // backup payload. AC6: distinguish intentional user_removed_all from
+  // hydration failure / unknown wipe.
+  const currentIntent = useWorkspaceStore.getState().workspaceRegistryEmptyState
+  let persistedIntent: WorkspaceRegistryEmptyState | null = null
+  try {
+    const parsedRegistry = raw ? (JSON.parse(raw) as { state?: { workspaceRegistryEmptyState?: WorkspaceRegistryEmptyState | null } }) : null
+    persistedIntent = parsedRegistry?.state?.workspaceRegistryEmptyState ?? null
+  } catch {
+    persistedIntent = null
+  }
+  if (currentIntent != null || persistedIntent != null) {
+    emitHydrationDiagnostic()
+    return
+  }
+  if (typeof window.api?.workspaceBackupRead !== 'function') {
+    emitHydrationDiagnostic()
+    return
+  }
 
-function reconcileSprintEngineAgents(
-  currentAgents: Workspace['agents'],
-  sprintEngineState: SprintEngineState | null
-): Workspace['agents'] {
-  if (!sprintEngineState) return {}
+  try {
+    const result = await window.api.workspaceBackupRead()
+    if (!result.ok) {
+      if (result.reason !== 'missing') {
+        hydrationContext.recoveryError = `${result.reason}${result.message ? `:${result.message}` : ''}`
+      }
+      emitHydrationDiagnostic()
+      return
+    }
 
-  const nextAgents: Workspace['agents'] = {}
-  const rosterAgents = Object.fromEntries(
-    buildSprintEngineAgentRosterForState(sprintEngineState).map((agent) => {
-      const current = currentAgents[agent.id]
-      const nextName = isDefaultSprintEngineAgentName(current?.name, agent.label)
-        ? pickWorkspaceAgentName({ ...currentAgents, ...nextAgents })
-        : current?.name ?? agent.label
-      const nextAgent = current
-        ? normalizeAgentState({ ...current, name: nextName, kind: 'sprintengine' as const })
-        : defaultAgent(agent.id, nextName, 'sprintengine')
-      nextAgents[agent.id] = nextAgent
-      return [agent.id, nextAgent]
+    const recovered = typeof result.payload.data === 'string'
+      ? result.payload.data
+      : JSON.stringify(result.payload.data)
+    const recoveredClassification = classifyPersistedWorkspaceState({ rawLocalStorage: recovered })
+    if (recoveredClassification !== 'present') {
+      // Backup exists but does not classify as a recoverable workspace list.
+      // This is expected after an intentional valid-empty persist write: the
+      // previous session ended with workspaces=[], so the backup mirrors that
+      // and we honor the user's intent by not recovering. Not an error.
+      emitHydrationDiagnostic()
+      return
+    }
+
+    let envelope: { state?: Partial<WorkspaceMigrationState> } | null = null
+    try {
+      envelope = JSON.parse(recovered) as { state?: Partial<WorkspaceMigrationState> }
+    } catch (error) {
+      hydrationContext.recoveryError = error instanceof Error ? error.message : 'recovery_parse_error'
+      emitHydrationDiagnostic()
+      return
+    }
+    if (!envelope?.state || !Array.isArray(envelope.state.workspaces)) {
+      emitHydrationDiagnostic()
+      return
+    }
+
+    try {
+      window.localStorage.setItem(WORKSPACE_STORAGE_KEY, recovered)
+    } catch {
+      // Best-effort write-back; the in-memory recovery still proceeds.
+    }
+    hydrationContext.storageSource = 'backup'
+    hydrationContext.persistedWorkspaceCount = envelope.state.workspaces.length
+
+    // Legacy backup salvage. T22 wrote a full envelope (workspaces + appSettings
+    // + sidebarCollapsed) to workspace-backup.json before T23 split the keys.
+    // T23 AC4 says new backups stay registry-only — but a backup written under
+    // the old code still carries non-workspace state, and if recovery activates
+    // here we are the last chance to keep it. Without this salvage, a recovery
+    // that restores 36 workspaces also silently empties projectKnowledgeRoots,
+    // recentWorkspaceFolders, learning settings, CLI/MCP servers, etc. New
+    // T23 backups never have these fields, so the salvage is a no-op for them.
+    const legacyState = envelope!.state as Partial<WorkspaceMigrationState> & {
+      sidebarCollapsed?: boolean
+    }
+    const legacyAppSettings = legacyState.appSettings
+    const legacySidebarCollapsed = legacyState.sidebarCollapsed
+
+    useWorkspaceStore.setState((current) => {
+      const recoveredWorkspaces = envelope!.state!.workspaces as WorkspaceStore['workspaces']
+      const next: WorkspaceStore = {
+        ...current,
+        workspaces: recoveredWorkspaces,
+        activeWorkspaceId: envelope!.state!.activeWorkspaceId
+          ?? envelope!.state!.workspaces?.[0]?.id
+          ?? current.activeWorkspaceId,
+        workspaceRegistryEmptyState: null,
+      }
+      if (legacyAppSettings !== undefined) {
+        next.appSettings = normalizeAppSettings(legacyAppSettings, recoveredWorkspaces as Workspace[])
+      }
+      if (typeof legacySidebarCollapsed === 'boolean') {
+        next.sidebarCollapsed = legacySidebarCollapsed
+      }
+      return next
     })
-  )
 
-  const specialistAgents = Object.fromEntries(
-    Object.entries(currentAgents).filter(([id, agent]) =>
-      (agent.kind === 'specialist' || agent.kind === 'watchtower') && !rosterAgents[id]
-    ).map(([id, agent]) => [id, normalizeAgentState(agent)])
-  )
-  const transientSprintEngineAgents = Object.fromEntries(
-    Object.entries(currentAgents).filter(([id, agent]) =>
-      agent.kind === 'sprintengine'
-      && !rosterAgents[id]
-      && Boolean(agent.cliStartRequested || agent.cliHasLaunched || agent.cliSessionId)
-    ).map(([id, agent]) => [id, normalizeAgentState(agent)])
-  )
-
-  return {
-    ...specialistAgents,
-    ...transientSprintEngineAgents,
-    ...rosterAgents,
+    // Mirror the salvaged app-settings to multicode-app-settings now so the
+    // next persist write doesn't clobber projectKnowledgeRoots / learning /
+    // recentWorkspaceFolders with the current empty state.
+    if (legacyAppSettings !== undefined || typeof legacySidebarCollapsed === 'boolean') {
+      try {
+        const next = useWorkspaceStore.getState()
+        window.localStorage.setItem(
+          APP_SETTINGS_STORAGE_KEY,
+          JSON.stringify({
+            state: {
+              appSettings: next.appSettings,
+              sidebarCollapsed: next.sidebarCollapsed,
+            },
+            version: WORKSPACE_STORE_VERSION,
+          }),
+        )
+      } catch {
+        // Best-effort write-back; in-memory state still carries the salvage.
+      }
+    }
+  } catch (error) {
+    hydrationContext.recoveryError = error instanceof Error ? error.message : 'unknown_recovery_error'
   }
+
+  emitHydrationDiagnostic()
+}
+
+function emitHydrationDiagnostic(): void {
+  const hydratedWorkspaceCount = useWorkspaceStore.getState().workspaces.length
+  const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId ?? null
+  const diagnostic: HydrationDiagnostic = {
+    persistedWorkspaceCount: hydrationContext.persistedWorkspaceCount,
+    hydratedWorkspaceCount,
+    activeWorkspaceId,
+    storageSource: hydrationContext.storageSource,
+    classification: hydrationContext.classification,
+    ...(hydrationContext.parseError ? { parseError: hydrationContext.parseError } : {}),
+    ...(hydrationContext.recoveryError ? { recoveryError: hydrationContext.recoveryError } : {}),
+  }
+  console.info('[workspaceStore] hydration', diagnostic)
 }
 
 export const useWorkspaceStore = create<WorkspaceStore>()(
   persist(
     immer((set) => ({
-      workspaces: [],
-      activeWorkspaceId: null,
-      appSettings: defaultAppSettings(),
-      authState: defaultAuthState(),
-      sidebarCollapsed: false,
-      settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
-
-      setSidebarCollapsed: (collapsed) =>
-        set((state) => {
-          state.sidebarCollapsed = collapsed
-        }),
-
-      openSettingsOverlay: (opts) =>
-        set((state) => {
-          state.settingsOverlay.open = true
-          state.settingsOverlay.initialTab = opts?.initialTab ?? null
-          state.settingsOverlay.checkForUpdatesRequestId = opts?.checkForUpdates ? Date.now() : null
-        }),
-
-      closeSettingsOverlay: () =>
-        set((state) => {
-          state.settingsOverlay.open = false
-          state.settingsOverlay.initialTab = null
-          state.settingsOverlay.checkForUpdatesRequestId = null
-        }),
-
-      reorderWorkspaces: (orderedIds) =>
-        set((state) => {
-          const byId = new Map(state.workspaces.map((ws) => [ws.id, ws] as const))
-          const next: Workspace[] = []
-          for (const id of orderedIds) {
-            const ws = byId.get(id)
-            if (ws) {
-              next.push(ws)
-              byId.delete(id)
-            }
-          }
-          for (const remaining of byId.values()) next.push(remaining)
-          state.workspaces = next
-        }),
-
-      setWorkspaceHighlight: (id, highlight) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === id)
-          if (!ws) return
-          const current: WorkspaceHighlight = ws.highlight ?? { starred: false, color: null }
-          ws.highlight = {
-            starred: highlight.starred ?? current.starred,
-            color: highlight.color === undefined ? current.color : highlight.color,
-          }
-        }),
-
-      clearWorkspaceHighlight: (id) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === id)
-          if (ws) ws.highlight = undefined
-        }),
-
-      recordWorkspaceTerminalActivity: (id, lastOutputAt) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === id)
-          if (!ws) return
-          if (
-            typeof ws.lastTerminalActivityAt !== 'number'
-            || ws.lastTerminalActivityAt < lastOutputAt
-          ) {
-            ws.lastTerminalActivityAt = lastOutputAt
-          }
-        }),
-
-      reconcileWorkspaceAgentLaunchFlags: (sessions) =>
-        set((state) => {
-          for (const ws of state.workspaces) {
-            for (const [agentId, agent] of Object.entries(ws.agents)) {
-              if (
-                !agent.cliStartRequested
-                && !agent.cliHasLaunched
-                && !agent.cliSessionId
-              ) continue
-              const matchingLive = sessions.find(
-                (session) =>
-                  session.processAlive
-                  && session.kind === 'agent'
-                  && session.workspaceId === ws.id
-                  && (
-                    (agent.cliSessionId && session.sessionId === agent.cliSessionId)
-                    || session.agentId === agentId
-                  )
-              )
-              if (matchingLive) continue
-              if (
-                agent.cliSessionId
-                && agentCliUsesStableSessionIdForResume(agent.cli)
-                && agent.cliHasLaunched
-              ) {
-                agent.cliStartRequested = true
-                agent.cliResumeAvailable = true
-                continue
-              }
-              agent.cliStartRequested = false
-              agent.cliHasLaunched = false
-              agent.cliSessionId = undefined
-            }
-          }
-        }),
-
-      forgetFolder: (folderPath) =>
-        set((state) => {
-          if (!folderPath) return
-          const normalize = (value: string) =>
-            value.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
-          const key = normalize(folderPath)
-          state.workspaces = state.workspaces.filter((ws) => {
-            if (!ws.folderPath) return true
-            return normalize(ws.folderPath) !== key
-          })
-          if (
-            state.activeWorkspaceId
-            && !state.workspaces.find((w) => w.id === state.activeWorkspaceId)
-          ) {
-            state.activeWorkspaceId = state.workspaces.at(-1)?.id ?? null
-          }
-          state.appSettings.recentWorkspaceFolders = state.appSettings.recentWorkspaceFolders.filter(
-            (folder) => normalize(folder) !== key
-          )
-        }),
-
-      setAuthState: (authState) =>
-        set((state) => {
-          state.authState = authState
-        }),
-
-      setCliRuntime: (cli, update) =>
-        set((state) => {
-          const defaults = defaultAppSettings()
-          state.appSettings.cliRuntimes ??= defaults.cliRuntimes
-          state.appSettings.cliRuntimes[cli] = {
-            ...defaults.cliRuntimes[cli],
-            ...state.appSettings.cliRuntimes[cli],
-            ...update,
-          }
-        }),
-
-      setMcpSyncEnabled: (enabled) =>
-        set((state) => {
-          state.appSettings.mcp = normalizeMcpSettings({
-            ...state.appSettings.mcp,
-            syncEnabled: enabled,
-          })
-        }),
-
-      upsertMcpServer: (server) =>
-        set((state) => {
-          const normalized = normalizeMcpServer(server)
-          if (!normalized) return
-          const current = normalizeMcpSettings(state.appSettings.mcp)
-          state.appSettings.mcp = {
-            ...current,
-            servers: {
-              ...current.servers,
-              [normalized.id]: normalized,
-            },
-          }
-        }),
-
-      removeMcpServer: (serverId) =>
-        set((state) => {
-          const current = normalizeMcpSettings(state.appSettings.mcp)
-          delete current.servers[normalizeMcpId(serverId)]
-          state.appSettings.mcp = current
-        }),
-
-      setSkillPacksInstalled: (installed) =>
-        set((state) => {
-          const next: Record<string, SkillPackEntry> = {}
-          for (const entry of installed) {
-            const normalized = normalizeSkillPack(entry)
-            if (normalized) next[normalized.id] = normalized
-          }
-          state.appSettings.skillPacks = { installed: next }
-        }),
-
-      upsertSkillPack: (pack) =>
-        set((state) => {
-          const normalized = normalizeSkillPack(pack)
-          if (!normalized) return
-          const current = normalizeSkillPackSettings(state.appSettings.skillPacks)
-          state.appSettings.skillPacks = {
-            installed: {
-              ...current.installed,
-              [normalized.id]: normalized,
-            },
-          }
-        }),
-
-      removeSkillPack: (id) =>
-        set((state) => {
-          const current = normalizeSkillPackSettings(state.appSettings.skillPacks)
-          delete current.installed[normalizeSkillPackId(id)]
-          state.appSettings.skillPacks = current
-        }),
-
-      setLastSelectedCli: (cli) =>
-        set((state) => {
-          state.appSettings.lastSelectedCli = cli
-        }),
-
-      setLastSelectedSpecialist: (specialistId) =>
-        set((state) => {
-          state.appSettings.lastSelectedSpecialist = specialistId
-        }),
-
-      setLastSelectedMultiloopRole: (role) =>
-        set((state) => {
-          state.appSettings.lastSelectedMultiloopRole = role
-        }),
-
-      setLastAgentSpawnPermissionPreset: (preset) =>
-        set((state) => {
-          state.appSettings.lastAgentSpawnPermissionPreset = normalizeCliPermissionPreset(preset)
-        }),
-
-      setSpecialistCliDefault: (specialistId, cli) =>
-        set((state) => {
-          state.appSettings.specialistCliDefaults ??= {}
-          if (cli === null) {
-            delete state.appSettings.specialistCliDefaults[specialistId]
-          } else {
-            state.appSettings.specialistCliDefaults[specialistId] = cli
-          }
-        }),
-
-      setMultiloopRoleCliDefault: (role, cli) =>
-        set((state) => {
-          state.appSettings.multiloopRoleCliDefaults ??= {}
-          if (cli === null) {
-            delete state.appSettings.multiloopRoleCliDefaults[role]
-          } else {
-            state.appSettings.multiloopRoleCliDefaults[role] = cli
-          }
-        }),
-
-      setSearchExcludes: (patterns) =>
-        set((state) => {
-          state.appSettings.searchExcludes = normalizeSearchExcludes(patterns)
-        }),
-
-      setProjectKnowledgeRoot: (projectRoot, relativeRoot) =>
-        set((state) => {
-          const key = normalizeProjectRootKey(projectRoot)
-          if (!key) return
-          const normalizedRoot = normalizeMemoryRelativeRoot(relativeRoot)
-          state.appSettings.projectKnowledgeRoots = normalizeProjectKnowledgeRoots(
-            state.appSettings.projectKnowledgeRoots,
-            state.workspaces
-          )
-          if (normalizedRoot) {
-            state.appSettings.projectKnowledgeRoots[key] = normalizedRoot
-          } else {
-            delete state.appSettings.projectKnowledgeRoots[key]
-          }
-          for (const workspace of state.workspaces) {
-            if (normalizeProjectRootKey(workspace.folderPath) !== key) continue
-            workspace.memory = {
-              relativeRoot: null,
-              graphSettings: normalizeGraphSettings(workspace.memory?.graphSettings),
-            }
-          }
-        }),
-
-      setUsageTelemetrySettings: (update) =>
-        set((state) => {
-          state.appSettings.usageTelemetry = normalizeUsageTelemetrySettings({
-            ...state.appSettings.usageTelemetry,
-            ...update,
-          })
-        }),
-
-      setLearningShowTipsOnStartup: (enabled) =>
-        set((state) => {
-          state.appSettings.learning ??= defaultLearningSettings()
-          state.appSettings.learning.showTipsOnStartup = enabled
-        }),
-
-      markLearningTipSeen: (tipId) =>
-        set((state) => {
-          const id = tipId?.trim()
-          if (!id) return
-          state.appSettings.learning ??= defaultLearningSettings()
-          const learning = state.appSettings.learning
-          if (!learning.seenTipIds.includes(id)) {
-            learning.seenTipIds = [...learning.seenTipIds, id]
-          }
-          learning.lastShownTipId = id
-        }),
-
-      markLearningLessonCompleted: (lessonId, completed = true) =>
-        set((state) => {
-          const id = lessonId?.trim()
-          if (!id) return
-          state.appSettings.learning ??= defaultLearningSettings()
-          const learning = state.appSettings.learning
-          const already = learning.completedLessonIds.includes(id)
-          if (completed && !already) {
-            learning.completedLessonIds = [...learning.completedLessonIds, id]
-          } else if (!completed && already) {
-            learning.completedLessonIds = learning.completedLessonIds.filter((entry) => entry !== id)
-          }
-        }),
-
-      resetLearningProgress: () =>
-        set((state) => {
-          const current = state.appSettings.learning ?? defaultLearningSettings()
-          state.appSettings.learning = {
-            ...defaultLearningSettings(),
-            showTipsOnStartup: current.showTipsOnStartup,
-          }
-        }),
-
-      addWorkspace: (template, options) => {
-        let id = nanoid()
-
-        set((state) => {
-          const folderPath = options?.folderPath ?? null
-          const fallbackName = `${template.name} ${state.workspaces.length + 1}`
-          const explicitMode = options?.mode
-          const isSwitchboard = explicitMode === 'switchboard' || template.id === 'switchboard-mode'
-          const isSprintEngine = !isSwitchboard && (template.id === 'sprintengine-mode' || Boolean(options?.sprintEngineState))
-          const isMultiloop = template.id === 'multiloop-mode' || Boolean(options?.multiloopState)
-          const guidedBriefState = normalizeGuidedBriefState(options?.guidedBriefState)
-          const isGuidedBrief = explicitMode === 'guided-brief' || template.id === 'guided-brief-mode' || Boolean(guidedBriefState)
-          const switchboardFolderKey = isSwitchboard ? workspaceFolderKey(folderPath) : null
-          const existingSwitchboard = switchboardFolderKey
-            ? state.workspaces.find((workspace) =>
-              workspace.mode === 'switchboard'
-              && workspaceFolderKey(workspace.folderPath) === switchboardFolderKey
-            )
-            : null
-          if (existingSwitchboard) {
-            if (folderPath) {
-              state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
-                [folderPath],
-                state.appSettings.recentWorkspaceFolders
-              )
-            }
-            id = existingSwitchboard.id
-            existingSwitchboard.folderMissing = false
-            state.activeWorkspaceId = existingSwitchboard.id
-            return
-          }
-          const sprintEngineState = isSprintEngine
-            ? normalizeSprintEngineState(options?.sprintEngineState)
-              ?? createInitialSprintEngineState({
-                goal: options?.sprintEngineState?.goal ?? 'Launch Sprint Engine mode',
-                name: options?.sprintEngineState?.name ?? options?.name ?? 'Sprint Engine Team',
-                roleCounts: options?.sprintEngineState?.roleCounts ?? createDefaultSprintEngineRoleCounts(),
-              })
-            : null
-          const multiloopState = isMultiloop ? options?.multiloopState ?? null : null
-          const workspaceName = sprintEngineState
-            ? sprintEngineState.name
-            : options?.name?.trim() || fallbackName
-          const agents: Workspace['agents'] = {}
-          const sprintEngineRoleCliDefaults = sprintEngineState
-            ? normalizeSprintEngineRoleCliDefaults(options?.sprintEngineRoleCliDefaults)
-            : undefined
-          if (sprintEngineState) {
-            buildSprintEngineAgentRosterForState(sprintEngineState).forEach((agent) => {
-              agents[agent.id] = {
-                ...defaultAgent(
-                  agent.id,
-                  pickWorkspaceAgentName(agents),
-                  'sprintengine'
-                ),
-                cli: sprintEngineRoleCliDefaults?.[agent.role] ?? 'codex',
-              }
-            })
-          }
-          state.workspaces.push({
-            id,
-            name: workspaceName,
-            mode: multiloopState || isMultiloop
-              ? 'multiloop'
-              : isSwitchboard
-                ? 'switchboard'
-                : isGuidedBrief
-                  ? 'guided-brief'
-                  : sprintEngineState
-                    ? 'sprintengine'
-                    : 'standard',
-            folderPath,
-            folderMissing: false,
-            sprintEngineContext: normalizeSprintEngineWorkspaceContext(
-              options?.sprintEngineContext,
-              folderPath,
-              sprintEngineState
-            ),
-            multiloopContext: normalizeMultiloopWorkspaceContext(
-              options?.multiloopContext,
-              folderPath,
-              multiloopState
-            ),
-            templateId: template.id,
-            layoutModel: isMultiloop
-              ? multiloopTabsLayoutModel()
-              : isGuidedBrief
-                ? guidedBriefLayoutModel()
-              : sprintEngineState
-              ? sprintEngineTabsLayoutModel(sprintEngineState, agents, { includeAgentTabs: false })
-              : template.layout,
-            agents,
-            worktreeState: defaultWorkspaceWorktreeState(),
-            memory: defaultWorkspaceMemoryConfig(),
-            editorState: defaultEditorState(),
-            sprintEngineState,
-            multiloopState,
-            guidedBriefState,
-            sprintEngineRoleCliDefaults,
-            sprintEngineAutoState: normalizeSprintEngineAutoState(options?.sprintEngineAutoState),
-            multiloopAutoState: normalizeMultiloopAutoState(options?.multiloopAutoState),
-            createdAt: Date.now(),
-          })
-          if (folderPath) {
-            state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
-              [folderPath],
-              state.appSettings.recentWorkspaceFolders
-            )
-          }
-          state.activeWorkspaceId = id
-        })
-
-        return id
-      },
-
-      removeWorkspace: (id) =>
-        set((state) => {
-          const idx = state.workspaces.findIndex((w) => w.id === id)
-          if (idx === -1) return
-          state.workspaces.splice(idx, 1)
-          if (state.activeWorkspaceId === id) {
-            state.activeWorkspaceId = state.workspaces.at(-1)?.id ?? null
-          }
-        }),
-
-      renameWorkspace: (id, name) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === id)
-          if (ws) ws.name = name.trim() || ws.name
-        }),
-
-      setActiveWorkspace: (id) =>
-        set((state) => { state.activeWorkspaceId = id }),
-
-      updateLayout: (id, model) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === id)
-          if (ws) ws.layoutModel = model
-        }),
-
-      setFolderPath: (id, folderPath) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === id)
-          if (ws) {
-            ws.folderPath = folderPath
-            ws.folderMissing = false
-            if (folderPath) {
-              state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
-                [folderPath],
-                state.appSettings.recentWorkspaceFolders
-              )
-            }
-            ws.sprintEngineContext = normalizeSprintEngineWorkspaceContext(
-              ws.sprintEngineContext,
-              folderPath,
-              normalizeSprintEngineState(ws.sprintEngineState)
-            )
-            ws.multiloopContext = normalizeMultiloopWorkspaceContext(
-              ws.multiloopContext,
-              folderPath,
-              ws.multiloopState ?? null
-            )
-          }
-        }),
-
-      setSprintEngineContext: (id, sprintEngineContext) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === id)
-          if (ws) ws.sprintEngineContext = sprintEngineContext
-        }),
-
-      setMultiloopContext: (id, multiloopContext) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === id)
-          if (ws) ws.multiloopContext = multiloopContext
-        }),
-
-      setFolderMissing: (id, folderMissing) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === id)
-          if (ws) ws.folderMissing = folderMissing
-        }),
-
-      updateAgent: (workspaceId, agentId, update) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          if (!ws.agents[agentId]) ws.agents[agentId] = defaultAgent(agentId)
-          Object.assign(ws.agents[agentId], update)
-          ws.agents[agentId].execution = normalizeAgentExecution(ws.agents[agentId].execution)
-        }),
-
-      setAgentExecution: (workspaceId, agentId, execution) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          if (!ws.agents[agentId]) ws.agents[agentId] = defaultAgent(agentId)
-          ws.agents[agentId].execution = normalizeAgentExecution({
-            ...ws.agents[agentId].execution,
-            ...execution,
-          })
-        }),
-
-      setWorkspaceWorktreeState: (workspaceId, worktreeState) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const current = normalizeWorkspaceWorktreeState(ws.worktreeState)
-          ws.worktreeState = normalizeWorkspaceWorktreeState(
-            worktreeState
-              ? {
-                ...current,
-                ...worktreeState,
-                entries: worktreeState.entries ?? current.entries,
-              }
-              : null
-          )
-        }),
-
-      setWorkspaceMemoryRelativeRoot: (workspaceId, relativeRoot) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          ws.memory = {
-            relativeRoot: normalizeMemoryRelativeRoot(relativeRoot),
-            graphSettings: normalizeGraphSettings(ws.memory?.graphSettings),
-          }
-        }),
-
-      updateMemoryGraphSettings: (workspaceId, update) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const current = normalizeGraphSettings(ws.memory?.graphSettings)
-          const patch = typeof update === 'function' ? update(current) : update
-          const next = normalizeGraphSettings({ ...current, ...patch })
-          ws.memory = {
-            relativeRoot: normalizeMemoryRelativeRoot(ws.memory?.relativeRoot),
-            graphSettings: next,
-          }
-        }),
-
-      upsertWorktreeEntry: (workspaceId, entry) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          ws.worktreeState = normalizeWorkspaceWorktreeState(ws.worktreeState)
-          const normalized = normalizeWorktreeEntry(entry)
-          if (!normalized) return
-          ws.worktreeState.entries[normalized.id] = normalized
-          ws.worktreeState.updatedAt = normalized.updatedAt
-        }),
-
-      markWorktreeMissing: (workspaceId, worktreeId, missingAt = Date.now()) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          const entry = ws?.worktreeState?.entries[worktreeId]
-          if (!ws || !entry) return
-          entry.status = 'missing'
-          entry.missingAt = missingAt
-          entry.updatedAt = missingAt
-          ws.worktreeState.updatedAt = missingAt
-        }),
-
-      removeWorktreeEntry: (workspaceId, worktreeId) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws?.worktreeState?.entries[worktreeId]) return
-          delete ws.worktreeState.entries[worktreeId]
-          ws.worktreeState.updatedAt = Date.now()
-        }),
-
-      setSprintEngineState: (workspaceId, sprintEngineState) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const normalized = normalizeSprintEngineState(sprintEngineState)
-          ws.sprintEngineState = normalized
-          ws.mode = normalized ? 'sprintengine' : 'standard'
-          ws.sprintEngineContext = normalizeSprintEngineWorkspaceContext(
-            ws.sprintEngineContext,
-            ws.folderPath,
-            normalized
-          )
-          ws.agents = reconcileSprintEngineAgents(ws.agents, normalized)
-          ws.sprintEngineAutoState = normalized
-            ? normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-            : defaultSprintEngineAutoState()
-        }),
-
-      setMultiloopState: (workspaceId, multiloopState) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          ws.multiloopState = multiloopState
-          ws.mode = multiloopState
-            ? 'multiloop'
-            : ws.sprintEngineState
-              ? 'sprintengine'
-              : 'standard'
-          ws.multiloopContext = normalizeMultiloopWorkspaceContext(
-            ws.multiloopContext,
-            ws.folderPath,
-            multiloopState
-          )
-          if (multiloopState) ws.layoutModel = ensureMultiloopLayoutModel(ws.layoutModel)
-          ws.multiloopAutoState = multiloopState
-            ? normalizeMultiloopAutoState(ws.multiloopAutoState)
-            : defaultMultiloopAutoState()
-        }),
-
-      setSprintEngineAutoEnabled: (workspaceId, enabled) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-          ws.sprintEngineAutoState = {
-            ...current,
-            enabled,
-            pendingSpawns: enabled ? current.pendingSpawns : [],
-          }
-        }),
-
-      setSprintEngineAutoApproveArtifacts: (workspaceId, autoApproveArtifacts) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-          ws.sprintEngineAutoState = {
-            ...current,
-            autoApproveArtifacts,
-          }
-        }),
-
-      setSprintEngineKeepDoneAgentTerminals: (workspaceId, keepDoneAgentTerminals) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-          ws.sprintEngineAutoState = {
-            ...current,
-            keepDoneAgentTerminals,
-          }
-        }),
-
-      setSprintEngineCliPermissionPreset: (workspaceId, cliPermissionPreset) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-          ws.sprintEngineAutoState = {
-            ...current,
-            cliPermissionPreset,
-          }
-        }),
-
-      setSprintEngineMaxConcurrentAgents: (workspaceId, maxConcurrentAgents) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-          ws.sprintEngineAutoState = {
-            ...current,
-            maxConcurrentAgents: Math.max(1, Math.min(10, Math.floor(maxConcurrentAgents))),
-          }
-        }),
-
-      setSprintEngineAutoPendingSpawns: (workspaceId, pendingSpawns) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-          ws.sprintEngineAutoState = {
-            ...current,
-            pendingSpawns,
-          }
-        }),
-
-      markSprintEngineAgentNotificationDelivered: (workspaceId, eventKey) =>
-        set((state) => {
-          const trimmedEventKey = eventKey.trim()
-          if (!trimmedEventKey) return
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-          if (current.deliveredAgentNotificationEventKeys.includes(trimmedEventKey)) return
-          ws.sprintEngineAutoState = {
-            ...current,
-            deliveredAgentNotificationEventKeys: [
-              ...current.deliveredAgentNotificationEventKeys,
-              trimmedEventKey,
-            ],
-          }
-        }),
-
-      setMultiloopAutoEnabled: (workspaceId, enabled) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const current = normalizeMultiloopAutoState(ws.multiloopAutoState)
-          ws.multiloopAutoState = {
-            ...current,
-            enabled,
-            pendingSpawns: enabled ? current.pendingSpawns : [],
-          }
-        }),
-
-      setMultiloopCliPermissionPreset: (workspaceId, cliPermissionPreset) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const current = normalizeMultiloopAutoState(ws.multiloopAutoState)
-          ws.multiloopAutoState = {
-            ...current,
-            cliPermissionPreset,
-          }
-        }),
-
-      setMultiloopAutoPendingSpawns: (workspaceId, pendingSpawns) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const current = normalizeMultiloopAutoState(ws.multiloopAutoState)
-          ws.multiloopAutoState = {
-            ...current,
-            pendingSpawns: pendingSpawns
-              .map((pending) => normalizeMultiloopAutoPendingSpawn(pending))
-              .filter((pending): pending is MultiloopAutoPendingSpawn => Boolean(pending)),
-          }
-        }),
-
-      setMultiloopCoordinatorAutoSpawnKey: (workspaceId, key) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          const current = normalizeMultiloopAutoState(ws.multiloopAutoState)
-          ws.multiloopAutoState = {
-            ...current,
-            coordinatorAutoSpawnKey: key,
-          }
-        }),
-
-      setGuidedBriefState: (workspaceId, guidedBriefState) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          ws.guidedBriefState = normalizeGuidedBriefState(guidedBriefState)
-          if (ws.guidedBriefState) {
-            ws.mode = 'guided-brief'
-            ws.layoutModel = ensureGuidedBriefLayoutModel(ws.layoutModel)
-          }
-        }),
-
-      addSprintEngineMember: (workspaceId, role) => {
-        let addedAgent: { id: AgentId; label: string } | null = null
-
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws?.sprintEngineState) return
-
-          const agentId = getNextSprintEngineAgentId(role, ws.sprintEngineState.sprintEngineAgents)
-          ws.sprintEngineState.sprintEngineAgents[agentId] = {
-            role,
-            status: 'idle',
-            currentTaskId: null,
-          }
-          ws.sprintEngineState.roleCounts[role] += 1
-
-          const rosterAgent = buildSprintEngineAgentRosterForState(ws.sprintEngineState).find(
-            (agent) => agent.id === agentId
-          )
-          const agentRoleLabel = rosterAgent?.label ?? agentId
-          const agentLabel = pickWorkspaceAgentName(ws.agents)
-          const roleCliDefaults = normalizeSprintEngineRoleCliDefaults(ws.sprintEngineRoleCliDefaults)
-          ws.agents[agentId] = {
-            ...defaultAgent(agentId, agentLabel, 'sprintengine'),
-            cli: roleCliDefaults[role],
-          }
-          ws.agents = reconcileSprintEngineAgents(ws.agents, ws.sprintEngineState)
-          ws.sprintEngineState.events.push({
-            id: `EVT-${String(ws.sprintEngineState.events.length + 1).padStart(3, '0')}`,
-            timestamp: new Date().toISOString(),
-            type: 'member_added',
-            actor: 'user',
-            message: `${agentLabel} joined the sprintengine as ${agentRoleLabel}.`,
-          })
-
-          addedAgent = { id: agentId, label: agentLabel }
-        })
-
-        return addedAgent
-      },
-
-      appendStream: (workspaceId, agentId, chunk) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          if (!ws.agents[agentId]) ws.agents[agentId] = defaultAgent(agentId)
-          ws.agents[agentId].streamBuffer += chunk
-          ws.agents[agentId].status = 'streaming'
-        }),
-
-      commitStream: (workspaceId, agentId) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          const agent = ws?.agents[agentId]
-          if (!agent) return
-
-          if (agent.streamBuffer) {
-            agent.messages.push({
-              role: 'assistant',
-              content: agent.streamBuffer,
-              timestamp: Date.now(),
-            })
-            agent.streamBuffer = ''
-          }
-
-          if (agent.status !== 'error') {
-            agent.status = 'complete'
-          }
-        }),
-
-      importWorkspace: (ws) =>
-        set((state) => {
-          const id = nanoid()
-          const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
-          const multiloopState = ws.multiloopState ?? null
-          const mode = multiloopState
-            ? 'multiloop'
-              : sprintEngineState
-                ? 'sprintengine'
-                : ws.mode ?? 'standard'
-          const agents = Object.fromEntries(
-            Object.entries(ws.agents).map(([k, v]) => [
-              k,
-              normalizeAgentState({
-                ...v,
-                streamBuffer: '',
-                status: 'idle' as const,
-                cliStartupPrompt: undefined,
-              }),
-            ])
-          )
-          state.workspaces.push({
-            ...ws,
-            id,
-            name: `${ws.name} (imported)`,
-            mode,
-            folderPath: ws.folderPath ?? null,
-            folderMissing: false,
-            agents,
-            worktreeState: normalizeWorkspaceWorktreeState(ws.worktreeState),
-            editorState: ws.editorState ?? defaultEditorState(),
-            sprintEngineState,
-            sprintEngineContext: normalizeSprintEngineWorkspaceContext(ws.sprintEngineContext, ws.folderPath, sprintEngineState),
-            multiloopState,
-            multiloopContext: normalizeMultiloopWorkspaceContext(
-              ws.multiloopContext,
-              ws.folderPath,
-              multiloopState
-            ),
-            sprintEngineRoleCliDefaults: normalizeSprintEngineRoleCliDefaults(ws.sprintEngineRoleCliDefaults),
-            sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-            multiloopAutoState: normalizeMultiloopAutoState(ws.multiloopAutoState),
-          } satisfies Workspace)
-          const imported = state.workspaces.at(-1)
-          if (imported) {
-            Object.assign(
-              imported,
-              imported.mode === 'multiloop'
-                ? { ...imported, layoutModel: ensureMultiloopLayoutModel(imported.layoutModel) }
-                : migrateSprintEngineLayout(imported)
-            )
-          }
-          state.activeWorkspaceId = id
-        }),
-
-      openFile: (workspaceId, path, name, content) => {
-        setEditorBuffer(workspaceId, path, content)
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws) return
-          if (!ws.editorState) ws.editorState = defaultEditorState()
-          const existing = ws.editorState.openFiles.find((f) => f.path === path)
-          if (existing) {
-            existing.isDirty = false
-            existing.name = name
-            existing.language = detectLanguage(name)
-            delete existing.content
-          } else {
-            ws.editorState.openFiles.push({
-              path,
-              name,
-              language: detectLanguage(name),
-              isDirty: false,
-            })
-          }
-          ws.editorState.activeFilePath = path
-        })
-      },
-
-      closeFile: (workspaceId, path) => {
-        deleteEditorBuffer(workspaceId, path)
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (!ws?.editorState) return
-          const idx = ws.editorState.openFiles.findIndex((f) => f.path === path)
-          if (idx === -1) return
-          ws.editorState.openFiles.splice(idx, 1)
-          if (ws.editorState.activeFilePath === path) {
-            ws.editorState.activeFilePath = ws.editorState.openFiles.at(-1)?.path ?? null
-          }
-        })
-      },
-
-      setActiveFile: (workspaceId, path) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          if (ws?.editorState) ws.editorState.activeFilePath = path
-        }),
-
-      updateFileContent: (workspaceId, path, content) => {
-        setEditorBuffer(workspaceId, path, content)
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          const file = ws?.editorState?.openFiles.find((f) => f.path === path)
-          if (!file || file.isDirty) return
-          file.isDirty = true
-        })
-      },
-
-      markFileClean: (workspaceId, path) =>
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          const file = ws?.editorState?.openFiles.find((f) => f.path === path)
-          if (file) file.isDirty = false
-        }),
-
-      remapOpenFiles: (workspaceId, fromPath, toPath) => {
-        remapEditorBuffers(workspaceId, fromPath, toPath)
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          const openFiles = ws?.editorState?.openFiles
-          if (!ws?.editorState || !openFiles?.length) return
-
-          const separator = fromPath.includes('\\') && !fromPath.includes('/') ? '\\' : '/'
-          const fromPrefix = `${fromPath}${separator}`
-
-          openFiles.forEach((file) => {
-            if (file.path !== fromPath && !file.path.startsWith(fromPrefix)) return
-
-            const suffix = file.path === fromPath ? '' : file.path.slice(fromPath.length)
-            file.path = `${toPath}${suffix}`
-            file.name = file.path.split(/[/\\]/).filter(Boolean).pop() ?? file.name
-          })
-
-          if (ws.editorState.activeFilePath === fromPath) {
-            ws.editorState.activeFilePath = toPath
-          } else if (ws.editorState.activeFilePath?.startsWith(fromPrefix)) {
-            ws.editorState.activeFilePath = `${toPath}${ws.editorState.activeFilePath.slice(fromPath.length)}`
-          }
-        })
-      },
-
-      removeOpenFilesForPath: (workspaceId, path) => {
-        removeEditorBuffersForPath(workspaceId, path)
-        set((state) => {
-          const ws = state.workspaces.find((w) => w.id === workspaceId)
-          const openFiles = ws?.editorState?.openFiles
-          if (!ws?.editorState || !openFiles?.length) return
-
-          const activeFileDeleted = ws.editorState.activeFilePath
-            ? isPathOrChild(ws.editorState.activeFilePath, path)
-            : false
-
-          ws.editorState.openFiles = openFiles.filter((file) => !isPathOrChild(file.path, path))
-
-          if (activeFileDeleted) {
-            ws.editorState.activeFilePath = ws.editorState.openFiles.at(-1)?.path ?? null
-          }
-        })
-      },
-
-      moveAgentToWorkspace: (sourceWorkspaceId, destWorkspaceId, agentId) => {
-        if (sourceWorkspaceId === destWorkspaceId) return
-        set((state) => {
-          const source = state.workspaces.find((w) => w.id === sourceWorkspaceId)
-          const dest = state.workspaces.find((w) => w.id === destWorkspaceId)
-          if (!source || !dest) return
-          const agent = source.agents[agentId]
-          if (!agent) return
-          dest.agents[agentId] = agent
-          delete source.agents[agentId]
-        })
-      },
-
-      moveOpenFileToWorkspace: (sourceWorkspaceId, destWorkspaceId, path) => {
-        if (sourceWorkspaceId === destWorkspaceId) return
-        moveEditorBuffer(sourceWorkspaceId, destWorkspaceId, path)
-        set((state) => {
-          const source = state.workspaces.find((w) => w.id === sourceWorkspaceId)
-          const dest = state.workspaces.find((w) => w.id === destWorkspaceId)
-          if (!source || !dest) return
-          const sourceEditor = source.editorState
-          if (!sourceEditor) return
-          const idx = sourceEditor.openFiles.findIndex((file) => file.path === path)
-          if (idx === -1) return
-          const [openFile] = sourceEditor.openFiles.splice(idx, 1)
-          if (sourceEditor.activeFilePath === path) {
-            sourceEditor.activeFilePath = sourceEditor.openFiles.at(-1)?.path ?? null
-          }
-          if (!dest.editorState) dest.editorState = defaultEditorState()
-          const destEditor = dest.editorState
-          const existing = destEditor.openFiles.findIndex((file) => file.path === path)
-          if (existing !== -1) {
-            destEditor.openFiles[existing] = openFile
-          } else {
-            destEditor.openFiles.push(openFile)
-          }
-          destEditor.activeFilePath = path
-        })
-      },
+      ...createAuthSlice(set),
+      ...createSettingsSlice(set),
+      ...createLayoutSlice(set),
+      ...createAgentsSlice(set),
+      ...createRunStateSlice(set),
+      ...createGuidedBriefSlice(set),
+      ...createWorktreesSlice(set),
+      ...createMemorySlice(set),
+      ...createWorkspacesSlice(set, workspacesSliceDeps),
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
-      version: 44,
-      // Migrate older persisted state that lacks editorState / folderPath / sprintEngineState
+      version: WORKSPACE_STORE_VERSION,
+      storage: createJSONStorage(() => workspaceStateStorage),
       migrate: (persisted: unknown, version: number) => {
-        const state = persisted as Partial<WorkspaceMigrationState> | undefined
-        if (!state) return state as never
-        state.workspaces = state.workspaces ?? []
-        const migrationState = state as WorkspaceMigrationState
-        if (version < 1) {
-          mapMigrationWorkspaces(migrationState, (ws) => ({
-            ...ws,
-            folderPath: ws.folderPath ?? null,
-            editorState: ws.editorState ?? defaultEditorState(),
-          }))
+        try {
+          return migratePersistedWorkspaceState(persisted, version)
+        } catch (error) {
+          hydrationContext.parseError = error instanceof Error ? error.message : 'migration_failed'
+          throw error
         }
-        if (version < 2) {
-          mapMigrationWorkspaces(migrationState, (ws) => ({
-            ...ws,
-            mode: ws.mode ?? (ws.sprintEngineState ? 'sprintengine' : 'standard'),
-            sprintEngineState: normalizeSprintEngineState(ws.sprintEngineState),
-          }))
-        }
-        if (version < 3) {
-          mapMigrationWorkspaces(migrationState, (ws) => ({
-            ...ws,
-            sprintEngineState: normalizeSprintEngineState(ws.sprintEngineState),
-          }))
-        }
-        if (version < 4) {
-          mapMigrationWorkspaces(migrationState, migrateSprintEngineLayout)
-        }
-        if (version < 5) {
-          mapMigrationWorkspaces(migrationState, migrateSprintEngineLayout)
-        }
-        if (version < 6) {
-          mapMigrationWorkspaces(migrationState, migrateSprintEngineLayout)
-        }
-        if (version < 7) {
-          mapMigrationWorkspaces(migrationState, (ws) =>
-            ws.mode === 'sprintengine' || ws.sprintEngineState
-              ? { ...ws, layoutModel: sprintEngineTabsLayoutModel(ws.sprintEngineState, ws.agents) }
-              : ws
-          )
-        }
-        if (version < 8) {
-          mapMigrationWorkspaces(migrationState, (ws) => {
-            const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
-            if (ws.mode !== 'sprintengine' && !sprintEngineState) return ws
-
-            return {
-              ...ws,
-              sprintEngineState,
-              agents: reconcileSprintEngineAgents(ws.agents, sprintEngineState),
-            }
-          })
-        }
-        if (version < 10) {
-          const current = migrationState
-          const defaults = defaultAppSettings()
-          const existing = current.appSettings ?? {}
-          current.appSettings = {
-            cliRuntimes: {
-              codex: {
-                ...defaults.cliRuntimes.codex,
-                ...(existing.cliRuntimes?.codex ?? {}),
-                command:
-                  existing.cliRuntimes?.codex?.command
-                  ?? existing.cliCommands?.codex
-                  ?? defaults.cliRuntimes.codex.command,
-              },
-              claude: {
-                ...defaults.cliRuntimes.claude,
-                ...(existing.cliRuntimes?.claude ?? {}),
-                command:
-                  existing.cliRuntimes?.claude?.command
-                  ?? existing.cliCommands?.claude
-                  ?? defaults.cliRuntimes.claude.command,
-              },
-            },
-            lastSelectedCli: defaults.lastSelectedCli,
-          }
-        }
-        if (version < 11) {
-          const current = migrationState
-          const defaults = defaultAppSettings()
-          current.appSettings = {
-            ...defaults,
-            ...(current.appSettings ?? {}),
-            cliRuntimes: {
-              ...defaults.cliRuntimes,
-              ...(current.appSettings?.cliRuntimes ?? {}),
-            },
-            lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-          }
-        }
-        if (version < 12) {
-          const current = migrationState
-          const defaults = defaultAppSettings()
-          current.appSettings = {
-            ...defaults,
-            ...(current.appSettings ?? {}),
-            cliRuntimes: {
-              ...defaults.cliRuntimes,
-              ...(current.appSettings?.cliRuntimes ?? {}),
-            },
-            lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-            lastSelectedSpecialist:
-              current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
-          }
-        }
-        if (version < 13) {
-          const current = migrationState
-          const defaults = defaultAppSettings()
-          const selectedSpecialist =
-            current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist
-
-          current.appSettings = {
-            ...defaults,
-            ...(current.appSettings ?? {}),
-            cliRuntimes: {
-              ...defaults.cliRuntimes,
-              ...(current.appSettings?.cliRuntimes ?? {}),
-            },
-            lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-            lastSelectedSpecialist: getSpecialistAction(selectedSpecialist).id,
-          }
-        }
-        if (version < 14) {
-          mapMigrationWorkspaces(migrationState, migrateSprintEngineLayout)
-        }
-        if (version < 15) {
-          mapMigrationWorkspaces(migrationState, migrateSprintEngineLayout)
-        }
-        if (version < 16) {
-          mapMigrationWorkspaces(migrationState, (ws) => ({
-            ...ws,
-            folderMissing: false,
-          }))
-        }
-        if (version < 17) {
-          mapMigrationWorkspaces(migrationState, (ws) => ({
-            ...ws,
-            sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-          }))
-        }
-        if (version < 18) {
-          mapMigrationWorkspaces(migrationState, migrateSprintEngineAgentNames)
-        }
-        if (version < 19) {
-          mapMigrationWorkspaces(migrationState, (ws) => {
-            const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
-            return {
-              ...ws,
-              sprintEngineState,
-              sprintEngineContext: normalizeSprintEngineWorkspaceContext(
-                (ws as Workspace & { sprintEngineContext?: SprintEngineWorkspaceContext | null }).sprintEngineContext,
-                ws.folderPath,
-                sprintEngineState
-              ),
-            }
-          })
-        }
-        if (version < 20) {
-          mapMigrationWorkspaces(migrationState, (ws) => ({
-            ...ws,
-            sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-          }))
-        }
-        if (version < 21) {
-          mapMigrationWorkspaces(migrationState, (ws) => ({
-            ...ws,
-            agents: Object.fromEntries(
-              Object.entries(ws.agents ?? {}).map(([id, agent]) => [
-                id,
-                normalizeAgentState(agent),
-              ])
-            ),
-            worktreeState: normalizeWorkspaceWorktreeState(ws.worktreeState),
-          }))
-        }
-        if (version < 22) {
-          mapMigrationWorkspaces(migrationState, (ws) => ({
-            ...ws,
-            sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-          }))
-        }
-        if (version < 23) {
-          mapMigrationWorkspaces(migrationState, (ws) => ({
-            ...ws,
-            sprintEngineRoleCliDefaults: ws.mode === 'sprintengine' || ws.sprintEngineState
-              ? normalizeSprintEngineRoleCliDefaults(ws.sprintEngineRoleCliDefaults)
-              : undefined,
-          }))
-        }
-        if (version < 24) {
-          mapMigrationWorkspaces(migrationState, (ws) => ({
-            ...ws,
-            sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-          }))
-        }
-        if (version < 25) {
-          mapMigrationWorkspaces(migrationState, (ws) => ({
-            ...ws,
-            editorState: {
-              openFiles: (ws.editorState?.openFiles ?? []).map(({ content: _content, ...file }) => ({
-                ...file,
-                isDirty: false,
-              })),
-              activeFilePath: ws.editorState?.activeFilePath ?? null,
-            },
-          }))
-        }
-        if (version < 26) {
-          const current = migrationState
-          const defaults = defaultAppSettings()
-          current.appSettings = {
-            ...defaults,
-            ...(current.appSettings ?? {}),
-            cliRuntimes: {
-              ...defaults.cliRuntimes,
-              ...(current.appSettings?.cliRuntimes ?? {}),
-            },
-            lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-            lastSelectedSpecialist:
-              current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
-            searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
-          }
-        }
-        if (version < 27) {
-          const current = migrationState
-          const defaults = defaultAppSettings()
-          current.appSettings = {
-            ...defaults,
-            ...(current.appSettings ?? {}),
-            cliRuntimes: {
-              ...defaults.cliRuntimes,
-              ...(current.appSettings?.cliRuntimes ?? {}),
-            },
-            lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-            lastSelectedSpecialist:
-              current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
-            searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
-            recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
-              current.appSettings?.recentWorkspaceFolders,
-              state.workspaces.map((ws) => ws.folderPath)
-            ),
-          }
-        }
-        if (version < 28) {
-          const current = migrationState
-          const defaults = defaultAppSettings()
-          current.appSettings = {
-            ...defaults,
-            ...(current.appSettings ?? {}),
-            cliRuntimes: {
-              ...defaults.cliRuntimes,
-              ...(current.appSettings?.cliRuntimes ?? {}),
-            },
-            lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-            lastSelectedSpecialist:
-              current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
-            searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
-            recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
-              current.appSettings?.recentWorkspaceFolders,
-              state.workspaces.map((ws) => ws.folderPath)
-            ),
-            usageTelemetry: normalizeUsageTelemetrySettings(
-              current.appSettings?.usageTelemetry
-            ),
-          }
-        }
-        if (version < 29) {
-          mapMigrationWorkspaces(migrationState, (ws) => ({
-            ...ws,
-            sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-          }))
-        }
-        if (version < 30) {
-          mapMigrationWorkspaces(migrationState, (ws) => {
-            const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
-            const multiloopState = ws.multiloopState ?? null
-            const mode = multiloopState ? 'multiloop' : sprintEngineState ? 'sprintengine' : ws.mode ?? 'standard'
-            const nextWorkspace: Workspace = {
-              ...ws,
-              mode,
-              sprintEngineState,
-              sprintEngineContext: normalizeSprintEngineWorkspaceContext(
-                ws.sprintEngineContext,
-                ws.folderPath,
-                sprintEngineState
-              ),
-              multiloopState,
-              multiloopContext: normalizeMultiloopWorkspaceContext(
-                ws.multiloopContext,
-                ws.folderPath,
-                multiloopState
-              ),
-              sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-              multiloopAutoState: normalizeMultiloopAutoState(ws.multiloopAutoState),
-            }
-
-            return mode === 'multiloop'
-              ? { ...nextWorkspace, layoutModel: ensureMultiloopLayoutModel(nextWorkspace.layoutModel) }
-              : migrateSprintEngineLayout(nextWorkspace)
-          })
-        }
-        if (version < 31) {
-          const current = migrationState
-          const defaults = defaultAppSettings()
-          current.appSettings = {
-            ...defaults,
-            ...(current.appSettings ?? {}),
-            cliRuntimes: {
-              ...defaults.cliRuntimes,
-              ...(current.appSettings?.cliRuntimes ?? {}),
-            },
-            lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-            lastSelectedSpecialist:
-              current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
-            lastSelectedMultiloopRole:
-              current.appSettings?.lastSelectedMultiloopRole ?? defaults.lastSelectedMultiloopRole,
-            lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(
-              current.appSettings?.lastAgentSpawnPermissionPreset
-            ),
-            searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
-            recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
-              current.appSettings?.recentWorkspaceFolders,
-              state.workspaces.map((ws) => ws.folderPath)
-            ),
-            usageTelemetry: normalizeUsageTelemetrySettings(
-              current.appSettings?.usageTelemetry
-            ),
-          }
-        }
-        if (version < 32) {
-          state.workspaces = state.workspaces.map((ws) => ({
-            ...ws,
-            multiloopAutoState: normalizeMultiloopAutoState(ws.multiloopAutoState),
-          }))
-        }
-        if (version < 33) {
-          const current = migrationState
-          current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
-        }
-        if (version < 34) {
-          const current = migrationState
-          current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
-        }
-        if (version < 35) {
-          mapMigrationWorkspaces(migrationState, (ws) => ({
-            ...ws,
-            memory: normalizeWorkspaceMemoryConfig(ws.memory),
-          }))
-        }
-        if (version < 36) {
-          // Re-run memory normalization so the bumped GRAPH_SETTINGS_VERSION
-          // upgrades layout numerics (link distance, node size, forces) on
-          // workspaces that pre-date the tighter defaults.
-          mapMigrationWorkspaces(migrationState, (ws) => ({
-            ...ws,
-            memory: normalizeWorkspaceMemoryConfig(ws.memory),
-          }))
-        }
-        if (version < 39) {
-          const current = migrationState
-          current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
-        }
-        if (version < 40) {
-          mapMigrationWorkspaces(migrationState, (ws) => {
-            const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
-            const multiloopState = ws.multiloopState ?? null
-            return {
-              ...ws,
-              mode: normalizeWorkspaceMode(ws.mode, sprintEngineState, multiloopState),
-              sprintEngineState,
-              multiloopState,
-              sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-              multiloopAutoState: normalizeMultiloopAutoState(ws.multiloopAutoState),
-            }
-          })
-        }
-        if (version < 41) {
-          const current = migrationState
-          current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
-        }
-        if (version < 42) {
-          const current = migrationState
-          current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
-        }
-        if (version < 43) {
-          mapMigrationWorkspaces(migrationState, (ws) => ({
-            ...ws,
-            layoutModel: stripSettingsTabsFromLayout(ws.layoutModel) as Workspace['layoutModel'],
-          }))
-        }
-        if (version < 44) {
-          mapMigrationWorkspaces(migrationState, (ws) => {
-            const guidedBriefState = normalizeGuidedBriefState(ws.guidedBriefState)
-            if (ws.mode !== 'guided-brief' && !guidedBriefState) return ws
-            return {
-              ...ws,
-              mode: 'guided-brief',
-              guidedBriefState,
-              layoutModel: ensureGuidedBriefLayoutModel(ws.layoutModel),
-            }
-          })
-        }
-        return state as never
       },
       merge: (persisted, current) => {
         const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean }> | undefined
@@ -2863,53 +756,80 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             typeof state?.sidebarCollapsed === 'boolean'
               ? state.sidebarCollapsed
               : current.sidebarCollapsed,
+          workspaceRegistryEmptyState:
+            state?.workspaceRegistryEmptyState !== undefined
+              ? state.workspaceRegistryEmptyState
+              : current.workspaceRegistryEmptyState,
           appSettings: normalizeAppSettings(state?.appSettings, workspaces),
         }
       },
-      partialize: (s) => ({
-        appSettings: s.appSettings,
-        sidebarCollapsed: s.sidebarCollapsed,
-        workspaces: s.workspaces.map((ws) => ({
-          ...ws,
-          mode: normalizeWorkspaceMode(ws.mode, ws.sprintEngineState, ws.multiloopState),
-          guidedBriefState: normalizeGuidedBriefState(ws.guidedBriefState),
-          memory: normalizeWorkspaceMemoryConfig(ws.memory),
-          sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-          multiloopAutoState: normalizeMultiloopAutoState(ws.multiloopAutoState),
-          agents: Object.fromEntries(
-            Object.entries(ws.agents).map(([id, a]) => {
-              const shouldKeepStartupPrompt =
-                !a.cliOnboardingPromptSent
-                && (
-                  (a.kind === 'specialist' && Boolean(a.specialistId))
-                  || (a.kind === 'multiloop' && Boolean(a.multiloopRole))
-                  || (a.kind === 'watchtower' && Boolean(a.specialistId))
-                )
-              const cliStartupPrompt = shouldKeepStartupPrompt ? a.cliStartupPrompt : undefined
-
-              return [
-                id,
-                normalizeAgentState({
-                  ...a,
-                  streamBuffer: '',
-                  status: 'idle' as const,
-                  cliStartupPrompt,
-                }),
-              ]
+      partialize: (s) => {
+        // s.workspaceRegistryEmptyState is the explicit intent record set by
+        // workspacesSlice.removeWorkspace when the splice leaves workspaces=[]
+        // and cleared by addWorkspace + importWorkspace. Its presence proves
+        // user intent; its absence with workspaces=[] proves a dangerous
+        // startup-write/wipe attempt.
+        if (s.workspaces.length === 0 && s.workspaceRegistryEmptyState == null) {
+          // Read the on-disk registry directly (not the legacy
+          // nonEmptyPersistedWorkspaceState helper) so we retain the last
+          // persisted registry even though the settings key may also exist.
+          const registry = readWorkspaceRegistryKey()
+          const retainedWorkspaces = Array.isArray(registry.envelope?.state?.workspaces)
+            ? (registry.envelope!.state.workspaces as Workspace[])
+            : []
+          if (retainedWorkspaces.length > 0) {
+            const retainedActiveId = (registry.envelope!.state.activeWorkspaceId as WorkspaceId | null | undefined) ?? null
+            const classification = classifyPersistedWorkspaceState({
+              rawLocalStorage: registry.raw,
             })
-          ),
-          worktreeState: normalizeWorkspaceWorktreeState(ws.worktreeState),
-          // Keep file list + active file, drop content so we don't resurrect stale edits
-          editorState: {
-            openFiles: (ws.editorState?.openFiles ?? []).map(({ content: _content, ...f }) => ({
-              ...f,
-              isDirty: false,
-            })),
-            activeFilePath: ws.editorState?.activeFilePath ?? null,
-          },
-        })),
-        activeWorkspaceId: s.activeWorkspaceId,
-      }),
-    }
-  )
+            console.warn('[workspaceStore] blocked empty workspace snapshot from overwriting persisted workspaces', {
+              retainedWorkspaceCount: retainedWorkspaces.length,
+              retainedActiveWorkspaceId: retainedActiveId,
+              persistedClassification: classification,
+              dangerous: isDangerousEmptyClassification(classification),
+            })
+            return {
+              appSettings: s.appSettings,
+              sidebarCollapsed: s.sidebarCollapsed,
+              workspaces: retainedWorkspaces,
+              activeWorkspaceId: retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
+              workspaceRegistryEmptyState: null,
+            }
+          }
+        }
+
+        return {
+          appSettings: s.appSettings,
+          sidebarCollapsed: s.sidebarCollapsed,
+          workspaces: s.workspaces.map(normalizeWorkspaceForPartialize),
+          activeWorkspaceId: s.activeWorkspaceId,
+          workspaceRegistryEmptyState: s.workspaceRegistryEmptyState,
+        }
+      },
+      // Hydration diagnostic emission moved to attemptBackupRecovery so the
+      // single canonical entry reflects the final storageSource and any
+      // recovery error. onRehydrateStorage only records sync-rehydrate parse
+      // errors that arose before recovery; the diagnostic is emitted exactly
+      // once when recovery completes (or is a no-op for non-dangerous states).
+      onRehydrateStorage: () => (_state, error) => {
+        if (error) {
+          hydrationContext.parseError =
+            hydrationContext.parseError
+            ?? (error instanceof Error ? error.message : 'rehydrate_failed')
+        }
+      },
+    },
+  ),
 )
+
+// Re-export so consumers (tests, devtools) can use a single import surface.
+export {
+  WORKSPACE_STORAGE_KEY,
+  WORKSPACE_STORE_VERSION,
+  classifyPersistedWorkspaceState,
+  isDangerousEmptyClassification,
+}
+export type { HydrationDiagnostic, PersistedStateClassification }
+
+export const __workspaceStoreBackupRecoveryPromise: Promise<void> = attemptBackupRecovery()
+export const __workspaceStoreRunBackupRecoveryForTests = attemptBackupRecovery

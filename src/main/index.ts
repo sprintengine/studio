@@ -1,4 +1,4 @@
-import { shell, ipcMain } from 'electron'
+import { app, shell, ipcMain } from 'electron'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
@@ -22,6 +22,8 @@ import { registerSwitchboardIpc } from './ipc/switchboard-ipc'
 import { registerTerminalIpc } from './ipc/terminal-ipc'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
+import { registerWorkspaceBackupIpc } from './ipc/workspace-backup-ipc'
+import { createWorkspaceBackupService } from './workspace-backup'
 import type { SwitchboardRunnerExecution } from '../shared/switchboard'
 import { initializeMultiloopState } from './multiloop-init'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
@@ -176,6 +178,11 @@ function requireAuthenticatedMulticodeUser(message: string): void {
 }
 
 registerWindowIpc(ipcMain)
+
+const workspaceBackupService = createWorkspaceBackupService({
+  resolveUserDataDir: () => app.getPath('userData'),
+})
+registerWorkspaceBackupIpc(ipcMain, workspaceBackupService)
 
 registerAuthIpc(ipcMain, multicodeAuth)
 

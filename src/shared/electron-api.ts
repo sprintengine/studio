@@ -975,6 +975,18 @@ export type MobileBridgeSettingsUpdate = {
   relayUrl?: string | null
 }
 
+export type WorkspaceBackupPayload = {
+  version: number
+  writtenAt: string
+  data: unknown
+}
+
+export type WorkspaceBackupReadResult =
+  | { ok: true; payload: WorkspaceBackupPayload }
+  | { ok: false; reason: 'missing' | 'unreadable' | 'parse_error'; message?: string }
+
+export type WorkspaceBackupWriteResult = { ok: boolean; message?: string }
+
 export type ElectronApi = {
   platform: string
   isDevelopment: boolean
@@ -1186,4 +1198,6 @@ export type ElectronApi = {
   onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
   onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void) => () => void
   onAppMenuCommand: (cb: (command: string) => void) => () => void
+  workspaceBackupWrite: (payload: WorkspaceBackupPayload) => Promise<WorkspaceBackupWriteResult>
+  workspaceBackupRead: () => Promise<WorkspaceBackupReadResult>
 }

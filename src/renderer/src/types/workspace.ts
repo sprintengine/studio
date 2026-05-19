@@ -188,11 +188,59 @@ export type SprintEngineArtifact = {
   changesRequestedAt?: string | null
 }
 
+export type SprintEngineTaskDiffStatus =
+  | 'added'
+  | 'modified'
+  | 'deleted'
+  | 'renamed'
+  | 'copied'
+  | 'type_changed'
+  | 'unmerged'
+  | 'unknown'
+
+export type SprintEngineTaskDiffSource =
+  | 'working_tree'
+  | 'staged'
+  | 'commit'
+  | 'checkpoint'
+
+export type SprintEngineTaskDiffLine = {
+  type: 'context' | 'added' | 'removed'
+  oldLine: number | null
+  newLine: number | null
+  content: string
+}
+
+export type SprintEngineTaskDiffHunk = {
+  oldStart: number
+  oldLines: number
+  newStart: number
+  newLines: number
+  section?: string | null
+  lines: SprintEngineTaskDiffLine[]
+}
+
+export type SprintEngineTaskDiff = {
+  path: string
+  oldPath?: string | null
+  status: SprintEngineTaskDiffStatus
+  additions: number
+  deletions: number
+  capturedAt: string
+  capturedBy: string
+  source: SprintEngineTaskDiffSource
+  binary: boolean
+  truncated: boolean
+  skippedReason?: string | null
+  hunks: SprintEngineTaskDiffHunk[]
+}
+
 export type SprintEngineTaskEvidence = {
   summary: string
   touchedFiles: string[]
   commandsRan: string[]
   results: string[]
+  diffs?: SprintEngineTaskDiff[]
 }
 
 export type SprintEngineTaskComment = {
@@ -942,6 +990,16 @@ export type MemoryGraphSettings = {
 export type WorkspaceMemoryConfig = {
   relativeRoot: string | null
   graphSettings?: MemoryGraphSettings
+}
+
+// Records why a persisted workspace registry intentionally has zero workspaces.
+// Hydration failure, parse failure, migration failure, and unknown startup
+// empties all remain distinct (they are classifications of the persisted shape,
+// not states of the registry). This record only exists for user-initiated wipes
+// so the model unambiguously distinguishes intent from failure.
+export type WorkspaceRegistryEmptyState = {
+  reason: 'user_removed_all'
+  updatedAt: string
 }
 
 export type UsageTelemetrySettings = {
