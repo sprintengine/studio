@@ -1,25 +1,31 @@
 import type { MultiloopStateReadResult } from '../types/workspace'
 import { parseMultiloopStateFileContent } from './multiloop'
-import { joinFilePath as joinPath, slugify } from './paths'
+import {
+  getExistingRunStateFilePath,
+  getRunDirectoryPath,
+  getRunRootDirectoryPath,
+  getRunStateFilePath,
+  slugifyRunName,
+} from './runStateFile'
 
 export function slugifyMultiloopName(name: string | null | undefined): string {
-  return slugify(name) || 'multiloop'
+  return slugifyRunName('multiloop', name)
 }
 
 export function getMultiloopRootDirectoryPath(folderPath: string): string {
-  return joinPath(folderPath, 'multiloop')
+  return getRunRootDirectoryPath(folderPath, 'multiloop')
 }
 
 export function getMultiloopDirectoryPath(folderPath: string, loopName?: string): string {
-  return joinPath(getMultiloopRootDirectoryPath(folderPath), slugifyMultiloopName(loopName))
+  return getRunDirectoryPath(folderPath, 'multiloop', loopName)
 }
 
 export function getExistingMultiloopStateFilePath(folderPath: string, loopDirectoryName: string): string {
-  return joinPath(joinPath(getMultiloopRootDirectoryPath(folderPath), loopDirectoryName), 'state.json')
+  return getExistingRunStateFilePath(folderPath, 'multiloop', loopDirectoryName)
 }
 
 export function getMultiloopStateFilePath(folderPath: string, loopName?: string): string {
-  return joinPath(getMultiloopDirectoryPath(folderPath, loopName), 'state.json')
+  return getRunStateFilePath(folderPath, 'multiloop', loopName)
 }
 
 export function parseMultiloopStateFile(content: string): MultiloopStateReadResult {

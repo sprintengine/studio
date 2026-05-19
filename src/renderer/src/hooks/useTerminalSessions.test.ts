@@ -208,6 +208,7 @@ async function assertStaleLaunchFlagsClearWithoutLosingRecency(): Promise<void> 
         id: 'workspace_1',
         agents: {
           'developer-1': {
+            cli: 'unsupported-cli',
             cliStartRequested: true,
             cliHasLaunched: true,
             cliSessionId: 'session_stale',

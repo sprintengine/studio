@@ -1,10 +1,9 @@
-import type { MultiloopState, MultiloopWorkspaceContext } from '../types/workspace'
+import type { MultiloopState, MultiloopStateDisplayError, MultiloopWorkspaceContext } from '../types/workspace'
+import { parseMultiloopStateFile } from './multiloopStateFile'
 import {
-  getMultiloopDirectoryPath,
-  getMultiloopStateFilePath,
-  parseMultiloopStateFile,
-  slugifyMultiloopName,
-} from './multiloopStateFile'
+  RunWorkspaceStateParseError,
+  loadRunWorkspaceState,
+} from './runWorkspaceCreation'
 
 type CreateMultiloopWorkspaceArgs = {
   rootPath: string
@@ -15,7 +14,7 @@ type CreateMultiloopWorkspaceArgs = {
 }
 
 export class MultiloopWorkspaceCreationError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly displayError?: MultiloopStateDisplayError) {
     super(message)
     this.name = 'MultiloopWorkspaceCreationError'
   }
@@ -52,21 +51,34 @@ export async function createMultiloopWorkspace({
     throw new MultiloopWorkspaceCreationError(initialized.message || 'Could not initialize the Multiloop state.')
   }
 
-  const content = await readFile(initialized.data.statePath)
-  const parsed = parseMultiloopStateFile(content)
-  if (!parsed.ok) {
-    throw new MultiloopWorkspaceCreationError(parsed.error.message)
-  }
+  try {
+    const { state, context } = await loadRunWorkspaceState<MultiloopState, MultiloopStateDisplayError>({
+      kind: 'multiloop',
+      rootPath: trimmedRoot,
+      name: trimmedLoopName,
+      statePathOverride: initialized.data.statePath,
+      slugOverride: initialized.data.loopSlug,
+      directoryOverride: initialized.data.loopDirectory,
+      displayNameOverride: initialized.data.loopName,
+      readFile,
+      parser: parseMultiloopStateFile,
+    })
 
-  const loopSlug = initialized.data.loopSlug || slugifyMultiloopName(trimmedLoopName)
-  return {
-    state: parsed.state,
-    context: {
-      loopName: initialized.data.loopName || trimmedLoopName,
-      loopSlug,
-      loopDirectoryPath: initialized.data.loopDirectory || getMultiloopDirectoryPath(trimmedRoot, loopSlug),
-      statePath: initialized.data.statePath || getMultiloopStateFilePath(trimmedRoot, loopSlug),
-    },
-    created: initialized.data.created,
+    return {
+      state,
+      context: {
+        loopName: context.name,
+        loopSlug: context.slug,
+        loopDirectoryPath: context.directoryPath,
+        statePath: context.statePath,
+      },
+      created: initialized.data.created,
+    }
+  } catch (error) {
+    if (error instanceof RunWorkspaceStateParseError) {
+      const displayError = error.cause as MultiloopStateDisplayError
+      throw new MultiloopWorkspaceCreationError(displayError.message, displayError)
+    }
+    throw error
   }
 }

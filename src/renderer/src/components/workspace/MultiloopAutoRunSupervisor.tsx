@@ -182,8 +182,8 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
     const status = await window.api.terminalStatus(agent.cliSessionId)
     if (status.processAlive) continue
 
-    const preserveSessionId = agentCliUsesStableSessionIdForResume(agent.cli)
     const canResume = agentCliSupportsConversationResume(agent.cli)
+    const preserveSessionId = canResume || agentCliUsesStableSessionIdForResume(agent.cli)
     useWorkspaceStore.getState().updateAgent(workspace.id, agent.id, {
       cliSessionId: preserveSessionId ? agent.cliSessionId : undefined,
       cliStartRequested: preserveSessionId,

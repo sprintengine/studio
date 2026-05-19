@@ -1,23 +1,30 @@
-import { joinFilePath as joinPath, slugify } from './paths'
+import { joinFilePath as joinPath } from './paths'
+import {
+  getExistingRunStateFilePath,
+  getRunDirectoryPath,
+  getRunRootDirectoryPath,
+  getRunStateFilePath,
+  slugifyRunName,
+} from './runStateFile'
 
 export function slugifySprintEngineName(name: string | null | undefined): string {
-  return slugify(name) || 'sprintengine-team'
+  return slugifyRunName('sprintengine', name)
 }
 
 export function getSprintEngineRootDirectoryPath(folderPath: string): string {
-  return joinPath(joinPath(folderPath, '.multi-code'), 'sprintengine')
+  return getRunRootDirectoryPath(folderPath, 'sprintengine')
 }
 
 export function getSprintEngineDirectoryPath(folderPath: string, sprintEngineName?: string): string {
-  return joinPath(getSprintEngineRootDirectoryPath(folderPath), slugifySprintEngineName(sprintEngineName))
+  return getRunDirectoryPath(folderPath, 'sprintengine', sprintEngineName)
 }
 
 export function getExistingSprintEngineStateFilePath(folderPath: string, sprintEngineDirectoryName: string): string {
-  return joinPath(joinPath(getSprintEngineRootDirectoryPath(folderPath), sprintEngineDirectoryName), 'run.yaml')
+  return getExistingRunStateFilePath(folderPath, 'sprintengine', sprintEngineDirectoryName)
 }
 
 export function getSprintEngineStateFilePath(folderPath: string, sprintEngineName?: string): string {
-  return joinPath(getSprintEngineDirectoryPath(folderPath, sprintEngineName), 'run.yaml')
+  return getRunStateFilePath(folderPath, 'sprintengine', sprintEngineName)
 }
 
 export function getSprintEnginePlanFilePath(folderPath: string, sprintEngineName?: string): string {

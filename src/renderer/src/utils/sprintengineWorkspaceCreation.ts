@@ -15,11 +15,7 @@ import {
   createInitialSprintEngineState,
 } from './sprintengine'
 import { buildPlanFileSprintEngineHandoffPrompt } from './sprintengineHandoff'
-import {
-  getSprintEngineDirectoryPath,
-  getSprintEngineStateFilePath,
-  slugifySprintEngineName,
-} from './sprintengineStateFile'
+import { buildRunWorkspaceContext } from './runWorkspaceCreation'
 
 const planSourcedSprintEngineRoleCounts: SprintEngineRoleCounts = {
   architect: 1,
@@ -72,15 +68,16 @@ export function buildPlanSourcedSprintEngineWorkspaceContext(
   rootPath: string,
   teamName: string
 ): SprintEngineWorkspaceContext {
-  const trimmedRoot = rootPath.trim()
-  const trimmedTeamName = teamName.trim()
-  const teamSlug = slugifySprintEngineName(trimmedTeamName)
-
+  const context = buildRunWorkspaceContext({
+    kind: 'sprintengine',
+    rootPath,
+    name: teamName,
+  })
   return {
-    teamName: trimmedTeamName,
-    teamSlug,
-    teamDirectoryPath: getSprintEngineDirectoryPath(trimmedRoot, teamSlug),
-    statePath: getSprintEngineStateFilePath(trimmedRoot, teamSlug),
+    teamName: context.name,
+    teamSlug: context.slug,
+    teamDirectoryPath: context.directoryPath,
+    statePath: context.statePath,
   }
 }
 

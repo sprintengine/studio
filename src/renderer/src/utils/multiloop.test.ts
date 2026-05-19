@@ -15,6 +15,18 @@ import {
   sanitizeMultiloopRenderedStateText,
 } from './multiloop'
 import { createMultiloopWorkspace, MultiloopWorkspaceCreationError } from './multiloopWorkspaceCreation'
+import {
+  RunWorkspaceStateParseError,
+  buildRunWorkspaceContext,
+  loadRunWorkspaceState,
+} from './runWorkspaceCreation'
+import {
+  MULTILOOP_STATE_SYNC_EVENT,
+  getMultiloopStateSyncSnapshot,
+  multiloopStateSynchronizerConfig,
+  type MultiloopStateSyncEventDetail,
+} from '../components/workspace/MultiloopStateSynchronizer'
+import type { MultiloopStateDisplayError } from '../types/workspace'
 import { selectMultiloopAutoRunCandidates } from './multiloopAutoRun'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { createMultiloopTemplate } from '../layouts/templates'
@@ -873,6 +885,130 @@ async function testMultiloopWorkspaceCreationRejectsInvalidInputBeforeIpc() {
   assert.equal(initializeCalls, 0)
 }
 
+async function testMultiloopWorkspaceCreationPreservesTypedParseError() {
+  let surfacedError: MultiloopWorkspaceCreationError | null = null
+  try {
+    await createMultiloopWorkspace({
+      rootPath: 'C:\\repo',
+      loopName: 'Creation Loop',
+      finalGoal: 'Validate typed parse error preservation.',
+      initializeState: async () => ({
+        ok: true,
+        data: {
+          workspaceRoot: 'C:\\repo',
+          created: true,
+          loopName: 'Creation Loop',
+          loopSlug: 'creation-loop',
+          loopDirectory: 'C:\\repo\\multiloop\\creation-loop',
+          statePath: 'C:\\repo\\multiloop\\creation-loop\\state.json',
+        },
+      }),
+      // Malformed JSON exercises parseMultiloopStateFileContent → MultiloopStateDisplayError.
+      readFile: async () => '{not valid json',
+    })
+  } catch (error) {
+    if (error instanceof MultiloopWorkspaceCreationError) surfacedError = error
+    else throw error
+  }
+  assert.ok(surfacedError, 'createMultiloopWorkspace must reject parse failures via MultiloopWorkspaceCreationError')
+  const displayError = surfacedError.displayError
+  assert.ok(displayError, 'parse failure must carry the original typed MultiloopStateDisplayError')
+  assert.ok(
+    typeof displayError.title === 'string' && displayError.title.length > 0,
+    'display error must keep the parser-specific title (not be flattened to a string-only payload)'
+  )
+  assert.notEqual(
+    displayError.title,
+    'Missing Multiloop state',
+    'parse-error title must not be collapsed into the IO-error title used for read failures'
+  )
+}
+
+async function testLoadRunWorkspaceStateRoutesEachKindThroughItsParser() {
+  // Multiloop parser path: invalid JSON propagates the typed display error via RunWorkspaceStateParseError.
+  let multiloopError: RunWorkspaceStateParseError<MultiloopStateDisplayError> | null = null
+  try {
+    await loadRunWorkspaceState<unknown, MultiloopStateDisplayError>({
+      kind: 'multiloop',
+      rootPath: 'C:\\repo',
+      name: 'Parser Loop',
+      readFile: async () => '{not json',
+      parser: parseMultiloopStateFileContent,
+    })
+  } catch (error) {
+    if (error instanceof RunWorkspaceStateParseError) {
+      multiloopError = error as RunWorkspaceStateParseError<MultiloopStateDisplayError>
+    } else {
+      throw error
+    }
+  }
+  assert.ok(multiloopError, 'loadRunWorkspaceState must throw RunWorkspaceStateParseError for parser failures')
+  assert.ok(typeof multiloopError.cause.title === 'string')
+  assert.ok(multiloopError.cause.title.length > 0, 'Multiloop parser preserves its display-error title')
+
+  // Sprint Engine parser path: same helper accepts a different parser and yields a sprintengine state.
+  const seState = sprintEngineFixture({ sprintengine: { name: 'Parser Run' } })
+  const projection = JSON.stringify({
+    ok: true,
+    projectionVersion: 1,
+    source: 'folder_store',
+    generatedAt: null,
+    updatedAt: null,
+    run: {
+      id: 'parser-run',
+      name: 'Parser Run',
+      goal: '',
+      status: 'executing',
+      rosterConfigured: true,
+      updatedAt: null,
+    },
+    roster: {},
+    tasks: [],
+    artifacts: [],
+    activity: [],
+  })
+  const sprintEngineParser = (raw: string): { ok: true; state: typeof seState } | { ok: false; error: { message: string } } => {
+    try {
+      const decoded = JSON.parse(raw)
+      const state = normalizeSprintEngineProjection(decoded, 'Parser Run')
+      return state ? { ok: true, state } : { ok: false, error: { message: 'malformed projection' } }
+    } catch (error) {
+      return { ok: false, error: { message: error instanceof Error ? error.message : String(error) } }
+    }
+  }
+  const result = await loadRunWorkspaceState({
+    kind: 'sprintengine',
+    rootPath: 'C:\\repo',
+    name: 'Parser Run',
+    readFile: async () => projection,
+    parser: sprintEngineParser,
+  })
+  assert.equal(result.state.name, 'Parser Run')
+  // Context derivation matches the kind config: Sprint Engine state lives under .multi-code/sprintengine.
+  assert.ok(result.context.statePath.includes('.multi-code'))
+  assert.ok(result.context.statePath.endsWith('run.yaml'))
+}
+
+function testBuildRunWorkspaceContextProducesKindSpecificPaths() {
+  const sprintEngineContext = buildRunWorkspaceContext({
+    kind: 'sprintengine',
+    rootPath: 'C:\\repo',
+    name: 'Demo Team',
+  })
+  assert.equal(sprintEngineContext.slug, 'demo-team')
+  assert.ok(sprintEngineContext.statePath.includes('.multi-code'))
+  assert.ok(sprintEngineContext.statePath.endsWith('run.yaml'))
+
+  const multiloopContext = buildRunWorkspaceContext({
+    kind: 'multiloop',
+    rootPath: 'C:\\repo',
+    name: 'Demo Loop',
+  })
+  assert.equal(multiloopContext.slug, 'demo-loop')
+  assert.ok(!multiloopContext.statePath.includes('.multi-code'), 'Multiloop root is not nested under .multi-code')
+  assert.ok(multiloopContext.statePath.endsWith('state.json'))
+}
+
 async function testMultiloopWorkspaceCreationSurfacesExistingStateFailure() {
   await assert.rejects(
     createMultiloopWorkspace({
@@ -1077,6 +1213,175 @@ async function testSprintEngineWorkspaceCreationGuidesMixedContextBundle() {
   assert.equal(prompt.includes('seed canonical files from product and implementation plan sources'), false)
 }
 
+type MultiloopSynchronizerTestHarness = {
+  restore: () => void
+  capturedEvents: MultiloopStateSyncEventDetail[]
+}
+
+function installMultiloopSynchronizerTestWindow(
+  readFile: (path: string) => Promise<string>
+): MultiloopSynchronizerTestHarness {
+  if (typeof (globalThis as { CustomEvent?: unknown }).CustomEvent === 'undefined') {
+    class CustomEventPolyfill<T> extends Event {
+      detail: T
+      constructor(type: string, init?: { detail?: T; bubbles?: boolean; cancelable?: boolean }) {
+        super(type, init)
+        this.detail = init?.detail as T
+      }
+    }
+    ;(globalThis as { CustomEvent?: unknown }).CustomEvent = CustomEventPolyfill
+  }
+  const previousWindow = (globalThis as { window?: unknown }).window
+  const target = new EventTarget()
+  const capturedEvents: MultiloopStateSyncEventDetail[] = []
+  const captureListener = (event: Event): void => {
+    capturedEvents.push((event as CustomEvent<MultiloopStateSyncEventDetail>).detail)
+  }
+  target.addEventListener(MULTILOOP_STATE_SYNC_EVENT, captureListener)
+  const win = {
+    api: { readfile: readFile },
+    addEventListener: target.addEventListener.bind(target),
+    removeEventListener: target.removeEventListener.bind(target),
+    dispatchEvent: target.dispatchEvent.bind(target),
+  }
+  Object.defineProperty(globalThis, 'window', { value: win, configurable: true, writable: true })
+  return {
+    capturedEvents,
+    restore: () => {
+      target.removeEventListener(MULTILOOP_STATE_SYNC_EVENT, captureListener)
+      if (previousWindow === undefined) {
+        delete (globalThis as { window?: unknown }).window
+      } else {
+        Object.defineProperty(globalThis, 'window', {
+          value: previousWindow,
+          configurable: true,
+          writable: true,
+        })
+      }
+    },
+  }
+}
+
+function expectErrorSnapshot(snapshot: MultiloopStateSyncEventDetail | null): MultiloopStateDisplayError {
+  assert.ok(snapshot, 'Multiloop synchronizer must store a snapshot after a failed read')
+  assert.equal(snapshot.status, 'error', 'snapshot must carry status=error for failures')
+  if (snapshot.status !== 'error') throw new Error('unreachable')
+  return snapshot.error
+}
+
+async function testMultiloopSynchronizerParseErrorEventPreservesJsonParserTitle() {
+  const harness = installMultiloopSynchronizerTestWindow(async () => '{not valid json')
+  try {
+    const workspaceId = 'multiloop-sync-test-parse-json'
+    const statePath = 'C:\\repo\\multiloop\\fixture-loop\\state.json'
+
+    const result = await multiloopStateSynchronizerConfig.read(statePath, 'fixture-loop')
+    assert.equal(result.ok, false, 'malformed JSON must not produce a successful Multiloop read')
+    assert.equal(
+      result.ok === false ? result.kind : null,
+      'parse',
+      'malformed JSON must be classified as a parser failure, not an IO failure'
+    )
+    if (result.ok || result.kind !== 'parse') throw new Error('unreachable')
+
+    multiloopStateSynchronizerConfig.onParseError?.({ workspaceId, statePath, error: result.error })
+
+    const snapshotError = expectErrorSnapshot(getMultiloopStateSyncSnapshot(workspaceId))
+    assert.equal(
+      snapshotError.title,
+      'Invalid Multiloop JSON',
+      'parse-error snapshot must preserve the parser-specific title'
+    )
+    assert.notEqual(
+      snapshotError.title,
+      'Missing Multiloop state',
+      'parse-error snapshot must not collapse to the IO-error title'
+    )
+
+    assert.equal(harness.capturedEvents.length, 1, 'one MULTILOOP_STATE_SYNC_EVENT must fire per parse failure')
+    const dispatched = harness.capturedEvents[0]
+    assert.equal(dispatched.status, 'error')
+    if (dispatched.status !== 'error') throw new Error('unreachable')
+    assert.equal(dispatched.error.title, 'Invalid Multiloop JSON')
+    assert.equal(dispatched.statePath, statePath)
+  } finally {
+    harness.restore()
+  }
+}
+
+async function testMultiloopSynchronizerParseErrorEventPreservesInvalidStateTitle() {
+  // Structurally invalid Multiloop state: JSON-parsable but fails the schema.
+  const invalidStateJson = JSON.stringify({ ...baseMultiloopState(), tasks: [{ id: 'bad' }] })
+  const harness = installMultiloopSynchronizerTestWindow(async () => invalidStateJson)
+  try {
+    const workspaceId = 'multiloop-sync-test-parse-state'
+    const statePath = 'C:\\repo\\multiloop\\fixture-loop\\state.json'
+
+    const result = await multiloopStateSynchronizerConfig.read(statePath, 'fixture-loop')
+    assert.equal(result.ok, false, 'invalid Multiloop state must not produce a successful read')
+    assert.equal(
+      result.ok === false ? result.kind : null,
+      'parse',
+      'schema-invalid state must be classified as parser failure, not IO'
+    )
+    if (result.ok || result.kind !== 'parse') throw new Error('unreachable')
+
+    multiloopStateSynchronizerConfig.onParseError?.({ workspaceId, statePath, error: result.error })
+
+    const snapshotError = expectErrorSnapshot(getMultiloopStateSyncSnapshot(workspaceId))
+    assert.equal(snapshotError.title, 'Invalid Multiloop state')
+    assert.match(
+      snapshotError.message,
+      /\$\.tasks\[0\]\.milestoneId/,
+      'parser path metadata must survive the synchronizer dispatch'
+    )
+
+    assert.equal(harness.capturedEvents.length, 1)
+    const dispatched = harness.capturedEvents[0]
+    if (dispatched.status !== 'error') throw new Error('unreachable')
+    assert.equal(dispatched.error.title, 'Invalid Multiloop state')
+    assert.match(dispatched.error.message, /\$\.tasks\[0\]\.milestoneId/)
+  } finally {
+    harness.restore()
+  }
+}
+
+async function testMultiloopSynchronizerIoErrorEventUsesMissingTitle() {
+  const harness = installMultiloopSynchronizerTestWindow(async () => {
+    throw new Error('ENOENT: no such file or directory')
+  })
+  try {
+    const workspaceId = 'multiloop-sync-test-io'
+    const statePath = 'C:\\repo\\multiloop\\fixture-loop\\state.json'
+
+    const result = await multiloopStateSynchronizerConfig.read(statePath, 'fixture-loop')
+    assert.equal(result.ok, false)
+    assert.equal(
+      result.ok === false ? result.kind : null,
+      'io',
+      'readfile failures must be classified as IO, not parser, failures'
+    )
+    if (result.ok || result.kind !== 'io') throw new Error('unreachable')
+
+    multiloopStateSynchronizerConfig.onReadError?.({ workspaceId, statePath, message: result.message })
+
+    const snapshotError = expectErrorSnapshot(getMultiloopStateSyncSnapshot(workspaceId))
+    assert.equal(
+      snapshotError.title,
+      'Missing Multiloop state',
+      'IO failures must keep the existing Missing Multiloop state title'
+    )
+    assert.match(snapshotError.message, /ENOENT/)
+
+    assert.equal(harness.capturedEvents.length, 1)
+    const dispatched = harness.capturedEvents[0]
+    if (dispatched.status !== 'error') throw new Error('unreachable')
+    assert.equal(dispatched.error.title, 'Missing Multiloop state')
+  } finally {
+    harness.restore()
+  }
+}
+
 function testSourcePlanKindInferencePrefersSpecificProductSignals() {
   assert.equal(inferSourcePlanKind('future-plans/product-plan.md', '# Roadmap\n'), 'product_plan')
   assert.equal(inferSourcePlanKind('future-plans/implementation-plan.md', '# Roadmap\n'), 'architect_plan')
@@ -1106,10 +1411,17 @@ testMultiloopAutoRunPausesForBlockersAndUnknownRoles()
 testSetMultiloopStatePreservesExistingLayoutModel()
 testSourcePlanKindInferencePrefersSpecificProductSignals()
 
+testBuildRunWorkspaceContextProducesKindSpecificPaths()
+
 void (async () => {
   await testMultiloopWorkspaceCreationOpensParsedState()
   await testMultiloopWorkspaceCreationRejectsInvalidInputBeforeIpc()
   await testMultiloopWorkspaceCreationSurfacesExistingStateFailure()
+  await testMultiloopWorkspaceCreationPreservesTypedParseError()
+  await testLoadRunWorkspaceStateRoutesEachKindThroughItsParser()
+  await testMultiloopSynchronizerParseErrorEventPreservesJsonParserTitle()
+  await testMultiloopSynchronizerParseErrorEventPreservesInvalidStateTitle()
+  await testMultiloopSynchronizerIoErrorEventUsesMissingTitle()
   await testSprintEngineWorkspaceCreationRegressionKeepsSprintEngineModeAndPrompt()
   await testSprintEngineWorkspaceCreationSupportsHtmlOnlySourceBundle()
   await testSprintEngineWorkspaceCreationGuidesSingleContextBundle()
