@@ -2066,7 +2066,7 @@ function GuidedRoleToggle({
           value={cli}
           onChange={onChangeCli}
           disabled={disabled || !checked}
-          className="w-[120px]"
+          className="w-[140px]"
         />
         <input
           type="checkbox"

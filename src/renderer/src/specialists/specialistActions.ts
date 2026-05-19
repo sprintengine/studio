@@ -222,7 +222,9 @@ function guidedBriefInterviewInstructions(role: 'product strategist' | 'architec
   return [
     `Conduct a guided ${role} interview before writing the artifact.`,
     'Ask exactly one question at a time.',
-    'For each question, state the decision type, your recommended answer, why you recommend it, and what changes if the user chooses differently.',
+    'For each question, give 2-4 concrete multiple-choice options the user can pick from, with the recommended option first and clearly labeled "Recommended".',
+    'Each option must include a short label and one sentence explaining the impact or tradeoff; include an "Other" or "Custom" option only when the decision genuinely needs it.',
+    'After the options, briefly state why you recommend the first option and what materially changes if the user chooses a different option.',
     'Walk the design tree in dependency order: resolve upstream product, workflow, data, architecture, interface, UX, reliability, security, performance, and scope decisions before asking downstream implementation questions.',
     'If a question can be answered by inspecting the project files, docs, Knowledge Graph, or existing commands, inspect those sources before asking. If this is a new codebase and no source exists, say the assumption you are making.',
     'Continue interviewing until you and the user have a shared, explicit understanding of the artifact you are about to write.',
