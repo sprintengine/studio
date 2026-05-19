@@ -44,11 +44,14 @@ const kbdChord = read('src/renderer/src/components/ui/KbdChord.tsx')
 const roleGlyph = read('src/renderer/src/components/ui/RoleGlyph.tsx')
 const rendererCss = read('src/renderer/src/assets/index.css')
 const switchboardPanel = read('src/renderer/src/components/panels/SwitchboardBoardPanel.tsx')
-const watchtowerPanel = read('src/renderer/src/components/panels/WatchtowerPanel.tsx')
+const watchtowerPanel = [
+  read('src/renderer/src/components/panels/WatchtowerPanel.tsx'),
+  read('src/renderer/src/components/panels/WatchtowerPanel/ActiveReviewAside.tsx'),
+].join('\n')
 const sprintEnginePanel = read('src/renderer/src/components/panels/SprintEngineBoardPanel.tsx')
-const multiloopPanel = read('src/renderer/src/components/panels/MultiloopBoardPanel.tsx')
+const multiloopSettingsPanel = read('src/renderer/src/components/panels/MultiloopBoardPanel/MultiloopSettingsPopover.tsx')
 const sprintEngineSettingsPopover = sliceFunction(sprintEnginePanel, 'SprintEngineSettingsPopover')
-const multiloopSettingsPopover = sliceFunction(multiloopPanel, 'MultiloopSettingsPopover')
+const multiloopSettingsPopover = sliceFunction(multiloopSettingsPanel, 'MultiloopSettingsPopover')
 
 // Popover — shared anchored surface contract for app-shell dropdowns.
 expectIncludes(popover, "popupRole: 'menu' | 'listbox' | 'dialog'", 'Popover exposes a thin popup role API')
