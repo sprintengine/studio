@@ -1606,6 +1606,25 @@ def build_gate_review_prompt(
         if isinstance(attempt_record, dict) and attempt_record.get("id") != attempt.get("id")
     ]
     gate_focus = str(gate.get("focus") or "").strip() or "Review the task against the gate role and phase."
+    gate_role = str(gate.get("role") or "")
+    role_specific_lines: List[str] = []
+    if gate_role == "tester":
+        role_specific_lines = [
+            "",
+            "## Tester Gate Expectations",
+            "",
+            "- Act as QA for the completed implementation, not as a second code reviewer.",
+            "- Build a short validation plan from the task acceptance criteria, changed paths, implementation evidence, and highest-risk user or integration paths.",
+            "- Run independent, reproducible verification commands where practical; do not approve only by reading the implementation summary.",
+            "- For UI, renderer, browser-visible, or end-to-end behavior, use Playwright/browser MCP or equivalent browser automation when available and proportionate. Exercise the real screen or workflow, check basic visual/layout correctness, and record the route/screen, actions, observed result, and any screenshots or artifacts.",
+            "- If browser MCP is unavailable or not applicable, say why and run the strongest local alternative: focused Playwright tests, renderer/component tests, Electron smoke checks, screenshots, CLI/API checks, or targeted unit/integration tests. For UI-facing work, lack of browser-level validation is residual risk and should fail or block the gate when visual or interaction correctness is part of acceptance.",
+            "- Evaluate whether the existing tests prove the behavior. Add narrow regression tests, fixtures, or test harness wiring when that is the smallest safe way to validate the task.",
+            "- Keep any test edits tightly scoped to the task-owned paths or directly related test files. If broader edits are needed, fail or block the gate with a concrete required action instead of expanding scope silently.",
+            "- For any nontrivial validation or tester-authored test edits, write a project-root-relative validation report and submit the verdict with `--artifact-path`, `--artifact-title`, and `--artifact-kind validation_report`. Include changed test files, commands, results, browser/MCP evidence, path/reason/risk for any companion test edits, and residual risk.",
+            "- If no new test is needed, say why and name the existing tests or checks that cover the risk.",
+            "- Use `failed` or `changes_requested` when required behavior is unverified, regression coverage is missing, or validation cannot be reproduced. Use `blocked` with needs-input routing when tooling, fixtures, environment, or real integration access prevents validation.",
+            "- A passing tester verdict should report scope reviewed, commands run, tests evaluated or added, release confidence, and residual risk.",
+        ]
     lines = [
         "# Sprint Engine Gate Review Context",
         "",
@@ -1652,6 +1671,7 @@ def build_gate_review_prompt(
             f"- {record.get('id')} status=`{record.get('status')}` by `{record.get('claimedBy')}` summary={record.get('summary') or ''}"
             for record in prior_attempts
         ]),
+        *role_specific_lines,
         "",
         "Audit implementation comments as claims, not proof. Use `sprintengine task gate verdict` when the gate review is complete.",
     ]
@@ -3952,6 +3972,15 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
         )
 
     def gate_boundary_instruction() -> str:
+        if args.role == "tester":
+            return (
+                f"You are assigned role `{args.role}` as a quality-gate QA tester. "
+                "Claim quality gates with `sprintengine task gate next`, not `sprintengine task next`. "
+                "A tester gate validates another role's completed task while the task remains in its lifecycle folder. "
+                "Run independent verification and, for UI or browser-visible work, use Playwright/browser MCP or equivalent browser automation when available and proportionate. "
+                "You may add narrow regression tests, fixtures, or test harness wiring when that is the smallest safe way to validate the task; keep edits tightly scoped and document any companion test edits in the verdict summary or a validation_report artifact. "
+                "If broader implementation changes are needed, request changes or block the gate instead of taking over the implementer's work."
+            )
         return (
             f"You are assigned role `{args.role}` as a quality-gate reviewer/tester/product reviewer. "
             "Claim quality gates with `sprintengine task gate next`, not `sprintengine task next`. "

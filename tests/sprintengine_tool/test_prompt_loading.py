@@ -76,6 +76,42 @@ def gated_review_task() -> dict:
     return record
 
 
+def make_tester_gate_task() -> dict:
+    record = task(
+        "T1",
+        "Validate renderer workflow",
+        "frontend",
+        "testing",
+        owner="frontend-fixture",
+        owned_paths=["src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx"],
+    )
+    record["description"] = "Validate the completed renderer workflow through real UI or focused local alternatives."
+    record["acceptanceCriteria"] = [
+        "User-visible workflow renders without layout regressions.",
+        "Focused tests cover the changed behavior.",
+    ]
+    record["evidence"] = {
+        "summary": "Implemented the renderer workflow.",
+        "touchedFiles": ["src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx"],
+        "commandsRan": ["npm run test:renderer:sprintengine-auto-run"],
+        "results": ["Passed."],
+        "scopeExpansions": [],
+    }
+    record["qualityGates"] = [
+        {
+            "id": "tester",
+            "phase": "testing",
+            "role": "tester",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": True,
+            "focus": "real-path validation, regression coverage, and reproducible verification",
+            "attempts": [],
+        }
+    ]
+    return record
+
+
 @pytest.fixture(autouse=True)
 def use_python_sprintengine_tool_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     if os.name != "nt":
@@ -323,6 +359,62 @@ def test_gate_claim_returns_contextual_reviewer_prompt(tmp_path) -> None:
             "Prior Gate Attempts",
             "GA-001 status=`changes_requested`",
             "Audit implementation comments as claims, not proof.",
+        ],
+    )
+
+
+def test_tester_gate_claim_prompt_requires_qa_validation_and_browser_checks(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "tester-gate-context-prompt",
+        [make_tester_gate_task()],
+    )
+
+    payload = fixture.cli.run("task", "gate", "next", "--role", "tester", "--id", "tester-fixture")
+
+    assert payload["ok"] is True
+    assert payload["claimed"] is True
+    assert_prompt_includes(
+        payload["prompt"],
+        [
+            "Gate: `tester` phase=`testing` role=`tester`",
+            "## Tester Gate Expectations",
+            "Act as QA for the completed implementation, not as a second code reviewer.",
+            "Build a short validation plan from the task acceptance criteria",
+            "Run independent, reproducible verification commands where practical",
+            "For UI, renderer, browser-visible, or end-to-end behavior, use Playwright/browser MCP or equivalent browser automation when available and proportionate.",
+            "If browser MCP is unavailable or not applicable, say why and run the strongest local alternative",
+            "lack of browser-level validation is residual risk and should fail or block the gate when visual or interaction correctness is part of acceptance.",
+            "Add narrow regression tests, fixtures, or test harness wiring when that is the smallest safe way to validate the task.",
+            "For any nontrivial validation or tester-authored test edits, write a project-root-relative validation report",
+            "`--artifact-path`, `--artifact-title`, and `--artifact-kind validation_report`",
+            "If no new test is needed, say why",
+            "A passing tester verdict should report scope reviewed, commands run, tests evaluated or added, release confidence, and residual risk.",
+        ],
+    )
+
+
+def test_tester_join_gate_directive_allows_narrow_test_work_and_browser_mcp(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "tester-gate-join-directive",
+        [make_tester_gate_task()],
+    )
+
+    payload = fixture.cli.run("join", "--role", "tester", "--id", "tester-fixture")
+
+    assert payload["ok"] is True
+    assert payload["action"] == "gate_work"
+    assert_prompt_includes(
+        payload["prompt"],
+        [
+            "quality-gate QA tester",
+            "sprintengine task gate next --role tester --id tester-fixture",
+            "Run independent verification",
+            "use Playwright/browser MCP or equivalent browser automation when available and proportionate",
+            "You may add narrow regression tests, fixtures, or test harness wiring",
+            "document any companion test edits in the verdict summary or a validation_report artifact",
+            "If broader implementation changes are needed, request changes or block the gate instead of taking over the implementer's work.",
         ],
     )
 
