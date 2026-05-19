@@ -45,9 +45,9 @@ export type ChipPopoverForRole =
   | null
 
 type ViewItem = { component: string; name: string }
-// Sprint Engine intentionally has no entry: Inbox / Roster / Tasks live as
-// internal segmented chrome inside the SprintEngineBoardPanel rather than as
-// closeable FlexLayout tabs the user can move or dismiss.
+// Sprint Engine intentionally has no entry: Inbox / Roster / Tasks render as
+// an icon-led sub-nav at the top of the SprintEngineBoardPanel (Linear-style
+// underline-on-active), not as workspace top-bar chrome or FlexLayout tabs.
 const VIEWS_FOR_MODE: Record<string, { label: string; views: ViewItem[] }> = {
   multiloop: {
     label: 'Multiloop',

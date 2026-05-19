@@ -36,6 +36,9 @@ export const sprintEngineTabsLayoutModel = (
       {
         type: 'tabset',
         weight: options?.includeAgentTabs === false ? 100 : 58,
+        // The SE board owns its own segmented nav (workspace top bar), so the
+        // FlexLayout tab strip on this tabset would just be redundant chrome.
+        enableTabStrip: false,
         children: [sprintEngineBoardTab()],
       },
       ...(options?.includeAgentTabs === false
@@ -180,6 +183,44 @@ export function markSwitchboardAnchorTabsSticky(
   const layout = layoutModel.layout
   if (!layout) return layoutModel
   const nextLayout = markStickyTabsInLayoutNode(layout)
+  return { ...layoutModel, layout: nextLayout as IJsonModel['layout'] }
+}
+
+function tabsetContainsSprintEngineBoard(record: Record<string, unknown>): boolean {
+  const children = Array.isArray(record.children) ? record.children : []
+  return children.some((child) => {
+    if (!child || typeof child !== 'object') return false
+    const childRecord = child as Record<string, unknown>
+    return childRecord.type === 'tab' && childRecord.component === 'sprintengine'
+  })
+}
+
+function hideSprintEngineBoardTabStripInNode(node: unknown): unknown {
+  if (!node || typeof node !== 'object') return node
+  const record = node as Record<string, unknown>
+
+  if (record.type === 'tabset' && tabsetContainsSprintEngineBoard(record)) {
+    return { ...record, enableTabStrip: false }
+  }
+
+  const rawChildren = record.children
+  if (!Array.isArray(rawChildren)) return record
+
+  const nextChildren = rawChildren.map((child) => hideSprintEngineBoardTabStripInNode(child))
+  return { ...record, children: nextChildren }
+}
+
+// The Sprint Engine board has its own icon segmented nav, so the FlexLayout
+// tab strip on the tabset that hosts it is redundant. Apply enableTabStrip:
+// false to whichever tabset wraps the 'sprintengine' tab without touching
+// other tabsets the user may have rearranged.
+export function hideSprintEngineBoardTabStrip(
+  layoutModel: IJsonModel | null | undefined
+): IJsonModel | null | undefined {
+  if (!layoutModel || typeof layoutModel !== 'object') return layoutModel
+  const layout = layoutModel.layout
+  if (!layout) return layoutModel
+  const nextLayout = hideSprintEngineBoardTabStripInNode(layout)
   return { ...layoutModel, layout: nextLayout as IJsonModel['layout'] }
 }
 

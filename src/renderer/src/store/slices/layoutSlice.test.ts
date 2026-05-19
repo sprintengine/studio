@@ -7,6 +7,7 @@ import { useWorkspaceStore } from '../workspaceStore'
 import {
   createLayoutSlice,
   ensureMultiloopLayoutModel,
+  hideSprintEngineBoardTabStrip,
   isLegacySprintEngineLayout,
   markSwitchboardAnchorTabsSticky,
   migrateSprintEngineLayout,
@@ -100,6 +101,65 @@ const noopMigration = migrateSprintEngineLayout({
   agents: {},
 } as Workspace)
 assert.equal(noopMigration.layoutModel, canonicalLayout)
+
+// Existing SE layouts that still carry a visible Sprint Engine tab strip
+// migrate to enableTabStrip: false on the tabset that hosts the board, while
+// other tabsets keep their tab handles intact.
+const sprintEngineLayoutForStripMigration: IJsonModel = {
+  global: {},
+  borders: [],
+  layout: {
+    type: 'row',
+    children: [
+      {
+        type: 'tabset',
+        weight: 58,
+        children: [
+          { type: 'tab', name: 'Sprint Engine', component: 'sprintengine', enableClose: false },
+        ],
+      },
+      {
+        type: 'tabset',
+        weight: 42,
+        children: [
+          { type: 'tab', name: 'Agent 1', component: 'agent', config: { agentId: 'a-1' } },
+        ],
+      },
+    ],
+  },
+}
+const stripHidden = hideSprintEngineBoardTabStrip(sprintEngineLayoutForStripMigration) as IJsonModel
+function findTabset(model: IJsonModel, predicate: (record: Record<string, unknown>) => boolean): Record<string, unknown> | null {
+  let found: Record<string, unknown> | null = null
+  const walk = (node: unknown) => {
+    if (found || !node || typeof node !== 'object') return
+    const record = node as Record<string, unknown>
+    if (record.type === 'tabset' && predicate(record)) {
+      found = record
+      return
+    }
+    if (Array.isArray(record.children)) record.children.forEach(walk)
+  }
+  walk(model.layout)
+  return found
+}
+const seTabset = findTabset(stripHidden, (record) => {
+  const children = Array.isArray(record.children) ? record.children : []
+  return children.some((child) => (child as Record<string, unknown>)?.component === 'sprintengine')
+})!
+const agentTabset = findTabset(stripHidden, (record) => {
+  const children = Array.isArray(record.children) ? record.children : []
+  return children.some((child) => (child as Record<string, unknown>)?.component === 'agent')
+})!
+assert.equal(seTabset.enableTabStrip, false)
+assert.equal(agentTabset.enableTabStrip, undefined)
+
+const canonicalSprintLayout = sprintEngineTabsLayoutModel(sprintEngineState, {})
+const canonicalSeTabset = findTabset(canonicalSprintLayout, (record) => {
+  const children = Array.isArray(record.children) ? record.children : []
+  return children.some((child) => (child as Record<string, unknown>)?.component === 'sprintengine')
+})!
+assert.equal(canonicalSeTabset.enableTabStrip, false)
 
 const switchboardLegacyLayout: IJsonModel = {
   global: {},

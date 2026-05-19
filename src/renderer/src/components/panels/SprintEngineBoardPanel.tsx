@@ -1,13 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { selectSprintEngineView, useSprintEngineViewStore } from '../../store/sprintEngineViewStore'
 import {
  BoardLane,
  CloseIconButton,
- Tabs,
  OverflowMenu,
  GhostButton,
  InboxSearchInput,
- PanelHeader,
  Popover,
  RoleAvatar,
  SidePane,
@@ -15,6 +14,7 @@ import {
  Section,
  Select,
  Switch,
+ Tabs,
  TaskCard,
  Tooltip,
  DefinitionList,
@@ -191,6 +191,55 @@ type SyncState = {
 type SprintEngineView = 'inbox' | 'roster' | 'tasks'
 type SprintEngineTasksLayout = 'graph' | 'kanban'
 
+function SprintEngineInboxIcon({ className }: { className?: string }) {
+ return (
+ <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+ <rect x="2.5" y="3.5" width="11" height="9" rx="1.2" stroke="currentColor" strokeWidth="1.25" />
+ <path
+ d="M2.5 8.75H5.25L6.25 10.25H9.75L10.75 8.75H13.5"
+ stroke="currentColor"
+ strokeWidth="1.25"
+ strokeLinecap="round"
+ strokeLinejoin="round"
+ />
+ </svg>
+ )
+}
+
+function SprintEngineRosterNavIcon({ className }: { className?: string }) {
+ return (
+ <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+ <circle cx="5.5" cy="6.5" r="2" stroke="currentColor" strokeWidth="1.25" />
+ <circle cx="10.75" cy="7" r="1.6" stroke="currentColor" strokeWidth="1.25" />
+ <path
+ d="M1.75 13.25C1.75 11.5 3.25 10.5 5.5 10.5C7.75 10.5 9.25 11.5 9.25 13.25"
+ stroke="currentColor"
+ strokeWidth="1.25"
+ strokeLinecap="round"
+ />
+ <path
+ d="M9.5 13.25C9.5 12 10.5 11.25 12 11.25C13.5 11.25 14.25 12 14.25 13.25"
+ stroke="currentColor"
+ strokeWidth="1.25"
+ strokeLinecap="round"
+ />
+ </svg>
+ )
+}
+
+function SprintEngineTasksNavIcon({ className }: { className?: string }) {
+ return (
+ <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+ <path d="M2.75 4.25L4 5.5L6.25 3.25" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+ <path d="M2.75 8.5L4 9.75L6.25 7.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+ <path d="M2.75 12.75L4 14L6.25 11.75" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+ <line x1="8.25" y1="4.5" x2="13.5" y2="4.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+ <line x1="8.25" y1="8.75" x2="13.5" y2="8.75" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+ <line x1="8.25" y1="13" x2="13.5" y2="13" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+ </svg>
+ )
+}
+
 type SpawnDialogState = {
  agentId: string
  cli: AgentCli
@@ -365,7 +414,16 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  useEffect(() => {
  if (selectedTaskId !== null) setSelectedArtifactId(null)
  }, [selectedTaskId])
- const [activeView, setActiveView] = useState<SprintEngineView>('inbox')
+ // Active SE view is shared with the workspace top-bar segmented nav, so it
+ // lives in a small persisted store keyed by workspace id rather than local
+ // state. The `fixedView` prop still wins when WorkspaceLayout pins a view
+ // through the defensive legacy renderers.
+ const activeView = useSprintEngineViewStore((state) => selectSprintEngineView(state, workspaceId))
+ const setSprintEngineView = useSprintEngineViewStore((state) => state.setView)
+ const setActiveView = useCallback(
+ (view: SprintEngineView) => setSprintEngineView(workspaceId, view),
+ [setSprintEngineView, workspaceId],
+ )
  // The Tasks tab carries an inline layout switcher (Graph / Kanban). The
  // selection is persisted across tab switches so jumping away and back
  // returns to the same layout. When the host pins a layout via
@@ -1232,11 +1290,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  </SidePane>
  )
  }
- const activateView = (view: SprintEngineView) => {
- if (fixedView) return
- setActiveView(view)
- }
-
  const toggleAuto = () => {
  const nextEnabled = !autoEnabled
  const nextMode = nextEnabled ? 'auto' : 'off'
@@ -1519,10 +1572,29 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  [reviewArtifacts]
  )
  const chromeTabItems: TabItem<SprintEngineView>[] = [
- { id: 'inbox', label: 'Inbox', count: inboxArtifactCount > 0 ? inboxArtifactCount : undefined },
- { id: 'roster', label: 'Roster', count: roster.length > 0 ? roster.length : undefined },
- { id: 'tasks', label: 'Tasks', count: sprintEngineState.tasks.length > 0 ? sprintEngineState.tasks.length : undefined },
+ {
+ id: 'inbox',
+ label: 'Inbox',
+ icon: SprintEngineInboxIcon,
+ count: inboxArtifactCount > 0 ? inboxArtifactCount : undefined,
+ },
+ {
+ id: 'roster',
+ label: 'Roster',
+ icon: SprintEngineRosterNavIcon,
+ count: roster.length > 0 ? roster.length : undefined,
+ },
+ {
+ id: 'tasks',
+ label: 'Tasks',
+ icon: SprintEngineTasksNavIcon,
+ count: sprintEngineState.tasks.length > 0 ? sprintEngineState.tasks.length : undefined,
+ },
  ]
+ const activateView = (view: SprintEngineView) => {
+ if (fixedView) return
+ setActiveView(view)
+ }
 
  // Listen for CommandPalette dispatches and the cross-cutting ⌘ , chord so the
  // palette and the panel-local overflow/settings popover route through the
@@ -1734,7 +1806,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  {runHero}
 
  {!fixedView ? (
- <div className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
+ <div className="shrink-0 flex items-center justify-between gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] pr-3">
  <Tabs<SprintEngineView>
  ariaLabel="Sprint Engine view"
  items={chromeTabItems}
@@ -1742,7 +1814,35 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  onChange={activateView}
  idPrefix="sprintengine-view"
  className="px-3"
+ borderless
  />
+ {effectiveView === 'tasks' && !fixedTasksLayout ? (
+ <div
+ role="group"
+ aria-label="Tasks layout"
+ className="inline-flex shrink-0 items-center gap-0.5 rounded border border-[color:var(--border-default)] bg-[color:var(--bg-app)] p-0.5"
+ >
+ {(['graph', 'kanban'] as SprintEngineTasksLayout[]).map((layout) => {
+ const active = effectiveTasksLayout === layout
+ const label = layout === 'graph' ? 'Graph' : 'Kanban'
+ return (
+ <button
+ key={layout}
+ type="button"
+ aria-pressed={active}
+ onClick={() => setActiveTasksLayout(layout)}
+ className={`interactive rounded px-2 py-0.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
+ active
+ ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
+ : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]'
+ }`}
+ >
+ {label}
+ </button>
+ )
+ })}
+ </div>
+ ) : null}
  </div>
  ) : null}
 
@@ -1808,35 +1908,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  onKeyDown={effectiveTasksLayout === 'kanban' ? handleKanbanKeyDown : undefined}
  aria-label={effectiveTasksLayout === 'kanban' ? 'Sprint Engine kanban' : undefined}
  >
- {!fixedTasksLayout ? (
- <div className="flex shrink-0 items-center gap-1 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1.5">
- <div
- role="group"
- aria-label="Tasks layout"
- className="inline-flex items-center gap-0.5 rounded border border-[color:var(--border-default)] bg-[color:var(--bg-app)] p-0.5"
- >
- {(['graph', 'kanban'] as SprintEngineTasksLayout[]).map((layout) => {
- const active = effectiveTasksLayout === layout
- const label = layout === 'graph' ? 'Graph' : 'Kanban'
- return (
- <button
- key={layout}
- type="button"
- aria-pressed={active}
- onClick={() => setActiveTasksLayout(layout)}
- className={`interactive rounded px-2 py-0.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
- active
- ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
- : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]'
- }`}
- >
- {label}
- </button>
- )
- })}
- </div>
- </div>
- ) : null}
+ {/* Tasks layout (Graph / Kanban) toggle now lives on the trailing edge of */}
+ {/* the panel sub-nav row above so we don't stack a second horizontal bar. */}
 
  <div className="flex min-h-0 flex-1">
  {inspectorExpanded ? null : effectiveTasksLayout === 'graph' ? (
@@ -2360,8 +2433,6 @@ function SprintEngineEmptyDetail({ message }: { message: string }) {
  )
 }
 
-const SPRINTENGINE_INBOX_TITLE_ID = 'sprintengine-inbox-title'
-
 // Inbox tab: list + detail. The artifact queue sits in the primary content
 // column on the left; the inspector fills the remaining width when something
 // is selected, and a quiet empty state when not. This matches Watchtower's
@@ -2481,12 +2552,7 @@ function SprintEngineInboxView({
  return (
  <div className="flex min-h-0 flex-1 min-w-0">
  {inspectorExpanded ? null : (
- <SidePane as="section" side="left" width="lg" ariaLabelledBy={SPRINTENGINE_INBOX_TITLE_ID}>
- <PanelHeader
- title="Inbox"
- titleId={SPRINTENGINE_INBOX_TITLE_ID}
- count={visibleArtifacts.length}
- />
+ <SidePane as="section" side="left" width="lg" ariaLabel="Inbox">
  <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
  <InboxSearchInput
  value={search}

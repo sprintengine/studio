@@ -14,6 +14,7 @@ import {
 } from './guidedBriefSlice'
 import {
   ensureMultiloopLayoutModel,
+  hideSprintEngineBoardTabStrip,
   markSwitchboardAnchorTabsSticky,
   migrateSprintEngineLayout,
   sprintEngineTabsLayoutModel,
@@ -43,7 +44,7 @@ import { mapMigrationWorkspaces } from './normalizers'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 48
+export const WORKSPACE_STORE_VERSION = 49
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
 export type WorkspaceMigrationState = {
@@ -596,6 +597,16 @@ export function migratePersistedWorkspaceState(
     // their persisted layout, which the renderer no longer handles — rerun
     // the SE layout migration to forward them to the single board.
     mapMigrationWorkspaces(migrationState, migrateSprintEngineLayout)
+  }
+  if (version < 49) {
+    // The SE board tabset's FlexLayout tab strip is redundant once the
+    // workspace top bar carries the icon segmented nav. Stamp
+    // enableTabStrip: false onto the tabset that wraps the 'sprintengine'
+    // board in existing layouts without rewriting custom arrangements.
+    mapMigrationWorkspaces(migrationState, (ws) => {
+      const next = hideSprintEngineBoardTabStrip(ws.layoutModel)
+      return next ? { ...ws, layoutModel: next } : ws
+    })
   }
 
   return state as never

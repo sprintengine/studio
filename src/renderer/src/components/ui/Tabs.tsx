@@ -6,6 +6,9 @@ export type TabItem<T extends string = string> = {
   label: string
   /** Optional canonical count rendered next to the label. */
   count?: number | string
+  /** Optional leading icon. Pass a node (e.g. <InboxIcon />) or a render
+   *  function that receives a className. */
+  icon?: React.ReactNode | ((props: { className?: string }) => React.ReactNode)
   disabled?: boolean
 }
 
@@ -18,6 +21,9 @@ type TabsProps<T extends string = string> = {
   /** Stable id prefix; auto-generated when not supplied. */
   idPrefix?: string
   className?: string
+  /** Omit the built-in bottom hairline so a parent container can own the row
+   *  border (needed when the tab row hosts trailing inline controls). */
+  borderless?: boolean
 }
 
 export function Tabs<T extends string = string>({
@@ -27,6 +33,7 @@ export function Tabs<T extends string = string>({
   onChange,
   idPrefix,
   className,
+  borderless,
 }: TabsProps<T>) {
   const fallbackPrefix = useId()
   const prefix = idPrefix ?? fallbackPrefix
@@ -104,14 +111,19 @@ export function Tabs<T extends string = string>({
       aria-label={ariaLabel}
       onKeyDown={onKey}
       className={[
-        'flex items-center gap-0.5 border-b border-[color:var(--border-default)]',
+        'flex items-center gap-0.5',
+        borderless ? '' : 'border-b border-[color:var(--border-default)]',
         className ?? '',
-      ].join(' ')}
+      ].filter(Boolean).join(' ')}
     >
       {items.map((item) => {
         const selected = item.id === value
         const tabId = `${prefix}-tab-${item.id}`
         const panelId = `${prefix}-panel-${item.id}`
+        const iconNode =
+          typeof item.icon === 'function'
+            ? item.icon({ className: 'h-3.5 w-3.5 shrink-0' })
+            : item.icon
         return (
           <button
             key={item.id}
@@ -135,6 +147,7 @@ export function Tabs<T extends string = string>({
               FOCUS_RING_CLASS,
             ].join(' ')}
           >
+            {iconNode ? <span aria-hidden="true" className="inline-flex">{iconNode}</span> : null}
             <span>{item.label}</span>
             {item.count !== undefined ? (
               <span className="tabular-nums text-[11px] text-[color:var(--text-muted)]">

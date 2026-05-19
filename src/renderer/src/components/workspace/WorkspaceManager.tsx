@@ -914,22 +914,41 @@ export default function WorkspaceManager() {
     if (!model) return
 
     const newId = `terminal-${nanoid(6)}`
-    // Sprint Engine surfaces are narrow on purpose, so when a terminal is
-    // already open we stack the new one as a sibling tab in that same tabset
-    // (typically the right-hand pane) instead of opening a new tile.
-    const existingTerminalTabset =
-      activeWorkspace?.mode === 'sprintengine' ? firstTerminalTabset(model) : null
-    const targetTabset = existingTerminalTabset ?? model.getActiveTabset() ?? firstTabset(model)
+    const terminalTab = {
+      type: 'tab',
+      name: 'Terminal',
+      component: 'terminal',
+      config: { terminalId: newId },
+    }
+
+    if (activeWorkspace?.mode === 'sprintengine') {
+      // The SE board's tabset has no visible tab strip, so terminals must
+      // land in a sibling tabset. Prefer (1) an existing terminal tabset so
+      // multiple terminals stack together, (2) the first non-SE tabset
+      // (typically agents on the right), (3) a new tabset docked to the
+      // right of the workspace root if no right pane exists yet.
+      const existingTerminalTabset = firstTerminalTabset(model)
+      const sprintEngineNeighborTabset =
+        existingTerminalTabset ?? firstNonSprintEngineBoardTabset(model)
+
+      if (sprintEngineNeighborTabset) {
+        model.doAction(
+          Actions.addNode(terminalTab, sprintEngineNeighborTabset.getId(), DockLocation.CENTER, -1, true)
+        )
+        return
+      }
+
+      model.doAction(
+        Actions.addNode(terminalTab, model.getRoot().getId(), DockLocation.RIGHT, -1, true)
+      )
+      return
+    }
+
+    const targetTabset = model.getActiveTabset() ?? firstTabset(model)
     if (!targetTabset) return
 
     model.doAction(
-      Actions.addNode(
-        { type: 'tab', name: 'Terminal', component: 'terminal', config: { terminalId: newId } },
-        targetTabset.getId(),
-        DockLocation.CENTER,
-        -1,
-        true
-      )
+      Actions.addNode(terminalTab, targetTabset.getId(), DockLocation.CENTER, -1, true)
     )
   }
 
@@ -1462,6 +1481,19 @@ function firstTerminalTabset(model: Model): TabSetNode | null {
     if (!(node instanceof TabNode) || node.getComponent() !== 'terminal') return
     const parent = node.getParent()
     if (parent instanceof TabSetNode) found = parent
+  })
+  return found
+}
+
+function firstNonSprintEngineBoardTabset(model: Model): TabSetNode | null {
+  let found: TabSetNode | null = null
+  model.visitNodes((node) => {
+    if (found) return
+    if (!(node instanceof TabSetNode)) return
+    const hostsSprintEngineBoard = node.getChildren().some((child) =>
+      child instanceof TabNode && child.getComponent() === 'sprintengine'
+    )
+    if (!hostsSprintEngineBoard) found = node
   })
   return found
 }
