@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 import {
+  agentOwnsOpenSprintEngineImplementationWork,
   getActiveSprintEngineAutoRunGateClaims,
   getClaimableSprintEngineAutoRunGates,
+  getSprintEngineAutoRunOccupiedAgentIds,
   isSprintEngineAutoPendingSpawnStillRelevant,
+  shouldSkipExitedSprintEngineRosterAgent,
   sprintEngineAutoRunWorkKey,
 } from './sprintengineAutoRun'
-import type { SprintEngineTask } from '../types/workspace'
+import type { SprintEngineState, SprintEngineTask } from '../types/workspace'
 
 function task(overrides: Partial<SprintEngineTask> = {}): SprintEngineTask {
   return {
@@ -40,6 +43,73 @@ function testWorkKeysSeparateTaskAndGateSpawns() {
   assert.notEqual(
     sprintEngineAutoRunWorkKey({ taskId: 'T3', gateId: 'code_reviewer' }),
     sprintEngineAutoRunWorkKey({ taskId: 'T3', gateId: 'spec_reviewer' })
+  )
+}
+
+function sprintEngineStateFixture(overrides: Partial<SprintEngineState> = {}): SprintEngineState {
+  return {
+    name: 'Auto Run Test',
+    goal: 'Ship reliable Sprint Engine auto-run',
+    tasks: [],
+    artifacts: [],
+    events: [],
+    roleCounts: { architect: 1, product: 0, developer: 1, frontend: 1, tester: 1, security: 0, code_reviewer: 1, spec_reviewer: 1, performance: 0 },
+    sprintEngineAgents: {},
+    runner: { mode: 'auto', pollIntervalSeconds: 2, idleBackoffSeconds: 5, maxBackoffSeconds: 30, stopWhenComplete: true },
+    ...overrides,
+  }
+}
+
+function testAgentOwnsOpenSprintEngineImplementationWorkDetectsRework() {
+  const state = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T1', status: 'changes_requested', ownerAgentId: 'frontend', role: 'frontend' }),
+      task({ id: 'T2', status: 'needs_input', ownerAgentId: 'developer-1', role: 'developer' }),
+      task({ id: 'T3', status: 'done', ownerAgentId: 'tester', role: 'tester' }),
+    ],
+  })
+
+  assert.equal(agentOwnsOpenSprintEngineImplementationWork(state, 'frontend'), true)
+  assert.equal(agentOwnsOpenSprintEngineImplementationWork(state, 'developer-1'), false)
+  assert.equal(agentOwnsOpenSprintEngineImplementationWork(state, 'tester'), false)
+}
+
+function testShouldSkipExitedSprintEngineRosterAgentAllowsOwnedReworkRestart() {
+  const exitedAgent = {
+    kind: 'sprintengine' as const,
+    cliLastExitedAt: Date.now(),
+    cliStartRequested: false,
+    cliHasLaunched: false,
+  }
+
+  assert.equal(
+    shouldSkipExitedSprintEngineRosterAgent(exitedAgent, false),
+    true,
+    'exited idle roster agents without owned work remain skipped'
+  )
+  assert.equal(
+    shouldSkipExitedSprintEngineRosterAgent(exitedAgent, true),
+    false,
+    'exited owners with open implementation work are eligible for restart'
+  )
+}
+
+function testGetSprintEngineAutoRunOccupiedAgentIdsCountsChangesRequestedOwners() {
+  const occupiedAgentIds = getSprintEngineAutoRunOccupiedAgentIds({
+    tasks: [
+      task({ id: 'T1', status: 'changes_requested', ownerAgentId: 'frontend', role: 'frontend' }),
+      task({ id: 'T2', status: 'in_progress', ownerAgentId: 'developer-1', role: 'developer' }),
+      task({ id: 'T3', status: 'review', ownerAgentId: 'code-reviewer', role: 'developer' }),
+    ],
+    pendingSpawns: [{ taskId: 'T4', agentId: 'tester', startedAt: 1 }],
+    inFlightSpawnKeys: new Set(['workspace-1:spec-reviewer', 'other-workspace:security']),
+    workspaceId: 'workspace-1',
+  })
+
+  assert.deepEqual(
+    [...occupiedAgentIds].sort(),
+    ['developer-1', 'frontend', 'spec-reviewer', 'tester'],
+    'changes_requested owners occupy global auto-run concurrency slots'
   )
 }
 
@@ -103,6 +173,9 @@ function testTestingPhaseExposesTesterAfterReviewApproval() {
 }
 
 testWorkKeysSeparateTaskAndGateSpawns()
+testAgentOwnsOpenSprintEngineImplementationWorkDetectsRework()
+testShouldSkipExitedSprintEngineRosterAgentAllowsOwnedReworkRestart()
+testGetSprintEngineAutoRunOccupiedAgentIdsCountsChangesRequestedOwners()
 testReviewPhaseOnlyExposesReviewGates()
 testPendingGateRelevanceIsGateSpecific()
 testActiveGateClaimCanBeResumed()

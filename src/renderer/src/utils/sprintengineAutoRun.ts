@@ -1,4 +1,10 @@
-import type { SprintEngineAutoPendingSpawn, SprintEngineQualityGate, SprintEngineTask } from '../types/workspace'
+import type {
+  AgentState,
+  SprintEngineAutoPendingSpawn,
+  SprintEngineQualityGate,
+  SprintEngineState,
+  SprintEngineTask,
+} from '../types/workspace'
 import { getOpenSprintEngineQualityGates, getSprintEngineTaskBoardColumn } from './sprintengine'
 
 export type SprintEngineAutoRunActiveGateClaim = {
@@ -8,6 +14,56 @@ export type SprintEngineAutoRunActiveGateClaim = {
 
 export function sprintEngineAutoRunWorkKey(input: { taskId: string; gateId?: string | null }): string {
   return input.gateId ? `gate:${input.taskId}:${input.gateId}` : `task:${input.taskId}`
+}
+
+export type SprintEngineExitedAgentLike = Pick<
+  AgentState,
+  'kind' | 'cliLastExitedAt' | 'cliStartRequested' | 'cliHasLaunched'
+>
+
+export function agentOwnsOpenSprintEngineImplementationWork(
+  sprintEngineState: SprintEngineState,
+  agentId: string
+): boolean {
+  return sprintEngineState.tasks.some((task) =>
+    task.ownerAgentId === agentId
+    && (task.status === 'in_progress' || task.status === 'changes_requested')
+  )
+}
+
+export function shouldSkipExitedSprintEngineRosterAgent(
+  currentAgent: SprintEngineExitedAgentLike | null | undefined,
+  ownsOpenImplementationWork: boolean
+): boolean {
+  return Boolean(
+    currentAgent?.kind === 'sprintengine'
+    && currentAgent.cliLastExitedAt
+    && !currentAgent.cliStartRequested
+    && !currentAgent.cliHasLaunched
+    && !ownsOpenImplementationWork
+  )
+}
+
+export function getSprintEngineAutoRunOccupiedAgentIds(input: {
+  tasks: SprintEngineTask[]
+  pendingSpawns: SprintEngineAutoPendingSpawn[]
+  inFlightSpawnKeys: Iterable<string>
+  workspaceId: string
+}): Set<string> {
+  const occupiedAgentIds = new Set<string>([
+    ...input.tasks
+      .filter((task) =>
+        (task.status === 'in_progress' || task.status === 'changes_requested' || task.status === 'needs_input')
+        && Boolean(task.ownerAgentId)
+      )
+      .map((task) => task.ownerAgentId!),
+    ...input.pendingSpawns.map((pending) => pending.agentId),
+  ])
+  for (const spawnKey of input.inFlightSpawnKeys) {
+    if (!spawnKey.startsWith(`${input.workspaceId}:`)) continue
+    occupiedAgentIds.add(spawnKey.slice(input.workspaceId.length + 1))
+  }
+  return occupiedAgentIds
 }
 
 export function getClaimableSprintEngineAutoRunGates(

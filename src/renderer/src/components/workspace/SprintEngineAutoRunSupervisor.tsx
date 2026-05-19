@@ -25,9 +25,12 @@ import {
   sprintEngineRoleLabels,
 } from '../../utils/sprintengine'
 import {
+  agentOwnsOpenSprintEngineImplementationWork,
   getActiveSprintEngineAutoRunGateClaims,
+  getSprintEngineAutoRunOccupiedAgentIds,
   getClaimableSprintEngineAutoRunGates,
   isSprintEngineAutoPendingSpawnStillRelevant,
+  shouldSkipExitedSprintEngineRosterAgent,
   sprintEngineAutoRunWorkKey,
 } from '../../utils/sprintengineAutoRun'
 import { publishDiagnostic } from '../../utils/diagnostics'
@@ -1646,12 +1649,8 @@ async function startMissingRosterAgents(
     if (inFlightSpawns.current.has(`${workspace.id}:${agent.id}`)) continue
 
     const currentAgent = workspace.agents[agent.id]
-    if (
-      currentAgent?.kind === 'sprintengine'
-      && currentAgent.cliLastExitedAt
-      && !currentAgent.cliStartRequested
-      && !currentAgent.cliHasLaunched
-    ) {
+    const ownsOpenImplementationWork = agentOwnsOpenSprintEngineImplementationWork(sprintEngineState, agent.id)
+    if (shouldSkipExitedSprintEngineRosterAgent(currentAgent, ownsOpenImplementationWork)) {
       logPerfEvent('SprintEngineAutoRun', 'roster-spawn-skipped-exited', {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
@@ -1660,6 +1659,19 @@ async function startMissingRosterAgents(
         lastExitedAt: currentAgent.cliLastExitedAt,
       })
       continue
+    }
+    if (
+      currentAgent?.kind === 'sprintengine'
+      && currentAgent.cliLastExitedAt
+      && ownsOpenImplementationWork
+    ) {
+      logPerfEvent('SprintEngineAutoRun', 'roster-spawn-restarting-exited-owner', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId: agent.id,
+        role: agent.role,
+        lastExitedAt: currentAgent.cliLastExitedAt,
+      })
     }
     const status = currentAgent?.cliSessionId
       ? await window.api.terminalStatus(currentAgent.cliSessionId).catch(() => ({ processAlive: false }))
@@ -2051,19 +2063,12 @@ async function superviseWorkspace(
     return
   }
 
-  const occupiedAgentIds = new Set<string>([
-    ...sprintEngineState.tasks
-      .filter((task) =>
-        (task.status === 'in_progress' || task.status === 'needs_input')
-        && Boolean(task.ownerAgentId)
-      )
-      .map((task) => task.ownerAgentId!),
-    ...pendingSpawns.map((pending) => pending.agentId),
-  ])
-  for (const spawnKey of inFlightSpawns.current) {
-    if (!spawnKey.startsWith(`${workspace.id}:`)) continue
-    occupiedAgentIds.add(spawnKey.slice(workspace.id.length + 1))
-  }
+  const occupiedAgentIds = getSprintEngineAutoRunOccupiedAgentIds({
+    tasks: sprintEngineState.tasks,
+    pendingSpawns,
+    inFlightSpawnKeys: inFlightSpawns.current,
+    workspaceId: workspace.id,
+  })
   const maxConcurrentAgents = Math.max(1, Math.min(10, autoState.maxConcurrentAgents ?? 3))
   const availableSlots = maxConcurrentAgents - occupiedAgentIds.size
   logPerfEvent('SprintEngineAutoRun', 'slots', {

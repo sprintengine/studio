@@ -271,6 +271,7 @@ def test_task_publish_requires_summary_before_leaving_in_progress(tmp_path) -> N
 
 def test_task_publish_records_implementation_summary_and_routes_to_next_phase(tmp_path) -> None:
     fixture = create_team(tmp_path, "publish-routes-review", [gated_task()])
+    fixture.cli.run("runner", "set", "--mode", "auto")
 
     payload = fixture.cli.run(
         "task",
@@ -286,6 +287,8 @@ def test_task_publish_records_implementation_summary_and_routes_to_next_phase(tm
     )
 
     assert payload["nextStatus"] == "review"
+    assert payload["nextCommand"] == "sprintengine join --role developer --id developer-fixture --watch"
+    assert "Auto Mode is on" in payload["nextAction"]
     assert payload["comment"]["type"] == "implementation_summary"
     assert payload["comment"]["id"] == "C1"
     assert payload["comment"]["authorAgentId"] == "developer-fixture"
@@ -579,6 +582,7 @@ def test_task_status_done_allows_legacy_and_closed_gate_tasks(tmp_path) -> None:
     payload = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-fixture")
 
     assert payload["ok"] is True
+    assert "nextCommand" not in payload
     state = read_state(fixture.state_path)
     assert_task_status(state, "T1", "done")
 
@@ -586,10 +590,13 @@ def test_task_status_done_allows_legacy_and_closed_gate_tasks(tmp_path) -> None:
     closed["qualityGates"][0]["status"] = "approved"
     closed["qualityGates"][1]["status"] = "skipped"
     fixture = create_team(tmp_path, "done-allows-closed-gates", [closed])
+    fixture.cli.run("runner", "set", "--mode", "auto")
 
     payload = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-fixture")
 
     assert payload["ok"] is True
+    assert payload["nextCommand"] == "sprintengine join --role developer --id developer-fixture --watch"
+    assert "Auto Mode is on" in payload["nextAction"]
     state = read_state(fixture.state_path)
     assert_task_status(state, "T1", "done")
 

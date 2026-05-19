@@ -252,6 +252,7 @@ def test_gate_approved_verdict_waits_for_parallel_phase_gates_then_advances(tmp_
 
 def test_gate_failed_verdict_creates_open_feedback_and_routes_to_changes_requested(tmp_path) -> None:
     fixture = create_team(tmp_path, "gate-failed-feedback", [gated_review_task()])
+    fixture.cli.run("runner", "set", "--mode", "auto")
     claim_gate(fixture, "code_reviewer", "code-reviewer")
     state = read_state(fixture.state_path)
     state["sprintengine"]["status"] = "planned"
@@ -278,6 +279,8 @@ def test_gate_failed_verdict_creates_open_feedback_and_routes_to_changes_request
     )
 
     assert verdict["nextStatus"] == "changes_requested"
+    assert verdict["nextCommand"] == "sprintengine join --role code_reviewer --id code-reviewer --watch"
+    assert "Auto Mode is on" in verdict["nextAction"]
     assert verdict["comment"]["type"] == "review_feedback"
     assert verdict["comment"]["data"]["status"] == "open"
     assert verdict["comment"]["data"]["requiredActions"] == ["Add validation before publish."]

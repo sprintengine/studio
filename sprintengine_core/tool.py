@@ -3988,6 +3988,20 @@ def runner_watch_delay_seconds(policy: Dict[str, Any], attempts: int) -> int:
     return min(max(1, base_delay), max_backoff)
 
 
+def auto_mode_continuation(state: Dict[str, Any], role: str, agent_id: str) -> Optional[Dict[str, str]]:
+    policy = folder_store.normalize_runner_policy(state.get("runner"))
+    if policy.get("mode") != "auto":
+        return None
+    command = f"sprintengine join --role {role} --id {agent_id} --watch"
+    return {
+        "nextCommand": command,
+        "nextAction": (
+            "Auto Mode is on. Run the join watch command again so the Sprint Engine CLI can keep polling, "
+            "resume owned rework, or claim the next gate/task for this role."
+        ),
+    }
+
+
 def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
     import sys
     print(f"[sprintengine] reading state from: {args.state}", file=sys.stderr)
@@ -4580,7 +4594,19 @@ def cmd_task_gate_verdict(args: argparse.Namespace) -> Dict[str, Any]:
                 attach_feedback_payload(state, feedback_payload, args.id)
             recompute_phase(state)
             event = append_event(state, "task_gate_verdict", args.id, f"{args.id} submitted {args.verdict} for gate {args.gate_id} on {args.task_id}.")
-            return {"ok": True, "task": task, "gate": gate, "attempt": result["attempt"], "comment": result["comment"], "artifact": result["artifact"], "nextStatus": result["nextStatus"], "event": event, "_feedbackRecord": feedback_payload["record"] if feedback_payload else None}
+            continuation = auto_mode_continuation(state, args.role, args.id)
+            return {
+                "ok": True,
+                "task": task,
+                "gate": gate,
+                "attempt": result["attempt"],
+                "comment": result["comment"],
+                "artifact": result["artifact"],
+                "nextStatus": result["nextStatus"],
+                "event": event,
+                **(continuation or {}),
+                "_feedbackRecord": feedback_payload["record"] if feedback_payload else None,
+            }
 
     result = with_locked_state(args.state, run)
     feedback_record = result.pop("_feedbackRecord", None)
@@ -4729,12 +4755,14 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
         )
         recompute_phase(state)
         event = append_event(state, "task_status_changed", actor, f"{actor} moved {args.task_id} to {args.status}.")
+        continuation = auto_mode_continuation(state, str(task.get("role") or ""), str(actor)) if args.status == "done" else None
         return {
             "ok": True,
             "task": task,
             "event": event,
             "clearedAgents": cleared,
             "commitSha": commit_sha,
+            **(continuation or {}),
             "_feedbackRecord": feedback_payload["record"] if feedback_payload else None,
         }
     result = with_locked_state(args.state, run)
@@ -5017,7 +5045,17 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
         result = publish_task(state, task, str(actor), args.summary, paths=args.path or [], data=summary_data)
         recompute_phase(state)
         event = append_event(state, "task_published", str(actor), f"{actor} published {args.task_id} to {result['nextStatus']}.")
-        return {"ok": True, "task": task, "comment": result["comment"], "nextStatus": result["nextStatus"], "previousStatus": result["previousStatus"], "clearedAgents": result["clearedAgents"], "event": event}
+        continuation = auto_mode_continuation(state, str(task.get("role") or ""), str(actor))
+        return {
+            "ok": True,
+            "task": task,
+            "comment": result["comment"],
+            "nextStatus": result["nextStatus"],
+            "previousStatus": result["previousStatus"],
+            "clearedAgents": result["clearedAgents"],
+            "event": event,
+            **(continuation or {}),
+        }
 
     return with_locked_state(args.state, run)
 
