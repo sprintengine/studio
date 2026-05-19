@@ -41,6 +41,24 @@ export type GuidedBriefRuntimeProgress = {
   done: number
 }
 
+export function guidedBriefSkipToHandoffState(
+  state: GuidedBriefRuntimeState,
+): GuidedBriefRuntimeState {
+  return {
+    ...state,
+    stage: 'handoff',
+    wantsProductDiscussion: Boolean(state.acceptedProductBrief),
+    wantsArchitectureDiscussion: Boolean(state.acceptedArchitecturePlan),
+    wantsFrontendDiscussion:
+      state.hasUi === 'yes' &&
+      Boolean(state.acceptedUiDirection) &&
+      state.acceptedMockups.length > 0,
+    strategistSessionId: null,
+    architectSessionId: null,
+    designerSessionId: null,
+  }
+}
+
 export type GuidedBriefProgressOptions = {
   wantsProductDiscussion?: boolean
   wantsArchitectureDiscussion?: boolean

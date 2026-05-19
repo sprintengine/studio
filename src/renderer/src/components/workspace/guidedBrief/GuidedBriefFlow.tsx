@@ -24,8 +24,11 @@ import { joinWorkspacePath } from './paths'
 import {
   guidedBriefBuildHandoffRelativePath,
   guidedBriefHandoffChecklist,
+  guidedBriefPlanningDecisionNotes,
+  guidedBriefPlanningValidationNotes,
 } from './handoff'
 import {
+  guidedBriefSkipToHandoffState,
   progressForStage,
   stepCounterLabel,
   type GuidedBriefAcceptedArtifact,
@@ -162,6 +165,8 @@ export function GuidedBriefFlow({
   const [acceptError, setAcceptError] = useState<string | null>(null)
   const [startingBuild, setStartingBuild] = useState(false)
   const [startBuildError, setStartBuildError] = useState<string | null>(null)
+  const [skippingPlanning, setSkippingPlanning] = useState(false)
+  const [skipError, setSkipError] = useState<string | null>(null)
   const effectiveAutoApprove = runtimeState.buildStartRunner && runtimeState.buildAutoApproveArtifacts
 
   const acceptStrategistBrief = async () => {
@@ -379,6 +384,45 @@ export function GuidedBriefFlow({
     onStartBuild: () => void startBuild(),
   })
 
+  const skipToRoster = async () => {
+    if (stage === 'handoff') return
+    setSkippingPlanning(true)
+    setSkipError(null)
+    try {
+      const nextState = guidedBriefSkipToHandoffState(runtimeState)
+      await writeGuidedBriefBuildHandoff({
+        workspaceRoot,
+        idea: runtimeState.idea,
+        hasUi,
+        productBrief: runtimeState.acceptedProductBrief,
+        architecturePlan: runtimeState.acceptedArchitecturePlan,
+        uiDirection: runtimeState.acceptedUiDirection,
+        mockups: runtimeState.acceptedMockups,
+        requireMockups: false,
+        confirmedDecisions: guidedBriefPlanningDecisionNotes(nextState),
+        validationNotes: guidedBriefPlanningValidationNotes(nextState),
+        filesystem: {
+          ensureDir: window.api.ensureDir,
+          readFile: window.api.readfile,
+          writeFile: window.api.writefile,
+        },
+      })
+      const sessionsToKill = [
+        runtimeState.strategistSessionId,
+        runtimeState.architectSessionId,
+        runtimeState.designerSessionId,
+      ].filter((id): id is string => Boolean(id))
+      onChange(nextState)
+      sessionsToKill.forEach((sessionId) => {
+        void window.api.terminalKill(sessionId).catch(() => {})
+      })
+    } catch (error) {
+      setSkipError(error instanceof Error ? error.message : 'Could not skip to the roster.')
+    } finally {
+      setSkippingPlanning(false)
+    }
+  }
+
   const startBuild = async () => {
     if (stage !== 'handoff') return
     setStartingBuild(true)
@@ -480,6 +524,9 @@ export function GuidedBriefFlow({
         {startBuildError ? (
           <span className="truncate text-[12px] text-[color:var(--tone-error)]">{startBuildError}</span>
         ) : null}
+        {skipError ? (
+          <span className="truncate text-[12px] text-[color:var(--tone-error)]">{skipError}</span>
+        ) : null}
         <button
           type="button"
           onClick={onBackToIdea}
@@ -491,6 +538,11 @@ export function GuidedBriefFlow({
         >
           Back
         </button>
+        {stage !== 'handoff' ? (
+          <SecondaryButton onClick={() => void skipToRoster()} disabled={skippingPlanning}>
+            {skippingPlanning ? 'Skipping…' : 'Skip to roster'}
+          </SecondaryButton>
+        ) : null}
         {primaryAction}
       </footer>
     </section>
@@ -633,6 +685,32 @@ function DesignerReadinessHint({
         </span>
       ))}
     </span>
+  )
+}
+
+function SecondaryButton({
+  onClick,
+  disabled,
+  children,
+}: {
+  onClick: () => void
+  disabled: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="
+        inline-flex h-9 items-center rounded-md border border-[color:var(--border-default)] px-3 text-[12px] font-medium text-[color:var(--text-default)]
+        transition-colors hover:border-[color:var(--accent-primary)] hover:text-[color:var(--text-strong)]
+        disabled:cursor-not-allowed disabled:border-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
+        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+      "
+    >
+      {children}
+    </button>
   )
 }
 

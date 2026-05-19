@@ -42,6 +42,39 @@ export function guidedBriefHandoffChecklist(state: GuidedBriefRuntimeState): Gui
   return items
 }
 
+export function guidedBriefPlanningDecisionNotes(state: GuidedBriefRuntimeState): string[] {
+  const notes = [
+    state.hasUi === 'yes' ? 'Application includes a visual UI.' : 'No visual UI is required.',
+  ]
+
+  if (!state.acceptedProductBrief) {
+    notes.push('Product strategy discussion was not requested or was skipped before roster selection.')
+  }
+  if (!state.acceptedArchitecturePlan) {
+    notes.push('Architecture discussion was not requested or was skipped before roster selection.')
+  }
+  if (state.hasUi === 'yes' && (!state.acceptedUiDirection || state.acceptedMockups.length === 0)) {
+    notes.push('Frontend design and mockup discussion was not requested or was skipped before roster selection.')
+  }
+
+  return notes
+}
+
+export function guidedBriefPlanningValidationNotes(state: GuidedBriefRuntimeState): string[] {
+  const notes = ['Validate implementation against any accepted Guided brief artifact snapshot hashes.']
+
+  if (!state.acceptedProductBrief || !state.acceptedArchitecturePlan) {
+    notes.push('Resolve missing product or architecture decisions before broad implementation work.')
+  }
+  if (state.hasUi === 'yes' && (!state.acceptedUiDirection || state.acceptedMockups.length === 0)) {
+    notes.push(
+      'Create or validate UI direction during Sprint Engine planning because the guided frontend stage was skipped.',
+    )
+  }
+
+  return notes
+}
+
 function artifactChecklistItem(label: string, artifact: GuidedBriefAcceptedArtifact): GuidedBriefHandoffChecklistItem {
   return {
     label,

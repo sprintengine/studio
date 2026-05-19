@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict'
-import { guidedBriefHandoffChecklist, guidedBriefSprintEngineGoal } from './handoff'
+import {
+  guidedBriefHandoffChecklist,
+  guidedBriefPlanningDecisionNotes,
+  guidedBriefPlanningValidationNotes,
+  guidedBriefSprintEngineGoal,
+} from './handoff'
 import { joinWorkspacePath, basename } from './paths'
 import { stripAnsiAndOverwrites } from './parseStream'
 import {
+  guidedBriefSkipToHandoffState,
   isMidStageGuidedRuntime,
   progressForStage,
   stepCounterLabel,
@@ -221,3 +227,39 @@ assert.equal(isMidStageGuidedRuntime({ ...baseRuntime, stage: 'architect-ready' 
 assert.equal(isMidStageGuidedRuntime({ ...baseRuntime, stage: 'designer-working' }), true)
 assert.equal(isMidStageGuidedRuntime({ ...baseRuntime, stage: 'designer-ready' }), true)
 assert.equal(isMidStageGuidedRuntime({ ...baseRuntime, stage: 'handoff' }), true, 'handoff confirms until Start the build')
+
+const skippedRuntime = guidedBriefSkipToHandoffState({
+  ...baseRuntime,
+  strategistSessionId: 'strategist-session',
+  designerSessionId: 'designer-session',
+})
+assert.equal(skippedRuntime.stage, 'handoff', 'skip moves directly to handoff/roster')
+assert.equal(skippedRuntime.wantsProductDiscussion, false, 'unaccepted product stage no longer blocks Start the build')
+assert.equal(skippedRuntime.wantsArchitectureDiscussion, false, 'unaccepted architecture stage no longer blocks Start the build')
+assert.equal(skippedRuntime.wantsFrontendDiscussion, false, 'unaccepted frontend stage no longer requires mockups')
+assert.equal(skippedRuntime.strategistSessionId, null, 'skip detaches the strategist PTY')
+assert.equal(skippedRuntime.designerSessionId, null, 'skip detaches the designer PTY')
+assert.deepEqual(
+  guidedBriefPlanningDecisionNotes(skippedRuntime),
+  [
+    'Application includes a visual UI.',
+    'Product strategy discussion was not requested or was skipped before roster selection.',
+    'Architecture discussion was not requested or was skipped before roster selection.',
+    'Frontend design and mockup discussion was not requested or was skipped before roster selection.',
+  ],
+)
+assert.deepEqual(
+  guidedBriefPlanningValidationNotes(skippedRuntime),
+  [
+    'Validate implementation against any accepted Guided brief artifact snapshot hashes.',
+    'Resolve missing product or architecture decisions before broad implementation work.',
+    'Create or validate UI direction during Sprint Engine planning because the guided frontend stage was skipped.',
+  ],
+)
+
+const skippedAfterBrief = guidedBriefSkipToHandoffState({
+  ...baseRuntime,
+  acceptedProductBrief: { kind: 'product', title: 'Product brief', path: 'product/.versions/brief.md', hash: 'briefhash' },
+})
+assert.equal(skippedAfterBrief.wantsProductDiscussion, true, 'accepted product brief remains required and available')
+assert.equal(skippedAfterBrief.wantsFrontendDiscussion, false, 'missing frontend artifacts are still treated as skipped')

@@ -45,7 +45,12 @@ import {
 import { GuidedBriefFlow } from './guidedBrief/GuidedBriefFlow'
 import { GuidedBriefCloseConfirmation } from './guidedBrief/GuidedBriefCloseConfirmation'
 import { isMidStageGuidedRuntime, type GuidedBriefRuntimeState } from './guidedBrief/types'
-import { guidedBriefBuildHandoffRelativePath, guidedBriefSprintEngineGoal } from './guidedBrief/handoff'
+import {
+  guidedBriefBuildHandoffRelativePath,
+  guidedBriefPlanningDecisionNotes,
+  guidedBriefPlanningValidationNotes,
+  guidedBriefSprintEngineGoal,
+} from './guidedBrief/handoff'
 import { joinWorkspacePath as joinGuidedWorkspacePath } from './guidedBrief/paths'
 import {
   countSprintEngineAgents,
@@ -1126,11 +1131,9 @@ export default function NewWorkspacePanel({
       uiDirection: runtimeState.acceptedUiDirection,
       mockups: runtimeState.acceptedMockups,
       requireMockups: runtimeState.hasUi === 'yes' && runtimeState.wantsFrontendDiscussion,
-      confirmedDecisions: [
-        runtimeState.hasUi === 'yes' ? 'Application includes a visual UI.' : 'No visual UI is required.',
-      ],
+      confirmedDecisions: guidedBriefPlanningDecisionNotes(runtimeState),
       roster: sprintEngineRosterSummary(runOptions.roleCounts),
-      validationNotes: ['Validate implementation against accepted Guided brief artifact snapshot hashes.'],
+      validationNotes: guidedBriefPlanningValidationNotes(runtimeState),
       filesystem: {
         ensureDir: window.api.ensureDir,
         readFile: window.api.readfile,
