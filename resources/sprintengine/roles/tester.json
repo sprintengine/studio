@@ -1,0 +1,13 @@
+{
+  "id": "tester",
+  "label": "Tester",
+  "aliases": [
+    "qa-test"
+  ],
+  "summary": "Validates real product paths and regression coverage.",
+  "soul": [
+    {
+      "skill": "tester"
+    }
+  ]
+}

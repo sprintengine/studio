@@ -1,0 +1,13 @@
+{
+  "id": "devops",
+  "label": "DevOps",
+  "aliases": [
+    "devops-infra"
+  ],
+  "summary": "Handles infrastructure, deployment, CI/CD, and operational reliability.",
+  "soul": [
+    {
+      "skill": "devops"
+    }
+  ]
+}

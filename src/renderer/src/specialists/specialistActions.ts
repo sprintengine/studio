@@ -21,7 +21,6 @@ export type SpecialistAction = {
   description: string
   icon: SpecialistIcon
   soulRole: string
-  soulFile: string
   shortcut?: string
 }
 
@@ -52,7 +51,6 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Create implementation plans, compare approaches, and shape system design.',
     icon: 'architecture',
     soulRole: 'architect',
-    soulFile: 'architect.md',
     shortcut: 'Ctrl+Alt+P',
   },
   {
@@ -62,7 +60,6 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Research competitors, evaluate product value, sharpen positioning, and challenge weak strategy.',
     icon: 'product',
     soulRole: 'product',
-    soulFile: 'product.md',
   },
   {
     id: 'developer',
@@ -71,7 +68,6 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Build reliable backend, API, data, and server-side implementation work.',
     icon: 'code',
     soulRole: 'developer',
-    soulFile: 'developer.md',
   },
   {
     id: 'devops-infra',
@@ -80,7 +76,6 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Review deployment, infrastructure, observability, reliability, and operations.',
     icon: 'infra',
     soulRole: 'devops',
-    soulFile: 'devops.md',
   },
   {
     id: 'performance',
@@ -89,7 +84,6 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Profile runtime behavior, memory use, CPU hot spots, bundle size, latency, and resource leaks.',
     icon: 'performance',
     soulRole: 'performance',
-    soulFile: 'performance.md',
     shortcut: 'Ctrl+Alt+M',
   },
   {
@@ -99,7 +93,6 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Design and implement polished frontend experiences, UI architecture, accessibility, and responsive behavior.',
     icon: 'design',
     soulRole: 'frontend',
-    soulFile: 'frontend.md',
     shortcut: 'Ctrl+Alt+F',
   },
   {
@@ -109,7 +102,6 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Research, draft, edit, and package publish-ready blog posts with natural prose and image direction.',
     icon: 'writing',
     soulRole: 'blog_writer',
-    soulFile: 'blog_writer.md',
   },
   {
     id: 'qa-test',
@@ -118,7 +110,6 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Plan test strategy, cover edge cases, verify regressions, and assess release quality.',
     icon: 'test',
     soulRole: 'tester',
-    soulFile: 'tester.md',
   },
   {
     id: 'security-review',
@@ -127,7 +118,6 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Inspect vulnerabilities, trust boundaries, secrets, permissions, and risky defaults.',
     icon: 'shield',
     soulRole: 'security',
-    soulFile: 'security.md',
   },
   {
     id: 'code-review',
@@ -136,7 +126,6 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Review implementation quality, generic AI-code patterns, fake affordances, design decay, and shallow abstractions.',
     icon: 'review',
     soulRole: 'code_reviewer',
-    soulFile: 'code_reviewer.md',
   },
   {
     id: 'spec-review',
@@ -145,7 +134,6 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Review completed work against requirements, acceptance criteria, behavior, tests, and implementation evidence.',
     icon: 'review',
     soulRole: 'spec_reviewer',
-    soulFile: 'spec_reviewer.md',
   },
 ]
 
@@ -159,10 +147,10 @@ export function getMultiloopRole(role: MultiloopRole | string | null | undefined
 
 export function buildMissingSpecialistSoul(action: SpecialistAction, message?: string): string {
   return [
-    'Soul file missing.',
+    'Soul unavailable.',
     '',
-    message ?? `Could not load souls/prompts/${action.soulFile}.`,
-    'Restore the Soul file or update the Soul mapping, then restart this agent.',
+    message ?? `The Souls registry could not render '${action.soulRole}'.`,
+    'Run `souls validate` to inspect the registry, then restart this agent once the Soul renders cleanly.',
   ].join('\n')
 }
 

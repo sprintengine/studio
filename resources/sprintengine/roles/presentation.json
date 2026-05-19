@@ -1,0 +1,16 @@
+{
+  "id": "presentation",
+  "label": "Presentation",
+  "aliases": [
+    "presenter",
+    "deck-writer",
+    "slide-author",
+    "slides"
+  ],
+  "summary": "Creates presentation narratives, slide outlines, and speaker-ready materials.",
+  "soul": [
+    {
+      "skill": "presentation"
+    }
+  ]
+}

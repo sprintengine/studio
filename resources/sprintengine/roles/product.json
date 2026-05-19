@@ -1,0 +1,13 @@
+{
+  "id": "product",
+  "label": "Product",
+  "aliases": [
+    "product-strategist"
+  ],
+  "summary": "Shapes product strategy, requirements, and acceptance criteria.",
+  "soul": [
+    {
+      "skill": "product"
+    }
+  ]
+}

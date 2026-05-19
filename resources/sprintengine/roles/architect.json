@@ -1,0 +1,11 @@
+{
+  "id": "architect",
+  "label": "Architect",
+  "aliases": [],
+  "summary": "Plans production software work and task decomposition.",
+  "soul": [
+    {
+      "skill": "architect"
+    }
+  ]
+}

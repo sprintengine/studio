@@ -1,0 +1,15 @@
+{
+  "id": "blog_writer",
+  "label": "Blog Writer",
+  "aliases": [
+    "blog-writer",
+    "content-writer",
+    "blogger"
+  ],
+  "summary": "Writes and edits publishable long-form content.",
+  "soul": [
+    {
+      "skill": "blog_writer"
+    }
+  ]
+}

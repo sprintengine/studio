@@ -1,0 +1,13 @@
+{
+  "id": "performance",
+  "label": "Performance",
+  "aliases": [
+    "performance-engineer"
+  ],
+  "summary": "Reviews performance, scalability, and resource-use risks.",
+  "soul": [
+    {
+      "skill": "performance"
+    }
+  ]
+}

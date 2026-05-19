@@ -1,0 +1,13 @@
+{
+  "id": "security",
+  "label": "Security",
+  "aliases": [
+    "security-review"
+  ],
+  "summary": "Reviews systems for security, privacy, and abuse risks.",
+  "soul": [
+    {
+      "skill": "security"
+    }
+  ]
+}

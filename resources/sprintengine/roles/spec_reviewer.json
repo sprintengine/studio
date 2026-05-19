@@ -1,0 +1,14 @@
+{
+  "id": "spec_reviewer",
+  "label": "Spec Reviewer",
+  "aliases": [
+    "spec-review",
+    "spec-reviewer"
+  ],
+  "summary": "Reviews implementation coverage against requirements and acceptance criteria.",
+  "soul": [
+    {
+      "skill": "spec_reviewer"
+    }
+  ]
+}

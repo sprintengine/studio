@@ -1,0 +1,14 @@
+{
+  "id": "code_reviewer",
+  "label": "Code Reviewer",
+  "aliases": [
+    "code-review",
+    "code-reviewer"
+  ],
+  "summary": "Reviews implementation correctness, maintainability, and evidence.",
+  "soul": [
+    {
+      "skill": "code_reviewer"
+    }
+  ]
+}

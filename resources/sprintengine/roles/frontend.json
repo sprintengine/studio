@@ -1,0 +1,13 @@
+{
+  "id": "frontend",
+  "label": "Frontend",
+  "aliases": [
+    "frontend-design-review"
+  ],
+  "summary": "Builds and reviews user-facing application experiences.",
+  "soul": [
+    {
+      "skill": "frontend"
+    }
+  ]
+}
