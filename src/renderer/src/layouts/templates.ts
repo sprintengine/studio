@@ -26,22 +26,15 @@ const multiloopBoardTab = () => ({
   name: 'Multiloop',
   component: 'multiloop-board',
 })
-// Watchtower and Switchboard are workspace anchors, not document tabs — keep
-// them visible in the tab strip but disable close/drag so users can't dismiss
-// or reorganize them out of the workspace.
-const switchboardWatchtowerTab = () => ({
-  type: 'tab',
-  name: 'Watchtower',
-  component: 'watchtower-panel',
-  enableClose: false,
-  enableDrag: false,
-})
-const switchboardBoardTab = () => ({
+// Watchtower + Switchboard now share one workspace surface whose internal
+// icon sub-nav switches between them. The wrapper tab is non-closeable and
+// its tabset hides the FlexLayout tab strip so the SwitchboardWorkspacePanel
+// owns the visible chrome.
+const switchboardWorkspaceTab = () => ({
   type: 'tab',
   name: 'Switchboard',
-  component: 'switchboard-board',
+  component: 'switchboard-workspace',
   enableClose: false,
-  enableDrag: false,
 })
 
 const guidedBriefTab = () => ({
@@ -135,8 +128,7 @@ export function createSwitchboardTemplate(): LayoutTemplate {
     name: 'Switchboard Mode',
     description: 'Watchtower triage inbox and the durable Switchboard task board.',
     previewSlots: [
-      editor('Watchtower', 4, 4, 168, 102),
-      editor('Board', 176, 4, 120, 102),
+      editor('Switchboard', 4, 4, 292, 102),
     ],
     layout: {
       global: { tabSetEnableDrop: true, tabEnableClose: true },
@@ -147,10 +139,8 @@ export function createSwitchboardTemplate(): LayoutTemplate {
           {
             type: 'tabset',
             weight: 100,
-            children: [
-              switchboardWatchtowerTab(),
-              switchboardBoardTab(),
-            ],
+            enableTabStrip: false,
+            children: [switchboardWorkspaceTab()],
           },
         ],
       },

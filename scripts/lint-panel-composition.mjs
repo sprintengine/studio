@@ -69,6 +69,7 @@ const ALLOW_LIST = new Map([
   ['SprintEngineTaskGraphView.tsx', 'Sub-view of SprintEngineBoardPanel; rendered inside the parent panel\'s body, so PanelHeader is owned by the parent. Extracted to its own file for maintainability.'],
   ['SprintEngineInspectorPanel.tsx', 'Inspector aside of SprintEngineBoardPanel; rendered as the right-hand detail pane, so PanelHeader chrome is owned by the parent panel. Extracted to its own file in Stage 2.1 of the app-wide dedup plan.'],
   ['SprintEngineBoardPanel.tsx', 'Carries a bespoke run-hero strip (project name + run-phase dot + progress hairline + settings overflow) above the Tabs strip in place of PanelHeader. The generic title/count chrome was redundant with the FlexLayout tab label and per-tab content, and the hero conveys identity richer than PanelHeader allows.'],
+  ['SwitchboardWorkspacePanel.tsx', 'Thin Watchtower / Switchboard wrapper that renders the icon Tabs sub-nav at the top and delegates body chrome (PanelHeader, counts, etc.) to the active child panel. Mirrors SprintEngineBoardPanel\'s ownership pattern: the wrapper owns the row chrome, each child owns its surface.'],
 ])
 
 const args = new Set(process.argv.slice(2))

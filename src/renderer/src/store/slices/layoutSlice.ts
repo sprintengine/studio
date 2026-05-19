@@ -224,6 +224,81 @@ export function hideSprintEngineBoardTabStrip(
   return { ...layoutModel, layout: nextLayout as IJsonModel['layout'] }
 }
 
+const LEGACY_SWITCHBOARD_COMPONENTS = new Set(['watchtower-panel', 'switchboard-board'])
+
+function consolidateSwitchboardTabsInNode(node: unknown): unknown {
+  if (!node || typeof node !== 'object') return node
+  const record = node as Record<string, unknown>
+
+  if (record.type === 'tabset') {
+    const children = Array.isArray(record.children) ? record.children : []
+    const newChildren: unknown[] = []
+    let wrapperInserted = false
+    for (const child of children) {
+      const childRec = child && typeof child === 'object' ? (child as Record<string, unknown>) : null
+      if (
+        childRec?.type === 'tab'
+        && typeof childRec.component === 'string'
+        && LEGACY_SWITCHBOARD_COMPONENTS.has(childRec.component)
+      ) {
+        if (!wrapperInserted) {
+          newChildren.push({
+            type: 'tab',
+            name: 'Switchboard',
+            component: 'switchboard-workspace',
+            enableClose: false,
+          })
+          wrapperInserted = true
+        }
+        // Collapse any additional legacy tabs into the single wrapper.
+        continue
+      }
+      newChildren.push(child)
+    }
+    const next: Record<string, unknown> = { ...record, children: newChildren }
+    if (wrapperInserted && newChildren.length === 1) {
+      next.enableTabStrip = false
+    }
+    return next
+  }
+
+  if (Array.isArray(record.children)) {
+    return { ...record, children: record.children.map(consolidateSwitchboardTabsInNode) }
+  }
+
+  return record
+}
+
+function layoutContainsLegacySwitchboardTabs(node: unknown): boolean {
+  if (!node || typeof node !== 'object') return false
+  const record = node as Record<string, unknown>
+  if (
+    record.type === 'tab'
+    && typeof record.component === 'string'
+    && LEGACY_SWITCHBOARD_COMPONENTS.has(record.component)
+  ) {
+    return true
+  }
+  if (!Array.isArray(record.children)) return false
+  return record.children.some(layoutContainsLegacySwitchboardTabs)
+}
+
+// Forward layouts that still carry separate 'watchtower-panel' and
+// 'switchboard-board' tabs to a single 'switchboard-workspace' wrapper tab
+// inside the same tabset. The wrapper's tabset gets enableTabStrip: false
+// when it ends up containing only the wrapper, matching the Sprint Engine
+// pattern. Non-Switchboard workspaces are untouched.
+export function consolidateSwitchboardWorkspaceLayout(
+  layoutModel: IJsonModel | null | undefined
+): IJsonModel | null | undefined {
+  if (!layoutModel || typeof layoutModel !== 'object') return layoutModel
+  const layout = layoutModel.layout
+  if (!layout) return layoutModel
+  if (!layoutContainsLegacySwitchboardTabs(layout)) return layoutModel
+  const nextLayout = consolidateSwitchboardTabsInNode(layout)
+  return { ...layoutModel, layout: nextLayout as IJsonModel['layout'] }
+}
+
 // Layout state lives per-workspace in workspace.layoutModel; the layout slice
 // owns the layout-mutation action (updateLayout) and exports the layout-model
 // helpers used by addWorkspace, importWorkspace, and persisted-state migrations.

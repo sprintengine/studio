@@ -26,7 +26,6 @@ import type { FuturePlanWorkspaceSource, HighlightColor, SprintEngineRole, Sprin
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { sprintEngineRoleAccent } from '../../utils/sprintengine'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import { StatusDot, type Tone } from '../ui'
@@ -50,10 +49,10 @@ const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBo
 const MultiloopBoardPanel = React.lazy(() => import('../panels/MultiloopBoardPanel'))
 const WatchtowerPanel = React.lazy(() => import('../panels/WatchtowerPanel'))
 const SwitchboardBoardPanel = React.lazy(() => import('../panels/SwitchboardBoardPanel'))
+const SwitchboardWorkspacePanel = React.lazy(() => import('../panels/SwitchboardWorkspacePanel'))
 const MemoryGraphPanel = React.lazy(() => import('../panels/MemoryGraphPanel'))
 const GuidedBriefWorkspacePanel = React.lazy(() => import('./guidedBrief/GuidedBriefWorkspacePanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
-const AGENT_TAB_ROLE_CLASS_PREFIX = 'agent-tab-role-'
 const loadedPanelComponents = new Set<string>()
 type AgentTabActivity = 'needs-input' | 'working' | 'failed' | 'idle'
 const SPRINTENGINE_ROLES: SprintEngineRole[] = [
@@ -114,10 +113,6 @@ function agentTabActivityDot(
 
 function inferSprintEngineRoleFromAgentId(agentId: string): SprintEngineRole | null {
   return SPRINTENGINE_ROLES.find((role) => agentId === role || agentId.startsWith(`${role}-`)) ?? null
-}
-
-function sprintEngineRoleTabClass(role: SprintEngineRole): string {
-  return `${AGENT_TAB_ROLE_CLASS_PREFIX}${role.replace(/_/g, '-')}`
 }
 
 function PanelLoadingFallback() {
@@ -286,24 +281,16 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       const config = node.getConfig() as { agentId?: string } | undefined
       const agentId = config?.agentId ?? node.getId()
       const agent = workspace.agents[agentId]
-      const role = agent?.kind === 'sprintengine'
-        ? workspace.sprintEngineState?.sprintEngineAgents[agentId]?.role ?? inferSprintEngineRoleFromAgentId(agentId)
-        : null
       const currentClassName = node.getClassName() ?? ''
       const classNames = currentClassName.split(/\s+/).filter(Boolean)
       const needsInput = workspace.sprintEngineState?.sprintEngineAgents[agentId]?.status === 'needs_input'
-      const roleClassNames = new Set(SPRINTENGINE_ROLES.map(sprintEngineRoleTabClass))
-      const nextClassNames = classNames.filter((className) => !roleClassNames.has(className))
+      const nextClassNames = classNames.filter((className) => className !== AGENT_TAB_NEEDS_INPUT_CLASS)
       if (agent?.name && node.getName() !== agent.name) {
         model.doAction(Actions.renameTab(node.getId(), agent.name))
       }
 
       if (needsInput) {
         nextClassNames.push(AGENT_TAB_NEEDS_INPUT_CLASS)
-      }
-
-      if (role) {
-        nextClassNames.push(sprintEngineRoleTabClass(role))
       }
 
       const nextClassName = Array.from(new Set(nextClassNames)).join(' ')
@@ -339,9 +326,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         return (
           <div
             className="relative h-full w-full"
-            style={{
-              boxShadow: `inset 0 0 0 2px ${swatch.hex}, inset 0 0 24px -8px ${swatch.ringRgba(0.55)}`,
-            }}
+            style={{ boxShadow: `inset 0 0 0 1px ${swatch.hex}` }}
           >
             {children}
           </div>
@@ -409,6 +394,11 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
             'GuidedBriefWorkspacePanel',
             <GuidedBriefWorkspacePanel workspaceId={workspaceId} />
           )
+        case 'switchboard-workspace':
+          return timedPanel('SwitchboardWorkspacePanel', <SwitchboardWorkspacePanel workspaceId={workspaceId} />)
+        // Defensive fallbacks for stale layouts that escaped migration — the
+        // canonical Switchboard layout now uses a single 'switchboard-workspace'
+        // tab whose internal sub-nav covers Watchtower + Switchboard.
         case 'watchtower-panel':
           return timedPanel('WatchtowerPanel', <WatchtowerPanel workspaceId={workspaceId} />)
         case 'switchboard-board':
@@ -668,7 +658,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
 
       // Preserve any existing non-highlight class names on the tab while we
       // replace the tab-highlight-* class. Other classes here include
-      // `agent-tab-role-*` and `agent-tab-needs-input`.
+      // `agent-tab-needs-input`.
       const existingClassName = node.getClassName() ?? ''
       const baseClassNames = existingClassName
         .split(/\s+/u)
@@ -774,10 +764,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
             renderValues.leading = (
               <span
                 className="h-3 w-3 shrink-0 rounded-full"
-                style={{
-                  backgroundColor: swatch.hex,
-                  boxShadow: `0 0 6px ${swatch.ringRgba(0.65)}`,
-                }}
+                style={{ backgroundColor: swatch.hex }}
                 aria-label={`${swatch.label} terminal`}
                 title={`${swatch.label} terminal`}
               />
@@ -859,7 +846,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         renderValues.leading = (
           <span
             className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px]"
-            style={{ color: sprintEngineRoleAccent[sprintEngineRole] }}
             title={`${sprintEngineRole} Sprint Engine agent`}
             aria-label={`${sprintEngineRole} Sprint Engine agent`}
           >

@@ -13,6 +13,7 @@ import {
   normalizeGuidedBriefState,
 } from './guidedBriefSlice'
 import {
+  consolidateSwitchboardWorkspaceLayout,
   ensureMultiloopLayoutModel,
   hideSprintEngineBoardTabStrip,
   markSwitchboardAnchorTabsSticky,
@@ -44,7 +45,7 @@ import { mapMigrationWorkspaces } from './normalizers'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 49
+export const WORKSPACE_STORE_VERSION = 50
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
 export type WorkspaceMigrationState = {
@@ -605,6 +606,16 @@ export function migratePersistedWorkspaceState(
     // board in existing layouts without rewriting custom arrangements.
     mapMigrationWorkspaces(migrationState, (ws) => {
       const next = hideSprintEngineBoardTabStrip(ws.layoutModel)
+      return next ? { ...ws, layoutModel: next } : ws
+    })
+  }
+  if (version < 50) {
+    // Switchboard workspaces now anchor on a single 'switchboard-workspace'
+    // wrapper whose internal icon sub-nav switches between Watchtower and
+    // Switchboard. Forward existing layouts that still ship the two
+    // separate component tabs to the wrapper shape.
+    mapMigrationWorkspaces(migrationState, (ws) => {
+      const next = consolidateSwitchboardWorkspaceLayout(ws.layoutModel)
       return next ? { ...ws, layoutModel: next } : ws
     })
   }

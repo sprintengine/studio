@@ -5,6 +5,7 @@ import type { LayoutTemplate, Workspace } from '../../types/workspace'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { useWorkspaceStore } from '../workspaceStore'
 import {
+  consolidateSwitchboardWorkspaceLayout,
   createLayoutSlice,
   ensureMultiloopLayoutModel,
   hideSprintEngineBoardTabStrip,
@@ -16,6 +17,7 @@ import {
   sprintEngineTabsLayoutModel,
   stripSettingsTabsFromLayout,
 } from './layoutSlice'
+import { createSwitchboardTemplate } from '../../layouts/templates'
 
 const standardTemplate: LayoutTemplate = {
   id: 'layout-test',
@@ -202,6 +204,47 @@ assert.equal(stickyBoard.enableClose, false)
 assert.equal(stickyBoard.enableDrag, false)
 assert.equal(untouchedEditor.enableClose, undefined)
 assert.equal(untouchedEditor.enableDrag, undefined)
+
+// Existing Switchboard layouts that still ship the two separate tabs migrate
+// to a single 'switchboard-workspace' wrapper inside a strip-less tabset.
+const legacySwitchboardLayout: IJsonModel = {
+  global: {},
+  borders: [],
+  layout: {
+    type: 'row',
+    children: [
+      {
+        type: 'tabset',
+        children: [
+          { type: 'tab', name: 'Watchtower', component: 'watchtower-panel', enableClose: false },
+          { type: 'tab', name: 'Switchboard', component: 'switchboard-board', enableClose: false },
+        ],
+      },
+    ],
+  },
+}
+const wrappedSwitchboardLayout = consolidateSwitchboardWorkspaceLayout(legacySwitchboardLayout) as IJsonModel
+assert.equal(modelContainsComponent(wrappedSwitchboardLayout, 'switchboard-workspace'), true)
+assert.equal(modelContainsComponent(wrappedSwitchboardLayout, 'watchtower-panel'), false)
+assert.equal(modelContainsComponent(wrappedSwitchboardLayout, 'switchboard-board'), false)
+const wrapperTabset = findTabset(wrappedSwitchboardLayout, (record) => {
+  const children = Array.isArray(record.children) ? record.children : []
+  return children.some((child) => (child as Record<string, unknown>)?.component === 'switchboard-workspace')
+})!
+assert.equal(wrapperTabset.enableTabStrip, false)
+
+// Non-Switchboard layouts pass through untouched.
+const sprintLayoutPassthrough = consolidateSwitchboardWorkspaceLayout(canonicalLayout)
+assert.equal(sprintLayoutPassthrough, canonicalLayout)
+
+// Canonical Switchboard template ships with the wrapper + hidden tab strip.
+const switchboardTemplate = createSwitchboardTemplate()
+assert.equal(modelContainsComponent(switchboardTemplate.layout, 'switchboard-workspace'), true)
+const templateWrapperTabset = findTabset(switchboardTemplate.layout, (record) => {
+  const children = Array.isArray(record.children) ? record.children : []
+  return children.some((child) => (child as Record<string, unknown>)?.component === 'switchboard-workspace')
+})!
+assert.equal(templateWrapperTabset.enableTabStrip, false)
 
 const stripped = stripSettingsTabsFromLayout({
   global: {},
