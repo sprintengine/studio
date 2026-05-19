@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 
 from fixtures import (
     SwarmCli,
@@ -20,6 +21,20 @@ from sprintengine_core.tool import runner_watch_delay_seconds
 
 
 FIXED_MTIME_NS = 1_700_000_000_000_000_000
+
+
+def init_git_repo(root) -> None:
+    subprocess.run(["git", "init"], cwd=root, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "Sprint Engine Test"], cwd=root, check=True)
+
+
+def commit_file(root, path: str, content: str) -> None:
+    target = root / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    subprocess.run(["git", "add", path], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-m", f"Add {path}"], cwd=root, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 
 def run_without_state_rewrite(fixture, *args: str) -> dict:
@@ -301,6 +316,75 @@ def test_task_publish_records_implementation_summary_and_routes_to_next_phase(tm
     assert task_record["comments"][0]["body"] == "Implemented the backend path."
 
 
+def test_task_publish_captures_diff_evidence_for_declared_paths(tmp_path) -> None:
+    init_git_repo(tmp_path)
+    commit_file(tmp_path, "src/example.py", "def value():\n    return 'old'\n")
+    record = gated_task()
+    fixture = create_team(tmp_path, "publish-diff-evidence", [record])
+    (tmp_path / "src" / "example.py").write_text("def value():\n    return 'new'\n", encoding="utf-8")
+
+    payload = fixture.cli.run(
+        "task",
+        "publish",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--summary",
+        "Updated the example.",
+        "--path",
+        "src/example.py",
+    )
+
+    diffs = payload["task"]["evidence"]["diffs"]
+    assert len(diffs) == 1
+    assert diffs[0]["path"] == "src/example.py"
+    assert diffs[0]["status"] == "modified"
+    assert diffs[0]["additions"] == 1
+    assert diffs[0]["deletions"] == 1
+    lines = diffs[0]["hunks"][0]["lines"]
+    assert any(line["type"] == "removed" and "old" in line["content"] for line in lines)
+    assert any(line["type"] == "added" and "new" in line["content"] for line in lines)
+
+
+def test_task_publish_skips_secret_sensitive_diff_content(tmp_path) -> None:
+    init_git_repo(tmp_path)
+    commit_file(tmp_path, ".env", "TOKEN=old\n")
+    record = gated_task()
+    fixture = create_team(tmp_path, "publish-secret-diff-skip", [record])
+    (tmp_path / ".env").write_text("TOKEN=new\n", encoding="utf-8")
+
+    payload = fixture.cli.run(
+        "task",
+        "publish",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--summary",
+        "Updated local environment settings.",
+        "--path",
+        ".env",
+    )
+
+    diffs = payload["task"]["evidence"]["diffs"]
+    assert diffs == [
+        {
+            "path": ".env",
+            "status": "modified",
+            "additions": 0,
+            "deletions": 0,
+            "capturedBy": "developer-fixture",
+            "source": "working_tree",
+            "binary": False,
+            "truncated": False,
+            "skippedReason": "secret_sensitive_path",
+            "hunks": [],
+            "capturedAt": diffs[0]["capturedAt"],
+        }
+    ]
+
+
 def test_task_publish_persists_structured_summary_data(tmp_path) -> None:
     fixture = create_team(tmp_path, "publish-summary-data", [gated_task()])
 
@@ -389,6 +473,57 @@ def test_rework_publish_records_response_and_resets_required_gates(tmp_path) -> 
     state = read_state(fixture.state_path)
     task_record = get_task(state, "T1")
     assert [gate["status"] for gate in task_record["qualityGates"]] == ["pending", "pending"]
+
+
+def test_rework_publish_refreshes_latest_diff_snapshot(tmp_path) -> None:
+    init_git_repo(tmp_path)
+    commit_file(tmp_path, "src/rework.py", "value = 'base'\n")
+    record = gated_task("changes_requested", owner="developer-fixture")
+    record["qualityGates"][0]["status"] = "changes_requested"
+    record["evidence"]["touchedFiles"] = ["src/rework.py"]
+    record["evidence"]["diffs"] = [
+        {
+            "path": "src/rework.py",
+            "status": "modified",
+            "additions": 1,
+            "deletions": 1,
+            "capturedAt": "2026-05-17T00:00:00Z",
+            "capturedBy": "developer-fixture",
+            "source": "working_tree",
+            "binary": False,
+            "truncated": False,
+            "skippedReason": None,
+            "hunks": [
+                {
+                    "oldStart": 1,
+                    "oldLines": 1,
+                    "newStart": 1,
+                    "newLines": 1,
+                    "section": None,
+                    "lines": [{"type": "added", "oldLine": None, "newLine": 1, "content": "value = 'stale'"}],
+                }
+            ],
+        }
+    ]
+    fixture = create_team(tmp_path, "publish-rework-diff-refresh", [record])
+    (tmp_path / "src" / "rework.py").write_text("value = 'fresh'\n", encoding="utf-8")
+
+    payload = fixture.cli.run(
+        "task",
+        "publish",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--summary",
+        "Refreshed the implementation.",
+    )
+
+    diffs = payload["task"]["evidence"]["diffs"]
+    assert len(diffs) == 1
+    lines = diffs[0]["hunks"][0]["lines"]
+    assert any(line["type"] == "added" and "fresh" in line["content"] for line in lines)
+    assert not any("stale" in line["content"] for line in lines)
 
 
 def test_republish_after_blocked_needs_input_resets_prior_gate_verdicts(tmp_path) -> None:
@@ -599,6 +734,33 @@ def test_task_status_done_allows_legacy_and_closed_gate_tasks(tmp_path) -> None:
     assert "Auto Mode is on" in payload["nextAction"]
     state = read_state(fixture.state_path)
     assert_task_status(state, "T1", "done")
+
+
+def test_task_status_done_captures_diff_evidence_before_completion(tmp_path) -> None:
+    init_git_repo(tmp_path)
+    commit_file(tmp_path, "src/done.py", "result = 'before'\n")
+    fixture = create_team(tmp_path, "done-diff-evidence", [
+        task("T1", "Complete implementation", "developer", "in_progress", owner="developer-fixture"),
+    ])
+    (tmp_path / "src" / "done.py").write_text("result = 'after'\n", encoding="utf-8")
+    fixture.cli.run(
+        "task",
+        "log",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--file",
+        "src/done.py",
+    )
+
+    payload = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-fixture")
+
+    assert payload["ok"] is True
+    diffs = payload["task"]["evidence"]["diffs"]
+    assert len(diffs) == 1
+    assert diffs[0]["path"] == "src/done.py"
+    assert any(line["type"] == "added" and "after" in line["content"] for line in diffs[0]["hunks"][0]["lines"])
 
 
 def test_artifact_approval_does_not_bypass_open_quality_gates(tmp_path) -> None:
