@@ -15,35 +15,33 @@ const agentTab = (id: string, name = id) => ({
 })
 const editorTab = { type: 'tab', name: 'Editor', component: 'editor' }
 const explorerTab = { type: 'tab', name: 'Files', component: 'explorer' }
-const sprintEngineInboxTab = () => ({
+const sprintEngineBoardTab = () => ({
   type: 'tab',
-  name: 'Inbox',
-  component: 'sprintengine-inbox',
-})
-const sprintEngineRosterTab = () => ({
-  type: 'tab',
-  name: 'Roster',
-  component: 'sprintengine-roster',
-})
-const sprintEngineTasksTab = () => ({
-  type: 'tab',
-  name: 'Tasks',
-  component: 'sprintengine-tasks',
+  name: 'Sprint Engine',
+  component: 'sprintengine',
+  enableClose: false,
 })
 const multiloopBoardTab = () => ({
   type: 'tab',
   name: 'Multiloop',
   component: 'multiloop-board',
 })
+// Watchtower and Switchboard are workspace anchors, not document tabs — keep
+// them visible in the tab strip but disable close/drag so users can't dismiss
+// or reorganize them out of the workspace.
 const switchboardWatchtowerTab = () => ({
   type: 'tab',
   name: 'Watchtower',
   component: 'watchtower-panel',
+  enableClose: false,
+  enableDrag: false,
 })
 const switchboardBoardTab = () => ({
   type: 'tab',
   name: 'Switchboard',
   component: 'switchboard-board',
+  enableClose: false,
+  enableDrag: false,
 })
 
 const guidedBriefTab = () => ({
@@ -83,11 +81,9 @@ export function createSprintEngineTemplate(_config: SprintEngineMockConfig): Lay
   return {
     id: 'sprintengine-mode',
     name: 'SprintEngine Mode',
-    description: 'Project dashboard with roster map, task graph, and Kanban.',
+    description: 'Inbox, Roster, and Tasks together in one stable board.',
     previewSlots: [
-      editor('Project', 4, 4, 168, 34),
-      editor('Graph', 4, 42, 168, 32),
-      editor('Kanban', 4, 78, 168, 28),
+      editor('Sprint Engine', 4, 4, 292, 102),
     ],
     layout: {
       global: { tabSetEnableDrop: true, tabEnableClose: true },
@@ -98,11 +94,7 @@ export function createSprintEngineTemplate(_config: SprintEngineMockConfig): Lay
           {
             type: 'tabset',
             weight: 100,
-            children: [
-              sprintEngineInboxTab(),
-              sprintEngineRosterTab(),
-              sprintEngineTasksTab(),
-            ],
+            children: [sprintEngineBoardTab()],
           },
         ],
       },

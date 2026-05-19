@@ -142,6 +142,12 @@ export function buildPlanFileSprintEngineHandoffPrompt({
     sourceTypeGuidance(hasExplicitSourceBundle, bundle, sourcePlanKind),
     autoRunRequested
       ? [
+        'Auto-run was requested when this workspace was created. Persist that runner policy immediately after initialization:',
+        '',
+        '```shell',
+        `sprintengine --state ${quoteShellArg(statePath)} runner set --mode auto --actor architect`,
+        '```',
+        '',
         'After initialization, continue immediately into the architect join-watch flow for this same run:',
         '',
         '```shell',

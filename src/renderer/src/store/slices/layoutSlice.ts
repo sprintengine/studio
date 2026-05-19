@@ -13,6 +13,16 @@ const sprintEngineAgentTab = (id: string, name: string) => ({
   config: { agentId: id },
 })
 
+// The Sprint Engine board owns Inbox / Roster / Tasks as internal segmented
+// chrome (see SprintEngineBoardPanel). It lives as a single non-closeable
+// FlexLayout tab so the workspace nav stays stable.
+const sprintEngineBoardTab = () => ({
+  type: 'tab',
+  name: 'Sprint Engine',
+  component: 'sprintengine',
+  enableClose: false,
+})
+
 export const sprintEngineTabsLayoutModel = (
   sprintEngineState: SprintEngineState | null,
   agents: Workspace['agents'] = {},
@@ -26,11 +36,7 @@ export const sprintEngineTabsLayoutModel = (
       {
         type: 'tabset',
         weight: options?.includeAgentTabs === false ? 100 : 58,
-        children: [
-          { type: 'tab', name: 'Inbox', component: 'sprintengine-inbox' },
-          { type: 'tab', name: 'Roster', component: 'sprintengine-roster' },
-          { type: 'tab', name: 'Tasks', component: 'sprintengine-tasks' },
-        ],
+        children: [sprintEngineBoardTab()],
       },
       ...(options?.includeAgentTabs === false
         ? []
@@ -84,20 +90,17 @@ export function ensureMultiloopLayoutModel(model: IJsonModel | null | undefined)
 }
 
 export function isLegacySprintEngineLayout(model: IJsonModel): boolean {
-  // Anything that doesn't already contain the new three-tab shape is
-  // treated as legacy and rewritten to Inbox / Roster / Tasks. Covers the
-  // single-panel `'sprintengine'` shape, the retired `-project`/`-task-graph`
-  // /`-kanban`/`-map`/`-terminals` flex tabs, and any partial layout.
+  // The canonical Sprint Engine layout is a single `'sprintengine'` board
+  // tab; Inbox / Roster / Tasks are now internal chrome inside the board.
+  // Anything that includes the retired view-specific tabs (or that has no
+  // SE board at all) is treated as legacy and rewritten.
   const serialized = JSON.stringify(model)
-  const hasNewShape =
+  const hasLegacyViewTabs =
     serialized.includes('"component":"sprintengine-inbox"')
     || serialized.includes('"component":"sprintengine-roster"')
     || serialized.includes('"component":"sprintengine-tasks"')
-  if (hasNewShape) return false
-  return (
-    serialized.includes('"component":"sprintengine')
-    // Catches all sprintengine-prefixed legacy components.
-  )
+  if (hasLegacyViewTabs) return true
+  return !serialized.includes('"component":"sprintengine"')
 }
 
 export function migrateSprintEngineLayout(ws: Workspace): Workspace {
@@ -144,6 +147,40 @@ export function stripSettingsTabsFromLayout(layoutModel: unknown): unknown {
   if (!layout || typeof layout !== 'object') return layoutModel
   const nextLayout = stripSettingsTabsFromLayoutNode(layout)
   return { ...model, layout: nextLayout ?? layout }
+}
+
+const STICKY_TAB_COMPONENTS = new Set(['watchtower-panel', 'switchboard-board'])
+
+function markStickyTabsInLayoutNode(node: unknown): unknown {
+  if (!node || typeof node !== 'object') return node
+  const record = node as Record<string, unknown>
+
+  if (
+    record.type === 'tab'
+    && typeof record.component === 'string'
+    && STICKY_TAB_COMPONENTS.has(record.component)
+  ) {
+    return { ...record, enableClose: false, enableDrag: false }
+  }
+
+  const rawChildren = record.children
+  if (!Array.isArray(rawChildren)) return record
+
+  const nextChildren = rawChildren.map((child) => markStickyTabsInLayoutNode(child))
+  return { ...record, children: nextChildren }
+}
+
+// Switchboard workspaces anchor on Watchtower + Switchboard panels. Disable
+// close/drag on those specific tabs in existing user layouts so they behave
+// like persistent workspace surfaces rather than disposable document tabs.
+export function markSwitchboardAnchorTabsSticky(
+  layoutModel: IJsonModel | null | undefined
+): IJsonModel | null | undefined {
+  if (!layoutModel || typeof layoutModel !== 'object') return layoutModel
+  const layout = layoutModel.layout
+  if (!layout) return layoutModel
+  const nextLayout = markStickyTabsInLayoutNode(layout)
+  return { ...layoutModel, layout: nextLayout as IJsonModel['layout'] }
 }
 
 // Layout state lives per-workspace in workspace.layoutModel; the layout slice

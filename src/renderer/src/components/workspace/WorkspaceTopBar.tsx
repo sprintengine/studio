@@ -45,15 +45,10 @@ export type ChipPopoverForRole =
   | null
 
 type ViewItem = { component: string; name: string }
+// Sprint Engine intentionally has no entry: Inbox / Roster / Tasks live as
+// internal segmented chrome inside the SprintEngineBoardPanel rather than as
+// closeable FlexLayout tabs the user can move or dismiss.
 const VIEWS_FOR_MODE: Record<string, { label: string; views: ViewItem[] }> = {
-  sprintengine: {
-    label: 'Sprint Engine',
-    views: [
-      { component: 'sprintengine-inbox', name: 'Inbox' },
-      { component: 'sprintengine-roster', name: 'Roster' },
-      { component: 'sprintengine-tasks', name: 'Tasks' },
-    ],
-  },
   multiloop: {
     label: 'Multiloop',
     views: [
@@ -707,7 +702,7 @@ export default function WorkspaceTopBar({
             </div>
           ) : null}
 
-          {workspaceActionsEnabled && activeWorkspace && (activeWorkspace.mode === 'sprintengine' || activeWorkspace.mode === 'multiloop') ? (
+          {workspaceActionsEnabled && activeWorkspace && VIEWS_FOR_MODE[activeWorkspace.mode] ? (
             <div ref={viewMenuRef} className="relative inline-flex">
               <Popover
                 open={viewMenuOpen}

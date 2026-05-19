@@ -2,7 +2,8 @@ from pathlib import Path
 
 import sprintengine_core.tool as tool
 from sprintengine_core.tool import artifacts, feedback, plans, review_prompts, tasks
-from sprintengine_core.tool.roles import DEFAULT_ROLE_REGISTRY, VALID_ROLES
+from sprintengine_core.role_registry import RoleSkillRegistry
+from sprintengine_core.tool.roles import DEFAULT_ROLE_REGISTRY, VALID_ROLES, configured_soul_role_ids, dispatchable_role_ids
 
 
 def test_tool_package_preserves_public_entrypoint_imports() -> None:
@@ -55,3 +56,24 @@ def test_role_validation_uses_compatibility_registry() -> None:
     assert VALID_ROLES == DEFAULT_ROLE_REGISTRY.all()
     assert DEFAULT_ROLE_REGISTRY.is_valid("developer")
     assert not DEFAULT_ROLE_REGISTRY.is_valid("marketer")
+
+
+def test_configured_souls_are_separate_from_dispatchable_roles(tmp_path: Path) -> None:
+    root = tmp_path / "workspace" / ".sprintengine"
+    (root / "roles").mkdir(parents=True)
+    (root / "skills" / "marketer").mkdir(parents=True)
+    (root / "roles" / "marketer.json").write_text(
+        '{"id":"marketer","label":"Marketer","soul":[{"skill":"marketer"}]}',
+        encoding="utf-8",
+    )
+    (root / "skills" / "marketer" / "SKILL.md").write_text("# Marketer\n\nLaunch campaigns.", encoding="utf-8")
+
+    discovery = RoleSkillRegistry(
+        workspace_root=tmp_path / "workspace",
+        user_root=tmp_path / "user",
+        bundled_root=tmp_path / "bundled",
+    ).discover()
+
+    assert "marketer" in configured_soul_role_ids(discovery)
+    assert "marketer" not in dispatchable_role_ids()
+    assert "marketer" not in VALID_ROLES

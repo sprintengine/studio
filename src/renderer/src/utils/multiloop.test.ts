@@ -1167,6 +1167,7 @@ async function testSprintEngineWorkspaceCreationAutoRunPromptContinuesToJoin() {
 
   assert.ok(createdWorkspace)
   assert.equal(prompt.includes('Do not stop after printing the init summary.'), true)
+  assert.equal(prompt.includes('runner set --mode auto --actor architect'), true)
   assert.equal(prompt.includes('join --role architect --id architect --watch'), true)
   assert.equal(createdWorkspace.sprintEngineAutoState?.enabled, true)
   assert.equal(createdWorkspace.sprintEngineAutoState?.autoApproveArtifacts, true)

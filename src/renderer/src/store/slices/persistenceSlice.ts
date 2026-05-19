@@ -14,6 +14,7 @@ import {
 } from './guidedBriefSlice'
 import {
   ensureMultiloopLayoutModel,
+  markSwitchboardAnchorTabsSticky,
   migrateSprintEngineLayout,
   sprintEngineTabsLayoutModel,
   stripSettingsTabsFromLayout,
@@ -42,7 +43,7 @@ import { mapMigrationWorkspaces } from './normalizers'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 46
+export const WORKSPACE_STORE_VERSION = 48
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
 export type WorkspaceMigrationState = {
@@ -581,6 +582,20 @@ export function migratePersistedWorkspaceState(
         ]),
       ),
     }))
+  }
+  if (version < 47) {
+    mapMigrationWorkspaces(migrationState, (ws) => {
+      const next = markSwitchboardAnchorTabsSticky(ws.layoutModel)
+      return next ? { ...ws, layoutModel: next } : ws
+    })
+  }
+  if (version < 48) {
+    // Sprint Engine: Inbox / Roster / Tasks are now internal segmented chrome
+    // inside SprintEngineBoardPanel rather than three closeable FlexLayout
+    // tabs. Existing workspaces still carry the retired component IDs in
+    // their persisted layout, which the renderer no longer handles — rerun
+    // the SE layout migration to forward them to the single board.
+    mapMigrationWorkspaces(migrationState, migrateSprintEngineLayout)
   }
 
   return state as never

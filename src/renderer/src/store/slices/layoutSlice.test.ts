@@ -8,6 +8,7 @@ import {
   createLayoutSlice,
   ensureMultiloopLayoutModel,
   isLegacySprintEngineLayout,
+  markSwitchboardAnchorTabsSticky,
   migrateSprintEngineLayout,
   modelContainsComponent,
   multiloopTabsLayoutModel,
@@ -42,9 +43,10 @@ const sprintEngineState = createInitialSprintEngineState({
 })
 
 const sprintLayout = sprintEngineTabsLayoutModel(sprintEngineState, {}, { includeAgentTabs: false })
-assert.equal(modelContainsComponent(sprintLayout, 'sprintengine-inbox'), true)
-assert.equal(modelContainsComponent(sprintLayout, 'sprintengine-roster'), true)
-assert.equal(modelContainsComponent(sprintLayout, 'sprintengine-tasks'), true)
+assert.equal(modelContainsComponent(sprintLayout, 'sprintengine'), true)
+assert.equal(modelContainsComponent(sprintLayout, 'sprintengine-inbox'), false)
+assert.equal(modelContainsComponent(sprintLayout, 'sprintengine-roster'), false)
+assert.equal(modelContainsComponent(sprintLayout, 'sprintengine-tasks'), false)
 assert.equal(modelContainsComponent(sprintLayout, 'agent'), false)
 
 const sprintLayoutWithAgents = sprintEngineTabsLayoutModel(sprintEngineState, {})
@@ -55,7 +57,9 @@ assert.equal(modelContainsComponent(multiloopLayout, 'multiloop-board'), true)
 assert.deepEqual(ensureMultiloopLayoutModel(multiloopLayout), multiloopLayout)
 assert.equal(modelContainsComponent(ensureMultiloopLayoutModel(standardTemplate.layout), 'multiloop-board'), true)
 
-const legacySprintLayout: IJsonModel = {
+// The retired 3-tab Inbox / Roster / Tasks shape must migrate forward to the
+// single board tab — internal segmented chrome now handles the view switching.
+const legacyThreeTabLayout: IJsonModel = {
   global: {},
   borders: [],
   layout: {
@@ -63,21 +67,81 @@ const legacySprintLayout: IJsonModel = {
     children: [
       {
         type: 'tabset',
-        children: [{ type: 'tab', name: 'Sprint', component: 'sprintengine' }],
+        children: [
+          { type: 'tab', name: 'Inbox', component: 'sprintengine-inbox' },
+          { type: 'tab', name: 'Roster', component: 'sprintengine-roster' },
+          { type: 'tab', name: 'Tasks', component: 'sprintengine-tasks' },
+        ],
       },
     ],
   },
 }
-assert.equal(isLegacySprintEngineLayout(legacySprintLayout), true)
-const migratedWorkspace = migrateSprintEngineLayout({
-  id: 'workspace-legacy',
+assert.equal(isLegacySprintEngineLayout(legacyThreeTabLayout), true)
+const migratedFromThreeTab = migrateSprintEngineLayout({
+  id: 'workspace-three-tab',
   mode: 'sprintengine',
-  layoutModel: legacySprintLayout,
+  layoutModel: legacyThreeTabLayout,
   sprintEngineState,
   agents: {},
 } as Workspace)
-assert.equal(modelContainsComponent(migratedWorkspace.layoutModel, 'sprintengine-inbox'), true)
-assert.equal(modelContainsComponent(migratedWorkspace.layoutModel, 'sprintengine'), false)
+assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel, 'sprintengine'), true)
+assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel, 'sprintengine-inbox'), false)
+assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel, 'sprintengine-roster'), false)
+assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel, 'sprintengine-tasks'), false)
+
+// A layout that already has the canonical single 'sprintengine' tab is left alone.
+const canonicalLayout = sprintEngineTabsLayoutModel(sprintEngineState, {})
+assert.equal(isLegacySprintEngineLayout(canonicalLayout), false)
+const noopMigration = migrateSprintEngineLayout({
+  id: 'workspace-canonical',
+  mode: 'sprintengine',
+  layoutModel: canonicalLayout,
+  sprintEngineState,
+  agents: {},
+} as Workspace)
+assert.equal(noopMigration.layoutModel, canonicalLayout)
+
+const switchboardLegacyLayout: IJsonModel = {
+  global: {},
+  borders: [],
+  layout: {
+    type: 'row',
+    children: [
+      {
+        type: 'tabset',
+        children: [
+          { type: 'tab', name: 'Watchtower', component: 'watchtower-panel' },
+          { type: 'tab', name: 'Switchboard', component: 'switchboard-board' },
+          { type: 'tab', name: 'Notes', component: 'editor' },
+        ],
+      },
+    ],
+  },
+}
+const stickySwitchboardLayout = markSwitchboardAnchorTabsSticky(switchboardLegacyLayout)
+function findTab(model: IJsonModel, component: string): Record<string, unknown> | null {
+  let found: Record<string, unknown> | null = null
+  const walk = (node: unknown) => {
+    if (!node || typeof node !== 'object') return
+    const record = node as Record<string, unknown>
+    if (record.type === 'tab' && record.component === component) {
+      found = record
+      return
+    }
+    if (Array.isArray(record.children)) record.children.forEach(walk)
+  }
+  walk(model.layout)
+  return found
+}
+const stickyWatchtower = findTab(stickySwitchboardLayout, 'watchtower-panel')!
+const stickyBoard = findTab(stickySwitchboardLayout, 'switchboard-board')!
+const untouchedEditor = findTab(stickySwitchboardLayout, 'editor')!
+assert.equal(stickyWatchtower.enableClose, false)
+assert.equal(stickyWatchtower.enableDrag, false)
+assert.equal(stickyBoard.enableClose, false)
+assert.equal(stickyBoard.enableDrag, false)
+assert.equal(untouchedEditor.enableClose, undefined)
+assert.equal(untouchedEditor.enableDrag, undefined)
 
 const stripped = stripSettingsTabsFromLayout({
   global: {},

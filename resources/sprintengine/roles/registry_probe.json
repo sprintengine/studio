@@ -1,0 +1,11 @@
+{
+  "id": "registry_probe",
+  "label": "Registry Probe",
+  "aliases": ["registry-probe"],
+  "summary": "Bundled role used to exercise Sprint Engine role registry loading.",
+  "soul": [
+    {
+      "skill": "registry_probe"
+    }
+  ]
+}

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from sprintengine_core.role_registry import RegistryDiscovery, discover_role_registry
+
 
 BUNDLED_ROLE_IDS = frozenset({
     "architect",
@@ -40,6 +42,18 @@ class RoleRegistry:
 
     def without(self, *role_ids: str) -> frozenset[str]:
         return self._role_ids - set(role_ids)
+
+
+def configured_soul_role_ids(discovery: RegistryDiscovery | None = None) -> frozenset[str]:
+    """Return configured Soul ids without changing Sprint Engine dispatchability."""
+
+    resolved = discovery if discovery is not None else discover_role_registry()
+    return frozenset(resolved.roles)
+
+
+def dispatchable_role_ids(registry: RoleRegistry | None = None) -> frozenset[str]:
+    resolved = registry if registry is not None else DEFAULT_ROLE_REGISTRY
+    return resolved.all()
 
 
 DEFAULT_ROLE_REGISTRY = RoleRegistry()

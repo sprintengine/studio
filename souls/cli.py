@@ -13,6 +13,13 @@ def _json_result(payload: dict[str, Any]) -> str:
     return json.dumps(payload, indent=2)
 
 
+def _display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     souls = list_souls()
     if args.format == "json":
@@ -23,7 +30,7 @@ def cmd_list(args: argparse.Namespace) -> int:
                     "role": soul.role,
                     "label": soul.label,
                     "aliases": list(soul.aliases),
-                    "path": str(Path("souls") / "prompts" / soul.file_name),
+                    "path": _display_path(soul_path(soul.role)),
                 }
                 for soul in souls
             ],
@@ -49,7 +56,7 @@ def cmd_get(args: argparse.Namespace) -> int:
             "ok": True,
             "role": soul.role,
             "label": soul.label,
-            "path": str(path),
+            "path": _display_path(path),
             "content": content,
         }))
         return 0
@@ -65,7 +72,7 @@ def cmd_path(args: argparse.Namespace) -> int:
         return _fail("unknown_role", str(exc), args.format)
     if args.format == "json":
         soul = get_soul(args.role)
-        print(_json_result({"ok": True, "role": soul.role, "path": str(path)}))
+        print(_json_result({"ok": True, "role": soul.role, "path": _display_path(path)}))
     else:
         print(path)
     return 0

@@ -390,6 +390,9 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           )))
         case 'sprintengine':
           return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} />)
+        // Defensive fallbacks for stale layouts that escaped migration — the
+        // canonical layout now uses a single 'sprintengine' tab whose internal
+        // segmented chrome covers all three views.
         case 'sprintengine-inbox':
           return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="inbox" />)
         case 'sprintengine-roster':
