@@ -1652,6 +1652,28 @@ async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput): Promis
     return
   }
 
+  const replenishResult = await replenishRetiredRosterCapacity(workspace, sprintEngineState)
+  if (replenishResult === 'failed') return
+  if (replenishResult === 'changed') {
+    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      reason: 'roster-replenished',
+      elapsedMs: Math.round(performance.now() - superviseStartedAt),
+    })
+    return
+  }
+
+  const rosterStartResult = await startMissingRosterAgents(
+    workspace,
+    sprintEngineState,
+    runningAgentIds,
+    cliRuntimes,
+    mcpSettings,
+    inFlightSpawns
+  )
+  if (rosterStartResult === 'failed') return
+
   const hasArchitectOnRoster = buildSprintEngineAgentRosterForState(sprintEngineState)
     .some((candidate) => candidate.role === 'architect')
   const architectActionableNeedsInputOwnerIds = new Set(
@@ -1696,28 +1718,6 @@ async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput): Promis
     })
     return
   }
-
-  const replenishResult = await replenishRetiredRosterCapacity(workspace, sprintEngineState)
-  if (replenishResult === 'failed') return
-  if (replenishResult === 'changed') {
-    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      reason: 'roster-replenished',
-      elapsedMs: Math.round(performance.now() - superviseStartedAt),
-    })
-    return
-  }
-
-  const rosterStartResult = await startMissingRosterAgents(
-    workspace,
-    sprintEngineState,
-    runningAgentIds,
-    cliRuntimes,
-    mcpSettings,
-    inFlightSpawns
-  )
-  if (rosterStartResult === 'failed') return
 
   await sendContinuationPromptsToIdleAgents(
     workspace,

@@ -5,6 +5,10 @@ import { renderMarkdown } from '../../../utils/markdown'
 type Props = {
   briefPath: string
   watchDirectoryPath: string
+  title?: string
+  unavailableTitle?: string
+  missingReason?: string
+  emptyReason?: string
 }
 
 type LoadState =
@@ -18,7 +22,14 @@ function relativeFromWorkspace(briefPath: string, workspaceDir: string): string 
   return remainder.replace(/\\/g, '/')
 }
 
-export function RenderedBriefPane({ briefPath, watchDirectoryPath }: Props) {
+export function RenderedBriefPane({
+  briefPath,
+  watchDirectoryPath,
+  title = 'Your brief',
+  unavailableTitle = 'Brief not available',
+  missingReason = 'product/requirements.md has not been written yet.',
+  emptyReason = 'product/requirements.md is empty.',
+}: Props) {
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
 
   useEffect(() => {
@@ -32,7 +43,7 @@ export function RenderedBriefPane({ briefPath, watchDirectoryPath }: Props) {
         if (!exists) {
           setState({
             kind: 'unavailable',
-            reason: 'product/requirements.md has not been written yet.',
+            reason: missingReason,
           })
           return
         }
@@ -41,7 +52,7 @@ export function RenderedBriefPane({ briefPath, watchDirectoryPath }: Props) {
         if (!content.trim()) {
           setState({
             kind: 'unavailable',
-            reason: 'product/requirements.md is empty.',
+            reason: emptyReason,
           })
           return
         }
@@ -78,7 +89,7 @@ export function RenderedBriefPane({ briefPath, watchDirectoryPath }: Props) {
       cancelled = true
       if (stopWatch) void stopWatch()
     }
-  }, [briefPath, watchDirectoryPath])
+  }, [briefPath, watchDirectoryPath, missingReason, emptyReason])
 
   const relativePath = relativeFromWorkspace(briefPath, watchDirectoryPath.replace(/[\\/]+product$/, ''))
 
@@ -87,7 +98,7 @@ export function RenderedBriefPane({ briefPath, watchDirectoryPath }: Props) {
       <header className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 flex-col leading-tight">
           <span className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
-            Your brief
+            {title}
           </span>
           <span className="inline-flex items-center gap-1.5 truncate text-[12px] text-[color:var(--text-muted)]">
             {state.kind === 'ready' ? (
@@ -116,7 +127,7 @@ export function RenderedBriefPane({ briefPath, watchDirectoryPath }: Props) {
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <span className="text-[12px] font-semibold text-[color:var(--tone-warn)]">
-              Brief not available
+              {unavailableTitle}
             </span>
             <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
               {state.reason}

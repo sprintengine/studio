@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { bindTerminalClipboardHandlers } from '../../../utils/terminalClipboard'
 import { createXtermOutputQueue } from '../../../utils/xtermOutputQueue'
 
 type Props = {
@@ -62,6 +63,13 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
     container.addEventListener('mouseup', focusTerminal)
     container.addEventListener('click', focusTerminal)
     container.addEventListener('focus', focusTerminal)
+    const disposeClipboardHandlers = bindTerminalClipboardHandlers({
+      container,
+      term: terminal,
+      sessionId,
+      focusTerminal,
+      recordKeydown: () => {},
+    })
     const settleTimer = window.setTimeout(() => {
       fitTerminal()
       focusTerminal()
@@ -74,6 +82,7 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
       container.removeEventListener('mouseup', focusTerminal)
       container.removeEventListener('click', focusTerminal)
       container.removeEventListener('focus', focusTerminal)
+      disposeClipboardHandlers()
       disposeData()
       disposeExit()
       disposeError()

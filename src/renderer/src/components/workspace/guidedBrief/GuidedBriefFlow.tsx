@@ -11,7 +11,7 @@ import {
   GuidedBriefWorkspaceError,
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
-import { CloseIconButton, StatusDot, Tooltip, WizardProgress } from '../../ui'
+import { CloseIconButton, StatusDot, Tabs, Tooltip, WizardProgress, type TabItem } from '../../ui'
 import { SprintEngineRosterTable } from '../newWorkspace/SprintEngineRosterTable'
 import { CliPermissionPresetRow } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
@@ -455,6 +455,8 @@ export function GuidedBriefFlow({
             errorMessage={designer.error}
             isLive={designer.status === 'running' || designer.status === 'ready'}
             mockups={designer.mockups}
+            uiDirectionPath={designer.uiDirectionPath}
+            productDirectoryPath={joinWorkspacePath(workspaceRoot, 'product')}
             mockupsDirectoryPath={designer.mockupsDirectoryPath}
           />
         ) : (
@@ -755,6 +757,8 @@ function DesignerBody({
   errorMessage,
   isLive,
   mockups,
+  uiDirectionPath,
+  productDirectoryPath,
   mockupsDirectoryPath,
 }: {
   stage: GuidedBriefStage
@@ -763,6 +767,8 @@ function DesignerBody({
   errorMessage: string | null
   isLive: boolean
   mockups: DesignerMockupFile[]
+  uiDirectionPath: string
+  productDirectoryPath: string
   mockupsDirectoryPath: string
 }) {
   const ready = stage === 'designer-ready'
@@ -786,9 +792,62 @@ function DesignerBody({
         isLive={isLive}
       />
       {ready ? (
-        <MockupPreviewPane mockups={mockups} watchDirectoryPath={mockupsDirectoryPath} />
+        <DesignerReviewPane
+          mockups={mockups}
+          mockupsDirectoryPath={mockupsDirectoryPath}
+          uiDirectionPath={uiDirectionPath}
+          productDirectoryPath={productDirectoryPath}
+        />
       ) : null}
     </div>
+  )
+}
+
+type DesignerReviewTab = 'mockup' | 'direction'
+
+function DesignerReviewPane({
+  mockups,
+  mockupsDirectoryPath,
+  uiDirectionPath,
+  productDirectoryPath,
+}: {
+  mockups: DesignerMockupFile[]
+  mockupsDirectoryPath: string
+  uiDirectionPath: string
+  productDirectoryPath: string
+}) {
+  const [activeTab, setActiveTab] = useState<DesignerReviewTab>('mockup')
+  const tabs: TabItem<DesignerReviewTab>[] = [
+    { id: 'mockup', label: 'Mockup', count: mockups.length },
+    { id: 'direction', label: 'UI direction' },
+  ]
+
+  return (
+    <section
+      aria-label="Designer review artifacts"
+      className="flex h-full min-h-0 flex-col gap-3"
+    >
+      <Tabs<DesignerReviewTab>
+        ariaLabel="Designer review artifacts"
+        items={tabs}
+        value={activeTab}
+        onChange={setActiveTab}
+      />
+      <div className="min-h-0 flex-1">
+        {activeTab === 'mockup' ? (
+          <MockupPreviewPane mockups={mockups} watchDirectoryPath={mockupsDirectoryPath} />
+        ) : (
+          <RenderedBriefPane
+            briefPath={uiDirectionPath}
+            watchDirectoryPath={productDirectoryPath}
+            title="UI direction"
+            unavailableTitle="UI direction not available"
+            missingReason="product/ui-direction.md has not been written yet."
+            emptyReason="product/ui-direction.md is empty."
+          />
+        )}
+      </div>
+    </section>
   )
 }
 
