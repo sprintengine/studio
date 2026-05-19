@@ -142,6 +142,20 @@ class SwitchboardCliTests(unittest.TestCase):
 
         self.assertEqual(command, [str(codex), "exec", "--dangerously-bypass-approvals-and-sandbox", "-"])
 
+    def test_store_public_imports_resolve_to_focused_modules(self) -> None:
+        import switchboard_core.store as store
+
+        self.assertTrue(callable(store.init_workspace))
+        self.assertTrue(callable(store.runner_start))
+        self.assertTrue(callable(store.materialize_runner_command))
+        self.assertTrue(callable(store.prepare_electron_session_execution))
+        self.assertTrue(callable(store.assess_agent))
+        self.assertEqual(store.init_workspace.__module__, "switchboard_core.store.paths")
+        self.assertEqual(store.runner_start.__module__, "switchboard_core.store.runner_state")
+        self.assertEqual(store.materialize_runner_command.__module__, "switchboard_core.store.runner_commands")
+        self.assertEqual(store.prepare_electron_session_execution.__module__, "switchboard_core.store.electron_execution")
+        self.assertEqual(store.assess_agent.__module__, "switchboard_core.store.assessments")
+
     def test_runner_command_for_claude_uses_interactive_shape(self) -> None:
         claude = self.fake_cli_on_path("claude")
 
@@ -265,9 +279,9 @@ class SwitchboardCliTests(unittest.TestCase):
             },
         ]
 
-        with patch("switchboard_core.store.read_github_issue_comments", return_value=own_comments):
+        with patch("switchboard_core.store.github_sync.read_github_issue_comments", return_value=own_comments):
             self.assertIsNone(active_github_claim_for_issue(self.workspace, ref, task_id="same-task"))
-        with patch("switchboard_core.store.read_github_issue_comments", return_value=conflict_comments):
+        with patch("switchboard_core.store.github_sync.read_github_issue_comments", return_value=conflict_comments):
             conflict = active_github_claim_for_issue(self.workspace, ref, task_id="new-task")
 
         self.assertIsNotNone(conflict)
@@ -282,7 +296,7 @@ class SwitchboardCliTests(unittest.TestCase):
             stderr="",
         )
 
-        with patch("switchboard_core.store.require_gh"), patch("switchboard_core.store.run_gh_checked", return_value=completed) as run_gh:
+        with patch("switchboard_core.store.github_sync.require_gh"), patch("switchboard_core.store.github_sync.run_gh_checked", return_value=completed) as run_gh:
             comments = read_github_issue_comments(self.workspace, ref)
 
         self.assertEqual([comment["id"] for comment in comments], [1, 2])
@@ -312,7 +326,7 @@ class SwitchboardCliTests(unittest.TestCase):
             },
         }
 
-        with patch("switchboard_core.store.post_or_update_github_issue_comment") as post:
+        with patch("switchboard_core.store.github_sync.post_or_update_github_issue_comment") as post:
             retire_github_remote_claim(self.workspace, task, state="testing", body="Published to testing.")
 
         self.assertEqual(post.call_args.kwargs["event"], "claim")
@@ -329,10 +343,10 @@ class SwitchboardCliTests(unittest.TestCase):
         }
 
         with (
-            patch("switchboard_core.store.active_github_claim_for_issue", return_value=None),
-            patch("switchboard_core.store.has_active_github_claim_for_task", return_value=False),
-            patch("switchboard_core.store.remote_branch_exists", return_value=True),
-            patch("switchboard_core.store.post_or_update_github_issue_comment") as post,
+            patch("switchboard_core.store.github_sync.active_github_claim_for_issue", return_value=None),
+            patch("switchboard_core.store.github_sync.has_active_github_claim_for_task", return_value=False),
+            patch("switchboard_core.store.github_sync.remote_branch_exists", return_value=True),
+            patch("switchboard_core.store.github_sync.post_or_update_github_issue_comment") as post,
         ):
             prepare_github_remote_claim(self.workspace, task, owner="developer-1", branch="switchboard/issue-123")
 
