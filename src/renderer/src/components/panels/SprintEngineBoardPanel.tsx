@@ -371,6 +371,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  // `fixedTasksLayout` the switcher is hidden and the pinned value wins.
  const [activeTasksLayout, setActiveTasksLayout] = useState<SprintEngineTasksLayout>('kanban')
  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+ const [inspectorExpanded, setInspectorExpanded] = useState(false)
  const [spawnDialog, setSpawnDialog] = useState<SpawnDialogState | null>(null)
  const [recoveryDialog, setRecoveryDialog] = useState<RecoveryDialogState | null>(null)
  const [cliPickerOpen, setCliPickerOpen] = useState(false)
@@ -485,6 +486,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
 
  return {
  agentId: agent.id,
+ label: agent.label,
  role: runtime?.role ?? agent.role,
  status: localExited ? 'exited' : runtime?.status ?? 'idle',
  currentTaskId: runtime?.currentTaskId ?? null,
@@ -646,6 +648,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  // Close the docked task-detail inspector with Escape from non-kanban
  // surfaces. The Kanban layout owns its own Escape handler scoped to the
  // board grid; everywhere else this global listener restores focus.
+ // Two-stage: collapse an expanded inspector first, close on a second press.
  const tasksKanbanActive = effectiveView === 'tasks' && effectiveTasksLayout === 'kanban'
  useEffect(() => {
  if (!selectedTaskId || tasksKanbanActive) return
@@ -653,11 +656,15 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  if (event.key !== 'Escape') return
  if (isEditableTarget(event.target)) return
  event.preventDefault()
+ if (inspectorExpanded) {
+ setInspectorExpanded(false)
+ return
+ }
  setSelectedTaskId(null)
  }
  window.addEventListener('keydown', onKeyDown)
  return () => window.removeEventListener('keydown', onKeyDown)
- }, [selectedTaskId, tasksKanbanActive])
+ }, [selectedTaskId, tasksKanbanActive, inspectorExpanded])
 
  const handleKanbanKeyDown = useCallback(
  (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -666,6 +673,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  if (event.metaKey || event.ctrlKey || event.altKey) return
 
  if (event.key === 'Escape') {
+ if (inspectorExpanded) {
+ event.preventDefault()
+ setInspectorExpanded(false)
+ return
+ }
  if (selectedTaskId !== null) {
  event.preventDefault()
  setSelectedTaskId(null)
@@ -720,7 +732,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  else if (event.key === 'ArrowRight' || event.key === 'l') goHorizontal(1)
  else if (event.key === 'ArrowLeft' || event.key === 'h') goHorizontal(-1)
  },
- [boardColumns, tasksKanbanActive, selectedTaskId]
+ [boardColumns, tasksKanbanActive, selectedTaskId, inspectorExpanded]
  )
 
  const reviewArtifacts = useMemo(
@@ -1140,7 +1152,16 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  setSelectedAgentId(null)
  setSelectedArtifactId(null)
  setPreviewedArtifact(null)
+ setInspectorExpanded(false)
  }
+ const toggleInspectorExpanded = () => {
+ setInspectorExpanded((prev) => !prev)
+ }
+ // Expand state is meaningless when nothing is selected; reset it so a
+ // future selection starts in the default (split) layout.
+ useEffect(() => {
+ if (!inspectorSelection && inspectorExpanded) setInspectorExpanded(false)
+ }, [inspectorSelection, inspectorExpanded])
  // Inspector body, sans wrapper chrome. The project view embeds this in
  // the focal center slot when something is selected; task-graph and kanban
  // views keep the right-side aside via renderInspectorAside().
@@ -1167,13 +1188,15 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  onSpawnAgent={openSpawnDialog}
  onOpenAgentTerminal={openAgentTerminal}
  isAgentTerminalLive={isAgentTerminalLive}
+ isExpanded={inspectorExpanded}
+ onToggleExpand={toggleInspectorExpanded}
  />
  ) : null
  const renderInspectorAside = () => {
  const panel = renderInspectorPanel()
  if (!panel) return null
  return (
- <SidePane side="right" width="md" ariaLabel="Sprint Engine inspector">
+ <SidePane side="right" width="md" expanded={inspectorExpanded} ariaLabel="Sprint Engine inspector">
  {panel}
  </SidePane>
  )
@@ -1705,6 +1728,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  onSelectArtifact={setSelectedArtifactId}
  onSelectTask={setSelectedTaskId}
  inspectorContent={renderInspectorPanel()}
+ inspectorExpanded={inspectorExpanded}
  />
  </div>
  ) : null}
@@ -1728,6 +1752,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  }}
  isAgentTerminalLive={isAgentTerminalLive}
  inspectorContent={renderInspectorPanel()}
+ inspectorExpanded={inspectorExpanded}
  />
  </div>
  ) : null}
@@ -1773,7 +1798,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  ) : null}
 
  <div className="flex min-h-0 flex-1">
- {effectiveTasksLayout === 'graph' ? (
+ {inspectorExpanded ? null : effectiveTasksLayout === 'graph' ? (
  <SprintEngineTaskGraphView
  sprintEngineState={sprintEngineState}
  rosterById={rosterById}
@@ -2311,6 +2336,7 @@ function SprintEngineInboxView({
  onSelectArtifact,
  onSelectTask,
  inspectorContent,
+ inspectorExpanded,
 }: {
  sprintEngineState: SprintEngineState
  reviewArtifacts: SprintEngineArtifact[]
@@ -2319,6 +2345,7 @@ function SprintEngineInboxView({
  onSelectArtifact: (artifactId: string | null) => void
  onSelectTask: (taskId: string) => void
  inspectorContent: React.ReactNode
+ inspectorExpanded: boolean
 }) {
  const tasksById = useMemo(
  () => Object.fromEntries(sprintEngineState.tasks.map((task) => [task.id, task])),
@@ -2412,6 +2439,7 @@ function SprintEngineInboxView({
 
  return (
  <div className="flex min-h-0 flex-1 min-w-0">
+ {inspectorExpanded ? null : (
  <SidePane as="section" side="left" width="lg" ariaLabelledBy={SPRINTENGINE_INBOX_TITLE_ID}>
  <PanelHeader
  title="Inbox"
@@ -2479,6 +2507,7 @@ function SprintEngineInboxView({
  ) : null}
  </div>
  </SidePane>
+ )}
 
  {hasInspector ? (
  <section
@@ -2514,6 +2543,7 @@ function SprintEngineRosterView({
  onAddRole,
  isAgentTerminalLive,
  inspectorContent,
+ inspectorExpanded,
 }: {
  sprintEngineState: SprintEngineState
  roster: SprintEngineAgentRosterItem[]
@@ -2524,6 +2554,7 @@ function SprintEngineRosterView({
  onAddRole: (role: SprintEngineRole) => void
  isAgentTerminalLive: (agentId: string) => boolean
  inspectorContent: React.ReactNode
+ inspectorExpanded: boolean
 }) {
  const rosterCountByRole = useMemo(() => {
  const counts = Object.fromEntries(addableRoles.map((role) => [role, 0])) as Record<SprintEngineRole, number>
@@ -2537,6 +2568,7 @@ function SprintEngineRosterView({
 
  return (
  <div className="flex min-h-0 flex-1 min-w-0">
+ {inspectorExpanded ? null : (
  <SidePane as="section" side="left" width="lg" ariaLabel="Roster agents">
  <div className="flex-1 overflow-auto">
  {roster.length === 0 ? (
@@ -2641,6 +2673,7 @@ function SprintEngineRosterView({
  </div>
  </section>
  </SidePane>
+ )}
 
  {hasInspector ? (
  <section

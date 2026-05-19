@@ -35,6 +35,10 @@ type SidePaneProps = {
   side: 'left' | 'right'
   /** Width preset; see comment header for the per-token mapping. */
   width?: WidthPreset
+  /** When true, the pane fills the available flex row (caller is responsible
+   *  for hiding the adjacent content). The side divider is dropped since
+   *  there is no neighbouring surface to separate from. */
+  expanded?: boolean
   /** Render the pane with `--bg-app` instead of inheriting the panel's
    *  surface. Used for "sunken" secondary asides (running agents, active
    *  review) that benefit from a quiet shade contrast against the lane. */
@@ -49,6 +53,7 @@ export function SidePane({
   as = 'aside',
   side,
   width = 'md',
+  expanded = false,
   tone = 'default',
   ariaLabel,
   ariaLabelledBy,
@@ -57,8 +62,12 @@ export function SidePane({
 }: SidePaneProps) {
   const classes = [
     'flex flex-col',
-    WIDTH_PRESETS[width],
-    side === 'left' ? 'border-r border-[color:var(--border-default)]' : 'border-l border-[color:var(--border-default)]',
+    expanded ? 'min-w-0 w-full max-w-none flex-1' : WIDTH_PRESETS[width],
+    expanded
+      ? ''
+      : side === 'left'
+        ? 'border-r border-[color:var(--border-default)]'
+        : 'border-l border-[color:var(--border-default)]',
     tone === 'sunken' ? 'bg-[color:var(--bg-app)]' : '',
     className ?? '',
   ]

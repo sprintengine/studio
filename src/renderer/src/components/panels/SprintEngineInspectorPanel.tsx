@@ -13,16 +13,19 @@
 // passes hydrated derived values via props rather than letting the inspector
 // reach back into the store directly.
 
-import React, { useMemo, useState } from 'react'
+import React, { useCallback, useId, useMemo, useState } from 'react'
 import type {
   SprintEngineArtifact,
   SprintEngineQualityGate,
+  SprintEngineQualityGateAttempt,
   SprintEngineQualityGatePhase,
   SprintEngineTask,
   SprintEngineTaskActivityEntry,
   SprintEngineTaskActivityType,
   SprintEngineTaskBoardColumn,
   SprintEngineTaskComment,
+  SprintEngineTaskDiff,
+  SprintEngineTaskDiffLine,
   SprintEngineTaskFeedbackFinding,
   SprintEngineTaskFeedbackIssue,
 } from '../../types/workspace'
@@ -55,11 +58,15 @@ import {
   FilePreviewPane,
   FOCUS_RING_CLASS,
   GhostButton,
+  IconButton,
   InboxRow,
   PrimaryButton,
   RoleAvatar,
   StatusDot,
+  TabPanel,
+  Tabs,
   type DefinitionItem,
+  type TabItem,
   type Tone,
 } from '../ui'
 import {
@@ -212,11 +219,161 @@ function qualityGateStatusTone(status: SprintEngineQualityGate['status']): Tone 
   }
 }
 
+// Gate attempt glyph trail — shows the rework story (changes_requested →
+// approved) without repeating the verdict text. Tone-warn highlights only the
+// rework leg; approvals stay muted so a clean first-pass reads as calm.
+function GateAttemptGlyph({
+  attempt,
+  className,
+}: {
+  attempt: SprintEngineQualityGateAttempt
+  className?: string
+}) {
+  const inFlight = Boolean(attempt.startedAt) && !attempt.completedAt
+  const verdict = inFlight ? 'in_flight' : (attempt.verdict ?? attempt.status ?? 'in_flight')
+
+  if (verdict === 'approved') {
+    return (
+      <svg className={className} viewBox="0 0 12 12" fill="none" role="img" aria-label="approved">
+        <title>approved</title>
+        <path
+          d="M2.8 6.4 L5 8.4 L9.2 4.2"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    )
+  }
+
+  if (verdict === 'changes_requested') {
+    return (
+      <svg
+        className={className}
+        viewBox="0 0 12 12"
+        fill="none"
+        role="img"
+        aria-label="changes requested"
+      >
+        <title>changes requested</title>
+        <path
+          d="M9.2 6.4 a3.2 3.2 0 1 1 -1.1 -2.4"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+        />
+        <path
+          d="M8.1 2.4 L8.1 4.0 L6.5 4.0"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    )
+  }
+
+  if (verdict === 'blocked') {
+    return (
+      <svg className={className} viewBox="0 0 12 12" fill="none" role="img" aria-label="blocked">
+        <title>blocked</title>
+        <circle cx="6" cy="6" r="3.5" stroke="currentColor" strokeWidth="1.4" />
+        <path
+          d="M3.6 8.4 L8.4 3.6"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+        />
+      </svg>
+    )
+  }
+
+  return (
+    <svg className={className} viewBox="0 0 12 12" fill="none" role="img" aria-label="in review">
+      <title>in review</title>
+      <circle
+        cx="6"
+        cy="6"
+        r="3.5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeDasharray="1.5 1.4"
+      />
+    </svg>
+  )
+}
+
+function gateAttemptToneClass(attempt: SprintEngineQualityGateAttempt): string {
+  const inFlight = Boolean(attempt.startedAt) && !attempt.completedAt
+  if (inFlight) return 'text-[color:var(--text-muted)]'
+  const verdict = attempt.verdict ?? attempt.status
+  if (verdict === 'changes_requested' || verdict === 'blocked') {
+    return 'text-[color:var(--tone-warn)]'
+  }
+  return 'text-[color:var(--text-disabled)]'
+}
+
+function AcceptanceCheckbox({ checked }: { checked: boolean }) {
+  if (checked) {
+    return (
+      <svg
+        className="icon-xs text-[color:var(--tone-good)]"
+        viewBox="0 0 12 12"
+        fill="none"
+        role="img"
+        aria-label="met"
+      >
+        <title>met</title>
+        <circle cx="6" cy="6" r="5" fill="currentColor" opacity="0.18" />
+        <path
+          d="M3.6 6.3 L5.4 8 L8.6 4.4"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    )
+  }
+  return (
+    <svg
+      className="icon-xs text-[color:var(--text-disabled)]"
+      viewBox="0 0 12 12"
+      fill="none"
+      role="img"
+      aria-label="pending"
+    >
+      <title>pending</title>
+      <circle cx="6" cy="6" r="4.6" stroke="currentColor" strokeWidth="1.1" />
+    </svg>
+  )
+}
+
+function GateAttemptTrail({ attempts }: { attempts: SprintEngineQualityGateAttempt[] }) {
+  if (attempts.length === 0) return null
+  return (
+    <span
+      className="inline-flex items-center gap-1"
+      aria-label={`${attempts.length} attempt${attempts.length === 1 ? '' : 's'}`}
+    >
+      {attempts.map((attempt, index) => (
+        <GateAttemptGlyph
+          key={attempt.id ?? `attempt-${index}`}
+          attempt={attempt}
+          className={`icon-xs ${gateAttemptToneClass(attempt)}`}
+        />
+      ))}
+    </span>
+  )
+}
+
 function TaskCommentRow({ comment }: { comment: SprintEngineTaskComment }) {
   const label = comment.type ? sprintEngineTaskCommentTypeLabels[comment.type] : 'Comment'
   const authorLabel = comment.authorAgentId ?? comment.actor
   const absolute = comment.createdAt ? new Date(comment.createdAt).toLocaleString() : undefined
   const relative = comment.createdAt ? formatRelativeTime(comment.createdAt) : '—'
+  const [expanded, setExpanded] = useState(false)
   return (
     <div>
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[11px]">
@@ -232,9 +389,12 @@ function TaskCommentRow({ comment }: { comment: SprintEngineTaskComment }) {
           {relative}
         </span>
       </div>
-      <div className="mt-1 text-[12px] leading-5 text-[color:var(--text-default)] [overflow-wrap:anywhere]">
-        {comment.body}
-      </div>
+      <CollapsibleMessage
+        message={comment.body}
+        expanded={expanded}
+        onToggle={() => setExpanded((prev) => !prev)}
+        className="mt-1 text-[12px] leading-5 text-[color:var(--text-default)] [overflow-wrap:anywhere]"
+      />
       {comment.paths && comment.paths.length > 0 ? (
         <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
           {comment.paths.map((path) => (
@@ -380,6 +540,8 @@ function SprintEngineArtifactInspector({
   onApproveArtifact,
   onRequestArtifactChanges,
   onSelectTask,
+  isExpanded,
+  onToggleExpand,
 }: {
   artifact: SprintEngineArtifact
   task: SprintEngineTask | undefined
@@ -389,6 +551,8 @@ function SprintEngineArtifactInspector({
   onApproveArtifact: (artifact: SprintEngineArtifact) => void
   onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
   onSelectTask: (taskId: string) => void
+  isExpanded: boolean
+  onToggleExpand: () => void
 }) {
   const isSourceHandoff = artifact.id === SOURCE_HANDOFF_ARTIFACT_ID
   const tone = sprintEngineInboxRowTone(artifact)
@@ -472,7 +636,12 @@ function SprintEngineArtifactInspector({
               {artifact.title}
             </h3>
           </div>
-          <CloseIconButton onClick={onClose} aria-label="Close artifact detail" />
+          <InspectorChromeActions
+            expanded={isExpanded}
+            onToggleExpand={onToggleExpand}
+            onClose={onClose}
+            closeLabel="Close artifact detail"
+          />
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {canOpenArtifact ? (
@@ -711,14 +880,16 @@ function findGateAgent(
   const claimed = gate.attempts
     .map((attempt) => attempt.claimedBy)
     .filter((id): id is string => Boolean(id))
-  for (const agentId of claimed) {
+  for (const agentId of [...claimed].reverse()) {
     const agent = runtimeAgents.find((entry) => entry.agentId === agentId)
     if (agent) return agent
   }
   const byRoleOnThisTask = runtimeAgents.find(
     (entry) => entry.role === gate.role && entry.currentTaskId === task.id,
   )
-  return byRoleOnThisTask ?? null
+  if (byRoleOnThisTask) return byRoleOnThisTask
+
+  return runtimeAgents.find((entry) => entry.role === gate.role) ?? null
 }
 
 function TaskOwnerLine({
@@ -740,7 +911,7 @@ function TaskOwnerLine({
   const ownerStatus = ownerAgent?.status ?? null
   const ownerAgentId = task.ownerAgentId
   const hasLiveTerminal = ownerAgentId ? isAgentTerminalLive(ownerAgentId) : false
-  const canOpenTerminal = Boolean(ownerAgentId && hasLiveTerminal)
+  const canOpenTerminal = Boolean(ownerAgentId)
 
   const identityCluster = (
     <>
@@ -831,50 +1002,57 @@ function TaskQualityGates({
       <ul className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
         {ordered.map((gate) => {
           const agent = findGateAgent(gate, task, runtimeAgents)
-          const isInProgress = gate.status === 'in_progress'
           const agentHasLiveTerminal = agent ? isAgentTerminalLive(agent.agentId) : false
-          const showOpenTerminal = isInProgress && agent && agentHasLiveTerminal
-          const latestAttempt = gate.attempts[gate.attempts.length - 1]
+          const gateIdentity = (
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <RoleAvatar role={gate.role} size="sm" ariaLabel="" />
+              <span className="truncate">{agent?.label ?? sprintEngineRoleLabels[gate.role]}</span>
+            </span>
+          )
           return (
             <li
               key={`${gate.phase}:${gate.id}`}
-              className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 py-2"
+              className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 py-2"
             >
               <StatusDot tone={qualityGateStatusTone(gate.status)} />
               <div className="min-w-0">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-[12.5px] text-[color:var(--text-strong)]">
-                    {sprintEngineRoleLabels[gate.role]}
-                  </span>
+                  {agent ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenAgentTerminal(agent.agentId)}
+                      aria-label={`Open ${agent.label} terminal`}
+                      className={
+                        'interactive -mx-1 inline-flex min-w-0 items-center rounded px-1 py-0.5 ' +
+                        'text-[12.5px] text-[color:var(--text-strong)] transition-colors ' +
+                        'hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ' +
+                        FOCUS_RING_CLASS
+                      }
+                    >
+                      {gateIdentity}
+                    </button>
+                  ) : (
+                    <span className="inline-flex min-w-0 items-center text-[12.5px] text-[color:var(--text-strong)]">
+                      {gateIdentity}
+                    </span>
+                  )}
+                  <GateAttemptTrail attempts={gate.attempts} />
                   <span className="text-[11px] text-[color:var(--text-muted)]">
                     {sprintEngineQualityGateStatusLabels[gate.status]}
                   </span>
+                  {agentHasLiveTerminal ? (
+                    <span className="text-[10px] text-[color:var(--text-disabled)]">live</span>
+                  ) : null}
                   {!gate.required ? (
                     <span className="text-[11px] text-[color:var(--text-disabled)]">optional</span>
                   ) : null}
                 </div>
-                {latestAttempt?.verdict ? (
-                  <div className="mt-0.5 truncate text-[11px] text-[color:var(--text-muted)]">
-                    {latestAttempt.verdict}
-                    {latestAttempt.actor ? ` · ${latestAttempt.actor}` : ''}
-                  </div>
-                ) : gate.focus ? (
+                {gate.attempts.length === 0 && gate.focus ? (
                   <div className="mt-0.5 truncate text-[11px] text-[color:var(--text-muted)]">
                     {gate.focus}
                   </div>
                 ) : null}
               </div>
-              {showOpenTerminal && agent ? (
-                <button
-                  type="button"
-                  onClick={() => onOpenAgentTerminal(agent.agentId)}
-                  className="interactive rounded px-2 py-1 text-[11px] font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--accent-primary-soft)]"
-                >
-                  Open terminal
-                </button>
-              ) : (
-                <span aria-hidden="true" />
-              )}
             </li>
           )
         })}
@@ -1044,21 +1222,139 @@ function activityEntryTone(entry: SprintEngineTaskActivityEntry): Tone {
   return 'neutral'
 }
 
+// Boilerplate "{actor} did X on {task}" messages duplicate the verb chip and
+// add no signal — suppress for these types. Real prose lives on comments,
+// needs_input resolutions, artifacts, and system events.
+const SUPPRESS_ACTIVITY_MESSAGE_TYPES = new Set<SprintEngineTaskActivityType>([
+  'claim',
+  'evidence',
+  'status_change',
+  'feedback',
+])
+
+// Coalesce consecutive identical-actor/type events within this window into one
+// row with a ×N count. Only applied to types where rapid bursts are noise
+// (evidence emissions on `task publish`).
+const ACTIVITY_COALESCE_WINDOW_MS = 5 * 60 * 1000
+const COALESCIBLE_ACTIVITY_TYPES = new Set<SprintEngineTaskActivityType>(['evidence'])
+
+// Long-prose preview cap; comment / needs-input resolutions / artifact notes
+// exceeding this are clipped with a "Show more" toggle.
+const LONG_MESSAGE_PREVIEW_LIMIT = 280
+
+type ActivityGroup = {
+  key: string
+  primary: SprintEngineTaskActivityEntry
+  members: SprintEngineTaskActivityEntry[]
+}
+
+function groupActivityEntries(entries: SprintEngineTaskActivityEntry[]): ActivityGroup[] {
+  const groups: ActivityGroup[] = []
+  for (const entry of entries) {
+    const last = groups[groups.length - 1]
+    const lastMember = last ? last.members[last.members.length - 1] : null
+    const coalescible =
+      Boolean(last) &&
+      Boolean(lastMember) &&
+      COALESCIBLE_ACTIVITY_TYPES.has(entry.type) &&
+      last!.primary.type === entry.type &&
+      last!.primary.actor === entry.actor &&
+      Math.abs(
+        new Date(lastMember!.timestamp).getTime() - new Date(entry.timestamp).getTime(),
+      ) <= ACTIVITY_COALESCE_WINDOW_MS
+    if (coalescible) {
+      last!.members.push(entry)
+    } else {
+      groups.push({ key: entry.id, primary: entry, members: [entry] })
+    }
+  }
+  return groups
+}
+
+function activityMessageIsVisible(entry: SprintEngineTaskActivityEntry): boolean {
+  if (!entry.message) return false
+  if (SUPPRESS_ACTIVITY_MESSAGE_TYPES.has(entry.type)) return false
+  return true
+}
+
+function CollapsibleMessage({
+  message,
+  expanded,
+  onToggle,
+  className,
+}: {
+  message: string
+  expanded: boolean
+  onToggle: () => void
+  className?: string
+}) {
+  const isLong = message.length > LONG_MESSAGE_PREVIEW_LIMIT
+  if (!isLong) {
+    return <div className={className}>{message}</div>
+  }
+  const display = expanded
+    ? message
+    : `${message.slice(0, LONG_MESSAGE_PREVIEW_LIMIT).trimEnd()}…`
+  return (
+    <div className={className}>
+      <span>{display}</span>{' '}
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className={
+          'interactive text-[11px] text-[color:var(--text-muted)] underline-offset-2 ' +
+          'transition-colors hover:text-[color:var(--text-strong)] hover:underline ' +
+          FOCUS_RING_CLASS
+        }
+      >
+        {expanded ? 'Show less' : 'Show more'}
+      </button>
+    </div>
+  )
+}
+
 function activityVerb(entry: SprintEngineTaskActivityEntry): string {
   switch (entry.type) {
     case 'comment':
       return 'commented'
     case 'status_change':
-      return entry.status ? `moved to ${entry.status.replace(/_/g, ' ')}` : 'changed status'
+      switch (entry.status) {
+        case 'changes_requested':
+          return 'requested changes'
+        case 'needs_input':
+          return 'asked for input'
+        case 'in_progress':
+          return 'resumed work'
+        case 'review':
+          return 'published for review'
+        case 'testing':
+          return 'moved to testing'
+        case 'product':
+          return 'moved to product review'
+        case 'done':
+          return 'completed'
+        case 'canceled':
+          return 'canceled'
+        case 'ready':
+          return 'marked ready'
+        case 'todo':
+          return 'moved to todo'
+        default:
+          return entry.status ? `moved to ${entry.status.replace(/_/g, ' ')}` : 'changed status'
+      }
     case 'claim':
       return 'claimed'
     case 'evidence':
       return 'recorded evidence'
     case 'feedback':
-      return 'captured feedback'
+      return 'logged feedback'
     case 'needs_input':
-      return 'flagged needs input'
+      return 'asked for input'
     case 'artifact':
+      if (entry.artifactStatus === 'approved') return 'approved artifact'
+      if (entry.artifactStatus === 'changes_requested') return 'requested artifact changes'
+      if (entry.artifactStatus === 'ready_for_review') return 'submitted artifact'
       return entry.artifactStatus
         ? `artifact ${entry.artifactStatus.replace(/_/g, ' ')}`
         : 'recorded artifact'
@@ -1077,11 +1373,23 @@ function TaskActivityFeed({
   emptyLabel: string
 }) {
   const [filter, setFilter] = useState<ActivityFilter>('all')
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(() => new Set())
 
   const filteredEntries = useMemo(() => {
     if (filter === 'all') return entries
     return entries.filter((entry) => ACTIVITY_TYPE_TO_FILTER[entry.type] === filter)
   }, [entries, filter])
+
+  const groups = useMemo(() => groupActivityEntries(filteredEntries), [filteredEntries])
+
+  const toggleExpanded = useCallback((id: string) => {
+    setExpandedMessages((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
 
   return (
     <div>
@@ -1109,19 +1417,23 @@ function TaskActivityFeed({
         </div>
       </div>
 
-      {filteredEntries.length === 0 ? (
+      {groups.length === 0 ? (
         <div className="text-[12px] text-[color:var(--text-disabled)]">
           {entries.length === 0 ? emptyLabel : 'No entries match this filter.'}
         </div>
       ) : (
         <ol className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
-          {filteredEntries.map((entry) => {
+          {groups.map((group) => {
+            const entry = group.primary
+            const count = group.members.length
             const tone = activityEntryTone(entry)
             const absolute = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : undefined
             const relative = entry.timestamp ? formatRelativeTime(entry.timestamp) : '—'
+            const showMessage = activityMessageIsVisible(entry)
+            const expanded = expandedMessages.has(entry.id)
             return (
               <li
-                key={entry.id}
+                key={group.key}
                 className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-2 py-2.5 text-[12px] leading-5 text-[color:var(--text-default)]"
               >
                 <span className="mt-[0.35rem]">
@@ -1133,10 +1445,20 @@ function TaskActivityFeed({
                       {entry.actor}
                     </span>
                     <span>{activityVerb(entry)}</span>
+                    {count > 1 ? (
+                      <span className="tabular-nums text-[color:var(--text-disabled)]">
+                        ×{count}
+                      </span>
+                    ) : null}
                   </div>
-                  <div className="mt-0.5 text-[color:var(--text-default)] [overflow-wrap:anywhere]">
-                    {entry.message}
-                  </div>
+                  {showMessage ? (
+                    <CollapsibleMessage
+                      message={entry.message}
+                      expanded={expanded}
+                      onToggle={() => toggleExpanded(entry.id)}
+                      className="mt-0.5 text-[color:var(--text-default)] [overflow-wrap:anywhere]"
+                    />
+                  ) : null}
                 </div>
                 <span
                   title={absolute}
@@ -1169,9 +1491,213 @@ function TaskOpenFeedbackComments({ comments }: { comments: SprintEngineTaskComm
   )
 }
 
+const taskDiffStatusLabels: Record<SprintEngineTaskDiff['status'], string> = {
+  added: 'Added',
+  modified: 'Modified',
+  deleted: 'Deleted',
+  renamed: 'Renamed',
+  copied: 'Copied',
+  type_changed: 'Type changed',
+  unmerged: 'Unmerged',
+  unknown: 'Unknown',
+}
+
+// Diff capture runs on `task publish` and `task status --status done`, so the
+// section is only meaningful once a task has reached a post-publish state.
+const diffCaptureStatuses: ReadonlyArray<SprintEngineTask['status']> = [
+  'review',
+  'testing',
+  'product',
+  'done',
+  'changes_requested',
+]
+
+function diffLineToneClass(line: SprintEngineTaskDiffLine): string {
+  if (line.type === 'added') return 'bg-[color:var(--tone-good-soft)] text-[color:var(--diff-added)]'
+  if (line.type === 'removed') return 'bg-[color:var(--tone-error-soft)] text-[color:var(--diff-removed)]'
+  return 'text-[color:var(--diff-context)]'
+}
+
+function diffLinePrefix(line: SprintEngineTaskDiffLine): string {
+  if (line.type === 'added') return '+'
+  if (line.type === 'removed') return '-'
+  return ' '
+}
+
+function formatDiffMeta(diff: SprintEngineTaskDiff): string {
+  const parts: string[] = [taskDiffStatusLabels[diff.status]]
+  if (diff.oldPath) parts.push(`from ${diff.oldPath}`)
+  if (diff.skippedReason) {
+    parts.push(`skipped (${diff.skippedReason.replace(/_/g, ' ')})`)
+  } else if (diff.binary) {
+    parts.push('binary')
+  }
+  if (diff.truncated) parts.push('truncated')
+  return parts.join(' · ')
+}
+
+function DiffLineRow({ line }: { line: SprintEngineTaskDiffLine }) {
+  return (
+    <div className={`grid min-w-max grid-cols-[3.25rem_3.25rem_1.5rem_minmax(24rem,1fr)] gap-2 px-3 py-0.5 font-mono text-[11px] leading-5 tabular-nums ${diffLineToneClass(line)}`}>
+      <span className="select-none text-right text-[color:var(--text-disabled)]">{line.oldLine ?? ''}</span>
+      <span className="select-none text-right text-[color:var(--text-disabled)]">{line.newLine ?? ''}</span>
+      <span className="select-none text-center">{diffLinePrefix(line)}</span>
+      <span className="whitespace-pre">{line.content || ' '}</span>
+    </div>
+  )
+}
+
+function ChangedFileDiff({ diff }: { diff: SprintEngineTaskDiff }) {
+  if (diff.hunks.length === 0) {
+    return (
+      <div className="border-t border-[color:var(--border-subtle)] px-3 py-2 text-[12px] text-[color:var(--text-disabled)]">
+        No hunks captured for this file.
+      </div>
+    )
+  }
+
+  return (
+    <div className="max-h-[28rem] overflow-auto border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]">
+      {diff.hunks.map((hunk, index) => (
+        <div key={`${diff.path}:${index}`} className="border-b border-[color:var(--border-subtle)] last:border-b-0">
+          <div className="min-w-max px-3 py-1.5 font-mono text-[11px] text-[color:var(--text-muted)]">
+            @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
+            {hunk.section ? <span className="ml-2">{hunk.section}</span> : null}
+          </div>
+          {hunk.lines.map((line, lineIndex) => (
+            <DiffLineRow key={`${line.oldLine ?? 'x'}:${line.newLine ?? 'x'}:${lineIndex}`} line={line} />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ChangedFilesSection({ task }: { task: SprintEngineTask }) {
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
+  const diffs = task.evidence.diffs ?? []
+  const captureExpected = diffCaptureStatuses.includes(task.status)
+
+  if (!captureExpected && diffs.length === 0) return null
+
+  if (diffs.length === 0) {
+    return (
+      <div className="text-[12px] text-[color:var(--text-disabled)]">
+        Diff capture unavailable. Republish the task or check the worker log.
+      </div>
+    )
+  }
+
+  const toggle = (path: string) => {
+    setExpandedPaths((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }
+
+  return (
+    <div className="divide-y divide-[color:var(--border-subtle)] border-t border-[color:var(--border-subtle)]">
+      {diffs.map((diff, index) => {
+          const expandable = diff.hunks.length > 0 && !diff.skippedReason
+          const expanded = expandable && expandedPaths.has(diff.path)
+          const panelId = `task-diff-${index}-${diff.path.replace(/[^A-Za-z0-9_-]+/g, '-')}`
+          const rowContent = (
+            <>
+              <span className="min-w-0">
+                <span className="block font-mono text-[12px] text-[color:var(--text-strong)] [overflow-wrap:anywhere]">
+                  {diff.path}
+                </span>
+                <span className="mt-0.5 block text-[11px] text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
+                  {formatDiffMeta(diff)}
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-3 font-mono text-[11px] tabular-nums">
+                <span className="text-[color:var(--diff-added)]">+{diff.additions}</span>
+                <span className="text-[color:var(--diff-removed)]">-{diff.deletions}</span>
+                <span
+                  aria-hidden="true"
+                  className={`inline-block w-[1ch] text-[color:var(--text-disabled)] transition-transform ${
+                    expandable ? '' : 'invisible'
+                  } ${expanded ? 'rotate-90' : ''}`}
+                >
+                  ›
+                </span>
+              </span>
+            </>
+          )
+          const rowLayout = 'grid w-full grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-2 text-left'
+
+          return (
+            <div key={`${diff.path}:${diff.oldPath ?? ''}:${index}`}>
+              {expandable ? (
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-controls={panelId}
+                  onClick={() => toggle(diff.path)}
+                  className={`${rowLayout} interactive transition-colors hover:bg-[color:var(--bg-hover)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]`}
+                >
+                  {rowContent}
+                </button>
+              ) : (
+                <div className={rowLayout}>{rowContent}</div>
+              )}
+            {expanded ? (
+              <div id={panelId}>
+                <ChangedFileDiff diff={diff} />
+              </div>
+            ) : null}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Inspector panel — task / artifact / agent / preview branches.
 // ──────────────────────────────────────────────────────────────────────────
+
+// Arrows-out (expand) and arrows-in (collapse) corner glyphs. Borderless icon
+// next to CloseIconButton in every closable inspector header. The pattern
+// matches Notion's side-peek and Figma's panel expand.
+function InspectorChromeActions({
+  expanded,
+  onToggleExpand,
+  onClose,
+  closeLabel,
+}: {
+  expanded: boolean
+  onToggleExpand: () => void
+  onClose: () => void
+  closeLabel: string
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-0.5">
+      <IconButton
+        onClick={onToggleExpand}
+        aria-label={expanded ? 'Collapse inspector' : 'Expand inspector'}
+      >
+        <svg className="icon-sm" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          {expanded ? (
+            <>
+              <path d="M11.5 5.5L8.5 5.5L8.5 2.5M8.5 5.5L12.5 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M2.5 8.5L5.5 8.5L5.5 11.5M5.5 8.5L1.5 12.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            </>
+          ) : (
+            <>
+              <path d="M9.5 1.5L12.5 1.5L12.5 4.5M12.5 1.5L8.5 5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M4.5 12.5L1.5 12.5L1.5 9.5M1.5 12.5L5.5 8.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            </>
+          )}
+        </svg>
+      </IconButton>
+      <CloseIconButton onClick={onClose} aria-label={closeLabel} />
+    </div>
+  )
+}
 
 export function SprintEngineInspectorPanel({
   selection,
@@ -1195,6 +1721,8 @@ export function SprintEngineInspectorPanel({
   onSpawnAgent,
   onOpenAgentTerminal,
   isAgentTerminalLive,
+  isExpanded,
+  onToggleExpand,
 }: {
   selection: SprintEngineInspectorSelection
   sprintEngineState: import('../../types/workspace').SprintEngineState
@@ -1217,6 +1745,8 @@ export function SprintEngineInspectorPanel({
   onSpawnAgent: (agentId: string) => void
   onOpenAgentTerminal: (agentId: string) => void
   isAgentTerminalLive: (agentId: string) => boolean
+  isExpanded: boolean
+  onToggleExpand: () => void
 }) {
   if (selection.kind === 'artifact-preview') {
     return (
@@ -1246,6 +1776,8 @@ export function SprintEngineInspectorPanel({
         onApproveArtifact={onApproveArtifact}
         onRequestArtifactChanges={onRequestArtifactChanges}
         onSelectTask={onSelectTask}
+        isExpanded={isExpanded}
+        onToggleExpand={onToggleExpand}
       />
     )
   }
@@ -1277,7 +1809,12 @@ export function SprintEngineInspectorPanel({
               </h3>
               <div className="mt-1 font-mono text-[11px] text-[color:var(--text-disabled)]">{agent.id}</div>
             </div>
-            <CloseIconButton onClick={onClose} aria-label="Close agent detail" />
+            <InspectorChromeActions
+              expanded={isExpanded}
+              onToggleExpand={onToggleExpand}
+              onClose={onClose}
+              closeLabel="Close agent detail"
+            />
           </div>
           <div className="mt-3 flex flex-wrap gap-1.5">
             {hasLiveTerminal ? (
@@ -1369,11 +1906,17 @@ export function SprintEngineInspectorPanel({
               {selectedTask.title}
             </h3>
           </div>
-          <CloseIconButton onClick={onClose} aria-label="Close task detail" />
+          <InspectorChromeActions
+            expanded={isExpanded}
+            onToggleExpand={onToggleExpand}
+            onClose={onClose}
+            closeLabel="Close task detail"
+          />
         </div>
       </header>
 
       <SprintEngineTaskBody
+        key={selectedTask.id}
         selectedTask={selectedTask}
         selectedTaskOwnerLabel={selectedTaskOwnerLabel}
         selectedTaskNeedsInputNote={selectedTaskNeedsInputNote}
@@ -1428,6 +1971,23 @@ function SprintEngineTaskBody({
   const openFindings = getOpenSprintEngineFeedbackFindings(selectedTask.feedback)
   const activityEntries = getSprintEngineTaskActivityDescending(selectedTask)
   const openFeedbackComments = getOpenSprintEngineFeedbackComments(selectedTask)
+  const [view, setView] = useState<'activity' | 'diff'>('activity')
+  const tabIdPrefix = useId()
+  const diffCount = selectedTask.evidence.diffs?.length ?? 0
+  const captureExpected = diffCaptureStatuses.includes(selectedTask.status)
+  const showDiffTab = captureExpected || diffCount > 0
+  const tabItems: TabItem<'activity' | 'diff'>[] = [
+    { id: 'activity', label: 'Activity' },
+    { id: 'diff', label: 'Diff', ...(diffCount > 0 ? { count: diffCount } : {}) },
+  ]
+  const effectiveView = showDiffTab ? view : 'activity'
+
+  const activityStream = (
+    <>
+      <TaskActivityFeed entries={activityEntries} emptyLabel="No activity recorded yet." />
+      <TaskOpenFeedbackComments comments={openFeedbackComments} />
+    </>
+  )
 
   return (
     <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
@@ -1463,10 +2023,13 @@ function SprintEngineTaskBody({
       </div>
 
       {selectedTask.acceptanceCriteria.length > 0 ? (
-        <ul className="space-y-1 text-[12.5px] text-[color:var(--text-default)]">
+        <ul className="space-y-1.5 text-[12.5px] text-[color:var(--text-default)]">
           {selectedTask.acceptanceCriteria.map((criterion) => (
-            <li key={criterion} className="grid grid-cols-[14px_minmax(0,1fr)] items-baseline gap-1">
-              <span className="text-[11px] text-[color:var(--text-disabled)]" aria-hidden="true">·</span>
+            <li
+              key={criterion}
+              className="grid grid-cols-[14px_minmax(0,1fr)] items-baseline gap-2"
+            >
+              <AcceptanceCheckbox checked={selectedTask.status === 'done'} />
               <span className="[overflow-wrap:anywhere]">{criterion}</span>
             </li>
           ))}
@@ -1482,9 +2045,35 @@ function SprintEngineTaskBody({
 
       <TaskScoresLine task={selectedTask} />
 
-      <TaskActivityFeed entries={activityEntries} emptyLabel="No activity recorded yet." />
-
-      <TaskOpenFeedbackComments comments={openFeedbackComments} />
+      {showDiffTab ? (
+        <div>
+          <Tabs<'activity' | 'diff'>
+            ariaLabel="Task detail views"
+            idPrefix={tabIdPrefix}
+            items={tabItems}
+            value={effectiveView}
+            onChange={setView}
+          />
+          <TabPanel
+            idPrefix={tabIdPrefix}
+            tabId="activity"
+            active={effectiveView === 'activity'}
+            className="mt-4 space-y-5"
+          >
+            {activityStream}
+          </TabPanel>
+          <TabPanel
+            idPrefix={tabIdPrefix}
+            tabId="diff"
+            active={effectiveView === 'diff'}
+            className="mt-4"
+          >
+            <ChangedFilesSection task={selectedTask} />
+          </TabPanel>
+        </div>
+      ) : (
+        <div className="space-y-5">{activityStream}</div>
+      )}
 
       {/* Compact details — secondary metadata. Hairline-divided, untitled
           section headings reserved for hierarchy that earns them. */}
@@ -1584,11 +2173,13 @@ function SprintEngineTaskBody({
               items={selectedTask.evidence.results}
               emptyLabel="No test or validation results recorded."
             />
-            <SectionList
-              title="Touched files"
-              items={selectedTask.evidence.touchedFiles}
-              emptyLabel="No touched files recorded."
-            />
+            {selectedTask.evidence.diffs && selectedTask.evidence.diffs.length > 0 ? null : (
+              <SectionList
+                title="Touched files"
+                items={selectedTask.evidence.touchedFiles}
+                emptyLabel="No touched files recorded."
+              />
+            )}
           </div>
         </details>
       </div>

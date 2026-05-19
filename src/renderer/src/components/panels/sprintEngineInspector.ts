@@ -31,6 +31,7 @@ export { formatTimestamp }
 
 export type RuntimeAgentView = {
   agentId: string
+  label: string
   role: SprintEngineRole
   status: string
   currentTaskId: string | null

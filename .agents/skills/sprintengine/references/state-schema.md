@@ -66,6 +66,39 @@ The app uses narrow IPC to request artifact review mutations through the Python 
   - `touchedFiles`
   - `commandsRan`
   - `results`
+  - `diffs` (optional)
+    - Latest task diff snapshot captured by `sprintengine task publish` or
+      `sprintengine task status --status done`.
+    - Rework publishes refresh this latest snapshot rather than appending full
+      duplicate hunk histories.
+    - Entries are project-root-relative and may be skipped or truncated for
+      binary files, secret-sensitive paths, or size limits.
+    - File entry fields:
+      - `path`
+      - `oldPath` (optional; for renames/copies)
+      - `status`: `added`, `modified`, `deleted`, `renamed`, `copied`,
+        `type_changed`, `unmerged`, or `unknown`
+      - `additions`
+      - `deletions`
+      - `capturedAt`
+      - `capturedBy`
+      - `source`: `working_tree`, `staged`, `commit`, or `checkpoint`
+      - `binary`
+      - `truncated`
+      - `skippedReason` (optional)
+      - `hunks`
+    - Hunk fields:
+      - `oldStart`
+      - `oldLines`
+      - `newStart`
+      - `newLines`
+      - `section` (optional)
+      - `lines`
+    - Hunk line fields:
+      - `type`: `context`, `added`, or `removed`
+      - `oldLine`
+      - `newLine`
+      - `content`
 - `feedback` (optional)
   - Latest agent self-feedback recorded through `sprintengine task status --status done` or `sprintengine artifact ready`.
   - `schemaVersion`: currently `3`.

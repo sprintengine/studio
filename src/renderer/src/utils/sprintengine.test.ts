@@ -168,6 +168,66 @@ assert.deepEqual(runnerState?.runner, {
 const doneTask = state!.tasks.find((task) => task.id === 'T1')!
 assert.equal(doneTask.boardColumn, 'done')
 assert.equal(doneTask.folderStatus, 'done')
+
+const diffState = normalizeSprintEngineProjection(fakeProjection({
+  tasks: [
+    {
+      id: 'T1',
+      title: 'Diff task',
+      description: '',
+      role: 'developer',
+      status: 'done',
+      folderStatus: 'done',
+      stateStatus: 'done',
+      boardColumn: 'done',
+      ownedPaths: [],
+      dependsOn: [],
+      acceptanceCriteria: [],
+      implementationNotes: [],
+      notes: [],
+      comments: [],
+      evidence: {
+        summary: 'Diff captured',
+        touchedFiles: ['src/example.ts'],
+        commandsRan: [],
+        results: [],
+        diffs: [
+          {
+            path: 'src/example.ts',
+            status: 'modified',
+            additions: 1,
+            deletions: 1,
+            capturedAt: '2026-05-19T10:00:00Z',
+            capturedBy: 'developer-1',
+            source: 'working_tree',
+            binary: false,
+            truncated: false,
+            hunks: [
+              {
+                oldStart: 1,
+                oldLines: 1,
+                newStart: 1,
+                newLines: 1,
+                lines: [
+                  { type: 'removed', oldLine: 1, newLine: null, content: 'old' },
+                  { type: 'added', oldLine: null, newLine: 1, content: 'new' },
+                ],
+              },
+            ],
+          },
+          { path: '', status: 'modified' },
+        ],
+      },
+      activity: [],
+      startedAt: null,
+      completedAt: null,
+      ownerAgentId: null,
+    },
+  ],
+}))
+assert.equal(diffState?.tasks[0]?.evidence.diffs?.length, 1)
+assert.equal(diffState?.tasks[0]?.evidence.diffs?.[0]?.path, 'src/example.ts')
+assert.equal(diffState?.tasks[0]?.evidence.diffs?.[0]?.hunks[0]?.lines[1]?.type, 'added')
 assert.equal(doneTask.stateStatus, 'done')
 assert.equal(doneTask.status, 'done')
 assert.equal(doneTask.activity?.length, 2)

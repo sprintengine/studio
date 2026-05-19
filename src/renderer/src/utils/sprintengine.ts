@@ -26,6 +26,10 @@ import type {
   SprintEngineTaskActivityEntry,
   SprintEngineTaskActivityType,
   SprintEngineTaskCommentType,
+  SprintEngineTaskDiff,
+  SprintEngineTaskDiffLine,
+  SprintEngineTaskDiffSource,
+  SprintEngineTaskDiffStatus,
   SprintEngineTaskDispatch,
   SprintEngineTaskDispatchMode,
   SprintEngineTaskDispatchStatus,
@@ -370,6 +374,24 @@ const reviewGateArtifactKinds = new Set<SprintEngineArtifactKind>([
   'validation_report',
 ])
 
+const sprintEngineTaskDiffStatuses = new Set<SprintEngineTaskDiffStatus>([
+  'added',
+  'modified',
+  'deleted',
+  'renamed',
+  'copied',
+  'type_changed',
+  'unmerged',
+  'unknown',
+])
+
+const sprintEngineTaskDiffSources = new Set<SprintEngineTaskDiffSource>([
+  'working_tree',
+  'staged',
+  'commit',
+  'checkpoint',
+])
+
 export type SprintEngineArtifactDependencyBlocker = {
   taskId: string
   title: string
@@ -384,6 +406,97 @@ export type SprintEngineArtifactAutoApprovalEligibility = {
 
 function emptyEvidence(summary = ''): SprintEngineTaskEvidence {
   return { summary, touchedFiles: [], commandsRan: [], results: [] }
+}
+
+function normalizeStringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.flatMap((item) => typeof item === 'string' && item.trim() ? [item.trim()] : [])
+    : []
+}
+
+function nonNegativeInteger(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0
+}
+
+function nullableLineNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.round(value) : null
+}
+
+function normalizeSprintEngineTaskDiffLines(value: unknown): SprintEngineTaskDiffLine[] {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, 2500).flatMap((line): SprintEngineTaskDiffLine[] => {
+    if (!line || typeof line !== 'object') return []
+    const record = line as Record<string, unknown>
+    const type = record.type === 'added' || record.type === 'removed' || record.type === 'context'
+      ? record.type
+      : null
+    if (!type || typeof record.content !== 'string') return []
+    return [{
+      type,
+      oldLine: nullableLineNumber(record.oldLine),
+      newLine: nullableLineNumber(record.newLine),
+      content: record.content,
+    }]
+  })
+}
+
+function normalizeSprintEngineTaskDiffHunks(value: unknown): SprintEngineTaskDiff['hunks'] {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, 100).flatMap((hunk): SprintEngineTaskDiff['hunks'] => {
+    if (!hunk || typeof hunk !== 'object') return []
+    const record = hunk as Record<string, unknown>
+    return [{
+      oldStart: nonNegativeInteger(record.oldStart),
+      oldLines: nonNegativeInteger(record.oldLines),
+      newStart: nonNegativeInteger(record.newStart),
+      newLines: nonNegativeInteger(record.newLines),
+      ...(optionalTrimmedString(record.section) ? { section: optionalTrimmedString(record.section)! } : {}),
+      lines: normalizeSprintEngineTaskDiffLines(record.lines),
+    }]
+  })
+}
+
+function normalizeSprintEngineTaskDiffs(value: unknown): SprintEngineTaskDiff[] {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, 50).flatMap((diff): SprintEngineTaskDiff[] => {
+    if (!diff || typeof diff !== 'object') return []
+    const record = diff as Record<string, unknown>
+    const path = optionalTrimmedString(record.path)
+    if (!path) return []
+    const status = sprintEngineTaskDiffStatuses.has(record.status as SprintEngineTaskDiffStatus)
+      ? record.status as SprintEngineTaskDiffStatus
+      : 'unknown'
+    const source = sprintEngineTaskDiffSources.has(record.source as SprintEngineTaskDiffSource)
+      ? record.source as SprintEngineTaskDiffSource
+      : 'working_tree'
+    return [{
+      path,
+      ...(optionalTrimmedString(record.oldPath) ? { oldPath: optionalTrimmedString(record.oldPath)! } : {}),
+      status,
+      additions: nonNegativeInteger(record.additions),
+      deletions: nonNegativeInteger(record.deletions),
+      capturedAt: optionalTrimmedString(record.capturedAt) ?? '',
+      capturedBy: optionalTrimmedString(record.capturedBy) ?? '',
+      source,
+      binary: record.binary === true,
+      truncated: record.truncated === true,
+      ...(optionalTrimmedString(record.skippedReason) ? { skippedReason: optionalTrimmedString(record.skippedReason)! } : {}),
+      hunks: normalizeSprintEngineTaskDiffHunks(record.hunks),
+    }]
+  })
+}
+
+function normalizeSprintEngineTaskEvidence(value: unknown): SprintEngineTaskEvidence {
+  if (!value || typeof value !== 'object') return emptyEvidence()
+  const record = value as Record<string, unknown>
+  const diffs = normalizeSprintEngineTaskDiffs(record.diffs)
+  return {
+    summary: typeof record.summary === 'string' ? record.summary : '',
+    touchedFiles: normalizeStringList(record.touchedFiles),
+    commandsRan: normalizeStringList(record.commandsRan),
+    results: normalizeStringList(record.results),
+    ...(diffs.length > 0 ? { diffs } : {}),
+  }
 }
 
 function isSprintEngineRole(value: unknown): value is SprintEngineRole {
@@ -1425,7 +1538,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       ownedPaths: task.ownedPaths ?? [],
       acceptanceCriteria: task.acceptanceCriteria ?? [],
       implementationNotes: task.implementationNotes ?? [],
-      evidence: task.evidence ?? emptyEvidence(),
+      evidence: normalizeSprintEngineTaskEvidence(task.evidence),
       ...(feedback ? { feedback } : {}),
       ...(triage ? { triage } : {}),
       ...(needsInput ? { needsInput } : {}),
