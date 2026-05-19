@@ -1144,6 +1144,34 @@ async function testSprintEngineWorkspaceCreationSupportsHtmlOnlySourceBundle() {
   assert.equal(prompt.includes('--handover "future-plans/mockup.html"'), false)
 }
 
+async function testSprintEngineWorkspaceCreationAutoRunPromptContinuesToJoin() {
+  const beforeIds = new Set(useWorkspaceStore.getState().workspaces.map((workspace) => workspace.id))
+  const result = await createPlanSourcedSprintEngineWorkspace({
+    rootPath: 'C:\\repo',
+    teamName: 'Auto Run Sprint',
+    goal: 'Start architect planning automatically.',
+    sourcePath: 'future-plans/auto.md',
+    sourceContent: '# Auto Run Plan',
+    sourcePlanKind: 'architect_plan',
+    sprintEngineAutoState: {
+      enabled: true,
+      autoApproveArtifacts: true,
+    },
+    pathExists: async (path) => {
+      assert.equal(path, 'C:\\repo\\.multi-code\\sprintengine\\auto-run-sprint\\run.yaml')
+      return false
+    },
+  })
+  const createdWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => !beforeIds.has(workspace.id))
+  const prompt = createdWorkspace?.agents[result.architectAgentId].cliStartupPrompt ?? ''
+
+  assert.ok(createdWorkspace)
+  assert.equal(prompt.includes('Do not stop after printing the init summary.'), true)
+  assert.equal(prompt.includes('join --role architect --id architect --watch'), true)
+  assert.equal(createdWorkspace.sprintEngineAutoState?.enabled, true)
+  assert.equal(createdWorkspace.sprintEngineAutoState?.autoApproveArtifacts, true)
+}
+
 async function testSprintEngineWorkspaceCreationGuidesSingleContextBundle() {
   const beforeIds = new Set(useWorkspaceStore.getState().workspaces.map((workspace) => workspace.id))
   const result = await createPlanSourcedSprintEngineWorkspace({
@@ -1424,6 +1452,7 @@ void (async () => {
   await testMultiloopSynchronizerIoErrorEventUsesMissingTitle()
   await testSprintEngineWorkspaceCreationRegressionKeepsSprintEngineModeAndPrompt()
   await testSprintEngineWorkspaceCreationSupportsHtmlOnlySourceBundle()
+  await testSprintEngineWorkspaceCreationAutoRunPromptContinuesToJoin()
   await testSprintEngineWorkspaceCreationGuidesSingleContextBundle()
   await testSprintEngineWorkspaceCreationGuidesMixedContextBundle()
 })()

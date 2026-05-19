@@ -12,6 +12,7 @@ type PlanFileSprintEngineHandoffPromptArgs = {
   }>
   statePath: string
   rosterArgs?: string[]
+  autoRunRequested?: boolean
 }
 
 function quoteShellArg(value: string): string {
@@ -88,6 +89,7 @@ export function buildPlanFileSprintEngineHandoffPrompt({
   sourceBundle = [],
   statePath,
   rosterArgs = [],
+  autoRunRequested = false,
 }: PlanFileSprintEngineHandoffPromptArgs): string {
   const hasExplicitSourceBundle = sourceBundle.length > 0
   const bundle = hasExplicitSourceBundle
@@ -138,6 +140,17 @@ export function buildPlanFileSprintEngineHandoffPrompt({
       ? `Roster constraint: the architect must create tasks only for these selected Sprint Engine agents: ${rosterArgs.join(', ')}. If a specialist role is absent from this roster, do not create tasks for that role.`
       : null,
     sourceTypeGuidance(hasExplicitSourceBundle, bundle, sourcePlanKind),
+    autoRunRequested
+      ? [
+        'After initialization, continue immediately into the architect join-watch flow for this same run:',
+        '',
+        '```shell',
+        `sprintengine --state ${quoteShellArg(statePath)} join --role architect --id architect --watch`,
+        '```',
+        '',
+        'Do not stop after printing the init summary. `sprintengine init` only creates the first architect task; it does not assign it.',
+      ].join('\n')
+      : null,
     `After initialization, do not treat \`sprintengine init\` as task assignment. Agents should use the join-watch flow with \`sprintengine join --role <role> --id <agent-id> --watch\`; the CLI will direct them to claim implementation tasks, quality gates, or needs_input triage when work is ready. Product and architect agents must read the imported source file(s) in the Sprint Engine team folder when their own work is claimed, and should treat those files as incoming context.`,
   ].join('\n')
 }

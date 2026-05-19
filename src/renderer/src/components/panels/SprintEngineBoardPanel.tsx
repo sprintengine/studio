@@ -1243,13 +1243,21 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  setAutoRunnerControlEnabled(nextEnabled)
  setSprintEngineAutoEnabled(workspaceId, nextEnabled)
  if (!sprintEngineContext?.statePath) {
- setAutoRunnerControlEnabled(autoEnabled)
+ setAutoRunnerControlEnabled(null)
  return
  }
- void window.api.setSprintEngineRunnerMode({
+ void (async () => {
+ const stateFileExists = await window.api.pathExists(sprintEngineContext.statePath).catch(() => false)
+ if (!stateFileExists) {
+ setAutoRunnerControlEnabled(null)
+ return
+ }
+ return window.api.setSprintEngineRunnerMode({
  statePath: sprintEngineContext.statePath,
  mode: nextMode,
- }).then(async (result) => {
+ })
+ })().then(async (result) => {
+ if (!result) return
  if (!result.ok) {
  setAutoRunnerControlEnabled(autoEnabled)
  setSprintEngineAutoEnabled(workspaceId, autoEnabled)

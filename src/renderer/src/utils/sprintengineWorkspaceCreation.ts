@@ -140,6 +140,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
     sourceBundle,
     statePath: sprintEngineContext.statePath,
     rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
+    autoRunRequested: Boolean(sprintEngineAutoState?.enabled || sprintEngineAutoState?.autoApproveArtifacts),
   })
 
   useWorkspaceStore.getState().updateAgent(workspaceId, architect.id, {
