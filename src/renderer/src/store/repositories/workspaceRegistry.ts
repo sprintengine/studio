@@ -6,14 +6,14 @@
 // reaches localStorage through a separate app-settings key and physically cannot
 // modify the registry by construction.
 //
-// Persisted v45 envelope shape (stored at WORKSPACE_REGISTRY_STORAGE_KEY):
+// Persisted v46 envelope shape (stored at WORKSPACE_REGISTRY_STORAGE_KEY):
 //   {
 //     state: {
 //       workspaces: Workspace[]
 //       activeWorkspaceId: WorkspaceId | null
 //       workspaceRegistryEmptyState: WorkspaceRegistryEmptyState | null
 //     },
-//     version: 45,
+//     version: 46,
 //   }
 //
 // Empty-state semantics (per the task acceptance):
@@ -30,7 +30,7 @@
 import type { Workspace, WorkspaceId, WorkspaceRegistryEmptyState } from '../../types/workspace'
 
 export const WORKSPACE_REGISTRY_STORAGE_KEY = 'multicode-workspaces'
-export const WORKSPACE_REGISTRY_VERSION = 45
+export const WORKSPACE_REGISTRY_VERSION = 46
 
 export type WorkspaceRegistryState = {
   workspaces: Workspace[]

@@ -334,6 +334,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const updateAgent = useWorkspaceStore((s) => s.updateAgent)
  const openFile = useWorkspaceStore((s) => s.openFile)
  const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
+ const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli)
  const dialog = useConfirmDialog()
  const {
  folderPath: savedFolderPath,
@@ -514,9 +515,25 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  agentName?: string
  execution?: AgentExecution
  }
- ) {
+ ): boolean {
  const current = agents[agentId]
- const selectedCli = cli ?? current?.cli ?? 'codex'
+ const selectedCli = cli ?? current?.cli
+ if (!selectedCli) {
+ void publishDiagnostic({
+ level: 'error',
+ source: 'terminal',
+ title: `${label} was not started`,
+ message: 'Sprint Engine agent is missing its CLI selection.',
+ details: [
+ `Workspace ID: ${workspaceId}`,
+ `Agent ID: ${agentId}`,
+ ].join('\n'),
+ workspaceId,
+ workspaceName: workspace?.name,
+ agentId,
+ })
+ return false
+ }
  const role = sprintEngineState?.sprintEngineAgents[agentId]?.role
  const roleLabel = role
  ? sprintEngineRoleLabels[role]
@@ -554,6 +571,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  kind: 'sprintengine',
  })
  focusOrAddAgentTab(workspaceId, agentId, label)
+ return true
  }
 
  async function ensureWorkspaceFolderReadyForLaunch(agentId: string, label: string): Promise<boolean> {
@@ -601,8 +619,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  }
  ): Promise<boolean> {
  if (!(await ensureWorkspaceFolderReadyForLaunch(agentId, label))) return false
- startAgentTerminal(agentId, label, cli, options)
- return true
+ return startAgentTerminal(agentId, label, cli, options)
  }
 
  const boardColumns = useMemo(() => {
@@ -1005,12 +1022,26 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  )
  if (!runningSession) return null
 
+ const effectiveCli = runningSession.cli ?? agents[agentId]?.cli
+ if (!effectiveCli) {
+ await publishDiagnostic({
+ level: 'error',
+ source: 'terminal',
+ title: `${agentId} terminal was not attached`,
+ message: 'Running Sprint Engine terminal is missing its CLI selection.',
+ workspaceId,
+ workspaceName: workspace?.name,
+ agentId,
+ })
+ return null
+ }
+
  updateAgent(workspaceId, agentId, {
  cliSessionId: runningSession.sessionId,
  cliStartRequested: true,
  cliHasLaunched: true,
- cliResumeAvailable: agentCliSupportsConversationResume(runningSession.cli ?? agents[agentId]?.cli),
- cli: runningSession.cli ?? agents[agentId]?.cli ?? 'codex',
+ cliResumeAvailable: agentCliSupportsConversationResume(effectiveCli),
+ cli: effectiveCli,
  })
  return runningSession.sessionId
  }
@@ -1300,7 +1331,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  setAddMemberOpen(false)
  return
  }
- const started = await startAgentTerminalWhenReady(architectAgentId, label, agents[architectAgentId]?.cli ?? 'codex', {
+ const started = await startAgentTerminalWhenReady(architectAgentId, label, agents[architectAgentId]?.cli, {
  freshSession: true,
  agentName: getCustomAgentName(architectAgentId, fallbackLabel),
  startupPrompt: prompt,
@@ -1329,12 +1360,14 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const openSpawnDialog = (agentId: string) => {
  const agentState = agents[agentId]
  const defaultName = rosterById[agentId]?.label ?? agentId
+ const role = rosterById[agentId]?.role
+ const defaultCli = role ? workspace?.sprintEngineRoleCliDefaults?.[role] ?? lastSelectedCli : lastSelectedCli
  const savedName = agentState?.name && agentState.name !== defaultName ? agentState.name : ''
  setSelectedAgentId(agentId)
  setCliPickerOpen(false)
  setSpawnDialog({
  agentId,
- cli: agentState?.cli ?? 'codex',
+ cli: agentState?.cli ?? defaultCli,
  name: savedName,
  })
  }
@@ -1379,7 +1412,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
 
  specialistReviewAgents.forEach((agent) => {
  const label = getAgentName(agent.id, agent.label)
- void startAgentTerminalWhenReady(agent.id, label, agents[agent.id]?.cli ?? 'codex', {
+ void startAgentTerminalWhenReady(agent.id, label, agents[agent.id]?.cli, {
  freshSession: true,
  agentName: getCustomAgentName(agent.id, agent.label),
  startupPrompt: buildPlanReviewStartupPrompt(agent.role, agent.id),
@@ -1394,7 +1427,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const fallbackLabel = rosterById[architectAgentId]?.label ?? 'Architect'
  const label = getAgentName(architectAgentId, fallbackLabel)
 
- void startAgentTerminalWhenReady(architectAgentId, label, agents[architectAgentId]?.cli ?? 'codex', {
+ void startAgentTerminalWhenReady(architectAgentId, label, agents[architectAgentId]?.cli, {
  freshSession: true,
  agentName: getCustomAgentName(architectAgentId, fallbackLabel),
  startupPrompt: buildAddressPlanReviewsPrompt(),

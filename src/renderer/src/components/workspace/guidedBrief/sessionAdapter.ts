@@ -270,6 +270,14 @@ export async function startGuidedBriefSpecialistSession(
     options.onError?.(message)
   }))
 
+  if (!input.cli) {
+    dispose()
+    const message = 'Guided brief specialist session is missing its CLI selection.'
+    options.onLifecycle?.('error')
+    options.onError?.(message)
+    return { ok: false, sessionId, message }
+  }
+
   options.onLifecycle?.('starting')
   const spawnResult = await options.terminalApi.terminalSpawn(
     sessionId,
@@ -278,7 +286,7 @@ export async function startGuidedBriefSpecialistSession(
     input.workspaceRoot,
     false,
     undefined,
-    input.cli ?? 'codex',
+    input.cli,
     prompt,
     options.cliRuntimes,
     false,

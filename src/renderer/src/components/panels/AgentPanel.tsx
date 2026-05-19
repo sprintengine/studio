@@ -1,6 +1,6 @@
 import React from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import type { AgentCli } from '../../types/workspace'
+import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { MULTICODE_DISABLE_SPRINTENGINE_TERMINALS, MULTICODE_SAFE_MODE } from '../../utils/runtimeFlags'
 import { PrimaryButton } from '../ui'
 import TerminalView from './TerminalView'
@@ -28,12 +28,24 @@ export default function AgentPanel({ workspaceId, agentId, sessionId, shouldKill
   const sprintEngineTerminalBlocked = MULTICODE_DISABLE_SPRINTENGINE_TERMINALS && isSprintEngineAgent
   const hasStarted = Boolean(sessionId) || (!sprintEngineTerminalBlocked && (!isSprintEngineAgent || Boolean(agent?.cliStartRequested)))
   const needsInput = sprintEngineRuntimeAgent?.status === 'needs_input'
-  const cli: AgentCli = agent?.cli ?? 'codex'
+  const cli = agent?.cli
   const cliShellTone = needsInput
     ? 'border border-[color:var(--tone-warn)] bg-[color:var(--bg-surface-raised)] ring-1 ring-[color:var(--tone-warn-soft)]'
     : ''
 
   const startAgent = (restart = false) => {
+    if (!cli) {
+      publishDiagnosticSync({
+        level: 'error',
+        source: 'terminal',
+        title: `${label} was not started`,
+        message: 'Agent terminal is missing its CLI selection.',
+        workspaceId,
+        workspaceName: workspace?.name,
+        agentId,
+      })
+      return
+    }
     const existingSessionId = restart ? agent?.cliSessionId : undefined
     updateAgent(workspaceId, agentId, {
       cliStartRequested: true,

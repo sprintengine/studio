@@ -23,6 +23,7 @@ import type {
   MultiloopMilestone,
   MultiloopState,
   MultiloopTask,
+  AgentCli,
   SprintEngineRole,
   SprintEngineState,
   WorkspaceId,
@@ -176,6 +177,8 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
   const openFile = useWorkspaceStore((state) => state.openFile)
   const setMultiloopAutoEnabled = useWorkspaceStore((state) => state.setMultiloopAutoEnabled)
   const setMultiloopCliPermissionPreset = useWorkspaceStore((state) => state.setMultiloopCliPermissionPreset)
+  const lastSelectedCli = useWorkspaceStore((state) => state.appSettings.lastSelectedCli)
+  const multiloopRoleCliDefaults = useWorkspaceStore((state) => state.appSettings.multiloopRoleCliDefaults)
   const [readState, setReadState] = useState<ReadState>({ status: 'idle' })
   const [roleLaunchState, setRoleLaunchState] = useState<RoleLaunchState>({ status: 'idle' })
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null)
@@ -217,6 +220,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
     if (!workspace || !multiloopState) return
 
     const soul = getMultiloopRole(role)
+    const selectedCli: AgentCli = multiloopRoleCliDefaults[role] ?? lastSelectedCli
     setRoleLaunchState({ status: 'loading', role })
     try {
       const currentMilestone = getActiveMultiloopMilestone(multiloopState)
@@ -246,7 +250,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
         }
         updateAgent(workspaceId, agentId, {
           name: tabName,
-          cli: existingAgent?.cli ?? 'codex',
+          cli: existingAgent?.cli ?? selectedCli,
           cliPermissionPreset: existingAgent?.cliPermissionPreset ?? 'default',
           kind: 'sprintengine',
           specialistId: undefined,
@@ -290,7 +294,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
       }
       updateAgent(workspaceId, agentId, {
         name: tabName,
-        cli: existingAgent?.cli ?? 'codex',
+        cli: existingAgent?.cli ?? selectedCli,
         cliPermissionPreset: existingAgent?.cliPermissionPreset ?? 'default',
         kind: 'multiloop',
         specialistId: undefined,

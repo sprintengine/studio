@@ -242,11 +242,25 @@ async function spawnMultiloopAutoRunCandidate(
   const currentState = useWorkspaceStore.getState()
   const currentWorkspace = currentState.workspaces.find((item) => item.id === workspace.id)
   const currentAgent = currentWorkspace?.agents[candidate.agentId]
-  const selectedCli: AgentCli = currentAgent?.cli ?? 'codex'
+  const selectedCli = currentAgent?.cli
   const sessionId = crypto.randomUUID()
 
   inFlightSpawns.current.add(spawnKey)
   try {
+    if (!selectedCli) {
+      await publishDiagnostic({
+        level: 'error',
+        source: 'terminal',
+        title: 'Multiloop auto-run skipped agent',
+        message: 'Multiloop agent is missing its CLI selection.',
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId: candidate.agentId,
+        taskId: candidate.taskId ?? undefined,
+      })
+      return 'failed'
+    }
+
     const folderExists = await window.api.pathExists(workspace.folderPath)
     if (!folderExists) {
       currentState.setFolderMissing(workspace.id, true)

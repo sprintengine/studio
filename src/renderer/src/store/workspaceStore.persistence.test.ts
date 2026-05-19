@@ -21,6 +21,11 @@ type SettingsRecord = {
   version: number
 }
 
+type BackupPair = {
+  registry: string
+  settings: string
+}
+
 const persistedWorkspace = {
   id: 'ws-retained',
   name: 'Retained Workspace',
@@ -140,7 +145,7 @@ assert.equal(coldLoadDiag.classification, 'present')
 assert.equal(coldLoadDiag.hydratedWorkspaceCount, 1)
 
 // Trigger a workspace mutation to force the storage adapter to write the
-// v45 registry-only shape into multicode-workspaces.
+// v46 registry-only shape into multicode-workspaces.
 useWorkspaceStore.getState().renameWorkspace(persistedWorkspace.id, 'Retained Workspace')
 await new Promise<void>((resolve) => setTimeout(resolve, 50))
 const newRegistry = JSON.parse(stored['multicode-workspaces']) as RegistryRecord
@@ -257,14 +262,24 @@ await new Promise<void>((resolve) => setTimeout(resolve, 350))
 const nonEmptyBackupCalls = backupWriteCalls.length
 assert.ok(nonEmptyBackupCalls > 0, 'backup write IPC fires for non-empty registry writes')
 const lastBackup = backupWriteCalls[backupWriteCalls.length - 1]
-const lastBackupParsed = typeof lastBackup.data === 'string'
-  ? (JSON.parse(lastBackup.data) as RegistryRecord)
-  : (lastBackup.data as RegistryRecord)
+assert.equal(typeof lastBackup.data, 'object', 'backup payload uses split registry/settings envelopes')
+const lastBackupPair = lastBackup.data as BackupPair
+const lastBackupParsed = JSON.parse(lastBackupPair.registry) as RegistryRecord
+const lastBackupSettings = JSON.parse(lastBackupPair.settings) as SettingsRecord
 assert.equal(lastBackupParsed.state.workspaces[0]?.id, persistedWorkspace.id)
 assert.equal(
   (lastBackupParsed.state as unknown as { appSettings?: unknown }).appSettings,
   undefined,
-  'backup payload is registry-only (no appSettings)',
+  'backup registry envelope is registry-only (no appSettings)',
+)
+assert.ok(
+  lastBackupSettings.state.appSettings,
+  'backup settings envelope carries appSettings separately',
+)
+assert.equal(
+  (lastBackupSettings.state as unknown as { workspaces?: unknown }).workspaces,
+  undefined,
+  'backup settings envelope does not carry workspaces',
 )
 
 // ── CASE 4 ──────────────────────────────────────────────────────────────────
@@ -319,7 +334,7 @@ diagnosticLog.length = 0
 backupReadResponse = {
   ok: true,
   payload: {
-    version: 45,
+    version: 46,
     writtenAt: new Date().toISOString(),
     data: JSON.stringify({
       state: {
@@ -327,7 +342,7 @@ backupReadResponse = {
         activeWorkspaceId: persistedWorkspace.id,
         workspaceRegistryEmptyState: null,
       },
-      version: 45,
+      version: 46,
     } satisfies RegistryRecord),
   },
 }
@@ -355,7 +370,7 @@ diagnosticLog.length = 0
 backupReadResponse = {
   ok: true,
   payload: {
-    version: 45,
+    version: 46,
     writtenAt: new Date().toISOString(),
     data: JSON.stringify({
       state: {
@@ -363,7 +378,7 @@ backupReadResponse = {
         activeWorkspaceId: persistedWorkspace.id,
         workspaceRegistryEmptyState: null,
       },
-      version: 45,
+      version: 46,
     } satisfies RegistryRecord),
   },
 }
@@ -396,26 +411,46 @@ useWorkspaceStore.setState({
   workspaces: [],
   activeWorkspaceId: null,
   workspaceRegistryEmptyState: null,
+  appSettings: {
+    ...useWorkspaceStore.getState().appSettings,
+    projectKnowledgeRoots: {},
+    recentWorkspaceFolders: [],
+  },
 })
 stored['multicode-workspaces'] = 'unreadable garbage {{{'
 backupReadResponse = {
   ok: true,
   payload: {
-    version: 45,
+    version: 46,
     writtenAt: new Date().toISOString(),
-    data: JSON.stringify({
-      state: {
-        workspaces: [{
-          id: 'ws-from-backup',
-          name: 'Recovered',
-          folderPath: '/Users/example/recovered',
-          agents: {},
-        } as Workspace],
-        activeWorkspaceId: 'ws-from-backup',
-        workspaceRegistryEmptyState: null,
-      },
-      version: 45,
-    } satisfies RegistryRecord),
+    data: {
+      registry: JSON.stringify({
+        state: {
+          workspaces: [{
+            id: 'ws-from-backup',
+            name: 'Recovered',
+            folderPath: '/Users/example/recovered',
+            agents: {},
+          } as Workspace],
+          activeWorkspaceId: 'ws-from-backup',
+          workspaceRegistryEmptyState: null,
+        },
+        version: 46,
+      } satisfies RegistryRecord),
+      settings: JSON.stringify({
+        state: {
+          appSettings: {
+            ...useWorkspaceStore.getState().appSettings,
+            projectKnowledgeRoots: {
+              '/Users/example/recovered': 'knowledge',
+            },
+            recentWorkspaceFolders: ['/Users/example/recovered'],
+          },
+          sidebarCollapsed: true,
+        },
+        version: 46,
+      } satisfies SettingsRecord),
+    } satisfies BackupPair,
   },
 }
 await __workspaceStoreRunBackupRecoveryForTests()
@@ -426,6 +461,13 @@ assert.equal(recoveredState.workspaces[0]?.id, 'ws-from-backup')
 assert.equal(recoveredState.activeWorkspaceId, 'ws-from-backup')
 assert.equal(recoveredState.workspaceRegistryEmptyState, null,
   'recovery clears any stale intent record')
+assert.equal(
+  recoveredState.appSettings.projectKnowledgeRoots['/Users/example/recovered'],
+  'knowledge',
+  'split backup recovery restores projectKnowledgeRoots from the settings envelope',
+)
+assert.deepEqual(recoveredState.appSettings.recentWorkspaceFolders, ['/Users/example/recovered'])
+assert.equal(recoveredState.sidebarCollapsed, true, 'split backup recovery restores sidebarCollapsed')
 assert.equal(diagnosticLog.length, 1)
 const recoveryDiag = diagnosticLog[0].payload as { storageSource: string; classification: string; hydratedWorkspaceCount: number }
 assert.equal(recoveryDiag.storageSource, 'backup')

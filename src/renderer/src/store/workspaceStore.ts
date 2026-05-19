@@ -290,14 +290,20 @@ function getPersistedWorkspaceCount(raw: string | null): number {
 
 const BACKUP_WRITE_DEBOUNCE_MS = 250
 let backupWriteTimer: ReturnType<typeof setTimeout> | null = null
-let pendingBackupValue: string | null = null
+let pendingBackupValue: { registry: string; settings: string } | null = null
 
-function scheduleBackupWrite(serializedEnvelope: string): void {
+function scheduleBackupWrite(
+  serializedRegistryEnvelope: string,
+  serializedSettingsEnvelope: string,
+): void {
   if (typeof window === 'undefined') return
   const api = window.api
   if (!api || typeof api.workspaceBackupWrite !== 'function') return
 
-  pendingBackupValue = serializedEnvelope
+  pendingBackupValue = {
+    registry: serializedRegistryEnvelope,
+    settings: serializedSettingsEnvelope,
+  }
   if (backupWriteTimer) clearTimeout(backupWriteTimer)
   backupWriteTimer = setTimeout(() => {
     backupWriteTimer = null
@@ -391,6 +397,52 @@ function readSettingsKey(): { raw: string | null; envelope: { state: SettingsEnv
     return { raw, envelope: { state: parsed.state, version: parsed.version ?? 0 } }
   } catch {
     return { raw, envelope: null }
+  }
+}
+
+type BackupEnvelopePair = {
+  registry: string
+  settings: string | null
+}
+
+function serializeBackupEnvelopeValue(value: unknown): string | null {
+  if (typeof value === 'string') return value
+  if (value === undefined) return null
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return null
+  }
+}
+
+function coerceBackupEnvelopePair(data: unknown): BackupEnvelopePair | null {
+  if (typeof data === 'string') {
+    return { registry: data, settings: null }
+  }
+
+  if (data && typeof data === 'object') {
+    const split = data as { registry?: unknown; settings?: unknown }
+    if ('registry' in split) {
+      const registry = serializeBackupEnvelopeValue(split.registry)
+      if (!registry) return null
+      return {
+        registry,
+        settings: serializeBackupEnvelopeValue(split.settings),
+      }
+    }
+  }
+
+  const registry = serializeBackupEnvelopeValue(data)
+  return registry ? { registry, settings: null } : null
+}
+
+function parseSettingsEnvelopeState(raw: string | null): SettingsEnvelopeState | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as { state?: SettingsEnvelopeState }
+    return parsed?.state ?? null
+  } catch {
+    return null
   }
 }
 
@@ -489,11 +541,12 @@ const workspaceStateStorage: StateStorage = {
     // write is skipped, which gives the AC2/AC3 by-construction guarantee.
     const registryFields = extractRegistryFields(fullState)
     const registrySerialized = JSON.stringify(registryFields)
+    const registryEnvelopeSerialized = JSON.stringify({ state: registryFields, version })
     if (registrySerialized !== lastWrittenRegistrySerialized) {
       try {
         window.localStorage.setItem(
           WORKSPACE_STORAGE_KEY,
-          JSON.stringify({ state: registryFields, version }),
+          registryEnvelopeSerialized,
         )
       } catch (error) {
         console.warn('[workspaceStore] localStorage registry write failed', {
@@ -501,14 +554,6 @@ const workspaceStateStorage: StateStorage = {
         })
       }
       lastWrittenRegistrySerialized = registrySerialized
-      // Backup mirror only when the registry has actual workspaces — the
-      // intentional empty case (registryFields.workspaces=[],
-      // workspaceRegistryEmptyState non-null) is honored locally but not
-      // promoted to the userData backup, because backup is the last-known-
-      // good non-empty mirror and stays out of intent decisions (AC4).
-      if (Array.isArray(registryFields.workspaces) && registryFields.workspaces.length > 0) {
-        scheduleBackupWrite(JSON.stringify({ state: registryFields, version }))
-      }
     }
 
     // Settings key — also dedup'd. Workspace registry mutations that don't
@@ -516,11 +561,12 @@ const workspaceStateStorage: StateStorage = {
     // settings key is left alone.
     const settingsFields = extractSettingsFields(fullState)
     const settingsSerialized = JSON.stringify(settingsFields)
+    const settingsEnvelopeSerialized = JSON.stringify({ state: settingsFields, version })
     if (settingsSerialized !== lastWrittenSettingsSerialized) {
       try {
         window.localStorage.setItem(
           APP_SETTINGS_STORAGE_KEY,
-          JSON.stringify({ state: settingsFields, version }),
+          settingsEnvelopeSerialized,
         )
       } catch (error) {
         console.warn('[workspaceStore] localStorage settings write failed', {
@@ -528,6 +574,18 @@ const workspaceStateStorage: StateStorage = {
         })
       }
       lastWrittenSettingsSerialized = settingsSerialized
+    }
+    // Backup mirror only when the registry has actual workspaces — the
+    // intentional empty case (registryFields.workspaces=[],
+    // workspaceRegistryEmptyState non-null) is honored locally but not
+    // promoted to the userData backup, because backup is the last-known-
+    // good non-empty mirror and stays out of intent decisions (AC4).
+    //
+    // The backup includes both split envelopes so recovery does not restore
+    // workspaces while silently dropping app settings such as Knowledge Graph
+    // roots, CLI defaults, MCP, skill packs, learning state, or sidebar state.
+    if (Array.isArray(registryFields.workspaces) && registryFields.workspaces.length > 0) {
+      scheduleBackupWrite(registryEnvelopeSerialized, settingsEnvelopeSerialized)
     }
   },
 
@@ -609,9 +667,13 @@ async function attemptBackupRecovery(): Promise<void> {
       return
     }
 
-    const recovered = typeof result.payload.data === 'string'
-      ? result.payload.data
-      : JSON.stringify(result.payload.data)
+    const recoveredBackup = coerceBackupEnvelopePair(result.payload.data)
+    if (!recoveredBackup) {
+      hydrationContext.recoveryError = 'backup_payload_unserializable'
+      emitHydrationDiagnostic()
+      return
+    }
+    const recovered = recoveredBackup.registry
     const recoveredClassification = classifyPersistedWorkspaceState({ rawLocalStorage: recovered })
     if (recoveredClassification !== 'present') {
       // Backup exists but does not classify as a recoverable workspace list.
@@ -635,27 +697,29 @@ async function attemptBackupRecovery(): Promise<void> {
       return
     }
 
-    try {
-      window.localStorage.setItem(WORKSPACE_STORAGE_KEY, recovered)
-    } catch {
-      // Best-effort write-back; the in-memory recovery still proceeds.
-    }
-    hydrationContext.storageSource = 'backup'
-    hydrationContext.persistedWorkspaceCount = envelope.state.workspaces.length
-
-    // Legacy backup salvage. T22 wrote a full envelope (workspaces + appSettings
-    // + sidebarCollapsed) to workspace-backup.json before T23 split the keys.
-    // T23 AC4 says new backups stay registry-only — but a backup written under
-    // the old code still carries non-workspace state, and if recovery activates
-    // here we are the last chance to keep it. Without this salvage, a recovery
-    // that restores 36 workspaces also silently empties projectKnowledgeRoots,
-    // recentWorkspaceFolders, learning settings, CLI/MCP servers, etc. New
-    // T23 backups never have these fields, so the salvage is a no-op for them.
+    // App-settings salvage. New backups carry the split settings envelope
+    // beside the registry envelope. Older T22-era backups may carry
+    // appSettings/sidebarCollapsed inside the recovered registry envelope.
+    // In both cases, recovery must not bring the workspace list back while
+    // silently dropping Knowledge Graph roots, CLI defaults, MCP, skill packs,
+    // learning state, or sidebar state.
     const legacyState = envelope!.state as Partial<WorkspaceMigrationState> & {
       sidebarCollapsed?: boolean
     }
     const legacyAppSettings = legacyState.appSettings
     const legacySidebarCollapsed = legacyState.sidebarCollapsed
+    const recoveredSettingsState = parseSettingsEnvelopeState(recoveredBackup.settings)
+
+    try {
+      window.localStorage.setItem(WORKSPACE_STORAGE_KEY, recovered)
+      if (recoveredBackup.settings && recoveredSettingsState) {
+        window.localStorage.setItem(APP_SETTINGS_STORAGE_KEY, recoveredBackup.settings)
+      }
+    } catch {
+      // Best-effort write-back; the in-memory recovery still proceeds.
+    }
+    hydrationContext.storageSource = 'backup'
+    hydrationContext.persistedWorkspaceCount = envelope.state.workspaces.length
 
     useWorkspaceStore.setState((current) => {
       const recoveredWorkspaces = envelope!.state!.workspaces as WorkspaceStore['workspaces']
@@ -669,17 +733,28 @@ async function attemptBackupRecovery(): Promise<void> {
       }
       if (legacyAppSettings !== undefined) {
         next.appSettings = normalizeAppSettings(legacyAppSettings, recoveredWorkspaces as Workspace[])
+      } else if (recoveredSettingsState?.appSettings !== undefined) {
+        next.appSettings = normalizeAppSettings(
+          recoveredSettingsState.appSettings as Partial<AppSettings>,
+          recoveredWorkspaces as Workspace[],
+        )
       }
       if (typeof legacySidebarCollapsed === 'boolean') {
         next.sidebarCollapsed = legacySidebarCollapsed
+      } else if (typeof recoveredSettingsState?.sidebarCollapsed === 'boolean') {
+        next.sidebarCollapsed = recoveredSettingsState.sidebarCollapsed
       }
       return next
     })
 
-    // Mirror the salvaged app-settings to multicode-app-settings now so the
+    // Mirror the recovered app-settings to multicode-app-settings now so the
     // next persist write doesn't clobber projectKnowledgeRoots / learning /
     // recentWorkspaceFolders with the current empty state.
-    if (legacyAppSettings !== undefined || typeof legacySidebarCollapsed === 'boolean') {
+    if (
+      legacyAppSettings !== undefined
+      || typeof legacySidebarCollapsed === 'boolean'
+      || recoveredSettingsState !== null
+    ) {
       try {
         const next = useWorkspaceStore.getState()
         window.localStorage.setItem(

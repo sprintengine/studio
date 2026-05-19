@@ -412,12 +412,26 @@ async function findRunningAgentSession(
 
   if (!runningSession) return null
 
+  const effectiveCli = runningSession.cli ?? agent?.cli
+  if (!effectiveCli) {
+    await publishDiagnostic({
+      level: 'error',
+      source: 'terminal',
+      title: 'Roster runner could not attach terminal',
+      message: 'Running Sprint Engine terminal is missing its CLI selection.',
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      agentId,
+    })
+    return null
+  }
+
   useWorkspaceStore.getState().updateAgent(workspace.id, agentId, {
     cliSessionId: runningSession.sessionId,
     cliStartRequested: true,
     cliHasLaunched: true,
-    cliResumeAvailable: agentCliSupportsConversationResume(runningSession.cli ?? agent?.cli),
-    cli: runningSession.cli ?? agent?.cli ?? 'codex',
+    cliResumeAvailable: agentCliSupportsConversationResume(effectiveCli),
+    cli: effectiveCli,
     kind: 'sprintengine',
   })
   return runningSession
@@ -578,12 +592,14 @@ async function getRunningAutoRunAgentIds(
     runningAgentIds.add(session.agentId)
     const agent = workspace.agents[session.agentId]
     if (!agent?.cliStartRequested || agent.cliSessionId !== session.sessionId) {
+      const effectiveCli = session.cli ?? agent?.cli
+      if (!effectiveCli) continue
       useWorkspaceStore.getState().updateAgent(workspace.id, session.agentId, {
         cliSessionId: session.sessionId,
         cliStartRequested: true,
         cliHasLaunched: true,
-        cliResumeAvailable: agentCliSupportsConversationResume(session.cli ?? agent?.cli),
-        cli: session.cli ?? agent?.cli ?? 'codex',
+        cliResumeAvailable: agentCliSupportsConversationResume(effectiveCli),
+        cli: effectiveCli,
         kind: 'sprintengine',
       })
     }
@@ -891,12 +907,14 @@ async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<vo
 
     const agent = workspace.agents[agentId]
     if (agent?.cliSessionId !== preferredSession.sessionId || !agent?.cliStartRequested) {
+      const effectiveCli = preferredSession.cli ?? agent?.cli
+      if (!effectiveCli) continue
       useWorkspaceStore.getState().updateAgent(workspace.id, agentId, {
         cliSessionId: preferredSession.sessionId,
         cliStartRequested: true,
         cliHasLaunched: true,
-        cliResumeAvailable: agentCliSupportsConversationResume(preferredSession.cli ?? agent?.cli),
-        cli: preferredSession.cli ?? agent?.cli ?? 'codex',
+        cliResumeAvailable: agentCliSupportsConversationResume(effectiveCli),
+        cli: effectiveCli,
         kind: 'sprintengine',
       })
     }
@@ -976,12 +994,30 @@ async function spawnAutoRunCandidate(
   const currentState = useWorkspaceStore.getState()
   const currentWorkspace = currentState.workspaces.find((candidate) => candidate.id === workspace.id)
   const currentAgent = currentWorkspace?.agents[nextRun.agentId]
-  const selectedCli: AgentCli = currentAgent?.cli ?? 'codex'
+  const selectedCli = currentAgent?.cli
   const sessionId = crypto.randomUUID()
   const spawnKey = `${workspace.id}:${nextRun.agentId}`
   if (inFlightSpawns.current.has(spawnKey)) return 'skipped'
 
   if (!workspace.folderPath || !workspace.sprintEngineContext) return 'skipped'
+  if (!selectedCli) {
+    await publishDiagnostic({
+      level: 'error',
+      source: 'terminal',
+      title: 'Roster runner skipped agent',
+      message: 'Sprint Engine agent is missing its CLI selection.',
+      details: [
+        `Workspace: ${workspace.name}`,
+        `Agent: ${nextRun.agentId}`,
+        `Task: ${nextRun.taskId}`,
+      ].join('\n'),
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      agentId: nextRun.agentId,
+      taskId: nextRun.taskId,
+    })
+    return 'failed'
+  }
   const workspaceFolderPath = workspace.folderPath
   const sprintEngineStatePath = workspace.sprintEngineContext.statePath
   const pendingSpawn = {

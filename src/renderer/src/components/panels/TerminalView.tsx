@@ -164,7 +164,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   })
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
-  const cli = agent?.cli ?? 'codex'
+  const cli = agent?.cli
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const startupPrompt = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
@@ -206,6 +206,23 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const container = containerRef.current
     if (!container) return
     if (savedFolderPath && !folderReadyPath) return
+    if (!cli) {
+      publishDiagnosticSync({
+        level: 'error',
+        source: 'terminal',
+        title: `${agent?.name ?? agentId} was not started`,
+        message: 'Agent terminal is missing its CLI selection.',
+        details: [
+          `Workspace: ${workspaceName}`,
+          `Workspace ID: ${workspaceId}`,
+          `Agent ID: ${agentId}`,
+        ].join('\n'),
+        workspaceId,
+        workspaceName,
+        agentId,
+      })
+      return
+    }
 
     if (!agent?.cliSessionId && !attachedSessionId) {
       updateAgent(workspaceId, agentId, {
