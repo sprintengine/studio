@@ -59,7 +59,8 @@ Folder-store files are not safe manual editing surfaces. Use commands such as
 - `graphPolicy`: graph/readiness policy metadata.
 - `qualityPolicy`: roster-driven quality gate defaults and lifecycle policy.
 - `tasks`: compact task graph entries with `id`, `status`, `role`, and
-  `dependsOn`.
+  `dependsOn`. Each graph entry also carries `needsTriage`, defaulting to
+  `false` when absent.
 - `artifacts`: compact artifact entries with `id`, `status`, `kind`, and
   `taskId`.
 - `runner`: durable runner policy (`auto` or `off`) plus polling
@@ -113,6 +114,7 @@ Task records preserve the existing task card fields:
 - `comments`
 - `qualityGates`
 - `dispatch`
+- `needsTriage`
 - `needsInput`
 - `feedback`
 - `startedAt`, `completedAt`
@@ -121,6 +123,25 @@ Task records preserve the existing task card fields:
 `ownedPaths`, evidence files, artifact paths, review paths, and notes must use
 project-root-relative paths. Do not write absolute paths or machine-specific
 paths into task records or evidence.
+
+## Role Registry And Routing
+
+Task roles, roster roles, plan-review roles, and quality-gate roles are
+configured data. CLI role arguments are parsed as strings and then canonicalized
+through the role registry, including aliases and hyphen/underscore variants
+supported by the registry. Unknown roles are rejected at command boundaries once
+the registry can prove they are unknown.
+
+When `rosterConfigured` is true, task and gate targets must also be present in
+the active roster. Normal task dispatch routes by exact canonical `task.role`.
+Quality-gate dispatch routes by exact canonical `qualityGates[].role`. The core
+does not infer routing from role capabilities such as implementer, reviewer, or
+tester flags.
+
+Plan reviews use registry-backed non-architect role ids from the active roster
+instead of a static reviewer-role list. Built-in roles can still have
+role-specific prompt focus or artifact labels, but custom configured roles use
+the generic specialist review focus and remain claimable.
 
 ## Activity Timeline
 
@@ -193,6 +214,11 @@ Gate attempts record durable reviewer activity:
 Gate claiming is separate from task claiming and uses
 `runner/gate.queue.lock`. The task remains in its lifecycle folder while gate
 attempts are claimed and completed.
+
+Gate lifecycle is phase-driven. A gate's `phase` (`review`, `testing`, or
+`product`) determines which lifecycle step it blocks and where the task advances
+after approval; `role` only determines which configured roster role can claim
+the gate.
 
 Approved and skipped verdicts advance a phase only after all remaining required
 gates in that phase are `approved` or `skipped`. `changes_requested` and
@@ -322,8 +348,16 @@ when:
 
 - its semantic status is `todo` or `changes_requested`;
 - it has no `ownerAgentId`;
+- `needsTriage` is absent or `false`;
 - its dispatch mode allows dependency readiness;
 - every dependency in the run graph is `done`.
+
+`needsTriage` is a task-card readiness flag, not a replacement for
+`needsInput`. Missing `needsTriage` normalizes to `false`. When `true`, the task
+remains visible in the `todo` board/projection, is omitted from materialized
+ready queues, and cannot be claimed through `task next`, `task claim`,
+`join --watch`, or normal dispatch. Clearing it restores normal
+dependency-based readiness.
 
 Readiness refresh rejects unknown dependencies and cycles. The CLI command is:
 

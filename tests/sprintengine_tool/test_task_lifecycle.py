@@ -10,14 +10,17 @@ from fixtures import (
     assert_event_type,
     assert_ready_tasks,
     assert_task_status,
+    create_workspace_team,
     create_team,
     get_task,
     read_state,
     task,
     task_ids_by_status,
+    write_workspace_role,
     write_state,
 )
 from sprintengine_core.tool import runner_watch_delay_seconds
+from sprintengine_core.tool.tasks import normalize_task
 
 
 FIXED_MTIME_NS = 1_700_000_000_000_000_000
@@ -81,6 +84,52 @@ def test_manual_dispatch_task_is_not_ready_until_marked_ready(tmp_path) -> None:
     assert_task_status(state, "T1", "todo")
     assert_board_column(state, "T1", "todo")
     assert_ready_tasks(fixture.cli, "developer", [])
+
+
+def test_needs_triage_blocks_ready_dispatch_until_cleared(tmp_path) -> None:
+    triage_task = task("T2", "Needs triage before dispatch", "developer", depends_on=["T1"])
+    triage_task["needsTriage"] = True
+    fixture = create_team(
+        tmp_path,
+        "needs-triage-dispatch",
+        [
+            task("T1", "Done dependency", "developer", "done"),
+            triage_task,
+        ],
+    )
+
+    assert_ready_tasks(fixture.cli, "developer", [])
+    joined = fixture.cli.run("join", "--role", "developer", "--id", "developer-fixture", "--watch", "--max-wait-seconds", "0")
+    assert joined["action"] == "idle"
+    next_payload = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+    assert next_payload["claimed"] is False
+    assert next_payload["reason"] == "no_ready_task"
+    claim_payload = fixture.cli.run("task", "claim", "--task-id", "T2", "--id", "developer-fixture")
+    assert claim_payload["ok"] is False
+    assert claim_payload["error"] == "Task is not ready."
+
+    projection = fixture.cli.run("projection")
+    projected = next(record for record in projection["tasks"] if record["id"] == "T2")
+    assert projected["needsTriage"] is True
+    assert projected["boardColumn"] == "todo"
+    assert projection["board"]["columns"]["todo"]["taskIds"] == ["T2"]
+    assert projection["board"]["readyTaskIds"] == []
+
+    state = read_state(fixture.state_path)
+    get_task(state, "T2")["needsTriage"] = False
+    write_state(fixture.state_path, state)
+
+    assert_ready_tasks(fixture.cli, "developer", ["T2"])
+    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+    assert claimed["claimed"] is True
+    assert claimed["task"]["id"] == "T2"
+
+
+def test_task_normalization_defaults_and_preserves_needs_triage() -> None:
+    base = task("T1", "Normalize task", "developer")
+
+    assert normalize_task(base)["needsTriage"] is False
+    assert normalize_task({**base, "needsTriage": True})["needsTriage"] is True
 
 
 def test_task_ready_moves_manual_dispatch_task_to_ready(tmp_path) -> None:
@@ -636,6 +685,89 @@ def test_join_watch_returns_ready_gate_before_normal_task(tmp_path) -> None:
     assert payload["action"] == "gate_work"
     assert payload["gate"]["role"] == "spec_reviewer"
     assert payload["task"]["id"] == "T1"
+
+
+def test_configured_custom_role_can_claim_and_complete_quality_gates_by_phase(tmp_path) -> None:
+    review_task = task("T1", "Custom reviewed implementation", "developer", "review", owner="developer-fixture")
+    review_task["qualityGates"] = [
+        {
+            "id": "editorial-review",
+            "phase": "review",
+            "role": "release-editor",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": True,
+            "focus": "Review writing quality.",
+            "attempts": [],
+        },
+        {
+            "id": "editorial-validation",
+            "phase": "testing",
+            "role": "release-editor",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": True,
+            "focus": "Validate publishing readiness.",
+            "attempts": [],
+        },
+    ]
+    fixture = create_workspace_team(tmp_path, "custom-gate-workspace", "custom-gate-role", [review_task])
+    write_workspace_role(fixture.team_dir.parents[2], "release_editor", aliases=["release-editor"])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
+        "editor-1": {"role": "release_editor", "status": "idle", "currentTaskId": None},
+    }
+    write_state(fixture.state_path, state)
+
+    claimed = fixture.cli.run("task", "gate", "next", "--role", "release-editor", "--id", "editor-1")
+    assert claimed["claimed"] is True
+    assert claimed["gate"]["id"] == "editorial-review"
+    assert claimed["gate"]["role"] == "release_editor"
+    assert "Tester Gate Expectations" not in claimed["prompt"]
+
+    reviewed = fixture.cli.run(
+        "task",
+        "gate",
+        "verdict",
+        "--task-id",
+        "T1",
+        "--gate-id",
+        "editorial-review",
+        "--role",
+        "release-editor",
+        "--id",
+        "editor-1",
+        "--verdict",
+        "approved",
+        "--summary",
+        "Editorial review passed.",
+    )
+    assert reviewed["nextStatus"] == "testing"
+
+    validated = fixture.cli.run("task", "gate", "next", "--role", "release-editor", "--id", "editor-1")
+    assert validated["claimed"] is True
+    assert validated["gate"]["id"] == "editorial-validation"
+
+    completed = fixture.cli.run(
+        "task",
+        "gate",
+        "verdict",
+        "--task-id",
+        "T1",
+        "--gate-id",
+        "editorial-validation",
+        "--role",
+        "release-editor",
+        "--id",
+        "editor-1",
+        "--verdict",
+        "approved",
+        "--summary",
+        "Editorial validation passed.",
+    )
+    assert completed["nextStatus"] == "done"
 
 
 def test_join_watch_routes_architect_needs_input_before_ready_task(tmp_path) -> None:
@@ -1287,6 +1419,81 @@ def test_roster_add_allows_later_specialist_tasks(tmp_path) -> None:
     assert state["sprintengine"]["rosterConfigured"] is True
     assert state["agents"]["security"]["role"] == "security"
     assert_event_type(state, "roster_member_added")
+
+
+def test_configured_custom_role_flows_through_core_cli(tmp_path) -> None:
+    workspace = tmp_path / "custom-role-workspace"
+    write_workspace_role(workspace, "release_editor", aliases=["release-editor"])
+    state_path = workspace / ".multi-code" / "sprintengine" / "custom-role-flow" / "run.yaml"
+    cli = SwarmCli(state_path, cwd=workspace)
+    cli.run(
+        "init",
+        "--goal",
+        "Use configured custom roles",
+        "--agent",
+        "architect:architect",
+        "--agent",
+        "release-editor:editor-1",
+    )
+
+    roster = cli.run("roster", "list")
+    assert {agent["id"]: agent["role"] for agent in roster["agents"]}["editor-1"] == "release_editor"
+
+    accepted = cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Draft launch post",
+        "--role",
+        "release-editor",
+        "--description",
+        "Write the launch post.",
+        "--no-quality-gates",
+    )
+    assert accepted["task"]["role"] == "release_editor"
+
+    listed = cli.run("task", "list", "--role", "release-editor")
+    assert [task["id"] for task in listed["readyTasks"]] == [accepted["task"]["id"]]
+
+    joined = cli.run("join", "--role", "release-editor", "--id", "editor-1", "--watch", "--max-wait-seconds", "0")
+    assert joined["action"] == "work"
+    assert "sprintengine task next --role release_editor --id editor-1" in joined["prompt"]
+
+    claimed = cli.run("task", "next", "--role", "release-editor", "--id", "editor-1")
+    assert claimed["claimed"] is True
+    assert claimed["task"]["role"] == "release_editor"
+    assert claimed["task"]["id"] == accepted["task"]["id"]
+
+
+def test_unknown_configured_role_is_rejected_after_argparse(tmp_path) -> None:
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "unknown-role" / "run.yaml"
+    cli = SwarmCli(state_path)
+    cli.run("init", "--goal", "Reject unknown roles", "--agent", "architect:architect")
+
+    rejected = cli.run_failure("roster", "add", "--role", "not-a-real-role", "--id", "unknown")
+
+    assert "unknown role 'not-a-real-role'" in rejected.stderr
+    assert "invalid choice" not in rejected.stderr
+
+
+def test_plan_review_start_accepts_configured_non_architect_role(tmp_path) -> None:
+    fixture = create_workspace_team(tmp_path, "custom-plan-review-workspace", "custom-plan-review-role", [])
+    write_workspace_role(fixture.team_dir.parents[2], "release_editor", aliases=["release-editor"])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
+        "editor-1": {"role": "release_editor", "status": "idle", "currentTaskId": None},
+    }
+    write_state(fixture.state_path, state)
+    (fixture.team_dir / "plan.md").write_text("# Plan\n", encoding="utf-8")
+
+    payload = fixture.cli.run("plan", "start-review", "--role", "release-editor", "--id", "editor-1")
+
+    assert payload["role"] == "release_editor"
+    assert payload["knownReviewers"] == [{"id": "editor-1", "role": "release_editor"}]
+    assert "Review focus: specialist risks, gaps, and execution quality." in payload["prompt"]
+    assert (fixture.team_dir / "plan-reviews" / "editor-1.md").is_file()
 
 
 def test_task_next_returns_active_task_before_claiming_new_work(tmp_path) -> None:

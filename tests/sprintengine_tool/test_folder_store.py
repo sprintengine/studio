@@ -534,6 +534,33 @@ def test_ready_queue_excludes_blocked_active_terminal_and_manual_todo_tasks(tmp_
     assert (fixture.team_dir / "tasks" / "canceled" / "0003-T3.json").is_file()
 
 
+def test_ready_queue_keeps_needs_triage_tasks_in_todo_projection(tmp_path) -> None:
+    triage_task = task("T2", "Needs triage", "developer", depends_on=["T1"])
+    triage_task["needsTriage"] = True
+    fixture = create_team(
+        tmp_path,
+        "needs-triage-ready-exclusion",
+        [
+            task("T1", "Done dependency", "developer", "done"),
+            triage_task,
+            task("T3", "Normal ready", "developer", depends_on=["T1"]),
+        ],
+    )
+
+    payload = fixture.cli.run("task", "refresh-ready")
+    projection = fixture.cli.run("projection")
+    triage_projection = next(record for record in projection["tasks"] if record["id"] == "T2")
+    ready_projection = next(record for record in projection["tasks"] if record["id"] == "T3")
+
+    assert payload["readyTaskIds"] == ["T3"]
+    assert ready_queue_ids(fixture.team_dir) == ["T3"]
+    assert (fixture.team_dir / "tasks" / "todo" / "0002-T2.json").is_file()
+    assert triage_projection["needsTriage"] is True
+    assert triage_projection["boardColumn"] == "todo"
+    assert ready_projection["needsTriage"] is False
+    assert projection["board"]["columns"]["todo"]["taskIds"] == ["T2"]
+
+
 def test_changes_requested_tasks_stay_in_changes_requested_folder_and_are_claimable(tmp_path) -> None:
     fixture = create_team(
         tmp_path,

@@ -7,7 +7,7 @@ from typing import Any, Dict
 from sprintengine_core.tool.constants import ACTIVE_TASK_STATUSES
 from sprintengine_core.tool.gates import find_active_gate_claim
 from sprintengine_core.tool.paths import now_iso
-from sprintengine_core.tool.roles import VALID_ROLES
+from sprintengine_core.tool.roles import configured_role_ids, require_configured_role
 from sprintengine_core.tool.state import (
     add_roster_agent,
     agent_is_retired,
@@ -22,14 +22,15 @@ from sprintengine_core.tool.state import (
 def cmd_roster_add(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         clean_id = args.id.strip()
+        role = require_configured_role(args.role, context="Roster")
         before = dict(state.get("agents", {}))
-        agent = add_roster_agent(state, args.role, clean_id, args.actor or "architect")
+        agent = add_roster_agent(state, role, clean_id, args.actor or "architect")
         created = clean_id not in before
         return {
             "ok": True,
             "action": "added" if created else "exists",
             "agentId": clean_id,
-            "role": args.role,
+            "role": role,
             "agent": agent,
         }
 
@@ -48,8 +49,7 @@ def cmd_roster_retire(args: argparse.Namespace) -> Dict[str, Any]:
         if not isinstance(agent, dict):
             raise SystemExit(f"Agent {clean_id!r} is not in this Sprint Engine roster.")
         role = str(agent.get("role") or "").strip()
-        if role not in VALID_ROLES:
-            raise SystemExit(f"Agent {clean_id!r} does not have a valid Sprint Engine role.")
+        role = require_configured_role(role, context=f"Agent {clean_id!r}")
 
         active_task = next(
             (
@@ -102,11 +102,9 @@ def cmd_roster_retire(args: argparse.Namespace) -> Dict[str, Any]:
 def cmd_roster_replenish(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         actor = (args.actor or "runner").strip() or "runner"
-        roles = [args.role] if getattr(args, "role", None) else sorted(VALID_ROLES)
+        roles = [require_configured_role(args.role, context="Roster")] if getattr(args, "role", None) else sorted(configured_role_ids())
         created = []
         for role in roles:
-            if role not in VALID_ROLES:
-                raise SystemExit(f"Invalid roster role {role!r}.")
             retired_for_role = [
                 agent_id
                 for agent_id, agent in state.get("agents", {}).items()

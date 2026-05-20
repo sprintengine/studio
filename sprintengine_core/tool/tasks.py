@@ -12,7 +12,7 @@ from sprintengine_core.tool.common import unique_strings
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.gates import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import now_iso, workspace_root_for_state_path
-from sprintengine_core.tool.roles import VALID_ROLES
+from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.shell import worktree_for_vcs
 from sprintengine_core.tool.state import *  # noqa: F403,F401
 
@@ -146,6 +146,8 @@ def refresh_task_diff_evidence(
 
 def task_is_ready(state: Dict[str, Any], task: Dict[str, Any]) -> bool:
     if task.get("status") not in {"todo", "changes_requested"} or task.get("ownerAgentId"):
+        return False
+    if task.get("needsTriage") is True:
         return False
     dispatch = task.get("dispatch")
     if isinstance(dispatch, dict) and dispatch.get("mode") == "manual" and dispatch.get("status") != "ready":
@@ -281,6 +283,19 @@ def normalize_task_needs_input(raw: Any, task_id: str) -> Optional[Dict[str, Any
             needs_input[key] = value
     return needs_input
 
+def normalize_needs_triage(raw: Any, task_id: str) -> bool:
+    if raw is None:
+        return False
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        normalized = raw.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    raise SystemExit(f"Task {task_id} needsTriage must be a boolean.")
+
 def normalize_scope_expansion(raw: Any, task_id: str, index: int) -> Dict[str, Any]:
     if not isinstance(raw, dict):
         raise SystemExit(f"Task {task_id} evidence.scopeExpansions entries must be objects.")
@@ -342,8 +357,7 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
         raise SystemExit("Each task must have a non-empty id.")
     if not title:
         raise SystemExit(f"Task {task_id} must have a non-empty title.")
-    if role not in VALID_ROLES:
-        raise SystemExit(f"Task {task_id} has invalid role {role!r}.")
+    role = require_configured_role(role, context=f"Task {task_id}")
     status = str(raw.get("status", "todo")).strip() or "todo"
     if status not in VALID_TASK_STATUSES:
         raise SystemExit(f"Task {task_id} has invalid status {status!r}.")
@@ -373,6 +387,7 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
         "notes": [str(i).strip() for i in raw.get("notes", []) if str(i).strip()],
         "startedAt": raw.get("startedAt") or None,
         "completedAt": raw.get("completedAt") or None,
+        "needsTriage": normalize_needs_triage(raw.get("needsTriage"), task_id),
     }
     diff_evidence = normalize_diff_evidence(ev.get("diffs"), task_id)
     if diff_evidence:
@@ -462,6 +477,7 @@ def build_quality_gate_from_spec(gate_id: str, spec: Dict[str, Any], state: Dict
     role = str(spec.get("role") or "").strip()
     if not role:
         raise SystemExit(f"Quality gate {gate_id!r} has no role.")
+    role = require_configured_role(role, context=f"Quality gate {gate_id!r}")
     if roster_is_configured(state) and role not in roster_roles(state):
         raise SystemExit(f"Quality gate {gate_id!r} requires role {role!r}, which is not in this Sprint Engine roster.")
     phase = str(spec.get("phase") or "").strip()

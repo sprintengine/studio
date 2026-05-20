@@ -25,6 +25,7 @@ from sprintengine_core.tool.gates import (
 )
 from sprintengine_core.tool.paths import now_iso
 from sprintengine_core.tool.review_prompts import build_gate_review_prompt, build_rework_prompt
+from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.shell import commit_task_changes_if_needed
 from sprintengine_core.tool.state import (
     append_agent_notification_event,
@@ -57,6 +58,9 @@ from sprintengine_core.tool.tasks import (
 from sprintengine_core.tool.commands.run import auto_mode_continuation
 
 def cmd_task_list(args: argparse.Namespace) -> Dict[str, Any]:
+    if getattr(args, "role", None):
+        args.role = require_configured_role(args.role, context="Task list")
+
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         ready_ids = read_ready_task_ids(state)
         tasks_by_id = {
@@ -76,6 +80,9 @@ def cmd_task_list(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 def cmd_task_gate_list(args: argparse.Namespace) -> Dict[str, Any]:
+    if getattr(args, "role", None):
+        args.role = require_configured_role(args.role, context="Gate list")
+
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         gates = []
         for task in state.get("tasks", []) or []:
@@ -104,6 +111,8 @@ def cmd_task_gate_list(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 def cmd_task_gate_next(args: argparse.Namespace) -> Dict[str, Any]:
+    args.role = require_configured_role(args.role, context="Gate")
+
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         with folder_store.FolderLock(args.state.parent / folder_store.GATE_QUEUE_LOCK_FILE):
             ensure_agent_in_roster(state, args.id, args.role)
@@ -134,6 +143,8 @@ def cmd_task_gate_next(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 def cmd_task_gate_claim(args: argparse.Namespace) -> Dict[str, Any]:
+    args.role = require_configured_role(args.role, context="Gate")
+
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         with folder_store.FolderLock(args.state.parent / folder_store.GATE_QUEUE_LOCK_FILE):
             ensure_agent_in_roster(state, args.id, args.role)
@@ -152,6 +163,8 @@ def cmd_task_gate_claim(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 def cmd_task_gate_verdict(args: argparse.Namespace) -> Dict[str, Any]:
+    args.role = require_configured_role(args.role, context="Gate")
+
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         with folder_store.FolderLock(args.state.parent / folder_store.GATE_QUEUE_LOCK_FILE):
             ensure_agent_in_roster(state, args.id, args.role)
@@ -223,6 +236,8 @@ def cmd_task_gate_verdict(args: argparse.Namespace) -> Dict[str, Any]:
     return result
 
 def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
+    args.role = require_configured_role(args.role, context="Task")
+
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         with folder_store.FolderLock(args.state.parent / folder_store.CLAIM_QUEUE_LOCK_FILE):
             ensure_agent_in_roster(state, args.id, args.role)

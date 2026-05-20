@@ -11,7 +11,7 @@ from sprintengine_core.tool.common import unique_strings
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import MULTICODE_DIR_NAME, SPRINTENGINE_DIR_NAME, now_iso
 from sprintengine_core.tool.prompts import compose_prompt, load_soul_prompt
-from sprintengine_core.tool.roles import PLAN_REVIEW_ROLES
+from sprintengine_core.tool.roles import plan_review_role_ids
 from sprintengine_core.tool.state import *  # noqa: F403,F401
 from sprintengine_core.tool.tasks import *  # noqa: F403,F401
 
@@ -388,7 +388,7 @@ def expected_plan_reviewers(state: Dict[str, Any]) -> List[Dict[str, str]]:
         if not isinstance(agent, dict):
             continue
         role = str(agent.get("role", "")).strip()
-        if role not in PLAN_REVIEW_ROLES:
+        if role not in plan_review_role_ids():
             continue
         reviewers.append({"id": str(agent_id), "role": role})
     return sorted(reviewers, key=lambda item: (item["role"], item["id"]))

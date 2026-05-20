@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from sprintengine_core import store as folder_store
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import now_iso
-from sprintengine_core.tool.roles import VALID_ROLES
+from sprintengine_core.tool.roles import require_configured_role
 
 def parse_agent_specs(values: Optional[List[str]]) -> Dict[str, Dict[str, Any]]:
     agents: Dict[str, Dict[str, Any]] = {}
@@ -20,9 +20,8 @@ def parse_agent_specs(values: Optional[List[str]]) -> Dict[str, Dict[str, Any]]:
             continue
         if ":" not in spec:
             raise SystemExit("--agent must use role:id, for example --agent developer:developer-1")
-        role, agent_id = [part.strip() for part in spec.split(":", 1)]
-        if role not in VALID_ROLES:
-            raise SystemExit(f"--agent has invalid role {role!r}.")
+        raw_role, agent_id = [part.strip() for part in spec.split(":", 1)]
+        role = require_configured_role(raw_role, context="--agent")
         if not agent_id:
             raise SystemExit("--agent id cannot be empty.")
         if agent_id in agents and agents[agent_id].get("role") != role:
@@ -51,9 +50,9 @@ def apply_agent_specs(state: Dict[str, Any], values: Optional[List[str]]) -> Non
 
 def roster_roles(state: Dict[str, Any]) -> set[str]:
     return {
-        str(agent.get("role"))
+        str(agent.get("role")).strip()
         for agent in state.get("agents", {}).values()
-        if isinstance(agent, dict) and str(agent.get("role")) in VALID_ROLES
+        if isinstance(agent, dict) and str(agent.get("role") or "").strip()
     }
 
 
@@ -62,6 +61,7 @@ def roster_is_configured(state: Dict[str, Any]) -> bool:
 
 
 def ensure_role_in_roster(state: Dict[str, Any], role: str) -> None:
+    role = require_configured_role(role, context="Role")
     roles = roster_roles(state)
     if roster_is_configured(state) and role not in roles:
         raise SystemExit(
@@ -75,6 +75,7 @@ def agent_is_retired(agent: Optional[Dict[str, Any]]) -> bool:
 
 
 def ensure_agent_in_roster(state: Dict[str, Any], agent_id: str, role: str, *, allow_retired: bool = False) -> None:
+    role = require_configured_role(role, context="Agent role")
     existing_agent = state.get("agents", {}).get(agent_id)
     if agent_is_retired(existing_agent) and not allow_retired:
         raise SystemExit(f"Agent {agent_id!r} is retired and cannot claim more Sprint Engine work.")
@@ -87,8 +88,7 @@ def ensure_agent_in_roster(state: Dict[str, Any], agent_id: str, role: str, *, a
 
 
 def add_roster_agent(state: Dict[str, Any], role: str, agent_id: str, actor: str) -> Dict[str, Any]:
-    if role not in VALID_ROLES:
-        raise SystemExit(f"Invalid roster role {role!r}.")
+    role = require_configured_role(role, context="Roster")
     clean_id = agent_id.strip()
     if not clean_id:
         raise SystemExit("--id cannot be empty.")

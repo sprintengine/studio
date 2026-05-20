@@ -22,8 +22,6 @@ from typing import Any, Dict, List, Optional
 
 from sprintengine_core.diff_evidence import capture_task_diff_evidence
 from sprintengine_core import store as folder_store
-from sprintengine_core.tool.roles import PLAN_REVIEW_ROLES, VALID_ROLES
-
 
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import *  # noqa: F403,F401
@@ -376,7 +374,7 @@ def build_parser() -> argparse.ArgumentParser:
     roster_sub = roster_p.add_subparsers(dest="action", required=True)
 
     p = roster_sub.add_parser("add", help="Add a specialist to the canonical Sprint Engine roster.")
-    p.add_argument("--role", required=True, choices=sorted(VALID_ROLES))
+    p.add_argument("--role", required=True)
     p.add_argument("--id", required=True, help="Stable agent id, e.g. security or developer-2.")
     p.add_argument("--actor", default="architect")
     p.set_defaults(handler=roster_commands.add)
@@ -388,7 +386,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(handler=roster_commands.retire)
 
     p = roster_sub.add_parser("replenish", help="Let Sprint Engine add replacement roster slots for retired capacity when open work remains.")
-    p.add_argument("--role", choices=sorted(VALID_ROLES), help="Limit replenishment to one role.")
+    p.add_argument("--role", help="Limit replenishment to one role.")
     p.add_argument("--actor", default="runner")
     p.set_defaults(handler=roster_commands.replenish)
 
@@ -397,7 +395,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # join
     p = sub.add_parser("join", help="Join Sprint Engine as worker, returns full role prompt.")
-    p.add_argument("--role", required=True, choices=sorted(VALID_ROLES))
+    p.add_argument("--role", required=True)
     p.add_argument("--id", required=True, help="Stable agent id, e.g. developer-1.")
     p.add_argument("--watch", action="store_true", help="Poll until work is available, Auto Mode is off, or the run is complete.")
     p.add_argument("--max-wait-seconds", type=float, help="Maximum watch duration before returning idle; primarily useful for tests and diagnostics.")
@@ -433,7 +431,7 @@ def build_parser() -> argparse.ArgumentParser:
     task_sub = task_p.add_subparsers(dest="action", required=True)
 
     p = task_sub.add_parser("next", help="Claim the next ready task for your role.")
-    p.add_argument("--role", required=True, choices=sorted(VALID_ROLES))
+    p.add_argument("--role", required=True)
     p.add_argument("--id", required=True)
     p.set_defaults(handler=task_commands.next_task)
 
@@ -446,26 +444,26 @@ def build_parser() -> argparse.ArgumentParser:
     gate_sub = gate_p.add_subparsers(dest="gate_action", required=True)
 
     p = gate_sub.add_parser("list", help="List task quality gates.")
-    p.add_argument("--role", choices=sorted(VALID_ROLES))
+    p.add_argument("--role")
     p.add_argument("--task-id")
     p.set_defaults(handler=task_commands.gate_list)
 
     p = gate_sub.add_parser("next", help="Claim the next pending gate for your role.")
-    p.add_argument("--role", required=True, choices=sorted(VALID_ROLES))
+    p.add_argument("--role", required=True)
     p.add_argument("--id", required=True, help="Agent id.")
     p.set_defaults(handler=task_commands.gate_next)
 
     p = gate_sub.add_parser("claim", help="Claim a specific task gate.")
     p.add_argument("--task-id", required=True)
     p.add_argument("--gate-id", required=True)
-    p.add_argument("--role", required=True, choices=sorted(VALID_ROLES))
+    p.add_argument("--role", required=True)
     p.add_argument("--id", required=True, help="Agent id.")
     p.set_defaults(handler=task_commands.gate_claim)
 
     p = gate_sub.add_parser("verdict", help="Submit a verdict for an active task gate.")
     p.add_argument("--task-id", required=True)
     p.add_argument("--gate-id", required=True)
-    p.add_argument("--role", required=True, choices=sorted(VALID_ROLES))
+    p.add_argument("--role", required=True)
     p.add_argument("--id", required=True, help="Agent id.")
     p.add_argument("--verdict", required=True, choices=sorted(VALID_GATE_VERDICTS))
     p.add_argument("--summary", required=True, help="Verdict summary, feedback, skip rationale, or blocked reason.")
@@ -555,7 +553,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(handler=task_commands.comment)
 
     p = task_sub.add_parser("list", help="List ready tasks for a role.")
-    p.add_argument("--role", choices=sorted(VALID_ROLES))
+    p.add_argument("--role")
     p.set_defaults(handler=task_commands.list_tasks)
 
     # plan
@@ -567,7 +565,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--task-id")
     p.add_argument("--title", required=True)
     p.add_argument("--description", default="", help="Concrete task brief for the worker.")
-    p.add_argument("--role", required=True, choices=sorted(VALID_ROLES))
+    p.add_argument("--role", required=True)
     p.add_argument("--depends-on", action="append", default=[])
     p.add_argument("--path", action="append", default=[], help="Owned path or directory.")
     p.add_argument("--acceptance", action="append", default=[], help="Acceptance criterion.")
@@ -593,7 +591,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--title")
     p.add_argument("--description", help="Concrete task brief for the worker.")
     p.add_argument("--clear-description", action="store_true")
-    p.add_argument("--role", choices=sorted(VALID_ROLES))
+    p.add_argument("--role")
     p.add_argument("--path", action="append", help="Replace owned paths with this repeatable list.")
     p.add_argument("--clear-paths", action="store_true")
     p.add_argument("--acceptance", action="append", help="Replace acceptance criteria with this repeatable list.")
@@ -636,7 +634,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(handler=plan_commands.remove_dependency)
 
     p = plan_sub.add_parser("start-review", help="Start a specialist review of the architect plan.")
-    p.add_argument("--role", required=True, choices=sorted(PLAN_REVIEW_ROLES))
+    p.add_argument("--role", required=True)
     p.add_argument("--id", required=True, help="Stable agent id, e.g. frontend or developer-1.")
     p.set_defaults(handler=plan_commands.start_review)
 

@@ -564,6 +564,8 @@ def validate_acyclic_task_graph(tasks: Iterable[dict[str, Any]]) -> list[str]:
 def task_is_ready_for_queue(tasks_by_id: dict[str, dict[str, Any]], task: dict[str, Any], graph: dict[str, list[str]]) -> bool:
     if task.get("status") not in {"todo", "changes_requested"} or task.get("ownerAgentId"):
         return False
+    if _bool_value(task.get("needsTriage"), False):
+        return False
     dispatch = task.get("dispatch")
     if isinstance(dispatch, dict) and dispatch.get("mode") == "manual" and dispatch.get("status") != "ready":
         return False
@@ -601,6 +603,7 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
                     "status": task.get("status"),
                     "role": task.get("role"),
                     "dependsOn": [str(dep) for dep in task.get("dependsOn", []) or []],
+                    "needsTriage": _bool_value(task.get("needsTriage"), False),
                 }
                 for task in state.get("tasks", []) or []
                 if isinstance(task, dict) and task.get("id")
@@ -662,6 +665,7 @@ def write_materialized_task_files(team_dir: Path, tasks: list[dict[str, Any]], o
             continue
         folder_status = status_folder_for_task(task, ready_ids)
         stored = dict(task)
+        stored["needsTriage"] = _bool_value(stored.get("needsTriage"), False)
         stored["status"] = folder_status
         if folder_status == "ready":
             stored["stateStatus"] = task.get("status")
@@ -845,6 +849,7 @@ def _normalize_projection_task(task: dict[str, Any], *, board_column: str) -> di
     projected.setdefault("evidence", {})
     projected.setdefault("comments", [])
     projected.setdefault("activity", [])
+    projected["needsTriage"] = _bool_value(projected.get("needsTriage"), False)
     return projected
 
 

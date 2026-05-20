@@ -19,6 +19,7 @@ from sprintengine_core.tool.plans import (
     plan_reviews_dir_for_state,
     safe_review_filename,
 )
+from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.state import append_event, clear_task_refs, ensure_role_in_roster, find_task, load_mutation_state, with_locked_state
 from sprintengine_core.tool.tasks import (
     add_unique_values,
@@ -33,6 +34,8 @@ from sprintengine_core.tool.tasks import (
 )
 
 def cmd_plan_add_task(args: argparse.Namespace) -> Dict[str, Any]:
+    args.role = require_configured_role(args.role, context="Plan task")
+
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         ensure_role_in_roster(state, args.role)
         task = build_task_from_args(args, state)
@@ -44,6 +47,9 @@ def cmd_plan_add_task(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
+    if args.role is not None:
+        args.role = require_configured_role(args.role, context="Plan task")
+
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
         ensure_task_can_be_replanned(task, args.force)
@@ -224,6 +230,9 @@ def cmd_plan_list(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 def cmd_plan_start_review(args: argparse.Namespace) -> Dict[str, Any]:
+    args.role = require_configured_role(args.role, context="Plan review")
+    if args.role == "architect":
+        raise SystemExit("Architect does not review its own Sprint Engine plan through plan start-review.")
     state = load_mutation_state(args.state)
     ensure_role_in_roster(state, args.role)
     plan_path = plan_path_for_state(args.state)

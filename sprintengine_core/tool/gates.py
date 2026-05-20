@@ -7,15 +7,21 @@ from typing import Any, Dict, List, Optional
 from sprintengine_core import store as folder_store
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import now_iso
-from sprintengine_core.tool.roles import VALID_ROLES
+from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.state import *  # noqa: F403,F401
+
+def canonical_gate_role(gate: Dict[str, Any]) -> str:
+    raw_role = str(gate.get("role") or "").strip()
+    if not raw_role:
+        return ""
+    return require_configured_role(raw_role, context=f"Gate {gate.get('id') or 'unknown'}")
 
 def find_active_gate_claim(state: Dict[str, Any], agent_id: str, role: str) -> Optional[Dict[str, Any]]:
     for task in state.get("tasks", []) or []:
         if not isinstance(task, dict):
             continue
         for gate in task_quality_gates(task):
-            if gate.get("role") != role or gate.get("status") != "in_progress":
+            if canonical_gate_role(gate) != role or gate.get("status") != "in_progress":
                 continue
             for attempt in reversed(gate_attempts(gate)):
                 if (
@@ -27,7 +33,7 @@ def find_active_gate_claim(state: Dict[str, Any], agent_id: str, role: str) -> O
     return None
 
 def gate_is_claimable_for_role(task: Dict[str, Any], gate: Dict[str, Any], role: str, agent_id: str) -> bool:
-    if gate.get("role") != role or gate.get("status") != "pending":
+    if canonical_gate_role(gate) != role or gate.get("status") != "pending":
         return False
     if str(task.get("status") or "") != str(gate.get("phase") or ""):
         return False
@@ -39,6 +45,7 @@ def claim_gate_for_agent(state: Dict[str, Any], task: Dict[str, Any], gate: Dict
     if not gate_is_claimable_for_role(task, gate, role, agent_id):
         raise SystemExit("Gate is not claimable for this role and agent.")
     now = now_iso()
+    gate["role"] = role
     gate["status"] = "in_progress"
     attempt = {
         "id": next_gate_attempt_id(gate),

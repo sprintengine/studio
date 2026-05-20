@@ -56,13 +56,14 @@ def swarm_command(state_path: Path, args: tuple[str, ...]) -> list[str]:
 @dataclass(frozen=True)
 class SwarmCli:
     state_path: Path
+    cwd: Path = REPO_ROOT
 
     def run(self, *args: str) -> dict[str, Any]:
         assert_disposable_state_path(self.state_path)
         command = swarm_command(self.state_path, args)
         completed = subprocess.run(
             command,
-            cwd=REPO_ROOT,
+            cwd=self.cwd,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -82,7 +83,7 @@ class SwarmCli:
         command = swarm_command(self.state_path, args)
         completed = subprocess.run(
             command,
-            cwd=REPO_ROOT,
+            cwd=self.cwd,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -153,6 +154,30 @@ def create_team(tmp_path: Path, name: str, tasks: list[dict[str, Any]]) -> Swarm
     state_path = team_dir / "run.yaml"
     write_state(state_path, base_state(name, tasks))
     return SwarmTeamFixture(team_dir=team_dir, state_path=state_path, cli=SwarmCli(state_path))
+
+
+def create_workspace_team(tmp_path: Path, workspace_name: str, name: str, tasks: list[dict[str, Any]]) -> SwarmTeamFixture:
+    workspace = tmp_path / workspace_name
+    team_dir = workspace / ".multi-code" / "sprintengine" / name
+    state_path = team_dir / "run.yaml"
+    write_state(state_path, base_state(name, tasks))
+    return SwarmTeamFixture(team_dir=team_dir, state_path=state_path, cli=SwarmCli(state_path, cwd=workspace))
+
+
+def write_workspace_role(workspace: Path, role_id: str, *, aliases: list[str] | None = None, label: str | None = None) -> None:
+    root = workspace / ".sprintengine"
+    roles_dir = root / "roles"
+    skill_dir = root / "skills" / role_id
+    roles_dir.mkdir(parents=True, exist_ok=True)
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "id": role_id,
+        "label": label or role_id.replace("_", " ").title(),
+        "aliases": aliases or [],
+        "soul": [{"skill": role_id}],
+    }
+    (roles_dir / f"{role_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+    (skill_dir / "SKILL.md").write_text(f"# {role_id}\n\nTemporary test role.", encoding="utf-8")
 
 
 def get_task(state: dict[str, Any], task_id: str) -> dict[str, Any]:

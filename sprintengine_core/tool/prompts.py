@@ -4,18 +4,57 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sprintengine_core.tool.paths import PROMPTS_DIR
+from sprintengine_core.tool.paths import PROMPTS_DIR, REPO_ROOT
+from sprintengine_core.role_registry import SoulRenderError, discover_role_registry
 
 def load_soul_prompt(role: str) -> Optional[str]:
     try:
         from souls import render_soul
     except ImportError:
-        return None
+        render_soul = None
+
+    if render_soul is not None:
+        try:
+            return render_soul(role)
+        except (KeyError, FileNotFoundError):
+            pass
 
     try:
-        return render_soul(role)
-    except (KeyError, FileNotFoundError):
+        return discover_role_registry().render_soul(role, workspace_root=REPO_ROOT).content
+    except (KeyError, SoulRenderError):
         return None
+
+
+def generic_role_swarm_prompt(role: str) -> str:
+    return "\n\n".join([
+        f"# {role.replace('_', ' ').title()}",
+        "",
+        "You are a configured Sprint Engine specialist. Follow your rendered Soul guidance for domain judgment, and follow the Sprint Engine coordination rules for all task, gate, artifact, evidence, and handoff mechanics.",
+        "",
+        "## Responsibilities",
+        "",
+        f"- Claim tasks and gates assigned exactly to the `{role}` role.",
+        "- Read the task description, acceptance criteria, implementation notes, owned paths, evidence, and latest feedback before acting.",
+        "- Keep edits scoped to owned paths unless a directly required companion edit is logged as a scope expansion.",
+        "- Verify the real product path before publishing or completing work.",
+        "- Log touched files, commands, and results before handoff.",
+        "",
+        "## Work Sequence",
+        "",
+        "```",
+        f"sprintengine join --role {role} --id <your-id> --watch",
+        "# Follow the returned directive.",
+        "sprintengine task log --task-id <id> --id <your-id> --summary \"What you did\" --file <path> --command \"<command>\" --result \"<result>\"",
+        "sprintengine task publish --task-id <id> --id <your-id> --summary \"What changed and how you verified it\"",
+        "```",
+        "",
+        "## Quality Standards",
+        "",
+        "- Do not edit Sprint Engine run-store files directly.",
+        "- Do not claim work assigned to another role.",
+        "- Do not mark work complete when the main behavior depends on sample data, fake responses, mocked transports, stubbed commands, placeholder persistence, or disconnected local state.",
+        "- If real verification is blocked, route the task or gate to `needs_input` with the appropriate actor, reason, and question.",
+    ])
 
 
 def project_relative_path_guidance() -> str:
@@ -131,9 +170,7 @@ def compose_prompt(
 
 def load_prompt(role: str) -> str:
     path = PROMPTS_DIR / f"{role}.md"
-    if not path.exists():
-        raise SystemExit(f"Prompt file not found for role {role!r}: {path}")
-    swarm_prompt = path.read_text(encoding="utf-8").strip()
+    swarm_prompt = path.read_text(encoding="utf-8").strip() if path.exists() else generic_role_swarm_prompt(role)
     return compose_prompt(
         "# SprintEngine Coordination Rules",
         swarm_prompt,
@@ -180,4 +217,3 @@ def completion_reality_instruction() -> str:
         "cross-process contract, evidence must cover that real dependency or the task is not done. "
         "Use `needs_input`, a blocker note, or a concrete follow-up when real verification cannot be completed. "
     )
-

@@ -32,6 +32,7 @@ from sprintengine_core.tool.plans import (
     state_has_source_kind,
 )
 from sprintengine_core.tool.prompts import artifact_registration_instruction, completion_reality_instruction, load_prompt
+from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.review_prompts import build_merge_start_prompt, worker_execution_workspace_block
 from sprintengine_core.tool.state import (
     agent_is_retired,
@@ -361,6 +362,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
     import sys
     from sprintengine_core.tool.commands.task import architect_actionable_needs_input_tasks
 
+    args.role = require_configured_role(args.role, context="Join")
     print(f"[sprintengine] reading state from: {args.state}", file=sys.stderr)
 
     def completion_instruction() -> str:
