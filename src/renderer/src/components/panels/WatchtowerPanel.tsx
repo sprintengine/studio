@@ -636,7 +636,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
       // Starting another review survives here in the overflow so the capability
       // isn't lost — just demoted from primary.
       items.push({
-        id: 'watchtower.review.start',
+        id: 'watchtower.run.review',
         label: isPending('startReview') ? 'Starting…' : 'Run another review…',
         disabled: isPending('startReview'),
         onSelect: () => setReviewOpen(true),
