@@ -45,9 +45,9 @@ After the checkpoint, implement the work as one coherent replacement:
 
 ## Architecture
 
-### MCP-local server as canonical interface
+### MCP-local server as preferred machine interface
 
-The Sprint Engine MCP server is **the** interface for agents. Every agent operation — claim, comment, log evidence, publish, verdict, heartbeat — is an MCP tool call. The legacy CLI continues to work for humans and scripts but is no longer the agent's path.
+The Sprint Engine MCP server is the preferred machine boundary for agents. Agent operations such as claim, comment, log evidence, publish, verdict, heartbeat, dispatch observation, and registry discovery are exposed as structured MCP tool calls. The CLI remains the current compatibility and startup path for humans, scripts, and Multicode-launched agents while the runtime still depends on terminal/session orchestration.
 
 This solves the cross-platform CLI/Python pain (PowerShell vs Bash quoting, Python venv discovery, npm-shim weirdness, exit-code propagation). Agents call MCP tools and get clean JSON responses, the same on Windows, macOS, Linux, WSL.
 
@@ -62,7 +62,7 @@ The Sprint Engine run-files cluster is the durable contract:
 - `artifacts/<status>/<id>.json` — folder-store artifact records
 - `projection.json` — UI-derived view, written by the server
 - `events.jsonl` — append-only event log
-- `dispatch.jsonl` (new) — append-only dispatch ledger: `{ts, agentId, target: {taskOrGateId, kind, reason}}`
+- `dispatch.jsonl` — append-only dispatch ledger: `{id, timestamp, agentId, role, target, reason, state, outcome, source}`
 - `metrics/`, `runner/`, `reviews/`, `validation/` — existing supporting directories
 
 `state.yaml` is gone. The folder-store layout already shipped on main; this design extends it with dispatch and liveness fields.
@@ -81,8 +81,8 @@ Agent calls sprintengine.agent.join(role, agent_id, workspace_root)
   → server registers agent in run.yaml's agents map
   → server returns the composed soul (agent uses it as system prompt)
 Agent calls sprintengine.subscribe(agent_id)
-  → opens long-running MCP notification stream
-  → agent is now idle, waiting for dispatch
+  → records polling or compatible notification subscription metadata
+  → agent is now idle, waiting for dispatch through CLI watch or MCP reads
 
 [Time passes. Work lands. Server's scheduler picks this agent for a task or gate.]
 
@@ -100,9 +100,11 @@ Agent calls sprintengine.agent.leave(agent_id)
   → server releases any claims, removes from agents map
 ```
 
+Current Multicode-launched agents still start and continue through `sprintengine join --role <role> --id <agent-id> --watch`. That compatibility call shares the same lifecycle records as the MCP agent tools and may be routed through the local MCP backend, but the CLI owns polling/backoff and terminal wake/resume until target agent CLIs prove direct MCP notification wake-up.
+
 **Scheduling policy**: round-robin among idle agents of the requested role. Future refinements can include affinity-aware re-dispatch for rework loops and user-pinned filters.
 
-**Liveness**: strict heartbeat. Each agent calls `sprintengine.agent.heartbeat(agent_id)` every 30 seconds. The server marks an agent dead if no heartbeat for 90 seconds; claims are released, work is re-dispatched, agent removed from the available pool. (Future v2 refinement: hybrid liveness — Multicode signals death immediately via `agent.leave` on pty exit, with heartbeat as a backstop.)
+**Liveness**: heartbeat-backed. Agents refresh `heartbeatAt` through lifecycle calls such as `sprintengine.agent.heartbeat`, `agent.join`, and compatibility join/task paths. Expiry uses the run policy `agentTimeoutSeconds` value from run metadata or runner metadata; the implemented default is 300 seconds when no positive override is configured. When an agent expires, the server marks it `dead`, releases claims, and makes the work available for re-dispatch. (Future v2 refinement: hybrid liveness — Multicode signals death immediately via `agent.leave` on pty exit, with heartbeat as a backstop.)
 
 ### Server-driven progression
 
@@ -339,18 +341,45 @@ Sprint Engine bundled content sits as a single directory at `resources/sprinteng
 
 The full surface for agents and renderer is in v1. The CLI continues to exist as a thin wrapper around the same `sprintengine_core` library for humans.
 
+Final MCP names use dotted, role-agnostic operation groups. The old CLI-shaped MCP tools remain compatibility aliases until Multicode stops launching agents through `sprintengine join --watch`; they must call the same core mutation path and stay covered by transition tests.
+
+`sprintengine_mcp/schemas.py` exposes the final v1 contract schemas separately from the active `TOOL_SCHEMAS` registry. The live MCP `list_tools` response must advertise only tools with server handlers; future contract names move into `TOOL_SCHEMAS` as their handlers land.
+
+| Area | Final v1 names | Compatibility aliases and notes |
+|---|---|---|
+| Agent lifecycle | `sprintengine.agent.join`, `sprintengine.agent.heartbeat`, `sprintengine.agent.leave`, `sprintengine.subscribe` | `sprintengine.join` is a compatibility alias for CLI `join --watch`. It accepts `role`, `id`, `watch`, and `maxWaitSeconds`, returns the existing join directive shape, and records the same lifecycle fields as `sprintengine.agent.join`. |
+| Dispatch observation | `sprintengine.dispatch.next`, `sprintengine.dispatch.ack`; optional server notifications `sprintengine.dispatch`, `sprintengine.cancel`, `sprintengine.run.status_changed` | `dispatch.next` returns the agent's `currentDispatch`, state, and only that agent's ledger entries, with `lastDispatchId` pagination applied after agent filtering. Dispatch records are durable state, not a wake-up guarantee. Multicode still owns terminal spawn/focus/input wake-up for current CLIs. |
+| Discovery | `sprintengine.roles.list`, `sprintengine.roles.get`, `sprintengine.soul.get`, `sprintengine.skills.list`, `sprintengine.skill.get` | Discovery reads the role registry and Soul renderer; it must expose source layer and warnings where available. |
+| Task operations | `sprintengine.task.get`, `sprintengine.task.list`, `sprintengine.task.next`, `sprintengine.task.claim`, `sprintengine.task.status`, `sprintengine.task.resolve_input`, `sprintengine.task.release`, `sprintengine.task.ready`, `sprintengine.task.log`, `sprintengine.task.note`, `sprintengine.task.comment`, `sprintengine.task.comment.list`, `sprintengine.task.publish`, `sprintengine.task.request_changes` | Active MCP names are role-agnostic and call the same core mutation path as the CLI. Claim responses include `currentDispatch` and a top-level dispatched state when a durable assignment exists. Completion-style responses include progression data where server progression advanced the task. |
+| Gate operations | `sprintengine.gate.list`, `sprintengine.gate.next`, `sprintengine.gate.claim`, `sprintengine.gate.verdict`, `sprintengine.gate.publish`, `sprintengine.gate.skip` | Gate claim responses include `currentDispatch` and top-level dispatched state for the claimed gate. `gate.publish` is the final v1 verdict name; `gate.verdict` remains the CLI-compatible wrapper. |
+| Artifact operations | `sprintengine.artifact.add`, `sprintengine.artifact.ready`, `sprintengine.artifact.approve`, `sprintengine.artifact.request_changes`, `sprintengine.artifact.list` | Artifact paths remain project-root-relative. |
+| Plan operations | `sprintengine.plan.add_task`, `sprintengine.plan.update_task`, `sprintengine.plan.delete_task`, `sprintengine.plan.add_dependency`, `sprintengine.plan.remove_dependency`, `sprintengine.plan.start_review`, `sprintengine.plan.review_status`, `sprintengine.plan.address_reviews` | Architect-only mutating operations continue to enforce actor/role authorization. |
+| Run operations | `sprintengine.run.get`, `sprintengine.run.policy.get`, `sprintengine.run.projection`, `sprintengine.run.subscribe` | `sprintengine.summary`, `sprintengine.health`, roster tools, and feedback tools remain operational/support tools. |
+
 ### Agent lifecycle
 
-- `sprintengine.agent.join(role, agentId, workspaceRoot) → { soul: <composed-prompt-string>, role: <manifest>, coordination: <sprintengine-prompt>, runMeta: {...} }`
-- `sprintengine.agent.heartbeat(agentId)`
-- `sprintengine.agent.leave(agentId, reason?)`
-- `sprintengine.subscribe(agentId)` — opens the dispatch notification stream
+Stateful lifecycle calls use `statePath`. Registry discovery calls use `workspaceRoot`.
+
+- `sprintengine.agent.join(statePath, role, agentId, workspaceRoot?, subscribe?, subscriptionMode?) → { agentId, role, agent, currentDispatch, run, roleManifest, prompt, promptContext, legacyJoin }`
+- `sprintengine.agent.heartbeat(statePath, agentId)`
+- `sprintengine.agent.leave(statePath, agentId, reason?)`
+- `sprintengine.subscribe(statePath, agentId, transport?, lastDispatchId?)` — records dispatch subscription metadata for polling or compatible MCP notifications
+- `sprintengine.join(statePath, role, id, watch?, maxWaitSeconds?)` — CLI `join --watch` compatibility response shape
+
+### Dispatch ops
+
+- `sprintengine.dispatch.next(statePath, agentId, lastDispatchId?) → { currentDispatch, dispatches, state }`
+- `sprintengine.dispatch.ack(statePath, agentId, dispatchId, outcome?) → { agent, currentDispatch }`
+
+`currentDispatch` is the active target mirror on the agent record. It carries `dispatchId`, `targetKind`, `role`, `reason`, `assignedAt`, and target identifiers such as `taskId`, `gateId`, and `attemptId`. Agents must reconcile by `dispatchId` before acting after reconnects.
 
 ### Server → agent notifications
 
-- `sprintengine.dispatch { agentId, target: { taskId | gateId, role, reason } }` — server has assigned this agent
+- `sprintengine.dispatch { dispatchId, agentId, target: { kind, taskId?, gateId?, role, reason } }` — server has assigned this agent
 - `sprintengine.run.status_changed { workspaceRoot, status }` — informational
 - `sprintengine.cancel { agentId, reason }` — server is revoking the agent's current claim
+
+Notifications are advisory transport. The durable contract is `run.yaml` plus `dispatch.jsonl`: if a notification is missed, duplicated, or delivered after reconnect, the receiving agent must reconcile by dispatch id before acting. Current production behavior must not assume that a notification wakes an idle Codex or Claude Code session.
 
 ### Discovery
 
@@ -362,44 +391,65 @@ The full surface for agents and renderer is in v1. The CLI continues to exist as
 
 ### Task ops
 
-- `sprintengine.task.get(workspaceRoot, taskId) → <task>`
-- `sprintengine.task.list(workspaceRoot, filter?) → [<task>, ...]`
-- `sprintengine.task.comment(workspaceRoot, taskId, body, commentType, paths?, data?)`
-- `sprintengine.task.log(workspaceRoot, taskId, id, summary, files?, commands?, results?, scopeExpansionJson?)`
-- `sprintengine.task.publish(workspaceRoot, taskId, summary, commands?, touchedFiles?, comment?)`
-- `sprintengine.task.request_changes(workspaceRoot, taskId, reason)`
-- `sprintengine.task.status(workspaceRoot, taskId, status, feedbackFields?)`
+- `sprintengine.task.get(statePath, taskId) → <task>`
+- `sprintengine.task.list(statePath, role?, status?, includeDone?) → [<task>, ...]`
+- `sprintengine.task.next(statePath, role, id)`
+- `sprintengine.task.claim(statePath, taskId, id)`
+- `sprintengine.task.status(statePath, taskId, status, id, summary?, needsInput*)`
+- `sprintengine.task.resolve_input(statePath, taskId, id, resolution, complete?)`
+- `sprintengine.task.release(statePath, taskId, id, reason)`
+- `sprintengine.task.ready(statePath, taskId, id, triagedBy?)`
+- `sprintengine.task.log(statePath, taskId, id, summary?, file?, command?, result?, scopeExpansionJson?)`
+- `sprintengine.task.note(statePath, taskId, id, note)`
+- `sprintengine.task.comment(statePath, taskId, id, body, source?, commentType?, paths?, data?)`
+- `sprintengine.task.comment.list(statePath, taskId) → [<comment>, ...]`
+- `sprintengine.task.publish(statePath, taskId, id, summary, path?, file?, data?, summaryDataJson?)`
+- `sprintengine.task.request_changes(statePath, taskId, id, reason, source?, paths?, needsInput*)`
 
 ### Gate ops
 
-- `sprintengine.gate.publish(workspaceRoot, gateId, verdict, summary, evidence?, feedbackFields?)`
-- `sprintengine.gate.skip(workspaceRoot, gateId, rationale)`
-- `sprintengine.gate.list(workspaceRoot, taskId) → [<gate>, ...]`
+- `sprintengine.gate.list(statePath, taskId?, phase?, role?) → [<gate>, ...]`
+- `sprintengine.gate.next(statePath, role, id)`
+- `sprintengine.gate.claim(statePath, taskId, gateId, role, id)`
+- `sprintengine.gate.verdict(statePath, taskId, gateId, role, id, verdict, summary, requiredAction?, artifact*, needsInput*)`
+- `sprintengine.gate.publish(statePath, taskId, gateId, role, id, verdict, summary, requiredAction?, artifact*)`
+- `sprintengine.gate.skip(statePath, taskId, gateId, role, id, rationale)`
 
 ### Artifact ops
 
-- `sprintengine.artifact.add(workspaceRoot, taskId, kind, path, summary?)`
-- `sprintengine.artifact.ready(workspaceRoot, artifactId)`
-- `sprintengine.artifact.approve(workspaceRoot, artifactId, verdict, comment?)`
-- `sprintengine.artifact.list(workspaceRoot, filter?) → [<artifact>, ...]`
+- `sprintengine.artifact.add(statePath, taskId, kind, title, path, actor?, artifactId?, createdBy?, recommendedTask?, ready?)`
+- `sprintengine.artifact.list(statePath, taskId?, kind?, status?) → [<artifact>, ...]`
+- `sprintengine.artifact.ready(statePath, artifactId, id)`
+- `sprintengine.artifact.approve(statePath, artifactId, id)`
+- `sprintengine.artifact.request_changes(statePath, artifactId, id, feedback)`
 
 ### Architect ops
 
-- `sprintengine.plan.add_task(workspaceRoot, title, role, description, acceptance, paths?, dependsOn?, notes?, gates?)`
-- `sprintengine.plan.update_task(workspaceRoot, taskId, fields)`
-- `sprintengine.plan.delete_task(workspaceRoot, taskId, unlinkDependents?)`
-- `sprintengine.plan.add_dependency(workspaceRoot, taskId, dependsOn)`
-- `sprintengine.plan.remove_dependency(workspaceRoot, taskId, dependsOn)`
-- `sprintengine.plan.list(workspaceRoot) → [<task>, ...]`
-- `sprintengine.plan.review_status(workspaceRoot) → <summary>`
-- `sprintengine.plan.address_reviews(workspaceRoot, actor)`
+- `sprintengine.plan.add_task(statePath, title, role, actor?, taskId?, description?, dependsOn?, path?, acceptance?, note?, taskNote?, requireGate?, skipGate?, manualDispatch?)`
+- `sprintengine.plan.update_task(statePath, taskId, actor?, title?, description?, role?, path?, acceptance?, note?, taskNote?, requireGate?, skipGate?)`
+- `sprintengine.plan.delete_task(statePath, taskId, actor?, unlinkDependents?)`
+- `sprintengine.plan.add_dependency(statePath, taskId, dependsOn, actor?)`
+- `sprintengine.plan.remove_dependency(statePath, taskId, dependsOn, actor?)`
+- `sprintengine.plan.start_review(statePath, role, id)`
+- `sprintengine.plan.review_status(statePath) → <summary>`
+- `sprintengine.plan.address_reviews(statePath, actor?)`
 
 ### Run ops
 
-- `sprintengine.run.get(workspaceRoot) → <run.yaml content>`
-- `sprintengine.run.policy.get(workspaceRoot) → <quality policy>`
-- `sprintengine.run.projection(workspaceRoot) → <projection.json content>`
-- `sprintengine.run.subscribe(workspaceRoot)` — UI subscription for state changes
+- `sprintengine.run.get(statePath) → <run.yaml content>`
+- `sprintengine.run.policy.get(statePath) → { runner: <normalized runner policy> }`
+- `sprintengine.run.projection(statePath) → <projection.json content>`
+- `sprintengine.run.subscribe(statePath, lastEventId?, transport?)` — UI subscription for state changes
+
+### `sprintengine.join` compatibility test contract
+
+During the transition, `sprintengine.join` is not an independent lifecycle design. Tests must prove that it remains behavior-compatible with the new lifecycle path:
+
+- Joining with `role` and `id` records or refreshes the same agent identity fields as `sprintengine.agent.join`.
+- A resumed agent receives its active task or gate before new work.
+- A duplicate join does not create a duplicate dispatch assignment or second ledger record for the same target.
+- When Auto Mode is off and no target is available, the compatibility response returns idle without mutating task ownership.
+- When Auto Mode is on, CLI polling/backoff remains a Multicode wake/resume mechanism; MCP notification support is not required for the test to pass.
 
 ## Migration of the 13 bundled souls
 
@@ -621,10 +671,10 @@ Use these packages as the task graph. The dependencies are about implementation 
 
 ### Phase C — MCP server scaffolding and agent lifecycle
 
-- Sprint Engine MCP server gains the agent-lifecycle tools (`agent.join`, `agent.heartbeat`, `agent.leave`, `subscribe`) and the discovery tools (`roles.list`, `role.get`, `soul.get`, `skill.*`).
-- Server tracks agents in `run.yaml`'s agents map with new `heartbeatAt`, `subscribedAt`, `status` fields.
+- Sprint Engine MCP server gains the agent-lifecycle tools (`agent.join`, `agent.heartbeat`, `agent.leave`, `subscribe`) and the discovery tools (`roles.list`, `roles.get`, `soul.get`, `skills.list`, `skill.get`).
+- Server tracks agents in `run.yaml`'s agents map with lifecycle fields such as `status`, `heartbeatAt`, `subscription`, `currentDispatch`, `currentTaskId`, `currentGate`, `currentGateId`, `joinedAt`, and `lastDirectiveAt`.
 - Optional notification machinery (server → compatible subscribed clients): the server can expose `sprintengine.dispatch`, `sprintengine.cancel`, and `sprintengine.run.status_changed` events, but production runtime correctness must not depend on those notifications waking Codex or Claude Code.
-- A reconciliation tick (every N seconds) detects agents past the 90s heartbeat threshold, releases their claims, marks them dead.
+- A reconciliation tick detects agents past the configured `agentTimeoutSeconds` liveness timeout, defaulting to 300 seconds when no positive override is configured, then releases their claims and marks them dead.
 
 ### Phase D — Server-side dispatch + state-driven progression
 
@@ -670,11 +720,18 @@ Extends what already exists; no rewrite.
 agents:
   frontend-2:
     role: frontend
-    status: idle              # idle | busy | dead
+    status: idle              # idle | running | needs_input | left | dead | retired
     currentTaskId: null
+    currentGate: null
+    currentGateId: null
+    currentDispatch: null
     heartbeatAt: 2026-05-18T10:23:14Z
-    subscribedAt: 2026-05-18T10:00:00Z
+    subscription:
+      mode: poll              # none | poll | mcp_notifications
+      subscribedAt: 2026-05-18T10:00:00Z
+      lastDispatchId: DISP-abc123
     joinedAt: 2026-05-18T10:00:00Z
+    lastDirectiveAt: 2026-05-18T10:23:14Z
 ```
 
 **Task records** gain optional candidate-intake gating:
@@ -693,8 +750,8 @@ agents:
 **New file `dispatch.jsonl`** (append-only, sibling of `events.jsonl`):
 
 ```jsonl
-{"ts":"2026-05-18T10:01:23Z","agentId":"frontend-2","target":{"kind":"gate","id":"G3","role":"frontend","reason":"new"}}
-{"ts":"2026-05-18T10:02:45Z","agentId":"developer-1","target":{"kind":"task","id":"T5","role":"developer","reason":"changes_requested rework"}}
+{"id":"DISP-gate-frontend-2-G3-GA-001","timestamp":"2026-05-18T10:01:23Z","agentId":"frontend-2","role":"frontend","target":{"kind":"gate","taskId":"T4","gateId":"G3","attemptId":"GA-001"},"reason":"gate_claimed","state":{"taskStatus":"review","gateStatus":"in_progress"},"outcome":"dispatched","source":"core"}
+{"id":"DISP-task-developer-1-T5-rework","timestamp":"2026-05-18T10:02:45Z","agentId":"developer-1","role":"developer","target":{"kind":"task","taskId":"T5"},"reason":"changes_requested_rework","state":{"taskStatus":"changes_requested","gateStatus":null},"outcome":"dispatched","source":"core"}
 ```
 
 Useful for replay, debugging round-robin, and analytics later.

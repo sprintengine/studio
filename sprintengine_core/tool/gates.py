@@ -59,6 +59,36 @@ def claim_gate_for_agent(state: Dict[str, Any], task: Dict[str, Any], gate: Dict
     agent["status"] = "running"
     agent["currentTaskId"] = task.get("id")
     agent["currentGateId"] = gate.get("id")
+    agent["currentGate"] = {"taskId": task.get("id"), "gateId": gate.get("id"), "attemptId": attempt["id"]}
+    dispatch = queue_dispatch_record(
+        state,
+        agent_id=agent_id,
+        role=role,
+        target_kind="gate",
+        task_id=str(task.get("id") or ""),
+        task_status=str(task.get("status") or ""),
+        gate_id=str(gate.get("id") or ""),
+        gate_status=str(gate.get("status") or ""),
+        attempt_id=attempt["id"],
+        reason="gate_claimed",
+    )
+    agent["currentDispatch"] = current_dispatch_payload(
+        dispatch_id=dispatch["id"],
+        target_kind="gate",
+        role=role,
+        reason="gate_claimed",
+        task_id=str(task.get("id") or ""),
+        gate_id=str(gate.get("id") or ""),
+        attempt_id=attempt["id"],
+        assigned_at=dispatch["timestamp"],
+    )
+    agent["lastDirectiveAt"] = dispatch["timestamp"]
+    record_dispatch_cursor(
+        state,
+        role=role,
+        target_kind="gate",
+        target_key=dispatch_target_key("gate", task.get("id"), gate.get("id")),
+    )
     append_task_activity(
         task,
         "gate_claim",
@@ -212,9 +242,7 @@ def complete_gate_attempt(attempt: Dict[str, Any], verdict: str, summary: str) -
 
 def set_gate_agent_idle(state: Dict[str, Any], actor: str, role: str) -> None:
     agent = ensure_agent(state, actor, role)
-    agent["status"] = "idle"
-    agent["currentTaskId"] = None
-    agent.pop("currentGateId", None)
+    set_agent_idle(agent)
 
 def next_recorded_artifact_id(state: Dict[str, Any]) -> str:
     from sprintengine_core.tool.artifacts import next_artifact_id

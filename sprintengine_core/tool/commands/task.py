@@ -38,7 +38,10 @@ from sprintengine_core.tool.state import (
     ensure_agent_in_roster,
     find_task,
     gate_attempts,
+    dispatch_target_key,
     reconcile_agent,
+    release_expired_agent_targets,
+    select_round_robin_target,
     set_agent_idle,
     task_quality_gates,
     with_locked_state,
@@ -116,6 +119,7 @@ def cmd_task_gate_next(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         with folder_store.FolderLock(args.state.parent / folder_store.GATE_QUEUE_LOCK_FILE):
             ensure_agent_in_roster(state, args.id, args.role)
+            expired = release_expired_agent_targets(state, actor="sprintengine", excluding_agent_id=args.id)
             active = find_active_gate_claim(state, args.id, args.role)
             if active:
                 agent = ensure_agent(state, args.id, args.role)
@@ -123,22 +127,34 @@ def cmd_task_gate_next(args: argparse.Namespace) -> Dict[str, Any]:
                 agent["currentTaskId"] = active["task"].get("id")
                 agent["currentGateId"] = active["gate"].get("id")
                 prompt = build_gate_review_prompt(state, args.state, active["task"], active["gate"], active["attempt"], args.id)
-                return {"ok": True, "claimed": True, "resumed": True, "task": active["task"], "gate": active["gate"], "attempt": active["attempt"], "agent": agent, "prompt": prompt}
+                return {"ok": True, "claimed": True, "resumed": True, "task": active["task"], "gate": active["gate"], "attempt": active["attempt"], "agent": agent, "prompt": prompt, "releasedExpired": expired["released"]}
 
+            candidates = []
             for task in state.get("tasks", []) or []:
                 if not isinstance(task, dict):
                     continue
                 for gate in task_quality_gates(task):
                     if not gate_is_claimable_for_role(task, gate, args.role, args.id):
                         continue
-                    result = claim_gate_for_agent(state, task, gate, args.role, args.id)
-                    recompute_phase(state)
-                    event = append_event(state, "task_gate_claimed", args.id, f"{args.id} claimed gate {gate.get('id')} on {task.get('id')}.")
-                    prompt = build_gate_review_prompt(state, args.state, task, gate, result["attempt"], args.id)
-                    return {"ok": True, "claimed": True, "resumed": False, **result, "prompt": prompt, "event": event}
+                    candidates.append({"task": task, "gate": gate})
+            selected = select_round_robin_target(
+                state,
+                role=args.role,
+                target_kind="gate",
+                candidates=candidates,
+                key_fn=lambda item: dispatch_target_key("gate", item["task"].get("id"), item["gate"].get("id")),
+            )
+            if selected:
+                task = selected["task"]
+                gate = selected["gate"]
+                result = claim_gate_for_agent(state, task, gate, args.role, args.id)
+                recompute_phase(state)
+                event = append_event(state, "task_gate_claimed", args.id, f"{args.id} claimed gate {gate.get('id')} on {task.get('id')}.")
+                prompt = build_gate_review_prompt(state, args.state, task, gate, result["attempt"], args.id)
+                return {"ok": True, "claimed": True, "resumed": False, **result, "prompt": prompt, "event": event, "releasedExpired": expired["released"]}
 
             phase_dirty = recompute_phase(state)
-            return {"ok": True, "claimed": False, "reason": "no_ready_gate", "message": f"No ready {args.role} gates. Stop.", "write": phase_dirty}
+            return {"ok": True, "claimed": False, "reason": "no_ready_gate", "message": f"No ready {args.role} gates. Stop.", "releasedExpired": expired["released"], "write": phase_dirty or expired["dirty"]}
 
     return with_locked_state(args.state, run)
 
@@ -241,11 +257,12 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         with folder_store.FolderLock(args.state.parent / folder_store.CLAIM_QUEUE_LOCK_FILE):
             ensure_agent_in_roster(state, args.id, args.role)
+            expired = release_expired_agent_targets(state, actor="sprintengine", excluding_agent_id=args.id)
             runtime = reconcile_agent(state, args.id, args.role)
             agent = runtime["agent"]
             active = runtime["activeTask"]
             if active:
-                return {"ok": True, "claimed": False, "reason": "agent_already_has_active_task", "task": active, "agent": agent, "prompt": build_rework_prompt(args.state, active), "write": runtime["dirty"]}
+                return {"ok": True, "claimed": False, "reason": "agent_already_has_active_task", "task": active, "agent": agent, "prompt": build_rework_prompt(args.state, active), "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
             ready_ids = read_ready_task_ids(state)
             tasks_by_id = {
@@ -253,17 +270,27 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                 for t in state.get("tasks", [])
                 if isinstance(t, dict) and t.get("id")
             }
+            candidates = []
             for task_id in ready_ids:
                 t = tasks_by_id.get(task_id)
                 if not t or t.get("role") != args.role or not task_is_ready(state, t):
                     continue
-                result = assign_task(state, t, args.id)
+                candidates.append(t)
+            selected = select_round_robin_target(
+                state,
+                role=args.role,
+                target_kind="task",
+                candidates=candidates,
+                key_fn=lambda item: dispatch_target_key("task", item.get("id")),
+            )
+            if selected:
+                result = assign_task(state, selected, args.id)
                 recompute_phase(state)
-                event = append_event(state, "task_claimed", args.id, f"{args.id} claimed {t.get('id')}.")
-                return {"ok": True, "claimed": True, "task": t, "agent": result["agent"], "prompt": build_rework_prompt(args.state, t), "event": event}
+                event = append_event(state, "task_claimed", args.id, f"{args.id} claimed {selected.get('id')}.")
+                return {"ok": True, "claimed": True, "task": selected, "agent": result["agent"], "prompt": build_rework_prompt(args.state, selected), "event": event, "releasedExpired": expired["released"]}
 
             phase_dirty = recompute_phase(state)
-            return {"ok": True, "claimed": False, "reason": "no_ready_task", "message": f"No ready {args.role} tasks. Stop.", "write": runtime["dirty"] or phase_dirty}
+            return {"ok": True, "claimed": False, "reason": "no_ready_task", "message": f"No ready {args.role} tasks. Stop.", "releasedExpired": expired["released"], "write": runtime["dirty"] or phase_dirty or expired["dirty"]}
 
     return with_locked_state(args.state, run)
 

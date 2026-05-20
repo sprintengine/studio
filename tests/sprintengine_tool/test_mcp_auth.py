@@ -87,6 +87,38 @@ def test_every_mcp_read_and_health_tool_requires_authenticated_user(tmp_path, to
     assert "authenticated actor context" in response["error"]["message"]
 
 
+@pytest.mark.parametrize(
+    ("tool_name", "payload"),
+    [
+        ("sprintengine.subscribe", {"agentId": "developer-a"}),
+        ("sprintengine.dispatch.ack", {"agentId": "developer-a", "dispatchId": "DISP-001"}),
+        ("sprintengine.task.publish", {"taskId": "T1", "id": "developer-a", "summary": "Done"}),
+        ("sprintengine.task.request_changes", {"taskId": "T1", "id": "reviewer-a", "reason": "Revise"}),
+        ("sprintengine.gate.next", {"role": "code_reviewer", "id": "reviewer-a"}),
+        (
+            "sprintengine.gate.verdict",
+            {
+                "taskId": "T1",
+                "gateId": "code-review",
+                "role": "code_reviewer",
+                "id": "reviewer-a",
+                "verdict": "approved",
+                "summary": "Looks good.",
+            },
+        ),
+    ],
+)
+def test_new_mcp_mutating_lifecycle_and_dispatch_tools_require_authenticated_user(tmp_path, tool_name, payload) -> None:
+    fixture = create_team(tmp_path, "mcp-new-mutating-auth-required", [task("T1", "Auth", "developer")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    response = server.call_tool(tool_name, {"statePath": str(fixture.state_path), **payload})
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "unauthorized"
+    assert "authenticated actor context" in response["error"]["message"]
+
+
 def test_authenticated_mcp_user_can_invoke_task_tool_with_payload_agent_id(tmp_path) -> None:
     fixture = create_team(
         tmp_path,

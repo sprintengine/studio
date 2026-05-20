@@ -19,6 +19,7 @@ from fixtures import (
     write_workspace_role,
     write_state,
 )
+from sprintengine_core import store
 from sprintengine_core.tool import runner_watch_delay_seconds
 from sprintengine_core.tool.tasks import normalize_task
 
@@ -1592,6 +1593,270 @@ def test_join_and_task_next_resume_owned_changes_requested_rework(tmp_path) -> N
     assert next_payload["claimed"] is False
     assert next_payload["reason"] == "agent_already_has_active_task"
     assert next_payload["task"]["id"] == "T1"
+
+
+def test_changes_requested_owner_resume_records_rework_dispatch(tmp_path) -> None:
+    fixture = create_team(tmp_path, "changes-requested-rework-dispatch", [gated_task("todo", owner=None)])
+
+    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+    fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Ready.")
+    fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer")
+    fixture.cli.run(
+        "task",
+        "gate",
+        "verdict",
+        "--task-id",
+        "T1",
+        "--gate-id",
+        "code-review",
+        "--role",
+        "code_reviewer",
+        "--id",
+        "code-reviewer",
+        "--verdict",
+        "changes_requested",
+        "--summary",
+        "Needs rework.",
+        "--required-action",
+        "Address review feedback.",
+    )
+
+    resumed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+    assert resumed["claimed"] is False
+    assert resumed["reason"] == "agent_already_has_active_task"
+    assert resumed["task"]["status"] == "changes_requested"
+
+    run = store.load_run_yaml(fixture.team_dir)
+    agent = run["agents"]["developer-fixture"]
+    dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
+    rework_dispatches = [record for record in dispatches if record["reason"] == "changes_requested_rework"]
+    assert len(rework_dispatches) == 1
+    assert agent["currentDispatch"]["dispatchId"] == rework_dispatches[0]["id"]
+    assert agent["currentDispatch"]["targetKind"] == "task"
+    assert agent["currentDispatch"]["taskId"] == "T1"
+    assert agent["currentDispatch"]["gateId"] == "code-review"
+    assert agent["currentDispatch"]["attemptId"] == "GA-001"
+    assert agent["currentDispatch"]["reason"] == "changes_requested_rework"
+    assert rework_dispatches[0]["target"] == {
+        "kind": "task",
+        "taskId": "T1",
+        "gateId": "code-review",
+        "attemptId": "GA-001",
+    }
+
+    projection = fixture.cli.run("projection")
+    assert projection["roster"]["developer-fixture"]["currentDispatch"]["dispatchId"] == rework_dispatches[0]["id"]
+
+    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+    assert len([
+        record
+        for record in store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
+        if record["reason"] == "changes_requested_rework"
+    ]) == 1
+
+    fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Reworked.")
+    fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer")
+    fixture.cli.run(
+        "task",
+        "gate",
+        "verdict",
+        "--task-id",
+        "T1",
+        "--gate-id",
+        "code-review",
+        "--role",
+        "code_reviewer",
+        "--id",
+        "code-reviewer",
+        "--verdict",
+        "changes_requested",
+        "--summary",
+        "Needs another rework.",
+        "--required-action",
+        "Address second review feedback.",
+    )
+    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+    second_cycle_dispatches = [
+        record
+        for record in store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
+        if record["reason"] == "changes_requested_rework"
+    ]
+    assert len(second_cycle_dispatches) == 2
+    assert second_cycle_dispatches[0]["id"] != second_cycle_dispatches[1]["id"]
+    assert second_cycle_dispatches[1]["target"] == {
+        "kind": "task",
+        "taskId": "T1",
+        "gateId": "code-review",
+        "attemptId": "GA-002",
+    }
+
+
+def test_ready_task_dispatch_rotates_after_released_target(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "round-robin-task-dispatch",
+        [
+            task("T1", "First implementation", "developer"),
+            task("T2", "Second implementation", "developer"),
+        ],
+    )
+
+    first = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+    assert first["task"]["id"] == "T1"
+
+    fixture.cli.run("task", "status", "--task-id", "T1", "--status", "todo", "--id", "developer-1")
+
+    second = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
+    assert second["task"]["id"] == "T2"
+
+    state = read_state(fixture.state_path)
+    assert state["sprintengine"]["dispatchCursors"]["developer:task"] == "task:T2"
+
+
+def test_expired_agent_releases_task_and_redispatches_with_ledger_evidence(tmp_path) -> None:
+    fixture = create_team(tmp_path, "expired-agent-task-release", [task("T1", "Implementation", "developer")])
+    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["agentTimeoutSeconds"] = 1
+    state["agents"]["developer-1"]["heartbeatAt"] = "2000-01-01T00:00:00Z"
+    write_state(fixture.state_path, state)
+
+    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
+    assert claimed["task"]["id"] == "T1"
+    assert claimed["releasedExpired"][0]["agentId"] == "developer-1"
+
+    state = read_state(fixture.state_path)
+    assert state["agents"]["developer-1"]["status"] == "dead"
+    assert state["agents"]["developer-2"]["currentTaskId"] == "T1"
+    dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
+    assert any(record["reason"] == "agent_expired_release" for record in dispatches)
+    assert any(event["type"] == "agent_targets_released" for event in state["events"])
+
+
+def test_expired_agent_releases_gate_attempt_for_redispatch(tmp_path) -> None:
+    record = gated_task("review", owner=None)
+    fixture = create_team(tmp_path, "expired-agent-gate-release", [record])
+    fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-1")
+
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["agentTimeoutSeconds"] = 1
+    state["agents"]["reviewer-1"]["heartbeatAt"] = "2000-01-01T00:00:00Z"
+    write_state(fixture.state_path, state)
+
+    claimed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-2")
+    assert claimed["gate"]["id"] == "code-review"
+    assert claimed["attempt"]["id"] == "GA-002"
+    assert claimed["releasedExpired"][0]["agentId"] == "reviewer-1"
+
+    state = read_state(fixture.state_path)
+    gate = get_task(state, "T1")["qualityGates"][0]
+    assert gate["status"] == "in_progress"
+    assert gate["attempts"][0]["status"] == "released"
+    assert gate["attempts"][1]["status"] == "in_progress"
+    assert state["agents"]["reviewer-1"]["status"] == "dead"
+    dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
+    assert any(record["reason"] == "agent_expired_release" and record["target"]["gateId"] == "code-review" for record in dispatches)
+
+
+def test_dead_agent_releases_task_and_remains_dead_after_redispatch(tmp_path) -> None:
+    fixture = create_team(tmp_path, "dead-agent-task-release", [task("T1", "Implementation", "developer")])
+    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+
+    state = read_state(fixture.state_path)
+    state["agents"]["developer-1"]["status"] = "dead"
+    state["agents"]["developer-1"]["deadAt"] = "2000-01-01T00:00:00Z"
+    write_state(fixture.state_path, state)
+
+    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
+    assert claimed["task"]["id"] == "T1"
+    assert claimed["releasedExpired"][0]["agentId"] == "developer-1"
+
+    state = read_state(fixture.state_path)
+    dead_agent = state["agents"]["developer-1"]
+    assert dead_agent["status"] == "dead"
+    assert dead_agent["currentTaskId"] is None
+    assert dead_agent["currentDispatch"] is None
+    assert state["agents"]["developer-2"]["currentTaskId"] == "T1"
+    dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
+    assert any(record["reason"] == "agent_expired_release" and record["agentId"] == "developer-1" for record in dispatches)
+    projection = fixture.cli.run("projection")
+    assert projection["roster"]["developer-1"]["status"] == "dead"
+    assert projection["roster"]["developer-1"]["currentTaskId"] is None
+    assert projection["roster"]["developer-1"]["currentDispatch"] is None
+
+
+def test_dead_agent_releases_gate_claim_and_remains_dead_after_redispatch(tmp_path) -> None:
+    record = gated_task("review", owner=None)
+    fixture = create_team(tmp_path, "dead-agent-gate-release", [record])
+    fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-1")
+
+    state = read_state(fixture.state_path)
+    state["agents"]["reviewer-1"]["status"] = "dead"
+    state["agents"]["reviewer-1"]["deadAt"] = "2000-01-01T00:00:00Z"
+    write_state(fixture.state_path, state)
+
+    claimed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-2")
+    assert claimed["gate"]["id"] == "code-review"
+    assert claimed["attempt"]["id"] == "GA-002"
+    assert claimed["releasedExpired"][0]["agentId"] == "reviewer-1"
+
+    state = read_state(fixture.state_path)
+    dead_agent = state["agents"]["reviewer-1"]
+    assert dead_agent["status"] == "dead"
+    assert dead_agent["currentTaskId"] is None
+    assert dead_agent["currentDispatch"] is None
+    assert "currentGateId" not in dead_agent
+    assert "currentGate" not in dead_agent
+    gate = get_task(state, "T1")["qualityGates"][0]
+    assert gate["status"] == "in_progress"
+    assert gate["attempts"][0]["status"] == "released"
+    assert gate["attempts"][1]["status"] == "in_progress"
+    dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
+    assert any(record["reason"] == "agent_expired_release" and record["target"]["gateId"] == "code-review" for record in dispatches)
+    projection = fixture.cli.run("projection")
+    assert projection["roster"]["reviewer-1"]["status"] == "dead"
+    assert projection["roster"]["reviewer-1"]["currentTaskId"] is None
+    assert projection["roster"]["reviewer-1"]["currentDispatch"] is None
+
+
+def test_dead_gate_claim_without_current_dispatch_uses_gate_mirror_for_redispatch(tmp_path) -> None:
+    record = gated_task("review", owner=None)
+    fixture = create_team(tmp_path, "dead-agent-gate-release-without-current-dispatch", [record])
+    fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-1")
+
+    state = read_state(fixture.state_path)
+    state["agents"]["reviewer-1"]["status"] = "dead"
+    state["agents"]["reviewer-1"]["deadAt"] = "2000-01-01T00:00:00Z"
+    state["agents"]["reviewer-1"]["currentDispatch"] = None
+    write_state(fixture.state_path, state)
+
+    claimed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-2")
+    assert claimed["gate"]["id"] == "code-review"
+    assert claimed["attempt"]["id"] == "GA-002"
+    assert claimed["releasedExpired"] == [
+        {"agentId": "reviewer-1", "role": "code_reviewer", "targetKind": "gate", "taskId": "T1", "gateId": "code-review"}
+    ]
+
+    state = read_state(fixture.state_path)
+    dead_agent = state["agents"]["reviewer-1"]
+    assert dead_agent["status"] == "dead"
+    assert dead_agent["currentTaskId"] is None
+    assert dead_agent["currentDispatch"] is None
+    assert "currentGateId" not in dead_agent
+    assert "currentGate" not in dead_agent
+    gate = get_task(state, "T1")["qualityGates"][0]
+    assert gate["status"] == "in_progress"
+    assert gate["attempts"][0]["status"] == "released"
+    assert gate["attempts"][1]["status"] == "in_progress"
+    dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
+    release_dispatches = [record for record in dispatches if record["reason"] == "agent_expired_release"]
+    assert len(release_dispatches) == 1
+    assert release_dispatches[0]["target"] == {"kind": "gate", "taskId": "T1", "gateId": "code-review"}
+    projection = fixture.cli.run("projection")
+    assert projection["roster"]["reviewer-1"]["status"] == "dead"
+    assert projection["roster"]["reviewer-1"]["currentTaskId"] is None
+    assert projection["roster"]["reviewer-1"]["currentDispatch"] is None
 
 
 def test_completed_agent_ids_can_claim_a_second_ready_task(tmp_path) -> None:

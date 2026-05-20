@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -26,7 +27,16 @@ def parse_agent_specs(values: Optional[List[str]]) -> Dict[str, Dict[str, Any]]:
             raise SystemExit("--agent id cannot be empty.")
         if agent_id in agents and agents[agent_id].get("role") != role:
             raise SystemExit(f"--agent {agent_id!r} is declared with multiple roles.")
-        agents[agent_id] = {"role": role, "status": "idle", "currentTaskId": None}
+        timestamp = now_iso()
+        agents[agent_id] = {
+            "role": role,
+            "status": "idle",
+            "heartbeatAt": timestamp,
+            "subscription": {"mode": "none"},
+            "currentDispatch": None,
+            "joinedAt": timestamp,
+            "currentTaskId": None,
+        }
     return agents
 
 
@@ -101,7 +111,16 @@ def add_roster_agent(state: Dict[str, Any], role: str, agent_id: str, actor: str
         state.setdefault("sprintengine", {})["rosterConfigured"] = True
         return existing
 
-    agent = {"role": role, "status": "idle", "currentTaskId": None}
+    timestamp = now_iso()
+    agent = {
+        "role": role,
+        "status": "idle",
+        "heartbeatAt": timestamp,
+        "subscription": {"mode": "none"},
+        "currentDispatch": None,
+        "joinedAt": timestamp,
+        "currentTaskId": None,
+    }
     agents[clean_id] = agent
     state.setdefault("sprintengine", {})["rosterConfigured"] = True
     append_event(state, "roster_member_added", actor, f"{actor} added {clean_id} to the Sprint Engine roster as {role}.")
@@ -330,10 +349,26 @@ def append_agent_notification_event(
 
 def ensure_agent(state: Dict[str, Any], agent_id: str, role: Optional[str] = None) -> Dict[str, Any]:
     agents = state.setdefault("agents", {})
-    agent = agents.setdefault(agent_id, {"role": role or "developer", "status": "idle", "currentTaskId": None})
+    timestamp = now_iso()
+    agent = agents.setdefault(
+        agent_id,
+        {
+            "role": role or "developer",
+            "status": "idle",
+            "heartbeatAt": timestamp,
+            "subscription": {"mode": "none"},
+            "currentDispatch": None,
+            "joinedAt": timestamp,
+            "currentTaskId": None,
+        },
+    )
     if role and not agent.get("role"):
         agent["role"] = role
     agent.setdefault("status", "idle")
+    agent.setdefault("heartbeatAt", timestamp)
+    agent.setdefault("subscription", {"mode": "none"})
+    agent.setdefault("currentDispatch", None)
+    agent.setdefault("joinedAt", timestamp)
     agent.setdefault("currentTaskId", None)
     return agent
 
@@ -341,13 +376,235 @@ def ensure_agent(state: Dict[str, Any], agent_id: str, role: Optional[str] = Non
 def set_agent_idle(agent: Dict[str, Any]) -> bool:
     changed = set_if_changed(agent, "status", "idle")
     changed = set_if_changed(agent, "currentTaskId", None) or changed
+    if "currentGateId" in agent:
+        agent.pop("currentGateId", None)
+        changed = True
+    if "currentGate" in agent:
+        agent.pop("currentGate", None)
+        changed = True
+    changed = set_if_changed(agent, "currentDispatch", None) or changed
+    changed = set_if_changed(agent, "heartbeatAt", now_iso()) or changed
     return changed
 
 
-def set_agent_active(agent: Dict[str, Any], task: Dict[str, Any]) -> bool:
+def set_agent_active(agent: Dict[str, Any], task: Dict[str, Any], *, refresh_heartbeat: bool = True) -> bool:
     changed = set_if_changed(agent, "status", "needs_input" if task.get("status") == "needs_input" else "running")
     changed = set_if_changed(agent, "currentTaskId", task.get("id")) or changed
+    if refresh_heartbeat:
+        changed = set_if_changed(agent, "heartbeatAt", now_iso()) or changed
     return changed
+
+
+def record_agent_join(
+    state: Dict[str, Any],
+    agent_id: str,
+    role: str,
+    *,
+    subscription_mode: str = "none",
+) -> Dict[str, Any]:
+    agent = ensure_agent(state, agent_id, role)
+    timestamp = now_iso()
+    agent["role"] = role
+    agent["status"] = "idle" if agent.get("status") in {None, "", "left", "dead"} else agent.get("status", "idle")
+    agent["heartbeatAt"] = timestamp
+    agent.setdefault("joinedAt", timestamp)
+    mode = subscription_mode if subscription_mode in {"none", "poll", "mcp_notifications"} else "none"
+    agent["subscription"] = {"mode": mode}
+    if mode != "none":
+        agent["subscription"]["subscribedAt"] = timestamp
+    return agent
+
+
+def record_agent_heartbeat(state: Dict[str, Any], agent_id: str, role: Optional[str] = None) -> Dict[str, Any]:
+    agent = ensure_agent(state, agent_id, role or None)
+    agent["heartbeatAt"] = now_iso()
+    return agent
+
+
+def record_agent_leave(state: Dict[str, Any], agent_id: str, role: Optional[str] = None, *, reason: str = "") -> Dict[str, Any]:
+    agent = ensure_agent(state, agent_id, role or None)
+    timestamp = now_iso()
+    agent["status"] = "left"
+    agent["leftAt"] = timestamp
+    agent["heartbeatAt"] = timestamp
+    if reason:
+        agent["leaveReason"] = reason
+    set_agent_idle(agent)
+    agent["status"] = "left"
+    agent["leftAt"] = timestamp
+    return agent
+
+
+def parse_utc_timestamp(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def agent_liveness_timeout_seconds(state: Dict[str, Any]) -> int:
+    sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
+    runner = state.get("runner") if isinstance(state.get("runner"), dict) else {}
+    for source in (sprintengine, runner):
+        try:
+            value = int(source.get("agentTimeoutSeconds"))  # type: ignore[union-attr]
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return 300
+
+
+def agent_is_expired(state: Dict[str, Any], agent: Dict[str, Any], *, now: Optional[datetime] = None) -> bool:
+    status = str(agent.get("status") or "")
+    if status in TERMINAL_AGENT_STATUSES or status in {"left", "dead"}:
+        return False
+    heartbeat = parse_utc_timestamp(agent.get("heartbeatAt"))
+    if heartbeat is None:
+        return False
+    current = now or datetime.now(timezone.utc)
+    return (current - heartbeat).total_seconds() > agent_liveness_timeout_seconds(state)
+
+
+def find_gate_by_claim(
+    state: Dict[str, Any],
+    task_id: Any,
+    gate_id: Any,
+    attempt_id: Any,
+    *,
+    claimed_by: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    task = find_task_by_id(state, task_id)
+    if not task:
+        return None
+    for gate in task_quality_gates(task):
+        if gate.get("id") != gate_id:
+            continue
+        for attempt in reversed(gate_attempts(gate)):
+            if attempt.get("id") == attempt_id:
+                return {"task": task, "gate": gate, "attempt": attempt}
+        if claimed_by:
+            for attempt in reversed(gate_attempts(gate)):
+                if attempt.get("status") == "in_progress" and attempt.get("claimedBy") == claimed_by:
+                    return {"task": task, "gate": gate, "attempt": attempt}
+        return {"task": task, "gate": gate, "attempt": None}
+    return None
+
+
+def current_gate_reference(agent: Dict[str, Any]) -> Dict[str, Any]:
+    current_gate = agent.get("currentGate") if isinstance(agent.get("currentGate"), dict) else {}
+    return {
+        "taskId": current_gate.get("taskId") or agent.get("currentTaskId"),
+        "gateId": current_gate.get("gateId") or agent.get("currentGateId"),
+        "attemptId": current_gate.get("attemptId"),
+    }
+
+
+def release_expired_agent_targets(
+    state: Dict[str, Any],
+    *,
+    actor: str = "sprintengine",
+    excluding_agent_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    released: List[Dict[str, Any]] = []
+    current = datetime.now(timezone.utc)
+    for agent_id, agent in list(state.get("agents", {}).items()):
+        if excluding_agent_id and agent_id == excluding_agent_id:
+            continue
+        if not isinstance(agent, dict):
+            continue
+        dispatch = agent.get("currentDispatch") if isinstance(agent.get("currentDispatch"), dict) else {}
+        gate_ref = current_gate_reference(agent)
+        has_target_mirror = agent.get("currentTaskId") or dispatch.get("targetKind") or gate_ref.get("gateId")
+        if not has_target_mirror:
+            continue
+        if agent.get("status") != "dead" and not agent_is_expired(state, agent, now=current):
+            continue
+        role = str(agent.get("role") or "")
+        task_id = agent.get("currentTaskId") or dispatch.get("taskId") or gate_ref.get("taskId")
+        gate_id = dispatch.get("gateId") or gate_ref.get("gateId")
+        attempt_id = dispatch.get("attemptId") or gate_ref.get("attemptId")
+        target_kind = str(dispatch.get("targetKind") or ("gate" if gate_id else "task" if task_id else ""))
+        released_target: Dict[str, Any] = {"agentId": agent_id, "role": role, "targetKind": target_kind}
+        released_actual_target = False
+
+        if target_kind == "gate":
+            gate_claim = find_gate_by_claim(state, task_id, gate_id, attempt_id, claimed_by=str(agent_id))
+            if gate_claim:
+                task = gate_claim["task"]
+                gate = gate_claim["gate"]
+                attempt = gate_claim.get("attempt")
+                if gate.get("status") == "in_progress":
+                    gate["status"] = "pending"
+                    released_actual_target = True
+                if isinstance(attempt, dict) and attempt.get("status") == "in_progress":
+                    attempt["status"] = "released"
+                    attempt["completedAt"] = now_iso()
+                    released_actual_target = True
+                append_task_activity(
+                    task,
+                    "gate_release",
+                    actor,
+                    f"{actor} released expired gate claim {gate.get('id')} from {agent_id}.",
+                    {"gateId": gate.get("id"), "previousOwnerAgentId": agent_id, "reason": "agent_expired"},
+                )
+                released_target.update({"taskId": task.get("id"), "gateId": gate.get("id")})
+        else:
+            task = find_task_by_id(state, task_id)
+            if task and task.get("ownerAgentId") == agent_id and task.get("status") in {"in_progress", "changes_requested"}:
+                previous_status = str(task.get("status") or "")
+                task["ownerAgentId"] = None
+                task["status"] = "todo" if previous_status == "in_progress" else previous_status
+                task["startedAt"] = None if previous_status == "in_progress" else task.get("startedAt")
+                task["completedAt"] = None
+                append_task_activity(
+                    task,
+                    "status_change",
+                    actor,
+                    f"{actor} released expired task claim from {agent_id}.",
+                    {"status": task.get("status"), "fromStatus": previous_status, "previousOwnerAgentId": agent_id, "reason": "agent_expired"},
+                )
+                released_target.update({"taskId": task.get("id"), "fromStatus": previous_status, "status": task.get("status")})
+                released_actual_target = True
+
+        if not released_actual_target:
+            continue
+
+        queue_dispatch_record(
+            state,
+            agent_id=str(agent_id),
+            role=role,
+            target_kind=target_kind or "agent",
+            task_id=str(released_target.get("taskId") or ""),
+            gate_id=str(released_target.get("gateId") or ""),
+            reason="agent_expired_release",
+        )
+        agent["status"] = "dead"
+        agent["deadAt"] = now_iso()
+        agent["heartbeatAt"] = agent["deadAt"]
+        agent["deathReason"] = "heartbeat_expired"
+        set_agent_idle(agent)
+        agent["status"] = "dead"
+        agent["deadAt"] = agent["heartbeatAt"]
+        released.append(released_target)
+
+    if released:
+        append_event(
+            state,
+            "agent_targets_released",
+            actor,
+            f"{actor} released {len(released)} expired agent target(s).",
+            {"releasedCount": len(released)},
+        )
+    return {"released": released, "dirty": bool(released)}
 
 
 def clear_task_refs(state: Dict[str, Any], task_id: str) -> List[str]:
@@ -362,8 +619,17 @@ def clear_task_refs(state: Dict[str, Any], task_id: str) -> List[str]:
 def ensure_agent_for_reconcile(state: Dict[str, Any], agent_id: str, role: str) -> tuple[Dict[str, Any], bool]:
     agents = state.setdefault("agents", {})
     agent = agents.get(agent_id)
+    timestamp = now_iso()
     if not isinstance(agent, dict):
-        agent = {"role": role, "status": "idle", "currentTaskId": None}
+        agent = {
+            "role": role,
+            "status": "idle",
+            "heartbeatAt": timestamp,
+            "subscription": {"mode": "none"},
+            "currentDispatch": None,
+            "joinedAt": timestamp,
+            "currentTaskId": None,
+        }
         agents[agent_id] = agent
         return agent, True
 
@@ -372,9 +638,194 @@ def ensure_agent_for_reconcile(state: Dict[str, Any], agent_id: str, role: str) 
         changed = set_if_changed(agent, "role", role) or changed
     if "status" not in agent:
         changed = set_if_changed(agent, "status", "idle") or changed
+    if "heartbeatAt" not in agent:
+        changed = set_if_changed(agent, "heartbeatAt", timestamp) or changed
+    if "subscription" not in agent:
+        changed = set_if_changed(agent, "subscription", {"mode": "none"}) or changed
+    if "currentDispatch" not in agent:
+        changed = set_if_changed(agent, "currentDispatch", None) or changed
+    if "joinedAt" not in agent:
+        changed = set_if_changed(agent, "joinedAt", timestamp) or changed
     if "currentTaskId" not in agent:
         changed = set_if_changed(agent, "currentTaskId", None) or changed
     return agent, changed
+
+
+def current_dispatch_payload(
+    *,
+    dispatch_id: str,
+    target_kind: str,
+    role: str,
+    reason: str,
+    task_id: Optional[str] = None,
+    gate_id: Optional[str] = None,
+    attempt_id: Optional[str] = None,
+    assigned_at: Optional[str] = None,
+) -> Dict[str, Any]:
+    payload = {
+        "dispatchId": dispatch_id,
+        "targetKind": target_kind,
+        "role": role,
+        "reason": reason,
+        "assignedAt": assigned_at or now_iso(),
+    }
+    if task_id:
+        payload["taskId"] = task_id
+    if gate_id:
+        payload["gateId"] = gate_id
+    if attempt_id:
+        payload["attemptId"] = attempt_id
+    return payload
+
+
+def queue_dispatch_record(
+    state: Dict[str, Any],
+    *,
+    agent_id: str,
+    role: str,
+    target_kind: str,
+    reason: str,
+    task_id: Optional[str] = None,
+    task_status: Optional[str] = None,
+    gate_id: Optional[str] = None,
+    gate_status: Optional[str] = None,
+    attempt_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    timestamp = now_iso()
+    target = {"kind": target_kind}
+    if task_id:
+        target["taskId"] = task_id
+    if gate_id:
+        target["gateId"] = gate_id
+    if attempt_id:
+        target["attemptId"] = attempt_id
+    record = {
+        "timestamp": timestamp,
+        "agentId": agent_id,
+        "role": role,
+        "target": target,
+        "reason": reason,
+        "state": {
+            "taskStatus": task_status,
+            "gateStatus": gate_status,
+        },
+        "outcome": "dispatched",
+        "source": "core",
+    }
+    record["id"] = folder_store.dispatch_id_for_record(record)
+    state.setdefault("_dispatchRecords", []).append(record)
+    return record
+
+
+def dispatch_target_key(target_kind: str, task_id: Any = None, gate_id: Any = None) -> str:
+    if target_kind == "gate":
+        return f"gate:{task_id}:{gate_id}"
+    return f"task:{task_id}"
+
+
+def select_round_robin_target(
+    state: Dict[str, Any],
+    *,
+    role: str,
+    target_kind: str,
+    candidates: List[Any],
+    key_fn,
+) -> Any:
+    if not candidates:
+        return None
+    keys = [key_fn(candidate) for candidate in candidates]
+    cursor_key = f"{role}:{target_kind}"
+    cursors = state.setdefault("sprintengine", {}).setdefault("dispatchCursors", {})
+    last_key = cursors.get(cursor_key) if isinstance(cursors, dict) else None
+    if last_key in keys:
+        return candidates[(keys.index(last_key) + 1) % len(candidates)]
+    return candidates[0]
+
+
+def record_dispatch_cursor(state: Dict[str, Any], *, role: str, target_kind: str, target_key: str) -> None:
+    cursors = state.setdefault("sprintengine", {}).setdefault("dispatchCursors", {})
+    if isinstance(cursors, dict):
+        cursors[f"{role}:{target_kind}"] = target_key
+
+
+def latest_rework_gate_attempt(task: Dict[str, Any]) -> dict[str, str]:
+    latest: dict[str, str] = {}
+    latest_completed = ""
+    for gate in task.get("qualityGates") or []:
+        if not isinstance(gate, dict):
+            continue
+        gate_id = str(gate.get("id") or "")
+        for attempt in gate.get("attempts") or []:
+            if not isinstance(attempt, dict):
+                continue
+            verdict = str(attempt.get("verdict") or attempt.get("status") or "")
+            completed_at = str(attempt.get("completedAt") or "")
+            attempt_id = str(attempt.get("id") or "")
+            if verdict not in {"changes_requested", "failed"} or not attempt_id:
+                continue
+            if not latest or completed_at >= latest_completed:
+                latest_completed = completed_at
+                latest = {"gateId": gate_id, "attemptId": attempt_id}
+    return latest
+
+
+def current_dispatch_matches_task(
+    agent: Dict[str, Any],
+    task: Dict[str, Any],
+    reason: str,
+    *,
+    gate_id: Optional[str] = None,
+    attempt_id: Optional[str] = None,
+) -> bool:
+    dispatch = agent.get("currentDispatch")
+    if not isinstance(dispatch, dict):
+        return False
+    matches = (
+        dispatch.get("targetKind") == "task"
+        and dispatch.get("taskId") == task.get("id")
+        and dispatch.get("reason") == reason
+        and bool(dispatch.get("dispatchId"))
+    )
+    if gate_id is not None:
+        matches = matches and dispatch.get("gateId") == gate_id
+    if attempt_id is not None:
+        matches = matches and dispatch.get("attemptId") == attempt_id
+    return matches
+
+
+def ensure_rework_dispatch(state: Dict[str, Any], agent: Dict[str, Any], task: Dict[str, Any], agent_id: str) -> bool:
+    if task.get("status") != "changes_requested":
+        return False
+    reason = "changes_requested_rework"
+    rework_context = latest_rework_gate_attempt(task)
+    gate_id = rework_context.get("gateId")
+    attempt_id = rework_context.get("attemptId")
+    if current_dispatch_matches_task(agent, task, reason, gate_id=gate_id, attempt_id=attempt_id):
+        return False
+    role = str(task.get("role") or agent.get("role") or "")
+    dispatch = queue_dispatch_record(
+        state,
+        agent_id=agent_id,
+        role=role,
+        target_kind="task",
+        task_id=str(task.get("id") or ""),
+        task_status=str(task.get("status") or ""),
+        gate_id=gate_id,
+        attempt_id=attempt_id,
+        reason=reason,
+    )
+    agent["currentDispatch"] = current_dispatch_payload(
+        dispatch_id=dispatch["id"],
+        target_kind="task",
+        role=role,
+        reason=reason,
+        task_id=str(task.get("id") or ""),
+        gate_id=gate_id,
+        attempt_id=attempt_id,
+        assigned_at=dispatch["timestamp"],
+    )
+    agent["lastDirectiveAt"] = dispatch["timestamp"]
+    return True
 
 
 def reconcile_agent(state: Dict[str, Any], agent_id: str, role: str) -> Dict[str, Any]:
@@ -390,7 +841,8 @@ def reconcile_agent(state: Dict[str, Any], agent_id: str, role: str) -> Dict[str
             repairs.append(f"cleared stale task ref {current_task_id}")
         elif current_task.get("ownerAgentId") in (None, "", agent_id):
             dirty = set_if_changed(current_task, "ownerAgentId", agent_id) or dirty
-            dirty = set_agent_active(agent, current_task) or dirty
+            dirty = set_agent_active(agent, current_task, refresh_heartbeat=False) or dirty
+            dirty = ensure_rework_dispatch(state, agent, current_task, agent_id) or dirty
             return {"agent": agent, "activeTask": current_task, "repairs": repairs, "dirty": dirty}
         else:
             dirty = set_agent_idle(agent) or dirty
@@ -402,7 +854,8 @@ def reconcile_agent(state: Dict[str, Any], agent_id: str, role: str) -> Dict[str
         None,
     )
     if active_task:
-        dirty = set_agent_active(agent, active_task) or dirty
+        dirty = set_agent_active(agent, active_task, refresh_heartbeat=False) or dirty
+        dirty = ensure_rework_dispatch(state, agent, active_task, agent_id) or dirty
         return {"agent": agent, "activeTask": active_task, "repairs": repairs, "dirty": dirty}
 
     if agent_is_retired(agent):
@@ -426,6 +879,30 @@ def assign_task(state: Dict[str, Any], task: Dict[str, Any], agent_id: str) -> D
     task["startedAt"] = task.get("startedAt") or now_iso()
     agent = ensure_agent(state, agent_id, task.get("role"))
     set_agent_active(agent, task)
+    dispatch = queue_dispatch_record(
+        state,
+        agent_id=agent_id,
+        role=str(task.get("role") or agent.get("role") or ""),
+        target_kind="task",
+        task_id=str(task.get("id") or ""),
+        task_status=str(task.get("status") or ""),
+        reason="task_claimed",
+    )
+    agent["currentDispatch"] = current_dispatch_payload(
+        dispatch_id=dispatch["id"],
+        target_kind="task",
+        role=str(task.get("role") or agent.get("role") or ""),
+        reason="task_claimed",
+        task_id=str(task.get("id") or ""),
+        assigned_at=dispatch["timestamp"],
+    )
+    agent["lastDirectiveAt"] = dispatch["timestamp"]
+    record_dispatch_cursor(
+        state,
+        role=str(task.get("role") or agent.get("role") or ""),
+        target_kind="task",
+        target_key=dispatch_target_key("task", task.get("id")),
+    )
     append_task_activity(task, "claim", agent_id, f"{agent_id} claimed {task.get('id')}.")
     return {"agent": agent}
 

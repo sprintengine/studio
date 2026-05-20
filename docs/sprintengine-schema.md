@@ -17,6 +17,7 @@ Each team folder contains these store files and directories:
   run.yaml
   projection.json
   events.jsonl
+  dispatch.jsonl
   metrics/agent-feedback.jsonl
   tasks/
     todo/
@@ -65,11 +66,167 @@ Folder-store files are not safe manual editing surfaces. Use commands such as
   `taskId`.
 - `runner`: durable runner policy (`auto` or `off`) plus polling
   and completion settings.
+- `agents`: durable agent lifecycle records keyed by stable agent id.
 - `creation`: run creation metadata such as source and timestamp.
 - `updatedAt`: UTC timestamp of the latest store sync.
 
 The graph mirror lets readiness refresh validate dependency references and
 cycles without requiring consumers to parse every task folder.
+
+### Agent Records
+
+`run.yaml` `agents` is the lifecycle mirror used by MCP dispatch, CLI
+compatibility, projection, and Multicode terminal wake/resume orchestration. It
+is keyed by stable Sprint Engine agent id, such as `developer-1`. The map is
+owned by Sprint Engine commands and the local MCP server; manual edits can leave
+task ownership, gate attempts, projection, and dispatch ledger state
+inconsistent.
+
+Each agent record normalizes to:
+
+- `role`: canonical role id assigned to the agent.
+- `status`: `idle`, `running`, `needs_input`, `left`, `dead`, or `retired`.
+  Active dispatch is represented by `currentDispatch` and
+  `sprintengine.dispatch.next` state, not by a persisted agent status value.
+- `heartbeatAt`: UTC timestamp of the latest heartbeat observed through
+  `sprintengine.agent.heartbeat` or a compatibility join refresh.
+- `joinedAt`: UTC timestamp when the agent first joined this run.
+- `leftAt`: UTC timestamp for a graceful leave, when present.
+- `deadAt`: UTC timestamp set by liveness reconciliation, when present.
+- `subscription`: dispatch subscription metadata with `mode` (`none`, `poll`,
+  or `mcp_notifications`), `subscribedAt`, optional `lastDispatchId`, and ack
+  mirrors such as `lastDispatchAckAt` and `lastDispatchOutcome`.
+- `currentDispatch`: current durable dispatch target, when assigned.
+- `currentTaskId`: compatibility mirror for an active normal task.
+- `currentGate`: compatibility mirror for an active gate claim, normally with
+  `taskId`, `gateId`, and attempt id.
+- `currentGateId`: compatibility mirror for the active gate id, when present.
+- `lastDirectiveAt`: UTC timestamp for the latest directive returned to or
+  recorded for the agent.
+
+`currentDispatch` records:
+
+- `dispatchId`: stable idempotency key from `dispatch.jsonl`.
+- `targetKind`: currently `task` or `gate` for active assignments; future
+  server-created targets may use values such as `architect_judgment` or `run`.
+- `taskId`: present for task and gate targets.
+- `gateId`: present for gate targets.
+- `role`: target role used for routing.
+- `reason`: dispatch reason such as `task_claimed`, `gate_claimed`,
+  `changes_requested_rework`, `ready_task`, `needs_triage`, or `final_review`.
+- `assignedAt`: UTC timestamp of assignment.
+
+Agents and app code must not edit this map directly. Use the lifecycle tools or
+the CLI compatibility commands so store locks, task ownership, events,
+projection sync, and dispatch ledger writes remain coherent.
+
+## Dispatch Ledger
+
+`dispatch.jsonl` is an append-only sibling of `events.jsonl`. It records durable
+dispatch assignments with an idempotency key. Acknowledgement and subscription
+state is mirrored on the agent record and in normal events; consumers should use
+Sprint Engine tools or projection fields instead of parsing or editing the file
+directly.
+
+Each line is a JSON object with:
+
+- `id`: stable dispatch id derived from the target and assignment context.
+  Replaying, reconnecting, or re-notifying the same assignment reuses this id
+  and must not double-assign work.
+- `timestamp`: UTC timestamp for the ledger entry.
+- `agentId`: target agent id.
+- `role`: canonical role requested by the target.
+- `target`: object with `kind`, optional `taskId`, optional `gateId`, and
+  optional attempt id.
+- `reason`: why the scheduler selected the target.
+- `state`: snapshot fields needed for idempotency, currently including
+  `taskStatus` and `gateStatus` where relevant.
+- `outcome`: currently `dispatched` for assignment records; future terminal
+  records may use values such as `acknowledged`, `canceled`, `released`, or
+  `superseded`.
+- `source`: currently `core` for assignments produced by the shared
+  Sprint Engine core path. Future transports may identify `mcp`, `cli_compat`,
+  or `system`.
+
+`sprintengine.dispatch.next` is the read contract for this ledger. It requires
+an `agentId`, returns the agent's `currentDispatch`, and filters ledger rows by
+that same `agentId` before applying optional `lastDispatchId` pagination.
+`sprintengine.dispatch.ack` records acknowledgement metadata on
+`agents.<id>.subscription` and appends a normal event; it does not rewrite
+`dispatch.jsonl`.
+
+Dispatch is durable state, not a guarantee that a model session woke up.
+Multicode remains responsible for spawning, focusing, or injecting terminal
+input for current CLIs. MCP notifications and subscriptions are allowed as
+observability and future transport, but correctness must come from reconciling
+agent records and dispatch ids.
+
+## MCP Tool Contract
+
+The final MCP v1 surface is schema-first in `sprintengine_mcp/schemas.py`.
+Lifecycle, discovery, dispatch, task, gate, artifact, plan, run, and support
+operations all use structured JSON schemas. Final contract schemas are exposed
+separately from the active `TOOL_SCHEMAS` registry so `list_tools` advertises
+only operations with server handlers. Future names move into active
+`TOOL_SCHEMAS` when their handlers land.
+
+Final lifecycle and dispatch names:
+
+- `sprintengine.agent.join`
+- `sprintengine.agent.heartbeat`
+- `sprintengine.agent.leave`
+- `sprintengine.subscribe`
+- `sprintengine.dispatch.next`
+- `sprintengine.dispatch.ack`
+
+Discovery names:
+
+- `sprintengine.roles.list`
+- `sprintengine.roles.get`
+- `sprintengine.soul.get`
+- `sprintengine.skills.list`
+- `sprintengine.skill.get`
+
+Active operation names:
+
+- Tasks: `sprintengine.task.get`, `sprintengine.task.list`,
+  `sprintengine.task.next`, `sprintengine.task.claim`,
+  `sprintengine.task.status`, `sprintengine.task.resolve_input`,
+  `sprintengine.task.release`, `sprintengine.task.ready`,
+  `sprintengine.task.log`, `sprintengine.task.note`,
+  `sprintengine.task.comment`, `sprintengine.task.comment.list`,
+  `sprintengine.task.publish`, `sprintengine.task.request_changes`.
+- Gates: `sprintengine.gate.list`, `sprintengine.gate.next`,
+  `sprintengine.gate.claim`, `sprintengine.gate.verdict`,
+  `sprintengine.gate.publish`, `sprintengine.gate.skip`.
+- Artifacts: `sprintengine.artifact.add`, `sprintengine.artifact.ready`,
+  `sprintengine.artifact.approve`, `sprintengine.artifact.request_changes`,
+  `sprintengine.artifact.list`.
+- Plans: `sprintengine.plan.add_task`, `sprintengine.plan.update_task`,
+  `sprintengine.plan.delete_task`, `sprintengine.plan.add_dependency`,
+  `sprintengine.plan.remove_dependency`, `sprintengine.plan.start_review`,
+  `sprintengine.plan.review_status`, `sprintengine.plan.address_reviews`.
+- Run: `sprintengine.run.get`, `sprintengine.run.policy.get`,
+  `sprintengine.run.projection`, `sprintengine.run.subscribe`.
+- Support: `sprintengine.init`, `sprintengine.recover`, roster tools,
+  `sprintengine.summary`, feedback tools, and `sprintengine.health`.
+
+Compatibility names:
+
+- `sprintengine.join` remains a compatibility alias for the agent join
+  behavior used by `sprintengine join --watch`. It must keep the current CLI
+  response shape while sharing lifecycle state with `sprintengine.agent.join`.
+- CLI wrapper flows still use `sprintengine.task.next`,
+  `sprintengine.task.claim`, `sprintengine.task.ready`,
+  `sprintengine.task.note`, `sprintengine.task.resolve_input`,
+  `sprintengine.task.release`, `sprintengine.gate.next`,
+  `sprintengine.gate.claim`, and `sprintengine.gate.verdict` while preserving
+  the same core mutation path.
+
+Transition tests must prove that `sprintengine.join` does not duplicate
+dispatch ledger entries, returns active work before claiming new work, records
+or refreshes the same agent lifecycle fields as the final join path, and returns
+idle without mutation when Auto Mode is off and no target is available.
 
 ## Task Files
 

@@ -158,7 +158,10 @@ def _mcp_payload(args) -> tuple[str, dict]:
             return "sprintengine.roster.list", base
         raise SystemExit(f"MCP backend does not support roster action: {action}")
     if group == "join":
-        return "sprintengine.join", {**base, "role": args.role, "id": args.id}
+        payload = {**base, "role": args.role, "id": args.id, "watch": bool(args.watch)}
+        if args.max_wait_seconds is not None:
+            payload["maxWaitSeconds"] = args.max_wait_seconds
+        return "sprintengine.join", payload
     if group == "summary":
         return "sprintengine.summary", base
     if group == "task":
@@ -177,28 +180,45 @@ def _task_payload(action: str, args, base: dict) -> tuple[str, dict]:
         return "sprintengine.task.claim", {**base, "taskId": args.task_id, "id": args.id}
     if action == "gate":
         gate_action = args.gate_action
-        payload = {**base, "gateAction": gate_action}
-        for attr in (
-            "task_id",
-            "gate_id",
-            "role",
-            "id",
-            "verdict",
-            "summary",
-            "artifact_path",
-            "artifact_title",
-            "artifact_kind",
-            "needs_input_kind",
-            "needs_input_reason",
-            "needs_input_question",
-            "needs_input_suggested_resolution",
-        ):
-            if hasattr(args, attr):
-                payload[attr.replace("_", "")] = getattr(args, attr)
+        payload = {**base}
+        if hasattr(args, "task_id"):
+            payload["taskId"] = args.task_id
+        if hasattr(args, "gate_id"):
+            payload["gateId"] = args.gate_id
+        if hasattr(args, "role"):
+            payload["role"] = args.role
+        if hasattr(args, "id"):
+            payload["id"] = args.id
+        if hasattr(args, "verdict"):
+            payload["verdict"] = args.verdict
+        if hasattr(args, "summary"):
+            payload["summary"] = args.summary
+        if hasattr(args, "artifact_path"):
+            payload["artifactPath"] = args.artifact_path
+        if hasattr(args, "artifact_title"):
+            payload["artifactTitle"] = args.artifact_title
+        if hasattr(args, "artifact_kind"):
+            payload["artifactKind"] = args.artifact_kind
+        if hasattr(args, "needs_input_kind"):
+            payload["needsInputKind"] = args.needs_input_kind
+        if hasattr(args, "needs_input_reason"):
+            payload["needsInputReason"] = args.needs_input_reason
+        if hasattr(args, "needs_input_question"):
+            payload["needsInputQuestion"] = args.needs_input_question
+        if hasattr(args, "needs_input_suggested_resolution"):
+            payload["needsInputSuggestedResolution"] = args.needs_input_suggested_resolution
         if hasattr(args, "required_action"):
             payload["requiredAction"] = args.required_action or []
         payload.update(_feedback_payload(args))
-        return "sprintengine.task.gate", payload
+        if gate_action == "list":
+            return "sprintengine.gate.list", payload
+        if gate_action == "next":
+            return "sprintengine.gate.next", payload
+        if gate_action == "claim":
+            return "sprintengine.gate.claim", payload
+        if gate_action == "verdict":
+            return "sprintengine.gate.verdict", payload
+        raise SystemExit(f"MCP backend does not support task gate action: {gate_action}")
     if action == "status":
         payload = {**base, "taskId": args.task_id, "status": args.status, "id": args.id, "summary": args.summary}
         if getattr(args, "needs_input_kind", None):
@@ -237,9 +257,13 @@ def _task_payload(action: str, args, base: dict) -> tuple[str, dict]:
         if getattr(args, "comment_action", None):
             payload["commentAction"] = args.comment_action
         if getattr(args, "comment_type", None):
-            payload["type"] = args.comment_type
+            payload["commentType"] = args.comment_type
         if getattr(args, "path", None):
-            payload["path"] = args.path
+            payload["paths"] = args.path
+        if getattr(args, "data_json", None):
+            payload["dataJson"] = args.data_json
+        if args.comment_action == "list":
+            return "sprintengine.task.comment.list", {**base, "taskId": args.task_id}
         return "sprintengine.task.comment", payload
     if action == "list":
         return "sprintengine.task.list", {**base, "role": args.role}

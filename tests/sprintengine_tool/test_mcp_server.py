@@ -7,7 +7,7 @@ import sys
 
 from helpers import REPO_ROOT, create_team, get_task, read_state, task, write_state
 from sprintengine_mcp import SprintEngineMcpServer
-from sprintengine_mcp.schemas import TOOL_SCHEMAS
+from sprintengine_mcp.schemas import MCP_V1_CONTRACT_SCHEMAS, TOOL_SCHEMAS
 
 
 def actor(agent_id: str, role: str = "product") -> dict[str, object]:
@@ -21,6 +21,25 @@ def audit_rows(team_dir):
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def write_registry_role(root, role_id: str, *, label: str | None = None, soul: list[dict] | None = None) -> None:
+    roles_dir = root / ".sprintengine" / "roles"
+    roles_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "id": role_id,
+        "label": label or role_id.replace("_", " ").title(),
+        "aliases": [role_id.replace("_", "-")],
+        "summary": f"{role_id} summary",
+        "soul": soul or [{"skill": role_id}],
+    }
+    (roles_dir / f"{role_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def write_registry_skill(root, skill_id: str, body: str) -> None:
+    skill_dir = root / ".sprintengine" / "skills" / skill_id
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
+
+
 def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
     expected = {
         "sprintengine.init",
@@ -29,8 +48,20 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.roster.retire",
         "sprintengine.roster.replenish",
         "sprintengine.roster.list",
+        "sprintengine.agent.join",
+        "sprintengine.agent.heartbeat",
+        "sprintengine.agent.leave",
+        "sprintengine.subscribe",
         "sprintengine.join",
         "sprintengine.summary",
+        "sprintengine.dispatch.next",
+        "sprintengine.dispatch.ack",
+        "sprintengine.roles.list",
+        "sprintengine.roles.get",
+        "sprintengine.soul.get",
+        "sprintengine.skills.list",
+        "sprintengine.skill.get",
+        "sprintengine.task.get",
         "sprintengine.task.next",
         "sprintengine.task.claim",
         "sprintengine.task.status",
@@ -38,9 +69,18 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.task.release",
         "sprintengine.task.ready",
         "sprintengine.task.log",
+        "sprintengine.task.publish",
         "sprintengine.task.note",
         "sprintengine.task.comment",
+        "sprintengine.task.comment.list",
         "sprintengine.task.list",
+        "sprintengine.task.request_changes",
+        "sprintengine.gate.list",
+        "sprintengine.gate.next",
+        "sprintengine.gate.claim",
+        "sprintengine.gate.verdict",
+        "sprintengine.gate.publish",
+        "sprintengine.gate.skip",
         "sprintengine.plan.add_task",
         "sprintengine.plan.update_task",
         "sprintengine.plan.delete_task",
@@ -54,6 +94,10 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.artifact.ready",
         "sprintengine.artifact.approve",
         "sprintengine.artifact.request_changes",
+        "sprintengine.run.get",
+        "sprintengine.run.policy.get",
+        "sprintengine.run.projection",
+        "sprintengine.run.subscribe",
         "sprintengine.feedback.summarize",
         "sprintengine.feedback.recommend_actions",
         "sprintengine.health",
@@ -63,6 +107,36 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
     listed = SprintEngineMcpServer().list_tools()
     assert {tool["name"] for tool in listed} == expected
     assert all("inputSchema" in tool for tool in listed)
+
+
+def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() -> None:
+    planned = {
+        "sprintengine.agent.join",
+        "sprintengine.agent.heartbeat",
+        "sprintengine.agent.leave",
+        "sprintengine.subscribe",
+        "sprintengine.dispatch.next",
+        "sprintengine.dispatch.ack",
+        "sprintengine.roles.list",
+        "sprintengine.roles.get",
+        "sprintengine.soul.get",
+        "sprintengine.skills.list",
+        "sprintengine.skill.get",
+        "sprintengine.task.get",
+        "sprintengine.task.publish",
+        "sprintengine.task.request_changes",
+        "sprintengine.gate.list",
+        "sprintengine.gate.publish",
+        "sprintengine.gate.skip",
+        "sprintengine.run.get",
+        "sprintengine.run.policy.get",
+        "sprintengine.run.projection",
+        "sprintengine.run.subscribe",
+    }
+    active_now = planned
+
+    assert planned <= set(MCP_V1_CONTRACT_SCHEMAS)
+    assert active_now <= set(TOOL_SCHEMAS)
 
 
 def test_mcp_valid_task_lifecycle_call_uses_core_and_emits_audit(tmp_path) -> None:
@@ -93,6 +167,8 @@ def test_mcp_valid_task_lifecycle_call_uses_core_and_emits_audit(tmp_path) -> No
 
     assert claimed["ok"] is True
     assert claimed["result"]["task"]["status"] == "in_progress"
+    assert claimed["result"]["state"] == "dispatched"
+    assert claimed["result"]["currentDispatch"]["targetKind"] == "task"
     assert logged["ok"] is True
     state = read_state(fixture.state_path)
     task_record = get_task(state, "T1")
@@ -110,6 +186,394 @@ def test_mcp_valid_task_lifecycle_call_uses_core_and_emits_audit(tmp_path) -> No
     assert rows[0]["actor"] == "workspace-user"
     assert rows[0]["backend_mode"] == "mcp-local"
     assert len(rows[0]["state_digest"]) == 64
+
+
+def test_mcp_run_and_dispatch_tools_return_role_agnostic_progression_context(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-run-dispatch", [task("T1", "Dispatch", "developer")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    claimed = server.call_tool(
+        "sprintengine.task.next",
+        {"statePath": str(fixture.state_path), "role": "developer", "id": "developer-a"},
+        actor("workspace-user", "user"),
+    )
+    dispatch_id = claimed["result"]["currentDispatch"]["dispatchId"]
+    dispatch = server.call_tool(
+        "sprintengine.dispatch.next",
+        {"statePath": str(fixture.state_path), "agentId": "developer-a"},
+        actor("workspace-user", "user"),
+    )
+    ack = server.call_tool(
+        "sprintengine.dispatch.ack",
+        {"statePath": str(fixture.state_path), "agentId": "developer-a", "dispatchId": dispatch_id},
+        actor("workspace-user", "user"),
+    )
+    run = server.call_tool("sprintengine.run.get", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
+    policy = server.call_tool("sprintengine.run.policy.get", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
+    projection = server.call_tool("sprintengine.run.projection", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
+
+    assert dispatch["ok"] is True
+    assert dispatch["result"]["state"] == "dispatched"
+    assert dispatch["result"]["currentDispatch"]["dispatchId"] == dispatch_id
+    assert any(row["id"] == dispatch_id for row in dispatch["result"]["dispatches"])
+    assert ack["ok"] is True
+    assert ack["result"]["agent"]["subscription"]["lastDispatchId"] == dispatch_id
+    assert ack["result"]["agent"]["subscription"]["lastDispatchAckAt"]
+    assert ack["result"]["agent"]["subscription"]["lastDispatchOutcome"] == "acknowledged"
+    persisted_subscription = read_state(fixture.state_path)["agents"]["developer-a"]["subscription"]
+    assert persisted_subscription["lastDispatchId"] == dispatch_id
+    assert persisted_subscription["lastDispatchAckAt"] == ack["result"]["agent"]["subscription"]["lastDispatchAckAt"]
+    assert persisted_subscription["lastDispatchOutcome"] == "acknowledged"
+    assert run["result"]["run"]["name"] == "mcp-run-dispatch"
+    assert "mode" in policy["result"]["runner"]
+    assert projection["result"]["run"]["name"] == "mcp-run-dispatch"
+    assert [row["operation_name"] for row in audit_rows(fixture.team_dir)] == [
+        "sprintengine.task.next",
+        "sprintengine.dispatch.ack",
+    ]
+
+
+def test_mcp_dispatch_next_returns_only_requested_agent_rows(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "mcp-dispatch-agent-scope",
+        [
+            task("T1", "First dispatch", "developer"),
+            task("T2", "Second dispatch", "developer"),
+        ],
+    )
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    first = server.call_tool(
+        "sprintengine.task.claim",
+        {"statePath": str(fixture.state_path), "taskId": "T1", "id": "dev-1"},
+        actor("workspace-user", "user"),
+    )
+    second = server.call_tool(
+        "sprintengine.task.claim",
+        {"statePath": str(fixture.state_path), "taskId": "T2", "id": "dev-2"},
+        actor("workspace-user", "user"),
+    )
+    first_dispatch_id = first["result"]["currentDispatch"]["dispatchId"]
+    assert second["result"]["currentDispatch"]["dispatchId"] != first_dispatch_id
+
+    current = server.call_tool(
+        "sprintengine.dispatch.next",
+        {"statePath": str(fixture.state_path), "agentId": "dev-1"},
+        actor("workspace-user", "user"),
+    )
+    after_seen = server.call_tool(
+        "sprintengine.dispatch.next",
+        {"statePath": str(fixture.state_path), "agentId": "dev-1", "lastDispatchId": first_dispatch_id},
+        actor("workspace-user", "user"),
+    )
+
+    assert current["ok"] is True
+    assert [record["agentId"] for record in current["result"]["dispatches"]] == ["dev-1"]
+    assert current["result"]["currentDispatch"]["dispatchId"] == first_dispatch_id
+    assert after_seen["ok"] is True
+    assert after_seen["result"]["dispatches"] == []
+
+
+def test_mcp_gate_claim_and_verdict_use_core_lifecycle_and_audit(tmp_path) -> None:
+    task_record = task("T1", "Reviewable", "developer", "review", owner="developer-a")
+    task_record["qualityGates"] = [
+        {
+            "id": "code-review",
+            "phase": "review",
+            "role": "code_reviewer",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": True,
+            "focus": "Review implementation.",
+            "attempts": [],
+        }
+    ]
+    fixture = create_team(tmp_path, "mcp-gate-lifecycle", [task_record])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    listed = server.call_tool(
+        "sprintengine.gate.list",
+        {"statePath": str(fixture.state_path), "role": "code_reviewer"},
+        actor("workspace-user", "user"),
+    )
+    claimed = server.call_tool(
+        "sprintengine.gate.next",
+        {"statePath": str(fixture.state_path), "role": "code_reviewer", "id": "reviewer-a"},
+        actor("workspace-user", "user"),
+    )
+    verdict = server.call_tool(
+        "sprintengine.gate.verdict",
+        {
+            "statePath": str(fixture.state_path),
+            "taskId": "T1",
+            "gateId": "code-review",
+            "role": "code_reviewer",
+            "id": "reviewer-a",
+            "verdict": "approved",
+            "summary": "Implementation matches the task card.",
+        },
+        actor("workspace-user", "user"),
+    )
+
+    assert listed["ok"] is True
+    assert [gate["id"] for gate in listed["result"]["gates"]] == ["code-review"]
+    assert claimed["ok"] is True
+    assert claimed["result"]["state"] == "dispatched"
+    assert claimed["result"]["currentDispatch"]["targetKind"] == "gate"
+    assert claimed["result"]["attempt"]["id"] == "GA-001"
+    assert verdict["ok"] is True
+    assert verdict["result"]["gate"]["status"] == "approved"
+    assert verdict["result"]["progression"]["state"] == "idle"
+    assert [row["operation_name"] for row in audit_rows(fixture.team_dir)] == [
+        "sprintengine.gate.next",
+        "sprintengine.gate.verdict",
+    ]
+
+
+def test_mcp_task_get_comment_publish_and_request_changes_cover_agent_paths(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "mcp-task-coverage",
+        [task("T1", "Publishable", "developer", status="in_progress", owner="developer-a")],
+    )
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    comment = server.call_tool(
+        "sprintengine.task.comment",
+        {"statePath": str(fixture.state_path), "taskId": "T1", "id": "developer-a", "body": "Implementation note.", "paths": ["sprintengine_mcp/server.py"]},
+        actor("workspace-user", "user"),
+    )
+    comments = server.call_tool(
+        "sprintengine.task.comment.list",
+        {"statePath": str(fixture.state_path), "taskId": "T1"},
+        actor("workspace-user", "user"),
+    )
+    fetched = server.call_tool(
+        "sprintengine.task.get",
+        {"statePath": str(fixture.state_path), "taskId": "T1"},
+        actor("workspace-user", "user"),
+    )
+    published = server.call_tool(
+        "sprintengine.task.publish",
+        {"statePath": str(fixture.state_path), "taskId": "T1", "id": "developer-a", "summary": "Ready for review.", "path": ["sprintengine_mcp/server.py"]},
+        actor("workspace-user", "user"),
+    )
+    changes = server.call_tool(
+        "sprintengine.task.request_changes",
+        {"statePath": str(fixture.state_path), "taskId": "T1", "id": "reviewer-a", "reason": "Add MCP gate coverage."},
+        actor("workspace-user", "user"),
+    )
+
+    assert comment["ok"] is True
+    assert comments["result"]["comments"][0]["body"] == "Implementation note."
+    assert fetched["result"]["task"]["id"] == "T1"
+    assert published["ok"] is True
+    assert published["result"]["nextStatus"] == "done"
+    assert published["result"]["progression"]["state"] == "idle"
+    assert changes["ok"] is True
+    assert changes["result"]["task"]["status"] == "needs_input"
+    assert changes["result"]["task"]["needsInput"]["kind"] == "owner"
+
+
+def test_mcp_agent_join_returns_prompt_registry_run_and_dispatch_context(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-agent-join-context", [task("T1", "Implement MCP", "developer")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path, REPO_ROOT])
+    claim = server.call_tool(
+        "sprintengine.task.next",
+        {"statePath": str(fixture.state_path), "role": "developer", "id": "developer-a"},
+        actor("workspace-user", "user"),
+    )
+    assert claim["ok"] is True
+
+    response = server.call_tool(
+        "sprintengine.agent.join",
+        {
+            "statePath": str(fixture.state_path),
+            "workspaceRoot": str(REPO_ROOT),
+            "role": "developer",
+            "agentId": "developer-a",
+            "subscriptionMode": "poll",
+        },
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is True
+    result = response["result"]
+    assert result["role"] == "developer"
+    assert result["agent"]["subscription"]["mode"] == "poll"
+    assert result["currentDispatch"]["taskId"] == "T1"
+    assert result["run"]["name"] == "mcp-agent-join-context"
+    assert result["roleManifest"]["id"] == "developer"
+    assert result["promptContext"]["format"] == "composed_soul_coordination_prompt"
+    assert "# SprintEngine Coordination Rules" in result["prompt"]
+    assert result["legacyJoin"]["action"] == "resume"
+    assert [row["operation_name"] for row in audit_rows(fixture.team_dir)] == [
+        "sprintengine.task.next",
+        "sprintengine.agent.join",
+    ]
+
+
+def test_mcp_agent_join_resolves_workspace_only_custom_role(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    write_registry_role(workspace, "writer", label="Writer", soul=[{"skill": "drafting"}])
+    write_registry_skill(workspace, "drafting", "Drafting Soul for {{role}} in {{run_id}}.")
+    fixture = create_team(tmp_path, "mcp-custom-role-join", [])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    listed = server.call_tool(
+        "sprintengine.roles.list",
+        {"workspaceRoot": str(workspace)},
+        actor("workspace-user", "user"),
+    )
+    joined = server.call_tool(
+        "sprintengine.agent.join",
+        {
+            "statePath": str(fixture.state_path),
+            "workspaceRoot": str(workspace),
+            "role": "writer",
+            "agentId": "writer-1",
+        },
+        actor("workspace-user", "user"),
+    )
+
+    assert listed["ok"] is True
+    assert any(role["id"] == "writer" for role in listed["result"]["roles"])
+    assert joined["ok"] is True
+    assert joined["result"]["role"] == "writer"
+    assert joined["result"]["roleManifest"]["id"] == "writer"
+    assert "Drafting Soul for writer in mcp-custom-role-join." in joined["result"]["prompt"]
+    assert joined["result"]["legacyJoin"]["ok"] is False
+    assert read_state(fixture.state_path)["agents"]["writer-1"]["role"] == "writer"
+
+
+def test_mcp_agent_heartbeat_preserves_assignment_state(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-agent-heartbeat", [task("T1", "Heartbeat task", "developer")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    server.call_tool(
+        "sprintengine.task.next",
+        {"statePath": str(fixture.state_path), "role": "developer", "id": "developer-a"},
+        actor("workspace-user", "user"),
+    )
+    before = read_state(fixture.state_path)["agents"]["developer-a"]
+
+    response = server.call_tool(
+        "sprintengine.agent.heartbeat",
+        {"statePath": str(fixture.state_path), "agentId": "developer-a"},
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is True
+    agent = response["result"]["agent"]
+    assert agent["currentTaskId"] == before["currentTaskId"]
+    assert agent["currentDispatch"] == before["currentDispatch"]
+    assert response["result"]["assignmentUnchanged"]["currentDispatch"] is True
+
+
+def test_mcp_agent_leave_releases_active_task_for_dispatch(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-agent-leave-release", [task("T1", "Leave task", "developer")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    server.call_tool(
+        "sprintengine.task.next",
+        {"statePath": str(fixture.state_path), "role": "developer", "id": "developer-a"},
+        actor("workspace-user", "user"),
+    )
+
+    response = server.call_tool(
+        "sprintengine.agent.leave",
+        {"statePath": str(fixture.state_path), "agentId": "developer-a", "reason": "terminal closed"},
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is True
+    assert response["result"]["agent"]["status"] == "left"
+    assert response["result"]["releasedTargets"] == [
+        {"kind": "task", "taskId": "T1", "previousOwnerAgentId": "developer-a", "status": "todo"}
+    ]
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert task_record["status"] == "todo"
+    assert task_record["ownerAgentId"] is None
+    ready = server.call_tool(
+        "sprintengine.task.list",
+        {"statePath": str(fixture.state_path), "role": "developer"},
+        actor("workspace-user", "user"),
+    )
+    assert [entry["id"] for entry in ready["result"]["readyTasks"]] == ["T1"]
+
+
+def test_mcp_agent_leave_releases_active_gate_without_blocked_attempt(tmp_path) -> None:
+    task_record = task("T1", "Reviewable task", "developer", "review", owner="developer-a")
+    task_record["qualityGates"] = [
+        {
+            "id": "code-review",
+            "phase": "review",
+            "role": "code_reviewer",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": True,
+            "focus": "Review implementation.",
+            "attempts": [],
+        }
+    ]
+    fixture = create_team(tmp_path, "mcp-agent-leave-gate-release", [task_record])
+    fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer-a")
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    response = server.call_tool(
+        "sprintengine.agent.leave",
+        {"statePath": str(fixture.state_path), "agentId": "code-reviewer-a", "reason": "terminal closed"},
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is True
+    assert response["result"]["releasedTargets"] == [
+        {"kind": "gate", "taskId": "T1", "gateId": "code-review", "attemptId": "GA-001"}
+    ]
+    state = read_state(fixture.state_path)
+    gate = get_task(state, "T1")["qualityGates"][0]
+    assert gate["status"] == "pending"
+    assert gate["attempts"][0]["status"] == "released"
+    assert gate["attempts"][0]["status"] != "blocked"
+
+    reclaimed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer-b")
+    assert reclaimed["claimed"] is True
+    assert reclaimed["gate"]["status"] == "in_progress"
+    assert reclaimed["attempt"]["id"] == "GA-002"
+
+
+def test_mcp_registry_discovery_returns_roles_skills_soul_and_warnings(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    write_registry_role(workspace, "marketer", label="Growth Marketer", soul=[{"skill": "strategy"}, {"skill": "missing"}])
+    write_registry_skill(workspace, "strategy", "---\nname: strategy\n---\n\nPlan for {{role}} in {{run_id}}.")
+    write_registry_role(workspace, "writer", label="Writer", soul=[{"skill": "drafting"}])
+    write_registry_skill(workspace, "drafting", "Draft for {{role}} in {{run_id}}.")
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    roles = server.call_tool(
+        "sprintengine.roles.list",
+        {"workspaceRoot": str(workspace), "includeShadowed": True},
+        actor("workspace-user", "user"),
+    )
+    skills = server.call_tool(
+        "sprintengine.skills.list",
+        {"workspaceRoot": str(workspace)},
+        actor("workspace-user", "user"),
+    )
+    soul = server.call_tool(
+        "sprintengine.soul.get",
+        {"workspaceRoot": str(workspace), "roleId": "writer", "runId": "run-123"},
+        actor("workspace-user", "user"),
+    )
+
+    assert roles["ok"] is True
+    assert any(role["id"] == "marketer" and role["source"]["layer"] == "workspace" for role in roles["result"]["roles"])
+    assert any(warning["code"] == "missing_referenced_skill" for warning in roles["result"]["warnings"])
+    assert skills["ok"] is True
+    assert {skill["id"] for skill in skills["result"]["skills"]} >= {"strategy", "drafting"}
+    assert all("body" not in skill for skill in skills["result"]["skills"])
+    assert soul["ok"] is True
+    assert soul["result"]["soul"]["content"] == "Draft for writer in run-123."
+    assert str(tmp_path) not in json.dumps(roles["result"], sort_keys=True)
 
 
 def test_mcp_task_ready_uses_core_and_emits_audit(tmp_path) -> None:

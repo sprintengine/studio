@@ -7,6 +7,7 @@ import os
 import re
 import tempfile
 import time
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,6 +44,7 @@ ARTIFACT_STATUSES = (
 SUPPORT_DIRS = ("metrics", "plan-reviews", "reviews", "validation", "runner")
 RUN_FILE = "run.yaml"
 EVENTS_FILE = "events.jsonl"
+DISPATCH_FILE = "dispatch.jsonl"
 FEEDBACK_FILE = "metrics/agent-feedback.jsonl"
 PROJECTION_FILE = "projection.json"
 LOCK_STATE_FILES = ("runner/run.lock.json", "runner/ready.lock.json")
@@ -96,7 +98,7 @@ DEFAULT_RUNNER_POLICY = {
     "stopWhenComplete": True,
 }
 GATE_PHASES = {"review", "testing", "product"}
-GATE_STATUSES = {"pending", "in_progress", "approved", "changes_requested", "blocked", "skipped"}
+GATE_STATUSES = {"pending", "in_progress", "approved", "changes_requested", "blocked", "skipped", "released", "superseded"}
 
 
 def now_iso() -> str:
@@ -407,6 +409,121 @@ def append_event(team_dir: Path, event: dict[str, Any]) -> Path:
     return team_dir / EVENTS_FILE
 
 
+def normalize_agent_subscription(raw: Any) -> dict[str, Any]:
+    source = raw if isinstance(raw, dict) else {}
+    mode = str(source.get("mode") or "none").strip()
+    if mode not in {"none", "poll", "mcp_notifications"}:
+        mode = "none"
+    subscription: dict[str, Any] = {"mode": mode}
+    for key in ("subscribedAt", "lastDispatchId", "lastDispatchAckAt", "lastDispatchOutcome"):
+        value = str(source.get(key) or "").strip()
+        if value:
+            subscription[key] = value
+    return subscription
+
+
+def normalize_current_dispatch(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    dispatch_id = str(raw.get("dispatchId") or raw.get("id") or "").strip()
+    target_kind = str(raw.get("targetKind") or raw.get("kind") or "").strip()
+    role = str(raw.get("role") or "").strip()
+    reason = str(raw.get("reason") or "").strip()
+    if not dispatch_id or not target_kind or not role or not reason:
+        return None
+    dispatch = {
+        "dispatchId": dispatch_id,
+        "targetKind": target_kind,
+        "role": role,
+        "reason": reason,
+    }
+    for key in ("taskId", "gateId", "attemptId", "assignedAt"):
+        value = str(raw.get(key) or "").strip()
+        if value:
+            dispatch[key] = value
+    return dispatch
+
+
+def normalize_agent_record(agent_id: str, raw: Any) -> dict[str, Any]:
+    source = raw if isinstance(raw, dict) else {}
+    role = str(source.get("role") or "").strip()
+    status = str(source.get("status") or "idle").strip() or "idle"
+    joined_at = str(source.get("joinedAt") or "").strip() or now_iso()
+    heartbeat_at = str(source.get("heartbeatAt") or "").strip() or joined_at
+    agent = {
+        "role": role,
+        "status": status,
+        "heartbeatAt": heartbeat_at,
+        "subscription": normalize_agent_subscription(source.get("subscription")),
+        "currentDispatch": normalize_current_dispatch(source.get("currentDispatch")),
+        "joinedAt": joined_at,
+        "currentTaskId": source.get("currentTaskId") or None,
+    }
+    for key in ("currentGateId", "lastDirectiveAt", "leftAt", "leaveReason", "deadAt", "replacedByAgentId"):
+        value = source.get(key)
+        if value not in (None, ""):
+            agent[key] = value
+    if isinstance(source.get("currentGate"), dict):
+        agent["currentGate"] = {
+            key: value
+            for key, value in source["currentGate"].items()
+            if key in {"taskId", "gateId", "attemptId"} and value not in (None, "")
+        }
+    if not agent["role"]:
+        agent["role"] = str(agent_id).split("-", 1)[0] or "developer"
+    return agent
+
+
+def normalize_agents(raw: Any) -> dict[str, dict[str, Any]]:
+    agents = raw if isinstance(raw, dict) else {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for agent_id, agent in agents.items():
+        clean_id = str(agent_id).strip()
+        if clean_id:
+            normalized[clean_id] = normalize_agent_record(clean_id, agent)
+    return normalized
+
+
+def dispatch_id_for_record(record: dict[str, Any]) -> str:
+    target = record.get("target") if isinstance(record.get("target"), dict) else {}
+    material = {
+        "agentId": record.get("agentId"),
+        "role": record.get("role"),
+        "target": {
+            "kind": target.get("kind"),
+            "taskId": target.get("taskId"),
+            "gateId": target.get("gateId"),
+            "attemptId": target.get("attemptId"),
+        },
+        "reason": record.get("reason"),
+    }
+    digest = hashlib.sha256(json.dumps(material, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+    return f"DISP-{digest}"
+
+
+def append_dispatch_records(team_dir: Path, records: list[dict[str, Any]]) -> Path:
+    path = team_dir / DISPATCH_FILE
+    if not records:
+        if not path.exists():
+            atomic_write_text(path, "")
+        return path
+    existing_ids = {
+        str(record.get("id"))
+        for record in read_jsonl_file(path)
+        if isinstance(record, dict) and record.get("id")
+    }
+    for raw in records:
+        if not isinstance(raw, dict):
+            continue
+        record = dict(raw)
+        record["id"] = str(record.get("id") or dispatch_id_for_record(record))
+        if record["id"] in existing_ids:
+            continue
+        append_jsonl(path, record)
+        existing_ids.add(record["id"])
+    return path
+
+
 def initialize_run_store(
     team_dir: Path,
     *,
@@ -451,6 +568,9 @@ def initialize_run_store(
     events_path = team_dir / EVENTS_FILE
     if not events_path.exists():
         atomic_write_text(events_path, "")
+    dispatch_path = team_dir / DISPATCH_FILE
+    if not dispatch_path.exists():
+        atomic_write_text(dispatch_path, "")
     feedback_path = team_dir / FEEDBACK_FILE
     if not feedback_path.exists():
         atomic_write_text(feedback_path, "")
@@ -578,7 +698,8 @@ def task_is_ready_for_queue(tasks_by_id: dict[str, dict[str, Any]], task: dict[s
 
 def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
     sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
-    agents = state.get("agents") if isinstance(state.get("agents"), dict) else {}
+    agents = normalize_agents(state.get("agents"))
+    state["agents"] = agents
     roles = state.get("roles") if isinstance(state.get("roles"), dict) else {}
     run = load_run_yaml(team_dir)
     creation = run.get("creation") if isinstance(run.get("creation"), dict) else {}
@@ -732,10 +853,14 @@ def sync_state_to_store(team_dir: Path, state: dict[str, Any], *, state_path: Pa
     validate_acyclic_task_graph([task for task in state.get("tasks", []) or [] if isinstance(task, dict)])
     with FolderLock(team_dir / READY_QUEUE_LOCK_FILE):
         normalize_quality_fields(state, load_run_yaml(team_dir))
+        pending_dispatch_records = [
+            record for record in state.pop("_dispatchRecords", []) if isinstance(record, dict)
+        ]
         sync_run_yaml_from_state(team_dir, state)
         refresh = refresh_ready_queue(team_dir, state)
         write_materialized_artifact_files(team_dir, [artifact for artifact in state.get("artifacts", []) or [] if isinstance(artifact, dict)])
         sync_events_jsonl(team_dir, [event for event in state.get("events", []) or [] if isinstance(event, dict)])
+        append_dispatch_records(team_dir, pending_dispatch_records)
         write_projection_file(team_dir, state, state_path=state_path)
         return refresh
 
@@ -810,7 +935,7 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
     if isinstance(run.get("creation"), dict):
         reconstructed_sprintengine.setdefault("creation", run["creation"])
 
-    agents = run.get("agents") if isinstance(run.get("agents"), dict) else {}
+    agents = normalize_agents(run.get("agents"))
     roles = run.get("roles") if isinstance(run.get("roles"), dict) else {}
     task_order = {
         str(entry.get("id")): index
@@ -825,6 +950,7 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
         "tasks": tasks,
         "artifacts": [_semantic_artifact_from_folder_record(artifact) for artifact in _artifacts_from_folder_store(team_dir)],
         "events": read_jsonl_file(team_dir / EVENTS_FILE),
+        "dispatches": read_jsonl_file(team_dir / DISPATCH_FILE),
         "agents": agents,
         "roles": roles,
     }
@@ -1029,8 +1155,9 @@ def build_projection(
         tasks = [_normalize_projection_task(task, board_column=str(task.get("folderStatus") or task.get("status") or "todo")) for task in raw_tasks]
         artifacts = _artifacts_from_folder_store(team_dir)
         events = read_jsonl_file(team_dir / EVENTS_FILE)
+        dispatches = read_jsonl_file(team_dir / DISPATCH_FILE)
         feedback = read_jsonl_file(team_dir / FEEDBACK_FILE)
-        roster = run.get("agents") if isinstance(run.get("agents"), dict) else {}
+        roster = normalize_agents(run.get("agents"))
         quality_policy = normalize_quality_policy(run.get("qualityPolicy") if isinstance(run.get("qualityPolicy"), dict) else {})
         runner_policy = normalize_runner_policy(run.get("runner"))
     else:
@@ -1076,6 +1203,7 @@ def build_projection(
         "artifacts": artifacts,
         "locks": locks,
         "activity": events,
+        "dispatches": dispatches,
         "feedback": feedback,
         "counts": {
             "tasks": board["counts"],

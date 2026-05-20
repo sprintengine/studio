@@ -42,6 +42,7 @@ from sprintengine_core.tool.state import (
     load_mutation_state,
     parse_agent_specs,
     reconcile_agent,
+    release_expired_agent_targets,
     roster_is_configured,
     roster_roles,
     task_quality_gates,
@@ -427,6 +428,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         ensure_agent_in_roster(state, args.id, args.role, allow_retired=True)
+        expired = release_expired_agent_targets(state, actor="sprintengine", excluding_agent_id=args.id)
         runtime = reconcile_agent(state, args.id, args.role)
         agent = runtime["agent"]
         if agent_is_retired(agent):
@@ -437,7 +439,8 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "action": "retired",
                 "runner": runner_policy(state),
                 "message": "This Sprint Engine agent is retired and must not claim more work. Stop now.",
-                "write": runtime["dirty"],
+                "releasedExpired": expired["released"],
+                "write": runtime["dirty"] or expired["dirty"],
             }
         active = runtime["activeTask"]
         active_gate = find_active_gate_claim(state, args.id, args.role)
@@ -469,7 +472,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "gate_resume", "task": task, "gate": gate, "runner": policy, "prompt": prompt + directive, "write": runtime["dirty"]}
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "gate_resume", "task": task, "gate": gate, "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
         if active:
             task_id = active.get("id")
@@ -493,7 +496,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "resume", "task": active, "runner": policy, "prompt": prompt + directive, "write": runtime["dirty"]}
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "resume", "task": active, "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
         if args.role == "architect" and architect_actionable_needs_input_tasks(state):
             directive = (
@@ -507,7 +510,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "needs_input_triage", "runner": policy, "prompt": prompt + directive, "write": runtime["dirty"]}
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "needs_input_triage", "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
         if pending_gates:
             first = pending_gates[0]
@@ -525,12 +528,12 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "gate_work", "readyGateCount": len(pending_gates), "task": first["task"], "gate": first["gate"], "runner": policy, "prompt": prompt + directive, "write": runtime["dirty"]}
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "gate_work", "readyGateCount": len(pending_gates), "task": first["task"], "gate": first["gate"], "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
         if not active and not ready:
             if policy.get("stopWhenComplete") and all_tasks_done(state):
-                return {"ok": True, "role": args.role, "agentId": args.id, "action": "complete", "runner": policy, "message": "All Sprint Engine tasks are done. Stop now.", "write": runtime["dirty"]}
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "idle", "runner": policy, "message": f"No tasks or gates are currently ready for the '{args.role}' role.", "write": runtime["dirty"]}
+                return {"ok": True, "role": args.role, "agentId": args.id, "action": "complete", "runner": policy, "message": "All Sprint Engine tasks are done. Stop now.", "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "idle", "runner": policy, "message": f"No tasks or gates are currently ready for the '{args.role}' role.", "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
         directive = (
             f"\n\n---\n"
@@ -550,7 +553,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
             "All updates must go through the Sprint Engine tool.**"
         )
-        return {"ok": True, "role": args.role, "agentId": args.id, "action": "work", "readyTaskCount": len(ready), "runner": policy, "prompt": prompt + directive, "write": runtime["dirty"]}
+        return {"ok": True, "role": args.role, "agentId": args.id, "action": "work", "readyTaskCount": len(ready), "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
     if not getattr(args, "watch", False):
         return with_locked_state(args.state, run)

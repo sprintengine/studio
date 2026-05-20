@@ -103,6 +103,87 @@ def test_explicit_mcp_backend_preserves_success_shape_and_emits_audit(tmp_path) 
     assert rows[0]["backend_mode"] == "mcp-local"
 
 
+def test_mcp_backend_join_watch_preserves_cli_directive_shape(tmp_path) -> None:
+    fixture = create_team(tmp_path, "cli-mcp-join-watch", [task("T1", "Join watch route", "developer")])
+
+    completed = run_swarm(
+        [
+            "--backend",
+            "mcp-local",
+            "--state",
+            str(fixture.state_path),
+            "join",
+            "--role",
+            "developer",
+            "--id",
+            "developer-a",
+            "--watch",
+            "--max-wait-seconds",
+            "1",
+        ],
+        env={
+            "SPRINTENGINE_MCP_ALLOWED_ROOT": str(tmp_path),
+            MCP_USER_ID_ENV: "workspace-user",
+            MCP_USER_AUTHORIZED_ENV: "1",
+        },
+    )
+
+    payload = parse_stdout_json(completed)
+    assert payload["ok"] is True
+    assert payload["action"] == "work"
+    assert payload["readyTaskCount"] == 1
+    assert payload["watch"]["attempts"] == 1
+    assert "sprintengine task next --role developer --id developer-a" in payload["prompt"]
+    rows = audit_rows(fixture.team_dir)
+    assert [row["operation_name"] for row in rows] == ["sprintengine.join"]
+
+
+def test_mcp_backend_task_gate_next_uses_gate_lifecycle_tool(tmp_path) -> None:
+    task_record = task("T1", "Reviewable", "developer", "review", owner="developer-a")
+    task_record["qualityGates"] = [
+        {
+            "id": "code-review",
+            "phase": "review",
+            "role": "code_reviewer",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": True,
+            "focus": "Review implementation.",
+            "attempts": [],
+        }
+    ]
+    fixture = create_team(tmp_path, "cli-mcp-gate-next", [task_record])
+
+    completed = run_swarm(
+        [
+            "--backend",
+            "mcp-local",
+            "--state",
+            str(fixture.state_path),
+            "task",
+            "gate",
+            "next",
+            "--role",
+            "code_reviewer",
+            "--id",
+            "reviewer-a",
+        ],
+        env={
+            "SPRINTENGINE_MCP_ALLOWED_ROOT": str(tmp_path),
+            MCP_USER_ID_ENV: "workspace-user",
+            MCP_USER_AUTHORIZED_ENV: "1",
+        },
+    )
+
+    payload = parse_stdout_json(completed)
+    assert payload["ok"] is True
+    assert payload["claimed"] is True
+    assert payload["gate"]["id"] == "code-review"
+    assert payload["currentDispatch"]["targetKind"] == "gate"
+    rows = audit_rows(fixture.team_dir)
+    assert [row["operation_name"] for row in rows] == ["sprintengine.gate.next"]
+
+
 def test_explicit_mcp_backend_rejects_missing_user_id(tmp_path) -> None:
     fixture = create_team(tmp_path, "cli-mcp-missing-user", [task("T1", "MCP missing user", "developer")])
 
@@ -199,6 +280,29 @@ def test_help_discloses_selected_backend_mode(tmp_path) -> None:
     assert completed.returncode == 0
     assert "usage:" in completed.stdout
     assert "backend mode: mcp-local" in completed.stderr
+
+
+def test_top_level_help_documents_mcp_lifecycle_and_cross_platform_wrappers() -> None:
+    completed = run_swarm(["--help"])
+
+    assert completed.returncode == 0
+    assert "MCP lifecycle compatibility:" in completed.stdout
+    assert "sprintengine --backend mcp-local join --role developer --id developer-1 --watch" in completed.stdout
+    assert "scripts/sprintengine --help" in completed.stdout
+    assert "scripts\\sprintengine.cmd --help" in completed.stdout
+    assert '.\\.venv\\Scripts\\python.exe" ".\\scripts\\sprintengine_tool.py" --help' in completed.stdout
+
+
+def test_wrapper_scripts_preserve_python_fallbacks() -> None:
+    posix_wrapper = (REPO_ROOT / "scripts" / "sprintengine").read_text(encoding="utf-8")
+    windows_wrapper = (REPO_ROOT / "scripts" / "sprintengine.cmd").read_text(encoding="utf-8")
+
+    assert '.venv/bin/python" "$SCRIPT_DIR/sprintengine_tool.py"' in posix_wrapper
+    assert '.venv/Scripts/python.exe" "$SCRIPT_DIR/sprintengine_tool.py"' in posix_wrapper
+    assert 'python3 "$SCRIPT_DIR/sprintengine_tool.py"' in posix_wrapper
+    assert r".venv\Scripts\python.exe" in windows_wrapper
+    assert 'py -3 "%TOOL_PATH%" %*' in windows_wrapper
+    assert 'python "%TOOL_PATH%" %*' in windows_wrapper
 
 
 def test_mcp_backend_errors_disclose_backend_mode_for_unsupported_command(tmp_path) -> None:

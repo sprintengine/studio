@@ -187,6 +187,7 @@ Entry points (return full system prompt for the agent):
   sprintengine recover
   sprintengine projection
   sprintengine join --role developer --id developer-1 --watch
+  sprintengine --backend mcp-local join --role developer --id developer-1 --watch
   sprintengine runner set --mode auto
   sprintengine runner set --mode off
   sprintengine triage needs-input --id architect
@@ -238,6 +239,19 @@ Artifact commands:
 Run summary:
   sprintengine summary
   sprintengine projection
+
+MCP lifecycle compatibility:
+  The local MCP server is the preferred agent operation boundary. The CLI remains
+  a human/script compatibility wrapper over the same core state mutations, and
+  `sprintengine join --watch` remains the Multicode wake/resume polling path until
+  current agent CLIs no longer need terminal orchestration. Use `--backend mcp-local`
+  to exercise the MCP route from the CLI; set SPRINTENGINE_MCP_USER_ID and
+  SPRINTENGINE_MCP_USER_AUTHORIZED=1 for mutating calls.
+
+Cross-platform wrappers:
+  POSIX shells: scripts/sprintengine --help
+  Windows cmd.exe: scripts\\sprintengine.cmd --help
+  Windows PowerShell fallback: & ".\\.venv\\Scripts\\python.exe" ".\\scripts\\sprintengine_tool.py" --help
 
 Post-run merge:
   sprintengine merge start --id architect --target main

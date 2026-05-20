@@ -10,6 +10,7 @@ import pytest
 from helpers import SwarmCli, create_team, get_task, read_state, task
 from sprintengine_core import store
 from sprintengine_core.tool import append_task_activity
+from sprintengine_core.tool.state import record_agent_heartbeat, record_agent_join, record_agent_leave
 
 
 def test_init_creates_folder_store_layout(tmp_path) -> None:
@@ -20,6 +21,7 @@ def test_init_creates_folder_store_layout(tmp_path) -> None:
     assert payload["ok"] is True
     assert (team_dir / "run.yaml").is_file()
     assert (team_dir / "events.jsonl").is_file()
+    assert (team_dir / "dispatch.jsonl").is_file()
     for status in store.TASK_STATUSES:
         assert (team_dir / "tasks" / status).is_dir()
     for lifecycle_status in ("review", "testing", "product"):
@@ -54,6 +56,125 @@ def test_handover_creates_folder_store_layout(tmp_path) -> None:
     assert (state_path.parent / "tasks" / "product").is_dir()
     assert (state_path.parent / "artifacts" / "recorded").is_dir()
     assert (state_path.parent / "events.jsonl").is_file()
+    assert (state_path.parent / "dispatch.jsonl").is_file()
+
+
+def test_task_claim_normalizes_agent_lifecycle_and_dispatch_ledger(tmp_path) -> None:
+    fixture = create_team(tmp_path, "agent-lifecycle-task-dispatch", [task("T1", "Implement core", "developer")])
+
+    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+    run = store.load_run_yaml(fixture.team_dir)
+    agent = run["agents"]["developer-1"]
+    dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
+    projection = fixture.cli.run("projection")
+
+    assert claimed["claimed"] is True
+    assert agent["role"] == "developer"
+    assert agent["status"] == "running"
+    assert agent["currentTaskId"] == "T1"
+    assert agent["joinedAt"]
+    assert agent["heartbeatAt"]
+    assert agent["subscription"] == {"mode": "none"}
+    assert agent["currentDispatch"]["targetKind"] == "task"
+    assert agent["currentDispatch"]["taskId"] == "T1"
+    assert agent["currentDispatch"]["reason"] == "task_claimed"
+    assert len(dispatches) == 1
+    assert dispatches[0]["id"] == agent["currentDispatch"]["dispatchId"]
+    assert dispatches[0]["agentId"] == "developer-1"
+    assert dispatches[0]["role"] == "developer"
+    assert dispatches[0]["target"] == {"kind": "task", "taskId": "T1"}
+    assert dispatches[0]["reason"] == "task_claimed"
+    assert dispatches[0]["timestamp"]
+    assert projection["roster"]["developer-1"]["currentDispatch"]["dispatchId"] == dispatches[0]["id"]
+    assert projection["dispatches"][0]["id"] == dispatches[0]["id"]
+
+    resumed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+    assert resumed["reason"] == "agent_already_has_active_task"
+    assert len(store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")) == 1
+
+
+def test_gate_claim_records_current_gate_mirror_and_dispatch_ledger(tmp_path) -> None:
+    record = task("T1", "Review backend", "developer", "review")
+    record["qualityGates"] = [
+        {
+            "id": "code_reviewer",
+            "phase": "review",
+            "role": "code_reviewer",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": True,
+            "focus": "Review code.",
+            "attempts": [],
+        }
+    ]
+    fixture = create_team(tmp_path, "agent-lifecycle-gate-dispatch", [record])
+
+    claimed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer")
+    run = store.load_run_yaml(fixture.team_dir)
+    agent = run["agents"]["code-reviewer"]
+    dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
+
+    assert claimed["claimed"] is True
+    assert agent["status"] == "running"
+    assert agent["currentTaskId"] == "T1"
+    assert agent["currentGateId"] == "code_reviewer"
+    assert agent["currentGate"] == {"taskId": "T1", "gateId": "code_reviewer", "attemptId": "GA-001"}
+    assert agent["currentDispatch"]["targetKind"] == "gate"
+    assert agent["currentDispatch"]["gateId"] == "code_reviewer"
+    assert agent["currentDispatch"]["attemptId"] == "GA-001"
+    assert len(dispatches) == 1
+    assert dispatches[0]["id"] == agent["currentDispatch"]["dispatchId"]
+    assert dispatches[0]["target"] == {
+        "kind": "gate",
+        "taskId": "T1",
+        "gateId": "code_reviewer",
+        "attemptId": "GA-001",
+    }
+
+    resumed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer")
+    assert resumed["resumed"] is True
+    assert len(store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")) == 1
+
+
+def test_agent_lifecycle_helpers_persist_join_heartbeat_and_leave_metadata(tmp_path) -> None:
+    fixture = create_team(tmp_path, "agent-lifecycle-helper-metadata", [])
+    state = read_state(fixture.state_path)
+
+    joined = record_agent_join(state, "developer-1", "developer", subscription_mode="poll")
+    first_heartbeat = joined["heartbeatAt"]
+    record_agent_heartbeat(state, "developer-1", "developer")
+    left = record_agent_leave(state, "developer-1", "developer", reason="terminal closed")
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
+
+    persisted = store.load_run_yaml(fixture.team_dir)["agents"]["developer-1"]
+    assert persisted["role"] == "developer"
+    assert persisted["status"] == "left"
+    assert persisted["joinedAt"]
+    assert persisted["heartbeatAt"] >= first_heartbeat
+    assert persisted["leftAt"] == left["leftAt"]
+    assert persisted["leaveReason"] == "terminal closed"
+    assert persisted["subscription"]["mode"] == "poll"
+    assert persisted["subscription"]["subscribedAt"]
+    assert persisted["currentDispatch"] is None
+    assert persisted["currentTaskId"] is None
+
+
+def test_agent_heartbeat_does_not_reactivate_left_or_dead_agents(tmp_path) -> None:
+    fixture = create_team(tmp_path, "agent-heartbeat-terminal-states", [])
+    state = read_state(fixture.state_path)
+
+    record_agent_join(state, "developer-1", "developer")
+    record_agent_leave(state, "developer-1", "developer", reason="terminal closed")
+    record_agent_heartbeat(state, "developer-1", "developer")
+    left = state["agents"]["developer-1"]
+    assert left["status"] == "left"
+
+    left["status"] = "dead"
+    record_agent_heartbeat(state, "developer-1", "developer")
+    assert left["status"] == "dead"
+
+    rejoined = record_agent_join(state, "developer-1", "developer")
+    assert rejoined["status"] == "idle"
 
 
 def test_lifecycle_statuses_materialize_and_project_without_ready_claimability(tmp_path) -> None:
