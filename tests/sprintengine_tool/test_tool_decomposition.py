@@ -58,7 +58,7 @@ def test_role_validation_uses_compatibility_registry() -> None:
     assert not DEFAULT_ROLE_REGISTRY.is_valid("marketer")
 
 
-def test_configured_souls_are_separate_from_dispatchable_roles(tmp_path: Path) -> None:
+def test_custom_registry_roles_are_dispatchable_without_bundled_compatibility_registry(tmp_path: Path) -> None:
     root = tmp_path / "workspace" / ".sprintengine"
     (root / "roles").mkdir(parents=True)
     (root / "skills" / "marketer").mkdir(parents=True)
@@ -76,4 +76,4 @@ def test_configured_souls_are_separate_from_dispatchable_roles(tmp_path: Path) -
 
     assert "marketer" in configured_soul_role_ids(discovery)
     assert "marketer" in dispatchable_role_ids(discovery)
-    assert "marketer" not in VALID_ROLES
+    assert not DEFAULT_ROLE_REGISTRY.is_valid("marketer")

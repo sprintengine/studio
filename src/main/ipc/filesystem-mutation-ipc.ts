@@ -73,6 +73,25 @@ export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: Filesystem
     return destinationPath
   })
 
+  ipcMain.handle('fs:copy-into', async (_, sourcePath: string, destinationDir: string, options?: { overwrite?: boolean }): Promise<string> => {
+    const destinationPath = join(destinationDir, basename(sourcePath))
+    const overwrite = options?.overwrite === true
+    await deps.assertNotDirectSprintEngineStateMutation(sourcePath)
+    await deps.assertNotDirectSprintEngineStateMutation(destinationPath)
+
+    if (!overwrite && await deps.pathExists(destinationPath)) {
+      throw new Error(`A file or folder named "${basename(sourcePath)}" already exists.`)
+    }
+
+    await cp(sourcePath, destinationPath, {
+      errorOnExist: !overwrite,
+      force: overwrite,
+      recursive: true,
+    })
+
+    return destinationPath
+  })
+
   ipcMain.handle('fs:delete', async (_, targetPath: string): Promise<void> => {
     await deps.assertNotDirectSprintEngineStateMutation(targetPath)
     await deps.trashItem(targetPath)

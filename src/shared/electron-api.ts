@@ -693,6 +693,26 @@ export type SprintEngineProjectionReadResult =
   | { ok: true; data: unknown }
   | { ok: false; message: string }
 
+export type SprintEngineRegistryRolesReadInput = {
+  workspaceRoot: string
+  includeShadowed?: boolean
+}
+
+export type SprintEngineRegistryRoleReadInput = {
+  workspaceRoot: string
+  roleId: string
+}
+
+export type SprintEngineDispatchReadInput = {
+  statePath: string
+  agentId: string
+  lastDispatchId?: string
+}
+
+export type SprintEngineMcpReadResult =
+  | { ok: true; data: unknown }
+  | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
+
 export type SprintEngineTaskMutationRole =
   | 'architect'
   | 'product'
@@ -1085,6 +1105,7 @@ export type ElectronApi = {
   ensureDir: (parentDir: string, name: string) => Promise<string>
   renamePath: (sourcePath: string, nextName: string) => Promise<string>
   copyPath: (sourcePath: string, destinationDir: string) => Promise<string>
+  copyPathInto: (sourcePath: string, destinationDir: string, options?: { overwrite?: boolean }) => Promise<string>
   deletePath: (targetPath: string) => Promise<void>
   showItemInFolder: (targetPath: string) => Promise<void>
   openHtmlFileInBrowser: (targetPath: string) => Promise<void>
@@ -1145,6 +1166,9 @@ export type ElectronApi = {
   setSprintEngineRunnerMode: (input: SprintEngineRunnerSetInput) => Promise<SprintEngineArtifactCommandResult>
   replenishSprintEngineRoster: (input: SprintEngineRosterReplenishInput) => Promise<SprintEngineArtifactCommandResult>
   readSprintEngineProjection: (statePath: string) => Promise<SprintEngineProjectionReadResult>
+  readSprintEngineRegistryRoles: (input: SprintEngineRegistryRolesReadInput) => Promise<SprintEngineMcpReadResult>
+  readSprintEngineRegistryRole: (input: SprintEngineRegistryRoleReadInput) => Promise<SprintEngineMcpReadResult>
+  readSprintEngineDispatch: (input: SprintEngineDispatchReadInput) => Promise<SprintEngineMcpReadResult>
   initializeSwitchboard: (workspaceRoot: string) => Promise<SwitchboardInitApiResult>
   readSwitchboardTasks: (workspaceRoot: string) => Promise<SwitchboardReadResult>
   createSwitchboardTask: (input: SwitchboardCreateTaskInput) => Promise<SwitchboardMutationResult>

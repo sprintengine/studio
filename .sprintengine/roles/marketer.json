@@ -1,0 +1,11 @@
+{
+  "id": "marketer",
+  "label": "Validation Marketer",
+  "aliases": ["growth-marketer"],
+  "summary": "Validation-only custom Sprint Engine role used to dogfood registry-backed dispatch.",
+  "soul": [
+    {
+      "skill": "marketer"
+    }
+  ]
+}

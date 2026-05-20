@@ -20,6 +20,11 @@ import type {
   SprintEngineRecordedArtifact,
   SprintEngineRole,
   SprintEngineRoleCounts,
+  SprintEngineRoleId,
+  SprintEngineRoleRegistry,
+  SprintEngineRoleRegistryMetadata,
+  SprintEngineRoleRegistrySourceLayer,
+  SprintEngineRoleRegistryWarning,
   SprintEngineRunnerPolicy,
   SprintEngineRuntimeAgent,
   SprintEngineSkillMap,
@@ -62,7 +67,7 @@ import type {
 export type SprintEngineAgentRosterItem = {
   id: AgentId
   label: string
-  role: SprintEngineRole
+  role: SprintEngineRoleId
 }
 
 export const sprintEngineTaskStateLabel: Record<SprintEngineTaskStatus, string> = {
@@ -103,6 +108,10 @@ export const sprintEngineTaskCommentTypeLabels: Record<SprintEngineTaskCommentTy
   system_note: 'System Note',
 }
 
+// Bundled-role label table. Renderer surfaces must NEVER index this with a
+// raw `SprintEngineRoleId` from projection or registry data — use
+// `getSprintEngineRoleLabel(roleId, metadata?)` so custom and unknown
+// configured roles fall back to a registry label or a safe humanized id.
 export const sprintEngineRoleLabels: Record<SprintEngineRole, string> = {
   architect: 'Architect',
   product: 'Product Strategist',
@@ -167,6 +176,9 @@ function isSprintEngineTaskCommentType(value: unknown): value is SprintEngineTas
   )
 }
 
+// Bundled-role accent table. Renderer surfaces must NEVER index this with a
+// raw `SprintEngineRoleId` — use `getSprintEngineRoleAccent` so custom roles
+// fall back to a neutral chrome tone.
 export const sprintEngineRoleAccent: Record<SprintEngineRole, string> = {
   architect: '#d4a757',
   product: '#e879a7',
@@ -179,11 +191,21 @@ export const sprintEngineRoleAccent: Record<SprintEngineRole, string> = {
   performance: '#a78bfa',
 }
 
-// Maps a SpecialistAction.soulRole string to the canonical SprintEngineRole
-// so Watchtower (and any other panel showing specialists) can render the same
-// icon disc + role accent + role label that Sprint Engine uses. Returns null
-// for specialists with no Sprint Engine equivalent (devops, blog_writer);
-// callers should fall back to the specialist's own icon and short label.
+// Neutral accent used when an extensible role has no registry icon/colour
+// metadata. Pulled into a constant so safe accessors and primitives share
+// the same fallback tone instead of inventing one per call site.
+export const sprintEngineNeutralRoleAccent = '#7a8190'
+
+// Maps a SpecialistAction.soulRole string to the canonical bundled
+// SprintEngineRole so Watchtower (and any other panel showing specialists)
+// can render the same icon disc + role accent + role label that Sprint
+// Engine uses. This mapping is intentionally scoped to non-registry
+// specialist compatibility: it converts a fixed-set Watchtower specialist
+// identifier into a bundled Sprint Engine role for icon/accent reuse and
+// must not be used to coerce registry-discovered role ids. Returns null
+// for specialists with no bundled Sprint Engine equivalent (devops,
+// blog_writer); callers should fall back to the specialist's own icon and
+// short label.
 const SOUL_ROLE_TO_SPRINT_ENGINE_ROLE: Record<string, SprintEngineRole> = {
   architect: 'architect',
   product: 'product',
@@ -513,6 +535,221 @@ function isSprintEngineRole(value: unknown): value is SprintEngineRole {
   )
 }
 
+// Predicate for any registry-keyed role id. Preserves custom configured
+// roles through projection normalization; bundled roles are still accepted.
+export function isSprintEngineRoleId(value: unknown): value is SprintEngineRoleId {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function normalizeSprintEngineRoleId(value: unknown): SprintEngineRoleId | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+export function isBundledSprintEngineRole(value: SprintEngineRoleId | null | undefined): value is SprintEngineRole {
+  return isSprintEngineRole(value)
+}
+
+// Convert a registry role id like `marketer` or `growth_engineer` to a safe
+// display label when no registry metadata is available. Underscores and
+// hyphens become spaces; segments are title-cased. Bundled roles always
+// resolve via `sprintEngineRoleLabels`, so this only ever runs for unknown
+// configured ids.
+export function humanizeSprintEngineRoleId(roleId: SprintEngineRoleId): string {
+  const cleaned = roleId.trim().replace(/[_-]+/g, ' ').trim()
+  if (!cleaned) return roleId
+  return cleaned
+    .split(/\s+/)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ')
+}
+
+export function getSprintEngineRoleLabel(
+  roleId: SprintEngineRoleId | null | undefined,
+  metadata?: SprintEngineRoleRegistryMetadata | SprintEngineRoleRegistry | null,
+): string {
+  const normalized = normalizeSprintEngineRoleId(roleId)
+  if (!normalized) return 'Unknown role'
+  const fromRegistry = resolveRoleRegistryMetadata(normalized, metadata)
+  if (fromRegistry?.label && fromRegistry.label.trim()) return fromRegistry.label.trim()
+  if (isSprintEngineRole(normalized)) return sprintEngineRoleLabels[normalized]
+  // Alias lookup: when the registry directory was passed and contains an
+  // alias that resolves the id, prefer that label.
+  return humanizeSprintEngineRoleId(normalized)
+}
+
+export function getSprintEngineRoleAccent(
+  roleId: SprintEngineRoleId | null | undefined,
+  metadata?: SprintEngineRoleRegistryMetadata | SprintEngineRoleRegistry | null,
+): string {
+  const normalized = normalizeSprintEngineRoleId(roleId)
+  if (!normalized) return sprintEngineNeutralRoleAccent
+  if (isSprintEngineRole(normalized)) return sprintEngineRoleAccent[normalized]
+  // Registry metadata does not currently emit an accent colour; we keep the
+  // neutral fallback until the registry contract grows that field rather
+  // than fabricating tones per id.
+  resolveRoleRegistryMetadata(normalized, metadata)
+  return sprintEngineNeutralRoleAccent
+}
+
+// Bundled glyph kinds the renderer ships SVGs for. Extensible roles fall
+// back to the neutral glyph below; registry metadata may eventually carry
+// its own icon kind, but the renderer only ships a fixed sprite sheet today.
+export type SprintEngineRoleGlyphKind =
+  | 'architect'
+  | 'product'
+  | 'developer'
+  | 'frontend'
+  | 'tester'
+  | 'security'
+  | 'code_reviewer'
+  | 'spec_reviewer'
+  | 'performance'
+  | 'unknown'
+
+export function getSprintEngineRoleGlyphKind(
+  roleId: SprintEngineRoleId | null | undefined,
+  metadata?: SprintEngineRoleRegistryMetadata | SprintEngineRoleRegistry | null,
+): SprintEngineRoleGlyphKind {
+  const normalized = normalizeSprintEngineRoleId(roleId)
+  if (!normalized) return 'unknown'
+  if (isSprintEngineRole(normalized)) return normalized
+  const fromRegistry = resolveRoleRegistryMetadata(normalized, metadata)
+  const icon = fromRegistry?.icon?.trim()
+  if (icon && isSprintEngineRole(icon)) return icon
+  return 'unknown'
+}
+
+function resolveRoleRegistryMetadata(
+  roleId: SprintEngineRoleId,
+  source: SprintEngineRoleRegistryMetadata | SprintEngineRoleRegistry | null | undefined,
+): SprintEngineRoleRegistryMetadata | undefined {
+  if (!source) return undefined
+  if (isSprintEngineRoleRegistry(source)) {
+    const direct = source.roles[roleId]
+    if (direct) return direct
+    const aliasTarget = source.aliases?.[roleId]
+    if (aliasTarget) return source.roles[aliasTarget]
+    return undefined
+  }
+  if (source.id === roleId) return source
+  return undefined
+}
+
+function isSprintEngineRoleRegistry(
+  value: SprintEngineRoleRegistryMetadata | SprintEngineRoleRegistry,
+): value is SprintEngineRoleRegistry {
+  return Object.prototype.hasOwnProperty.call(value, 'roles')
+}
+
+function isSprintEngineRoleRegistrySourceLayer(value: unknown): value is SprintEngineRoleRegistrySourceLayer {
+  return typeof value === 'string' && value.length > 0
+}
+
+function normalizeSprintEngineRoleRegistryWarning(raw: unknown): SprintEngineRoleRegistryWarning | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const record = raw as Record<string, unknown>
+  const code = optionalTrimmedString(record.code)
+  const message = optionalTrimmedString(record.message)
+  if (!code || !message) return undefined
+  const roleId = optionalTrimmedString(record.roleId)
+  const sourceLayer = optionalTrimmedString(record.sourceLayer)
+  return {
+    code,
+    message,
+    ...(roleId ? { roleId } : {}),
+    ...(sourceLayer ? { sourceLayer } : {}),
+  }
+}
+
+function normalizeSprintEngineRoleRegistryMetadata(raw: unknown): SprintEngineRoleRegistryMetadata | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const record = raw as Record<string, unknown>
+  const id = normalizeSprintEngineRoleId(record.id)
+  if (!id) return undefined
+  const label = optionalTrimmedString(record.label) ?? humanizeSprintEngineRoleId(id)
+  const aliases = Array.isArray(record.aliases)
+    ? record.aliases.flatMap((alias) => {
+        const normalized = normalizeSprintEngineRoleId(alias)
+        return normalized ? [normalized] : []
+      })
+    : []
+  const summary = typeof record.summary === 'string' && record.summary.trim()
+    ? record.summary.trim()
+    : record.summary === null
+      ? null
+      : undefined
+  const icon = typeof record.icon === 'string' && record.icon.trim()
+    ? record.icon.trim()
+    : record.icon === null
+      ? null
+      : undefined
+  const sourceRecord = record.source && typeof record.source === 'object'
+    ? record.source as Record<string, unknown>
+    : null
+  const layer = isSprintEngineRoleRegistrySourceLayer(sourceRecord?.layer)
+    ? sourceRecord!.layer
+    : 'bundled'
+  const shadowedSources = Array.isArray(record.shadowedSources)
+    ? record.shadowedSources.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object') return []
+        const entryRecord = entry as Record<string, unknown>
+        return isSprintEngineRoleRegistrySourceLayer(entryRecord.layer)
+          ? [{ layer: entryRecord.layer }]
+          : []
+      })
+    : []
+  const warnings = Array.isArray(record.warnings)
+    ? record.warnings.flatMap((entry) => {
+        const normalized = normalizeSprintEngineRoleRegistryWarning(entry)
+        return normalized ? [normalized] : []
+      })
+    : []
+  const enabled = typeof record.enabled === 'boolean' ? record.enabled : undefined
+  return {
+    id,
+    label,
+    aliases,
+    ...(summary !== undefined ? { summary } : {}),
+    ...(icon !== undefined ? { icon } : {}),
+    source: { layer },
+    ...(shadowedSources.length > 0 ? { shadowedSources } : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
+    ...(enabled !== undefined ? { enabled } : {}),
+  }
+}
+
+// Build a renderer-side role registry directory from the
+// `sprintengine.roles.list` MCP response. Unknown or malformed entries are
+// dropped; warnings the registry surfaced are preserved so the Settings
+// Roles tab and inspector can show source-layer / shadowing diagnostics.
+export function buildSprintEngineRoleRegistry(payload: unknown): SprintEngineRoleRegistry {
+  const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {}
+  const rolesRaw = Array.isArray(record.roles) ? record.roles : []
+  const roles: Record<SprintEngineRoleId, SprintEngineRoleRegistryMetadata> = {}
+  for (const entry of rolesRaw) {
+    const normalized = normalizeSprintEngineRoleRegistryMetadata(entry)
+    if (!normalized) continue
+    roles[normalized.id] = normalized
+  }
+  const aliasesRaw = record.aliases && typeof record.aliases === 'object'
+    ? record.aliases as Record<string, unknown>
+    : {}
+  const aliases: Record<string, SprintEngineRoleId> = {}
+  for (const [aliasKey, target] of Object.entries(aliasesRaw)) {
+    const aliasId = normalizeSprintEngineRoleId(aliasKey)
+    const targetId = normalizeSprintEngineRoleId(target)
+    if (!aliasId || !targetId || !roles[targetId]) continue
+    aliases[aliasId] = targetId
+  }
+  const warningsRaw = Array.isArray(record.warnings) ? record.warnings : []
+  const warnings: SprintEngineRoleRegistryWarning[] = []
+  for (const entry of warningsRaw) {
+    const normalized = normalizeSprintEngineRoleRegistryWarning(entry)
+    if (normalized) warnings.push(normalized)
+  }
+  return { roles, aliases, warnings }
+}
+
 function isSprintEngineArtifactKind(value: unknown): value is SprintEngineArtifactKind {
   return sprintEngineArtifactKinds.includes(value as SprintEngineArtifactKind)
 }
@@ -572,7 +809,10 @@ function normalizeSprintEngineTaskComments(input: unknown): SprintEngineTaskComm
     const source = record.source === 'agent' || record.source === 'system' ? record.source : 'user'
     const type = isSprintEngineTaskCommentType(record.type) ? record.type : undefined
     const authorAgentId = optionalTrimmedString(record.authorAgentId)
-    const authorRole = isSprintEngineRole(record.authorRole) ? record.authorRole : undefined
+    // Preserve any registry-keyed role id (bundled or custom) so comments
+    // authored by a custom-role agent like `marketer` keep their attribution
+    // through projection normalization. Empty strings are still dropped.
+    const authorRole = normalizeSprintEngineRoleId(record.authorRole)
     const paths = stringArray(record.paths)
     const data = record.data && typeof record.data === 'object'
       ? (record.data as Record<string, unknown>)
@@ -623,7 +863,7 @@ function normalizeSprintEngineQualityGates(input: unknown): SprintEngineQualityG
     const record = gate as Record<string, unknown>
     const id = optionalTrimmedString(record.id) ?? `gate-${index + 1}`
     const phase = isSprintEngineQualityGatePhase(record.phase) ? record.phase : null
-    const role = isSprintEngineRole(record.role) ? record.role : null
+    const role = normalizeSprintEngineRoleId(record.role)
     if (!phase || !role) return []
     const status = isSprintEngineQualityGateStatus(record.status) ? record.status : 'pending'
     const required = record.required !== false
@@ -694,11 +934,12 @@ function normalizeSprintEngineQualityPolicy(input: unknown): SprintEngineQuality
   for (const [gateId, raw] of Object.entries(gatesRecord)) {
     if (!raw || typeof raw !== 'object') continue
     const rawGate = raw as Record<string, unknown>
-    if (!isSprintEngineQualityGatePhase(rawGate.phase) || !isSprintEngineRole(rawGate.role)) continue
+    const roleId = normalizeSprintEngineRoleId(rawGate.role)
+    if (!isSprintEngineQualityGatePhase(rawGate.phase) || !roleId) continue
     const focus = optionalTrimmedString(rawGate.focus)
     gates[gateId] = {
       phase: rawGate.phase,
-      role: rawGate.role,
+      role: roleId,
       required: rawGate.required !== false,
       ...(focus ? { focus } : {}),
     }
@@ -984,12 +1225,13 @@ function normalizeSprintEngineTaskFeedback(value: unknown): SprintEngineTaskFeed
   const issues = normalizeSprintEngineTaskFeedbackIssues(record.issues)
   const findings = normalizeSprintEngineTaskFeedbackFindings(record.findings)
 
+  const feedbackRole = normalizeSprintEngineRoleId(record.role)
   if (
     typeof record.schemaVersion !== 'number'
     || typeof record.capturedAt !== 'string'
     || typeof record.source !== 'string'
     || typeof record.agentId !== 'string'
-    || !isSprintEngineRole(record.role)
+    || !feedbackRole
     || (!hasScore && !topFriction && !suggestedImprovement && issues.length === 0 && findings.length === 0)
   ) {
     return undefined
@@ -1000,7 +1242,7 @@ function normalizeSprintEngineTaskFeedback(value: unknown): SprintEngineTaskFeed
     capturedAt: record.capturedAt,
     source: record.source,
     agentId: record.agentId,
-    role: record.role,
+    role: feedbackRole,
     scores,
     ...(topFriction ? { topFriction } : {}),
     ...(suggestedImprovement ? { suggestedImprovement } : {}),
@@ -1025,7 +1267,7 @@ function normalizeSprintEngineTaskTriage(value: unknown): SprintEngineTaskTriage
     return undefined
   }
 
-  const suggestedRole = isSprintEngineRole(record.suggestedRole) ? record.suggestedRole : undefined
+  const suggestedRole = normalizeSprintEngineRoleId(record.suggestedRole)
   return {
     summary,
     ...(suggestedRole ? { suggestedRole } : {}),
@@ -1126,29 +1368,30 @@ export function countSprintEngineAgents(roleCounts: SprintEngineRoleCounts): num
 export function normalizeSprintEngineRoleCounts(
   roleCounts?: Partial<SprintEngineRoleCounts> | null
 ): SprintEngineRoleCounts {
-  return {
-    architect: Math.max(0, roleCounts?.architect ?? 1),
-    product: Math.max(0, roleCounts?.product ?? 1),
-    developer: Math.max(0, roleCounts?.developer ?? 1),
-    frontend: Math.max(0, roleCounts?.frontend ?? 0),
-    tester: Math.max(0, roleCounts?.tester ?? 0),
-    security: Math.max(0, roleCounts?.security ?? 0),
-    code_reviewer: Math.max(0, roleCounts?.code_reviewer ?? 0),
-    spec_reviewer: Math.max(0, roleCounts?.spec_reviewer ?? 0),
-    performance: Math.max(0, roleCounts?.performance ?? 0),
+  const defaults = createDefaultSprintEngineRoleCounts()
+  const result: SprintEngineRoleCounts = { ...defaults }
+  if (!roleCounts || typeof roleCounts !== 'object') return result
+  for (const [role, rawCount] of Object.entries(roleCounts)) {
+    if (!normalizeSprintEngineRoleId(role)) continue
+    const fallback = defaults[role] ?? (role === 'architect' ? 1 : 0)
+    result[role] = Math.max(role === 'architect' ? 1 : 0, Math.floor(Number(rawCount ?? fallback) || 0))
   }
+  return result
 }
 
-function roleAgentIndex(agentId: string, role: SprintEngineRole): number {
+function roleAgentIndex(agentId: string, role: SprintEngineRoleId): number {
   const base = role
   if (agentId === base) return 1
-  const match = agentId.match(new RegExp(`^${base}-(\\d+)$`))
+  // Escape the role id for use in a RegExp — custom registry ids may
+  // contain characters the regex syntax would otherwise interpret.
+  const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = agentId.match(new RegExp(`^${escaped}-(\\d+)$`))
   if (!match) return Number.MAX_SAFE_INTEGER
   return Number(match[1])
 }
 
 export function getNextSprintEngineAgentId(
-  role: SprintEngineRole,
+  role: SprintEngineRoleId,
   sprintEngineAgents: Record<AgentId, SprintEngineRuntimeAgent>
 ): AgentId {
   const usedIds = new Set(Object.keys(sprintEngineAgents))
@@ -1169,15 +1412,30 @@ export function getNextSprintEngineAgentId(
   return candidate
 }
 
-export function buildSprintEngineAgentRoster(roleCounts: SprintEngineRoleCounts): SprintEngineAgentRosterItem[] {
+export function buildSprintEngineAgentRoster(
+  roleCounts: SprintEngineRoleCounts,
+  registry?: SprintEngineRoleRegistry | null,
+): SprintEngineAgentRosterItem[] {
   const roster: SprintEngineAgentRosterItem[] = []
+  const configuredRoles = new Set<SprintEngineRoleId>([
+    ...sprintEngineRoleOrder,
+    ...Object.keys(roleCounts).filter((role) => Boolean(normalizeSprintEngineRoleId(role))),
+  ])
+  const orderedRoles = [...configuredRoles].sort((a, b) => {
+    const aBundled = sprintEngineRoleOrder.indexOf(a as SprintEngineRole)
+    const bBundled = sprintEngineRoleOrder.indexOf(b as SprintEngineRole)
+    const aRank = aBundled >= 0 ? aBundled : sprintEngineRoleOrder.length
+    const bRank = bBundled >= 0 ? bBundled : sprintEngineRoleOrder.length
+    if (aRank !== bRank) return aRank - bRank
+    return getSprintEngineRoleLabel(a, registry).localeCompare(getSprintEngineRoleLabel(b, registry))
+  })
 
-  for (const role of sprintEngineRoleOrder) {
-    const count = Math.max(role === 'architect' ? 1 : 0, roleCounts[role])
+  for (const role of orderedRoles) {
+    const count = Math.max(role === 'architect' ? 1 : 0, roleCounts[role] ?? 0)
     for (let i = 0; i < count; i++) {
       const id = count > 1 || role === 'developer' ? `${role}-${i + 1}` : role
       const suffix = count > 1 ? ` ${i + 1}` : ''
-      roster.push({ id, label: `${sprintEngineRoleLabels[role]}${suffix}`, role })
+      roster.push({ id, label: `${getSprintEngineRoleLabel(role, registry)}${suffix}`, role })
     }
   }
 
@@ -1185,25 +1443,45 @@ export function buildSprintEngineAgentRoster(roleCounts: SprintEngineRoleCounts)
 }
 
 export function buildSprintEngineAgentRosterFromRuntimeAgents(
-  sprintEngineAgents: Record<AgentId, SprintEngineRuntimeAgent>
+  sprintEngineAgents: Record<AgentId, SprintEngineRuntimeAgent>,
+  registry?: SprintEngineRoleRegistry | null,
 ): SprintEngineAgentRosterItem[] {
-  const roleTotals: Record<SprintEngineRole, number> = { architect: 0, product: 0, developer: 0, frontend: 0, tester: 0, security: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0 }
+  // Tally how many agents each registry-keyed role has so we can decide
+  // whether to append a positional suffix to labels. Bundled and custom
+  // roles share the same Map; unknown ids do not silently collapse into a
+  // bundled bucket.
+  const roleTotals = new Map<SprintEngineRoleId, number>()
   for (const agent of Object.values(sprintEngineAgents)) {
-    if (isSprintEngineRole(agent?.role)) roleTotals[agent.role] += 1
+    const role = agent?.role
+    if (!role) continue
+    roleTotals.set(role, (roleTotals.get(role) ?? 0) + 1)
   }
 
-  const seenByRole: Record<SprintEngineRole, number> = { architect: 0, product: 0, developer: 0, frontend: 0, tester: 0, security: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0 }
+  const seenByRole = new Map<SprintEngineRoleId, number>()
+  const rolePriority = (role: SprintEngineRoleId): number => {
+    const bundled = sprintEngineRoleOrder.indexOf(role as SprintEngineRole)
+    // Bundled order first, then unknown/custom roles sorted alphabetically
+    // after the bundled block so the roster has a stable layout regardless
+    // of registry source layer.
+    return bundled >= 0 ? bundled : sprintEngineRoleOrder.length
+  }
 
   return Object.entries(sprintEngineAgents)
-    .filter((entry): entry is [AgentId, SprintEngineRuntimeAgent] => isSprintEngineRole(entry[1]?.role))
+    .filter((entry): entry is [AgentId, SprintEngineRuntimeAgent] => Boolean(entry[1]?.role))
     .sort(([aId, a], [bId, b]) => {
-      const roleDelta = sprintEngineRoleOrder.indexOf(a.role) - sprintEngineRoleOrder.indexOf(b.role)
-      return roleDelta !== 0 ? roleDelta : roleAgentIndex(aId, a.role) - roleAgentIndex(bId, b.role)
+      const roleDelta = rolePriority(a.role) - rolePriority(b.role)
+      if (roleDelta !== 0) return roleDelta
+      const roleNameDelta = a.role.localeCompare(b.role)
+      if (roleNameDelta !== 0) return roleNameDelta
+      return roleAgentIndex(aId, a.role) - roleAgentIndex(bId, b.role)
     })
     .map(([id, agent]) => {
-      seenByRole[agent.role] += 1
-      const suffix = roleTotals[agent.role] > 1 ? ` ${seenByRole[agent.role]}` : ''
-      return { id, label: `${sprintEngineRoleLabels[agent.role]}${suffix}`, role: agent.role }
+      const seen = (seenByRole.get(agent.role) ?? 0) + 1
+      seenByRole.set(agent.role, seen)
+      const total = roleTotals.get(agent.role) ?? 1
+      const suffix = total > 1 ? ` ${seen}` : ''
+      const baseLabel = getSprintEngineRoleLabel(agent.role, registry)
+      return { id, label: `${baseLabel}${suffix}`, role: agent.role }
     })
 }
 
@@ -1216,9 +1494,11 @@ export function buildSprintEngineAgentRosterForState(
   return buildSprintEngineAgentRoster(sprintEngineState?.roleCounts ?? createDefaultSprintEngineRoleCounts())
 }
 
-// Worker roles that surface their own role-task launch button on the Sprint
-// Engine panel. When one of these has an active or ready task, the role-task
-// launch supersedes a generic focus-agent action for the same role.
+// Bundled worker roles that surface their own role-task launch button on
+// the Sprint Engine panel. When one of these has an active or ready task,
+// the role-task launch supersedes a generic focus-agent action for the same
+// role. Extensible/custom roles do not yet ship dedicated role-task launch
+// buttons; they always defer to the generic focus-agent action.
 const SPRINT_ENGINE_FOCUS_WORKER_ROLES: SprintEngineRole[] = [
   'developer',
   'frontend',
@@ -1237,7 +1517,7 @@ export type SprintEngineRuntimeAgentEffectiveStatus =
 
 export type SprintEngineFocusAgent = {
   agentId: AgentId
-  role: SprintEngineRole
+  role: SprintEngineRoleId
   status: SprintEngineRuntimeAgentEffectiveStatus
   currentTaskId: string | null
 }
@@ -1310,7 +1590,7 @@ export function computeSprintEngineFocusAgentAvailability(
   const readyTasks = sprintEngineState.tasks.filter((task) =>
     isSprintEngineTaskLaunchable(task, sprintEngineState)
   )
-  const roleTaskLaunchSet = new Set<SprintEngineRole>()
+  const roleTaskLaunchSet = new Set<SprintEngineRoleId>()
   for (const role of SPRINT_ENGINE_FOCUS_WORKER_ROLES) {
     const activeTask = sprintEngineState.tasks.find(
       (task) =>
@@ -1322,7 +1602,7 @@ export function computeSprintEngineFocusAgentAvailability(
   }
 
   const focusAgentRosterRole = rosterById.get(focusAgent.agentId)?.role
-  const focusAgentRole = focusAgentRosterRole ?? focusAgent.role
+  const focusAgentRole: SprintEngineRoleId | undefined = focusAgentRosterRole ?? focusAgent.role
   const showFocusAgentAction =
     !focusAgentRole
     || focusAgentRole === 'architect'
@@ -1331,12 +1611,19 @@ export function computeSprintEngineFocusAgentAvailability(
   return { focusAgent, showFocusAgentAction }
 }
 
+function isSprintEngineStateRosterInput(
+  input: Pick<SprintEngineState, 'roleCounts' | 'sprintEngineAgents' | 'rosterConfigured'> | SprintEngineRoleCounts | null | undefined
+): input is Pick<SprintEngineState, 'roleCounts' | 'sprintEngineAgents' | 'rosterConfigured'> {
+  return Boolean(input && typeof input === 'object' && 'sprintEngineAgents' in input)
+}
+
 export function buildSprintEngineRosterCommandArgs(
   sprintEngineState: Pick<SprintEngineState, 'roleCounts' | 'sprintEngineAgents' | 'rosterConfigured'> | SprintEngineRoleCounts | null | undefined
 ): string[] {
-  if (sprintEngineState && 'roleCounts' in sprintEngineState && !sprintEngineState.rosterConfigured) return []
-  const roster = sprintEngineState && 'roleCounts' in sprintEngineState
-    ? buildSprintEngineAgentRosterForState(sprintEngineState)
+  const stateInput = isSprintEngineStateRosterInput(sprintEngineState) ? sprintEngineState : null
+  if (stateInput && !stateInput.rosterConfigured) return []
+  const roster = stateInput
+    ? buildSprintEngineAgentRosterForState(stateInput)
     : buildSprintEngineAgentRoster(normalizeSprintEngineRoleCounts(sprintEngineState as Partial<SprintEngineRoleCounts> | null | undefined))
   return roster.map((agent) => `${agent.role}:${agent.id}`)
 }
@@ -1522,11 +1809,14 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     const latestComments = normalizeSprintEngineTaskComments(taskRecord.latestComments)
     const latestOpenFeedback = normalizeSprintEngineTaskComments(taskRecord.latestOpenFeedback)
     const recordedArtifacts = normalizeSprintEngineRecordedArtifacts(taskRecord.recordedArtifacts)
+    // Preserve any registry-keyed role id (bundled or custom) so projection
+    // normalization never drops a custom-role task into `developer`.
+    const taskRole = normalizeSprintEngineRoleId(task.role) ?? 'developer'
     return {
       id: task.id ?? `task-${index + 1}`,
       title: task.title ?? `Task ${index + 1}`,
       description: task.description ?? '',
-      role: isSprintEngineRole(task.role) ? task.role : 'developer' as SprintEngineRole,
+      role: taskRole,
       status,
       ...(semanticStatus ? { stateStatus: semanticStatus } : {}),
       ...(boardColumn ? { boardColumn } : {}),
@@ -1640,6 +1930,25 @@ function normalizeProjectionCreation(value: unknown): SprintEngineProjectionCrea
   }
 }
 
+function normalizeCurrentDispatch(value: unknown): SprintEngineRuntimeAgent['currentDispatch'] {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  const dispatchId = optionalTrimmedString(record.dispatchId) ?? optionalTrimmedString(record.id) ?? null
+  const targetKind = optionalTrimmedString(record.targetKind) ?? null
+  const role = normalizeSprintEngineRoleId(record.role)
+  return {
+    dispatchId,
+    targetKind,
+    ...(role ? { role } : {}),
+    ...(optionalTrimmedString(record.reason) ? { reason: optionalTrimmedString(record.reason) } : {}),
+    ...(optionalTrimmedString(record.taskId) ? { taskId: optionalTrimmedString(record.taskId) } : {}),
+    ...(optionalTrimmedString(record.gateId) ? { gateId: optionalTrimmedString(record.gateId) } : {}),
+    ...(optionalTrimmedString(record.artifactId) ? { artifactId: optionalTrimmedString(record.artifactId) } : {}),
+    ...(optionalTrimmedString(record.attemptId) ? { attemptId: optionalTrimmedString(record.attemptId) } : {}),
+    ...(optionalTrimmedString(record.assignedAt) ? { assignedAt: optionalTrimmedString(record.assignedAt) } : {}),
+  }
+}
+
 function projectionSourceValue(value: unknown): SprintEngineProjectionSource {
   return value === 'folder_store' || value === 'unavailable'
     ? value
@@ -1652,14 +1961,19 @@ function normalizeProjectionRoster(value: unknown): Record<string, SprintEngineR
   for (const [agentId, agent] of Object.entries(value as Record<string, unknown>)) {
     if (!agent || typeof agent !== 'object') continue
     const record = agent as Record<string, unknown>
-    if (!isSprintEngineRole(record.role)) continue
+    // Accept any registry-keyed role id (bundled or custom). Roster entries
+    // are required to carry a role; only fully missing/empty roles are
+    // dropped.
+    const roleId = normalizeSprintEngineRoleId(record.role)
+    if (!roleId) continue
     const status = record.status === 'running' || record.status === 'needs_input' || record.status === 'done' || record.status === 'retired'
       ? record.status
       : 'idle' as const
     result[agentId] = {
-      role: record.role,
+      role: roleId,
       status,
       currentTaskId: typeof record.currentTaskId === 'string' ? record.currentTaskId : null,
+      currentDispatch: normalizeCurrentDispatch(record.currentDispatch),
     }
   }
   return result
@@ -1705,7 +2019,8 @@ export function normalizeSprintEngineProjection(
   const fallbackRoleCounts = createDefaultSprintEngineRoleCounts()
   for (const role of Object.keys(fallbackRoleCounts) as SprintEngineRole[]) fallbackRoleCounts[role] = 0
   for (const agent of Object.values(roster)) {
-    if (isSprintEngineRole(agent.role)) fallbackRoleCounts[agent.role] += 1
+    const role = normalizeSprintEngineRoleId(agent.role)
+    if (role) fallbackRoleCounts[role] = (fallbackRoleCounts[role] ?? 0) + 1
   }
   const hasRosterCounts = Object.values(fallbackRoleCounts).some((count) => count > 0)
   const roleCounts = hasRosterCounts ? fallbackRoleCounts : createDefaultSprintEngineRoleCounts()
@@ -1814,11 +2129,11 @@ export function getActiveSprintEngineLifecyclePhases(
   const policy = sprintEngineState.qualityPolicy
   if (policy?.enabled) {
     const configuredLifecyclePhases = new Set(policy.lifecyclePhases)
-    const rosterRoles = new Set(
+    const rosterRoles = new Set<SprintEngineRoleId>(
       Object.values(sprintEngineState.sprintEngineAgents ?? {}).map((agent) => agent.role)
     )
     const canFilterByRoster = Boolean(policy.rosterDriven && sprintEngineState.rosterConfigured && rosterRoles.size > 0)
-    const gateRoleIsRelevant = (role: SprintEngineRole): boolean => !canFilterByRoster || rosterRoles.has(role)
+    const gateRoleIsRelevant = (role: SprintEngineRoleId): boolean => !canFilterByRoster || rosterRoles.has(role)
     if (canFilterByRoster) {
       for (const gate of Object.values(policy.gates)) {
         if (configuredLifecyclePhases.has(gate.phase) && gateRoleIsRelevant(gate.role)) {

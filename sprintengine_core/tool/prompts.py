@@ -9,17 +9,6 @@ from sprintengine_core.role_registry import SoulRenderError, discover_role_regis
 
 def load_soul_prompt(role: str) -> Optional[str]:
     try:
-        from souls import render_soul
-    except ImportError:
-        render_soul = None
-
-    if render_soul is not None:
-        try:
-            return render_soul(role)
-        except (KeyError, FileNotFoundError):
-            pass
-
-    try:
         return discover_role_registry().render_soul(role, workspace_root=REPO_ROOT).content
     except (KeyError, SoulRenderError):
         return None
@@ -68,7 +57,7 @@ def project_relative_path_guidance() -> str:
         (
             "All file and directory references must be relative to the project root, using forward "
             "slashes where practical, for example `src/renderer/src/App.tsx`, "
-            "`souls/prompts/developer.md`, or `.multi-code/sprintengine/<team>/reviews/code-review-1.md`."
+            "`resources/sprintengine/skills/developer/SKILL.md`, or `.multi-code/sprintengine/<team>/reviews/code-review-1.md`."
         ),
         (
             "For `Sprint Engine plan --path`, `sprintengine task log --file`, and `sprintengine artifact add --path`, "

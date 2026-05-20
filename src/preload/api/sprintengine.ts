@@ -2,7 +2,11 @@ import { ipcRenderer } from 'electron'
 import type {
   ElectronApi,
   SprintEngineArtifactCommandResult,
+  SprintEngineDispatchReadInput,
+  SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
+  SprintEngineRegistryRoleReadInput,
+  SprintEngineRegistryRolesReadInput,
   SprintEngineRosterReplenishInput,
   SprintEngineStateInitializeInput,
   SprintEngineRunnerSetInput,
@@ -66,6 +70,18 @@ export const sprintEngineApi = {
     statePath: string
   ): Promise<SprintEngineProjectionReadResult> =>
     ipcRenderer.invoke('sprintengine:projection:read', { statePath }),
+  readSprintEngineRegistryRoles: (
+    input: SprintEngineRegistryRolesReadInput
+  ): Promise<SprintEngineMcpReadResult> =>
+    ipcRenderer.invoke('sprintengine:registry:roles:read', input),
+  readSprintEngineRegistryRole: (
+    input: SprintEngineRegistryRoleReadInput
+  ): Promise<SprintEngineMcpReadResult> =>
+    ipcRenderer.invoke('sprintengine:registry:role:read', input),
+  readSprintEngineDispatch: (
+    input: SprintEngineDispatchReadInput
+  ): Promise<SprintEngineMcpReadResult> =>
+    ipcRenderer.invoke('sprintengine:dispatch:read', input),
 } satisfies Pick<
   ElectronApi,
   | 'openSprintEngineArtifact'
@@ -80,4 +96,7 @@ export const sprintEngineApi = {
   | 'setSprintEngineRunnerMode'
   | 'replenishSprintEngineRoster'
   | 'readSprintEngineProjection'
+  | 'readSprintEngineRegistryRoles'
+  | 'readSprintEngineRegistryRole'
+  | 'readSprintEngineDispatch'
 >

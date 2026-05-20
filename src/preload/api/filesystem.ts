@@ -54,6 +54,8 @@ export const filesystemApi = {
   ensureDir: (parentDir: string, name: string) => ipcRenderer.invoke('fs:ensure-dir', parentDir, name),
   renamePath: (sourcePath: string, nextName: string) => ipcRenderer.invoke('fs:rename', sourcePath, nextName),
   copyPath: (sourcePath: string, destinationDir: string) => ipcRenderer.invoke('fs:copy', sourcePath, destinationDir),
+  copyPathInto: (sourcePath: string, destinationDir: string, options?: { overwrite?: boolean }) =>
+    ipcRenderer.invoke('fs:copy-into', sourcePath, destinationDir, options),
   deletePath: (targetPath: string) => ipcRenderer.invoke('fs:delete', targetPath),
   showItemInFolder: (targetPath: string) => ipcRenderer.invoke('fs:show-item-in-folder', targetPath),
   openHtmlFileInBrowser: (targetPath: string) => ipcRenderer.invoke('fs:open-html-file-in-browser', targetPath),
@@ -99,6 +101,7 @@ export const filesystemApi = {
   | 'ensureDir'
   | 'renamePath'
   | 'copyPath'
+  | 'copyPathInto'
   | 'deletePath'
   | 'showItemInFolder'
   | 'openHtmlFileInBrowser'

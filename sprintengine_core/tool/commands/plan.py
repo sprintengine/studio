@@ -91,6 +91,10 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
             task["productFacing"] = False
         if getattr(args, "produces_implementation", False):
             task["producesImplementation"] = True
+        if getattr(args, "needs_triage", None) is True:
+            task["needsTriage"] = True
+        elif getattr(args, "clear_needs_triage", False):
+            task["needsTriage"] = False
 
         policy = folder_store.normalize_quality_fields(state)
         task["qualityGates"] = folder_store.normalize_task_quality_gates(task, state, policy)

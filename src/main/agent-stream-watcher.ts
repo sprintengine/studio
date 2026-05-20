@@ -10,6 +10,12 @@
 //     literal the agent is taught to emit at the end of its turn, and tear
 //     the session down without waiting for the process to exit.
 //
+// This watcher is plugin-descriptor driven (Switchboard agent plugins choose
+// their own sentinel literal). It is NOT used by Sprint Engine wake-up:
+// Sprint Engine wakeups consume `currentDispatch` from the canonical
+// projection (see buildSprintEngineDispatchPrompt) and never depend on
+// stdout sentinels.
+//
 // No I/O, no pty, no electron — just the pure stream-matching state machine
 // so the runtime wiring stays thin and the tricky bits stay unit-testable.
 

@@ -594,6 +594,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-product-acceptance", action="store_true", help="Remove product acceptance gates for this task.")
     p.add_argument("--require-gate", action="append", default=[], help="Require a named quality gate for this task.")
     p.add_argument("--skip-gate", action="append", default=[], help="Remove a named quality gate for this task.")
+    p.add_argument("--needs-triage", action="store_true", help="Create the task as an architect-triage candidate that is not claimable until cleared.")
     p.add_argument("--manual-dispatch", action="store_true", help="Create the task behind the manual Ready gate.")
     p.add_argument("--dispatch-status", choices=sorted(VALID_TASK_DISPATCH_STATUSES), default="todo")
     p.add_argument("--triaged-by", choices=sorted(VALID_TASK_DISPATCH_TRIAGED_BY), default="none")
@@ -623,6 +624,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-product-acceptance", action="store_true", help="Remove product acceptance gates for this task.")
     p.add_argument("--require-gate", action="append", default=[], help="Require a named quality gate for this task.")
     p.add_argument("--skip-gate", action="append", default=[], help="Remove a named quality gate for this task.")
+    p.add_argument("--needs-triage", action="store_true", help="Mark the task as an architect-triage candidate that is not claimable until cleared.")
+    p.add_argument("--clear-needs-triage", action="store_true", help="Clear the task's architect-triage candidate flag.")
     p.add_argument("--force", action="store_true", help="Allow editing an active or completed task.")
     p.set_defaults(handler=plan_commands.update_task)
 

@@ -1,6 +1,14 @@
 import React from 'react'
-import type { SprintEngineRole } from '../../types/workspace'
-import { hexToRgba, sprintEngineRoleAccent, sprintEngineRoleLabels } from '../../utils/sprintengine'
+import type {
+  SprintEngineRoleId,
+  SprintEngineRoleRegistry,
+  SprintEngineRoleRegistryMetadata,
+} from '../../types/workspace'
+import {
+  getSprintEngineRoleAccent,
+  getSprintEngineRoleLabel,
+  hexToRgba,
+} from '../../utils/sprintengine'
 import { SprintEngineRoleIcon } from '../AppIcons'
 
 // RoleAvatar — disc-shaped avatar tinted in the role's accent colour with
@@ -29,7 +37,7 @@ const SIZE: Record<RoleAvatarSize, { disc: string; icon: string; alpha: number }
 }
 
 type RoleAvatarProps = {
-  role: SprintEngineRole
+  role: SprintEngineRoleId
   size?: RoleAvatarSize
   /** Optional class extras (margins, alignment). Don't pass colour or sizing
    *  — the primitive owns both. */
@@ -38,12 +46,17 @@ type RoleAvatarProps = {
    *  string when the avatar sits in a row whose label already announces
    *  the role; the disc becomes `aria-hidden`. */
   ariaLabel?: string
+  /** Optional registry metadata so custom/configured roles render with a
+   *  registry label and glyph. When omitted, custom roles use a humanized
+   *  fallback label and a neutral disc glyph instead of indexing the
+   *  static bundled-role maps. */
+  registry?: SprintEngineRoleRegistry | SprintEngineRoleRegistryMetadata | null
 }
 
-export function RoleAvatar({ role, size = 'md', className, ariaLabel }: RoleAvatarProps) {
+export function RoleAvatar({ role, size = 'md', className, ariaLabel, registry }: RoleAvatarProps) {
   const { disc, icon, alpha } = SIZE[size]
-  const accent = sprintEngineRoleAccent[role]
-  const label = ariaLabel ?? `Role: ${sprintEngineRoleLabels[role]}`
+  const accent = getSprintEngineRoleAccent(role, registry)
+  const label = ariaLabel ?? `Role: ${getSprintEngineRoleLabel(role, registry)}`
   const hidden = ariaLabel === ''
   return (
     <span
@@ -61,7 +74,7 @@ export function RoleAvatar({ role, size = 'md', className, ariaLabel }: RoleAvat
       aria-label={hidden ? undefined : label}
       aria-hidden={hidden ? true : undefined}
     >
-      <SprintEngineRoleIcon role={role} className={icon} />
+      <SprintEngineRoleIcon role={role} registry={registry} className={icon} />
     </span>
   )
 }

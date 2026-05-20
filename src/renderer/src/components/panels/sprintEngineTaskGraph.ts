@@ -24,7 +24,7 @@ import type {
 } from '../../types/workspace'
 import {
   getSprintEngineTaskBoardColumn,
-  sprintEngineRoleAccent,
+  getSprintEngineRoleAccent,
 } from '../../utils/sprintengine'
 
 export type TaskGraphLayoutNode =
@@ -324,10 +324,10 @@ export function taskGraphEdgeStyle(
   const dependencyDone = dependency.status === 'done'
   const active = dependent.status === 'in_progress' || dependent.status === 'needs_input'
   const color = active
-    ? sprintEngineRoleAccent[dependent.role]
+    ? getSprintEngineRoleAccent(dependent.role)
     : dependencyDone
       ? 'var(--tone-good)'
-      : sprintEngineRoleAccent[dependency.role]
+      : getSprintEngineRoleAccent(dependency.role)
 
   return {
     color,
@@ -341,7 +341,7 @@ export function taskGraphEndEdgeStyle(
   task: SprintEngineTask,
 ): Omit<TaskGraphLayoutEdge, 'id' | 'fromId' | 'toId'> {
   return {
-    color: task.status === 'done' ? 'var(--tone-good)' : sprintEngineRoleAccent[task.role],
+    color: task.status === 'done' ? 'var(--tone-good)' : getSprintEngineRoleAccent(task.role),
     opacity: task.status === 'done' ? 0.58 : 0.32,
     weight: task.status === 'done' ? 2 : 1.5,
     dashed: false,

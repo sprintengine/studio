@@ -10,17 +10,17 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
-  SprintEngineRole,
+  SprintEngineRoleId,
   SprintEngineState,
   SprintEngineTask,
   SprintEngineTaskBoardColumn,
   SprintEngineTaskStatus,
 } from '../../types/workspace'
 import {
+  getSprintEngineRoleAccent,
+  getSprintEngineRoleLabel,
   getSprintEngineTaskBoardColumn,
   hexToRgba,
-  sprintEngineRoleAccent,
-  sprintEngineRoleLabels,
   sprintEngineTaskBoardColumns,
   sprintEngineTaskStateLabel,
   type SprintEngineAgentRosterItem,
@@ -146,11 +146,11 @@ function taskGraphNodeStatusLabel(
 
 function taskGraphNodeStyle(
  task: SprintEngineTask,
- ownerRole: SprintEngineRole | null,
+ ownerRole: SprintEngineRoleId | null,
  focused: boolean,
  selected: boolean
 ): React.CSSProperties {
- const roleAccent = sprintEngineRoleAccent[ownerRole ?? task.role]
+ const roleAccent = getSprintEngineRoleAccent(ownerRole ?? task.role)
  const statusAccent =
  task.status === 'done'
  ? 'var(--tone-good)'
@@ -700,7 +700,7 @@ export function SprintEngineTaskGraphView({
  aria-hidden="true"
  className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full"
  style={{
- backgroundColor: sprintEngineRoleAccent[task.role],
+ backgroundColor: getSprintEngineRoleAccent(task.role),
  }}
  />
  <div className="flex items-start justify-between gap-3 pl-2">
@@ -712,11 +712,11 @@ export function SprintEngineTaskGraphView({
  <span
  className="h-1.5 w-1.5 shrink-0 rounded-full"
  style={{
- backgroundColor: sprintEngineRoleAccent[task.role],
+ backgroundColor: getSprintEngineRoleAccent(task.role),
  }}
  />
- <span className="min-w-0 truncate" style={{ color: sprintEngineRoleAccent[task.role] }}>
- {sprintEngineRoleLabels[task.role]}
+ <span className="min-w-0 truncate" style={{ color: getSprintEngineRoleAccent(task.role) }}>
+ {getSprintEngineRoleLabel(task.role)}
  </span>
  </div>
  </div>
@@ -742,7 +742,7 @@ export function SprintEngineTaskGraphView({
  {ownerLabel && ownerRole ? (
  <>
  <span className="text-[color:var(--text-disabled)]">/</span>
- <span className="max-w-full truncate" style={{ color: sprintEngineRoleAccent[ownerRole] }}>
+ <span className="max-w-full truncate" style={{ color: getSprintEngineRoleAccent(ownerRole) }}>
  {ownerLabel}
  </span>
  </>
@@ -866,7 +866,7 @@ export function SprintEngineTaskGraphView({
  top: (node.y - node.height / 2) * minimapScale,
  width: Math.max(3, node.width * minimapScale),
  height: Math.max(3, node.height * minimapScale),
- backgroundColor: hexToRgba(sprintEngineRoleAccent[node.task.role], 0.55),
+ backgroundColor: hexToRgba(getSprintEngineRoleAccent(node.task.role), 0.55),
  }}
  />
  )

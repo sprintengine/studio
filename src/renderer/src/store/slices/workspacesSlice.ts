@@ -37,6 +37,7 @@ import type {
   SprintEngineAutoState,
   SprintEngineState,
   SprintEngineRole,
+  SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
   SprintEngineWorkspaceContext,
   Workspace,
@@ -180,7 +181,7 @@ type WorkspacesSliceSet = (mutator: (state: WorkspacesSliceCarrier) => void) => 
 
 function requireSprintEngineRoleCli(
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>,
-  role: SprintEngineRole
+  role: SprintEngineRoleId
 ): AgentCli {
   const cli = roleCliDefaults[role]
   if (cli !== 'codex' && cli !== 'claude') {

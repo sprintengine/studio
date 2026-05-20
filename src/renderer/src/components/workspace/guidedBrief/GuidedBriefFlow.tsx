@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electron-api'
 import type {
   SprintEngineCliPermissionPreset,
-  SprintEngineRole,
+  SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
+  SprintEngineRoleRegistry,
 } from '../../../types/workspace'
 import {
   snapshotGuidedBriefArtifact,
@@ -54,6 +55,7 @@ type Props = {
     runOptions: GuidedBriefRunOptions,
   ) => Promise<void>
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
+  sprintEngineRoleRegistry?: SprintEngineRoleRegistry | null
 }
 
 export function GuidedBriefFlow({
@@ -63,6 +65,7 @@ export function GuidedBriefFlow({
   onClose,
   onStartBuild,
   cliRuntimes,
+  sprintEngineRoleRegistry = null,
 }: Props) {
   const { stage, hasUi, workspaceRoot, workspaceName, acceptedProductBrief, acceptedArchitecturePlan } = runtimeState
   const progressOptions = {
@@ -507,6 +510,7 @@ export function GuidedBriefFlow({
           <HandoffBody
             runtimeState={runtimeState}
             onChange={onChange}
+            sprintEngineRoleRegistry={sprintEngineRoleRegistry}
           />
         )}
       </main>
@@ -932,9 +936,11 @@ function DesignerReviewPane({
 function HandoffBody({
   runtimeState,
   onChange,
+  sprintEngineRoleRegistry,
 }: {
   runtimeState: GuidedBriefRuntimeState
   onChange: (next: GuidedBriefRuntimeState) => void
+  sprintEngineRoleRegistry: SprintEngineRoleRegistry | null
 }) {
   const [handoffStatus, setHandoffStatus] = useState<'loading' | 'ready' | 'missing'>('loading')
   const handoffPath = joinWorkspacePath(runtimeState.workspaceRoot, guidedBriefBuildHandoffRelativePath())
@@ -944,10 +950,14 @@ function HandoffBody({
     0,
   )
 
-  const setBuildRoleCount = (role: SprintEngineRole, count: number) => {
+  const setBuildRoleCount = (role: SprintEngineRoleId, count: number) => {
     const min = role === 'architect' ? 1 : 0
     onChange({
       ...runtimeState,
+      buildRoleCliDefaults: {
+        ...runtimeState.buildRoleCliDefaults,
+        [role]: runtimeState.buildRoleCliDefaults[role] ?? 'codex',
+      },
       buildRoleCounts: {
         ...runtimeState.buildRoleCounts,
         [role]: Math.max(min, Math.min(10, Math.floor(count))),
@@ -955,7 +965,7 @@ function HandoffBody({
     })
   }
 
-  const setBuildRoleCli = (role: SprintEngineRole, cli: AgentCli) => {
+  const setBuildRoleCli = (role: SprintEngineRoleId, cli: AgentCli) => {
     onChange({
       ...runtimeState,
       buildRoleCliDefaults: {
@@ -1020,6 +1030,7 @@ function HandoffBody({
           <SprintEngineRosterTable
             roleCounts={runtimeState.buildRoleCounts}
             roleCliDefaults={runtimeState.buildRoleCliDefaults}
+            registry={sprintEngineRoleRegistry}
             disabled={false}
             onSetCount={setBuildRoleCount}
             onSetCli={setBuildRoleCli}

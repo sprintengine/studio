@@ -37,6 +37,7 @@ import type {
  SprintEngineArtifact,
  SprintEngineCliPermissionPreset,
  SprintEngineRole,
+ SprintEngineRoleId,
  SprintEngineState,
  SprintEngineTask,
  SprintEngineTaskBoardColumn,
@@ -52,10 +53,10 @@ import {
  getSprintEngineArtifactsByTaskId,
  getSprintEngineTaskBoardColumn,
  getSprintEngineVisibleBoardColumns,
+ getSprintEngineRoleAccent,
  isSprintEngineTaskLaunchable,
  normalizeSprintEngineProjection,
- sprintEngineRoleAccent,
- sprintEngineRoleLabels,
+ getSprintEngineRoleLabel,
  sprintEngineTaskStateLabel,
  type SprintEngineAgentRosterItem,
 } from '../../utils/sprintengine'
@@ -594,7 +595,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  }
  const role = sprintEngineState?.sprintEngineAgents[agentId]?.role
  const roleLabel = role
- ? sprintEngineRoleLabels[role]
+ ? getSprintEngineRoleLabel(role)
  : undefined
  const startupPrompt = options?.startupPrompt && options.agentName
  ? prependAgentIdentifier(options.startupPrompt, options.agentName, roleLabel)
@@ -862,6 +863,9 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const lockWarnings = sprintEngineState.locks?.warnings ?? []
  const hasProjectionBanner = projectionUnavailable || Boolean(projectionErrorMessage) || lockWarnings.length > 0
  const architectAgentId = roster.find((agent) => agent.role === 'architect')?.id ?? null
+ // Bundled worker roles ship dedicated role-task launch buttons. Custom
+ // registry roles do not yet, so they always defer to the generic focus
+ // agent action below.
  const workerRoles: SprintEngineRole[] = ['developer', 'frontend', 'product', 'code_reviewer', 'spec_reviewer', 'performance', 'tester', 'security']
  const roleTaskLaunches = workerRoles.flatMap((role) => {
  const activeTask = sprintEngineState.tasks.find((task) =>
@@ -877,7 +881,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  )
  return [{ role, task, agent }]
  })
- const roleTaskLaunchSet = new Set<SprintEngineRole>(roleTaskLaunches.map(({ role }) => role))
+ const roleTaskLaunchSet = new Set<SprintEngineRoleId>(roleTaskLaunches.map(({ role }) => role))
  const specialistReviewAgents = roster.filter((agent) => agent.role !== 'architect')
  const spawnDialogAgent = spawnDialog ? rosterById[spawnDialog.agentId] : undefined
  const spawnDialogRuntime = spawnDialog
@@ -1645,7 +1649,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  source: 'sprintengine',
  title: 'Focus active agent is unavailable',
  message: focusAgent
- ? `The ${sprintEngineRoleLabels[focusAgent.role] ?? focusAgent.role} agent already has a role-task launch on the panel; use that instead.`
+ ? `The ${getSprintEngineRoleLabel(focusAgent.role)} agent already has a role-task launch on the panel; use that instead.`
  : 'No agent is currently running or waiting for input.',
  workspaceId,
  workspaceName: workspace?.name,
@@ -1975,8 +1979,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  trailing={
  <span
  // design-tokens-allow: role glyph is the one place per the redesign where role tones are retained.
- style={{ color: sprintEngineRoleAccent[task.role] }}
- aria-label={`Role: ${sprintEngineRoleLabels[task.role]}`}
+ style={{ color: getSprintEngineRoleAccent(task.role) }}
+ aria-label={`Role: ${getSprintEngineRoleLabel(task.role)}`}
  role="img"
  >
  <SprintEngineRoleIcon role={task.role} className="icon-sm" />
@@ -2198,7 +2202,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  layout="compact-grid"
  className="gap-x-8"
  items={[
- { term: 'Role', description: sprintEngineRoleLabels[spawnDialogAgent.role] },
+ { term: 'Role', description: getSprintEngineRoleLabel(spawnDialogAgent.role) },
  { term: 'Status', description: runtimeStatusLabel(spawnDialogRuntime?.status ?? 'idle') },
  ]}
  />
@@ -2381,7 +2385,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  <span
  className="hidden h-8 w-8 shrink-0 items-center justify-center rounded border bg-[color:var(--bg-surface-raised)] sm:flex"
  style={{
- borderColor: selected ? sprintEngineRoleAccent[role] : 'var(--border-strong)',
+ borderColor: selected ? getSprintEngineRoleAccent(role) : 'var(--border-strong)',
  color: 'var(--text-muted)',
  }}
  >
@@ -2389,7 +2393,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  </span>
  <div className="min-w-0 flex-1">
  <div className="truncate text-sm font-semibold">
- {sprintEngineRoleLabels[role]}
+ {getSprintEngineRoleLabel(role)}
  </div>
  <p className={`mt-1 text-[12px] leading-5 ${selected ? 'text-[color:var(--accent-primary)]' : 'text-[color:var(--text-muted)]'}`}>
  {roleSummaries[role]}
@@ -2412,7 +2416,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  variant="primary"
  onClick={() => void confirmAddMember()}
  >
- {sprintEngineState.rosterConfigured ? 'Ask Architect' : 'Spawn'} {sprintEngineRoleLabels[addMemberRole]}
+ {sprintEngineState.rosterConfigured ? 'Ask Architect' : 'Spawn'} {getSprintEngineRoleLabel(addMemberRole)}
  </ModalButton>
  </ModalFooter>
  </Modal>
@@ -2757,7 +2761,7 @@ function SprintEngineRosterView({
  <div className="flex flex-wrap gap-1.5 px-3 pb-2.5">
  {addableRoles.map((role) => {
  const count = rosterCountByRole[role] ?? 0
- const addLabel = `${count > 0 ? 'Add another' : 'Add'} ${sprintEngineRoleLabels[role]}`
+ const addLabel = `${count > 0 ? 'Add another' : 'Add'} ${getSprintEngineRoleLabel(role)}`
  return (
  <Tooltip key={role} content={addLabel}>
  <button
@@ -2767,7 +2771,7 @@ function SprintEngineRosterView({
  className="interactive inline-flex items-center gap-1.5 rounded border border-dashed border-[color:var(--border-strong)] px-2 py-1 text-[11px] font-medium text-[color:var(--text-default)] transition-colors hover:border-[color:var(--accent-primary-soft)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
  >
  <RoleAvatar role={role} size="xs" ariaLabel="" />
- <span>{sprintEngineRoleLabels[role]}</span>
+ <span>{getSprintEngineRoleLabel(role)}</span>
  {count > 0 ? (
  <span className="ml-0.5 rounded bg-[color:var(--bg-hover)] px-1 tabular-nums text-[color:var(--text-muted)]">
  {count}
@@ -2844,7 +2848,7 @@ function getTaskOwnerLabel(
  return rosterById[task.ownerAgentId]?.label ?? task.ownerAgentId
  }
 
- return task.status === 'done' ? sprintEngineRoleLabels[task.role] : 'No active worker'
+ return task.status === 'done' ? getSprintEngineRoleLabel(task.role) : 'No active worker'
 }
 
 function getRunPhase(sprintEngineState: SprintEngineState, runtimeAgents: RuntimeAgentView[]): string {
@@ -2868,7 +2872,7 @@ function buildRecoveryAuditPrompt(): string {
  ].join('\n')
 }
 
-function buildPlanReviewStartupPrompt(role: SprintEngineRole, agentId: string): string {
+function buildPlanReviewStartupPrompt(role: SprintEngineRoleId, agentId: string): string {
  return [
  'Fetch the canonical plan review instructions from the Python tool.',
  `Run \`Sprint Engine plan start-review --role ${role} --id ${agentId}\` now.`,
@@ -2886,11 +2890,11 @@ function bracketedTerminalPaste(text: string): string {
  return `\x1b[200~${text.replace(/\r?\n/g, '\n')}\x1b[201~\r`
 }
 
-function buildRosterRevisionPrompt(role: SprintEngineRole, agentId: string, teamSlug: string): string {
+function buildRosterRevisionPrompt(role: SprintEngineRoleId, agentId: string, teamSlug: string): string {
  return [
  'Revise this Sprint Engine plan for a newly added roster member.',
  `Team: \`${teamSlug}\``,
- `New roster member: ${sprintEngineRoleLabels[role]} (\`${role}\`) with agent id \`${agentId}\`.`,
+ `New roster member: ${getSprintEngineRoleLabel(role)} (\`${role}\`) with agent id \`${agentId}\`.`,
  '',
  'First add the member to the canonical Sprint Engine roster:',
  '',

@@ -1,10 +1,17 @@
 # Souls
 
-Souls are reusable role prompts for agent identity, judgment, and quality standards. They are not Sprint Engine state, task cards, or workflow rules.
+Souls are reusable role prompts for agent identity, judgment, and quality
+standards. They are not Sprint Engine state, task cards, or workflow rules.
+
+Current Souls are registry-backed. The active source of truth is the Sprint
+Engine role registry, which discovers role manifests and skill documents from
+workspace, plugin, user, and bundled search paths. Historical references to
+`souls/prompts/<role>.md` describe the pre-registry migration source, not the
+active runtime prompt loader.
 
 Sprint Engine composes prompts in three layers:
 
-1. Soul prompt from `souls/prompts/<role>.md`.
+1. Soul prompt rendered from a role manifest and its `soul` skill entries.
 2. Sprint Engine coordination rules from `.agents/skills/sprintengine/prompts/<role>.md`.
 3. Runtime directive from the Sprint Engine CLI, such as the current agent id, role, and next task command.
 
@@ -12,7 +19,8 @@ Standalone specialist terminals use the Soul prompt directly.
 
 ## CLI
 
-Use the `souls` CLI to inspect the available role prompts:
+Use the `souls` CLI to inspect the available registry roles and rendered
+prompts:
 
 ```bash
 scripts/souls list
@@ -30,11 +38,15 @@ On Windows PowerShell:
 .\scripts\souls.cmd validate
 ```
 
-The CLI reads local packaged files. It does not download remote prompts.
+The CLI reads local registry files. It does not download remote prompts.
+Workspace-local role manifests under `.sprintengine/roles/`, plugin-scoped
+registry folders, user registry folders, and bundled
+`resources/sprintengine/roles/` entries can all contribute roles. Unknown roles
+fail clearly. They do not silently fall back to another Soul.
 
 ## Roles
 
-Canonical roles:
+Bundled roles:
 
 - `architect`
 - `coordinator`
@@ -48,6 +60,7 @@ Canonical roles:
 - `code_reviewer`
 - `spec_reviewer`
 - `performance`
+- `presentation`
 
 Supported aliases:
 
@@ -61,8 +74,11 @@ Supported aliases:
 - `code-review`, `code-reviewer` -> `code_reviewer`
 - `spec-review`, `spec-reviewer` -> `spec_reviewer`
 - `performance-engineer` -> `performance`
+- `presenter`, `deck-writer`, `slide-author`, `slides` -> `presentation`
 
-Unknown roles fail clearly. They do not silently fall back to another Soul.
+Some bundled Souls exist for non-Sprint specialist surfaces. Sprint Engine
+dispatchability is decided by the run roster, task roles, and quality gate
+roles, not by this bundled list.
 
 ## Desktop App
 
@@ -74,4 +90,7 @@ Run `souls get <role>` now and treat the returned text as your role, judgment, a
 
 The terminal bootstrap exposes a `souls` command where the app can resolve the packaged Souls resources. If the command is unavailable, the agent should stop and report that the Souls CLI is unavailable rather than guessing the role prompt.
 
-When the desktop app starts a Sprint Engine agent, the terminal receives a lightweight startup prompt telling it to run the Sprint Engine tool. The Sprint Engine tool then composes the Soul prompt with Sprint Engine coordination rules and runtime task instructions.
+When the desktop app starts a Sprint Engine agent, the terminal receives a
+lightweight startup prompt telling it to run the Sprint Engine tool. The Sprint
+Engine tool then composes the registry-backed Soul prompt with Sprint Engine
+coordination rules and runtime task instructions.

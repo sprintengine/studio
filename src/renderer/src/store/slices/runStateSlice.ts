@@ -33,7 +33,7 @@ import type {
   SprintEngineAutoPendingSpawn,
   SprintEngineAutoState,
   SprintEngineCliPermissionPreset,
-  SprintEngineRole,
+  SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
   SprintEngineState,
   SprintEngineWorkspaceContext,
@@ -77,19 +77,21 @@ export function normalizeSprintEngineRoleCliDefaults(
   const defaults = defaultSprintEngineRoleCliDefaults()
   const next = { ...defaults }
 
-  Object.keys(defaults).forEach((role) => {
-    const value = input?.[role as SprintEngineRole]
+  const entries = input && typeof input === 'object'
+    ? Object.entries(input)
+    : Object.entries(defaults)
+  for (const [role, value] of entries) {
     if (value === 'codex' || value === 'claude') {
-      next[role as SprintEngineRole] = value
+      next[role] = value
     }
-  })
+  }
 
   return next
 }
 
 function requireSprintEngineRoleCli(
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>,
-  role: SprintEngineRole
+  role: SprintEngineRoleId
 ): AgentCli {
   const cli = roleCliDefaults[role]
   if (cli !== 'codex' && cli !== 'claude') {
@@ -111,17 +113,8 @@ function normalizeSprintEngineAutoPendingSpawn(
     : null
 }
 
-function isMultiloopAutoRole(input: unknown): input is MultiloopRole | SprintEngineRole {
-  return input === 'coordinator'
-    || input === 'architect'
-    || input === 'product'
-    || input === 'developer'
-    || input === 'frontend'
-    || input === 'tester'
-    || input === 'security'
-    || input === 'code_reviewer'
-    || input === 'spec_reviewer'
-    || input === 'performance'
+function isMultiloopAutoRole(input: unknown): input is MultiloopRole | SprintEngineRoleId {
+  return typeof input === 'string' && input.trim().length > 0
 }
 
 function normalizeMultiloopAutoPendingSpawn(
@@ -376,7 +369,7 @@ export interface RunStateSliceActions {
   setMultiloopCoordinatorAutoSpawnKey: (workspaceId: WorkspaceId, key: string | null) => void
   addSprintEngineMember: (
     workspaceId: WorkspaceId,
-    role: SprintEngineRole
+    role: SprintEngineRoleId
   ) => { id: AgentId; label: string } | null
 }
 
@@ -582,7 +575,7 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
           status: 'idle',
           currentTaskId: null,
         }
-        ws.sprintEngineState.roleCounts[role] += 1
+        ws.sprintEngineState.roleCounts[role] = (ws.sprintEngineState.roleCounts[role] ?? 0) + 1
 
         const rosterAgent = buildSprintEngineAgentRosterForState(ws.sprintEngineState).find(
           (agent) => agent.id === agentId

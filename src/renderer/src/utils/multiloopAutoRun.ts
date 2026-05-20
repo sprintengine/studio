@@ -7,7 +7,7 @@ import type {
   MultiloopAutoPendingSpawn,
   MultiloopState,
   MultiloopTask,
-  SprintEngineRole,
+  SprintEngineRoleId,
   SprintEngineState,
   SprintEngineTask,
 } from '../types/workspace'
@@ -19,8 +19,8 @@ import {
 } from './multiloop'
 import {
   buildSprintEngineAgentRosterForState,
+  getSprintEngineRoleLabel,
   isSprintEngineTaskLaunchable,
-  sprintEngineRoleLabels,
 } from './sprintengine'
 
 export type MultiloopAutoRunCandidate =
@@ -35,7 +35,7 @@ export type MultiloopAutoRunCandidate =
     kind: 'sprintengine-task'
     agentId: string
     label: string
-    role: SprintEngineRole
+    role: SprintEngineRoleId
     taskId: string
   }
   | {
@@ -321,7 +321,7 @@ function selectLinkedSprintEngineAutoRunCandidates({
   }
 
   const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
-  const rosterByRole = new Map<SprintEngineRole, string[]>()
+  const rosterByRole = new Map<SprintEngineRoleId, string[]>()
   for (const agent of roster) {
     rosterByRole.set(agent.role, [...(rosterByRole.get(agent.role) ?? []), agent.id])
   }
@@ -336,7 +336,7 @@ function selectLinkedSprintEngineAutoRunCandidates({
     candidates.push({
       kind: 'sprintengine-task',
       agentId,
-      label: sprintEngineRoleLabels[task.role],
+      label: getSprintEngineRoleLabel(task.role),
       role: task.role,
       taskId: task.id,
     })

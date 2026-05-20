@@ -629,6 +629,46 @@ def test_mcp_plan_add_task_can_create_manual_dispatch_local_task(tmp_path) -> No
     assert get_task(state, task_record["id"])["dispatch"]["status"] == "todo"
 
 
+def test_mcp_plan_add_and_update_task_forward_needs_triage(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-plan-needs-triage", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "developer-a": {"role": "developer", "status": "idle", "currentTaskId": None},
+    }
+    write_state(fixture.state_path, state)
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    response = server.call_tool(
+        "sprintengine.plan.add_task",
+        {
+            "statePath": str(fixture.state_path),
+            "title": "Candidate task",
+            "role": "developer",
+            "needsTriage": True,
+            "noQualityGates": True,
+        },
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is True
+    task_record = response["result"]["task"]
+    assert task_record["needsTriage"] is True
+
+    update = server.call_tool(
+        "sprintengine.plan.update_task",
+        {
+            "statePath": str(fixture.state_path),
+            "taskId": task_record["id"],
+            "clearNeedsTriage": True,
+        },
+        actor("workspace-user", "user"),
+    )
+
+    assert update["ok"] is True
+    assert update["result"]["task"]["needsTriage"] is False
+
+
 def test_mcp_plan_add_task_forwards_quality_gate_flags(tmp_path) -> None:
     fixture = create_team(tmp_path, "mcp-plan-quality-flags", [])
     state = read_state(fixture.state_path)

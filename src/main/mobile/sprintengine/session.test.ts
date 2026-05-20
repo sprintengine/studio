@@ -167,8 +167,12 @@ async function writeFixture(sprintEngineId: string): Promise<{
   const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', sprintEngineId)
   await mkdir(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'run.yaml')
-  await writeFile(statePath, `${JSON.stringify({
-    sprintengine: {
+  // The mobile session orchestrator now reads `projection.json` (the canonical
+  // Sprint Engine read shape) instead of parsing run-store internals. The
+  // empty run.yaml is still written so state-path validation succeeds.
+  await writeFile(statePath, '', 'utf8')
+  await writeFile(join(teamDirectory, 'projection.json'), JSON.stringify({
+    run: {
       name: sprintEngineId,
       goal: 'Build mobile sprintengine control.',
     },
@@ -182,10 +186,10 @@ async function writeFixture(sprintEngineId: string): Promise<{
         dependsOn: [],
       },
     ],
-    sprintEngineAgents: {
+    roster: {
       'developer-1': { role: 'developer', status: 'idle', currentTaskId: null },
     },
-  }, null, 2)}\n`, 'utf8')
+  }, null, 2), 'utf8')
 
   return {
     sprintEngineId,

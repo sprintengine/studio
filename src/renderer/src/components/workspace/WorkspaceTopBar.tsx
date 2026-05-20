@@ -20,7 +20,7 @@ import type {
 } from '../../types/workspace'
 import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getHighlightSwatch, getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
-import { sprintEngineRoleAccent } from '../../utils/sprintengine'
+import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
 import { NotificationsPopover } from './topbar/NotificationsPopover'
 import WorkspaceGitStatusButton from './WorkspaceGitStatusButton'
 
@@ -308,9 +308,9 @@ function SessionsPopover({
                   {group.items.map((item) => {
                     const chipStyle = item.role
                       ? {
-                          borderColor: sprintEngineRoleAccent[item.role],
-                          color: sprintEngineRoleAccent[item.role],
-                          backgroundColor: `${sprintEngineRoleAccent[item.role]}14`,
+                          borderColor: getSprintEngineRoleAccent(item.role),
+                          color: getSprintEngineRoleAccent(item.role),
+                          backgroundColor: `${getSprintEngineRoleAccent(item.role)}14`,
                         }
                       : undefined
                     const typeLabel = sessionAgentTypeLabel(item)
@@ -601,7 +601,7 @@ export default function WorkspaceTopBar({
 }: WorkspaceTopBarProps) {
   return (
       <div
-        className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-3 py-2 transition-colors"
+        className="flex h-[48px] shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-3 transition-colors"
         style={
           activeWorkspace?.highlight?.color
             ? { borderBottomColor: getHighlightSwatch(activeWorkspace.highlight.color).ringRgba(0.18) }

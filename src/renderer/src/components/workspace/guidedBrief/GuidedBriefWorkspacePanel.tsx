@@ -11,9 +11,10 @@ import {
 } from '../../../utils/sprintengineWorkspaceCreation'
 import {
   countSprintEngineAgents,
-  sprintEngineRoleLabels,
+  getSprintEngineRoleLabel,
   sprintEngineRoleOrder,
 } from '../../../utils/sprintengine'
+import type { SprintEngineRoleId } from '../../../types/workspace'
 import { writeGuidedBriefBuildHandoff } from '../../../utils/guidedBriefWorkspace'
 import { GuidedBriefFlow, type GuidedBriefRunOptions } from './GuidedBriefFlow'
 import { guidedBriefBuildHandoffRelativePath, guidedBriefSprintEngineGoal } from './handoff'
@@ -48,9 +49,16 @@ async function buildGuidedBriefSprintEngineSourceBundle(
 }
 
 function sprintEngineRosterSummary(roleCounts: SprintEngineRoleCounts): string[] {
-  return sprintEngineRoleOrder
-    .filter((role) => roleCounts[role] > 0)
-    .map((role) => `${sprintEngineRoleLabels[role]}: ${roleCounts[role]}`)
+  // Bundled roles are listed first in their canonical order; any custom
+  // registry-keyed role with a non-zero count is appended afterwards so the
+  // guided brief summary works even when a workspace ships its own role.
+  const orderedRoles = new Set<SprintEngineRoleId>([
+    ...sprintEngineRoleOrder,
+    ...Object.keys(roleCounts),
+  ])
+  return [...orderedRoles]
+    .filter((role) => (roleCounts[role] ?? 0) > 0)
+    .map((role) => `${getSprintEngineRoleLabel(role)}: ${roleCounts[role]}`)
 }
 
 export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {

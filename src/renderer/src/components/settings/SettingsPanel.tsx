@@ -4,11 +4,19 @@ import type {
   AgentCli,
   McpCatalogServer,
   McpSettings,
+  SprintEngineRoleRegistry,
+  SprintEngineRoleRegistryMetadata,
+  SprintEngineRoleRegistryWarning,
   SkillPackCatalogEntry,
   SkillPackEntry,
   SkillPackSettings,
 } from '../../types/workspace'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
+import {
+  buildSprintEngineRoleRegistry,
+  getSprintEngineRoleLabel,
+  sprintEngineRoleOrder,
+} from '../../utils/sprintengine'
 import { WorkspacePanel } from '../ui/WorkspacePanel'
 import {
   CloseIconButton,
@@ -76,6 +84,7 @@ type SettingsTabId =
   | 'updates'
   | 'github'
   | 'agents'
+  | 'roles'
   | 'mcps'
   | 'skill-packs'
   | 'file-search'
@@ -88,6 +97,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
   { id: 'updates', label: 'Updates', description: 'Version and release channel' },
   { id: 'github', label: 'GitHub', description: 'Issue import token' },
   { id: 'agents', label: 'Agents', description: 'CLI runtime commands' },
+  { id: 'roles', label: 'Roles', description: 'Sprint Engine role registry' },
   { id: 'mcps', label: 'MCPs', description: 'Agent tool integrations' },
   { id: 'skill-packs', label: 'Skill packs', description: 'Curated agent skills for this project' },
   { id: 'file-search', label: 'File search', description: 'Index exclude patterns' },
@@ -102,6 +112,7 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     value === 'updates'
     || value === 'github'
     || value === 'agents'
+    || value === 'roles'
     || value === 'mcps'
     || value === 'skill-packs'
     || value === 'file-search'
@@ -180,6 +191,12 @@ const TEXTAREA_CLASS =
   'min-h-[96px] w-full resize-y rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 font-mono text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)]'
 
 type MessageTone = 'neutral' | 'accent' | 'warn' | 'error'
+type RoleRegistryStatus = 'idle' | 'loading' | 'ready' | 'unavailable'
+type RoleInstallMessage = { tone: MessageTone; text: string } | null
+type SprintEngineRoleInstallTarget = {
+  sourcePath: string
+  destinationKind: 'roles' | 'skills'
+}
 
 const MESSAGE_BORDER: Record<MessageTone, string> = {
   neutral: 'border-[color:var(--border-strong)]',
@@ -224,6 +241,81 @@ function StatusTag({
       <span className="font-medium text-[color:var(--text-default)]">{label}</span>
     </span>
   )
+}
+
+function orderedSprintEngineRoles(registry: SprintEngineRoleRegistry | null): SprintEngineRoleRegistryMetadata[] {
+  const roles = Object.values(registry?.roles ?? {})
+  const bundledOrder = new Map<string, number>(sprintEngineRoleOrder.map((role, index) => [role, index]))
+  return roles.sort((a, b) => {
+    const aOrder = bundledOrder.get(a.id)
+    const bOrder = bundledOrder.get(b.id)
+    if (aOrder !== undefined || bOrder !== undefined) {
+      return (aOrder ?? Number.MAX_SAFE_INTEGER) - (bOrder ?? Number.MAX_SAFE_INTEGER)
+    }
+    return getSprintEngineRoleLabel(a.id, registry).localeCompare(getSprintEngineRoleLabel(b.id, registry))
+  })
+}
+
+function roleSourceLabel(role: SprintEngineRoleRegistryMetadata): string {
+  const shadowed = role.shadowedSources?.map((source) => source.layer).join(', ')
+  return shadowed ? `${role.source.layer} shadows ${shadowed}` : role.source.layer
+}
+
+function roleWarnings(role: SprintEngineRoleRegistryMetadata): SprintEngineRoleRegistryWarning[] {
+  return role.warnings ?? []
+}
+
+function joinLocalPath(parent: string, name: string): string {
+  const separator = parent.includes('\\') ? '\\' : '/'
+  return `${parent.replace(/[\\/]+$/u, '')}${separator}${name}`
+}
+
+async function resolveSprintEngineRoleInstallTargets(selectedFolder: string): Promise<SprintEngineRoleInstallTarget[]> {
+  const entries = await window.api.readdir(selectedFolder)
+  const rolesDir = entries.find((entry) => entry.isDir && entry.name === 'roles')
+  const skillsDir = entries.find((entry) => entry.isDir && entry.name === 'skills')
+
+  if (rolesDir || skillsDir) {
+    const targets: SprintEngineRoleInstallTarget[] = []
+    if (rolesDir) {
+      const rolesPath = joinLocalPath(selectedFolder, 'roles')
+      const roleEntries = await window.api.readdir(rolesPath)
+      targets.push(
+        ...roleEntries
+          .filter((entry) => !entry.isDir && entry.name.toLowerCase().endsWith('.json'))
+          .map((entry) => ({ sourcePath: joinLocalPath(rolesPath, entry.name), destinationKind: 'roles' as const }))
+      )
+    }
+    if (skillsDir) {
+      const skillsPath = joinLocalPath(selectedFolder, 'skills')
+      const skillEntries = await window.api.readdir(skillsPath)
+      targets.push(
+        ...skillEntries
+          .filter((entry) => entry.isDir)
+          .map((entry) => ({ sourcePath: joinLocalPath(skillsPath, entry.name), destinationKind: 'skills' as const }))
+      )
+    }
+    if (targets.length > 0) return targets
+  }
+
+  const roleManifests = entries.filter((entry) => !entry.isDir && entry.name.toLowerCase().endsWith('.json'))
+  const skillDocuments = entries.filter((entry) => entry.isDir && entry.name.toLowerCase() !== 'skills')
+
+  if (roleManifests.length > 0) {
+    return roleManifests.map((entry) => ({
+      sourcePath: joinLocalPath(selectedFolder, entry.name),
+      destinationKind: 'roles',
+    }))
+  }
+
+  if (skillDocuments.length > 0) {
+    return skillDocuments.map((entry) => ({
+      sourcePath: joinLocalPath(selectedFolder, entry.name),
+      destinationKind: 'skills',
+    }))
+  }
+
+  throw new Error('Select a role registry folder, a roles folder with JSON manifests, or a skills folder with SKILL.md directories.')
 }
 
 function RegistrySwitchRow({
@@ -322,6 +414,7 @@ export default function SettingsPanel({
   const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? EMPTY_SEARCH_EXCLUDES)
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const usageTelemetry = useWorkspaceStore((s) => s.appSettings.usageTelemetry)
+  const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
   const setMcpSyncEnabled = useWorkspaceStore((s) => s.setMcpSyncEnabled)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
@@ -335,12 +428,14 @@ export default function SettingsPanel({
   const setSearchExcludes = useWorkspaceStore((s) => s.setSearchExcludes)
   const setProjectKnowledgeRoot = useWorkspaceStore((s) => s.setProjectKnowledgeRoot)
   const setUsageTelemetrySettings = useWorkspaceStore((s) => s.setUsageTelemetrySettings)
+  const setSprintEngineRoleEnabled = useWorkspaceStore((s) => s.setSprintEngineRoleEnabled)
   const activeKnowledgeConfig = resolveProjectKnowledgeConfig(
     activeWorkspace?.folderPath,
     projectKnowledgeRoots,
     activeWorkspace?.memory.relativeRoot
   )
   const activeProjectRoot = activeKnowledgeConfig?.projectRoot ?? activeWorkspace?.folderPath ?? null
+  const activeSprintEngineRoot = activeWorkspace?.folderPath ?? null
   const isWindows = window.api.platform === 'win32'
   const [searchExcludesDraft, setSearchExcludesDraft] = useState(() => searchExcludes.join('\n'))
   const [memoryDraft, setMemoryDraft] = useState(() => activeKnowledgeConfig?.relativeRoot ?? '')
@@ -366,6 +461,11 @@ export default function SettingsPanel({
   const [skillPackMessage, setSkillPackMessage] = useState<string | null>(null)
   const [skillPackPendingId, setSkillPackPendingId] = useState<string | null>(null)
   const [selectedSkillPackId, setSelectedSkillPackId] = useState<string | null>(null)
+  const [roleRegistry, setRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
+  const [roleRegistryStatus, setRoleRegistryStatus] = useState<RoleRegistryStatus>('idle')
+  const [roleRegistryMessage, setRoleRegistryMessage] = useState<string | null>(null)
+  const [roleInstallPending, setRoleInstallPending] = useState(false)
+  const [roleInstallMessage, setRoleInstallMessage] = useState<RoleInstallMessage>(null)
   const [customMcpId, setCustomMcpId] = useState('')
   const [customMcpName, setCustomMcpName] = useState('')
   const [customMcpCommand, setCustomMcpCommand] = useState('')
@@ -387,6 +487,7 @@ export default function SettingsPanel({
     updates: null,
     github: null,
     agents: null,
+    roles: null,
     mcps: null,
     'skill-packs': null,
     'file-search': null,
@@ -873,6 +974,10 @@ export default function SettingsPanel({
     ? mcpCatalog.find((server) => server.id === selectedCatalogId) ?? null
     : null
   const activeMcpServers = Object.values(mcpSettings.servers).filter((server) => server.enabled)
+  const registryRoles = orderedSprintEngineRoles(roleRegistry)
+  const registryWarningCount =
+    (roleRegistry?.warnings.length ?? 0)
+    + registryRoles.reduce((total, role) => total + roleWarnings(role).length, 0)
 
   const groupedSkillPackCatalog = groupSkillPackCatalog(skillPackCatalog)
   const selectedSkillPack = selectedSkillPackId
@@ -960,6 +1065,92 @@ export default function SettingsPanel({
       upsertSkillPack,
     ],
   )
+
+  const loadSprintEngineRoles = useCallback(async () => {
+    if (!activeSprintEngineRoot) {
+      setRoleRegistry(null)
+      setRoleRegistryStatus('unavailable')
+      setRoleRegistryMessage('Open a workspace folder before managing Sprint Engine roles.')
+      return
+    }
+    if (typeof window.api.readSprintEngineRegistryRoles !== 'function') {
+      setRoleRegistry(null)
+      setRoleRegistryStatus('unavailable')
+      setRoleRegistryMessage('This build does not expose Sprint Engine role registry reads.')
+      return
+    }
+    setRoleRegistryStatus('loading')
+    setRoleRegistryMessage(null)
+    try {
+      const result = await window.api.readSprintEngineRegistryRoles({
+        workspaceRoot: activeSprintEngineRoot,
+        includeShadowed: true,
+      })
+      if (!result.ok) {
+        setRoleRegistry(null)
+        setRoleRegistryStatus('unavailable')
+        setRoleRegistryMessage(result.message || 'Sprint Engine role registry is unavailable.')
+        return
+      }
+      const nextRegistry = buildSprintEngineRoleRegistry(result.data)
+      setRoleRegistry(nextRegistry)
+      setRoleRegistryStatus('ready')
+      setRoleRegistryMessage(
+        nextRegistry.warnings.length
+          ? `${nextRegistry.warnings.length} registry warning${nextRegistry.warnings.length === 1 ? '' : 's'} found.`
+          : null,
+      )
+    } catch (error) {
+      setRoleRegistry(null)
+      setRoleRegistryStatus('unavailable')
+      setRoleRegistryMessage(error instanceof Error ? error.message : 'Sprint Engine role registry failed to load.')
+    }
+  }, [activeSprintEngineRoot])
+
+  useEffect(() => {
+    void loadSprintEngineRoles()
+  }, [loadSprintEngineRoles])
+
+  const installSprintEngineRoleFolder = useCallback(async () => {
+    if (!activeSprintEngineRoot) {
+      setRoleInstallMessage({
+        tone: 'warn',
+        text: 'Open a workspace folder before installing Sprint Engine roles.',
+      })
+      return
+    }
+    setRoleInstallPending(true)
+    setRoleInstallMessage(null)
+    try {
+      const selectedFolder = await window.api.openDir()
+      if (!selectedFolder) {
+        setRoleInstallMessage(null)
+        return
+      }
+      const sprintEngineDir = await window.api.ensureDir(activeSprintEngineRoot, '.sprintengine')
+      const rolesDir = await window.api.ensureDir(sprintEngineDir, 'roles')
+      const skillsDir = await window.api.ensureDir(sprintEngineDir, 'skills')
+      const targets = await resolveSprintEngineRoleInstallTargets(selectedFolder)
+      for (const target of targets) {
+        const destinationDir = target.destinationKind === 'roles'
+          ? rolesDir
+          : skillsDir
+        await window.api.copyPathInto(target.sourcePath, destinationDir, { overwrite: true })
+      }
+      setRoleInstallMessage({
+        tone: 'accent',
+        text: 'Role registry files installed into .sprintengine/roles and .sprintengine/skills with matching names. Reloaded registry from the workspace source.',
+      })
+      await loadSprintEngineRoles()
+    } catch (error) {
+      setRoleInstallMessage({
+        tone: 'error',
+        text: error instanceof Error ? error.message : 'Role folder install failed.',
+      })
+    } finally {
+      setRoleInstallPending(false)
+    }
+  }, [activeSprintEngineRoot, loadSprintEngineRoles])
 
   const selectSettingsTab = useCallback((tabId: SettingsTabId) => {
     setActiveSettingsTab(tabId)
@@ -1164,6 +1355,159 @@ export default function SettingsPanel({
             <span className="font-mono text-[color:var(--text-default)]">claude</span>{isWindows ? ' through WSL' : ''}.
             Use a full executable path if your CLI is not on PATH.
           </p>
+        </div>
+      ) : null}
+
+      {activeSettingsTab === 'roles' ? (
+        <div
+          role="tabpanel"
+          id="settings-panel-roles"
+          aria-labelledby="settings-tab-roles"
+          className="space-y-5"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-[color:var(--text-strong)]">
+                Sprint Engine roles
+              </div>
+              <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                Registry manifests provide display metadata. Runtime enablement is stored in app settings.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <StatusTag
+                tone={
+                  roleRegistryStatus === 'ready'
+                    ? registryWarningCount > 0 ? 'warn' : 'good'
+                    : roleRegistryStatus === 'loading' ? 'neutral' : 'warn'
+                }
+                label={
+                  roleRegistryStatus === 'ready'
+                    ? `${registryRoles.length} role${registryRoles.length === 1 ? '' : 's'}`
+                    : roleRegistryStatus === 'loading' ? 'Loading' : 'Unavailable'
+                }
+              />
+              <PrimaryButton
+                size="md"
+                onClick={() => void installSprintEngineRoleFolder()}
+                disabled={roleInstallPending || !activeSprintEngineRoot}
+                className="h-9"
+              >
+                {roleInstallPending ? 'Installing' : 'Install folder'}
+              </PrimaryButton>
+            </div>
+          </div>
+
+          {roleRegistryStatus === 'loading' ? (
+            <MessageBlock tone="neutral">
+              Loading Sprint Engine roles from the workspace registry.
+            </MessageBlock>
+          ) : null}
+
+          {roleRegistryStatus === 'unavailable' ? (
+            <MessageBlock tone="warn">
+              {roleRegistryMessage ?? 'Sprint Engine role registry is unavailable for this workspace.'}
+            </MessageBlock>
+          ) : null}
+
+          {roleRegistryStatus === 'ready' && registryRoles.length === 0 ? (
+            <MessageBlock tone="neutral">
+              No Sprint Engine roles were found in the registry for this workspace.
+            </MessageBlock>
+          ) : null}
+
+          {roleRegistryStatus === 'ready' && registryRoles.length > 0 ? (
+            <div className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
+              {registryRoles.map((role) => {
+                const warnings = roleWarnings(role)
+                const manifestDisabled = role.enabled === false
+                const userEnabled = sprintEngineRoleSettings.enabled[role.id] !== false
+                const enabled = !manifestDisabled && userEnabled
+                const label = getSprintEngineRoleLabel(role.id, roleRegistry)
+                const switchLabelId = `settings-role-${role.id}-label`
+                const switchHelpId = `settings-role-${role.id}-help`
+                return (
+                  <div key={role.id} className="py-3">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span
+                            id={switchLabelId}
+                            className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]"
+                          >
+                            {label}
+                          </span>
+                          <StatusDot
+                            tone={enabled ? 'good' : 'neutral'}
+                            label={enabled ? 'Enabled' : 'Disabled'}
+                          />
+                        </div>
+                        <div
+                          id={switchHelpId}
+                          className="mt-0.5 truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]"
+                        >
+                          {role.id} · {roleSourceLabel(role)}
+                        </div>
+                        {role.summary ? (
+                          <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                            {role.summary}
+                          </p>
+                        ) : null}
+                      </div>
+                      <Switch
+                        checked={enabled}
+                        disabled={manifestDisabled}
+                        onChange={(next) => setSprintEngineRoleEnabled(role.id, next)}
+                        ariaLabelledBy={switchLabelId}
+                        ariaDescribedBy={switchHelpId}
+                        className="mt-0.5"
+                      />
+                    </div>
+                    {manifestDisabled ? (
+                      <div className="mt-2 border-l-2 border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                        Disabled by this role manifest. The app setting cannot enable it until the manifest changes.
+                      </div>
+                    ) : null}
+                    {warnings.length > 0 ? (
+                      <div className="mt-2 space-y-1 border-l-2 border-[color:var(--tone-warn)] pl-3">
+                        {warnings.map((warning) => (
+                          <p
+                            key={`${role.id}:${warning.code}:${warning.message}`}
+                            className="text-[12px] leading-5 text-[color:var(--tone-warn)]"
+                          >
+                            Warning: {warning.message}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+          ) : null}
+
+          {roleRegistry?.warnings.length ? (
+            <div className="space-y-1 border-l-2 border-[color:var(--tone-warn)] pl-3">
+              {roleRegistry.warnings.map((warning) => (
+                <p
+                  key={`${warning.code}:${warning.message}`}
+                  className="text-[12px] leading-5 text-[color:var(--tone-warn)]"
+                >
+                  Registry warning: {warning.message}
+                </p>
+              ))}
+            </div>
+          ) : null}
+
+          {roleInstallMessage ? (
+            <MessageBlock tone={roleInstallMessage.tone}>
+              {roleInstallMessage.text}
+            </MessageBlock>
+          ) : (
+            <MessageBlock tone="neutral">
+              Install accepts a registry folder with roles and skills, a roles folder with JSON manifests, or a skills folder with SKILL.md directories.
+            </MessageBlock>
+          )}
         </div>
       ) : null}
 

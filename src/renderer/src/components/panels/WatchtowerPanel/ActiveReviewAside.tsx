@@ -178,6 +178,13 @@ export function WatchtowerActiveReviewAside({
                   })
                 }
                 const action = agent.specialistId ? getSpecialistAction(agent.specialistId as SpecialistActionId) : null
+                // Watchtower runs fixed specialist actions, not Sprint Engine
+                // registry roles. `soulRoleToSprintEngineRole` narrows the
+                // specialist's `soulRole` to a bundled `SprintEngineRole` (or
+                // null when the specialist has no bundled equivalent), so
+                // indexing `sprintEngineRoleLabels`/`Accent` here is the
+                // documented bundled-role compatibility path. Custom Sprint
+                // Engine registry roles never reach this aside.
                 const role = action ? soulRoleToSprintEngineRole(action.soulRole) : null
                 const displayLabel = role ? sprintEngineRoleLabels[role] : (action?.shortLabel ?? specialistShortLabel(agent))
                 const discStyle = role

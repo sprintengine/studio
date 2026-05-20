@@ -910,6 +910,11 @@ function SwitchboardRunningAgentsAside({
 
       <ul className="min-h-0 flex-1 overflow-y-auto">
         {entries.map((entry) => {
+          // Switchboard is a non-Sprint Engine surface that runs fixed
+          // specialist actions, not registry-keyed roles. `soulRoleToSprintEngineRole`
+          // narrows the specialist id to a bundled `SprintEngineRole` (or
+          // null), so indexing `sprintEngineRoleLabels` below is intentional
+          // bundled-role compatibility — not a Sprint Engine registry path.
           const role = soulRoleToSprintEngineRole(entry.execution.role)
           const identifier = entry.record ? shortIdentifier(entry.record) : entry.execution.taskId
           const title = entry.record?.task.title ?? entry.execution.taskId

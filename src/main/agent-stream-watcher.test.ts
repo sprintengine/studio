@@ -29,16 +29,19 @@ function testReadinessPatternFiresOncePerWatcher(): void {
 }
 
 function testCompletionSentinelDetectedAcrossChunks(): void {
+  // The sentinel literal is plugin-defined (Switchboard agent descriptors).
+  // Use a neutral test literal so the fixture does not look like a Sprint
+  // Engine stdout wake-up signal — Sprint Engine wake-up is dispatch-driven.
   const watcher = createAgentStreamWatcher({
-    completionSentinel: '[sprint-engine:done]',
+    completionSentinel: '[agent:turn-complete]',
   })
-  let result = watcher.ingest('Doing work...\n[sprint-')
+  let result = watcher.ingest('Doing work...\n[agent:')
   assert.equal(result.completionMatched, false)
 
-  result = watcher.ingest('engine:done]\nFinishing up.')
+  result = watcher.ingest('turn-complete]\nFinishing up.')
   assert.equal(result.completionMatched, true)
 
-  result = watcher.ingest('[sprint-engine:done]')
+  result = watcher.ingest('[agent:turn-complete]')
   assert.equal(result.completionMatched, false, 'sentinel should fire at most once until reset')
 }
 

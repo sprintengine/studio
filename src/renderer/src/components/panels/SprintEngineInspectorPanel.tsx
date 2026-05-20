@@ -44,10 +44,10 @@ import {
   getSprintEngineArtifactDependencyBlockers,
   getSprintEngineTaskActivityDescending,
   getSprintEngineTaskQualityGates,
+  getSprintEngineRoleLabel,
   sprintEngineArtifactKindLabels,
   sprintEngineArtifactStatusLabels,
   sprintEngineQualityGateStatusLabels,
-  sprintEngineRoleLabels,
   sprintEngineTaskBoardColumns,
   sprintEngineTaskCommentTypeLabels,
 } from '../../utils/sprintengine'
@@ -380,7 +380,7 @@ function TaskCommentRow({ comment }: { comment: SprintEngineTaskComment }) {
         <span className="font-mono text-[10px] uppercase tracking-normal text-[color:var(--text-muted)]">{label}</span>
         <span className="font-mono text-[11px] text-[color:var(--text-muted)]">{authorLabel}</span>
         {comment.authorRole ? (
-          <span className="text-[color:var(--text-disabled)]">{sprintEngineRoleLabels[comment.authorRole]}</span>
+          <span className="text-[color:var(--text-disabled)]">{getSprintEngineRoleLabel(comment.authorRole)}</span>
         ) : null}
         <span
           title={absolute}
@@ -1006,7 +1006,7 @@ function TaskQualityGates({
           const gateIdentity = (
             <span className="inline-flex min-w-0 items-center gap-1.5">
               <RoleAvatar role={gate.role} size="sm" ariaLabel="" />
-              <span className="truncate">{agent?.label ?? sprintEngineRoleLabels[gate.role]}</span>
+              <span className="truncate">{agent?.label ?? getSprintEngineRoleLabel(gate.role)}</span>
             </span>
           )
           return (
@@ -1797,7 +1797,7 @@ export function SprintEngineInspectorPanel({
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
                 <RoleAvatar role={agent.role} size="sm" ariaLabel="" />
-                <span>{sprintEngineRoleLabels[agent.role]}</span>
+                <span>{getSprintEngineRoleLabel(agent.role)}</span>
                 <span>·</span>
                 <span className="flex items-center gap-1.5">
                   <StatusDot tone={runtimeStatusTone(runtime?.status ?? (hasLiveTerminal ? 'running' : 'idle'))} />
@@ -1831,7 +1831,7 @@ export function SprintEngineInspectorPanel({
                 onClick={() => onSpawnAgent(agent.id)}
                 className="h-7 rounded border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] px-2.5 text-[11px] font-semibold text-[color:var(--accent-primary)] interactive transition-colors hover:bg-[color:var(--accent-primary-soft-strong)]"
               >
-                Spawn {sprintEngineRoleLabels[agent.role]}
+                Spawn {getSprintEngineRoleLabel(agent.role)}
               </button>
             )}
           </div>

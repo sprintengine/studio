@@ -1,9 +1,9 @@
 import type { IJsonModel } from 'flexlayout-react'
 import type {
   GuidedBriefRuntimeState,
-  SprintEngineRole,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
+  SprintEngineRoleId,
   Workspace,
   WorkspaceId,
 } from '../../types/workspace'
@@ -78,20 +78,41 @@ const defaultSprintEngineRoleCliDefaultsForGuidedBrief = (): Required<SprintEngi
   security: 'codex',
 })
 
+function clampGuidedBriefRoleCount(role: SprintEngineRoleId, raw: number): number {
+  // Architect always seats at least one agent; other roles may be zero.
+  // Counts are floored to integers and capped at the same upper bound the
+  // roster table enforces so guided-brief can't slip past that ceiling.
+  const minimum = role === 'architect' ? 1 : 0
+  return Math.max(minimum, Math.min(10, Math.floor(raw)))
+}
+
+function isValidGuidedBriefRoleId(value: unknown): value is SprintEngineRoleId {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
 function normalizeRoleCountsForGuidedBrief(
   input: unknown,
   fallback: SprintEngineRoleCounts
 ): SprintEngineRoleCounts {
-  const candidate = input && typeof input === 'object'
-    ? (input as Partial<Record<SprintEngineRole, unknown>>)
+  const candidate: Record<SprintEngineRoleId, unknown> = input && typeof input === 'object'
+    ? (input as Record<SprintEngineRoleId, unknown>)
     : {}
-  const next = { ...fallback }
-  ;(Object.keys(fallback) as SprintEngineRole[]).forEach((role) => {
+  const next: SprintEngineRoleCounts = { ...fallback }
+  // Apply fallback's bundled-role entries (so missing keys keep the sensible
+  // defaults) and then merge in any registry-keyed role ids the user picked
+  // in the roster table. Blank/invalid role keys and non-finite values are
+  // discarded so workspace creation never sees malformed counts.
+  for (const role of Object.keys(fallback) as SprintEngineRoleId[]) {
+    next[role] = clampGuidedBriefRoleCount(role, fallback[role] ?? 0)
+  }
+  for (const role of Object.keys(candidate)) {
+    if (!isValidGuidedBriefRoleId(role)) continue
     const value = candidate[role]
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      next[role] = Math.max(role === 'architect' ? 1 : 0, Math.min(10, Math.floor(value)))
-    }
-  })
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue
+    next[role] = clampGuidedBriefRoleCount(role, value)
+  }
+  // Architect minimum is enforced even when input omitted the role entirely.
+  if ((next.architect ?? 0) < 1) next.architect = 1
   return next
 }
 
@@ -99,13 +120,20 @@ function normalizeRoleCliDefaultsForGuidedBrief(
   input: SprintEngineRoleCliDefaults | null | undefined
 ): Required<SprintEngineRoleCliDefaults> {
   const defaults = defaultSprintEngineRoleCliDefaultsForGuidedBrief()
-  const next = { ...defaults }
-  Object.keys(defaults).forEach((role) => {
-    const value = input?.[role as SprintEngineRole]
-    if (value === 'codex' || value === 'claude') {
-      next[role as SprintEngineRole] = value
+  // Start from the bundled defaults so guided-brief always has a CLI for the
+  // canonical roles, then merge in any valid registry-keyed CLI selections
+  // (e.g. `marketer: 'claude'`). Invalid CLI values and blank role keys are
+  // dropped silently so workspace creation never sees malformed defaults.
+  const next: Required<SprintEngineRoleCliDefaults> = { ...defaults }
+  if (input && typeof input === 'object') {
+    for (const role of Object.keys(input)) {
+      if (!isValidGuidedBriefRoleId(role)) continue
+      const value = (input as Record<SprintEngineRoleId, unknown>)[role]
+      if (value === 'codex' || value === 'claude') {
+        next[role] = value
+      }
     }
-  })
+  }
   return next
 }
 
@@ -185,9 +213,9 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
     wantsArchitectureDiscussion,
     wantsFrontendDiscussion,
     guidedRoleCliDefaults: {
-      product: roleCliDefaults.product,
-      architect: roleCliDefaults.architect,
-      frontend: roleCliDefaults.frontend,
+      product: roleCliDefaults.product ?? 'codex',
+      architect: roleCliDefaults.architect ?? 'codex',
+      frontend: roleCliDefaults.frontend ?? 'codex',
     },
     buildRoleCounts,
     buildRoleCliDefaults,

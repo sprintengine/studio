@@ -49,6 +49,7 @@ const watchtowerPanel = [
   read('src/renderer/src/components/panels/WatchtowerPanel/ActiveReviewAside.tsx'),
 ].join('\n')
 const sprintEnginePanel = read('src/renderer/src/components/panels/SprintEngineBoardPanel.tsx')
+const settingsPanel = read('src/renderer/src/components/settings/SettingsPanel.tsx')
 const multiloopSettingsPanel = read('src/renderer/src/components/panels/MultiloopBoardPanel/MultiloopSettingsPopover.tsx')
 const sprintEngineSettingsPopover = sliceFunction(sprintEnginePanel, 'SprintEngineSettingsPopover')
 const multiloopSettingsPopover = sliceFunction(multiloopSettingsPanel, 'MultiloopSettingsPopover')
@@ -251,12 +252,14 @@ assert.ok(
 
 // RoleGlyph — the documented exception to the one-accent rule. Wrapper is
 // role="img" with an accessible name including the role label; the tone
-// comes from the canonical sprintEngineRoleAccent map and the documentation
+// and label both come from the canonical safe accessors (getSprintEngineRoleLabel
+// and getSprintEngineRoleAccent) so registry-keyed custom roles render
+// safely instead of indexing static bundled-role maps. The documentation
 // reference is required in-file.
 expectIncludes(roleGlyph, 'role="img"', 'RoleGlyph exposes role="img" on its wrapper')
 expectIncludes(roleGlyph, 'aria-label={label}', 'RoleGlyph attaches an accessible name')
-expectIncludes(roleGlyph, 'sprintEngineRoleLabels[role]', 'RoleGlyph names the role in its accessible label')
-expectIncludes(roleGlyph, 'sprintEngineRoleAccent[role]', 'RoleGlyph reads tone from the canonical role accent map')
+expectIncludes(roleGlyph, 'getSprintEngineRoleLabel(role, registry)', 'RoleGlyph names the role via the registry-aware label accessor')
+expectIncludes(roleGlyph, 'getSprintEngineRoleAccent(role, registry)', 'RoleGlyph reads tone via the registry-aware accent accessor')
 expectIncludes(roleGlyph, 'knowledge/brand/panel-design-system.md', 'RoleGlyph documents itself against the panel design system contract')
 
 expectIncludes(switchboardPanel, '[aria-label="Switchboard overflow"]', 'Switchboard runner restores focus to overflow trigger')
@@ -274,5 +277,30 @@ expectIncludes(sprintEnginePanel, 'role="tabpanel"', 'Sprint Engine views expose
 expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-inbox"', 'Sprint Engine inbox panel is labelled by its tab')
 expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-roster"', 'Sprint Engine roster panel is labelled by its tab')
 expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-tasks"', 'Sprint Engine tasks panel is labelled by its tab')
+
+expectIncludes(settingsPanel, 'role="tablist"', 'Settings categories expose tablist semantics')
+expectIncludes(settingsPanel, 'role="tabpanel"', 'Settings content exposes tabpanel semantics')
+expectIncludes(settingsPanel, 'id="settings-panel-roles"', 'Settings Roles tab has a stable panel id')
+expectIncludes(settingsPanel, 'aria-labelledby="settings-tab-roles"', 'Settings Roles panel is labelled by its tab')
+expectIncludes(settingsPanel, 'ArrowDown: (index + 1) % settingsTabs.length', 'Settings category tabs support ArrowDown focus movement')
+expectIncludes(settingsPanel, 'ArrowUp: (index - 1 + settingsTabs.length) % settingsTabs.length', 'Settings category tabs support ArrowUp focus movement')
+expectIncludes(settingsPanel, 'Home: 0', 'Settings category tabs support Home focus movement')
+expectIncludes(settingsPanel, 'End: settingsTabs.length - 1', 'Settings category tabs support End focus movement')
+expectIncludes(settingsPanel, 'ariaLabelledBy={switchLabelId}', 'Settings role switches are labelled by visible role names')
+expectIncludes(settingsPanel, 'ariaDescribedBy={switchHelpId}', 'Settings role switches describe source and role id context')
+expectIncludes(settingsPanel, 'Warning: {warning.message}', 'Settings role warnings include text, not color alone')
+expectIncludes(settingsPanel, 'Registry warning: {warning.message}', 'Settings registry warnings include text, not color alone')
+expectIncludes(settingsPanel, "roleRegistryStatus === 'loading'", 'Settings Roles distinguishes loading state')
+expectIncludes(settingsPanel, "roleRegistryStatus === 'unavailable'", 'Settings Roles distinguishes unavailable state')
+expectIncludes(settingsPanel, "roleRegistryStatus === 'ready' && registryRoles.length === 0", 'Settings Roles distinguishes empty state')
+
+expectIncludes(settingsPanel, 'const roleEntries = await window.api.readdir(rolesPath)', 'Settings role install inspects selected registry roles contents')
+expectIncludes(settingsPanel, "entry.name.toLowerCase().endsWith('.json')", 'Settings role install filters role manifests to JSON files')
+expectIncludes(settingsPanel, 'sourcePath: joinLocalPath(rolesPath, entry.name)', 'Settings role install copies individual role JSON files')
+expectIncludes(settingsPanel, "destinationKind: 'roles' as const", 'Settings role install targets discovered manifests at .sprintengine/roles')
+expectIncludes(settingsPanel, 'const skillEntries = await window.api.readdir(skillsPath)', 'Settings role install inspects selected registry skills contents')
+expectIncludes(settingsPanel, 'sourcePath: joinLocalPath(skillsPath, entry.name)', 'Settings role install copies individual skill folders')
+expectIncludes(settingsPanel, "destinationKind: 'skills' as const", 'Settings role install targets discovered skills at .sprintengine/skills')
+expectIncludes(settingsPanel, 'await window.api.copyPathInto(target.sourcePath, destinationDir, { overwrite: true })', 'Settings role install preserves resolved child names in registry discovery folders')
 
 console.log('Accessibility primitive contracts passed')

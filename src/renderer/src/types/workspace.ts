@@ -28,10 +28,69 @@ export type LayoutTemplate = {
   layout: IJsonModel
 }
 
+// `SprintEngineRole` is the *bundled* Sprint Engine role union shipped under
+// `resources/sprintengine/roles/`. It still types bundled config shapes such
+// as default skill maps, default role counts, and CLI defaults — those are
+// Multicode-owned settings, not pluggable role manifests.
+//
+// Pluggable/projection-facing surfaces (task.role, gate.role, agent.role,
+// comment.authorRole, feedback.role, quality-policy gate.role, runtime agent
+// role) must accept any registry-discovered role id, including custom ones
+// defined under workspace / user / plugin layers. Those fields use
+// `SprintEngineRoleId` below so unknown configured ids round-trip through
+// normalization without being coerced or dropped.
 export type SprintEngineRole = 'architect' | 'product' | 'developer' | 'frontend' | 'tester' | 'security' | 'code_reviewer' | 'spec_reviewer' | 'performance'
 
+// Registry-keyed role identifier. Any non-empty string the role registry
+// emitted (bundled, workspace, user, or plugin layer). UI/runtime surfaces
+// must never index static label/accent maps with this — use the safe
+// accessors in `utils/sprintengine.ts`.
+export type SprintEngineRoleId = string
+
+export type SprintEngineRoleRegistrySourceLayer =
+  | 'bundled'
+  | 'workspace'
+  | 'user'
+  | 'plugin'
+  | string
+
+export type SprintEngineRoleRegistryWarning = {
+  code: string
+  message: string
+  roleId?: string
+  sourceLayer?: string
+}
+
+// Registry-derived metadata for a single role. Mirrors the
+// `sprintengine.roles.list` / `sprintengine.roles.get` payload shape. The
+// renderer only reads from here; mutations go through the Sprint Engine
+// tool. `label`, `summary`, `icon`, and `source.layer` are the only fields
+// the renderer currently uses for display; the rest is captured so future
+// surfaces (settings tab, soul preview) can grow without re-plumbing the
+// type.
+export type SprintEngineRoleRegistryMetadata = {
+  id: SprintEngineRoleId
+  label: string
+  aliases: string[]
+  summary?: string | null
+  icon?: string | null
+  source: { layer: SprintEngineRoleRegistrySourceLayer }
+  shadowedSources?: { layer: SprintEngineRoleRegistrySourceLayer }[]
+  warnings?: SprintEngineRoleRegistryWarning[]
+  enabled?: boolean
+}
+
+// Read-only directory the renderer builds from a registry payload. Indexed
+// by canonical role id and (via `aliases`) by alias. `warnings` carries any
+// registry-level warnings the discovery emitted.
+export type SprintEngineRoleRegistry = {
+  roles: Record<SprintEngineRoleId, SprintEngineRoleRegistryMetadata>
+  aliases: Record<string, SprintEngineRoleId>
+  warnings: SprintEngineRoleRegistryWarning[]
+}
+
 export type SprintEngineSkillMap = Record<SprintEngineRole, string[]>
-export type SprintEngineRoleCounts = Record<SprintEngineRole, number>
+export type SprintEngineRoleCounts = Record<SprintEngineRoleId, number>
 
 export type SprintEngineTaskStatus = 'todo' | 'changes_requested' | 'in_progress' | 'review' | 'testing' | 'product' | 'needs_input' | 'done'
 
@@ -51,7 +110,7 @@ export type SprintEngineQualityGateAttempt = {
   id?: string
   status?: SprintEngineQualityGateStatus
   actor?: string
-  role?: SprintEngineRole
+  role?: SprintEngineRoleId
   claimedBy?: string
   startedAt?: string
   completedAt?: string
@@ -62,7 +121,7 @@ export type SprintEngineQualityGateAttempt = {
 export type SprintEngineQualityGate = {
   id: string
   phase: SprintEngineQualityGatePhase
-  role: SprintEngineRole
+  role: SprintEngineRoleId
   status: SprintEngineQualityGateStatus
   required: boolean
   allowSelfReview: boolean
@@ -80,7 +139,7 @@ export type SprintEngineQualityGateSummary = {
 
 export type SprintEngineQualityPolicyGate = {
   phase: SprintEngineQualityGatePhase
-  role: SprintEngineRole
+  role: SprintEngineRoleId
   required: boolean
   focus?: string
 }
@@ -251,7 +310,7 @@ export type SprintEngineTaskComment = {
   createdAt: string
   type?: SprintEngineTaskCommentType
   authorAgentId?: string
-  authorRole?: SprintEngineRole
+  authorRole?: SprintEngineRoleId
   paths?: string[]
   data?: Record<string, unknown>
 }
@@ -348,7 +407,7 @@ export type SprintEngineTaskFeedback = {
   capturedAt: string
   source: 'agent_self_report' | string
   agentId: string
-  role: SprintEngineRole
+  role: SprintEngineRoleId
   scores: SprintEngineTaskFeedbackScores
   topFriction?: string
   suggestedImprovement?: string
@@ -358,7 +417,7 @@ export type SprintEngineTaskFeedback = {
 
 export type SprintEngineTaskTriage = {
   summary: string
-  suggestedRole?: SprintEngineRole
+  suggestedRole?: SprintEngineRoleId
   acceptanceCriteria: string[]
   likelyAffectedAreas: string[]
   missingInformation: string[]
@@ -410,10 +469,23 @@ export type SprintEngineTaskNeedsInput = {
 
 export type SprintEngineRuntimeAgentStatus = 'idle' | 'running' | 'needs_input' | 'done' | 'retired'
 
+export type SprintEngineCurrentDispatch = {
+  dispatchId: string | null
+  targetKind: string | null
+  role?: SprintEngineRoleId
+  reason?: string
+  taskId?: string
+  gateId?: string
+  artifactId?: string
+  attemptId?: string
+  assignedAt?: string
+}
+
 export type SprintEngineRuntimeAgent = {
-  role: SprintEngineRole
+  role: SprintEngineRoleId
   status: SprintEngineRuntimeAgentStatus
   currentTaskId: string | null
+  currentDispatch?: SprintEngineCurrentDispatch | null
 }
 
 export type SprintEngineTaskActivityType =
@@ -492,7 +564,10 @@ export type SprintEngineAutoState = {
 }
 
 export type MultiloopAutoPendingSpawn = {
-  role: MultiloopRole | SprintEngineRole
+  // Accepts a fixed Multiloop role or any registry-keyed Sprint Engine role
+  // id (bundled or custom) so spawn records survive projection ingestion
+  // even when the active Sprint Engine team includes custom roles.
+  role: MultiloopRole | SprintEngineRoleId
   taskId?: string | null
   agentId: string
   startedAt?: number
@@ -751,7 +826,7 @@ export type SprintEngineTask = {
   id: string
   title: string
   description: string
-  role: SprintEngineRole
+  role: SprintEngineRoleId
   status: SprintEngineTaskStatus
   source?: SprintEngineTaskSource
   dispatch?: SprintEngineTaskDispatch
@@ -822,7 +897,11 @@ export type AgentMessage = {
 
 export type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete'
 export type AgentCli = 'codex' | 'claude'
-export type SprintEngineRoleCliDefaults = Partial<Record<SprintEngineRole, AgentCli>>
+export type SprintEngineRoleCliDefaults = Partial<Record<SprintEngineRoleId, AgentCli>>
+
+export type SprintEngineRoleSettings = {
+  enabled: Record<SprintEngineRoleId, boolean>
+}
 export type MultiloopRole =
   | 'coordinator'
   | 'architect'
@@ -1027,6 +1106,7 @@ export type AppSettings = {
   lastAgentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   specialistCliDefaults: Partial<Record<SpecialistActionId, AgentCli>>
   multiloopRoleCliDefaults: Partial<Record<MultiloopRole, AgentCli>>
+  sprintEngineRoleSettings: SprintEngineRoleSettings
   searchExcludes: string[]
   projectKnowledgeRoots: Record<string, string | null>
   recentWorkspaceFolders: string[]

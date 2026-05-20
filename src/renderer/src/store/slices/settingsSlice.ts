@@ -7,6 +7,8 @@ import type {
   McpServerConfig,
   McpSettings,
   MultiloopRole,
+  SprintEngineRoleId,
+  SprintEngineRoleSettings,
   SkillPackEntry,
   SkillPackHarness,
   SkillPackSettings,
@@ -313,6 +315,27 @@ export function normalizeCliDefaults<K extends string>(
   return result
 }
 
+export function defaultSprintEngineRoleSettings(): SprintEngineRoleSettings {
+  return { enabled: {} }
+}
+
+function normalizeRoleEnabledRecord(value: unknown): Record<SprintEngineRoleId, boolean> {
+  if (!value || typeof value !== 'object') return {}
+  const result: Record<SprintEngineRoleId, boolean> = {}
+  for (const [key, enabled] of Object.entries(value as Record<string, unknown>)) {
+    const id = key.trim()
+    if (!id || typeof enabled !== 'boolean') continue
+    result[id] = enabled
+  }
+  return result
+}
+
+export function normalizeSprintEngineRoleSettings(value: unknown): SprintEngineRoleSettings {
+  if (!value || typeof value !== 'object') return defaultSprintEngineRoleSettings()
+  const candidate = value as Partial<SprintEngineRoleSettings>
+  return { enabled: normalizeRoleEnabledRecord(candidate.enabled) }
+}
+
 export const defaultAppSettings = (): AppSettings => ({
   cliRuntimes: {
     codex: { command: 'codex', useWsl: false },
@@ -329,6 +352,7 @@ export const defaultAppSettings = (): AppSettings => ({
   lastAgentSpawnPermissionPreset: 'default',
   specialistCliDefaults: {},
   multiloopRoleCliDefaults: {},
+  sprintEngineRoleSettings: defaultSprintEngineRoleSettings(),
   searchExcludes: [],
   projectKnowledgeRoots: {},
   recentWorkspaceFolders: [],
@@ -352,6 +376,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
     specialistCliDefaults: normalizeCliDefaults(settings?.specialistCliDefaults),
     multiloopRoleCliDefaults: normalizeCliDefaults(settings?.multiloopRoleCliDefaults),
+    sprintEngineRoleSettings: normalizeSprintEngineRoleSettings(settings?.sprintEngineRoleSettings),
     searchExcludes: normalizeSearchExcludes(settings?.searchExcludes),
     projectKnowledgeRoots: normalizeProjectKnowledgeRoots(settings?.projectKnowledgeRoots, workspaces),
     recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
@@ -386,6 +411,7 @@ export interface SettingsSliceActions {
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
+  setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
   setSearchExcludes: (patterns: string[]) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setLearningShowTipsOnStartup: (enabled: boolean) => void
@@ -531,6 +557,19 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
           delete state.appSettings.multiloopRoleCliDefaults[role]
         } else {
           state.appSettings.multiloopRoleCliDefaults[role] = cli
+        }
+      }),
+
+    setSprintEngineRoleEnabled: (role, enabled) =>
+      set((state) => {
+        const id = role.trim()
+        if (!id) return
+        const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
+        state.appSettings.sprintEngineRoleSettings = {
+          enabled: {
+            ...current.enabled,
+            [id]: enabled,
+          },
         }
       }),
 

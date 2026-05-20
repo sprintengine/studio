@@ -16,7 +16,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { ensureAgentTabInLayoutModel, focusOrAddAgentTab } from '../../utils/modelRegistry'
 import { parseMultiloopStateFile } from '../../utils/multiloopStateFile'
 import { getActiveMultiloopMilestone } from '../../utils/multiloop'
-import { buildSprintEngineRosterCommandArgs, normalizeSprintEngineProjection, sprintEngineRoleLabels } from '../../utils/sprintengine'
+import { buildSprintEngineRosterCommandArgs, getSprintEngineRoleLabel, normalizeSprintEngineProjection } from '../../utils/sprintengine'
 import {
   agentCliSupportsConversationResume,
   agentCliUsesStableSessionIdForResume,
@@ -297,7 +297,7 @@ async function spawnMultiloopAutoRunCandidate(
           commandMode: getSprintEngineStartupCommandMode(candidate.role, candidate.agentId, linkedSprintEngineState),
         }),
         candidate.label,
-        sprintEngineRoleLabels[candidate.role]
+        getSprintEngineRoleLabel(candidate.role)
       )
     } else {
       const repaired = await window.api.initializeMultiloopState({

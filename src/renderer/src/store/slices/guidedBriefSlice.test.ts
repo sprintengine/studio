@@ -111,3 +111,42 @@ assert.equal(
   true,
   'setGuidedBriefState should ensure the guided-brief layout'
 )
+
+// Registry-keyed roles survive guided-brief state normalization. A
+// workspace that ships a custom Sprint Engine role (e.g. `marketer` from
+// `.sprintengine/roles/marketer.json`) must keep its roster-table count
+// and CLI default so the Sprint Engine workspace creation step seats the
+// real custom-role agent — bundled-only filtering would silently drop it.
+const customRoleGuidedBrief: Partial<GuidedBriefRuntimeState> = {
+  workspaceRoot: '/repo/custom',
+  workspaceName: 'Custom role brief',
+  idea: 'Run a launch sprint with a marketer',
+  hasUi: 'yes',
+  buildRoleCounts: {
+    architect: 0, // forced to 1
+    product: 1,
+    frontend: 1,
+    developer: 1,
+    marketer: 2,
+    growth_engineer: 1,
+    '': 4, // blank role id dropped
+    '   ': 1, // whitespace-only role id dropped
+  } as unknown as GuidedBriefRuntimeState['buildRoleCounts'],
+  buildRoleCliDefaults: {
+    architect: 'codex',
+    product: 'codex',
+    marketer: 'claude',
+    growth_engineer: 'codex',
+    '': 'claude',
+  } as unknown as GuidedBriefRuntimeState['buildRoleCliDefaults'],
+}
+const customRoleNormalized = normalizeGuidedBriefState(customRoleGuidedBrief)
+assert.ok(customRoleNormalized, 'guided brief input with custom roles should normalize')
+assert.equal(customRoleNormalized.buildRoleCounts.architect, 1, 'architect minimum survives missing input')
+assert.equal(customRoleNormalized.buildRoleCounts.marketer, 2, 'registry-keyed marketer count is preserved')
+assert.equal(customRoleNormalized.buildRoleCounts.growth_engineer, 1, 'registry-keyed growth_engineer count is preserved')
+assert.equal(customRoleNormalized.buildRoleCounts[''], undefined, 'blank role id is dropped')
+assert.equal(customRoleNormalized.buildRoleCounts['   '], undefined, 'whitespace-only role id is dropped')
+assert.equal(customRoleNormalized.buildRoleCliDefaults.marketer, 'claude', 'registry-keyed CLI default is preserved')
+assert.equal(customRoleNormalized.buildRoleCliDefaults.growth_engineer, 'codex', 'second custom-role CLI default is preserved')
+assert.equal(customRoleNormalized.buildRoleCliDefaults[''], undefined, 'blank CLI default key is dropped')

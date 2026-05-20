@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { readFile } from 'fs/promises'
-import { win32 } from 'path'
+import { join, win32 } from 'path'
 import {
   MobileSprintEngineCommandError,
   type MobileSprintEngineFollowUpRequest,
@@ -56,20 +56,17 @@ type RuntimeAgent = {
   currentTaskId: string | null
 }
 
-type RawSprintEngineState = {
-  sprintengine?: {
-    goal?: unknown
-  }
-  tasks?: Array<{
-    id?: unknown
-    role?: unknown
-    status?: unknown
-    ownerAgentId?: unknown
-  }>
-  sprintEngineAgents?: Record<string, RuntimeAgent>
+type ProjectionState = {
+  goal: string
+  sprintEngineAgents: Record<string, RuntimeAgent>
 }
 
-const sprintEngineRoleLabels: Record<string, string> = {
+// Bundled-role display labels used for the mobile startup prompt. This map is
+// a humanization fallback only — unknown registry-keyed role ids resolve via
+// `humanizeMobileSprintEngineRoleId` so custom Sprint Engine roles
+// (e.g. `marketer`, `growth-engineer`) get a sensible title-cased label
+// instead of indexing this bundled-role table directly.
+const bundledSprintEngineRoleLabels: Record<string, string> = {
   architect: 'Architect',
   product: 'Product Strategist',
   developer: 'Developer',
@@ -79,6 +76,17 @@ const sprintEngineRoleLabels: Record<string, string> = {
   code_reviewer: 'Code Reviewer',
   spec_reviewer: 'Spec Reviewer',
   performance: 'Performance Engineer',
+}
+
+function mobileSprintEngineRoleLabel(role: string): string {
+  const bundled = bundledSprintEngineRoleLabels[role]
+  if (bundled) return bundled
+  const cleaned = role.trim().replace(/[_-]+/g, ' ').trim()
+  if (!cleaned) return role
+  return cleaned
+    .split(/\s+/u)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ')
 }
 
 export class DesktopMobileSprintEngineSessionOrchestrator implements MobileSprintEngineSessionOrchestrator {
@@ -102,7 +110,7 @@ export class DesktopMobileSprintEngineSessionOrchestrator implements MobileSprin
       throw new MobileSprintEngineCommandError('task_not_ready', 'Desktop has reached the live Sprint Engine terminal limit.', true)
     }
 
-    const state = await readRawSprintEngineState(request.statePath)
+    const state = await readMobileSprintEngineProjection(request.teamDirectory)
     const agentId = chooseAgentId(state, request.role, processAliveSprintEngineSessions)
     if (processAliveSprintEngineSessions.some((session) => session.agentId === agentId)) {
       throw new MobileSprintEngineCommandError('task_not_ready', 'The selected Sprint Engine agent already has a live terminal.', false)
@@ -121,8 +129,8 @@ export class DesktopMobileSprintEngineSessionOrchestrator implements MobileSprin
       initialPrompt: buildStartupPrompt({
         role: request.role,
         agentId,
-        label: sprintEngineRoleLabels[request.role] ?? request.role,
-        goal: typeof state.sprintengine?.goal === 'string' ? state.sprintengine.goal : '',
+        label: mobileSprintEngineRoleLabel(request.role),
+        goal: state.goal,
         workspaceRoot: request.workspaceRoot,
         executionCwd,
         statePath: request.statePath,
@@ -184,17 +192,52 @@ function normalizeFollowUpTextForTerminal(value: string): string {
   return text
 }
 
-async function readRawSprintEngineState(statePath: string): Promise<RawSprintEngineState> {
-  return JSON.parse(await readFile(statePath, 'utf8')) as RawSprintEngineState
+async function readMobileSprintEngineProjection(teamDirectory: string): Promise<ProjectionState> {
+  // Sprint Engine's canonical UI/MCP read is `projection.json`. The mobile
+  // startup prompt only needs the goal string and per-agent roster shape —
+  // anything richer flows through MCP, not run-store internals.
+  const projectionPath = join(teamDirectory, 'projection.json')
+  let projection: Record<string, unknown>
+  try {
+    projection = JSON.parse(await readFile(projectionPath, 'utf8')) as Record<string, unknown>
+  } catch (error) {
+    throw new MobileSprintEngineCommandError(
+      'internal_error',
+      `Sprint Engine projection could not be read from projection.json: ${error instanceof Error ? error.message : String(error)}`,
+      false
+    )
+  }
+
+  const run = projection.run && typeof projection.run === 'object' && !Array.isArray(projection.run)
+    ? projection.run as Record<string, unknown>
+    : {}
+  const roster = projection.roster && typeof projection.roster === 'object' && !Array.isArray(projection.roster)
+    ? projection.roster as Record<string, unknown>
+    : {}
+  const sprintEngineAgents: Record<string, RuntimeAgent> = {}
+  for (const [agentId, raw] of Object.entries(roster)) {
+    if (!raw || typeof raw !== 'object') continue
+    const record = raw as Record<string, unknown>
+    sprintEngineAgents[agentId] = {
+      role: typeof record.role === 'string' ? record.role : '',
+      status: typeof record.status === 'string' ? record.status : '',
+      currentTaskId: typeof record.currentTaskId === 'string' ? record.currentTaskId : null,
+    }
+  }
+
+  return {
+    goal: typeof run.goal === 'string' ? run.goal : '',
+    sprintEngineAgents,
+  }
 }
 
 function chooseAgentId(
-  state: RawSprintEngineState,
+  state: ProjectionState,
   role: string,
   processAliveSessions: TerminalSessionSnapshot[]
 ): string {
   const processAliveAgentIds = new Set(processAliveSessions.flatMap((session) => session.agentId ? [session.agentId] : []))
-  const agents = state.sprintEngineAgents && typeof state.sprintEngineAgents === 'object' ? state.sprintEngineAgents : {}
+  const agents = state.sprintEngineAgents
   const idleAgent = Object.entries(agents)
     .sort(([first], [second]) => agentIdSortValue(first, role) - agentIdSortValue(second, role))
     .find(([agentId, agent]) =>

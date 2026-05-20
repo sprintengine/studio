@@ -221,6 +221,9 @@ registerSprintEngineIpc(ipcMain, {
   setRunnerMode: sprintEngineArtifacts.setRunnerMode,
   replenishRoster: sprintEngineArtifacts.replenishRoster,
   readProjection: sprintEngineArtifacts.readProjection,
+  readRegistryRoles: sprintEngineArtifacts.readRegistryRoles,
+  readRegistryRole: sprintEngineArtifacts.readRegistryRole,
+  readDispatch: sprintEngineArtifacts.readDispatch,
 })
 
 registerSwitchboardIpc(ipcMain, {

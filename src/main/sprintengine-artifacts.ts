@@ -4,7 +4,11 @@ import { spawn } from 'child_process'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type {
   SprintEngineArtifactCommandResult,
+  SprintEngineDispatchReadInput,
+  SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
+  SprintEngineRegistryRoleReadInput,
+  SprintEngineRegistryRolesReadInput,
   SprintEngineRosterReplenishInput,
   SprintEngineRunnerSetInput,
   SprintEngineStateInitializeInput,
@@ -25,11 +29,12 @@ import type {
 type SprintEngineArtifactDependencies = {
   getAuthenticatedUserId(): string | null
   openExternal(url: string): Promise<void>
+  runMcpTool?: SprintEngineMcpToolRunner
 }
 
 type SprintEngineMcpActorContext = {
   id: string
-  role: 'user'
+  role: 'user' | 'renderer'
   authenticated: true
   mcpAuthorized: true
 }
@@ -37,6 +42,22 @@ type SprintEngineMcpActorContext = {
 type SprintEngineMcpToolResponse =
   | { ok: true; tool: string; result: unknown }
   | { ok: false; tool: string; error?: { code?: string; message?: string } }
+
+type SprintEngineMcpRunnerContext = {
+  workspaceRoot: string
+}
+
+type SprintEngineMcpToolRunner = (
+  context: SprintEngineMcpRunnerContext,
+  tool: string,
+  payload: Record<string, unknown>,
+  actor: SprintEngineMcpActorContext
+) => Promise<{
+  exitCode: number | null
+  stdout: string
+  stderr: string
+  response: SprintEngineMcpToolResponse | null
+}>
 
 type SprintEngineArtifactRecord = {
   id: string
@@ -245,6 +266,21 @@ function getSprintEngineMcpPythonExecutable(workspaceRoot: string): string {
   return process.platform === 'win32' ? 'python' : 'python3'
 }
 
+function validateWorkspaceRoot(input: unknown): string {
+  if (typeof input !== 'string' || !input.trim()) {
+    throw new Error('Workspace root is required.')
+  }
+  const rawWorkspaceRoot = input.trim()
+  if (!isAbsolute(rawWorkspaceRoot)) {
+    throw new Error('Workspace root must be absolute.')
+  }
+  const workspaceRoot = resolve(rawWorkspaceRoot)
+  if (!existsSync(workspaceRoot)) {
+    throw new Error('Workspace root does not exist.')
+  }
+  return workspaceRoot
+}
+
 function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: SerializableSprintEngineStatePayload): string[] {
   const args = ['scripts/sprintengine_tool.py', '--state', state.statePath, 'init', '--goal', payload.goal || payload.name]
   for (const [agentId, agent] of Object.entries(payload.agents)) {
@@ -282,23 +318,18 @@ function runSprintEngineCli(state: ValidSprintEngineStatePath, args: string[]): 
   })
 }
 
-function runSprintEngineMcpTool(
-  state: ValidSprintEngineStatePath,
+function runSprintEngineMcpToolProcess(
+  context: SprintEngineMcpRunnerContext,
   tool: string,
   payload: Record<string, unknown>,
   actor: SprintEngineMcpActorContext
-): Promise<{
-  exitCode: number | null
-  stdout: string
-  stderr: string
-  response: SprintEngineMcpToolResponse | null
-}> {
+): ReturnType<SprintEngineMcpToolRunner> {
   return new Promise((resolvePromise) => {
-    const child = spawn(getSprintEngineMcpPythonExecutable(state.workspaceRoot), ['-m', 'sprintengine_mcp', '--allowed-root', state.workspaceRoot], {
-      cwd: state.workspaceRoot,
+    const child = spawn(getSprintEngineMcpPythonExecutable(context.workspaceRoot), ['-m', 'sprintengine_mcp', '--allowed-root', context.workspaceRoot], {
+      cwd: context.workspaceRoot,
       env: {
         ...process.env,
-        PYTHONPATH: [state.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
+        PYTHONPATH: [context.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
         SPRINTENGINE_MCP_USER_ID: actor.id,
         SPRINTENGINE_MCP_USER_AUTHORIZED: '1',
       },
@@ -332,6 +363,37 @@ function runSprintEngineMcpTool(
     })
     child.stdin.end(`${JSON.stringify({ tool, payload, actor })}\n`)
   })
+}
+
+function rendererMcpActor(): SprintEngineMcpActorContext {
+  return {
+    id: 'multicode-renderer',
+    role: 'renderer',
+    authenticated: true,
+    mcpAuthorized: true,
+  }
+}
+
+async function runReadOnlyMcpTool(
+  runner: SprintEngineMcpToolRunner,
+  context: SprintEngineMcpRunnerContext,
+  tool: string,
+  payload: Record<string, unknown>
+): Promise<SprintEngineMcpReadResult> {
+  const toolResult = await runner(context, tool, payload, rendererMcpActor())
+  if (toolResult.exitCode !== 0 || !toolResult.response?.ok) {
+    const message = toolResult.response && !toolResult.response.ok
+      ? toolResult.response.error?.message
+      : undefined
+    return {
+      ok: false,
+      message: message ?? (toolResult.stderr.trim() || 'The sprintengine MCP command failed.'),
+      stdout: toolResult.stdout,
+      stderr: toolResult.stderr,
+      exitCode: toolResult.exitCode ?? 'unknown',
+    }
+  }
+  return { ok: true, data: toolResult.response.result }
 }
 
 async function requireSprintEngineMcpAuthority(
@@ -459,7 +521,11 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
   replenishRoster(payload: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
+  readRegistryRoles(payload: SprintEngineRegistryRolesReadInput): Promise<SprintEngineMcpReadResult>
+  readRegistryRole(payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult>
+  readDispatch(payload: SprintEngineDispatchReadInput): Promise<SprintEngineMcpReadResult>
 } {
+  const runMcpTool = deps.runMcpTool ?? runSprintEngineMcpToolProcess
   return {
     async openArtifact(payload) {
       try {
@@ -519,7 +585,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         }
         const toolName = action === 'approve' ? 'sprintengine.artifact.approve' : 'sprintengine.artifact.request_changes'
 
-        const toolResult = await runSprintEngineMcpTool(state, toolName, reviewPayload, actor)
+        const toolResult = await runMcpTool({ workspaceRoot: state.workspaceRoot }, toolName, reviewPayload, actor)
         if (toolResult.exitCode !== 0 || !toolResult.response?.ok) {
           const message = toolResult.response && !toolResult.response.ok
             ? toolResult.response.error?.message
@@ -555,8 +621,8 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         const state = validateSprintEngineStatePath(payload?.statePath)
         const taskId = resolveSprintEngineTaskId(payload?.taskId)
         const actor = await requireSprintEngineMcpAuthority(deps)
-        const toolResult = await runSprintEngineMcpTool(
-          state,
+        const toolResult = await runMcpTool(
+          { workspaceRoot: state.workspaceRoot },
           'sprintengine.task.ready',
           { statePath: state.statePath, taskId, id: actor.id, triagedBy: 'user' },
           actor
@@ -642,7 +708,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           clearNotes: Array.isArray(payload?.implementationNotes),
           clearTaskNotes: Array.isArray(payload?.notes),
         }
-        const toolResult = await runSprintEngineMcpTool(state, 'sprintengine.plan.update_task', toolPayload, actor)
+        const toolResult = await runMcpTool({ workspaceRoot: state.workspaceRoot }, 'sprintengine.plan.update_task', toolPayload, actor)
         if (toolResult.exitCode !== 0 || !toolResult.response?.ok) {
           const message = toolResult.response && !toolResult.response.ok
             ? toolResult.response.error?.message
@@ -689,7 +755,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           dispatchStatus: 'todo',
           triagedBy: 'none',
         }
-        const toolResult = await runSprintEngineMcpTool(state, 'sprintengine.plan.add_task', toolPayload, actor)
+        const toolResult = await runMcpTool({ workspaceRoot: state.workspaceRoot }, 'sprintengine.plan.add_task', toolPayload, actor)
         if (toolResult.exitCode !== 0 || !toolResult.response?.ok) {
           const message = toolResult.response && !toolResult.response.ok
             ? toolResult.response.error?.message
@@ -727,8 +793,8 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         const taskId = resolveSprintEngineTaskId(payload?.taskId)
         const actor = await requireSprintEngineMcpAuthority(deps)
         const body = resolveRequiredString(payload?.body, 'Task comment')
-        const toolResult = await runSprintEngineMcpTool(
-          state,
+        const toolResult = await runMcpTool(
+          { workspaceRoot: state.workspaceRoot },
           'sprintengine.task.comment',
           { statePath: state.statePath, taskId, id: actor.id, body, source: 'user' },
           actor
@@ -846,6 +912,55 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         const state = validateSprintEngineStatePath(payload?.statePath)
         const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
         return { ok: true, data: JSON.parse(projectionContent) }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    async readRegistryRoles(payload) {
+      try {
+        const workspaceRoot = validateWorkspaceRoot(payload?.workspaceRoot)
+        return runReadOnlyMcpTool(
+          runMcpTool,
+          { workspaceRoot },
+          'sprintengine.roles.list',
+          { workspaceRoot, includeShadowed: payload?.includeShadowed === true }
+        )
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    async readRegistryRole(payload) {
+      try {
+        const workspaceRoot = validateWorkspaceRoot(payload?.workspaceRoot)
+        const roleId = resolveRequiredString(payload?.roleId, 'Role id')
+        return runReadOnlyMcpTool(
+          runMcpTool,
+          { workspaceRoot },
+          'sprintengine.roles.get',
+          { workspaceRoot, roleId }
+        )
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    async readDispatch(payload) {
+      try {
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const agentId = resolveRequiredString(payload?.agentId, 'Agent id')
+        const lastDispatchId = resolveOptionalString(payload?.lastDispatchId, 'Last dispatch id')
+        return runReadOnlyMcpTool(
+          runMcpTool,
+          { workspaceRoot: state.workspaceRoot },
+          'sprintengine.dispatch.next',
+          {
+            statePath: state.statePath,
+            agentId,
+            ...(lastDispatchId ? { lastDispatchId } : {}),
+          }
+        )
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }

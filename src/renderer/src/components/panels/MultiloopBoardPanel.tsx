@@ -232,6 +232,9 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
 
         const agentId = getLinkedSprintEngineAgentId(role, linkedState)
         const existingAgent = workspace.agents[agentId]
+        // Multiloop only launches bundled Sprint Engine workers (the role list
+        // is constrained at the caller via `isSprintEngineRole`). Indexing the
+        // bundled label map here is intentional bundled-role compatibility.
         const tabName = sprintEngineRoleLabels[role]
         const startupPrompt = prependAgentIdentifier(
           buildSprintEngineStartupPrompt(role, agentId, linkedState.goal, {

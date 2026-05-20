@@ -1,7 +1,11 @@
 import type { IpcMain } from 'electron'
 import type {
   SprintEngineArtifactCommandResult,
+  SprintEngineDispatchReadInput,
+  SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
+  SprintEngineRegistryRoleReadInput,
+  SprintEngineRegistryRolesReadInput,
   SprintEngineRosterReplenishInput,
   SprintEngineRunnerSetInput,
   SprintEngineStateInitializeInput,
@@ -48,6 +52,9 @@ type SprintEngineIpcDependencies = {
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
   replenishRoster(payload: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
+  readRegistryRoles(payload: SprintEngineRegistryRolesReadInput): Promise<SprintEngineMcpReadResult>
+  readRegistryRole(payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult>
+  readDispatch(payload: SprintEngineDispatchReadInput): Promise<SprintEngineMcpReadResult>
 }
 
 export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcDependencies): void {
@@ -97,5 +104,17 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:projection:read', async (_, payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult> => {
     return deps.readProjection(payload)
+  })
+
+  ipcMain.handle('sprintengine:registry:roles:read', async (_, payload: SprintEngineRegistryRolesReadInput): Promise<SprintEngineMcpReadResult> => {
+    return deps.readRegistryRoles(payload)
+  })
+
+  ipcMain.handle('sprintengine:registry:role:read', async (_, payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult> => {
+    return deps.readRegistryRole(payload)
+  })
+
+  ipcMain.handle('sprintengine:dispatch:read', async (_, payload: SprintEngineDispatchReadInput): Promise<SprintEngineMcpReadResult> => {
+    return deps.readDispatch(payload)
   })
 }

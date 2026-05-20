@@ -7,7 +7,7 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentExecution, AgentExecutionMode, AgentKind } from '../../types/workspace'
 import type { AgentSessionSystem } from '../../../../shared/electron-api'
 import { buildSpecialistSoulStartupPrompt, getSpecialistAction } from '../../specialists/specialistActions'
-import { buildSprintEngineAgentRosterForState, buildSprintEngineRosterCommandArgs, sprintEngineRoleLabels } from '../../utils/sprintengine'
+import { buildSprintEngineAgentRosterForState, buildSprintEngineRosterCommandArgs, getSprintEngineRoleLabel } from '../../utils/sprintengine'
 import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
@@ -194,7 +194,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const customName = currentAgent?.name && currentAgent.name !== rosterAgent.label
       ? currentAgent.name
       : ''
-    return customName ? prependAgentIdentifier(basePrompt, customName, sprintEngineRoleLabels[rosterAgent.role]) : basePrompt
+    return customName ? prependAgentIdentifier(basePrompt, customName, getSprintEngineRoleLabel(rosterAgent.role)) : basePrompt
   })
   const startupPromptRef = useRef<string | null>(startupPrompt)
 

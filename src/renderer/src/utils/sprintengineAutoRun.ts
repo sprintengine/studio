@@ -2,9 +2,10 @@ import type {
   AgentState,
   SprintEngineArtifact,
   SprintEngineAutoPendingSpawn,
+  SprintEngineCurrentDispatch,
   SprintEngineEvent,
   SprintEngineQualityGate,
-  SprintEngineRole,
+  SprintEngineRoleId,
   SprintEngineState,
   SprintEngineTask,
   Workspace,
@@ -29,7 +30,7 @@ export const NEEDS_INPUT_AUTO_APPROVAL_STATUSES = new Set<SprintEngineArtifact['
 export type AutoRunCandidate = {
   agentId: string
   label: string
-  role: SprintEngineRole
+  role: SprintEngineRoleId
   taskId: string
   gateId?: string
   startupPromptOverride?: string
@@ -160,6 +161,27 @@ export function continuationMessageKey(workspace: Workspace, taskId: string, age
   ].join(':')
 }
 
+export function sprintEngineDispatchDeliveryKey(
+  workspace: Workspace,
+  agentId: string,
+  dispatch: SprintEngineCurrentDispatch | null | undefined
+): string {
+  const durableDispatchId = dispatch?.dispatchId?.trim()
+  const fallbackTarget = [
+    dispatch?.targetKind ?? 'dispatch',
+    dispatch?.taskId ?? '',
+    dispatch?.gateId ?? '',
+    dispatch?.artifactId ?? '',
+    dispatch?.attemptId ?? '',
+    dispatch?.reason ?? '',
+  ].join(':')
+  return [
+    workspace.sprintEngineContext?.statePath ?? workspace.id,
+    agentId,
+    durableDispatchId || fallbackTarget,
+  ].join(':')
+}
+
 export function architectTriageMessageKey(workspace: Workspace, taskIds: string[], agentId: string): string {
   return [
     workspace.id,
@@ -167,6 +189,23 @@ export function architectTriageMessageKey(workspace: Workspace, taskIds: string[
     agentId,
     taskIds.slice().sort().join(','),
   ].join(':')
+}
+
+export function buildSprintEngineDispatchPrompt(input: {
+  role: SprintEngineRoleId
+  agentId: string
+  dispatch: SprintEngineCurrentDispatch
+}): string {
+  return [
+    'Sprint Engine dispatch is ready for this terminal.',
+    input.dispatch.dispatchId ? `Dispatch: ${input.dispatch.dispatchId}` : null,
+    input.dispatch.targetKind ? `Target: ${input.dispatch.targetKind}` : null,
+    input.dispatch.taskId ? `Task: ${input.dispatch.taskId}` : null,
+    input.dispatch.gateId ? `Gate: ${input.dispatch.gateId}` : null,
+    input.dispatch.reason ? `Reason: ${input.dispatch.reason}` : null,
+    '',
+    `Run \`sprintengine join --role ${input.role} --id ${input.agentId} --watch\` to reconcile this dispatch. The CLI owns polling, task/gate claims, and completion routing.`,
+  ].filter((line): line is string => line !== null).join('\n')
 }
 
 export function agentNotificationDeliveryKey(workspace: Workspace, event: SprintEngineEvent): string {
@@ -297,7 +336,7 @@ export type PickNextAutoRunsOptions = {
   pendingSpawns: SprintEngineAutoPendingSpawn[]
   runningAgentIds: ReadonlySet<string>
   inFlightSpawns: ReadonlySet<string>
-  continuationCapacityByRole: ReadonlyMap<SprintEngineRole, number>
+  continuationCapacityByRole: ReadonlyMap<SprintEngineRoleId, number>
   continuationGraceByTask: Map<string, RoleContinuationGrace>
   /** Read-only access to existing agent name overrides; defaults to label fallback when absent. */
   agentLabelById?: (agentId: string) => string | undefined
@@ -343,7 +382,7 @@ export function pickNextAutoRuns(
   const hasInFlightSpawn = (agentId: string) =>
     options.inFlightSpawns.has(`${workspace.id}:${agentId}`)
 
-  const findReusableRoleAgent = (role: SprintEngineRole): AutoRunCandidate['agentId'] | null => {
+  const findReusableRoleAgent = (role: SprintEngineRoleId): AutoRunCandidate['agentId'] | null => {
     const agent = roster.find((candidate) => {
       const runtime = sprintEngineState.sprintEngineAgents[candidate.id]
       return candidate.role === role
@@ -362,7 +401,7 @@ export function pickNextAutoRuns(
     task: SprintEngineTask,
     agentId: string,
     fallbackLabel: string,
-    addOptions: { allowSharedTask?: boolean; agentRole?: SprintEngineRole; gateId?: string } = {}
+    addOptions: { allowSharedTask?: boolean; agentRole?: SprintEngineRoleId; gateId?: string } = {}
   ) => {
     if (candidates.length >= options.limit) return false
     const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
@@ -448,7 +487,7 @@ export function pickNextAutoRuns(
       options.continuationGraceByTask.delete(taskKey)
     }
   }
-  const reservedContinuationByRole = new Map<SprintEngineRole, number>()
+  const reservedContinuationByRole = new Map<SprintEngineRoleId, number>()
 
   for (const task of readyTasks) {
     if (candidates.length >= options.limit) break

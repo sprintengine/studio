@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { getSprintEngineStartupCommandMode } from './agentPrompt'
 import {
+  buildSprintEngineAgentRosterFromRuntimeAgents,
+  buildSprintEngineRoleRegistry,
   formatSprintEngineLockAge,
   getActiveSprintEngineLifecyclePhases,
   getLatestSprintEngineTaskComment,
@@ -8,14 +10,22 @@ import {
   getOpenSprintEngineFeedbackFindings,
   getOpenSprintEngineFeedbackIssues,
   getOpenSprintEngineQualityGates,
+  getSprintEngineRoleAccent,
+  getSprintEngineRoleGlyphKind,
+  getSprintEngineRoleLabel,
   getSprintEngineTaskActivityDescending,
   getSprintEngineTaskBoardColumn,
   getSprintEngineTaskQualityGates,
   getSprintEngineVisibleBoardColumns,
+  humanizeSprintEngineRoleId,
+  isBundledSprintEngineRole,
+  isSprintEngineRoleId,
   isSprintEngineTaskLaunchable,
   normalizeSprintEngineProjection,
+  sprintEngineNeutralRoleAccent,
 } from './sprintengine'
-import type { SprintEngineTask } from '../types/workspace'
+import { taskGraphEdgeStyle, taskGraphEndEdgeStyle } from '../components/panels/sprintEngineTaskGraph'
+import type { SprintEngineRoleRegistry, SprintEngineTask } from '../types/workspace'
 
 function fakeProjection(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
@@ -139,6 +149,32 @@ assert.equal(state!.locks?.warnings.length, 1)
 assert.equal(state!.locks?.warnings[0]?.ageSeconds, 360)
 assert.equal(state!.creation?.source, 'folder_store')
 assert.equal(state!.tasks.length, 3)
+
+const dispatchState = normalizeSprintEngineProjection(fakeProjection({
+  roster: {
+    'frontend-3': {
+      role: 'frontend',
+      status: 'running',
+      currentTaskId: 'T4',
+      currentDispatch: {
+        dispatchId: 'DISP-6ed51f5daa40b4bd',
+        targetKind: 'task',
+        role: 'frontend',
+        reason: 'task_claimed',
+        taskId: 'T4',
+        assignedAt: '2026-05-20T21:49:44Z',
+      },
+    },
+  },
+}))
+assert.deepEqual(dispatchState?.sprintEngineAgents['frontend-3']?.currentDispatch, {
+  dispatchId: 'DISP-6ed51f5daa40b4bd',
+  targetKind: 'task',
+  role: 'frontend',
+  reason: 'task_claimed',
+  taskId: 'T4',
+  assignedAt: '2026-05-20T21:49:44Z',
+})
 
 const runnerState = normalizeSprintEngineProjection(fakeProjection({
   run: {
@@ -759,6 +795,297 @@ assert.deepEqual(
   ungatedVisibleColumns,
   ['todo', 'ready', 'changes_requested', 'in_progress', 'needs_input', 'done'],
 )
+
+// --- Registry-keyed role behavior (T2) ---
+
+// Predicate boundaries: any non-empty trimmed string is a valid role id;
+// `isBundledSprintEngineRole` stays strict so config types still narrow.
+assert.equal(isSprintEngineRoleId('marketer'), true)
+assert.equal(isSprintEngineRoleId('frontend'), true)
+assert.equal(isSprintEngineRoleId('   '), false)
+assert.equal(isSprintEngineRoleId(''), false)
+assert.equal(isSprintEngineRoleId(undefined), false)
+assert.equal(isSprintEngineRoleId(42), false)
+assert.equal(isBundledSprintEngineRole('frontend'), true)
+assert.equal(isBundledSprintEngineRole('marketer'), false)
+assert.equal(isBundledSprintEngineRole(null), false)
+
+// Humanization fallback: registry-keyed ids without metadata render as a
+// title-cased label, never as a raw `growth_engineer` identifier.
+assert.equal(humanizeSprintEngineRoleId('marketer'), 'Marketer')
+assert.equal(humanizeSprintEngineRoleId('growth_engineer'), 'Growth Engineer')
+assert.equal(humanizeSprintEngineRoleId('content-writer'), 'Content Writer')
+
+// Safe accessors fall back to bundled labels for bundled roles, humanized
+// strings for custom roles, and 'Unknown role' for missing input. The
+// accent and glyph kind never throw on unknown ids.
+assert.equal(getSprintEngineRoleLabel('frontend'), 'Frontend Engineer')
+assert.equal(getSprintEngineRoleLabel('marketer'), 'Marketer')
+assert.equal(getSprintEngineRoleLabel(null), 'Unknown role')
+assert.equal(getSprintEngineRoleLabel('  '), 'Unknown role')
+assert.equal(getSprintEngineRoleAccent('marketer'), sprintEngineNeutralRoleAccent)
+assert.notEqual(getSprintEngineRoleAccent('architect'), sprintEngineNeutralRoleAccent)
+assert.equal(getSprintEngineRoleGlyphKind('marketer'), 'unknown')
+assert.equal(getSprintEngineRoleGlyphKind('frontend'), 'frontend')
+assert.equal(getSprintEngineRoleGlyphKind(null), 'unknown')
+
+// Registry builder: well-formed payload yields a lookup keyed by canonical
+// id, with aliases preserved only when they point at known roles. The
+// `growth-engineer` alias here points at the configured `growth_engineer`
+// role and should round-trip; `unknown-target` aliases are dropped.
+const registry: SprintEngineRoleRegistry = buildSprintEngineRoleRegistry({
+  roles: [
+    {
+      id: 'marketer',
+      label: 'Brand Marketer',
+      aliases: ['marketing-lead'],
+      icon: null,
+      source: { layer: 'workspace' },
+    },
+    {
+      id: 'growth_engineer',
+      label: 'Growth Engineer',
+      aliases: [],
+      icon: 'developer',
+      summary: 'Owns growth experiments.',
+      source: { layer: 'plugin' },
+      shadowedSources: [{ layer: 'bundled' }],
+    },
+    // Malformed entry: missing id — dropped without throwing.
+    { label: 'Ghost', source: { layer: 'workspace' } },
+    null,
+  ],
+  aliases: {
+    'growth-engineer': 'growth_engineer',
+    'marketing-lead': 'marketer',
+    bogus: 'unknown-target',
+  },
+  warnings: [
+    { code: 'shadowed', message: 'Bundled growth_engineer shadowed by plugin.', roleId: 'growth_engineer', sourceLayer: 'bundled' },
+    // Malformed warning (missing code) — dropped.
+    { message: 'no code' },
+  ],
+})
+assert.deepEqual(Object.keys(registry.roles).sort(), ['growth_engineer', 'marketer'])
+assert.equal(registry.aliases['growth-engineer'], 'growth_engineer')
+assert.equal(registry.aliases['marketing-lead'], 'marketer')
+assert.equal(registry.aliases.bogus, undefined)
+assert.equal(registry.warnings.length, 1)
+assert.equal(registry.warnings[0]?.code, 'shadowed')
+
+// Registry-aware label/accent/glyph: registry label overrides the
+// humanized fallback; registry icon snaps to a bundled glyph kind when it
+// matches a bundled role name.
+assert.equal(getSprintEngineRoleLabel('marketer', registry), 'Brand Marketer')
+assert.equal(getSprintEngineRoleLabel('growth_engineer', registry), 'Growth Engineer')
+assert.equal(getSprintEngineRoleGlyphKind('growth_engineer', registry), 'developer')
+assert.equal(getSprintEngineRoleGlyphKind('marketer', registry), 'unknown')
+// Alias lookup: `growth-engineer` resolves through `aliases` to the
+// canonical entry without touching the static maps.
+assert.equal(getSprintEngineRoleLabel('growth-engineer', registry), 'Growth Engineer')
+
+// Direct metadata lookup is supported for hand-constructed callers (e.g.
+// the inspector passing a single role's metadata rather than the full
+// registry directory).
+assert.equal(
+  getSprintEngineRoleLabel('marketer', registry.roles.marketer),
+  'Brand Marketer',
+)
+
+// Malformed registry payloads do not throw and produce an empty directory
+// rather than a half-built lookup with surprising entries.
+const emptyRegistry = buildSprintEngineRoleRegistry({ roles: 'not-an-array', aliases: null, warnings: 'oops' })
+assert.deepEqual(emptyRegistry.roles, {})
+assert.deepEqual(emptyRegistry.aliases, {})
+assert.deepEqual(emptyRegistry.warnings, [])
+const nullRegistry = buildSprintEngineRoleRegistry(null)
+assert.deepEqual(nullRegistry.roles, {})
+assert.deepEqual(nullRegistry.aliases, {})
+
+// Projection normalization preserves a custom role id (`marketer`) across
+// tasks, gates, agents, comments, feedback, and quality-policy gates.
+const customRoleProjection = fakeProjection({
+  run: {
+    id: 'run-custom',
+    name: 'Custom Roster',
+    goal: 'Custom-role coverage',
+    status: 'executing',
+    rosterConfigured: true,
+    updatedAt: '2026-05-20T20:00:00Z',
+    qualityPolicy: {
+      enabled: true,
+      rosterDriven: true,
+      lifecyclePhases: ['review'],
+      gates: {
+        marketer_review: { phase: 'review', role: 'marketer', required: true, focus: 'launch readiness' },
+      },
+    },
+  },
+  roster: {
+    architect: { role: 'architect', status: 'idle', currentTaskId: null },
+    marketer: { role: 'marketer', status: 'running', currentTaskId: 'M1' },
+  },
+  tasks: [
+    {
+      id: 'M1',
+      title: 'Custom-role task',
+      description: '',
+      role: 'marketer',
+      status: 'in_progress',
+      folderStatus: 'in_progress',
+      stateStatus: 'in_progress',
+      boardColumn: 'in_progress',
+      ownedPaths: [],
+      dependsOn: [],
+      acceptanceCriteria: [],
+      implementationNotes: [],
+      notes: [],
+      comments: [
+        {
+          id: 'C1',
+          actor: 'marketer',
+          source: 'agent',
+          body: 'Custom-role comment preserved.',
+          createdAt: '2026-05-20T20:01:00Z',
+          authorRole: 'marketer',
+          type: 'implementation_summary',
+        },
+      ],
+      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+      qualityGates: [
+        {
+          id: 'GATE-1',
+          phase: 'review',
+          role: 'marketer',
+          status: 'pending',
+          required: true,
+          allowSelfReview: false,
+          attempts: [],
+        },
+      ],
+      feedback: {
+        schemaVersion: 1,
+        capturedAt: '2026-05-20T20:01:30Z',
+        source: 'agent_self_report',
+        agentId: 'marketer',
+        role: 'marketer',
+        scores: { taskClarityPct: 80 },
+      },
+      triage: {
+        summary: 'Custom-role triage',
+        suggestedRole: 'marketer',
+        acceptanceCriteria: [],
+        likelyAffectedAreas: [],
+        missingInformation: [],
+        riskRating: 'low',
+        readyRecommendation: true,
+        triagedBy: 'architect',
+        triagedAt: '2026-05-20T20:01:00Z',
+      },
+      activity: [],
+      startedAt: '2026-05-20T20:00:30Z',
+      completedAt: null,
+      ownerAgentId: 'marketer',
+    },
+  ],
+  artifacts: [],
+  activity: [],
+})
+const customRoleState = normalizeSprintEngineProjection(customRoleProjection)
+assert.ok(customRoleState, 'custom-role projection normalizes')
+const customRoleTask = customRoleState!.tasks.find((task) => task.id === 'M1')!
+assert.equal(customRoleTask.role, 'marketer', 'task.role preserved as custom id')
+assert.equal(customRoleTask.qualityGates?.[0]?.role, 'marketer', 'gate.role preserved')
+assert.equal(customRoleTask.comments[0]?.authorRole, 'marketer', 'comment.authorRole preserved')
+assert.equal(customRoleTask.feedback?.role, 'marketer', 'feedback.role preserved')
+assert.equal(customRoleTask.triage?.suggestedRole, 'marketer', 'triage.suggestedRole preserved')
+assert.equal(customRoleState!.sprintEngineAgents.marketer?.role, 'marketer', 'runtime agent role preserved')
+assert.equal(customRoleState!.qualityPolicy?.gates.marketer_review?.role, 'marketer', 'policy gate.role preserved')
+assert.equal(
+  taskGraphEndEdgeStyle(customRoleTask).color,
+  sprintEngineNeutralRoleAccent,
+  'custom-role graph end edge uses the neutral safe accent instead of static-map undefined',
+)
+const customDependencyTask: SprintEngineTask = {
+  ...customRoleTask,
+  id: 'M0',
+  status: 'todo',
+  role: 'growth_engineer',
+}
+assert.equal(
+  taskGraphEdgeStyle(customDependencyTask, customRoleTask).color,
+  sprintEngineNeutralRoleAccent,
+  'custom-role graph dependency edge uses the neutral safe accent',
+)
+
+// Roster builder includes custom-role agents and labels them with the
+// registry metadata when provided.
+const customRosterWithoutRegistry = buildSprintEngineAgentRosterFromRuntimeAgents(customRoleState!.sprintEngineAgents)
+assert.ok(customRosterWithoutRegistry.some((agent) => agent.role === 'marketer'), 'custom role appears in roster')
+const marketerWithoutRegistry = customRosterWithoutRegistry.find((agent) => agent.role === 'marketer')!
+assert.equal(marketerWithoutRegistry.label, 'Marketer', 'custom role uses humanized label without registry')
+
+const customRosterWithRegistry = buildSprintEngineAgentRosterFromRuntimeAgents(
+  customRoleState!.sprintEngineAgents,
+  registry,
+)
+const marketerWithRegistry = customRosterWithRegistry.find((agent) => agent.role === 'marketer')!
+assert.equal(marketerWithRegistry.label, 'Brand Marketer', 'registry label wins when available')
+
+// Unknown but configured role ids do not crash the lifecycle-phase
+// resolver: the policy gate's `marketer` role is part of the configured
+// roster, so the review column stays visible.
+assert.deepEqual(
+  getActiveSprintEngineLifecyclePhases(customRoleState!),
+  ['review'],
+  'custom-role policy gate keeps review column visible',
+)
+
+// Malformed comment/gate entries with empty or missing role are dropped
+// during normalization, but valid sibling entries still survive.
+const malformedProjection = fakeProjection({
+  tasks: [
+    {
+      id: 'MAL',
+      title: 'Malformed surface',
+      description: '',
+      role: 'marketer',
+      status: 'in_progress',
+      folderStatus: 'in_progress',
+      stateStatus: 'in_progress',
+      boardColumn: 'in_progress',
+      ownedPaths: [],
+      dependsOn: [],
+      acceptanceCriteria: [],
+      implementationNotes: [],
+      notes: [],
+      comments: [
+        // Empty author role — comment body kept, role dropped.
+        { id: 'C1', actor: 'marketer', source: 'agent', body: 'kept', createdAt: '2026-05-20T20:02:00Z', authorRole: '' },
+        // Valid registry role — survives intact.
+        { id: 'C2', actor: 'marketer', source: 'agent', body: 'kept-with-role', createdAt: '2026-05-20T20:02:30Z', authorRole: 'marketer' },
+      ],
+      qualityGates: [
+        // Missing role — dropped.
+        { id: 'BAD', phase: 'review', role: '', status: 'pending', required: true, allowSelfReview: false, attempts: [] },
+        // Custom role — preserved.
+        { id: 'OK', phase: 'review', role: 'marketer', status: 'pending', required: true, allowSelfReview: false, attempts: [] },
+      ],
+      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+      activity: [],
+      startedAt: null,
+      completedAt: null,
+      ownerAgentId: null,
+    },
+  ],
+})
+const malformedState = normalizeSprintEngineProjection(malformedProjection)
+const malformedTask = malformedState!.tasks.find((task) => task.id === 'MAL')!
+assert.equal(malformedTask.comments.length, 2, 'comment bodies survive even when authorRole is malformed')
+assert.equal(malformedTask.comments[0]?.authorRole, undefined, 'empty authorRole dropped')
+assert.equal(malformedTask.comments[1]?.authorRole, 'marketer', 'valid custom authorRole preserved')
+assert.equal(malformedTask.qualityGates?.length, 1, 'gate with missing role dropped')
+assert.equal(malformedTask.qualityGates?.[0]?.role, 'marketer', 'custom-role gate preserved')
 
 // eslint-disable-next-line no-console
 console.log('sprintengine.test.ts: ok')

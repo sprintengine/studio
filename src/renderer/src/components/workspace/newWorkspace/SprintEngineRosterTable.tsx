@@ -1,14 +1,17 @@
 import CliIcon from '../../CliIcon'
 import { InboxRow, Select, type SelectItem } from '../../ui'
 import {
-  sprintEngineRoleLabels,
+  getSprintEngineRoleLabel,
   sprintEngineRoleOrder,
 } from '../../../utils/sprintengine'
 import type {
   AgentCli,
   SprintEngineRole,
+  SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
+  SprintEngineRoleRegistry,
+  SprintEngineRoleRegistryMetadata,
 } from '../../../types/workspace'
 
 const roleSummaries: Record<SprintEngineRole, string> = {
@@ -31,33 +34,41 @@ const cliOptions: Array<{ value: AgentCli; label: string }> = [
 interface RosterTableProps {
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
+  registry?: SprintEngineRoleRegistry | null
   disabled: boolean
-  onSetCount: (role: SprintEngineRole, count: number) => void
-  onSetCli: (role: SprintEngineRole, cli: AgentCli) => void
+  onSetCount: (role: SprintEngineRoleId, count: number) => void
+  onSetCli: (role: SprintEngineRoleId, cli: AgentCli) => void
 }
 
 export function SprintEngineRosterTable({
   roleCounts,
   roleCliDefaults,
+  registry,
   disabled,
   onSetCount,
   onSetCli,
 }: RosterTableProps) {
+  const roles = orderedRosterRoles(registry)
   return (
     <div className="divide-y divide-[color:var(--border-default)] rounded-md border border-[color:var(--border-default)]">
-      {sprintEngineRoleOrder.map((role) => {
-        const isAdded = role === 'architect' || roleCounts[role] > 0
+      {roles.map((role) => {
+        const count = roleCounts[role] ?? 0
+        const isAdded = role === 'architect' || count > 0
+        const label = getSprintEngineRoleLabel(role, registry)
+        const summary = roleSummaries[role as SprintEngineRole] ?? registry?.roles[role]?.summary ?? 'Custom registry role.'
         const trailing = isAdded ? (
           <div className="flex items-center gap-2">
             <CountStepper
               role={role}
-              count={roleCounts[role]}
+              label={label}
+              count={count}
               disabled={disabled}
               onSetCount={onSetCount}
             />
             <CliPicker
               role={role}
-              value={roleCliDefaults[role]}
+              label={label}
+              value={roleCliDefaults[role] ?? 'codex'}
               disabled={disabled}
               onChange={onSetCli}
             />
@@ -83,8 +94,8 @@ export function SprintEngineRosterTable({
           <InboxRow
             key={role}
             tone={isAdded ? 'accent' : 'neutral'}
-            title={sprintEngineRoleLabels[role]}
-            supporting={isAdded ? roleSummaries[role] : undefined}
+            title={label}
+            supporting={isAdded ? summary : undefined}
             trailing={trailing}
           />
         )
@@ -93,16 +104,34 @@ export function SprintEngineRosterTable({
   )
 }
 
+function orderedRosterRoles(registry?: SprintEngineRoleRegistry | null): SprintEngineRoleId[] {
+  const ids = new Set<SprintEngineRoleId>(sprintEngineRoleOrder)
+  for (const role of Object.values(registry?.roles ?? {}) as SprintEngineRoleRegistryMetadata[]) {
+    if (role.enabled === false) continue
+    ids.add(role.id)
+  }
+  return [...ids].sort((a, b) => {
+    const aBundled = sprintEngineRoleOrder.indexOf(a as SprintEngineRole)
+    const bBundled = sprintEngineRoleOrder.indexOf(b as SprintEngineRole)
+    const aRank = aBundled >= 0 ? aBundled : sprintEngineRoleOrder.length
+    const bRank = bBundled >= 0 ? bBundled : sprintEngineRoleOrder.length
+    if (aRank !== bRank) return aRank - bRank
+    return getSprintEngineRoleLabel(a, registry).localeCompare(getSprintEngineRoleLabel(b, registry))
+  })
+}
+
 function CountStepper({
   role,
+  label,
   count,
   disabled,
   onSetCount,
 }: {
-  role: SprintEngineRole
+  role: SprintEngineRoleId
+  label: string
   count: number
   disabled: boolean
-  onSetCount: (role: SprintEngineRole, count: number) => void
+  onSetCount: (role: SprintEngineRoleId, count: number) => void
 }) {
   const minCount = role === 'architect' ? 1 : 0
   const decDisabled = disabled || count <= minCount
@@ -111,7 +140,7 @@ function CountStepper({
     <div className="flex h-7 items-center overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)]">
       <button
         type="button"
-        aria-label={`Decrease ${sprintEngineRoleLabels[role]} count`}
+        aria-label={`Decrease ${label} count`}
         disabled={decDisabled}
         onClick={() => onSetCount(role, count - 1)}
         className="
@@ -127,7 +156,7 @@ function CountStepper({
       </span>
       <button
         type="button"
-        aria-label={`Increase ${sprintEngineRoleLabels[role]} count`}
+        aria-label={`Increase ${label} count`}
         disabled={incDisabled}
         onClick={() => onSetCount(role, count + 1)}
         className="
@@ -144,14 +173,16 @@ function CountStepper({
 
 function CliPicker({
   role,
+  label,
   value,
   disabled,
   onChange,
 }: {
-  role: SprintEngineRole
+  role: SprintEngineRoleId
+  label: string
   value: AgentCli
   disabled: boolean
-  onChange: (role: SprintEngineRole, cli: AgentCli) => void
+  onChange: (role: SprintEngineRoleId, cli: AgentCli) => void
 }) {
   const items: SelectItem<AgentCli>[] = cliOptions.map((option) => ({
     value: option.value,
@@ -161,7 +192,7 @@ function CliPicker({
     <div className="flex items-center gap-2">
       <CliIcon cli={value} className="h-3.5 w-3.5 shrink-0 text-[color:var(--text-muted)]" />
       <Select<AgentCli>
-        ariaLabel={`${sprintEngineRoleLabels[role]} CLI`}
+        ariaLabel={`${label} CLI`}
         items={items}
         value={value}
         onChange={(next) => onChange(role, next)}

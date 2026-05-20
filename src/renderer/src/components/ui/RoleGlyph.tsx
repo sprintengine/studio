@@ -6,14 +6,20 @@
 //
 // The role tone source-of-truth is sprintEngineRoleAccent in
 // src/renderer/src/utils/sprintengine.ts. Do not re-define role colors
-// here; consume the canonical map so a tone change lands in one place.
+// here; consume the safe accessors (getSprintEngineRoleLabel,
+// getSprintEngineRoleAccent) so registry-keyed custom roles fall back
+// cleanly instead of indexing static bundled-role maps.
 //
 // RoleGlyph never bleeds outside the kanban card it is documented for —
 // panel chrome, list rows, headers, and inspector sections do not adopt
 // role tone. Status and selection stay on --accent-primary + --tone-*.
 import React from 'react'
-import type { SprintEngineRole } from '../../types/workspace'
-import { sprintEngineRoleAccent, sprintEngineRoleLabels } from '../../utils/sprintengine'
+import type {
+  SprintEngineRoleId,
+  SprintEngineRoleRegistry,
+  SprintEngineRoleRegistryMetadata,
+} from '../../types/workspace'
+import { getSprintEngineRoleAccent, getSprintEngineRoleLabel } from '../../utils/sprintengine'
 import { SprintEngineRoleIcon } from '../AppIcons'
 
 type RoleGlyphSize = 'sm' | 'md' | 'lg'
@@ -25,25 +31,29 @@ const SIZE_CLASS: Record<RoleGlyphSize, string> = {
 }
 
 type RoleGlyphProps = {
-  role: SprintEngineRole
+  role: SprintEngineRoleId
   size?: RoleGlyphSize
   /** Override the auto-generated "Role: <label>" accessible name. */
   ariaLabel?: string
   className?: string
+  /** Optional registry metadata so custom/configured roles render with a
+   *  registry label and accent. When omitted, custom roles use a humanized
+   *  fallback label and the neutral chrome accent. */
+  registry?: SprintEngineRoleRegistry | SprintEngineRoleRegistryMetadata | null
 }
 
-export function RoleGlyph({ role, size = 'md', ariaLabel, className }: RoleGlyphProps) {
-  const label = ariaLabel ?? `Role: ${sprintEngineRoleLabels[role]}`
+export function RoleGlyph({ role, size = 'md', ariaLabel, className, registry }: RoleGlyphProps) {
+  const label = ariaLabel ?? `Role: ${getSprintEngineRoleLabel(role, registry)}`
   return (
     <span
       role="img"
       aria-label={label}
       // design-tokens-allow: role glyph is the documented exception to the one-accent
       // rule; see knowledge/brand/panel-design-system.md.
-      style={{ color: sprintEngineRoleAccent[role] }}
+      style={{ color: getSprintEngineRoleAccent(role, registry) }}
       className={['inline-flex shrink-0 items-center justify-center', className ?? ''].join(' ')}
     >
-      <SprintEngineRoleIcon role={role} className={SIZE_CLASS[size]} />
+      <SprintEngineRoleIcon role={role} registry={registry} className={SIZE_CLASS[size]} />
     </span>
   )
 }

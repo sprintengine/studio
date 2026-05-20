@@ -73,6 +73,29 @@ Folder-store files are not safe manual editing surfaces. Use commands such as
 The graph mirror lets readiness refresh validate dependency references and
 cycles without requiring consumers to parse every task folder.
 
+## Role Registry Boundary
+
+Sprint Engine roles are registry-backed. Tasks and gates store role ids as
+strings, and active CLI/MCP validation resolves those ids through
+`sprintengine_core.role_registry` and the role helper layer in
+`sprintengine_core/tool/roles.py`. The registry discovers role manifests and
+Soul skills from workspace, plugin, user, and bundled sources. Aliases resolve
+to canonical ids before task, gate, roster, join, and plan operations mutate
+state.
+
+The bundled-role compatibility set and renderer label/accent defaults are not
+runtime dispatch authority. They exist for older callers, specialist UI
+defaults, and graceful display fallbacks. Registry metadata in projection and
+MCP discovery is the path for custom role labels, summaries, icons, aliases,
+source layers, and warnings.
+
+Prompt composition is layered:
+
+1. Registry-rendered Soul from a role manifest and its ordered skill entries.
+2. Sprint Engine coordination rules selected by the dispatch kind.
+3. Runtime directive from `join --watch`, MCP lifecycle tools, or the active
+   task/gate payload.
+
 ### Agent Records
 
 `run.yaml` `agents` is the lifecycle mirror used by MCP dispatch, CLI

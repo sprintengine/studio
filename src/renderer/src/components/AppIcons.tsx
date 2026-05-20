@@ -1,5 +1,11 @@
 import type { SpecialistIcon } from '../specialists/specialistActions'
-import type { SprintEngineRole, Workspace } from '../types/workspace'
+import type {
+  SprintEngineRoleId,
+  SprintEngineRoleRegistry,
+  SprintEngineRoleRegistryMetadata,
+  Workspace,
+} from '../types/workspace'
+import { getSprintEngineRoleGlyphKind } from '../utils/sprintengine'
 import type { SwitchboardFolderStatus } from '../../../shared/switchboard'
 
 type IconProps = {
@@ -90,8 +96,20 @@ export function SpecialistActionIcon({ icon, className }: IconProps & { icon: Sp
   }
 }
 
-export function SprintEngineRoleIcon({ role, className }: IconProps & { role: SprintEngineRole }) {
-  switch (role) {
+export function SprintEngineRoleIcon({
+  role,
+  registry,
+  className,
+}: IconProps & {
+  role: SprintEngineRoleId
+  // Optional registry metadata so unknown configured roles can opt into a
+  // bundled glyph (via the registry `icon` field) without indexing the
+  // static role-icon switch directly. When omitted, custom roles fall back
+  // to the neutral disc glyph.
+  registry?: SprintEngineRoleRegistry | SprintEngineRoleRegistryMetadata | null
+}) {
+  const glyph = getSprintEngineRoleGlyphKind(role, registry)
+  switch (glyph) {
     case 'architect':
       return <ArchitectureIcon className={className} />
     case 'product':
@@ -110,7 +128,23 @@ export function SprintEngineRoleIcon({ role, className }: IconProps & { role: Sp
       return <ReviewIcon className={className} />
     case 'performance':
       return <PerformanceIcon className={className} />
+    case 'unknown':
+    default:
+      return <RoleGenericIcon className={className} />
   }
+}
+
+// Neutral fallback glyph for registry roles that have no bundled icon.
+// A bare disc with a faint inner ring — same chrome budget as the bundled
+// role glyphs but with no role-specific iconography, signalling "agent
+// identity, role unrecognised" rather than guessing.
+function RoleGenericIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="6.4" stroke="currentColor" strokeWidth={iconStroke} />
+      <circle cx="12" cy="12" r="2.4" stroke="currentColor" strokeWidth={iconStroke - 0.3} opacity="0.55" />
+    </svg>
+  )
 }
 
 const PRIORITY_LABELS: Record<'urgent' | 'high' | 'medium' | 'low' | 'none', string> = {

@@ -7,7 +7,7 @@ import type {
   SprintEngineArtifact,
   SprintEngineAutoPendingSpawn,
   SprintEngineAutoState,
-  SprintEngineRole,
+  SprintEngineRoleId,
   SprintEngineState,
   Workspace,
 } from '../../types/workspace'
@@ -15,10 +15,10 @@ import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode, prep
 import {
   buildSprintEngineAgentRosterForState,
   buildSprintEngineRosterCommandArgs,
+  getSprintEngineRoleLabel,
   getSprintEngineTaskBoardColumn,
   isSprintEngineTaskLaunchable,
   normalizeSprintEngineProjection,
-  sprintEngineRoleLabels,
 } from '../../utils/sprintengine'
 import {
   agentNotificationDeliveryKey,
@@ -27,10 +27,12 @@ import {
   artifactApprovalMessageKey,
   buildAgentNotificationPrompt,
   buildArchitectNeedsInputTriagePrompt,
+  buildSprintEngineDispatchPrompt,
   buildSprintEngineContinuationPrompt,
   buildSprintEngineGateContinuationPrompt,
   continuationMessageKey,
   describeNeedsInputAutoApprovalState,
+  sprintEngineDispatchDeliveryKey,
   getActiveSprintEngineAutoRunGateClaims,
   getArchitectActionableNeedsInputTasks,
   getAutoApprovalIntentArtifacts,
@@ -71,7 +73,7 @@ const SPAWNABLE_NOTIFICATION_KINDS = new Set([
 ])
 
 type RunningContinuationCapacity = {
-  capacityByRole: Map<SprintEngineRole, number>
+  capacityByRole: Map<SprintEngineRoleId, number>
   agentIds: Set<string>
 }
 
@@ -612,7 +614,7 @@ async function getRunningContinuationCapacityByRole(
   workspace: Workspace,
   sprintEngineState: SprintEngineState
 ): Promise<RunningContinuationCapacity> {
-  const capacityByRole = new Map<SprintEngineRole, number>()
+  const capacityByRole = new Map<SprintEngineRoleId, number>()
   const countedAgentIds = new Set<string>()
   const sessions = await listTerminalSessionsForAutoRun(workspace, 'role-continuation-capacity')
 
@@ -875,6 +877,53 @@ async function sendGateContinuationPromptsToAgents(
   }
 }
 
+export async function sendDispatchPromptsToRunningAgents(
+  workspace: Workspace,
+  sprintEngineState: SprintEngineState,
+  runningAgentIds: Set<string>,
+  sentDispatchMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
+): Promise<void> {
+  const now = Date.now()
+  const activeKeys = new Set<string>()
+
+  for (const [agentId, runtimeAgent] of Object.entries(sprintEngineState.sprintEngineAgents)) {
+    const dispatch = runtimeAgent.currentDispatch
+    if (!dispatch || runtimeAgent.status === 'retired') continue
+    const key = sprintEngineDispatchDeliveryKey(workspace, agentId, dispatch)
+    activeKeys.add(key)
+    if (!runningAgentIds.has(agentId)) continue
+    const previous = sentDispatchMessages.current.get(key)
+    if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
+
+    const session = await findRunningAgentSession(workspace, agentId)
+    if (!session) continue
+    await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(
+      buildSprintEngineDispatchPrompt({
+        role: dispatch.role ?? runtimeAgent.role,
+        agentId,
+        dispatch,
+      })
+    ))
+    sentDispatchMessages.current.set(key, { sentAt: now })
+    logPerfEvent('SprintEngineAutoRun', 'dispatch-prompt-sent', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      agentId,
+      role: dispatch.role ?? runtimeAgent.role,
+      dispatchId: dispatch.dispatchId ?? null,
+      targetKind: dispatch.targetKind ?? null,
+      taskId: dispatch.taskId ?? null,
+      gateId: dispatch.gateId ?? null,
+      sessionId: session.sessionId,
+    })
+  }
+
+  sentDispatchMessages.current.forEach((_, key) => {
+    if (!key.startsWith(`${workspace.sprintEngineContext?.statePath ?? workspace.id}:`)) return
+    if (!activeKeys.has(key)) sentDispatchMessages.current.delete(key)
+  })
+}
+
 async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<void> {
   const sessions = await listTerminalSessionsForAutoRun(workspace, 'reconcile-duplicates')
   const sessionsByAgentId = new Map<string, TerminalSessionSnapshot[]>()
@@ -982,7 +1031,7 @@ async function reconcileAutoRunPendingSpawns(
   return activePendingSpawns
 }
 
-async function spawnAutoRunCandidate(
+export async function spawnAutoRunCandidate(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   nextRun: AutoRunCandidate,
@@ -1126,7 +1175,7 @@ async function spawnAutoRunCandidate(
         autonomousPlanningOverride: nextRun.role === 'architect' && autoState.autoApproveArtifacts,
       }),
       nextRun.label,
-      sprintEngineRoleLabels[nextRun.role]
+      getSprintEngineRoleLabel(nextRun.role)
     )
     const startupPrompt = [
       nextRun.startupPromptOverride ?? storedStartupPrompt ?? generatedStartupPrompt,
@@ -1464,6 +1513,7 @@ async function superviseWorkspace(
   sentArtifactApprovalMessages: MutableRefObject<Map<string, number>>,
   autoApprovalDiagnostics: MutableRefObject<Map<string, number>>,
   sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>,
+  sentDispatchMessages: MutableRefObject<Map<string, RoleContinuationMessage>>,
   sentArchitectTriageMessages: MutableRefObject<Map<string, ArchitectTriageMessage>>,
   sentAgentNotificationEvents: MutableRefObject<Set<string>>,
   continuationGraceByTask: MutableRefObject<Map<string, RoleContinuationGrace>>,
@@ -1550,6 +1600,7 @@ async function superviseWorkspace(
       mcpSettings,
       inFlightSpawns,
       sentContinuationMessages,
+      sentDispatchMessages,
       sentArchitectTriageMessages,
       sentAgentNotificationEvents,
       continuationGraceByTask,
@@ -1572,12 +1623,13 @@ type RunnerActiveCycleInput = {
   mcpSettings: McpSettings
   inFlightSpawns: MutableRefObject<Set<string>>
   sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
+  sentDispatchMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
   sentArchitectTriageMessages: MutableRefObject<Map<string, ArchitectTriageMessage>>
   sentAgentNotificationEvents: MutableRefObject<Set<string>>
   continuationGraceByTask: MutableRefObject<Map<string, RoleContinuationGrace>>
 }
 
-async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput): Promise<void> {
+export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput): Promise<void> {
   const {
     workspace,
     sprintEngineState,
@@ -1587,6 +1639,7 @@ async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput): Promis
     mcpSettings,
     inFlightSpawns,
     sentContinuationMessages,
+    sentDispatchMessages,
     sentArchitectTriageMessages,
     sentAgentNotificationEvents,
     continuationGraceByTask,
@@ -1627,6 +1680,13 @@ async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput): Promis
     sentAgentNotificationEvents
   )
   if (notificationSignal === 'failed') return
+
+  await sendDispatchPromptsToRunningAgents(
+    workspace,
+    sprintEngineState,
+    runningAgentIds,
+    sentDispatchMessages
+  )
 
   const architectTriageSignal = await signalArchitectForNeedsInputTriage(
     workspace,
@@ -1884,6 +1944,7 @@ export default function SprintEngineAutoRunSupervisor() {
   const sentArtifactApprovalMessages = useRef(new Map<string, number>())
   const autoApprovalDiagnostics = useRef(new Map<string, number>())
   const sentContinuationMessages = useRef(new Map<string, RoleContinuationMessage>())
+  const sentDispatchMessages = useRef(new Map<string, RoleContinuationMessage>())
   const sentArchitectTriageMessages = useRef(new Map<string, ArchitectTriageMessage>())
   const sentAgentNotificationEvents = useRef(new Set<string>())
   const continuationGraceByTask = useRef(new Map<string, RoleContinuationGrace>())
@@ -1960,6 +2021,7 @@ export default function SprintEngineAutoRunSupervisor() {
             sentArtifactApprovalMessages,
             autoApprovalDiagnostics,
             sentContinuationMessages,
+            sentDispatchMessages,
             sentArchitectTriageMessages,
             sentAgentNotificationEvents,
             continuationGraceByTask,

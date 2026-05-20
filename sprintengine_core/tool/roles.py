@@ -7,6 +7,8 @@ from typing import Iterable
 from sprintengine_core.role_registry import RegistryDiscovery, discover_role_registry, normalize_role_id
 
 
+# Compatibility view for older callers that need the historically bundled
+# Sprint Engine role set. Active dispatch validation uses the role registry.
 BUNDLED_ROLE_IDS = frozenset({
     "architect",
     "product",
@@ -88,5 +90,8 @@ def plan_review_role_ids(discovery: RegistryDiscovery | None = None) -> frozense
 
 
 DEFAULT_ROLE_REGISTRY = RoleRegistry()
+# Import-compatible snapshot retained for older tests and callers. Active CLI,
+# MCP, roster, task, gate, join, and plan paths call require_configured_role()
+# so workspace registry roles are resolved at command time.
 VALID_ROLES = configured_role_ids()
 PLAN_REVIEW_ROLES = plan_review_role_ids()

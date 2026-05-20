@@ -17,7 +17,7 @@ import type {
   SprintEngineWorkspaceContext,
   MultiloopState,
   MultiloopWorkspaceContext,
-  SprintEngineRole,
+  SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
   AgentCli,
   AppSettings,
@@ -133,6 +133,7 @@ interface WorkspaceStore {
   setSearchExcludes: (patterns: string[]) => void
   setProjectKnowledgeRoot: (projectRoot: string, relativeRoot: string | null) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
+  setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
   setLearningShowTipsOnStartup: (enabled: boolean) => void
   markLearningTipSeen: (tipId: string) => void
   markLearningLessonCompleted: (lessonId: string, completed?: boolean) => void
@@ -212,7 +213,7 @@ interface WorkspaceStore {
   setGuidedBriefState: (workspaceId: WorkspaceId, guidedBriefState: GuidedBriefRuntimeState | null) => void
   addSprintEngineMember: (
     workspaceId: WorkspaceId,
-    role: SprintEngineRole
+    role: SprintEngineRoleId
   ) => { id: AgentId; label: string } | null
   appendStream: (workspaceId: WorkspaceId, agentId: AgentId, chunk: string) => void
   commitStream: (workspaceId: WorkspaceId, agentId: AgentId) => void

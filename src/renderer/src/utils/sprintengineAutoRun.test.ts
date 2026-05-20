@@ -6,6 +6,7 @@ import {
   artifactApprovalMessageKey,
   buildAgentNotificationPrompt,
   buildArchitectNeedsInputTriagePrompt,
+  buildSprintEngineDispatchPrompt,
   buildSprintEngineContinuationPrompt,
   buildSprintEngineGateContinuationPrompt,
   continuationMessageKey,
@@ -19,14 +20,18 @@ import {
   isSprintEngineAutoPendingSpawnStillRelevant,
   pickNextAutoRuns,
   shouldSkipExitedSprintEngineRosterAgent,
+  sprintEngineDispatchDeliveryKey,
   sprintEngineAutoRunWorkKey,
   type AutoRunCandidate,
   type RoleContinuationGrace,
 } from './sprintengineAutoRun'
 import { getSprintEngineStartupCommandMode } from './agentPrompt'
+import { useWorkspaceStore } from '../store/workspaceStore'
 import type {
+  AgentCli,
   SprintEngineArtifact,
   SprintEngineEvent,
+  SprintEngineQualityGate,
   SprintEngineRole,
   SprintEngineRuntimeAgent,
   SprintEngineState,
@@ -44,6 +49,8 @@ async function main(): Promise<void> {
   testTestingPhaseExposesTesterAfterReviewApproval()
   testKeyHelpersAreStableAndScoped()
   testPromptBuildersIncludeAgentIdAndCommand()
+  testDispatchPromptUsesJoinReconciliation()
+  testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles()
   testGetArchitectActionableNeedsInputTasksFiltersByKind()
   testGetAutoApprovalIntentArtifactsRespectsEligibility()
   testGetPendingAgentNotificationEventsFiltersDeliveredAndSent()
@@ -60,6 +67,9 @@ async function main(): Promise<void> {
   await testListTerminalSessionsResolvesWithSessionsOnSuccess()
   await testAutoApprovalOnlyBranchSkipsTerminalListWhenNothingToApprove()
   await testDeliverAgentNotificationsSkipsRetiredTargets()
+  await testDispatchPromptDeliveryUsesDispatchIdCooldown()
+  await testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt()
+  await testSuperviseRunnerCycleDoesNotMutateTaskOrGateState()
 }
 
 function task(overrides: Partial<SprintEngineTask> = {}): SprintEngineTask {
@@ -164,8 +174,10 @@ type TerminalListMock = {
 
 type TestWindowApi = {
   terminalList: () => Promise<unknown[]>
+  terminalWrite?: (sessionId: string, text: string) => Promise<unknown>
   logDiagnostic: (input: unknown) => Promise<unknown>
   platform?: string
+  [key: string]: unknown
 }
 
 function installTestWindow(api: TestWindowApi): void {
@@ -243,6 +255,13 @@ function sprintEngineStateFixture(overrides: Partial<SprintEngineState> = {}): S
 
 function mutableRef<T>(initial: T): { current: T } {
   return { current: initial }
+}
+
+function installWorkspaceStore(workspace: Workspace): void {
+  useWorkspaceStore.setState({
+    workspaces: [workspace],
+    activeWorkspaceId: workspace.id,
+  })
 }
 
 function makeTerminalListMock(impl: () => Promise<unknown[]>): TerminalListMock {
@@ -415,6 +434,305 @@ async function testDeliverAgentNotificationsSkipsRetiredTargets(): Promise<void>
   assert.equal(sentNotifications.current.has(deliveryKey), true, 'retired notification skip is recorded for this supervisor cycle')
 }
 
+async function testDispatchPromptDeliveryUsesDispatchIdCooldown(): Promise<void> {
+  const writes: Array<{ sessionId: string; text: string }> = []
+  const mutations: string[] = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-frontend',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'frontend-3',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+      },
+    ],
+    terminalWrite: async (sessionId, text) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    readySprintEngineTask: async () => {
+      mutations.push('readySprintEngineTask')
+      return { ok: true }
+    },
+    updateSprintEngineTask: async () => {
+      mutations.push('updateSprintEngineTask')
+      return { ok: true }
+    },
+    createSprintEngineTask: async () => {
+      mutations.push('createSprintEngineTask')
+      return { ok: true }
+    },
+    commentSprintEngineTask: async () => {
+      mutations.push('commentSprintEngineTask')
+      return { ok: true }
+    },
+    approveSprintEngineArtifact: async () => {
+      mutations.push('approveSprintEngineArtifact')
+      return { ok: true }
+    },
+    autoApproveSprintEngineArtifact: async () => {
+      mutations.push('autoApproveSprintEngineArtifact')
+      return { ok: true }
+    },
+    requestSprintEngineArtifactChanges: async () => {
+      mutations.push('requestSprintEngineArtifactChanges')
+      return { ok: true }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const sent = mutableRef(new Map<string, { sentAt: number }>())
+  const workspace = workspaceFixture({
+    agents: {
+      'frontend-3': {
+        id: 'frontend-3',
+        name: 'Reagan',
+        role: 'frontend',
+        cli: 'codex',
+        kind: 'sprintengine',
+      },
+    } as Workspace['agents'],
+  })
+  const state = sprintEngineStateFixture({
+    sprintEngineAgents: {
+      'frontend-3': runtimeAgent('frontend', {
+        status: 'running',
+        currentTaskId: 'T4',
+        currentDispatch: {
+          dispatchId: 'DISP-6ed51f5daa40b4bd',
+          targetKind: 'task',
+          role: 'frontend',
+          taskId: 'T4',
+          reason: 'task_claimed',
+        },
+      }),
+    },
+  })
+
+  await supervisor.sendDispatchPromptsToRunningAgents(
+    workspace,
+    state,
+    new Set(['frontend-3']),
+    sent
+  )
+  await supervisor.sendDispatchPromptsToRunningAgents(
+    workspace,
+    state,
+    new Set(['frontend-3']),
+    sent
+  )
+
+  assert.equal(writes.length, 1, 'duplicate dispatch observations are suppressed inside the retry cooldown')
+  assert.equal(writes[0].sessionId, 'session-frontend')
+  assert.ok(writes[0].text.includes('\x1b[200~'), 'existing terminal receives bracketed paste')
+  assert.ok(writes[0].text.includes('Dispatch: DISP-6ed51f5daa40b4bd'))
+  assert.ok(writes[0].text.includes('sprintengine join --role frontend --id frontend-3 --watch'))
+  assert.deepEqual(mutations, [], 'dispatch prompt delivery must not call task/gate/artifact mutation IPC')
+}
+
+async function testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt(): Promise<void> {
+  const spawns: Array<{
+    sessionId: string
+    cwd?: string
+    statePath?: string
+    cli?: AgentCli
+    initialPrompt?: string
+    metadata?: { agentSession?: { workId?: string; role?: string }; visible?: boolean }
+  }> = []
+  installTestWindow({
+    terminalList: async () => [],
+    terminalStatus: async () => ({ processAlive: false }),
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    terminalSpawn: async (
+      sessionId: string,
+      _cols: number,
+      _rows: number,
+      cwd?: string,
+      _resume?: boolean,
+      statePath?: string,
+      cli?: AgentCli,
+      initialPrompt?: string,
+      _cliRuntimes?: unknown,
+      _shellOnly?: boolean,
+      metadata?: { agentSession?: { workId?: string; role?: string }; visible?: boolean },
+    ) => {
+      spawns.push({ sessionId, cwd, statePath, cli, initialPrompt, metadata })
+      return { ok: true, sessionId }
+    },
+    logDiagnostic: async (input) => input,
+    readySprintEngineTask: async () => {
+      throw new Error('renderer must not ready Sprint Engine tasks while spawning')
+    },
+    updateSprintEngineTask: async () => {
+      throw new Error('renderer must not update Sprint Engine tasks while spawning')
+    },
+    createSprintEngineTask: async () => {
+      throw new Error('renderer must not create Sprint Engine tasks while spawning')
+    },
+    commentSprintEngineTask: async () => {
+      throw new Error('renderer must not comment Sprint Engine tasks while spawning')
+    },
+  })
+
+  const supervisor = await loadSupervisor()
+  const workspace = workspaceFixture({
+    agents: {
+      'code_reviewer': {
+        id: 'code_reviewer',
+        name: 'Code Reviewer',
+        role: 'code_reviewer',
+        cli: 'codex',
+        kind: 'sprintengine',
+      },
+    } as Workspace['agents'],
+    sprintEngineAutoState: {
+      enabled: true,
+      autoApproveArtifacts: false,
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  const state = sprintEngineStateFixture({
+    goal: 'Ship registry-driven runtime renderer integration',
+    sprintEngineAgents: {
+      'code_reviewer': runtimeAgent('code_reviewer'),
+    },
+  })
+  installWorkspaceStore({ ...workspace, sprintEngineState: state })
+
+  const result = await supervisor.spawnAutoRunCandidate(
+    workspace,
+    state,
+    {
+      agentId: 'code_reviewer',
+      label: 'Code Reviewer',
+      role: 'code_reviewer',
+      taskId: 'T4',
+      gateId: 'code_reviewer',
+    },
+    { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    {},
+    mutableRef(new Set<string>()),
+  )
+
+  assert.equal(result, 'started')
+  assert.equal(spawns.length, 1, 'missing terminal spawn path calls terminalSpawn once')
+  assert.equal(spawns[0].cwd, '/tmp/workspace')
+  assert.equal(spawns[0].statePath, '/tmp/workspace/.multi-code/sprintengine/team/run.yaml')
+  assert.equal(spawns[0].cli, 'codex')
+  assert.equal(spawns[0].metadata?.agentSession?.workId, 'T4')
+  assert.equal(spawns[0].metadata?.agentSession?.role, 'code_reviewer')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine join --role code_reviewer --id code_reviewer --watch'))
+  assert.ok(spawns[0].initialPrompt?.includes('CLI owns polling'))
+}
+
+async function testSuperviseRunnerCycleDoesNotMutateTaskOrGateState(): Promise<void> {
+  const mutations: string[] = []
+  installTestWindow({
+    terminalList: async () => [],
+    terminalStatus: async () => ({ processAlive: false }),
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    terminalSpawn: async (sessionId: string) => ({ ok: true, sessionId }),
+    logDiagnostic: async (input) => input,
+    readySprintEngineTask: async () => {
+      mutations.push('readySprintEngineTask')
+      return { ok: true }
+    },
+    updateSprintEngineTask: async () => {
+      mutations.push('updateSprintEngineTask')
+      return { ok: true }
+    },
+    createSprintEngineTask: async () => {
+      mutations.push('createSprintEngineTask')
+      return { ok: true }
+    },
+    commentSprintEngineTask: async () => {
+      mutations.push('commentSprintEngineTask')
+      return { ok: true }
+    },
+    approveSprintEngineArtifact: async () => {
+      mutations.push('approveSprintEngineArtifact')
+      return { ok: true }
+    },
+    autoApproveSprintEngineArtifact: async () => {
+      mutations.push('autoApproveSprintEngineArtifact')
+      return { ok: true }
+    },
+    requestSprintEngineArtifactChanges: async () => {
+      mutations.push('requestSprintEngineArtifactChanges')
+      return { ok: true }
+    },
+  })
+
+  const supervisor = await loadSupervisor()
+  const reviewTask = task({
+    id: 'T-review',
+    status: 'review',
+    boardColumn: 'review',
+    role: 'developer',
+    ownerAgentId: 'developer-1',
+    qualityGates: [
+      { id: 'code_reviewer', phase: 'review', role: 'code_reviewer', status: 'pending', required: true, allowSelfReview: true, focus: '', attempts: [] },
+    ],
+  })
+  const state = sprintEngineStateFixture({
+    roleCounts: { code_reviewer: 1 } as SprintEngineState['roleCounts'],
+    sprintEngineAgents: {
+      'code_reviewer': runtimeAgent('code_reviewer'),
+    },
+    tasks: [reviewTask],
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState: state,
+    agents: {
+      'code_reviewer': {
+        id: 'code_reviewer',
+        name: 'Code Reviewer',
+        role: 'code_reviewer',
+        cli: 'codex',
+        kind: 'sprintengine',
+      },
+    } as Workspace['agents'],
+    sprintEngineAutoState: {
+      enabled: true,
+      autoApproveArtifacts: false,
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState: state,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    mcpSettings: {},
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages: mutableRef(new Map()),
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+  })
+
+  assert.deepEqual(mutations, [], 'auto-run dispatch/gate paths must not call renderer task/gate mutation APIs')
+}
+
 function testKeyHelpersAreStableAndScoped(): void {
   const workspace = workspaceFixture()
   const artifact: SprintEngineArtifact = {
@@ -458,6 +776,26 @@ function testKeyHelpersAreStableAndScoped(): void {
     agentNotificationDeliveryKey(workspace, event),
     '/tmp/workspace/.multi-code/sprintengine/team/run.yaml:EV-001'
   )
+  assert.equal(
+    sprintEngineDispatchDeliveryKey(workspace, 'developer-1', {
+      dispatchId: 'DISP-1',
+      targetKind: 'task',
+      taskId: 'T3',
+    }),
+    '/tmp/workspace/.multi-code/sprintengine/team/run.yaml:developer-1:DISP-1',
+    'dispatch delivery prefers durable dispatch id'
+  )
+  assert.equal(
+    sprintEngineDispatchDeliveryKey(workspace, 'developer-1', {
+      dispatchId: null,
+      targetKind: 'gate',
+      taskId: 'T3',
+      gateId: 'tester',
+      reason: 'gate_claimed',
+    }),
+    '/tmp/workspace/.multi-code/sprintengine/team/run.yaml:developer-1:gate:T3:tester:::gate_claimed',
+    'dispatch delivery has a stable target fallback when dispatch id is unavailable'
+  )
 }
 
 function testPromptBuildersIncludeAgentIdAndCommand(): void {
@@ -495,6 +833,69 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
   assert.ok(triage.includes('sprintengine --state'))
   assert.ok(triage.includes('triage needs-input --id architect'))
   assert.ok(triage.includes('T5, T6'))
+}
+
+function testDispatchPromptUsesJoinReconciliation(): void {
+  const prompt = buildSprintEngineDispatchPrompt({
+    role: 'frontend',
+    agentId: 'frontend-3',
+    dispatch: {
+      dispatchId: 'DISP-123',
+      targetKind: 'task',
+      role: 'frontend',
+      taskId: 'T4',
+      reason: 'task_claimed',
+    },
+  })
+
+  assert.ok(prompt.includes('Dispatch: DISP-123'))
+  assert.ok(prompt.includes('Task: T4'))
+  assert.ok(prompt.includes('Reason: task_claimed'))
+  assert.ok(prompt.includes('sprintengine join --role frontend --id frontend-3 --watch'))
+  assert.ok(prompt.includes('CLI owns polling, task/gate claims, and completion routing'))
+}
+
+function testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles(): void {
+  // Registry-keyed custom role (workspace-defined marketer). The wake-up
+  // path must reproduce the role id verbatim in the join command so the
+  // CLI binds the running terminal to its registry-discovered Soul. No
+  // bundled-role label lookup or hardcoded role list should intercept the
+  // value.
+  const dispatchPrompt = buildSprintEngineDispatchPrompt({
+    role: 'marketer',
+    agentId: 'marketer-1',
+    dispatch: {
+      dispatchId: 'DISP-MK-1',
+      targetKind: 'task',
+      role: 'marketer',
+      taskId: 'M2',
+      reason: 'task_claimed',
+    },
+  })
+  assert.ok(dispatchPrompt.includes('Dispatch: DISP-MK-1'))
+  assert.ok(dispatchPrompt.includes('Task: M2'))
+  assert.ok(dispatchPrompt.includes('sprintengine join --role marketer --id marketer-1 --watch'))
+
+  const continuationPrompt = buildSprintEngineContinuationPrompt(
+    task({ id: 'M3', title: 'Campaign brief', role: 'marketer' }),
+    'marketer-1',
+  )
+  assert.ok(continuationPrompt.includes('ready marketer task'))
+  assert.ok(continuationPrompt.includes('sprintengine join --role marketer --id marketer-1 --watch'))
+
+  const gateTask = task({ id: 'M4', title: 'Campaign QA', role: 'marketer' })
+  const customGate: SprintEngineQualityGate = {
+    id: 'marketer_review',
+    phase: 'review',
+    role: 'marketer',
+    status: 'pending',
+    required: true,
+    allowSelfReview: true,
+    attempts: [],
+  }
+  const gatePrompt = buildSprintEngineGateContinuationPrompt(gateTask, customGate, 'marketer-2', false)
+  assert.ok(gatePrompt.includes('Gate: marketer_review (review / marketer)'))
+  assert.ok(gatePrompt.includes('sprintengine join --role marketer --id marketer-2 --watch'))
 }
 
 function testGetArchitectActionableNeedsInputTasksFiltersByKind(): void {

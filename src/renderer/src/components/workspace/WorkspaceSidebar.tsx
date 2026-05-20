@@ -862,12 +862,12 @@ export default function WorkspaceSidebar({
   return (
     <aside
       aria-label="Workspaces"
-      className={`flex shrink-0 flex-col border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] transition-[width] duration-150 ease-out ${
+      className={`flex shrink-0 flex-col bg-[color:var(--bg-app)] transition-[width] duration-150 ease-out ${
         sidebarCollapsed ? 'w-[44px]' : 'w-[296px]'
       }`}
     >
       {/* Header */}
-      <div className="flex h-[38px] shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-2">
+      <div className="flex h-[48px] shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-2">
         {!sidebarCollapsed && (
           <div className="flex min-w-0 flex-1 items-center gap-2 pl-1.5 text-[13px] font-semibold tracking-tight text-[color:var(--text-strong)]">
             <MulticodeMark className="h-[18px] w-[18px] shrink-0" />

@@ -16,7 +16,7 @@
 
 import type {
   SprintEngineArtifact,
-  SprintEngineRole,
+  SprintEngineRoleId,
   SprintEngineTask,
 } from '../../types/workspace'
 import {
@@ -32,7 +32,7 @@ export { formatTimestamp }
 export type RuntimeAgentView = {
   agentId: string
   label: string
-  role: SprintEngineRole
+  role: SprintEngineRoleId
   status: string
   currentTaskId: string | null
 }

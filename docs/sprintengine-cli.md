@@ -68,6 +68,23 @@ sprintengine task publish --task-id T3 --id developer-1 --summary "Implemented t
 Do not use a plain `task status --status done` to bypass required quality
 gates.
 
+## Roles And Souls
+
+Sprint Engine roles are registry-backed. Active role validation resolves role
+ids and aliases through the Sprint Engine role registry at command time rather
+than through a hardcoded runtime enum. The registry search path supports
+workspace-local `.sprintengine/{roles,skills}/`, plugin-scoped Sprint Engine
+registry folders, user registry folders, and bundled
+`resources/sprintengine/{roles,skills}/`.
+
+Role manifests provide identity metadata and ordered Soul skill entries. Sprint
+Engine routing is still driven by run state: roster members, task `role`, and
+`qualityGates[].role`. A role is dispatchable for a run only when it is present
+in the run roster and assigned by a task or gate. Compatibility helpers such as
+`VALID_ROLES` and bundled role label maps may remain for older callers or
+display defaults, but they are not the active Sprint Engine authority for
+workspace custom roles.
+
 ## Command Groups
 
 Inspect help before scripting a command:

@@ -1175,7 +1175,7 @@ export default function WorkspaceManager() {
         onRevealFolder={handleRevealFolder}
         onSetSidebarCollapsed={setSidebarCollapsed}
       />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-tl-[10px] rounded-bl-[10px] bg-[color:var(--bg-surface)] shadow-[inset_1px_0_0_rgba(255,255,255,0.04)]">
       <WorkspaceTopBar
         workspaces={workspaces}
         activeWorkspace={activeWorkspace}

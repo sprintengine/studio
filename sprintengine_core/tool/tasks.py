@@ -556,6 +556,8 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         raw["productFacing"] = False
     if getattr(args, "produces_implementation", False):
         raw["producesImplementation"] = True
+    if getattr(args, "needs_triage", False):
+        raw["needsTriage"] = True
     if getattr(args, "manual_dispatch", False):
         raw["dispatch"] = {
             "mode": "manual",
