@@ -415,6 +415,14 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  useEffect(() => {
  if (selectedTaskId !== null) setSelectedArtifactId(null)
  }, [selectedTaskId])
+ // Selecting a different inbox artifact clears any open document preview
+ // so the inspector switches to the newly-selected artifact instead of
+ // sticking on the previously-opened document.
+ useEffect(() => {
+ setPreviewedArtifact((current) =>
+ current && current.id !== selectedArtifactId ? null : current,
+ )
+ }, [selectedArtifactId])
  // Active SE view is shared with the workspace top-bar segmented nav, so it
  // lives in a small persisted store keyed by workspace id rather than local
  // state. The `fixedView` prop still wins when WorkspaceLayout pins a view

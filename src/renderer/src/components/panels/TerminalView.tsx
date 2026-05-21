@@ -13,6 +13,7 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createXtermOutputQueue } from '../../utils/xtermOutputQueue'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
+import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/terminalDrop'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { resolveAgentCliPermissionPreset } from '../../utils/agentCliPermissions'
@@ -237,16 +238,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const shouldResume = attachedSessionId ? true : agent?.cliHasLaunched ?? false
     const shouldResumeCodexConversation = cli === 'codex' && Boolean(agent?.cliResumeAvailable)
     const term = new Terminal({
-      theme: {
-        background: '#09090b',
-        foreground: '#e4e4e7',
-        cursor: '#818cf8',
-      },
+      theme: getTerminalTheme(),
       fontFamily: 'ui-monospace, "Cascadia Code", Consolas, monospace',
       fontSize: 13,
       cursorBlink: true,
       scrollback: 5000,
     })
+    const unbindTerminalTheme = bindTerminalTheme(term)
     const fitAddon = new FitAddon()
     const terminalDiagnostics = createTerminalDiagnostics({
       scope: 'TerminalView',
@@ -549,6 +547,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       onResizeDisposable.dispose()
       terminalDiagnostics.dispose()
       outputQueue.dispose()
+      unbindTerminalTheme()
       term.dispose()
     }
   }, [

@@ -8,6 +8,7 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createXtermOutputQueue } from '../../utils/xtermOutputQueue'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
+import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/terminalDrop'
 import { Toast } from '../ui/Toast'
 
@@ -51,16 +52,13 @@ export default function PlainTerminalPanel({
 
     const sessionId = sessionIdRef.current
     const term = new Terminal({
-      theme: {
-        background: '#09090b',
-        foreground: '#e4e4e7',
-        cursor: '#5c7cff',
-      },
+      theme: getTerminalTheme(),
       fontFamily: 'ui-monospace, "Cascadia Code", Consolas, monospace',
       fontSize: 13,
       cursorBlink: true,
       scrollback: 5000,
     })
+    const unbindTerminalTheme = bindTerminalTheme(term)
     const fitAddon = new FitAddon()
     const terminalDiagnostics = createTerminalDiagnostics({
       scope: 'PlainTerminalPanel',
@@ -233,6 +231,7 @@ export default function PlainTerminalPanel({
       onResizeDisposable.dispose()
       terminalDiagnostics.dispose()
       outputQueue.dispose()
+      unbindTerminalTheme()
       term.dispose()
       if (killOnUnmount || shouldKillOnUnmount?.(sessionId)) {
         void window.api.terminalKill(sessionId).catch(() => {})

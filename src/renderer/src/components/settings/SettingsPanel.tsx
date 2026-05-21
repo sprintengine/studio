@@ -11,6 +11,7 @@ import type {
   SkillPackEntry,
   SkillPackSettings,
 } from '../../types/workspace'
+import { APP_THEME_SELECT_ITEMS } from '../../types/appTheme'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import {
   buildSprintEngineRoleRegistry,
@@ -81,6 +82,7 @@ const MCP_TRANSPORT_ITEMS: SelectItem<'stdio' | 'http'>[] = [
 ]
 
 type SettingsTabId =
+  | 'appearance'
   | 'updates'
   | 'github'
   | 'agents'
@@ -94,6 +96,7 @@ type SettingsTabId =
   | 'telemetry'
 
 const settingsTabs: Array<{ id: SettingsTabId; label: string; description: string }> = [
+  { id: 'appearance', label: 'Appearance', description: 'Theme and visual style' },
   { id: 'updates', label: 'Updates', description: 'Version and release channel' },
   { id: 'github', label: 'GitHub', description: 'Issue import token' },
   { id: 'agents', label: 'Agents', description: 'CLI runtime commands' },
@@ -109,7 +112,8 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
 
 function isSettingsTabId(value: unknown): value is SettingsTabId {
   return (
-    value === 'updates'
+    value === 'appearance'
+    || value === 'updates'
     || value === 'github'
     || value === 'agents'
     || value === 'roles'
@@ -415,6 +419,8 @@ export default function SettingsPanel({
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const usageTelemetry = useWorkspaceStore((s) => s.appSettings.usageTelemetry)
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
+  const appearanceTheme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
+  const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
   const setMcpSyncEnabled = useWorkspaceStore((s) => s.setMcpSyncEnabled)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
@@ -484,6 +490,7 @@ export default function SettingsPanel({
     }
   }, [initialTab])
   const tabRefs = useRef<Record<SettingsTabId, HTMLButtonElement | null>>({
+    appearance: null,
     updates: null,
     github: null,
     agents: null,
@@ -1205,6 +1212,29 @@ export default function SettingsPanel({
           {activeTab.description}
         </p>
       </header>
+
+      {activeSettingsTab === 'appearance' ? (
+        <div
+          role="tabpanel"
+          id="settings-panel-appearance"
+          aria-labelledby="settings-tab-appearance"
+          className="space-y-4"
+        >
+          <Field
+            label="Theme"
+            htmlFor="appearance-theme-select"
+            help="Theme applies across every Multicode workspace and panel. 'Match system' follows your operating system's light or dark preference."
+          >
+            <Select
+              ariaLabel="Theme"
+              items={APP_THEME_SELECT_ITEMS}
+              value={appearanceTheme}
+              onChange={setAppearanceTheme}
+              className="h-9 w-full sm:max-w-xs"
+            />
+          </Field>
+        </div>
+      ) : null}
 
       {activeSettingsTab === 'updates' ? (
         <div

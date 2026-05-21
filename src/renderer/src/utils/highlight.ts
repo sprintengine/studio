@@ -33,8 +33,8 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     label: 'Red',
     hex: '#ff5a5f',
     border: 'border-l-[#ff5a5f]',
-    bg: 'bg-[#1a0a0c]',
-    text: 'text-[#ffd5d6]',
+    bg: 'highlight-bg-red',
+    text: 'highlight-text-red',
     shadow:
       'shadow-[inset_0_0_0_1px_rgba(255,90,95,0.24),0_0_10px_-6px_rgba(255,90,95,0.20)]',
     collapsedShadow:
@@ -47,8 +47,8 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     label: 'Orange',
     hex: '#ff8c42',
     border: 'border-l-[#ff8c42]',
-    bg: 'bg-[#1a0e07]',
-    text: 'text-[#ffd9b8]',
+    bg: 'highlight-bg-orange',
+    text: 'highlight-text-orange',
     shadow:
       'shadow-[inset_0_0_0_1px_rgba(255,140,66,0.24),0_0_10px_-6px_rgba(255,140,66,0.18)]',
     collapsedShadow:
@@ -61,8 +61,8 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     label: 'Amber',
     hex: '#ffbf2f',
     border: 'border-l-[#ffbf2f]',
-    bg: 'bg-[#1a1408]',
-    text: 'text-[#ffe7b3]',
+    bg: 'highlight-bg-amber',
+    text: 'highlight-text-amber',
     shadow:
       'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.22),0_0_10px_-6px_rgba(255,191,47,0.18)]',
     collapsedShadow:
@@ -75,8 +75,8 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     label: 'Green',
     hex: '#30d158',
     border: 'border-l-[#30d158]',
-    bg: 'bg-[#0a1a0e]',
-    text: 'text-[#bdfbd0]',
+    bg: 'highlight-bg-green',
+    text: 'highlight-text-green',
     shadow:
       'shadow-[inset_0_0_0_1px_rgba(48,209,88,0.24),0_0_10px_-6px_rgba(48,209,88,0.18)]',
     collapsedShadow:
@@ -89,8 +89,8 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     label: 'Blue',
     hex: '#5c7cff',
     border: 'border-l-[#5c7cff]',
-    bg: 'bg-[#15203c]',
-    text: 'text-[#dfe6ff]',
+    bg: 'highlight-bg-blue',
+    text: 'highlight-text-blue',
     shadow:
       'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.26),0_0_10px_-6px_rgba(92,124,255,0.20)]',
     collapsedShadow:
@@ -103,8 +103,8 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     label: 'Purple',
     hex: '#a78bfa',
     border: 'border-l-[#a78bfa]',
-    bg: 'bg-[#150f2c]',
-    text: 'text-[#efe5ff]',
+    bg: 'highlight-bg-purple',
+    text: 'highlight-text-purple',
     shadow:
       'shadow-[inset_0_0_0_1px_rgba(167,139,250,0.28),0_0_10px_-6px_rgba(167,139,250,0.22)]',
     collapsedShadow:
@@ -117,8 +117,8 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     label: 'Pink',
     hex: '#ff7eb3',
     border: 'border-l-[#ff7eb3]',
-    bg: 'bg-[#1a0c14]',
-    text: 'text-[#ffd6e5]',
+    bg: 'highlight-bg-pink',
+    text: 'highlight-text-pink',
     shadow:
       'shadow-[inset_0_0_0_1px_rgba(255,126,179,0.26),0_0_10px_-6px_rgba(255,126,179,0.20)]',
     collapsedShadow:

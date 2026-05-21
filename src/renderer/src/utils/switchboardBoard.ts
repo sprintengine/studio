@@ -155,12 +155,12 @@ export function priorityLabel(priority: number | null): string {
 }
 
 export function priorityToneClass(priority: number | null): string {
-  if (priority == null) return 'text-[#6f7078]'
-  if (priority <= 0) return 'text-[#ff787c]'
-  if (priority === 1) return 'text-[#f2c45f]'
-  if (priority === 2) return 'text-[#7c5cf2]'
-  if (priority === 3) return 'text-[#5c7cff]'
-  return 'text-[#9a9aa2]'
+  if (priority == null) return 'text-[color:var(--text-subtle)]'
+  if (priority <= 0) return 'text-[color:var(--tone-error)]'
+  if (priority === 1) return 'text-[color:var(--tone-warn)]'
+  if (priority === 2) return 'text-[color:var(--tool-switchboard)]'
+  if (priority === 3) return 'text-[color:var(--accent-primary)]'
+  return 'text-[color:var(--text-muted)]'
 }
 
 export type ConfidenceLevel = 'high' | 'medium' | 'low'
@@ -179,9 +179,9 @@ export function confidenceLabel(value: number | null | undefined): string {
 
 export function confidenceToneClass(value: number): string {
   const level = confidenceLevel(value)
-  if (level === 'high') return 'border-[#21432b] bg-[#0f1c14] text-[#8fd49c]'
-  if (level === 'medium') return 'border-[#4b3a1d] bg-[#1f1a10] text-[#d8b56d]'
-  return 'border-[#4a2224] bg-[#241313] text-[#ff9ea0]'
+  if (level === 'high') return 'chip-border-good chip-bg-good chip-text-good'
+  if (level === 'medium') return 'chip-border-warn chip-bg-warn chip-text-warn'
+  return 'chip-border-error chip-bg-error chip-text-error'
 }
 
 export { formatRelativeTime } from './time'

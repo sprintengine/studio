@@ -5,6 +5,39 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Multicode</title>
     <link rel="icon" type="image/svg+xml" href="./src/assets/brand/multicode/mark-on-dark.svg" />
+    <script>
+      // Apply the persisted theme before any CSS evaluates so the user never
+      // sees a flash of the wrong theme. Mirrors the resolution rules in
+      // src/renderer/src/hooks/useAppTheme.ts.
+      //
+      // No theme-id allow-list here on purpose: the React-side store
+      // normalizer (normalizeAppearanceSettings in settingsSlice.ts) is the
+      // single source of truth for valid ids. Worst case: a corrupt
+      // persisted value falls through to a missing data-theme block,
+      // which inherits the default :root (Dark) until React mounts and
+      // the normalizer rewrites it. One frame, theme-list-agnostic.
+      //
+      // This means adding a new theme never touches index.html — only
+      // src/renderer/src/types/appTheme.ts (one row) and index.css (one
+      // :root[data-theme="..."] block).
+      (function () {
+        try {
+          var KEY = 'multicode-app-settings'
+          var raw = window.localStorage.getItem(KEY)
+          var persisted = raw ? JSON.parse(raw) : null
+          var theme = persisted && persisted.state && persisted.state.appSettings
+            && persisted.state.appSettings.appearance
+            && persisted.state.appSettings.appearance.theme
+          if (!theme || theme === 'system') {
+            var mql = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)')
+            theme = mql && mql.matches ? 'light' : 'dark'
+          }
+          document.documentElement.setAttribute('data-theme', theme)
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark')
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

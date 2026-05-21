@@ -17,6 +17,7 @@ import type {
   UsageTelemetrySettings,
   Workspace,
 } from '../../types/workspace'
+import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
 
 export const MAX_RECENT_WORKSPACE_FOLDERS = 12
 
@@ -68,6 +69,17 @@ export function normalizeLearningSettings(input: unknown): LearningSettings {
         ? candidate.dismissedVersion.trim()
         : undefined,
   }
+}
+
+export function defaultAppearanceSettings(): AppearanceSettings {
+  return { theme: 'system' }
+}
+
+export function normalizeAppearanceSettings(value: unknown): AppearanceSettings {
+  const defaults = defaultAppearanceSettings()
+  if (!value || typeof value !== 'object') return defaults
+  const candidate = value as Partial<AppearanceSettings>
+  return { theme: isAppTheme(candidate.theme) ? candidate.theme : defaults.theme }
 }
 
 export function defaultMcpSettings(): McpSettings {
@@ -358,6 +370,7 @@ export const defaultAppSettings = (): AppSettings => ({
   recentWorkspaceFolders: [],
   usageTelemetry: defaultUsageTelemetrySettings(),
   learning: defaultLearningSettings(),
+  appearance: defaultAppearanceSettings(),
 })
 
 export function normalizeAppSettings(settings: Partial<AppSettings> | undefined, workspaces: Workspace[]): AppSettings {
@@ -385,6 +398,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     ),
     usageTelemetry: normalizeUsageTelemetrySettings(settings?.usageTelemetry),
     learning: normalizeLearningSettings(settings?.learning),
+    appearance: normalizeAppearanceSettings(settings?.appearance),
   }
 }
 
@@ -418,6 +432,7 @@ export interface SettingsSliceActions {
   markLearningTipSeen: (tipId: string) => void
   markLearningLessonCompleted: (lessonId: string, completed?: boolean) => void
   resetLearningProgress: () => void
+  setAppearanceTheme: (theme: AppTheme) => void
 }
 
 export type SettingsSlice = SettingsSliceState & SettingsSliceActions
@@ -625,6 +640,14 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
           ...defaultLearningSettings(),
           showTipsOnStartup: current.showTipsOnStartup,
         }
+      }),
+
+    setAppearanceTheme: (theme) =>
+      set((state) => {
+        state.appSettings.appearance = normalizeAppearanceSettings({
+          ...state.appSettings.appearance,
+          theme,
+        })
       }),
   }
 }

@@ -12,7 +12,7 @@ type MarkdownNode = Element | undefined
 type MarkdownComponentProps<TagName extends keyof JSX.IntrinsicElements> =
   React.ComponentPropsWithoutRef<TagName> & ExtraProps
 
-const baseTextClass = 'text-[15px] leading-7 text-[#d7d7dc]'
+const baseTextClass = 'text-[15px] leading-7 text-[color:var(--text-default)]'
 const SAFE_MARKDOWN_URL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 
 function joinClasses(...classes: Array<string | false | null | undefined>): string {
@@ -77,7 +77,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       <h1
         className={joinClasses(
           className,
-          'mt-7 first:mt-0 mb-4 text-3xl font-semibold leading-tight tracking-tight text-[#ececee]',
+          'mt-7 first:mt-0 mb-4 text-3xl font-semibold leading-tight tracking-tight text-[color:var(--text-strong)]',
           changedBlockClass(node, lineChanges)
         )}
       >
@@ -88,7 +88,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       <h2
         className={joinClasses(
           className,
-          'mt-7 first:mt-0 mb-3 text-2xl font-semibold leading-tight tracking-tight text-[#ececee]',
+          'mt-7 first:mt-0 mb-3 text-2xl font-semibold leading-tight tracking-tight text-[color:var(--text-strong)]',
           changedBlockClass(node, lineChanges)
         )}
       >
@@ -99,7 +99,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       <h3
         className={joinClasses(
           className,
-          'mt-6 first:mt-0 mb-3 text-xl font-semibold leading-snug tracking-tight text-[#ececee]',
+          'mt-6 first:mt-0 mb-3 text-xl font-semibold leading-snug tracking-tight text-[color:var(--text-strong)]',
           changedBlockClass(node, lineChanges)
         )}
       >
@@ -110,7 +110,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       <h4
         className={joinClasses(
           className,
-          'mt-5 first:mt-0 mb-2 text-lg font-semibold leading-snug text-[#ececee]',
+          'mt-5 first:mt-0 mb-2 text-lg font-semibold leading-snug text-[color:var(--text-strong)]',
           changedBlockClass(node, lineChanges)
         )}
       >
@@ -121,7 +121,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       <h5
         className={joinClasses(
           className,
-          'mt-5 first:mt-0 mb-2 text-base font-semibold leading-snug text-[#ececee]',
+          'mt-5 first:mt-0 mb-2 text-base font-semibold leading-snug text-[color:var(--text-strong)]',
           changedBlockClass(node, lineChanges)
         )}
       >
@@ -132,7 +132,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       <h6
         className={joinClasses(
           className,
-          'mt-5 first:mt-0 mb-2 text-sm font-semibold uppercase leading-snug tracking-[0.08em] text-[#b9b9c2]',
+          'mt-5 first:mt-0 mb-2 text-sm font-semibold uppercase leading-snug tracking-[0.08em] text-[color:var(--text-default)]',
           changedBlockClass(node, lineChanges)
         )}
       >
@@ -148,7 +148,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
     ),
     a: ({ children, href, className }: MarkdownComponentProps<'a'>) => {
       if (!isSafeMarkdownUrl(href)) {
-        return <span className={joinClasses(className, 'text-[#d7d7dc]')}>{children}</span>
+        return <span className={joinClasses(className, 'text-[color:var(--text-default)]')}>{children}</span>
       }
 
       return (
@@ -156,19 +156,19 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
           href={href}
           target="_blank"
           rel="noreferrer"
-          className={joinClasses(className, 'text-[#7f99ff] underline underline-offset-2 hover:text-[#c5d2ff]')}
+          className={joinClasses(className, 'text-[color:var(--accent-primary)] underline underline-offset-2 hover:text-[color:var(--accent-primary-hover)]')}
         >
           {children}
         </a>
       )
     },
     strong: ({ children, className }: MarkdownComponentProps<'strong'>) => (
-      <strong className={joinClasses(className, 'font-semibold text-[#ececee]')}>
+      <strong className={joinClasses(className, 'font-semibold text-[color:var(--text-strong)]')}>
         {children}
       </strong>
     ),
     em: ({ children, className }: MarkdownComponentProps<'em'>) => (
-      <em className={joinClasses(className, 'italic text-[#d7d7dc]')}>
+      <em className={joinClasses(className, 'italic text-[color:var(--text-default)]')}>
         {children}
       </em>
     ),
@@ -176,7 +176,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       <code
         className={joinClasses(
           className,
-          'rounded border border-[#24252b] bg-[#111216] px-1.5 py-0.5 text-[#ffd58a]'
+          'rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[color:var(--tone-warn)]'
         )}
       >
         {children}
@@ -186,7 +186,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       <pre
         className={joinClasses(
           className,
-          'my-4 overflow-x-auto rounded-lg border border-[#24252b] bg-[#08090b] p-4 text-[13px] leading-6 text-[#d7d7dc]',
+          'my-4 overflow-x-auto rounded-lg border border-[color:var(--border-default)] bg-[color:var(--terminal-bg)] p-4 text-[13px] leading-6 text-[color:var(--terminal-fg)]',
           changedBlockClass(node, lineChanges)
         )}
       >
@@ -197,7 +197,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       <blockquote
         className={joinClasses(
           className,
-          'my-4 border-l-2 border-[#303139] py-0.5 pl-4 text-[#9a9aa2]',
+          'my-4 border-l-2 border-[color:var(--border-strong)] py-0.5 pl-4 text-[color:var(--text-muted)]',
           changedBlockClass(node, lineChanges)
         )}
       >
@@ -208,7 +208,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       <ul
         className={joinClasses(
           className,
-          'mb-4 ml-6 list-disc space-y-2 text-[15px] leading-7 text-[#d7d7dc]',
+          'mb-4 ml-6 list-disc space-y-2 text-[15px] leading-7 text-[color:var(--text-default)]',
           changedBlockClass(node, lineChanges)
         )}
       >
@@ -222,7 +222,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
         type={type}
         className={joinClasses(
           className,
-          'mb-4 ml-6 list-decimal space-y-2 text-[15px] leading-7 text-[#d7d7dc]',
+          'mb-4 ml-6 list-decimal space-y-2 text-[15px] leading-7 text-[color:var(--text-default)]',
           changedBlockClass(node, lineChanges)
         )}
       >
@@ -244,19 +244,19 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       <input
         checked={checked}
         type={type}
-        className={joinClasses(className, 'mr-2 translate-y-[1px] accent-[#35d07f]')}
+        className={joinClasses(className, 'mr-2 translate-y-[1px] accent-[color:var(--tone-good)]')}
         disabled
       />
     ),
     img: ({ alt, className }: MarkdownComponentProps<'img'>) => (
-      <span className={joinClasses(className, 'text-[#9a9aa2]')}>
+      <span className={joinClasses(className, 'text-[color:var(--text-muted)]')}>
         {alt ? `[Image: ${alt}]` : '[Image]'}
       </span>
     ),
     table: ({ node, children, className }: MarkdownComponentProps<'table'>) => (
       <div className={joinClasses('my-4 overflow-x-auto', changedBlockClass(node, lineChanges))}>
         <table
-          className={joinClasses(className, 'w-full border-collapse text-left text-[13px] text-[#d7d7dc]')}
+          className={joinClasses(className, 'w-full border-collapse text-left text-[13px] text-[color:var(--text-default)]')}
         >
           {children}
         </table>
@@ -265,19 +265,19 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
     th: ({ children, className, align }: MarkdownComponentProps<'th'>) => (
       <th
         align={align}
-        className={joinClasses(className, 'border border-[#303139] bg-[#111216] px-3 py-2 font-semibold text-[#ececee]')}
+        className={joinClasses(className, 'border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] px-3 py-2 font-semibold text-[color:var(--text-strong)]')}
       >
         {children}
       </th>
     ),
     td: ({ children, className, align }: MarkdownComponentProps<'td'>) => (
-      <td align={align} className={joinClasses(className, 'border border-[#24252b] px-3 py-2 align-top')}>
+      <td align={align} className={joinClasses(className, 'border border-[color:var(--border-default)] px-3 py-2 align-top')}>
         {children}
       </td>
     ),
     hr: ({ node, className }: MarkdownComponentProps<'hr'>) => (
       <hr
-        className={joinClasses(className, 'my-6 border-0 border-t border-[#24252b]', changedBlockClass(node, lineChanges))}
+        className={joinClasses(className, 'my-6 border-0 border-t border-[color:var(--border-default)]', changedBlockClass(node, lineChanges))}
       />
     ),
   }

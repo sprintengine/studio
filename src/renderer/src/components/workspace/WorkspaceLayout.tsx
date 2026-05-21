@@ -9,7 +9,15 @@ import {
   type ITabRenderValues,
   type NodeMouseEvent,
 } from 'flexlayout-react'
-import 'flexlayout-react/style/dark.css'
+// combined.css carries the structural FlexLayout CSS — its theme color
+// variables are scoped under `.flexlayout__theme_*` classes that we never
+// apply. Our own `.flexlayout__layout { --color-*: var(--bg-*) }` block in
+// src/renderer/src/assets/index.css drives every color, so the FlexLayout
+// chrome follows our data-theme on Dark / Light / Slate / Dark Conifer.
+// The previous `style/dark.css` import declared its own `.flexlayout__layout`
+// rule with hardcoded dark color variables that painted over our theme
+// tokens on every non-dark theme — the dark horizontal bars in light mode.
+import 'flexlayout-react/style/combined.css'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {

@@ -377,7 +377,23 @@ for (const relativePath of TARGET_FILES) {
     }
   }
 
+  // Compute block-marker mask: `design-tokens-allow-block: <reason>` opens an
+  // exempt range that runs until the next `design-tokens-allow-end`. Used for
+  // grouped semantic literal blocks (file-type chip palette, etc.) where
+  // per-line markers would be noisy.
+  const blockOpenMarker = 'design-tokens-allow-block:'
+  const blockEndMarker = 'design-tokens-allow-end'
+  const blockMask = new Uint8Array(lines.length)
+  let inBlock = false
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+    if (!inBlock && line.includes(blockOpenMarker)) inBlock = true
+    if (inBlock) blockMask[i] = 1
+    if (inBlock && line.includes(blockEndMarker)) inBlock = false
+  }
+
   lines.forEach((line, index) => {
+    if (blockMask[index]) return
     if (line.includes(ALLOW_MARKER)) return
     // Accept a marker within the immediately preceding 2 lines — JSX className
     // strings cannot host `//` comments inline, so the conventional placement
@@ -454,6 +470,123 @@ if (PATH_EXEMPTIONS.length > ALLOW_LIST_CEILING) {
       `documented ceiling is ${ALLOW_LIST_CEILING}. ` +
       'Drain chrome rather than allow-list it.\n',
   )
+}
+
+// CSS scan for src/renderer/src/assets/index.css.
+//
+// Themable surface chrome lives inside `:root` and `:root[data-theme="..."]`
+// blocks. Any hex color literal outside those blocks is a regression that
+// would freeze a color into one theme — exactly what the multi-theme rollout
+// was meant to prevent. The exception is documented semantic literals (status
+// flashes, tab-highlight user palette, brand-gold needs-input chrome, git
+// gutter glyphs); each line that needs an exception carries the same
+// `design-tokens-allow:` marker the component scan honours.
+const THEME_CSS_PATH = 'src/renderer/src/assets/index.css'
+const CSS_HEX_LITERAL = /#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b/g
+// Match any `:root` selector list — bare `:root`, `:root[data-theme="…"]`,
+// or comma-joined combinations. Captures up to and including the opening
+// brace so the brace walker below picks up the block body.
+const ROOT_SELECTOR =
+  /:root(?:\s*\[data-theme\s*=\s*"[a-zA-Z0-9_-]+"\])?(?:\s*,\s*:root(?:\s*\[data-theme\s*=\s*"[a-zA-Z0-9_-]+"\])?)*\s*\{/g
+let cssViolations = 0
+const cssFindings = []
+const cssAbsPath = resolve(repoRoot, THEME_CSS_PATH)
+if (existsSync(cssAbsPath)) {
+  const cssSource = readFileSync(cssAbsPath, 'utf8')
+  const cssLines = cssSource.split('\n')
+  // Mark every offset that sits inside a `:root[data-theme=...]` block. We
+  // detect those blocks by selector regex and then walk the brace depth to
+  // find the matching closing brace. Any hex outside this masked range is a
+  // candidate violation.
+  const allowMask = new Uint8Array(cssSource.length)
+  // Mask every offset inside a `/* … */` block comment so doc references
+  // (e.g. `#hex` cited inside a `:root[data-theme="conifer"]` header comment)
+  // don't trip the guard.
+  {
+    let i = 0
+    while (i < cssSource.length - 1) {
+      if (cssSource[i] === '/' && cssSource[i + 1] === '*') {
+        const start = i
+        i += 2
+        while (i < cssSource.length - 1 && !(cssSource[i] === '*' && cssSource[i + 1] === '/')) {
+          i += 1
+        }
+        const end = Math.min(cssSource.length, i + 2)
+        for (let j = start; j < end; j += 1) allowMask[j] = 1
+        i = end
+      } else {
+        i += 1
+      }
+    }
+  }
+  ROOT_SELECTOR.lastIndex = 0
+  let rootMatch
+  while ((rootMatch = ROOT_SELECTOR.exec(cssSource))) {
+    const openBrace = rootMatch.index + rootMatch[0].length - 1
+    let depth = 1
+    let i = openBrace + 1
+    while (i < cssSource.length && depth > 0) {
+      const ch = cssSource[i]
+      if (ch === '{') depth += 1
+      else if (ch === '}') depth -= 1
+      i += 1
+    }
+    const close = i
+    for (let j = openBrace; j < close; j += 1) allowMask[j] = 1
+  }
+  // Block-marker support: a `design-tokens-allow-block:` line opens an
+  // exception zone that runs until the next `design-tokens-allow-end` line.
+  // Used for grouped semantic literal blocks (tab-highlight palette,
+  // git/markdown gutter palette) where per-line markers would be noisy.
+  {
+    const blockOpen = 'design-tokens-allow-block:'
+    const blockEnd = 'design-tokens-allow-end'
+    let pos = 0
+    while (pos < cssSource.length) {
+      const openIdx = cssSource.indexOf(blockOpen, pos)
+      if (openIdx === -1) break
+      const endIdx = cssSource.indexOf(blockEnd, openIdx + blockOpen.length)
+      const stop = endIdx === -1 ? cssSource.length : endIdx + blockEnd.length
+      for (let j = openIdx; j < stop; j += 1) allowMask[j] = 1
+      pos = stop
+    }
+  }
+  CSS_HEX_LITERAL.lastIndex = 0
+  let hexMatch
+  while ((hexMatch = CSS_HEX_LITERAL.exec(cssSource))) {
+    if (allowMask[hexMatch.index]) continue
+    const upTo = cssSource.slice(0, hexMatch.index)
+    const lineNumber = upTo.split('\n').length
+    const lineText = cssLines[lineNumber - 1] ?? ''
+    const prev1 = lineNumber >= 2 ? cssLines[lineNumber - 2] ?? '' : ''
+    const prev2 = lineNumber >= 3 ? cssLines[lineNumber - 3] ?? '' : ''
+    if (
+      lineText.includes(ALLOW_MARKER) ||
+      prev1.includes(ALLOW_MARKER) ||
+      prev2.includes(ALLOW_MARKER)
+    ) {
+      continue
+    }
+    const lastNewline = upTo.lastIndexOf('\n')
+    const column = hexMatch.index - lastNewline
+    cssFindings.push({
+      rule: 'no-themable-hex-outside-root',
+      line: lineNumber,
+      column,
+      text: hexMatch[0],
+    })
+    cssViolations += 1
+  }
+  if (!QUIET && cssFindings.length > 0) {
+    cssFindings.sort((a, b) => a.line - b.line || a.column - b.column)
+    process.stdout.write(`\n${THEME_CSS_PATH}\n`)
+    for (const finding of cssFindings) {
+      process.stdout.write(
+        `  ${finding.line}:${finding.column}  ${finding.rule}  ${finding.text}\n`,
+      )
+    }
+  }
+  totalViolations += cssViolations
 }
 
 process.stdout.write('\nDesign-token guard summary\n')

@@ -24,6 +24,7 @@ import type {
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
 } from '../../types/workspace'
+import { APP_THEMES, type AppTheme } from '../../types/appTheme'
 
 // Scope marks where a field is surfaced:
 // - 'app'   — app-wide preferences shown in SettingsPanel.
@@ -120,6 +121,10 @@ const SPECIALIST_OPTIONS: ReadonlyArray<SelectOption<SpecialistActionId>> = [
   { value: 'spec-review', label: 'Spec review' },
 ]
 
+const APP_THEME_OPTIONS: ReadonlyArray<SelectOption<AppTheme>> = APP_THEMES.map(
+  (t) => ({ value: t.id, label: t.label }),
+)
+
 const MULTILOOP_ROLE_OPTIONS: ReadonlyArray<SelectOption<MultiloopRole>> = [
   { value: 'coordinator', label: 'Coordinator' },
   { value: 'architect', label: 'Architect' },
@@ -133,6 +138,18 @@ const MULTILOOP_ROLE_OPTIONS: ReadonlyArray<SelectOption<MultiloopRole>> = [
 ]
 
 export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
+  // Appearance — app-wide theme.
+  {
+    id: 'appearance-theme',
+    label: 'Theme',
+    help: 'Theme applies across every Multicode workspace and panel.',
+    scope: 'app',
+    group: 'appearance',
+    field: { type: 'select', items: APP_THEME_OPTIONS },
+    storePath: 'appSettings.appearance.theme',
+    storeSetter: 'setAppearanceTheme',
+  },
+
   // Telemetry — anonymous usage + crash diagnostics.
   {
     id: 'usage-telemetry-send-data',

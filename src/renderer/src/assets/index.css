@@ -4,11 +4,20 @@
 /* Shared UI tokens — shared by Switchboard, Watchtower, Sprint Engine, and
  * Multiloop panel rebuilds. Existing tool-identity / theme variables are kept
  * intact below; these tokens add a semantic layer that primitives consume.
- * Source of truth: future-plans/2026-05-12-linear-grade-ui-redesign.md and
- * .multi-code/sprintengine/2026-05-12-linear-grade-ui-redesign2/plan.md.
+ * Source of truth: future-plans/2026-05-12-linear-grade-ui-redesign.md,
+ * .multi-code/sprintengine/2026-05-12-linear-grade-ui-redesign2/plan.md, and
+ * future-plans/2026-05-21-app-themes-light-forest.md (multi-theme rollout).
+ *
+ * Themes attach as `data-theme="<id>"` on <html>. The bare :root block below
+ * is the default Dark theme; explicit data-theme blocks for `light` and
+ * `conifer` follow it. Surface, text, border, accent-soft, and scrollbar
+ * tokens vary per theme; semantic tones, tool-identity dots, type/icon/
+ * radius/motion scales stay constant.
+ *
  * Color literals live here intentionally — the design-token lint guard scopes
  * forbidden inline hex usage to the four target panel files, not this file. */
-:root {
+:root,
+:root[data-theme="dark"] {
   /* Surfaces. Match the existing zinc-950/900/800 chrome so legacy panels keep
      working while rebuilt panels read from the same token. */
   --bg-app: #08090b;
@@ -36,7 +45,9 @@
   --border-focus: rgba(92, 124, 255, 0.6);
 
   /* One product accent for active selection and primary action across the
-     four target panels. Tool color is limited to header identity dots. */
+     four target panels. Tool color is limited to header identity dots.
+     Dark + Light keep brand blue; Dark Conifer overrides to amber (see the
+     `[data-theme="conifer"]` block below). */
   --accent-primary: #5c7cff;
   --accent-primary-hover: #6e8eff;
   --accent-primary-soft: rgba(92, 124, 255, 0.14);
@@ -66,6 +77,22 @@
   --tool-watchtower: #d97757;
   --tool-sprintengine: #ffbf2f;
   --tool-multiloop: #39d7ff;
+
+  /* Scrollbar surfaces. Pull from the ink scale so each theme can re-tune. */
+  --scrollbar-thumb: #24252b;
+  --scrollbar-thumb-hover: #303139;
+
+  /* Skeleton shimmer endpoints — alpha on light, alpha on white. */
+  --skeleton-shimmer-low: rgba(255, 255, 255, 0.02);
+  --skeleton-shimmer-high: rgba(255, 255, 255, 0.05);
+
+  /* Terminal surface — intentionally deeper than --bg-app so embedded
+     xterm/PTY views read as a "punched-in screen" rather than blending into
+     the surrounding chrome. Foreground stays light on every theme so the
+     terminal feels like the same primitive regardless of panel theme. */
+  --terminal-bg: #050609;
+  --terminal-fg: #ececee;
+  --terminal-cursor: var(--accent-primary);
 
   /* Type scale. Body is 12 px to match existing flexlayout chrome. */
   --text-size-2xs: 10.5px;
@@ -105,6 +132,223 @@
   --shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
 }
 
+/* Light theme — paper-warm whites, dark ink text. References: Linear Light,
+   Vercel Light, Stripe Light. Surface, text, border, accent-soft,
+   tone-soft, and scrollbar tokens override; semantic tone hexes, tool
+   identity dots, accent hue, and structural scales stay constant. */
+:root[data-theme="light"] {
+  /* Surface ramp re-anchored so "raised" reads as elevated (pure white)
+     rather than dimmer than the panel. Wider luma spacing across the ramp
+     gives the eye a clear hierarchy: canvas → panel → raised → hover →
+     active → selected. */
+  --bg-app: #f3f3f0;
+  --bg-surface: #fafaf8;
+  --bg-surface-raised: #ffffff;
+  --bg-hover: #eeede9;
+  --bg-active: #e4e3df;
+  --bg-selected: #dbdad6;
+  --surface-overlay-backdrop: rgba(20, 20, 22, 0.42);
+
+  /* Slightly softer near-black for the strong text — less harsh against
+     warm paper while still AAA at body size on every surface. */
+  --text-strong: #1c1c20;
+  --text-default: #3a3a40;
+  --text-muted: #62626a;
+  --text-subtle: #8a8a92;
+  --text-disabled: #b0b0b6;
+  --text-on-accent: #ffffff;
+
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-default: rgba(0, 0, 0, 0.12);
+  --border-strong: rgba(0, 0, 0, 0.18);
+  --border-focus: rgba(77, 109, 255, 0.55);
+
+  /* Slightly darker / less vivid blue than the dark-mode accent — `#5c7cff`
+     against pure white reads garish; this lands at AA on white for UI
+     components while still being unmistakably the brand blue. */
+  --accent-primary: #4d6dff;
+  --accent-primary-hover: #3a5cff;
+  --accent-primary-soft: rgba(77, 109, 255, 0.10);
+  --accent-primary-soft-strong: rgba(77, 109, 255, 0.18);
+
+  /* Tone soft fills — bumped alpha + slightly darker hues so banners read
+     against white. Headline tone hexes stay constant (StatusDot is a 6 px
+     filled circle that reads on any surface). */
+  --tone-neutral-soft: rgba(94, 94, 102, 0.14);
+  --tone-accent-soft: rgba(92, 124, 255, 0.14);
+  --tone-good-soft: rgba(33, 156, 67, 0.18);
+  --tone-warn-soft: rgba(204, 132, 0, 0.20);
+  --tone-error-soft: rgba(220, 38, 38, 0.16);
+
+  --scrollbar-thumb: #d4d4ce;
+  --scrollbar-thumb-hover: #b9b9b3;
+  --skeleton-shimmer-low: rgba(0, 0, 0, 0.03);
+  --skeleton-shimmer-high: rgba(0, 0, 0, 0.07);
+
+  --shadow-drawer: 0 12px 32px -16px rgba(0, 0, 0, 0.22);
+
+  /* Terminal on Light reads as a dark "screen" embedded in paper chrome —
+     lighter than Slate's terminal so the inversion isn't jarring next to
+     white panels. */
+  --terminal-bg: #2d2d30;
+  --terminal-fg: #e6e6e6;
+}
+
+/* Slate — pure neutral grey ramp in the family of the classic editor dark themes.
+   Lighter and more "battleship" than the default
+   ink scale; reads as IDE chrome rather than Shared darks. Accent
+   stays brand blue (close to Cursor's indigo). */
+:root[data-theme="slate"] {
+  --bg-app: #1e1e1e;
+  --bg-surface: #252526;
+  --bg-surface-raised: #2d2d30;
+  --bg-hover: #3a3a3e;
+  --bg-active: #45454a;
+  --bg-selected: #515158;
+  --surface-overlay-backdrop: rgba(20, 20, 20, 0.68);
+
+  --text-strong: #e6e6e6;
+  --text-default: #cccccc;
+  --text-muted: #9d9d9d;
+  --text-subtle: #7a7a7a;
+  --text-disabled: #5a5a5a;
+  --text-on-accent: #ffffff;
+
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-default: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --border-focus: rgba(92, 124, 255, 0.6);
+
+  /* Brand blue accent unchanged; soft fills tuned for the lighter grey ramp. */
+  --accent-primary: #5c7cff;
+  --accent-primary-hover: #6e8eff;
+  --accent-primary-soft: rgba(92, 124, 255, 0.16);
+  --accent-primary-soft-strong: rgba(92, 124, 255, 0.24);
+
+  --scrollbar-thumb: #4a4a4f;
+  --scrollbar-thumb-hover: #5a5a60;
+  --skeleton-shimmer-low: rgba(255, 255, 255, 0.03);
+  --skeleton-shimmer-high: rgba(255, 255, 255, 0.07);
+
+  /* Dark dark grey terminal, deeper than the Slate panel chrome. */
+  --terminal-bg: #141416;
+  --terminal-fg: #e6e6e6;
+}
+
+/* Dark Conifer — dark green hue-shift with a warm amber accent.
+   Surface anchors are user-supplied (#111a0b / #1d2b14 / #29401a);
+   the remaining steps extend the same hue curve upward.
+
+   Sprint Engine identity gold (#ffbf2f, 6 px dot + role glyph) and Conifer
+   amber accent (#f0a340, full chrome) co-exist by hue point + scale + role:
+     - gold is brighter/more yellow, lives only at small scales, never fills
+       a button or selection border
+     - amber is darker/more orange, lives on selection chrome + CTA fill
+   See knowledge/brand/workspace-themes.md and future-plans/2026-05-21-app-themes-light-forest.md §3.5. */
+:root[data-theme="conifer"] {
+  /* Muted sage-grey-green ramp — much closer to Nord-meets-moss than the
+     earlier saturated forest. Surfaces sit in the user-supplied anchors:
+     #141613 (deepest) → #1b1d19 / #1e211c (third range) → #2a2e27 / #2d322a
+     (second range). Pale sage #b2c1b1 / #a9b8aa carries the text scale.
+     Accent stays muted gold — warm-on-cool reads as vintage-instrument
+     (Leica brass on weathered green) rather than novelty forest. */
+  --bg-app: #141613;
+  --bg-surface: #1b1d19;
+  --bg-surface-raised: #1e211c;
+  --bg-hover: #2a2e27;
+  --bg-active: #2d322a;
+  --bg-selected: #363b32;
+  --surface-overlay-backdrop: rgba(10, 12, 9, 0.72);
+
+  --text-strong: #b2c1b1;
+  --text-default: #a9b8aa;
+  --text-muted: #8a988b;
+  --text-subtle: #6c7a6d;
+  --text-disabled: #525e53;
+  /* Dark warm text reads on the muted-gold accent (gold + white fails contrast). */
+  --text-on-accent: #1a1408;
+
+  --border-subtle: rgba(178, 193, 177, 0.05);
+  --border-default: rgba(178, 193, 177, 0.08);
+  --border-strong: rgba(178, 193, 177, 0.14);
+  /* Softer focus ring alpha — the muted base reads calm so the gold ring
+     doesn't need the volume it carried on the louder saturated palette. */
+  --border-focus: rgba(201, 163, 86, 0.45);
+
+  /* Muted gold accent (vintage-instrument family — Leica brass, library
+     lamp, scientific instrument). On this muted sage-grey base the warm
+     gold reads as a single deliberate highlight rather than competing with
+     the surface ramp.
+
+     Differentiated from Sprint Engine identity gold (#ffbf2f) by three
+     lines: hue point (this is warmer / less yellow), scale (gold stays at
+     6 px identity dot + small role glyph, this lives on full chrome), and
+     role (Sprint Engine gold never fills a button, focus ring, or selected
+     card border). */
+  --accent-primary: #c9a356;
+  --accent-primary-hover: #d6b46a;
+  --accent-primary-soft: rgba(201, 163, 86, 0.14);
+  --accent-primary-soft-strong: rgba(201, 163, 86, 0.22);
+
+  /* --tone-accent follows the per-theme accent so selection / alive-right-now
+     reads as one color across StatusDot and selection chrome. */
+  --tone-accent: #c9a356;
+  --tone-accent-soft: rgba(201, 163, 86, 0.16);
+
+  --scrollbar-thumb: #2d322a;
+  --scrollbar-thumb-hover: #3a4136;
+  --skeleton-shimmer-low: rgba(178, 193, 177, 0.03);
+  --skeleton-shimmer-high: rgba(178, 193, 177, 0.07);
+
+  /* Espresso-deep terminal, slightly cooler than --bg-app so the embedded
+     "screen" still reads as punched-in against the muted surface ramp. */
+  --terminal-bg: #0a0c09;
+  --terminal-fg: #b2c1b1;
+}
+
+/* Caramel — warm dark brown ramp in the "vintage workshop / leather notebook"
+   family. Think dulce de leche surfaces, cognac mid-tones, burnt-sugar
+   depths. Accent stays brand blue (cream-on-blue is a classic editorial
+   pairing — see vintage map covers, scientific journal bindings). Borders
+   and text use warm cream alphas so the whole composition reads warm without
+   being monotone. */
+:root[data-theme="caramel"] {
+  --bg-app: #1a1207;
+  --bg-surface: #241a0e;
+  --bg-surface-raised: #2f2415;
+  --bg-hover: #3a2d1c;
+  --bg-active: #473723;
+  --bg-selected: #54422a;
+  --surface-overlay-backdrop: rgba(14, 9, 5, 0.72);
+
+  --text-strong: #f5ecd9;
+  --text-default: #d6c9a8;
+  --text-muted: #a89a76;
+  --text-subtle: #7a6e54;
+  --text-disabled: #5e553f;
+  --text-on-accent: #08090b;
+
+  --border-subtle: rgba(245, 236, 217, 0.06);
+  --border-default: rgba(245, 236, 217, 0.09);
+  --border-strong: rgba(245, 236, 217, 0.14);
+  --border-focus: rgba(92, 124, 255, 0.6);
+
+  /* Brand blue accent — preserved from Dark / Light / Slate. */
+  --accent-primary: #5c7cff;
+  --accent-primary-hover: #6e8eff;
+  --accent-primary-soft: rgba(92, 124, 255, 0.14);
+  --accent-primary-soft-strong: rgba(92, 124, 255, 0.22);
+
+  --scrollbar-thumb: #4a3a25;
+  --scrollbar-thumb-hover: #5a4830;
+  --skeleton-shimmer-low: rgba(245, 236, 217, 0.03);
+  --skeleton-shimmer-high: rgba(245, 236, 217, 0.07);
+
+  /* Espresso-deep terminal — "punched-in screen" against the caramel surface. */
+  --terminal-bg: #0e0905;
+  --terminal-fg: #f5ecd9;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -119,8 +363,8 @@ body,
 }
 
 body {
-  background-color: #08090b;
-  color: #ececee;
+  background-color: var(--bg-app);
+  color: var(--text-strong);
   font-family:
     Inter,
     "SF Pro Text",
@@ -154,6 +398,43 @@ samp,
   font-feature-settings: "tnum";
   font-variant-numeric: tabular-nums;
 }
+
+/* Highlight palette — user-chosen workspace/tab tints.
+ * Theme-portable: each background tints the current surface toward the hue,
+ * each text class blends the strong text color with the hue. On Dark themes
+ * this lands as "dark surface + a hint of red"; on Light it lands as "white
+ * + pastel red." The hue hexes match utils/highlight.ts and the
+ * .tab-highlight-* palette above.
+ * design-tokens-allow-block: user-chosen highlight palette, hue literals */
+.highlight-bg-red    { background-color: color-mix(in oklab, var(--bg-surface) 88%, #ff5a5f); }
+.highlight-bg-orange { background-color: color-mix(in oklab, var(--bg-surface) 88%, #ff8c42); }
+.highlight-bg-amber  { background-color: color-mix(in oklab, var(--bg-surface) 88%, #ffbf2f); }
+.highlight-bg-green  { background-color: color-mix(in oklab, var(--bg-surface) 88%, #30d158); }
+.highlight-bg-blue   { background-color: color-mix(in oklab, var(--bg-surface) 86%, #5c7cff); }
+.highlight-bg-purple { background-color: color-mix(in oklab, var(--bg-surface) 86%, #a78bfa); }
+.highlight-bg-pink   { background-color: color-mix(in oklab, var(--bg-surface) 86%, #ff7eb3); }
+
+.highlight-text-red    { color: color-mix(in oklab, var(--text-strong) 30%, #ff5a5f); }
+.highlight-text-orange { color: color-mix(in oklab, var(--text-strong) 30%, #ff8c42); }
+.highlight-text-amber  { color: color-mix(in oklab, var(--text-strong) 30%, #ffbf2f); }
+.highlight-text-green  { color: color-mix(in oklab, var(--text-strong) 30%, #30d158); }
+.highlight-text-blue   { color: color-mix(in oklab, var(--text-strong) 25%, #5c7cff); }
+.highlight-text-purple { color: color-mix(in oklab, var(--text-strong) 25%, #a78bfa); }
+.highlight-text-pink   { color: color-mix(in oklab, var(--text-strong) 30%, #ff7eb3); }
+
+/* Theme-portable chip surfaces for tone-coded badges (Switchboard priority,
+ * level chips, etc.). Same color-mix approach as highlight palette.
+ * design-tokens-allow-block: semantic tone hue literals */
+.chip-bg-good { background-color: color-mix(in oklab, var(--bg-surface) 84%, var(--tone-good)); }
+.chip-bg-warn { background-color: color-mix(in oklab, var(--bg-surface) 84%, var(--tone-warn)); }
+.chip-bg-error { background-color: color-mix(in oklab, var(--bg-surface) 84%, var(--tone-error)); }
+.chip-border-good { border-color: color-mix(in oklab, var(--bg-surface) 65%, var(--tone-good)); }
+.chip-border-warn { border-color: color-mix(in oklab, var(--bg-surface) 65%, var(--tone-warn)); }
+.chip-border-error { border-color: color-mix(in oklab, var(--bg-surface) 65%, var(--tone-error)); }
+.chip-text-good { color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-good)); }
+.chip-text-warn { color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-warn)); }
+.chip-text-error { color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-error)); }
+/* design-tokens-allow-end */
 
 /* Canonical SVG icon size utilities. Pair with the --icon-* token scale.
  * Use these instead of ad-hoc h-3/w-3, h-3.5/w-3.5, h-4/w-4, h-[Npx] sprinkles
@@ -329,9 +610,9 @@ samp,
 .skeleton-shimmer {
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.02) 0%,
-    rgba(255, 255, 255, 0.05) 50%,
-    rgba(255, 255, 255, 0.02) 100%
+    var(--skeleton-shimmer-low) 0%,
+    var(--skeleton-shimmer-high) 50%,
+    var(--skeleton-shimmer-low) 100%
   );
   background-size: 400px 100%;
   animation: skeleton-shimmer 1400ms linear infinite;
@@ -418,72 +699,89 @@ samp,
   }
 }
 
-/* flexlayout-react: compact neutral IDE chrome */
+/* flexlayout-react: compact neutral IDE chrome.
+ * Every chrome surface aliases the themed ink-scale tokens so theme switches
+ * propagate to flexlayout without code changes. Semantic literals (drag-rect
+ * emerald) stay hard-coded — they're "spawn success" not surface chrome.
+ * --color-5 / --color-6 / --color-edge-marker fall back to inline hex on dark
+ * because they sit above the documented six-step ink scale; theme overrides
+ * supply theme-appropriate values where they would otherwise look wrong. */
 .flexlayout__layout {
-  --color-text: #ececee;
-  --color-background: #08090b;
-  --color-base: #08090b;
-  --color-1: #0d0e11;
-  --color-2: #111216;
-  --color-3: #17181d;
-  --color-4: #24252b;
-  --color-5: #303139;
-  --color-6: #3c3d46;
+  --color-text: var(--text-strong);
+  --color-background: var(--bg-app);
+  --color-base: var(--bg-app);
+  --color-1: var(--bg-surface);
+  --color-2: var(--bg-surface-raised);
+  --color-3: var(--bg-hover);
+  --color-4: var(--bg-selected);
+  --color-5: var(--scrollbar-thumb-hover);
+  --color-6: var(--border-strong);
 
   --font-size: 12px;
   --font-family: Inter, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
 
-  --color-overflow: #9a9aa2;
-  --color-icon: #9a9aa2;
+  --color-overflow: var(--text-muted);
+  --color-icon: var(--text-muted);
 
-  --color-tabset-background: #0d0e11;
-  --color-tabset-background-selected: #111216;
-  --color-tabset-background-maximized: #17181d;
-  --color-tabset-divider-line: rgba(255, 255, 255, 0.08);
-  --color-tabset-header-background: #0d0e11;
-  --color-tabset-header: #ececee;
+  --color-tabset-background: var(--bg-surface);
+  --color-tabset-background-selected: var(--bg-surface-raised);
+  --color-tabset-background-maximized: var(--bg-hover);
+  --color-tabset-divider-line: var(--border-default);
+  --color-tabset-header-background: var(--bg-surface);
+  --color-tabset-header: var(--text-strong);
 
-  --color-border-tab-content: #08090b;
-  --color-border-background: #0d0e11;
-  --color-border-divider-line: rgba(255, 255, 255, 0.08);
+  --color-border-tab-content: var(--bg-app);
+  --color-border-background: var(--bg-surface);
+  --color-border-divider-line: var(--border-default);
 
-  --color-tab-content: #08090b;
-  --color-tab-selected: #ececee;
-  --color-tab-selected-background: #17181d;
-  --color-tab-unselected: #9a9aa2;
+  --color-tab-content: var(--bg-app);
+  --color-tab-selected: var(--text-strong);
+  --color-tab-selected-background: var(--bg-hover);
+  --color-tab-unselected: var(--text-muted);
   --color-tab-unselected-background: transparent;
-  --color-tab-textbox: #ececee;
-  --color-tab-textbox-background: #17181d;
+  --color-tab-textbox: var(--text-strong);
+  --color-tab-textbox-background: var(--bg-hover);
 
-  --color-border-tab-selected: rgba(255, 255, 255, 0.12);
-  --color-border-tab-selected-background: #17181d;
-  --color-border-tab-unselected: rgba(255, 255, 255, 0.08);
-  --color-border-tab-unselected-background: #0d0e11;
+  --color-border-tab-selected: var(--border-strong);
+  --color-border-tab-selected-background: var(--bg-hover);
+  --color-border-tab-unselected: var(--border-default);
+  --color-border-tab-unselected-background: var(--bg-surface);
 
-  --color-splitter: #08090b;
-  --color-splitter-hover: #24252b;
-  --color-splitter-drag: #303139;
+  --color-splitter: var(--bg-app);
+  --color-splitter-hover: var(--bg-selected);
+  --color-splitter-drag: var(--scrollbar-thumb-hover);
 
+  /* Drag-rect emerald is semantic "spawn-success" motion, not surface chrome.
+     It stays constant across themes. */
   --color-drag-rect-border: rgba(48, 209, 88, 0.55);
   --color-drag-rect-background: rgba(48, 209, 88, 0.1);
-  --color-drag-rect: #ececee;
+  --color-drag-rect: var(--text-strong);
 
-  --color-popup-border: rgba(255, 255, 255, 0.1);
-  --color-popup-unselected: #9a9aa2;
-  --color-popup-unselected-background: #0d0e11;
-  --color-popup-selected: #ececee;
-  --color-popup-selected-background: #17181d;
+  --color-popup-border: var(--border-default);
+  --color-popup-unselected: var(--text-muted);
+  --color-popup-unselected-background: var(--bg-surface);
+  --color-popup-selected: var(--text-strong);
+  --color-popup-selected-background: var(--bg-hover);
 
-  --color-edge-marker: #303139;
-  --color-edge-icon: #ececee;
+  --color-edge-marker: var(--scrollbar-thumb-hover);
+  --color-edge-icon: var(--text-strong);
 
-  --color-toolbar-button-hover: #17181d;
+  --color-toolbar-button-hover: var(--bg-hover);
+
+  /* Drag preview + mini-scroll indicator vars are read by combined.css. */
+  --color-drag1: var(--accent-primary);
+  --color-drag2: var(--tone-good);
+  --color-drag1-background: var(--accent-primary-soft);
+  --color-drag2-background: var(--tone-good-soft);
+  --color-mini-scroll-indicator: var(--scrollbar-thumb);
+  --color-mini-scroll-indicator-hovered: var(--scrollbar-thumb-hover);
+  --size-mini-scroll-indicator: 3px;
 }
 
 .flexlayout__tabset_header,
 .flexlayout__tabset-selected,
 .flexlayout__tabset {
-  background: #0d0e11;
+  background: var(--bg-surface);
   background-image: none !important;
 }
 
@@ -498,24 +796,28 @@ samp,
   border: 1px solid transparent;
   border-bottom: none;
   border-radius: 7px 7px 0 0;
-  background: #111216;
+  background: var(--bg-surface-raised);
   background-image: none !important;
 }
 
 .flexlayout__tab_button--selected {
-  background: #17181d;
-  color: #ececee;
-  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--bg-hover);
+  color: var(--text-strong);
+  border-color: var(--border-strong);
   position: relative;
   top: 1px;
   box-shadow: none;
 }
 
 .flexlayout__tab_button--unselected {
-  color: #9a9aa2;
-  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  border-color: var(--border-default);
 }
 
+/* Semantic "needs input" amber stays literal — it's a status idiom, not
+   surface chrome. Sprint Engine gold for an unrelated identity dot is in
+   the same hue family but distinct in scale and role.
+   design-tokens-allow-block: semantic needs-input amber + spawn emerald */
 .flexlayout__tab_button.agent-tab-needs-input {
   border-color: #ffbf2f;
   color: #ffe0a3;
@@ -523,7 +825,7 @@ samp,
 }
 
 .flexlayout__tab_button.agent-tab-needs-input.flexlayout__tab_button--selected {
-  background: #17181d;
+  background: var(--bg-hover);
   border-color: #ffbf2f;
   box-shadow: inset 0 0 0 1px rgba(255, 191, 47, 0.18);
 }
@@ -579,14 +881,17 @@ samp,
     animation-duration: 700ms;
   }
 }
+/* design-tokens-allow-end */
 
 /* Terminal tab highlight colors. Applied via flexlayout className when the
    user picks a color from the tab right-click → Color submenu. The same
-   palette as workspace highlight colors (utils/highlight.ts). */
+   palette as workspace highlight colors (utils/highlight.ts). These are
+   user-chosen tab tints, not surface chrome — theme-invariant.
+   design-tokens-allow-block: user-chosen tab-highlight palette */
 .flexlayout__tab_button.tab-highlight-red {
   border-color: rgba(255, 90, 95, 0.40);
   background: rgba(255, 90, 95, 0.10);
-  color: #ffd5d6;
+  color: color-mix(in oklab, var(--text-strong) 30%, #ff5a5f);
 }
 .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected {
   background: rgba(255, 90, 95, 0.20);
@@ -596,7 +901,7 @@ samp,
 .flexlayout__tab_button.tab-highlight-orange {
   border-color: rgba(255, 140, 66, 0.40);
   background: rgba(255, 140, 66, 0.10);
-  color: #ffd9b8;
+  color: color-mix(in oklab, var(--text-strong) 30%, #ff8c42);
 }
 .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected {
   background: rgba(255, 140, 66, 0.20);
@@ -606,7 +911,7 @@ samp,
 .flexlayout__tab_button.tab-highlight-amber {
   border-color: rgba(255, 191, 47, 0.40);
   background: rgba(255, 191, 47, 0.10);
-  color: #ffe7b3;
+  color: color-mix(in oklab, var(--text-strong) 30%, #ffbf2f);
 }
 .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected {
   background: rgba(255, 191, 47, 0.18);
@@ -616,7 +921,7 @@ samp,
 .flexlayout__tab_button.tab-highlight-green {
   border-color: rgba(48, 209, 88, 0.40);
   background: rgba(48, 209, 88, 0.10);
-  color: #bdfbd0;
+  color: color-mix(in oklab, var(--text-strong) 30%, #30d158);
 }
 .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected {
   background: rgba(48, 209, 88, 0.18);
@@ -626,7 +931,7 @@ samp,
 .flexlayout__tab_button.tab-highlight-blue {
   border-color: rgba(92, 124, 255, 0.45);
   background: rgba(92, 124, 255, 0.10);
-  color: #dfe6ff;
+  color: color-mix(in oklab, var(--text-strong) 25%, #5c7cff);
 }
 .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected {
   background: rgba(92, 124, 255, 0.20);
@@ -636,7 +941,7 @@ samp,
 .flexlayout__tab_button.tab-highlight-purple {
   border-color: rgba(167, 139, 250, 0.45);
   background: rgba(167, 139, 250, 0.10);
-  color: #efe5ff;
+  color: color-mix(in oklab, var(--text-strong) 25%, #a78bfa);
 }
 .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected {
   background: rgba(167, 139, 250, 0.20);
@@ -646,13 +951,14 @@ samp,
 .flexlayout__tab_button.tab-highlight-pink {
   border-color: rgba(255, 126, 179, 0.45);
   background: rgba(255, 126, 179, 0.10);
-  color: #ffd6e5;
+  color: color-mix(in oklab, var(--text-strong) 30%, #ff7eb3);
 }
 .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected {
   background: rgba(255, 126, 179, 0.20);
   border-color: rgba(255, 126, 179, 0.65);
   box-shadow: inset 0 -2px 0 #ff7eb3;
 }
+/* design-tokens-allow-end */
 
 .flexlayout__tab_button_content {
   font-size: 12px;
@@ -675,45 +981,45 @@ samp,
 }
 
 .flexlayout__tabset_tabbar_outer {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: #0d0e11;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-surface);
   background-image: none !important;
 }
 
 .flexlayout__tabset {
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background-color: #0d0e11 !important;
+  border: 1px solid var(--border-default);
+  background-color: var(--bg-surface) !important;
   background-image: none !important;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.24);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
 }
 
 .flexlayout__tabset-selected {
-  background-color: #0d0e11 !important;
+  background-color: var(--bg-surface) !important;
   background-image: none !important;
-  border-color: rgba(255, 255, 255, 0.12);
+  border-color: var(--border-strong);
   box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
-    0 0 0 1px rgba(255, 255, 255, 0.06);
+    inset 0 0 0 1px var(--border-subtle),
+    0 0 0 1px var(--border-subtle);
 }
 
 .flexlayout__tabset-selected .flexlayout__tabset_tabbar_outer {
-  background: #111216;
+  background: var(--bg-surface-raised);
   background-image: none !important;
-  border-bottom-color: rgba(255, 255, 255, 0.12);
+  border-bottom-color: var(--border-strong);
 }
 
 .flexlayout__splitter {
-  background: #08090b;
+  background: var(--bg-app);
   transition: background-color 120ms ease;
 }
 
 .flexlayout__splitter:hover,
 .flexlayout__splitter_drag {
-  background: #24252b;
+  background: var(--bg-selected);
 }
 
 .flexlayout__tab {
-  background: #08090b;
+  background: var(--bg-app);
   overflow: hidden;
 }
 
@@ -727,14 +1033,14 @@ samp,
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #24252b;
+  background: var(--scrollbar-thumb);
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #303139;
+  background: var(--scrollbar-thumb-hover);
   background-clip: padding-box;
   border: 2px solid transparent;
 }
@@ -747,6 +1053,9 @@ samp,
   -webkit-app-region: no-drag;
 }
 
+/* Semantic diff palette — added/modified/deleted carry stable meaning, not
+   surface chrome. Survive every theme.
+   design-tokens-allow-block: semantic diff colors */
 .git-change-gutter {
   width: 4px !important;
   margin-left: 3px;
@@ -838,6 +1147,7 @@ samp,
   background: transparent;
   filter: drop-shadow(0 0 5px rgba(255, 90, 95, 0.35));
 }
+/* design-tokens-allow-end */
 
 .markdown-rendered li > .markdown-change-block::before,
 .markdown-rendered blockquote .markdown-change-block::before {

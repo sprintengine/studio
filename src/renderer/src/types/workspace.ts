@@ -1096,6 +1096,12 @@ export type LearningSettings = {
   dismissedVersion?: string
 }
 
+// Theme system source of truth lives in `src/renderer/src/types/appTheme.ts`.
+// AppearanceSettings is imported here so AppSettings (below) can reference it;
+// every other theme symbol (AppTheme, ResolvedAppTheme, the picker option list,
+// the normalizer) imports directly from appTheme.ts.
+import type { AppearanceSettings } from './appTheme'
+
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
   mcp: McpSettings
@@ -1112,6 +1118,7 @@ export type AppSettings = {
   recentWorkspaceFolders: string[]
   usageTelemetry: UsageTelemetrySettings
   learning: LearningSettings
+  appearance: AppearanceSettings
 }
 
 export type GuidedBriefHasUi = 'yes' | 'no'

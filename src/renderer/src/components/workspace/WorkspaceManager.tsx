@@ -12,6 +12,7 @@ import {
   deriveWorkspaceTerminalActivity,
   findLiveSession,
 } from '../../hooks/useTerminalSessions'
+import { useAppTheme } from '../../hooks/useAppTheme'
 import {
   MULTILOOP_ROLES,
   SPECIALIST_ACTIONS,
@@ -85,6 +86,7 @@ type WorkspacePanelComponent = 'explorer' | 'editor' | 'git' | 'memory-graph'
 
 
 export default function WorkspaceManager() {
+  useAppTheme()
   const dialog = useConfirmDialog()
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)

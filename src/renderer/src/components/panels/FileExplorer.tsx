@@ -168,70 +168,60 @@ function buildSearchTreeRows(rootPath: string, entries: Entry[]): TreeRow[] {
   return rows
 }
 
-// design-tokens-allow: language-identity palette below — accent/bg/border triples
-// are brand-recognisable file-type identifiers (TS, PY, JS, etc.), not chrome.
-// Chrome around the FileIcon chip (row hover, selection, panel surrounds) uses
-// semantic tokens elsewhere in this file.
-function fileAppearance(name: string): { accent: string; bg: string; border: string; label: string } {
-  if (name === 'package.json') {
-    // design-tokens-allow: language-identity palette
-    return { accent: '#f2c45f', bg: '#2b2414', border: '#705b28', label: '{}' }
-  }
-
+// File-type chip — language identity carried by an accent hue plus a two-letter
+// label. Background and border are derived from the accent at render time via
+// color-mix(), so the chip tints the current --bg-surface toward the language
+// color. On dark surfaces the chip lands as a dark wash of the hue; on light
+// surfaces as a soft pastel. Chrome around the chip (row hover, selection)
+// uses semantic tokens elsewhere in this file.
+// design-tokens-allow-block: language-identity accent palette (TS blue, PY green, etc.)
+function fileAppearance(name: string): { accent: string; label: string } {
+  if (name === 'package.json') return { accent: '#f2c45f', label: '{}' }
   const ext = name.split('.').pop()?.toLowerCase()
   switch (ext) {
     case 'ts':
     case 'tsx':
-      // design-tokens-allow: language-identity palette
-      return { accent: '#7db3ff', bg: '#142033', border: '#29486f', label: 'TS' }
+      return { accent: '#7db3ff', label: 'TS' }
     case 'js':
     case 'jsx':
-      // design-tokens-allow: language-identity palette
-      return { accent: '#f2d36b', bg: '#2b2613', border: '#6e6023', label: 'JS' }
+      return { accent: '#f2d36b', label: 'JS' }
     case 'java':
-      // design-tokens-allow: language-identity palette
-      return { accent: '#f19974', bg: '#2d1b16', border: '#70402f', label: 'JV' }
+      return { accent: '#f19974', label: 'JV' }
     case 'py':
-      // design-tokens-allow: language-identity palette
-      return { accent: '#84d69b', bg: '#14291b', border: '#2c6740', label: 'PY' }
+      return { accent: '#84d69b', label: 'PY' }
     case 'rs':
-      // design-tokens-allow: language-identity palette
-      return { accent: '#f19974', bg: '#2d1b16', border: '#70402f', label: 'RS' }
+      return { accent: '#f19974', label: 'RS' }
     case 'go':
-      // design-tokens-allow: language-identity palette
-      return { accent: '#7bd7ea', bg: '#10272e', border: '#286274', label: 'GO' }
+      return { accent: '#7bd7ea', label: 'GO' }
     case 'json':
-      // design-tokens-allow: language-identity palette
-      return { accent: '#f2c45f', bg: '#2b2414', border: '#705b28', label: '{}' }
+      return { accent: '#f2c45f', label: '{}' }
     case 'yaml':
     case 'yml':
-      // design-tokens-allow: language-identity palette
-      return { accent: '#f2c45f', bg: '#2b2414', border: '#705b28', label: 'YML' }
+      return { accent: '#f2c45f', label: 'YML' }
     case 'md':
-      // design-tokens-allow: language-identity palette
-      return { accent: '#cfd2dd', bg: '#1b1d24', border: '#3a3d49', label: 'MD' }
+      return { accent: '#cfd2dd', label: 'MD' }
     case 'txt':
-      // design-tokens-allow: language-identity palette
-      return { accent: '#b9bcc8', bg: '#181a20', border: '#353844', label: 'TXT' }
+      return { accent: '#b9bcc8', label: 'TXT' }
     case 'html':
-      // design-tokens-allow: language-identity palette
-      return { accent: '#ff9f75', bg: '#2d1b16', border: '#70402f', label: '<>' }
+      return { accent: '#ff9f75', label: '<>' }
     case 'css':
     case 'scss':
-      // design-tokens-allow: language-identity palette
-      return { accent: '#7db3ff', bg: '#142033', border: '#29486f', label: '#' }
+      return { accent: '#7db3ff', label: '#' }
     case 'sh':
     case 'bash':
-      // design-tokens-allow: language-identity palette
-      return { accent: '#84d69b', bg: '#14291b', border: '#2c6740', label: 'SH' }
+      return { accent: '#84d69b', label: 'SH' }
     default:
-      // design-tokens-allow: language-identity palette (fallback)
-      return { accent: '#a6abb8', bg: '#17191f', border: '#343742', label: '.' }
+      return { accent: '#a6abb8', label: '.' }
   }
 }
+// design-tokens-allow-end
 
 function FileIcon({ name }: { name: string }) {
-  const { accent, bg, border, label } = fileAppearance(name)
+  const { accent, label } = fileAppearance(name)
+  // color-mix tints the current theme surface toward the language hue, so the
+  // chip lands native on every theme without a per-theme palette table.
+  const bg = `color-mix(in oklab, var(--bg-surface) 84%, ${accent})`
+  const border = `color-mix(in oklab, var(--bg-surface) 55%, ${accent})`
   return (
     <span
       className="inline-flex h-[18px] w-[20px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-[8px] font-black leading-none ring-1 ring-[color:var(--border-subtle)]"

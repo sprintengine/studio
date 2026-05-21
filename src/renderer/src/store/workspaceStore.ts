@@ -34,6 +34,7 @@ import type {
   SkillPackEntry,
   GuidedBriefRuntimeState,
 } from '../types/workspace'
+import type { AppTheme } from '../types/appTheme'
 import { createGuidedBriefSlice } from './slices/guidedBriefSlice'
 import { createAuthSlice } from './slices/authSlice'
 import { createSettingsSlice, normalizeAppSettings } from './slices/settingsSlice'
@@ -138,6 +139,7 @@ interface WorkspaceStore {
   markLearningTipSeen: (tipId: string) => void
   markLearningLessonCompleted: (lessonId: string, completed?: boolean) => void
   resetLearningProgress: () => void
+  setAppearanceTheme: (theme: AppTheme) => void
   addWorkspace: (
     template: LayoutTemplate,
     options?: {
