@@ -69,6 +69,7 @@ async function main(): Promise<void> {
   await testDeliverAgentNotificationsSkipsRetiredTargets()
   await testDispatchPromptDeliveryUsesDispatchIdCooldown()
   await testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt()
+  await testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity()
   await testSuperviseRunnerCycleDoesNotMutateTaskOrGateState()
 }
 
@@ -635,6 +636,116 @@ async function testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt(): P
   assert.ok(spawns[0].initialPrompt?.includes('CLI owns polling'))
 }
 
+async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promise<void> {
+  const spawns: Array<{ agentId?: string; cli?: AgentCli; initialPrompt?: string }> = []
+  const replenishedProjection = {
+    ok: true,
+    projectionVersion: 1,
+    source: 'folder_store',
+    generatedAt: '2026-05-21T12:00:00Z',
+    updatedAt: '2026-05-21T12:00:00Z',
+    run: {
+      id: 'run-id',
+      name: 'Auto-run workspace',
+      goal: '',
+      status: 'executing',
+      rosterConfigured: true,
+      runner: { mode: 'auto' },
+    },
+    roster: {
+      'developer-1': { role: 'developer', status: 'retired', currentTaskId: null },
+      'developer-2': { role: 'developer', status: 'idle', currentTaskId: null },
+    },
+    tasks: [],
+    artifacts: [],
+    activity: [],
+  }
+  installTestWindow({
+    terminalList: async () => [],
+    terminalStatus: async () => ({ processAlive: false }),
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    replenishSprintEngineRoster: async () => ({
+      ok: true,
+      data: {
+        projectionContent: JSON.stringify(replenishedProjection),
+        tool: { created: [{ id: 'developer-2', role: 'developer' }] },
+      },
+    }),
+    terminalSpawn: async (
+      sessionId: string,
+      _cols: number,
+      _rows: number,
+      _cwd?: string,
+      _resume?: boolean,
+      _statePath?: string,
+      cli?: AgentCli,
+      initialPrompt?: string,
+      _cliRuntimes?: unknown,
+      _shellOnly?: boolean,
+      metadata?: { agentId?: string; agentSession?: { role?: string } },
+    ) => {
+      spawns.push({ agentId: metadata?.agentId, cli, initialPrompt })
+      return { ok: true, sessionId }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const initialState = sprintEngineStateFixture({
+    runner: { mode: 'auto' },
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { status: 'retired' }),
+    },
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState: initialState,
+    agents: {
+      'developer-1': {
+        id: 'developer-1',
+        name: 'Perry',
+        role: 'developer',
+        cli: 'codex',
+        kind: 'sprintengine',
+      },
+    } as Workspace['agents'],
+    sprintEngineAutoState: {
+      enabled: true,
+      autoApproveArtifacts: false,
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState: initialState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    mcpSettings: {},
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages: mutableRef(new Map()),
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+  })
+
+  const replacementSpawn = spawns.find((spawn) => spawn.agentId === 'developer-2')
+  assert.ok(
+    replacementSpawn,
+    `newly replenished roster member is spawned in the same supervise cycle; spawned ${JSON.stringify(spawns)}`
+  )
+  assert.ok(!spawns.some((spawn) => spawn.agentId === 'developer-1'), 'retired roster member is not respawned')
+  assert.equal(replacementSpawn.cli, 'codex')
+  assert.ok(replacementSpawn.initialPrompt?.includes('sprintengine join --role developer --id developer-2 --watch'))
+}
+
 async function testSuperviseRunnerCycleDoesNotMutateTaskOrGateState(): Promise<void> {
   const mutations: string[] = []
   installTestWindow({
@@ -803,13 +914,17 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
   const continuation = buildSprintEngineContinuationPrompt(readyTask, 'developer-1')
   assert.ok(continuation.includes('sprintengine join --role developer --id developer-1 --watch'))
   assert.ok(continuation.includes('T3 - Build feature'))
+  assert.ok(continuation.includes('wake candidate'))
+  assert.ok(continuation.includes('not a durable dispatch assignment'))
 
   const gateTask = task({ id: 'T3', title: 'Build feature' })
   const gate = gateTask.qualityGates[0]
   const claimed = buildSprintEngineGateContinuationPrompt(gateTask, gate, 'code_reviewer', true)
   assert.ok(claimed.includes('already claimed by this terminal'))
+  assert.ok(claimed.includes('durable dispatch assignment'))
   const ready = buildSprintEngineGateContinuationPrompt(gateTask, gate, 'code_reviewer', false)
-  assert.ok(ready.includes('ready for this terminal'))
+  assert.ok(ready.includes('wake candidate'))
+  assert.ok(ready.includes('not a durable gate dispatch assignment'))
   assert.ok(ready.includes('sprintengine join --role code_reviewer --id code_reviewer --watch'))
 
   const notif = buildAgentNotificationPrompt({
@@ -853,6 +968,7 @@ function testDispatchPromptUsesJoinReconciliation(): void {
   assert.ok(prompt.includes('Reason: task_claimed'))
   assert.ok(prompt.includes('sprintengine join --role frontend --id frontend-3 --watch'))
   assert.ok(prompt.includes('CLI owns polling, task/gate claims, and completion routing'))
+  assert.ok(!prompt.includes('wake candidate'))
 }
 
 function testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles(): void {
@@ -880,7 +996,8 @@ function testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles(): void {
     task({ id: 'M3', title: 'Campaign brief', role: 'marketer' }),
     'marketer-1',
   )
-  assert.ok(continuationPrompt.includes('ready marketer task'))
+  assert.ok(continuationPrompt.includes('wake candidate for a ready marketer task'))
+  assert.ok(continuationPrompt.includes('not a durable dispatch assignment'))
   assert.ok(continuationPrompt.includes('sprintengine join --role marketer --id marketer-1 --watch'))
 
   const gateTask = task({ id: 'M4', title: 'Campaign QA', role: 'marketer' })
@@ -894,6 +1011,7 @@ function testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles(): void {
     attempts: [],
   }
   const gatePrompt = buildSprintEngineGateContinuationPrompt(gateTask, customGate, 'marketer-2', false)
+  assert.ok(gatePrompt.includes('wake candidate'))
   assert.ok(gatePrompt.includes('Gate: marketer_review (review / marketer)'))
   assert.ok(gatePrompt.includes('sprintengine join --role marketer --id marketer-2 --watch'))
 }

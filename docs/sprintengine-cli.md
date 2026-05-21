@@ -85,6 +85,39 @@ in the run roster and assigned by a task or gate. Compatibility helpers such as
 display defaults, but they are not the active Sprint Engine authority for
 workspace custom roles.
 
+### Registry Inspection
+
+Read-only registry inspection commands use the current working directory as the
+workspace registry root. They do not read or mutate a Sprint Engine run store,
+so `--state` is optional and ignored for these command groups.
+
+```bash
+sprintengine roles list
+sprintengine roles list --include-shadowed
+sprintengine role get developer
+sprintengine soul get developer --run-id my-run
+sprintengine skill list
+sprintengine skill list --include-body
+sprintengine skill get developer
+```
+
+The JSON payloads match the local MCP registry tools. Role and skill records
+include `source.layer`, and commands that inspect one role or list roles with
+`--include-shadowed` include `shadowedSources` where lower-precedence registry
+entries are hidden by workspace, plugin, user, or bundled precedence. Unknown
+role and skill errors include the known configured ids to make typos and
+missing custom registries easy to diagnose.
+
+The same inspection commands can be routed through the local MCP backend:
+
+```bash
+sprintengine --backend mcp-local roles list
+sprintengine --backend mcp-local role get developer
+sprintengine --backend mcp-local soul get developer
+sprintengine --backend mcp-local skill list
+sprintengine --backend mcp-local skill get developer
+```
+
 ## Command Groups
 
 Inspect help before scripting a command:
@@ -106,6 +139,10 @@ Current command groups:
 - `roster`: add or list canonical roster members.
 - `join`: receive the role prompt and next directive.
 - `triage`: inspect architect-actionable blockers.
+- `roles`: list configured registry roles.
+- `role`: inspect one configured registry role.
+- `soul`: render a registry-backed Soul.
+- `skill`: list or inspect configured registry skills.
 - `task`: claim, update, release, log, comment, and refresh tasks.
 - `plan`: architect-owned task graph operations.
 - `artifact`: register and review artifacts.
@@ -262,6 +299,15 @@ Mode is turned off. When Auto Mode is off, idle agents stop. The renderer
 should launch and monitor roster terminals;
 the CLI decides which task, gate, or triage directive an agent receives.
 
+Renderer roster prompts for unclaimed ready tasks and unclaimed gates are wake
+candidates, not durable dispatch assignments. They tell an idle terminal to run
+`join --watch`; the durable `currentDispatch` id and `dispatch.jsonl` row are
+created only after the CLI claims a task, claims a gate, resumes owner rework,
+or reconciles an explicit current dispatch target. Existing claimed tasks and
+claimed gates may already have durable dispatch ids, and repeated `join --watch`
+or `task next`/`task gate next` calls must reuse those assignments rather than
+creating duplicates.
+
 ## DAG Readiness
 
 Readiness is deterministic and dependency-aware. A normal `todo` task appears
@@ -270,6 +316,10 @@ dispatch allows dependency readiness. A `changes_requested` task with the same
 readiness properties stays in `tasks/changes_requested/` and is still claimable;
 `task next` prioritizes that rework ahead of normal ready tasks without
 flattening it to `ready`.
+
+Ready queue membership means claimable work exists. It does not mean the work
+has a durable dispatch id or has been assigned to an agent before the claim
+command runs.
 
 Lifecycle phase folders are not readiness queues. Reviewers, testers, and
 product reviewers claim `qualityGates` with `task gate next` or `task gate

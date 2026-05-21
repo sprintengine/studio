@@ -688,13 +688,13 @@ def test_join_watch_returns_ready_gate_before_normal_task(tmp_path) -> None:
     assert payload["task"]["id"] == "T1"
 
 
-def test_configured_custom_role_can_claim_and_complete_quality_gates_by_phase(tmp_path) -> None:
+def test_temporary_marketer_role_can_claim_and_complete_quality_gates_by_phase(tmp_path) -> None:
     review_task = task("T1", "Custom reviewed implementation", "developer", "review", owner="developer-fixture")
     review_task["qualityGates"] = [
         {
             "id": "editorial-review",
             "phase": "review",
-            "role": "release-editor",
+            "role": "growth-marketer",
             "status": "pending",
             "required": True,
             "allowSelfReview": True,
@@ -704,7 +704,7 @@ def test_configured_custom_role_can_claim_and_complete_quality_gates_by_phase(tm
         {
             "id": "editorial-validation",
             "phase": "testing",
-            "role": "release-editor",
+            "role": "growth-marketer",
             "status": "pending",
             "required": True,
             "allowSelfReview": True,
@@ -713,19 +713,19 @@ def test_configured_custom_role_can_claim_and_complete_quality_gates_by_phase(tm
         },
     ]
     fixture = create_workspace_team(tmp_path, "custom-gate-workspace", "custom-gate-role", [review_task])
-    write_workspace_role(fixture.team_dir.parents[2], "release_editor", aliases=["release-editor"])
+    write_workspace_role(fixture.team_dir.parents[2], "marketer", aliases=["growth-marketer"])
     state = read_state(fixture.state_path)
     state["sprintengine"]["rosterConfigured"] = True
     state["agents"] = {
         "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
-        "editor-1": {"role": "release_editor", "status": "idle", "currentTaskId": None},
+        "marketer-1": {"role": "marketer", "status": "idle", "currentTaskId": None},
     }
     write_state(fixture.state_path, state)
 
-    claimed = fixture.cli.run("task", "gate", "next", "--role", "release-editor", "--id", "editor-1")
+    claimed = fixture.cli.run("task", "gate", "next", "--role", "growth-marketer", "--id", "marketer-1")
     assert claimed["claimed"] is True
     assert claimed["gate"]["id"] == "editorial-review"
-    assert claimed["gate"]["role"] == "release_editor"
+    assert claimed["gate"]["role"] == "marketer"
     assert "Tester Gate Expectations" not in claimed["prompt"]
 
     reviewed = fixture.cli.run(
@@ -737,9 +737,9 @@ def test_configured_custom_role_can_claim_and_complete_quality_gates_by_phase(tm
         "--gate-id",
         "editorial-review",
         "--role",
-        "release-editor",
+        "growth-marketer",
         "--id",
-        "editor-1",
+        "marketer-1",
         "--verdict",
         "approved",
         "--summary",
@@ -747,7 +747,7 @@ def test_configured_custom_role_can_claim_and_complete_quality_gates_by_phase(tm
     )
     assert reviewed["nextStatus"] == "testing"
 
-    validated = fixture.cli.run("task", "gate", "next", "--role", "release-editor", "--id", "editor-1")
+    validated = fixture.cli.run("task", "gate", "next", "--role", "growth-marketer", "--id", "marketer-1")
     assert validated["claimed"] is True
     assert validated["gate"]["id"] == "editorial-validation"
 
@@ -760,9 +760,9 @@ def test_configured_custom_role_can_claim_and_complete_quality_gates_by_phase(tm
         "--gate-id",
         "editorial-validation",
         "--role",
-        "release-editor",
+        "growth-marketer",
         "--id",
-        "editor-1",
+        "marketer-1",
         "--verdict",
         "approved",
         "--summary",
@@ -1422,9 +1422,9 @@ def test_roster_add_allows_later_specialist_tasks(tmp_path) -> None:
     assert_event_type(state, "roster_member_added")
 
 
-def test_configured_custom_role_flows_through_core_cli(tmp_path) -> None:
+def test_temporary_marketer_role_flows_through_core_cli(tmp_path) -> None:
     workspace = tmp_path / "custom-role-workspace"
-    write_workspace_role(workspace, "release_editor", aliases=["release-editor"])
+    write_workspace_role(workspace, "marketer", aliases=["growth-marketer"])
     state_path = workspace / ".multi-code" / "sprintengine" / "custom-role-flow" / "run.yaml"
     cli = SwarmCli(state_path, cwd=workspace)
     cli.run(
@@ -1434,11 +1434,11 @@ def test_configured_custom_role_flows_through_core_cli(tmp_path) -> None:
         "--agent",
         "architect:architect",
         "--agent",
-        "release-editor:editor-1",
+        "growth-marketer:marketer-1",
     )
 
     roster = cli.run("roster", "list")
-    assert {agent["id"]: agent["role"] for agent in roster["agents"]}["editor-1"] == "release_editor"
+    assert {agent["id"]: agent["role"] for agent in roster["agents"]}["marketer-1"] == "marketer"
 
     accepted = cli.run(
         "plan",
@@ -1446,23 +1446,23 @@ def test_configured_custom_role_flows_through_core_cli(tmp_path) -> None:
         "--title",
         "Draft launch post",
         "--role",
-        "release-editor",
+        "growth-marketer",
         "--description",
         "Write the launch post.",
         "--no-quality-gates",
     )
-    assert accepted["task"]["role"] == "release_editor"
+    assert accepted["task"]["role"] == "marketer"
 
-    listed = cli.run("task", "list", "--role", "release-editor")
+    listed = cli.run("task", "list", "--role", "growth-marketer")
     assert [task["id"] for task in listed["readyTasks"]] == [accepted["task"]["id"]]
 
-    joined = cli.run("join", "--role", "release-editor", "--id", "editor-1", "--watch", "--max-wait-seconds", "0")
+    joined = cli.run("join", "--role", "growth-marketer", "--id", "marketer-1", "--watch", "--max-wait-seconds", "0")
     assert joined["action"] == "work"
-    assert "sprintengine task next --role release_editor --id editor-1" in joined["prompt"]
+    assert "sprintengine task next --role marketer --id marketer-1" in joined["prompt"]
 
-    claimed = cli.run("task", "next", "--role", "release-editor", "--id", "editor-1")
+    claimed = cli.run("task", "next", "--role", "growth-marketer", "--id", "marketer-1")
     assert claimed["claimed"] is True
-    assert claimed["task"]["role"] == "release_editor"
+    assert claimed["task"]["role"] == "marketer"
     assert claimed["task"]["id"] == accepted["task"]["id"]
 
 
@@ -1593,6 +1593,74 @@ def test_join_and_task_next_resume_owned_changes_requested_rework(tmp_path) -> N
     assert next_payload["claimed"] is False
     assert next_payload["reason"] == "agent_already_has_active_task"
     assert next_payload["task"]["id"] == "T1"
+
+
+def test_join_ready_task_wake_candidate_does_not_create_dispatch(tmp_path) -> None:
+    fixture = create_team(tmp_path, "ready-task-wake-candidate", [task("T1", "Implementation", "developer")])
+
+    joined = fixture.cli.run(
+        "join",
+        "--role",
+        "developer",
+        "--id",
+        "developer-fixture",
+        "--watch",
+        "--max-wait-seconds",
+        "0",
+    )
+
+    assert joined["action"] == "work"
+    state = read_state(fixture.state_path)
+    assert get_task(state, "T1").get("ownerAgentId") in (None, "")
+    assert state["agents"]["developer-fixture"]["currentDispatch"] is None
+    assert store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl") == []
+
+
+def test_claimed_task_current_dispatch_is_idempotent(tmp_path) -> None:
+    fixture = create_team(tmp_path, "claimed-task-dispatch-idempotent", [task("T1", "Implementation", "developer")])
+
+    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+    resumed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+
+    assert claimed["claimed"] is True
+    assert resumed["claimed"] is False
+    assert resumed["reason"] == "agent_already_has_active_task"
+    run = store.load_run_yaml(fixture.team_dir)
+    dispatches = [
+        record
+        for record in store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
+        if record["reason"] == "task_claimed"
+    ]
+    assert len(dispatches) == 1
+    assert run["agents"]["developer-fixture"]["currentDispatch"]["dispatchId"] == dispatches[0]["id"]
+    assert run["agents"]["developer-fixture"]["currentDispatch"]["taskId"] == "T1"
+
+
+def test_claimed_gate_current_dispatch_is_idempotent(tmp_path) -> None:
+    fixture = create_team(tmp_path, "claimed-gate-dispatch-idempotent", [gated_task("review", owner="developer-fixture")])
+
+    claimed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer")
+    state = read_state(fixture.state_path)
+    state["agents"]["code-reviewer"]["currentDispatch"] = None
+    write_state(fixture.state_path, state)
+    resumed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer")
+
+    assert claimed["claimed"] is True
+    assert claimed["resumed"] is False
+    assert resumed["claimed"] is True
+    assert resumed["resumed"] is True
+    run = store.load_run_yaml(fixture.team_dir)
+    dispatches = [
+        record
+        for record in store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
+        if record["reason"] == "gate_claimed"
+    ]
+    assert len(dispatches) == 1
+    assert run["agents"]["code-reviewer"]["currentDispatch"]["dispatchId"] == dispatches[0]["id"]
+    assert run["agents"]["code-reviewer"]["currentDispatch"]["targetKind"] == "gate"
+    assert run["agents"]["code-reviewer"]["currentDispatch"]["taskId"] == "T1"
+    assert run["agents"]["code-reviewer"]["currentDispatch"]["gateId"] == "code-review"
+    assert run["agents"]["code-reviewer"]["currentDispatch"]["attemptId"] == "GA-001"
 
 
 def test_changes_requested_owner_resume_records_rework_dispatch(tmp_path) -> None:

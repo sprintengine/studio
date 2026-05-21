@@ -15,6 +15,7 @@
 
 import React, { useCallback, useId, useMemo, useState } from 'react'
 import type {
+  AgentState,
   SprintEngineArtifact,
   SprintEngineQualityGate,
   SprintEngineQualityGateAttempt,
@@ -1703,6 +1704,7 @@ export function SprintEngineInspectorPanel({
   selection,
   sprintEngineState,
   runtimeAgents,
+  agents,
   tasksById,
   selectedTaskBoardColumn,
   selectedTaskStatusLabel,
@@ -1727,6 +1729,7 @@ export function SprintEngineInspectorPanel({
   selection: SprintEngineInspectorSelection
   sprintEngineState: import('../../types/workspace').SprintEngineState
   runtimeAgents: RuntimeAgentView[]
+  agents: Record<string, AgentState>
   tasksById: Record<string, SprintEngineTask>
   selectedTaskBoardColumn: SprintEngineTaskBoardColumn | null
   selectedTaskStatusLabel: string
@@ -1784,6 +1787,8 @@ export function SprintEngineInspectorPanel({
 
   if (selection.kind === 'agent') {
     const agent = selection.agent
+    const localAgent = agents[agent.id]
+    const displayName = localAgent?.name?.trim() || agent.label
     const runtime = runtimeAgents.find((entry) => entry.agentId === agent.id) ?? null
     const hasLiveTerminal = isAgentTerminalLive(agent.id)
     const currentTask = runtime?.currentTaskId
@@ -1805,9 +1810,11 @@ export function SprintEngineInspectorPanel({
                 </span>
               </div>
               <h3 className="mt-2 truncate text-[18px] font-semibold leading-7 text-[color:var(--text-strong)]">
-                {agent.label}
+                {displayName}
               </h3>
-              <div className="mt-1 font-mono text-[11px] text-[color:var(--text-disabled)]">{agent.id}</div>
+              <div className="mt-1 font-mono text-[11px] text-[color:var(--text-disabled)]">
+                {agent.id}
+              </div>
             </div>
             <InspectorChromeActions
               expanded={isExpanded}
@@ -1831,7 +1838,7 @@ export function SprintEngineInspectorPanel({
                 onClick={() => onSpawnAgent(agent.id)}
                 className="h-7 rounded border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] px-2.5 text-[11px] font-semibold text-[color:var(--accent-primary)] interactive transition-colors hover:bg-[color:var(--accent-primary-soft-strong)]"
               >
-                Spawn {getSprintEngineRoleLabel(agent.role)}
+                Spawn
               </button>
             )}
           </div>

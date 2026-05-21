@@ -34,6 +34,7 @@ from sprintengine_core.tool.state import (
     assign_task,
     clear_task_refs,
     create_task_comment,
+    ensure_gate_dispatch,
     ensure_agent,
     ensure_agent_in_roster,
     find_task,
@@ -126,8 +127,22 @@ def cmd_task_gate_next(args: argparse.Namespace) -> Dict[str, Any]:
                 agent["status"] = "running"
                 agent["currentTaskId"] = active["task"].get("id")
                 agent["currentGateId"] = active["gate"].get("id")
+                agent["currentGate"] = {
+                    "taskId": active["task"].get("id"),
+                    "gateId": active["gate"].get("id"),
+                    "attemptId": active["attempt"].get("id"),
+                }
+                dispatch_dirty = ensure_gate_dispatch(
+                    state,
+                    agent,
+                    active["task"],
+                    active["gate"],
+                    active["attempt"],
+                    args.id,
+                    args.role,
+                )
                 prompt = build_gate_review_prompt(state, args.state, active["task"], active["gate"], active["attempt"], args.id)
-                return {"ok": True, "claimed": True, "resumed": True, "task": active["task"], "gate": active["gate"], "attempt": active["attempt"], "agent": agent, "prompt": prompt, "releasedExpired": expired["released"]}
+                return {"ok": True, "claimed": True, "resumed": True, "task": active["task"], "gate": active["gate"], "attempt": active["attempt"], "agent": agent, "prompt": prompt, "releasedExpired": expired["released"], "write": dispatch_dirty or expired["dirty"]}
 
             candidates = []
             for task in state.get("tasks", []) or []:

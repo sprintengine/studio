@@ -793,6 +793,66 @@ def current_dispatch_matches_task(
     return matches
 
 
+def current_dispatch_matches_gate(
+    agent: Dict[str, Any],
+    task: Dict[str, Any],
+    gate: Dict[str, Any],
+    attempt: Dict[str, Any],
+    reason: str,
+) -> bool:
+    dispatch = agent.get("currentDispatch")
+    if not isinstance(dispatch, dict):
+        return False
+    return (
+        dispatch.get("targetKind") == "gate"
+        and dispatch.get("taskId") == task.get("id")
+        and dispatch.get("gateId") == gate.get("id")
+        and dispatch.get("attemptId") == attempt.get("id")
+        and dispatch.get("reason") == reason
+        and bool(dispatch.get("dispatchId"))
+    )
+
+
+def ensure_gate_dispatch(
+    state: Dict[str, Any],
+    agent: Dict[str, Any],
+    task: Dict[str, Any],
+    gate: Dict[str, Any],
+    attempt: Dict[str, Any],
+    agent_id: str,
+    role: str,
+) -> bool:
+    if gate.get("status") != "in_progress" or attempt.get("status") != "in_progress":
+        return False
+    reason = "gate_claimed"
+    if current_dispatch_matches_gate(agent, task, gate, attempt, reason):
+        return False
+    dispatch = queue_dispatch_record(
+        state,
+        agent_id=agent_id,
+        role=role,
+        target_kind="gate",
+        task_id=str(task.get("id") or ""),
+        task_status=str(task.get("status") or ""),
+        gate_id=str(gate.get("id") or ""),
+        gate_status=str(gate.get("status") or ""),
+        attempt_id=str(attempt.get("id") or ""),
+        reason=reason,
+    )
+    agent["currentDispatch"] = current_dispatch_payload(
+        dispatch_id=dispatch["id"],
+        target_kind="gate",
+        role=role,
+        reason=reason,
+        task_id=str(task.get("id") or ""),
+        gate_id=str(gate.get("id") or ""),
+        attempt_id=str(attempt.get("id") or ""),
+        assigned_at=dispatch["timestamp"],
+    )
+    agent["lastDirectiveAt"] = dispatch["timestamp"]
+    return True
+
+
 def ensure_rework_dispatch(state: Dict[str, Any], agent: Dict[str, Any], task: Dict[str, Any], agent_id: str) -> bool:
     if task.get("status") != "changes_requested":
         return False

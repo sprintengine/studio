@@ -197,6 +197,13 @@ Roster commands:
   sprintengine roster add --role security --id security
   sprintengine roster list
 
+Registry inspection commands:
+  sprintengine roles list
+  sprintengine role get developer
+  sprintengine soul get developer
+  sprintengine skill list
+  sprintengine skill get developer
+
 Task commands:
   sprintengine task next   --role developer --id developer-1
   sprintengine task claim  --task-id T3 --id developer-1
@@ -342,6 +349,7 @@ def add_feedback_arguments(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     from sprintengine_core.tool.commands import artifact as artifact_commands
     from sprintengine_core.tool.commands import plan as plan_commands
+    from sprintengine_core.tool.commands import registry as registry_commands
     from sprintengine_core.tool.commands import roster as roster_commands
     from sprintengine_core.tool.commands import run as run_commands
     from sprintengine_core.tool.commands import task as task_commands
@@ -439,6 +447,36 @@ def build_parser() -> argparse.ArgumentParser:
     p = triage_sub.add_parser("needs-input", help="Return architect prompt for architect-actionable needs_input blockers.")
     p.add_argument("--id", default="architect", help="Architect agent id.")
     p.set_defaults(handler=run_commands.triage_needs_input)
+
+    # registry
+    roles_p = sub.add_parser("roles", help="Inspect configured registry roles.")
+    roles_sub = roles_p.add_subparsers(dest="action", required=True)
+    p = roles_sub.add_parser("list", help="List configured registry roles.")
+    p.add_argument("--include-shadowed", action="store_true", help="Include lower-precedence shadowed sources.")
+    p.set_defaults(handler=registry_commands.roles_list, uses_state=False)
+
+    role_p = sub.add_parser("role", help="Inspect one configured registry role.")
+    role_sub = role_p.add_subparsers(dest="action", required=True)
+    p = role_sub.add_parser("get", help="Get a configured registry role by id or alias.")
+    p.add_argument("role")
+    p.set_defaults(handler=registry_commands.role_get, uses_state=False)
+
+    soul_p = sub.add_parser("soul", help="Inspect rendered registry Souls.")
+    soul_sub = soul_p.add_subparsers(dest="action", required=True)
+    p = soul_sub.add_parser("get", help="Render a configured registry Soul by role id or alias.")
+    p.add_argument("role")
+    p.add_argument("--run-id", default="", help="Optional run id for Soul template substitution.")
+    p.set_defaults(handler=registry_commands.soul_get, uses_state=False)
+
+    skill_p = sub.add_parser("skill", help="Inspect configured registry skills.")
+    skill_sub = skill_p.add_subparsers(dest="action", required=True)
+    p = skill_sub.add_parser("list", help="List configured registry skills.")
+    p.add_argument("--include-body", action="store_true", help="Include full skill bodies instead of body lengths.")
+    p.set_defaults(handler=registry_commands.skills_list, uses_state=False)
+
+    p = skill_sub.add_parser("get", help="Get a configured registry skill by id.")
+    p.add_argument("skill")
+    p.set_defaults(handler=registry_commands.skill_get, uses_state=False)
 
     # task
     task_p = sub.add_parser("task", help="Task operations.")

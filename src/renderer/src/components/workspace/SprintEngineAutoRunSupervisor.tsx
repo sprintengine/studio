@@ -766,14 +766,14 @@ async function sendContinuationPromptsToIdleAgents(
     if (taskId && !readyTaskIds.has(taskId)) sentContinuationMessages.current.delete(key)
   })
 
-  const claimedTaskIds = new Set<string>()
+  const reservedWakeCandidateTaskIds = new Set<string>()
   for (const agentId of continuationCapacity.agentIds) {
     const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
     if (!runtimeAgent) continue
 
     const task = readyTasks.find((candidate) =>
       candidate.role === runtimeAgent.role
-      && !claimedTaskIds.has(candidate.id)
+      && !reservedWakeCandidateTaskIds.has(candidate.id)
       && (!candidate.ownerAgentId || candidate.ownerAgentId === agentId)
     )
     if (!task) continue
@@ -781,7 +781,7 @@ async function sendContinuationPromptsToIdleAgents(
     const key = continuationMessageKey(workspace, task.id, agentId)
     const previous = sentContinuationMessages.current.get(key)
     if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) {
-      claimedTaskIds.add(task.id)
+      reservedWakeCandidateTaskIds.add(task.id)
       continue
     }
 
@@ -792,7 +792,7 @@ async function sendContinuationPromptsToIdleAgents(
       buildSprintEngineContinuationPrompt(task, agentId)
     ))
     sentContinuationMessages.current.set(key, { sentAt: now })
-    claimedTaskIds.add(task.id)
+    reservedWakeCandidateTaskIds.add(task.id)
     logPerfEvent('SprintEngineAutoRun', 'continuation-prompt-sent', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -1393,11 +1393,14 @@ async function startMissingRosterAgents(
 async function replenishRetiredRosterCapacity(
   workspace: Workspace,
   sprintEngineState: SprintEngineState
-): Promise<'changed' | 'failed' | 'none'> {
-  if (!workspace.sprintEngineContext || sprintEngineState.runner?.mode !== 'auto') return 'none'
+): Promise<
+  | { status: 'changed'; workspace: Workspace; sprintEngineState: SprintEngineState }
+  | { status: 'failed' | 'none' }
+> {
+  if (!workspace.sprintEngineContext || sprintEngineState.runner?.mode !== 'auto') return { status: 'none' }
   const hasRetiredAgent = Object.values(sprintEngineState.sprintEngineAgents)
     .some((agent) => agent.status === 'retired')
-  if (!hasRetiredAgent) return 'none'
+  if (!hasRetiredAgent) return { status: 'none' }
 
   const result = await window.api.replenishSprintEngineRoster({
     statePath: workspace.sprintEngineContext.statePath,
@@ -1412,22 +1415,24 @@ async function replenishRetiredRosterCapacity(
       workspaceId: workspace.id,
       workspaceName: workspace.name,
     })
-    return 'failed'
+    return { status: 'failed' }
   }
 
   const projectionContent = (result.data as { projectionContent?: unknown } | undefined)?.projectionContent
-  if (typeof projectionContent !== 'string') return 'none'
+  if (typeof projectionContent !== 'string') return { status: 'none' }
   const projection = JSON.parse(projectionContent) as unknown
   const parsedState = normalizeSprintEngineProjection(projection, workspace.sprintEngineContext.teamSlug)
-  if (!parsedState) return 'none'
+  if (!parsedState) return { status: 'none' }
   useWorkspaceStore.getState().setSprintEngineState(workspace.id, parsedState)
+  const updatedWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
   const created = ((result.data as { tool?: { created?: unknown[] } } | undefined)?.tool?.created ?? []).length
   logPerfEvent('SprintEngineAutoRun', 'roster-replenish', {
     workspaceId: workspace.id,
     workspaceName: workspace.name,
     created,
   })
-  return created > 0 ? 'changed' : 'none'
+  if (created <= 0 || !updatedWorkspace?.sprintEngineState) return { status: 'none' }
+  return { status: 'changed', workspace: updatedWorkspace, sprintEngineState: updatedWorkspace.sprintEngineState }
 }
 
 async function signalArchitectForNeedsInputTriage(
@@ -1630,7 +1635,7 @@ type RunnerActiveCycleInput = {
 }
 
 export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput): Promise<void> {
-  const {
+  let {
     workspace,
     sprintEngineState,
     autoState,
@@ -1713,15 +1718,16 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   }
 
   const replenishResult = await replenishRetiredRosterCapacity(workspace, sprintEngineState)
-  if (replenishResult === 'failed') return
-  if (replenishResult === 'changed') {
-    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
+  if (replenishResult.status === 'failed') return
+  if (replenishResult.status === 'changed') {
+    workspace = replenishResult.workspace
+    sprintEngineState = replenishResult.sprintEngineState
+    logPerfEvent('SprintEngineAutoRun', 'roster-replenished-continuing', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
-      reason: 'roster-replenished',
+      agentCount: Object.keys(sprintEngineState.sprintEngineAgents).length,
       elapsedMs: Math.round(performance.now() - superviseStartedAt),
     })
-    return
   }
 
   const rosterStartResult = await startMissingRosterAgents(

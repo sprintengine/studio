@@ -9,6 +9,27 @@
   "soul": [
     {
       "skill": "spec_reviewer"
+    },
+    {
+      "skill": "project_relative_paths"
+    },
+    {
+      "skill": "production_reality_gate"
+    },
+    {
+      "skill": "fallback_discipline"
+    },
+    {
+      "skill": "evidence_quality_assessment"
+    },
+    {
+      "skill": "post_change_self_review"
+    },
+    {
+      "skill": "collaboration_norms"
+    },
+    {
+      "skill": "sprintengine_workflow"
     }
   ]
 }

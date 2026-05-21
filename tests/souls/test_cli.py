@@ -44,12 +44,18 @@ def test_souls_list_includes_canonical_roles() -> None:
         "performance",
         "presentation",
     }.issubset(roles)
-    assert "registry_probe" in roles
+    assert "registry_probe" not in roles
+    assert "marketer" not in roles
     by_role = {soul["role"]: soul for soul in payload["souls"]}
     assert by_role["blog_writer"]["aliases"] == ["blog-writer", "content-writer", "blogger"]
     assert by_role["presentation"]["aliases"] == ["presenter", "deck-writer", "slide-author", "slides"]
     assert by_role["tester"]["path"].endswith("resources/sprintengine/roles/tester.json")
     assert "souls/prompts" not in by_role["tester"]["path"]
+
+
+def test_valid_roles_excludes_validation_only_defaults() -> None:
+    assert "registry_probe" not in VALID_ROLES
+    assert "marketer" not in VALID_ROLES
 
 
 def test_souls_get_returns_prompt_for_alias() -> None:
@@ -63,6 +69,42 @@ def test_souls_get_returns_prompt_for_alias() -> None:
     assert payload["path"].endswith("resources/sprintengine/roles/tester.json")
     assert "souls/prompts" not in payload["path"]
     assert "principal QA engineer" in payload["content"]
+
+
+def test_bundled_souls_are_composed_from_shared_skills() -> None:
+    registry_root = Path("resources/sprintengine")
+    manifests = sorted((registry_root / "roles").glob("*.json"))
+    shared_skill_usage: dict[str, int] = {}
+
+    for manifest_path in manifests:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        skills = [entry["skill"] for entry in manifest["soul"]]
+
+        assert len(skills) > 1, manifest["id"]
+        assert skills[0] == manifest["id"]
+        for skill_id in skills[1:]:
+            shared_skill_usage[skill_id] = shared_skill_usage.get(skill_id, 0) + 1
+
+    assert shared_skill_usage
+    assert all(count >= 2 for count in shared_skill_usage.values())
+
+
+def test_rendered_soul_includes_shared_sections_once() -> None:
+    rendered = render_soul("developer")
+
+    for heading in [
+        "# Production Reality Gate",
+        "# Post-Change Self-Review",
+        "# Evidence Quality Assessment",
+        "# Sprint Engine Workflow",
+        "# Collaboration Norms",
+    ]:
+        assert rendered.count(heading) == 1
+
+    assert "Do not treat `MVP`, `first pass`, `local`, or `works in UI` as permission" in rendered
+    assert "Respect role boundaries" in rendered
+    assert "Completion claims must be backed by commands" in rendered
+    assert "run `sprintengine join --role <role> --id <agent-id> --watch`" in rendered
 
 
 def test_souls_get_returns_multiloop_coordinator() -> None:

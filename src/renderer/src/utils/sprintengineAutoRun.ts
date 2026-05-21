@@ -262,8 +262,9 @@ export function getSprintEngineAutoRunOccupiedAgentIds(input: {
 
 export function buildSprintEngineContinuationPrompt(task: SprintEngineTask, agentId: string): string {
   return [
-    `Sprint Engine roster runner found a ready ${task.role} task for this idle terminal.`,
+    `Sprint Engine roster runner found a wake candidate for a ready ${task.role} task in this idle terminal.`,
     `Task: ${task.id} - ${task.title}`,
+    'This is not a durable dispatch assignment; the CLI creates one only after it claims or resumes work.',
     `Run \`sprintengine join --role ${task.role} --id ${agentId} --watch\` to receive the current directive. The CLI owns polling and backoff; do not create your own retry loop.`,
   ].join('\n')
 }
@@ -277,9 +278,12 @@ export function buildSprintEngineGateContinuationPrompt(
   return [
     claimed
       ? 'Sprint Engine roster runner found an active quality gate already claimed by this terminal.'
-      : 'Sprint Engine roster runner found a quality gate ready for this terminal.',
+      : 'Sprint Engine roster runner found a wake candidate for a quality gate in this terminal.',
     `Task: ${task.id} - ${task.title}`,
     `Gate: ${gate.id} (${gate.phase} / ${gate.role})`,
+    claimed
+      ? 'This claimed gate has a durable dispatch assignment that join will reconcile.'
+      : 'This is not a durable gate dispatch assignment; the CLI creates one only after it claims the gate.',
     `Run \`sprintengine join --role ${gate.role} --id ${agentId} --watch\` to receive the current directive. The CLI will tell you whether to resume or claim the gate, and what to do after the verdict.`,
   ].join('\n')
 }

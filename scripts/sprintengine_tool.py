@@ -76,23 +76,19 @@ def _run_mcp_backend(argv: list[str], backend: str) -> int:
     elif args.state is not None:
         direct_tool.reject_invalid_posix_state_path(args.state)
         args.state = args.state.resolve()
-    if not getattr(args, "uses_state", True):
-        print(
-            f"[sprintengine] backend mode {backend} does not support '{args.group}'. "
-            "Use --backend direct-core for this command.",
-            file=sys.stderr,
-        )
-        return 2
-
     try:
         tool_name, payload = _mcp_payload(args)
     except SystemExit as exc:
         message = _system_exit_message(exc)
-        print(f"[sprintengine] backend mode {backend} cannot dispatch command: {message}", file=sys.stderr)
+        print(
+            f"[sprintengine] backend mode {backend} cannot dispatch command: {message}. "
+            "Use --backend direct-core for unsupported command groups.",
+            file=sys.stderr,
+        )
         return _system_exit_code(exc, default=2)
 
     try:
-        state_path = Path(payload["statePath"]).resolve()
+        state_path = Path(payload["statePath"]).resolve() if "statePath" in payload else Path.cwd().resolve()
         actor = _actor_for(tool_name, payload, state_path)
         response = SprintEngineMcpServer(allowed_roots=_allowed_roots(state_path)).call_tool(tool_name, payload, actor)
     except Exception as exc:
@@ -162,6 +158,8 @@ def _mcp_payload(args) -> tuple[str, dict]:
         if args.max_wait_seconds is not None:
             payload["maxWaitSeconds"] = args.max_wait_seconds
         return "sprintengine.join", payload
+    if group in {"roles", "role", "soul", "skill"}:
+        return _registry_payload(group, action, args)
     if group == "summary":
         return "sprintengine.summary", base
     if group == "task":
@@ -171,6 +169,21 @@ def _mcp_payload(args) -> tuple[str, dict]:
     if group == "artifact":
         return _artifact_payload(action, args, base)
     raise SystemExit(f"MCP backend does not support command group: {group}")
+
+
+def _registry_payload(group: str, action: str, args) -> tuple[str, dict]:
+    payload = {"workspaceRoot": str(Path.cwd())}
+    if group == "roles" and action == "list":
+        return "sprintengine.roles.list", {**payload, "includeShadowed": bool(args.include_shadowed)}
+    if group == "role" and action == "get":
+        return "sprintengine.roles.get", {**payload, "roleId": args.role}
+    if group == "soul" and action == "get":
+        return "sprintengine.soul.get", {**payload, "roleId": args.role, "runId": args.run_id or ""}
+    if group == "skill" and action == "list":
+        return "sprintengine.skills.list", {**payload, "includeBody": bool(args.include_body)}
+    if group == "skill" and action == "get":
+        return "sprintengine.skill.get", {**payload, "skillId": args.skill}
+    raise SystemExit(f"MCP backend does not support registry command: {group} {action}")
 
 
 def _task_payload(action: str, args, base: dict) -> tuple[str, dict]:

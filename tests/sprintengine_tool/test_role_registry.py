@@ -26,16 +26,27 @@ def write_skill(root: Path, skill_id: str, body: str | None = None) -> None:
     (skill_dir / "SKILL.md").write_text(body or f"# {skill_id}\n\nBody for {skill_id}.", encoding="utf-8")
 
 
-def test_discovers_bundled_role_manifest_and_referenced_skill() -> None:
+def test_discovers_production_bundled_role_manifest_and_referenced_skill() -> None:
     discovery = discover_role_registry(workspace_root=Path("/unused/workspace"), user_root=Path("/unused/user"))
 
-    role = discovery.get_role("registry-probe")
-    skills = discovery.referenced_skills("registry_probe")
+    role = discovery.get_role("qa-test")
+    skills = discovery.referenced_skills("tester")
 
-    assert role.id == "registry_probe"
-    assert discovery.role_entry("registry_probe").source.layer.name == "bundled"
-    assert [skill.id for skill in skills] == ["registry_probe"]
-    assert "loaded from `resources/sprintengine`" in skills[0].body
+    assert role.id == "tester"
+    assert discovery.role_entry("tester").source.layer.name == "bundled"
+    assert [skill.id for skill in skills][:2] == ["tester", "project_relative_paths"]
+    assert "production_reality_gate" in [skill.id for skill in skills]
+    assert "sprintengine_workflow" in [skill.id for skill in skills]
+    assert "principal QA engineer" in skills[0].body
+
+
+def test_default_repo_discovery_excludes_validation_only_roles() -> None:
+    discovery = discover_role_registry()
+
+    assert "registry_probe" not in discovery.roles
+    assert "registry_probe" not in discovery.skills
+    assert "marketer" not in discovery.roles
+    assert "marketer" not in discovery.skills
 
 
 def test_layer_precedence_reports_winning_source_and_shadowed_entries(tmp_path: Path) -> None:

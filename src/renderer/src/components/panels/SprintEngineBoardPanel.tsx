@@ -1263,6 +1263,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  selection={inspectorSelection}
  sprintEngineState={sprintEngineState}
  runtimeAgents={runtimeAgents}
+ agents={agents}
  tasksById={tasksById}
  selectedTaskBoardColumn={selectedTaskBoardColumn}
  selectedTaskStatusLabel={selectedTaskStatusLabel}

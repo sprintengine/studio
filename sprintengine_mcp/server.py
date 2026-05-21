@@ -566,12 +566,17 @@ class SprintEngineMcpServer:
             roles = [_role_payload(entry, include_shadowed=include_shadowed) for _, entry in sorted(registry.roles.items())]
             return {"ok": True, "roles": roles, "aliases": dict(sorted(registry.aliases.items())), "warnings": _warning_payloads(registry.warnings)}
         if tool_name == "sprintengine.roles.get":
-            entry = registry.role_entry(str(payload["roleId"]))
+            try:
+                entry = registry.role_entry(str(payload["roleId"]))
+            except KeyError as exc:
+                raise McpToolError("unknown_role", _unknown_role_message(str(payload["roleId"]), registry.roles)) from exc
             return {"ok": True, "role": _role_payload(entry, include_shadowed=True), "warnings": _warning_payloads(registry.warnings)}
         if tool_name == "sprintengine.soul.get":
             run_id = str(payload.get("runId") or "")
             try:
                 rendered = registry.render_soul(str(payload["roleId"]), workspace_root=workspace_root, run_id=run_id)
+            except KeyError as exc:
+                raise McpToolError("unknown_role", _unknown_role_message(str(payload["roleId"]), registry.roles)) from exc
             except SoulRenderError as exc:
                 raise McpToolError("soul_render_failed", str(exc), {"warnings": _warning_payloads(exc.warnings)}) from exc
             return {
@@ -588,7 +593,7 @@ class SprintEngineMcpServer:
             skill_id = normalize_role_id(str(payload["skillId"]))
             entry = registry.skills.get(skill_id)
             if entry is None or not isinstance(entry.value, SkillDocument):
-                raise McpToolError("unknown_skill", f"Unknown registry skill: {payload['skillId']}")
+                raise McpToolError("unknown_skill", _unknown_skill_message(str(payload["skillId"]), registry.skills))
             return {"ok": True, "skill": _skill_payload(entry, include_body=True), "warnings": _warning_payloads(registry.warnings)}
         raise McpToolError("unknown_tool", f"Unknown registry tool: {tool_name}")
 
@@ -1043,6 +1048,18 @@ def _skill_payload(entry: RegistryEntry, *, include_body: bool) -> dict[str, Any
 
 def _source_payload(layer_name: str) -> dict[str, Any]:
     return {"layer": layer_name}
+
+
+def _unknown_role_message(role_id: str, roles: dict[str, RegistryEntry]) -> str:
+    known = ", ".join(sorted(roles))
+    detail = f" Known roles: {known}." if known else ""
+    return f"Unknown registry role: {role_id}.{detail}"
+
+
+def _unknown_skill_message(skill_id: str, skills: dict[str, RegistryEntry]) -> str:
+    known = ", ".join(sorted(skills))
+    detail = f" Known skills: {known}." if known else ""
+    return f"Unknown registry skill: {skill_id}.{detail}"
 
 
 def _warning_payloads(warnings: tuple[RegistryWarning, ...]) -> list[dict[str, Any]]:

@@ -136,7 +136,9 @@ Each agent record normalizes to:
 - `gateId`: present for gate targets.
 - `role`: target role used for routing.
 - `reason`: dispatch reason such as `task_claimed`, `gate_claimed`,
-  `changes_requested_rework`, `ready_task`, `needs_triage`, or `final_review`.
+  `changes_requested_rework`, `needs_triage`, or `final_review`. Normal
+  unclaimed ready tasks are wake candidates and must not be represented as
+  `currentDispatch` assignments.
 - `assignedAt`: UTC timestamp of assignment.
 
 Agents and app code must not edit this map directly. Use the lifecycle tools or
@@ -150,6 +152,13 @@ dispatch assignments with an idempotency key. Acknowledgement and subscription
 state is mirrored on the agent record and in normal events; consumers should use
 Sprint Engine tools or projection fields instead of parsing or editing the file
 directly.
+
+Durable dispatch assignments are created for claimed tasks, claimed quality
+gates, rework directed back to the task owner, and explicit
+`currentDispatch` targets. Renderer prompts for unclaimed ready tasks or
+unclaimed gates are wake candidates only: they may wake an idle terminal to run
+`join --watch`, but they do not write `currentDispatch`, append
+`dispatch.jsonl`, or mutate canonical task or gate state before the CLI claims.
 
 Each line is a JSON object with:
 
@@ -248,8 +257,9 @@ Compatibility names:
 
 Transition tests must prove that `sprintengine.join` does not duplicate
 dispatch ledger entries, returns active work before claiming new work, records
-or refreshes the same agent lifecycle fields as the final join path, and returns
-idle without mutation when Auto Mode is off and no target is available.
+or refreshes the same agent lifecycle fields as the final join path, treats
+unclaimed ready tasks as wake candidates until claim time, and returns idle
+without mutation when Auto Mode is off and no target is available.
 
 ## Task Files
 
@@ -531,6 +541,12 @@ when:
 - `needsTriage` is absent or `false`;
 - its dispatch mode allows dependency readiness;
 - every dependency in the run graph is `done`.
+
+An entry in `tasks/ready/` is claimability state, not a durable assignment to a
+specific agent. Auto-run renderers may surface it as a wake candidate for an idle
+terminal, but `task next`, `task claim`, or `join --watch` must perform the
+actual claim before any task owner, `currentDispatch`, or dispatch ledger row is
+created.
 
 `needsTriage` is a task-card readiness flag, not a replacement for
 `needsInput`. Missing `needsTriage` normalizes to `false`. When `true`, the task
