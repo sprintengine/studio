@@ -283,9 +283,10 @@ function getCliRuntimeSettings(
   cli: AgentCli,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
 ): CliRuntimeSettings {
+  const configured = cliRuntimes?.[cli]
   return {
-    command: cliRuntimes?.[cli]?.command?.trim() || cli,
-    useWsl: Boolean(cliRuntimes?.[cli]?.useWsl),
+    command: configured?.command?.trim() || cli,
+    useWsl: Boolean(configured?.useWsl),
   }
 }
 

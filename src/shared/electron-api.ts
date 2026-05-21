@@ -224,7 +224,9 @@ export type BuiltinSkillInstallResult =
   | { ok: true; status: 'installed' | 'updated'; skill: BuiltinSkill; destinationPath: string }
   | { ok: false; status: 'unknown-skill' | 'missing-workspace' | 'missing-source' | 'modified' | 'local'; skillId: string; message: string }
 
-export type AgentCli = 'codex' | 'claude'
+// Runtime CLI identity is a plugin id. Legacy stored values `codex` and
+// `claude` still map to the bundled plugin manifests in the main process.
+export type AgentCli = string
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
 export type SprintEngineCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
 

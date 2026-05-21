@@ -2061,6 +2061,53 @@ def test_roster_replenish_adds_replacement_for_retired_capacity_with_open_work(t
     assert_event_type(state, "roster_replacement_added")
 
 
+def test_auto_mode_retire_immediately_adds_replacement_for_open_work(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "retired-agent-auto-replenish",
+        [
+            task("T1", "Completed implementation", "developer", "done"),
+            task("T2", "Remaining implementation", "developer"),
+        ],
+    )
+    state = read_state(fixture.state_path)
+    state["runner"] = {"mode": "auto"}
+    state["agents"] = {
+        "developer-1": {
+            "role": "developer",
+            "status": "idle",
+            "currentTaskId": None,
+        }
+    }
+    state["sprintengine"]["rosterConfigured"] = True
+    write_state(fixture.state_path, state)
+
+    retired = fixture.cli.run(
+        "roster",
+        "retire",
+        "--id",
+        "developer-1",
+        "--reason",
+        "context capacity near limit",
+    )
+    assert retired["action"] == "retired"
+    assert retired["replacement"]["id"] == "developer-2"
+
+    next_payload = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
+    assert next_payload["claimed"] is True
+    assert next_payload["task"]["id"] == "T2"
+
+    state = read_state(fixture.state_path)
+    assert state["agents"]["developer-1"]["status"] == "retired"
+    assert state["agents"]["developer-1"]["replacedByAgentId"] == "developer-2"
+    assert state["agents"]["developer-2"]["status"] == "running"
+    assert_event_type(state, "roster_member_retired")
+    assert_event_type(state, "roster_replacement_added")
+
+    second = fixture.cli.run("roster", "replenish", "--role", "developer", "--actor", "runner")
+    assert second["action"] == "none"
+
+
 def test_roster_replenish_preserves_multi_agent_role_capacity(tmp_path) -> None:
     fixture = create_team(
         tmp_path,

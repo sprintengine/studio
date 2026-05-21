@@ -252,7 +252,8 @@ type RecoveryDialogState = {
 }
 
 function SprintEngineSettingsPopover({
- autoEnabled,
+ supervisorEnabled,
+ runnerModeLabel,
  autoApproveArtifacts,
  cliPermissionPreset,
  onToggleAuto,
@@ -261,7 +262,8 @@ function SprintEngineSettingsPopover({
  onVerifyProgress,
  onClose,
 }: {
- autoEnabled: boolean
+ supervisorEnabled: boolean
+ runnerModeLabel: string
  autoApproveArtifacts: boolean
  cliPermissionPreset: SprintEngineCliPermissionPreset
  onToggleAuto: () => void
@@ -319,16 +321,19 @@ function SprintEngineSettingsPopover({
  <Section title="Run" level={3} inset={true}>
  <div className="flex flex-col gap-2">
  <div className="flex items-center justify-between gap-3 text-[12px] text-[color:var(--text-default)]">
- <span id="sprintengine-settings-auto-label">Auto mode</span>
+ <span id="sprintengine-settings-auto-label">Runner</span>
  <Switch
- checked={autoEnabled}
+ checked={supervisorEnabled}
  onChange={onToggleAuto}
  ariaLabelledBy="sprintengine-settings-auto-label"
  />
  </div>
+ <div className="text-[11px] leading-4 text-[color:var(--text-muted)]">
+ Sprint Engine mode: {runnerModeLabel}
+ </div>
  <div
  className={`flex items-center justify-between gap-3 text-[12px] ${
- autoEnabled
+ supervisorEnabled
  ? 'text-[color:var(--text-default)]'
  : 'text-[color:var(--text-disabled)]'
  }`}
@@ -461,11 +466,9 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const folderPath = folderReadyPath
  const agents = workspace?.agents ?? {}
  const terminalSessions = useTerminalSessions()
- const projectedRunnerMode = sprintEngineState?.runner?.mode
- const projectedAutoEnabled = projectedRunnerMode
- ? projectedRunnerMode === 'auto'
- : workspace?.sprintEngineAutoState?.enabled ?? false
- const autoEnabled = autoRunnerControlEnabled ?? projectedAutoEnabled
+ const projectedSupervisorEnabled = workspace?.sprintEngineAutoState?.supervisorEnabled ?? false
+ const autoEnabled = autoRunnerControlEnabled ?? projectedSupervisorEnabled
+ const runnerModeLabel = sprintEngineState?.runner?.mode === 'auto' ? 'Auto Mode' : 'Manual Mode'
  const autoApproveArtifacts = workspace?.sprintEngineAutoState?.autoApproveArtifacts ?? false
  const cliPermissionPreset = workspace?.sprintEngineAutoState?.cliPermissionPreset ?? 'default'
 
@@ -613,7 +616,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  && Boolean(current?.cliStartRequested || current?.cliHasLaunched || current?.cliSessionId)
  const shouldResetSession =
  hasLegacyLaunchedSession || (current?.cli !== undefined && current.cli !== selectedCli)
- const shouldStartFresh = Boolean(options?.freshSession || shouldResetSession)
+ const shouldStartFresh = Boolean(options?.freshSession || shouldResetSession || current?.kind === 'sprintengine')
  const previousSessionId = current?.cliSessionId
  const nextSessionId = current?.cliStartRequested && previousSessionId && !shouldStartFresh
  ? previousSessionId
@@ -1305,25 +1308,34 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  }
  const toggleAuto = () => {
  const nextEnabled = !autoEnabled
- const nextMode = nextEnabled ? 'auto' : 'off'
  setAutoRunnerControlEnabled(nextEnabled)
  setSprintEngineAutoEnabled(workspaceId, nextEnabled)
+ if (!nextEnabled) {
+ setAutoRunnerControlEnabled(null)
+ return
+ }
  if (!sprintEngineContext?.statePath) {
+ setSprintEngineAutoEnabled(workspaceId, false)
  setAutoRunnerControlEnabled(null)
  return
  }
  void (async () => {
  const stateFileExists = await window.api.pathExists(sprintEngineContext.statePath).catch(() => false)
  if (!stateFileExists) {
+ setSprintEngineAutoEnabled(workspaceId, false)
  setAutoRunnerControlEnabled(null)
  return
  }
+ if (sprintEngineState?.runner?.mode === 'auto') return null
  return window.api.setSprintEngineRunnerMode({
  statePath: sprintEngineContext.statePath,
- mode: nextMode,
+ mode: 'auto',
  })
  })().then(async (result) => {
- if (!result) return
+ if (!result) {
+ setAutoRunnerControlEnabled(null)
+ return
+ }
  if (!result.ok) {
  setAutoRunnerControlEnabled(autoEnabled)
  setSprintEngineAutoEnabled(workspaceId, autoEnabled)
@@ -1557,7 +1569,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  items.push({ kind: 'separator', id: 'sep-2' })
  items.push({
  id: 'toggle-roster-runner',
- label: autoEnabled ? 'Pause roster runner' : 'Start roster runner',
+ label: autoEnabled ? 'Stop runner' : 'Start runner',
  onSelect: toggleAuto,
  })
  items.push({
@@ -1740,7 +1752,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  )}
  >
  <SprintEngineSettingsPopover
- autoEnabled={autoEnabled}
+ supervisorEnabled={autoEnabled}
+ runnerModeLabel={runnerModeLabel}
  autoApproveArtifacts={autoApproveArtifacts}
  cliPermissionPreset={cliPermissionPreset}
  onToggleAuto={toggleAuto}

@@ -88,6 +88,22 @@ def cmd_roster_retire(args: argparse.Namespace) -> Dict[str, Any]:
             f"{actor} retired Sprint Engine roster member {clean_id}.",
             {"agentId": clean_id, "role": role, "reason": reason},
         )
+        replacement = None
+        if (
+            state.get("runner", {}).get("mode") == "auto"
+            and role_has_open_work(state, role)
+            and not retired_agent_has_live_replacement(state, agent)
+        ):
+            replacement_id = next_replacement_agent_id(state, role)
+            replacement = add_roster_agent(state, role, replacement_id, actor)
+            agent["replacedByAgentId"] = replacement_id
+            append_event(
+                state,
+                "roster_replacement_added",
+                actor,
+                f"{actor} added replacement Sprint Engine roster member {replacement_id} for retired {role} capacity.",
+                {"agentId": replacement_id, "role": role, "replaces": [clean_id]},
+            )
         return {
             "ok": True,
             "action": "already_retired" if already_retired else "retired",
@@ -95,6 +111,7 @@ def cmd_roster_retire(args: argparse.Namespace) -> Dict[str, Any]:
             "role": role,
             "agent": agent,
             "event": event,
+            "replacement": {"id": agent.get("replacedByAgentId"), "role": role, "agent": replacement, "replaces": [clean_id]} if replacement else None,
         }
 
     return with_locked_state(args.state, run)

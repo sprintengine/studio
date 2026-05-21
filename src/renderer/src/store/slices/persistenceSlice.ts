@@ -45,7 +45,7 @@ import { mapMigrationWorkspaces } from './normalizers'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 50
+export const WORKSPACE_STORE_VERSION = 51
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
 export type WorkspaceMigrationState = {
@@ -617,6 +617,20 @@ export function migratePersistedWorkspaceState(
     mapMigrationWorkspaces(migrationState, (ws) => {
       const next = consolidateSwitchboardWorkspaceLayout(ws.layoutModel)
       return next ? { ...ws, layoutModel: next } : ws
+    })
+  }
+  if (version < 51) {
+    mapMigrationWorkspaces(migrationState, (ws) => {
+      const sprintEngineAutoState = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
+      return {
+        ...ws,
+        sprintEngineAutoState: {
+          ...sprintEngineAutoState,
+          supervisorEnabled: false,
+          enabled: false,
+          pendingSpawns: [],
+        },
+      }
     })
   }
 

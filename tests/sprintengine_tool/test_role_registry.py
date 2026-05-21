@@ -79,6 +79,25 @@ def test_layer_precedence_reports_winning_source_and_shadowed_entries(tmp_path: 
     assert [shadow.layer.name for shadow in skill_entry.shadowed] == ["plugin:0", "user", "bundled"]
 
 
+def test_named_plugin_roots_report_stable_plugin_source_layers(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    plugin = tmp_path / "plugin-souls"
+    user = tmp_path / "user"
+    bundled = tmp_path / "bundled"
+    write_role(plugin, "plugin_writer", label="Plugin Writer")
+    write_skill(plugin, "plugin_writer", "# Plugin writer\n")
+
+    discovery = RoleSkillRegistry(
+        workspace_root=workspace,
+        plugin_roots=[{"id": "writer-plugin", "root": plugin}],
+        user_root=user,
+        bundled_root=bundled,
+    ).discover()
+
+    assert discovery.role_entry("plugin_writer").source.layer.name == "plugin:writer-plugin"
+    assert discovery.skills["plugin_writer"].source.layer.name == "plugin:writer-plugin"
+
+
 def test_broken_entries_are_skipped_with_structured_warnings(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     root = workspace / ".sprintengine"
@@ -102,6 +121,7 @@ def test_broken_entries_are_skipped_with_structured_warnings(tmp_path: Path) -> 
     assert "malformed_role_manifest" in warning_codes
     assert warning_codes.count("invalid_role_manifest") == 1
     assert "invalid_soul_entry" in warning_codes
+    assert any("must contain only a non-empty skill string" in warning.message for warning in discovery.warnings)
     assert "broken_skill_document" in warning_codes
     assert warning_codes.count("missing_referenced_skill") == 2
 

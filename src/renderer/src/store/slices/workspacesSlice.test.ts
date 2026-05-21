@@ -32,6 +32,26 @@ const switchboardTemplate: LayoutTemplate = {
   name: 'Switchboard',
 }
 
+const soloDevTemplate: LayoutTemplate = {
+  ...standardTemplate,
+  id: 'solo-dev-test',
+  name: 'Solo Dev',
+  layout: {
+    global: { tabSetEnableDrop: true, tabEnableClose: true },
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [
+        {
+          type: 'tabset',
+          weight: 100,
+          children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'agent-1' } }],
+        },
+      ],
+    },
+  },
+}
+
 assert.equal(workspaceFolderKey(' /Users/example/project/ '), '/users/example/project')
 assert.equal(normalizeWorkspaceMode('unknown'), 'standard')
 assert.equal(normalizeWorkspaceMode('switchboard'), 'switchboard')
@@ -47,23 +67,30 @@ const secondId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
   name: 'Second Workspace',
   folderPath: '/Users/example/other',
 })
+const soloDevId = useWorkspaceStore.getState().addWorkspace(soloDevTemplate, {
+  name: 'Solo Dev Workspace',
+  folderPath: '/Users/example/solo-dev',
+})
 
 let state = useWorkspaceStore.getState()
-assert.equal(state.activeWorkspaceId, secondId)
+assert.equal(state.activeWorkspaceId, soloDevId)
 assert.deepEqual(
   state.workspaces.map((workspace) => workspace.id),
-  [firstId, secondId],
+  [firstId, secondId, soloDevId],
 )
 assert.equal(state.workspaces[0].name, 'First Workspace')
 assert.deepEqual(state.appSettings.recentWorkspaceFolders, [
+  '/Users/example/solo-dev',
   '/Users/example/other',
   '/Users/example/project',
 ])
+assert.equal(state.workspaces.find((workspace) => workspace.id === soloDevId)?.agents['agent-1']?.cli, 'claude')
+assert.equal(state.workspaces.find((workspace) => workspace.id === soloDevId)?.agents['agent-1']?.name, 'Agent')
 
-state.reorderWorkspaces([secondId, 'missing', firstId])
+state.reorderWorkspaces([secondId, 'missing', firstId, soloDevId])
 assert.deepEqual(
   useWorkspaceStore.getState().workspaces.map((workspace) => workspace.id),
-  [secondId, firstId],
+  [secondId, firstId, soloDevId],
 )
 
 useWorkspaceStore.getState().renameWorkspace(firstId, ' Renamed Workspace ')
@@ -95,7 +122,7 @@ state = useWorkspaceStore.getState()
 assert.equal(state.workspaces.find((workspace) => workspace.id === firstId)?.folderPath, '/Users/example/renamed')
 assert.deepEqual(state.appSettings.recentWorkspaceFolders.slice(0, 2), [
   '/Users/example/renamed',
-  '/Users/example/other',
+  '/Users/example/solo-dev',
 ])
 
 useWorkspaceStore.getState().updateAgent(firstId, 'agent-1', { name: 'Agent One' })
@@ -118,7 +145,7 @@ assert.equal(getEditorBuffer(secondId, '/tmp/example.ts'), 'const value = 1')
 
 useWorkspaceStore.getState().removeWorkspace(secondId)
 state = useWorkspaceStore.getState()
-assert.deepEqual(state.workspaces.map((workspace) => workspace.id), [firstId])
+assert.deepEqual(state.workspaces.map((workspace) => workspace.id), [firstId, soloDevId])
 assert.equal(state.activeWorkspaceId, firstId)
 
 const switchboardId = useWorkspaceStore.getState().addWorkspace(switchboardTemplate, {

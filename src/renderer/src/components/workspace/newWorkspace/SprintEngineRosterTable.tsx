@@ -2,7 +2,7 @@ import CliIcon from '../../CliIcon'
 import { InboxRow, Select, type SelectItem } from '../../ui'
 import {
   getSprintEngineRoleLabel,
-  sprintEngineRoleOrder,
+  orderSprintEngineRosterRoles,
 } from '../../../utils/sprintengine'
 import type {
   AgentCli,
@@ -11,7 +11,6 @@ import type {
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
   SprintEngineRoleRegistry,
-  SprintEngineRoleRegistryMetadata,
 } from '../../../types/workspace'
 
 const roleSummaries: Record<SprintEngineRole, string> = {
@@ -35,6 +34,7 @@ interface RosterTableProps {
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   registry?: SprintEngineRoleRegistry | null
+  disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null
   disabled: boolean
   onSetCount: (role: SprintEngineRoleId, count: number) => void
   onSetCli: (role: SprintEngineRoleId, cli: AgentCli) => void
@@ -44,11 +44,12 @@ export function SprintEngineRosterTable({
   roleCounts,
   roleCliDefaults,
   registry,
+  disabledRoleIds,
   disabled,
   onSetCount,
   onSetCli,
 }: RosterTableProps) {
-  const roles = orderedRosterRoles(registry)
+  const roles = orderSprintEngineRosterRoles(registry, disabledRoleIds)
   return (
     <div className="divide-y divide-[color:var(--border-default)] rounded-md border border-[color:var(--border-default)]">
       {roles.map((role) => {
@@ -68,7 +69,7 @@ export function SprintEngineRosterTable({
             <CliPicker
               role={role}
               label={label}
-              value={roleCliDefaults[role] ?? 'codex'}
+              value={roleCliDefaults[role] ?? 'claude'}
               disabled={disabled}
               onChange={onSetCli}
             />
@@ -102,22 +103,6 @@ export function SprintEngineRosterTable({
       })}
     </div>
   )
-}
-
-function orderedRosterRoles(registry?: SprintEngineRoleRegistry | null): SprintEngineRoleId[] {
-  const ids = new Set<SprintEngineRoleId>(sprintEngineRoleOrder)
-  for (const role of Object.values(registry?.roles ?? {}) as SprintEngineRoleRegistryMetadata[]) {
-    if (role.enabled === false) continue
-    ids.add(role.id)
-  }
-  return [...ids].sort((a, b) => {
-    const aBundled = sprintEngineRoleOrder.indexOf(a as SprintEngineRole)
-    const bBundled = sprintEngineRoleOrder.indexOf(b as SprintEngineRole)
-    const aRank = aBundled >= 0 ? aBundled : sprintEngineRoleOrder.length
-    const bRank = bBundled >= 0 ? bBundled : sprintEngineRoleOrder.length
-    if (aRank !== bRank) return aRank - bRank
-    return getSprintEngineRoleLabel(a, registry).localeCompare(getSprintEngineRoleLabel(b, registry))
-  })
 }
 
 function CountStepper({

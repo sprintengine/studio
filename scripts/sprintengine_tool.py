@@ -173,6 +173,9 @@ def _mcp_payload(args) -> tuple[str, dict]:
 
 def _registry_payload(group: str, action: str, args) -> tuple[str, dict]:
     payload = {"workspaceRoot": str(Path.cwd())}
+    extra_dirs = list(getattr(args, "extra_dir", None) or [])
+    if extra_dirs:
+        payload["extraDirs"] = extra_dirs
     if group == "roles" and action == "list":
         return "sprintengine.roles.list", {**payload, "includeShadowed": bool(args.include_shadowed)}
     if group == "role" and action == "get":

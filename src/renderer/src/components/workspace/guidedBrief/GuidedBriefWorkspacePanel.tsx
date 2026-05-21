@@ -10,8 +10,10 @@ import {
   PlanSourcedSprintEngineWorkspaceError,
 } from '../../../utils/sprintengineWorkspaceCreation'
 import {
+  applyUserDisabledSprintEngineRoleCounts,
   countSprintEngineAgents,
   getSprintEngineRoleLabel,
+  getUserDisabledSprintEngineRoleIds,
   sprintEngineRoleOrder,
 } from '../../../utils/sprintengine'
 import type { SprintEngineRoleId } from '../../../types/workspace'
@@ -66,6 +68,8 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
   const setGuidedBriefState = useWorkspaceStore((s) => s.setGuidedBriefState)
   const authState = useWorkspaceStore((s) => s.authState)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
+  const sprintEngineDisabledRoleIds = getUserDisabledSprintEngineRoleIds(sprintEngineRoleSettings)
   const [viewingIdea, setViewingIdea] = useState(false)
 
   const runtimeState = workspace?.guidedBriefState ?? null
@@ -88,6 +92,11 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
       throw new Error('Accept the UI direction and mockups before starting the build.')
     }
 
+    const finalRoleCounts = applyUserDisabledSprintEngineRoleCounts(
+      runOptions.roleCounts,
+      sprintEngineDisabledRoleIds,
+    )
+
     await writeGuidedBriefBuildHandoff({
       workspaceRoot: state.workspaceRoot,
       idea: state.idea,
@@ -100,7 +109,7 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
       confirmedDecisions: [
         state.hasUi === 'yes' ? 'Application includes a visual UI.' : 'No visual UI is required.',
       ],
-      roster: sprintEngineRosterSummary(runOptions.roleCounts),
+      roster: sprintEngineRosterSummary(finalRoleCounts),
       validationNotes: ['Validate implementation against accepted Guided brief artifact snapshot hashes.'],
       filesystem: {
         ensureDir: window.api.ensureDir,
@@ -127,13 +136,13 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
         sourceContent,
         sourcePlanKind: 'product_plan',
         sourceBundle,
-        roleCounts: runOptions.roleCounts,
+        roleCounts: finalRoleCounts,
         roleCliDefaults: runOptions.roleCliDefaults,
         sprintEngineAutoState: {
           enabled: runOptions.startRunner,
           autoApproveArtifacts: runOptions.autoApproveArtifacts,
           cliPermissionPreset: runOptions.cliPermissionPreset,
-          maxConcurrentAgents: countSprintEngineAgents(runOptions.roleCounts),
+          maxConcurrentAgents: Math.max(1, countSprintEngineAgents(finalRoleCounts)),
         },
         pathExists: window.api.pathExists,
       })
@@ -193,6 +202,7 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
       onBackToIdea={() => setViewingIdea(true)}
       onStartBuild={startBuild}
       cliRuntimes={cliRuntimes}
+      sprintEngineDisabledRoleIds={sprintEngineDisabledRoleIds}
     />
   )
 }

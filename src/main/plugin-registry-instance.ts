@@ -1,5 +1,5 @@
 import { existsSync } from 'fs'
-import { join } from 'path'
+import { isAbsolute, join, relative, resolve, sep } from 'path'
 
 import type { LoadedPlugin, PluginManifest } from '../shared/plugin-manifest'
 import {
@@ -70,6 +70,21 @@ export function getLastPluginRegistryReport(): PluginRegistryLoadReport | null {
   return lastReport
 }
 
+export type PluginSprintEngineRegistryRoot = {
+  id: string
+  root: string
+}
+
+export function getPluginSprintEngineRegistryRoots(): PluginSprintEngineRegistryRoot[] {
+  return ensureRegistry().loaded().flatMap((plugin): PluginSprintEngineRegistryRoot[] => {
+    const soulsDirectory = plugin.manifest.souls?.directory
+    if (!soulsDirectory) return []
+    const root = resolve(plugin.pluginRoot, soulsDirectory)
+    if (!isPathInsideOrEqual(plugin.pluginRoot, root)) return []
+    return [{ id: plugin.manifest.id, root }]
+  })
+}
+
 // Test-only: lets unit tests substitute a registry built from a fixture root.
 export function __setPluginRegistryForTest(custom: PluginRegistry, report: PluginRegistryLoadReport): void {
   registry = custom
@@ -79,4 +94,12 @@ export function __setPluginRegistryForTest(custom: PluginRegistry, report: Plugi
 export function __resetPluginRegistryForTest(): void {
   registry = null
   lastReport = null
+}
+
+function isPathInsideOrEqual(parentPath: string, targetPath: string): boolean {
+  const relativePath = relative(resolve(parentPath), resolve(targetPath))
+  return (
+    relativePath === ''
+    || (!relativePath.startsWith('..') && !isAbsolute(relativePath) && !relativePath.split(sep).includes('..'))
+  )
 }

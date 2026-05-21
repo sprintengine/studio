@@ -58,6 +58,24 @@ for (const file of cleanedFiles) {
 }
 assert.equal(cleaned.editorState?.activeFilePath, '/a.ts')
 
+const autoRunCleaned = normalizeWorkspaceForPartialize(baseWorkspace({
+  sprintEngineAutoState: {
+    supervisorEnabled: false,
+    enabled: true,
+    autoApproveArtifacts: true,
+    keepDoneAgentTerminals: true,
+    cliPermissionPreset: 'bypass_all',
+    maxConcurrentAgents: 4,
+    pendingSpawns: [{ taskId: 'T1', agentId: 'developer-1', startedAt: 1 }],
+    deliveredAgentNotificationEventKeys: ['EVT-1'],
+  },
+}))
+assert.equal(autoRunCleaned.sprintEngineAutoState.enabled, false)
+assert.equal(autoRunCleaned.sprintEngineAutoState.supervisorEnabled, false)
+assert.deepEqual(autoRunCleaned.sprintEngineAutoState.pendingSpawns, [])
+assert.equal(autoRunCleaned.sprintEngineAutoState.autoApproveArtifacts, true)
+assert.equal(autoRunCleaned.sprintEngineAutoState.maxConcurrentAgents, 4)
+
 // normalizeWorkspaceForPartialize zeros the in-memory stream buffer + status on agents
 // that survive a save so they cold-load idle instead of streaming.
 const withAgent = baseWorkspace({

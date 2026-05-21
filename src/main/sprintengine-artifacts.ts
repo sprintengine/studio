@@ -25,6 +25,7 @@ import type {
   SprintEngineProjectionReadPayload,
   SprintEngineTaskReadyPayload,
 } from './ipc/sprintengine-ipc'
+import { getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
 
 type SprintEngineArtifactDependencies = {
   getAuthenticatedUserId(): string | null
@@ -45,6 +46,7 @@ type SprintEngineMcpToolResponse =
 
 type SprintEngineMcpRunnerContext = {
   workspaceRoot: string
+  allowedRoots?: string[]
 }
 
 type SprintEngineMcpToolRunner = (
@@ -325,7 +327,12 @@ function runSprintEngineMcpToolProcess(
   actor: SprintEngineMcpActorContext
 ): ReturnType<SprintEngineMcpToolRunner> {
   return new Promise((resolvePromise) => {
-    const child = spawn(getSprintEngineMcpPythonExecutable(context.workspaceRoot), ['-m', 'sprintengine_mcp', '--allowed-root', context.workspaceRoot], {
+    const allowedRoots = Array.from(new Set([context.workspaceRoot, ...(context.allowedRoots ?? [])]))
+    const args = ['-m', 'sprintengine_mcp']
+    for (const root of allowedRoots) {
+      args.push('--allowed-root', root)
+    }
+    const child = spawn(getSprintEngineMcpPythonExecutable(context.workspaceRoot), args, {
       cwd: context.workspaceRoot,
       env: {
         ...process.env,
@@ -371,6 +378,14 @@ function rendererMcpActor(): SprintEngineMcpActorContext {
     role: 'renderer',
     authenticated: true,
     mcpAuthorized: true,
+  }
+}
+
+function sprintEngineRegistryRootsForRead(): Array<{ id: string; root: string }> {
+  try {
+    return getPluginSprintEngineRegistryRoots()
+  } catch {
+    return []
   }
 }
 
@@ -920,11 +935,12 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
     async readRegistryRoles(payload) {
       try {
         const workspaceRoot = validateWorkspaceRoot(payload?.workspaceRoot)
+        const pluginRegistryRoots = sprintEngineRegistryRootsForRead()
         return runReadOnlyMcpTool(
           runMcpTool,
-          { workspaceRoot },
+          { workspaceRoot, allowedRoots: pluginRegistryRoots.map((root) => root.root) },
           'sprintengine.roles.list',
-          { workspaceRoot, includeShadowed: payload?.includeShadowed === true }
+          { workspaceRoot, includeShadowed: payload?.includeShadowed === true, pluginRegistryRoots }
         )
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
@@ -935,11 +951,12 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
       try {
         const workspaceRoot = validateWorkspaceRoot(payload?.workspaceRoot)
         const roleId = resolveRequiredString(payload?.roleId, 'Role id')
+        const pluginRegistryRoots = sprintEngineRegistryRootsForRead()
         return runReadOnlyMcpTool(
           runMcpTool,
-          { workspaceRoot },
+          { workspaceRoot, allowedRoots: pluginRegistryRoots.map((root) => root.root) },
           'sprintengine.roles.get',
-          { workspaceRoot, roleId }
+          { workspaceRoot, roleId, pluginRegistryRoots }
         )
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }

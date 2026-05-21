@@ -14,7 +14,7 @@ import {
   deriveWorkspaceDisplayActivity,
   isLiveTerminal,
 } from '../../hooks/useTerminalSessions'
-import type { AgentCli, Workspace } from '../../types/workspace'
+import type { Workspace } from '../../types/workspace'
 import type { MultiloopRoleDescriptor } from '../../specialists/specialistActions'
 import type { SessionItem } from './WorkspaceTopBar'
 
@@ -88,7 +88,7 @@ export function getSessionItems(
             agentId: session.agentId,
             terminalId: null,
             label: agent?.name || session.agentId,
-            cli: session.cli ?? agent?.cli ?? 'codex',
+            cli: session.cli ?? agent?.cli ?? '',
             status,
             role: runtime?.role ?? null,
             specialistId,
@@ -107,7 +107,7 @@ export function getSessionItems(
           agentId: null,
           terminalId,
           label: terminalSessionLabel(terminalId),
-          cli: 'codex' as AgentCli,
+          cli: session.cli ?? '',
           status: 'working' as const,
           role: null,
           specialistId: null,

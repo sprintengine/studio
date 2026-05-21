@@ -11,6 +11,7 @@ import {
   buildSprintEngineGateContinuationPrompt,
   continuationMessageKey,
   getActiveSprintEngineAutoRunGateClaims,
+  agentHasOpenSprintEngineGateWork,
   agentOwnsOpenSprintEngineImplementationWork,
   getArchitectActionableNeedsInputTasks,
   getAutoApprovalIntentArtifacts,
@@ -55,6 +56,7 @@ async function main(): Promise<void> {
   testGetAutoApprovalIntentArtifactsRespectsEligibility()
   testGetPendingAgentNotificationEventsFiltersDeliveredAndSent()
   testAgentOwnsOpenSprintEngineImplementationWorkDetectsRework()
+  testAgentHasOpenSprintEngineGateWorkDetectsPendingAndActiveGates()
   testShouldSkipExitedSprintEngineRosterAgentAllowsOwnedReworkRestart()
   testGetSprintEngineAutoRunOccupiedAgentIdsCountsChangesRequestedOwners()
   testPickNextAutoRunsSelectsReadyTaskForIdleRoleAgent()
@@ -223,6 +225,7 @@ function workspaceFixture(overrides: Partial<Workspace> = {}): Workspace {
     editorState: { openFiles: [], activeFile: null },
     sprintEngineState: null,
     sprintEngineAutoState: {
+      supervisorEnabled: false,
       enabled: false,
       autoApproveArtifacts: true,
       keepDoneAgentTerminals: false,
@@ -348,6 +351,7 @@ async function testAutoApprovalOnlyBranchSkipsTerminalListWhenNothingToApprove()
   const supervisor = await loadSupervisor()
   const workspace = workspaceFixture({
     sprintEngineAutoState: {
+      supervisorEnabled: false,
       enabled: false,
       autoApproveArtifacts: true,
       keepDoneAgentTerminals: false,
@@ -393,6 +397,7 @@ async function testDeliverAgentNotificationsSkipsRetiredTargets(): Promise<void>
   const sentNotifications = mutableRef(new Set<string>())
   const workspace = workspaceFixture({
     sprintEngineAutoState: {
+      supervisorEnabled: true,
       enabled: true,
       autoApproveArtifacts: false,
       keepDoneAgentTerminals: false,
@@ -593,6 +598,7 @@ async function testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt(): P
       },
     } as Workspace['agents'],
     sprintEngineAutoState: {
+      supervisorEnabled: true,
       enabled: true,
       autoApproveArtifacts: false,
       keepDoneAgentTerminals: false,
@@ -652,6 +658,7 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
       rosterConfigured: true,
       runner: { mode: 'auto' },
     },
+    roleCounts: { developer: 2 },
     roster: {
       'developer-1': { role: 'developer', status: 'retired', currentTaskId: null },
       'developer-2': { role: 'developer', status: 'idle', currentTaskId: null },
@@ -710,6 +717,7 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
       },
     } as Workspace['agents'],
     sprintEngineAutoState: {
+      supervisorEnabled: true,
       enabled: true,
       autoApproveArtifacts: false,
       keepDoneAgentTerminals: false,
@@ -742,7 +750,7 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
     `newly replenished roster member is spawned in the same supervise cycle; spawned ${JSON.stringify(spawns)}`
   )
   assert.ok(!spawns.some((spawn) => spawn.agentId === 'developer-1'), 'retired roster member is not respawned')
-  assert.equal(replacementSpawn.cli, 'codex')
+  assert.equal(replacementSpawn.cli, 'claude')
   assert.ok(replacementSpawn.initialPrompt?.includes('sprintengine join --role developer --id developer-2 --watch'))
 }
 
@@ -815,6 +823,7 @@ async function testSuperviseRunnerCycleDoesNotMutateTaskOrGateState(): Promise<v
       },
     } as Workspace['agents'],
     sprintEngineAutoState: {
+      supervisorEnabled: true,
       enabled: true,
       autoApproveArtifacts: false,
       keepDoneAgentTerminals: false,
@@ -1140,6 +1149,44 @@ function testAgentOwnsOpenSprintEngineImplementationWorkDetectsRework(): void {
   assert.equal(agentOwnsOpenSprintEngineImplementationWork(state, 'frontend'), true)
   assert.equal(agentOwnsOpenSprintEngineImplementationWork(state, 'developer-1'), false)
   assert.equal(agentOwnsOpenSprintEngineImplementationWork(state, 'tester'), false)
+}
+
+function testAgentHasOpenSprintEngineGateWorkDetectsPendingAndActiveGates(): void {
+  const state = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T1', status: 'review' }),
+      task({
+        id: 'T2',
+        status: 'testing',
+        boardColumn: 'testing',
+        qualityGates: [
+          { id: 'code_reviewer', phase: 'review', role: 'code_reviewer', status: 'approved', required: true, allowSelfReview: true, focus: '', attempts: [] },
+          {
+            id: 'tester',
+            phase: 'testing',
+            role: 'tester',
+            status: 'in_progress',
+            required: true,
+            allowSelfReview: true,
+            focus: '',
+            attempts: [{ id: 'GA-001', role: 'tester', status: 'in_progress', claimedBy: 'tester', startedAt: '2026-05-21T21:00:00Z' }],
+          },
+        ],
+      }),
+      task({
+        id: 'T3',
+        status: 'review',
+        qualityGates: [
+          { id: 'spec_reviewer', phase: 'review', role: 'spec_reviewer', status: 'approved', required: true, allowSelfReview: true, focus: '', attempts: [] },
+        ],
+      }),
+    ],
+  })
+
+  assert.equal(agentHasOpenSprintEngineGateWork(state, 'spec_reviewer', 'spec_reviewer'), true)
+  assert.equal(agentHasOpenSprintEngineGateWork(state, 'tester', 'tester'), true)
+  assert.equal(agentHasOpenSprintEngineGateWork(state, 'code_reviewer', 'code_reviewer'), true)
+  assert.equal(agentHasOpenSprintEngineGateWork(state, 'frontend', 'frontend'), false)
 }
 
 function testShouldSkipExitedSprintEngineRosterAgentAllowsOwnedReworkRestart(): void {

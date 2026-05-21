@@ -1600,7 +1600,7 @@ const DEFAULT_RUNNER_SETTINGS: RunnerSettings = {
   queues: ['ready'],
   maxConcurrency: 2,
   provider: 'electron-session',
-  cli: 'codex',
+  cli: 'claude',
 }
 
 function settingsFromState(state: SwitchboardRunnerState | null): RunnerSettings {
@@ -1950,4 +1950,3 @@ function ExecutionsList({
     </ul>
   )
 }
-

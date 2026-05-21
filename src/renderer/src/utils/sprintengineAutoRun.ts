@@ -225,16 +225,34 @@ export function agentOwnsOpenSprintEngineImplementationWork(
   )
 }
 
+export function agentHasOpenSprintEngineGateWork(
+  sprintEngineState: SprintEngineState,
+  agentId: string,
+  role: SprintEngineRoleId
+): boolean {
+  return sprintEngineState.tasks.some((task) => {
+    const taskColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
+    return getOpenSprintEngineQualityGates(task).some((gate) => {
+      if (gate.phase !== taskColumn || gate.role !== role) return false
+      if (gate.status === 'pending') return true
+      if (gate.status !== 'in_progress') return false
+      return gate.attempts.some((attempt) =>
+        attempt.status === 'in_progress' && attempt.claimedBy === agentId
+      )
+    })
+  })
+}
+
 export function shouldSkipExitedSprintEngineRosterAgent(
   currentAgent: SprintEngineExitedAgentLike | null | undefined,
-  ownsOpenImplementationWork: boolean
+  hasOpenWork: boolean
 ): boolean {
   return Boolean(
     currentAgent?.kind === 'sprintengine'
     && currentAgent.cliLastExitedAt
     && !currentAgent.cliStartRequested
     && !currentAgent.cliHasLaunched
-    && !ownsOpenImplementationWork
+    && !hasOpenWork
   )
 }
 

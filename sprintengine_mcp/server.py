@@ -109,9 +109,13 @@ class SprintEngineMcpServer:
     def __init__(
         self,
         allowed_roots: list[str | Path] | None = None,
+        plugin_registry_roots: list[dict[str, str] | str | Path] | None = None,
+        user_root: str | Path | None = None,
         stdio_actor: ActorContext | dict[str, Any] | None = None,
     ):
         self.allowed_roots = [Path(root).expanduser().resolve() for root in (allowed_roots or [])]
+        self.plugin_registry_roots = tuple(plugin_registry_roots or [])
+        self.user_root = Path(user_root).expanduser().resolve() if user_root is not None else None
         self.stdio_actor = self._actor(stdio_actor)
 
     def list_tools(self) -> list[dict[str, Any]]:
@@ -560,7 +564,11 @@ class SprintEngineMcpServer:
     def _registry_tool(self, tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
         workspace_root = self._workspace_root(payload, required=True)
         assert workspace_root is not None
-        registry = discover_role_registry(workspace_root=workspace_root)
+        registry = discover_role_registry(
+            workspace_root=workspace_root,
+            plugin_roots=self._plugin_registry_roots(payload),
+            user_root=self.user_root,
+        )
         if tool_name == "sprintengine.roles.list":
             include_shadowed = bool(payload.get("includeShadowed", False))
             roles = [_role_payload(entry, include_shadowed=include_shadowed) for _, entry in sorted(registry.roles.items())]
@@ -596,6 +604,51 @@ class SprintEngineMcpServer:
                 raise McpToolError("unknown_skill", _unknown_skill_message(str(payload["skillId"]), registry.skills))
             return {"ok": True, "skill": _skill_payload(entry, include_body=True), "warnings": _warning_payloads(registry.warnings)}
         raise McpToolError("unknown_tool", f"Unknown registry tool: {tool_name}")
+
+    def _plugin_registry_roots(self, payload: dict[str, Any]) -> list[dict[str, str]]:
+        roots: list[dict[str, str]] = []
+        roots.extend(self._configured_plugin_registry_roots())
+        for raw in payload.get("pluginRegistryRoots") or []:
+            if not isinstance(raw, dict):
+                raise McpToolError("invalid_plugin_registry_root", "pluginRegistryRoots entries must be objects.")
+            root = self._registry_root_path(raw.get("root"))
+            plugin_id = raw.get("id") or raw.get("pluginId")
+            entry = {"root": str(root)}
+            if isinstance(plugin_id, str) and plugin_id.strip():
+                entry["id"] = plugin_id.strip()
+            roots.append(entry)
+        for raw in payload.get("extraDirs") or []:
+            root = self._registry_root_path(raw)
+            roots.append({"root": str(root)})
+        return roots
+
+    def _configured_plugin_registry_roots(self) -> list[dict[str, str]]:
+        roots: list[dict[str, str]] = []
+        for raw in self.plugin_registry_roots:
+            if isinstance(raw, dict):
+                root = self._registry_root_path(raw.get("root") or raw.get("path"), enforce_allowed=False)
+                plugin_id = raw.get("id") or raw.get("pluginId") or raw.get("plugin_id")
+                entry = {"root": str(root)}
+                if isinstance(plugin_id, str) and plugin_id.strip():
+                    entry["id"] = plugin_id.strip()
+                roots.append(entry)
+                continue
+            root = self._registry_root_path(raw, enforce_allowed=False)
+            roots.append({"root": str(root)})
+        return roots
+
+    def _registry_root_path(self, raw: Any, *, enforce_allowed: bool = True) -> Path:
+        if not isinstance(raw, str) or not raw.strip():
+            raise McpToolError("invalid_plugin_registry_root", "Plugin registry root must be a non-empty string.")
+        if _looks_like_foreign_platform_path(raw):
+            raise McpToolError(
+                "invalid_plugin_registry_root",
+                "Plugin registry root appears to mix Windows and POSIX path formats. Use the path format for this process.",
+            )
+        path = Path(raw).expanduser().resolve()
+        if enforce_allowed and self.allowed_roots and not any(_is_relative_to(path, root) for root in self.allowed_roots):
+            raise McpToolError("plugin_registry_root_not_allowed", "Plugin registry root is outside the configured allowed roots.")
+        return path
 
     def _namespace(
         self,
@@ -895,9 +948,18 @@ def call_tool(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Local-first sprintengine MCP server")
+    parser.add_argument("--workspace", action="append", default=[], help="Workspace root allowed to contain Sprint Engine state paths.")
     parser.add_argument("--allowed-root", action="append", default=[], help="Workspace root allowed to contain Sprint Engine state paths.")
+    parser.add_argument("--extra-dir", action="append", default=[], help="Additional plugin registry root containing roles/ and skills/.")
+    parser.add_argument("--user-dir", help="User registry base directory; the server reads <user-dir>/.sprintengine.")
     args = parser.parse_args(argv)
-    server = SprintEngineMcpServer(allowed_roots=args.allowed_root, stdio_actor=ActorContext.from_environment())
+    allowed_roots = [*args.workspace, *args.allowed_root]
+    server = SprintEngineMcpServer(
+        allowed_roots=allowed_roots,
+        plugin_registry_roots=args.extra_dir,
+        user_root=args.user_dir,
+        stdio_actor=ActorContext.from_environment(),
+    )
     for line in sys.stdin:
         if not line.strip():
             continue

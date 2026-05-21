@@ -94,7 +94,7 @@ assert.equal(
     name: 'Recovered Agent',
     cli: undefined,
   }).cli,
-  'codex',
+  undefined,
 )
 
 const carrier: { workspaces: Workspace[] } = {
@@ -162,6 +162,15 @@ carrier.workspaces[0].agents['claude-agent'] = {
   cliSessionId: 'stable-claude',
   cliResumeAvailable: false,
 }
+carrier.workspaces[0].agents['sprintengine-agent'] = {
+  ...defaultAgent('sprintengine-agent'),
+  cli: 'codex',
+  kind: 'sprintengine',
+  cliStartRequested: true,
+  cliHasLaunched: true,
+  cliSessionId: 'stale-sprintengine',
+  cliResumeAvailable: true,
+}
 directSlice.reconcileWorkspaceAgentLaunchFlags([
   terminalSession({
     sessionId: 'live-session',
@@ -178,6 +187,10 @@ assert.equal(carrier.workspaces[0].agents['codex-agent'].cliResumeAvailable, tru
 assert.equal(carrier.workspaces[0].agents['claude-agent'].cliStartRequested, true)
 assert.equal(carrier.workspaces[0].agents['claude-agent'].cliResumeAvailable, true)
 assert.equal(carrier.workspaces[0].agents['claude-agent'].cliSessionId, 'stable-claude')
+assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliStartRequested, false)
+assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliHasLaunched, false)
+assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliSessionId, undefined)
+assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliResumeAvailable, false)
 
 const storeWorkspaceId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
   name: 'Agents Slice Store Workspace',

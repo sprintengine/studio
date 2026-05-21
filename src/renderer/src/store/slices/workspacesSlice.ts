@@ -184,10 +184,46 @@ function requireSprintEngineRoleCli(
   role: SprintEngineRoleId
 ): AgentCli {
   const cli = roleCliDefaults[role]
-  if (cli !== 'codex' && cli !== 'claude') {
+  if (typeof cli !== 'string' || !cli.trim()) {
     throw new Error(`Missing Sprint Engine CLI default for role "${role}".`)
   }
   return cli
+}
+
+type LayoutAgentTabNode = {
+  component?: unknown
+  name?: unknown
+  config?: {
+    agentId?: unknown
+  }
+  children?: LayoutAgentTabNode[]
+}
+
+function collectTemplateAgentTabs(template: LayoutTemplate): Array<{ id: AgentId; name?: string }> {
+  const seen = new Set<string>()
+  const agents: Array<{ id: AgentId; name?: string }> = []
+
+  const collect = (node: LayoutAgentTabNode | undefined) => {
+    if (!node) return
+
+    if (node.component === 'agent' && typeof node.config?.agentId === 'string' && node.config.agentId.trim()) {
+      const id = node.config.agentId.trim()
+      if (!seen.has(id)) {
+        seen.add(id)
+        agents.push({
+          id,
+          name: typeof node.name === 'string' && node.name.trim() ? node.name.trim() : undefined,
+        })
+      }
+    }
+
+    node.children?.forEach(collect)
+  }
+
+  collect(template.layout.layout as LayoutAgentTabNode)
+  template.layout.borders?.forEach((border) => collect(border as LayoutAgentTabNode))
+
+  return agents
 }
 
 export function createWorkspacesSlice(
@@ -333,6 +369,17 @@ export function createWorkspacesSlice(
                 'sprintengine'
               ),
               cli: requireSprintEngineRoleCli(sprintEngineRoleCliDefaults, agent.role),
+            }
+          })
+        } else {
+          collectTemplateAgentTabs(template).forEach((agent) => {
+            agents[agent.id] = {
+              ...deps.defaultAgent(
+                agent.id,
+                agent.name ?? deps.pickWorkspaceAgentName(agents),
+                'general'
+              ),
+              cli: state.appSettings.lastSelectedCli,
             }
           })
         }

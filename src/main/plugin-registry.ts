@@ -22,6 +22,7 @@ export type PluginRegistry = {
   load: () => Promise<PluginRegistryLoadReport>
   loadSync: () => PluginRegistryLoadReport
   list: () => PluginRegistryListEntry[]
+  loaded: () => LoadedPlugin[]
   get: (id: string) => LoadedPlugin | undefined
   validateManifestSource: (source: string) => PluginManifestValidationResult
 }
@@ -233,6 +234,10 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
         version: p.manifest.version,
         binary: p.manifest.binary,
       }))
+    },
+
+    loaded(): LoadedPlugin[] {
+      return Array.from(plugins.values())
     },
 
     get(id: string): LoadedPlugin | undefined {

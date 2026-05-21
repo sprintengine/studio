@@ -1,7 +1,8 @@
-// Full-app Settings route. Replaces the workspace canvas with a Linear-style
-// settings layout (rail + content + optional right column) while open. Owns
-// focus capture, Escape close, body scroll-lock, and focus restoration to the
-// opener. The panel body is rendered by SettingsPanel with chrome="overlay".
+// Centered Settings modal. Renders SettingsPanel (chrome="overlay") inside a
+// constrained dialog surface with a dimmed backdrop, so the rail and content
+// cluster in screen center instead of drifting to the left bezel. Owns focus
+// capture, Escape close, body scroll-lock, focus restoration, and
+// click-outside-to-close.
 
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -155,7 +156,11 @@ export default function SettingsOverlay() {
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      className="fixed inset-0 z-50"
+      data-state={lifecycle}
+      className="settings-route fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay-backdrop)] p-4 outline-none sm:p-8 lg:p-12"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) closeSettingsOverlay()
+      }}
     >
       <div
         data-focus-sentinel="true"
@@ -166,8 +171,7 @@ export default function SettingsOverlay() {
       <div
         ref={surfaceRef}
         tabIndex={-1}
-        data-state={lifecycle}
-        className="settings-route flex h-full w-full flex-col bg-[color:var(--bg-app)] outline-none"
+        className="flex h-full max-h-[min(760px,calc(100vh-2rem))] w-full max-w-[1080px] flex-col overflow-hidden rounded-[8px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-drawer)] outline-none"
       >
         <SettingsPanel
           chrome="overlay"

@@ -58,7 +58,7 @@ export const defaultAgent = (id: AgentId, name = id, kind: AgentKind = 'general'
   cliHasLaunched: false,
   cliOnboardingPromptSent: false,
   cliResumeAvailable: false,
-  cli: 'codex' as AgentCli,
+  cli: undefined,
   cliPermissionPreset: 'default',
   cliStartupPrompt: undefined,
   kind,
@@ -71,12 +71,12 @@ export const defaultEditorState = (): EditorState => ({
   activeFilePath: null,
 })
 
-export function normalizeAgentCli(agent: Partial<AgentState>, fallback: AgentCli = 'codex'): AgentCli {
-  if (agent.cli === 'codex' || agent.cli === 'claude') return agent.cli
-  return fallback
+export function normalizeAgentCli(agent: Partial<AgentState>, fallback?: AgentCli): AgentCli | undefined {
+  if (typeof agent.cli === 'string' && agent.cli.trim()) return agent.cli.trim()
+  return typeof fallback === 'string' && fallback.trim() ? fallback.trim() : undefined
 }
 
-export function normalizeAgentState(agent: AgentState, fallbackCli: AgentCli = 'codex'): AgentState {
+export function normalizeAgentState(agent: AgentState, fallbackCli?: AgentCli): AgentState {
   return {
     ...agent,
     cli: normalizeAgentCli(agent, fallbackCli),
@@ -199,6 +199,14 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
               && !agent.cliHasLaunched
               && !agent.cliSessionId
             ) continue
+            if (agent.kind === 'sprintengine') {
+              agent.cliStartRequested = false
+              agent.cliHasLaunched = false
+              agent.cliSessionId = undefined
+              agent.cliOnboardingPromptSent = false
+              agent.cliResumeAvailable = false
+              continue
+            }
             if (agent.cliHasLaunched && agentCliSupportsConversationResume(agent.cli)) {
               agent.cliStartRequested = true
               agent.cliResumeAvailable = true

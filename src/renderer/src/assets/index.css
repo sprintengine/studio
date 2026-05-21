@@ -18,52 +18,61 @@
  * forbidden inline hex usage to the four target panel files, not this file. */
 :root,
 :root[data-theme="dark"] {
-  /* Surfaces. Match the existing zinc-950/900/800 chrome so legacy panels keep
-     working while rebuilt panels read from the same token. */
-  --bg-app: #08090b;
-  --bg-surface: #0d0e11;
-  --bg-surface-raised: #111216;
-  --bg-hover: #17181d;
-  --bg-active: #1d1e24;
-  --bg-selected: #24252b;
-  /* Modal / dialog scrim above panel chrome. Matches the previous Modal
-     inline `bg-[#08090b]/70` literal (Tailwind /70 = 0.7 alpha). */
-  --surface-overlay-backdrop: rgba(8, 9, 11, 0.7);
+  /* Anti-dither baseline: every solid hex channel value is a multiple of 4
+     in 8-bit (lower two bits = 0). This lands every surface on the native
+     LUT of 6-bit-FRC panels, eliminating temporal dithering as a source of
+     screen flicker / eye strain during long viewing sessions. On 8-bit
+     panels the effect is invisible — every value is equally native — so
+     applying this universally costs nothing and helps users on cheaper
+     hardware. Pure black (#000000) is also avoided in favor of an
+     elevated floor to skirt OLED PWM at minimum luminance.
+
+     Surfaces. */
+  --bg-app: #08080c;
+  --bg-surface: #0c0c10;
+  --bg-surface-raised: #101418;
+  --bg-hover: #18181c;
+  --bg-active: #1c2024;
+  --bg-selected: #24242c;
+  /* Modal / dialog scrim above panel chrome. */
+  --surface-overlay-backdrop: rgba(8, 8, 12, 0.7);
 
   /* Text. */
-  --text-strong: #ececee;
-  --text-default: #c7c8cf;
-  --text-muted: #9a9aa2;
-  --text-subtle: #6f7078;
-  --text-disabled: #5a5a63;
-  --text-on-accent: #08090b;
+  --text-strong: #ececec;
+  --text-default: #c8c8d0;
+  --text-muted: #9c9ca4;
+  --text-subtle: #707078;
+  --text-disabled: #5c5c64;
+  --text-on-accent: #08080c;
 
-  /* Hairlines. */
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-default: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.12);
-  --border-focus: rgba(92, 124, 255, 0.6);
+  /* Hairlines. White-alpha values composite to surface + light tint; the
+     anti-dither claim is strongest on solid surfaces, alpha-blended chrome
+     accepts some residual dithering on the alpha layer. */
+  --border-subtle: rgba(252, 252, 252, 0.06);
+  --border-default: rgba(252, 252, 252, 0.08);
+  --border-strong: rgba(252, 252, 252, 0.12);
+  --border-focus: rgba(92, 124, 252, 0.6);
 
   /* One product accent for active selection and primary action across the
      four target panels. Tool color is limited to header identity dots.
      Dark + Light keep brand blue; Dark Conifer overrides to amber (see the
      `[data-theme="conifer"]` block below). */
-  --accent-primary: #5c7cff;
-  --accent-primary-hover: #6e8eff;
-  --accent-primary-soft: rgba(92, 124, 255, 0.14);
-  --accent-primary-soft-strong: rgba(92, 124, 255, 0.22);
+  --accent-primary: #5c7cfc;
+  --accent-primary-hover: #7090fc;
+  --accent-primary-soft: rgba(92, 124, 252, 0.14);
+  --accent-primary-soft-strong: rgba(92, 124, 252, 0.22);
 
   /* Semantic tones for StatusDot and inline status copy. */
-  --tone-neutral: #9a9aa2;
-  --tone-accent: #5c7cff;
-  --tone-good: #30d158;
-  --tone-warn: #ffbf2f;
-  --tone-error: #ff787c;
-  --tone-neutral-soft: rgba(154, 154, 162, 0.18);
-  --tone-accent-soft: rgba(92, 124, 255, 0.16);
-  --tone-good-soft: rgba(48, 209, 88, 0.18);
-  --tone-warn-soft: rgba(255, 191, 47, 0.18);
-  --tone-error-soft: rgba(255, 120, 124, 0.18);
+  --tone-neutral: #9c9ca4;
+  --tone-accent: #5c7cfc;
+  --tone-good: #30d058;
+  --tone-warn: #fcc030;
+  --tone-error: #fc787c;
+  --tone-neutral-soft: rgba(156, 156, 164, 0.18);
+  --tone-accent-soft: rgba(92, 124, 252, 0.16);
+  --tone-good-soft: rgba(48, 208, 88, 0.18);
+  --tone-warn-soft: rgba(252, 192, 48, 0.18);
+  --tone-error-soft: rgba(252, 120, 124, 0.18);
 
   /* Diff palette — file-status badges in Git surfaces and (future) diff-hunk
      line backgrounds. Aliased to the canonical tone tokens so chrome stays
@@ -73,25 +82,25 @@
   --diff-context: var(--text-muted);
 
   /* Tool identity dots only — header chrome, never row chrome. */
-  --tool-switchboard: #7c5cf2;
-  --tool-watchtower: #d97757;
-  --tool-sprintengine: #ffbf2f;
-  --tool-multiloop: #39d7ff;
+  --tool-switchboard: #7c5cf0;
+  --tool-watchtower: #d87858;
+  --tool-sprintengine: #fcc030;
+  --tool-multiloop: #38d8fc;
 
   /* Scrollbar surfaces. Pull from the ink scale so each theme can re-tune. */
-  --scrollbar-thumb: #24252b;
-  --scrollbar-thumb-hover: #303139;
+  --scrollbar-thumb: #24242c;
+  --scrollbar-thumb-hover: #303038;
 
   /* Skeleton shimmer endpoints — alpha on light, alpha on white. */
-  --skeleton-shimmer-low: rgba(255, 255, 255, 0.02);
-  --skeleton-shimmer-high: rgba(255, 255, 255, 0.05);
+  --skeleton-shimmer-low: rgba(252, 252, 252, 0.02);
+  --skeleton-shimmer-high: rgba(252, 252, 252, 0.05);
 
   /* Terminal surface — intentionally deeper than --bg-app so embedded
      xterm/PTY views read as a "punched-in screen" rather than blending into
      the surrounding chrome. Foreground stays light on every theme so the
      terminal feels like the same primitive regardless of panel theme. */
-  --terminal-bg: #050609;
-  --terminal-fg: #ececee;
+  --terminal-bg: #040408;
+  --terminal-fg: #ececec;
   --terminal-cursor: var(--accent-primary);
 
   /* Type scale. Body is 12 px to match existing flexlayout chrome. */
@@ -137,102 +146,88 @@
    tone-soft, and scrollbar tokens override; semantic tone hexes, tool
    identity dots, accent hue, and structural scales stay constant. */
 :root[data-theme="light"] {
-  /* Surface ramp re-anchored so "raised" reads as elevated (pure white)
-     rather than dimmer than the panel. Wider luma spacing across the ramp
-     gives the eye a clear hierarchy: canvas → panel → raised → hover →
-     active → selected. */
-  --bg-app: #f3f3f0;
-  --bg-surface: #fafaf8;
+  /* Anti-dither baseline (multiples of 4); pure white #ffffff and pure
+     black are kept as-is — every panel renders the extremes natively. */
+  --bg-app: #f4f8f8;
+  --bg-surface: #ffffff;
   --bg-surface-raised: #ffffff;
-  --bg-hover: #eeede9;
-  --bg-active: #e4e3df;
-  --bg-selected: #dbdad6;
-  --surface-overlay-backdrop: rgba(20, 20, 22, 0.42);
+  --bg-hover: #f0f0f4;
+  --bg-active: #e0e4e8;
+  --bg-selected: #d8dce0;
+  --surface-overlay-backdrop: rgba(20, 24, 28, 0.42);
 
-  /* Slightly softer near-black for the strong text — less harsh against
-     warm paper while still AAA at body size on every surface. */
-  --text-strong: #1c1c20;
-  --text-default: #3a3a40;
-  --text-muted: #62626a;
-  --text-subtle: #8a8a92;
-  --text-disabled: #b0b0b6;
+  --text-strong: #202428;
+  --text-default: #3c444c;
+  --text-muted: #646c78;
+  --text-subtle: #889098;
+  --text-disabled: #a8b0bc;
   --text-on-accent: #ffffff;
 
-  --border-subtle: rgba(0, 0, 0, 0.08);
-  --border-default: rgba(0, 0, 0, 0.12);
-  --border-strong: rgba(0, 0, 0, 0.18);
-  --border-focus: rgba(77, 109, 255, 0.55);
+  --border-subtle: rgba(32, 36, 40, 0.08);
+  --border-default: rgba(32, 36, 40, 0.13);
+  --border-strong: rgba(32, 36, 40, 0.20);
+  --border-focus: rgba(56, 92, 252, 0.55);
 
-  /* Slightly darker / less vivid blue than the dark-mode accent — `#5c7cff`
-     against pure white reads garish; this lands at AA on white for UI
-     components while still being unmistakably the brand blue. */
-  --accent-primary: #4d6dff;
-  --accent-primary-hover: #3a5cff;
-  --accent-primary-soft: rgba(77, 109, 255, 0.10);
-  --accent-primary-soft-strong: rgba(77, 109, 255, 0.18);
+  --accent-primary: #385cfc;
+  --accent-primary-hover: #284cfc;
+  --accent-primary-soft: rgba(56, 92, 252, 0.10);
+  --accent-primary-soft-strong: rgba(56, 92, 252, 0.18);
 
-  /* Tone soft fills — bumped alpha + slightly darker hues so banners read
-     against white. Headline tone hexes stay constant (StatusDot is a 6 px
-     filled circle that reads on any surface). */
-  --tone-neutral-soft: rgba(94, 94, 102, 0.14);
-  --tone-accent-soft: rgba(92, 124, 255, 0.14);
-  --tone-good-soft: rgba(33, 156, 67, 0.18);
+  --tone-neutral-soft: rgba(100, 108, 120, 0.14);
+  --tone-accent-soft: rgba(56, 92, 252, 0.14);
+  --tone-good-soft: rgba(32, 156, 68, 0.18);
   --tone-warn-soft: rgba(204, 132, 0, 0.20);
-  --tone-error-soft: rgba(220, 38, 38, 0.16);
+  --tone-error-soft: rgba(220, 40, 40, 0.16);
 
-  --scrollbar-thumb: #d4d4ce;
-  --scrollbar-thumb-hover: #b9b9b3;
-  --skeleton-shimmer-low: rgba(0, 0, 0, 0.03);
-  --skeleton-shimmer-high: rgba(0, 0, 0, 0.07);
+  --scrollbar-thumb: #d0d4d8;
+  --scrollbar-thumb-hover: #b8bcc4;
+  --skeleton-shimmer-low: rgba(32, 36, 40, 0.04);
+  --skeleton-shimmer-high: rgba(32, 36, 40, 0.09);
 
-  --shadow-drawer: 0 12px 32px -16px rgba(0, 0, 0, 0.22);
+  --shadow-drawer:
+    0 1px 3px rgba(16, 20, 24, 0.06),
+    0 8px 24px -6px rgba(16, 20, 24, 0.10);
 
-  /* Terminal on Light reads as a dark "screen" embedded in paper chrome —
-     lighter than Slate's terminal so the inversion isn't jarring next to
-     white panels. */
-  --terminal-bg: #2d2d30;
-  --terminal-fg: #e6e6e6;
+  --terminal-bg: #2c3038;
+  --terminal-fg: #e8e8ec;
 }
 
-/* Slate — pure neutral grey ramp in the family of the classic editor dark themes.
-   Lighter and more "battleship" than the default
-   ink scale; reads as IDE chrome rather than Shared darks. Accent
-   stays brand blue (close to Cursor's indigo). */
+/* Slate uses a neutral grey ramp, lighter than the default ink scale so
+   adjacent editor surfaces remain distinct. The accent stays brand blue.
+   Anti-dither baseline. */
 :root[data-theme="slate"] {
-  --bg-app: #1e1e1e;
-  --bg-surface: #252526;
-  --bg-surface-raised: #2d2d30;
-  --bg-hover: #3a3a3e;
-  --bg-active: #45454a;
-  --bg-selected: #515158;
+  --bg-app: #202020;
+  --bg-surface: #242424;
+  --bg-surface-raised: #2c2c30;
+  --bg-hover: #38383c;
+  --bg-active: #44444c;
+  --bg-selected: #505058;
   --surface-overlay-backdrop: rgba(20, 20, 20, 0.68);
 
-  --text-strong: #e6e6e6;
+  --text-strong: #e8e8e8;
   --text-default: #cccccc;
-  --text-muted: #9d9d9d;
-  --text-subtle: #7a7a7a;
-  --text-disabled: #5a5a5a;
+  --text-muted: #9c9c9c;
+  --text-subtle: #7c7c7c;
+  --text-disabled: #5c5c5c;
   --text-on-accent: #ffffff;
 
-  --border-subtle: rgba(255, 255, 255, 0.07);
-  --border-default: rgba(255, 255, 255, 0.10);
-  --border-strong: rgba(255, 255, 255, 0.16);
-  --border-focus: rgba(92, 124, 255, 0.6);
+  --border-subtle: rgba(252, 252, 252, 0.07);
+  --border-default: rgba(252, 252, 252, 0.10);
+  --border-strong: rgba(252, 252, 252, 0.16);
+  --border-focus: rgba(92, 124, 252, 0.6);
 
-  /* Brand blue accent unchanged; soft fills tuned for the lighter grey ramp. */
-  --accent-primary: #5c7cff;
-  --accent-primary-hover: #6e8eff;
-  --accent-primary-soft: rgba(92, 124, 255, 0.16);
-  --accent-primary-soft-strong: rgba(92, 124, 255, 0.24);
+  --accent-primary: #5c7cfc;
+  --accent-primary-hover: #7090fc;
+  --accent-primary-soft: rgba(92, 124, 252, 0.16);
+  --accent-primary-soft-strong: rgba(92, 124, 252, 0.24);
 
-  --scrollbar-thumb: #4a4a4f;
-  --scrollbar-thumb-hover: #5a5a60;
-  --skeleton-shimmer-low: rgba(255, 255, 255, 0.03);
-  --skeleton-shimmer-high: rgba(255, 255, 255, 0.07);
+  --scrollbar-thumb: #4c4c50;
+  --scrollbar-thumb-hover: #5c5c60;
+  --skeleton-shimmer-low: rgba(252, 252, 252, 0.03);
+  --skeleton-shimmer-high: rgba(252, 252, 252, 0.07);
 
-  /* Dark dark grey terminal, deeper than the Slate panel chrome. */
-  --terminal-bg: #141416;
-  --terminal-fg: #e6e6e6;
+  --terminal-bg: #141418;
+  --terminal-fg: #e8e8e8;
 }
 
 /* Dark Conifer — dark green hue-shift with a warm amber accent.
@@ -246,108 +241,340 @@
      - amber is darker/more orange, lives on selection chrome + CTA fill
    See knowledge/brand/workspace-themes.md and future-plans/2026-05-21-app-themes-light-forest.md §3.5. */
 :root[data-theme="conifer"] {
-  /* Muted sage-grey-green ramp — much closer to Nord-meets-moss than the
-     earlier saturated forest. Surfaces sit in the user-supplied anchors:
-     #141613 (deepest) → #1b1d19 / #1e211c (third range) → #2a2e27 / #2d322a
-     (second range). Pale sage #b2c1b1 / #a9b8aa carries the text scale.
-     Accent stays muted gold — warm-on-cool reads as vintage-instrument
-     (Leica brass on weathered green) rather than novelty forest. */
-  --bg-app: #141613;
-  --bg-surface: #1b1d19;
-  --bg-surface-raised: #1e211c;
-  --bg-hover: #2a2e27;
-  --bg-active: #2d322a;
-  --bg-selected: #363b32;
-  --surface-overlay-backdrop: rgba(10, 12, 9, 0.72);
+  /* Muted sage-grey-green ramp — Nord-meets-moss. Anti-dither baseline:
+     channel values are multiples of 4 (≤1.6% drift per channel from the
+     designed anchors, imperceptible). Sage tint preserved by keeping
+     G ≥ R = B across the ramp. */
+  --bg-app: #141814;
+  --bg-surface: #1c201c;
+  --bg-surface-raised: #20241c;
+  --bg-hover: #2c3028;
+  --bg-active: #2c342c;
+  --bg-selected: #383c30;
+  --surface-overlay-backdrop: rgba(12, 12, 8, 0.72);
 
-  --text-strong: #b2c1b1;
-  --text-default: #a9b8aa;
-  --text-muted: #8a988b;
-  --text-subtle: #6c7a6d;
-  --text-disabled: #525e53;
-  /* Dark warm text reads on the muted-gold accent (gold + white fails contrast). */
-  --text-on-accent: #1a1408;
+  --text-strong: #b4c0b0;
+  --text-default: #a8b8a8;
+  --text-muted: #8c988c;
+  --text-subtle: #6c786c;
+  --text-disabled: #546054;
+  /* Dark sage on muted-gold accent — used by PrimaryButton's label and
+     Switch's thumb when checked. */
+  --text-on-accent: #141814;
 
-  --border-subtle: rgba(178, 193, 177, 0.05);
-  --border-default: rgba(178, 193, 177, 0.08);
-  --border-strong: rgba(178, 193, 177, 0.14);
-  /* Softer focus ring alpha — the muted base reads calm so the gold ring
-     doesn't need the volume it carried on the louder saturated palette. */
-  --border-focus: rgba(201, 163, 86, 0.45);
+  --border-subtle: rgba(180, 192, 176, 0.05);
+  --border-default: rgba(180, 192, 176, 0.08);
+  --border-strong: rgba(180, 192, 176, 0.14);
+  --border-focus: rgba(200, 164, 88, 0.45);
 
   /* Muted gold accent (vintage-instrument family — Leica brass, library
-     lamp, scientific instrument). On this muted sage-grey base the warm
-     gold reads as a single deliberate highlight rather than competing with
-     the surface ramp.
+     lamp). Differentiated from Sprint Engine identity gold by hue point,
+     scale, and role (see future-plans/2026-05-21-app-themes-light-forest.md). */
+  --accent-primary: #c8a458;
+  --accent-primary-hover: #d4b46c;
+  --accent-primary-soft: rgba(200, 164, 88, 0.14);
+  --accent-primary-soft-strong: rgba(200, 164, 88, 0.22);
 
-     Differentiated from Sprint Engine identity gold (#ffbf2f) by three
-     lines: hue point (this is warmer / less yellow), scale (gold stays at
-     6 px identity dot + small role glyph, this lives on full chrome), and
-     role (Sprint Engine gold never fills a button, focus ring, or selected
-     card border). */
-  --accent-primary: #c9a356;
-  --accent-primary-hover: #d6b46a;
-  --accent-primary-soft: rgba(201, 163, 86, 0.14);
-  --accent-primary-soft-strong: rgba(201, 163, 86, 0.22);
+  --tone-accent: #c8a458;
+  --tone-accent-soft: rgba(200, 164, 88, 0.16);
 
-  /* --tone-accent follows the per-theme accent so selection / alive-right-now
-     reads as one color across StatusDot and selection chrome. */
-  --tone-accent: #c9a356;
-  --tone-accent-soft: rgba(201, 163, 86, 0.16);
+  --scrollbar-thumb: #2c342c;
+  --scrollbar-thumb-hover: #384038;
+  --skeleton-shimmer-low: rgba(180, 192, 176, 0.03);
+  --skeleton-shimmer-high: rgba(180, 192, 176, 0.07);
 
-  --scrollbar-thumb: #2d322a;
-  --scrollbar-thumb-hover: #3a4136;
-  --skeleton-shimmer-low: rgba(178, 193, 177, 0.03);
-  --skeleton-shimmer-high: rgba(178, 193, 177, 0.07);
-
-  /* Espresso-deep terminal, slightly cooler than --bg-app so the embedded
-     "screen" still reads as punched-in against the muted surface ramp. */
-  --terminal-bg: #0a0c09;
-  --terminal-fg: #b2c1b1;
+  --terminal-bg: #0c0c08;
+  --terminal-fg: #b4c0b0;
 }
 
-/* Caramel — warm dark brown ramp in the "vintage workshop / leather notebook"
-   family. Think dulce de leche surfaces, cognac mid-tones, burnt-sugar
-   depths. Accent stays brand blue (cream-on-blue is a classic editorial
-   pairing — see vintage map covers, scientific journal bindings). Borders
-   and text use warm cream alphas so the whole composition reads warm without
-   being monotone. */
+/* Caramel — warm dark brown ramp ("vintage workshop / leather notebook").
+   Brand blue accent against cream-on-warm chrome reads as classic editorial.
+   Anti-dither baseline. */
 :root[data-theme="caramel"] {
-  --bg-app: #1a1207;
-  --bg-surface: #241a0e;
-  --bg-surface-raised: #2f2415;
-  --bg-hover: #3a2d1c;
-  --bg-active: #473723;
-  --bg-selected: #54422a;
-  --surface-overlay-backdrop: rgba(14, 9, 5, 0.72);
+  --bg-app: #181408;
+  --bg-surface: #241c10;
+  --bg-surface-raised: #302414;
+  --bg-hover: #3c2c1c;
+  --bg-active: #483824;
+  --bg-selected: #54442c;
+  --surface-overlay-backdrop: rgba(12, 8, 4, 0.72);
 
-  --text-strong: #f5ecd9;
-  --text-default: #d6c9a8;
-  --text-muted: #a89a76;
-  --text-subtle: #7a6e54;
-  --text-disabled: #5e553f;
-  --text-on-accent: #08090b;
+  --text-strong: #f4ecd8;
+  --text-default: #d4c8a8;
+  --text-muted: #a89c78;
+  --text-subtle: #7c7054;
+  --text-disabled: #605440;
+  --text-on-accent: #08080c;
 
-  --border-subtle: rgba(245, 236, 217, 0.06);
-  --border-default: rgba(245, 236, 217, 0.09);
-  --border-strong: rgba(245, 236, 217, 0.14);
-  --border-focus: rgba(92, 124, 255, 0.6);
+  --border-subtle: rgba(244, 236, 216, 0.06);
+  --border-default: rgba(244, 236, 216, 0.09);
+  --border-strong: rgba(244, 236, 216, 0.14);
+  --border-focus: rgba(92, 124, 252, 0.6);
 
-  /* Brand blue accent — preserved from Dark / Light / Slate. */
-  --accent-primary: #5c7cff;
-  --accent-primary-hover: #6e8eff;
-  --accent-primary-soft: rgba(92, 124, 255, 0.14);
-  --accent-primary-soft-strong: rgba(92, 124, 255, 0.22);
+  --accent-primary: #5c7cfc;
+  --accent-primary-hover: #7090fc;
+  --accent-primary-soft: rgba(92, 124, 252, 0.14);
+  --accent-primary-soft-strong: rgba(92, 124, 252, 0.22);
 
-  --scrollbar-thumb: #4a3a25;
-  --scrollbar-thumb-hover: #5a4830;
-  --skeleton-shimmer-low: rgba(245, 236, 217, 0.03);
-  --skeleton-shimmer-high: rgba(245, 236, 217, 0.07);
+  --scrollbar-thumb: #4c3c24;
+  --scrollbar-thumb-hover: #5c4830;
+  --skeleton-shimmer-low: rgba(244, 236, 216, 0.03);
+  --skeleton-shimmer-high: rgba(244, 236, 216, 0.07);
 
-  /* Espresso-deep terminal — "punched-in screen" against the caramel surface. */
-  --terminal-bg: #0e0905;
-  --terminal-fg: #f5ecd9;
+  --terminal-bg: #100804;
+  --terminal-fg: #f4ecd8;
 }
+
+/* Lantern — low blue light dark theme. Surfaces shift R>G>B (warm bias),
+   accent shifts from cool blue to warm amber, focus ring follows. Designed
+   for late-night work / circadian-friendly use. Total blue emission is
+   minimized across surfaces, text, accent, and focus chrome. Family
+   reference: f.lux, Apple Night Shift, incandescent bulb. Anti-dither
+   baseline (channel values are multiples of 4; warm R>G>B tint preserved
+   by rounding direction where a half-step would have flipped it). */
+:root[data-theme="lantern"] {
+  --bg-app: #181408;
+  --bg-surface: #1c1810;
+  --bg-surface-raised: #242018;
+  --bg-hover: #2c2820;
+  --bg-active: #383024;
+  --bg-selected: #44382c;
+  --surface-overlay-backdrop: rgba(12, 8, 4, 0.72);
+
+  --text-strong: #f4e8c8;
+  --text-default: #d8c4a0;
+  --text-muted: #a89870;
+  --text-subtle: #7c6c54;
+  --text-disabled: #605440;
+  --text-on-accent: #181408;
+
+  --border-subtle: rgba(244, 232, 200, 0.06);
+  --border-default: rgba(244, 232, 200, 0.10);
+  --border-strong: rgba(244, 232, 200, 0.16);
+  --border-focus: rgba(232, 168, 80, 0.55);
+
+  /* Warm amber accent — already on multiples of 4. */
+  --accent-primary: #e8a850;
+  --accent-primary-hover: #f0b864;
+  --accent-primary-soft: rgba(232, 168, 80, 0.14);
+  --accent-primary-soft-strong: rgba(232, 168, 80, 0.22);
+
+  --tone-accent: #e8a850;
+  --tone-accent-soft: rgba(232, 168, 80, 0.16);
+
+  --scrollbar-thumb: #383028;
+  --scrollbar-thumb-hover: #4c4034;
+  --skeleton-shimmer-low: rgba(244, 232, 200, 0.03);
+  --skeleton-shimmer-high: rgba(244, 232, 200, 0.07);
+
+  --terminal-bg: #0c0804;
+  --terminal-fg: #f4e8c8;
+}
+
+/* Aubergine — Discord-style deep purple-grey. Cool dark with violet
+   undertone (B>R=G). Reads as "premium chat-app meets IDE." Anti-dither
+   baseline. */
+:root[data-theme="aubergine"] {
+  --bg-app: #14141c;
+  --bg-surface: #1c1c24;
+  --bg-surface-raised: #242430;
+  --bg-hover: #2c2c38;
+  --bg-active: #383848;
+  --bg-selected: #444458;
+  --surface-overlay-backdrop: rgba(12, 12, 16, 0.72);
+
+  --text-strong: #d0c8e0;
+  --text-default: #b4acc4;
+  --text-muted: #888098;
+  --text-subtle: #605870;
+  --text-disabled: #443c50;
+  --text-on-accent: #14141c;
+
+  --border-subtle: rgba(208, 200, 224, 0.06);
+  --border-default: rgba(208, 200, 224, 0.10);
+  --border-strong: rgba(208, 200, 224, 0.16);
+  --border-focus: rgba(140, 124, 252, 0.55);
+
+  --accent-primary: #8c7cfc;
+  --accent-primary-hover: #a08cfc;
+  --accent-primary-soft: rgba(140, 124, 252, 0.14);
+  --accent-primary-soft-strong: rgba(140, 124, 252, 0.22);
+
+  --tone-accent: #8c7cfc;
+  --tone-accent-soft: rgba(140, 124, 252, 0.16);
+
+  --scrollbar-thumb: #383848;
+  --scrollbar-thumb-hover: #444458;
+  --skeleton-shimmer-low: rgba(208, 200, 224, 0.03);
+  --skeleton-shimmer-high: rgba(208, 200, 224, 0.07);
+
+  --terminal-bg: #0c0c14;
+  --terminal-fg: #d0c8e0;
+}
+
+/* Tokyo Night — Folke's iconic VS Code theme. Cool muted purple-blue base
+   with crisp cyan accents. Premium "night coding" aesthetic. Anti-dither
+   baseline. */
+:root[data-theme="tokyo-night"] {
+  --bg-app: #181824;
+  --bg-surface: #1c1c28;
+  --bg-surface-raised: #24283c;
+  --bg-hover: #2c3048;
+  --bg-active: #383c58;
+  --bg-selected: #444868;
+  --surface-overlay-backdrop: rgba(12, 12, 20, 0.72);
+
+  --text-strong: #c0c8dc;
+  --text-default: #a0a8c0;
+  --text-muted: #707898;
+  --text-subtle: #555c78;
+  --text-disabled: #3c405c;
+  --text-on-accent: #181824;
+
+  --border-subtle: rgba(192, 200, 220, 0.06);
+  --border-default: rgba(192, 200, 220, 0.10);
+  --border-strong: rgba(192, 200, 220, 0.16);
+  --border-focus: rgba(124, 180, 252, 0.55);
+
+  --accent-primary: #7cb4fc;
+  --accent-primary-hover: #94c4fc;
+  --accent-primary-soft: rgba(124, 180, 252, 0.14);
+  --accent-primary-soft-strong: rgba(124, 180, 252, 0.22);
+
+  --tone-accent: #7cb4fc;
+  --tone-accent-soft: rgba(124, 180, 252, 0.16);
+
+  --scrollbar-thumb: #383c58;
+  --scrollbar-thumb-hover: #444868;
+  --skeleton-shimmer-low: rgba(192, 200, 220, 0.03);
+  --skeleton-shimmer-high: rgba(192, 200, 220, 0.07);
+
+  --terminal-bg: #10101c;
+  --terminal-fg: #c0c8dc;
+}
+
+/* Rose Pine — soft mauve-lavender base with muted rose accent. Designer-
+   coded "thoughtful" palette (rosepinetheme.com). Anti-dither baseline. */
+:root[data-theme="rose-pine"] {
+  --bg-app: #181420;
+  --bg-surface: #1c1828;
+  --bg-surface-raised: #241c34;
+  --bg-hover: #2c243c;
+  --bg-active: #382c48;
+  --bg-selected: #443454;
+  --surface-overlay-backdrop: rgba(12, 8, 16, 0.72);
+
+  --text-strong: #e0d4dc;
+  --text-default: #c4b4bc;
+  --text-muted: #9c8c98;
+  --text-subtle: #786870;
+  --text-disabled: #584850;
+  --text-on-accent: #181420;
+
+  --border-subtle: rgba(224, 212, 220, 0.06);
+  --border-default: rgba(224, 212, 220, 0.10);
+  --border-strong: rgba(224, 212, 220, 0.16);
+  --border-focus: rgba(212, 136, 160, 0.55);
+
+  --accent-primary: #d488a0;
+  --accent-primary-hover: #dc98ac;
+  --accent-primary-soft: rgba(212, 136, 160, 0.14);
+  --accent-primary-soft-strong: rgba(212, 136, 160, 0.22);
+
+  --tone-accent: #d488a0;
+  --tone-accent-soft: rgba(212, 136, 160, 0.16);
+
+  --scrollbar-thumb: #382c48;
+  --scrollbar-thumb-hover: #443454;
+  --skeleton-shimmer-low: rgba(224, 212, 220, 0.03);
+  --skeleton-shimmer-high: rgba(224, 212, 220, 0.07);
+
+  --terminal-bg: #100c18;
+  --terminal-fg: #e0d4dc;
+}
+
+/* Ayu Mirage — Ike Ku's Ayu Mirage variant. Cool muted dark base with
+   warm golden accent. Premium "warm-cool balance" aesthetic.
+   Anti-dither baseline. */
+:root[data-theme="ayu-mirage"] {
+  --bg-app: #1c2030;
+  --bg-surface: #202434;
+  --bg-surface-raised: #242838;
+  --bg-hover: #2c3044;
+  --bg-active: #343850;
+  --bg-selected: #3c405c;
+  --surface-overlay-backdrop: rgba(12, 16, 24, 0.72);
+
+  --text-strong: #ccd0d8;
+  --text-default: #a8b0b8;
+  --text-muted: #7c8088;
+  --text-subtle: #585c64;
+  --text-disabled: #404448;
+  --text-on-accent: #1c2030;
+
+  --border-subtle: rgba(204, 208, 216, 0.06);
+  --border-default: rgba(204, 208, 216, 0.10);
+  --border-strong: rgba(204, 208, 216, 0.16);
+  --border-focus: rgba(252, 204, 108, 0.55);
+
+  --accent-primary: #fccc6c;
+  --accent-primary-hover: #fcd884;
+  --accent-primary-soft: rgba(252, 204, 108, 0.14);
+  --accent-primary-soft-strong: rgba(252, 204, 108, 0.22);
+
+  --tone-accent: #fccc6c;
+  --tone-accent-soft: rgba(252, 204, 108, 0.16);
+
+  --scrollbar-thumb: #343850;
+  --scrollbar-thumb-hover: #3c405c;
+  --skeleton-shimmer-low: rgba(204, 208, 216, 0.03);
+  --skeleton-shimmer-high: rgba(204, 208, 216, 0.07);
+
+  --terminal-bg: #141828;
+  --terminal-fg: #ccd0d8;
+}
+
+/* Gruvbox Dark — morhetz's legendary retro-sepia palette. Warm earth tones
+   (R>G>B), cream text, orange-yellow accent. Vim community staple.
+   Anti-dither baseline. */
+:root[data-theme="gruvbox"] {
+  --bg-app: #1c1c18;
+  --bg-surface: #282824;
+  --bg-surface-raised: #3c3834;
+  --bg-hover: #4c4844;
+  --bg-active: #585048;
+  --bg-selected: #645c50;
+  --surface-overlay-backdrop: rgba(16, 16, 12, 0.72);
+
+  --text-strong: #ecdcb4;
+  --text-default: #d8c8a8;
+  --text-muted: #a89880;
+  --text-subtle: #806c5c;
+  --text-disabled: #5c4c40;
+  --text-on-accent: #1c1c18;
+
+  --border-subtle: rgba(236, 220, 180, 0.06);
+  --border-default: rgba(236, 220, 180, 0.10);
+  --border-strong: rgba(236, 220, 180, 0.16);
+  --border-focus: rgba(252, 176, 76, 0.55);
+
+  --accent-primary: #fcb04c;
+  --accent-primary-hover: #fcc060;
+  --accent-primary-soft: rgba(252, 176, 76, 0.14);
+  --accent-primary-soft-strong: rgba(252, 176, 76, 0.22);
+
+  --tone-accent: #fcb04c;
+  --tone-accent-soft: rgba(252, 176, 76, 0.16);
+
+  --scrollbar-thumb: #585048;
+  --scrollbar-thumb-hover: #645c50;
+  --skeleton-shimmer-low: rgba(236, 220, 180, 0.03);
+  --skeleton-shimmer-high: rgba(236, 220, 180, 0.07);
+
+  --terminal-bg: #14140c;
+  --terminal-fg: #ecdcb4;
+}
+
 
 * {
   box-sizing: border-box;

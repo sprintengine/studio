@@ -8,7 +8,6 @@ function loadElectron(): typeof import('electron') {
   return require('electron')
 }
 import type {
-  AgentCli,
   McpCatalogResult,
   McpCatalogServer,
   McpClientTarget,
@@ -159,7 +158,9 @@ function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult
 }
 
 function normalizeClients(value: McpClientTarget[] | undefined): McpClientTarget[] {
-  const clients = (value ?? ['codex', 'claude']).filter((client): client is AgentCli => client === 'codex' || client === 'claude')
+  const clients = (value ?? ['codex', 'claude'])
+    .map((client) => sanitizeId(client))
+    .filter(Boolean)
   return Array.from(new Set(clients))
 }
 
@@ -300,7 +301,7 @@ function resolveMcpTargetPath(
 }
 
 type SyncForFormatInput = {
-  client: AgentCli
+  client: McpClientTarget
   plugin: PluginManifest
   workspaceRoot: string
   servers: McpServerConfig[]

@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 
 import { registerSprintEngineIpc } from './ipc/sprintengine-ipc'
+import { createPluginRegistry } from './plugin-registry'
+import { __resetPluginRegistryForTest, __setPluginRegistryForTest } from './plugin-registry-instance'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
 
 type IpcHandler = (_event: unknown, payload: unknown) => Promise<unknown>
@@ -12,6 +14,7 @@ async function main(): Promise<void> {
   await testReadProjectionUsesProjectionFile()
   await testReadProjectionSurfacesUnavailableAndInvalidProjection()
   await testReadRegistryRolesUsesMcpTool()
+  await testReadRegistryRolesPassesLoadedPluginSoulsRoots()
   await testReadRegistryRolesUsesRealMcpBridgeForBundledAndCustomRoles()
   await testReadRegistryRoleSurfacesUnknownRole()
   await testReadDispatchUsesMcpTool()
@@ -104,8 +107,56 @@ async function testReadRegistryRolesUsesMcpTool(): Promise<void> {
   const result = await handlers.readRegistryRoles({ workspaceRoot, includeShadowed: true })
   assert.equal(result.ok, true)
   assert.equal(calls[0]?.tool, 'sprintengine.roles.list')
-  assert.deepEqual(calls[0]?.payload, { workspaceRoot, includeShadowed: true })
+  assert.deepEqual(calls[0]?.payload, { workspaceRoot, includeShadowed: true, pluginRegistryRoots: [] })
   assert.equal(calls[0]?.actor.role, 'renderer')
+}
+
+async function testReadRegistryRolesPassesLoadedPluginSoulsRoots(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-plugin-bridge-'))
+  const pluginRoot = join(workspaceRoot, 'plugins', 'writer-plugin')
+  const soulsRoot = join(pluginRoot, 'sprintengine-souls')
+  await mkdir(join(soulsRoot, 'roles'), { recursive: true })
+  await mkdir(join(soulsRoot, 'skills', 'plugin_writer'), { recursive: true })
+  await writeFile(
+    join(pluginRoot, 'plugin.json'),
+    JSON.stringify({
+      id: 'writer-plugin',
+      displayName: 'Writer Plugin',
+      version: 1,
+      binary: 'writer',
+      permissionPresets: { default: { label: 'Default', args: [] } },
+      launch: { argv: ['writer'] },
+      promptInjection: { mode: 'stdin-pipe' },
+      completion: { mode: 'process-exit' },
+      capabilities: { resumeSession: false, sessionIdFromCaller: false, toolUse: false, mcpServers: false },
+      souls: { directory: 'sprintengine-souls' },
+    }),
+    'utf-8'
+  )
+
+  const registry = createPluginRegistry({ bundledRoot: join(workspaceRoot, 'empty-bundled'), userRoot: join(workspaceRoot, 'plugins') })
+  const report = registry.loadSync()
+  __setPluginRegistryForTest(registry, report)
+  const calls: Array<{ context: { workspaceRoot: string; allowedRoots?: string[] }; payload: Record<string, unknown> }> = []
+  const handlers = createHandlers(async (context, _tool, payload) => {
+    calls.push({ context, payload })
+    return {
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      response: { ok: true, tool: 'sprintengine.roles.list', result: { ok: true, roles: [], warnings: [] } },
+    }
+  })
+
+  try {
+    const result = await handlers.readRegistryRoles({ workspaceRoot })
+    assert.equal(result.ok, true)
+    assert.deepEqual(calls[0]?.payload.pluginRegistryRoots, [{ id: 'writer-plugin', root: soulsRoot }])
+    assert.deepEqual(calls[0]?.context.allowedRoots, [soulsRoot])
+  } finally {
+    __resetPluginRegistryForTest()
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
 }
 
 async function testReadRegistryRolesUsesRealMcpBridgeForBundledAndCustomRoles(): Promise<void> {

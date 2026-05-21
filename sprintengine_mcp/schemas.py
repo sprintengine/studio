@@ -25,6 +25,25 @@ ROLE_PROPERTY = {
     "description": "Canonical Sprint Engine role id, after registry alias resolution.",
 }
 
+PLUGIN_REGISTRY_ROOTS_PROPERTY = {
+    "type": "array",
+    "description": "Loaded plugin registry roots that contain Sprint Engine roles/ and skills/ directories.",
+    "items": {
+        "type": "object",
+        "required": ["root"],
+        "properties": {
+            "id": {"type": "string"},
+            "root": {"type": "string"},
+        },
+    },
+}
+
+EXTRA_DIRS_PROPERTY = {
+    "type": "array",
+    "description": "Additional path-only registry roots containing roles/ and skills/ directories.",
+    "items": {"type": "string"},
+}
+
 TASK_ID_PROPERTY = {"type": "string", "description": "Sprint Engine task id, for example T3."}
 GATE_ID_PROPERTY = {"type": "string", "description": "Sprint Engine quality gate id."}
 ARTIFACT_ID_PROPERTY = {"type": "string", "description": "Sprint Engine artifact id."}
@@ -96,11 +115,11 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
         ["statePath", "agentId", "dispatchId"],
         {"agentId": AGENT_ID_PROPERTY, "dispatchId": DISPATCH_ID_PROPERTY, "outcome": {"type": "string"}},
     ),
-    "sprintengine.roles.list": object_schema(["workspaceRoot"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "includeShadowed": {"type": "boolean"}}),
-    "sprintengine.roles.get": object_schema(["workspaceRoot", "roleId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "roleId": ROLE_PROPERTY}),
-    "sprintengine.soul.get": object_schema(["workspaceRoot", "roleId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "roleId": ROLE_PROPERTY, "runId": {"type": "string"}}),
-    "sprintengine.skills.list": object_schema(["workspaceRoot"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "includeBody": {"type": "boolean"}}),
-    "sprintengine.skill.get": object_schema(["workspaceRoot", "skillId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "skillId": {"type": "string"}}),
+    "sprintengine.roles.list": object_schema(["workspaceRoot"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "includeShadowed": {"type": "boolean"}, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
+    "sprintengine.roles.get": object_schema(["workspaceRoot", "roleId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "roleId": ROLE_PROPERTY, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
+    "sprintengine.soul.get": object_schema(["workspaceRoot", "roleId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "roleId": ROLE_PROPERTY, "runId": {"type": "string"}, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
+    "sprintengine.skills.list": object_schema(["workspaceRoot"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "includeBody": {"type": "boolean"}, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
+    "sprintengine.skill.get": object_schema(["workspaceRoot", "skillId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "skillId": {"type": "string"}, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
     "sprintengine.task.get": object_schema(["statePath", "taskId"], {"taskId": TASK_ID_PROPERTY}),
     "sprintengine.task.next": object_schema(["statePath", "role", "id"], {"role": {"type": "string"}, "id": {"type": "string"}}),
     "sprintengine.task.claim": object_schema(["statePath", "taskId", "id"], {"taskId": {"type": "string"}, "id": {"type": "string"}}),

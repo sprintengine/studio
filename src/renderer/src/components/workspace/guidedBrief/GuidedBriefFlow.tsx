@@ -12,6 +12,7 @@ import {
   GuidedBriefWorkspaceError,
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
+import { applyUserDisabledSprintEngineRoleCounts } from '../../../utils/sprintengine'
 import { CloseIconButton, StatusDot, Tabs, Tooltip, WizardProgress, type TabItem } from '../../ui'
 import { SprintEngineRosterTable } from '../newWorkspace/SprintEngineRosterTable'
 import { CliPermissionPresetRow } from '../newWorkspace/WizardControls'
@@ -56,6 +57,7 @@ type Props = {
   ) => Promise<void>
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
   sprintEngineRoleRegistry?: SprintEngineRoleRegistry | null
+  sprintEngineDisabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null
 }
 
 export function GuidedBriefFlow({
@@ -66,6 +68,7 @@ export function GuidedBriefFlow({
   onStartBuild,
   cliRuntimes,
   sprintEngineRoleRegistry = null,
+  sprintEngineDisabledRoleIds = null,
 }: Props) {
   const { stage, hasUi, workspaceRoot, workspaceName, acceptedProductBrief, acceptedArchitecturePlan } = runtimeState
   const progressOptions = {
@@ -511,6 +514,7 @@ export function GuidedBriefFlow({
             runtimeState={runtimeState}
             onChange={onChange}
             sprintEngineRoleRegistry={sprintEngineRoleRegistry}
+            sprintEngineDisabledRoleIds={sprintEngineDisabledRoleIds}
           />
         )}
       </main>
@@ -937,15 +941,23 @@ function HandoffBody({
   runtimeState,
   onChange,
   sprintEngineRoleRegistry,
+  sprintEngineDisabledRoleIds,
 }: {
   runtimeState: GuidedBriefRuntimeState
   onChange: (next: GuidedBriefRuntimeState) => void
   sprintEngineRoleRegistry: SprintEngineRoleRegistry | null
+  sprintEngineDisabledRoleIds: ReadonlySet<SprintEngineRoleId> | null
 }) {
   const [handoffStatus, setHandoffStatus] = useState<'loading' | 'ready' | 'missing'>('loading')
   const handoffPath = joinWorkspacePath(runtimeState.workspaceRoot, guidedBriefBuildHandoffRelativePath())
   const checklist = guidedBriefHandoffChecklist(runtimeState)
-  const totalAgents = Object.values(runtimeState.buildRoleCounts).reduce(
+  // Mask the displayed counts and roster total so a role the user disabled
+  // after this guided brief was scaffolded doesn't appear to add specialists
+  // that the create boundary will silently drop.
+  const visibleRoleCounts = sprintEngineDisabledRoleIds && sprintEngineDisabledRoleIds.size > 0
+    ? applyUserDisabledSprintEngineRoleCounts(runtimeState.buildRoleCounts, sprintEngineDisabledRoleIds)
+    : runtimeState.buildRoleCounts
+  const totalAgents = Object.values(visibleRoleCounts).reduce(
     (total, count) => total + Math.max(0, count),
     0,
   )
@@ -956,7 +968,7 @@ function HandoffBody({
       ...runtimeState,
       buildRoleCliDefaults: {
         ...runtimeState.buildRoleCliDefaults,
-        [role]: runtimeState.buildRoleCliDefaults[role] ?? 'codex',
+        [role]: runtimeState.buildRoleCliDefaults[role] ?? 'claude',
       },
       buildRoleCounts: {
         ...runtimeState.buildRoleCounts,
@@ -1028,9 +1040,10 @@ function HandoffBody({
             </span>
           </div>
           <SprintEngineRosterTable
-            roleCounts={runtimeState.buildRoleCounts}
+            roleCounts={visibleRoleCounts}
             roleCliDefaults={runtimeState.buildRoleCliDefaults}
             registry={sprintEngineRoleRegistry}
+            disabledRoleIds={sprintEngineDisabledRoleIds}
             disabled={false}
             onSetCount={setBuildRoleCount}
             onSetCli={setBuildRoleCli}

@@ -17,12 +17,18 @@ export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(
 }
 
 export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace {
+  const sprintEngineAutoState = normalizeSprintEngineAutoState(workspace.sprintEngineAutoState)
   return {
     ...workspace,
     mode: normalizeWorkspaceMode(workspace.mode, workspace.sprintEngineState, workspace.multiloopState),
     guidedBriefState: normalizeGuidedBriefState(workspace.guidedBriefState),
     memory: normalizeWorkspaceMemoryConfig(workspace.memory),
-    sprintEngineAutoState: normalizeSprintEngineAutoState(workspace.sprintEngineAutoState),
+    sprintEngineAutoState: {
+      ...sprintEngineAutoState,
+      supervisorEnabled: false,
+      enabled: false,
+      pendingSpawns: [],
+    },
     multiloopAutoState: normalizeMultiloopAutoState(workspace.multiloopAutoState),
     agents: Object.fromEntries(
       Object.entries(workspace.agents).map(([id, a]) => {

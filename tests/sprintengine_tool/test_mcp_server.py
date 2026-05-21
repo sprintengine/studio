@@ -576,6 +576,37 @@ def test_mcp_registry_discovery_returns_roles_skills_soul_and_warnings(tmp_path)
     assert str(tmp_path) not in json.dumps(roles["result"], sort_keys=True)
 
 
+def test_mcp_registry_discovery_accepts_plugin_registry_roots(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    plugin_root = tmp_path / "plugin" / "souls"
+    write_registry_role(plugin_root, "plugin_writer", label="Plugin Writer", soul=[{"skill": "plugin_writer"}])
+    write_registry_skill(plugin_root, "plugin_writer", "Plugin writer Soul.")
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    roles = server.call_tool(
+        "sprintengine.roles.list",
+        {
+            "workspaceRoot": str(workspace),
+            "includeShadowed": True,
+            "pluginRegistryRoots": [{"id": "writer-plugin", "root": str(plugin_root / ".sprintengine")}],
+        },
+        actor("workspace-user", "user"),
+    )
+    skills = server.call_tool(
+        "sprintengine.skills.list",
+        {
+            "workspaceRoot": str(workspace),
+            "pluginRegistryRoots": [{"id": "writer-plugin", "root": str(plugin_root / ".sprintengine")}],
+        },
+        actor("workspace-user", "user"),
+    )
+
+    assert roles["ok"] is True
+    assert any(role["id"] == "plugin_writer" and role["source"]["layer"] == "plugin:writer-plugin" for role in roles["result"]["roles"])
+    assert skills["ok"] is True
+    assert any(skill["id"] == "plugin_writer" and skill["source"]["layer"] == "plugin:writer-plugin" for skill in skills["result"]["skills"])
+
+
 def test_mcp_task_ready_uses_core_and_emits_audit(tmp_path) -> None:
     task_record = task("T1", "Ready through MCP", "developer")
     task_record["dispatch"] = {"mode": "manual", "status": "todo", "triagedBy": "none"}
@@ -863,6 +894,69 @@ def test_stdio_transport_rejects_request_supplied_actor_without_verified_server_
     assert result["ok"] is False
     assert result["error"]["code"] == "unauthorized"
     assert "authenticated actor context" in result["error"]["message"]
+
+
+def test_sprintengine_mcp_serve_matches_module_entrypoint_roots_and_extra_dirs(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    fixture = create_team(outside, "mcp-serve-outside", [task("T1", "Outside task", "developer")])
+    plugin_root = tmp_path / "plugin"
+    registry_root = plugin_root / ".sprintengine"
+    write_registry_role(plugin_root, "plugin_writer", label="Plugin Writer", soul=[{"skill": "plugin_writer"}])
+    write_registry_skill(plugin_root, "plugin_writer", "Plugin writer Soul.")
+    messages = [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "sprintengine.roles.list",
+                "arguments": {"workspaceRoot": str(workspace)},
+            },
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "sprintengine.task.list",
+                "arguments": {"statePath": str(fixture.state_path), "role": "developer"},
+            },
+        },
+    ]
+
+    completed = subprocess.run(
+        [
+            str(REPO_ROOT / "scripts" / "sprintengine"),
+            "mcp",
+            "serve",
+            "--workspace",
+            str(workspace),
+            "--extra-dir",
+            str(registry_root),
+        ],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "SPRINTENGINE_MCP_USER_ID": "workspace-user",
+            "SPRINTENGINE_MCP_USER_AUTHORIZED": "1",
+        },
+        input="\n".join(json.dumps(message) for message in messages) + "\n",
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=10,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    responses = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+    roles_result = responses[0]["result"]
+    task_result = responses[1]["result"]
+    assert roles_result["ok"] is True
+    assert any(role["id"] == "plugin_writer" and role["source"]["layer"] == "plugin:0" for role in roles_result["result"]["roles"])
+    assert task_result["ok"] is False
+    assert task_result["error"]["code"] == "state_path_not_allowed"
 
 
 def test_mcp_feedback_tools_return_sanitized_summary_and_recommendations(tmp_path) -> None:

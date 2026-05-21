@@ -16,7 +16,7 @@ After this work:
 - **Server-side dispatch with Multicode-managed wake-up.** Sprint Engine can still choose work and record dispatch state, but the 2026-05-19 feasibility pass did not prove that target CLIs wake or resume from server-originated MCP notifications. Multicode must remain responsible for spawning, focusing, or injecting terminal input to resume agents until a separate compatibility effort proves direct MCP wake-up.
 - **State-as-contract.** No output sentinels, no stdout heuristics. The agent's Sprint Engine calls are the completion signals. The runtime may listen to state changes via projection updates or compatible MCP subscriptions, but Multicode remains responsible for terminal lifecycle and wake/resume behavior.
 
-The work also positions Sprint Engine for **eventual extraction as a standalone package**. Today everything lives in this repo; nothing in the design assumes Multicode is the only consumer. A standalone Sprint Engine user runs `sprintengine mcp serve --workspace .` and connects their MCP-capable CLI (Claude Code, Codex, OpenCode, etc.) to it directly if those CLIs can support the required notification/resume behavior. Multicode hosts the same MCP server with extra plugin-scope configuration on top.
+The work also positions Sprint Engine for **eventual extraction as a standalone package**. Today everything lives in this repo; nothing in the design assumes Multicode is the only consumer. A standalone Sprint Engine user runs `sprintengine mcp serve --workspace .` or `python -m sprintengine_mcp --workspace .` and connects their MCP-capable CLI (Claude Code, Codex, OpenCode, etc.) to it directly if those CLIs can support the required notification/resume behavior. Multicode hosts the same MCP server with extra plugin-scope configuration on top.
 
 ## Implementation Approach
 
@@ -51,7 +51,7 @@ The Sprint Engine MCP server is the preferred machine boundary for agents. Agent
 
 This solves the cross-platform CLI/Python pain (PowerShell vs Bash quoting, Python venv discovery, npm-shim weirdness, exit-code propagation). Agents call MCP tools and get clean JSON responses, the same on Windows, macOS, Linux, WSL.
 
-Local-only by default. Stdio transport. One process per Multicode app, multi-workspace inside it (each tool call carries `workspaceRoot`). Standalone Sprint Engine users invoke `sprintengine mcp serve --workspace <path>` for a single-workspace process.
+Local-only by default. Stdio transport. One process per Multicode app, multi-workspace inside it (each tool call carries `workspaceRoot`). Standalone Sprint Engine users invoke `sprintengine mcp serve --workspace <path>` or `python -m sprintengine_mcp --workspace <path>` for a single-workspace process. The `sprintengine mcp serve` command delegates to the module entrypoint and accepts repeated `--extra-dir <registry-root>` flags for plugin role/skill roots plus `--user-dir <path>` for a custom user registry base.
 
 ### State-as-contract
 
@@ -263,10 +263,14 @@ When composing into a soul, frontmatter is stripped; only the body becomes part 
 ]
 ```
 
-Entry shape is a discriminated union:
+Entry shape for v1 is skill-only:
 
 - `{ "skill": "<id>" }` — resolve `id` against the search path, read `SKILL.md`, strip frontmatter, append body
-- `{ "text": "<inline string>" }` — accepted by the validator (forward-compatible schema), implementation deferred to a follow-up
+
+Inline text entries such as `{ "text": "<inline string>" }` are deferred. The
+current validator rejects them with `invalid_soul_entry` so docs, CLI
+validation, MCP registry payloads, and prompt rendering all agree on one
+supported shape.
 
 The renderer concatenates resolved entries with `\n\n` between them. The result is the Soul prompt the agent receives via `sprintengine.soul.get(role)`.
 
@@ -283,7 +287,7 @@ Highest precedence wins. Each layer scans for `roles/<id>.json` and `skills/<id>
 | Layer | Path | Configured by |
 |---|---|---|
 | Workspace-local | `<workspace>/.sprintengine/{roles,skills}/` | Workspace owner; project-specific overrides |
-| Plugin-scoped | varies by plugin | Multicode passes `--extra-dir <plugin>/sprintengine` when launching the server |
+| Plugin-scoped | varies by plugin | Multicode passes `--extra-dir <plugin>/.sprintengine` or another plugin registry root containing `roles/` and `skills/` when launching the server |
 | User | `~/.sprintengine/{roles,skills}/` | User; personal overrides across all workspaces |
 | Bundled | `resources/sprintengine/{roles,skills}/` (in Multicode) or the equivalent in standalone Sprint Engine | Ships with Sprint Engine |
 

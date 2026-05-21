@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -16,14 +17,17 @@ from sprintengine_core.role_registry import (
 )
 
 
+REGISTRY_EXTRA_DIRS_ENV = "SPRINTENGINE_REGISTRY_EXTRA_DIRS"
+
+
 def roles_list(args) -> dict[str, Any]:
-    registry = discover_role_registry(workspace_root=Path.cwd())
+    registry = _discover(args)
     roles = [_role_payload(entry, include_shadowed=bool(args.include_shadowed)) for _, entry in sorted(registry.roles.items())]
     return {"ok": True, "roles": roles, "aliases": dict(sorted(registry.aliases.items())), "warnings": _warning_payloads(registry.warnings)}
 
 
 def role_get(args) -> dict[str, Any]:
-    registry = discover_role_registry(workspace_root=Path.cwd())
+    registry = _discover(args)
     try:
         entry = registry.role_entry(args.role)
     except KeyError as exc:
@@ -32,7 +36,7 @@ def role_get(args) -> dict[str, Any]:
 
 
 def soul_get(args) -> dict[str, Any]:
-    registry = discover_role_registry(workspace_root=Path.cwd())
+    registry = _discover(args)
     try:
         rendered = registry.render_soul(args.role, workspace_root=Path.cwd(), run_id=args.run_id or "")
     except KeyError as exc:
@@ -48,13 +52,13 @@ def soul_get(args) -> dict[str, Any]:
 
 
 def skills_list(args) -> dict[str, Any]:
-    registry = discover_role_registry(workspace_root=Path.cwd())
+    registry = _discover(args)
     skills = [_skill_payload(entry, include_body=bool(args.include_body)) for _, entry in sorted(registry.skills.items())]
     return {"ok": True, "skills": skills, "warnings": _warning_payloads(registry.warnings)}
 
 
 def skill_get(args) -> dict[str, Any]:
-    registry = discover_role_registry(workspace_root=Path.cwd())
+    registry = _discover(args)
     skill_id = normalize_role_id(args.skill)
     entry = registry.skills.get(skill_id)
     if entry is None or not isinstance(entry.value, SkillDocument):
@@ -62,6 +66,21 @@ def skill_get(args) -> dict[str, Any]:
         detail = f" Known skills: {known}." if known else ""
         raise SystemExit(f"Unknown registry skill: {args.skill}.{detail}")
     return {"ok": True, "skill": _skill_payload(entry, include_body=True), "warnings": _warning_payloads(registry.warnings)}
+
+
+def _discover(args):
+    return discover_role_registry(workspace_root=Path.cwd(), plugin_roots=_plugin_roots_from_args(args))
+
+
+def _plugin_roots_from_args(args) -> list[Path]:
+    roots: list[Path] = []
+    for raw in getattr(args, "extra_dir", None) or []:
+        roots.append(Path(raw).expanduser())
+    env_value = os.environ.get(REGISTRY_EXTRA_DIRS_ENV, "")
+    for raw in env_value.split(os.pathsep):
+        if raw.strip():
+            roots.append(Path(raw.strip()).expanduser())
+    return roots
 
 
 def _raise_unknown_role(role: str, roles: Mapping[str, RegistryEntry], *, cause: Exception | None = None) -> None:

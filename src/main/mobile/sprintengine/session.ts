@@ -10,7 +10,7 @@ import {
   type MobileSprintEngineTaskStartResult,
 } from './command'
 
-type AgentCli = 'codex' | 'claude'
+type AgentCli = string
 
 type TerminalSessionSnapshot = {
   sessionId: string

@@ -42,6 +42,7 @@ import type {
 } from '../../types/workspace'
 
 export const defaultSprintEngineAutoState = (): SprintEngineAutoState => ({
+  supervisorEnabled: false,
   enabled: false,
   autoApproveArtifacts: false,
   keepDoneAgentTerminals: false,
@@ -60,15 +61,15 @@ export const defaultMultiloopAutoState = (): MultiloopAutoState => ({
 })
 
 const defaultSprintEngineRoleCliDefaults = (): Required<SprintEngineRoleCliDefaults> => ({
-  architect: 'codex',
-  product: 'codex',
-  frontend: 'codex',
-  developer: 'codex',
-  code_reviewer: 'codex',
-  spec_reviewer: 'codex',
-  performance: 'codex',
-  tester: 'codex',
-  security: 'codex',
+  architect: 'claude',
+  product: 'claude',
+  frontend: 'claude',
+  developer: 'claude',
+  code_reviewer: 'claude',
+  spec_reviewer: 'claude',
+  performance: 'claude',
+  tester: 'claude',
+  security: 'claude',
 })
 
 export function normalizeSprintEngineRoleCliDefaults(
@@ -81,8 +82,8 @@ export function normalizeSprintEngineRoleCliDefaults(
     ? Object.entries(input)
     : Object.entries(defaults)
   for (const [role, value] of entries) {
-    if (value === 'codex' || value === 'claude') {
-      next[role] = value
+    if (typeof value === 'string' && value.trim()) {
+      next[role] = value.trim()
     }
   }
 
@@ -94,7 +95,7 @@ function requireSprintEngineRoleCli(
   role: SprintEngineRoleId
 ): AgentCli {
   const cli = roleCliDefaults[role]
-  if (cli !== 'codex' && cli !== 'claude') {
+  if (typeof cli !== 'string' || !cli.trim()) {
     throw new Error(`Missing Sprint Engine CLI default for role "${role}".`)
   }
   return cli
@@ -163,6 +164,7 @@ export function normalizeSprintEngineAutoState(
       : 3
 
   return {
+    supervisorEnabled: Boolean(input?.supervisorEnabled ?? input?.enabled),
     enabled: Boolean(input?.enabled),
     autoApproveArtifacts: Boolean(input?.autoApproveArtifacts),
     keepDoneAgentTerminals: Boolean(input?.keepDoneAgentTerminals),
@@ -297,8 +299,8 @@ export function reconcileSprintEngineAgents(
         ? pickWorkspaceAgentName({ ...currentAgents, ...nextAgents })
         : current?.name ?? agent.label
       const nextAgent = current
-        ? normalizeAgentState({ ...current, name: nextName, kind: 'sprintengine' as const })
-        : defaultAgent(agent.id, nextName, 'sprintengine')
+        ? normalizeAgentState({ ...current, name: nextName, kind: 'sprintengine' as const }, 'claude')
+        : { ...defaultAgent(agent.id, nextName, 'sprintengine'), cli: 'claude' as const }
       nextAgents[agent.id] = nextAgent
       return [agent.id, nextAgent]
     })
@@ -314,7 +316,7 @@ export function reconcileSprintEngineAgents(
       agent.kind === 'sprintengine'
       && !rosterAgents[id]
       && Boolean(agent.cliStartRequested || agent.cliHasLaunched || agent.cliSessionId)
-    ).map(([id, agent]) => [id, normalizeAgentState(agent)])
+    ).map(([id, agent]) => [id, normalizeAgentState(agent, 'claude')])
   )
 
   return {
@@ -438,6 +440,7 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
         ws.sprintEngineAutoState = {
           ...current,
+          supervisorEnabled: enabled,
           enabled,
           pendingSpawns: enabled ? current.pendingSpawns : [],
         }

@@ -33,7 +33,7 @@ const normalized = normalizeAppSettings(
           command: ' npx ',
           args: [' package ', '', 123],
           enabled: true,
-          clients: ['codex', 'invalid'],
+          clients: ['codex', 'opencode', 'bad cli!'],
           scope: 'user',
           source: 'custom',
           riskLevel: 'secrets',
@@ -79,9 +79,9 @@ assert.equal(normalized.cliRuntimes.claude.command, defaultAppSettings().cliRunt
 assert.equal(normalized.mcp.syncEnabled, true)
 assert.deepEqual(Object.keys(normalized.mcp.servers), ['valid-server'])
 assert.deepEqual(normalized.mcp.servers['valid-server'].args, ['package'])
-assert.deepEqual(normalized.mcp.servers['valid-server'].clients, ['codex'])
+assert.deepEqual(normalized.mcp.servers['valid-server'].clients, ['codex', 'opencode', 'bad-cli'])
 assert.equal(normalized.lastAgentSpawnPermissionPreset, 'default')
-assert.deepEqual(normalized.specialistCliDefaults, { architect: 'codex' })
+assert.deepEqual(normalized.specialistCliDefaults, { architect: 'codex', tester: 'invalid' })
 assert.deepEqual(normalized.searchExcludes, ['node_modules', 'dist', 'src/generated'])
 assert.deepEqual(normalized.projectKnowledgeRoots, {
   '/Users/example/project': 'docs/knowledge',
@@ -141,5 +141,59 @@ store.setLastSelectedCli('codex')
 assert.equal(useWorkspaceStore.getState().appSettings.lastSelectedCli, 'codex')
 store.setSidebarCollapsed(true)
 assert.equal(useWorkspaceStore.getState().sidebarCollapsed, true)
+
+// --- Sprint Engine role enablement (T3) -----------------------------------
+// Bundled non-architect role can be toggled off; the change persists in
+// settings so future workspace and guided-brief roster construction can
+// filter it out.
+store.setSprintEngineRoleEnabled('frontend', false)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.enabled.frontend,
+  false,
+  'bundled frontend disablement persists',
+)
+
+// Custom registry roles are accepted and stored under their registry id.
+store.setSprintEngineRoleEnabled('marketer', false)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.enabled.marketer,
+  false,
+  'custom marketer disablement persists',
+)
+
+// Re-enabling a previously disabled role flips the flag back on.
+store.setSprintEngineRoleEnabled('frontend', true)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.enabled.frontend,
+  true,
+  'role enablement can flip back to true',
+)
+
+// Architect cannot be disabled. The setter ignores a `false` write so
+// Sprint Engine planning can never be stranded by a stale setting.
+store.setSprintEngineRoleEnabled('architect', false)
+assert.notEqual(
+  useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.enabled.architect,
+  false,
+  'architect cannot be disabled through the setter',
+)
+
+// Normalization also drops architect:false from any persisted payload (a
+// stale user settings file from before this protection should not silently
+// disable the planner).
+const normalizedWithArchitectFalse = normalizeAppSettings(
+  { sprintEngineRoleSettings: { enabled: { architect: false, developer: false } } },
+  [],
+)
+assert.equal(
+  normalizedWithArchitectFalse.sprintEngineRoleSettings.enabled.architect,
+  undefined,
+  'normalization strips architect:false',
+)
+assert.equal(
+  normalizedWithArchitectFalse.sprintEngineRoleSettings.enabled.developer,
+  false,
+  'normalization preserves other disabled roles',
+)
 
 console.log('settingsSlice.test.ts: ok')

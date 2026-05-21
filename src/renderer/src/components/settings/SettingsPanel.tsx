@@ -11,7 +11,7 @@ import type {
   SkillPackEntry,
   SkillPackSettings,
 } from '../../types/workspace'
-import { APP_THEME_SELECT_ITEMS } from '../../types/appTheme'
+import AppThemePicker from './AppThemePicker'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import {
   buildSprintEngineRoleRegistry,
@@ -1220,19 +1220,13 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-appearance"
           className="space-y-4"
         >
-          <Field
-            label="Theme"
-            htmlFor="appearance-theme-select"
-            help="Theme applies across every Multicode workspace and panel. 'Match system' follows your operating system's light or dark preference."
-          >
-            <Select
-              ariaLabel="Theme"
-              items={APP_THEME_SELECT_ITEMS}
-              value={appearanceTheme}
-              onChange={setAppearanceTheme}
-              className="h-9 w-full sm:max-w-xs"
-            />
-          </Field>
+          <div className="space-y-2">
+            <div className="text-[13px] font-semibold text-[color:var(--text-strong)]">Theme</div>
+            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+              Theme applies across every Multicode workspace and panel. Every theme is anti-temporal-dither baseline (channel values are multiples of 4) so surfaces don&apos;t flicker on 6-bit-FRC panels. &lsquo;Match system&rsquo; follows your operating system&apos;s light or dark preference.
+            </p>
+          </div>
+          <AppThemePicker value={appearanceTheme} onChange={setAppearanceTheme} />
         </div>
       ) : null}
 
@@ -1451,8 +1445,14 @@ export default function SettingsPanel({
               {registryRoles.map((role) => {
                 const warnings = roleWarnings(role)
                 const manifestDisabled = role.enabled === false
+                const isArchitect = role.id === 'architect'
                 const userEnabled = sprintEngineRoleSettings.enabled[role.id] !== false
-                const enabled = !manifestDisabled && userEnabled
+                // Architect cannot be disabled: Sprint Engine planning depends
+                // on it. Manifest disabling still wins so a custom manifest can
+                // intentionally hide a role even when the user has not toggled
+                // it off.
+                const enabled = isArchitect ? !manifestDisabled : (!manifestDisabled && userEnabled)
+                const switchDisabled = manifestDisabled || isArchitect
                 const label = getSprintEngineRoleLabel(role.id, roleRegistry)
                 const switchLabelId = `settings-role-${role.id}-label`
                 const switchHelpId = `settings-role-${role.id}-help`
@@ -1486,7 +1486,7 @@ export default function SettingsPanel({
                       </div>
                       <Switch
                         checked={enabled}
-                        disabled={manifestDisabled}
+                        disabled={switchDisabled}
                         onChange={(next) => setSprintEngineRoleEnabled(role.id, next)}
                         ariaLabelledBy={switchLabelId}
                         ariaDescribedBy={switchHelpId}
@@ -1496,6 +1496,10 @@ export default function SettingsPanel({
                     {manifestDisabled ? (
                       <div className="mt-2 border-l-2 border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
                         Disabled by this role manifest. The app setting cannot enable it until the manifest changes.
+                      </div>
+                    ) : isArchitect ? (
+                      <div className="mt-2 border-l-2 border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                        Architect cannot be disabled. Sprint Engine planning requires it on every new roster.
                       </div>
                     ) : null}
                     {warnings.length > 0 ? (
@@ -1746,7 +1750,7 @@ export default function SettingsPanel({
           </details>
 
           <MessageBlock tone={mcpMessage ? 'accent' : 'neutral'}>
-            {mcpMessage || 'Workspace-scoped sync writes Codex config to .codex/config.toml and Claude config to .mcp.json. Existing terminals are unchanged.'}
+            {mcpMessage || 'Workspace-scoped sync writes plugin MCP config for clients with supported mcpConfig formats. Existing terminals are unchanged.'}
           </MessageBlock>
         </div>
       ) : null}
@@ -2127,35 +2131,13 @@ export default function SettingsPanel({
   if (chrome === 'overlay') {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <header className="flex shrink-0 items-center justify-between gap-4 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-6 py-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <button
-              type="button"
-              onClick={closeSettings}
-              className="interactive inline-flex items-center gap-1.5 text-[12px] font-medium text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline"
-            >
-              <svg
-                viewBox="0 0 12 12"
-                className="icon-xs"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M7.5 2.5L3.5 6l4 3.5" />
-              </svg>
-              <span>Back to workspace</span>
-            </button>
-            <span aria-hidden className="text-[color:var(--text-subtle)]">/</span>
-            <h2
-              id={titleId}
-              className="truncate text-[15px] font-semibold tracking-tight text-[color:var(--text-strong)]"
-            >
-              Settings
-            </h2>
-          </div>
+        <header className="flex shrink-0 items-center justify-between gap-4 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-5 py-3.5">
+          <h2
+            id={titleId}
+            className="truncate text-[15px] font-semibold tracking-tight text-[color:var(--text-strong)]"
+          >
+            Settings
+          </h2>
           <div className="flex shrink-0 items-center gap-3">
             <kbd className="hidden font-mono text-[11px] text-[color:var(--text-subtle)] sm:inline">
               Esc
@@ -2168,10 +2150,8 @@ export default function SettingsPanel({
           <aside className="shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] p-2 md:w-56 md:border-b-0 md:border-r md:p-3">
             {sidebarNode}
           </aside>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-[960px] px-8 py-8">
-              {bodyContent}
-            </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+            {bodyContent}
           </div>
         </div>
       </div>

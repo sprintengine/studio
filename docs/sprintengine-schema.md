@@ -89,6 +89,10 @@ defaults, and graceful display fallbacks. Registry metadata in projection and
 MCP discovery is the path for custom role labels, summaries, icons, aliases,
 source layers, and warnings.
 
+Role manifest `soul` arrays contain ordered skill entries only:
+`{ "skill": "<id>" }`. Inline text entries such as `{ "text": "..." }` are
+not part of the current schema and are rejected by registry validation.
+
 Prompt composition is layered:
 
 1. Registry-rendered Soul from a role manifest and its ordered skill entries.

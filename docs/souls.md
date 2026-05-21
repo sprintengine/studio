@@ -44,6 +44,10 @@ registry folders, user registry folders, and bundled
 `resources/sprintengine/roles/` entries can all contribute roles. Unknown roles
 fail clearly. They do not silently fall back to another Soul.
 
+Role manifest `soul` entries are skill-only in the current schema:
+`{ "skill": "<id>" }`. Inline text entries such as `{ "text": "..." }` are
+not supported yet and fail validation as malformed Soul entries.
+
 ## Roles
 
 Bundled roles:

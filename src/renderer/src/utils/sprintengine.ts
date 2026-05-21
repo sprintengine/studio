@@ -25,6 +25,7 @@ import type {
   SprintEngineRoleRegistryMetadata,
   SprintEngineRoleRegistrySourceLayer,
   SprintEngineRoleRegistryWarning,
+  SprintEngineRoleSettings,
   SprintEngineRunnerPolicy,
   SprintEngineRuntimeAgent,
   SprintEngineSkillMap,
@@ -255,6 +256,78 @@ export const sprintEngineRoleOrder: SprintEngineRole[] = [
   'tester',
   'security',
 ]
+
+// Architect is the minimum role Sprint Engine planning depends on. Treat it
+// as an always-enabled member of any roster so a stale or hostile user
+// setting cannot strand a new workspace without a planner.
+export const protectedSprintEngineRoleId: SprintEngineRoleId = 'architect'
+
+// Settings.role enablement is a future-roster filter, never a runtime
+// dispatch policy. Returns the role ids the user has explicitly turned off,
+// excluding `architect` which cannot be disabled.
+export function getUserDisabledSprintEngineRoleIds(
+  settings: SprintEngineRoleSettings | null | undefined,
+): ReadonlySet<SprintEngineRoleId> {
+  const disabled = new Set<SprintEngineRoleId>()
+  const entries = settings?.enabled
+  if (!entries || typeof entries !== 'object') return disabled
+  for (const [roleId, enabled] of Object.entries(entries)) {
+    if (enabled !== false) continue
+    if (roleId === protectedSprintEngineRoleId) continue
+    if (!normalizeSprintEngineRoleId(roleId)) continue
+    disabled.add(roleId)
+  }
+  return disabled
+}
+
+// Build the ordered, selectable Sprint Engine role list shared by the new
+// workspace roster table and the guided-brief handoff roster. Bundled roles
+// come first (in their canonical order), custom registry roles follow
+// alphabetically. Manifest-disabled registry roles and user-disabled roles
+// are filtered out; `architect` always remains.
+export function orderSprintEngineRosterRoles(
+  registry?: SprintEngineRoleRegistry | null,
+  disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null,
+): SprintEngineRoleId[] {
+  const disabled = disabledRoleIds ?? new Set<SprintEngineRoleId>()
+  const ids = new Set<SprintEngineRoleId>()
+  for (const role of sprintEngineRoleOrder) {
+    if (role !== protectedSprintEngineRoleId && disabled.has(role)) continue
+    ids.add(role)
+  }
+  for (const role of Object.values(registry?.roles ?? {}) as SprintEngineRoleRegistryMetadata[]) {
+    if (role.enabled === false) continue
+    if (role.id !== protectedSprintEngineRoleId && disabled.has(role.id)) continue
+    ids.add(role.id)
+  }
+  return [...ids].sort((a, b) => {
+    const aBundled = sprintEngineRoleOrder.indexOf(a as SprintEngineRole)
+    const bBundled = sprintEngineRoleOrder.indexOf(b as SprintEngineRole)
+    const aRank = aBundled >= 0 ? aBundled : sprintEngineRoleOrder.length
+    const bRank = bBundled >= 0 ? bBundled : sprintEngineRoleOrder.length
+    if (aRank !== bRank) return aRank - bRank
+    return getSprintEngineRoleLabel(a, registry).localeCompare(getSprintEngineRoleLabel(b, registry))
+  })
+}
+
+// Zero out counts for user-disabled roles before workspace creation so a
+// stale local count from a prior selection cannot leak a disabled role into
+// the new roster. Architect is preserved.
+export function applyUserDisabledSprintEngineRoleCounts(
+  roleCounts: SprintEngineRoleCounts,
+  disabledRoleIds: ReadonlySet<SprintEngineRoleId>,
+): SprintEngineRoleCounts {
+  if (!disabledRoleIds.size) return roleCounts
+  let mutated = false
+  let next: SprintEngineRoleCounts | null = null
+  for (const roleId of disabledRoleIds) {
+    if ((roleCounts[roleId] ?? 0) <= 0) continue
+    if (!next) next = { ...roleCounts }
+    next[roleId] = 0
+    mutated = true
+  }
+  return mutated && next ? next : roleCounts
+}
 
 const sprintEngineArtifactKinds: readonly SprintEngineArtifactKind[] = [
   'architect_plan',

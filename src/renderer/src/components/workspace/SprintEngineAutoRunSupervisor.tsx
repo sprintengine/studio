@@ -22,6 +22,7 @@ import {
 } from '../../utils/sprintengine'
 import {
   agentNotificationDeliveryKey,
+  agentHasOpenSprintEngineGateWork,
   agentOwnsOpenSprintEngineImplementationWork,
   architectTriageMessageKey,
   artifactApprovalMessageKey,
@@ -54,7 +55,6 @@ import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { focusOrAddAgentTab } from '../../utils/modelRegistry'
 import {
   agentCliSupportsConversationResume,
-  agentCliUsesStableSessionIdForResume,
 } from '../../utils/agentCliResume'
 
 const AUTO_RUN_POLL_MS = 2000
@@ -86,6 +86,7 @@ type ArchitectTriageMessage = {
 }
 
 const DEFAULT_AUTO_STATE: SprintEngineAutoState = {
+  supervisorEnabled: false,
   enabled: false,
   autoApproveArtifacts: false,
   keepDoneAgentTerminals: false,
@@ -100,9 +101,8 @@ function getSprintEngineAutoState(workspace: Workspace | null | undefined): Spri
 }
 
 function isSprintEngineRunnerActive(workspace: Workspace | null | undefined): boolean {
-  const runnerMode = workspace?.sprintEngineState?.runner?.mode
   const autoState = getSprintEngineAutoState(workspace)
-  return runnerMode === 'auto' || autoState.enabled || autoState.autoApproveArtifacts
+  return autoState.supervisorEnabled || autoState.autoApproveArtifacts
 }
 
 export class TerminalListIpcError extends Error {
@@ -432,7 +432,7 @@ async function findRunningAgentSession(
     cliSessionId: runningSession.sessionId,
     cliStartRequested: true,
     cliHasLaunched: true,
-    cliResumeAvailable: agentCliSupportsConversationResume(effectiveCli),
+    cliResumeAvailable: false,
     cli: effectiveCli,
     kind: 'sprintengine',
   })
@@ -702,7 +702,7 @@ export async function deliverAgentNotificationEvents(
       continue
     }
 
-    if (!getSprintEngineAutoState(workspace).enabled || !SPAWNABLE_NOTIFICATION_KINDS.has(event.notificationKind ?? '')) {
+    if (!getSprintEngineAutoState(workspace).supervisorEnabled || !SPAWNABLE_NOTIFICATION_KINDS.has(event.notificationKind ?? '')) {
       logPerfEvent('SprintEngineAutoRun', 'agent-notification-pending-no-session', {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
@@ -1015,14 +1015,12 @@ async function reconcileAutoRunPendingSpawns(
 
     changed = true
     if (pendingAgent && pendingAgent.cliStartRequested && !pendingAgentHasProcess) {
-      const canResume = pendingAgent.cliHasLaunched && agentCliSupportsConversationResume(pendingAgent.cli)
-      const preserveSessionId = canResume || (pendingAgent.cliHasLaunched && agentCliUsesStableSessionIdForResume(pendingAgent.cli))
       useWorkspaceStore.getState().updateAgent(workspace.id, pending.agentId, {
-        cliSessionId: preserveSessionId ? pendingAgent.cliSessionId : undefined,
-        cliStartRequested: preserveSessionId,
-        cliHasLaunched: preserveSessionId,
+        cliSessionId: undefined,
+        cliStartRequested: false,
+        cliHasLaunched: false,
         cliOnboardingPromptSent: false,
-        cliResumeAvailable: canResume ? pendingAgent.cliResumeAvailable ?? true : false,
+        cliResumeAvailable: false,
       })
     }
   }
@@ -1122,14 +1120,14 @@ export async function spawnAutoRunCandidate(
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
-        cliResumeAvailable: agentCliSupportsConversationResume(latestAgent.cli) ? latestAgent.cliResumeAvailable ?? true : false,
+        cliResumeAvailable: false,
       })
     } else if (latestAgent?.cliStartRequested) {
       latestStateBeforeSpawn.updateAgent(workspace.id, nextRun.agentId, {
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
-        cliResumeAvailable: agentCliSupportsConversationResume(latestAgent.cli) ? latestAgent.cliResumeAvailable ?? true : false,
+        cliResumeAvailable: false,
       })
     }
 
@@ -1194,7 +1192,7 @@ export async function spawnAutoRunCandidate(
       cliSessionId: sessionId,
       cliHasLaunched: true,
       cliOnboardingPromptSent: true,
-      cliResumeAvailable: agentCliSupportsConversationResume(selectedCli),
+      cliResumeAvailable: false,
       cliLastExitCode: undefined,
       cliLastExitedAt: undefined,
       cli: selectedCli,
@@ -1338,13 +1336,17 @@ async function startMissingRosterAgents(
 
     const currentAgent = workspace.agents[agent.id]
     const ownsOpenImplementationWork = agentOwnsOpenSprintEngineImplementationWork(sprintEngineState, agent.id)
-    if (shouldSkipExitedSprintEngineRosterAgent(currentAgent, ownsOpenImplementationWork)) {
+    const hasOpenGateWork = agentHasOpenSprintEngineGateWork(sprintEngineState, agent.id, agent.role)
+    const hasOpenWork = ownsOpenImplementationWork || hasOpenGateWork
+    if (shouldSkipExitedSprintEngineRosterAgent(currentAgent, hasOpenWork)) {
       logPerfEvent('SprintEngineAutoRun', 'roster-spawn-skipped-exited', {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
         agentId: agent.id,
         role: agent.role,
         lastExitedAt: currentAgent.cliLastExitedAt,
+        ownsOpenImplementationWork,
+        hasOpenGateWork,
       })
       continue
     }
@@ -1527,7 +1529,7 @@ async function superviseWorkspace(
   const superviseStartedAt = performance.now()
   let sprintEngineState = workspace.sprintEngineState
   const autoState = getSprintEngineAutoState(workspace)
-  const runnerActive = sprintEngineState?.runner?.mode === 'auto' || autoState.enabled
+  const runnerActive = autoState.supervisorEnabled
   const approvalActive = autoState.autoApproveArtifacts
   if ((!runnerActive && !approvalActive) || !workspace.folderPath || !sprintEngineState || !workspace.sprintEngineContext) return
 
@@ -1890,7 +1892,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   })
   for (const nextRun of nextRuns) {
     const latestWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
-    if (!latestWorkspace || !getSprintEngineAutoState(latestWorkspace).enabled) return
+    if (!latestWorkspace || !getSprintEngineAutoState(latestWorkspace).supervisorEnabled) return
     const spawnResult = await spawnAutoRunCandidate(
       latestWorkspace,
       sprintEngineState,
@@ -1923,7 +1925,7 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
-        cliResumeAvailable: agentCliSupportsConversationResume(agent.cli) ? agent.cliResumeAvailable ?? true : false,
+        cliResumeAvailable: false,
       })
       continue
     }
@@ -1931,16 +1933,14 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
     const status = await window.api.terminalStatus(agent.cliSessionId)
     if (status.processAlive) continue
 
-    const canResume = agent.cliHasLaunched && agentCliSupportsConversationResume(agent.cli)
-    const preserveSessionId = canResume || (agent.cliHasLaunched && agentCliUsesStableSessionIdForResume(agent.cli))
     useWorkspaceStore.getState().updateAgent(workspace.id, agent.id, {
-      cliSessionId: preserveSessionId ? agent.cliSessionId : undefined,
-      cliStartRequested: preserveSessionId,
-      cliHasLaunched: preserveSessionId,
+      cliSessionId: undefined,
+      cliStartRequested: false,
+      cliHasLaunched: false,
       cliOnboardingPromptSent: false,
       cliLastExitCode: null,
       cliLastExitedAt: Date.now(),
-      cliResumeAvailable: canResume ? agent.cliResumeAvailable ?? true : false,
+      cliResumeAvailable: false,
     })
   }
 }

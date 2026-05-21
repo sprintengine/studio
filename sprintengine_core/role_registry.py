@@ -51,6 +51,12 @@ class SourceEntry:
 
 
 @dataclass(frozen=True)
+class PluginRegistryRoot:
+    root: Path
+    plugin_id: str | None = None
+
+
+@dataclass(frozen=True)
 class SoulSkillEntry:
     skill: str
 
@@ -169,20 +175,20 @@ class RoleSkillRegistry:
         self,
         *,
         workspace_root: Path | None = None,
-        plugin_roots: Iterable[Path] = (),
+        plugin_roots: Iterable[Path | str | PluginRegistryRoot | Mapping[str, Any]] = (),
         user_root: Path | None = None,
         bundled_root: Path | None = None,
     ) -> None:
         self.workspace_root = Path(workspace_root) if workspace_root is not None else Path.cwd()
-        self.plugin_roots = tuple(Path(root) for root in plugin_roots)
+        self.plugin_roots = tuple(_normalize_plugin_root(root) for root in plugin_roots)
         self.user_root = Path(user_root).expanduser() if user_root is not None else Path.home()
         self.bundled_root = Path(bundled_root) if bundled_root is not None else BUNDLED_REGISTRY_ROOT
 
     def source_layers(self) -> tuple[SourceLayer, ...]:
         layers = [SourceLayer("workspace", self.workspace_root / REGISTRY_DIRNAME, 0)]
         layers.extend(
-            SourceLayer(f"plugin:{index}", root, index + 1)
-            for index, root in enumerate(self.plugin_roots)
+            SourceLayer(_plugin_layer_name(plugin_root, index), plugin_root.root, index + 1)
+            for index, plugin_root in enumerate(self.plugin_roots)
         )
         layers.append(SourceLayer("user", self.user_root / REGISTRY_DIRNAME, len(layers)))
         layers.append(SourceLayer("bundled", self.bundled_root, len(layers)))
@@ -287,7 +293,7 @@ class RoleSkillRegistry:
 def discover_role_registry(
     *,
     workspace_root: Path | None = None,
-    plugin_roots: Iterable[Path] = (),
+    plugin_roots: Iterable[Path | str | PluginRegistryRoot | Mapping[str, Any]] = (),
     user_root: Path | None = None,
     bundled_root: Path | None = None,
 ) -> RegistryDiscovery:
@@ -297,6 +303,27 @@ def discover_role_registry(
         user_root=user_root,
         bundled_root=bundled_root,
     ).discover()
+
+
+def _normalize_plugin_root(value: Path | str | PluginRegistryRoot | Mapping[str, Any]) -> PluginRegistryRoot:
+    if isinstance(value, PluginRegistryRoot):
+        return PluginRegistryRoot(root=Path(value.root), plugin_id=value.plugin_id)
+    if isinstance(value, Mapping):
+        raw_root = value.get("root") or value.get("path")
+        if not isinstance(raw_root, (str, Path)):
+            raise TypeError("Plugin registry root mappings require a string root or path.")
+        raw_plugin_id = value.get("id") or value.get("pluginId") or value.get("plugin_id")
+        plugin_id = str(raw_plugin_id).strip() if raw_plugin_id is not None and str(raw_plugin_id).strip() else None
+        return PluginRegistryRoot(root=Path(raw_root), plugin_id=plugin_id)
+    return PluginRegistryRoot(root=Path(value))
+
+
+def _plugin_layer_name(plugin_root: PluginRegistryRoot, index: int) -> str:
+    if plugin_root.plugin_id:
+        safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", plugin_root.plugin_id.strip())
+        if safe_id:
+            return f"plugin:{safe_id}"
+    return f"plugin:{index}"
 
 
 def _select_winning_entries(

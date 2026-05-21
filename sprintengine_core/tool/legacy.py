@@ -191,6 +191,7 @@ Entry points (return full system prompt for the agent):
   sprintengine runner set --mode auto
   sprintengine runner set --mode off
   sprintengine triage needs-input --id architect
+  sprintengine mcp serve --workspace . --extra-dir ./plugin/.sprintengine
   sprintengine merge start --id architect --target main
 
 Roster commands:
@@ -251,9 +252,12 @@ MCP lifecycle compatibility:
   The local MCP server is the preferred agent operation boundary. The CLI remains
   a human/script compatibility wrapper over the same core state mutations, and
   `sprintengine join --watch` remains the Multicode wake/resume polling path until
-  current agent CLIs no longer need terminal orchestration. Use `--backend mcp-local`
-  to exercise the MCP route from the CLI; set SPRINTENGINE_MCP_USER_ID and
-  SPRINTENGINE_MCP_USER_AUTHORIZED=1 for mutating calls.
+  current agent CLIs no longer need terminal orchestration. Run the stdio server
+  with `sprintengine mcp serve --workspace <path>` or
+  `python -m sprintengine_mcp --workspace <path>`; repeated `--extra-dir`
+  values add plugin registry roots containing roles/ and skills/. Use
+  `--backend mcp-local` to exercise the MCP route from the CLI; set
+  SPRINTENGINE_MCP_USER_ID and SPRINTENGINE_MCP_USER_AUTHORIZED=1 for mutating calls.
 
 Cross-platform wrappers:
   POSIX shells: scripts/sprintengine --help
@@ -344,6 +348,21 @@ def add_feedback_arguments(parser: argparse.ArgumentParser) -> None:
             f"kind: {finding_kinds}. severity: {finding_severities}. area: {finding_areas}."
         ),
     )
+
+
+def serve_mcp(args: argparse.Namespace) -> int:
+    from sprintengine_mcp.server import main as mcp_main
+
+    argv: list[str] = []
+    for workspace in args.workspace:
+        argv.extend(["--workspace", str(workspace)])
+    for allowed_root in args.allowed_root:
+        argv.extend(["--allowed-root", str(allowed_root)])
+    for extra_dir in args.extra_dir:
+        argv.extend(["--extra-dir", str(extra_dir)])
+    if args.user_dir:
+        argv.extend(["--user-dir", str(args.user_dir)])
+    return mcp_main(argv)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -448,17 +467,29 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id", default="architect", help="Architect agent id.")
     p.set_defaults(handler=run_commands.triage_needs_input)
 
+    # mcp
+    mcp_p = sub.add_parser("mcp", help="Local MCP server operations.")
+    mcp_sub = mcp_p.add_subparsers(dest="action", required=True)
+    p = mcp_sub.add_parser("serve", help="Run the local Sprint Engine MCP stdio server.")
+    p.add_argument("--workspace", action="append", default=[], help="Workspace root allowed to contain Sprint Engine state paths.")
+    p.add_argument("--allowed-root", action="append", default=[], help="Workspace root allowed to contain Sprint Engine state paths.")
+    p.add_argument("--extra-dir", action="append", default=[], help="Additional plugin registry root containing roles/ and skills/.")
+    p.add_argument("--user-dir", help="User registry base directory; the server reads <user-dir>/.sprintengine.")
+    p.set_defaults(handler=serve_mcp, uses_state=False, raw_handler=True)
+
     # registry
     roles_p = sub.add_parser("roles", help="Inspect configured registry roles.")
     roles_sub = roles_p.add_subparsers(dest="action", required=True)
     p = roles_sub.add_parser("list", help="List configured registry roles.")
     p.add_argument("--include-shadowed", action="store_true", help="Include lower-precedence shadowed sources.")
+    p.add_argument("--extra-dir", action="append", default=[], help="Additional plugin registry root containing roles/ and skills/.")
     p.set_defaults(handler=registry_commands.roles_list, uses_state=False)
 
     role_p = sub.add_parser("role", help="Inspect one configured registry role.")
     role_sub = role_p.add_subparsers(dest="action", required=True)
     p = role_sub.add_parser("get", help="Get a configured registry role by id or alias.")
     p.add_argument("role")
+    p.add_argument("--extra-dir", action="append", default=[], help="Additional plugin registry root containing roles/ and skills/.")
     p.set_defaults(handler=registry_commands.role_get, uses_state=False)
 
     soul_p = sub.add_parser("soul", help="Inspect rendered registry Souls.")
@@ -466,16 +497,19 @@ def build_parser() -> argparse.ArgumentParser:
     p = soul_sub.add_parser("get", help="Render a configured registry Soul by role id or alias.")
     p.add_argument("role")
     p.add_argument("--run-id", default="", help="Optional run id for Soul template substitution.")
+    p.add_argument("--extra-dir", action="append", default=[], help="Additional plugin registry root containing roles/ and skills/.")
     p.set_defaults(handler=registry_commands.soul_get, uses_state=False)
 
     skill_p = sub.add_parser("skill", help="Inspect configured registry skills.")
     skill_sub = skill_p.add_subparsers(dest="action", required=True)
     p = skill_sub.add_parser("list", help="List configured registry skills.")
     p.add_argument("--include-body", action="store_true", help="Include full skill bodies instead of body lengths.")
+    p.add_argument("--extra-dir", action="append", default=[], help="Additional plugin registry root containing roles/ and skills/.")
     p.set_defaults(handler=registry_commands.skills_list, uses_state=False)
 
     p = skill_sub.add_parser("get", help="Get a configured registry skill by id.")
     p.add_argument("skill")
+    p.add_argument("--extra-dir", action="append", default=[], help="Additional plugin registry root containing roles/ and skills/.")
     p.set_defaults(handler=registry_commands.skill_get, uses_state=False)
 
     # task
@@ -767,6 +801,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif args.state is not None:
         reject_invalid_posix_state_path(args.state)
         args.state = args.state.resolve()
+    if getattr(args, "raw_handler", False):
+        return int(args.handler(args))
     result = args.handler(args)
     print(json.dumps(result, indent=2))
     return 0

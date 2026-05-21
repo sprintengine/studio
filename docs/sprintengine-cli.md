@@ -39,6 +39,25 @@ Windows direct Python fallback:
 When calling `scripts/sprintengine_tool.py` directly, put global flags such as
 `--state <run.yaml>` before the command group.
 
+## Local MCP Server
+
+Run the local stdio MCP server through either supported entrypoint:
+
+```bash
+sprintengine mcp serve --workspace .
+python -m sprintengine_mcp --workspace .
+```
+
+`sprintengine mcp serve` delegates to the same server as
+`python -m sprintengine_mcp`. Use repeated `--workspace` or `--allowed-root`
+flags to bound which workspace roots may contain Sprint Engine state paths.
+Use repeated `--extra-dir <registry-root>` flags to add plugin registry roots
+containing `roles/` and `skills/`, and `--user-dir <path>` to override the user
+registry base directory. The server remains a local stdio MCP boundary; current
+Codex and Claude Code terminal sessions still continue through
+`sprintengine join --role <role> --id <agent-id> --watch`, which owns
+polling/backoff and Multicode wake/resume behavior.
+
 ## Common Worker Flow
 
 Workers join the active run, read the plan returned by the directive, claim one
@@ -118,6 +137,15 @@ sprintengine --backend mcp-local skill list
 sprintengine --backend mcp-local skill get developer
 ```
 
+Plugin registry roots can be supplied to direct inspection commands, the MCP
+backend, or the stdio server:
+
+```bash
+sprintengine roles list --extra-dir ./plugin/.sprintengine
+sprintengine --backend mcp-local roles list --extra-dir ./plugin/.sprintengine
+sprintengine mcp serve --workspace . --extra-dir ./plugin/.sprintengine
+```
+
 ## Command Groups
 
 Inspect help before scripting a command:
@@ -139,6 +167,7 @@ Current command groups:
 - `roster`: add or list canonical roster members.
 - `join`: receive the role prompt and next directive.
 - `triage`: inspect architect-actionable blockers.
+- `mcp`: run the local stdio MCP server.
 - `roles`: list configured registry roles.
 - `role`: inspect one configured registry role.
 - `soul`: render a registry-backed Soul.

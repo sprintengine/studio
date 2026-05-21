@@ -554,6 +554,7 @@ export type SprintEngineAutoPendingSpawn = {
 export type SprintEngineCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
 
 export type SprintEngineAutoState = {
+  supervisorEnabled: boolean
   enabled: boolean
   autoApproveArtifacts: boolean
   keepDoneAgentTerminals: boolean
@@ -896,7 +897,10 @@ export type AgentMessage = {
 }
 
 export type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete'
-export type AgentCli = 'codex' | 'claude'
+// Runtime CLI identity is a plugin id. Legacy stored values `codex` and
+// `claude` remain the default bundled choices while plugin-scoped settings
+// can round-trip other manifest ids.
+export type AgentCli = string
 export type SprintEngineRoleCliDefaults = Partial<Record<SprintEngineRoleId, AgentCli>>
 
 export type SprintEngineRoleSettings = {

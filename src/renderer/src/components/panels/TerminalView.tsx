@@ -235,8 +235,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
 
     const sessionId = attachedSessionId ?? agent?.cliSessionId
     if (!sessionId) return
-    const shouldResume = attachedSessionId ? true : agent?.cliHasLaunched ?? false
-    const shouldResumeCodexConversation = cli === 'codex' && Boolean(agent?.cliResumeAvailable)
+    const isSprintEngineAgent = agent?.kind === 'sprintengine'
+    const shouldResume = attachedSessionId ? true : isSprintEngineAgent ? false : agent?.cliHasLaunched ?? false
+    const shouldResumeCodexConversation = !isSprintEngineAgent && cli === 'codex' && Boolean(agent?.cliResumeAvailable)
     const term = new Terminal({
       theme: getTerminalTheme(),
       fontFamily: 'ui-monospace, "Cascadia Code", Consolas, monospace',

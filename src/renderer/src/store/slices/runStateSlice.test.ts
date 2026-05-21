@@ -80,6 +80,7 @@ const legacySprintAuto = normalizeSprintEngineAutoState({
   deliveredAgentNotificationEventIds: [' EVT-1 ', '', 'EVT-2'],
 })
 assert.equal(legacySprintAuto.enabled, true)
+assert.equal(legacySprintAuto.supervisorEnabled, true)
 assert.equal(legacySprintAuto.autoApproveArtifacts, true)
 assert.equal(legacySprintAuto.keepDoneAgentTerminals, true)
 assert.equal(legacySprintAuto.cliPermissionPreset, 'default')

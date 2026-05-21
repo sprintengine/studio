@@ -28,6 +28,7 @@ const workspace = (agent: AgentState): Workspace => ({
   sprintEngineState: null,
   multiloopState: null,
   sprintEngineAutoState: {
+    supervisorEnabled: false,
     enabled: false,
     autoApproveArtifacts: false,
     keepDoneAgentTerminals: false,

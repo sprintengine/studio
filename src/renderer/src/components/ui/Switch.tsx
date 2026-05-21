@@ -68,7 +68,18 @@ export function Switch({
       <span
         aria-hidden="true"
         className={[
-          'inline-block h-3 w-3 transform rounded-full bg-[color:var(--text-strong)] transition-transform',
+          // Thumb color: when ON, use --text-on-accent (the high-contrast
+          // foreground for the accent surface — same token PrimaryButton uses
+          // for its label). When OFF, use --text-strong (high-contrast
+          // against --bg-active). This guarantees thumb visibility on every
+          // theme regardless of accent luma; the previous static
+          // --text-strong broke on themes where accent + text were both
+          // bright (Conifer gold + pale sage, Lantern amber + warm cream,
+          // Graphite white + light grey).
+          'inline-block h-3 w-3 transform rounded-full transition-transform',
+          checked
+            ? 'bg-[color:var(--text-on-accent)]'
+            : 'bg-[color:var(--text-strong)]',
           checked ? 'translate-x-3.5' : 'translate-x-0.5',
         ].join(' ')}
       />

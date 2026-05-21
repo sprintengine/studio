@@ -195,6 +195,27 @@ def test_registry_inspection_commands_work_from_custom_workspace(tmp_path) -> No
     assert skill["skill"]["source"]["layer"] == "workspace"
 
 
+def test_registry_inspection_accepts_explicit_plugin_extra_dir(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    plugin_root = tmp_path / "plugin" / "souls"
+    write_workspace_role(workspace, "marketer", aliases=["growth-marketer"])
+    (plugin_root / "roles").mkdir(parents=True)
+    (plugin_root / "skills" / "plugin_writer").mkdir(parents=True)
+    (plugin_root / "roles" / "plugin_writer.json").write_text(
+        json.dumps({"id": "plugin_writer", "label": "Plugin Writer", "aliases": [], "soul": [{"skill": "plugin_writer"}]}),
+        encoding="utf-8",
+    )
+    (plugin_root / "skills" / "plugin_writer" / "SKILL.md").write_text("# Plugin writer\n", encoding="utf-8")
+
+    roles = parse_stdout_json(run_swarm_in_cwd(["roles", "list", "--include-shadowed", "--extra-dir", str(plugin_root)], workspace))
+    role = parse_stdout_json(run_swarm_in_cwd(["role", "get", "plugin-writer", "--extra-dir", str(plugin_root)], workspace))
+    skills = parse_stdout_json(run_swarm_in_cwd(["skill", "list", "--extra-dir", str(plugin_root)], workspace))
+
+    assert any(entry["id"] == "plugin_writer" and entry["source"]["layer"] == "plugin:0" for entry in roles["roles"])
+    assert role["role"]["id"] == "plugin_writer"
+    assert any(entry["id"] == "plugin_writer" and entry["source"]["layer"] == "plugin:0" for entry in skills["skills"])
+
+
 def test_registry_inspection_unknown_role_and_skill_errors_include_known_ids() -> None:
     role = run_swarm(["role", "get", "not-a-role"])
     skill = run_swarm(["skill", "get", "not-a-skill"])

@@ -67,15 +67,15 @@ export const defaultGuidedBriefBuildRoleCounts = (
 // extractions in T18/T19. Logic is identical to workspaceStore.ts; the
 // duplication will be removed when those slices land.
 const defaultSprintEngineRoleCliDefaultsForGuidedBrief = (): Required<SprintEngineRoleCliDefaults> => ({
-  architect: 'codex',
-  product: 'codex',
-  frontend: 'codex',
-  developer: 'codex',
-  code_reviewer: 'codex',
-  spec_reviewer: 'codex',
-  performance: 'codex',
-  tester: 'codex',
-  security: 'codex',
+  architect: 'claude',
+  product: 'claude',
+  frontend: 'claude',
+  developer: 'claude',
+  code_reviewer: 'claude',
+  spec_reviewer: 'claude',
+  performance: 'claude',
+  tester: 'claude',
+  security: 'claude',
 })
 
 function clampGuidedBriefRoleCount(role: SprintEngineRoleId, raw: number): number {
@@ -129,7 +129,7 @@ function normalizeRoleCliDefaultsForGuidedBrief(
     for (const role of Object.keys(input)) {
       if (!isValidGuidedBriefRoleId(role)) continue
       const value = (input as Record<SprintEngineRoleId, unknown>)[role]
-      if (value === 'codex' || value === 'claude') {
+      if (value === 'claude' || value === 'claude') {
         next[role] = value
       }
     }
@@ -213,9 +213,9 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
     wantsArchitectureDiscussion,
     wantsFrontendDiscussion,
     guidedRoleCliDefaults: {
-      product: roleCliDefaults.product ?? 'codex',
-      architect: roleCliDefaults.architect ?? 'codex',
-      frontend: roleCliDefaults.frontend ?? 'codex',
+      product: roleCliDefaults.product ?? 'claude',
+      architect: roleCliDefaults.architect ?? 'claude',
+      frontend: roleCliDefaults.frontend ?? 'claude',
     },
     buildRoleCounts,
     buildRoleCliDefaults,

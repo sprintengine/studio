@@ -117,7 +117,9 @@ export function normalizeMcpServer(value: unknown): McpServerConfig | null {
   const id = normalizeMcpId(candidate.id)
   const name = typeof candidate.name === 'string' && candidate.name.trim() ? candidate.name.trim() : id
   const transport = candidate.transport === 'http' || candidate.transport === 'sse' ? candidate.transport : 'stdio'
-  const clients = normalizeMcpStringList(candidate.clients).filter((client): client is AgentCli => client === 'codex' || client === 'claude')
+  const clients = normalizeMcpStringList(candidate.clients)
+    .map(normalizeMcpId)
+    .filter(Boolean)
   const scope = candidate.scope === 'user' ? 'user' : 'workspace'
   const source = candidate.source === 'custom' ? 'custom' : 'bundled'
   const riskLevel = (
@@ -320,12 +322,18 @@ export function normalizeCliDefaults<K extends string>(
   if (!input || typeof input !== 'object') return {}
   const result: Partial<Record<K, AgentCli>> = {}
   for (const [key, value] of Object.entries(input)) {
-    if (value === 'codex' || value === 'claude') {
-      result[key as K] = value
+    if (typeof value === 'string' && value.trim()) {
+      result[key as K] = value.trim()
     }
   }
   return result
 }
+
+// Architect is the only role Sprint Engine planning truly requires. It is
+// excluded from user disablement so a stray persisted `architect: false`
+// cannot strand future workspaces without a planner. Settings normalization
+// and the setter both honor this contract.
+const PROTECTED_SPRINT_ENGINE_ROLE_ID = 'architect'
 
 export function defaultSprintEngineRoleSettings(): SprintEngineRoleSettings {
   return { enabled: {} }
@@ -337,6 +345,7 @@ function normalizeRoleEnabledRecord(value: unknown): Record<SprintEngineRoleId, 
   for (const [key, enabled] of Object.entries(value as Record<string, unknown>)) {
     const id = key.trim()
     if (!id || typeof enabled !== 'boolean') continue
+    if (id === PROTECTED_SPRINT_ENGINE_ROLE_ID && enabled === false) continue
     result[id] = enabled
   }
   return result
@@ -469,8 +478,9 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         const defaults = defaultAppSettings()
         state.appSettings.cliRuntimes ??= defaults.cliRuntimes
+        const fallback = defaults.cliRuntimes[cli] ?? { command: cli, useWsl: false }
         state.appSettings.cliRuntimes[cli] = {
-          ...defaults.cliRuntimes[cli],
+          ...fallback,
           ...state.appSettings.cliRuntimes[cli],
           ...update,
         }
@@ -579,6 +589,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         const id = role.trim()
         if (!id) return
+        if (id === PROTECTED_SPRINT_ENGINE_ROLE_ID && enabled === false) return
         const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
         state.appSettings.sprintEngineRoleSettings = {
           enabled: {

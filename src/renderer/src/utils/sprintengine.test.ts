@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { getSprintEngineStartupCommandMode } from './agentPrompt'
 import {
+  applyUserDisabledSprintEngineRoleCounts,
   buildSprintEngineAgentRosterFromRuntimeAgents,
   buildSprintEngineRoleRegistry,
   formatSprintEngineLockAge,
@@ -17,12 +18,15 @@ import {
   getSprintEngineTaskBoardColumn,
   getSprintEngineTaskQualityGates,
   getSprintEngineVisibleBoardColumns,
+  getUserDisabledSprintEngineRoleIds,
   humanizeSprintEngineRoleId,
   isBundledSprintEngineRole,
   isSprintEngineRoleId,
   isSprintEngineTaskLaunchable,
   normalizeSprintEngineProjection,
+  orderSprintEngineRosterRoles,
   sprintEngineNeutralRoleAccent,
+  sprintEngineRoleOrder,
 } from './sprintengine'
 import { taskGraphEdgeStyle, taskGraphEndEdgeStyle } from '../components/panels/sprintEngineTaskGraph'
 import type { SprintEngineRoleRegistry, SprintEngineTask } from '../types/workspace'
@@ -1086,6 +1090,114 @@ assert.equal(malformedTask.comments[0]?.authorRole, undefined, 'empty authorRole
 assert.equal(malformedTask.comments[1]?.authorRole, 'marketer', 'valid custom authorRole preserved')
 assert.equal(malformedTask.qualityGates?.length, 1, 'gate with missing role dropped')
 assert.equal(malformedTask.qualityGates?.[0]?.role, 'marketer', 'custom-role gate preserved')
+
+// --- Settings role enablement (T3) -----------------------------------------
+// `getUserDisabledSprintEngineRoleIds` collects user-toggled-off ids and
+// silently excludes architect so a stale or hostile setting cannot strand
+// new rosters without a planner.
+{
+  const disabled = getUserDisabledSprintEngineRoleIds({
+    enabled: {
+      architect: false,
+      frontend: false,
+      developer: true,
+      marketer: false,
+    },
+  })
+  assert.equal(disabled.has('frontend'), true, 'bundled frontend disablement honored')
+  assert.equal(disabled.has('marketer'), true, 'custom registry role disablement honored')
+  assert.equal(disabled.has('developer'), false, 'explicitly enabled role excluded')
+  assert.equal(disabled.has('architect'), false, 'architect can never appear in disabled set')
+  assert.equal(disabled.size, 2)
+}
+
+// Nullable/empty inputs are tolerated.
+assert.equal(getUserDisabledSprintEngineRoleIds(null).size, 0)
+assert.equal(getUserDisabledSprintEngineRoleIds(undefined).size, 0)
+assert.equal(getUserDisabledSprintEngineRoleIds({ enabled: {} }).size, 0)
+
+// `orderSprintEngineRosterRoles` filters bundled and custom roles by the
+// disabled set but always keeps architect, even if the caller passes a set
+// that includes it (the helper is the last line of defense against a stray
+// caller).
+{
+  const customRegistry: SprintEngineRoleRegistry = buildSprintEngineRoleRegistry({
+    roles: [
+      { id: 'marketer', label: 'Marketer', aliases: [], source: { layer: 'workspace' } },
+      { id: 'analyst', label: 'Analyst', aliases: [], source: { layer: 'workspace' } },
+    ],
+  })
+  const visible = orderSprintEngineRosterRoles(
+    customRegistry,
+    new Set<string>(['frontend', 'marketer', 'architect']),
+  )
+  assert.equal(visible.includes('architect'), true, 'architect always returned even if disabled set includes it')
+  assert.equal(visible.includes('frontend'), false, 'bundled frontend hidden when user disabled')
+  assert.equal(visible.includes('marketer'), false, 'custom marketer hidden when user disabled')
+  assert.equal(visible.includes('analyst'), true, 'untouched custom role still visible')
+  // Bundled order is preserved at the head.
+  assert.equal(visible[0], 'architect', 'bundled order preserved')
+  assert.equal(
+    visible.filter((role) => sprintEngineRoleOrder.includes(role as never)).length,
+    sprintEngineRoleOrder.length - 1, // frontend removed
+  )
+}
+
+// Manifest-disabled registry roles stay hidden regardless of user settings.
+{
+  const registry: SprintEngineRoleRegistry = buildSprintEngineRoleRegistry({
+    roles: [
+      { id: 'marketer', label: 'Marketer', aliases: [], source: { layer: 'workspace' }, enabled: false },
+    ],
+  })
+  const visible = orderSprintEngineRosterRoles(registry, new Set<string>())
+  assert.equal(visible.includes('marketer'), false, 'manifest-disabled role hidden even with no user override')
+}
+
+// `applyUserDisabledSprintEngineRoleCounts` zeros out counts for disabled
+// roles and leaves the rest of the object alone. Architect is never in the
+// disabled set, so an architect:1 baseline survives.
+{
+  const masked = applyUserDisabledSprintEngineRoleCounts(
+    { architect: 1, developer: 2, frontend: 1, tester: 0 } as Record<string, number>,
+    new Set<string>(['developer', 'frontend']),
+  )
+  assert.equal(masked.architect, 1, 'architect untouched')
+  assert.equal(masked.developer, 0, 'disabled developer zeroed')
+  assert.equal(masked.frontend, 0, 'disabled frontend zeroed')
+  assert.equal(masked.tester, 0, 'unrelated role untouched')
+}
+
+// Empty disabled set is a no-op (same reference returned).
+{
+  const counts = { architect: 1, developer: 1 } as Record<string, number>
+  assert.strictEqual(
+    applyUserDisabledSprintEngineRoleCounts(counts, new Set<string>()),
+    counts,
+    'empty disabled set returns the original reference',
+  )
+}
+
+// AC4 — projection rendering safety. Even when the user has disabled a role,
+// the canonical projection still renders any task/agent already configured
+// with that role. `normalizeSprintEngineProjection` does not consult app
+// settings, so a developer task survives normalization regardless of how
+// the disabled set is configured downstream.
+{
+  const projectionWithDeveloper = fakeProjection()
+  const normalized = normalizeSprintEngineProjection(projectionWithDeveloper)
+  const developerTask = normalized?.tasks.find((task) => task.id === 'T1')
+  assert.ok(developerTask, 'projection still includes disabled-role task')
+  assert.equal(developerTask?.role, 'developer')
+  // Re-running the disabled-set helper does not mutate the projection;
+  // settings filtering is selection-only.
+  const disabledIds = getUserDisabledSprintEngineRoleIds({
+    enabled: { developer: false },
+  })
+  assert.equal(disabledIds.has('developer'), true)
+  const stillThere = normalized?.tasks.find((task) => task.id === 'T1')
+  assert.equal(stillThere?.role, 'developer', 'projection unchanged by user role settings')
+}
 
 // eslint-disable-next-line no-console
 console.log('sprintengine.test.ts: ok')

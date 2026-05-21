@@ -54,10 +54,12 @@ import {
 } from './guidedBrief/handoff'
 import { joinWorkspacePath as joinGuidedWorkspacePath } from './guidedBrief/paths'
 import {
+  applyUserDisabledSprintEngineRoleCounts,
   countSprintEngineAgents,
   buildSprintEngineRoleRegistry,
   createInitialSprintEngineState,
   getSprintEngineRoleLabel,
+  getUserDisabledSprintEngineRoleIds,
   sprintEngineRoleOrder,
 } from '../../utils/sprintengine'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
@@ -178,15 +180,15 @@ const initialSprintEngineRoleCounts: SprintEngineRoleCounts = {
 }
 
 const initialSprintEngineRoleCliDefaults: Required<SprintEngineRoleCliDefaults> = {
-  architect: 'codex',
-  product: 'codex',
-  frontend: 'codex',
-  developer: 'codex',
-  code_reviewer: 'codex',
-  spec_reviewer: 'codex',
-  performance: 'codex',
-  tester: 'codex',
-  security: 'codex',
+  architect: 'claude',
+  product: 'claude',
+  frontend: 'claude',
+  developer: 'claude',
+  code_reviewer: 'claude',
+  spec_reviewer: 'claude',
+  performance: 'claude',
+  tester: 'claude',
+  security: 'claude',
 }
 
 const guidedBriefSprintEngineRoleCounts: SprintEngineRoleCounts = {
@@ -220,9 +222,9 @@ function sprintEngineRosterSummary(roleCounts: SprintEngineRoleCounts, registry?
 }
 
 const initialGuidedBriefRoleCliDefaults: GuidedBriefRoleCliDefaults = {
-  product: initialSprintEngineRoleCliDefaults.product ?? 'codex',
-  architect: initialSprintEngineRoleCliDefaults.architect ?? 'codex',
-  frontend: initialSprintEngineRoleCliDefaults.frontend ?? 'codex',
+  product: initialSprintEngineRoleCliDefaults.product ?? 'claude',
+  architect: initialSprintEngineRoleCliDefaults.architect ?? 'claude',
+  frontend: initialSprintEngineRoleCliDefaults.frontend ?? 'claude',
 }
 
 async function buildGuidedBriefSprintEngineSourceBundle(
@@ -352,6 +354,24 @@ export default function NewWorkspacePanel({
   const [closeConfirmation, setCloseConfirmation] = useState(false)
 
   const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
+  const sprintEngineDisabledRoleIds = useMemo(
+    () => getUserDisabledSprintEngineRoleIds(sprintEngineRoleSettings),
+    [sprintEngineRoleSettings],
+  )
+  // Existing teams render canonical projection state; user settings must not
+  // hide roles already configured on the team. Only mask the wizard view for
+  // brand-new rosters.
+  const effectiveSprintEngineDisabledRoleIds = useMemo<ReadonlySet<SprintEngineRoleId> | null>(
+    () => (seExistingTeam ? null : sprintEngineDisabledRoleIds),
+    [seExistingTeam, sprintEngineDisabledRoleIds],
+  )
+  const visibleSprintEngineRoleCounts = useMemo<SprintEngineRoleCounts>(
+    () => (effectiveSprintEngineDisabledRoleIds && effectiveSprintEngineDisabledRoleIds.size > 0
+      ? applyUserDisabledSprintEngineRoleCounts(seRoleCounts, effectiveSprintEngineDisabledRoleIds)
+      : seRoleCounts),
+    [seRoleCounts, effectiveSprintEngineDisabledRoleIds],
+  )
 
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
@@ -467,7 +487,7 @@ export default function NewWorkspacePanel({
   const [isCreating, setIsCreating] = useState(false)
 
   const folderScan = useFolderScan(folderPath)
-  const totalAgents = countSprintEngineAgents(seRoleCounts)
+  const totalAgents = countSprintEngineAgents(visibleSprintEngineRoleCounts)
   const isSprintEngine = mode === 'sprintengine'
 
   const [step, setStep] = useState<StepId>(initialFuturePlan ? 'sprintengine-team' : 'workspace')
@@ -784,7 +804,7 @@ export default function NewWorkspacePanel({
     setSeExistingTeam(null)
     setSeRoleCliDefaults((current) => ({
       ...current,
-      [role]: current[role] ?? 'codex',
+      [role]: current[role] ?? 'claude',
     }))
     setSeRoleCounts((current) => ({
       ...current,
@@ -804,9 +824,9 @@ export default function NewWorkspacePanel({
     () => ({
       name: seTeamName.trim() || 'Sprint Engine Team',
       goal: seGoal.trim(),
-      roleCounts: seRoleCounts,
+      roleCounts: visibleSprintEngineRoleCounts,
     }),
-    [seGoal, seRoleCounts, seTeamName],
+    [seGoal, visibleSprintEngineRoleCounts, seTeamName],
   )
 
   const persistLastPermissionPreset = () => {
@@ -881,7 +901,10 @@ export default function NewWorkspacePanel({
           wantsArchitectureDiscussion: guidedWantsArchitecture,
           wantsFrontendDiscussion,
           guidedRoleCliDefaults,
-          buildRoleCounts: guidedBriefBuildRoleCountsForSurface(guidedHasUi),
+          buildRoleCounts: applyUserDisabledSprintEngineRoleCounts(
+            guidedBriefBuildRoleCountsForSurface(guidedHasUi),
+            sprintEngineDisabledRoleIds,
+          ),
           buildRoleCliDefaults: seRoleCliDefaults,
           buildCliPermissionPreset: cliPermissionPreset,
           buildStartRunner: seStartRunner,
@@ -1035,7 +1058,7 @@ export default function NewWorkspacePanel({
             sourceContent: sePlanContent,
             sourcePlanKind: seSourcePlanKind,
             sourceBundle: seSourceBundle ?? undefined,
-            roleCounts: seRoleCounts,
+            roleCounts: visibleSprintEngineRoleCounts,
             roleCliDefaults: seRoleCliDefaults,
             sprintEngineAutoState: {
               enabled: seStartRunner,
@@ -1150,6 +1173,10 @@ export default function NewWorkspacePanel({
       cliPermissionPreset: runtimeState.buildCliPermissionPreset,
     },
   ) => {
+    const finalRoleCounts = applyUserDisabledSprintEngineRoleCounts(
+      runOptions.roleCounts,
+      sprintEngineDisabledRoleIds,
+    )
     if (!sprintEngineAccess.allowed) {
       await startLogin()
       throw new Error('Sign in to use Sprint Engine mode.')
@@ -1174,7 +1201,7 @@ export default function NewWorkspacePanel({
       mockups: runtimeState.acceptedMockups,
       requireMockups: runtimeState.hasUi === 'yes' && runtimeState.wantsFrontendDiscussion,
       confirmedDecisions: guidedBriefPlanningDecisionNotes(runtimeState),
-      roster: sprintEngineRosterSummary(runOptions.roleCounts, seRoleRegistry),
+      roster: sprintEngineRosterSummary(finalRoleCounts, seRoleRegistry),
       validationNotes: guidedBriefPlanningValidationNotes(runtimeState),
       filesystem: {
         ensureDir: window.api.ensureDir,
@@ -1201,13 +1228,13 @@ export default function NewWorkspacePanel({
         sourceContent,
         sourcePlanKind: 'product_plan',
         sourceBundle,
-        roleCounts: runOptions.roleCounts,
+        roleCounts: finalRoleCounts,
         roleCliDefaults: runOptions.roleCliDefaults,
         sprintEngineAutoState: {
           enabled: runOptions.startRunner,
           autoApproveArtifacts: runOptions.autoApproveArtifacts,
           cliPermissionPreset: runOptions.cliPermissionPreset,
-          maxConcurrentAgents: countSprintEngineAgents(runOptions.roleCounts),
+          maxConcurrentAgents: Math.max(1, countSprintEngineAgents(finalRoleCounts)),
         },
         pathExists: window.api.pathExists,
       })
@@ -1256,6 +1283,7 @@ export default function NewWorkspacePanel({
             onStartBuild={handleGuidedStartBuild}
             cliRuntimes={appCliRuntimes}
             sprintEngineRoleRegistry={seRoleRegistry}
+            sprintEngineDisabledRoleIds={sprintEngineDisabledRoleIds}
           />
         </div>
       ) : null}
@@ -1499,10 +1527,11 @@ export default function NewWorkspacePanel({
             <SprintEngineRosterStep
               access={sprintEngineAccess}
               onSignIn={() => void startLogin()}
-              roleCounts={seRoleCounts}
+              roleCounts={visibleSprintEngineRoleCounts}
               roleCliDefaults={seRoleCliDefaults}
               registry={seRoleRegistry}
               registryStatus={seRoleRegistryStatus}
+              disabledRoleIds={effectiveSprintEngineDisabledRoleIds}
               rosterDisabled={seExistingTeam != null}
               onSetRoleCount={setRoleCount}
               onSetRoleCli={setRoleCli}
@@ -2491,6 +2520,7 @@ function SprintEngineRosterStep(props: {
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   registry: SprintEngineRoleRegistry | null
   registryStatus: 'idle' | 'loading' | 'ready' | 'unavailable'
+  disabledRoleIds: ReadonlySet<SprintEngineRoleId> | null
   rosterDisabled: boolean
   onSetRoleCount: (role: SprintEngineRoleId, count: number) => void
   onSetRoleCli: (role: SprintEngineRoleId, cli: AgentCli) => void
@@ -2512,6 +2542,7 @@ function SprintEngineRosterStep(props: {
     roleCliDefaults,
     registry,
     registryStatus,
+    disabledRoleIds,
     rosterDisabled,
     onSetRoleCount,
     onSetRoleCli,
@@ -2558,6 +2589,7 @@ function SprintEngineRosterStep(props: {
           roleCounts={roleCounts}
           roleCliDefaults={roleCliDefaults}
           registry={registry}
+          disabledRoleIds={disabledRoleIds}
           disabled={rosterDisabled}
           onSetCount={onSetRoleCount}
           onSetCli={onSetRoleCli}

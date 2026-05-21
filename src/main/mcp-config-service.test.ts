@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { McpSettings } from '../shared/electron-api'
-import type { PluginManifest } from '../shared/plugin-manifest'
+import type { PluginManifest, PluginMcpConfigFormat } from '../shared/plugin-manifest'
 import { createMcpConfigService, type PluginLookup } from './mcp-config-service'
 import { createPluginRegistry } from './plugin-registry'
 
@@ -147,6 +147,95 @@ async function main(): Promise<void> {
     },
   })
   assert.equal(blocked.ok, false)
+
+  const pluginManifest = (id: string, format: PluginMcpConfigFormat): PluginManifest => ({
+    id,
+    displayName: id,
+    version: 1,
+    binary: id,
+    permissionPresets: {},
+    launch: { argv: ['{{binary}}'] },
+    promptInjection: { mode: 'positional-arg' },
+    completion: { mode: 'process-exit' },
+    capabilities: {
+      resumeSession: false,
+      sessionIdFromCaller: false,
+      toolUse: true,
+      mcpServers: true,
+    },
+    mcpConfig: {
+      path: `{{workspaceRoot}}/.${id}/config.toml`,
+      format,
+    },
+  })
+
+  const pluginLookup: PluginLookup = (id) => {
+    if (id === 'third-party-codex') return { manifest: pluginManifest(id, 'codex') }
+    if (id === 'generic-agent') return { manifest: pluginManifest(id, 'generic') }
+    return lookupPlugin(id)
+  }
+  const pluginService = createMcpConfigService({
+    lookupPlugin: pluginLookup,
+    homeDir: () => homeRoot,
+  })
+  const pluginSettings: McpSettings = {
+    syncEnabled: true,
+    servers: {
+      pluginContext: {
+        id: 'plugin-context',
+        name: 'Plugin Context',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@upstash/context7-mcp'],
+        enabled: true,
+        clients: ['third-party-codex'],
+        scope: 'workspace',
+        source: 'custom',
+        riskLevel: 'network',
+      },
+    },
+  }
+
+  const pluginResult = pluginService.sync({
+    workspaceRoot,
+    settings: pluginSettings,
+    clients: ['third-party-codex'],
+  })
+  assert.equal(pluginResult.ok, true)
+  assert.deepEqual(pluginResult.targets.map((target) => target.client), ['third-party-codex'])
+  const pluginConfig = await readFile(join(workspaceRoot, '.third-party-codex', 'config.toml'), 'utf-8')
+  assert.match(pluginConfig, /\[mcp_servers\.plugin-context\]/)
+
+  const unsupportedResult = pluginService.sync({
+    workspaceRoot,
+    clients: ['generic-agent'],
+    settings: {
+      syncEnabled: true,
+      servers: {
+        generic: {
+          id: 'generic',
+          name: 'Generic',
+          transport: 'http',
+          url: 'https://example.com/mcp',
+          enabled: true,
+          clients: ['generic-agent'],
+          scope: 'workspace',
+          source: 'custom',
+          riskLevel: 'network',
+        },
+      },
+    },
+  })
+  assert.equal(unsupportedResult.ok, true)
+  assert.deepEqual(unsupportedResult.targets, [])
+  assert.equal(
+    unsupportedResult.issues.some((issue) =>
+      issue.level === 'warning'
+      && issue.client === 'generic-agent'
+      && issue.message.includes('format "generic"')
+    ),
+    true
+  )
 }
 
 main().catch((error) => {
