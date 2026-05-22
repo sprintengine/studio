@@ -118,6 +118,9 @@ function agentSessionSystem(kind: AgentKind | undefined): AgentSessionSystem {
 
 export default function TerminalView({ workspaceId, agentId, sessionId: attachedSessionId, shouldKillOnUnmount }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const focusTerminalRef = useRef<() => void>(() => {
+    containerRef.current?.focus()
+  })
   const [isFileDragOver, setIsFileDragOver] = useState(false)
   const [dropError, setDropError] = useState<string | null>(null)
   const agent = useWorkspaceStore((s) =>
@@ -267,6 +270,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       terminalDiagnostics.recordFocus()
       term.focus()
     }
+    focusTerminalRef.current = focusTerminal
 
     term.loadAddon(fitAddon)
     term.attachCustomKeyEventHandler((event) => {
@@ -550,6 +554,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       outputQueue.dispose()
       unbindTerminalTheme()
       term.dispose()
+      focusTerminalRef.current = () => {
+        containerRef.current?.focus()
+      }
     }
   }, [
     workspaceId,
@@ -598,8 +605,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     if (!hasFileDropData(event.dataTransfer)) return
     event.preventDefault()
     setIsFileDragOver(false)
+    focusTerminalRef.current()
 
-    const sessionId = agent?.cliSessionId
+    const sessionId = attachedSessionId ?? agent?.cliSessionId
     if (!sessionId) {
       setDropError('Start this agent terminal before dropping files into it.')
       return

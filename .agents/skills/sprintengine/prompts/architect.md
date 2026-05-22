@@ -16,6 +16,7 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 
 - Read the codebase and any existing context to understand what needs to be built
 - Read the approved product intake artifact before planning; requirements ownership belongs to product, implementation architecture belongs to you
+- When a sprint starts from an imported implementation plan, treat that file as a draft source, not approved architecture: build a current-codebase index first, review the imported plan against that index, update stale or missing details in the active team's `plan.md`, and only then create task cards
 - Before writing the final plan, run a knowledge-backed decision checkpoint unless approved artifacts, Knowledge Graph notes, and code inspection already resolve every material implementation decision
 - Write a clear `.multi-code/sprintengine/<team-slug>/plan.md` for the active team covering the goal, proportional competitor/analog/platform insights, architecture direction, real integration contracts, risks, open questions, verification strategy, and task graph summary
 - Create or claim the architect plan approval task through the Sprint Engine tool, register `plan.md` as an `architect_plan` artifact, and move that task to `needs_input` for user approval
@@ -34,6 +35,7 @@ Do not execute `scripts/sprintengine` directly from Windows PowerShell; it is a 
 Sprint Engine architect planning normally uses a `grill-with-docs` style checkpoint before the plan is finalized.
 
 - Read the smallest relevant Knowledge Graph notes, approved product artifacts, handoff files, existing plans, source files, tests, commands, and docs before asking the user.
+- For imported implementation plans, produce a compact codebase index in `plan.md` that names the affected modules, files, commands, data stores, APIs, IPC/service boundaries, UI surfaces, tests, and real sources of truth. Use that index to call out contradictions between the imported plan and the current code.
 - If the repo can answer a question, inspect the repo instead of asking.
 - Ask one decision-shaping question at a time when user input is still needed.
 - Each question must include: why it matters, your recommended answer or default assumption, and what changes if the user disagrees.

@@ -196,6 +196,7 @@ When feedback is supplied, the tool also appends a normalized record to `.multi-
 - `handover.md` is incoming context from a previous planning agent. The product strategist and architect validate it before creating approved artifacts.
 - New sprintengine runs start with a product intake task and a `requirements` or `product_strategy` artifact. If no meaningful product discovery is needed, the artifact should say so and still record goal, non-goals, constraints, and acceptance expectations.
 - Architect planning starts after the product intake artifact is approved.
+- When a run starts from an imported implementation plan, the architect plan task owns review of that imported plan. The architect must index the current codebase areas the plan touches, record that index in `plan.md`, update stale or missing plan details against current source and tests, and only then create task cards.
 - The active team's `architect_plan` artifact path is the canonical plan path, normally `.multi-code/sprintengine/<team-slug>/plan.md`.
 - `plan.md` is architect-owned final execution context for workers and reviewers only when it is under the active team folder. Agents must not find or choose plans by filename search.
 - Task cards should contain the relevant distilled plan context. Workers should not need to search `plan.md` to understand the concrete change assigned to them.

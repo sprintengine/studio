@@ -302,6 +302,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 )
                 plan_task["acceptanceCriteria"] = [
                     "Imported implementation plan is reviewed against the current repository before task creation.",
+                    "plan.md includes a current-codebase index mapping the affected modules, files, commands, data stores, APIs, and UI surfaces the plan relies on.",
                     "Stale, missing, or incorrect plan details are updated in plan.md.",
                     "Architect plan artifact is marked ready for user approval after review.",
                     "Implementation, validation, and required review tasks are created with Sprint Engine plan commands.",
@@ -310,6 +311,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 plan_task["implementationNotes"] = [
                     f"Imported source plan is seeded at `{plan_path_artifact_value(state_path)}` if that file did not already exist.",
                     "Preserve existing plan.md edits on repeated init runs.",
+                    "Before creating task cards, index the current codebase areas affected by the imported plan and record that index in plan.md.",
                     "Review and update only stale or missing parts; do not rewrite valid plan content just because it was imported.",
                     *source_bundle_reference_notes(state),
                 ]

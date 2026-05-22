@@ -17,8 +17,8 @@ const guidedBriefInput = {
   guidedRoleCliDefaults: {
     product: 'claude',
     architect: 'codex',
-    frontend: 'claude',
-    developer: 'invalid',
+    frontend: 'my-custom-cli',
+    developer: 'custom-guided-extra-role',
   },
   buildRoleCounts: {
     architect: 0,
@@ -35,7 +35,7 @@ const guidedBriefInput = {
     code_reviewer: 'codex',
     spec_reviewer: 'claude',
     tester: 'claude',
-    security: 'invalid',
+    security: 'my-custom-cli',
   },
   buildCliPermissionPreset: 'auto_workspace',
   buildStartRunner: false,
@@ -67,13 +67,13 @@ assert.ok(normalized, 'valid guided brief input should normalize')
 assert.equal(normalized.stage, 'architect-ready')
 assert.equal(normalized.guidedRoleCliDefaults.product, 'claude')
 assert.equal(normalized.guidedRoleCliDefaults.architect, 'codex')
-assert.equal(normalized.guidedRoleCliDefaults.frontend, 'claude')
+assert.equal(normalized.guidedRoleCliDefaults.frontend, 'my-custom-cli')
 assert.equal(normalized.buildRoleCounts.architect, 1, 'architect role count is clamped to at least 1')
 assert.equal(normalized.buildRoleCounts.frontend, 10, 'role counts are clamped to the maximum')
 assert.equal(normalized.buildRoleCounts.developer, 2, 'role counts are floored to integers')
 assert.equal(normalized.buildRoleCounts.tester, 0, 'non-architect roles clamp to zero')
 assert.equal(normalized.buildRoleCliDefaults.developer, 'claude')
-assert.equal(normalized.buildRoleCliDefaults.security, 'codex', 'invalid CLI defaults fall back')
+assert.equal(normalized.buildRoleCliDefaults.security, 'my-custom-cli', 'custom CLI defaults are preserved')
 assert.equal(normalized.buildCliPermissionPreset, 'auto_workspace')
 assert.equal(normalized.buildStartRunner, false)
 assert.equal(normalized.buildAutoApproveArtifacts, true)
@@ -136,7 +136,7 @@ const customRoleGuidedBrief: Partial<GuidedBriefRuntimeState> = {
     architect: 'codex',
     product: 'codex',
     marketer: 'claude',
-    growth_engineer: 'codex',
+    growth_engineer: 'my-custom-cli',
     '': 'claude',
   } as unknown as GuidedBriefRuntimeState['buildRoleCliDefaults'],
 }
@@ -148,5 +148,5 @@ assert.equal(customRoleNormalized.buildRoleCounts.growth_engineer, 1, 'registry-
 assert.equal(customRoleNormalized.buildRoleCounts[''], undefined, 'blank role id is dropped')
 assert.equal(customRoleNormalized.buildRoleCounts['   '], undefined, 'whitespace-only role id is dropped')
 assert.equal(customRoleNormalized.buildRoleCliDefaults.marketer, 'claude', 'registry-keyed CLI default is preserved')
-assert.equal(customRoleNormalized.buildRoleCliDefaults.growth_engineer, 'codex', 'second custom-role CLI default is preserved')
+assert.equal(customRoleNormalized.buildRoleCliDefaults.growth_engineer, 'my-custom-cli', 'custom CLI ids are preserved')
 assert.equal(customRoleNormalized.buildRoleCliDefaults[''], undefined, 'blank CLI default key is dropped')

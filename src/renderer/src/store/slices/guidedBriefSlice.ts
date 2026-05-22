@@ -121,16 +121,16 @@ function normalizeRoleCliDefaultsForGuidedBrief(
 ): Required<SprintEngineRoleCliDefaults> {
   const defaults = defaultSprintEngineRoleCliDefaultsForGuidedBrief()
   // Start from the bundled defaults so guided-brief always has a CLI for the
-  // canonical roles, then merge in any valid registry-keyed CLI selections
-  // (e.g. `marketer: 'claude'`). Invalid CLI values and blank role keys are
-  // dropped silently so workspace creation never sees malformed defaults.
+  // canonical roles, then merge in any valid registry-keyed CLI selections.
+  // Agent CLI ids are plugin ids, so preserve any nonblank string instead of
+  // hard-coding the built-in clients.
   const next: Required<SprintEngineRoleCliDefaults> = { ...defaults }
   if (input && typeof input === 'object') {
     for (const role of Object.keys(input)) {
       if (!isValidGuidedBriefRoleId(role)) continue
       const value = (input as Record<SprintEngineRoleId, unknown>)[role]
-      if (value === 'claude' || value === 'claude') {
-        next[role] = value
+      if (typeof value === 'string' && value.trim()) {
+        next[role] = value.trim()
       }
     }
   }

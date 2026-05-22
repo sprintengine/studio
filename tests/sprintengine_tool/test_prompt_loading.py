@@ -698,6 +698,8 @@ def test_source_bundle_handover_seeds_product_and_architect_sources(tmp_path) ->
     assert payload["productTask"]["title"] == "Review imported product plan"
     assert payload["planTask"]["title"] == "Review imported implementation plan and create task graph"
     assert payload["planTask"]["dependsOn"] == [payload["productTask"]["id"]]
+    assert any("current-codebase index" in item for item in payload["planTask"]["acceptanceCriteria"])
+    assert any("index the current codebase" in item for item in payload["planTask"]["implementationNotes"])
     assert "Architect plan artifact is marked ready for user approval after review." in payload["planTask"]["acceptanceCriteria"]
     assert [artifact for artifact in state["artifacts"] if artifact["taskId"] == ""] == []
     assert any("mockup.html" in note and "implementationNotes" in note for note in payload["productTask"]["implementationNotes"])
@@ -750,6 +752,8 @@ def test_html_source_can_be_classified_as_architect_plan(tmp_path) -> None:
 
     assert payload["productTask"] is None
     assert payload["planTask"]["title"] == "Review imported implementation plan and create task graph"
+    assert any("current-codebase index" in item for item in payload["planTask"]["acceptanceCriteria"])
+    assert any("index the current codebase" in item for item in payload["planTask"]["implementationNotes"])
     assert "Architect plan artifact is marked ready for user approval after review." in payload["planTask"]["acceptanceCriteria"]
     assert (state_path.parent / "plan.md").read_text(encoding="utf-8") == "<!doctype html><title>Implementation Plan</title><main>Tasks</main>\n"
 
@@ -843,6 +847,8 @@ def test_architect_plan_handover_skips_product_gate_even_when_product_rostered(t
     assert payload["planTask"]["title"] == "Review imported implementation plan and create task graph"
     assert payload["planTask"]["status"] == "todo"
     assert payload["planTask"]["dependsOn"] == []
+    assert any("current-codebase index" in item for item in payload["planTask"]["acceptanceCriteria"])
+    assert any("index the current codebase" in item for item in payload["planTask"]["implementationNotes"])
     assert "Architect plan artifact is marked ready for user approval after review." in payload["planTask"]["acceptanceCriteria"]
     assert plan_artifact["status"] == "draft"
     assert plan_artifact["path"] == "plan.md"
