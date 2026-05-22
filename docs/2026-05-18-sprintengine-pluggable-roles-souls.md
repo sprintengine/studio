@@ -356,7 +356,7 @@ Final MCP names use dotted, role-agnostic operation groups. The old CLI-shaped M
 | Discovery | `sprintengine.roles.list`, `sprintengine.roles.get`, `sprintengine.soul.get`, `sprintengine.skills.list`, `sprintengine.skill.get` | Discovery reads the role registry and Soul renderer; it must expose source layer and warnings where available. |
 | Task operations | `sprintengine.task.get`, `sprintengine.task.list`, `sprintengine.task.next`, `sprintengine.task.claim`, `sprintengine.task.status`, `sprintengine.task.resolve_input`, `sprintengine.task.release`, `sprintengine.task.ready`, `sprintengine.task.log`, `sprintengine.task.note`, `sprintengine.task.comment`, `sprintengine.task.comment.list`, `sprintengine.task.publish`, `sprintengine.task.request_changes` | Active MCP names are role-agnostic and call the same core mutation path as the CLI. Claim responses include `currentDispatch` and a top-level dispatched state when a durable assignment exists. Completion-style responses include progression data where server progression advanced the task. |
 | Gate operations | `sprintengine.gate.list`, `sprintengine.gate.next`, `sprintengine.gate.claim`, `sprintengine.gate.verdict`, `sprintengine.gate.publish`, `sprintengine.gate.skip` | Gate claim responses include `currentDispatch` and top-level dispatched state for the claimed gate. `gate.publish` is the final v1 verdict name; `gate.verdict` remains the CLI-compatible wrapper. |
-| Artifact operations | `sprintengine.artifact.add`, `sprintengine.artifact.ready`, `sprintengine.artifact.approve`, `sprintengine.artifact.request_changes`, `sprintengine.artifact.list` | Artifact paths remain project-root-relative. |
+| Artifact operations | `sprintengine.artifact.add`, `sprintengine.artifact.ready`, `sprintengine.artifact.approve`, `sprintengine.artifact.request_changes`, `sprintengine.artifact.list` | Artifact paths remain project-root-relative. Explicit UI review actions may call authenticated main/MCP IPC for approval or request-changes, but the mutation authority remains Sprint Engine core/MCP rather than agent terminal text or direct store writes. |
 | Plan operations | `sprintengine.plan.add_task`, `sprintengine.plan.update_task`, `sprintengine.plan.delete_task`, `sprintengine.plan.add_dependency`, `sprintengine.plan.remove_dependency`, `sprintengine.plan.start_review`, `sprintengine.plan.review_status`, `sprintengine.plan.address_reviews` | Architect-only mutating operations continue to enforce actor/role authorization. |
 | Run operations | `sprintengine.run.get`, `sprintengine.run.policy.get`, `sprintengine.run.projection`, `sprintengine.run.subscribe` | `sprintengine.summary`, `sprintengine.health`, roster tools, and feedback tools remain operational/support tools. |
 
@@ -384,6 +384,13 @@ Stateful lifecycle calls use `statePath`. Registry discovery calls use `workspac
 - `sprintengine.cancel { agentId, reason }` — server is revoking the agent's current claim
 
 Notifications are advisory transport. The durable contract is `run.yaml` plus `dispatch.jsonl`: if a notification is missed, duplicated, or delivered after reconnect, the receiving agent must reconcile by dispatch id before acting. Current production behavior must not assume that a notification wakes an idle Codex or Claude Code session.
+
+Artifact review follows the same state-first rule. Approval, request-changes,
+and policy-approved auto-approval are recorded by Sprint Engine artifact
+operations, then renderer/runtime consumers react to the returned projection,
+events, dispatch, or notification state. Multicode may wake or focus an agent
+terminal after that state exists; it must not make terminal text the normal
+artifact review mutation path.
 
 ### Discovery
 

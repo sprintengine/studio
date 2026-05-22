@@ -169,6 +169,8 @@ def test_mcp_valid_task_lifecycle_call_uses_core_and_emits_audit(tmp_path) -> No
     assert claimed["result"]["task"]["status"] == "in_progress"
     assert claimed["result"]["state"] == "dispatched"
     assert claimed["result"]["currentDispatch"]["targetKind"] == "task"
+    assert claimed["result"]["latestEventId"] == claimed["result"]["event"]["id"]
+    assert claimed["result"]["events"][-1]["id"] == claimed["result"]["event"]["id"]
     assert logged["ok"] is True
     state = read_state(fixture.state_path)
     task_record = get_task(state, "T1")
@@ -211,6 +213,7 @@ def test_mcp_run_and_dispatch_tools_return_role_agnostic_progression_context(tmp
     run = server.call_tool("sprintengine.run.get", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
     policy = server.call_tool("sprintengine.run.policy.get", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
     projection = server.call_tool("sprintengine.run.projection", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
+    events = server.call_tool("sprintengine.run.subscribe", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
 
     assert dispatch["ok"] is True
     assert dispatch["result"]["state"] == "dispatched"
@@ -227,6 +230,8 @@ def test_mcp_run_and_dispatch_tools_return_role_agnostic_progression_context(tmp
     assert run["result"]["run"]["name"] == "mcp-run-dispatch"
     assert "mode" in policy["result"]["runner"]
     assert projection["result"]["run"]["name"] == "mcp-run-dispatch"
+    assert events["result"]["latestEventId"] == events["result"]["latestEvent"]["id"]
+    assert events["result"]["state"] == "events_available"
     assert [row["operation_name"] for row in audit_rows(fixture.team_dir)] == [
         "sprintengine.task.next",
         "sprintengine.dispatch.ack",

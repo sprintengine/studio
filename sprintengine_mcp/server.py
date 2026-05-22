@@ -518,7 +518,15 @@ class SprintEngineMcpServer:
                     elif event.get("id") == last_event_id:
                         seen = True
                 events = filtered
-            return {"ok": True, "events": events, "state": "events_available" if events else "idle", "write": False}
+            latest_event = events[-1] if events else None
+            return {
+                "ok": True,
+                "events": events,
+                "latestEvent": latest_event,
+                "latestEventId": latest_event.get("id") if isinstance(latest_event, dict) else None,
+                "state": "events_available" if events else "idle",
+                "write": False,
+            }
 
         return with_locked_state(state_path, run)
 
@@ -852,6 +860,12 @@ class SprintEngineMcpServer:
         return SimpleNamespace(**base)
 
     def _with_progress_context(self, tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
+        events = _result_events(result)
+        if events:
+            latest_event = events[-1]
+            result.setdefault("events", events)
+            result.setdefault("latestEvent", latest_event)
+            result.setdefault("latestEventId", latest_event.get("id"))
         if tool_name in {"sprintengine.task.next", "sprintengine.task.claim", "sprintengine.gate.next", "sprintengine.gate.claim"}:
             agent = result.get("agent") if isinstance(result.get("agent"), dict) else {}
             current = agent.get("currentDispatch") if isinstance(agent, dict) else None
@@ -1139,6 +1153,19 @@ def _warning_payloads(warnings: tuple[RegistryWarning, ...]) -> list[dict[str, A
             payload["sourceLayer"] = warning.source_layer
         payloads.append(payload)
     return payloads
+
+
+def _result_events(result: dict[str, Any]) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for key in ("event", "notification"):
+        value = result.get(key)
+        if isinstance(value, dict):
+            events.append(value)
+    for key in ("events", "notifications"):
+        values = result.get(key)
+        if isinstance(values, list):
+            events.extend(value for value in values if isinstance(value, dict))
+    return events
 
 
 def _looks_like_foreign_platform_path(raw: str) -> bool:

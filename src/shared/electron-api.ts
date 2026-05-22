@@ -687,8 +687,24 @@ export type AppUpdateCheckResult =
   | { ok: true; state: AppUpdateState; message: string }
   | { ok: false; state: AppUpdateState; message: string }
 
+export type SprintEngineMutationEventMetadata = {
+  id?: string
+  type?: string
+  timestamp?: string
+  actor?: string
+  message?: string
+}
+
+export type SprintEngineMutationRefreshData = {
+  projectionContent?: string
+  events?: SprintEngineMutationEventMetadata[]
+  latestEvent?: SprintEngineMutationEventMetadata
+  latestEventId?: string
+  [key: string]: unknown
+}
+
 export type SprintEngineArtifactCommandResult =
-  | { ok: true; data: unknown }
+  | { ok: true; data: SprintEngineMutationRefreshData }
   | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
 
 export type SprintEngineProjectionReadResult =

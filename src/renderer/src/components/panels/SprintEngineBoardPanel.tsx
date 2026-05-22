@@ -63,8 +63,6 @@ import {
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { focusOrAddAgentTab, focusOrAddFileTab } from '../../utils/modelRegistry'
 import { publishDiagnostic, publishDiagnosticSync } from '../../utils/diagnostics'
-import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
-import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
 import { isEditableTarget } from '../../utils/keyboard'
 import { basename, isAbsoluteFilePath, joinFilePath, parentPath } from '../../utils/paths'
 import {
@@ -253,7 +251,6 @@ type RecoveryDialogState = {
 
 function SprintEngineSettingsPopover({
  supervisorEnabled,
- runnerModeLabel,
  autoApproveArtifacts,
  cliPermissionPreset,
  onToggleAuto,
@@ -263,7 +260,6 @@ function SprintEngineSettingsPopover({
  onClose,
 }: {
  supervisorEnabled: boolean
- runnerModeLabel: string
  autoApproveArtifacts: boolean
  cliPermissionPreset: SprintEngineCliPermissionPreset
  onToggleAuto: () => void
@@ -327,9 +323,6 @@ function SprintEngineSettingsPopover({
  onChange={onToggleAuto}
  ariaLabelledBy="sprintengine-settings-auto-label"
  />
- </div>
- <div className="text-[11px] leading-4 text-[color:var(--text-muted)]">
- Sprint Engine mode: {runnerModeLabel}
  </div>
  <div
  className={`flex items-center justify-between gap-3 text-[12px] ${
@@ -447,6 +440,12 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const [inspectorExpanded, setInspectorExpanded] = useState(false)
  const [spawnDialog, setSpawnDialog] = useState<SpawnDialogState | null>(null)
  const [recoveryDialog, setRecoveryDialog] = useState<RecoveryDialogState | null>(null)
+ const [requestChangesDialog, setRequestChangesDialog] = useState<{
+ artifact: SprintEngineArtifact
+ feedback: string
+ submitting: boolean
+ error: string | null
+ } | null>(null)
  const [cliPickerOpen, setCliPickerOpen] = useState(false)
  const [settingsOpen, setSettingsOpen] = useState(false)
  const [addMemberOpen, setAddMemberOpen] = useState(false)
@@ -468,7 +467,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const terminalSessions = useTerminalSessions()
  const projectedSupervisorEnabled = workspace?.sprintEngineAutoState?.supervisorEnabled ?? false
  const autoEnabled = autoRunnerControlEnabled ?? projectedSupervisorEnabled
- const runnerModeLabel = sprintEngineState?.runner?.mode === 'auto' ? 'Auto Mode' : 'Manual Mode'
  const autoApproveArtifacts = workspace?.sprintEngineAutoState?.autoApproveArtifacts ?? false
  const cliPermissionPreset = workspace?.sprintEngineAutoState?.cliPermissionPreset ?? 'default'
 
@@ -1041,106 +1039,42 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  setPreviewedArtifact(null)
  }
 
- const resolveArtifactProducerAgentId = (artifact: SprintEngineArtifact): string | null => {
- const linkedTask = tasksById[artifact.taskId]
- const createdBy = artifact.createdBy.trim()
- if (createdBy && (rosterById[createdBy] || agents[createdBy] || sprintEngineState?.sprintEngineAgents[createdBy])) {
- return createdBy
+ // Manual artifact review actions are authenticated Sprint Engine MCP/core
+ // mutations: the renderer hands intent to main IPC, Sprint Engine performs
+ // the state transition, and the returned projection drives the UI. No
+ // approval text is typed into the producer terminal.
+ const applyMutationResultProjection = async (
+ result: { ok: true; data: unknown } | { ok: false; message: string },
+ ): Promise<void> => {
+ if (!result.ok) return
+ const projectionContent = (result.data as { projectionContent?: unknown } | undefined)?.projectionContent
+ const applied = applySprintEngineProjectionContent(projectionContent)
+ if (!applied) await refreshSprintEngineState()
  }
 
- if (linkedTask?.ownerAgentId) return linkedTask.ownerAgentId
-
- if (linkedTask) {
- const runningRoleAgents = roster.filter((agent) =>
- agent.role === linkedTask.role && isAgentTerminalLive(agent.id)
- )
- if (runningRoleAgents.length === 1) return runningRoleAgents[0].id
- }
-
- return null
- }
-
- const focusArtifactProducerTerminal = (artifact: SprintEngineArtifact): { agentId: string; label: string } | null => {
- const agentId = resolveArtifactProducerAgentId(artifact)
- if (!agentId) {
- setArtifactAction(artifact.id, {
- kind: 'requestChanges',
- status: 'error',
- message: 'No producer terminal is linked to this artifact.',
- })
- return null
- }
-
- const fallbackLabel = rosterById[agentId]?.label ?? agentId
- const label = getAgentName(agentId, fallbackLabel)
- setSelectedAgentId(agentId)
- focusOrAddAgentTab(workspaceId, agentId, label)
- return { agentId, label }
- }
-
- const runningArtifactProducerSessionId = async (agentId: string): Promise<string | null> => {
- const sessionId = agents[agentId]?.cliSessionId
- if (sessionId) {
- const status = await window.api.terminalStatus(sessionId).catch(() => ({ processAlive: false }))
- if (status.processAlive) return sessionId
- }
-
- const sessions = await window.api.terminalList().catch(() => [])
- const runningSession = sessions.find((session) =>
- session.processAlive
- && session.kind === 'agent'
- && session.workspaceId === workspaceId
- && session.agentId === agentId
- && (!sprintEngineContext || session.sprintEngineStatePath === sprintEngineContext.statePath)
- )
- if (!runningSession) return null
-
- const effectiveCli = runningSession.cli ?? agents[agentId]?.cli
- if (!effectiveCli) {
- await publishDiagnostic({
- level: 'error',
- source: 'terminal',
- title: `${agentId} terminal was not attached`,
- message: 'Running Sprint Engine terminal is missing its CLI selection.',
- workspaceId,
- workspaceName: workspace?.name,
- agentId,
- })
- return null
- }
-
- updateAgent(workspaceId, agentId, {
- cliSessionId: runningSession.sessionId,
- cliStartRequested: true,
- cliHasLaunched: true,
- cliResumeAvailable: agentCliSupportsConversationResume(effectiveCli),
- cli: effectiveCli,
- })
- return runningSession.sessionId
- }
-
- // Review actions are terminal handoffs. The renderer must not invoke sprintengine
- // Python mutation commands; the producing agent receives the user's decision
- // and updates Sprint Engine state through its own tool flow.
  const approveArtifact = async (artifact: SprintEngineArtifact) => {
- setArtifactAction(artifact.id, { kind: 'approve', status: 'pending', message: 'Sending approval...' })
+ const statePath = requireArtifactStatePath()
+ if (!statePath) return
+
+ setArtifactAction(artifact.id, { kind: 'approve', status: 'pending', message: 'Approving artifact...' })
  try {
- const target = focusArtifactProducerTerminal(artifact)
- if (!target) return
-
- const sessionId = await runningArtifactProducerSessionId(target.agentId)
- if (!sessionId) {
- throw new Error(`Opened ${target.label}. Start or wait for the producer CLI before approving.`)
+ const result = await window.api.approveSprintEngineArtifact(statePath, artifact.id)
+ if (!result.ok) {
+ setArtifactAction(artifact.id, {
+ kind: 'approve',
+ status: 'error',
+ message: result.message || 'Sprint Engine rejected the approval.',
+ })
+ return
  }
-
- await sendArtifactApprovalToTerminal(sessionId)
+ await applyMutationResultProjection(result)
  setArtifactAction(artifact.id, {
  kind: 'approve',
  status: 'success',
- message: `Sent approval to ${target.label}.`,
+ message: 'Approved through Sprint Engine.',
  })
  } catch (error) {
- const message = error instanceof Error ? error.message : 'Failed to send approval.'
+ const message = error instanceof Error ? error.message : 'Failed to approve artifact.'
  setArtifactAction(artifact.id, {
  kind: 'approve',
  status: 'error',
@@ -1150,14 +1084,73 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  }
 
  const requestArtifactChanges = (artifact: SprintEngineArtifact) => {
- const target = focusArtifactProducerTerminal(artifact)
- if (!target) return
+ if (!requireArtifactStatePath()) return
+ setRequestChangesDialog({ artifact, feedback: '', submitting: false, error: null })
+ }
 
+ const cancelRequestArtifactChangesDialog = () => {
+ setRequestChangesDialog((current) => (current?.submitting ? current : null))
+ }
+
+ const submitRequestArtifactChanges = async () => {
+ const dialogState = requestChangesDialog
+ if (!dialogState || dialogState.submitting) return
+ const feedback = dialogState.feedback.trim()
+ if (!feedback) {
+ setRequestChangesDialog((current) =>
+ current ? { ...current, error: 'Feedback is required to request changes.' } : current,
+ )
+ return
+ }
+ const statePath = requireArtifactStatePath()
+ if (!statePath) {
+ setRequestChangesDialog((current) =>
+ current
+ ? { ...current, error: 'This Sprint Engine workspace is missing its selected team context.' }
+ : current,
+ )
+ return
+ }
+
+ const { artifact } = dialogState
+ setRequestChangesDialog((current) => (current ? { ...current, submitting: true, error: null } : current))
+ setArtifactAction(artifact.id, {
+ kind: 'requestChanges',
+ status: 'pending',
+ message: 'Requesting changes...',
+ })
+ try {
+ const result = await window.api.requestSprintEngineArtifactChanges(statePath, artifact.id, feedback)
+ if (!result.ok) {
+ const message = result.message || 'Sprint Engine rejected the change request.'
+ setRequestChangesDialog((current) =>
+ current ? { ...current, submitting: false, error: message } : current,
+ )
+ setArtifactAction(artifact.id, {
+ kind: 'requestChanges',
+ status: 'error',
+ message,
+ })
+ return
+ }
+ await applyMutationResultProjection(result)
  setArtifactAction(artifact.id, {
  kind: 'requestChanges',
  status: 'success',
- message: `Focused ${target.label}. Type your change request in the terminal.`,
+ message: 'Changes requested through Sprint Engine.',
  })
+ setRequestChangesDialog(null)
+ } catch (error) {
+ const message = error instanceof Error ? error.message : 'Failed to request changes.'
+ setRequestChangesDialog((current) =>
+ current ? { ...current, submitting: false, error: message } : current,
+ )
+ setArtifactAction(artifact.id, {
+ kind: 'requestChanges',
+ status: 'error',
+ message,
+ })
+ }
  }
 
  const folderStatusBanner = savedFolderPath && !folderPath ? (
@@ -1768,7 +1761,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  >
  <SprintEngineSettingsPopover
  supervisorEnabled={autoEnabled}
- runnerModeLabel={runnerModeLabel}
  autoApproveArtifacts={autoApproveArtifacts}
  cliPermissionPreset={cliPermissionPreset}
  onToggleAuto={toggleAuto}
@@ -2014,6 +2006,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  flipKey={task.id}
  justMovedClassName={justMoved ? 'card-just-moved-gold' : undefined}
  trailing={
+ <Tooltip content={getSprintEngineRoleLabel(task.role)}>
  <span
  // design-tokens-allow: role glyph is the one place per the redesign where role tones are retained.
  style={{ color: getSprintEngineRoleAccent(task.role) }}
@@ -2022,6 +2015,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  >
  <SprintEngineRoleIcon role={task.role} className="icon-sm" />
  </span>
+ </Tooltip>
  }
  />
  )
@@ -2374,6 +2368,79 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  </Modal>
  ) : null}
 
+ {requestChangesDialog ? (
+ <Modal
+ open
+ contained
+ width={520}
+ labelledBy="request-changes-dialog-title"
+ onClose={cancelRequestArtifactChangesDialog}
+ >
+ <div className="flex items-start justify-between gap-4 border-b border-[color:var(--border-default)] px-5 py-4">
+ <div className="min-w-0">
+ <div className="mb-1 text-[10px] font-semibold text-[color:var(--text-disabled)]">
+ Request Changes
+ </div>
+ <h3
+ id="request-changes-dialog-title"
+ className="truncate text-[18px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]"
+ >
+ {requestChangesDialog.artifact.title}
+ </h3>
+ <p className="mt-2 text-[13px] leading-6 text-[color:var(--text-muted)]">
+ Sprint Engine records this feedback on the artifact and reopens the owning task for rework.
+ </p>
+ </div>
+ <CloseIconButton
+ size="md"
+ aria-label="Close"
+ onClick={cancelRequestArtifactChangesDialog}
+ />
+ </div>
+
+ <ModalBody className="space-y-3">
+ <label className="block">
+ <span className="mb-2 block text-[10px] font-bold text-[color:var(--text-disabled)]">
+ Feedback
+ </span>
+ <textarea
+ value={requestChangesDialog.feedback}
+ onChange={(event) => {
+ const value = event.target.value
+ setRequestChangesDialog((current) =>
+ current ? { ...current, feedback: value, error: null } : current,
+ )
+ }}
+ disabled={requestChangesDialog.submitting}
+ placeholder="Describe what needs to change before this artifact can be approved."
+ rows={5}
+ className="block w-full resize-y rounded-md bg-[color:var(--bg-surface-raised)] px-3 py-2 text-sm leading-5 text-[color:var(--text-strong)] outline-none interactive transition-colors placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus:ring-1 focus:ring-[color:var(--accent-primary-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+ />
+ </label>
+ {requestChangesDialog.error ? (
+ <p className="text-[12px] leading-5 text-[color:var(--tone-error)]">
+ {requestChangesDialog.error}
+ </p>
+ ) : null}
+ </ModalBody>
+
+ <ModalFooter>
+ <ModalButton
+ onClick={cancelRequestArtifactChangesDialog}
+ disabled={requestChangesDialog.submitting}
+ >
+ Cancel
+ </ModalButton>
+ <ModalButton
+ variant="primary"
+ onClick={() => void submitRequestArtifactChanges()}
+ disabled={requestChangesDialog.submitting || requestChangesDialog.feedback.trim().length === 0}
+ >
+ {requestChangesDialog.submitting ? 'Requesting changes…' : 'Request changes'}
+ </ModalButton>
+ </ModalFooter>
+ </Modal>
+ ) : null}
 
  {addMemberOpen ? (
  <Modal

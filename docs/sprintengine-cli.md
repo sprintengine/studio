@@ -312,6 +312,20 @@ sprintengine artifact request-changes --artifact-id A1 --id user --feedback "Nar
 `ready_for_review` and moves the linked task to `needs_input` when human review
 is required.
 
+Artifact approval and request-changes are Sprint Engine state mutations. App UI
+code may initiate explicit user review actions through authenticated main/MCP
+IPC, but the command must still run through the Sprint Engine artifact mutation
+path so artifact files, task notes, events, and projection stay synchronized.
+This is different from direct store mutation: renderer, preload, mobile, and
+agents must not edit artifact JSON, task folders, events, or projection files.
+
+Auto-approval follows the same boundary after its policy checks pass. It should
+call the Sprint Engine artifact approval command and apply the returned
+projection data; it should not send approval request text to the producing
+agent terminal. Multicode may wake or focus terminals after Sprint Engine
+records notification, dispatch, or rework state, but direct MCP notifications
+are not assumed to wake Codex or Claude sessions by themselves.
+
 ## Runner Policy
 
 The durable runner policy lives in `run.yaml` and is exposed in projection:

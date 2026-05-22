@@ -104,6 +104,14 @@ type SerializableSprintEngineStatePayload = {
   artifacts: unknown[]
 }
 
+type SprintEngineEventMetadata = {
+  id?: string
+  type?: string
+  timestamp?: string
+  actor?: string
+  message?: string
+}
+
 const autoApprovableArtifactKinds = new Set([
   'architect_plan',
   'product_strategy',
@@ -247,6 +255,79 @@ function resolveArray(input: unknown, field: string): unknown[] {
   if (input === undefined || input === null) return []
   if (!Array.isArray(input)) throw new Error(`${field} must be a list.`)
   return input
+}
+
+function asRecord(input: unknown): Record<string, unknown> | null {
+  return input && typeof input === 'object' && !Array.isArray(input)
+    ? input as Record<string, unknown>
+    : null
+}
+
+function eventMetadataFromUnknown(input: unknown): SprintEngineEventMetadata | null {
+  const record = asRecord(input)
+  if (!record) return null
+  const id = typeof record.id === 'string' ? record.id : undefined
+  const type = typeof record.type === 'string' ? record.type : undefined
+  const timestamp = typeof record.timestamp === 'string' ? record.timestamp : undefined
+  const actor = typeof record.actor === 'string' ? record.actor : undefined
+  const message = typeof record.message === 'string' ? record.message : undefined
+  if (!id && !type && !timestamp && !actor && !message) return null
+  return { id, type, timestamp, actor, message }
+}
+
+function collectSprintEngineEvents(toolResult: unknown): SprintEngineEventMetadata[] {
+  const record = asRecord(toolResult)
+  if (!record) return []
+  const events: SprintEngineEventMetadata[] = []
+  const add = (candidate: unknown) => {
+    const event = eventMetadataFromUnknown(candidate)
+    if (event) events.push(event)
+  }
+  add(record.event)
+  add(record.notification)
+  if (Array.isArray(record.events)) {
+    for (const event of record.events) add(event)
+  }
+  if (Array.isArray(record.notifications)) {
+    for (const event of record.notifications) add(event)
+  }
+  return events
+}
+
+async function readLatestSprintEngineEvent(state: ValidSprintEngineStatePath): Promise<SprintEngineEventMetadata | null> {
+  try {
+    const content = await readFile(join(state.teamDirectory, 'events.jsonl'), 'utf8')
+    const line = content.trim().split(/\r?\n/u).filter(Boolean).at(-1)
+    if (!line) return null
+    return eventMetadataFromUnknown(JSON.parse(line))
+  } catch {
+    return null
+  }
+}
+
+async function buildSprintEngineMutationData(
+  state: ValidSprintEngineStatePath,
+  data: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
+  const toolEvents = collectSprintEngineEvents(data.tool)
+  const latestEvent = toolEvents.at(-1) ?? await readLatestSprintEngineEvent(state)
+  return {
+    ...data,
+    projectionContent,
+    ...(toolEvents.length > 0 ? { events: toolEvents } : {}),
+    ...(latestEvent ? { latestEvent, latestEventId: latestEvent.id } : {}),
+  }
+}
+
+function parseSprintEngineCliJsonOutput(stdout: string): unknown {
+  const responseLine = stdout.trim().split(/\r?\n/u).filter(Boolean).at(-1)
+  if (!responseLine) return null
+  try {
+    return JSON.parse(responseLine) as unknown
+  } catch {
+    return null
+  }
 }
 
 function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitializeInput): SerializableSprintEngineStatePayload {
@@ -466,18 +547,15 @@ function getArtifactAutoApprovalBlocker(
   artifacts: SprintEngineArtifactRecord[]
 ): string | null {
   if (artifact.status === 'approved') return 'Artifact is already approved.'
-  if (artifact.status === 'superseded') return 'Superseded artifacts are obsolete and cannot receive auto-approval intent.'
+  if (artifact.status === 'superseded') return 'Superseded artifacts are obsolete and cannot be auto-approved.'
   if (!['draft', 'ready_for_review', 'changes_requested'].includes(artifact.status)) {
-    return 'Artifact status is not eligible for auto-approval intent.'
+    return 'Artifact status is not eligible for auto-approval.'
   }
   if (!artifact.path.trim()) return 'Artifact file path is missing.'
-  if (!autoApprovableArtifactKinds.has(artifact.kind)) return 'Artifact kind is not eligible for auto-approval intent.'
+  if (!autoApprovableArtifactKinds.has(artifact.kind)) return 'Artifact kind is not eligible for auto-approval.'
 
   const task = tasks.find((candidate) => candidate.id === artifact.taskId)
   if (!task) return 'Artifact task was not found.'
-  if (!artifact.createdBy.trim() && !task.ownerAgentId.trim()) {
-    return 'Artifact task has no responsible agent to receive auto-approval intent.'
-  }
 
   const blockingArtifacts = artifacts.filter((candidate) =>
     candidate.taskId === task.id
@@ -577,19 +655,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         }
         if (mode === 'auto-run') {
           if (action !== 'approve') throw new Error('Auto-run can only approve eligible artifacts.')
-          const artifact = await assertAutoApprovalAllowed(state, artifactId)
-          const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
-          return {
-            ok: true,
-            data: {
-              action: 'approve-intent',
-              actor: 'auto-run',
-              authorizedUserId: actor.id,
-              artifactId,
-              artifact,
-              projectionContent,
-            },
-          }
+          await assertAutoApprovalAllowed(state, artifactId)
         }
 
         const reviewPayload = {
@@ -614,17 +680,16 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           }
         }
 
-        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
         return {
           ok: true,
-          data: {
+          data: await buildSprintEngineMutationData(state, {
             action,
             actor: reviewPayload.id,
             authorizedUserId: actor.id,
+            mode,
             artifactId,
-            projectionContent,
             tool: toolResult.response.result,
-          },
+          }),
         }
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
@@ -655,16 +720,14 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           }
         }
 
-        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
         return {
           ok: true,
-          data: {
+          data: await buildSprintEngineMutationData(state, {
             action: 'ready',
             actor: actor.id,
             taskId,
-            projectionContent,
             tool: toolResult.response.result,
-          },
+          }),
         }
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
@@ -687,14 +750,12 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
             exitCode: toolResult.exitCode ?? 'unknown',
           }
         }
-        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
         return {
           ok: true,
-          data: {
+          data: await buildSprintEngineMutationData(state, {
             action: 'initialize-state',
             actor: actor.id,
-            projectionContent,
-          },
+          }),
         }
       } catch (error) {
         if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') {
@@ -737,16 +798,14 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           }
         }
 
-        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
         return {
           ok: true,
-          data: {
+          data: await buildSprintEngineMutationData(state, {
             action: 'update-task',
             actor: actor.id,
             taskId,
-            projectionContent,
             tool: toolResult.response.result,
-          },
+          }),
         }
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
@@ -786,16 +845,14 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
 
         const result = toolResult.response.result as { task?: { id?: unknown } }
         const taskId = typeof result.task?.id === 'string' ? result.task.id : null
-        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
         return {
           ok: true,
-          data: {
+          data: await buildSprintEngineMutationData(state, {
             action: 'create-task',
             actor: actor.id,
             taskId,
-            projectionContent,
             tool: toolResult.response.result,
-          },
+          }),
         }
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
@@ -827,16 +884,14 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           }
         }
 
-        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
         return {
           ok: true,
-          data: {
+          data: await buildSprintEngineMutationData(state, {
             action: 'comment-task',
             actor: actor.id,
             taskId,
-            projectionContent,
             tool: toolResult.response.result,
-          },
+          }),
         }
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
@@ -869,14 +924,13 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
             exitCode: toolResult.exitCode ?? 'unknown',
           }
         }
-        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
         return {
           ok: true,
-          data: {
+          data: await buildSprintEngineMutationData(state, {
             action: 'runner-set-mode',
             mode,
-            projectionContent,
-          },
+            tool: parseSprintEngineCliJsonOutput(toolResult.stdout),
+          }),
         }
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
@@ -907,15 +961,13 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
             exitCode: toolResult.exitCode ?? 'unknown',
           }
         }
-        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
-        const tool = JSON.parse(toolResult.stdout || '{}') as unknown
+        const tool = parseSprintEngineCliJsonOutput(toolResult.stdout)
         return {
           ok: true,
-          data: {
+          data: await buildSprintEngineMutationData(state, {
             action: 'roster-replenish',
-            projectionContent,
             tool,
-          },
+          }),
         }
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }

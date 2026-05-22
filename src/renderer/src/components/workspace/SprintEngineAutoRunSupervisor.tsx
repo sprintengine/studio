@@ -33,6 +33,7 @@ import {
   buildSprintEngineGateContinuationPrompt,
   continuationMessageKey,
   describeNeedsInputAutoApprovalState,
+  isAgentNotificationCompletionEvent,
   sprintEngineDispatchDeliveryKey,
   getActiveSprintEngineAutoRunGateClaims,
   getArchitectActionableNeedsInputTasks,
@@ -50,7 +51,6 @@ import {
 import { publishDiagnostic } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
-import { sendArtifactApprovalToTerminal } from '../../utils/terminalApproval'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { focusOrAddAgentTab } from '../../utils/modelRegistry'
 import {
@@ -439,17 +439,40 @@ async function findRunningAgentSession(
   return runningSession
 }
 
+function applyAutoApprovalProjectionContent(
+  workspace: Workspace,
+  projectionContent: unknown,
+  lastContentByWorkspace: MutableRefObject<Map<string, string>>
+): SprintEngineState | null {
+  if (typeof projectionContent !== 'string') return null
+  if (!workspace.sprintEngineContext) return null
+  try {
+    const projection = JSON.parse(projectionContent) as unknown
+    const parsedState = normalizeSprintEngineProjection(projection, workspace.sprintEngineContext.teamSlug)
+    if (!parsedState) return null
+    useWorkspaceStore.getState().setSprintEngineState(workspace.id, parsedState)
+    // Keep the projection-watcher signature in sync so the disk reader does not
+    // immediately re-apply the same state on its next tick.
+    lastContentByWorkspace.current.set(workspace.id, JSON.stringify(projection))
+    return parsedState
+  } catch {
+    return null
+  }
+}
+
 export async function sendApprovalToNextEligibleArtifactProducer(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   sentArtifactApprovalMessages: MutableRefObject<Map<string, number>>,
-  autoApprovalDiagnostics: MutableRefObject<Map<string, number>>
+  autoApprovalDiagnostics: MutableRefObject<Map<string, number>>,
+  lastContentByWorkspace: MutableRefObject<Map<string, string>>
 ): Promise<'sent' | 'failed' | 'none'> {
   const autoState = getSprintEngineAutoState(workspace)
   if (!autoState.autoApproveArtifacts || !workspace.sprintEngineContext) {
     return 'none'
   }
 
+  const statePath = workspace.sprintEngineContext.statePath
   const now = Date.now()
   const eligibleArtifacts = getAutoApprovalIntentArtifacts(sprintEngineState)
   const artifact = eligibleArtifacts.find((candidate) =>
@@ -498,50 +521,50 @@ export async function sendApprovalToNextEligibleArtifactProducer(
   }
 
   const approvalKey = artifactApprovalMessageKey(workspace, artifact)
+  // Reserve the cooldown slot before the IPC call so a slow projection refresh
+  // or a transient error cannot cause the supervisor to re-issue the same
+  // approval mid-flight.
+  sentArtifactApprovalMessages.current.set(approvalKey, Date.now())
   try {
-    const task = sprintEngineState.tasks.find((candidate) => candidate.id === artifact.taskId)
-    const responsibleAgentId = artifact.createdBy.trim() || task?.ownerAgentId?.trim() || ''
-    if (!responsibleAgentId) {
-      sentArtifactApprovalMessages.current.set(approvalKey, Date.now())
+    const result = await window.api.autoApproveSprintEngineArtifact(statePath, artifact.id)
+    if (!result.ok) {
       await publishArtifactApprovalWarning(
         workspace,
         artifact,
-        'Cannot communicate auto-approval intent: no responsible agent is recorded.'
+        result.message || 'Sprint Engine rejected the auto-approval.'
       )
       return 'none'
     }
 
-    const agentSession = await findRunningAgentSession(workspace, responsibleAgentId)
-    if (!agentSession) {
-      sentArtifactApprovalMessages.current.set(approvalKey, Date.now())
-      await publishArtifactApprovalWarning(
-        workspace,
-        artifact,
-        'Cannot communicate auto-approval intent: the responsible agent terminal is not running.',
-        [`Responsible agent: ${responsibleAgentId}`]
-      )
-      return 'none'
+    const projectionContent = (result.data as { projectionContent?: unknown } | undefined)?.projectionContent
+    const appliedState = applyAutoApprovalProjectionContent(workspace, projectionContent, lastContentByWorkspace)
+    if (!appliedState) {
+      const refreshedState = await refreshAutoWorkspaceState(workspace, lastContentByWorkspace, { force: true })
+      if (!refreshedState) {
+        await publishArtifactApprovalWarning(
+          workspace,
+          artifact,
+          'Could not refresh Sprint Engine state after auto-approving the artifact.'
+        )
+        return 'failed'
+      }
     }
 
-    await sendArtifactApprovalToTerminal(agentSession.sessionId)
-
-    sentArtifactApprovalMessages.current.set(approvalKey, Date.now())
     await publishAutoApprovalDiagnostic(
       workspace,
       autoApprovalDiagnostics,
-      `${approvalKey}:sent`,
+      `${approvalKey}:approved`,
       {
         level: 'info',
-        title: 'Artifact approval intent sent',
-        message: 'Sent the user approval intent to the responsible agent terminal.',
+        title: 'Artifact auto-approved through Sprint Engine',
+        message: 'Sprint Engine recorded the approval and refreshed projection state.',
         details: [
           `Artifact: ${artifact.id} - ${artifact.title}`,
           `Task: ${artifact.taskId}`,
-          `Responsible agent: ${responsibleAgentId}`,
-          `Terminal session: ${agentSession.sessionId}`,
+          appliedState
+            ? 'State applied from auto-approval mutation projection.'
+            : 'Mutation projection was missing or malformed; state refreshed from projection.json.',
         ],
-        agentId: responsibleAgentId,
-        sessionId: agentSession.sessionId,
         taskId: artifact.taskId,
       }
     )
@@ -553,7 +576,6 @@ export async function sendApprovalToNextEligibleArtifactProducer(
       artifactId: artifact.id,
       message: error instanceof Error ? error.message : String(error),
     })
-    sentArtifactApprovalMessages.current.set(approvalKey, Date.now())
     await publishArtifactApprovalWarning(
       workspace,
       artifact,
@@ -684,10 +706,23 @@ export async function deliverAgentNotificationEvents(
       })
       continue
     }
-    const prompt = buildAgentNotificationPrompt(event)
+    const rosterAgent = rosterById.get(targetAgentId)
+    const role = rosterAgent?.role ?? runtimeAgent?.role
+    const prompt = buildAgentNotificationPrompt(event, {
+      agentId: targetAgentId,
+      role,
+    })
     const session = await findRunningAgentSession(workspace, targetAgentId)
     if (session) {
       await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(prompt))
+      if (!isAgentNotificationCompletionEvent(event)) {
+        focusOrAddAgentTab(
+          workspace.id,
+          targetAgentId,
+          workspace.agents[targetAgentId]?.name ?? rosterAgent?.label ?? targetAgentId,
+          { sessionId: session.sessionId }
+        )
+      }
       sentAgentNotificationEvents.current.add(deliveryKey)
       useWorkspaceStore.getState().markSprintEngineAgentNotificationDelivered(workspace.id, deliveryKey)
       logPerfEvent('SprintEngineAutoRun', 'agent-notification-sent', {
@@ -714,8 +749,6 @@ export async function deliverAgentNotificationEvents(
       continue
     }
 
-    const rosterAgent = rosterById.get(targetAgentId)
-    const role = rosterAgent?.role ?? runtimeAgent?.role
     if (!role) continue
     const result = await spawnAutoRunCandidate(
       workspace,
@@ -1553,30 +1586,18 @@ async function superviseWorkspace(
       workspace,
       sprintEngineState,
       sentArtifactApprovalMessages,
-      autoApprovalDiagnostics
+      autoApprovalDiagnostics,
+      lastContentByWorkspace
     )
     if (approvalResult === 'failed') return
     if (approvalResult === 'sent') {
-      const refreshedSprintEngineState = await refreshAutoWorkspaceState(workspace, lastContentByWorkspace, { force: true })
-      if (!refreshedSprintEngineState) {
-        const messageSentArtifactIds = new Set(
-          getAutoApprovalIntentArtifacts(sprintEngineState).map((artifact) => artifact.id)
-        )
-        const artifact = sprintEngineState.artifacts.find((candidate) => messageSentArtifactIds.has(candidate.id))
-        if (artifact) {
-          await publishArtifactApprovalWarning(
-            workspace,
-            artifact,
-            'Could not refresh Sprint Engine state after sending approval intent.'
-          )
-        }
-        return
-      }
-
+      // sendApprovalToNextEligibleArtifactProducer applied the mutation projection
+      // (or refreshed from disk when projection content was missing/malformed) and
+      // updated the workspace store before returning. Pick up the fresh state.
       const refreshedWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
-      if (!refreshedWorkspace) return
+      if (!refreshedWorkspace || !refreshedWorkspace.sprintEngineState) return
       workspace = refreshedWorkspace
-      sprintEngineState = refreshedWorkspace.sprintEngineState ?? refreshedSprintEngineState
+      sprintEngineState = refreshedWorkspace.sprintEngineState
       logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
         workspaceId: workspace.id,
         workspaceName: workspace.name,

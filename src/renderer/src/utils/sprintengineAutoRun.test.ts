@@ -68,7 +68,15 @@ async function main(): Promise<void> {
   await testListTerminalSessionsThrowsTerminalListIpcErrorOnReject()
   await testListTerminalSessionsResolvesWithSessionsOnSuccess()
   await testAutoApprovalOnlyBranchSkipsTerminalListWhenNothingToApprove()
+  await testAutoApprovalAppliesReturnedProjectionWithoutDiskFallback()
+  await testAutoApprovalFallsBackToDiskRefreshWhenProjectionMalformed()
+  await testAutoApprovalCooldownBlocksRepeatApprovalWithinRetryWindow()
   await testDeliverAgentNotificationsSkipsRetiredTargets()
+  await testDeliverApprovalCompletionWakesOwnerOnceWithoutFocus()
+  await testDeliverRequestChangesWakesOwnerWithJoinDirectiveAndFocus()
+  await testDeliverNotificationsSuppressDuplicateObservations()
+  await testDeliverNotificationSpawnsAgentWhenMissingTerminal()
+  await testDeliverNotificationLeavesPendingWhenSupervisorDisabledAndNoTerminal()
   await testDispatchPromptDeliveryUsesDispatchIdCooldown()
   await testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt()
   await testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity()
@@ -369,7 +377,8 @@ async function testAutoApprovalOnlyBranchSkipsTerminalListWhenNothingToApprove()
     workspace,
     sprintEngineState,
     mutableRef(new Map<string, number>()),
-    mutableRef(new Map<string, number>())
+    mutableRef(new Map<string, number>()),
+    mutableRef(new Map<string, string>())
   )
 
   assert.equal(result, 'none', 'auto-approval should return none when nothing is eligible')
@@ -379,6 +388,244 @@ async function testAutoApprovalOnlyBranchSkipsTerminalListWhenNothingToApprove()
     'auto-approval-only branch must not query terminalList when no artifact needs approval'
   )
   void diagnosticCount
+}
+
+function autoApprovalFixture(): {
+  workspace: Workspace
+  sprintEngineState: SprintEngineState
+  artifact: SprintEngineArtifact
+  mutatedProjection: Record<string, unknown>
+} {
+  const reviewTask = task({
+    id: 'T-design',
+    status: 'review',
+    boardColumn: 'review',
+    role: 'frontend',
+    ownerAgentId: 'frontend',
+    qualityGates: [],
+  })
+  const artifact: SprintEngineArtifact = {
+    id: 'AR-001',
+    taskId: 'T-design',
+    kind: 'design_notes',
+    title: 'Design notes',
+    status: 'ready_for_review',
+    path: 'designs/notes.md',
+    createdBy: 'frontend',
+    createdAt: '2026-05-22T00:00:00Z',
+    fingerprint: 'fp-1',
+    updatedAt: '2026-05-22T00:00:01Z',
+  } as SprintEngineArtifact
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: [reviewTask],
+    artifacts: [artifact],
+    sprintEngineAgents: {
+      'frontend': runtimeAgent('frontend', { status: 'idle' }),
+    },
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    sprintEngineAutoState: {
+      supervisorEnabled: false,
+      enabled: false,
+      autoApproveArtifacts: true,
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  // Approved projection that Sprint Engine would return inside autoApprove result.data.
+  const mutatedProjection = {
+    ok: true,
+    projectionVersion: 1,
+    source: 'folder_store',
+    generatedAt: '2026-05-22T00:00:02Z',
+    updatedAt: '2026-05-22T00:00:02Z',
+    run: {
+      id: 'run-id',
+      name: 'team',
+      goal: '',
+      status: 'executing',
+      rosterConfigured: true,
+      runner: { mode: 'auto' },
+    },
+    roleCounts: { frontend: 1 },
+    roster: {
+      'frontend': { role: 'frontend', status: 'idle', currentTaskId: null },
+    },
+    tasks: [
+      {
+        id: 'T-design',
+        title: 'Scaffold site',
+        description: '',
+        role: 'frontend',
+        status: 'review',
+        ownerAgentId: 'frontend',
+        dependsOn: [],
+        ownedPaths: [],
+        acceptanceCriteria: [],
+        implementationNotes: [],
+        notes: [],
+        comments: [],
+        startedAt: null,
+        completedAt: null,
+        boardColumn: 'review',
+        qualityGates: [],
+        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+      },
+    ],
+    artifacts: [
+      {
+        ...artifact,
+        status: 'approved',
+        updatedAt: '2026-05-22T00:00:02Z',
+        fingerprint: 'fp-2',
+      },
+    ],
+    activity: [],
+  }
+  return { workspace, sprintEngineState, artifact, mutatedProjection }
+}
+
+async function testAutoApprovalAppliesReturnedProjectionWithoutDiskFallback(): Promise<void> {
+  const { workspace, sprintEngineState, artifact, mutatedProjection } = autoApprovalFixture()
+  let autoApproveCount = 0
+  let readProjectionCount = 0
+  installTestWindow({
+    terminalList: async () => [],
+    autoApproveSprintEngineArtifact: async (statePath: string, artifactId: string) => {
+      autoApproveCount += 1
+      assert.equal(statePath, workspace.sprintEngineContext?.statePath)
+      assert.equal(artifactId, artifact.id)
+      return { ok: true, data: { projectionContent: JSON.stringify(mutatedProjection) } }
+    },
+    readSprintEngineProjection: async () => {
+      readProjectionCount += 1
+      return { ok: true, data: mutatedProjection }
+    },
+    logDiagnostic: async (input) => input,
+  })
+  installWorkspaceStore(workspace)
+
+  const supervisor = await loadSupervisor()
+  const cooldown = mutableRef(new Map<string, number>())
+  const lastContentByWorkspace = mutableRef(new Map<string, string>())
+  const result = await supervisor.sendApprovalToNextEligibleArtifactProducer(
+    workspace,
+    sprintEngineState,
+    cooldown,
+    mutableRef(new Map<string, number>()),
+    lastContentByWorkspace
+  )
+
+  assert.equal(result, 'sent', 'successful auto-approval returns sent')
+  assert.equal(autoApproveCount, 1, 'auto-approval invokes the MCP/IPC mutation exactly once')
+  assert.equal(
+    readProjectionCount,
+    0,
+    'returned projectionContent is applied before refreshAutoWorkspaceState falls back to disk'
+  )
+
+  const updatedState = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)?.sprintEngineState
+  const approvedArtifact = updatedState?.artifacts.find((candidate) => candidate.id === artifact.id)
+  assert.ok(approvedArtifact, 'workspace store received the mutated projection artifact')
+  assert.equal(approvedArtifact?.status, 'approved', 'applied state reflects the Sprint Engine mutation outcome')
+
+  assert.equal(
+    lastContentByWorkspace.current.get(workspace.id),
+    JSON.stringify(mutatedProjection),
+    'projection-watcher signature is kept in sync so disk re-read does not re-apply the same state'
+  )
+  assert.equal(cooldown.current.size, 1, 'cooldown key is reserved before the IPC call to prevent re-issue')
+}
+
+async function testAutoApprovalFallsBackToDiskRefreshWhenProjectionMalformed(): Promise<void> {
+  const { workspace, sprintEngineState, artifact, mutatedProjection } = autoApprovalFixture()
+  let autoApproveCount = 0
+  let readProjectionCount = 0
+  installTestWindow({
+    terminalList: async () => [],
+    autoApproveSprintEngineArtifact: async () => {
+      autoApproveCount += 1
+      // Returned projection is not a string; the apply path must reject it and refresh from disk.
+      return { ok: true, data: { projectionContent: { not: 'a string' } } }
+    },
+    readSprintEngineProjection: async () => {
+      readProjectionCount += 1
+      return { ok: true, data: mutatedProjection }
+    },
+    logDiagnostic: async (input) => input,
+  })
+  installWorkspaceStore(workspace)
+
+  const supervisor = await loadSupervisor()
+  const lastContentByWorkspace = mutableRef(new Map<string, string>())
+  const result = await supervisor.sendApprovalToNextEligibleArtifactProducer(
+    workspace,
+    sprintEngineState,
+    mutableRef(new Map<string, number>()),
+    mutableRef(new Map<string, number>()),
+    lastContentByWorkspace
+  )
+
+  assert.equal(result, 'sent', 'fallback refresh that succeeds still reports sent')
+  assert.equal(autoApproveCount, 1)
+  assert.equal(
+    readProjectionCount,
+    1,
+    'malformed projectionContent triggers a single refreshAutoWorkspaceState read from projection.json'
+  )
+
+  const updatedState = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)?.sprintEngineState
+  const approvedArtifact = updatedState?.artifacts.find((candidate) => candidate.id === artifact.id)
+  assert.equal(approvedArtifact?.status, 'approved', 'workspace state is refreshed from disk on fallback')
+}
+
+async function testAutoApprovalCooldownBlocksRepeatApprovalWithinRetryWindow(): Promise<void> {
+  const { workspace, sprintEngineState, artifact, mutatedProjection } = autoApprovalFixture()
+  let autoApproveCount = 0
+  installTestWindow({
+    terminalList: async () => [],
+    autoApproveSprintEngineArtifact: async () => {
+      autoApproveCount += 1
+      return { ok: true, data: { projectionContent: JSON.stringify(mutatedProjection) } }
+    },
+    readSprintEngineProjection: async () => ({ ok: true, data: mutatedProjection }),
+    logDiagnostic: async (input) => input,
+  })
+  installWorkspaceStore(workspace)
+
+  const supervisor = await loadSupervisor()
+  const cooldown = mutableRef(new Map<string, number>())
+  const lastContentByWorkspace = mutableRef(new Map<string, string>())
+
+  const first = await supervisor.sendApprovalToNextEligibleArtifactProducer(
+    workspace,
+    sprintEngineState,
+    cooldown,
+    mutableRef(new Map<string, number>()),
+    lastContentByWorkspace
+  )
+  // Second tick observes the same eligible artifact (e.g., projection refresh is still in flight).
+  // The cooldown reservation must block a duplicate mutation request.
+  const second = await supervisor.sendApprovalToNextEligibleArtifactProducer(
+    workspace,
+    sprintEngineState,
+    cooldown,
+    mutableRef(new Map<string, number>()),
+    lastContentByWorkspace
+  )
+
+  assert.equal(first, 'sent', 'first tick approves through Sprint Engine')
+  assert.equal(second, 'none', 'cooldown reservation blocks the second tick before any IPC mutation')
+  assert.equal(autoApproveCount, 1, 'auto-approval IPC is called exactly once while the cooldown is active')
+  assert.equal(
+    cooldown.current.get(artifactApprovalMessageKey(workspace, artifact)) !== undefined,
+    true,
+    'cooldown key is keyed by the artifact identity from artifactApprovalMessageKey'
+  )
 }
 
 async function testDeliverAgentNotificationsSkipsRetiredTargets(): Promise<void> {
@@ -438,6 +685,392 @@ async function testDeliverAgentNotificationsSkipsRetiredTargets(): Promise<void>
   assert.equal(result, 'none')
   assert.equal(terminalListMock.invocations, 0, 'retired notification targets are skipped before terminal lookup')
   assert.equal(sentNotifications.current.has(deliveryKey), true, 'retired notification skip is recorded for this supervisor cycle')
+}
+
+function reworkNotificationWorkspaceFixture(): Workspace {
+  return workspaceFixture({
+    agents: {
+      'frontend-2': {
+        id: 'frontend-2',
+        name: 'Reagan',
+        role: 'frontend',
+        cli: 'codex',
+        kind: 'sprintengine',
+      },
+    } as Workspace['agents'],
+    sprintEngineAutoState: {
+      supervisorEnabled: true,
+      enabled: true,
+      autoApproveArtifacts: false,
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+}
+
+function reworkNotificationEvent(overrides: Partial<SprintEngineEvent> = {}): SprintEngineEvent {
+  return {
+    id: 'EV-rework-1',
+    timestamp: '2026-05-22T00:00:00Z',
+    type: 'agent_notification_requested',
+    actor: 'user-1',
+    message: 'Changes were requested for artifact AR-9 by user-1.',
+    targetAgentId: 'frontend-2',
+    taskId: 'T-rework',
+    artifactId: 'AR-9',
+    notificationKind: 'task_changes_requested_after_artifact_review',
+    ...overrides,
+  }
+}
+
+function completionNotificationEvent(overrides: Partial<SprintEngineEvent> = {}): SprintEngineEvent {
+  return {
+    id: 'EV-complete-1',
+    timestamp: '2026-05-22T00:00:00Z',
+    type: 'agent_notification_requested',
+    actor: 'user-1',
+    message: 'Artifact AR-9 was approved by user-1. Your task is complete.',
+    targetAgentId: 'frontend-2',
+    taskId: 'T-complete',
+    artifactId: 'AR-9',
+    notificationKind: 'task_completed_after_artifact_approval',
+    ...overrides,
+  }
+}
+
+async function testDeliverApprovalCompletionWakesOwnerOnceWithoutFocus(): Promise<void> {
+  const writes: Array<{ sessionId: string; text: string }> = []
+  const mutations: string[] = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-frontend',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'frontend-2',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+      },
+    ],
+    terminalWrite: async (sessionId, text) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    approveSprintEngineArtifact: async () => {
+      mutations.push('approveSprintEngineArtifact')
+      return { ok: true }
+    },
+    autoApproveSprintEngineArtifact: async () => {
+      mutations.push('autoApproveSprintEngineArtifact')
+      return { ok: true }
+    },
+    requestSprintEngineArtifactChanges: async () => {
+      mutations.push('requestSprintEngineArtifactChanges')
+      return { ok: true }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const workspace = reworkNotificationWorkspaceFixture()
+  const event = completionNotificationEvent()
+  const state = sprintEngineStateFixture({
+    sprintEngineAgents: {
+      'frontend-2': runtimeAgent('frontend', { status: 'running', currentTaskId: 'T-complete' }),
+    },
+    events: [event],
+  })
+  installWorkspaceStore(workspace)
+  const sent = mutableRef(new Set<string>())
+
+  const first = await supervisor.deliverAgentNotificationEvents(
+    workspace,
+    state,
+    new Set(['frontend-2']),
+    {},
+    {},
+    mutableRef(new Set<string>()),
+    sent
+  )
+  const second = await supervisor.deliverAgentNotificationEvents(
+    workspace,
+    state,
+    new Set(['frontend-2']),
+    {},
+    {},
+    mutableRef(new Set<string>()),
+    sent
+  )
+
+  assert.equal(first, 'none', 'deliver returns none when no spawn was triggered')
+  assert.equal(second, 'none')
+  assert.equal(writes.length, 1, 'completion notification produces exactly one terminal directive per event id')
+  assert.equal(writes[0].sessionId, 'session-frontend')
+  assert.ok(writes[0].text.includes('Your Sprint Engine task is complete.'))
+  assert.ok(
+    !writes[0].text.includes('sprintengine join --role'),
+    'completion notification does not direct the agent to re-run join --watch'
+  )
+  assert.equal(sent.current.size, 1, 'in-memory delivery cache records the event id once')
+  assert.deepEqual(mutations, [], 'completion notification delivery does not perform Sprint Engine mutations')
+}
+
+async function testDeliverRequestChangesWakesOwnerWithJoinDirectiveAndFocus(): Promise<void> {
+  const writes: Array<{ sessionId: string; text: string }> = []
+  const mutations: string[] = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-frontend',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'frontend-2',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+      },
+    ],
+    terminalWrite: async (sessionId, text) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    approveSprintEngineArtifact: async () => {
+      mutations.push('approveSprintEngineArtifact')
+      return { ok: true }
+    },
+    autoApproveSprintEngineArtifact: async () => {
+      mutations.push('autoApproveSprintEngineArtifact')
+      return { ok: true }
+    },
+    requestSprintEngineArtifactChanges: async () => {
+      mutations.push('requestSprintEngineArtifactChanges')
+      return { ok: true }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const workspace = reworkNotificationWorkspaceFixture()
+  const event = reworkNotificationEvent()
+  const state = sprintEngineStateFixture({
+    sprintEngineAgents: {
+      'frontend-2': runtimeAgent('frontend', { status: 'running', currentTaskId: 'T-rework' }),
+    },
+    events: [event],
+  })
+  installWorkspaceStore(workspace)
+
+  const result = await supervisor.deliverAgentNotificationEvents(
+    workspace,
+    state,
+    new Set(['frontend-2']),
+    {},
+    {},
+    mutableRef(new Set<string>()),
+    mutableRef(new Set<string>())
+  )
+
+  assert.equal(result, 'none')
+  assert.equal(writes.length, 1, 'rework notification writes once')
+  assert.equal(writes[0].sessionId, 'session-frontend')
+  assert.ok(writes[0].text.includes('\x1b[200~'), 'rework prompt uses bracketed paste')
+  assert.ok(
+    writes[0].text.includes('sprintengine join --role frontend --id frontend-2 --watch'),
+    'rework prompt includes the join --watch reconcile directive'
+  )
+  assert.ok(writes[0].text.includes('Re-read the current task card'))
+  assert.ok(writes[0].text.includes('Artifact: AR-9'))
+  assert.deepEqual(mutations, [], 'rework notification delivery never invokes mutation IPC; Sprint Engine state is already recorded')
+}
+
+async function testDeliverNotificationsSuppressDuplicateObservations(): Promise<void> {
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-frontend',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'frontend-2',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+      },
+    ],
+    terminalWrite: async (sessionId, text) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const workspace = reworkNotificationWorkspaceFixture()
+  const event = reworkNotificationEvent()
+  const state = sprintEngineStateFixture({
+    sprintEngineAgents: {
+      'frontend-2': runtimeAgent('frontend', { status: 'running', currentTaskId: 'T-rework' }),
+    },
+    // Duplicate event observations: the same event id appears twice in projection
+    // (e.g., projection watcher fires before our delivery cache prunes it).
+    events: [event, { ...event, timestamp: '2026-05-22T00:00:01Z' }],
+  })
+  installWorkspaceStore(workspace)
+  const sent = mutableRef(new Set<string>())
+
+  await supervisor.deliverAgentNotificationEvents(
+    workspace,
+    state,
+    new Set(['frontend-2']),
+    {},
+    {},
+    mutableRef(new Set<string>()),
+    sent
+  )
+  // Subsequent tick observes the same projection: persisted delivery key blocks re-send.
+  await supervisor.deliverAgentNotificationEvents(
+    workspace,
+    state,
+    new Set(['frontend-2']),
+    {},
+    {},
+    mutableRef(new Set<string>()),
+    sent
+  )
+
+  assert.equal(
+    writes.length,
+    1,
+    'event id is the idempotency key: duplicate projection/event observations send the prompt at most once'
+  )
+}
+
+async function testDeliverNotificationSpawnsAgentWhenMissingTerminal(): Promise<void> {
+  const spawns: Array<{ initialPrompt?: string; agentId?: string; role?: string }> = []
+  installTestWindow({
+    terminalList: async () => [],
+    terminalStatus: async () => ({ processAlive: false }),
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    terminalSpawn: async (
+      sessionId: string,
+      _cols: number,
+      _rows: number,
+      _cwd?: string,
+      _resume?: boolean,
+      _statePath?: string,
+      _cli?: AgentCli,
+      initialPrompt?: string,
+      _cliRuntimes?: unknown,
+      _shellOnly?: boolean,
+      metadata?: { agentId?: string; agentSession?: { role?: string } },
+    ) => {
+      spawns.push({ initialPrompt, agentId: metadata?.agentId, role: metadata?.agentSession?.role })
+      return { ok: true, sessionId }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const workspace = reworkNotificationWorkspaceFixture()
+  const event = reworkNotificationEvent()
+  const state = sprintEngineStateFixture({
+    sprintEngineAgents: {
+      'frontend-2': runtimeAgent('frontend', { status: 'idle' }),
+    },
+    events: [event],
+  })
+  installWorkspaceStore(workspace)
+  const sent = mutableRef(new Set<string>())
+
+  const result = await supervisor.deliverAgentNotificationEvents(
+    workspace,
+    state,
+    new Set<string>(),
+    { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    {},
+    mutableRef(new Set<string>()),
+    sent
+  )
+
+  assert.equal(result, 'started', 'spawn-when-missing path reports started for spawnable rework kinds')
+  assert.equal(spawns.length, 1, 'spawn-when-missing path spawns exactly one agent terminal')
+  assert.equal(spawns[0].agentId, 'frontend-2')
+  assert.equal(spawns[0].role, 'frontend')
+  assert.ok(
+    spawns[0].initialPrompt?.includes('sprintengine join --role frontend --id frontend-2 --watch'),
+    'spawned agent receives the join reconcile directive as its startup prompt override'
+  )
+  assert.ok(
+    spawns[0].initialPrompt?.includes('Re-read the current task card'),
+    'spawned agent receives the rework instruction'
+  )
+  assert.equal(sent.current.size, 1, 'spawn-when-missing path records the delivery key once')
+}
+
+async function testDeliverNotificationLeavesPendingWhenSupervisorDisabledAndNoTerminal(): Promise<void> {
+  const writes: Array<{ sessionId: string; text: string }> = []
+  let spawnCount = 0
+  installTestWindow({
+    terminalList: async () => [],
+    terminalStatus: async () => ({ processAlive: false }),
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    terminalSpawn: async () => {
+      spawnCount += 1
+      throw new Error('terminalSpawn must not be called when supervisor is disabled')
+    },
+    terminalWrite: async (sessionId, text) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const workspace = workspaceFixture({
+    sprintEngineAutoState: {
+      supervisorEnabled: false,
+      enabled: false,
+      autoApproveArtifacts: true,
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  const event = reworkNotificationEvent()
+  const state = sprintEngineStateFixture({
+    sprintEngineAgents: {
+      'frontend-2': runtimeAgent('frontend', { status: 'idle' }),
+    },
+    events: [event],
+  })
+  installWorkspaceStore(workspace)
+  const sent = mutableRef(new Set<string>())
+
+  const result = await supervisor.deliverAgentNotificationEvents(
+    workspace,
+    state,
+    new Set<string>(),
+    { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    {},
+    mutableRef(new Set<string>()),
+    sent
+  )
+
+  assert.equal(result, 'none', 'no spawn occurs when auto mode is off and there is no terminal')
+  assert.equal(spawnCount, 0, 'auto mode off prevents fake terminal success: no spawn is attempted')
+  assert.equal(writes.length, 0, 'no terminal write happens when auto mode is off and there is no terminal')
+  assert.equal(sent.current.size, 0, 'notification stays pending; will retry once auto mode is enabled')
 }
 
 async function testDispatchPromptDeliveryUsesDispatchIdCooldown(): Promise<void> {
@@ -945,9 +1578,28 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
     targetAgentId: 'developer-1',
     taskId: 'T3',
     notificationKind: 'task_completed_after_artifact_approval',
-  })
+  }, { agentId: 'developer-1', role: 'developer' })
   assert.ok(notif.includes('Your Sprint Engine task is complete.'))
   assert.ok(notif.includes('Task: T3'))
+  assert.ok(
+    !notif.includes('sprintengine join --role'),
+    'completion notifications do not include a reconcile join command'
+  )
+
+  const reworkNotif = buildAgentNotificationPrompt({
+    id: 'EV-002',
+    timestamp: '2026-05-18T00:00:00Z',
+    type: 'agent_notification_requested',
+    actor: 'system',
+    message: 'Changes were requested for artifact AR-9.',
+    targetAgentId: 'frontend-2',
+    taskId: 'T4',
+    artifactId: 'AR-9',
+    notificationKind: 'task_changes_requested_after_artifact_review',
+  }, { agentId: 'frontend-2', role: 'frontend' })
+  assert.ok(reworkNotif.includes('Re-read the current task card'))
+  assert.ok(reworkNotif.includes('sprintengine join --role frontend --id frontend-2 --watch'))
+  assert.ok(reworkNotif.includes('Artifact: AR-9'))
 
   const triage = buildArchitectNeedsInputTriagePrompt({
     workspaceFolderPath: '/tmp/workspace',

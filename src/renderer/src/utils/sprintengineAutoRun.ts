@@ -306,7 +306,24 @@ export function buildSprintEngineGateContinuationPrompt(
   ].join('\n')
 }
 
-export function buildAgentNotificationPrompt(event: SprintEngineEvent): string {
+export const AGENT_COMPLETION_NOTIFICATION_KINDS = new Set<string>([
+  'task_completed_after_artifact_approval',
+  'task_completed_after_input_resolution',
+])
+
+export function isAgentNotificationCompletionEvent(event: SprintEngineEvent): boolean {
+  return AGENT_COMPLETION_NOTIFICATION_KINDS.has(event.notificationKind ?? '')
+}
+
+export function buildAgentNotificationPrompt(
+  event: SprintEngineEvent,
+  options: { agentId?: string; role?: SprintEngineRoleId } = {}
+): string {
+  const isCompletion = isAgentNotificationCompletionEvent(event)
+  const reconcileCommand = !isCompletion && options.agentId && options.role
+    ? `Run \`sprintengine join --role ${options.role} --id ${options.agentId} --watch\` to reconcile this notification. The CLI owns polling and will tell you the next directive; do not start your own loop.`
+    : null
+
   return [
     'Sprint Engine notification.',
     event.taskId ? `Task: ${event.taskId}` : null,
@@ -315,9 +332,10 @@ export function buildAgentNotificationPrompt(event: SprintEngineEvent): string {
     '',
     event.message,
     '',
-    event.notificationKind === 'task_completed_after_artifact_approval' || event.notificationKind === 'task_completed_after_input_resolution'
+    isCompletion
       ? 'Your Sprint Engine task is complete. Do not claim another task in this terminal unless explicitly instructed.'
       : 'Re-read the current task card, notes, acceptance criteria, and evidence before continuing. Do not claim a new task.',
+    reconcileCommand,
   ].filter((line): line is string => line !== null).join('\n')
 }
 
@@ -344,13 +362,21 @@ export function getPendingAgentNotificationEvents(
   deliveredKeys: ReadonlySet<string>,
   alreadySentKeys: ReadonlySet<string>
 ): SprintEngineEvent[] {
-  return sprintEngineState.events.filter((event) =>
-    event.type === 'agent_notification_requested'
-    && Boolean(event.id)
-    && Boolean(event.targetAgentId)
-    && !deliveredKeys.has(agentNotificationDeliveryKey(workspace, event))
-    && !alreadySentKeys.has(agentNotificationDeliveryKey(workspace, event))
-  )
+  const seenKeys = new Set<string>()
+  const pending: SprintEngineEvent[] = []
+  for (const event of sprintEngineState.events) {
+    if (event.type !== 'agent_notification_requested') continue
+    if (!event.id || !event.targetAgentId) continue
+    const deliveryKey = agentNotificationDeliveryKey(workspace, event)
+    if (deliveredKeys.has(deliveryKey) || alreadySentKeys.has(deliveryKey)) continue
+    // Duplicate event observations (same id appearing more than once in the
+    // events array) collapse to a single pending delivery so the supervisor
+    // never writes the same notification twice in one tick.
+    if (seenKeys.has(deliveryKey)) continue
+    seenKeys.add(deliveryKey)
+    pending.push(event)
+  }
+  return pending
 }
 
 export type PickNextAutoRunsOptions = {

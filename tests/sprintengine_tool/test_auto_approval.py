@@ -1,13 +1,16 @@
 from __future__ import annotations
+import json
 import re
 from pathlib import Path
 
 from helpers import (
     assert_artifact_status,
     assert_board_column,
+    assert_event_type,
     assert_task_status,
     create_team,
     get_artifact,
+    get_task,
     read_state,
     task,
     write_state,
@@ -96,7 +99,7 @@ def test_auto_approval_disabled_leaves_ready_artifacts_waiting(tmp_path) -> None
     assert_board_column(state, "T2", "todo")
 
 
-def test_auto_approval_enabled_records_intent_without_mutating_artifact_state(tmp_path) -> None:
+def test_auto_approval_selector_finds_ready_artifact_without_terminal_requirements(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
         "auto-approval-enabled",
@@ -117,6 +120,70 @@ def test_auto_approval_enabled_records_intent_without_mutating_artifact_state(tm
     assert not any(entry["action"] == "approved" for entry in artifact["reviewHistory"])
     assert_task_status(state, "T1", "needs_input")
     assert_board_column(state, "T2", "todo")
+
+
+def test_artifact_approval_mutates_state_events_and_projection(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "auto-approval-uses-sprintengine-state",
+        [
+            task("T1", "Requirements gate", "product", "in_progress", owner="product-fixture"),
+            task("T2", "Implementation", "developer", "todo", depends_on=["T1"]),
+        ],
+    )
+    add_ready_artifact(fixture, "A1", "T1", "requirements", "requirements.md", "Requirements")
+
+    approved = fixture.cli.run("artifact", "approve", "--artifact-id", "A1", "--id", "user")
+
+    state = read_state(fixture.state_path)
+    projection = json.loads((fixture.team_dir / "projection.json").read_text(encoding="utf-8"))
+    artifact = get_artifact(state, "A1")
+    assert approved["ok"] is True
+    assert_artifact_status(state, "A1", "approved")
+    assert artifact["approvedBy"] == "user"
+    assert any(entry["action"] == "approved" for entry in artifact["reviewHistory"])
+    assert_task_status(state, "T1", "done")
+    assert_board_column(state, "T2", "ready")
+    assert_event_type(state, "artifact_approved")
+    assert_event_type(state, "agent_notification_requested")
+    projection_artifact = next(candidate for candidate in projection["artifacts"] if candidate["id"] == "A1")
+    projection_task = next(candidate for candidate in projection["tasks"] if candidate["id"] == "T1")
+    assert projection_artifact["status"] == "approved"
+    assert projection_task["status"] == "done"
+
+
+def test_artifact_request_changes_records_rework_before_owner_wakeup(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "artifact-request-changes-rework-state",
+        [
+            task("T1", "Requirements gate", "product", "needs_input", owner="product-fixture"),
+            task("T2", "Implementation", "developer", "todo", depends_on=["T1"]),
+        ],
+    )
+    add_ready_artifact(fixture, "A1", "T1", "requirements", "requirements.md", "Requirements")
+
+    requested = fixture.cli.run(
+        "artifact",
+        "request-changes",
+        "--artifact-id",
+        "A1",
+        "--id",
+        "user",
+        "--feedback",
+        "Tighten acceptance criteria before implementation.",
+    )
+
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    notification = next(event for event in state["events"] if event.get("type") == "agent_notification_requested")
+    assert requested["ok"] is True
+    assert_artifact_status(state, "A1", "changes_requested")
+    assert_task_status(state, "T1", "in_progress")
+    assert any("Tighten acceptance criteria" in note for note in task_record["notes"])
+    assert notification["targetAgentId"] == "product-fixture"
+    assert notification["notificationKind"] == "task_changes_requested_after_artifact_review"
+    assert_event_type(state, "artifact_changes_requested")
 
 
 def test_auto_approval_policy_allows_only_approved_artifact_kinds(tmp_path) -> None:
@@ -169,18 +236,20 @@ def test_renderer_auto_approval_policy_matches_approved_artifact_kinds() -> None
     assert renderer_kinds == APPROVED_AUTO_APPROVAL_KINDS
 
 
-def test_electron_auto_run_sends_approval_intent_instead_of_approving_directly() -> None:
+def test_electron_auto_run_approves_through_sprint_engine_not_terminal() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
         encoding="utf-8"
     )
     artifacts_source = (repo_root / "src/main/sprintengine-artifacts.ts").read_text(encoding="utf-8")
 
-    assert "sendArtifactApprovalToTerminal(agentSession.sessionId)" in supervisor_source
-    assert "Sent the user approval intent to the responsible agent terminal." in supervisor_source
-    assert "Artifact auto-approved" not in supervisor_source
-    assert "action: 'approve-intent'" in artifacts_source
-    assert "id: mode === 'auto-run' ? 'auto-run' : actor.id" not in artifacts_source
+    assert "sendArtifactApprovalToTerminal" not in supervisor_source
+    assert "Sent the user approval intent to the responsible agent terminal." not in supervisor_source
+    assert "window.api.autoApproveSprintEngineArtifact(statePath, artifact.id)" in supervisor_source
+    assert "Artifact auto-approved through Sprint Engine" in supervisor_source
+    assert "action: 'approve-intent'" not in artifacts_source
+    assert "await assertAutoApprovalAllowed(state, artifactId)" in artifacts_source
+    assert "sprintengine.artifact.approve" in artifacts_source
 
 
 def test_sprintengine_auto_approval_marks_architect_startup_as_autonomous() -> None:
@@ -208,7 +277,7 @@ def test_electron_auto_run_prompts_idle_running_agents_for_ready_work() -> None:
 
     assert "function sendContinuationPromptsToIdleAgents" in supervisor_source
     assert "buildSprintEngineContinuationPrompt(task, agentId)" in supervisor_source
-    assert "Sprint Engine roster runner found a ready" in auto_run_utils_source
+    assert "Sprint Engine roster runner found a wake candidate for a ready" in auto_run_utils_source
     assert "sprintengine join --role ${task.role} --id ${agentId} --watch" in auto_run_utils_source
     assert "await sendContinuationPromptsToIdleAgents(" in supervisor_source
     assert "continuation-prompt-sent" in supervisor_source
@@ -269,8 +338,8 @@ def test_electron_roster_runner_uses_durable_or_requested_auto_mode() -> None:
         encoding="utf-8"
     )
 
-    assert "const runnerMode = workspace?.sprintEngineState?.runner?.mode" in supervisor_source
-    assert "return runnerMode === 'auto' || autoState.enabled || autoState.autoApproveArtifacts" in supervisor_source
+    assert "const runnerActive = autoState.supervisorEnabled" in supervisor_source
+    assert "if (runnerActive) {" in supervisor_source
     assert "async function ensureDurableAutoMode" in supervisor_source
     assert "mode: 'auto'" in supervisor_source
 

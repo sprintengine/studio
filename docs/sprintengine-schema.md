@@ -493,6 +493,19 @@ Register artifacts through `sprintengine artifact add`, `sprintengine artifact
 ready`, `sprintengine artifact approve`, or `sprintengine artifact
 request-changes`.
 
+Artifact review actions are command-mediated mutations, not renderer writes to
+the folder store and not terminal handoffs to the artifact producer. Manual
+approval, manual request-changes, and policy-approved auto-approval may be
+started by authenticated app IPC, but they must call the Sprint Engine
+core/MCP artifact operation so review history, task notes, events, folder
+movement, and projection refresh stay coherent.
+
+Main/preload/renderer contracts should return and apply the refreshed
+projection content after a successful review mutation, falling back to
+`sprintengine projection` or the existing projection watcher only when the
+mutation response lacks usable projection data. A failed mutation must not apply
+stale projection content as success.
+
 `recorded` artifacts are durable gate evidence. They are visible in task
 projection data but do not enter human approval queues and do not block task
 completion by themselves. Use `ready_for_review` only for artifacts that require

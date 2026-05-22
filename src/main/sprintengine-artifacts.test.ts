@@ -13,6 +13,8 @@ type IpcHandler = (_event: unknown, payload: unknown) => Promise<unknown>
 async function main(): Promise<void> {
   await testReadProjectionUsesProjectionFile()
   await testReadProjectionSurfacesUnavailableAndInvalidProjection()
+  await testMutationResponsesIncludeProjectionAndEventMetadata()
+  await testFailedMutationDoesNotReturnProjectionContent()
   await testReadRegistryRolesUsesMcpTool()
   await testReadRegistryRolesPassesLoadedPluginSoulsRoots()
   await testReadRegistryRolesUsesRealMcpBridgeForBundledAndCustomRoles()
@@ -81,6 +83,74 @@ async function testReadProjectionSurfacesUnavailableAndInvalidProjection(): Prom
   const invalidProjection = await handlers.readProjection({ statePath })
   assert.equal(invalidProjection.ok, false)
   if (!invalidProjection.ok) assert.match(invalidProjection.message, /JSON|Unexpected|property name/u)
+}
+
+async function testMutationResponsesIncludeProjectionAndEventMetadata(): Promise<void> {
+  const { statePath } = await createStateFixture()
+  const calls: Array<{ tool: string; payload: Record<string, unknown> }> = []
+  const handlers = createHandlers(async (_context, tool, payload) => {
+    calls.push({ tool, payload })
+    return {
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      response: {
+        ok: true,
+        tool,
+        result: {
+          ok: true,
+          event: {
+            id: 'EVT-10',
+            type: 'artifact_approved',
+            timestamp: '2026-05-22T08:00:00Z',
+            actor: 'user-1',
+            message: 'approved',
+          },
+          notification: {
+            id: 'EVT-11',
+            type: 'agent_notification_requested',
+            timestamp: '2026-05-22T08:00:01Z',
+            actor: 'user-1',
+            message: 'wake owner',
+          },
+        },
+      },
+    }
+  })
+
+  const result = await handlers.reviewArtifact({ statePath, artifactId: 'A1' }, 'approve', 'user')
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  assert.equal(calls[0]?.tool, 'sprintengine.artifact.approve')
+  assert.equal(result.data.projectionContent, JSON.stringify({
+    tasks: [],
+    agents: {
+      'developer-1': {
+        role: 'developer',
+        currentDispatch: { dispatchId: 'DISP-1', taskId: 'T1' },
+      },
+    },
+  }))
+  assert.equal(result.data.latestEventId, 'EVT-11')
+  assert.deepEqual((result.data.events as Array<{ id: string }>).map((event) => event.id), ['EVT-10', 'EVT-11'])
+}
+
+async function testFailedMutationDoesNotReturnProjectionContent(): Promise<void> {
+  const { statePath } = await createStateFixture()
+  const handlers = createHandlers(async (_context, tool) => ({
+    exitCode: 0,
+    stdout: '',
+    stderr: '',
+    response: {
+      ok: false,
+      tool,
+      error: { code: 'not_ready', message: 'Artifact is not ready.' },
+    },
+  }))
+
+  const result = await handlers.reviewArtifact({ statePath, artifactId: 'A1' }, 'approve', 'user')
+  assert.equal(result.ok, false)
+  if (!result.ok) assert.match(result.message, /not ready/)
 }
 
 async function testReadRegistryRolesUsesMcpTool(): Promise<void> {
@@ -294,15 +364,15 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
     },
   }
   registerSprintEngineIpc(ipcMain as never, {
-    openArtifact: async () => ({ ok: true, data: null }),
-    reviewArtifact: async () => ({ ok: true, data: null }),
-    readyTask: async () => ({ ok: true, data: null }),
-    initializeSprintEngineState: async () => ({ ok: true, data: null }),
-    updateTask: async () => ({ ok: true, data: null }),
-    createTask: async () => ({ ok: true, data: null }),
-    commentTask: async () => ({ ok: true, data: null }),
-    setRunnerMode: async () => ({ ok: true, data: null }),
-    replenishRoster: async () => ({ ok: true, data: null }),
+    openArtifact: async () => ({ ok: true, data: {} }),
+    reviewArtifact: async () => ({ ok: true, data: {} }),
+    readyTask: async () => ({ ok: true, data: {} }),
+    initializeSprintEngineState: async () => ({ ok: true, data: {} }),
+    updateTask: async () => ({ ok: true, data: {} }),
+    createTask: async () => ({ ok: true, data: {} }),
+    commentTask: async () => ({ ok: true, data: {} }),
+    setRunnerMode: async () => ({ ok: true, data: {} }),
+    replenishRoster: async () => ({ ok: true, data: {} }),
     readProjection: async () => ({ ok: true, data: null }),
     readRegistryRoles: async () => {
       calls.push('roles')
