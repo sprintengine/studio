@@ -40,6 +40,30 @@ export function focusAgentTab(workspaceId: string, agentId: string): boolean {
   return true
 }
 
+function updateAgentTabConfig(
+  model: Model,
+  agentId: string,
+  config: Record<string, unknown> | undefined,
+): void {
+  if (!config) return
+
+  let targetTabId: string | null = null
+  let nextConfig: Record<string, unknown> | null = null
+  model.visitNodes((node) => {
+    if (targetTabId || !(node instanceof TabNode) || node.getComponent() !== 'agent') return
+
+    const existingConfig = (node.getConfig() as Record<string, unknown> | undefined) ?? {}
+    if (existingConfig.agentId !== agentId) return
+
+    targetTabId = node.getId()
+    nextConfig = { ...existingConfig, ...config, agentId }
+  })
+
+  if (targetTabId && nextConfig) {
+    model.doAction(Actions.updateNodeAttributes(targetTabId, { config: nextConfig }))
+  }
+}
+
 export function hasAgentTab(workspaceId: string, agentId: string): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
@@ -171,6 +195,7 @@ export function focusOrAddAgentTab(
   if (!model) return false
   if (focusAgentTab(workspaceId, agentId)) {
     renameAgentTab(model, agentId, name)
+    updateAgentTabConfig(model, agentId, config)
     return true
   }
 

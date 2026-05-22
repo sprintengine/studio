@@ -616,7 +616,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  && Boolean(current?.cliStartRequested || current?.cliHasLaunched || current?.cliSessionId)
  const shouldResetSession =
  hasLegacyLaunchedSession || (current?.cli !== undefined && current.cli !== selectedCli)
- const shouldStartFresh = Boolean(options?.freshSession || shouldResetSession || current?.kind === 'sprintengine')
+ const shouldStartFresh = Boolean(options?.freshSession || shouldResetSession)
  const previousSessionId = current?.cliSessionId
  const nextSessionId = current?.cliStartRequested && previousSessionId && !shouldStartFresh
  ? previousSessionId
@@ -1439,7 +1439,22 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const openAgentTerminal = (agentId: string) => {
  const fallbackLabel = rosterById[agentId]?.label ?? agentId
  const label = getAgentName(agentId, fallbackLabel)
+ const liveSession = getLiveAgentTerminalSession(agentId)
  setSelectedAgentId(agentId)
+ if (liveSession) {
+ const effectiveCli = liveSession.cli ?? agents[agentId]?.cli
+ updateAgent(workspaceId, agentId, {
+ name: label,
+ cliStartRequested: true,
+ cliHasLaunched: true,
+ cliOnboardingPromptSent: true,
+ cliSessionId: liveSession.sessionId,
+ ...(effectiveCli ? { cli: effectiveCli } : {}),
+ kind: 'sprintengine',
+ })
+ focusOrAddAgentTab(workspaceId, agentId, label, { sessionId: liveSession.sessionId })
+ return
+ }
  void startAgentTerminalWhenReady(agentId, label)
  }
 
