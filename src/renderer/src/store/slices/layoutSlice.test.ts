@@ -43,6 +43,7 @@ const standardTemplate: LayoutTemplate = {
 const sprintEngineState = createInitialSprintEngineState({
   goal: 'Ship layout slice',
   name: 'Layout Team',
+  roleCounts: {},
 })
 
 const sprintLayout = sprintEngineTabsLayoutModel(sprintEngineState, {}, { includeAgentTabs: false })
@@ -87,10 +88,10 @@ const migratedFromThreeTab = migrateSprintEngineLayout({
   sprintEngineState,
   agents: {},
 } as Workspace)
-assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel, 'sprintengine'), true)
-assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel, 'sprintengine-inbox'), false)
-assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel, 'sprintengine-roster'), false)
-assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel, 'sprintengine-tasks'), false)
+assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel!, 'sprintengine'), true)
+assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel!, 'sprintengine-inbox'), false)
+assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel!, 'sprintengine-roster'), false)
+assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel!, 'sprintengine-tasks'), false)
 
 // A layout that already has the canonical single 'sprintengine' tab is left alone.
 const canonicalLayout = sprintEngineTabsLayoutModel(sprintEngineState, {})
@@ -195,9 +196,9 @@ function findTab(model: IJsonModel, component: string): Record<string, unknown> 
   walk(model.layout)
   return found
 }
-const stickyWatchtower = findTab(stickySwitchboardLayout, 'watchtower-panel')!
-const stickyBoard = findTab(stickySwitchboardLayout, 'switchboard-board')!
-const untouchedEditor = findTab(stickySwitchboardLayout, 'editor')!
+const stickyWatchtower = findTab(stickySwitchboardLayout!, 'watchtower-panel')!
+const stickyBoard = findTab(stickySwitchboardLayout!, 'switchboard-board')!
+const untouchedEditor = findTab(stickySwitchboardLayout!, 'editor')!
 assert.equal(stickyWatchtower.enableClose, false)
 assert.equal(stickyWatchtower.enableDrag, false)
 assert.equal(stickyBoard.enableClose, false)

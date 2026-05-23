@@ -8,6 +8,8 @@ import {
   normalizeWorktreeEntry,
   normalizeWorkspaceWorktreeState,
 } from './worktreesSlice'
+import { defaultWorkspaceMemoryConfig } from './memorySlice'
+import { defaultSprintEngineAutoState, defaultMultiloopAutoState } from './runStateSlice'
 
 const standardTemplate: LayoutTemplate = {
   id: 'worktrees-slice-standard',
@@ -71,6 +73,8 @@ const normalizedState = normalizeWorkspaceWorktreeState({
     valid: {
       id: 'valid',
       path: '/repo/.worktrees/valid',
+      branch: 'valid',
+      ownerAgentId: 'agent-1',
       status: 'assigned',
       createdAt: 1,
       updatedAt: 2,
@@ -81,7 +85,7 @@ const normalizedState = normalizeWorkspaceWorktreeState({
       status: 'assigned',
     },
   },
-} as Partial<WorkspaceWorktreeState>)
+} as unknown as Partial<WorkspaceWorktreeState>)
 assert.equal(normalizedState.containerPath, ' /repo/.worktrees ')
 assert.equal(normalizedState.updatedAt, 100)
 assert.deepEqual(Object.keys(normalizedState.entries), ['valid'])
@@ -92,10 +96,18 @@ const carrier: { workspaces: Workspace[] } = {
       id: 'ws-direct-worktrees',
       name: 'Direct Worktrees',
       mode: 'standard',
+      folderPath: null,
+      templateId: 'worktrees-slice-standard',
       agents: {},
       layoutModel: standardTemplate.layout,
+      memory: defaultWorkspaceMemoryConfig(),
       editorState: { openFiles: [], activeFilePath: null },
       worktreeState: defaultWorkspaceWorktreeState(),
+      sprintEngineState: null,
+      multiloopState: null,
+      sprintEngineAutoState: defaultSprintEngineAutoState(),
+      multiloopAutoState: defaultMultiloopAutoState(),
+      createdAt: 1,
     },
   ],
 }

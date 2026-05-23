@@ -18,7 +18,6 @@ const guidedBriefInput = {
     product: 'claude',
     architect: 'codex',
     frontend: 'my-custom-cli',
-    developer: 'custom-guided-extra-role',
   },
   buildRoleCounts: {
     architect: 0,
@@ -54,9 +53,11 @@ const guidedBriefInput = {
       hash: 'mockup-hash',
       path: 'mockups/main.html',
     },
-    { kind: 'mockup', title: 'Missing hash', path: 'mockups/bad.html' },
+    { kind: 'mockup', title: 'Missing hash', path: 'mockups/bad.html' } as unknown as GuidedBriefRuntimeState['acceptedMockups'][number],
   ],
   activeMockupPath: 'mockups/main.html',
+  acceptedProductBrief: null,
+  acceptedUiDirection: null,
   strategistSessionId: 'strategist-session',
   architectSessionId: 'architect-session',
   designerSessionId: 'designer-session',
@@ -100,7 +101,7 @@ const carrier = {
   ],
 }
 const slice = createGuidedBriefSlice((mutator) => { mutator(carrier) })
-slice.setGuidedBriefState('workspace-1', guidedBriefInput as GuidedBriefRuntimeState)
+slice.setGuidedBriefState('workspace-1', guidedBriefInput as unknown as GuidedBriefRuntimeState)
 
 assert.equal(carrier.workspaces[0].mode, 'guided-brief')
 assert.ok(carrier.workspaces[0].guidedBriefState)

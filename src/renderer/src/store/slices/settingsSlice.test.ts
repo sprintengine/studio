@@ -31,7 +31,7 @@ const normalized = normalizeAppSettings(
           name: ' Valid Server ',
           transport: 'stdio',
           command: ' npx ',
-          args: [' package ', '', 123],
+          args: [' package ', '', 123 as unknown as string],
           enabled: true,
           clients: ['codex', 'opencode', 'bad cli!'],
           scope: 'user',
@@ -44,7 +44,7 @@ const normalized = normalizeAppSettings(
           transport: 'stdio',
           clients: ['codex'],
           enabled: true,
-        },
+        } as never,
       },
     },
     lastAgentSpawnPermissionPreset: 'unsafe' as never,
@@ -61,7 +61,7 @@ const normalized = normalizeAppSettings(
     usageTelemetry: {
       sendUsageData: true,
       localDevExportEnabled: false,
-      lastExportAt: 42 as never,
+      lastExportAt: 42 as unknown as string,
       exportDiagnostics: false,
     },
     learning: {

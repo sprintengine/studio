@@ -11,6 +11,9 @@ import {
   normalizeAgentExecution,
   normalizeAgentState,
 } from './agentsSlice'
+import { defaultWorkspaceMemoryConfig } from './memorySlice'
+import { defaultSprintEngineAutoState, defaultMultiloopAutoState } from './runStateSlice'
+import { defaultWorkspaceWorktreeState } from './worktreesSlice'
 
 const standardTemplate: LayoutTemplate = {
   id: 'agents-slice-standard',
@@ -103,9 +106,18 @@ const carrier: { workspaces: Workspace[] } = {
       id: 'ws-direct',
       name: 'Direct Workspace',
       mode: 'standard',
+      folderPath: null,
+      templateId: 'agents-slice-standard',
       agents: {},
       layoutModel: standardTemplate.layout,
+      worktreeState: defaultWorkspaceWorktreeState(),
+      memory: defaultWorkspaceMemoryConfig(),
       editorState: defaultEditorState(),
+      sprintEngineState: null,
+      multiloopState: null,
+      sprintEngineAutoState: defaultSprintEngineAutoState(),
+      multiloopAutoState: defaultMultiloopAutoState(),
+      createdAt: 1,
     },
   ],
 }

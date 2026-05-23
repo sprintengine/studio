@@ -38,7 +38,11 @@ import type {
   SprintEngineState,
   SprintEngineTask,
   Workspace,
+  McpSettings,
 } from '../types/workspace'
+import { defaultAgent } from '../store/slices/agentsSlice'
+
+const emptyMcpSettings: McpSettings = { syncEnabled: false, servers: {} }
 
 void main()
 
@@ -228,9 +232,9 @@ function workspaceFixture(overrides: Partial<Workspace> = {}): Workspace {
     templateId: 'sprintengine',
     layoutModel: { global: {}, layout: { type: 'row', children: [] } },
     agents: {},
-    worktreeState: { entries: [] },
-    memory: { relativeRoot: '', allowedFiles: [] },
-    editorState: { openFiles: [], activeFile: null },
+    worktreeState: { containerPath: null, entries: {}, updatedAt: null },
+    memory: { relativeRoot: '' },
+    editorState: { openFiles: [], activeFilePath: null },
     sprintEngineState: null,
     sprintEngineAutoState: {
       supervisorEnabled: false,
@@ -250,6 +254,13 @@ function workspaceFixture(overrides: Partial<Workspace> = {}): Workspace {
     createdAt: 1,
     ...overrides,
   } as Workspace
+}
+
+function sprintAgent(id: string, name: string, cli: AgentCli = 'codex'): Workspace['agents'][string] {
+  return {
+    ...defaultAgent(id, name, 'sprintengine'),
+    cli,
+  }
 }
 
 function sprintEngineStateFixture(overrides: Partial<SprintEngineState> = {}): SprintEngineState {
@@ -677,7 +688,7 @@ async function testDeliverAgentNotificationsSkipsRetiredTargets(): Promise<void>
     state,
     new Set<string>(),
     {},
-    {},
+    emptyMcpSettings,
     mutableRef(new Set<string>()),
     sentNotifications
   )
@@ -690,14 +701,8 @@ async function testDeliverAgentNotificationsSkipsRetiredTargets(): Promise<void>
 function reworkNotificationWorkspaceFixture(): Workspace {
   return workspaceFixture({
     agents: {
-      'frontend-2': {
-        id: 'frontend-2',
-        name: 'Reagan',
-        role: 'frontend',
-        cli: 'codex',
-        kind: 'sprintengine',
-      },
-    } as Workspace['agents'],
+      'frontend-2': sprintAgent('frontend-2', 'Reagan'),
+    },
     sprintEngineAutoState: {
       supervisorEnabled: true,
       enabled: true,
@@ -793,7 +798,7 @@ async function testDeliverApprovalCompletionWakesOwnerOnceWithoutFocus(): Promis
     state,
     new Set(['frontend-2']),
     {},
-    {},
+    emptyMcpSettings,
     mutableRef(new Set<string>()),
     sent
   )
@@ -802,7 +807,7 @@ async function testDeliverApprovalCompletionWakesOwnerOnceWithoutFocus(): Promis
     state,
     new Set(['frontend-2']),
     {},
-    {},
+    emptyMcpSettings,
     mutableRef(new Set<string>()),
     sent
   )
@@ -871,7 +876,7 @@ async function testDeliverRequestChangesWakesOwnerWithJoinDirectiveAndFocus(): P
     state,
     new Set(['frontend-2']),
     {},
-    {},
+    emptyMcpSettings,
     mutableRef(new Set<string>()),
     mutableRef(new Set<string>())
   )
@@ -930,7 +935,7 @@ async function testDeliverNotificationsSuppressDuplicateObservations(): Promise<
     state,
     new Set(['frontend-2']),
     {},
-    {},
+    emptyMcpSettings,
     mutableRef(new Set<string>()),
     sent
   )
@@ -940,7 +945,7 @@ async function testDeliverNotificationsSuppressDuplicateObservations(): Promise<
     state,
     new Set(['frontend-2']),
     {},
-    {},
+    emptyMcpSettings,
     mutableRef(new Set<string>()),
     sent
   )
@@ -995,7 +1000,7 @@ async function testDeliverNotificationSpawnsAgentWhenMissingTerminal(): Promise<
     state,
     new Set<string>(),
     { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
-    {},
+    emptyMcpSettings,
     mutableRef(new Set<string>()),
     sent
   )
@@ -1062,7 +1067,7 @@ async function testDeliverNotificationLeavesPendingWhenSupervisorDisabledAndNoTe
     state,
     new Set<string>(),
     { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
-    {},
+    emptyMcpSettings,
     mutableRef(new Set<string>()),
     sent
   )
@@ -1128,14 +1133,8 @@ async function testDispatchPromptDeliveryUsesDispatchIdCooldown(): Promise<void>
   const sent = mutableRef(new Map<string, { sentAt: number }>())
   const workspace = workspaceFixture({
     agents: {
-      'frontend-3': {
-        id: 'frontend-3',
-        name: 'Reagan',
-        role: 'frontend',
-        cli: 'codex',
-        kind: 'sprintengine',
-      },
-    } as Workspace['agents'],
+      'frontend-3': sprintAgent('frontend-3', 'Reagan'),
+    },
   })
   const state = sprintEngineStateFixture({
     sprintEngineAgents: {
@@ -1222,14 +1221,8 @@ async function testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt(): P
   const supervisor = await loadSupervisor()
   const workspace = workspaceFixture({
     agents: {
-      'code_reviewer': {
-        id: 'code_reviewer',
-        name: 'Code Reviewer',
-        role: 'code_reviewer',
-        cli: 'codex',
-        kind: 'sprintengine',
-      },
-    } as Workspace['agents'],
+      'code_reviewer': sprintAgent('code_reviewer', 'Code Reviewer'),
+    },
     sprintEngineAutoState: {
       supervisorEnabled: true,
       enabled: true,
@@ -1260,7 +1253,7 @@ async function testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt(): P
       gateId: 'code_reviewer',
     },
     { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
-    {},
+    emptyMcpSettings,
     mutableRef(new Set<string>()),
   )
 
@@ -1333,7 +1326,13 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
 
   const supervisor = await loadSupervisor()
   const initialState = sprintEngineStateFixture({
-    runner: { mode: 'auto' },
+    runner: {
+      mode: 'auto',
+      pollIntervalSeconds: 5,
+      idleBackoffSeconds: 5,
+      maxBackoffSeconds: 30,
+      stopWhenComplete: true,
+    },
     sprintEngineAgents: {
       'developer-1': runtimeAgent('developer', { status: 'retired' }),
     },
@@ -1341,14 +1340,8 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
   const workspace = workspaceFixture({
     sprintEngineState: initialState,
     agents: {
-      'developer-1': {
-        id: 'developer-1',
-        name: 'Perry',
-        role: 'developer',
-        cli: 'codex',
-        kind: 'sprintengine',
-      },
-    } as Workspace['agents'],
+      'developer-1': sprintAgent('developer-1', 'Perry'),
+    },
     sprintEngineAutoState: {
       supervisorEnabled: true,
       enabled: true,
@@ -1368,7 +1361,7 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
     autoState: workspace.sprintEngineAutoState,
     superviseStartedAt: 0,
     cliRuntimes: { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
-    mcpSettings: {},
+    mcpSettings: emptyMcpSettings,
     inFlightSpawns: mutableRef(new Set<string>()),
     sentContinuationMessages: mutableRef(new Map()),
     sentDispatchMessages: mutableRef(new Map()),
@@ -1447,14 +1440,8 @@ async function testSuperviseRunnerCycleDoesNotMutateTaskOrGateState(): Promise<v
   const workspace = workspaceFixture({
     sprintEngineState: state,
     agents: {
-      'code_reviewer': {
-        id: 'code_reviewer',
-        name: 'Code Reviewer',
-        role: 'code_reviewer',
-        cli: 'codex',
-        kind: 'sprintengine',
-      },
-    } as Workspace['agents'],
+      'code_reviewer': sprintAgent('code_reviewer', 'Code Reviewer'),
+    },
     sprintEngineAutoState: {
       supervisorEnabled: true,
       enabled: true,
@@ -1474,7 +1461,7 @@ async function testSuperviseRunnerCycleDoesNotMutateTaskOrGateState(): Promise<v
     autoState: workspace.sprintEngineAutoState,
     superviseStartedAt: 0,
     cliRuntimes: { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
-    mcpSettings: {},
+    mcpSettings: emptyMcpSettings,
     inFlightSpawns: mutableRef(new Set<string>()),
     sentContinuationMessages: mutableRef(new Map()),
     sentDispatchMessages: mutableRef(new Map()),
@@ -1560,7 +1547,7 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
   assert.ok(continuation.includes('not a durable dispatch assignment'))
 
   const gateTask = task({ id: 'T3', title: 'Build feature' })
-  const gate = gateTask.qualityGates[0]
+  const gate = gateTask.qualityGates![0]
   const claimed = buildSprintEngineGateContinuationPrompt(gateTask, gate, 'code_reviewer', true)
   assert.ok(claimed.includes('already claimed by this terminal'))
   assert.ok(claimed.includes('durable dispatch assignment'))
@@ -1681,7 +1668,7 @@ function testGetArchitectActionableNeedsInputTasksFiltersByKind(): void {
   const tasks: SprintEngineTask[] = [
     task({ id: 'T1', status: 'needs_input', needsInput: { kind: 'architect' } as SprintEngineTask['needsInput'] }),
     task({ id: 'T2', status: 'needs_input', needsInput: { kind: 'user' } as SprintEngineTask['needsInput'] }),
-    task({ id: 'T3', status: 'needs_input', needsInput: { kind: 'verification' } as SprintEngineTask['needsInput'] }),
+    task({ id: 'T3', status: 'needs_input', needsInput: { kind: 'verification' } as unknown as SprintEngineTask['needsInput'] }),
     task({ id: 'T4', status: 'in_progress' }),
   ]
   const state = sprintEngineStateFixture({ tasks })
@@ -2031,7 +2018,7 @@ function testPickNextAutoRunsResumesActiveGateClaim(): void {
   const state = sprintEngineStateFixture({
     tasks: [reviewTask],
     sprintEngineAgents: {
-      'developer-1': runtimeAgent('developer', { status: 'in_progress', currentTaskId: 'T-review' }),
+      'developer-1': runtimeAgent('developer', { status: 'running', currentTaskId: 'T-review' }),
       'code_reviewer': runtimeAgent('code_reviewer'),
     },
   })
