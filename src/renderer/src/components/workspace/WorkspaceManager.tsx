@@ -33,7 +33,7 @@ import type {
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
-import { addAgentTabTiled, addTerminalTab, focusComponentTab, focusOrAddAgentTab, focusOrAddComponentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
+import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddComponentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { buildCurrentContextSprintEngineHandoffPrompt } from '../../utils/sprintengineHandoff'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
@@ -681,17 +681,9 @@ export default function WorkspaceManager() {
         toggleWorkspacePanel(activeWorkspaceId, 'editor')
       } else if (command === 'toggle-git') {
         toggleWorkspacePanel(activeWorkspaceId, 'git')
-      } else if (command === 'open-sprintengine-tasks') {
-        const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId)
-        if (workspace?.mode === 'sprintengine' || workspace?.sprintEngineContext) {
-          focusComponentTab(activeWorkspaceId, 'sprintengine')
-          window.dispatchEvent(
-            new CustomEvent('multicode:panel-command', { detail: { id: 'sprintengine.goto.tasks' } })
-          )
-        }
       }
     })
-  }, [activeWorkspaceId, openSettings, workspaces])
+  }, [activeWorkspaceId, openSettings])
 
   const handleCreate = ({
     template,

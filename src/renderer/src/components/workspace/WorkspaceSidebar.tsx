@@ -3,6 +3,7 @@ import { WorkspaceTypeIcon } from '../AppIcons'
 import { StatusDot, Tooltip, type Tone } from '../ui'
 import MulticodeMark from '../brand/MulticodeMark'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
+import PanelRail from './PanelRail'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
   HighlightColor,
@@ -894,6 +895,11 @@ export default function WorkspaceSidebar({
           </button>
         </Tooltip>
       </div>
+
+      {/* Panel rail — Files / Editor / Git toggles, scoped to the active workspace */}
+      {activeWorkspaceId ? (
+        <PanelRail workspaceId={activeWorkspaceId} collapsed={sidebarCollapsed} />
+      ) : null}
 
       {/* New workspace */}
       <Tooltip

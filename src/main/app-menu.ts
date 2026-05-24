@@ -58,10 +58,6 @@ export function createAppMenu(): Menu {
           accelerator: 'CmdOrCtrl+Shift+G',
           click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'toggle-git'),
         },
-        {
-          label: 'Open Sprint Engine Tasks',
-          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'open-sprintengine-tasks'),
-        },
         { type: 'separator' },
         { role: 'reload' },
         { role: 'forceReload' },

@@ -618,6 +618,31 @@ export function hasComponentTab(workspaceId: string, component: string): boolean
   return found
 }
 
+type JsonLayoutNode = {
+  type?: string
+  component?: string
+  children?: JsonLayoutNode[]
+}
+
+// Walks a serialized IJsonModel and reports whether a tab with `component` is
+// present. Used by chrome that needs to derive panel-presence reactively from
+// the persisted workspace.layoutModel — the live Model has no listener API.
+export function jsonModelHasComponent(model: IJsonModel | undefined | null, component: string): boolean {
+  if (!model) return false
+  const visit = (node: JsonLayoutNode | undefined): boolean => {
+    if (!node) return false
+    if (node.type === 'tab' && node.component === component) return true
+    const children = node.children
+    if (!children) return false
+    for (const child of children) {
+      if (visit(child)) return true
+    }
+    return false
+  }
+  const layout = (model as unknown as { layout?: JsonLayoutNode }).layout
+  return visit(layout)
+}
+
 export function removeComponentTab(workspaceId: string, component: string): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
