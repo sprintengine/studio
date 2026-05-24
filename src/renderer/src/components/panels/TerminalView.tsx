@@ -190,6 +190,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       {
         executionCwd: resolveAgentExecutionRoot(currentAgent?.execution, storedExecutionWorktreePath, folderReadyPath).cwd,
         workspaceRoot: folderReadyPath ?? undefined,
+        sprintEngineStatePath: workspace.sprintEngineContext?.statePath,
         rosterArgs: buildSprintEngineRosterCommandArgs(workspace.sprintEngineState),
         commandMode: getSprintEngineStartupCommandMode(rosterAgent.role, agentId, workspace.sprintEngineState),
         autonomousPlanningOverride: rosterAgent.role === 'architect' && Boolean(workspace.sprintEngineAutoState?.autoApproveArtifacts),

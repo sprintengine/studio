@@ -10,7 +10,7 @@ T3 migrated bundled role manifests from one monolithic role skill to ordered com
 - `evidence_quality_assessment`: consolidates evidence-quality expectations used by reviewer, tester, security, performance, and product roles.
 - `post_change_self_review`: consolidates post-change self-review instructions.
 - `collaboration_norms`: consolidates ask-vs-act and role-boundary collaboration instructions.
-- `sprintengine_workflow`: adds the shared Sprint Engine command workflow, evidence logging, `needs_input`, and join-watch continuation rules to every bundled rendered Soul.
+- `sprintengine_workflow`: adds the shared Sprint Engine command workflow, evidence logging, `needs_input`, standalone/headless CLI join-watch continuation rules, and Multicode MCP-native runtime dispatch boundaries to every bundled rendered Soul.
 
 ## Intentional Prompt Drift
 

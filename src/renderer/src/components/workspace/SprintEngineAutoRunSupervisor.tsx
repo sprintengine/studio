@@ -53,7 +53,7 @@ import { publishDiagnostic } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
-import { focusOrAddAgentTab } from '../../utils/modelRegistry'
+import { applyAgentTerminalRevealPolicy, type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
 import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
 import {
   agentCliSupportsConversationResume,
@@ -718,10 +718,11 @@ export async function deliverAgentNotificationEvents(
     if (session) {
       await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(prompt))
       if (!isAgentNotificationCompletionEvent(event)) {
-        focusOrAddAgentTab(
+        applyAgentTerminalRevealPolicy(
           workspace.id,
           targetAgentId,
           workspace.agents[targetAgentId]?.name ?? rosterAgent?.label ?? targetAgentId,
+          'background',
           { sessionId: session.sessionId }
         )
       }
@@ -1071,7 +1072,7 @@ export async function spawnAutoRunCandidate(
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   mcpSettings: McpSettings,
   inFlightSpawns: MutableRefObject<Set<string>>,
-  options: { trackPendingSpawn?: boolean } = {}
+  options: { trackPendingSpawn?: boolean; revealPolicy?: AgentTerminalRevealPolicy } = {}
 ): Promise<'started' | 'failed' | 'skipped'> {
   const currentState = useWorkspaceStore.getState()
   const currentWorkspace = currentState.workspaces.find((candidate) => candidate.id === workspace.id)
@@ -1244,7 +1245,7 @@ export async function spawnAutoRunCandidate(
       memoryRootPath: memoryStatus?.ok ? memoryStatus.rootPath : undefined,
       memoryRelativeRoot: memoryRelativeRoot ?? undefined,
       mcpSettings,
-      visible: Boolean(nextRun.startupPromptOverride),
+      visible: options.revealPolicy === 'reveal',
       agentSession: {
         executionId: sessionId,
         system: 'sprintengine',
@@ -1324,9 +1325,7 @@ export async function spawnAutoRunCandidate(
     currentState.updateAgent(workspace.id, nextRun.agentId, {
       cliStartupPrompt: undefined,
     })
-    if (nextRun.startupPromptOverride) {
-      focusOrAddAgentTab(workspace.id, nextRun.agentId, nextRun.label, { sessionId })
-    }
+    applyAgentTerminalRevealPolicy(workspace.id, nextRun.agentId, nextRun.label, options.revealPolicy ?? 'background', { sessionId })
     return 'started'
   } finally {
     inFlightSpawns.current.delete(spawnKey)
@@ -1341,7 +1340,41 @@ async function startMissingRosterAgents(
   mcpSettings: McpSettings,
   inFlightSpawns: MutableRefObject<Set<string>>
 ): Promise<'started' | 'failed' | 'none'> {
-  if (!isSprintEngineRunnerActive(workspace) || !workspace.sprintEngineContext) return 'none'
+  const autoState = getSprintEngineAutoState(workspace)
+  const automationMode = deriveSprintEngineAutomationMode(autoState, sprintEngineState.runner)
+  const localRunnerActive = isSprintEngineRunnerActive(workspace)
+  logPerfEvent('SprintEngineAutoRun', 'roster-spawn-audit-start', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    automationMode,
+    runnerMode: sprintEngineState.runner?.mode ?? null,
+    localRunnerActive,
+    supervisorEnabled: autoState.supervisorEnabled,
+    legacyEnabled: autoState.enabled,
+    autoApproveArtifacts: autoState.autoApproveArtifacts,
+    runningAgentIds: [...runningAgentIds],
+    rosterAgentCount: Object.keys(sprintEngineState.sprintEngineAgents).length,
+    taskCounts: {
+      ready: sprintEngineState.tasks.filter((task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'ready').length,
+      changesRequested: sprintEngineState.tasks.filter((task) => task.status === 'changes_requested').length,
+      review: sprintEngineState.tasks.filter((task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'review').length,
+      testing: sprintEngineState.tasks.filter((task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'testing').length,
+      needsInput: sprintEngineState.tasks.filter((task) => task.status === 'needs_input').length,
+    },
+  })
+  if (!localRunnerActive || !workspace.sprintEngineContext) {
+    logPerfEvent('SprintEngineAutoRun', 'roster-spawn-audit-skipped', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      reason: !workspace.sprintEngineContext ? 'missing-sprintengine-context' : 'local-runner-inactive',
+      automationMode,
+      runnerMode: sprintEngineState.runner?.mode ?? null,
+      localRunnerActive,
+      supervisorEnabled: autoState.supervisorEnabled,
+      autoApproveArtifacts: autoState.autoApproveArtifacts,
+    })
+    return 'none'
+  }
 
   const stateFileExists = await window.api.pathExists(workspace.sprintEngineContext.statePath).catch(() => false)
   const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
@@ -1349,6 +1382,30 @@ async function startMissingRosterAgents(
 
   for (const agent of roster) {
     const runtimeAgent = sprintEngineState.sprintEngineAgents[agent.id]
+    const currentAgent = workspace.agents[agent.id]
+    const ownsOpenImplementationWork = agentOwnsOpenSprintEngineImplementationWork(sprintEngineState, agent.id)
+    const hasOpenGateWork = agentHasOpenSprintEngineGateWork(sprintEngineState, agent.id, agent.role)
+    const hasClaimableImplementationWork = roleHasClaimableSprintEngineImplementationWork(sprintEngineState, agent.role)
+    const hasOpenWork = ownsOpenImplementationWork || hasOpenGateWork || hasClaimableImplementationWork
+    logPerfEvent('SprintEngineAutoRun', 'roster-spawn-agent-audit', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      agentId: agent.id,
+      role: agent.role,
+      runtimeStatus: runtimeAgent?.status ?? null,
+      currentTaskId: runtimeAgent?.currentTaskId ?? null,
+      currentDispatchKind: runtimeAgent?.currentDispatch?.targetKind ?? null,
+      runningKnown: runningAgentIds.has(agent.id),
+      inFlight: inFlightSpawns.current.has(`${workspace.id}:${agent.id}`),
+      terminalSessionId: currentAgent?.cliSessionId ?? null,
+      terminalLastExitedAt: currentAgent?.cliLastExitedAt ?? null,
+      terminalStartRequested: currentAgent?.cliStartRequested ?? null,
+      terminalHasLaunched: currentAgent?.cliHasLaunched ?? null,
+      ownsOpenImplementationWork,
+      hasOpenGateWork,
+      hasClaimableImplementationWork,
+      hasOpenWork,
+    })
     if (runtimeAgent?.status === 'retired') {
       logPerfEvent('SprintEngineAutoRun', 'roster-spawn-skipped-retired', {
         workspaceId: workspace.id,
@@ -1367,13 +1424,15 @@ async function startMissingRosterAgents(
       })
     }
     if (runningAgentIds.has(agent.id)) continue
-    if (inFlightSpawns.current.has(`${workspace.id}:${agent.id}`)) continue
-
-    const currentAgent = workspace.agents[agent.id]
-    const ownsOpenImplementationWork = agentOwnsOpenSprintEngineImplementationWork(sprintEngineState, agent.id)
-    const hasOpenGateWork = agentHasOpenSprintEngineGateWork(sprintEngineState, agent.id, agent.role)
-    const hasClaimableImplementationWork = roleHasClaimableSprintEngineImplementationWork(sprintEngineState, agent.role)
-    const hasOpenWork = ownsOpenImplementationWork || hasOpenGateWork || hasClaimableImplementationWork
+    if (inFlightSpawns.current.has(`${workspace.id}:${agent.id}`)) {
+      logPerfEvent('SprintEngineAutoRun', 'roster-spawn-skipped-in-flight', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId: agent.id,
+        role: agent.role,
+      })
+      continue
+    }
     if (shouldSkipExitedSprintEngineRosterAgent(currentAgent, hasOpenWork)) {
       logPerfEvent('SprintEngineAutoRun', 'roster-spawn-skipped-exited', {
         workspaceId: workspace.id,
@@ -1403,7 +1462,16 @@ async function startMissingRosterAgents(
     const status = currentAgent?.cliSessionId
       ? await window.api.terminalStatus(currentAgent.cliSessionId).catch(() => ({ processAlive: false }))
       : { processAlive: false }
-    if (status.processAlive) continue
+    if (status.processAlive) {
+      logPerfEvent('SprintEngineAutoRun', 'roster-spawn-skipped-terminal-alive', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId: agent.id,
+        role: agent.role,
+        sessionId: currentAgent?.cliSessionId ?? null,
+      })
+      continue
+    }
 
     const result = await spawnAutoRunCandidate(
       workspace,
@@ -1506,7 +1574,12 @@ async function signalArchitectForNeedsInputTriage(
   const retryPending = previous && Date.now() - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS
 
   if (runningAgentIds.has(architect.id)) {
-    focusOrAddAgentTab(workspace.id, architect.id, workspace.agents[architect.id]?.name ?? architect.label)
+    applyAgentTerminalRevealPolicy(
+      workspace.id,
+      architect.id,
+      workspace.agents[architect.id]?.name ?? architect.label,
+      'background'
+    )
     if (retryPending) return 'none'
 
     const session = await findRunningAgentSession(workspace, architect.id)
@@ -1827,16 +1900,6 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     sentContinuationMessages
   )
 
-  if (sprintEngineState.runner?.mode === 'auto') {
-    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      reason: 'cli-runner-agent-polling',
-      elapsedMs: Math.round(performance.now() - superviseStartedAt),
-    })
-    return
-  }
-
   if (sprintEngineState.tasks.length > 0 && sprintEngineState.tasks.every((task) => task.status === 'done')) {
     useWorkspaceStore.getState().setSprintEngineAutomationMode(workspace.id, 'manual')
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
@@ -1853,6 +1916,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     pendingSpawns,
     inFlightSpawnKeys: inFlightSpawns.current,
     workspaceId: workspace.id,
+    runningAgentIds,
   })
   const maxConcurrentAgents = Math.max(1, Math.min(10, autoState.maxConcurrentAgents ?? 3))
   const availableSlots = maxConcurrentAgents - occupiedAgentIds.size
@@ -1916,6 +1980,16 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
       taskId: run.taskId,
     })),
   })
+  if (sprintEngineState.runner?.mode === 'auto' && nextRuns.length === 0) {
+    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      reason: 'runtime-dispatch-no-spawn-candidates',
+      elapsedMs: Math.round(performance.now() - superviseStartedAt),
+    })
+    return
+  }
+
   for (const nextRun of nextRuns) {
     const latestWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
     if (
@@ -2027,6 +2101,11 @@ export default function SprintEngineAutoRunSupervisor() {
             id: workspace.id,
             name: workspace.name,
             enabled: isSprintEngineRunnerActive(workspace),
+            automationMode: deriveSprintEngineAutomationMode(getSprintEngineAutoState(workspace), workspace.sprintEngineState?.runner),
+            runnerMode: workspace.sprintEngineState?.runner?.mode ?? null,
+            supervisorEnabled: getSprintEngineAutoState(workspace).supervisorEnabled,
+            legacyEnabled: getSprintEngineAutoState(workspace).enabled,
+            autoApproveArtifacts: getSprintEngineAutoState(workspace).autoApproveArtifacts,
             keepDoneAgentTerminals: getSprintEngineAutoState(workspace).keepDoneAgentTerminals,
           })),
         })

@@ -19,6 +19,9 @@ export const guidedBriefLayoutModel = (): IJsonModel => ({
       {
         type: 'tabset',
         weight: 100,
+        // The guided brief panel owns its own step nav, so the FlexLayout
+        // tab strip on this tabset would just be redundant chrome.
+        enableTabStrip: false,
         children: [
           { type: 'tab', name: 'Guided Brief', component: GUIDED_BRIEF_LAYOUT_COMPONENT },
         ],

@@ -1,4 +1,10 @@
 import assert from 'node:assert/strict'
+import { Model, type IJsonModel } from 'flexlayout-react'
+import {
+  applyAgentTerminalRevealPolicy,
+  registerModel,
+  unregisterModel,
+} from './modelRegistry'
 import {
   AUTO_RUN_ROLE_CONTINUATION_GRACE_MS,
   agentNotificationDeliveryKey,
@@ -27,7 +33,7 @@ import {
   type AutoRunCandidate,
   type RoleContinuationGrace,
 } from './sprintengineAutoRun'
-import { getSprintEngineStartupCommandMode } from './agentPrompt'
+import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode } from './agentPrompt'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type {
   AgentCli,
@@ -54,6 +60,8 @@ async function main(): Promise<void> {
   testActiveGateClaimCanBeResumed()
   testTestingPhaseExposesTesterAfterReviewApproval()
   testKeyHelpersAreStableAndScoped()
+  testStartupPromptIsMcpNative()
+  testArchitectInitStartupPromptIsMcpNative()
   testPromptBuildersIncludeAgentIdAndCommand()
   testDispatchPromptUsesJoinReconciliation()
   testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles()
@@ -65,12 +73,17 @@ async function main(): Promise<void> {
   testRoleHasClaimableSprintEngineImplementationWorkDetectsReadyRoleWork()
   testShouldSkipExitedSprintEngineRosterAgentAllowsOwnedReworkRestart()
   testGetSprintEngineAutoRunOccupiedAgentIdsCountsChangesRequestedOwners()
+  testGetSprintEngineAutoRunOccupiedAgentIdsDoesNotCountDeadNeedsInputOwner()
   testPickNextAutoRunsSelectsReadyTaskForIdleRoleAgent()
+  testPickNextAutoRunsSelectsChangesRequestedOwner()
+  testPickNextAutoRunsSelectsNeedsInputOwnerWhenNotRunning()
+  testPickNextAutoRunsSelectsReviewTestingAndProductGates()
   testPickNextAutoRunsSkipsRetiredRoleAgent()
   testPickNextAutoRunsSkipsRetiredOwnerRework()
   testPickNextAutoRunsHonoursContinuationGraceWindow()
   testPickNextAutoRunsResumesActiveGateClaim()
   testGetSprintEngineStartupCommandModePicksInitOnlyForEmptyArchitect()
+  testAgentTerminalBackgroundPolicyDoesNotSelectOrCreateTabs()
   await testListTerminalSessionsThrowsTerminalListIpcErrorOnReject()
   await testListTerminalSessionsResolvesWithSessionsOnSuccess()
   await testAutoApprovalOnlyBranchSkipsTerminalListWhenNothingToApprove()
@@ -79,7 +92,7 @@ async function main(): Promise<void> {
   await testAutoApprovalCooldownBlocksRepeatApprovalWithinRetryWindow()
   await testDeliverAgentNotificationsSkipsRetiredTargets()
   await testDeliverApprovalCompletionWakesOwnerOnceWithoutFocus()
-  await testDeliverRequestChangesWakesOwnerWithJoinDirectiveAndFocus()
+  await testDeliverRequestChangesWakesOwnerWithJoinDirectiveWithoutReveal()
   await testDeliverNotificationsSuppressDuplicateObservations()
   await testDeliverNotificationSpawnsAgentWhenMissingTerminal()
   await testDeliverNotificationLeavesPendingWhenSupervisorDisabledAndNoTerminal()
@@ -87,7 +100,60 @@ async function main(): Promise<void> {
   await testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt()
   await testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity()
   await testSuperviseRunnerCycleRestartsExitedRoleForReadyTask()
+  await testSuperviseRunnerCycleRestartsDeadNeedsInputOwnerAtSlotLimit()
   await testSuperviseRunnerCycleDoesNotMutateTaskOrGateState()
+}
+
+function testAgentTerminalBackgroundPolicyDoesNotSelectOrCreateTabs(): void {
+  const workspaceId = 'policy-workspace'
+  const layout: IJsonModel = {
+    global: {},
+    layout: {
+      type: 'row',
+      children: [
+        {
+          type: 'tabset',
+          id: 'main',
+          selected: 0,
+          children: [
+            { type: 'tab', id: 'board', name: 'Sprint Engine', component: 'sprintengine' },
+            { type: 'tab', id: 'agent-existing', name: 'Old Agent', component: 'agent', config: { agentId: 'agent-1' } },
+          ],
+        },
+      ],
+    },
+  }
+  const model = Model.fromJson(layout)
+  registerModel(workspaceId, model)
+  try {
+    const updatedExisting = applyAgentTerminalRevealPolicy(
+      workspaceId,
+      'agent-1',
+      'Renamed Agent',
+      'background',
+      { sessionId: 'session-1' }
+    )
+    const untouchedMissing = applyAgentTerminalRevealPolicy(
+      workspaceId,
+      'agent-2',
+      'Missing Agent',
+      'background',
+      { sessionId: 'session-2' }
+    )
+    const json = model.toJson() as IJsonModel
+    const tabset = (((json.layout as unknown) as Record<string, unknown>).children as Array<Record<string, unknown>>)[0]
+    const children = tabset.children as Array<Record<string, unknown>>
+    const existingAgent = children.find((child) => child.id === 'agent-existing')!
+
+    assert.equal(updatedExisting, true, 'background policy updates an existing tab')
+    assert.equal(untouchedMissing, false, 'background policy does not create a missing tab')
+    assert.notEqual(tabset.selected, 1, 'background policy does not select the existing agent tab')
+    assert.equal(children.length, 2, 'background policy does not add a new tab')
+    assert.equal(existingAgent.name, 'Renamed Agent', 'existing tab labels can still be refreshed')
+    assert.deepEqual(existingAgent.config, { agentId: 'agent-1', sessionId: 'session-1' })
+  } finally {
+    unregisterModel(workspaceId)
+  }
 }
 
 function task(overrides: Partial<SprintEngineTask> = {}): SprintEngineTask {
@@ -821,14 +887,18 @@ async function testDeliverApprovalCompletionWakesOwnerOnceWithoutFocus(): Promis
   assert.equal(writes[0].sessionId, 'session-frontend')
   assert.ok(writes[0].text.includes('Your Sprint Engine task is complete.'))
   assert.ok(
-    !writes[0].text.includes('sprintengine join --role'),
-    'completion notification does not direct the agent to re-run join --watch'
+    !writes[0].text.includes('sprintengine join'),
+    'completion notification does not direct the agent to re-run any sprintengine CLI command'
+  )
+  assert.ok(
+    !writes[0].text.includes('sprintengine.agent.next_directive'),
+    'completion notification does not direct the agent to re-call the directive tool'
   )
   assert.equal(sent.current.size, 1, 'in-memory delivery cache records the event id once')
   assert.deepEqual(mutations, [], 'completion notification delivery does not perform Sprint Engine mutations')
 }
 
-async function testDeliverRequestChangesWakesOwnerWithJoinDirectiveAndFocus(): Promise<void> {
+async function testDeliverRequestChangesWakesOwnerWithJoinDirectiveWithoutReveal(): Promise<void> {
   const writes: Array<{ sessionId: string; text: string }> = []
   const mutations: string[] = []
   installTestWindow({
@@ -889,10 +959,23 @@ async function testDeliverRequestChangesWakesOwnerWithJoinDirectiveAndFocus(): P
   assert.equal(writes[0].sessionId, 'session-frontend')
   assert.ok(writes[0].text.includes('\x1b[200~'), 'rework prompt uses bracketed paste')
   assert.ok(
-    writes[0].text.includes('sprintengine join --role frontend --id frontend-2 --watch'),
-    'rework prompt includes the join --watch reconcile directive'
+    writes[0].text.includes('sprintengine.agent.next_directive'),
+    'rework prompt directs the agent at the MCP directive tool'
+  )
+  assert.ok(
+    !writes[0].text.includes('"statePath"'),
+    'rework prompt must not embed statePath; the managed MCP server resolves it from launch env'
+  )
+  assert.ok(
+    writes[0].text.includes('"role": "frontend"') && writes[0].text.includes('"agentId": "frontend-2"'),
+    'rework prompt embeds the directive payload for this role and agent'
+  )
+  assert.ok(
+    !writes[0].text.includes('sprintengine join'),
+    'rework prompt does not instruct the agent to run any sprintengine CLI command'
   )
   assert.ok(writes[0].text.includes('Re-read the current task card'))
+  assert.ok(writes[0].text.includes('sprintengine.task.get'), 'rework prompt names the MCP task read tool')
   assert.ok(writes[0].text.includes('Artifact: AR-9'))
   assert.deepEqual(mutations, [], 'rework notification delivery never invokes mutation IPC; Sprint Engine state is already recorded')
 }
@@ -961,7 +1044,7 @@ async function testDeliverNotificationsSuppressDuplicateObservations(): Promise<
 }
 
 async function testDeliverNotificationSpawnsAgentWhenMissingTerminal(): Promise<void> {
-  const spawns: Array<{ initialPrompt?: string; agentId?: string; role?: string }> = []
+  const spawns: Array<{ initialPrompt?: string; agentId?: string; role?: string; visible?: boolean }> = []
   installTestWindow({
     terminalList: async () => [],
     terminalStatus: async () => ({ processAlive: false }),
@@ -978,9 +1061,9 @@ async function testDeliverNotificationSpawnsAgentWhenMissingTerminal(): Promise<
       initialPrompt?: string,
       _cliRuntimes?: unknown,
       _shellOnly?: boolean,
-      metadata?: { agentId?: string; agentSession?: { role?: string } },
+      metadata?: { agentId?: string; agentSession?: { role?: string }; visible?: boolean },
     ) => {
-      spawns.push({ initialPrompt, agentId: metadata?.agentId, role: metadata?.agentSession?.role })
+      spawns.push({ initialPrompt, agentId: metadata?.agentId, role: metadata?.agentSession?.role, visible: metadata?.visible })
       return { ok: true, sessionId }
     },
     logDiagnostic: async (input) => input,
@@ -1012,9 +1095,14 @@ async function testDeliverNotificationSpawnsAgentWhenMissingTerminal(): Promise<
   assert.equal(spawns.length, 1, 'spawn-when-missing path spawns exactly one agent terminal')
   assert.equal(spawns[0].agentId, 'frontend-2')
   assert.equal(spawns[0].role, 'frontend')
+  assert.equal(spawns[0].visible, false, 'automatic rework spawns stay background unless explicitly revealed')
   assert.ok(
-    spawns[0].initialPrompt?.includes('sprintengine join --role frontend --id frontend-2 --watch'),
-    'spawned agent receives the join reconcile directive as its startup prompt override'
+    spawns[0].initialPrompt?.includes('sprintengine.agent.next_directive'),
+    'spawned agent receives the MCP directive reconcile call as its startup prompt override'
+  )
+  assert.ok(
+    !spawns[0].initialPrompt?.includes('sprintengine join'),
+    'spawned rework prompt does not embed any sprintengine CLI command'
   )
   assert.ok(
     spawns[0].initialPrompt?.includes('Re-read the current task card'),
@@ -1172,7 +1260,16 @@ async function testDispatchPromptDeliveryUsesDispatchIdCooldown(): Promise<void>
   assert.equal(writes[0].sessionId, 'session-frontend')
   assert.ok(writes[0].text.includes('\x1b[200~'), 'existing terminal receives bracketed paste')
   assert.ok(writes[0].text.includes('Dispatch: DISP-6ed51f5daa40b4bd'))
-  assert.ok(writes[0].text.includes('sprintengine join --role frontend --id frontend-3 --watch'))
+  assert.ok(writes[0].text.includes('sprintengine.agent.next_directive'), 'dispatch prompt names the MCP directive tool')
+  assert.ok(
+    !writes[0].text.includes('"statePath"'),
+    'dispatch prompt must not embed statePath; the managed MCP server resolves it from launch env'
+  )
+  assert.ok(
+    writes[0].text.includes('"role": "frontend"') && writes[0].text.includes('"agentId": "frontend-3"'),
+    'dispatch prompt embeds the directive payload for this dispatch target'
+  )
+  assert.ok(!writes[0].text.includes('sprintengine join'), 'dispatch prompt does not instruct the agent to run a sprintengine CLI command')
   assert.deepEqual(mutations, [], 'dispatch prompt delivery must not call task/gate/artifact mutation IPC')
 }
 
@@ -1267,8 +1364,15 @@ async function testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt(): P
   assert.equal(spawns[0].cli, 'codex')
   assert.equal(spawns[0].metadata?.agentSession?.workId, 'T4')
   assert.equal(spawns[0].metadata?.agentSession?.role, 'code_reviewer')
-  assert.ok(spawns[0].initialPrompt?.includes('sprintengine join --role code_reviewer --id code_reviewer --watch'))
-  assert.ok(spawns[0].initialPrompt?.includes('CLI owns polling'))
+  assert.equal(spawns[0].metadata?.visible, false, 'normal auto-run spawns stay background')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.join'), 'startup prompt names the MCP join tool')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.next_directive'), 'startup prompt names the MCP directive tool')
+  assert.ok(spawns[0].initialPrompt?.includes('"role": "code_reviewer"'), 'startup prompt embeds the role in the MCP payload')
+  assert.ok(spawns[0].initialPrompt?.includes('"agentId": "code_reviewer"'), 'startup prompt embeds the agentId in the MCP payload')
+  assert.ok(
+    !/sprintengine (join|task|gate|triage|init|handover)/.test(spawns[0].initialPrompt ?? ''),
+    'startup prompt does not contain any sprintengine CLI command instructions'
+  )
 }
 
 async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promise<void> {
@@ -1380,7 +1484,15 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
   )
   assert.ok(!spawns.some((spawn) => spawn.agentId === 'developer-1'), 'retired roster member is not respawned')
   assert.equal(replacementSpawn.cli, 'claude')
-  assert.ok(replacementSpawn.initialPrompt?.includes('sprintengine join --role developer --id developer-2 --watch'))
+  assert.ok(replacementSpawn.initialPrompt?.includes('sprintengine.agent.join'), 'replacement spawn names the MCP join tool')
+  assert.ok(
+    replacementSpawn.initialPrompt?.includes('"role": "developer"') && replacementSpawn.initialPrompt?.includes('"agentId": "developer-2"'),
+    'replacement spawn embeds the MCP payload for the new agent'
+  )
+  assert.ok(
+    !/sprintengine (join|task|gate|triage|init|handover)/.test(replacementSpawn.initialPrompt ?? ''),
+    'replacement spawn prompt does not embed any sprintengine CLI command'
+  )
 }
 
 async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise<void> {
@@ -1414,14 +1526,14 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
     id: 'T6',
     title: 'Review phase-1 implementation quality',
     role: 'code_reviewer',
-    status: 'ready',
+    status: 'todo',
     boardColumn: 'ready',
     ownerAgentId: null,
     dependsOn: ['T5'],
     qualityGates: [],
   })
   const sprintEngineState = sprintEngineStateFixture({
-    runner: { mode: 'auto' },
+    runner: { mode: 'auto', pollIntervalSeconds: 10, idleBackoffSeconds: 30, maxBackoffSeconds: 120, stopWhenComplete: true },
     sprintEngineAgents: {
       code_reviewer: runtimeAgent('code_reviewer', { status: 'idle', currentTaskId: null }),
     },
@@ -1431,16 +1543,12 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
     sprintEngineState,
     agents: {
       code_reviewer: {
-        id: 'code_reviewer',
-        name: 'Shawn',
-        role: 'code_reviewer',
-        cli: 'codex',
-        kind: 'sprintengine',
+        ...sprintAgent('code_reviewer', 'Shawn'),
         cliLastExitedAt: Date.now() - 60_000,
         cliStartRequested: false,
         cliHasLaunched: false,
       },
-    } as Workspace['agents'],
+    },
     sprintEngineAutoState: {
       supervisorEnabled: true,
       enabled: true,
@@ -1460,7 +1568,7 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
     autoState: workspace.sprintEngineAutoState,
     superviseStartedAt: 0,
     cliRuntimes: { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
-    mcpSettings: {},
+    mcpSettings: emptyMcpSettings,
     inFlightSpawns: mutableRef(new Set<string>()),
     sentContinuationMessages: mutableRef(new Map()),
     sentDispatchMessages: mutableRef(new Map()),
@@ -1472,7 +1580,101 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
   assert.equal(spawns.length, 1, `exited role agent should restart for ready work; spawns ${JSON.stringify(spawns)}`)
   assert.equal(spawns[0].agentId, 'code_reviewer')
   assert.equal(spawns[0].cli, 'codex')
-  assert.ok(spawns[0].initialPrompt?.includes('sprintengine join --role code_reviewer --id code_reviewer --watch'))
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.join'), 'restarted code_reviewer prompt names the MCP join tool')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.next_directive'), 'restarted code_reviewer prompt names the MCP directive tool')
+  assert.ok(
+    !/sprintengine (join|task|gate|triage|init|handover)/.test(spawns[0].initialPrompt ?? ''),
+    'restarted code_reviewer prompt does not embed any sprintengine CLI command'
+  )
+}
+
+async function testSuperviseRunnerCycleRestartsDeadNeedsInputOwnerAtSlotLimit(): Promise<void> {
+  const spawns: Array<{ agentId?: string; cli?: AgentCli; initialPrompt?: string }> = []
+  installTestWindow({
+    terminalList: async () => [],
+    terminalStatus: async () => ({ processAlive: false }),
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    terminalSpawn: async (
+      sessionId: string,
+      _cols: number,
+      _rows: number,
+      _cwd?: string,
+      _resume?: boolean,
+      _statePath?: string,
+      cli?: AgentCli,
+      initialPrompt?: string,
+      _cliRuntimes?: unknown,
+      _shellOnly?: boolean,
+      metadata?: { agentId?: string },
+    ) => {
+      spawns.push({ agentId: metadata?.agentId, cli, initialPrompt })
+      return { ok: true, sessionId }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const blockedTask = task({
+    id: 'T-needs-input',
+    title: 'Continue after resolved input',
+    status: 'needs_input',
+    boardColumn: 'needs_input',
+    role: 'developer',
+    ownerAgentId: 'developer-1',
+    dependsOn: [],
+    qualityGates: [],
+  })
+  const sprintEngineState = sprintEngineStateFixture({
+    runner: { mode: 'auto', pollIntervalSeconds: 10, idleBackoffSeconds: 30, maxBackoffSeconds: 120, stopWhenComplete: true },
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { status: 'needs_input', currentTaskId: 'T-needs-input' }),
+    },
+    tasks: [blockedTask],
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: {
+      'developer-1': {
+        ...sprintAgent('developer-1', 'Dana'),
+        cliLastExitedAt: Date.now() - 60_000,
+        cliStartRequested: false,
+        cliHasLaunched: false,
+      },
+    },
+    sprintEngineAutoState: {
+      supervisorEnabled: true,
+      enabled: true,
+      autoApproveArtifacts: false,
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 1,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    mcpSettings: emptyMcpSettings,
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages: mutableRef(new Map()),
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+  })
+
+  assert.equal(spawns.length, 1, `dead needs_input owner should restart even at slot limit; spawns ${JSON.stringify(spawns)}`)
+  assert.equal(spawns[0].agentId, 'developer-1')
+  assert.equal(spawns[0].cli, 'codex')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.join'), 'restarted owner prompt names the MCP join tool')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.next_directive'), 'restarted owner prompt names the MCP directive tool')
 }
 
 async function testSuperviseRunnerCycleDoesNotMutateTaskOrGateState(): Promise<void> {
@@ -1633,23 +1835,113 @@ function testKeyHelpersAreStableAndScoped(): void {
   )
 }
 
+function testStartupPromptIsMcpNative(): void {
+  const prompt = buildSprintEngineStartupPrompt('frontend', 'frontend-2', 'Ship MCP runtime', {
+    executionCwd: '/tmp/workspace',
+    workspaceRoot: '/tmp/workspace',
+    sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+    commandMode: 'join',
+  })
+
+  assert.ok(prompt.startsWith('Your first action is to run the MCP calls listed in the "First MCP Calls" section below'))
+  assert.ok(prompt.includes('Worker cwd: /tmp/workspace'))
+  assert.ok(prompt.includes('Shared Sprint Engine state: /tmp/workspace/.multi-code/sprintengine/team/run.yaml'))
+  assert.ok(prompt.includes('sprintengine.agent.join'), 'startup prompt names the MCP join tool')
+  assert.ok(prompt.includes('sprintengine.agent.next_directive'), 'startup prompt names the MCP directive tool')
+  assert.ok(!prompt.includes('"statePath"'), 'startup prompt must not embed statePath in the MCP payload; the managed MCP server resolves it from launch env')
+  assert.ok(prompt.includes('"role": "frontend"'), 'startup prompt embeds the role in the MCP payload')
+  assert.ok(prompt.includes('"agentId": "frontend-2"'), 'startup prompt embeds the agentId in the MCP payload')
+  assert.ok(!prompt.includes('"workspaceRoot"'), 'startup prompt must not embed workspaceRoot in the MCP payload; the managed MCP server resolves it from launch env')
+  assert.ok(prompt.includes('directiveType'), 'startup prompt documents the directive contract field names')
+  assert.ok(prompt.includes('nextMcpToolName') && prompt.includes('nextMcpArguments'), 'startup prompt names the directive routing fields')
+  assert.ok(!prompt.includes('retryAfterMs'), 'startup prompt does not instruct Multicode agents to use retryAfterMs')
+  assert.doesNotMatch(prompt, /sleep .*sprintengine\.agent\.next_directive/iu, 'startup prompt does not define an idle sleep/retry loop')
+  assert.ok(prompt.includes('sprintengine.task.next'), 'startup prompt references the MCP task-next tool')
+  assert.ok(prompt.includes('sprintengine.gate.next'), 'startup prompt references the MCP gate-next tool')
+  assert.ok(prompt.includes('sprintengine.triage.needs_input'), 'startup prompt references the MCP triage tool')
+  assert.ok(prompt.includes('sprintengine.task.publish'), 'startup prompt references the MCP publish tool')
+  assert.ok(prompt.includes('sprintengine.gate.verdict'), 'startup prompt references the MCP gate verdict tool')
+  assert.ok(prompt.includes('sprintengine.artifact.add'), 'startup prompt references the MCP artifact add tool')
+  assert.ok(prompt.includes('sprintengine.task.status'), 'startup prompt references the MCP task status tool for needs_input transitions')
+  assert.ok(prompt.includes('needsInputKind') && prompt.includes('needsInputReason'), 'startup prompt names the needs_input payload fields')
+  assert.ok(prompt.includes('multicode-sprintengine'), 'startup prompt names the managed MCP server entry')
+  assert.ok(
+    !/sprintengine (join|task|gate|triage|init|handover)/.test(prompt),
+    'startup prompt does not instruct the agent to run any sprintengine CLI command'
+  )
+}
+
+function testArchitectInitStartupPromptIsMcpNative(): void {
+  const prompt = buildSprintEngineStartupPrompt('architect', 'architect', 'Ship MCP runtime', {
+    executionCwd: '/tmp/workspace',
+    workspaceRoot: '/tmp/workspace',
+    sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+    rosterArgs: ['developer:developer-1', 'frontend:frontend'],
+    commandMode: 'init',
+  })
+
+  assert.ok(prompt.includes('sprintengine.init'), 'architect init prompt names the MCP init tool instead of the init CLI')
+  assert.ok(prompt.includes('"goal": "Ship MCP runtime"'), 'init payload carries the goal')
+  assert.ok(prompt.includes('"agent"'), 'init payload carries the roster')
+  assert.ok(prompt.includes('"developer:developer-1"'), 'init payload preserves roster agent specs verbatim')
+  assert.ok(prompt.includes('sprintengine.agent.join'), 'architect init flow then joins via MCP')
+  assert.ok(prompt.includes('sprintengine.agent.next_directive'), 'architect init flow then requests the MCP directive')
+  assert.ok(
+    !/sprintengine (join|task|gate|triage|init|handover)/.test(prompt),
+    'architect init prompt does not instruct the agent to run any sprintengine CLI command'
+  )
+}
+
 function testPromptBuildersIncludeAgentIdAndCommand(): void {
+  const teamStatePath = '/tmp/workspace/.multi-code/sprintengine/team/run.yaml'
   const readyTask = task({ id: 'T3', title: 'Build feature', role: 'developer' })
   const continuation = buildSprintEngineContinuationPrompt(readyTask, 'developer-1')
-  assert.ok(continuation.includes('sprintengine join --role developer --id developer-1 --watch'))
+  assert.ok(continuation.includes('sprintengine.agent.next_directive'), 'continuation prompt names the MCP directive tool')
+  assert.ok(!continuation.includes('"statePath"'), 'continuation prompt must not embed statePath; the managed MCP server resolves it from launch env')
+  assert.ok(continuation.includes('"role": "developer"'), 'continuation prompt embeds the role in the directive payload')
+  assert.ok(continuation.includes('"agentId": "developer-1"'), 'continuation prompt embeds the agentId in the directive payload')
+  assert.ok(continuation.includes('sprintengine.task.next'), 'continuation prompt names the MCP task-next tool to invoke')
   assert.ok(continuation.includes('T3 - Build feature'))
   assert.ok(continuation.includes('wake candidate'))
   assert.ok(continuation.includes('not a durable dispatch assignment'))
+  assert.ok(!continuation.includes('retryAfterMs'), 'continuation prompt does not reference retryAfterMs')
+  assert.doesNotMatch(continuation, /poll|backoff|sleep/iu, 'continuation prompt does not define idle polling behavior')
+  assert.ok(
+    !/sprintengine (join|task|gate|triage|init|handover)/.test(continuation),
+    'continuation prompt does not instruct the agent to run a sprintengine CLI command'
+  )
+
+  const continuationNoState = buildSprintEngineContinuationPrompt(readyTask, 'developer-1')
+  assert.ok(
+    !continuationNoState.includes('"statePath"'),
+    'continuation prompt must not embed statePath even when called without one; the managed MCP server resolves it from launch env'
+  )
 
   const gateTask = task({ id: 'T3', title: 'Build feature' })
   const gate = gateTask.qualityGates![0]
   const claimed = buildSprintEngineGateContinuationPrompt(gateTask, gate, 'code_reviewer', true)
   assert.ok(claimed.includes('already claimed by this terminal'))
   assert.ok(claimed.includes('durable dispatch assignment'))
+  assert.ok(claimed.includes('sprintengine.agent.next_directive'), 'claimed gate prompt names the MCP directive tool')
+  assert.ok(!claimed.includes('"statePath"'), 'claimed gate prompt must not embed statePath; the managed MCP server resolves it from launch env')
+  assert.ok(claimed.includes('sprintengine.gate.verdict'), 'claimed gate prompt names the MCP verdict tool')
+  assert.ok(
+    !/sprintengine (join|task|gate|triage|init|handover)/.test(claimed),
+    'claimed gate prompt does not embed a sprintengine CLI command'
+  )
+
   const ready = buildSprintEngineGateContinuationPrompt(gateTask, gate, 'code_reviewer', false)
   assert.ok(ready.includes('wake candidate'))
   assert.ok(ready.includes('not a durable gate dispatch assignment'))
-  assert.ok(ready.includes('sprintengine join --role code_reviewer --id code_reviewer --watch'))
+  assert.ok(ready.includes('sprintengine.agent.next_directive'))
+  assert.ok(!ready.includes('"statePath"'), 'unclaimed gate prompt must not embed statePath; the managed MCP server resolves it from launch env')
+  assert.ok(ready.includes('"role": "code_reviewer"'))
+  assert.ok(ready.includes('"agentId": "code_reviewer"'))
+  assert.ok(ready.includes('sprintengine.gate.next'), 'unclaimed gate prompt names the MCP gate-next tool to invoke')
+  assert.ok(
+    !/sprintengine (join|task|gate|triage|init|handover)/.test(ready),
+    'unclaimed gate prompt does not embed a sprintengine CLI command'
+  )
 
   const notif = buildAgentNotificationPrompt({
     id: 'EV-001',
@@ -1664,8 +1956,12 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
   assert.ok(notif.includes('Your Sprint Engine task is complete.'))
   assert.ok(notif.includes('Task: T3'))
   assert.ok(
-    !notif.includes('sprintengine join --role'),
-    'completion notifications do not include a reconcile join command'
+    !notif.includes('sprintengine.agent.next_directive'),
+    'completion notifications do not include a reconcile directive call'
+  )
+  assert.ok(
+    !/sprintengine (join|task|gate|triage|init|handover)/.test(notif),
+    'completion notifications do not include any sprintengine CLI command'
   )
 
   const reworkNotif = buildAgentNotificationPrompt({
@@ -1680,17 +1976,39 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
     notificationKind: 'task_changes_requested_after_artifact_review',
   }, { agentId: 'frontend-2', role: 'frontend' })
   assert.ok(reworkNotif.includes('Re-read the current task card'))
-  assert.ok(reworkNotif.includes('sprintengine join --role frontend --id frontend-2 --watch'))
+  assert.ok(reworkNotif.includes('sprintengine.task.get'), 'rework notifications name the MCP task read tool')
+  assert.ok(reworkNotif.includes('taskId: "T4"'), 'rework notifications embed the taskId in the task.get payload')
+  assert.ok(
+    !reworkNotif.includes(`statePath: "${teamStatePath}"`),
+    'rework notifications embed statePath in the task.get payload'
+  )
+  assert.ok(reworkNotif.includes('sprintengine.agent.next_directive'))
+  assert.ok(!reworkNotif.includes('"statePath"'), 'rework notifications must not embed statePath; the managed MCP server resolves it from launch env')
+  assert.ok(reworkNotif.includes('"role": "frontend"'))
+  assert.ok(reworkNotif.includes('"agentId": "frontend-2"'))
   assert.ok(reworkNotif.includes('Artifact: AR-9'))
+  assert.ok(
+    !/sprintengine (join|task|gate|triage|init|handover)/.test(reworkNotif),
+    'rework notifications do not embed any sprintengine CLI command'
+  )
 
   const triage = buildArchitectNeedsInputTriagePrompt({
     workspaceFolderPath: '/tmp/workspace',
     sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
     taskIds: ['T5', 'T6'],
   })
-  assert.ok(triage.includes('sprintengine --state'))
-  assert.ok(triage.includes('triage needs-input --id architect'))
+  assert.ok(triage.includes('sprintengine.triage.needs_input'), 'architect triage prompt names the MCP triage tool')
+  assert.ok(
+    !triage.includes('"statePath"'),
+    'architect triage payload must not embed statePath; the managed MCP server resolves it from launch env'
+  )
+  assert.ok(triage.includes('"id": "architect"'), 'architect triage payload embeds the architect actor id')
+  assert.ok(triage.includes('sprintengine.task.note'), 'architect triage prompt names the MCP task-note tool for handoff')
   assert.ok(triage.includes('T5, T6'))
+  assert.ok(
+    !/sprintengine (join|task |gate |triage |init |handover)/.test(triage),
+    'architect triage prompt does not embed a sprintengine CLI command'
+  )
 }
 
 function testDispatchPromptUsesJoinReconciliation(): void {
@@ -1709,17 +2027,40 @@ function testDispatchPromptUsesJoinReconciliation(): void {
   assert.ok(prompt.includes('Dispatch: DISP-123'))
   assert.ok(prompt.includes('Task: T4'))
   assert.ok(prompt.includes('Reason: task_claimed'))
-  assert.ok(prompt.includes('sprintengine join --role frontend --id frontend-3 --watch'))
-  assert.ok(prompt.includes('CLI owns polling, task/gate claims, and completion routing'))
+  assert.ok(prompt.includes('sprintengine.agent.next_directive'), 'dispatch prompt names the MCP directive tool')
+  assert.ok(!prompt.includes('"statePath"'), 'dispatch prompt must not embed statePath; the managed MCP server resolves it from launch env')
+  assert.ok(prompt.includes('"role": "frontend"'), 'dispatch prompt embeds the dispatch role in the MCP payload')
+  assert.ok(prompt.includes('"agentId": "frontend-3"'), 'dispatch prompt embeds the agent id in the MCP payload')
+  assert.ok(prompt.includes('managed Sprint Engine MCP server owns dispatch routing'))
+  assert.ok(
+    !/sprintengine (join|task|gate|triage|init|handover)/.test(prompt),
+    'dispatch prompt does not embed any sprintengine CLI command'
+  )
   assert.ok(!prompt.includes('wake candidate'))
+
+  const promptWithoutState = buildSprintEngineDispatchPrompt({
+    role: 'frontend',
+    agentId: 'frontend-3',
+    dispatch: {
+      dispatchId: 'DISP-123',
+      targetKind: 'task',
+      role: 'frontend',
+      taskId: 'T4',
+      reason: 'task_claimed',
+    },
+  })
+  assert.ok(
+    !promptWithoutState.includes('"statePath"'),
+    'dispatch prompt must not embed statePath even when called without one; the managed MCP server resolves it from launch env'
+  )
 }
 
 function testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles(): void {
   // Registry-keyed custom role (workspace-defined marketer). The wake-up
-  // path must reproduce the role id verbatim in the join command so the
-  // CLI binds the running terminal to its registry-discovered Soul. No
-  // bundled-role label lookup or hardcoded role list should intercept the
-  // value.
+  // path must reproduce the role id verbatim in the MCP directive payload
+  // so the managed server binds the running terminal to its
+  // registry-discovered Soul. No bundled-role label lookup or hardcoded
+  // role list should intercept the value.
   const dispatchPrompt = buildSprintEngineDispatchPrompt({
     role: 'marketer',
     agentId: 'marketer-1',
@@ -1733,7 +2074,10 @@ function testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles(): void {
   })
   assert.ok(dispatchPrompt.includes('Dispatch: DISP-MK-1'))
   assert.ok(dispatchPrompt.includes('Task: M2'))
-  assert.ok(dispatchPrompt.includes('sprintengine join --role marketer --id marketer-1 --watch'))
+  assert.ok(dispatchPrompt.includes('sprintengine.agent.next_directive'))
+  assert.ok(!dispatchPrompt.includes('"statePath"'), 'dispatch prompt must not embed statePath')
+  assert.ok(dispatchPrompt.includes('"role": "marketer"'))
+  assert.ok(dispatchPrompt.includes('"agentId": "marketer-1"'))
 
   const continuationPrompt = buildSprintEngineContinuationPrompt(
     task({ id: 'M3', title: 'Campaign brief', role: 'marketer' }),
@@ -1741,7 +2085,10 @@ function testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles(): void {
   )
   assert.ok(continuationPrompt.includes('wake candidate for a ready marketer task'))
   assert.ok(continuationPrompt.includes('not a durable dispatch assignment'))
-  assert.ok(continuationPrompt.includes('sprintengine join --role marketer --id marketer-1 --watch'))
+  assert.ok(continuationPrompt.includes('sprintengine.agent.next_directive'))
+  assert.ok(!continuationPrompt.includes('"statePath"'), 'continuation prompt must not embed statePath')
+  assert.ok(continuationPrompt.includes('"role": "marketer"'))
+  assert.ok(continuationPrompt.includes('"agentId": "marketer-1"'))
 
   const gateTask = task({ id: 'M4', title: 'Campaign QA', role: 'marketer' })
   const customGate: SprintEngineQualityGate = {
@@ -1756,7 +2103,10 @@ function testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles(): void {
   const gatePrompt = buildSprintEngineGateContinuationPrompt(gateTask, customGate, 'marketer-2', false)
   assert.ok(gatePrompt.includes('wake candidate'))
   assert.ok(gatePrompt.includes('Gate: marketer_review (review / marketer)'))
-  assert.ok(gatePrompt.includes('sprintengine join --role marketer --id marketer-2 --watch'))
+  assert.ok(gatePrompt.includes('sprintengine.agent.next_directive'))
+  assert.ok(!gatePrompt.includes('"statePath"'), 'gate prompt must not embed statePath')
+  assert.ok(gatePrompt.includes('"role": "marketer"'))
+  assert.ok(gatePrompt.includes('"agentId": "marketer-2"'))
 }
 
 function testGetArchitectActionableNeedsInputTasksFiltersByKind(): void {
@@ -1927,8 +2277,8 @@ function testRoleHasClaimableSprintEngineImplementationWorkDetectsReadyRoleWork(
   const state = sprintEngineStateFixture({
     tasks: [
       task({ id: 'T1', status: 'done', role: 'code_reviewer', ownerAgentId: 'code_reviewer' }),
-      task({ id: 'T2', status: 'ready', boardColumn: 'ready', role: 'code_reviewer', ownerAgentId: null }),
-      task({ id: 'T3', status: 'ready', boardColumn: 'ready', role: 'developer', ownerAgentId: 'developer-1' }),
+      task({ id: 'T2', status: 'todo', boardColumn: 'ready', role: 'code_reviewer', ownerAgentId: null }),
+      task({ id: 'T3', status: 'todo', boardColumn: 'ready', role: 'developer', ownerAgentId: 'developer-1' }),
     ],
   })
 
@@ -1981,6 +2331,25 @@ function testGetSprintEngineAutoRunOccupiedAgentIdsCountsChangesRequestedOwners(
   )
 }
 
+function testGetSprintEngineAutoRunOccupiedAgentIdsDoesNotCountDeadNeedsInputOwner(): void {
+  const occupiedAgentIds = getSprintEngineAutoRunOccupiedAgentIds({
+    tasks: [
+      task({ id: 'T1', status: 'needs_input', ownerAgentId: 'developer-1', role: 'developer' }),
+      task({ id: 'T2', status: 'needs_input', ownerAgentId: 'frontend', role: 'frontend' }),
+    ],
+    pendingSpawns: [],
+    inFlightSpawnKeys: new Set<string>(),
+    workspaceId: 'workspace-1',
+    runningAgentIds: new Set(['frontend']),
+  })
+
+  assert.deepEqual(
+    [...occupiedAgentIds].sort(),
+    ['frontend'],
+    'dead needs_input owners do not consume an auto-run slot that is needed to restart them'
+  )
+}
+
 function testPickNextAutoRunsSelectsReadyTaskForIdleRoleAgent(): void {
   const readyTask = task({
     id: 'T-ready',
@@ -2001,6 +2370,94 @@ function testPickNextAutoRunsSelectsReadyTaskForIdleRoleAgent(): void {
   assert.equal(candidates[0].role, 'developer')
   assert.equal(candidates[0].taskId, 'T-ready')
   assert.equal(candidates[0].gateId, undefined)
+}
+
+function testPickNextAutoRunsSelectsChangesRequestedOwner(): void {
+  const reworkTask = task({
+    id: 'T-rework',
+    status: 'changes_requested',
+    boardColumn: 'changes_requested',
+    role: 'developer',
+    ownerAgentId: 'developer-1',
+    dependsOn: [],
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [reworkTask],
+    sprintEngineAgents: { 'developer-1': runtimeAgent('developer') },
+  })
+  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
+  assert.equal(candidates.length, 1, 'changes_requested owner is a restart candidate')
+  assert.equal(candidates[0].agentId, 'developer-1')
+  assert.equal(candidates[0].taskId, 'T-rework')
+  assert.equal(candidates[0].gateId, undefined)
+}
+
+function testPickNextAutoRunsSelectsNeedsInputOwnerWhenNotRunning(): void {
+  const needsInputTask = task({
+    id: 'T-needs-input',
+    status: 'needs_input',
+    boardColumn: 'needs_input',
+    role: 'developer',
+    ownerAgentId: 'developer-1',
+    dependsOn: [],
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [needsInputTask],
+    sprintEngineAgents: { 'developer-1': runtimeAgent('developer') },
+  })
+  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
+  assert.equal(candidates.length, 1, 'non-running needs_input owner can be restarted after input resolution')
+  assert.equal(candidates[0].agentId, 'developer-1')
+  assert.equal(candidates[0].taskId, 'T-needs-input')
+  assert.equal(candidates[0].gateId, undefined)
+}
+
+function testPickNextAutoRunsSelectsReviewTestingAndProductGates(): void {
+  const gateScenarios: Array<{
+    phase: 'review' | 'testing' | 'product'
+    role: SprintEngineRole
+    gateId: string
+  }> = [
+    { phase: 'review', role: 'code_reviewer', gateId: 'code_reviewer' },
+    { phase: 'testing', role: 'tester', gateId: 'tester' },
+    { phase: 'product', role: 'product', gateId: 'product_acceptance' },
+  ]
+
+  for (const scenario of gateScenarios) {
+    const gatedTask = task({
+      id: `T-${scenario.phase}`,
+      status: scenario.phase,
+      boardColumn: scenario.phase,
+      role: 'developer',
+      ownerAgentId: 'developer-1',
+      qualityGates: [
+        {
+          id: scenario.gateId,
+          phase: scenario.phase,
+          role: scenario.role,
+          status: 'pending',
+          required: true,
+          allowSelfReview: true,
+          focus: '',
+          attempts: [],
+        },
+      ],
+    })
+    const state = sprintEngineStateFixture({
+      tasks: [gatedTask],
+      sprintEngineAgents: {
+        [scenario.role]: runtimeAgent(scenario.role),
+      },
+    })
+    const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
+    assert.equal(candidates.length, 1, `${scenario.phase} gate is a spawn candidate`)
+    assert.equal(candidates[0].agentId, scenario.role)
+    assert.equal(candidates[0].role, scenario.role)
+    assert.equal(candidates[0].taskId, `T-${scenario.phase}`)
+    assert.equal(candidates[0].gateId, scenario.gateId)
+  }
 }
 
 function testPickNextAutoRunsSkipsRetiredRoleAgent(): void {

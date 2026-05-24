@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Actions, DockLocation, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
-import { WorkspaceTypeIcon } from '../AppIcons'
 import CommandPalette from '../CommandPalette'
 import { TipStartupModal } from '../learn/TipStartupModal'
 import SettingsOverlay from '../settings/SettingsOverlay'
@@ -10,7 +9,6 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
   deriveWorkspaceLastOutputAt,
   deriveWorkspaceTerminalActivity,
-  findLiveSession,
 } from '../../hooks/useTerminalSessions'
 import { useAppTheme } from '../../hooks/useAppTheme'
 import {
@@ -35,10 +33,7 @@ import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/ag
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
-import { buildCurrentContextSprintEngineHandoffPrompt } from '../../utils/sprintengineHandoff'
-import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
-import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import NewWorkspacePanel, { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
 import SprintEngineAutoRunSupervisor from './SprintEngineAutoRunSupervisor'
@@ -167,9 +162,6 @@ export default function WorkspaceManager() {
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [authMessage, setAuthMessage] = useState<string | null>(null)
-  const [handoffOpen, setHandoffOpen] = useState(false)
-  const [handoffTeamName, setHandoffTeamName] = useState('')
-  const [handoffError, setHandoffError] = useState<string | null>(null)
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionSnapshot[]>([])
   const [mountedWorkspaceIds, setMountedWorkspaceIds] = useState<string[]>([])
   const [windowState, setWindowState] = useState<WindowState>({
@@ -181,7 +173,6 @@ export default function WorkspaceManager() {
   const viewMenuRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
   const accountRef = useRef<HTMLDivElement>(null)
-  const handoffInputRef = useRef<HTMLInputElement>(null)
   const terminalSessionsSignatureRef = useRef('')
   const reportedTerminalLastOutputRef = useRef<Map<string, number>>(new Map())
   const reconciledLaunchFlagsRef = useRef(false)
@@ -204,7 +195,6 @@ export default function WorkspaceManager() {
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-    setHandoffOpen(false)
   }
 
   const openNewWorkspacePanelForFolder = useCallback((folderPath: string) => {
@@ -213,7 +203,6 @@ export default function WorkspaceManager() {
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-    setHandoffOpen(false)
   }, [closeSettingsOverlay])
 
   const openSettings = useCallback((checkForUpdates = false, targetTab: string | null = null) => {
@@ -224,7 +213,6 @@ export default function WorkspaceManager() {
     setViewMenuOpen(false)
     setNotificationsOpen(false)
     setAccountOpen(false)
-    setHandoffOpen(false)
   }, [openSettingsOverlay])
 
   const openLearnCenter = useCallback(() => {
@@ -241,7 +229,6 @@ export default function WorkspaceManager() {
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-    setHandoffOpen(false)
   }
 
   const setAgentSpawnPermissionPreset = (preset: SprintEngineCliPermissionPreset) => {
@@ -462,12 +449,6 @@ export default function WorkspaceManager() {
   }, [specialistMenuOpen])
 
   useEffect(() => {
-    if (!handoffOpen) return
-    const handle = window.setTimeout(() => handoffInputRef.current?.select(), 0)
-    return () => window.clearTimeout(handle)
-  }, [handoffOpen])
-
-  useEffect(() => {
     if (!sessionsOpen) return
 
     const onPointerDown = (event: PointerEvent) => {
@@ -534,7 +515,6 @@ export default function WorkspaceManager() {
     setSpecialistMenuOpen(false)
     setSessionsOpen(false)
     setNotificationsOpen(false)
-    setHandoffOpen(false)
   }, [activeWorkspaceId])
 
   const closeWorkspaceById = useCallback(
@@ -908,32 +888,6 @@ export default function WorkspaceManager() {
     addTerminalTab(activeWorkspaceId, newId, 'Terminal')
   }
 
-  const openHandoffDialog = () => {
-    if (!activeWorkspace) return
-    setHandoffTeamName(slugifySprintEngineName(activeWorkspace.name))
-    setHandoffError(null)
-    setSessionsOpen(false)
-    setSpecialistMenuOpen(false)
-    setHandoffOpen(true)
-  }
-
-  const confirmHandoff = async () => {
-    if (!activeWorkspaceId || !activeWorkspace) return
-    const teamSlug = slugifySprintEngineName(handoffTeamName)
-    const target = getActiveCliSession(activeWorkspace, terminalSessions)
-    if (!target) {
-      setHandoffError('Open or focus a running CLI session before handing off.')
-      return
-    }
-
-    const prompt = buildCurrentContextSprintEngineHandoffPrompt(teamSlug)
-    await window.api.terminalWrite(
-      target.sessionId,
-      `\x1b[200~${prompt.replace(/\r?\n/g, '\n')}\x1b[201~\r`
-    )
-    setHandoffOpen(false)
-  }
-
   const handleSelectSpecialist = (specialistId: SpecialistActionId) => {
     setLastSelectedSpecialist(specialistId)
     setSpecialistMenuOpen(false)
@@ -1176,7 +1130,6 @@ export default function WorkspaceManager() {
         addNewMultiloopAgent={addNewMultiloopAgent}
         addNewCliAgent={addNewCliAgent}
         addNewTerminal={addNewTerminal}
-        openHandoffDialog={openHandoffDialog}
         openSettings={openSettings}
         settingsOpen={settingsOpen}
         accountOpen={accountOpen}
@@ -1229,54 +1182,6 @@ export default function WorkspaceManager() {
       </div>
       </div>
       </div>
-
-      <Modal
-        open={handoffOpen}
-        onClose={() => setHandoffOpen(false)}
-        labelledBy="handoff-title"
-        width={420}
-      >
-        <ModalHeader
-          title="Handoff to SprintEngine"
-          titleId="handoff-title"
-          onClose={() => setHandoffOpen(false)}
-        />
-        <ModalBody className="space-y-3">
-          <Field label="Team name">
-            <input
-              ref={handoffInputRef}
-              value={handoffTeamName}
-              onChange={(event) => {
-                setHandoffTeamName(event.target.value)
-                setHandoffError(null)
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') void confirmHandoff()
-              }}
-              autoFocus
-              className="h-9 w-full rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-3 text-[13px] text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--tone-warn)]/70"
-              placeholder="sprintengine-improvements"
-            />
-          </Field>
-          {handoffError ? (
-            <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
-              {handoffError}
-            </div>
-          ) : null}
-        </ModalBody>
-        <ModalFooter>
-          <ModalButton onClick={() => setHandoffOpen(false)}>Cancel</ModalButton>
-          <ModalButton
-            variant="primary"
-            onClick={() => void confirmHandoff()}
-            disabled={!handoffTeamName.trim()}
-            className="inline-flex items-center gap-2"
-          >
-            <WorkspaceTypeIcon mode="sprintengine" className="icon-md" />
-            Handoff
-          </ModalButton>
-        </ModalFooter>
-      </Modal>
 
       {showPalette && (
         <CommandPalette
@@ -1418,62 +1323,6 @@ function firstTabset(model: Model): TabSetNode | null {
     if (node instanceof TabSetNode) found = node
   })
   return found
-}
-
-function getActiveTab(model: Model | undefined): TabNode | null {
-  const tabset = model?.getActiveTabset() ?? (model ? firstTabset(model) : null)
-  if (!tabset) return null
-  const selectedNode = tabset.getChildren()[tabset.getSelected()]
-  return selectedNode instanceof TabNode ? selectedNode : null
-}
-
-function findRunningSession(
-  terminalSessions: TerminalSessionSnapshot[],
-  predicate: (session: TerminalSessionSnapshot) => boolean
-): TerminalSessionSnapshot | null {
-  return findLiveSession(terminalSessions, predicate)
-}
-
-function getActiveCliSession(
-  workspace: Workspace,
-  terminalSessions: TerminalSessionSnapshot[]
-): TerminalSessionSnapshot | null {
-  const model = getModel(workspace.id)
-  const activeTab = getActiveTab(model)
-
-  if (activeTab?.getComponent() === 'agent') {
-    const config = activeTab.getConfig() as { agentId?: string } | undefined
-    const agentId = config?.agentId
-    const session = agentId
-      ? findRunningSession(terminalSessions, (candidate) =>
-        candidate.kind === 'agent'
-        && candidate.workspaceId === workspace.id
-        && candidate.agentId === agentId
-      )
-      : null
-    if (session) return session
-  }
-
-  if (activeTab?.getComponent() === 'terminal') {
-    const config = activeTab.getConfig() as { terminalId?: string } | undefined
-    const terminalId = config?.terminalId ?? activeTab.getId()
-    const session = findRunningSession(terminalSessions, (candidate) =>
-      candidate.kind === 'terminal'
-      && candidate.workspaceId === workspace.id
-      && (
-        candidate.terminalId === terminalId
-        || candidate.sessionId === terminalId
-        || candidate.sessionId === `terminal-${terminalId}`
-      )
-    )
-    if (session) return session
-  }
-
-  return findRunningSession(terminalSessions, (candidate) =>
-    candidate.workspaceId === workspace.id && candidate.kind === 'agent'
-  ) ?? findRunningSession(terminalSessions, (candidate) =>
-    candidate.workspaceId === workspace.id && candidate.kind === 'terminal'
-  )
 }
 
 function findPanelTab(model: Model, component: WorkspacePanelComponent): TabNode | null {

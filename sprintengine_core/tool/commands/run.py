@@ -370,6 +370,175 @@ def runner_watch_delay_seconds(policy: Dict[str, Any], attempts: int) -> int:
     return min(max(1, base_delay), max_backoff)
 
 
+def _next_mcp_arguments(state_path: Path, **values: Any) -> Dict[str, Any]:
+    return {"statePath": str(state_path), **values}
+
+
+def _directive_context(value: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(value, dict):
+        return None
+    return value
+
+
+def _directive_next_tool(
+    name: Optional[str],
+    arguments: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    if not name:
+        return None
+    return {"name": name, "arguments": arguments or {}}
+
+
+def _directive_retry_after_ms(policy: Dict[str, Any], attempts: int, action: str) -> Optional[int]:
+    if action != "idle" or policy.get("mode") != "auto":
+        return None
+    return runner_watch_delay_seconds(policy, attempts) * 1000
+
+
+def agent_next_directive_from_join(
+    result: Dict[str, Any],
+    *,
+    state_path: Path,
+    role: str,
+    agent_id: str,
+    attempts: int = 1,
+) -> Dict[str, Any]:
+    """Convert the existing join routing result into an MCP-native directive."""
+    action = str(result.get("action") or "")
+    policy = folder_store.normalize_runner_policy(result.get("runner"))
+    base = {
+        "ok": True,
+        "role": role,
+        "agentId": agent_id,
+        "joinAction": action,
+        "runnerPolicy": policy,
+        "retryAfterMs": _directive_retry_after_ms(policy, attempts, action),
+        "releasedExpired": result.get("releasedExpired") or [],
+    }
+
+    if action in {"resume", "work"}:
+        next_args = _next_mcp_arguments(state_path, role=role, id=agent_id)
+        task = _directive_context(result.get("task"))
+        return {
+            **base,
+            "directiveType": "resume" if action == "resume" else "task_work",
+            "message": (
+                "Resume the active Sprint Engine task through the MCP task context tool."
+                if action == "resume"
+                else "Claim the next ready Sprint Engine task for this role through the MCP task context tool."
+            ),
+            "nextMcpToolName": "sprintengine.task.next",
+            "nextMcpArguments": next_args,
+            "nextTool": _directive_next_tool("sprintengine.task.next", next_args),
+            "readyTaskCount": result.get("readyTaskCount"),
+            "task": task,
+        }
+
+    if action in {"gate_resume", "gate_work"}:
+        next_args = _next_mcp_arguments(state_path, role=role, id=agent_id)
+        task = _directive_context(result.get("task"))
+        gate = _directive_context(result.get("gate"))
+        return {
+            **base,
+            "directiveType": "gate_work",
+            "message": (
+                "Resume the active Sprint Engine quality gate through the MCP gate context tool."
+                if action == "gate_resume"
+                else "Claim the next ready Sprint Engine quality gate for this role through the MCP gate context tool."
+            ),
+            "nextMcpToolName": "sprintengine.gate.next",
+            "nextMcpArguments": next_args,
+            "nextTool": _directive_next_tool("sprintengine.gate.next", next_args),
+            "readyGateCount": result.get("readyGateCount"),
+            "task": task,
+            "gate": gate,
+        }
+
+    if action == "needs_input_triage":
+        next_args = _next_mcp_arguments(state_path, id=agent_id)
+        return {
+            **base,
+            "directiveType": "needs_input_triage",
+            "message": "Triage architect-actionable needs_input blockers through the MCP triage tool.",
+            "nextMcpToolName": "sprintengine.triage.needs_input",
+            "nextMcpArguments": next_args,
+            "nextTool": _directive_next_tool("sprintengine.triage.needs_input", next_args),
+            "triage": {"kind": "architect_needs_input"},
+        }
+
+    if action == "idle":
+        return {
+            **base,
+            "directiveType": "idle",
+            "message": result.get("message") or "No Sprint Engine work is ready for this role.",
+            "nextMcpToolName": None,
+            "nextMcpArguments": None,
+            "nextTool": None,
+        }
+
+    if action == "complete":
+        return {
+            **base,
+            "directiveType": "complete",
+            "message": result.get("message") or "All Sprint Engine work is complete.",
+            "nextMcpToolName": None,
+            "nextMcpArguments": None,
+            "nextTool": None,
+        }
+
+    if action == "retired":
+        return {
+            **base,
+            "directiveType": "blocked",
+            "message": result.get("message") or "This Sprint Engine agent is retired and must not continue.",
+            "nextMcpToolName": None,
+            "nextMcpArguments": None,
+            "nextTool": None,
+            "blocker": {"reason": "agent_retired"},
+        }
+
+    return {
+        **base,
+        "directiveType": "error",
+        "message": f"Unsupported Sprint Engine join action: {action or '(missing)'}.",
+        "nextMcpToolName": None,
+        "nextMcpArguments": None,
+        "nextTool": None,
+        "error": {"reason": "unsupported_join_action", "joinAction": action},
+    }
+
+
+def build_agent_next_directive(args: argparse.Namespace) -> Dict[str, Any]:
+    role = str(getattr(args, "role", "") or "")
+    agent_id = str(getattr(args, "id", "") or getattr(args, "agent_id", "") or "")
+    attempts = max(1, int(getattr(args, "attempts", 1) or 1))
+    try:
+        join_result = cmd_join(argparse.Namespace(state=args.state, role=role, id=agent_id, watch=False, max_wait_seconds=None))
+    except SystemExit as exc:
+        return {
+            "ok": True,
+            "role": role,
+            "agentId": agent_id,
+            "joinAction": "error",
+            "directiveType": "error",
+            "message": str(exc) or "Sprint Engine join routing failed.",
+            "nextMcpToolName": None,
+            "nextMcpArguments": None,
+            "nextTool": None,
+            "runnerPolicy": folder_store.normalize_runner_policy(None),
+            "retryAfterMs": None,
+            "releasedExpired": [],
+            "error": {"reason": "join_routing_failed"},
+        }
+    return agent_next_directive_from_join(
+        join_result,
+        state_path=args.state,
+        role=str(join_result.get("role") or role),
+        agent_id=str(join_result.get("agentId") or agent_id),
+        attempts=attempts,
+    )
+
+
 def auto_mode_continuation(state: Dict[str, Any], role: str, agent_id: str) -> Optional[Dict[str, str]]:
     policy = folder_store.normalize_runner_policy(state.get("runner"))
     if policy.get("mode") != "auto":

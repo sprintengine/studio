@@ -100,7 +100,7 @@ Agent calls sprintengine.agent.leave(agent_id)
   → server releases any claims, removes from agents map
 ```
 
-Current Multicode-launched agents still start and continue through `sprintengine join --role <role> --id <agent-id> --watch`. That compatibility call shares the same lifecycle records as the MCP agent tools and may be routed through the local MCP backend, but the CLI owns polling/backoff and terminal wake/resume until target agent CLIs prove direct MCP notification wake-up.
+Multicode-launched autonomous agents now start and continue through the managed `multicode-sprintengine` MCP server. They register with `sprintengine.agent.join`, fetch work with `sprintengine.agent.next_directive`, and invoke the returned MCP tool once. Multicode, not the CLI, owns later terminal wake/resume and replacement spawning. `sprintengine join --role <role> --id <agent-id> --watch` remains a standalone/headless CLI compatibility path that shares lifecycle records and owns its own polling/backoff.
 
 **Scheduling policy**: round-robin among idle agents of the requested role. Future refinements can include affinity-aware re-dispatch for rework loops and user-pinned filters.
 
@@ -345,7 +345,7 @@ Sprint Engine bundled content sits as a single directory at `resources/sprinteng
 
 The full surface for agents and renderer is in v1. The CLI continues to exist as a thin wrapper around the same `sprintengine_core` library for humans.
 
-Final MCP names use dotted, role-agnostic operation groups. The old CLI-shaped MCP tools remain compatibility aliases until Multicode stops launching agents through `sprintengine join --watch`; they must call the same core mutation path and stay covered by transition tests.
+Final MCP names use dotted, role-agnostic operation groups. The old CLI-shaped MCP tools remain compatibility aliases for standalone/headless CLI and transition tests; Multicode-launched autonomous agents should use the managed MCP runtime and structured directive tools.
 
 `sprintengine_mcp/schemas.py` exposes the final v1 contract schemas separately from the active `TOOL_SCHEMAS` registry. The live MCP `list_tools` response must advertise only tools with server handlers; future contract names move into `TOOL_SCHEMAS` as their handlers land.
 
@@ -362,7 +362,10 @@ Final MCP names use dotted, role-agnostic operation groups. The old CLI-shaped M
 
 ### Agent lifecycle
 
-Stateful lifecycle calls use `statePath`. Registry discovery calls use `workspaceRoot`.
+External/debug MCP callers can pass `statePath` for stateful lifecycle calls
+and `workspaceRoot` for registry discovery calls. Multicode-launched autonomous
+agents use the managed MCP server launch context instead, so their prompt
+payloads omit these server-resolvable path fields.
 
 - `sprintengine.agent.join(statePath, role, agentId, workspaceRoot?, subscribe?, subscriptionMode?) → { agentId, role, agent, currentDispatch, run, roleManifest, prompt, promptContext, legacyJoin }`
 - `sprintengine.agent.heartbeat(statePath, agentId)`

@@ -3,6 +3,8 @@ import { basename, pathSeparatorFor } from './paths'
 
 const AGENT_TAB_SPAWN_FLASH_CLASS = 'agent-tab-spawn-flash'
 
+export type AgentTerminalRevealPolicy = 'background' | 'focus-if-open' | 'reveal'
+
 // Ephemeral registry of live flexlayout Model instances, keyed by workspace id.
 // Lets components outside of WorkspaceLayout (e.g. the workspace action bar)
 // dispatch actions to the active workspace's layout without prop-drilling.
@@ -191,13 +193,41 @@ export function focusOrAddAgentTab(
   name: string,
   config?: Record<string, unknown>,
 ): boolean {
+  return applyAgentTerminalRevealPolicy(workspaceId, agentId, name, 'reveal', config)
+}
+
+export function applyAgentTerminalRevealPolicy(
+  workspaceId: string,
+  agentId: string,
+  name: string,
+  revealPolicy: AgentTerminalRevealPolicy,
+  config?: Record<string, unknown>,
+): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
-  if (focusAgentTab(workspaceId, agentId)) {
+
+  if (revealPolicy === 'reveal' && focusAgentTab(workspaceId, agentId)) {
     renameAgentTab(model, agentId, name)
     updateAgentTabConfig(model, agentId, config)
     return true
   }
+
+  let existingTabId: string | null = null
+  model.visitNodes((node) => {
+    if (existingTabId || !(node instanceof TabNode) || node.getComponent() !== 'agent') return
+
+    const existingConfig = (node.getConfig() as Record<string, unknown> | undefined) ?? {}
+    if (existingConfig.agentId === agentId) existingTabId = node.getId()
+  })
+
+  if (existingTabId) {
+    if (revealPolicy === 'focus-if-open') model.doAction(Actions.selectTab(existingTabId))
+    renameAgentTab(model, agentId, name)
+    updateAgentTabConfig(model, agentId, config)
+    return true
+  }
+
+  if (revealPolicy !== 'reveal') return false
 
   return addAgentTabTiled(workspaceId, agentId, name, config)
 }
@@ -666,6 +696,83 @@ export function toggleComponentTab(
     return removeComponentTab(workspaceId, component)
   }
   return focusOrAddComponentTab(workspaceId, component, name)
+}
+
+// Components that belong to the workspace-sidebar PanelRail. Opening any of
+// these from the rail prefers the left-docked workspace column so terminals
+// and agents that live in the existing tabsets are not displaced into a
+// stacked tab cluster.
+const PANEL_RAIL_COMPONENTS = new Set<string>(['explorer', 'editor', 'git', 'memory-graph'])
+
+// PanelRail toggle: same focus/remove semantics as toggleComponentTab, but
+// when adding a new tab it stacks into the existing PanelRail tabset (so
+// Files / Editor / Git / Knowledge Graph share one column) or docks a fresh
+// tabset on the LEFT edge of the root.
+export function togglePanelRailComponent(
+  workspaceId: string,
+  component: string,
+  name: string
+): boolean {
+  if (hasComponentTab(workspaceId, component)) {
+    return removeComponentTab(workspaceId, component)
+  }
+  return focusOrAddPanelRailComponent(workspaceId, component, name)
+}
+
+function findPanelRailHostTabset(model: Model): TabSetNode | null {
+  // Returns the tabset hosting any existing rail component (Files / Editor /
+  // Git / KG), or null if none are open yet.
+  const found: TabSetNode[] = []
+  model.visitNodes((node) => {
+    if (found.length > 0) return
+    if (!(node instanceof TabNode)) return
+    const nodeComponent = node.getComponent()
+    if (!nodeComponent || !PANEL_RAIL_COMPONENTS.has(nodeComponent)) return
+    const parent = node.getParent()
+    if (parent instanceof TabSetNode) {
+      found.push(parent)
+    }
+  })
+  return found[0] ?? null
+}
+
+export function focusOrAddPanelRailComponent(
+  workspaceId: string,
+  component: string,
+  name: string
+): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+  if (focusComponentTab(workspaceId, component)) return true
+
+  // Prefer stacking into the tabset that already hosts another rail component
+  // — that's the user's "workspace column" of Files / Editor / Git / KG.
+  const railTabset = findPanelRailHostTabset(model)
+  if (railTabset) {
+    model.doAction(
+      Actions.addNode(
+        { type: 'tab', name, component },
+        railTabset.getId(),
+        DockLocation.CENTER,
+        -1,
+        true
+      )
+    )
+    return true
+  }
+
+  // No rail tabset yet — dock a new column on the LEFT of the workspace root
+  // so terminals/agents that already populate the layout stay on the right.
+  model.doAction(
+    Actions.addNode(
+      { type: 'tab', name, component },
+      model.getRoot().getId(),
+      DockLocation.LEFT,
+      -1,
+      true
+    )
+  )
+  return true
 }
 
 export function focusOrAddComponentTab(

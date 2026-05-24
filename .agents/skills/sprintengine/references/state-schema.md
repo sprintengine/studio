@@ -24,7 +24,7 @@ Agents should use the active team's `architect_plan` artifact path from the proj
 Use `sprintengine handover --name <team> --goal "..." --handover <path>` to create a named team bootstrap and canonical `handover.md`.
 Use `sprintengine handover --name <team> --goal "..." --handover-stdin` when an active planning agent should stream its full handover through the Python tool.
 Use `sprintengine summary` to print a read-only completion summary from task evidence.
-Use `sprintengine join --role <role> --id <agent-id> --watch` for agent startup and continuation. The join directive tells agents when to run `task next`, `task gate next`, or `triage needs-input`.
+Use `sprintengine join --role <role> --id <agent-id> --watch` for standalone/headless CLI agent startup and continuation. Multicode-launched MCP-native agents use the managed MCP server and runtime dispatch instead. The join/directive response tells agents when to run `task next`, `task gate next`, or `triage needs-input`.
 Use `sprintengine task next --role <role> --id <agent-id>` for normal worker task claiming when the join directive tells the agent to claim or resume implementation work.
 Use `sprintengine task claim --task-id <id> --id <agent-id>` when a specific ready task must be claimed.
 Use `sprintengine task status`, `sprintengine task note`, and `sprintengine task log` to update task status, notes, and evidence.

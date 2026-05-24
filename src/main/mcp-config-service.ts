@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { dirname, delimiter, isAbsolute, join } from 'path'
 
@@ -26,6 +26,8 @@ import { getPluginById } from './plugin-registry-instance'
 
 const MANAGED_START = '# >>> multicode mcp managed'
 const MANAGED_END = '# <<< multicode mcp managed'
+export const MANAGED_SPRINTENGINE_MCP_SERVER_ID = 'multicode-sprintengine'
+const MANAGED_MISSING_COMMAND_PREFIX = '__missing_multicode_sprintengine_mcp__:'
 
 export type PluginLookup = (id: string) => { manifest: PluginManifest } | undefined
 
@@ -38,21 +40,27 @@ export type McpConfigService = {
 export type McpConfigServiceOptions = {
   lookupPlugin?: PluginLookup
   homeDir?: () => string
+  userDataDir?: () => string
+  runtimeRoot?: () => string | null
 }
 
 export function createMcpConfigService(options: McpConfigServiceOptions = {}): McpConfigService {
   const lookupPlugin: PluginLookup = options.lookupPlugin ?? ((id) => getPluginById(id))
   const homeDir = options.homeDir ?? (() => homedir())
+  const userDataDir = options.userDataDir ?? (() => defaultUserDataDir(homeDir))
+  const runtimeRoot = options.runtimeRoot ?? findSprintEngineRuntimeRoot
   return {
     listCatalog,
-    previewSync: (input) => syncMcpConfig({ ...input, write: false }, { lookupPlugin, homeDir }),
-    sync: (input) => syncMcpConfig({ ...input, write: true }, { lookupPlugin, homeDir }),
+    previewSync: (input) => syncMcpConfig({ ...input, write: false }, { lookupPlugin, homeDir, userDataDir, runtimeRoot }),
+    sync: (input) => syncMcpConfig({ ...input, write: true }, { lookupPlugin, homeDir, userDataDir, runtimeRoot }),
   }
 }
 
 type SyncContext = {
   lookupPlugin: PluginLookup
   homeDir: () => string
+  userDataDir: () => string
+  runtimeRoot: () => string | null
 }
 
 function listCatalog(): McpCatalogResult {
@@ -94,10 +102,11 @@ function findCatalogPath(): string | null {
 }
 
 function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult {
-  const settings = normalizeSettings(input.settings)
+  const managedServer = buildManagedSprintEngineServer(input, context)
+  const settings = normalizeSettings(input.settings, managedServer)
   const clients = normalizeClients(input.clients)
   const issues: McpValidationIssue[] = []
-  if (!settings.syncEnabled) {
+  if (!settings.syncEnabled && !managedServer) {
     return { ok: true, targets: [], issues }
   }
   if (!input.workspaceRoot || !existsSync(input.workspaceRoot)) {
@@ -128,10 +137,13 @@ function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult
     const pluginId = pluginIdForCli(client)
     const plugin = context.lookupPlugin(pluginId)
     if (!plugin || !plugin.manifest.mcpConfig) {
+      const hasRequired = clientServers.some((server) => server.required)
       issues.push({
-        level: 'warning',
+        level: hasRequired ? 'error' : 'warning',
         client,
-        message: `Plugin "${pluginId}" does not declare an mcpConfig block; skipping MCP sync for this CLI.`,
+        message: hasRequired
+          ? `Plugin "${pluginId}" does not support MCP config sync; cannot launch a Sprint Engine agent on this CLI until the plugin declares an mcpConfig block.`
+          : `Plugin "${pluginId}" does not declare an mcpConfig block; skipping MCP sync for this CLI.`,
       })
       continue
     }
@@ -164,16 +176,199 @@ function normalizeClients(value: McpClientTarget[] | undefined): McpClientTarget
   return Array.from(new Set(clients))
 }
 
-function normalizeSettings(settings: McpSettings | undefined): McpSettings {
-  if (!settings || typeof settings !== 'object') return { syncEnabled: false, servers: {} }
+function buildManagedSprintEngineServer(input: McpSyncInput, context: SyncContext): McpServerConfig | null {
+  const managed = input.managedSprintEngine
+  if (!managed?.statePath?.trim()) return null
+  const runtimeRoot = context.runtimeRoot()
+  if (!runtimeRoot) {
+    return missingManagedSprintEngineServer('Bundled Sprint Engine MCP runtime was not found.')
+  }
+  const command = ensureSprintEngineMcpShim(context.userDataDir(), runtimeRoot)
+  if (!command) {
+    return missingManagedSprintEngineServer('Unable to create the managed Sprint Engine MCP launcher.')
+  }
+
+  const workspaceRoot = managed.workspaceRoot?.trim() || input.workspaceRoot
+  const allowedRoots = Array.from(new Set([
+    workspaceRoot,
+    dirname(managed.statePath),
+    ...(managed.allowedRoots ?? []),
+  ].filter((value): value is string => Boolean(value?.trim()))))
+  const registryRoots = Array.from(new Set([
+    ...(managed.registryRoots ?? []),
+    ...defaultSprintEngineRegistryRoots(runtimeRoot),
+  ]))
+  const args = [
+    ...(workspaceRoot ? ['--workspace', workspaceRoot] : []),
+    '--state-path',
+    managed.statePath,
+    ...allowedRoots.flatMap((root) => ['--allowed-root', root]),
+    ...registryRoots.flatMap((root) => ['--extra-dir', root]),
+    ...(managed.userRoot ? ['--user-dir', managed.userRoot] : []),
+  ]
+
+  return {
+    id: MANAGED_SPRINTENGINE_MCP_SERVER_ID,
+    name: 'Multicode Sprint Engine',
+    description: 'Managed local Sprint Engine MCP server for autonomous Sprint Engine agent sessions.',
+    transport: 'stdio',
+    command,
+    args,
+    env: {
+      SPRINTENGINE_STATE_PATH: managed.statePath,
+      // Populate SPRINTENGINE_WORKSPACE_ROOT so the MCP server can resolve
+      // workspaceRoot without agents having to pass it in tool payloads.
+      ...(workspaceRoot ? { SPRINTENGINE_WORKSPACE_ROOT: workspaceRoot } : {}),
+      SPRINTENGINE_MCP_USER_ID: managed.actorId?.trim() || 'multicode-app',
+      SPRINTENGINE_MCP_USER_AUTHORIZED: '1',
+    },
+    enabled: true,
+    required: true,
+    clients: normalizeClients(input.clients),
+    scope: 'workspace',
+    source: 'bundled',
+    riskLevel: 'local-command',
+    capabilities: ['sprintengine'],
+  }
+}
+
+function missingManagedSprintEngineServer(message: string): McpServerConfig {
+  return {
+    id: MANAGED_SPRINTENGINE_MCP_SERVER_ID,
+    name: 'Multicode Sprint Engine',
+    transport: 'stdio',
+    command: `${MANAGED_MISSING_COMMAND_PREFIX}${message}`,
+    args: [],
+    enabled: true,
+    required: true,
+    clients: ['codex', 'claude'],
+    scope: 'workspace',
+    source: 'bundled',
+    riskLevel: 'local-command',
+  }
+}
+
+function ensureSprintEngineMcpShim(userDataDir: string, runtimeRoot: string): string | null {
+  try {
+    const shimDirectory = join(userDataDir, 'tool-bin')
+    mkdirSync(shimDirectory, { recursive: true })
+    if (process.platform === 'win32') {
+      const shimPath = join(shimDirectory, 'multicode-sprintengine-mcp.cmd')
+      writeFileSync(
+        shimPath,
+        [
+          '@echo off',
+          'setlocal',
+          `set "MULTICODE_SPRINTENGINE_RUNTIME_ROOT=${runtimeRoot}"`,
+          'set "PYTHONPATH=%MULTICODE_SPRINTENGINE_RUNTIME_ROOT%;%PYTHONPATH%"',
+          'set "PYTHON_EXE="',
+          'if exist "%MULTICODE_SPRINTENGINE_RUNTIME_ROOT%\\.venv\\Scripts\\python.exe" set "PYTHON_EXE=%MULTICODE_SPRINTENGINE_RUNTIME_ROOT%\\.venv\\Scripts\\python.exe"',
+          'if defined PYTHON_EXE goto run_python',
+          'for /f "delims=" %%P in (\'where python 2^>nul\') do if not defined PYTHON_EXE if /I not "%%~dpP"=="%LOCALAPPDATA%\\Microsoft\\WindowsApps\\" set "PYTHON_EXE=%%P"',
+          'if defined PYTHON_EXE goto run_python',
+          'echo python not found for managed Sprint Engine MCP 1>&2',
+          'exit /b 127',
+          ':run_python',
+          '"%PYTHON_EXE%" -m sprintengine_mcp %*',
+          'exit /b %errorlevel%',
+          '',
+        ].join('\r\n'),
+        'utf8'
+      )
+      return shimPath
+    }
+
+    const shimPath = join(shimDirectory, 'multicode-sprintengine-mcp')
+    writeFileSync(
+      shimPath,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        `runtime_root=${quotePosix(runtimeRoot)}`,
+        'export PYTHONPATH="$runtime_root:${PYTHONPATH:-}"',
+        'python_exe="python3"',
+        'if [[ -x "$runtime_root/.venv/bin/python" ]]; then python_exe="$runtime_root/.venv/bin/python"; fi',
+        'exec "$python_exe" -m sprintengine_mcp "$@"',
+        '',
+      ].join('\n'),
+      { encoding: 'utf8', mode: 0o755 }
+    )
+    chmodSync(shimPath, 0o755)
+    return shimPath
+  } catch {
+    return null
+  }
+}
+
+function defaultSprintEngineRegistryRoots(runtimeRoot: string): string[] {
+  const candidates = [
+    join(runtimeRoot, 'resources', 'sprintengine'),
+    join(runtimeRoot, 'resources', 'resources', 'sprintengine'),
+  ]
+  return candidates.filter((candidate) => existsSync(candidate))
+}
+
+function quotePosix(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`
+}
+
+function findSprintEngineRuntimeRoot(): string | null {
+  const candidates = [
+    process.cwd(),
+    maybeResourcesPath(),
+    maybeAppPath(),
+    join(__dirname, '..', '..'),
+    join(__dirname, '..', '..', '..'),
+  ].filter((candidate): candidate is string => Boolean(candidate))
+  return candidates.find((candidate) =>
+    existsSync(join(candidate, 'sprintengine_mcp', 'server.py'))
+    && existsSync(join(candidate, 'sprintengine_core'))
+  ) ?? null
+}
+
+function maybeResourcesPath(): string | null {
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
+  return resourcesPath || null
+}
+
+function maybeAppPath(): string | null {
+  try {
+    const electron = loadElectron()
+    return electron.app?.getAppPath?.() ?? null
+  } catch {
+    return null
+  }
+}
+
+function defaultUserDataDir(homeDir: () => string): string {
+  try {
+    const electron = loadElectron()
+    const userData = electron.app?.getPath?.('userData')
+    if (userData) return userData
+  } catch {
+    // Node-only tests do not provide Electron's app object.
+  }
+  return join(homeDir(), '.multicode')
+}
+
+function normalizeSettings(settings: McpSettings | undefined, managedServer?: McpServerConfig | null): McpSettings {
+  if (!settings || typeof settings !== 'object') {
+    return {
+      syncEnabled: Boolean(managedServer),
+      servers: managedServer ? { [managedServer.id]: managedServer } : {},
+    }
+  }
   const servers: Record<string, McpServerConfig> = {}
   for (const value of Object.values(settings.servers ?? {})) {
     if (!value || typeof value !== 'object') continue
     const normalized = normalizeServer(value)
     if (normalized) servers[normalized.id] = normalized
   }
+  if (managedServer) {
+    servers[managedServer.id] = managedServer
+  }
   return {
-    syncEnabled: settings.syncEnabled === true,
+    syncEnabled: settings.syncEnabled === true || Boolean(managedServer),
     servers,
   }
 }
@@ -261,6 +456,12 @@ function validateServer(server: McpServerConfig): McpValidationIssue[] {
     const command = server.command?.trim()
     if (!command) {
       issues.push({ level: 'error', serverId: server.id, message: `${server.name} is missing a command.` })
+    } else if (command.startsWith(MANAGED_MISSING_COMMAND_PREFIX)) {
+      issues.push({
+        level: 'error',
+        serverId: server.id,
+        message: command.slice(MANAGED_MISSING_COMMAND_PREFIX.length),
+      })
     } else if (!commandExists(command)) {
       issues.push({ level: server.required ? 'error' : 'warning', serverId: server.id, message: `${server.name} command was not found: ${command}` })
     }
@@ -326,17 +527,21 @@ function syncForFormat(input: SyncForFormatInput): {
       return { targets: [result.target], issues: result.issues }
     }
     case 'opencode':
-    case 'generic':
+    case 'generic': {
+      const hasRequired = input.servers.some((server) => server.required)
       return {
         targets: [],
         issues: [
           {
-            level: 'warning',
+            level: hasRequired ? 'error' : 'warning',
             client: input.client,
-            message: `MCP sync writer for format "${format}" is not implemented yet; declared in plugin "${input.plugin.id}".`,
+            message: hasRequired
+              ? `MCP sync writer for format "${format}" is not implemented yet; cannot launch a Sprint Engine agent on plugin "${input.plugin.id}".`
+              : `MCP sync writer for format "${format}" is not implemented yet; declared in plugin "${input.plugin.id}".`,
           },
         ],
       }
+    }
   }
 }
 

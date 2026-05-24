@@ -68,10 +68,19 @@ ACTOR_SCHEMA = {
 }
 
 
+# `statePath` and `workspaceRoot` are server-resolvable from launch env
+# (`SPRINTENGINE_STATE_PATH`, `SPRINTENGINE_WORKSPACE_ROOT`) and from
+# state-path-to-workspace-root derivation. Autonomous agents should not need to
+# pass them, so the schema marks them optional even when callers list them in
+# `required` for documentation. Debug/CLI callers can still pass them explicitly.
+_SERVER_RESOLVABLE_REQUIRED = {"statePath", "workspaceRoot"}
+
+
 def object_schema(required: list[str], properties: dict[str, Any]) -> dict[str, Any]:
+    filtered_required = [name for name in required if name not in _SERVER_RESOLVABLE_REQUIRED]
     return {
         "type": "object",
-        "required": required,
+        "required": filtered_required,
         "additionalProperties": True,
         "properties": {"statePath": STATE_PATH_PROPERTY, **properties},
     }
@@ -146,6 +155,18 @@ REVIEWER_DIFFICULTY_PROPERTIES = reviewer_difficulty_properties()
 
 
 MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
+    "sprintengine.handover": object_schema(
+        ["statePath", "name"],
+        {
+            "name": {"type": "string", "description": "Sprint Engine team name used for the bootstrap."},
+            "goal": {"type": "string"},
+            "handoverPath": {"type": "string", "description": "Markdown handoff file to import into the canonical handover.md."},
+            "handoverText": {"type": "string", "description": "Inline markdown handoff context to write into the canonical handover.md."},
+            "sourcePlanKind": {"type": "string", "enum": ["unknown", "product_plan", "architect_plan"]},
+            "actor": {"type": "string"},
+            "force": {"type": "boolean"},
+        },
+    ),
     "sprintengine.init": object_schema(["statePath"], {"goal": {"type": "string"}, "useWorktrees": {"type": "boolean"}, "agent": {"type": "array", "items": {"type": "string"}}}),
     "sprintengine.recover": object_schema(["statePath"], {}),
     "sprintengine.roster.add": object_schema(["statePath", "role", "id"], {"role": {"type": "string"}, "id": {"type": "string"}, "actor": {"type": "string"}}),
@@ -160,6 +181,18 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
             "workspaceRoot": WORKSPACE_ROOT_PROPERTY,
             "subscribe": {"type": "boolean", "description": "Whether the agent wants dispatch subscription metadata recorded during join."},
             "subscriptionMode": {"type": "string", "enum": ["none", "poll", "mcp_notifications"]},
+        },
+    ),
+    "sprintengine.agent.next_directive": object_schema(
+        ["statePath", "role", "agentId"],
+        {
+            "role": ROLE_PROPERTY,
+            "agentId": AGENT_ID_PROPERTY,
+            "attempts": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Current watch attempt count, used only to calculate retry timing for idle auto-mode directives.",
+            },
         },
     ),
     "sprintengine.agent.heartbeat": object_schema(["statePath", "agentId"], {"agentId": AGENT_ID_PROPERTY}),
@@ -190,6 +223,7 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
         ["statePath", "agentId", "dispatchId"],
         {"agentId": AGENT_ID_PROPERTY, "dispatchId": DISPATCH_ID_PROPERTY, "outcome": {"type": "string"}},
     ),
+    "sprintengine.triage.needs_input": object_schema(["statePath", "id"], {"id": AGENT_ID_PROPERTY}),
     "sprintengine.roles.list": object_schema(["workspaceRoot"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "includeShadowed": {"type": "boolean"}, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
     "sprintengine.roles.get": object_schema(["workspaceRoot", "roleId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "roleId": ROLE_PROPERTY, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
     "sprintengine.soul.get": object_schema(["workspaceRoot", "roleId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "roleId": ROLE_PROPERTY, "runId": {"type": "string"}, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
@@ -223,6 +257,8 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     "sprintengine.plan.start_review": object_schema(["statePath", "role", "id"], {"role": {"type": "string"}, "id": {"type": "string"}}),
     "sprintengine.plan.review_status": object_schema(["statePath"], {}),
     "sprintengine.plan.address_reviews": object_schema(["statePath"], {"actor": {"type": "string"}}),
+    "sprintengine.plan.list": object_schema(["statePath"], {}),
+    "sprintengine.plan.read": object_schema(["statePath"], {}),
     "sprintengine.artifact.add": object_schema(["statePath", "taskId", "kind", "title", "path"], {"actor": {"type": "string"}, "artifactId": {"type": "string"}, "taskId": {"type": "string"}, "kind": {"type": "string"}, "title": {"type": "string"}, "path": {"type": "string"}, "createdBy": {"type": "string"}, "recommendedTask": {"type": "array"}, "ready": {"type": "boolean"}}),
     "sprintengine.artifact.list": object_schema(["statePath"], {"taskId": {"type": "string"}, "kind": {"type": "string"}, "status": {"type": "string"}}),
     "sprintengine.artifact.ready": object_schema(["statePath", "artifactId", "id"], {"artifactId": ARTIFACT_ID_PROPERTY, "id": AGENT_ID_PROPERTY, **FEEDBACK_PROPERTIES}),
@@ -238,6 +274,7 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
 }
 
 ACTIVE_TOOL_NAMES = {
+    "sprintengine.handover",
     "sprintengine.init",
     "sprintengine.recover",
     "sprintengine.roster.add",
@@ -245,6 +282,7 @@ ACTIVE_TOOL_NAMES = {
     "sprintengine.roster.replenish",
     "sprintengine.roster.list",
     "sprintengine.agent.join",
+    "sprintengine.agent.next_directive",
     "sprintengine.agent.heartbeat",
     "sprintengine.agent.leave",
     "sprintengine.subscribe",
@@ -252,6 +290,7 @@ ACTIVE_TOOL_NAMES = {
     "sprintengine.summary",
     "sprintengine.dispatch.next",
     "sprintengine.dispatch.ack",
+    "sprintengine.triage.needs_input",
     "sprintengine.roles.list",
     "sprintengine.roles.get",
     "sprintengine.soul.get",
@@ -285,6 +324,8 @@ ACTIVE_TOOL_NAMES = {
     "sprintengine.plan.start_review",
     "sprintengine.plan.review_status",
     "sprintengine.plan.address_reviews",
+    "sprintengine.plan.list",
+    "sprintengine.plan.read",
     "sprintengine.artifact.add",
     "sprintengine.artifact.list",
     "sprintengine.artifact.ready",

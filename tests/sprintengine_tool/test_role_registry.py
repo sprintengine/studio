@@ -227,3 +227,33 @@ def test_rendering_missing_or_malformed_skill_fails_direct_render_without_breaki
         discovery.render_soul("developer", workspace_root=workspace, run_id="run-789")
     assert "cannot render" in str(exc_info.value)
     assert any(warning.code == "missing_render_skill" for warning in exc_info.value.warnings)
+
+
+def test_every_bundled_role_manifest_includes_workspace_knowledge_skill() -> None:
+    """Regression: every bundled Sprint Engine role must pull in the workspace_knowledge skill.
+
+    The skill itself is env-var-gated, so adding it to every role's Soul is safe
+    for workspaces with no Knowledge Graph configured. The agent reads the skill,
+    sees that MULTICODE_KNOWLEDGE_ROOT is unset, and no-ops. The point of this
+    test is to stop a future role manifest from silently dropping the skill, which
+    would re-introduce the gap where agents change behavior without updating the
+    KG and reviewers have no canonical basis to flag the drift.
+    """
+    roles_dir = Path(__file__).resolve().parents[2] / "resources" / "sprintengine" / "roles"
+    manifests = sorted(roles_dir.glob("*.json"))
+    assert manifests, f"Expected bundled role manifests under {roles_dir}"
+
+    missing: list[str] = []
+    for path in manifests:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        soul = data.get("soul") or []
+        skills = [entry.get("skill") for entry in soul if isinstance(entry, dict)]
+        if "workspace_knowledge" not in skills:
+            missing.append(path.name)
+
+    assert not missing, (
+        "These role manifests are missing the workspace_knowledge skill: "
+        f"{missing}. Every role's Soul must include workspace_knowledge so agents "
+        "receive the env-var-gated KG read/update guidance and reviewers can flag "
+        "documented-behavior drift when a KG is configured."
+    )

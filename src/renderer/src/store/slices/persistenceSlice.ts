@@ -15,6 +15,7 @@ import {
 import {
   consolidateSwitchboardWorkspaceLayout,
   ensureMultiloopLayoutModel,
+  hideGuidedBriefTabStrip,
   hideSprintEngineBoardTabStrip,
   markSwitchboardAnchorTabsSticky,
   migrateSprintEngineLayout,
@@ -45,7 +46,7 @@ import { mapMigrationWorkspaces } from './normalizers'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 51
+export const WORKSPACE_STORE_VERSION = 52
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
 export type WorkspaceMigrationState = {
@@ -631,6 +632,16 @@ export function migratePersistedWorkspaceState(
           pendingSpawns: [],
         },
       }
+    })
+  }
+  if (version < 52) {
+    // The guided brief panel owns its own step nav, so the FlexLayout tab
+    // strip on the tabset that wraps the 'guided-brief' tab is redundant
+    // chrome. Stamp enableTabStrip: false onto existing layouts without
+    // touching custom arrangements, matching the Sprint Engine pattern.
+    mapMigrationWorkspaces(migrationState, (ws) => {
+      const next = hideGuidedBriefTabStrip(ws.layoutModel)
+      return next ? { ...ws, layoutModel: next } : ws
     })
   }
 

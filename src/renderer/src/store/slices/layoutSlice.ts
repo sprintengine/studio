@@ -224,6 +224,44 @@ export function hideSprintEngineBoardTabStrip(
   return { ...layoutModel, layout: nextLayout as IJsonModel['layout'] }
 }
 
+function tabsetContainsGuidedBrief(record: Record<string, unknown>): boolean {
+  const children = Array.isArray(record.children) ? record.children : []
+  return children.some((child) => {
+    if (!child || typeof child !== 'object') return false
+    const childRecord = child as Record<string, unknown>
+    return childRecord.type === 'tab' && childRecord.component === 'guided-brief'
+  })
+}
+
+function hideGuidedBriefTabStripInNode(node: unknown): unknown {
+  if (!node || typeof node !== 'object') return node
+  const record = node as Record<string, unknown>
+
+  if (record.type === 'tabset' && tabsetContainsGuidedBrief(record)) {
+    return { ...record, enableTabStrip: false }
+  }
+
+  const rawChildren = record.children
+  if (!Array.isArray(rawChildren)) return record
+
+  const nextChildren = rawChildren.map((child) => hideGuidedBriefTabStripInNode(child))
+  return { ...record, children: nextChildren }
+}
+
+// The guided brief panel owns the visible chrome (step nav, conversation /
+// preview / brief panes), so the FlexLayout tab strip on the tabset that
+// hosts it is redundant. Stamp enableTabStrip: false onto whichever tabset
+// wraps the 'guided-brief' tab without touching other tabsets.
+export function hideGuidedBriefTabStrip(
+  layoutModel: IJsonModel | null | undefined
+): IJsonModel | null | undefined {
+  if (!layoutModel || typeof layoutModel !== 'object') return layoutModel
+  const layout = layoutModel.layout
+  if (!layout) return layoutModel
+  const nextLayout = hideGuidedBriefTabStripInNode(layout)
+  return { ...layoutModel, layout: nextLayout as IJsonModel['layout'] }
+}
+
 const LEGACY_SWITCHBOARD_COMPONENTS = new Set(['watchtower-panel', 'switchboard-board'])
 
 function consolidateSwitchboardTabsInNode(node: unknown): unknown {

@@ -181,7 +181,7 @@ from sprintengine_core.tool.review_prompts import *  # noqa: F403,F401
 TOP_LEVEL_HELP = """\
 Sprint Engine - all run-store mutations go through here. Never edit run-store files directly.
 
-Entry points (return full system prompt for the agent):
+Entry points (CLI/human/headless compatibility; autonomous Multicode agents use MCP):
   sprintengine handover --name my-team --goal "..." --handover handover.md
   sprintengine init [--goal "..."]                                # bootstraps the board; agents claim ready tasks separately
   sprintengine recover
@@ -250,10 +250,13 @@ Run summary:
 
 MCP lifecycle compatibility:
   The local MCP server is the preferred agent operation boundary. The CLI remains
-  a human/script compatibility wrapper over the same core state mutations, and
-  `sprintengine join --watch` remains the Multicode wake/resume polling path until
-  current agent CLIs no longer need terminal orchestration. Run the stdio server
-  with `sprintengine mcp serve --workspace <path>` or
+  a human/script/headless compatibility wrapper over the same core state
+  mutations. Multicode-launched autonomous roster agents use the managed
+  Sprint Engine MCP server and runtime dispatch, not `join --watch`; Multicode
+  owns terminal wake/resume and restarts missing same-role capacity. Standalone
+  or headless CLI users may still use `sprintengine join --watch`, where the
+  CLI owns idle polling/backoff. Run the stdio server with
+  `sprintengine mcp serve --workspace <path>` or
   `python -m sprintengine_mcp --workspace <path>`; repeated `--extra-dir`
   values add plugin registry roots containing roles/ and skills/. Use
   `--backend mcp-local` to exercise the MCP route from the CLI; set

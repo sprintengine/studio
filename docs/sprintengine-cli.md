@@ -53,16 +53,18 @@ python -m sprintengine_mcp --workspace .
 flags to bound which workspace roots may contain Sprint Engine state paths.
 Use repeated `--extra-dir <registry-root>` flags to add plugin registry roots
 containing `roles/` and `skills/`, and `--user-dir <path>` to override the user
-registry base directory. The server remains a local stdio MCP boundary; current
-Codex and Claude Code terminal sessions still continue through
-`sprintengine join --role <role> --id <agent-id> --watch`, which owns
-polling/backoff and Multicode wake/resume behavior.
+registry base directory. The server remains a local stdio MCP boundary.
+Multicode-launched autonomous Sprint Engine agents use the managed
+`multicode-sprintengine` MCP server and runtime dispatch; they do not use
+`join --watch` for idle polling. Standalone/headless CLI users can still run
+`sprintengine join --role <role> --id <agent-id> --watch`, where the CLI owns
+polling/backoff.
 
-## Common Worker Flow
+## Standalone CLI Worker Flow
 
-Workers join the active run, read the plan returned by the directive, claim one
-ready task for their exact role, log evidence, then publish or mark the task
-done:
+Workers operating outside Multicode's managed MCP runtime can join the active
+run, read the plan returned by the directive, claim one ready task for their
+exact role, log evidence, then publish or mark the task done:
 
 ```bash
 sprintengine join --role developer --id developer-1 --watch
@@ -381,20 +383,26 @@ sprintengine runner set --mode auto
 sprintengine runner set --mode off
 ```
 
-Agents should start and continue with `join --watch`. When Auto Mode is on,
-`join --watch` sleeps and polls under the CLI until work is available or Auto
-Mode is turned off. When Auto Mode is off, idle agents stop. The renderer
-should launch and monitor roster terminals;
-the CLI decides which task, gate, or triage directive an agent receives.
+Standalone/headless CLI agents can start and continue with `join --watch`.
+When Auto Mode is on, `join --watch` sleeps and polls under the CLI until work
+is available or Auto Mode is turned off. When Auto Mode is off, idle CLI agents
+stop.
+
+Multicode-launched autonomous roster agents use the managed Sprint Engine MCP
+server instead. Their startup and wake prompts call `sprintengine.agent.join`
+and `sprintengine.agent.next_directive`; if a directive includes
+`nextMcpToolName`, the agent invokes that MCP tool once with
+`nextMcpArguments`. Multicode owns later continuation, terminal wake/resume,
+and replacement spawning for ready work, owner rework, `needs_input` recovery,
+and review/testing/product gates when no live same-role capacity exists.
 
 Renderer roster prompts for unclaimed ready tasks and unclaimed gates are wake
-candidates, not durable dispatch assignments. They tell an idle terminal to run
-`join --watch`; the durable `currentDispatch` id and `dispatch.jsonl` row are
-created only after the CLI claims a task, claims a gate, resumes owner rework,
-or reconciles an explicit current dispatch target. Existing claimed tasks and
-claimed gates may already have durable dispatch ids, and repeated `join --watch`
-or `task next`/`task gate next` calls must reuse those assignments rather than
-creating duplicates.
+candidates, not durable dispatch assignments. The durable `currentDispatch` id
+and `dispatch.jsonl` row are created only after Sprint Engine records a task
+claim, gate claim, owner rework resume, or explicit current dispatch target.
+Existing claimed tasks and claimed gates may already have durable dispatch ids,
+and repeated directive, `task next`, or `gate next` calls must reuse those
+assignments rather than creating duplicates.
 
 ## DAG Readiness
 

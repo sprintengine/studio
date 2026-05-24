@@ -1,9 +1,14 @@
 import { Tooltip } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { jsonModelHasComponent, toggleComponentTab } from '../../utils/modelRegistry'
+import { useGitStatus } from '../../hooks/useGitStatus'
+import { jsonModelHasComponent, togglePanelRailComponent } from '../../utils/modelRegistry'
 import type { WorkspaceId } from '../../types/workspace'
 
 type PanelKey = 'explorer' | 'editor' | 'git' | 'memory-graph'
+
+// 999 is the visible ceiling: it occupies the same three glyph slots as a
+// "99+" cap would, so we just clamp the number and skip the suffix.
+const MAX_GIT_BADGE_COUNT = 999
 
 type PanelDescriptor = {
   key: PanelKey
@@ -95,6 +100,16 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
   const layoutModel = useWorkspaceStore(
     (state) => state.workspaces.find((workspace) => workspace.id === workspaceId)?.layoutModel
   )
+  const folderPath = useWorkspaceStore(
+    (state) => state.workspaces.find((workspace) => workspace.id === workspaceId)?.folderPath ?? null
+  )
+
+  // Source of truth for the git change count badge on the Git rail icon
+  // (consolidated here when the top-bar git button was retired).
+  const { status: gitStatus, repoState: gitRepoState } = useGitStatus(folderPath)
+  const gitChangeCount = Object.keys(gitStatus?.files ?? {}).length
+  const gitHasChanges = gitRepoState === 'ready' && gitChangeCount > 0
+  const gitBadgeLabel = String(Math.min(gitChangeCount, MAX_GIT_BADGE_COUNT))
 
   // Bare-icon activity-bar idiom: no container
   // chrome, no chip on active, hover just brightens the icon. Active state =
@@ -120,8 +135,17 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
       {PANELS.map((panel) => {
         const Icon = panel.icon
         const active = jsonModelHasComponent(layoutModel, panel.key)
-        const tooltip = panel.shortcut
+        const showGitBadge = panel.key === 'git' && gitHasChanges
+        const baseTooltip = panel.shortcut
           ? `${panel.label} (${shortcutLabel(panel.shortcut)})`
+          : panel.label
+        const tooltip = showGitBadge
+          ? `${panel.label} · ${gitChangeCount} ${gitChangeCount === 1 ? 'change' : 'changes'}${
+              panel.shortcut ? ` (${shortcutLabel(panel.shortcut)})` : ''
+            }`
+          : baseTooltip
+        const ariaLabel = showGitBadge
+          ? `${panel.label}, ${gitChangeCount} ${gitChangeCount === 1 ? 'change' : 'changes'}`
           : panel.label
         const buttonClass = `interactive relative inline-flex ${buttonSizing} items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
           active
@@ -135,12 +159,38 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
           <Tooltip key={panel.key} content={tooltip} placement={tooltipPlacement}>
             <button
               type="button"
-              onClick={() => toggleComponentTab(workspaceId, panel.key, panel.tabName)}
+              onClick={() => togglePanelRailComponent(workspaceId, panel.key, panel.tabName)}
               aria-pressed={active}
-              aria-label={panel.label}
+              aria-label={ariaLabel}
               className={buttonClass}
             >
-              <Icon className="h-[16px] w-[16px]" />
+              {/*
+               * Wrapping the glyph in a relative span anchors the badge to
+               * the icon itself rather than the button bounding box. In
+               * collapsed mode the button stretches to the full 44 px rail
+               * width, so a button-relative badge would float far from the
+               * glyph; this keeps it glued to the icon corner regardless of
+               * button size.
+               *
+               * Placement note: desktop editors sit the SCM count badge in
+               * the icon's bottom-right corner with ~50 % overlap, and IDEs
+               * keeps counts off the icon entirely, and Linear keeps counts
+               * at the row's right edge. We honour the user's request to
+               * "hover above" the icon by floating the badge above the
+               * top-right corner with enough offset that no part of the
+               * underlying glyph (the branch dots + lines) is obscured. A
+               * 2 px ring tinted with the app background separates the
+               * amber pill from the dark rail so it reads as a chip even
+               * against the icon.
+               */}
+              <span className="relative inline-flex">
+                <Icon className="h-[16px] w-[16px]" />
+                {showGitBadge ? (
+                  <span className="pointer-events-none absolute -right-[5px] -top-[10px] flex h-[14px] min-w-[14px] items-center justify-center rounded-full border-2 border-[color:var(--bg-app)] bg-[color:var(--tone-warn)] px-[3px] text-[9px] font-bold leading-none tabular-nums text-[color:var(--text-on-accent)]">
+                    {gitBadgeLabel}
+                  </span>
+                ) : null}
+              </span>
               {active ? <span aria-hidden="true" className={accentClass} /> : null}
             </button>
           </Tooltip>

@@ -40,10 +40,10 @@ Worker workflow:
 
 1. Read the active team's approved `architect_plan` artifact path from the Sprint Engine projection or CLI prompt, normally `.multi-code/sprintengine/<team>/plan.md`, for the human-authored plan and task context. Do not search for or use any other `plan.md`.
 2. Run `sprintengine --help` and `sprintengine join --help` before the first claim in a fresh terminal. On Windows PowerShell, run `.\scripts\sprintengine.cmd --help` and `.\scripts\sprintengine.cmd join --help`.
-3. Run `sprintengine join --role <your-role> --id <your-agent-id> --watch` to receive the next directive for your role. On Windows PowerShell, run `.\scripts\sprintengine.cmd join --role <your-role> --id <your-agent-id> --watch`.
-4. If this Claude process was restarted, reuse the same `--id`; `join --watch` returns that slot's active task or active gate before offering new work.
+3. In a standalone/headless Sprint Engine CLI session, run `sprintengine join --role <your-role> --id <your-agent-id> --watch` to receive directives for your role. On Windows PowerShell, run `.\scripts\sprintengine.cmd join --role <your-role> --id <your-agent-id> --watch`. In Multicode-launched MCP-native terminals, do not run `join --watch`; register with `sprintengine.agent.join`, then follow runtime-dispatched `sprintengine.agent.next_directive` prompts.
+4. If this Claude process was restarted, reuse the same `--id`; standalone `join --watch` or the MCP directive path returns that slot's active task or active gate before offering new work.
 5. Follow the join directive. It may tell you to run `task next`, `task gate next`, or `triage needs-input`; those commands perform the actual atomic claim or reconnect under the Sprint Engine locks.
-6. If no task is ready and Auto Mode is on, `join --watch` sleeps/backoffs and polls again. If Auto Mode is off and no task is ready, stop and do not manually edit shared state.
+6. In standalone/headless CLI mode, if no task is ready and Auto Mode is on, `join --watch` sleeps/backoffs and polls again. In Multicode MCP-native mode, the runtime owns later dispatch and continuation. If Auto Mode is off and no task is ready, stop and do not manually edit shared state.
 7. Treat `ownedPaths` as the primary edit surface and collision boundary, not a ban on obvious companion edits. Prefer owned paths, but small directly required companion edits for correctness, integration, type safety, tests, or cleaner structure are allowed when logged as scope expansions. Move to `needs_input` with kind `architect` before broad expansion, product scope changes, major ownership boundary changes, or likely overlap with another active task.
 8. Update only your own task card with:
    - `sprintengine task status`
@@ -60,11 +60,11 @@ Worker workflow:
    - commands run
    - results
    - optional completion feedback percentages on the final status or artifact-ready command when you can assess them
-10. After completing one task or gate, run the same `join --watch` command again when Auto Mode is on. Stop when Auto Mode is off, the run is complete, the task is blocked on user input, or the join directive tells you to stop.
+10. After completing one task or gate in standalone/headless CLI mode, run the same `join --watch` command again when Auto Mode is on. In Multicode MCP-native mode, publish evidence/verdicts through MCP and let the runtime own later dispatch. Stop when Auto Mode is off, the run is complete, the task is blocked on user input, or the join/directive path tells you to stop.
 
 Quality gate workflow:
 
-- Status/folder column, claimability, and quality requirements are separate. `todo`, `ready`, `in_progress`, `review`, `testing`, `product`, `changes_requested`, `needs_input`, `done`, and `canceled` are board/lifecycle columns. Startup and continuation come from `join --watch`; normal implementation claims still happen through `task next` when join directs it, while quality requirements live in `qualityGates`.
+- Status/folder column, claimability, and quality requirements are separate. `todo`, `ready`, `in_progress`, `review`, `testing`, `product`, `changes_requested`, `needs_input`, `done`, and `canceled` are board/lifecycle columns. Standalone CLI startup and continuation come from `join --watch`; Multicode MCP-native startup and continuation come from runtime-dispatched `sprintengine.agent.join` / `sprintengine.agent.next_directive`. Normal implementation claims still happen through `task next` when the directive tells the agent to claim or resume work, while quality requirements live in `qualityGates`.
 - Implementers on gated tasks should log evidence and then run `sprintengine task publish --task-id <task-id> --id <agent-id> --summary "..."`. Publish creates an `implementation_summary` or `implementation_response` comment and routes the task to the next required phase or `done`.
 - Reviewers, testers, product reviewers, and architects should claim gates with `sprintengine task gate next --role <role> --id <agent-id>` or `sprintengine task gate claim --task-id <task-id> --gate-id <gate-id> --role <role> --id <agent-id>`.
 - Gate claim responses include the plan path, task card, owned paths, acceptance criteria, evidence, touched files, commands/results, linked artifacts, latest implementation summary/response, open feedback, prior attempts, and gate focus. Treat implementation summary/response comments as claims to audit against evidence, not as proof.
@@ -99,7 +99,7 @@ Use plan reviews when the architect has drafted a complete plan and wants the sp
 - Architect starts feedback mode with `Sprint Engine plan address-reviews --actor architect`
 - The tool reads every review file and returns a prompt for revising `plan.md` and the task graph
 
-Common commands:
+Common standalone/headless CLI commands:
 
 ```bash
 sprintengine task list --role frontend
@@ -137,10 +137,10 @@ sprintengine summary
 Rules:
 
 - Only claim tasks that are ready for your role.
-- Prefer `sprintengine join --role <role> --id <agent-id> --watch` for agent startup and continuation. Use `task next` only when the join directive tells you to claim or resume normal implementation work.
+- Prefer `sprintengine join --role <role> --id <agent-id> --watch` only for standalone/headless CLI agent startup and continuation. In Multicode MCP-native terminals, use the runtime-provided MCP directive path instead. Use `task next` only when the join/directive response tells you to claim or resume normal implementation work.
 - Only update your own task card.
 - Append evidence before moving work to `done`.
-- Complete one task or gate at a time. When Auto Mode is on, return to `join --watch`; otherwise stop.
+- Complete one task or gate at a time. In standalone/headless CLI mode, return to `join --watch` when Auto Mode is on; in Multicode MCP-native mode, publish evidence/verdicts and let the runtime own later dispatch. Otherwise stop.
 - Use `sprintengine summary` after all tasks are done to summarize touched files, commands, validation results, and manual verification notes.
 - Do not rewrite the overall plan unless you are explicitly acting as the architect.
 - Architect-created follow-up work from final review must be followed by another architect final review task. Completed tasks stay done; create new tasks for fixes or verification.
@@ -148,7 +148,7 @@ Rules:
 - Architects address plan reviews with `Sprint Engine plan address-reviews --actor architect`, then revise `plan.md` directly and task cards through `Sprint Engine plan` commands.
 - App and mobile read paths should consume normalized Sprint Engine projections. They must not parse folder-store internals or mutate Sprint Engine files directly.
 - Explicit UI artifact review actions may initiate authenticated Sprint Engine artifact commands through the app's main/MCP IPC boundary. Artifact approval, request-changes, and policy-approved auto-approval are Sprint Engine mutations, not terminal messages to the artifact producer.
-- The local MCP server is the preferred machine boundary for structured Sprint Engine operations. Run it with `sprintengine mcp serve --workspace <path>` or `python -m sprintengine_mcp --workspace <path>`; both start the same local stdio server. Add repeated `--extra-dir <registry-root>` flags for plugin role/skill roots and `--user-dir <path>` for a custom user registry base. Current CLI-launched agents still start and continue through `sprintengine join --role <role> --id <agent-id> --watch`. `join --watch` owns polling/backoff and Multicode terminal wake/resume; direct MCP notifications are not a production wake-up assumption for current Codex or Claude Code sessions.
+- The local MCP server is the preferred machine boundary for structured Sprint Engine operations. Run it with `sprintengine mcp serve --workspace <path>` or `python -m sprintengine_mcp --workspace <path>`; both start the same local stdio server. Add repeated `--extra-dir <registry-root>` flags for plugin role/skill roots and `--user-dir <path>` for a custom user registry base. Standalone/headless CLI agents can start and continue through `sprintengine join --role <role> --id <agent-id> --watch`, where `join --watch` owns polling/backoff. Multicode-launched agents use the managed MCP server and runtime dispatch instead; Multicode owns terminal wake/resume, spawning replacement terminals for ready work, rework, needs-input triage, and review/test/product gates when no live same-role capacity exists.
 - Renderer, preload, and main-process UI IPC must not expose arbitrary Sprint Engine Python mutations such as `sprintengine artifact ready`, `sprintengine task status`, or `Sprint Engine plan` updates. Review IPC should stay scoped to authenticated artifact review operations that call the same Sprint Engine core/MCP mutation path, return projection refresh data, and leave terminal wake-up to Multicode after Sprint Engine records notification, dispatch, or rework state.
 - If `python3` or `PyYAML` is unavailable, report the blocker instead of silently hand-editing shared state.
 

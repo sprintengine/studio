@@ -875,7 +875,15 @@ export default function WorkspaceSidebar({
             <span className="truncate">multicode</span>
           </div>
         )}
-        <Tooltip content={sidebarCollapsed ? 'Open sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'}>
+        {/*
+         * `bottom` placement keeps the tooltip inside the viewport: this
+         * header sits flush with the top of the app window, so the default
+         * `top` tooltip would overflow above the window chrome and clip.
+         */}
+        <Tooltip
+          content={sidebarCollapsed ? 'Open sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'}
+          placement="bottom"
+        >
           <button
             type="button"
             onClick={() => onSetSidebarCollapsed(!sidebarCollapsed)}

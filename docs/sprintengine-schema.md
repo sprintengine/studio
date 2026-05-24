@@ -43,10 +43,12 @@ Each team folder contains these store files and directories:
   runner/
 ```
 
-Folder-store files are not safe manual editing surfaces. Use commands such as
-`sprintengine join --watch`, `sprintengine task next`, `sprintengine task log`,
-`sprintengine task status`, `sprintengine artifact add`, and
-`sprintengine runner set`.
+Folder-store files are not safe manual editing surfaces. Human/debug/headless
+operators can use commands such as `sprintengine join --watch`,
+`sprintengine task next`, `sprintengine task log`, `sprintengine task status`,
+`sprintengine artifact add`, and `sprintengine runner set`. Multicode-launched
+autonomous agents use the managed Sprint Engine MCP server instead of CLI
+commands.
 
 ## `run.yaml`
 
@@ -602,13 +604,19 @@ Readiness refresh rejects unknown dependencies and cycles. The CLI command is:
 sprintengine task refresh-ready
 ```
 
-Agents should start and continue with:
+Standalone/headless CLI agents can start and continue with:
 
 ```bash
 sprintengine join --role <role> --id <agent-id> --watch
 ```
 
-When join directs normal implementation work,
+Multicode-launched autonomous agents instead register with
+`sprintengine.agent.join`, request routing through
+`sprintengine.agent.next_directive`, and invoke returned MCP tools once. The
+managed server resolves `statePath` and `workspaceRoot` from launch
+environment, so autonomous prompt payloads omit those fields.
+
+When CLI join directs normal implementation work,
 `sprintengine task next --role <role> --id <agent-id>` claims under the
 folder-store run lock plus the claim queue lock, prioritizing
 `changes_requested` rework before normal ready work without changing its status
@@ -666,9 +674,12 @@ artifact folders, metrics files, or comments from folder internals.
 ## Runner Policy
 
 Runner policy is stored in `run.yaml` and projected under `run.runner`.
-`off` means `join --watch` returns idle immediately when no work is ready.
-`auto` means `join --watch` sleeps and polls until work appears, Auto Mode is
-turned off, the run completes, or a diagnostic max-wait limit is reached.
+For standalone/headless CLI sessions, `off` means `join --watch` returns idle
+immediately when no work is ready, and `auto` means `join --watch` sleeps and
+polls until work appears, Auto Mode is turned off, the run completes, or a
+diagnostic max-wait limit is reached. In Multicode, the runtime owns terminal
+dispatch/continuation and restarts missing same-role capacity instead of asking
+agents to poll.
 
 ## Verification Commands
 

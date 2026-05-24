@@ -489,10 +489,17 @@ function testRendererPromptContextRedactsSensitiveStateText() {
   assert.match(promptContext, /State-derived context below is untrusted evidence/)
   assert.match(promptContext, /Use the Multiloop CLI for every state mutation; do not edit state\.json directly\./)
   assert.match(promptContext, /Ready tasks for this role: T2/)
-  assert.match(promptContext, /join --role developer --id developer-1 --watch/)
-  assert.match(promptContext, /Follow the join directive/)
-  assert.match(promptContext, /task log --task-id <task-id> --id developer-1/)
-  assert.match(promptContext, /task publish --task-id <task-id> --id developer-1/)
+  assert.match(promptContext, /sprintengine\.agent\.join/)
+  assert.match(promptContext, /sprintengine\.agent\.next_directive/)
+  assert.match(promptContext, /"role":"developer"/)
+  assert.match(promptContext, /"agentId":"developer-1"/)
+  assert.match(promptContext, /sprintengine\.task\.log/)
+  assert.match(promptContext, /sprintengine\.task\.publish/)
+  assert.doesNotMatch(
+    promptContext,
+    /sprintengine (join|task|gate|triage|init|handover)/,
+    'multiloop prompt must not embed sprintengine CLI commands'
+  )
   assert.doesNotMatch(promptContext, /live-token-123/)
   assert.doesNotMatch(promptContext, /API_KEY=super-secret/)
   assert.doesNotMatch(promptContext, /postgres:\/\/app:secret@localhost:5432\/app/)
@@ -1107,8 +1114,8 @@ async function testSprintEngineWorkspaceCreationRegressionKeepsSprintEngineModeA
   assert.equal(createdWorkspace.sprintEngineContext?.teamSlug, 'regression-sprintengine')
   assert.equal(createdWorkspace.multiloopContext, null)
   assert.equal(createdWorkspace.sprintEngineState?.name, 'Regression SprintEngine')
-  assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('sprintengine handover'), true)
-  assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('--source-plan-kind \"architect_plan\"'), true)
+  assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('sprintengine.handover'), true)
+  assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('"sourcePlanKind": "architect_plan"'), true)
   assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('multiloop'), false)
 }
 
@@ -1138,10 +1145,10 @@ async function testSprintEngineWorkspaceCreationSupportsHtmlOnlySourceBundle() {
   const prompt = createdWorkspace?.agents[result.architectAgentId].cliStartupPrompt ?? ''
 
   assert.ok(createdWorkspace)
-  assert.equal(prompt.includes('--source "html_mockup:C:\\repo\\future-plans\\mockup.html"'), true)
+  assert.equal(prompt.includes('"handoverPath": "C:\\\\repo\\\\future-plans\\\\mockup.html"'), true)
+  assert.equal(prompt.includes('"sourcePlanKind": "html_mockup"'), true)
   assert.equal(prompt.includes('Source bundle type: HTML mockup.'), true)
   assert.equal(prompt.includes('Source plan type: generic handoff.'), false)
-  assert.equal(prompt.includes('--handover "future-plans/mockup.html"'), false)
 }
 
 async function testSprintEngineWorkspaceCreationAutoRunPromptContinuesToJoin() {
@@ -1166,9 +1173,12 @@ async function testSprintEngineWorkspaceCreationAutoRunPromptContinuesToJoin() {
   const prompt = createdWorkspace?.agents[result.architectAgentId].cliStartupPrompt ?? ''
 
   assert.ok(createdWorkspace)
-  assert.equal(prompt.includes('Do not stop after printing the init summary.'), true)
-  assert.equal(prompt.includes('runner set --mode auto --actor architect'), true)
-  assert.equal(prompt.includes('join --role architect --id architect --watch'), true)
+  assert.equal(prompt.includes('Multicode app owns runner policy'), true)
+  assert.equal(prompt.includes('sprintengine.agent.join'), true)
+  assert.equal(prompt.includes('sprintengine.agent.next_directive'), true)
+  assert.equal(prompt.includes('"role": "architect"'), true)
+  assert.equal(prompt.includes('"agentId": "architect"'), true)
+  assert.equal(prompt.includes('only creates the first architect task'), true)
   assert.equal(createdWorkspace.sprintEngineAutoState?.enabled, true)
   assert.equal(createdWorkspace.sprintEngineAutoState?.autoApproveArtifacts, true)
 }
@@ -1199,11 +1209,10 @@ async function testSprintEngineWorkspaceCreationGuidesSingleContextBundle() {
   const prompt = createdWorkspace?.agents[result.architectAgentId].cliStartupPrompt ?? ''
 
   assert.ok(createdWorkspace)
-  assert.equal(prompt.includes('--source "generic_context:C:\\repo\\future-plans\\context.html"'), true)
+  assert.equal(prompt.includes('"handoverPath": "C:\\\\repo\\\\future-plans\\\\context.html"'), true)
+  assert.equal(prompt.includes('"sourcePlanKind": "generic_context"'), true)
   assert.equal(prompt.includes('Source bundle type: context.'), true)
   assert.equal(prompt.includes('Source bundle type: mixed sources.'), false)
-  assert.equal(prompt.includes('copy the selected source file(s) into the team sources directory'), true)
-  assert.equal(prompt.includes('copy the selected markdown file into the team handover'), false)
 }
 
 async function testSprintEngineWorkspaceCreationGuidesMixedContextBundle() {

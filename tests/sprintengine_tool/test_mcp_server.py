@@ -50,6 +50,7 @@ def write_registry_skill(root, skill_id: str, body: str) -> None:
 
 def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
     expected = {
+        "sprintengine.handover",
         "sprintengine.init",
         "sprintengine.recover",
         "sprintengine.roster.add",
@@ -57,6 +58,7 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.roster.replenish",
         "sprintengine.roster.list",
         "sprintengine.agent.join",
+        "sprintengine.agent.next_directive",
         "sprintengine.agent.heartbeat",
         "sprintengine.agent.leave",
         "sprintengine.subscribe",
@@ -64,6 +66,7 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.summary",
         "sprintengine.dispatch.next",
         "sprintengine.dispatch.ack",
+        "sprintengine.triage.needs_input",
         "sprintengine.roles.list",
         "sprintengine.roles.get",
         "sprintengine.soul.get",
@@ -97,6 +100,8 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.plan.start_review",
         "sprintengine.plan.review_status",
         "sprintengine.plan.address_reviews",
+        "sprintengine.plan.list",
+        "sprintengine.plan.read",
         "sprintengine.artifact.add",
         "sprintengine.artifact.list",
         "sprintengine.artifact.ready",
@@ -119,12 +124,15 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
 
 def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() -> None:
     planned = {
+        "sprintengine.handover",
         "sprintengine.agent.join",
+        "sprintengine.agent.next_directive",
         "sprintengine.agent.heartbeat",
         "sprintengine.agent.leave",
         "sprintengine.subscribe",
         "sprintengine.dispatch.next",
         "sprintengine.dispatch.ack",
+        "sprintengine.triage.needs_input",
         "sprintengine.roles.list",
         "sprintengine.roles.get",
         "sprintengine.soul.get",
@@ -140,6 +148,8 @@ def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() 
         "sprintengine.run.policy.get",
         "sprintengine.run.projection",
         "sprintengine.run.subscribe",
+        "sprintengine.plan.list",
+        "sprintengine.plan.read",
     }
     active_now = planned
 
@@ -576,11 +586,197 @@ def test_mcp_agent_join_returns_prompt_registry_run_and_dispatch_context(tmp_pat
     assert result["roleManifest"]["id"] == "developer"
     assert result["promptContext"]["format"] == "composed_soul_coordination_prompt"
     assert "# SprintEngine Coordination Rules" in result["prompt"]
-    assert result["legacyJoin"]["action"] == "resume"
+    assert "legacyJoin" not in result, "agent.join must not return CLI-laden legacyJoin payload"
     assert [row["operation_name"] for row in audit_rows(fixture.team_dir)] == [
         "sprintengine.task.next",
         "sprintengine.agent.join",
     ]
+
+
+def assert_directive_has_no_shell_command(result: dict[str, object]) -> None:
+    encoded = json.dumps(result, sort_keys=True)
+    assert "sprintengine " not in encoded
+
+
+def next_directive(server: SprintEngineMcpServer, fixture, role: str, agent_id: str, *, attempts: int | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {"statePath": str(fixture.state_path), "role": role, "agentId": agent_id}
+    if attempts is not None:
+        payload["attempts"] = attempts
+    response = server.call_tool("sprintengine.agent.next_directive", payload, actor("workspace-user", "user"))
+    assert response["ok"] is True
+    result = response["result"]
+    assert_directive_has_no_shell_command(result)
+    return result
+
+
+def test_mcp_next_directive_matches_join_for_active_and_ready_tasks(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-next-directive-task", [task("T1", "Implement MCP", "developer")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    ready_join = fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
+    ready = next_directive(server, fixture, "developer", "developer-a")
+    claim = server.call_tool(
+        "sprintengine.task.next",
+        {"statePath": str(fixture.state_path), "role": "developer", "id": "developer-a"},
+        actor("workspace-user", "user"),
+    )
+    active_join = fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
+    active = next_directive(server, fixture, "developer", "developer-a")
+
+    assert ready_join["action"] == "work"
+    assert ready["joinAction"] == ready_join["action"]
+    assert ready["directiveType"] == "task_work"
+    assert ready["nextMcpToolName"] == "sprintengine.task.next"
+    assert ready["nextMcpArguments"] == {"statePath": str(fixture.state_path), "role": "developer", "id": "developer-a"}
+    assert claim["ok"] is True
+    assert active_join["action"] == "resume"
+    assert active["joinAction"] == active_join["action"]
+    assert active["directiveType"] == "resume"
+    assert active["task"]["id"] == "T1"
+
+
+def test_mcp_next_directive_matches_join_for_gate_work(tmp_path) -> None:
+    task_record = task("T1", "Reviewable task", "developer", "review", owner="developer-a")
+    task_record["qualityGates"] = [
+        {
+            "id": "code-review",
+            "phase": "review",
+            "role": "code_reviewer",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": True,
+            "focus": "Review implementation.",
+            "attempts": [],
+        }
+    ]
+    fixture = create_team(tmp_path, "mcp-next-directive-gate", [task_record])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    joined = fixture.cli.run("join", "--role", "code_reviewer", "--id", "reviewer-a")
+    directive = next_directive(server, fixture, "code_reviewer", "reviewer-a")
+
+    assert joined["action"] == "gate_work"
+    assert directive["joinAction"] == joined["action"]
+    assert directive["directiveType"] == "gate_work"
+    assert directive["nextMcpToolName"] == "sprintengine.gate.next"
+    assert directive["gate"]["id"] == "code-review"
+
+
+def test_mcp_next_directive_matches_join_for_needs_input_idle_complete_blocked_and_error(tmp_path) -> None:
+    needs_input_task = task("T1", "Needs architect triage", "developer", "needs_input", owner="developer-a")
+    needs_input_task["needsInput"] = {
+        "kind": "architect",
+        "reason": "task_scope",
+        "question": "Clarify the scope.",
+    }
+    needs_fixture = create_team(tmp_path, "mcp-next-directive-needs-input", [needs_input_task])
+    idle_fixture = create_team(tmp_path, "mcp-next-directive-idle", [task("T1", "Tester work", "tester")])
+    idle_state = read_state(idle_fixture.state_path)
+    idle_state["runner"] = {
+        "mode": "auto",
+        "pollIntervalSeconds": 10,
+        "idleBackoffSeconds": 30,
+        "maxBackoffSeconds": 120,
+        "stopWhenComplete": True,
+    }
+    write_state(idle_fixture.state_path, idle_state)
+    complete_fixture = create_team(tmp_path, "mcp-next-directive-complete", [task("T1", "Done work", "developer", "done")])
+    retired_fixture = create_team(tmp_path, "mcp-next-directive-retired", [task("T1", "Ready work", "developer")])
+    retired_state = read_state(retired_fixture.state_path)
+    retired_state["agents"] = {"developer-a": {"role": "developer", "status": "retired"}}
+    write_state(retired_fixture.state_path, retired_state)
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    needs_join = needs_fixture.cli.run("join", "--role", "architect", "--id", "architect-a")
+    needs = next_directive(server, needs_fixture, "architect", "architect-a")
+    triage = server.call_tool(
+        "sprintengine.triage.needs_input",
+        {"statePath": str(needs_fixture.state_path), "id": "architect-a"},
+        actor("workspace-user", "user"),
+    )
+    idle_join = idle_fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
+    idle = next_directive(server, idle_fixture, "developer", "developer-a", attempts=2)
+    complete_join = complete_fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
+    complete = next_directive(server, complete_fixture, "developer", "developer-a")
+    retired_join = retired_fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
+    retired = next_directive(server, retired_fixture, "developer", "developer-a")
+    error = next_directive(server, idle_fixture, "not_a_role", "developer-a")
+
+    assert needs_join["action"] == "needs_input_triage"
+    assert needs["directiveType"] == "needs_input_triage"
+    assert needs["nextMcpToolName"] == "sprintengine.triage.needs_input"
+    assert triage["ok"] is True
+    assert triage["result"]["tasks"][0]["id"] == "T1"
+    assert idle_join["action"] == "idle"
+    assert idle["directiveType"] == "idle"
+    assert idle["retryAfterMs"] == 30000
+    assert complete_join["action"] == "complete"
+    assert complete["directiveType"] == "complete"
+    assert retired_join["action"] == "retired"
+    assert retired["directiveType"] == "blocked"
+    assert error["directiveType"] == "error"
+    assert error["nextMcpToolName"] is None
+
+
+def test_mcp_plan_list_read_and_handover_bootstrap_cover_agent_workflows(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "mcp-plan-read",
+        [
+            task("T1", "Plan implementation", "developer", owned_paths=["src/core.py"]),
+            task("T2", "Review plan", "architect", "done", depends_on=["T1"]),
+        ],
+    )
+    plan_path = fixture.team_dir / "plan.md"
+    plan_path.write_text("# Runtime Plan\n\nUse MCP-native agent tools.\n", encoding="utf-8")
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    listed = server.call_tool(
+        "sprintengine.plan.list",
+        {"statePath": str(fixture.state_path)},
+        actor("workspace-user", "user"),
+    )
+    read = server.call_tool(
+        "sprintengine.plan.read",
+        {"statePath": str(fixture.state_path)},
+        actor("workspace-user", "user"),
+    )
+    handover_state_path = tmp_path / ".multi-code" / "sprintengine" / "mcp-handover-bootstrap" / "run.yaml"
+    handover = server.call_tool(
+        "sprintengine.handover",
+        {
+            "statePath": str(handover_state_path),
+            "name": "mcp-handover-bootstrap",
+            "goal": "Build with MCP bootstrap.",
+            "handoverText": "# Source\n\nBootstrap through MCP.",
+            "actor": "workspace-user",
+        },
+        actor("workspace-user", "user"),
+    )
+    initialized = server.call_tool(
+        "sprintengine.init",
+        {"statePath": str(handover_state_path)},
+        actor("workspace-user", "user"),
+    )
+
+    assert listed["ok"] is True
+    assert [row["id"] for row in listed["result"]["tasks"]] == ["T1", "T2"]
+    assert listed["result"]["tasks"][0]["pathCount"] == 1
+    assert read["ok"] is True
+    assert read["result"]["exists"] is True
+    assert read["result"]["content"] == "# Runtime Plan\n\nUse MCP-native agent tools.\n"
+    assert handover["ok"] is True
+    assert "architectStartupPrompt" not in handover["result"]
+    assert handover["result"]["bootstrap"] == {
+        "owner": "app",
+        "nextMcpToolName": "sprintengine.init",
+        "nextMcpArguments": {"statePath": str(handover_state_path)},
+        "terminalAgentRequired": False,
+        "message": "Bootstrap was created through MCP/core. The app should call sprintengine.init through MCP when ready.",
+    }
+    assert (handover_state_path.parent / "handover.md").read_text(encoding="utf-8") == "# Source\n\nBootstrap through MCP.\n"
+    assert initialized["ok"] is True
+    assert initialized["result"]["action"] == "initialized"
 
 
 def test_mcp_agent_join_resolves_workspace_only_custom_role(tmp_path) -> None:
@@ -612,8 +808,134 @@ def test_mcp_agent_join_resolves_workspace_only_custom_role(tmp_path) -> None:
     assert joined["result"]["role"] == "writer"
     assert joined["result"]["roleManifest"]["id"] == "writer"
     assert "Drafting Soul for writer in mcp-custom-role-join." in joined["result"]["prompt"]
-    assert joined["result"]["legacyJoin"]["ok"] is False
+    assert "legacyJoin" not in joined["result"], "agent.join must not return CLI-laden legacyJoin payload"
     assert read_state(fixture.state_path)["agents"]["writer-1"]["role"] == "writer"
+
+
+def test_mcp_agent_join_response_contains_no_cli_command_strings(tmp_path) -> None:
+    """Regression: agent.join must instruct via MCP tools only.
+
+    A strict-MCP-native agent must not see any `sprintengine <subcommand>` shell
+    invocation or CLI-flag pattern in the join response — that contradicts the
+    MCP-first contract and confuses the agent into running shell commands.
+    """
+    fixture = create_team(tmp_path, "mcp-agent-join-no-cli", [task("T1", "Smoke", "developer")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    response = server.call_tool(
+        "sprintengine.agent.join",
+        {
+            "statePath": str(fixture.state_path),
+            "role": "developer",
+            "agentId": "developer-a",
+            "workspaceRoot": str(tmp_path),
+        },
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is True
+    serialized = json.dumps(response, sort_keys=True)
+
+    forbidden_subcommands = [
+        "sprintengine join ",
+        "sprintengine task ",
+        "sprintengine gate ",
+        "sprintengine artifact ",
+        "sprintengine plan ",
+        "sprintengine triage ",
+        "sprintengine init ",
+        "sprintengine handover ",
+        "sprintengine recover ",
+        "sprintengine roster ",
+        "sprintengine handover\\n",
+        "sprintengine init\\n",
+    ]
+    for needle in forbidden_subcommands:
+        assert needle not in serialized, (
+            f"agent.join response leaked CLI invocation: {needle!r}.\n"
+            "The MCP-native contract forbids `sprintengine <subcommand>` shell strings in "
+            "any join response field (prompt, promptContext, roleManifest, agent, etc.)."
+        )
+
+    forbidden_flag_patterns = [
+        "--task-id ",
+        "--role ",
+        "--id <your-id>",
+        "--watch",
+        "--artifact-id",
+        "join --watch",
+    ]
+    for needle in forbidden_flag_patterns:
+        assert needle not in serialized, (
+            f"agent.join response leaked CLI flag pattern: {needle!r}.\n"
+            "Use MCP tool payload field references (e.g. `taskId`, `role`, `agentId`) instead."
+        )
+
+
+def test_mcp_agent_join_prompt_does_not_leak_state_path_or_workspace_root(tmp_path, monkeypatch) -> None:
+    """Regression: the join response prompt must not name `statePath` or `workspaceRoot`.
+
+    Both are server-resolvable from the MCP server's launch env
+    (`SPRINTENGINE_STATE_PATH`, `SPRINTENGINE_WORKSPACE_ROOT`) and from
+    state-path-to-workspace-root derivation. Autonomous agents should never see
+    them in the composed prompt — naming them invites the agent to ask the
+    user for paths they shouldn't need to know about.
+    """
+    fixture = create_team(tmp_path, "mcp-join-prompt-no-paths", [task("T1", "Smoke", "developer")])
+    monkeypatch.setenv("SPRINTENGINE_STATE_PATH", str(fixture.state_path))
+    monkeypatch.setenv("SPRINTENGINE_WORKSPACE_ROOT", str(tmp_path))
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    response = server.call_tool(
+        "sprintengine.agent.join",
+        {"role": "developer", "agentId": "developer-a"},
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is True
+    prompt = response["result"]["prompt"]
+    forbidden_payload_fields = ["statePath", "workspaceRoot"]
+    for needle in forbidden_payload_fields:
+        assert needle not in prompt, (
+            f"agent.join prompt leaked server-resolvable payload field: {needle!r}.\n"
+            "The Sprint Engine MCP server resolves statePath and workspaceRoot from its "
+            "launch env (SPRINTENGINE_STATE_PATH / SPRINTENGINE_WORKSPACE_ROOT) and from "
+            "state-path-to-workspace-root derivation. Autonomous agent prompts must omit "
+            "both fields from MCP tool payload examples."
+        )
+    # Confirm the absolute fixture path didn't leak either (catches accidental string
+    # interpolation through the composed prompt, even if the field name was renamed).
+    assert str(fixture.state_path) not in prompt, (
+        "agent.join prompt leaked the resolved state path literal."
+    )
+
+
+def test_mcp_agent_join_succeeds_with_minimal_payload_from_env(tmp_path, monkeypatch) -> None:
+    """Regression: agents can call join with just {role, agentId} when env vars are set.
+
+    Multicode launches the managed Sprint Engine MCP server with
+    SPRINTENGINE_STATE_PATH (and optionally SPRINTENGINE_WORKSPACE_ROOT) in its
+    process env. Tool calls from autonomous agents must succeed without
+    payload-supplied paths.
+    """
+    fixture = create_team(tmp_path, "mcp-join-env-fallback", [task("T1", "Smoke", "developer")])
+    monkeypatch.setenv("SPRINTENGINE_STATE_PATH", str(fixture.state_path))
+    monkeypatch.setenv("SPRINTENGINE_WORKSPACE_ROOT", str(tmp_path))
+
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    response = server.call_tool(
+        "sprintengine.agent.join",
+        {"role": "developer", "agentId": "developer-a"},
+        actor("workspace-user", "user"),
+    )
+    assert response["ok"] is True
+    assert response["result"]["role"] == "developer"
+
+    # task.next likewise resolves statePath from env.
+    next_response = server.call_tool(
+        "sprintengine.task.next",
+        {"role": "developer", "id": "developer-a"},
+        actor("workspace-user", "user"),
+    )
+    assert next_response["ok"] is True
 
 
 def test_mcp_agent_heartbeat_preserves_assignment_state(tmp_path) -> None:
@@ -1017,8 +1339,14 @@ def test_stdio_transport_exercises_initialize_read_and_mutating_tool(tmp_path) -
     responses = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
     assert [response["id"] for response in responses] == [1, 2, 3]
     assert responses[0]["result"]["capabilities"] == {"tools": {}}
-    listed = responses[1]["result"]
-    claimed = responses[2]["result"]
+    # tools/call responses are wrapped as MCP CallToolResult: { content, isError }.
+    listed_wrapper = responses[1]["result"]
+    claimed_wrapper = responses[2]["result"]
+    assert listed_wrapper["content"][0]["type"] == "text"
+    assert listed_wrapper["isError"] is False
+    assert claimed_wrapper["isError"] is False
+    listed = json.loads(listed_wrapper["content"][0]["text"])
+    claimed = json.loads(claimed_wrapper["content"][0]["text"])
     assert listed["ok"] is True
     assert [entry["id"] for entry in listed["result"]["readyTasks"]] == ["T1"]
     assert claimed["ok"] is True
@@ -1028,6 +1356,47 @@ def test_stdio_transport_exercises_initialize_read_and_mutating_tool(tmp_path) -
     state = read_state(fixture.state_path)
     assert get_task(state, "T1")["ownerAgentId"] == "developer-stdio"
     assert [row["operation_name"] for row in audit_rows(fixture.team_dir)] == ["sprintengine.task.next"]
+
+
+def test_stdio_transport_silently_accepts_jsonrpc_notifications(tmp_path) -> None:
+    # Regression: Claude Code's MCP transport closes with code -32603 if the server
+    # replies to a notifications/* message. JSON-RPC 2.0 requires no response to any
+    # message that lacks an `id` field.
+    fixture = create_team(tmp_path, "mcp-stdio-notifications", [task("T1", "Smoke task", "developer")])
+    messages = [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05", "clientInfo": {"name": "pytest", "version": "0"}},
+        },
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 42}},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+    ]
+    completed = subprocess.run(
+        [sys.executable, "-m", "sprintengine_mcp", "--allowed-root", str(tmp_path)],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "SPRINTENGINE_MCP_USER_ID": "workspace-user",
+            "SPRINTENGINE_MCP_USER_AUTHORIZED": "1",
+        },
+        input="\n".join(json.dumps(message) for message in messages) + "\n",
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=10,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    responses = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+    assert [response["id"] for response in responses] == [1, 2], (
+        f"notifications must not produce response lines; got: {completed.stdout}"
+    )
+    assert responses[0]["result"]["serverInfo"]["name"] == "sprintengine-mcp"
+    assert responses[1]["result"]["tools"], "tools/list should still return tools after the notifications"
+    _ = fixture
 
 
 def test_stdio_transport_rejects_request_supplied_actor_without_verified_server_user(tmp_path) -> None:
@@ -1060,7 +1429,9 @@ def test_stdio_transport_rejects_request_supplied_actor_without_verified_server_
 
     assert completed.returncode == 0, completed.stderr
     response = json.loads(completed.stdout)
-    result = response["result"]
+    wrapper = response["result"]
+    assert wrapper["isError"] is True
+    result = json.loads(wrapper["content"][0]["text"])
     assert result["ok"] is False
     assert result["error"]["code"] == "unauthorized"
     assert "authenticated actor context" in result["error"]["message"]
@@ -1121,8 +1492,12 @@ def test_sprintengine_mcp_serve_matches_module_entrypoint_roots_and_extra_dirs(t
 
     assert completed.returncode == 0, completed.stderr
     responses = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
-    roles_result = responses[0]["result"]
-    task_result = responses[1]["result"]
+    roles_wrapper = responses[0]["result"]
+    task_wrapper = responses[1]["result"]
+    assert roles_wrapper["isError"] is False
+    assert task_wrapper["isError"] is True
+    roles_result = json.loads(roles_wrapper["content"][0]["text"])
+    task_result = json.loads(task_wrapper["content"][0]["text"])
     assert roles_result["ok"] is True
     assert any(role["id"] == "plugin_writer" and role["source"]["layer"] == "plugin:0" for role in roles_result["result"]["roles"])
     assert task_result["ok"] is False

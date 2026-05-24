@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { readFile } from 'fs/promises'
-import { join, win32 } from 'path'
+import { join } from 'path'
 import {
   MobileSprintEngineCommandError,
   type MobileSprintEngineFollowUpRequest,
@@ -282,24 +282,27 @@ function buildStartupPrompt(input: {
   executionCwd: string
   statePath: string
 }): string {
-  const windowsPython = win32.join(input.workspaceRoot, '.venv', 'Scripts', 'python.exe')
+  const joinPayload = JSON.stringify({
+    role: input.role,
+    agentId: input.agentId,
+  }, null, 2)
+  const directivePayload = JSON.stringify({
+    role: input.role,
+    agentId: input.agentId,
+  }, null, 2)
+  void input.goal
+  void input.workspaceRoot
   return [
-    `${input.label}: ${input.label} - Fetch the canonical Sprint Engine instructions from the Python tool.`,
+    `${input.label}: ${input.label} - Fetch the canonical Sprint Engine instructions from the managed Sprint Engine MCP server.`,
     `Worker cwd: ${input.executionCwd}`,
     `Shared Sprint Engine state: ${input.statePath}`,
-    `You are assigned role: ${input.role}. Only claim and work Sprint Engine tasks or quality gates whose role exactly matches ${input.role}. Use the Sprint Engine join-watch flow with this same agent id; the CLI owns polling and will tell you whether to claim a normal task, resume work, triage needs_input, or claim a quality gate. Do not create your own sleep/retry loop. After one task or gate completes, rerun the same join-watch command if Auto Mode is on. Stop if Auto Mode is off, you are blocked, you need user input, or your context window is about 70% full. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
-    'Use the repo virtual environment directly on Windows if `sprintengine` or global Python is unreliable:',
-    [
-      '```powershell',
-      `& ${quotePowerShellArg(windowsPython)} .\\scripts\\sprintengine_tool.py join --role ${input.role} --id ${input.agentId} --watch`,
-      '```',
-    ].join('\n'),
-    `Otherwise run \`sprintengine join --role ${input.role} --id ${input.agentId} --watch\` to receive your full prompt and next directive.`,
+    `You are assigned role: ${input.role}. Only claim and work Sprint Engine tasks or quality gates whose role exactly matches ${input.role}. Sprint Engine work runs exclusively through the managed Sprint Engine MCP server in this terminal; do not run \`sprintengine\` shell commands for autonomous Sprint Engine work.`,
+    'Register this agent with `sprintengine.agent.join`:',
+    ['```json', joinPayload, '```'].join('\n'),
+    'Then request your structured directive with `sprintengine.agent.next_directive`:',
+    ['```json', directivePayload, '```'].join('\n'),
+    'The directive returns `directiveType` (`task_work` | `resume` | `gate_work` | `needs_input_triage` | `idle` | `complete` | `blocked` | `error`), `nextMcpToolName`, and `nextMcpArguments`. If `nextMcpToolName` is present, invoke it once with `nextMcpArguments` verbatim to claim or resume. The caller/runtime owns later continuation. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.',
   ].join('\n\n')
-}
-
-function quotePowerShellArg(value: string): string {
-  return `"${value.replace(/"/g, '`"')}"`
 }
 
 function escapeRegExp(value: string): string {

@@ -530,7 +530,7 @@ export function GuidedBriefFlow({
         <span className="min-w-0 flex-1 truncate text-[12px] text-[color:var(--text-subtle)]">
           {counter}
         </span>
-        {stage === 'designer-working' ? (
+        {stage === 'designer-working' || stage === 'designer-ready' ? (
           <DesignerReadinessHint readiness={designer.readiness} />
         ) : null}
         {acceptError ? (
@@ -639,10 +639,18 @@ function renderPrimaryAction({
   }
   if (stage === 'designer-ready') {
     const disabled = !designer.readiness.mockupsAvailable || !designer.readiness.uiDirectionReady || accepting
-    return (
+    const blockers: string[] = []
+    if (!designer.readiness.mockupsAvailable) blockers.push('mockups/*.html')
+    if (!designer.readiness.uiDirectionReady) blockers.push('product/ui-direction.md')
+    const button = (
       <PrimaryButton onClick={onAcceptDesigner} disabled={disabled}>
         {accepting ? 'Accepting…' : 'Accept · continue'}
       </PrimaryButton>
+    )
+    return disabled && blockers.length > 0 ? (
+      <Tooltip content={`Waiting for ${blockers.join(' and ')}.`}>{button}</Tooltip>
+    ) : (
+      button
     )
   }
   if (stage === 'handoff') {
@@ -729,20 +737,31 @@ function SecondaryButton({
   )
 }
 
+// Tooltip clones its child and injects aria-describedby + hover/focus handlers,
+// so PrimaryButton has to forward those props for `<Tooltip><PrimaryButton/></Tooltip>`
+// to actually open the tooltip on hover. The base contract (onClick, disabled,
+// children) stays unchanged for callers that don't need a tooltip wrapper.
+type PrimaryButtonProps = {
+  onClick: () => void
+  disabled: boolean
+  children: React.ReactNode
+} & Pick<
+  React.ButtonHTMLAttributes<HTMLButtonElement>,
+  'aria-describedby' | 'onMouseEnter' | 'onMouseLeave' | 'onFocus' | 'onBlur' | 'onKeyDown'
+>
+
 function PrimaryButton({
   onClick,
   disabled,
   children,
-}: {
-  onClick: () => void
-  disabled: boolean
-  children: React.ReactNode
-}) {
+  ...rest
+}: PrimaryButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      {...rest}
       className="
         inline-flex h-9 items-center rounded-md bg-[color:var(--accent-primary)] px-4 text-[13px] font-semibold text-[color:var(--bg-app)]
         transition-colors hover:bg-[color:var(--accent-primary-hover)]

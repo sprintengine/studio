@@ -22,6 +22,7 @@ import {
 import { getErrorMessage } from './error-message'
 import { getTerminalErrorMessage } from './terminal-error'
 import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
+import { getPluginRegistryUserRoot, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
 import {
   appendTerminalOutput,
   clearTerminalIdleTimer,
@@ -54,6 +55,14 @@ type TerminalRuntimeOptions = {
     workspaceRoot: string
     settings: McpSettings
     clients: AgentCli[]
+    managedSprintEngine?: {
+      statePath: string
+      workspaceRoot?: string
+      allowedRoots?: string[]
+      registryRoots?: string[]
+      userRoot?: string
+      actorId?: string
+    }
   }): Promise<{ ok: true } | { ok: false; message: string }>
 }
 
@@ -91,6 +100,29 @@ let terminalDiagnostics = createTerminalDiagnostics({
 })
 let onAgentSessionExit: TerminalRuntimeOptions['onAgentSessionExit']
 let syncMcpConfig: TerminalRuntimeOptions['syncMcpConfig']
+
+export function buildManagedSprintEngineSyncInputForLaunch(
+  statePath: string,
+  workspaceRoot: string
+): NonNullable<Parameters<NonNullable<TerminalRuntimeOptions['syncMcpConfig']>>[0]['managedSprintEngine']> {
+  return {
+    statePath,
+    workspaceRoot,
+    allowedRoots: [workspaceRoot],
+    registryRoots: sprintEngineRegistryRootsForLaunch(),
+    userRoot: getPluginRegistryUserRoot(),
+    actorId: 'multicode-app',
+  }
+}
+
+function sprintEngineRegistryRootsForLaunch(): string[] {
+  try {
+    return getPluginSprintEngineRegistryRoots().map((root) => root.root)
+  } catch {
+    return []
+  }
+}
+
 export function createTerminalRuntime(options: TerminalRuntimeOptions): TerminalRuntime {
   requireAuthenticatedUser = options.requireAuthenticatedUser
   onAgentSessionExit = options.onAgentSessionExit
@@ -808,6 +840,47 @@ async function spawnMobileAgentTerminal(input: {
   disposeTerminal(input.sessionId)
 
   try {
+    if (!syncMcpConfig) {
+      const message = 'Managed Sprint Engine MCP config sync is unavailable; cannot launch a Sprint Engine agent.'
+      retainFailedTerminalSession({
+        sessionId: input.sessionId,
+        sender,
+        message,
+        kind: 'agent',
+        agentId: input.agentId,
+        cli: input.cli,
+        cwd: input.cwd,
+        sprintEngineStatePath: input.sprintEngineStatePath,
+        executionMode: input.executionMode,
+        worktreeId: input.worktreeId,
+        worktreePath: input.worktreePath,
+      })
+      return { ok: false, message }
+    }
+
+    const syncResult = await syncMcpConfig({
+      workspaceRoot: input.cwd,
+      settings: { syncEnabled: false, servers: {} },
+      clients: [input.cli],
+      managedSprintEngine: buildManagedSprintEngineSyncInputForLaunch(input.sprintEngineStatePath, input.cwd),
+    })
+    if (!syncResult.ok) {
+      retainFailedTerminalSession({
+        sessionId: input.sessionId,
+        sender,
+        message: syncResult.message,
+        kind: 'agent',
+        agentId: input.agentId,
+        cli: input.cli,
+        cwd: input.cwd,
+        sprintEngineStatePath: input.sprintEngineStatePath,
+        executionMode: input.executionMode,
+        worktreeId: input.worktreeId,
+        worktreePath: input.worktreePath,
+      })
+      return { ok: false, message: syncResult.message }
+    }
+
     const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath } = getShellLaunchConfig(
       input.cwd,
       input.sessionId,
@@ -973,11 +1046,43 @@ async function spawnTerminalFromIpc(
         disposeOtherAgentSessions(sessionId, workspaceId, agentId, sprintEngineStatePath)
       }
 
-      if (!shellOnly && mcpSettings?.syncEnabled && syncMcpConfig) {
+      if (!shellOnly && sprintEngineStatePath && !syncMcpConfig) {
+        const message = 'Managed Sprint Engine MCP config sync is unavailable; cannot launch a Sprint Engine agent.'
+        retainFailedTerminalSession({
+          sessionId,
+          sender,
+          message,
+          kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
+          workspaceId,
+          agentId,
+          terminalId,
+          cli: shellOnly ? undefined : cli,
+          cwd: workingDirectory,
+          sprintEngineStatePath,
+          executionMode,
+          worktreeId,
+          worktreePath,
+          agentSession: materializeAgentSessionIdentity(sessionId, workspaceId, agentSession),
+          visible,
+        })
+        sendTerminalEvent(sender, `terminal:error:${sessionId}`, message)
+        sendTerminalEvent(sender, `terminal:exit:${sessionId}`, 1)
+        return {
+          ok: false,
+          sessionId,
+          message,
+          exitCode: 1,
+        } satisfies TerminalSpawnResult
+      }
+
+      if (!shellOnly && syncMcpConfig && (mcpSettings?.syncEnabled || sprintEngineStatePath)) {
         const syncResult = await syncMcpConfig({
           workspaceRoot: workingDirectory,
-          settings: mcpSettings,
+          settings: mcpSettings ?? { syncEnabled: false, servers: {} },
           clients: [cli],
+          managedSprintEngine: sprintEngineStatePath
+            ? buildManagedSprintEngineSyncInputForLaunch(sprintEngineStatePath, workingDirectory)
+            : undefined,
         })
         if (!syncResult.ok) {
           retainFailedTerminalSession({

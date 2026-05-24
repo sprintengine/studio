@@ -7,6 +7,7 @@ from os import environ
 from typing import Any
 
 AUDITED_TOOLS = {
+    "sprintengine.handover",
     "sprintengine.init",
     "sprintengine.recover",
     "sprintengine.roster.add",
@@ -14,11 +15,13 @@ AUDITED_TOOLS = {
     "sprintengine.roster.replenish",
     "sprintengine.roster.list",
     "sprintengine.agent.join",
+    "sprintengine.agent.next_directive",
     "sprintengine.agent.heartbeat",
     "sprintengine.agent.leave",
     "sprintengine.subscribe",
     "sprintengine.join",
     "sprintengine.dispatch.ack",
+    "sprintengine.triage.needs_input",
     "sprintengine.task.next",
     "sprintengine.task.claim",
     "sprintengine.task.status",

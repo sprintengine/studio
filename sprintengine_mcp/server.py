@@ -30,11 +30,13 @@ from sprintengine_core.tool import (
     FEEDBACK_COUNT_FIELDS,
     FEEDBACK_SCORE_FIELDS,
     FEEDBACK_TEXT_FIELDS,
+    build_agent_next_directive,
     cmd_artifact_add,
     cmd_artifact_approve,
     cmd_artifact_list,
     cmd_artifact_ready,
     cmd_artifact_request_changes,
+    cmd_handover,
     cmd_init,
     cmd_join,
     cmd_plan_add_dependency,
@@ -52,6 +54,7 @@ from sprintengine_core.tool import (
     cmd_roster_replenish,
     cmd_roster_retire,
     cmd_summary,
+    cmd_triage_needs_input,
     cmd_task_claim,
     cmd_task_comment_list,
     cmd_task_gate_claim,
@@ -73,6 +76,7 @@ from sprintengine_core.tool import (
 )
 from sprintengine_core.tool.artifacts import release_task_from_owner
 from sprintengine_core.tool.gates import find_active_gate_claim
+from sprintengine_core.tool.plans import plan_path_for_state
 from sprintengine_core.tool.prompts import compose_prompt, generic_role_swarm_prompt
 from sprintengine_core.tool.state import (
     append_event,
@@ -114,11 +118,13 @@ class SprintEngineMcpServer:
         plugin_registry_roots: list[dict[str, str] | str | Path] | None = None,
         user_root: str | Path | None = None,
         stdio_actor: ActorContext | dict[str, Any] | None = None,
+        default_state_path: str | Path | None = None,
     ):
         self.allowed_roots = [Path(root).expanduser().resolve() for root in (allowed_roots or [])]
         self.plugin_registry_roots = tuple(plugin_registry_roots or [])
         self.user_root = Path(user_root).expanduser().resolve() if user_root is not None else None
         self.stdio_actor = self._actor(stdio_actor)
+        self.default_state_path = Path(default_state_path).expanduser().resolve() if default_state_path is not None else None
 
     def list_tools(self) -> list[dict[str, Any]]:
         return list_tool_schemas()
@@ -177,12 +183,14 @@ class SprintEngineMcpServer:
         actor: ActorContext | None,
     ) -> dict[str, Any]:
         handlers: dict[str, Callable[[Any], dict[str, Any]]] = {
+            "sprintengine.handover": cmd_handover,
             "sprintengine.init": cmd_init,
             "sprintengine.recover": cmd_recover,
             "sprintengine.roster.add": cmd_roster_add,
             "sprintengine.roster.retire": cmd_roster_retire,
             "sprintengine.roster.replenish": cmd_roster_replenish,
             "sprintengine.roster.list": cmd_roster_list,
+            "sprintengine.agent.next_directive": build_agent_next_directive,
             "sprintengine.join": cmd_join,
             "sprintengine.summary": cmd_summary,
             "sprintengine.run.projection": cmd_projection,
@@ -211,15 +219,20 @@ class SprintEngineMcpServer:
             "sprintengine.plan.start_review": cmd_plan_start_review,
             "sprintengine.plan.review_status": cmd_plan_review_status,
             "sprintengine.plan.address_reviews": cmd_plan_address_reviews,
+            "sprintengine.plan.list": cmd_plan_list,
             "sprintengine.artifact.add": cmd_artifact_add,
             "sprintengine.artifact.list": cmd_artifact_list,
             "sprintengine.artifact.ready": cmd_artifact_ready,
             "sprintengine.artifact.approve": cmd_artifact_approve,
             "sprintengine.artifact.request_changes": cmd_artifact_request_changes,
+            "sprintengine.triage.needs_input": cmd_triage_needs_input,
         }
         if tool_name == "sprintengine.agent.join":
             assert state_path is not None
             return self._agent_join(state_path, payload)
+        if tool_name == "sprintengine.handover":
+            assert state_path is not None
+            return self._handover(state_path, payload, actor)
         if tool_name == "sprintengine.agent.heartbeat":
             assert state_path is not None
             return self._agent_heartbeat(state_path, payload)
@@ -247,6 +260,9 @@ class SprintEngineMcpServer:
         if tool_name == "sprintengine.task.get":
             assert state_path is not None
             return self._task_get(state_path, payload)
+        if tool_name == "sprintengine.plan.read":
+            assert state_path is not None
+            return self._plan_read(state_path)
         if tool_name == "sprintengine.task.request_changes":
             assert state_path is not None
             return self._task_request_changes(state_path, payload, actor)
@@ -293,8 +309,6 @@ class SprintEngineMcpServer:
         if subscription_mode not in {"none", "poll", "mcp_notifications"}:
             raise McpToolError("invalid_payload", "subscriptionMode must be one of none, poll, or mcp_notifications.")
 
-        legacy_payload = _legacy_join_payload(state_path, role, agent_id)
-
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
             agent = record_agent_join(state, agent_id, role, subscription_mode=subscription_mode)
             run = state.get("sprintengine", {})
@@ -308,6 +322,9 @@ class SprintEngineMcpServer:
         lifecycle = with_locked_state(state_path, mutate)
         role_payload = _role_payload(role_entry)
         prompt = _compose_registry_prompt(registry, role, workspace_root, str(lifecycle["run"].get("name") or ""))
+        # `legacyJoin` (the cmd_join prose containing CLI-laden directives) is intentionally
+        # omitted from the MCP response. Agents are MCP-native and should read `prompt` plus
+        # the directive returned from `sprintengine.agent.next_directive`.
         return {
             "ok": True,
             "agentId": agent_id,
@@ -322,7 +339,6 @@ class SprintEngineMcpServer:
                 "role": role,
                 "length": len(prompt),
             },
-            "legacyJoin": legacy_payload,
         }
 
     def _agent_heartbeat(self, state_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
@@ -571,6 +587,33 @@ class SprintEngineMcpServer:
         status_result = cmd_task_status(status_args)
         return {"ok": True, "comment": comment_result["comment"], "task": status_result["task"], "event": status_result["event"]}
 
+    def _handover(self, state_path: Path, payload: dict[str, Any], actor: ActorContext | None) -> dict[str, Any]:
+        args = self._namespace("sprintengine.handover", state_path, payload, actor)
+        result = cmd_handover(args)
+        result.pop("architectStartupPrompt", None)
+        result["bootstrap"] = {
+            "owner": "app",
+            "nextMcpToolName": "sprintengine.init",
+            "nextMcpArguments": {"statePath": str(state_path)},
+            "terminalAgentRequired": False,
+            "message": "Bootstrap was created through MCP/core. The app should call sprintengine.init through MCP when ready.",
+        }
+        return result
+
+    def _plan_read(self, state_path: Path) -> dict[str, Any]:
+        plan_path = plan_path_for_state(state_path)
+        if not plan_path.exists():
+            return {"ok": True, "exists": False, "path": str(plan_path), "content": "", "write": False}
+        if not plan_path.is_file():
+            raise McpToolError("invalid_plan_path", "Sprint Engine plan path is not a file.")
+        return {
+            "ok": True,
+            "exists": True,
+            "path": str(plan_path),
+            "content": plan_path.read_text(encoding="utf-8"),
+            "write": False,
+        }
+
     def _registry_tool(self, tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
         workspace_root = self._workspace_root(payload, required=True)
         assert workspace_root is not None
@@ -672,6 +715,18 @@ class SprintEngineMcpServer:
             base["goal"] = payload.get("goal")
             base["use_worktrees"] = bool(payload.get("useWorktrees", False))
             base["agent"] = list(payload.get("agent") or [])
+        elif tool_name == "sprintengine.handover":
+            base.update(
+                name=payload["name"],
+                goal=payload.get("goal"),
+                handover=self._input_file_path(payload["handoverPath"]) if payload.get("handoverPath") else None,
+                handover_text=payload.get("handoverText"),
+                handover_stdin=False,
+                source=[],
+                source_plan_kind=payload.get("sourcePlanKind") or "unknown",
+                actor=payload.get("actor") or (actor.id if actor else "sprintengine"),
+                force=bool(payload.get("force", False)),
+            )
         elif tool_name == "sprintengine.join":
             base.update(
                 role=payload["role"],
@@ -679,6 +734,8 @@ class SprintEngineMcpServer:
                 watch=bool(payload.get("watch", False)),
                 max_wait_seconds=payload.get("maxWaitSeconds"),
             )
+        elif tool_name == "sprintengine.agent.next_directive":
+            base.update(role=payload["role"], id=payload["agentId"], attempts=payload.get("attempts") or 1)
         elif tool_name == "sprintengine.roster.add":
             base.update(role=payload["role"], id=payload["id"], actor=payload.get("actor") or (actor.id if actor else "architect"))
         elif tool_name == "sprintengine.roster.retire":
@@ -687,6 +744,8 @@ class SprintEngineMcpServer:
             base.update(role=payload.get("role"), actor=payload.get("actor") or (actor.id if actor else "runner"))
         elif tool_name == "sprintengine.roster.list":
             pass
+        elif tool_name == "sprintengine.triage.needs_input":
+            base.update(id=payload["id"])
         elif tool_name == "sprintengine.task.next":
             base.update(role=payload["role"], id=payload["id"])
         elif tool_name == "sprintengine.task.claim":
@@ -840,6 +899,8 @@ class SprintEngineMcpServer:
             base.update(role=payload["role"], id=payload["id"])
         elif tool_name == "sprintengine.plan.address_reviews":
             base["actor"] = payload.get("actor") or (actor.id if actor else "architect")
+        elif tool_name in {"sprintengine.plan.list", "sprintengine.plan.read"}:
+            pass
         elif tool_name == "sprintengine.artifact.add":
             base.update(
                 actor=payload.get("actor") or (actor.id if actor else "agent"),
@@ -886,9 +947,16 @@ class SprintEngineMcpServer:
     def _state_path(self, payload: dict[str, Any], *, required: bool) -> Path | None:
         raw = payload.get("statePath")
         if not raw:
-            if required:
-                raise McpToolError("invalid_state_path", "statePath is required.")
-            return None
+            if not required:
+                return None
+            raw = os.environ.get("SPRINTENGINE_STATE_PATH")
+        if not raw:
+            if self.default_state_path is not None:
+                path = self.default_state_path
+                if self.allowed_roots and not any(_is_relative_to(path, root) for root in self.allowed_roots):
+                    raise McpToolError("state_path_not_allowed", "statePath is outside the configured allowed roots.")
+                return path
+            raise McpToolError("invalid_state_path", "statePath is required.")
         if not isinstance(raw, str):
             raise McpToolError("invalid_state_path", "statePath must be a string.")
         if _looks_like_foreign_platform_path(raw):
@@ -902,21 +970,56 @@ class SprintEngineMcpServer:
         return path
 
     def _workspace_root(self, payload: dict[str, Any], *, required: bool) -> Path | None:
+        # Resolution chain so autonomous agents don't need to pass workspaceRoot in payloads:
+        #   1. explicit `workspaceRoot` in payload (debug / CLI overrides)
+        #   2. `SPRINTENGINE_WORKSPACE_ROOT` env var (set by Multicode at MCP server launch)
+        #   3. derive from `statePath` (payload → `SPRINTENGINE_STATE_PATH` env → default_state_path)
         raw = payload.get("workspaceRoot")
         if not raw:
-            if required:
-                raise McpToolError("invalid_workspace_root", "workspaceRoot is required.")
-            return None
-        if not isinstance(raw, str):
-            raise McpToolError("invalid_workspace_root", "workspaceRoot must be a string.")
+            raw = os.environ.get("SPRINTENGINE_WORKSPACE_ROOT")
+        if raw:
+            if not isinstance(raw, str):
+                raise McpToolError("invalid_workspace_root", "workspaceRoot must be a string.")
+            if _looks_like_foreign_platform_path(raw):
+                raise McpToolError(
+                    "invalid_workspace_root",
+                    "workspaceRoot appears to mix Windows and POSIX path formats. Use the path format for this process.",
+                )
+            path = Path(raw).expanduser().resolve()
+            if self.allowed_roots and not any(_is_relative_to(path, root) for root in self.allowed_roots):
+                raise McpToolError("workspace_root_not_allowed", "workspaceRoot is outside the configured allowed roots.")
+            return path
+        derived_state: Path | None = None
+        state_raw = payload.get("statePath") or os.environ.get("SPRINTENGINE_STATE_PATH")
+        if state_raw and isinstance(state_raw, str):
+            try:
+                derived_state = Path(state_raw).expanduser().resolve()
+            except (OSError, ValueError):
+                derived_state = None
+        if derived_state is None and self.default_state_path is not None:
+            derived_state = self.default_state_path
+        if derived_state is not None:
+            derived = _default_workspace_root(derived_state)
+            if self.allowed_roots and not any(_is_relative_to(derived, root) for root in self.allowed_roots):
+                # Derived root isn't allowed; fall through to required-error or None.
+                pass
+            else:
+                return derived
+        if required:
+            raise McpToolError("invalid_workspace_root", "workspaceRoot is required.")
+        return None
+
+    def _input_file_path(self, raw: Any) -> Path:
+        if not isinstance(raw, str) or not raw.strip():
+            raise McpToolError("invalid_input_path", "Input file path must be a non-empty string.")
         if _looks_like_foreign_platform_path(raw):
             raise McpToolError(
-                "invalid_workspace_root",
-                "workspaceRoot appears to mix Windows and POSIX path formats. Use the path format for this process.",
+                "invalid_input_path",
+                "Input file path appears to mix Windows and POSIX path formats. Use the path format for this process.",
             )
         path = Path(raw).expanduser().resolve()
         if self.allowed_roots and not any(_is_relative_to(path, root) for root in self.allowed_roots):
-            raise McpToolError("workspace_root_not_allowed", "workspaceRoot is outside the configured allowed roots.")
+            raise McpToolError("input_path_not_allowed", "Input file path is outside the configured allowed roots.")
         return path
 
     def _actor(self, actor: ActorContext | dict[str, Any] | None) -> ActorContext | None:
@@ -968,6 +1071,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Local-first sprintengine MCP server")
     parser.add_argument("--workspace", action="append", default=[], help="Workspace root allowed to contain Sprint Engine state paths.")
     parser.add_argument("--allowed-root", action="append", default=[], help="Workspace root allowed to contain Sprint Engine state paths.")
+    parser.add_argument("--state-path", help="Default Sprint Engine run.yaml path used when tool arguments omit statePath.")
     parser.add_argument("--extra-dir", action="append", default=[], help="Additional plugin registry root containing roles/ and skills/.")
     parser.add_argument("--user-dir", help="User registry base directory; the server reads <user-dir>/.sprintengine.")
     args = parser.parse_args(argv)
@@ -977,22 +1081,31 @@ def main(argv: list[str] | None = None) -> int:
         plugin_registry_roots=args.extra_dir,
         user_root=args.user_dir,
         stdio_actor=ActorContext.from_environment(),
+        default_state_path=args.state_path,
     )
     for line in sys.stdin:
         if not line.strip():
             continue
         response = _handle_stdio_message(server, line)
+        if response is None:
+            continue
         print(json.dumps(response, sort_keys=True), flush=True)
     return 0
 
 
-def _handle_stdio_message(server: SprintEngineMcpServer, line: str) -> dict[str, Any]:
+def _handle_stdio_message(server: SprintEngineMcpServer, line: str) -> dict[str, Any] | None:
     try:
         message = json.loads(line)
     except json.JSONDecodeError as exc:
         return {"ok": False, "error": {"code": "invalid_json", "message": exc.msg}}
-    request_id = message.get("id")
     method = message.get("method")
+    # JSON-RPC 2.0 notifications have a method but no id and MUST NOT receive a response.
+    # The MCP protocol relies on this for notifications/initialized, notifications/cancelled,
+    # notifications/progress, etc. Replying (even with an error) violates the spec and
+    # strict clients (e.g. Claude Code) close the transport with code -32603.
+    if method is not None and "id" not in message:
+        return None
+    request_id = message.get("id")
     if method == "initialize":
         params = message.get("params") or {}
         return {
@@ -1008,8 +1121,19 @@ def _handle_stdio_message(server: SprintEngineMcpServer, line: str) -> dict[str,
         return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": server.list_tools()}}
     if method == "tools/call":
         params = message.get("params") or {}
-        result = server.call_tool(params.get("name", ""), params.get("arguments") or {}, server.stdio_actor)
-        return {"jsonrpc": "2.0", "id": request_id, "result": result}
+        raw = server.call_tool(params.get("name", ""), params.get("arguments") or {}, server.stdio_actor)
+        # MCP spec: tools/call result must be a CallToolResult ({ content, isError }).
+        # Strict clients (recent Codex/Claude Code) reject the raw envelope with
+        # "Unexpected response type". Wrap the envelope as a JSON-encoded text content
+        # so callers can parse it back to the original { ok, tool, result/error } shape.
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "content": [{"type": "text", "text": json.dumps(raw, sort_keys=True)}],
+                "isError": not raw.get("ok", True),
+            },
+        }
     if "tool" in message:
         return server.call_tool(message.get("tool", ""), message.get("payload") or {}, server.stdio_actor)
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": "method_not_found", "message": f"Unsupported method: {method}"}}
@@ -1078,13 +1202,6 @@ def _run_metadata(run: dict[str, Any], state_path: Path) -> dict[str, Any]:
         "statePath": str(state_path),
         "teamDir": str(state_path.parent),
     }
-
-
-def _legacy_join_payload(state_path: Path, role: str, agent_id: str) -> dict[str, Any] | None:
-    try:
-        return cmd_join(SimpleNamespace(state=state_path, role=role, id=agent_id))
-    except SystemExit as exc:
-        return {"ok": False, "error": _system_exit_message(exc)}
 
 
 def _compose_registry_prompt(registry: RegistryDiscovery, role: str, workspace_root: Path, run_id: str) -> str:

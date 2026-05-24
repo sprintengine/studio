@@ -62,6 +62,39 @@ function hasContent(value: string): boolean {
   return value.trim().length > 0
 }
 
+// Walk mockups/ for .html files. Agents occasionally write to subfolders
+// (e.g. mockups/dashboard/index.html) and a top-level scan would miss those —
+// leaving designer-ready stuck because mockupsAvailable never flips. The
+// recursion is shallow-bounded so a runaway tree can't lock the renderer.
+async function collectMockupHtmlFiles(
+  absoluteRoot: string,
+  relativeRoot: string,
+  depth: number,
+): Promise<DesignerMockupFile[]> {
+  if (depth > 4) return []
+  const entries = await window.api.readdir(absoluteRoot).catch(() => [])
+  const results: DesignerMockupFile[] = []
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue
+    if (entry.isDir) {
+      const nested = await collectMockupHtmlFiles(
+        joinWorkspacePath(absoluteRoot, entry.name),
+        `${relativeRoot}/${entry.name}`,
+        depth + 1,
+      )
+      results.push(...nested)
+      continue
+    }
+    if (!/\.html?$/i.test(entry.name)) continue
+    results.push({
+      name: entry.name,
+      absolutePath: joinWorkspacePath(absoluteRoot, entry.name),
+      relativePath: `${relativeRoot}/${entry.name}`,
+    })
+  }
+  return results
+}
+
 export function useDesignerSession({
   workspaceRoot,
   acceptedBriefSnapshotPath,
@@ -169,7 +202,8 @@ export function useDesignerSession({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled])
 
-  // Watch the mockups directory for real .html files.
+  // Watch the mockups directory for real .html files. Recursive so nested
+  // designer outputs (e.g. mockups/dashboard/index.html) still flip readiness.
   useEffect(() => {
     if (!enabled) return
     let cancelled = false
@@ -177,16 +211,13 @@ export function useDesignerSession({
 
     const refresh = async () => {
       try {
-        const entries = await window.api.readdir(mockupsDirectoryPath).catch(() => [])
+        const htmlFiles = await collectMockupHtmlFiles(
+          mockupsDirectoryPath,
+          MOCKUPS_DIRECTORY_NAME,
+          0,
+        )
         if (cancelled) return
-        const htmlFiles = entries
-          .filter((entry) => !entry.isDir && /\.html?$/i.test(entry.name))
-          .map<DesignerMockupFile>((entry) => ({
-            name: entry.name,
-            absolutePath: joinWorkspacePath(mockupsDirectoryPath, entry.name),
-            relativePath: `${MOCKUPS_DIRECTORY_NAME}/${entry.name}`,
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name))
+        htmlFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath))
         setMockups(htmlFiles)
       } catch {
         if (!cancelled) setMockups([])

@@ -34,6 +34,7 @@ from .commands.roster import (
     cmd_roster_retire,
 )
 from .commands.run import (
+    build_agent_next_directive,
     auto_mode_continuation,
     cmd_handover,
     cmd_init,

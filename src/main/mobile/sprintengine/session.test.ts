@@ -38,8 +38,26 @@ async function assertTaskStartUsesCurrentWorkspace(): Promise<void> {
   assert.equal(spawned.length, 1)
   assert.equal(spawned[0].executionMode, 'current_workspace')
   assert.equal(spawned[0].cwd, fixture.workspaceRoot)
-  assert.match(spawned[0].initialPrompt, /\\.venv\\Scripts\\python\.exe" \.\\scripts\\sprintengine_tool\.py join --role developer --id developer-1 --watch/u)
-  assert.match(spawned[0].initialPrompt, /Otherwise run `sprintengine join --role developer --id developer-1 --watch`/u)
+  assert.match(spawned[0].initialPrompt, /managed Sprint Engine MCP server/u)
+  assert.match(spawned[0].initialPrompt, /sprintengine\.agent\.join/u)
+  assert.match(spawned[0].initialPrompt, /sprintengine\.agent\.next_directive/u)
+  assert.match(spawned[0].initialPrompt, /"role": "developer"/u)
+  assert.match(spawned[0].initialPrompt, /"agentId": "developer-1"/u)
+  assert.doesNotMatch(
+    spawned[0].initialPrompt,
+    /"statePath"|"workspaceRoot"/u,
+    'mobile startup MCP payloads do not embed server-resolvable paths'
+  )
+  assert.doesNotMatch(
+    spawned[0].initialPrompt,
+    /retryAfterMs|sleep .*sprintengine\.agent\.next_directive/iu,
+    'mobile startup prompt does not define an idle sleep/retry loop'
+  )
+  assert.doesNotMatch(
+    spawned[0].initialPrompt,
+    /sprintengine (join|task|gate|triage|init|handover)/u,
+    'mobile startup prompt does not embed any sprintengine CLI command'
+  )
 }
 
 async function assertTaskStartRejectsTerminalLimit(): Promise<void> {

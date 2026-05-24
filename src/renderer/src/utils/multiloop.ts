@@ -352,11 +352,29 @@ function buildMultiloopRoleCommandLines(
 
   if (role && !['product', 'tester', 'security', 'code_reviewer', 'performance'].includes(role)) {
     if (sprintEngineStatePath) {
+      const joinPayload = JSON.stringify({ statePath: sprintEngineStatePath, role, agentId })
+      const directivePayload = JSON.stringify({ statePath: sprintEngineStatePath, role, agentId })
+      const logPayload = JSON.stringify({
+        statePath: sprintEngineStatePath,
+        taskId: '<task-id>',
+        id: agentId,
+        summary: '<summary>',
+        file: ['<path>'],
+        command: ['<command>'],
+        result: ['<result>'],
+      })
+      const publishPayload = JSON.stringify({
+        statePath: sprintEngineStatePath,
+        taskId: '<task-id>',
+        id: agentId,
+        summary: '<summary>',
+      })
       return [
-        `Join Sprint Engine first: sprintengine --state ${sprintEngineStatePath} join --role ${role} --id ${agentId} --watch`,
-        'Follow the join directive; it may tell you to claim normal work, resume work, triage needs_input, or claim a quality gate.',
-        `Log evidence before handoff: sprintengine --state ${sprintEngineStatePath} task log --task-id <task-id> --id ${agentId} --summary "<summary>" --file <path> --command "<command>" --result "<result>"`,
-        `Publish completion after evidence: sprintengine --state ${sprintEngineStatePath} task publish --task-id <task-id> --id ${agentId} --summary "<summary>"`,
+        `Register with the managed Sprint Engine MCP server first: call \`sprintengine.agent.join\` with ${joinPayload}.`,
+        `Then request your structured directive: call \`sprintengine.agent.next_directive\` with ${directivePayload}. Invoke the returned \`nextMcpToolName\` with \`nextMcpArguments\` to claim normal work, resume work, triage needs_input, or claim a quality gate.`,
+        `Log evidence before handoff: call \`sprintengine.task.log\` with ${logPayload}.`,
+        `Publish completion after evidence: call \`sprintengine.task.publish\` with ${publishPayload}.`,
+        'Do not run `sprintengine` shell commands for autonomous Sprint Engine work; the CLI is reserved for human and debug operators.',
       ]
     }
     return [

@@ -62,6 +62,7 @@ export function createGuidedBriefTemplate(): LayoutTemplate {
           {
             type: 'tabset',
             weight: 100,
+            enableTabStrip: false,
             children: [guidedBriefTab()],
           },
         ],

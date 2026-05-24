@@ -36,7 +36,6 @@ const TOP_BAR_GROUP_CAP = 5
 // review.
 const CANONICAL_TOP_BAR_GROUPS = new Set([
   'activity-and-views',
-  'workspace-context',
   'communication',
   'agent-spawn',
   'account-and-settings',

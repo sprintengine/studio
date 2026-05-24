@@ -104,8 +104,20 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: 
   })
 }
 
-export function quoteShellArg(value: string): string {
-  return JSON.stringify(value)
+function nextDirectivePayloadBlock(role: SprintEngineRoleId | string, agentId: string): string {
+  // The managed Sprint Engine MCP server resolves statePath/workspaceRoot from
+  // its launch env (SPRINTENGINE_STATE_PATH / SPRINTENGINE_WORKSPACE_ROOT).
+  // Agents do not pass them in tool payloads.
+  const payload: Record<string, string> = {
+    role,
+    agentId,
+  }
+  return [
+    '`sprintengine.agent.next_directive`',
+    '```json',
+    JSON.stringify(payload, null, 2),
+    '```',
+  ].join('\n')
 }
 
 export function artifactApprovalMessageKey(workspace: Workspace, artifact: SprintEngineArtifact): string {
@@ -204,7 +216,9 @@ export function buildSprintEngineDispatchPrompt(input: {
     input.dispatch.gateId ? `Gate: ${input.dispatch.gateId}` : null,
     input.dispatch.reason ? `Reason: ${input.dispatch.reason}` : null,
     '',
-    `Run \`sprintengine join --role ${input.role} --id ${input.agentId} --watch\` to reconcile this dispatch. The CLI owns polling, task/gate claims, and completion routing.`,
+    'Call the directive tool to reconcile this dispatch and receive the next MCP tool to invoke:',
+    nextDirectivePayloadBlock(input.role, input.agentId),
+    'The managed Sprint Engine MCP server owns dispatch routing, task/gate claims, and completion handling. Follow the returned `nextMcpToolName` and `nextMcpArguments`.',
   ].filter((line): line is string => line !== null).join('\n')
 }
 
@@ -270,11 +284,16 @@ export function getSprintEngineAutoRunOccupiedAgentIds(input: {
   pendingSpawns: SprintEngineAutoPendingSpawn[]
   inFlightSpawnKeys: Iterable<string>
   workspaceId: string
+  runningAgentIds?: ReadonlySet<string>
 }): Set<string> {
   const occupiedAgentIds = new Set<string>([
     ...input.tasks
       .filter((task) =>
-        (task.status === 'in_progress' || task.status === 'changes_requested' || task.status === 'needs_input')
+        (
+          task.status === 'in_progress'
+          || task.status === 'changes_requested'
+          || (task.status === 'needs_input' && (!input.runningAgentIds || input.runningAgentIds.has(task.ownerAgentId ?? '')))
+        )
         && Boolean(task.ownerAgentId)
       )
       .map((task) => task.ownerAgentId!),
@@ -287,12 +306,17 @@ export function getSprintEngineAutoRunOccupiedAgentIds(input: {
   return occupiedAgentIds
 }
 
-export function buildSprintEngineContinuationPrompt(task: SprintEngineTask, agentId: string): string {
+export function buildSprintEngineContinuationPrompt(
+  task: SprintEngineTask,
+  agentId: string
+): string {
   return [
     `Sprint Engine roster runner found a wake candidate for a ready ${task.role} task in this idle terminal.`,
     `Task: ${task.id} - ${task.title}`,
-    'This is not a durable dispatch assignment; the CLI creates one only after it claims or resumes work.',
-    `Run \`sprintengine join --role ${task.role} --id ${agentId} --watch\` to receive the current directive. The CLI owns polling and backoff; do not create your own retry loop.`,
+    'This is not a durable dispatch assignment; the Sprint Engine state will record one only after you claim or resume work through MCP.',
+    'Call the directive tool to receive the current MCP-native directive:',
+    nextDirectivePayloadBlock(task.role, agentId),
+    'If the returned directive includes `nextMcpToolName`, invoke it once with `nextMcpArguments` (typically `sprintengine.task.next`). Multicode owns later runtime dispatch and continuation.',
   ].join('\n')
 }
 
@@ -309,9 +333,11 @@ export function buildSprintEngineGateContinuationPrompt(
     `Task: ${task.id} - ${task.title}`,
     `Gate: ${gate.id} (${gate.phase} / ${gate.role})`,
     claimed
-      ? 'This claimed gate has a durable dispatch assignment that join will reconcile.'
-      : 'This is not a durable gate dispatch assignment; the CLI creates one only after it claims the gate.',
-    `Run \`sprintengine join --role ${gate.role} --id ${agentId} --watch\` to receive the current directive. The CLI will tell you whether to resume or claim the gate, and what to do after the verdict.`,
+      ? 'This claimed gate has a durable dispatch assignment that the directive tool will reconcile.'
+      : 'This is not a durable gate dispatch assignment; the Sprint Engine state will record one only after you claim the gate through MCP.',
+    'Call the directive tool to receive the current MCP-native directive:',
+    nextDirectivePayloadBlock(gate.role, agentId),
+    'The returned directive will name the next MCP tool to invoke — typically `sprintengine.gate.next` for an unclaimed gate, or context for `sprintengine.gate.verdict` / `sprintengine.gate.publish` after review. Record the verdict through MCP; do not run shell commands.',
   ].join('\n')
 }
 
@@ -329,8 +355,17 @@ export function buildAgentNotificationPrompt(
   options: { agentId?: string; role?: SprintEngineRoleId } = {}
 ): string {
   const isCompletion = isAgentNotificationCompletionEvent(event)
-  const reconcileCommand = !isCompletion && options.agentId && options.role
-    ? `Run \`sprintengine join --role ${options.role} --id ${options.agentId} --watch\` to reconcile this notification. The CLI owns polling and will tell you the next directive; do not start your own loop.`
+  const taskReadCall = !isCompletion && event.taskId
+    ? `Re-read the current task card via \`sprintengine.task.get\` with \`{ taskId: "${event.taskId}" }\`, then review its notes, acceptance criteria, and evidence before continuing. Do not claim a new task.`
+    : isCompletion
+      ? 'Your Sprint Engine task is complete. Do not claim another task in this terminal unless explicitly instructed.'
+      : 'Re-read the current task card via `sprintengine.task.get`, then review its notes, acceptance criteria, and evidence before continuing. Do not claim a new task.'
+  const reconcileBlock = !isCompletion && options.agentId && options.role
+    ? [
+      'Then call the directive tool to reconcile this notification:',
+      nextDirectivePayloadBlock(options.role, options.agentId),
+      'If the returned directive includes `nextMcpToolName`, invoke it once with `nextMcpArguments`. Multicode owns later runtime dispatch and continuation.',
+    ].join('\n')
     : null
 
   return [
@@ -341,10 +376,8 @@ export function buildAgentNotificationPrompt(
     '',
     event.message,
     '',
-    isCompletion
-      ? 'Your Sprint Engine task is complete. Do not claim another task in this terminal unless explicitly instructed.'
-      : 'Re-read the current task card, notes, acceptance criteria, and evidence before continuing. Do not claim a new task.',
-    reconcileCommand,
+    taskReadCall,
+    reconcileBlock,
   ].filter((line): line is string => line !== null).join('\n')
 }
 
@@ -353,15 +386,18 @@ export function buildArchitectNeedsInputTriagePrompt(input: {
   sprintEngineStatePath: string
   taskIds: string[]
 }): string {
-  const command = `sprintengine --state ${quoteShellArg(input.sprintEngineStatePath)} triage needs-input --id architect`
+  // The managed Sprint Engine MCP server resolves statePath from its launch env.
+  const triagePayload = {
+    id: 'architect',
+  }
   return [
-    'Fetch the canonical Sprint Engine architect triage instructions from the Python tool.',
+    'Fetch the canonical Sprint Engine architect triage instructions from the managed Sprint Engine MCP server.',
     `Worker cwd: ${input.workspaceFolderPath}`,
     `Shared Sprint Engine state: ${input.sprintEngineStatePath}`,
     `Architect-actionable needs_input tasks detected: ${input.taskIds.join(', ')}.`,
-    'Run:',
-    `\`\`\`bash\n${command}\n\`\`\``,
-    'Follow the returned prompt. Resolve planning or task-card blockers only; do not edit application source in this triage mode. When the original worker can continue, add a clear task note and stop.',
+    'Call the triage tool through MCP:',
+    ['`sprintengine.triage.needs_input`', '```json', JSON.stringify(triagePayload, null, 2), '```'].join('\n'),
+    'Follow the returned directive. Resolve planning or task-card blockers only; do not edit application source in this triage mode. Add task notes via `sprintengine.task.note` when the original worker can continue, then stop. Do not run `sprintengine` shell commands.',
   ].join('\n\n')
 }
 
@@ -605,9 +641,10 @@ export function pickNextAutoRuns(
   // Lifecycle phase tasks (review/testing/product) keep auto-run running even
   // when no implementation task is ready: each pending required gate maps to
   // a reviewer/tester/product role, and we spawn an idle roster agent for that
-  // role so the spawned terminal's `sprintengine join` can decide whether a
-  // gate or other ready task is the next claim. We never claim the gate from
-  // the renderer — that stays a CLI-only mutation (`task gate next/claim`).
+  // role so the spawned terminal's `sprintengine.agent.next_directive` MCP call
+  // can decide whether a gate or other ready task is the next claim. We never
+  // claim the gate from the renderer — that stays an MCP mutation through
+  // `sprintengine.gate.next` / `sprintengine.gate.claim`.
   const gatedPhaseTasks = sprintEngineState.tasks.filter((task) => {
     const column = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
     return column === 'review' || column === 'testing' || column === 'product'

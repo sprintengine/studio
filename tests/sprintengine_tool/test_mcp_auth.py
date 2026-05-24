@@ -70,6 +70,8 @@ def test_mcp_call_requires_authenticated_mcp_authorized_actor(tmp_path) -> None:
         ("sprintengine.roster.list", {}),
         ("sprintengine.task.list", {"role": "developer"}),
         ("sprintengine.artifact.list", {}),
+        ("sprintengine.plan.list", {}),
+        ("sprintengine.plan.read", {}),
         ("sprintengine.plan.review_status", {}),
         ("sprintengine.feedback.summarize", {}),
         ("sprintengine.feedback.recommend_actions", {}),
@@ -93,6 +95,7 @@ def test_every_mcp_read_and_health_tool_requires_authenticated_user(tmp_path, to
         ("sprintengine.subscribe", {"agentId": "developer-a"}),
         ("sprintengine.dispatch.ack", {"agentId": "developer-a", "dispatchId": "DISP-001"}),
         ("sprintengine.task.publish", {"taskId": "T1", "id": "developer-a", "summary": "Done"}),
+        ("sprintengine.handover", {"name": "mcp-handover-auth", "handoverText": "Build it."}),
         ("sprintengine.task.request_changes", {"taskId": "T1", "id": "reviewer-a", "reason": "Revise"}),
         ("sprintengine.gate.next", {"role": "code_reviewer", "id": "reviewer-a"}),
         (
@@ -178,6 +181,17 @@ def test_allowed_roots_reject_out_of_scope_and_platform_confused_paths(tmp_path)
 
     out_of_scope = server.call_tool("sprintengine.summary", {"statePath": str(fixture.state_path)}, actor("workspace-user"))
     platform_confused = server.call_tool("sprintengine.summary", {"statePath": r"C:\workspace\.multi-code\sprintengine\run.yaml"}, actor("workspace-user"))
+    handover_file = tmp_path / "handover.md"
+    handover_file.write_text("Outside allowed root.", encoding="utf-8")
+    out_of_scope_handover = server.call_tool(
+        "sprintengine.handover",
+        {
+            "statePath": str(tmp_path / "allowed" / ".multi-code" / "sprintengine" / "mcp-handover" / "run.yaml"),
+            "name": "mcp-handover",
+            "handoverPath": str(handover_file),
+        },
+        actor("workspace-user"),
+    )
 
     assert out_of_scope["ok"] is False
     assert out_of_scope["error"]["code"] == "state_path_not_allowed"
@@ -187,6 +201,8 @@ def test_allowed_roots_reject_out_of_scope_and_platform_confused_paths(tmp_path)
     else:
         assert platform_confused["error"]["code"] == "invalid_state_path"
         assert "Windows and POSIX" in platform_confused["error"]["message"]
+    assert out_of_scope_handover["ok"] is False
+    assert out_of_scope_handover["error"]["code"] == "input_path_not_allowed"
 
 
 def test_authenticated_mcp_user_can_invoke_artifact_review_with_payload_actor(tmp_path) -> None:

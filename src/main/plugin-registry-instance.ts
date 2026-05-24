@@ -23,6 +23,7 @@ function loadElectron(): typeof import('electron') {
 
 let registry: PluginRegistry | null = null
 let lastReport: PluginRegistryLoadReport | null = null
+let configuredUserRoot: string | null = null
 
 export function resolveBundledPluginRoot(): string {
   const electron = loadElectron()
@@ -45,10 +46,12 @@ export function resolveBundledPluginRoot(): string {
 
 function ensureRegistry(): PluginRegistry {
   if (registry) return registry
+  const userRoot = defaultUserPluginRoot()
   registry = createPluginRegistry({
     bundledRoot: resolveBundledPluginRoot(),
-    userRoot: defaultUserPluginRoot(),
+    userRoot,
   })
+  configuredUserRoot = userRoot
   lastReport = registry.loadSync()
   return registry
 }
@@ -70,6 +73,11 @@ export function getLastPluginRegistryReport(): PluginRegistryLoadReport | null {
   return lastReport
 }
 
+export function getPluginRegistryUserRoot(): string {
+  ensureRegistry()
+  return configuredUserRoot ?? defaultUserPluginRoot()
+}
+
 export type PluginSprintEngineRegistryRoot = {
   id: string
   root: string
@@ -86,14 +94,16 @@ export function getPluginSprintEngineRegistryRoots(): PluginSprintEngineRegistry
 }
 
 // Test-only: lets unit tests substitute a registry built from a fixture root.
-export function __setPluginRegistryForTest(custom: PluginRegistry, report: PluginRegistryLoadReport): void {
+export function __setPluginRegistryForTest(custom: PluginRegistry, report: PluginRegistryLoadReport, userRoot?: string): void {
   registry = custom
   lastReport = report
+  configuredUserRoot = userRoot ?? defaultUserPluginRoot()
 }
 
 export function __resetPluginRegistryForTest(): void {
   registry = null
   lastReport = null
+  configuredUserRoot = null
 }
 
 function isPathInsideOrEqual(parentPath: string, targetPath: string): boolean {

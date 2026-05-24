@@ -15,6 +15,8 @@ async function main(): Promise<void> {
   await testReadProjectionSurfacesUnavailableAndInvalidProjection()
   await testMutationResponsesIncludeProjectionAndEventMetadata()
   await testFailedMutationDoesNotReturnProjectionContent()
+  await testAutoRunApprovalEnforcesEligibilityBeforeMcpCall()
+  await testRequestChangesFailureDiagnostics()
   await testReadRegistryRolesUsesMcpTool()
   await testReadRegistryRolesPassesLoadedPluginSoulsRoots()
   await testReadRegistryRolesUsesRealMcpBridgeForBundledAndCustomRoles()
@@ -151,6 +153,162 @@ async function testFailedMutationDoesNotReturnProjectionContent(): Promise<void>
   const result = await handlers.reviewArtifact({ statePath, artifactId: 'A1' }, 'approve', 'user')
   assert.equal(result.ok, false)
   if (!result.ok) assert.match(result.message, /not ready/)
+}
+
+async function testAutoRunApprovalEnforcesEligibilityBeforeMcpCall(): Promise<void> {
+  const { workspaceRoot, teamDir, statePath } = await createStateFixture()
+  const artifactPath = join(teamDir, 'plan.md')
+  await writeFile(artifactPath, '# Plan\n', 'utf-8')
+  await writeFile(
+    join(teamDir, 'projection.json'),
+    JSON.stringify({
+      tasks: [{ id: 'T1', status: 'needs_input', ownerAgentId: 'developer-1' }],
+      artifacts: [
+        {
+          id: 'A1',
+          kind: 'architect_plan',
+          title: 'Plan',
+          path: artifactPath,
+          status: 'ready_for_review',
+          createdBy: 'architect-1',
+          taskId: 'T1',
+        },
+      ],
+    }),
+    'utf-8'
+  )
+
+  const calls: Array<{ tool: string; payload: Record<string, unknown> }> = []
+  const handlers = createHandlers(async (_context, tool, payload) => {
+    calls.push({ tool, payload })
+    return {
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      response: {
+        ok: true,
+        tool,
+        result: {
+          ok: true,
+          event: {
+            id: 'EVT-30',
+            type: 'artifact_approved',
+            timestamp: '2026-05-24T08:00:00Z',
+            actor: 'user-1',
+            message: 'auto approved',
+          },
+          notification: {
+            id: 'EVT-31',
+            type: 'agent_notification_requested',
+            timestamp: '2026-05-24T08:00:01Z',
+            actor: 'user-1',
+            message: 'wake T1 owner',
+            targetAgentId: 'developer-1',
+            taskId: 'T1',
+            notificationKind: 'task_completed_after_artifact_approval',
+          },
+        },
+      },
+    }
+  })
+
+  const result = await handlers.reviewArtifact({ statePath, artifactId: 'A1' }, 'approve', 'auto-run')
+  assert.equal(result.ok, true, `auto-run approval should succeed for eligible artifact, got: ${result.ok ? 'ok' : result.message}`)
+  if (!result.ok) return
+  assert.equal(calls.length, 1, 'auto-run approval should call MCP exactly once')
+  assert.equal(calls[0]?.tool, 'sprintengine.artifact.approve')
+  assert.equal(calls[0]?.payload.artifactId, 'A1')
+  assert.equal((result.data as { mode: string }).mode, 'auto-run')
+  assert.equal(result.data.latestEventId, 'EVT-31')
+  const events = result.data.events as Array<{ id: string; type?: string }>
+  assert.deepEqual(events.map((event) => event.id), ['EVT-30', 'EVT-31'])
+  assert.equal(
+    events.find((event) => event.id === 'EVT-31')?.type,
+    'agent_notification_requested',
+    'mutation response must surface the agent_notification_requested event so the supervisor wake loop can act on it'
+  )
+  // Bridge contract for AC #2: the supervisor's autoApproveSprintEngineArtifact handler
+  // (src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx:541)
+  // consumes result.data.projectionContent to refresh renderer state immediately, then the
+  // separate deliverAgentNotificationEvents loop (sprintengineAutoRun.ts:415) reads
+  // agent_notification_requested events from the refreshed state and wakes the owning agent.
+  // The renderer-side terminal-write half of this chain is verified by
+  // testDeliverArtifactApprovalCompletionWakesOwnerWithCompletionPrompt and
+  // testDeliverRequestChangesWakesOwnerWithJoinDirectiveWithoutReveal in sprintengineAutoRun.test.ts.
+  assert.ok(
+    typeof result.data.projectionContent === 'string' && (result.data.projectionContent as string).includes('"developer-1"'),
+    'mutation response must return refreshed projectionContent so the supervisor can apply the new state immediately'
+  )
+
+  const ineligibleHandlers = createHandlers(async () => {
+    throw new Error('MCP must not be called when auto-run eligibility fails')
+  })
+  await writeFile(
+    join(teamDir, 'projection.json'),
+    JSON.stringify({
+      tasks: [{ id: 'T1', status: 'done', ownerAgentId: 'developer-1' }],
+      artifacts: [
+        {
+          id: 'A1',
+          kind: 'architect_plan',
+          title: 'Plan',
+          path: artifactPath,
+          status: 'approved',
+          createdBy: 'architect-1',
+          taskId: 'T1',
+        },
+      ],
+    }),
+    'utf-8'
+  )
+  const blocked = await ineligibleHandlers.reviewArtifact({ statePath, artifactId: 'A1' }, 'approve', 'auto-run')
+  assert.equal(blocked.ok, false, 'auto-run approval must fail for an already-approved artifact')
+  if (!blocked.ok) assert.match(blocked.message, /already approved/i)
+
+  void workspaceRoot
+}
+
+async function testRequestChangesFailureDiagnostics(): Promise<void> {
+  const { statePath } = await createStateFixture()
+
+  const missingFeedbackHandlers = createHandlers(async () => {
+    throw new Error('MCP must not be called when feedback is missing')
+  })
+  const missingFeedback = await missingFeedbackHandlers.reviewArtifact(
+    { statePath, artifactId: 'A1', feedback: '   ' },
+    'request-changes',
+    'user'
+  )
+  assert.equal(missingFeedback.ok, false)
+  if (!missingFeedback.ok) assert.match(missingFeedback.message, /feedback/i)
+
+  const mcpErrorCalls: Array<{ tool: string; payload: Record<string, unknown> }> = []
+  const mcpErrorHandlers = createHandlers(async (_context, tool, payload) => {
+    mcpErrorCalls.push({ tool, payload })
+    return {
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      response: {
+        ok: false,
+        tool,
+        error: { code: 'invalid_state', message: 'Artifact is not in a reviewable state.' },
+      },
+    }
+  })
+  const mcpFailure = await mcpErrorHandlers.reviewArtifact(
+    { statePath, artifactId: 'A1', feedback: 'Please clarify the rollback steps.' },
+    'request-changes',
+    'user'
+  )
+  assert.equal(mcpFailure.ok, false)
+  if (!mcpFailure.ok) {
+    assert.match(mcpFailure.message, /not in a reviewable state/i)
+    assert.equal('projectionContent' in (mcpFailure as Record<string, unknown>), false, 'failure responses must not include projection content')
+  }
+  assert.equal(mcpErrorCalls.length, 1)
+  assert.equal(mcpErrorCalls[0]?.tool, 'sprintengine.artifact.request_changes')
+  assert.equal(mcpErrorCalls[0]?.payload.feedback, 'Please clarify the rollback steps.')
 }
 
 async function testReadRegistryRolesUsesMcpTool(): Promise<void> {

@@ -28,27 +28,8 @@ export function prependAgentIdentifier(
   return `${prefix}${prompt}`
 }
 
-function quotePosixArg(value: string): string {
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`
-}
-
-function quotePowerShellArg(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`
-}
-
-function renderPosixSprintEngineArgs(args: string[]): string {
-  return args.map((arg) => /^[A-Za-z0-9._:/=-]+$/.test(arg) ? arg : quotePosixArg(arg)).join(' ')
-}
-
-function renderPowerShellSprintEngineArgs(args: string[]): string {
-  return args.map((arg) => /^[A-Za-z0-9._:/=-]+$/.test(arg) ? arg : quotePowerShellArg(arg)).join(' ')
-}
-
-function buildWindowsSprintEngineToolCommand(args: string[], workspaceRoot?: string): string {
-  const python = workspaceRoot
-    ? `${workspaceRoot.replace(/[\\/]+$/u, '')}\\.venv\\Scripts\\python.exe`
-    : '.\\.venv\\Scripts\\python.exe'
-  return `& ${quotePowerShellArg(python)} .\\scripts\\sprintengine_tool.py ${renderPowerShellSprintEngineArgs(args)}`
+function jsonBlock(payload: Record<string, unknown>): string {
+  return ['```json', JSON.stringify(payload, null, 2), '```'].join('\n')
 }
 
 export function buildSprintEngineStartupPrompt(
@@ -65,13 +46,83 @@ export function buildSprintEngineStartupPrompt(
   } = {}
 ): string {
   const commandMode = options.commandMode ?? (role === 'architect' ? 'init' : 'join')
-  const sprintEngineArgs = commandMode === 'init'
-    ? ['init', '--goal', goal, ...(options.rosterArgs ?? []).flatMap((arg) => ['--agent', arg])]
-    : ['join', '--role', role, '--id', agentId, '--watch']
-  const sprintEngineCommand = renderPosixSprintEngineArgs(sprintEngineArgs)
-  const command = commandMode === 'init'
-    ? `Run \`sprintengine ${sprintEngineCommand}\` to receive your full prompt and instructions.`
-    : `Run \`sprintengine ${sprintEngineCommand}\` to receive your full prompt and next directive.`
+
+  // The Sprint Engine MCP server is launched per workspace with SPRINTENGINE_STATE_PATH
+  // and SPRINTENGINE_WORKSPACE_ROOT in its environment, and resolves both from there.
+  // Agents do not pass statePath or workspaceRoot in tool payloads.
+  const joinPayload = {
+    role,
+    agentId,
+  }
+  const directivePayload = {
+    role,
+    agentId,
+  }
+  const initPayload: Record<string, unknown> = {
+    goal: goal || '<run goal>',
+  }
+  if (options.rosterArgs?.length) initPayload.agent = options.rosterArgs
+
+  const initBlock = commandMode === 'init'
+    ? [
+      '## First MCP Calls — architect bootstrap',
+      'Call `sprintengine.init` once to initialize the run:',
+      jsonBlock(initPayload),
+      'Then register as the architect agent with `sprintengine.agent.join`:',
+      jsonBlock(joinPayload),
+      'Then request your structured directive with `sprintengine.agent.next_directive`:',
+      jsonBlock(directivePayload),
+    ].join('\n')
+    : [
+      '## First MCP Calls',
+      'Register this agent with `sprintengine.agent.join`:',
+      jsonBlock(joinPayload),
+      'Then request your structured directive with `sprintengine.agent.next_directive`:',
+      jsonBlock(directivePayload),
+    ].join('\n')
+
+  const directiveContract = [
+    '## Directive Contract',
+    '`sprintengine.agent.next_directive` returns a structured payload:',
+    '- `directiveType`: `task_work` | `resume` | `gate_work` | `needs_input_triage` | `idle` | `complete` | `blocked` | `error`',
+    '- `nextMcpToolName` and `nextMcpArguments`: the exact MCP tool and payload to invoke next (or `null` when idle/complete/blocked)',
+    '- `task`, `gate`, `triage`, `blocker`, `error`: contextual fields when applicable',
+    '- `runnerPolicy.mode`: `auto` or `manual`',
+    'Invoke `nextMcpToolName` with `nextMcpArguments` verbatim to claim or resume work.',
+  ].join('\n')
+
+  const workflowTools = [
+    '## Workflow MCP Tools',
+    `- Claim next ready role work: \`sprintengine.task.next\` with \`{role, id: "${agentId}"}\`.`,
+    `- Claim next ready quality gate: \`sprintengine.gate.next\` with \`{role, id: "${agentId}"}\`.`,
+    `- Architect-actionable triage: \`sprintengine.triage.needs_input\` with \`{id: "${agentId}"}\`.`,
+    '- Read a task card: `sprintengine.task.get` with `{taskId}`.',
+    '- Log evidence: `sprintengine.task.log` with `{taskId, id, summary, file, command, result, scopeExpansionJson}`.',
+    '- Publish implementation evidence: `sprintengine.task.publish` with `{taskId, id, summary, ...}`.',
+    '- Register an artifact: `sprintengine.artifact.add` with `{taskId, kind, title, path, createdBy, ready}` — set `ready: true` only when the artifact must wait for human approval.',
+    '- Record a gate verdict: `sprintengine.gate.verdict` (or `sprintengine.gate.publish`) with `{taskId, gateId, role, id, verdict, summary}`.',
+    '- Move a task to `needs_input`: `sprintengine.task.status` with `{taskId, id, status: "needs_input", needsInputKind, needsInputReason, needsInputQuestion, needsInputArtifactId?, needsInputSuggestedResolution?}`.',
+    '  - `needsInputKind` is the actor who must act: `architect` for task-card/scope/artifact-review/tooling/verification blockers, `user` for product decisions or approvals, `owner` when you are waiting for your own external condition.',
+    '  - `needsInputReason` classifies the blocker: `task_scope`, `artifact_review`, `tooling`, `verification`, `product_decision`, or `blocked_other`.',
+  ].join('\n')
+
+  const autoModeBlock = [
+    '## Directive Handling',
+    'After you finish one task or gate, publish evidence (or a gate verdict) through the MCP tools above. If a returned directive includes `nextMcpToolName`, invoke it once with `nextMcpArguments`; otherwise there is no MCP tool to invoke for that directive.',
+    'Multicode owns later runtime dispatch and continuation.',
+    'Stop earlier if Auto Mode is off, you are blocked, you need user input, the terminal is being shut down, or your context window is about 70% full. At about 70% context, publish a concise continuation note via `sprintengine.task.note`, compact or restart, then fetch your Soul again via `sprintengine.soul.get` when the runtime continues this terminal.',
+    'If you receive a Sprint Engine notification that your blocked task was resolved, re-read the task card via `sprintengine.task.get`, then continue that same task; if the notification says the task is complete, stop.',
+  ].join('\n')
+
+  const roleBoundary = [
+    '## Role Boundaries',
+    `You are assigned role: ${role}. Only claim work whose Sprint Engine \`task.role\` matches \`${role}\`. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role. You may read other roles' state via MCP read tools to diagnose blockers.`,
+    'Sprint Engine work runs exclusively through the managed `multicode-sprintengine` MCP server in this terminal. Do not run `sprintengine` shell commands for autonomous Sprint Engine work; the CLI is reserved for human and debug operators. If the managed MCP server cannot be reached, stop and surface the failure — do not fall back to shell commands.',
+  ].join('\n')
+
+  const missingRunNote = commandMode === 'join' && options.sprintEngineStatePath
+    ? 'If `sprintengine.agent.join` or `sprintengine.agent.next_directive` reports that the run is missing, surface the failure to the caller/runtime with the same payload context. Do not create a different run.'
+    : null
 
   const context = [
     options.executionCwd ? `Worker cwd: ${options.executionCwd}` : null,
@@ -91,20 +142,15 @@ export function buildSprintEngineStartupPrompt(
     : null
 
   return [
-    'Fetch the canonical Sprint Engine instructions from the Python tool.',
+    'Your first action is to run the MCP calls listed in the "First MCP Calls" section below, in order, exactly as shown. Do not call any other tool first. Do not summarize your role or describe what you are about to do. The `sprintengine.agent.join` response contains your Soul, your role rules, and your initial directive — read those after registering, then act on the directive immediately.',
     context.length > 0 ? context.join('\n') : null,
     autonomousPlanningOverride,
-    `You are assigned role: ${role}. Use the Sprint Engine join watch flow with this same agent id; the CLI owns polling and will tell you whether to claim a normal task, resume work, triage needs_input, or claim a quality gate. Only claim work assigned to your role. If no ${role} work is ready and Auto Mode is on, the CLI will sleep/backoff and poll again. Do not create your own background polling loop. After you claim one task or gate, focus only on that work: complete it, publish evidence or a gate verdict, then run the same join watch command again if Auto Mode is on. Stop earlier if Auto Mode is off, you are blocked, you need user input, the terminal is being shut down, or your context window is about 70% full. If you move a task to needs_input, --needs-input-kind is the actor who must act: use architect for task-card/scope/artifact-review/tooling/verification blockers, user for product decisions or approvals, and owner when you are waiting for your own external condition. Add --needs-input-reason such as task_scope, artifact_review, tooling, verification, product_decision, or blocked_other; include --needs-input-artifact-id for artifact_review blockers when available. Include --needs-input-question and, when useful, --needs-input-suggested-resolution. If you receive a Sprint Engine notification that your blocked task was resolved, re-read the task card, notes, acceptance criteria, and evidence, then continue that same task; if the notification says the task is complete, stop. At about 70% context, publish a concise continuation note, compact or restart, fetch your Soul again, rerun the Sprint Engine join watch command with this same id, and continue. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.`,
-    commandMode === 'join' && options.sprintEngineStatePath
-      ? `If the shared Sprint Engine run file does not exist yet or the join command reports that the run is missing, wait briefly and retry the same join command. Do not create a different run file and do not stop just because the architect has not initialized the run yet.`
-      : null,
-    [
-      'On Windows, prefer the repo virtual environment command if `sprintengine` or global Python is unreliable:',
-      '```powershell',
-      buildWindowsSprintEngineToolCommand(sprintEngineArgs, options.workspaceRoot),
-      '```',
-    ].join('\n'),
-    command,
+    roleBoundary,
+    initBlock,
+    directiveContract,
+    workflowTools,
+    autoModeBlock,
+    missingRunNote,
   ].filter(Boolean).join('\n\n')
 }
 

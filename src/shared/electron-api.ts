@@ -304,6 +304,14 @@ export type McpSyncInput = {
   workspaceRoot: string
   settings: McpSettings
   clients?: McpClientTarget[]
+  managedSprintEngine?: {
+    statePath: string
+    workspaceRoot?: string
+    allowedRoots?: string[]
+    registryRoots?: string[]
+    userRoot?: string
+    actorId?: string
+  }
   requiredOnly?: boolean
   write?: boolean
 }

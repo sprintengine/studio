@@ -22,7 +22,6 @@ import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getHighlightSwatch, getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
 import { NotificationsPopover } from './topbar/NotificationsPopover'
-import WorkspaceGitStatusButton from './WorkspaceGitStatusButton'
 
 export type SessionItem = {
   workspace: Workspace
@@ -474,7 +473,6 @@ export type WorkspaceTopBarProps = {
   addNewCliAgent: (cli: AgentCli, label: string) => void
   addNewTerminal: () => void
 
-  openHandoffDialog: () => void
   openSettings: (checkForUpdates?: boolean, targetTab?: string | null) => void
   settingsOpen: boolean
 
@@ -542,7 +540,6 @@ export default function WorkspaceTopBar({
   addNewMultiloopAgent,
   addNewCliAgent,
   addNewTerminal,
-  openHandoffDialog,
   openSettings,
   settingsOpen,
   accountOpen,
@@ -606,8 +603,11 @@ export default function WorkspaceTopBar({
         <div className="flex shrink-0 items-center gap-1.5">
           {/*
            * WorkspaceTopBar at-rest control inventory — capped at five groups.
-           * Adding a sixth top-bar-group marker fails scripts/lint-panel-composition.mjs.
-           * Documented in knowledge/brand/panel-design-system.md (TopBar inventory).
+           * The Git change-count badge migrated to the PanelRail Git icon, so
+           * `workspace-context` retired and the row carries four canonical
+           * groups; adding a sixth top-bar-group marker fails
+           * scripts/lint-panel-composition.mjs. Documented in
+           * knowledge/brand/panel-design-system.md (TopBar inventory).
            */}
           {/* top-bar-group: activity-and-views */}
           {workspaces.length > 0 ? (
@@ -742,20 +742,6 @@ export default function WorkspaceTopBar({
             </div>
           ) : null}
 
-          {/* top-bar-group: workspace-context */}
-          {activeWorkspace ? (
-            <WorkspaceGitStatusButton
-              workspaceId={activeWorkspace.id}
-              folderPath={activeWorkspace.folderPath ?? null}
-              onOpen={() => {
-                setSessionsOpen(false)
-                setNotificationsOpen(false)
-                setSpecialistMenuOpen(false)
-                setAccountOpen(false)
-              }}
-            />
-          ) : null}
-
           {/* top-bar-group: communication */}
           <div ref={notificationsRef} className="relative inline-flex">
             <Popover
@@ -804,20 +790,6 @@ export default function WorkspaceTopBar({
               />
             </Popover>
           </div>
-
-          {workspaceActionsEnabled ? (
-            <Tooltip content="Handoff current plan to sprintengine" placement="bottom">
-              <button
-                type="button"
-                onClick={openHandoffDialog}
-                disabled={!activeWorkspaceId}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--tone-warn)] transition-colors hover:border-[color:var(--tone-warn-soft)] hover:bg-[color:var(--tone-warn)]/8 hover:text-[color:var(--tone-warn)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-surface-raised)]"
-                aria-label="Handoff current plan to sprintengine"
-              >
-                <WorkspaceTypeIcon mode="sprintengine" className="h-[18px] w-[18px]" />
-              </button>
-            </Tooltip>
-          ) : null}
 
           {/* top-bar-group: agent-spawn */}
           {workspaceActionsEnabled ? (

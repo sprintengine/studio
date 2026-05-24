@@ -8,6 +8,7 @@ import {
   consolidateSwitchboardWorkspaceLayout,
   createLayoutSlice,
   ensureMultiloopLayoutModel,
+  hideGuidedBriefTabStrip,
   hideSprintEngineBoardTabStrip,
   isLegacySprintEngineLayout,
   markSwitchboardAnchorTabsSticky,
@@ -17,7 +18,8 @@ import {
   sprintEngineTabsLayoutModel,
   stripSettingsTabsFromLayout,
 } from './layoutSlice'
-import { createSwitchboardTemplate } from '../../layouts/templates'
+import { createGuidedBriefTemplate, createSwitchboardTemplate } from '../../layouts/templates'
+import { guidedBriefLayoutModel } from './guidedBriefSlice'
 
 const standardTemplate: LayoutTemplate = {
   id: 'layout-test',
@@ -246,6 +248,59 @@ const templateWrapperTabset = findTabset(switchboardTemplate.layout, (record) =>
   return children.some((child) => (child as Record<string, unknown>)?.component === 'switchboard-workspace')
 })!
 assert.equal(templateWrapperTabset.enableTabStrip, false)
+
+// Existing guided-brief layouts migrate to enableTabStrip: false on the tabset
+// that wraps the panel, matching Sprint Engine / Switchboard. Other tabsets
+// the user may have rearranged are left alone.
+const guidedBriefLayoutForStripMigration: IJsonModel = {
+  global: {},
+  borders: [],
+  layout: {
+    type: 'row',
+    children: [
+      {
+        type: 'tabset',
+        weight: 100,
+        children: [
+          { type: 'tab', name: 'Guided Brief', component: 'guided-brief' },
+        ],
+      },
+      {
+        type: 'tabset',
+        weight: 0,
+        children: [
+          { type: 'tab', name: 'Notes', component: 'editor' },
+        ],
+      },
+    ],
+  },
+}
+const guidedBriefStripHidden = hideGuidedBriefTabStrip(guidedBriefLayoutForStripMigration) as IJsonModel
+const gbTabset = findTabset(guidedBriefStripHidden, (record) => {
+  const children = Array.isArray(record.children) ? record.children : []
+  return children.some((child) => (child as Record<string, unknown>)?.component === 'guided-brief')
+})!
+const gbEditorTabset = findTabset(guidedBriefStripHidden, (record) => {
+  const children = Array.isArray(record.children) ? record.children : []
+  return children.some((child) => (child as Record<string, unknown>)?.component === 'editor')
+})!
+assert.equal(gbTabset.enableTabStrip, false)
+assert.equal(gbEditorTabset.enableTabStrip, undefined)
+
+// Canonical guided-brief layout + template ship with the hidden tab strip.
+const canonicalGuidedBriefLayout = guidedBriefLayoutModel()
+const canonicalGbTabset = findTabset(canonicalGuidedBriefLayout, (record) => {
+  const children = Array.isArray(record.children) ? record.children : []
+  return children.some((child) => (child as Record<string, unknown>)?.component === 'guided-brief')
+})!
+assert.equal(canonicalGbTabset.enableTabStrip, false)
+
+const guidedBriefTemplate = createGuidedBriefTemplate()
+const templateGbTabset = findTabset(guidedBriefTemplate.layout, (record) => {
+  const children = Array.isArray(record.children) ? record.children : []
+  return children.some((child) => (child as Record<string, unknown>)?.component === 'guided-brief')
+})!
+assert.equal(templateGbTabset.enableTabStrip, false)
 
 const stripped = stripSettingsTabsFromLayout({
   global: {},

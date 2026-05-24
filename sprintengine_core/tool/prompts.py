@@ -30,19 +30,22 @@ def generic_role_swarm_prompt(role: str) -> str:
         "",
         "## Work Sequence",
         "",
-        "```",
-        f"sprintengine join --role {role} --id <your-id> --watch",
-        "# Follow the returned directive.",
-        "sprintengine task log --task-id <id> --id <your-id> --summary \"What you did\" --file <path> --command \"<command>\" --result \"<result>\"",
-        "sprintengine task publish --task-id <id> --id <your-id> --summary \"What changed and how you verified it\"",
-        "```",
+        "Coordinate through the Sprint Engine MCP tools. Do not run `sprintengine` shell commands for autonomous work — the CLI is reserved for human and debug operators.",
+        "",
+        f"1. Call `sprintengine.agent.next_directive` with `{{ role: \"{role}\", agentId: \"<your-id>\" }}` to get your next directive.",
+        "2. Follow the directive's `nextMcpToolName` with `nextMcpArguments` verbatim to claim or resume work.",
+        "3. Log evidence via `sprintengine.task.log` with `{ taskId, id, summary, file, command, result }`.",
+        "4. Publish implementation evidence via `sprintengine.task.publish` with `{ taskId, id, summary, path, data }`.",
+        "5. Record gate verdicts via `sprintengine.gate.verdict` with `{ taskId, gateId, role, id, verdict, summary }`.",
+        "6. After each completion or verdict, call `sprintengine.agent.next_directive` again to receive the next directive.",
         "",
         "## Quality Standards",
         "",
         "- Do not edit Sprint Engine run-store files directly.",
         "- Do not claim work assigned to another role.",
         "- Do not mark work complete when the main behavior depends on sample data, fake responses, mocked transports, stubbed commands, placeholder persistence, or disconnected local state.",
-        "- If real verification is blocked, route the task or gate to `needs_input` with the appropriate actor, reason, and question.",
+        "- If real verification is blocked, route the task or gate to `needs_input` via `sprintengine.task.status` with the appropriate actor, reason, and question.",
+        "- If `MULTICODE_KNOWLEDGE_ROOT` is set and your change affects a behavior, contract, file layout, or convention documented in the Knowledge Graph, update the relevant note in the same publish. Log the note path as `sprintengine.task.log` `file` evidence. See the `workspace_knowledge` skill for the full read/update workflow and the env-var gate.",
     ])
 
 
@@ -60,9 +63,10 @@ def project_relative_path_guidance() -> str:
             "`resources/sprintengine/skills/developer/SKILL.md`, or `.multi-code/sprintengine/<team>/reviews/code-review-1.md`."
         ),
         (
-            "For `Sprint Engine plan --path`, `sprintengine task log --file`, and `sprintengine artifact add --path`, "
-            "pass only project-root-relative paths. If a tool prints an absolute path, convert it "
-            "to a project-relative path before logging or writing it into an artifact."
+            "For Sprint Engine MCP payload fields that carry paths — `path` on `sprintengine.plan.add_task`, "
+            "`file` on `sprintengine.task.log`, `path` on `sprintengine.artifact.add`, and the corresponding "
+            "fields on plan/artifact updates — pass only project-root-relative paths. If a tool result returns "
+            "an absolute path, convert it to a project-relative path before logging or writing it into an artifact."
         ),
     ])
 
@@ -180,20 +184,20 @@ def artifact_registration_instruction(agent_id: str) -> str:
         "Artifact-producing tasks: if the task asks for an artifact, review, report, "
         "requirements document, design notes, mockup, plan, or validation output, writing "
         "the file and logging evidence is not enough. Register the UI-visible artifact object "
-        "before stopping. If the artifact needs human approval, register it ready for review:\n"
-        "```\n"
-        f"sprintengine artifact add --actor {agent_id} --task-id <task-id> --kind <artifact-kind> "
-        f"--title \"<title>\" --path <path-under-team-folder> --created-by {agent_id} --ready\n"
-        "sprintengine artifact list --task-id <task-id>\n"
-        "```\n"
+        "via the Sprint Engine MCP tools before stopping.\n\n"
+        "Call `sprintengine.artifact.add` with `{ taskId, kind, title, path, "
+        f"createdBy: \"{agent_id}\", ready }}`. Set `ready: true` only when the artifact should "
+        "wait for human approval (this moves the linked task to `needs_input`). Otherwise call "
+        "`sprintengine.artifact.ready` with `{ artifactId, id }` later when you are "
+        "ready to hand off for review. Use `sprintengine.artifact.list` with `{ taskId }` "
+        "to confirm registration.\n\n"
         "Use the task's requested kind when specified. Otherwise use `security_review` for "
-        "security reviews, `code_review` for code reviews, `spec_review` for spec reviews, `performance_review` for performance "
-        "reviews, `validation_report` for validation reports, `requirements` or `product_strategy` "
-        "for product outputs, `design_notes` or "
-        "`html_mockup` for frontend outputs, and `architect_plan` for plan gates. The `--ready` "
-        "flag moves the linked task to `needs_input`; use it only when the artifact should wait for "
-        "human approval. If a review artifact approves/passes the work with no findings, register "
-        "the artifact, log evidence, and follow the completion rule below."
+        "security reviews, `code_review` for code reviews, `spec_review` for spec reviews, "
+        "`performance_review` for performance reviews, `validation_report` for validation reports, "
+        "`requirements` or `product_strategy` for product outputs, `design_notes` or `html_mockup` "
+        "for frontend outputs, and `architect_plan` for plan gates. If a review artifact approves "
+        "the work with no findings, register the artifact, log evidence, and follow the completion "
+        "rule below."
     )
 
 
