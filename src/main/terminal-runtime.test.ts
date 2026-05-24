@@ -36,7 +36,13 @@ type SpawnCall = {
 
 const mockPty = {
   spawnCalls: [] as SpawnCall[],
+  spawnError: null as Error | null,
   spawn(command: string, args: string[], options: Record<string, unknown>): MockPtyProcess {
+    if (mockPty.spawnError) {
+      const error = mockPty.spawnError
+      mockPty.spawnError = null
+      throw error
+    }
     const process = createMockPtyProcess()
     mockPty.spawnCalls.push({ command, args, options, process })
     return process
@@ -79,8 +85,98 @@ async function main(): Promise<void> {
     const runtimeModule = require('./terminal-runtime') as RuntimeModule
     await assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModule)
     await assertSprintEngineSpawnReportsSyncFailureWithoutPtySpawn(runtimeModule)
+    await assertSprintEngineSpawnReportsThrownHttpMcpSetupFailureWithoutPtySpawn(runtimeModule)
+    await assertSprintEngineSpawnReleasesRegisteredSessionWhenPtySpawnFails(runtimeModule)
   } finally {
     moduleWithLoad._load = originalLoad
+  }
+}
+
+async function assertSprintEngineSpawnReleasesRegisteredSessionWhenPtySpawnFails(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-release-'))
+  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const releasedSessions: string[] = []
+  mockPty.spawnCalls = []
+  mockPty.spawnError = new Error('pty spawn failed')
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true, managedSprintEngineSessionId: 'registered-session-failed-spawn' }),
+    releaseManagedSprintEngineSession: async (sessionId) => {
+      releasedSessions.push(sessionId)
+    },
+  })
+
+  try {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_spawn_failure',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      sprintEngineStatePath,
+      cli: 'codex',
+      kind: 'agent',
+      shellOnly: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+
+    assert.equal(result.ok, false)
+    assert.deepEqual(releasedSessions, ['registered-session-failed-spawn'])
+    assert.equal(mockPty.spawnCalls.length, 0)
+  } finally {
+    mockPty.spawnError = null
+    await runtime.shutdown()
+  }
+}
+
+async function assertSprintEngineSpawnReportsThrownHttpMcpSetupFailureWithoutPtySpawn(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-thrown-setup-'))
+  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const failureMessage = 'Timed out starting Sprint Engine MCP HTTP hub.'
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (): Promise<SyncResult> => {
+      throw new Error(failureMessage)
+    },
+  })
+
+  try {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_thrown_setup_failure',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      sprintEngineStatePath,
+      cli: 'codex',
+      kind: 'agent',
+      shellOnly: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    const failedSnapshot = runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'session_thrown_setup_failure')
+
+    assert.deepEqual(result, {
+      ok: false,
+      sessionId: 'session_thrown_setup_failure',
+      message: failureMessage,
+      exitCode: 1,
+    })
+    assert.equal(mockPty.spawnCalls.length, 0)
+    assert.deepEqual(failedSnapshot?.activity, {
+      kind: 'failed',
+      at: failedSnapshot?.activity.kind === 'failed' ? failedSnapshot.activity.at : undefined,
+      exitCode: 1,
+      message: failureMessage,
+    })
+  } finally {
+    await runtime.shutdown()
   }
 }
 
@@ -89,6 +185,7 @@ async function assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModul
   const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
   const order: string[] = []
   const syncInputs: SyncInput[] = []
+  const releasedSessions: string[] = []
   mockPty.spawnCalls = []
   mockSender.sent = []
 
@@ -99,7 +196,10 @@ async function assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModul
     syncMcpConfig: async (input): Promise<SyncResult> => {
       order.push('sync')
       syncInputs.push(input)
-      return { ok: true }
+      return { ok: true, managedSprintEngineSessionId: 'registered-session-1' }
+    },
+    releaseManagedSprintEngineSession: async (sessionId) => {
+      releasedSessions.push(sessionId)
     },
   })
 
@@ -125,10 +225,14 @@ async function assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModul
     assert.equal(syncInputs[0]?.managedSprintEngine?.statePath, sprintEngineStatePath)
     assert.equal(syncInputs[0]?.managedSprintEngine?.workspaceRoot, workspaceRoot)
     assert.deepEqual(syncInputs[0]?.managedSprintEngine?.allowedRoots, [workspaceRoot])
+    assert.equal(syncInputs[0]?.managedSprintEngine?.agentId, 'session_success')
+    assert.equal(syncInputs[0]?.managedSprintEngine?.role, 'agent')
+    assert.equal(syncInputs[0]?.managedSprintEngine?.cli, 'codex')
     assert.equal(runtime.ipcHandlers.getTerminalStatus('session_success').processAlive, true)
   } finally {
     await runtime.shutdown()
   }
+  assert.deepEqual(releasedSessions, ['registered-session-1'])
 }
 
 async function assertSprintEngineSpawnReportsSyncFailureWithoutPtySpawn(runtimeModule: RuntimeModule): Promise<void> {

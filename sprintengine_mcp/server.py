@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+from contextvars import ContextVar
+from dataclasses import dataclass
 import json
 import os
 import re
@@ -93,6 +95,25 @@ from .auth import MUTATING_TOOLS, ActorContext, AuthorizationError, authorize_to
 from .schemas import TOOL_SCHEMAS, list_tool_schemas
 
 
+@dataclass(frozen=True)
+class McpRequestContext:
+    """Server-owned routing context for one authenticated HTTP MCP session."""
+
+    actor: ActorContext | None
+    state_path: Path
+    workspace_root: Path
+    allowed_roots: tuple[Path, ...]
+    plugin_registry_roots: tuple[dict[str, str] | str | Path, ...] = ()
+    user_root: Path | None = None
+    actor_id: str = ""
+    agent_id: str = ""
+    role: str = ""
+    cli: str = ""
+
+
+_REQUEST_CONTEXT: ContextVar[McpRequestContext | None] = ContextVar("sprintengine_mcp_request_context", default=None)
+
+
 class McpToolError(Exception):
     """Structured MCP boundary error."""
 
@@ -134,17 +155,20 @@ class SprintEngineMcpServer:
         tool_name: str,
         payload: dict[str, Any] | None = None,
         actor: ActorContext | dict[str, Any] | None = None,
+        context: McpRequestContext | None = None,
     ) -> dict[str, Any]:
         start = time.monotonic()
         payload = payload or {}
         actor_context: ActorContext | None = None
         state_path: Path | None = None
+        context_token = _REQUEST_CONTEXT.set(context)
         try:
-            actor_context = self._actor(actor)
+            actor_context = context.actor if context is not None else self._actor(actor)
             if tool_name not in TOOL_SCHEMAS:
                 raise McpToolError("unknown_tool", f"Unknown sprintengine MCP tool: {tool_name}")
             if not isinstance(payload, dict):
                 raise McpToolError("invalid_payload", "Tool payload must be an object.")
+            self._validate_session_identity_payload(tool_name, payload)
             state_path = self._state_path(payload, required=_tool_requires_state_path(tool_name))
             authorize_tool(tool_name, payload, actor_context, state_path)
             if tool_name == "sprintengine.health":
@@ -174,6 +198,8 @@ class SprintEngineMcpServer:
             mapped = McpToolError("internal_error", "SprintEngine MCP operation failed.", {"errorClass": exc.__class__.__name__})
             self._audit(tool_name, state_path, actor_context, payload, start, "failure", mapped)
             return {"ok": False, "tool": tool_name, "error": mapped.to_dict()}
+        finally:
+            _REQUEST_CONTEXT.reset(context_token)
 
     def _dispatch(
         self,
@@ -293,7 +319,11 @@ class SprintEngineMcpServer:
 
     def _agent_join(self, state_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
         workspace_root = self._workspace_root(payload, required=False) or _default_workspace_root(state_path)
-        registry = discover_role_registry(workspace_root=workspace_root)
+        registry = discover_role_registry(
+            workspace_root=workspace_root,
+            plugin_roots=self._plugin_registry_roots(payload),
+            user_root=self._effective_user_root(),
+        )
         try:
             role_entry = registry.role_entry(str(payload["role"]))
         except KeyError as exc:
@@ -620,7 +650,7 @@ class SprintEngineMcpServer:
         registry = discover_role_registry(
             workspace_root=workspace_root,
             plugin_roots=self._plugin_registry_roots(payload),
-            user_root=self.user_root,
+            user_root=self._effective_user_root(),
         )
         if tool_name == "sprintengine.roles.list":
             include_shadowed = bool(payload.get("includeShadowed", False))
@@ -677,7 +707,7 @@ class SprintEngineMcpServer:
 
     def _configured_plugin_registry_roots(self) -> list[dict[str, str]]:
         roots: list[dict[str, str]] = []
-        for raw in self.plugin_registry_roots:
+        for raw in self._effective_plugin_registry_roots():
             if isinstance(raw, dict):
                 root = self._registry_root_path(raw.get("root") or raw.get("path"), enforce_allowed=False)
                 plugin_id = raw.get("id") or raw.get("pluginId") or raw.get("plugin_id")
@@ -699,7 +729,8 @@ class SprintEngineMcpServer:
                 "Plugin registry root appears to mix Windows and POSIX path formats. Use the path format for this process.",
             )
         path = Path(raw).expanduser().resolve()
-        if enforce_allowed and self.allowed_roots and not any(_is_relative_to(path, root) for root in self.allowed_roots):
+        allowed_roots = self._effective_allowed_roots()
+        if enforce_allowed and allowed_roots and not any(_is_relative_to(path, root) for root in allowed_roots):
             raise McpToolError("plugin_registry_root_not_allowed", "Plugin registry root is outside the configured allowed roots.")
         return path
 
@@ -945,7 +976,16 @@ class SprintEngineMcpServer:
         return result
 
     def _state_path(self, payload: dict[str, Any], *, required: bool) -> Path | None:
+        context = self._request_context()
         raw = payload.get("statePath")
+        if context is not None:
+            if raw:
+                if not isinstance(raw, str):
+                    raise McpToolError("invalid_state_path", "statePath must be a string.")
+                supplied = self._path_from_string(raw, "statePath", "invalid_state_path")
+                if supplied != context.state_path:
+                    raise McpToolError("state_path_not_allowed", "HTTP session cannot access a different Sprint Engine statePath.")
+            return context.state_path if (required or raw or context.state_path is not None) else None
         if not raw:
             if not required:
                 return None
@@ -965,16 +1005,26 @@ class SprintEngineMcpServer:
                 "statePath appears to mix Windows and POSIX path formats. Use the path format for this process.",
             )
         path = Path(raw).expanduser().resolve()
-        if self.allowed_roots and not any(_is_relative_to(path, root) for root in self.allowed_roots):
+        allowed_roots = self._effective_allowed_roots()
+        if allowed_roots and not any(_is_relative_to(path, root) for root in allowed_roots):
             raise McpToolError("state_path_not_allowed", "statePath is outside the configured allowed roots.")
         return path
 
     def _workspace_root(self, payload: dict[str, Any], *, required: bool) -> Path | None:
+        context = self._request_context()
+        raw = payload.get("workspaceRoot")
+        if context is not None:
+            if raw:
+                if not isinstance(raw, str):
+                    raise McpToolError("invalid_workspace_root", "workspaceRoot must be a string.")
+                supplied = self._path_from_string(raw, "workspaceRoot", "invalid_workspace_root")
+                if supplied != context.workspace_root:
+                    raise McpToolError("workspace_root_not_allowed", "HTTP session cannot access a different workspaceRoot.")
+            return context.workspace_root
         # Resolution chain so autonomous agents don't need to pass workspaceRoot in payloads:
         #   1. explicit `workspaceRoot` in payload (debug / CLI overrides)
         #   2. `SPRINTENGINE_WORKSPACE_ROOT` env var (set by Multicode at MCP server launch)
         #   3. derive from `statePath` (payload → `SPRINTENGINE_STATE_PATH` env → default_state_path)
-        raw = payload.get("workspaceRoot")
         if not raw:
             raw = os.environ.get("SPRINTENGINE_WORKSPACE_ROOT")
         if raw:
@@ -986,7 +1036,8 @@ class SprintEngineMcpServer:
                     "workspaceRoot appears to mix Windows and POSIX path formats. Use the path format for this process.",
                 )
             path = Path(raw).expanduser().resolve()
-            if self.allowed_roots and not any(_is_relative_to(path, root) for root in self.allowed_roots):
+            allowed_roots = self._effective_allowed_roots()
+            if allowed_roots and not any(_is_relative_to(path, root) for root in allowed_roots):
                 raise McpToolError("workspace_root_not_allowed", "workspaceRoot is outside the configured allowed roots.")
             return path
         derived_state: Path | None = None
@@ -1000,7 +1051,8 @@ class SprintEngineMcpServer:
             derived_state = self.default_state_path
         if derived_state is not None:
             derived = _default_workspace_root(derived_state)
-            if self.allowed_roots and not any(_is_relative_to(derived, root) for root in self.allowed_roots):
+            allowed_roots = self._effective_allowed_roots()
+            if allowed_roots and not any(_is_relative_to(derived, root) for root in allowed_roots):
                 # Derived root isn't allowed; fall through to required-error or None.
                 pass
             else:
@@ -1018,9 +1070,93 @@ class SprintEngineMcpServer:
                 "Input file path appears to mix Windows and POSIX path formats. Use the path format for this process.",
             )
         path = Path(raw).expanduser().resolve()
-        if self.allowed_roots and not any(_is_relative_to(path, root) for root in self.allowed_roots):
+        allowed_roots = self._effective_allowed_roots()
+        if allowed_roots and not any(_is_relative_to(path, root) for root in allowed_roots):
             raise McpToolError("input_path_not_allowed", "Input file path is outside the configured allowed roots.")
         return path
+
+    def _validate_session_identity_payload(self, tool_name: str, payload: dict[str, Any]) -> None:
+        context = self._request_context()
+        if context is None:
+            return
+        role_tools = {
+            "sprintengine.agent.join",
+            "sprintengine.agent.next_directive",
+            "sprintengine.join",
+            "sprintengine.task.next",
+            "sprintengine.gate.next",
+            "sprintengine.gate.claim",
+            "sprintengine.gate.verdict",
+            "sprintengine.gate.publish",
+            "sprintengine.gate.skip",
+            "sprintengine.plan.start_review",
+        }
+        id_tools = {
+            "sprintengine.join",
+            "sprintengine.triage.needs_input",
+            "sprintengine.task.next",
+            "sprintengine.task.claim",
+            "sprintengine.task.status",
+            "sprintengine.task.resolve_input",
+            "sprintengine.task.release",
+            "sprintengine.task.ready",
+            "sprintengine.task.log",
+            "sprintengine.task.publish",
+            "sprintengine.task.note",
+            "sprintengine.task.comment",
+            "sprintengine.gate.next",
+            "sprintengine.gate.claim",
+            "sprintengine.gate.verdict",
+            "sprintengine.gate.publish",
+            "sprintengine.gate.skip",
+            "sprintengine.plan.start_review",
+            "sprintengine.artifact.ready",
+            "sprintengine.artifact.approve",
+            "sprintengine.artifact.request_changes",
+        }
+        agent_id_tools = {
+            "sprintengine.agent.join",
+            "sprintengine.agent.next_directive",
+            "sprintengine.agent.heartbeat",
+            "sprintengine.agent.leave",
+            "sprintengine.dispatch.next",
+            "sprintengine.dispatch.ack",
+            "sprintengine.subscribe",
+        }
+        if tool_name in role_tools:
+            self._reject_session_mismatch(payload, "role", context.role, "role_not_allowed")
+        if tool_name in id_tools:
+            self._reject_session_mismatch(payload, "id", context.agent_id, "agent_id_not_allowed")
+        if tool_name in agent_id_tools:
+            self._reject_session_mismatch(payload, "agentId", context.agent_id, "agent_id_not_allowed")
+
+    def _reject_session_mismatch(self, payload: dict[str, Any], field: str, expected: str, code: str) -> None:
+        value = payload.get(field)
+        if expected and value is not None and str(value).strip() != expected:
+            raise McpToolError(code, f"HTTP session cannot use a different {field}.")
+
+    def _request_context(self) -> McpRequestContext | None:
+        return _REQUEST_CONTEXT.get()
+
+    def _effective_allowed_roots(self) -> list[Path]:
+        context = self._request_context()
+        return list(context.allowed_roots) if context is not None else self.allowed_roots
+
+    def _effective_plugin_registry_roots(self) -> tuple[dict[str, str] | str | Path, ...]:
+        context = self._request_context()
+        return context.plugin_registry_roots if context is not None else self.plugin_registry_roots
+
+    def _effective_user_root(self) -> Path | None:
+        context = self._request_context()
+        return context.user_root if context is not None else self.user_root
+
+    def _path_from_string(self, raw: str, field: str, code: str) -> Path:
+        if _looks_like_foreign_platform_path(raw):
+            raise McpToolError(
+                code,
+                f"{field} appears to mix Windows and POSIX path formats. Use the path format for this process.",
+            )
+        return Path(raw).expanduser().resolve()
 
     def _actor(self, actor: ActorContext | dict[str, Any] | None) -> ActorContext | None:
         try:
@@ -1074,6 +1210,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--state-path", help="Default Sprint Engine run.yaml path used when tool arguments omit statePath.")
     parser.add_argument("--extra-dir", action="append", default=[], help="Additional plugin registry root containing roles/ and skills/.")
     parser.add_argument("--user-dir", help="User registry base directory; the server reads <user-dir>/.sprintengine.")
+    parser.add_argument("--http", action="store_true", help="Serve MCP over local Streamable HTTP instead of stdio.")
+    parser.add_argument("--host", default="127.0.0.1", help="HTTP host for --http mode. Defaults to 127.0.0.1.")
+    parser.add_argument("--port", type=int, default=0, help="HTTP port for --http mode. Use 0 to choose a free port.")
+    parser.add_argument("--auth-token", help="Bearer token required by --http mode. Defaults to SPRINTENGINE_MCP_HTTP_TOKEN.")
     args = parser.parse_args(argv)
     allowed_roots = [*args.workspace, *args.allowed_root]
     server = SprintEngineMcpServer(
@@ -1083,6 +1223,16 @@ def main(argv: list[str] | None = None) -> int:
         stdio_actor=ActorContext.from_environment(),
         default_state_path=args.state_path,
     )
+    if args.http:
+        from .http_server import serve_http
+
+        return serve_http(
+            server,
+            host=args.host,
+            port=args.port,
+            actor=server.stdio_actor,
+            auth_token=args.auth_token or os.environ.get("SPRINTENGINE_MCP_HTTP_TOKEN"),
+        )
     for line in sys.stdin:
         if not line.strip():
             continue
@@ -1098,6 +1248,15 @@ def _handle_stdio_message(server: SprintEngineMcpServer, line: str) -> dict[str,
         message = json.loads(line)
     except json.JSONDecodeError as exc:
         return {"ok": False, "error": {"code": "invalid_json", "message": exc.msg}}
+    return _handle_jsonrpc_message(server, message, server.stdio_actor)
+
+
+def _handle_jsonrpc_message(
+    server: SprintEngineMcpServer,
+    message: dict[str, Any],
+    actor: ActorContext | dict[str, Any] | None,
+    context: McpRequestContext | None = None,
+) -> dict[str, Any] | None:
     method = message.get("method")
     # JSON-RPC 2.0 notifications have a method but no id and MUST NOT receive a response.
     # The MCP protocol relies on this for notifications/initialized, notifications/cancelled,
@@ -1121,7 +1280,7 @@ def _handle_stdio_message(server: SprintEngineMcpServer, line: str) -> dict[str,
         return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": server.list_tools()}}
     if method == "tools/call":
         params = message.get("params") or {}
-        raw = server.call_tool(params.get("name", ""), params.get("arguments") or {}, server.stdio_actor)
+        raw = server.call_tool(params.get("name", ""), params.get("arguments") or {}, actor, context=context)
         # MCP spec: tools/call result must be a CallToolResult ({ content, isError }).
         # Strict clients (recent Codex/Claude Code) reject the raw envelope with
         # "Unexpected response type". Wrap the envelope as a JSON-encoded text content
@@ -1135,7 +1294,7 @@ def _handle_stdio_message(server: SprintEngineMcpServer, line: str) -> dict[str,
             },
         }
     if "tool" in message:
-        return server.call_tool(message.get("tool", ""), message.get("payload") or {}, server.stdio_actor)
+        return server.call_tool(message.get("tool", ""), message.get("payload") or {}, actor, context=context)
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": "method_not_found", "message": f"Unsupported method: {method}"}}
 
 

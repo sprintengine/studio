@@ -375,6 +375,12 @@ def serve_mcp(args: argparse.Namespace) -> int:
     from sprintengine_mcp.server import main as mcp_main
 
     argv: list[str] = []
+    if getattr(args, "http", False):
+        argv.append("--http")
+        argv.extend(["--host", str(args.host)])
+        argv.extend(["--port", str(args.port)])
+        if args.auth_token:
+            argv.extend(["--auth-token", str(args.auth_token)])
     for workspace in args.workspace:
         argv.extend(["--workspace", str(workspace)])
     for allowed_root in args.allowed_root:
@@ -471,7 +477,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(handler=run_commands.runner_status)
 
     p = runner_sub.add_parser("set", help="Update the durable runner policy.")
-    p.add_argument("--mode", choices=["auto", "off"], help="auto polls for ready work; off stops idle polling.")
+    # `--mode auto|off` is the legacy spelling. New canonical flag is
+    # `--cli-watch-polling enabled|disabled`. The handler accepts either.
+    p.add_argument("--mode", choices=["auto", "off"], help="DEPRECATED alias for --cli-watch-polling. auto = enabled, off = disabled.")
+    p.add_argument("--cli-watch-polling", dest="cli_watch_polling", choices=["enabled", "disabled"], help="enabled = `join --watch` keeps polling for ready work; disabled = `join --watch` exits when no work is ready. CLI runtime only — Multicode supervisor ignores this flag.")
     p.add_argument("--poll-interval-seconds", type=int, help="Initial idle poll delay for join --watch.")
     p.add_argument("--idle-backoff-seconds", type=int, help="Base delay for subsequent idle join --watch polls.")
     p.add_argument("--max-backoff-seconds", type=int, help="Maximum capped delay for progressive idle join --watch backoff.")
@@ -491,7 +500,11 @@ def build_parser() -> argparse.ArgumentParser:
     # mcp
     mcp_p = sub.add_parser("mcp", help="Local MCP server operations.")
     mcp_sub = mcp_p.add_subparsers(dest="action", required=True)
-    p = mcp_sub.add_parser("serve", help="Run the local Sprint Engine MCP stdio server.")
+    p = mcp_sub.add_parser("serve", help="Run the local Sprint Engine MCP server.")
+    p.add_argument("--http", action="store_true", help="Serve MCP over local Streamable HTTP instead of stdio.")
+    p.add_argument("--host", default="127.0.0.1", help="HTTP host for --http mode. Defaults to 127.0.0.1.")
+    p.add_argument("--port", type=int, default=0, help="HTTP port for --http mode. Use 0 to choose a free port.")
+    p.add_argument("--auth-token", help="Bearer token required by --http mode. Defaults to SPRINTENGINE_MCP_HTTP_TOKEN.")
     p.add_argument("--workspace", action="append", default=[], help="Workspace root allowed to contain Sprint Engine state paths.")
     p.add_argument("--allowed-root", action="append", default=[], help="Workspace root allowed to contain Sprint Engine state paths.")
     p.add_argument("--extra-dir", action="append", default=[], help="Additional plugin registry root containing roles/ and skills/.")

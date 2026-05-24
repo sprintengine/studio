@@ -20,7 +20,9 @@ function testPlanFileHandoffIsMcpNative(): void {
   assert.ok(prompt.includes('sprintengine.init'), 'plan-file handoff names the MCP init tool')
   assert.ok(prompt.includes('sprintengine.agent.join'), 'auto-run flow names the MCP join tool')
   assert.ok(prompt.includes('sprintengine.agent.next_directive'), 'auto-run flow names the MCP directive tool')
-  assert.ok(prompt.includes('"statePath": ".multi-code/sprintengine/mcp-runtime/run.yaml"'), 'handover payload embeds the project-relative statePath')
+  assert.ok(!prompt.includes('.multi-code/sprintengine/mcp-runtime/run.yaml'), 'handoff prompt does not expose the run state path')
+  assert.ok(!prompt.includes('statePath'), 'handoff prompt does not expose statePath')
+  assert.ok(!prompt.includes('workspaceRoot'), 'handoff prompt does not expose workspaceRoot')
   assert.ok(prompt.includes('"name": "mcp-runtime"'), 'handover payload embeds the team name')
   assert.ok(prompt.includes('"handoverPath": "future-plans/2026-05-23-mcp-runtime.md"'), 'handover payload references the source path')
   assert.ok(prompt.includes('"sourcePlanKind": "architect_plan"'), 'handover payload classifies the source plan kind')
@@ -28,6 +30,10 @@ function testPlanFileHandoffIsMcpNative(): void {
   assert.ok(prompt.includes('"agent"'), 'init payload includes the roster')
   assert.ok(prompt.includes('"frontend:frontend"'), 'roster preserves agent specs verbatim')
   assert.ok(prompt.includes('"role": "architect"'), 'auto-run flow joins as architect')
+  assert.ok(prompt.includes('"agentId": "architect"'), 'auto-run flow uses the architect agent id')
+  assert.ok(prompt.includes('with `{role, agentId}`'), 'handoff prompt documents the session-context directive payload')
+  assert.ok(!prompt.includes('{statePath, role, agentId}'), 'handoff prompt does not document the stale path-bearing directive payload')
+  assert.ok(prompt.includes('registered HTTP session context'), 'handoff prompt explains managed session-context routing')
   assert.ok(prompt.includes('Multicode app owns runner policy'), 'auto-run flow defers runner mode to the app supervisor instead of a CLI command')
   assert.ok(
     !CLI_INSTRUCTION_PATTERN.test(prompt),
@@ -52,6 +58,8 @@ function testPlanFileHandoffBundleIssuesOneHandoverCallPerSource(): void {
   assert.ok(prompt.includes('"sourcePlanKind": "product_plan"'), 'bundle handoff classifies the product source')
   assert.ok(prompt.includes('"handoverPath": "future-plans/plan.md"'), 'bundle handoff emits one handover call per source (architect)')
   assert.ok(prompt.includes('"sourcePlanKind": "architect_plan"'), 'bundle handoff classifies the architect source')
+  assert.ok(!prompt.includes('statePath'), 'bundle handoff prompt does not expose statePath')
+  assert.ok(!prompt.includes('workspaceRoot'), 'bundle handoff prompt does not expose workspaceRoot')
   assert.ok(
     !CLI_INSTRUCTION_PATTERN.test(prompt),
     'bundle handoff does not instruct the agent to run any sprintengine CLI command'

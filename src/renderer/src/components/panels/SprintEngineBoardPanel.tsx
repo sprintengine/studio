@@ -63,7 +63,7 @@ import {
 import {
  deriveSprintEngineAutomationMode,
  sprintEngineAutomationModeOptions,
- sprintEngineRunnerModeForAutomationMode,
+ sprintEngineCliWatchPollingForAutomationMode,
 } from '../../utils/sprintengineAutomation'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { focusOrAddAgentTab, focusOrAddFileTab } from '../../utils/modelRegistry'
@@ -1331,11 +1331,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  setPendingAutomationMode(null)
  return
  }
- const nextRunnerMode = sprintEngineRunnerModeForAutomationMode(nextMode)
- if (sprintEngineState?.runner?.mode === nextRunnerMode) return null
+ const nextCliWatchPolling = sprintEngineCliWatchPollingForAutomationMode(nextMode)
+ if (sprintEngineState?.runner?.cliWatchPolling === nextCliWatchPolling) return null
  return window.api.setSprintEngineRunnerMode({
  statePath: sprintEngineContext.statePath,
- mode: nextRunnerMode,
+ cliWatchPolling: nextCliWatchPolling,
  })
  })().then(async (result) => {
  if (!result) {
@@ -1343,13 +1343,15 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  return
  }
  if (!result.ok) {
- setPendingAutomationMode(previousMode)
- setSprintEngineAutomationMode(workspaceId, previousMode)
+ // The CLI-watch polling write to run.yaml failed. Keep the user's local
+ // automation choice — the supervisor reads only local autoState, so the UI
+ // is functionally correct. Surface a diagnostic so the user can retry if
+ // they want the headless CLI co-existence flag synced.
  await publishDiagnostic({
  level: 'warning',
  source: 'sprintengine',
- title: 'Automation mode was not updated',
- message: result.message,
+ title: 'CLI watch-polling flag was not synced to run.yaml',
+ message: `${result.message} — local automation choice retained; toggle the mode again to retry the persist.`,
  workspaceId,
  workspaceName: workspace?.name,
  })
@@ -1362,13 +1364,13 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  if (!projectionApplied) await refreshSprintEngineState()
  setPendingAutomationMode(null)
  }).catch(async (error) => {
- setPendingAutomationMode(previousMode)
- setSprintEngineAutomationMode(workspaceId, previousMode)
+ // Same as the !result.ok branch: keep the user's local choice and surface
+ // the failure rather than reverting silently.
  await publishDiagnostic({
  level: 'warning',
  source: 'sprintengine',
- title: 'Automation mode was not updated',
- message: error instanceof Error ? error.message : String(error),
+ title: 'CLI watch-polling flag was not synced to run.yaml',
+ message: `${error instanceof Error ? error.message : String(error)} — local automation choice retained; toggle the mode again to retry the persist.`,
  workspaceId,
  workspaceName: workspace?.name,
  })

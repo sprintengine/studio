@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { join } from 'node:path'
 
 import { registerSprintEngineIpc } from './ipc/sprintengine-ipc'
 import { createPluginRegistry } from './plugin-registry'
@@ -408,7 +408,7 @@ async function testReadRegistryRolesUsesRealMcpBridgeForBundledAndCustomRoles():
   await writeFile(skillPath, 'Workspace marketer test skill.\n', 'utf-8')
 
   try {
-    process.env.PYTHONPATH = [process.cwd(), previousPythonPath].filter(Boolean).join(delimiter)
+    delete process.env.PYTHONPATH
     const handlers = createSprintEngineArtifactHandlers({
       getAuthenticatedUserId: () => 'user-1',
       openExternal: async () => undefined,

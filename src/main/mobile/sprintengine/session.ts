@@ -29,6 +29,7 @@ type SpawnMobileAgentTerminalInput = {
   cwd: string
   sprintEngineStatePath: string
   agentId: string
+  role: string
   initialPrompt: string
   cli: AgentCli
   executionMode: 'current_workspace' | 'worktree'
@@ -125,6 +126,7 @@ export class DesktopMobileSprintEngineSessionOrchestrator implements MobileSprin
       cwd: executionCwd,
       sprintEngineStatePath: request.statePath,
       agentId,
+      role: request.role,
       cli: 'codex',
       initialPrompt: buildStartupPrompt({
         role: request.role,

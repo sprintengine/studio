@@ -38,6 +38,8 @@ import { MulticodeAuthBridge, parseAuthCallbackFromArgv } from './auth-service'
 import { registerAppLifecycle } from './app-lifecycle'
 import { createMainDiagnostics } from './main-diagnostics'
 import { createMcpConfigService } from './mcp-config-service'
+import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
+import { createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
 import { createSkillPackService } from './skill-pack-service'
 import { createTerminalRuntime } from './terminal-runtime'
 import { MulticodeUpdateService } from './update-service'
@@ -98,16 +100,15 @@ if (!cliInstallResult.ok) {
 
 const multicodeAuth = new MulticodeAuthBridge()
 const mcpConfigService = createMcpConfigService()
+const sprintEngineMcpHub = createSprintEngineMcpHubService({ logMainPerfEvent })
 const skillPackService = createSkillPackService()
 const terminalRuntime = createTerminalRuntime({
   diagnosticsEnabled: MULTICODE_DIAGNOSTICS,
   requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
   logMainPerfEvent,
   onAgentSessionExit: (input) => input.workspaceRoot ? recordSwitchboardSessionExit(input) : undefined,
-  syncMcpConfig: async (input) => {
-    const result = mcpConfigService.sync(input)
-    return result.ok ? { ok: true } : { ok: false, message: result.message }
-  },
+  syncMcpConfig: (input) => syncManagedSprintEngineMcpConfig(input, { mcpConfigService, sprintEngineMcpHub }),
+  releaseManagedSprintEngineSession: (sessionId) => sprintEngineMcpHub.unregisterSession(sessionId),
 })
 const mobileSnapshotService = new MobileSprintEngineSnapshotService()
 const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
@@ -307,6 +308,7 @@ registerAppLifecycle({
   diagnosticsEnabled: MULTICODE_DIAGNOSTICS,
   mobileBridge,
   terminalRuntime,
+  sprintEngineMcpHub,
   updateService,
   handleAuthCallback: (argv) => {
     void parseAuthCallbackFromArgv(multicodeAuth, argv)

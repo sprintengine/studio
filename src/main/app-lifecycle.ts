@@ -14,6 +14,9 @@ type RegisterAppLifecycleOptions = {
   terminalRuntime: {
     shutdown(): Promise<void>
   }
+  sprintEngineMcpHub?: {
+    stop(): Promise<void>
+  }
   updateService: MulticodeUpdateService
   handleAuthCallback(argv: string[]): void
 }
@@ -22,6 +25,7 @@ export function registerAppLifecycle({
   diagnosticsEnabled,
   mobileBridge,
   terminalRuntime,
+  sprintEngineMcpHub,
   updateService,
   handleAuthCallback,
 }: RegisterAppLifecycleOptions): void {
@@ -79,6 +83,7 @@ export function registerAppLifecycle({
     beginSwitchboardPythonRuntimeShutdown()
     const shutdown = async () => {
       await terminalRuntime.shutdown()
+      await sprintEngineMcpHub?.stop()
       await shutdownSwitchboardPythonRuntime()
       mobileBridge.shutdown()
       await releaseAllWorkspaceRunnerLocks()

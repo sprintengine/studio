@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from typing import Any, Dict
 
+from sprintengine_core import store as folder_store
 from sprintengine_core.tool.constants import ACTIVE_TASK_STATUSES
 from sprintengine_core.tool.gates import find_active_gate_claim
 from sprintengine_core.tool.paths import now_iso
@@ -89,8 +90,12 @@ def cmd_roster_retire(args: argparse.Namespace) -> Dict[str, Any]:
             {"agentId": clean_id, "role": role, "reason": reason},
         )
         replacement = None
+        # The replenishment trigger uses the normalized runner policy so it
+        # picks up either the legacy `runner.mode: auto` or the new
+        # `runner.cliWatchPolling: enabled` shape.
+        runner_policy = folder_store.normalize_runner_policy(state.get("runner"))
         if (
-            state.get("runner", {}).get("mode") == "auto"
+            runner_policy.get("cliWatchPolling") == "enabled"
             and role_has_open_work(state, role)
             and not retired_agent_has_live_replacement(state, agent)
         ):

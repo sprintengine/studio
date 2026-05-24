@@ -311,6 +311,15 @@ export type McpSyncInput = {
     registryRoots?: string[]
     userRoot?: string
     actorId?: string
+    workspaceId?: string
+    agentId?: string
+    role?: string
+    cli?: McpClientTarget
+    http?: {
+      url: string
+      authTokenEnvVar?: string
+      headers?: Record<string, string>
+    }
   }
   requiredOnly?: boolean
   write?: boolean
@@ -788,11 +797,16 @@ export type SprintEngineStateInitializeInput = {
   artifacts?: unknown[]
 }
 
-export type SprintEngineRunnerMode = 'auto' | 'off'
+export type SprintEngineCliWatchPolling = 'enabled' | 'disabled'
 
 export type SprintEngineRunnerSetInput = {
   statePath: string
-  mode: SprintEngineRunnerMode
+  // Whether `sprintengine join --watch` keeps polling for ready work. CLI
+  // runtime only — Multicode supervisor ignores this. Existing IPC callers
+  // that send `mode: 'auto' | 'off'` are translated by the main-process
+  // handler in `src/main/sprintengine-artifacts.ts` to preserve backward
+  // compatibility for one release cycle.
+  cliWatchPolling: SprintEngineCliWatchPolling
 }
 
 export type SprintEngineRosterReplenishInput = {

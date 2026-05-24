@@ -390,7 +390,7 @@ def _directive_next_tool(
 
 
 def _directive_retry_after_ms(policy: Dict[str, Any], attempts: int, action: str) -> Optional[int]:
-    if action != "idle" or policy.get("mode") != "auto":
+    if action != "idle" or policy.get("cliWatchPolling") != "enabled":
         return None
     return runner_watch_delay_seconds(policy, attempts) * 1000
 
@@ -541,7 +541,7 @@ def build_agent_next_directive(args: argparse.Namespace) -> Dict[str, Any]:
 
 def auto_mode_continuation(state: Dict[str, Any], role: str, agent_id: str) -> Optional[Dict[str, str]]:
     policy = folder_store.normalize_runner_policy(state.get("runner"))
-    if policy.get("mode") != "auto":
+    if policy.get("cliWatchPolling") != "enabled":
         return None
     command = f"sprintengine join --role {role} --id {agent_id} --watch"
     return {
@@ -769,8 +769,8 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
         policy = folder_store.normalize_runner_policy(result.get("runner"))
         if action not in {"idle"}:
             return result
-        if policy.get("mode") != "auto":
-            result["message"] = f"{result.get('message', 'No work is ready')} Auto Mode is off; stop now."
+        if policy.get("cliWatchPolling") != "enabled":
+            result["message"] = f"{result.get('message', 'No work is ready')} CLI watch polling is disabled; stop now."
             return result
         elapsed = time.monotonic() - started_at
         if max_wait_seconds is not None and elapsed >= float(max_wait_seconds):
@@ -877,11 +877,20 @@ def cmd_runner_status(args: argparse.Namespace) -> Dict[str, Any]:
 
     return with_locked_state(args.state, run)
 
+_LEGACY_MODE_TO_CLI_WATCH_POLLING = {"auto": "enabled", "off": "disabled"}
+
+
 def cmd_runner_set(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         current = folder_store.normalize_runner_policy(state.get("runner"))
-        if args.mode:
-            current["mode"] = args.mode
+        # `--mode auto|off` is the legacy CLI flag. Accept it as an alias and
+        # translate to the new `cliWatchPolling` namespace.
+        if getattr(args, "mode", None):
+            translated = _LEGACY_MODE_TO_CLI_WATCH_POLLING.get(str(args.mode).strip().lower())
+            if translated is not None:
+                current["cliWatchPolling"] = translated
+        if getattr(args, "cli_watch_polling", None):
+            current["cliWatchPolling"] = str(args.cli_watch_polling).strip().lower()
         if args.poll_interval_seconds is not None:
             current["pollIntervalSeconds"] = args.poll_interval_seconds
         if args.idle_backoff_seconds is not None:
@@ -891,7 +900,12 @@ def cmd_runner_set(args: argparse.Namespace) -> Dict[str, Any]:
         if args.stop_when_complete is not None:
             current["stopWhenComplete"] = bool(args.stop_when_complete)
         state["runner"] = folder_store.normalize_runner_policy(current)
-        event = append_event(state, "runner_policy_updated", args.actor, f"{args.actor} set runner mode to {state['runner']['mode']}.")
+        event = append_event(
+            state,
+            "runner_policy_updated",
+            args.actor,
+            f"{args.actor} set CLI watch polling to {state['runner']['cliWatchPolling']}.",
+        )
         return {"ok": True, "runner": state["runner"], "event": event}
 
     return with_locked_state(args.state, run)

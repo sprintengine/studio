@@ -91,7 +91,12 @@ DEFAULT_QUALITY_POLICY = {
     },
 }
 DEFAULT_RUNNER_POLICY = {
-    "mode": "off",
+    # `cliWatchPolling` controls whether `sprintengine join --watch` keeps
+    # polling for new work (`enabled`) or exits when no work is ready
+    # (`disabled`). It is a CLI-runtime concern only — Multicode's supervisor
+    # ignores it and decides spawning from local renderer autoState. Legacy
+    # `mode: auto|off` is read as a fallback by `normalize_runner_policy`.
+    "cliWatchPolling": "disabled",
     "pollIntervalSeconds": 10,
     "idleBackoffSeconds": 30,
     "maxBackoffSeconds": 120,
@@ -185,13 +190,27 @@ def _positive_int(value: Any, fallback: int, *, minimum: int = 1, maximum: int =
     return max(minimum, min(maximum, parsed))
 
 
+_LEGACY_TO_NEW_CLI_WATCH = {"auto": "enabled", "off": "disabled"}
+
+
 def normalize_runner_policy(raw: Any) -> dict[str, Any]:
+    """Normalize the on-disk runner policy.
+
+    Field rename: `runner.mode` (`auto|off`) → `runner.cliWatchPolling`
+    (`enabled|disabled`). Read both shapes for backward compatibility with
+    existing `run.yaml` files; write the new shape on output.
+    """
     policy = raw if isinstance(raw, dict) else {}
-    mode = str(policy.get("mode") or DEFAULT_RUNNER_POLICY["mode"]).strip().lower()
-    if mode not in {"auto", "off"}:
-        mode = str(DEFAULT_RUNNER_POLICY["mode"])
+    raw_value = policy.get("cliWatchPolling")
+    if raw_value is None:
+        # Legacy field name and value space.
+        legacy_mode = str(policy.get("mode") or "").strip().lower()
+        raw_value = _LEGACY_TO_NEW_CLI_WATCH.get(legacy_mode, DEFAULT_RUNNER_POLICY["cliWatchPolling"])
+    cli_watch_polling = str(raw_value).strip().lower()
+    if cli_watch_polling not in {"enabled", "disabled"}:
+        cli_watch_polling = str(DEFAULT_RUNNER_POLICY["cliWatchPolling"])
     return {
-        "mode": mode,
+        "cliWatchPolling": cli_watch_polling,
         "pollIntervalSeconds": _positive_int(policy.get("pollIntervalSeconds"), int(DEFAULT_RUNNER_POLICY["pollIntervalSeconds"])),
         "idleBackoffSeconds": _positive_int(policy.get("idleBackoffSeconds"), int(DEFAULT_RUNNER_POLICY["idleBackoffSeconds"])),
         "maxBackoffSeconds": _positive_int(policy.get("maxBackoffSeconds"), int(DEFAULT_RUNNER_POLICY["maxBackoffSeconds"])),

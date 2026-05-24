@@ -286,46 +286,12 @@ async function refreshAutoWorkspaceState(
   }
 }
 
-async function ensureDurableAutoMode(
-  workspace: Workspace,
-  sprintEngineState: SprintEngineState,
-  lastContentByWorkspace: MutableRefObject<Map<string, string>>
-): Promise<{ workspace: Workspace; sprintEngineState: SprintEngineState } | null> {
-  if (!workspace.sprintEngineContext || sprintEngineState.runner?.mode === 'auto') {
-    return { workspace, sprintEngineState }
-  }
-
-  const stateFileExists = await window.api.pathExists(workspace.sprintEngineContext.statePath).catch(() => false)
-  if (!stateFileExists) return { workspace, sprintEngineState }
-
-  const result = await window.api.setSprintEngineRunnerMode({
-    statePath: workspace.sprintEngineContext.statePath,
-    mode: 'auto',
-  }).catch((error): { ok: false; message: string } => ({
-    ok: false,
-    message: error instanceof Error ? error.message : String(error),
-  }))
-
-  if (!result.ok) {
-    await publishDiagnostic({
-      level: 'warning',
-      source: 'sprintengine',
-      title: 'Auto Mode was not started',
-      message: result.message,
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-    })
-    return null
-  }
-
-  const refreshedState = await refreshAutoWorkspaceState(workspace, lastContentByWorkspace, { force: true })
-  const refreshedWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
-  if (!refreshedWorkspace || !refreshedState) return null
-  return {
-    workspace: refreshedWorkspace,
-    sprintEngineState: refreshedWorkspace.sprintEngineState ?? refreshedState,
-  }
-}
+// Note: `ensureDurableAutoMode` was removed. It bridged local autoState into the
+// run.yaml CLI-watch polling flag, but that bridge tied Multicode's UI state to
+// CLI-headless polling state — two unrelated concerns. The click handler in
+// SprintEngineBoardPanel writes the CLI flag directly when the user toggles
+// automation. Multicode's supervisor decides whether to spawn agents from local
+// autoState alone; CLI-headless polling is the CLI's own concern.
 
 function normalizeComparablePath(path: string): string {
   const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')
@@ -1347,7 +1313,7 @@ async function startMissingRosterAgents(
     workspaceId: workspace.id,
     workspaceName: workspace.name,
     automationMode,
-    runnerMode: sprintEngineState.runner?.mode ?? null,
+    runnerCliWatchPolling: sprintEngineState.runner?.cliWatchPolling ?? null,
     localRunnerActive,
     supervisorEnabled: autoState.supervisorEnabled,
     legacyEnabled: autoState.enabled,
@@ -1368,7 +1334,7 @@ async function startMissingRosterAgents(
       workspaceName: workspace.name,
       reason: !workspace.sprintEngineContext ? 'missing-sprintengine-context' : 'local-runner-inactive',
       automationMode,
-      runnerMode: sprintEngineState.runner?.mode ?? null,
+      runnerCliWatchPolling: sprintEngineState.runner?.cliWatchPolling ?? null,
       localRunnerActive,
       supervisorEnabled: autoState.supervisorEnabled,
       autoApproveArtifacts: autoState.autoApproveArtifacts,
@@ -1504,7 +1470,10 @@ async function replenishRetiredRosterCapacity(
   | { status: 'changed'; workspace: Workspace; sprintEngineState: SprintEngineState }
   | { status: 'failed' | 'none' }
 > {
-  if (!workspace.sprintEngineContext || sprintEngineState.runner?.mode !== 'auto') return { status: 'none' }
+  // Roster replenishment is supervisor work — it should run based on local
+  // automation state, not the headless CLI watch-polling flag in run.yaml.
+  if (!workspace.sprintEngineContext) return { status: 'none' }
+  if (deriveSprintEngineAutomationMode(getSprintEngineAutoState(workspace)) === 'manual') return { status: 'none' }
   const hasRetiredAgent = Object.values(sprintEngineState.sprintEngineAgents)
     .some((agent) => agent.status === 'retired')
   if (!hasRetiredAgent) return { status: 'none' }
@@ -1652,12 +1621,9 @@ async function superviseWorkspace(
     autoApproveArtifacts: autoState.autoApproveArtifacts,
   })
 
-  if (runnerActive) {
-    const durableAutoMode = await ensureDurableAutoMode(workspace, sprintEngineState, lastContentByWorkspace)
-    if (!durableAutoMode) return
-    workspace = durableAutoMode.workspace
-    sprintEngineState = durableAutoMode.sprintEngineState
-  }
+  // The supervisor used to bridge local autoState into the run.yaml CLI-watch
+  // polling flag here. That bridge was removed: local autoState is enough to
+  // decide whether to spawn agents, and the CLI flag is the CLI's concern.
 
   if (approvalActive) {
     const approvalResult = await sendApprovalToNextEligibleArtifactProducer(
@@ -1980,7 +1946,9 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
       taskId: run.taskId,
     })),
   })
-  if (sprintEngineState.runner?.mode === 'auto' && nextRuns.length === 0) {
+  if (nextRuns.length === 0) {
+    // superviseRunnerActiveCycle is only entered when the local automation is
+    // on, so an empty candidate list means there's nothing to spawn this tick.
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -2102,7 +2070,7 @@ export default function SprintEngineAutoRunSupervisor() {
             name: workspace.name,
             enabled: isSprintEngineRunnerActive(workspace),
             automationMode: deriveSprintEngineAutomationMode(getSprintEngineAutoState(workspace), workspace.sprintEngineState?.runner),
-            runnerMode: workspace.sprintEngineState?.runner?.mode ?? null,
+            runnerCliWatchPolling: workspace.sprintEngineState?.runner?.cliWatchPolling ?? null,
             supervisorEnabled: getSprintEngineAutoState(workspace).supervisorEnabled,
             legacyEnabled: getSprintEngineAutoState(workspace).enabled,
             autoApproveArtifacts: getSprintEngineAutoState(workspace).autoApproveArtifacts,

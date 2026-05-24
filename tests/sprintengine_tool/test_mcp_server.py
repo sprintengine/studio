@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
 import subprocess
 import sys
+import threading
+import urllib.error
+import urllib.request
 
-from helpers import REPO_ROOT, create_team, get_task, read_state, task, write_state
+from helpers import REPO_ROOT, create_team, create_workspace_team, get_task, read_state, task, write_state
 from sprintengine_core.tool.constants import FEEDBACK_COUNT_FIELDS, FEEDBACK_SCORE_FIELDS, FEEDBACK_TEXT_FIELDS
 from sprintengine_mcp import SprintEngineMcpServer
+from sprintengine_mcp.auth import ActorContext
+from sprintengine_mcp.http_server import MULTICODE_SESSION_HEADER, SESSION_HEADER, SprintEngineHttpMcpServer
 from sprintengine_mcp.schemas import MCP_V1_CONTRACT_SCHEMAS, TOOL_SCHEMAS
 
 
@@ -46,6 +52,113 @@ def write_registry_skill(root, skill_id: str, body: str) -> None:
     skill_dir = root / ".sprintengine" / "skills" / skill_id
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
+
+
+@contextmanager
+def run_http_mcp_server(server: SprintEngineMcpServer, *, token: str):
+    httpd = SprintEngineHttpMcpServer(
+        ("127.0.0.1", 0),
+        server,
+        actor=ActorContext(id="workspace-user", role="user", authenticated=True, mcp_authorized=True),
+        auth_token=token,
+    )
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    host, port = httpd.server_address
+    try:
+        yield f"http://{host}:{port}/mcp"
+    finally:
+        httpd.shutdown()
+        thread.join(timeout=5)
+        httpd.server_close()
+
+
+def http_post(
+    url: str,
+    *,
+    token: str,
+    payload: dict,
+    session_id: str | None = None,
+    multicode_session_id: str | None = None,
+    origin: str | None = None,
+    expect_error: bool = False,
+) -> tuple[int, dict[str, str], dict]:
+    data = json.dumps(payload).encode("utf-8")
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    if session_id:
+        headers[SESSION_HEADER] = session_id
+    if multicode_session_id:
+        headers[MULTICODE_SESSION_HEADER] = multicode_session_id
+    if origin:
+        headers["Origin"] = origin
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            body = json.loads(response.read().decode("utf-8"))
+            return response.status, dict(response.headers.items()), body
+    except urllib.error.HTTPError as error:
+        if not expect_error:
+            raise
+        body = json.loads(error.read().decode("utf-8"))
+        return error.code, dict(error.headers.items()), body
+
+
+def register_http_session(
+    base_url: str,
+    *,
+    token: str,
+    session_id: str,
+    workspace_root,
+    state_path,
+    allowed_roots,
+    actor_id: str = "workspace-user",
+    agent_id: str = "developer-a",
+    role: str = "developer",
+    cli: str = "codex",
+) -> dict:
+    status, _, body = http_post(
+        f"{base_url}/sessions",
+        token=token,
+        payload={
+            "sessionId": session_id,
+            "workspaceRoot": str(workspace_root),
+            "statePath": str(state_path),
+            "allowedRoots": [str(root) for root in allowed_roots],
+            "registryRoots": [],
+            "actorId": actor_id,
+            "agentId": agent_id,
+            "role": role,
+            "cli": cli,
+        },
+    )
+    assert status == 200
+    assert body["sessionId"] == session_id
+    assert body["headerName"] == MULTICODE_SESSION_HEADER
+    return body
+
+
+def http_get(
+    url: str,
+    *,
+    token: str | None = None,
+    expect_error: bool = False,
+) -> tuple[int, dict]:
+    headers = {}
+    if token is not None:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            body = json.loads(response.read().decode("utf-8"))
+            return response.status, body
+    except urllib.error.HTTPError as error:
+        if not expect_error:
+            raise
+        body = json.loads(error.read().decode("utf-8"))
+        return error.code, body
 
 
 def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
@@ -281,7 +394,7 @@ def test_mcp_run_and_dispatch_tools_return_role_agnostic_progression_context(tmp
     assert persisted_subscription["lastDispatchAckAt"] == ack["result"]["agent"]["subscription"]["lastDispatchAckAt"]
     assert persisted_subscription["lastDispatchOutcome"] == "acknowledged"
     assert run["result"]["run"]["name"] == "mcp-run-dispatch"
-    assert "mode" in policy["result"]["runner"]
+    assert "cliWatchPolling" in policy["result"]["runner"]
     assert projection["result"]["run"]["name"] == "mcp-run-dispatch"
     assert events["result"]["latestEventId"] == events["result"]["latestEvent"]["id"]
     assert events["result"]["state"] == "events_available"
@@ -673,7 +786,7 @@ def test_mcp_next_directive_matches_join_for_needs_input_idle_complete_blocked_a
     idle_fixture = create_team(tmp_path, "mcp-next-directive-idle", [task("T1", "Tester work", "tester")])
     idle_state = read_state(idle_fixture.state_path)
     idle_state["runner"] = {
-        "mode": "auto",
+        "cliWatchPolling": "enabled",
         "pollIntervalSeconds": 10,
         "idleBackoffSeconds": 30,
         "maxBackoffSeconds": 120,
@@ -856,13 +969,16 @@ def test_mcp_agent_join_response_contains_no_cli_command_strings(tmp_path) -> No
             "any join response field (prompt, promptContext, roleManifest, agent, etc.)."
         )
 
+    # `--watch` and `join --watch` appear in legitimate scoped-deprecation
+    # context inside the Soul ("do not run join --watch in MCP-native
+    # terminals; use sprintengine.agent.join"). The forbidden_subcommands
+    # checks above already prevent any actual CLI invocation; here we focus on
+    # flag patterns that would indicate an active CLI call shape.
     forbidden_flag_patterns = [
         "--task-id ",
-        "--role ",
+        "--role developer",
         "--id <your-id>",
-        "--watch",
         "--artifact-id",
-        "join --watch",
     ]
     for needle in forbidden_flag_patterns:
         assert needle not in serialized, (
@@ -1437,6 +1553,317 @@ def test_stdio_transport_rejects_request_supplied_actor_without_verified_server_
     assert "authenticated actor context" in result["error"]["message"]
 
 
+def test_http_transport_exercises_initialize_tools_list_and_tool_call(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-http-smoke", [task("T1", "HTTP task", "developer")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    with run_http_mcp_server(server, token="secret-token") as base_url:
+        register_http_session(
+            base_url,
+            token="secret-token",
+            session_id="launch-session-a",
+            workspace_root=tmp_path,
+            state_path=fixture.state_path,
+            allowed_roots=[tmp_path],
+        )
+        init_status, init_headers, init_body = http_post(
+            base_url,
+            token="secret-token",
+            multicode_session_id="launch-session-a",
+            payload={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": "2024-11-05", "clientInfo": {"name": "pytest", "version": "0"}},
+            },
+        )
+        session_id = init_headers[SESSION_HEADER]
+
+        assert init_status == 200
+        assert init_body["result"]["serverInfo"]["name"] == "sprintengine-mcp"
+        assert session_id
+
+        list_status, _, list_body = http_post(
+            base_url,
+            token="secret-token",
+            session_id=session_id,
+            payload={"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        )
+        assert list_status == 200
+        assert any(tool["name"] == "sprintengine.task.list" for tool in list_body["result"]["tools"])
+
+        call_status, _, call_body = http_post(
+            base_url,
+            token="secret-token",
+            session_id=session_id,
+            payload={
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "sprintengine.task.list",
+                    "arguments": {"role": "developer"},
+                },
+            },
+        )
+        wrapper = call_body["result"]
+        result = json.loads(wrapper["content"][0]["text"])
+
+        assert call_status == 200
+        assert wrapper["isError"] is False
+        assert result["ok"] is True
+        assert [entry["id"] for entry in result["result"]["readyTasks"]] == ["T1"]
+
+
+def test_http_sessions_route_to_distinct_registered_state_paths(tmp_path) -> None:
+    first = create_workspace_team(tmp_path, "workspace-a", "team-a", [task("T1", "First task", "developer")])
+    second = create_workspace_team(tmp_path, "workspace-b", "team-b", [task("T2", "Second task", "developer")])
+    server = SprintEngineMcpServer()
+
+    with run_http_mcp_server(server, token="secret-token") as base_url:
+        register_http_session(
+            base_url,
+            token="secret-token",
+            session_id="launch-a",
+            workspace_root=tmp_path / "workspace-a",
+            state_path=first.state_path,
+            allowed_roots=[tmp_path / "workspace-a"],
+        )
+        register_http_session(
+            base_url,
+            token="secret-token",
+            session_id="launch-b",
+            workspace_root=tmp_path / "workspace-b",
+            state_path=second.state_path,
+            allowed_roots=[tmp_path / "workspace-b"],
+        )
+
+        _, first_headers, _ = http_post(
+            base_url,
+            token="secret-token",
+            multicode_session_id="launch-a",
+            payload={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        )
+        _, second_headers, _ = http_post(
+            base_url,
+            token="secret-token",
+            multicode_session_id="launch-b",
+            payload={"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}},
+        )
+
+        first_status, _, first_body = http_post(
+            base_url,
+            token="secret-token",
+            session_id=first_headers[SESSION_HEADER],
+            payload={
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": "sprintengine.task.list", "arguments": {"role": "developer"}},
+            },
+        )
+        second_status, _, second_body = http_post(
+            base_url,
+            token="secret-token",
+            session_id=second_headers[SESSION_HEADER],
+            payload={
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {"name": "sprintengine.task.list", "arguments": {"role": "developer"}},
+            },
+        )
+
+    first_result = json.loads(first_body["result"]["content"][0]["text"])
+    second_result = json.loads(second_body["result"]["content"][0]["text"])
+    assert first_status == 200
+    assert second_status == 200
+    assert [entry["id"] for entry in first_result["result"]["readyTasks"]] == ["T1"]
+    assert [entry["id"] for entry in second_result["result"]["readyTasks"]] == ["T2"]
+
+
+def test_http_session_rejects_cross_workspace_state_path(tmp_path) -> None:
+    first = create_workspace_team(tmp_path, "workspace-a", "team-a", [task("T1", "First task", "developer")])
+    second = create_workspace_team(tmp_path, "workspace-b", "team-b", [task("T2", "Second task", "developer")])
+    server = SprintEngineMcpServer()
+
+    with run_http_mcp_server(server, token="secret-token") as base_url:
+        register_http_session(
+            base_url,
+            token="secret-token",
+            session_id="launch-a",
+            workspace_root=tmp_path / "workspace-a",
+            state_path=first.state_path,
+            allowed_roots=[tmp_path / "workspace-a"],
+        )
+        _, headers, _ = http_post(
+            base_url,
+            token="secret-token",
+            multicode_session_id="launch-a",
+            payload={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        )
+        status, _, body = http_post(
+            base_url,
+            token="secret-token",
+            session_id=headers[SESSION_HEADER],
+            payload={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "sprintengine.task.list",
+                    "arguments": {"statePath": str(second.state_path), "role": "developer"},
+                },
+            },
+        )
+
+    result = json.loads(body["result"]["content"][0]["text"])
+    assert status == 200
+    assert body["result"]["isError"] is True
+    assert result["ok"] is False
+    assert result["error"]["code"] == "state_path_not_allowed"
+
+
+def test_http_session_rejects_identity_mismatch(tmp_path) -> None:
+    fixture = create_workspace_team(tmp_path, "workspace-a", "team-a", [task("T1", "First task", "developer")])
+    server = SprintEngineMcpServer()
+
+    with run_http_mcp_server(server, token="secret-token") as base_url:
+        register_http_session(
+            base_url,
+            token="secret-token",
+            session_id="launch-a",
+            workspace_root=tmp_path / "workspace-a",
+            state_path=fixture.state_path,
+            allowed_roots=[tmp_path / "workspace-a"],
+            agent_id="developer-a",
+            role="developer",
+        )
+        _, headers, _ = http_post(
+            base_url,
+            token="secret-token",
+            multicode_session_id="launch-a",
+            payload={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        )
+        _, _, role_body = http_post(
+            base_url,
+            token="secret-token",
+            session_id=headers[SESSION_HEADER],
+            payload={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "sprintengine.task.next", "arguments": {"role": "frontend", "id": "developer-a"}},
+            },
+        )
+        _, _, agent_body = http_post(
+            base_url,
+            token="secret-token",
+            session_id=headers[SESSION_HEADER],
+            payload={
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": "sprintengine.agent.heartbeat", "arguments": {"agentId": "developer-b"}},
+            },
+        )
+        _, _, id_body = http_post(
+            base_url,
+            token="secret-token",
+            session_id=headers[SESSION_HEADER],
+            payload={
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {"name": "sprintengine.task.claim", "arguments": {"taskId": "T1", "id": "developer-b"}},
+            },
+        )
+
+    role_result = json.loads(role_body["result"]["content"][0]["text"])
+    agent_result = json.loads(agent_body["result"]["content"][0]["text"])
+    id_result = json.loads(id_body["result"]["content"][0]["text"])
+    assert role_body["result"]["isError"] is True
+    assert role_result["error"]["code"] == "role_not_allowed"
+    assert agent_body["result"]["isError"] is True
+    assert agent_result["error"]["code"] == "agent_id_not_allowed"
+    assert id_body["result"]["isError"] is True
+    assert id_result["error"]["code"] == "agent_id_not_allowed"
+
+
+def test_http_transport_requires_bearer_token(tmp_path) -> None:
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    with run_http_mcp_server(server, token="secret-token") as base_url:
+        status, _, body = http_post(
+            base_url,
+            token="wrong-token",
+            payload={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+            expect_error=True,
+        )
+
+    assert status == 401
+    assert body == {"error": "unauthorized"}
+
+
+def test_http_transport_get_requires_bearer_token_before_method_rejection(tmp_path) -> None:
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    with run_http_mcp_server(server, token="secret-token") as base_url:
+        unauthorized_status, unauthorized_body = http_get(base_url, expect_error=True)
+        rejected_status, rejected_body = http_get(base_url, token="secret-token", expect_error=True)
+
+    assert unauthorized_status == 401
+    assert unauthorized_body == {"error": "unauthorized"}
+    assert rejected_status == 405
+    assert rejected_body == {"error": "sse_not_supported"}
+
+
+def test_http_transport_requires_session_after_initialize(tmp_path) -> None:
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    with run_http_mcp_server(server, token="secret-token") as base_url:
+        status, _, body = http_post(
+            base_url,
+            token="secret-token",
+            payload={"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+            expect_error=True,
+        )
+
+    assert status == 400
+    assert body["error"]["code"] == "invalid_session"
+
+
+def test_http_transport_requires_registered_session_for_initialize(tmp_path) -> None:
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    with run_http_mcp_server(server, token="secret-token") as base_url:
+        status, _, body = http_post(
+            base_url,
+            token="secret-token",
+            payload={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+            expect_error=True,
+        )
+
+    assert status == 400
+    assert body["error"]["code"] == "invalid_session"
+
+
+def test_http_transport_rejects_non_local_origin(tmp_path) -> None:
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    with run_http_mcp_server(server, token="secret-token") as base_url:
+        status, _, body = http_post(
+            base_url,
+            token="secret-token",
+            payload={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+            origin="https://example.com",
+            expect_error=True,
+        )
+
+    assert status == 403
+    assert body == {"error": "origin_not_allowed"}
+
+
 def test_sprintengine_mcp_serve_matches_module_entrypoint_roots_and_extra_dirs(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     outside = tmp_path / "outside"
@@ -1502,6 +1929,30 @@ def test_sprintengine_mcp_serve_matches_module_entrypoint_roots_and_extra_dirs(t
     assert any(role["id"] == "plugin_writer" and role["source"]["layer"] == "plugin:0" for role in roles_result["result"]["roles"])
     assert task_result["ok"] is False
     assert task_result["error"]["code"] == "state_path_not_allowed"
+
+
+def test_sprintengine_mcp_serve_forwards_http_flags() -> None:
+    completed = subprocess.run(
+        [
+            str(REPO_ROOT / "scripts" / "sprintengine"),
+            "mcp",
+            "serve",
+            "--http",
+            "--host",
+            "0.0.0.0",
+            "--auth-token",
+            "secret-token",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=10,
+        check=False,
+    )
+
+    assert completed.returncode == 2
+    assert "only supports host 127.0.0.1" in completed.stderr
 
 
 def test_mcp_feedback_tools_return_sanitized_summary_and_recommendations(tmp_path) -> None:

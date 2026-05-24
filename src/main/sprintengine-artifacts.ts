@@ -25,6 +25,7 @@ import type {
   SprintEngineProjectionReadPayload,
   SprintEngineTaskReadyPayload,
 } from './ipc/sprintengine-ipc'
+import { findSprintEngineRuntimeRoot } from './mcp-config-service'
 import { getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
 
 type SprintEngineArtifactDependencies = {
@@ -341,10 +342,14 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
   }
 }
 
-function getSprintEngineMcpPythonExecutable(workspaceRoot: string): string {
+function getSprintEngineMcpRuntimeRoot(): string {
+  return findSprintEngineRuntimeRoot() ?? process.cwd()
+}
+
+function getSprintEngineMcpPythonExecutable(runtimeRoot: string): string {
   const venvPython = process.platform === 'win32'
-    ? join(workspaceRoot, '.venv', 'Scripts', 'python.exe')
-    : join(workspaceRoot, '.venv', 'bin', 'python')
+    ? join(runtimeRoot, '.venv', 'Scripts', 'python.exe')
+    : join(runtimeRoot, '.venv', 'bin', 'python')
   if (existsSync(venvPython)) return venvPython
   return process.platform === 'win32' ? 'python' : 'python3'
 }
@@ -365,7 +370,7 @@ function validateWorkspaceRoot(input: unknown): string {
 }
 
 function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: SerializableSprintEngineStatePayload): string[] {
-  const args = ['scripts/sprintengine_tool.py', '--state', state.statePath, 'init', '--goal', payload.goal || payload.name]
+  const args = [join(getSprintEngineMcpRuntimeRoot(), 'scripts', 'sprintengine_tool.py'), '--state', state.statePath, 'init', '--goal', payload.goal || payload.name]
   for (const [agentId, agent] of Object.entries(payload.agents)) {
     if (!agent || typeof agent !== 'object' || Array.isArray(agent)) continue
     const role = (agent as Record<string, unknown>).role
@@ -378,11 +383,12 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
 
 function runSprintEngineCli(state: ValidSprintEngineStatePath, args: string[]): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
   return new Promise((resolvePromise) => {
-    const child = spawn(getSprintEngineMcpPythonExecutable(state.workspaceRoot), args, {
+    const runtimeRoot = getSprintEngineMcpRuntimeRoot()
+    const child = spawn(getSprintEngineMcpPythonExecutable(runtimeRoot), args, {
       cwd: state.workspaceRoot,
       env: {
         ...process.env,
-        PYTHONPATH: [state.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
+        PYTHONPATH: [runtimeRoot, state.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
       },
       windowsHide: true,
     })
@@ -413,11 +419,12 @@ function runSprintEngineMcpToolProcess(
     for (const root of allowedRoots) {
       args.push('--allowed-root', root)
     }
-    const child = spawn(getSprintEngineMcpPythonExecutable(context.workspaceRoot), args, {
+    const runtimeRoot = getSprintEngineMcpRuntimeRoot()
+    const child = spawn(getSprintEngineMcpPythonExecutable(runtimeRoot), args, {
       cwd: context.workspaceRoot,
       env: {
         ...process.env,
-        PYTHONPATH: [context.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
+        PYTHONPATH: [runtimeRoot, context.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
         SPRINTENGINE_MCP_USER_ID: actor.id,
         SPRINTENGINE_MCP_USER_AUTHORIZED: '1',
       },
@@ -901,17 +908,29 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
     async setRunnerMode(payload) {
       try {
         const state = validateSprintEngineStatePath(payload?.statePath)
-        const mode = payload?.mode
-        if (mode !== 'auto' && mode !== 'off') {
-          throw new Error('Runner mode must be auto or off.')
+        // Field rename: legacy `mode: 'auto' | 'off'` → `cliWatchPolling:
+        // 'enabled' | 'disabled'`. Accept either shape from older callers and
+        // translate to the new canonical value. SprintEngineRunnerSetInput in
+        // src/shared/electron-api.ts documents this contract.
+        const legacyModeAlias = (payload as { mode?: unknown } | undefined)?.mode
+        let cliWatchPolling: string | undefined
+        if (payload?.cliWatchPolling === 'enabled' || payload?.cliWatchPolling === 'disabled') {
+          cliWatchPolling = payload.cliWatchPolling
+        } else if (legacyModeAlias === 'auto') {
+          cliWatchPolling = 'enabled'
+        } else if (legacyModeAlias === 'off') {
+          cliWatchPolling = 'disabled'
+        }
+        if (cliWatchPolling !== 'enabled' && cliWatchPolling !== 'disabled') {
+          throw new Error('CLI watch polling must be enabled or disabled (legacy mode: auto|off also accepted).')
         }
         const toolResult = await runSprintEngineCli(state, [
           '--state',
           state.statePath,
           'runner',
           'set',
-          '--mode',
-          mode,
+          '--cli-watch-polling',
+          cliWatchPolling,
           '--actor',
           'ui',
         ])
@@ -928,7 +947,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           ok: true,
           data: await buildSprintEngineMutationData(state, {
             action: 'runner-set-mode',
-            mode,
+            cliWatchPolling,
             tool: parseSprintEngineCliJsonOutput(toolResult.stdout),
           }),
         }

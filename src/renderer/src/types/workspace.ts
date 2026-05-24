@@ -151,8 +151,14 @@ export type SprintEngineQualityPolicy = {
   gates: Record<string, SprintEngineQualityPolicyGate>
 }
 
+export type SprintEngineCliWatchPolling = 'enabled' | 'disabled'
+
 export type SprintEngineRunnerPolicy = {
-  mode: 'auto' | 'off'
+  // `cliWatchPolling` controls whether `sprintengine join --watch` keeps
+  // polling for ready work (`enabled`) or exits when nothing is ready
+  // (`disabled`). It is a CLI-runtime concern only — Multicode's supervisor
+  // ignores it and decides spawning from local renderer autoState alone.
+  cliWatchPolling: SprintEngineCliWatchPolling
   pollIntervalSeconds: number
   idleBackoffSeconds: number
   maxBackoffSeconds: number

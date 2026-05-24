@@ -105,9 +105,9 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: 
 }
 
 function nextDirectivePayloadBlock(role: SprintEngineRoleId | string, agentId: string): string {
-  // The managed Sprint Engine MCP server resolves statePath/workspaceRoot from
-  // its launch env (SPRINTENGINE_STATE_PATH / SPRINTENGINE_WORKSPACE_ROOT).
-  // Agents do not pass them in tool payloads.
+  // The managed Sprint Engine MCP server resolves run and workspace routing
+  // from the HTTP session context. Agents do not pass statePath or
+  // workspaceRoot in tool payloads.
   const payload: Record<string, string> = {
     role,
     agentId,
@@ -386,14 +386,14 @@ export function buildArchitectNeedsInputTriagePrompt(input: {
   sprintEngineStatePath: string
   taskIds: string[]
 }): string {
-  // The managed Sprint Engine MCP server resolves statePath from its launch env.
+  // The managed Sprint Engine MCP server resolves run routing from the HTTP
+  // session context.
   const triagePayload = {
     id: 'architect',
   }
   return [
     'Fetch the canonical Sprint Engine architect triage instructions from the managed Sprint Engine MCP server.',
     `Worker cwd: ${input.workspaceFolderPath}`,
-    `Shared Sprint Engine state: ${input.sprintEngineStatePath}`,
     `Architect-actionable needs_input tasks detected: ${input.taskIds.join(', ')}.`,
     'Call the triage tool through MCP:',
     ['`sprintengine.triage.needs_input`', '```json', JSON.stringify(triagePayload, null, 2), '```'].join('\n'),

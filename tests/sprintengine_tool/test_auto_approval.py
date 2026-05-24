@@ -263,8 +263,11 @@ def test_sprintengine_auto_approval_marks_architect_startup_as_autonomous() -> N
     assert "autonomousPlanningOverride: nextRun.role === 'architect' && autoState.autoApproveArtifacts" in supervisor_source
     assert "autonomousPlanningOverride: rosterAgent.role === 'architect' && Boolean(workspace.sprintEngineAutoState?.autoApproveArtifacts)" in terminal_view_source
     assert "## Autonomous Planning Override" in prompt_source
-    assert "Sprint Engine Approve all artifacts is enabled" in prompt_source
-    assert "Auto-run only controls agent spawning; Approve all artifacts is the signal to skip normal grilling." in prompt_source
+    # The MCP-only prompt rewrite reframed the trigger as the automation mode
+    # name (still semantically "Approve all artifacts is on") and described the
+    # division of responsibility between agent automation and artifact approval.
+    assert "Sprint Engine automation mode is Run agents + approve artifacts" in prompt_source
+    assert "Agent automation controls spawning; artifact approval automation is the signal to skip normal grilling." in prompt_source
     assert "Do not pause for ordinary preference, naming, scope-shaping, or plan-review questions" in prompt_source
 
 
@@ -278,7 +281,13 @@ def test_electron_auto_run_prompts_idle_running_agents_for_ready_work() -> None:
     assert "function sendContinuationPromptsToIdleAgents" in supervisor_source
     assert "buildSprintEngineContinuationPrompt(task, agentId)" in supervisor_source
     assert "Sprint Engine roster runner found a wake candidate for a ready" in auto_run_utils_source
-    assert "sprintengine join --role ${task.role} --id ${agentId} --watch" in auto_run_utils_source
+    # MCP-native rewrite: the continuation prompt no longer hands the agent a
+    # `sprintengine join --watch` CLI command. It now hands them the
+    # `sprintengine.agent.next_directive` MCP tool with payload.
+    assert "sprintengine.agent.next_directive" in auto_run_utils_source
+    assert "sprintengine join --role" not in auto_run_utils_source, (
+        "MCP-native autonomous prompts must not embed `sprintengine join` CLI invocations."
+    )
     assert "await sendContinuationPromptsToIdleAgents(" in supervisor_source
     assert "continuation-prompt-sent" in supervisor_source
 
@@ -297,9 +306,15 @@ def test_sprintengine_agent_prompts_do_not_continue_polling_after_claim() -> Non
 
     assert "Keep polling for ready" not in combined_source
     assert "then poll again" not in combined_source
-    assert "Do not create your own background polling loop" in combined_source
-    assert "After you claim one task or gate, focus only on that work" in combined_source
-    assert "join --role ${task.role} --id ${agentId} --watch" in combined_source
+    # MCP-native rewrite: agents no longer run their own polling loop. The
+    # runtime owns dispatch and continuation. The agent invokes
+    # `sprintengine.agent.next_directive` once per cycle and waits for the
+    # runtime to drive the next step; no client-side sleep/backoff.
+    assert "The caller/runtime owns later continuation" in combined_source or "Multicode owns later runtime dispatch and continuation" in combined_source
+    assert "sprintengine.agent.next_directive" in combined_source
+    assert "sprintengine join --role" not in combined_source, (
+        "MCP-native autonomous prompts must not embed `sprintengine join` CLI invocations."
+    )
     assert "buildWorkerRespawnStartupPrompt" not in combined_source
     assert "readySprintEngineTask" not in combined_source
 
@@ -332,16 +347,29 @@ def test_electron_roster_runner_starts_roster_agents_without_task_named_workers(
     assert "buildAutoRunAgentId(task.role, task.id)" not in supervisor_source
 
 
-def test_electron_roster_runner_uses_durable_or_requested_auto_mode() -> None:
+def test_electron_roster_runner_uses_local_automation_mode_only() -> None:
+    """Regression: the supervisor must derive runner activity from local autoState
+    only, never from the persisted CLI watch-polling flag in run.yaml. The old
+    `ensureDurableAutoMode` bridge was removed because it caused the Manual
+    radio to flick back to the previous automation mode whenever the run.yaml
+    write completed slightly later than the React re-render.
+    """
     repo_root = Path(__file__).resolve().parents[2]
     supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
         encoding="utf-8"
     )
 
-    assert "const runnerActive = autoState.supervisorEnabled" in supervisor_source
-    assert "if (runnerActive) {" in supervisor_source
-    assert "async function ensureDurableAutoMode" in supervisor_source
-    assert "mode: 'auto'" in supervisor_source
+    assert "deriveSprintEngineAutomationMode" in supervisor_source
+    assert "const runnerActive = automationMode !== 'manual'" in supervisor_source
+    assert "async function ensureDurableAutoMode" not in supervisor_source, (
+        "ensureDurableAutoMode was removed; see knowledge/multicode/sprint-engine.md "
+        "and src/renderer/src/utils/sprintengineAutomation.ts for the rationale."
+    )
+    assert "sprintEngineState.runner?.mode" not in supervisor_source, (
+        "Supervisor must not read the legacy runner.mode field. The new field is "
+        "runner.cliWatchPolling, and Multicode's supervisor reads neither — local "
+        "autoState alone gates spawning."
+    )
 
 
 def test_electron_auto_approval_runs_without_roster_runner_enabled() -> None:
@@ -350,7 +378,7 @@ def test_electron_auto_approval_runs_without_roster_runner_enabled() -> None:
         encoding="utf-8"
     )
 
-    assert "const approvalActive = autoState.autoApproveArtifacts" in supervisor_source
+    assert "const approvalActive = automationMode === 'run_agents_and_approve_artifacts'" in supervisor_source
     assert "if ((!runnerActive && !approvalActive)" in supervisor_source
     assert "if (approvalActive) {" in supervisor_source
     assert "reason: 'artifact-approval-only'" in supervisor_source

@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { dirname, delimiter, isAbsolute, join } from 'path'
 
@@ -102,7 +102,7 @@ function findCatalogPath(): string | null {
 }
 
 function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult {
-  const managedServer = buildManagedSprintEngineServer(input, context)
+  const managedServer = buildManagedSprintEngineServer(input)
   const settings = normalizeSettings(input.settings, managedServer)
   const clients = normalizeClients(input.clients)
   const issues: McpValidationIssue[] = []
@@ -142,8 +142,19 @@ function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult
         level: hasRequired ? 'error' : 'warning',
         client,
         message: hasRequired
-          ? `Plugin "${pluginId}" does not support MCP config sync; cannot launch a Sprint Engine agent on this CLI until the plugin declares an mcpConfig block.`
+          ? `Plugin "${pluginId}" does not support HTTP MCP config sync; Sprint Engine autonomous mode requires an HTTP MCP-capable plugin with an mcpConfig block.`
           : `Plugin "${pluginId}" does not declare an mcpConfig block; skipping MCP sync for this CLI.`,
+      })
+      continue
+    }
+    if (plugin.manifest.capabilities.mcpServers !== true) {
+      const hasRequired = clientServers.some((server) => server.required)
+      issues.push({
+        level: hasRequired ? 'error' : 'warning',
+        client,
+        message: hasRequired
+          ? `Plugin "${pluginId}" does not support HTTP MCP servers; Sprint Engine autonomous mode requires HTTP MCP support via capabilities.mcpServers.`
+          : `Plugin "${pluginId}" does not declare MCP server support; skipping MCP sync for this CLI.`,
       })
       continue
     }
@@ -176,63 +187,35 @@ function normalizeClients(value: McpClientTarget[] | undefined): McpClientTarget
   return Array.from(new Set(clients))
 }
 
-function buildManagedSprintEngineServer(input: McpSyncInput, context: SyncContext): McpServerConfig | null {
+function buildManagedSprintEngineServer(input: McpSyncInput): McpServerConfig | null {
   const managed = input.managedSprintEngine
   if (!managed?.statePath?.trim()) return null
-  const runtimeRoot = context.runtimeRoot()
-  if (!runtimeRoot) {
-    return missingManagedSprintEngineServer('Bundled Sprint Engine MCP runtime was not found.')
+  const clients = normalizeClients(input.clients)
+  if (managed.http?.url?.trim()) {
+    return {
+      id: MANAGED_SPRINTENGINE_MCP_SERVER_ID,
+      name: 'Multicode Sprint Engine',
+      description: 'Managed local Sprint Engine MCP server for autonomous Sprint Engine agent sessions.',
+      transport: 'http',
+      url: managed.http.url.trim(),
+      envVarNames: managed.http.authTokenEnvVar?.trim() ? [managed.http.authTokenEnvVar.trim()] : [],
+      headers: normalizeStringRecord(managed.http.headers),
+      enabled: true,
+      required: true,
+      clients,
+      scope: 'workspace',
+      source: 'bundled',
+      riskLevel: 'local-command',
+      capabilities: ['sprintengine'],
+    }
   }
-  const command = ensureSprintEngineMcpShim(context.userDataDir(), runtimeRoot)
-  if (!command) {
-    return missingManagedSprintEngineServer('Unable to create the managed Sprint Engine MCP launcher.')
-  }
-
-  const workspaceRoot = managed.workspaceRoot?.trim() || input.workspaceRoot
-  const allowedRoots = Array.from(new Set([
-    workspaceRoot,
-    dirname(managed.statePath),
-    ...(managed.allowedRoots ?? []),
-  ].filter((value): value is string => Boolean(value?.trim()))))
-  const registryRoots = Array.from(new Set([
-    ...(managed.registryRoots ?? []),
-    ...defaultSprintEngineRegistryRoots(runtimeRoot),
-  ]))
-  const args = [
-    ...(workspaceRoot ? ['--workspace', workspaceRoot] : []),
-    '--state-path',
-    managed.statePath,
-    ...allowedRoots.flatMap((root) => ['--allowed-root', root]),
-    ...registryRoots.flatMap((root) => ['--extra-dir', root]),
-    ...(managed.userRoot ? ['--user-dir', managed.userRoot] : []),
-  ]
-
-  return {
-    id: MANAGED_SPRINTENGINE_MCP_SERVER_ID,
-    name: 'Multicode Sprint Engine',
-    description: 'Managed local Sprint Engine MCP server for autonomous Sprint Engine agent sessions.',
-    transport: 'stdio',
-    command,
-    args,
-    env: {
-      SPRINTENGINE_STATE_PATH: managed.statePath,
-      // Populate SPRINTENGINE_WORKSPACE_ROOT so the MCP server can resolve
-      // workspaceRoot without agents having to pass it in tool payloads.
-      ...(workspaceRoot ? { SPRINTENGINE_WORKSPACE_ROOT: workspaceRoot } : {}),
-      SPRINTENGINE_MCP_USER_ID: managed.actorId?.trim() || 'multicode-app',
-      SPRINTENGINE_MCP_USER_AUTHORIZED: '1',
-    },
-    enabled: true,
-    required: true,
-    clients: normalizeClients(input.clients),
-    scope: 'workspace',
-    source: 'bundled',
-    riskLevel: 'local-command',
-    capabilities: ['sprintengine'],
-  }
+  return missingManagedSprintEngineServer(
+    'Managed Sprint Engine HTTP MCP connection was not supplied; autonomous Sprint Engine agents require an app-owned HTTP MCP session.',
+    clients
+  )
 }
 
-function missingManagedSprintEngineServer(message: string): McpServerConfig {
+function missingManagedSprintEngineServer(message: string, clients: McpClientTarget[]): McpServerConfig {
   return {
     id: MANAGED_SPRINTENGINE_MCP_SERVER_ID,
     name: 'Multicode Sprint Engine',
@@ -241,78 +224,14 @@ function missingManagedSprintEngineServer(message: string): McpServerConfig {
     args: [],
     enabled: true,
     required: true,
-    clients: ['codex', 'claude'],
+    clients,
     scope: 'workspace',
     source: 'bundled',
     riskLevel: 'local-command',
   }
 }
 
-function ensureSprintEngineMcpShim(userDataDir: string, runtimeRoot: string): string | null {
-  try {
-    const shimDirectory = join(userDataDir, 'tool-bin')
-    mkdirSync(shimDirectory, { recursive: true })
-    if (process.platform === 'win32') {
-      const shimPath = join(shimDirectory, 'multicode-sprintengine-mcp.cmd')
-      writeFileSync(
-        shimPath,
-        [
-          '@echo off',
-          'setlocal',
-          `set "MULTICODE_SPRINTENGINE_RUNTIME_ROOT=${runtimeRoot}"`,
-          'set "PYTHONPATH=%MULTICODE_SPRINTENGINE_RUNTIME_ROOT%;%PYTHONPATH%"',
-          'set "PYTHON_EXE="',
-          'if exist "%MULTICODE_SPRINTENGINE_RUNTIME_ROOT%\\.venv\\Scripts\\python.exe" set "PYTHON_EXE=%MULTICODE_SPRINTENGINE_RUNTIME_ROOT%\\.venv\\Scripts\\python.exe"',
-          'if defined PYTHON_EXE goto run_python',
-          'for /f "delims=" %%P in (\'where python 2^>nul\') do if not defined PYTHON_EXE if /I not "%%~dpP"=="%LOCALAPPDATA%\\Microsoft\\WindowsApps\\" set "PYTHON_EXE=%%P"',
-          'if defined PYTHON_EXE goto run_python',
-          'echo python not found for managed Sprint Engine MCP 1>&2',
-          'exit /b 127',
-          ':run_python',
-          '"%PYTHON_EXE%" -m sprintengine_mcp %*',
-          'exit /b %errorlevel%',
-          '',
-        ].join('\r\n'),
-        'utf8'
-      )
-      return shimPath
-    }
-
-    const shimPath = join(shimDirectory, 'multicode-sprintengine-mcp')
-    writeFileSync(
-      shimPath,
-      [
-        '#!/usr/bin/env bash',
-        'set -euo pipefail',
-        `runtime_root=${quotePosix(runtimeRoot)}`,
-        'export PYTHONPATH="$runtime_root:${PYTHONPATH:-}"',
-        'python_exe="python3"',
-        'if [[ -x "$runtime_root/.venv/bin/python" ]]; then python_exe="$runtime_root/.venv/bin/python"; fi',
-        'exec "$python_exe" -m sprintengine_mcp "$@"',
-        '',
-      ].join('\n'),
-      { encoding: 'utf8', mode: 0o755 }
-    )
-    chmodSync(shimPath, 0o755)
-    return shimPath
-  } catch {
-    return null
-  }
-}
-
-function defaultSprintEngineRegistryRoots(runtimeRoot: string): string[] {
-  const candidates = [
-    join(runtimeRoot, 'resources', 'sprintengine'),
-    join(runtimeRoot, 'resources', 'resources', 'sprintengine'),
-  ]
-  return candidates.filter((candidate) => existsSync(candidate))
-}
-
-function quotePosix(value: string): string {
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`
-}
-
-function findSprintEngineRuntimeRoot(): string | null {
+export function findSprintEngineRuntimeRoot(): string | null {
   const candidates = [
     process.cwd(),
     maybeResourcesPath(),
@@ -536,7 +455,7 @@ function syncForFormat(input: SyncForFormatInput): {
             level: hasRequired ? 'error' : 'warning',
             client: input.client,
             message: hasRequired
-              ? `MCP sync writer for format "${format}" is not implemented yet; cannot launch a Sprint Engine agent on plugin "${input.plugin.id}".`
+              ? `MCP sync writer for format "${format}" is not implemented yet; Sprint Engine autonomous mode requires an HTTP MCP-capable config writer for plugin "${input.plugin.id}".`
               : `MCP sync writer for format "${format}" is not implemented yet; declared in plugin "${input.plugin.id}".`,
           },
         ],
@@ -641,7 +560,10 @@ function renderCodexServer(server: McpServerConfig): string[] {
   } else {
     lines.push(`url = ${tomlString(server.url ?? '')}`)
     if (server.envVarNames?.length) lines.push(`bearer_token_env_var = ${tomlString(server.envVarNames[0])}`)
-    if (server.headers) lines.push(`http_headers = { ${Object.entries(server.headers).map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`).join(', ')} }`)
+    const headers = server.envVarNames?.length
+      ? Object.fromEntries(Object.entries(server.headers ?? {}).filter(([key]) => key.toLowerCase() !== 'authorization'))
+      : server.headers
+    if (headers && Object.keys(headers).length) lines.push(`http_headers = { ${Object.entries(headers).map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`).join(', ')} }`)
   }
   lines.push(`enabled = ${server.enabled ? 'true' : 'false'}`)
   if (server.required) lines.push('required = true')
@@ -662,8 +584,16 @@ function toClaudeServer(server: McpServerConfig): Record<string, unknown> {
   return {
     type: server.transport === 'sse' ? 'sse' : 'http',
     url: server.url,
-    ...(server.headers ? { headers: server.headers } : {}),
+    ...httpHeadersForClaude(server),
   }
+}
+
+function httpHeadersForClaude(server: McpServerConfig): { headers?: Record<string, string> } {
+  const headers = { ...(server.headers ?? {}) }
+  if (!headers.Authorization && server.envVarNames?.[0]) {
+    headers.Authorization = `Bearer \${${server.envVarNames[0]}}`
+  }
+  return Object.keys(headers).length ? { headers } : {}
 }
 
 function tomlString(value: string): string {

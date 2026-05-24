@@ -723,16 +723,16 @@ def test_runner_set_persists_policy_and_projection(tmp_path) -> None:
 
     payload = fixture.cli.run("runner", "set", "--mode", "auto", "--poll-interval-seconds", "2", "--idle-backoff-seconds", "3")
 
-    assert payload["runner"]["mode"] == "auto"
+    assert payload["runner"]["cliWatchPolling"] == "enabled"
     assert payload["runner"]["pollIntervalSeconds"] == 2
     state = read_state(fixture.state_path)
-    assert state["runner"]["mode"] == "auto"
+    assert state["runner"]["cliWatchPolling"] == "enabled"
     projection = fixture.cli.run("projection")
-    assert projection["run"]["runner"]["mode"] == "auto"
+    assert projection["run"]["runner"]["cliWatchPolling"] == "enabled"
 
     off_payload = fixture.cli.run("runner", "set", "--mode", "off")
-    assert off_payload["runner"]["mode"] == "off"
-    assert read_state(fixture.state_path)["runner"]["mode"] == "off"
+    assert off_payload["runner"]["cliWatchPolling"] == "disabled"
+    assert read_state(fixture.state_path)["runner"]["cliWatchPolling"] == "disabled"
 
 
 def test_runner_watch_delay_progressively_caps() -> None:
@@ -747,8 +747,8 @@ def test_join_watch_returns_idle_when_auto_mode_is_off_without_work(tmp_path) ->
     payload = fixture.cli.run("join", "--role", "developer", "--id", "developer-1", "--watch", "--max-wait-seconds", "0")
 
     assert payload["action"] == "idle"
-    assert payload["runner"]["mode"] == "off"
-    assert "Auto Mode is off" in payload["message"]
+    assert payload["runner"]["cliWatchPolling"] == "disabled"
+    assert "CLI watch polling is disabled" in payload["message"]
 
 
 def test_join_watch_returns_ready_gate_before_normal_task(tmp_path) -> None:
@@ -2149,7 +2149,7 @@ def test_auto_mode_retire_immediately_adds_replacement_for_open_work(tmp_path) -
         ],
     )
     state = read_state(fixture.state_path)
-    state["runner"] = {"mode": "auto"}
+    state["runner"] = {"cliWatchPolling": "enabled"}
     state["agents"] = {
         "developer-1": {
             "role": "developer",

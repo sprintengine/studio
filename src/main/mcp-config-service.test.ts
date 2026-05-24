@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -276,6 +275,53 @@ async function main(): Promise<void> {
     runtimeRoot: () => process.cwd(),
   })
   const managedSettings: McpSettings = { syncEnabled: false, servers: {} }
+  const previousManagedToken = process.env.MULTICODE_SPRINTENGINE_MCP_TOKEN
+  process.env.MULTICODE_SPRINTENGINE_MCP_TOKEN = 'test-token'
+  const managedHttpResult = managedService.sync({
+    workspaceRoot: siblingRoot,
+    settings: managedSettings,
+    clients: ['codex', 'claude'],
+    managedSprintEngine: {
+      ...buildManagedSprintEngineSyncInputForLaunch(managedStatePath, siblingRoot),
+      actorId: 'workspace-user',
+      http: {
+        url: 'http://127.0.0.1:49152/mcp',
+        authTokenEnvVar: 'MULTICODE_SPRINTENGINE_MCP_TOKEN',
+        headers: { 'X-Multicode-Session': 'session-a' },
+      },
+    },
+  })
+  assert.equal(managedHttpResult.ok, true)
+  const managedHttpCodexConfig = await readFile(join(siblingRoot, '.codex', 'config.toml'), 'utf-8')
+  assert.match(managedHttpCodexConfig, new RegExp(`\\[mcp_servers\\.${MANAGED_SPRINTENGINE_MCP_SERVER_ID}\\]`))
+  assert.match(managedHttpCodexConfig, /url = "http:\/\/127\.0\.0\.1:49152\/mcp"/)
+  assert.match(managedHttpCodexConfig, /bearer_token_env_var = "MULTICODE_SPRINTENGINE_MCP_TOKEN"/)
+  assert.doesNotMatch(managedHttpCodexConfig, /Authorization/)
+  assert.match(managedHttpCodexConfig, /"X-Multicode-Session" = "session-a"/)
+  assert.doesNotMatch(managedHttpCodexConfig, /multicode-sprintengine-mcp/)
+  assert.doesNotMatch(managedHttpCodexConfig, /--state-path/)
+  assert.doesNotMatch(managedHttpCodexConfig, /SPRINTENGINE_STATE_PATH/)
+  const managedHttpClaudeConfig = JSON.parse(await readFile(join(siblingRoot, '.mcp.json'), 'utf-8')) as {
+    mcpServers: Record<string, { type: string, url: string, headers?: Record<string, string> }>
+  }
+  assert.deepEqual(managedHttpClaudeConfig.mcpServers[MANAGED_SPRINTENGINE_MCP_SERVER_ID], {
+    type: 'http',
+    url: 'http://127.0.0.1:49152/mcp',
+    headers: {
+      Authorization: 'Bearer ${MULTICODE_SPRINTENGINE_MCP_TOKEN}',
+      'X-Multicode-Session': 'session-a',
+    },
+  })
+  const managedHttpClaudeRaw = await readFile(join(siblingRoot, '.mcp.json'), 'utf-8')
+  assert.doesNotMatch(managedHttpClaudeRaw, /multicode-sprintengine-mcp/)
+  assert.doesNotMatch(managedHttpClaudeRaw, /--state-path/)
+  assert.doesNotMatch(managedHttpClaudeRaw, /SPRINTENGINE_STATE_PATH/)
+  if (previousManagedToken === undefined) {
+    delete process.env.MULTICODE_SPRINTENGINE_MCP_TOKEN
+  } else {
+    process.env.MULTICODE_SPRINTENGINE_MCP_TOKEN = previousManagedToken
+  }
+
   const managedResult = managedService.sync({
     workspaceRoot: siblingRoot,
     settings: managedSettings,
@@ -286,82 +332,23 @@ async function main(): Promise<void> {
     },
   })
   __resetPluginRegistryForTest()
-  assert.equal(managedResult.ok, true)
-
-  const managedCodexConfig = await readFile(join(siblingRoot, '.codex', 'config.toml'), 'utf-8')
-  assert.match(managedCodexConfig, new RegExp(`\\[mcp_servers\\.${MANAGED_SPRINTENGINE_MCP_SERVER_ID}\\]`))
-  assert.match(managedCodexConfig, /--state-path/)
-  assert.match(managedCodexConfig, /SPRINTENGINE_MCP_USER_AUTHORIZED/)
-
-  const managedClaudeConfig = JSON.parse(await readFile(join(siblingRoot, '.mcp.json'), 'utf-8')) as {
-    mcpServers: Record<string, { command: string, args: string[], env: Record<string, string> }>
-  }
-  const managedClaudeServer = managedClaudeConfig.mcpServers[MANAGED_SPRINTENGINE_MCP_SERVER_ID]
-  assert.equal(Boolean(managedClaudeServer), true)
-  assert.equal(managedClaudeServer.env.SPRINTENGINE_MCP_USER_ID, 'workspace-user')
-  assert.equal(managedClaudeServer.env.SPRINTENGINE_MCP_USER_AUTHORIZED, '1')
-  assert.equal(managedClaudeServer.args.includes('--workspace'), true)
-  assert.equal(managedClaudeServer.args.includes(siblingRoot), true)
-  assert.deepEqual(
-    managedClaudeServer.args.slice(
-      managedClaudeServer.args.indexOf('--extra-dir'),
-      managedClaudeServer.args.indexOf('--extra-dir') + 2
-    ),
-    ['--extra-dir', soulsRoot]
+  assert.equal(managedResult.ok, false)
+  assert.equal(
+    managedResult.ok === false && managedResult.message?.includes('Managed Sprint Engine HTTP MCP connection was not supplied'),
+    true,
+    `missing HTTP metadata should block managed launch, got: ${managedResult.ok === false ? managedResult.message : 'ok'}`
   )
-  assert.deepEqual(
-    managedClaudeServer.args.slice(
-      managedClaudeServer.args.indexOf('--user-dir'),
-      managedClaudeServer.args.indexOf('--user-dir') + 2
-    ),
-    ['--user-dir', userPluginRoot]
-  )
-
-  const mcpMessage = {
-    jsonrpc: '2.0',
-    id: 1,
-    method: 'tools/call',
-    params: {
-      name: 'sprintengine.roles.list',
-      arguments: { workspaceRoot: siblingRoot },
-    },
-  }
-  const launched = spawnSync(managedClaudeServer.command, managedClaudeServer.args, {
-    cwd: siblingRoot,
-    env: { ...process.env, ...managedClaudeServer.env },
-    input: `${JSON.stringify(mcpMessage)}\n`,
-    encoding: 'utf-8',
-    timeout: 10_000,
-  })
-  assert.equal(launched.status, 0, launched.stderr || launched.error?.message)
-  const response = JSON.parse(launched.stdout.trim()) as {
-    result: { ok: boolean, result: { roles: Array<{ id: string }> } }
-  }
-  assert.equal(response.result.ok, true)
-  assert.equal(response.result.result.roles.some((role) => role.id === 'developer'), true)
 
   __setPluginRegistryForTest(launchRegistry, launchRegistryReport, userPluginRoot)
   const managedInputForFailures = buildManagedSprintEngineSyncInputForLaunch(managedStatePath, siblingRoot)
+  const managedHttpInputForFailures = {
+    ...managedInputForFailures,
+    http: {
+      url: 'http://127.0.0.1:49152/mcp',
+      headers: { 'X-Multicode-Session': 'session-a' },
+    },
+  }
   __resetPluginRegistryForTest()
-
-  const missingRuntimeService = createMcpConfigService({
-    lookupPlugin,
-    homeDir: () => homeRoot,
-    userDataDir: () => join(temp, 'missing-runtime-user-data'),
-    runtimeRoot: () => null,
-  })
-  const missingRuntimeResult = missingRuntimeService.sync({
-    workspaceRoot: siblingRoot,
-    settings: { syncEnabled: false, servers: {} },
-    clients: ['codex'],
-    managedSprintEngine: managedInputForFailures,
-  })
-  assert.equal(missingRuntimeResult.ok, false)
-  assert.equal(
-    missingRuntimeResult.ok === false && missingRuntimeResult.message?.includes('Bundled Sprint Engine MCP runtime was not found.'),
-    true,
-    `missing runtime should surface the launcher diagnostic, got: ${missingRuntimeResult.ok === false ? missingRuntimeResult.message : 'ok'}`
-  )
 
   const noMcpPluginLookup: PluginLookup = () => undefined
   const noMcpService = createMcpConfigService({
@@ -374,14 +361,61 @@ async function main(): Promise<void> {
     workspaceRoot: siblingRoot,
     settings: { syncEnabled: false, servers: {} },
     clients: ['codex'],
-    managedSprintEngine: managedInputForFailures,
+    managedSprintEngine: managedHttpInputForFailures,
   })
   assert.equal(noMcpResult.ok, false)
   const noMcpIssues = noMcpResult.issues ?? []
   assert.equal(
-    noMcpIssues.some((issue) => issue.level === 'error' && issue.message.includes('does not support MCP config sync')),
+    noMcpIssues.some((issue) =>
+      issue.level === 'error'
+      && issue.message.includes('HTTP MCP config sync')
+      && issue.message.includes('Sprint Engine autonomous mode requires')
+    ),
     true,
     `missing-mcpConfig plugin should fail required sync, got: ${JSON.stringify(noMcpIssues)}`
+  )
+
+  const noMcpCapabilityLookup: PluginLookup = (id) => {
+    if (id === 'codex') {
+      return {
+        manifest: {
+          id: 'codex',
+          displayName: 'Codex without MCP capability',
+          version: 1,
+          binary: 'codex',
+          permissionPresets: {},
+          launch: { argv: ['codex'] },
+          promptInjection: { mode: 'positional-arg' },
+          completion: { mode: 'process-exit' },
+          capabilities: { resumeSession: false, sessionIdFromCaller: false, toolUse: true, mcpServers: false },
+          mcpConfig: { path: '{{workspaceRoot}}/.codex/config.toml', format: 'codex' },
+        } as PluginManifest,
+      }
+    }
+    return undefined
+  }
+  const noMcpCapabilityService = createMcpConfigService({
+    lookupPlugin: noMcpCapabilityLookup,
+    homeDir: () => homeRoot,
+    userDataDir: () => join(temp, 'no-mcp-capability-user-data'),
+    runtimeRoot: () => process.cwd(),
+  })
+  const noMcpCapabilityResult = noMcpCapabilityService.sync({
+    workspaceRoot: siblingRoot,
+    settings: { syncEnabled: false, servers: {} },
+    clients: ['codex'],
+    managedSprintEngine: managedHttpInputForFailures,
+  })
+  assert.equal(noMcpCapabilityResult.ok, false)
+  const noMcpCapabilityIssues = noMcpCapabilityResult.issues ?? []
+  assert.equal(
+    noMcpCapabilityIssues.some((issue) =>
+      issue.level === 'error'
+      && issue.message.includes('HTTP MCP servers')
+      && issue.message.includes('Sprint Engine autonomous mode requires HTTP MCP support')
+    ),
+    true,
+    `missing MCP capability should fail required sync, got: ${JSON.stringify(noMcpCapabilityIssues)}`
   )
 
   const unsupportedFormatLookup: PluginLookup = (id) => {
@@ -413,12 +447,16 @@ async function main(): Promise<void> {
     workspaceRoot: siblingRoot,
     settings: { syncEnabled: false, servers: {} },
     clients: ['codex'],
-    managedSprintEngine: managedInputForFailures,
+    managedSprintEngine: managedHttpInputForFailures,
   })
   assert.equal(unsupportedFormatResult.ok, false)
   const unsupportedFormatIssues = unsupportedFormatResult.issues ?? []
   assert.equal(
-    unsupportedFormatIssues.some((issue) => issue.level === 'error' && issue.message.includes('cannot launch a Sprint Engine agent')),
+    unsupportedFormatIssues.some((issue) =>
+      issue.level === 'error'
+      && issue.message.includes('Sprint Engine autonomous mode requires')
+      && issue.message.includes('HTTP MCP-capable config writer')
+    ),
     true,
     `unsupported format should fail required sync, got: ${JSON.stringify(unsupportedFormatIssues)}`
   )

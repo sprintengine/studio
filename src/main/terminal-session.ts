@@ -29,6 +29,7 @@ type FailedTerminalSessionInput = {
   cli?: AgentCli
   cwd?: string
   sprintEngineStatePath?: string
+  sprintEngineMcpSessionId?: string
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
@@ -62,6 +63,7 @@ export type TerminalSession = {
   cli?: AgentCli
   cwd?: string
   sprintEngineStatePath?: string
+  sprintEngineMcpSessionId?: string
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
@@ -185,6 +187,7 @@ export function createFailedTerminalSession(input: FailedTerminalSessionInput): 
     cli: input.cli,
     cwd: input.cwd,
     sprintEngineStatePath: input.sprintEngineStatePath,
+    sprintEngineMcpSessionId: input.sprintEngineMcpSessionId,
     executionMode: input.executionMode,
     worktreeId: input.worktreeId,
     worktreePath: input.worktreePath,

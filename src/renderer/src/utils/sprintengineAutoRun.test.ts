@@ -34,6 +34,7 @@ import {
   type RoleContinuationGrace,
 } from './sprintengineAutoRun'
 import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode } from './agentPrompt'
+import { deriveSprintEngineAutomationMode } from './sprintengineAutomation'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type {
   AgentCli,
@@ -83,6 +84,7 @@ async function main(): Promise<void> {
   testPickNextAutoRunsHonoursContinuationGraceWindow()
   testPickNextAutoRunsResumesActiveGateClaim()
   testGetSprintEngineStartupCommandModePicksInitOnlyForEmptyArchitect()
+  testDeriveAutomationModeTrustsLocalAutoStateOverRunnerPolicy()
   testAgentTerminalBackgroundPolicyDoesNotSelectOrCreateTabs()
   await testListTerminalSessionsThrowsTerminalListIpcErrorOnReject()
   await testListTerminalSessionsResolvesWithSessionsOnSuccess()
@@ -529,7 +531,7 @@ function autoApprovalFixture(): {
       goal: '',
       status: 'executing',
       rosterConfigured: true,
-      runner: { mode: 'auto' },
+      runner: { cliWatchPolling: 'enabled' },
     },
     roleCounts: { frontend: 1 },
     roster: {
@@ -964,7 +966,7 @@ async function testDeliverRequestChangesWakesOwnerWithJoinDirectiveWithoutReveal
   )
   assert.ok(
     !writes[0].text.includes('"statePath"'),
-    'rework prompt must not embed statePath; the managed MCP server resolves it from launch env'
+    'rework prompt must not embed statePath; the managed MCP server resolves it from session context'
   )
   assert.ok(
     writes[0].text.includes('"role": "frontend"') && writes[0].text.includes('"agentId": "frontend-2"'),
@@ -1263,7 +1265,7 @@ async function testDispatchPromptDeliveryUsesDispatchIdCooldown(): Promise<void>
   assert.ok(writes[0].text.includes('sprintengine.agent.next_directive'), 'dispatch prompt names the MCP directive tool')
   assert.ok(
     !writes[0].text.includes('"statePath"'),
-    'dispatch prompt must not embed statePath; the managed MCP server resolves it from launch env'
+    'dispatch prompt must not embed statePath; the managed MCP server resolves it from session context'
   )
   assert.ok(
     writes[0].text.includes('"role": "frontend"') && writes[0].text.includes('"agentId": "frontend-3"'),
@@ -1389,7 +1391,7 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
       goal: '',
       status: 'executing',
       rosterConfigured: true,
-      runner: { mode: 'auto' },
+      runner: { cliWatchPolling: 'enabled' },
     },
     roleCounts: { developer: 2 },
     roster: {
@@ -1434,7 +1436,7 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
   const supervisor = await loadSupervisor()
   const initialState = sprintEngineStateFixture({
     runner: {
-      mode: 'auto',
+      cliWatchPolling: 'enabled',
       pollIntervalSeconds: 5,
       idleBackoffSeconds: 5,
       maxBackoffSeconds: 30,
@@ -1533,7 +1535,7 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
     qualityGates: [],
   })
   const sprintEngineState = sprintEngineStateFixture({
-    runner: { mode: 'auto', pollIntervalSeconds: 10, idleBackoffSeconds: 30, maxBackoffSeconds: 120, stopWhenComplete: true },
+    runner: { cliWatchPolling: 'enabled', pollIntervalSeconds: 10, idleBackoffSeconds: 30, maxBackoffSeconds: 120, stopWhenComplete: true },
     sprintEngineAgents: {
       code_reviewer: runtimeAgent('code_reviewer', { status: 'idle', currentTaskId: null }),
     },
@@ -1626,7 +1628,7 @@ async function testSuperviseRunnerCycleRestartsDeadNeedsInputOwnerAtSlotLimit():
     qualityGates: [],
   })
   const sprintEngineState = sprintEngineStateFixture({
-    runner: { mode: 'auto', pollIntervalSeconds: 10, idleBackoffSeconds: 30, maxBackoffSeconds: 120, stopWhenComplete: true },
+    runner: { cliWatchPolling: 'enabled', pollIntervalSeconds: 10, idleBackoffSeconds: 30, maxBackoffSeconds: 120, stopWhenComplete: true },
     sprintEngineAgents: {
       'developer-1': runtimeAgent('developer', { status: 'needs_input', currentTaskId: 'T-needs-input' }),
     },
@@ -1845,13 +1847,16 @@ function testStartupPromptIsMcpNative(): void {
 
   assert.ok(prompt.startsWith('Your first action is to run the MCP calls listed in the "First MCP Calls" section below'))
   assert.ok(prompt.includes('Worker cwd: /tmp/workspace'))
-  assert.ok(prompt.includes('Shared Sprint Engine state: /tmp/workspace/.multi-code/sprintengine/team/run.yaml'))
+  assert.ok(!prompt.includes('/tmp/workspace/.multi-code/sprintengine/team/run.yaml'), 'startup prompt does not expose the run state path')
   assert.ok(prompt.includes('sprintengine.agent.join'), 'startup prompt names the MCP join tool')
   assert.ok(prompt.includes('sprintengine.agent.next_directive'), 'startup prompt names the MCP directive tool')
-  assert.ok(!prompt.includes('"statePath"'), 'startup prompt must not embed statePath in the MCP payload; the managed MCP server resolves it from launch env')
+  assert.ok(!prompt.includes('"statePath"'), 'startup prompt must not embed statePath in the MCP payload; the managed MCP server resolves it from session context')
   assert.ok(prompt.includes('"role": "frontend"'), 'startup prompt embeds the role in the MCP payload')
   assert.ok(prompt.includes('"agentId": "frontend-2"'), 'startup prompt embeds the agentId in the MCP payload')
-  assert.ok(!prompt.includes('"workspaceRoot"'), 'startup prompt must not embed workspaceRoot in the MCP payload; the managed MCP server resolves it from launch env')
+  assert.ok(!prompt.includes('"workspaceRoot"'), 'startup prompt must not embed workspaceRoot in the MCP payload; the managed MCP server resolves it from session context')
+  assert.ok(!prompt.includes('SPRINTENGINE_STATE_PATH'), 'startup prompt must not reference env-based managed routing')
+  assert.ok(!prompt.includes('SPRINTENGINE_WORKSPACE_ROOT'), 'startup prompt must not reference env-based managed routing')
+  assert.ok(!prompt.includes('launch env'), 'startup prompt must describe session-context routing, not launch-env routing')
   assert.ok(prompt.includes('directiveType'), 'startup prompt documents the directive contract field names')
   assert.ok(prompt.includes('nextMcpToolName') && prompt.includes('nextMcpArguments'), 'startup prompt names the directive routing fields')
   assert.ok(!prompt.includes('retryAfterMs'), 'startup prompt does not instruct Multicode agents to use retryAfterMs')
@@ -1897,7 +1902,8 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
   const readyTask = task({ id: 'T3', title: 'Build feature', role: 'developer' })
   const continuation = buildSprintEngineContinuationPrompt(readyTask, 'developer-1')
   assert.ok(continuation.includes('sprintengine.agent.next_directive'), 'continuation prompt names the MCP directive tool')
-  assert.ok(!continuation.includes('"statePath"'), 'continuation prompt must not embed statePath; the managed MCP server resolves it from launch env')
+  assert.ok(!continuation.includes('"statePath"'), 'continuation prompt must not embed statePath; the managed MCP server resolves it from session context')
+  assert.ok(!continuation.includes('SPRINTENGINE_STATE_PATH'), 'continuation prompt must not reference env-based managed routing')
   assert.ok(continuation.includes('"role": "developer"'), 'continuation prompt embeds the role in the directive payload')
   assert.ok(continuation.includes('"agentId": "developer-1"'), 'continuation prompt embeds the agentId in the directive payload')
   assert.ok(continuation.includes('sprintengine.task.next'), 'continuation prompt names the MCP task-next tool to invoke')
@@ -1914,7 +1920,7 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
   const continuationNoState = buildSprintEngineContinuationPrompt(readyTask, 'developer-1')
   assert.ok(
     !continuationNoState.includes('"statePath"'),
-    'continuation prompt must not embed statePath even when called without one; the managed MCP server resolves it from launch env'
+    'continuation prompt must not embed statePath even when called without one; the managed MCP server resolves it from session context'
   )
 
   const gateTask = task({ id: 'T3', title: 'Build feature' })
@@ -1923,7 +1929,7 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
   assert.ok(claimed.includes('already claimed by this terminal'))
   assert.ok(claimed.includes('durable dispatch assignment'))
   assert.ok(claimed.includes('sprintengine.agent.next_directive'), 'claimed gate prompt names the MCP directive tool')
-  assert.ok(!claimed.includes('"statePath"'), 'claimed gate prompt must not embed statePath; the managed MCP server resolves it from launch env')
+  assert.ok(!claimed.includes('"statePath"'), 'claimed gate prompt must not embed statePath; the managed MCP server resolves it from session context')
   assert.ok(claimed.includes('sprintengine.gate.verdict'), 'claimed gate prompt names the MCP verdict tool')
   assert.ok(
     !/sprintengine (join|task|gate|triage|init|handover)/.test(claimed),
@@ -1934,7 +1940,7 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
   assert.ok(ready.includes('wake candidate'))
   assert.ok(ready.includes('not a durable gate dispatch assignment'))
   assert.ok(ready.includes('sprintengine.agent.next_directive'))
-  assert.ok(!ready.includes('"statePath"'), 'unclaimed gate prompt must not embed statePath; the managed MCP server resolves it from launch env')
+  assert.ok(!ready.includes('"statePath"'), 'unclaimed gate prompt must not embed statePath; the managed MCP server resolves it from session context')
   assert.ok(ready.includes('"role": "code_reviewer"'))
   assert.ok(ready.includes('"agentId": "code_reviewer"'))
   assert.ok(ready.includes('sprintengine.gate.next'), 'unclaimed gate prompt names the MCP gate-next tool to invoke')
@@ -1983,7 +1989,7 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
     'rework notifications embed statePath in the task.get payload'
   )
   assert.ok(reworkNotif.includes('sprintengine.agent.next_directive'))
-  assert.ok(!reworkNotif.includes('"statePath"'), 'rework notifications must not embed statePath; the managed MCP server resolves it from launch env')
+  assert.ok(!reworkNotif.includes('"statePath"'), 'rework notifications must not embed statePath; the managed MCP server resolves it from session context')
   assert.ok(reworkNotif.includes('"role": "frontend"'))
   assert.ok(reworkNotif.includes('"agentId": "frontend-2"'))
   assert.ok(reworkNotif.includes('Artifact: AR-9'))
@@ -2000,8 +2006,9 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
   assert.ok(triage.includes('sprintengine.triage.needs_input'), 'architect triage prompt names the MCP triage tool')
   assert.ok(
     !triage.includes('"statePath"'),
-    'architect triage payload must not embed statePath; the managed MCP server resolves it from launch env'
+    'architect triage payload must not embed statePath; the managed MCP server resolves it from session context'
   )
+  assert.ok(!triage.includes('/tmp/workspace/.multi-code/sprintengine/team/run.yaml'), 'architect triage prompt does not expose the run state path')
   assert.ok(triage.includes('"id": "architect"'), 'architect triage payload embeds the architect actor id')
   assert.ok(triage.includes('sprintengine.task.note'), 'architect triage prompt names the MCP task-note tool for handoff')
   assert.ok(triage.includes('T5, T6'))
@@ -2028,7 +2035,7 @@ function testDispatchPromptUsesJoinReconciliation(): void {
   assert.ok(prompt.includes('Task: T4'))
   assert.ok(prompt.includes('Reason: task_claimed'))
   assert.ok(prompt.includes('sprintengine.agent.next_directive'), 'dispatch prompt names the MCP directive tool')
-  assert.ok(!prompt.includes('"statePath"'), 'dispatch prompt must not embed statePath; the managed MCP server resolves it from launch env')
+  assert.ok(!prompt.includes('"statePath"'), 'dispatch prompt must not embed statePath; the managed MCP server resolves it from session context')
   assert.ok(prompt.includes('"role": "frontend"'), 'dispatch prompt embeds the dispatch role in the MCP payload')
   assert.ok(prompt.includes('"agentId": "frontend-3"'), 'dispatch prompt embeds the agent id in the MCP payload')
   assert.ok(prompt.includes('managed Sprint Engine MCP server owns dispatch routing'))
@@ -2051,7 +2058,7 @@ function testDispatchPromptUsesJoinReconciliation(): void {
   })
   assert.ok(
     !promptWithoutState.includes('"statePath"'),
-    'dispatch prompt must not embed statePath even when called without one; the managed MCP server resolves it from launch env'
+    'dispatch prompt must not embed statePath even when called without one; the managed MCP server resolves it from session context'
   )
 }
 
@@ -2540,6 +2547,45 @@ function testPickNextAutoRunsHonoursContinuationGraceWindow(): void {
   )
   assert.equal(expiredCandidates.length, 1, 'after grace expires the task becomes a candidate')
   assert.equal(expiredCandidates[0].taskId, 'T-ready')
+}
+
+function testDeriveAutomationModeTrustsLocalAutoStateOverRunnerPolicy(): void {
+  // Regression: the user clicks Manual in the Sprint Engine board panel. The
+  // local autoState becomes manual immediately, but the persisted run.yaml
+  // runner.cliWatchPolling is still 'enabled' until the IPC round-trip and projection
+  // refresh complete. deriveSprintEngineAutomationMode must NOT use the
+  // persisted runner.cliWatchPolling as a "yes auto" signal — doing that lets stale
+  // persisted state override the user's live choice and the UI flicks back to
+  // the previous automation mode. See sprintengineAutomation.ts for the full
+  // rationale.
+
+  const manualAutoState = { supervisorEnabled: false, enabled: false, autoApproveArtifacts: false }
+  const runnerAuto = { cliWatchPolling: 'enabled' as const, pollIntervalSeconds: 10, idleBackoffSeconds: 30, maxBackoffSeconds: 120, stopWhenComplete: true }
+  const runnerOff = { cliWatchPolling: 'disabled' as const, pollIntervalSeconds: 10, idleBackoffSeconds: 30, maxBackoffSeconds: 120, stopWhenComplete: true }
+
+  const fromDeriveModule = (): typeof deriveSprintEngineAutomationMode => deriveSprintEngineAutomationMode
+  const derive = fromDeriveModule()
+
+  assert.equal(
+    derive(manualAutoState, runnerAuto),
+    'manual',
+    'local manual autoState must win when run.yaml runner.cliWatchPolling is still enabled (stale projection)'
+  )
+  assert.equal(
+    derive(manualAutoState, runnerOff),
+    'manual',
+    'local manual autoState yields manual when runner.cliWatchPolling is also disabled'
+  )
+  assert.equal(
+    derive({ supervisorEnabled: true, enabled: true, autoApproveArtifacts: false }, runnerOff),
+    'run_agents',
+    'local auto autoState yields run_agents even when run.yaml runner.cliWatchPolling is still disabled (pre-persistence)'
+  )
+  assert.equal(
+    derive({ supervisorEnabled: true, enabled: true, autoApproveArtifacts: true }, runnerOff),
+    'run_agents_and_approve_artifacts',
+    'autoApproveArtifacts trumps run_agents regardless of runner.cliWatchPolling'
+  )
 }
 
 function testGetSprintEngineStartupCommandModePicksInitOnlyForEmptyArchitect(): void {

@@ -198,7 +198,10 @@ const runnerState = normalizeSprintEngineProjection(fakeProjection({
   },
 }))
 assert.deepEqual(runnerState?.runner, {
-  mode: 'auto',
+  // Input projection used legacy `mode: 'auto'`; the renderer normalizer
+  // translates it to the new `cliWatchPolling: 'enabled'` shape. Validates
+  // the backward-compat read.
+  cliWatchPolling: 'enabled',
   pollIntervalSeconds: 4,
   idleBackoffSeconds: 12,
   maxBackoffSeconds: 90,

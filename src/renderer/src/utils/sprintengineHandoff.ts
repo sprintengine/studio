@@ -66,7 +66,6 @@ export function buildPlanFileSprintEngineHandoffPrompt({
   sourceContent,
   sourcePlanKind = 'unknown',
   sourceBundle = [],
-  statePath,
   rosterArgs = [],
   autoRunRequested = false,
 }: PlanFileSprintEngineHandoffPromptArgs): string {
@@ -83,7 +82,6 @@ export function buildPlanFileSprintEngineHandoffPrompt({
     ? [
       'Call `sprintengine.handover` once per source in the bundle, passing `handoverPath` and `sourcePlanKind` for each. Stop and report to the user if any call reports a collision or failure:',
       bundle.map((item) => jsonBlock({
-        statePath,
         name: teamSlug,
         goal,
         handoverPath: item.sourcePath,
@@ -93,7 +91,6 @@ export function buildPlanFileSprintEngineHandoffPrompt({
     : [
       'Call `sprintengine.handover` with the selected markdown source:',
       jsonBlock({
-        statePath,
         name: teamSlug,
         goal,
         handoverPath: sourcePath,
@@ -102,19 +99,15 @@ export function buildPlanFileSprintEngineHandoffPrompt({
     ].join('\n')
 
   const initPayload: Record<string, unknown> = {
-    statePath,
     goal,
   }
   if (rosterArgs.length > 0) initPayload.agent = rosterArgs
 
   const architectJoinPayload = {
-    statePath,
     role: 'architect',
     agentId: 'architect',
-    workspaceRoot: '<workspace root used to launch this run>',
   }
   const architectDirectivePayload = {
-    statePath,
     role: 'architect',
     agentId: 'architect',
   }
@@ -127,10 +120,9 @@ export function buildPlanFileSprintEngineHandoffPrompt({
     `Goal: ${goal}`,
     sourceSummary,
     `Source snapshot: ${contentLines} total text line${contentLines === 1 ? '' : 's'} selected by the user.`,
-    `Target state path: \`${statePath}\``,
-    'The renderer has only created local workspace metadata and this startup prompt. Canonical Sprint Engine files must be created by the managed `multicode-sprintengine` MCP server. Do not write run-store files, `handover.md`, task state, or artifact state directly. Do not run `sprintengine` shell commands for autonomous Sprint Engine work — the CLI is reserved for human and debug operators.',
+    'The renderer has only created local workspace metadata and this startup prompt. Canonical Sprint Engine files must be created by the managed `multicode-sprintengine` MCP server, which resolves run and workspace routing from its registered HTTP session context. Do not pass server-owned routing fields in autonomous MCP tool payloads. Do not write run-store files, `handover.md`, task state, or artifact state directly. Do not run `sprintengine` shell commands for autonomous Sprint Engine work — the CLI is reserved for human and debug operators.',
     handoverCalls,
-    'Only after `sprintengine.handover` succeeds, initialize the Sprint Engine state at the target path:',
+    'Only after `sprintengine.handover` succeeds, initialize the Sprint Engine state for this managed session:',
     '`sprintengine.init`',
     jsonBlock(initPayload),
     rosterArgs.length > 0
@@ -148,6 +140,6 @@ export function buildPlanFileSprintEngineHandoffPrompt({
         'Invoke the returned `nextMcpToolName` with `nextMcpArguments` verbatim. `sprintengine.init` only creates the first architect task; the directive tool will route the assignment.',
       ].join('\n\n')
       : null,
-    'After initialization, agents continue through the managed MCP server: register with `sprintengine.agent.join`, then call `sprintengine.agent.next_directive` (with `{statePath, role, agentId}`) to receive the next directive. The directive payload names `nextMcpToolName` and `nextMcpArguments` for the next claim — implementation task, quality gate, or `needs_input` triage. Product and architect agents must read the imported source file(s) in the Sprint Engine team folder when their own work is claimed, and should treat those files as incoming context.',
+    'After initialization, agents continue through the managed MCP server: register with `sprintengine.agent.join`, then call `sprintengine.agent.next_directive` with `{role, agentId}` to receive the next directive. The directive payload names `nextMcpToolName` and `nextMcpArguments` for the next claim — implementation task, quality gate, or `needs_input` triage. Product and architect agents must read the imported source file(s) in the Sprint Engine team folder when their own work is claimed, and should treat those files as incoming context.',
   ].filter((line): line is string => line !== null).join('\n\n')
 }

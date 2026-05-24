@@ -1034,11 +1034,18 @@ function positiveNumberOrDefault(value: unknown, fallback: number): number {
 function normalizeSprintEngineRunnerPolicy(input: unknown): SprintEngineRunnerPolicy | undefined {
   if (!input || typeof input !== 'object') return undefined
   const record = input as Record<string, unknown>
-  const mode = record.mode === 'auto' || record.mode === 'off'
-    ? record.mode
-    : 'off'
+  // Field rename: legacy `runner.mode` (`auto|off`) → `runner.cliWatchPolling`
+  // (`enabled|disabled`). Read both for backward compatibility; the Python
+  // normalizer also accepts both shapes so projections from older state files
+  // still resolve correctly.
+  const explicit = record.cliWatchPolling
+  const cliWatchPolling = explicit === 'enabled' || explicit === 'disabled'
+    ? explicit
+    : record.mode === 'auto'
+      ? 'enabled'
+      : 'disabled'
   return {
-    mode,
+    cliWatchPolling,
     pollIntervalSeconds: positiveNumberOrDefault(record.pollIntervalSeconds, 10),
     idleBackoffSeconds: positiveNumberOrDefault(record.idleBackoffSeconds, 30),
     maxBackoffSeconds: positiveNumberOrDefault(record.maxBackoffSeconds, 120),

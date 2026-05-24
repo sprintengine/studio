@@ -47,9 +47,9 @@ export function buildSprintEngineStartupPrompt(
 ): string {
   const commandMode = options.commandMode ?? (role === 'architect' ? 'init' : 'join')
 
-  // The Sprint Engine MCP server is launched per workspace with SPRINTENGINE_STATE_PATH
-  // and SPRINTENGINE_WORKSPACE_ROOT in its environment, and resolves both from there.
-  // Agents do not pass statePath or workspaceRoot in tool payloads.
+  // The managed Sprint Engine MCP server resolves run and workspace routing
+  // from the HTTP session context. Agents do not pass statePath or
+  // workspaceRoot in tool payloads.
   const joinPayload = {
     role,
     agentId,
@@ -87,7 +87,7 @@ export function buildSprintEngineStartupPrompt(
     '- `directiveType`: `task_work` | `resume` | `gate_work` | `needs_input_triage` | `idle` | `complete` | `blocked` | `error`',
     '- `nextMcpToolName` and `nextMcpArguments`: the exact MCP tool and payload to invoke next (or `null` when idle/complete/blocked)',
     '- `task`, `gate`, `triage`, `blocker`, `error`: contextual fields when applicable',
-    '- `runnerPolicy.mode`: `auto` or `manual`',
+    '- `runnerPolicy.cliWatchPolling`: `enabled` or `disabled` (CLI-only; Multicode supervisor ignores)',
     'Invoke `nextMcpToolName` with `nextMcpArguments` verbatim to claim or resume work.',
   ].join('\n')
 
@@ -126,7 +126,6 @@ export function buildSprintEngineStartupPrompt(
 
   const context = [
     options.executionCwd ? `Worker cwd: ${options.executionCwd}` : null,
-    options.sprintEngineStatePath ? `Shared Sprint Engine state: ${options.sprintEngineStatePath}` : null,
     commandMode === 'init' && options.rosterArgs?.length
       ? `Selected Sprint Engine roster: ${options.rosterArgs.join(', ')}. The architect must create tasks only for roles present in this roster.`
       : null,
