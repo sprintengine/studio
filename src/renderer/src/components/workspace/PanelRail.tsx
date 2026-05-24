@@ -83,12 +83,16 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
     (state) => state.workspaces.find((workspace) => workspace.id === workspaceId)?.layoutModel
   )
 
+  // Bare-icon activity-bar idiom: no container
+  // chrome, no chip on active, hover just brightens the icon. Active state =
+  // brighter foreground + 2px accent stripe (left edge in collapsed/vertical
+  // mode hugs the sidebar's outer edge; bottom underline in expanded mode).
   const containerClass = collapsed
-    ? 'flex flex-col items-center gap-1 px-1.5 pt-2 pb-1.5'
-    : 'mx-2 mt-2 inline-flex shrink-0 items-center gap-0.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] p-0.5'
+    ? 'flex flex-col items-stretch pt-2'
+    : 'mt-2 flex items-center justify-center gap-4'
 
   const tooltipPlacement = collapsed ? 'top' : 'bottom'
-  const buttonSize = collapsed ? 'h-8 w-8' : 'h-7 w-7'
+  const buttonSizing = collapsed ? 'h-9 w-full' : 'h-8 w-8'
 
   return (
     <div
@@ -101,11 +105,14 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
         const Icon = panel.icon
         const active = jsonModelHasComponent(layoutModel, panel.key)
         const tooltip = `${panel.label} (${shortcutLabel(panel.shortcut)})`
-        const buttonClass = `interactive inline-flex ${buttonSize} items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
+        const buttonClass = `interactive relative inline-flex ${buttonSizing} items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
           active
-            ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
-            : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
+            ? 'text-[color:var(--text-strong)]'
+            : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]'
         }`
+        const accentClass = collapsed
+          ? 'pointer-events-none absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-[color:var(--accent-primary)]'
+          : 'pointer-events-none absolute bottom-0 left-1.5 right-1.5 h-[2px] rounded-t bg-[color:var(--accent-primary)]'
         return (
           <Tooltip key={panel.key} content={tooltip} placement={tooltipPlacement}>
             <button
@@ -115,7 +122,8 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
               aria-label={panel.label}
               className={buttonClass}
             >
-              <Icon className="h-[14px] w-[14px]" />
+              <Icon className="h-[16px] w-[16px]" />
+              {active ? <span aria-hidden="true" className={accentClass} /> : null}
             </button>
           </Tooltip>
         )
