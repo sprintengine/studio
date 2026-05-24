@@ -311,8 +311,23 @@ Task records preserve the existing task card fields:
 - `needsTriage`
 - `needsInput`
 - `feedback`
+- `difficulty`
 - `startedAt`, `completedAt`
 - `activity`
+
+`difficulty` is optional so old task records do not require migration. Task-local
+state uses existing camelCase conventions:
+
+- `architectEstimatePct`, `architectEstimateReason`
+- `implementerActualPct`, `implementerActualReason`
+- `reviewerAssessments`: append-only reviewer entries with `pct`, `dimension`,
+  `reason`, `reviewerAgentId`, `reviewerRole`, `gateId`, `gateAttemptId`, and
+  `capturedAt`
+
+Difficulty percentages must be integer values from `0` to `100`; booleans are
+invalid. Reviewer assessment `dimension` must be one of `implementation`,
+`review`, `verification`, `product_spec`, `security`, `performance`, or
+`coordination`.
 
 `ownedPaths`, evidence files, artifact paths, review paths, and notes must use
 project-root-relative paths. Do not write absolute paths or machine-specific
@@ -443,6 +458,15 @@ rework.
 Agent feedback is attached to task records and also exported to
 `metrics/agent-feedback.jsonl`. Metrics records use JSON Lines so each feedback
 payload is append-friendly and durable across syncs.
+
+When a task has difficulty metadata and feedback is recorded, feedback metrics
+include a `difficulty` snapshot using snake_case analytics keys:
+
+- `architect_estimate_pct`, `architect_estimate_reason`
+- `implementer_actual_pct`, `implementer_actual_reason`
+- `reviewer_assessments`: reviewer assessment entries with `pct`, `dimension`,
+  `reason`, `reviewer_agent_id`, `reviewer_role`, `gate_id`,
+  `gate_attempt_id`, and `captured_at`
 
 ## Needs Input
 

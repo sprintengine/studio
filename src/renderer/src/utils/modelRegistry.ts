@@ -291,6 +291,68 @@ export function ensureAgentTabInLayoutModel(
   return model.toJson()
 }
 
+function firstTerminalTabset(model: Model): TabSetNode | null {
+  let found: TabSetNode | null = null
+  model.visitNodes((node) => {
+    if (found) return
+    if (!(node instanceof TabNode) || node.getComponent() !== 'terminal') return
+    const parent = node.getParent()
+    if (parent instanceof TabSetNode) found = parent
+  })
+  return found
+}
+
+function modelHasSprintEngineBoard(model: Model): boolean {
+  let found = false
+  model.visitNodes((node) => {
+    if (found) return
+    if (node instanceof TabNode && node.getComponent() === 'sprintengine') found = true
+  })
+  return found
+}
+
+function terminalTabJson(terminalId: string, name: string) {
+  return { type: 'tab', name, component: 'terminal', config: { terminalId } }
+}
+
+// Places a new terminal tab in the layout. Stacks into an existing terminal
+// tabset when one exists so multiple terminals share a tab strip. In Sprint
+// Engine layouts a fresh terminal tabset is docked to the right of the root
+// so the board stays visible; outside SE mode the active tabset is used.
+export function addTerminalTab(
+  workspaceId: string,
+  terminalId: string,
+  name = 'Terminal'
+): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+
+  const tabJson = terminalTabJson(terminalId, name)
+
+  const existingTerminalTabset = firstTerminalTabset(model)
+  if (existingTerminalTabset) {
+    model.doAction(
+      Actions.addNode(tabJson, existingTerminalTabset.getId(), DockLocation.CENTER, -1, true)
+    )
+    return true
+  }
+
+  if (modelHasSprintEngineBoard(model)) {
+    model.doAction(
+      Actions.addNode(tabJson, model.getRoot().getId(), DockLocation.RIGHT, -1, true)
+    )
+    return true
+  }
+
+  const targetTabset = model.getActiveTabset() ?? firstTabset(model)
+  if (!targetTabset) return false
+
+  model.doAction(
+    Actions.addNode(tabJson, targetTabset.getId(), DockLocation.CENTER, -1, true)
+  )
+  return true
+}
+
 export function focusOrAddTerminalTab(
   workspaceId: string,
   terminalId: string,
@@ -314,24 +376,7 @@ export function focusOrAddTerminalTab(
     return true
   }
 
-  let targetTabset: TabSetNode | null = model.getActiveTabset() ?? null
-  if (!targetTabset) {
-    model.visitNodes((node) => {
-      if (!targetTabset && node instanceof TabSetNode) targetTabset = node
-    })
-  }
-  if (!targetTabset) return false
-
-  model.doAction(
-    Actions.addNode(
-      { type: 'tab', name, component: 'terminal', config: { terminalId } },
-      targetTabset.getId(),
-      DockLocation.CENTER,
-      -1,
-      true
-    )
-  )
-  return true
+  return addTerminalTab(workspaceId, terminalId, name)
 }
 
 function fileTabId(filePath: string): string {

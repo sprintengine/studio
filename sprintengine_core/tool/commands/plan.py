@@ -6,6 +6,7 @@ from typing import Any, Dict
 
 from sprintengine_core import store as folder_store
 from sprintengine_core.tool.artifacts import project_relative_display_path
+from sprintengine_core.tool.feedback import set_architect_difficulty_estimate
 from sprintengine_core.tool.gates import sync_product_quality_gate
 from sprintengine_core.tool.plans import (
     build_address_reviews_prompt,
@@ -95,6 +96,11 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
             task["needsTriage"] = True
         elif getattr(args, "clear_needs_triage", False):
             task["needsTriage"] = False
+        set_architect_difficulty_estimate(
+            task,
+            getattr(args, "difficulty_pct", None),
+            getattr(args, "difficulty_reason", "") or "",
+        )
 
         policy = folder_store.normalize_quality_fields(state)
         task["qualityGates"] = folder_store.normalize_task_quality_gates(task, state, policy)

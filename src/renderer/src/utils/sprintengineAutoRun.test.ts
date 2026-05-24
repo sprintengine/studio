@@ -20,6 +20,7 @@ import {
   getSprintEngineAutoRunOccupiedAgentIds,
   isSprintEngineAutoPendingSpawnStillRelevant,
   pickNextAutoRuns,
+  roleHasClaimableSprintEngineImplementationWork,
   shouldSkipExitedSprintEngineRosterAgent,
   sprintEngineDispatchDeliveryKey,
   sprintEngineAutoRunWorkKey,
@@ -61,6 +62,7 @@ async function main(): Promise<void> {
   testGetPendingAgentNotificationEventsFiltersDeliveredAndSent()
   testAgentOwnsOpenSprintEngineImplementationWorkDetectsRework()
   testAgentHasOpenSprintEngineGateWorkDetectsPendingAndActiveGates()
+  testRoleHasClaimableSprintEngineImplementationWorkDetectsReadyRoleWork()
   testShouldSkipExitedSprintEngineRosterAgentAllowsOwnedReworkRestart()
   testGetSprintEngineAutoRunOccupiedAgentIdsCountsChangesRequestedOwners()
   testPickNextAutoRunsSelectsReadyTaskForIdleRoleAgent()
@@ -84,6 +86,7 @@ async function main(): Promise<void> {
   await testDispatchPromptDeliveryUsesDispatchIdCooldown()
   await testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt()
   await testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity()
+  await testSuperviseRunnerCycleRestartsExitedRoleForReadyTask()
   await testSuperviseRunnerCycleDoesNotMutateTaskOrGateState()
 }
 
@@ -1380,6 +1383,98 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
   assert.ok(replacementSpawn.initialPrompt?.includes('sprintengine join --role developer --id developer-2 --watch'))
 }
 
+async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise<void> {
+  const spawns: Array<{ agentId?: string; cli?: AgentCli; initialPrompt?: string }> = []
+  installTestWindow({
+    terminalList: async () => [],
+    terminalStatus: async () => ({ processAlive: false }),
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    terminalSpawn: async (
+      sessionId: string,
+      _cols: number,
+      _rows: number,
+      _cwd?: string,
+      _resume?: boolean,
+      _statePath?: string,
+      cli?: AgentCli,
+      initialPrompt?: string,
+      _cliRuntimes?: unknown,
+      _shellOnly?: boolean,
+      metadata?: { agentId?: string },
+    ) => {
+      spawns.push({ agentId: metadata?.agentId, cli, initialPrompt })
+      return { ok: true, sessionId }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const readyReviewTask = task({
+    id: 'T6',
+    title: 'Review phase-1 implementation quality',
+    role: 'code_reviewer',
+    status: 'ready',
+    boardColumn: 'ready',
+    ownerAgentId: null,
+    dependsOn: ['T5'],
+    qualityGates: [],
+  })
+  const sprintEngineState = sprintEngineStateFixture({
+    runner: { mode: 'auto' },
+    sprintEngineAgents: {
+      code_reviewer: runtimeAgent('code_reviewer', { status: 'idle', currentTaskId: null }),
+    },
+    tasks: [readyReviewTask],
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: {
+      code_reviewer: {
+        id: 'code_reviewer',
+        name: 'Shawn',
+        role: 'code_reviewer',
+        cli: 'codex',
+        kind: 'sprintengine',
+        cliLastExitedAt: Date.now() - 60_000,
+        cliStartRequested: false,
+        cliHasLaunched: false,
+      },
+    } as Workspace['agents'],
+    sprintEngineAutoState: {
+      supervisorEnabled: true,
+      enabled: true,
+      autoApproveArtifacts: false,
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    mcpSettings: {},
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages: mutableRef(new Map()),
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+  })
+
+  assert.equal(spawns.length, 1, `exited role agent should restart for ready work; spawns ${JSON.stringify(spawns)}`)
+  assert.equal(spawns[0].agentId, 'code_reviewer')
+  assert.equal(spawns[0].cli, 'codex')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine join --role code_reviewer --id code_reviewer --watch'))
+}
+
 async function testSuperviseRunnerCycleDoesNotMutateTaskOrGateState(): Promise<void> {
   const mutations: string[] = []
   installTestWindow({
@@ -1828,6 +1923,20 @@ function testAgentHasOpenSprintEngineGateWorkDetectsPendingAndActiveGates(): voi
   assert.equal(agentHasOpenSprintEngineGateWork(state, 'frontend', 'frontend'), false)
 }
 
+function testRoleHasClaimableSprintEngineImplementationWorkDetectsReadyRoleWork(): void {
+  const state = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T1', status: 'done', role: 'code_reviewer', ownerAgentId: 'code_reviewer' }),
+      task({ id: 'T2', status: 'ready', boardColumn: 'ready', role: 'code_reviewer', ownerAgentId: null }),
+      task({ id: 'T3', status: 'ready', boardColumn: 'ready', role: 'developer', ownerAgentId: 'developer-1' }),
+    ],
+  })
+
+  assert.equal(roleHasClaimableSprintEngineImplementationWork(state, 'code_reviewer'), true)
+  assert.equal(roleHasClaimableSprintEngineImplementationWork(state, 'developer'), false)
+  assert.equal(roleHasClaimableSprintEngineImplementationWork(state, 'tester'), false)
+}
+
 function testShouldSkipExitedSprintEngineRosterAgentAllowsOwnedReworkRestart(): void {
   const exitedAgent = {
     kind: 'sprintengine' as const,
@@ -1844,7 +1953,7 @@ function testShouldSkipExitedSprintEngineRosterAgentAllowsOwnedReworkRestart(): 
   assert.equal(
     shouldSkipExitedSprintEngineRosterAgent(exitedAgent, true),
     false,
-    'exited owners with open implementation work are eligible for restart'
+    'exited agents with open owned or claimable work are eligible for restart'
   )
   assert.equal(
     shouldSkipExitedSprintEngineRosterAgent({ ...exitedAgent, cliStartRequested: true }, true),

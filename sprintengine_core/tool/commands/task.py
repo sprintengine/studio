@@ -9,11 +9,13 @@ from sprintengine_core.tool.artifacts import release_task_from_owner, resolve_ta
 from sprintengine_core.tool.common import parse_json_object_arg
 from sprintengine_core.tool.constants import ACTIVE_TASK_STATUSES, ARCHITECT_ROUTED_NEEDS_INPUT_KINDS, NEEDS_INPUT_KIND_DEFAULT_REASONS
 from sprintengine_core.tool.feedback import (
+    append_reviewer_difficulty_assessment,
     append_feedback_record,
     attach_feedback_payload,
     build_feedback_payload,
     feedback_args_present,
     parse_scope_expansion_args,
+    set_implementer_actual_difficulty,
 )
 from sprintengine_core.tool.gates import (
     apply_gate_verdict,
@@ -227,6 +229,16 @@ def cmd_task_gate_verdict(args: argparse.Namespace) -> Dict[str, Any]:
                 artifact_title=args.artifact_title,
                 artifact_kind=args.artifact_kind,
             )
+            append_reviewer_difficulty_assessment(
+                task,
+                pct=getattr(args, "reviewed_difficulty_pct", None),
+                dimension=getattr(args, "reviewed_difficulty_dimension", "") or "",
+                reason=getattr(args, "reviewed_difficulty_reason", "") or "",
+                reviewer_agent_id=args.id,
+                reviewer_role=args.role,
+                gate_id=str(gate.get("id") or ""),
+                gate_attempt_id=str(result["attempt"].get("id") or ""),
+            )
             feedback_payload = build_feedback_payload(
                 args,
                 state,
@@ -386,6 +398,11 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             task["completedAt"] = None
         if args.status == "done":
             task["completedAt"] = now_iso()
+            set_implementer_actual_difficulty(
+                task,
+                getattr(args, "actual_difficulty_pct", None),
+                getattr(args, "actual_difficulty_reason", "") or "",
+            )
         if getattr(args, "summary", None):
             ensure_evidence(task)["summary"] = args.summary
         commit_sha = None
@@ -612,6 +629,11 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
         summary_data = parse_json_object_arg(getattr(args, "summary_data_json", None), "--summary-data-json")
         refresh_task_diff_evidence(state, args.state, task, str(actor), args.path or [])
+        set_implementer_actual_difficulty(
+            task,
+            getattr(args, "actual_difficulty_pct", None),
+            getattr(args, "actual_difficulty_reason", "") or "",
+        )
         result = publish_task(state, task, str(actor), args.summary, paths=args.path or [], data=summary_data)
         recompute_phase(state)
         event = append_event(state, "task_published", str(actor), f"{actor} published {args.task_id} to {result['nextStatus']}.")

@@ -296,6 +296,53 @@ def normalize_needs_triage(raw: Any, task_id: str) -> bool:
             return False
     raise SystemExit(f"Task {task_id} needsTriage must be a boolean.")
 
+def normalize_difficulty_percent_value(value: Any, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > 100:
+        raise SystemExit(f"{field_name} must be an integer from 0 to 100.")
+    return value
+
+def normalize_task_difficulty(raw: Any, task_id: str) -> Optional[Dict[str, Any]]:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise SystemExit(f"Task {task_id} difficulty must be an object.")
+    difficulty: Dict[str, Any] = {}
+    for key in ("architectEstimatePct", "implementerActualPct"):
+        if key in raw and raw.get(key) is not None:
+            difficulty[key] = normalize_difficulty_percent_value(raw.get(key), f"Task {task_id} difficulty.{key}")
+    for key in ("architectEstimateReason", "implementerActualReason"):
+        value = optional_non_empty_string(raw, key)
+        if value is not None:
+            difficulty[key] = value
+    assessments = raw.get("reviewerAssessments")
+    if assessments is not None:
+        if not isinstance(assessments, list):
+            raise SystemExit(f"Task {task_id} difficulty.reviewerAssessments must be a list.")
+        normalized_assessments: List[Dict[str, Any]] = []
+        for index, raw_assessment in enumerate(assessments):
+            if not isinstance(raw_assessment, dict):
+                raise SystemExit(f"Task {task_id} difficulty.reviewerAssessments[{index}] must be an object.")
+            dimension = optional_non_empty_string(raw_assessment, "dimension")
+            if dimension not in VALID_DIFFICULTY_REVIEWER_DIMENSIONS:
+                raise SystemExit(
+                    f"Task {task_id} difficulty.reviewerAssessments[{index}].dimension must be one of: "
+                    f"{', '.join(sorted(VALID_DIFFICULTY_REVIEWER_DIMENSIONS))}."
+                )
+            assessment = {
+                "pct": normalize_difficulty_percent_value(
+                    raw_assessment.get("pct"),
+                    f"Task {task_id} difficulty.reviewerAssessments[{index}].pct",
+                ),
+                "dimension": dimension,
+            }
+            for key in ("reason", "reviewerAgentId", "reviewerRole", "gateId", "gateAttemptId", "capturedAt"):
+                value = optional_non_empty_string(raw_assessment, key)
+                if value is not None:
+                    assessment[key] = value
+            normalized_assessments.append(assessment)
+        difficulty["reviewerAssessments"] = normalized_assessments
+    return difficulty or None
+
 def normalize_scope_expansion(raw: Any, task_id: str, index: int) -> Dict[str, Any]:
     if not isinstance(raw, dict):
         raise SystemExit(f"Task {task_id} evidence.scopeExpansions entries must be objects.")
@@ -405,6 +452,9 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
     needs_input = normalize_task_needs_input(raw.get("needsInput"), task_id)
     if needs_input is not None:
         task["needsInput"] = needs_input
+    difficulty = normalize_task_difficulty(raw.get("difficulty"), task_id)
+    if difficulty is not None:
+        task["difficulty"] = difficulty
     if isinstance(raw.get("triage"), dict):
         task["triage"] = raw["triage"]
     if isinstance(raw.get("qualityGates"), list):
@@ -558,6 +608,12 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         raw["producesImplementation"] = True
     if getattr(args, "needs_triage", False):
         raw["needsTriage"] = True
+    if getattr(args, "difficulty_pct", None) is not None or str(getattr(args, "difficulty_reason", "") or "").strip():
+        raw["difficulty"] = {}
+        if getattr(args, "difficulty_pct", None) is not None:
+            raw["difficulty"]["architectEstimatePct"] = getattr(args, "difficulty_pct")
+        if str(getattr(args, "difficulty_reason", "") or "").strip():
+            raw["difficulty"]["architectEstimateReason"] = getattr(args, "difficulty_reason")
     if getattr(args, "manual_dispatch", False):
         raw["dispatch"] = {
             "mode": "manual",

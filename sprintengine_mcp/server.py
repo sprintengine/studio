@@ -27,7 +27,9 @@ from sprintengine_core.role_registry import (
     normalize_role_id,
 )
 from sprintengine_core.tool import (
+    FEEDBACK_COUNT_FIELDS,
     FEEDBACK_SCORE_FIELDS,
+    FEEDBACK_TEXT_FIELDS,
     cmd_artifact_add,
     cmd_artifact_approve,
     cmd_artifact_list,
@@ -723,6 +725,7 @@ class SprintEngineMcpServer:
                 path=list(payload.get("path") or payload.get("file") or []),
                 summary_data_json=json.dumps(payload.get("data")) if isinstance(payload.get("data"), dict) else payload.get("summaryDataJson"),
             )
+            _add_implementer_difficulty_defaults(base, payload)
         elif tool_name == "sprintengine.task.note":
             base.update(task_id=payload["taskId"], id=payload["id"], note=payload["note"])
         elif tool_name == "sprintengine.task.comment":
@@ -762,6 +765,7 @@ class SprintEngineMcpServer:
                 needs_input_question=payload.get("needsInputQuestion"),
                 needs_input_suggested_resolution=payload.get("needsInputSuggestedResolution"),
             )
+            _add_reviewer_difficulty_defaults(base, payload)
             _add_feedback_defaults(base, payload)
         elif tool_name == "sprintengine.plan.add_task":
             base.update(
@@ -1014,10 +1018,29 @@ def _handle_stdio_message(server: SprintEngineMcpServer, line: str) -> dict[str,
 def _add_feedback_defaults(target: dict[str, Any], payload: dict[str, Any]) -> None:
     for attr, camel, _ in FEEDBACK_SCORE_FIELDS:
         target[attr] = payload.get(attr, payload.get(camel))
-    target["top_friction"] = payload.get("topFriction", payload.get("top_friction", ""))
-    target["suggested_improvement"] = payload.get("suggestedImprovement", payload.get("suggested_improvement", ""))
+    for attr, camel, _ in FEEDBACK_COUNT_FIELDS:
+        target[attr] = payload.get(attr, payload.get(camel))
+    for attr, camel, _ in FEEDBACK_TEXT_FIELDS:
+        target[attr] = payload.get(camel, payload.get(attr, ""))
     target["issue_json"] = _json_list(payload.get("issueJson", payload.get("issue_json", [])))
     target["finding_json"] = _json_list(payload.get("findingJson", payload.get("finding_json", [])))
+
+
+def _add_implementer_difficulty_defaults(target: dict[str, Any], payload: dict[str, Any]) -> None:
+    target["actual_difficulty_pct"] = payload.get("actual_difficulty_pct", payload.get("actualDifficultyPct"))
+    target["actual_difficulty_reason"] = payload.get("actualDifficultyReason", payload.get("actual_difficulty_reason", ""))
+
+
+def _add_reviewer_difficulty_defaults(target: dict[str, Any], payload: dict[str, Any]) -> None:
+    target["reviewed_difficulty_pct"] = payload.get("reviewed_difficulty_pct", payload.get("reviewedDifficultyPct"))
+    target["reviewed_difficulty_dimension"] = payload.get(
+        "reviewedDifficultyDimension",
+        payload.get("reviewed_difficulty_dimension", ""),
+    )
+    target["reviewed_difficulty_reason"] = payload.get(
+        "reviewedDifficultyReason",
+        payload.get("reviewed_difficulty_reason", ""),
+    )
 
 
 def _json_list(values: Any) -> list[str]:

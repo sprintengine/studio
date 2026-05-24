@@ -6,6 +6,7 @@ import subprocess
 import sys
 
 from helpers import REPO_ROOT, create_team, get_task, read_state, task, write_state
+from sprintengine_core.tool.constants import FEEDBACK_COUNT_FIELDS, FEEDBACK_SCORE_FIELDS, FEEDBACK_TEXT_FIELDS
 from sprintengine_mcp import SprintEngineMcpServer
 from sprintengine_mcp.schemas import MCP_V1_CONTRACT_SCHEMAS, TOOL_SCHEMAS
 
@@ -16,6 +17,13 @@ def actor(agent_id: str, role: str = "product") -> dict[str, object]:
 
 def audit_rows(team_dir):
     path = team_dir / "metrics" / "audit-events.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def feedback_rows(team_dir):
+    path = team_dir / "metrics" / "agent-feedback.jsonl"
     if not path.exists():
         return []
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -137,6 +145,41 @@ def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() 
 
     assert planned <= set(MCP_V1_CONTRACT_SCHEMAS)
     assert active_now <= set(TOOL_SCHEMAS)
+
+
+def test_mcp_feedback_schemas_expose_known_feedback_fields() -> None:
+    feedback_tools = [
+        "sprintengine.task.status",
+        "sprintengine.gate.verdict",
+        "sprintengine.gate.publish",
+        "sprintengine.artifact.ready",
+    ]
+
+    for tool_name in feedback_tools:
+        schema = MCP_V1_CONTRACT_SCHEMAS[tool_name]
+        properties = schema["properties"]
+        assert schema["additionalProperties"] is True
+        for attr, camel, _ in FEEDBACK_SCORE_FIELDS:
+            assert properties[attr]["type"] == "integer"
+            assert properties[camel]["maximum"] == 100
+        for attr, camel, _ in FEEDBACK_COUNT_FIELDS:
+            assert properties[attr]["type"] == "integer"
+            assert properties[camel]["minimum"] == 0
+        for attr, camel, _ in FEEDBACK_TEXT_FIELDS:
+            assert properties[attr]["type"] == "string"
+            assert properties[camel]["type"] == "string"
+        assert "issue_json" in properties
+        assert "issueJson" in properties
+        assert "finding_json" in properties
+        assert "findingJson" in properties
+    for tool_name in ("sprintengine.gate.verdict", "sprintengine.gate.publish"):
+        properties = MCP_V1_CONTRACT_SCHEMAS[tool_name]["properties"]
+        assert properties["reviewed_difficulty_pct"]["maximum"] == 100
+        assert properties["reviewedDifficultyPct"]["type"] == "integer"
+        assert "implementation" in properties["reviewed_difficulty_dimension"]["enum"]
+        assert "implementation" in properties["reviewedDifficultyDimension"]["enum"]
+        assert properties["reviewed_difficulty_reason"]["type"] == "string"
+        assert properties["reviewedDifficultyReason"]["type"] == "string"
 
 
 def test_mcp_valid_task_lifecycle_call_uses_core_and_emits_audit(tmp_path) -> None:
@@ -333,6 +376,128 @@ def test_mcp_gate_claim_and_verdict_use_core_lifecycle_and_audit(tmp_path) -> No
         "sprintengine.gate.next",
         "sprintengine.gate.verdict",
     ]
+
+
+def test_mcp_gate_verdict_forwards_feedback_count_fields_to_metrics(tmp_path) -> None:
+    def run_verdict(team_name: str, payload_counts: dict[str, int]) -> tuple[dict, dict]:
+        task_record = task("T1", "Reviewable", "developer", "review", owner="developer-a")
+        task_record["qualityGates"] = [
+            {
+                "id": "code-review",
+                "phase": "review",
+                "role": "code_reviewer",
+                "status": "pending",
+                "required": True,
+                "allowSelfReview": True,
+                "focus": "Review implementation.",
+                "attempts": [],
+            }
+        ]
+        fixture = create_team(tmp_path, team_name, [task_record])
+        server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+        claimed = server.call_tool(
+            "sprintengine.gate.next",
+            {"statePath": str(fixture.state_path), "role": "code_reviewer", "id": "reviewer-a"},
+            actor("workspace-user", "user"),
+        )
+        verdict = server.call_tool(
+            "sprintengine.gate.verdict",
+            {
+                "statePath": str(fixture.state_path),
+                "taskId": "T1",
+                "gateId": "code-review",
+                "role": "code_reviewer",
+                "id": "reviewer-a",
+                "verdict": "approved",
+                "summary": "Implementation matches the task card.",
+                **payload_counts,
+            },
+            actor("workspace-user", "user"),
+        )
+
+        assert claimed["ok"] is True
+        assert verdict["ok"] is True
+        assert verdict["result"]["feedbackRecorded"] is True
+        record = feedback_rows(fixture.team_dir)[0]
+        reviewed = get_task(read_state(fixture.state_path), "T1")
+        return record, reviewed["feedbackAssessments"][0]
+
+    camel_record, camel_assessment = run_verdict(
+        "mcp-gate-camel-counts",
+        {camel: index + 1 for index, (_, camel, _) in enumerate(FEEDBACK_COUNT_FIELDS)},
+    )
+    snake_record, snake_assessment = run_verdict(
+        "mcp-gate-snake-counts",
+        {attr: index + 11 for index, (attr, _, _) in enumerate(FEEDBACK_COUNT_FIELDS)},
+    )
+
+    for index, (_, state_key, json_key) in enumerate(FEEDBACK_COUNT_FIELDS):
+        assert camel_record["counts"][json_key] == index + 1
+        assert camel_assessment["counts"][state_key] == index + 1
+        assert snake_record["counts"][json_key] == index + 11
+        assert snake_assessment["counts"][state_key] == index + 11
+
+
+def test_mcp_gate_publish_records_reviewer_difficulty_assessment(tmp_path) -> None:
+    task_record = task("T1", "Reviewable", "developer", "review", owner="developer-a")
+    task_record["qualityGates"] = [
+        {
+            "id": "code-review",
+            "phase": "review",
+            "role": "code_reviewer",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": True,
+            "focus": "Review implementation.",
+            "attempts": [],
+        }
+    ]
+    fixture = create_team(tmp_path, "mcp-gate-publish-difficulty", [task_record])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    claimed = server.call_tool(
+        "sprintengine.gate.next",
+        {"statePath": str(fixture.state_path), "role": "code_reviewer", "id": "reviewer-a"},
+        actor("workspace-user", "user"),
+    )
+    verdict = server.call_tool(
+        "sprintengine.gate.publish",
+        {
+            "statePath": str(fixture.state_path),
+            "taskId": "T1",
+            "gateId": "code-review",
+            "role": "code_reviewer",
+            "id": "reviewer-a",
+            "verdict": "approved",
+            "summary": "Implementation matches the task card.",
+            "reviewedDifficultyPct": 74,
+            "reviewedDifficultyDimension": "implementation",
+            "reviewedDifficultyReason": "MCP gate publish covered several coordination paths.",
+            "claimsChecked": 6,
+        },
+        actor("workspace-user", "user"),
+    )
+
+    assert claimed["ok"] is True
+    assert verdict["ok"] is True
+    assert verdict["result"]["feedbackRecorded"] is True
+    reviewed = get_task(read_state(fixture.state_path), "T1")
+    assessment = reviewed["difficulty"]["reviewerAssessments"][0]
+    assert assessment["pct"] == 74
+    assert assessment["dimension"] == "implementation"
+    assert assessment["reason"] == "MCP gate publish covered several coordination paths."
+    assert assessment["reviewerAgentId"] == "reviewer-a"
+    assert assessment["reviewerRole"] == "code_reviewer"
+    assert assessment["gateId"] == "code-review"
+    assert assessment["gateAttemptId"] == "GA-001"
+    assert assessment["capturedAt"]
+
+    record = feedback_rows(fixture.team_dir)[0]
+    reviewer_assessment = record["difficulty"]["reviewer_assessments"][0]
+    assert reviewer_assessment["pct"] == 74
+    assert reviewer_assessment["dimension"] == "implementation"
+    assert reviewer_assessment["reviewer_agent_id"] == "reviewer-a"
+    assert reviewer_assessment["gate_attempt_id"] == "GA-001"
 
 
 def test_mcp_task_get_comment_publish_and_request_changes_cover_agent_paths(tmp_path) -> None:

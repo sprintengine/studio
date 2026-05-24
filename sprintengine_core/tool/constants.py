@@ -143,5 +143,13 @@ VALID_FEEDBACK_FINDING_AREAS = {
     "other",
 }
 VALID_FEEDBACK_FINDING_STATUSES = {"open", "accepted", "fixed", "rejected", "deferred"}
+VALID_DIFFICULTY_REVIEWER_DIMENSIONS = {
+    "implementation",
+    "review",
+    "verification",
+    "product_spec",
+    "security",
+    "performance",
+    "coordination",
+}
 VALID_VCS_STATUSES = {"not_created", "ready", "dirty", "committed", "pushed", "pr_opened", "failed"}
-

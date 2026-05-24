@@ -81,7 +81,7 @@ logging evidence. Publishing writes an `implementation_summary` or
 quality phase or to `done`:
 
 ```bash
-sprintengine task publish --task-id T3 --id developer-1 --summary "Implemented the CLI route and added regression coverage." --path sprintengine_core/tool.py
+sprintengine task publish --task-id T3 --id developer-1 --summary "Implemented the CLI route and added regression coverage." --path sprintengine_core/tool.py --actual-difficulty-pct 63 --actual-difficulty-reason "Moderate CLI/state path with focused regression coverage."
 ```
 
 Do not use a plain `task status --status done` to bypass required quality
@@ -226,6 +226,21 @@ task's owned paths:
 sprintengine task log --task-id T3 --id developer-1 --scope-expansion-json '{"path":"src/shared/electron-api.ts","reason":"Expose projection read result type for renderer consumers.","risk":"low"}'
 ```
 
+Architects can add optional task difficulty estimates when planning or updating
+task cards:
+
+```bash
+sprintengine plan add-task --title "Persist feedback metrics" --role developer --path sprintengine_core/tool/feedback.py --acceptance "Metrics JSONL preserves benchmark counts" --difficulty-pct 58 --difficulty-reason "Small schema-compatible CLI and metrics change."
+sprintengine plan update-task --task-id T3 --difficulty-pct 65 --difficulty-reason "Analysis change touches derived rates and edge cases."
+```
+
+Implementers can record actual difficulty at publish or done time:
+
+```bash
+sprintengine task publish --task-id T3 --id developer-1 --summary "Implementation is ready for gate review." --path sprintengine_core/analysis.py --actual-difficulty-pct 68 --actual-difficulty-reason "Moderate analytics work plus compatibility tests."
+sprintengine task status --task-id T3 --status done --id developer-1 --actual-difficulty-pct 42 --actual-difficulty-reason "Focused docs-only change."
+```
+
 ## Quality Gate Commands
 
 Quality gates are separate from normal task claiming. A task in `review`,
@@ -254,7 +269,7 @@ sprintengine task gate claim --task-id T3 --gate-id code_reviewer --role code_re
 Submit an approving verdict:
 
 ```bash
-sprintengine task gate verdict --task-id T3 --gate-id code_reviewer --role code_reviewer --id code-reviewer --verdict approved --summary "Implementation matches the task and evidence is sufficient." --correctness-pct 92 --evidence-quality-pct 88 --claims-checked 8
+sprintengine task gate verdict --task-id T3 --gate-id code_reviewer --role code_reviewer --id code-reviewer --verdict approved --summary "Implementation matches the task and evidence is sufficient." --correctness-pct 92 --evidence-quality-pct 88 --claims-checked 8 --reviewed-difficulty-pct 64 --reviewed-difficulty-dimension implementation --reviewed-difficulty-reason "Moderate analysis implementation with focused compatibility coverage."
 ```
 
 Request changes or record a failed validation:
@@ -283,6 +298,36 @@ require needs-input metadata and route the task to `needs_input`.
 Gate verdict feedback metrics are attached to the reviewed task and exported to
 `metrics/agent-feedback.jsonl` with reviewer agent, phase, gate, attempt, and
 verdict fields.
+
+### Benchmark Feedback Counts And Difficulty
+
+Feedback count flags are optional evidence fields. Report only values you
+actually evaluated; leave a flag unset when you did not check that category.
+
+- `--claims-checked`: concrete implementation, specification, evidence, or
+  verification claims checked.
+- `--hallucinated-claims`: checked claims unsupported by the repository, task
+  card, evidence, or observed behavior.
+- `--factual-errors`: checked claims contradicted by source, docs, tests, state,
+  or runtime evidence.
+- `--missed-requirements`: required acceptance criteria, task notes, or plan
+  items absent or only partially implemented.
+- `--implementation-mistakes`: code, state, schema, routing, integration, or
+  workflow defects in the delivered work.
+- `--regression-count`: previously working behavior or contract broken by the
+  change.
+- `--test-failures-introduced`: new failing tests or reproducible validation
+  failures caused by the change.
+- `--unsafe-changes`: security, data-loss, destructive-operation, privacy, or
+  permission risks introduced by the change.
+
+Difficulty fields are optional assessed metadata. Architects use
+`--difficulty-pct` and `--difficulty-reason` on plan add/update commands.
+Implementers use `--actual-difficulty-pct` and `--actual-difficulty-reason` on
+publish/done commands. Reviewers and testers use `--reviewed-difficulty-pct`,
+`--reviewed-difficulty-dimension`, and `--reviewed-difficulty-reason` on gate
+verdicts. Valid reviewed dimensions are `implementation`, `review`,
+`verification`, `product_spec`, `security`, `performance`, and `coordination`.
 
 ## Recorded Artifacts
 

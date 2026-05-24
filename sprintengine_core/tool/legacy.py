@@ -349,6 +349,24 @@ def add_feedback_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
 
+def add_implementer_difficulty_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--actual-difficulty-pct", dest="actual_difficulty_pct", type=int, help="Optional implementer actual difficulty percentage from 0 to 100.")
+    parser.add_argument("--actual-difficulty-reason", default="", help="Optional short reason for the implementer actual difficulty.")
+
+def add_reviewer_difficulty_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--reviewed-difficulty-pct", dest="reviewed_difficulty_pct", type=int, help="Optional reviewed task difficulty percentage from 0 to 100.")
+    parser.add_argument(
+        "--reviewed-difficulty-dimension",
+        default="",
+        choices=sorted(VALID_DIFFICULTY_REVIEWER_DIMENSIONS),
+        help="Difficulty dimension assessed by the reviewer.",
+    )
+    parser.add_argument("--reviewed-difficulty-reason", default="", help="Optional short reason for the reviewed difficulty assessment.")
+
+def add_architect_difficulty_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--difficulty-pct", dest="difficulty_pct", type=int, help="Optional architect estimated task difficulty percentage from 0 to 100.")
+    parser.add_argument("--difficulty-reason", default="", help="Optional short reason for the architect difficulty estimate.")
+
 
 def serve_mcp(args: argparse.Namespace) -> int:
     from sprintengine_mcp.server import main as mcp_main
@@ -561,6 +579,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--needs-input-reason", choices=sorted(VALID_NEEDS_INPUT_REASONS), help="Blocked verdict reason.")
     p.add_argument("--needs-input-question", help="Blocked verdict question.")
     p.add_argument("--needs-input-suggested-resolution", help="Optional proposed unblock path.")
+    add_reviewer_difficulty_arguments(p)
     add_feedback_arguments(p)
     p.set_defaults(handler=task_commands.gate_verdict)
 
@@ -574,6 +593,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--needs-input-artifact-id", help="Artifact id related to an artifact_review blocker.")
     p.add_argument("--needs-input-question", help="Question or blocker that requires input.")
     p.add_argument("--needs-input-suggested-resolution", help="Optional proposed unblock path.")
+    add_implementer_difficulty_arguments(p)
     add_feedback_arguments(p)
     p.set_defaults(handler=task_commands.status)
 
@@ -619,6 +639,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--summary", required=True, help="Implementation summary or rework response body.")
     p.add_argument("--path", action="append", default=[], help="Project-root-relative path referenced by this handoff.")
     p.add_argument("--summary-data-json", help="Structured implementation summary JSON object.")
+    add_implementer_difficulty_arguments(p)
     p.set_defaults(handler=task_commands.publish)
 
     p = task_sub.add_parser("note", help="Add a freeform note to a task.")
@@ -670,6 +691,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--manual-dispatch", action="store_true", help="Create the task behind the manual Ready gate.")
     p.add_argument("--dispatch-status", choices=sorted(VALID_TASK_DISPATCH_STATUSES), default="todo")
     p.add_argument("--triaged-by", choices=sorted(VALID_TASK_DISPATCH_TRIAGED_BY), default="none")
+    add_architect_difficulty_arguments(p)
     p.set_defaults(handler=plan_commands.add_task)
 
     p = plan_sub.add_parser("update-task", help="Edit an existing planned task.")
@@ -698,6 +720,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skip-gate", action="append", default=[], help="Remove a named quality gate for this task.")
     p.add_argument("--needs-triage", action="store_true", help="Mark the task as an architect-triage candidate that is not claimable until cleared.")
     p.add_argument("--clear-needs-triage", action="store_true", help="Clear the task's architect-triage candidate flag.")
+    add_architect_difficulty_arguments(p)
     p.add_argument("--force", action="store_true", help="Allow editing an active or completed task.")
     p.set_defaults(handler=plan_commands.update_task)
 

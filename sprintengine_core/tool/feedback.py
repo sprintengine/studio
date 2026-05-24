@@ -42,6 +42,11 @@ def validate_feedback_count(value: int, field_name: str) -> int:
         raise SystemExit(f"{field_name} must be a non-negative integer.")
     return value
 
+def validate_difficulty_percent(value: int, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > 100:
+        raise SystemExit(f"{field_name} must be an integer from 0 to 100.")
+    return value
+
 def validate_feedback_text(value: str, field_name: str) -> str:
     text = value.strip()
     if len(text) > FEEDBACK_TEXT_LIMIT:
@@ -197,6 +202,98 @@ def parse_feedback_args(args: argparse.Namespace) -> Dict[str, Any]:
         "jsonTextFields": json_text_fields,
     }
 
+def set_architect_difficulty_estimate(task: Dict[str, Any], pct: Optional[int], reason: str = "") -> None:
+    if pct is None and not str(reason or "").strip():
+        return
+    difficulty = task.setdefault("difficulty", {})
+    if pct is not None:
+        difficulty["architectEstimatePct"] = validate_difficulty_percent(pct, "--difficulty-pct")
+    reason_text = str(reason or "").strip()
+    if reason_text:
+        difficulty["architectEstimateReason"] = validate_feedback_text(reason_text, "--difficulty-reason")
+
+def set_implementer_actual_difficulty(task: Dict[str, Any], pct: Optional[int], reason: str = "") -> None:
+    if pct is None and not str(reason or "").strip():
+        return
+    difficulty = task.setdefault("difficulty", {})
+    if pct is not None:
+        difficulty["implementerActualPct"] = validate_difficulty_percent(pct, "--actual-difficulty-pct")
+    reason_text = str(reason or "").strip()
+    if reason_text:
+        difficulty["implementerActualReason"] = validate_feedback_text(reason_text, "--actual-difficulty-reason")
+
+def append_reviewer_difficulty_assessment(
+    task: Dict[str, Any],
+    *,
+    pct: Optional[int],
+    dimension: str,
+    reason: str,
+    reviewer_agent_id: str,
+    reviewer_role: str,
+    gate_id: str,
+    gate_attempt_id: str,
+) -> Optional[Dict[str, Any]]:
+    if pct is None and not str(dimension or "").strip() and not str(reason or "").strip():
+        return None
+    if pct is None:
+        raise SystemExit("--reviewed-difficulty-pct is required when recording reviewer difficulty.")
+    dimension_text = str(dimension or "").strip()
+    if dimension_text not in VALID_DIFFICULTY_REVIEWER_DIMENSIONS:
+        raise SystemExit(
+            "--reviewed-difficulty-dimension must be one of: "
+            f"{', '.join(sorted(VALID_DIFFICULTY_REVIEWER_DIMENSIONS))}."
+        )
+    assessment = {
+        "pct": validate_difficulty_percent(pct, "--reviewed-difficulty-pct"),
+        "dimension": dimension_text,
+        "reason": validate_feedback_text(str(reason or ""), "--reviewed-difficulty-reason"),
+        "reviewerAgentId": reviewer_agent_id,
+        "reviewerRole": reviewer_role,
+        "gateId": gate_id,
+        "gateAttemptId": gate_attempt_id,
+        "capturedAt": now_iso(),
+    }
+    difficulty = task.setdefault("difficulty", {})
+    assessments = difficulty.get("reviewerAssessments")
+    if not isinstance(assessments, list):
+        assessments = []
+    assessments.append(assessment)
+    difficulty["reviewerAssessments"] = assessments
+    return assessment
+
+def difficulty_snapshot(task: Dict[str, Any]) -> Dict[str, Any]:
+    raw = task.get("difficulty")
+    if not isinstance(raw, dict):
+        return {}
+    snapshot: Dict[str, Any] = {}
+    mapping = {
+        "architectEstimatePct": "architect_estimate_pct",
+        "architectEstimateReason": "architect_estimate_reason",
+        "implementerActualPct": "implementer_actual_pct",
+        "implementerActualReason": "implementer_actual_reason",
+    }
+    for state_key, json_key in mapping.items():
+        value = raw.get(state_key)
+        if value is not None and value != "":
+            snapshot[json_key] = value
+    assessments = raw.get("reviewerAssessments")
+    if isinstance(assessments, list) and assessments:
+        snapshot["reviewer_assessments"] = [
+            {
+                "pct": assessment.get("pct"),
+                "dimension": assessment.get("dimension"),
+                "reason": assessment.get("reason"),
+                "reviewer_agent_id": assessment.get("reviewerAgentId"),
+                "reviewer_role": assessment.get("reviewerRole"),
+                "gate_id": assessment.get("gateId"),
+                "gate_attempt_id": assessment.get("gateAttemptId"),
+                "captured_at": assessment.get("capturedAt"),
+            }
+            for assessment in assessments
+            if isinstance(assessment, dict)
+        ]
+    return snapshot
+
 def elapsed_ms(task: Dict[str, Any]) -> Optional[int]:
     started_at = task.get("startedAt")
     completed_at = task.get("completedAt")
@@ -320,6 +417,9 @@ def build_feedback_payload(
         "observed": observed_task_metrics(target_task),
         **parsed["jsonTextFields"],
     }
+    difficulty = difficulty_snapshot(target_task)
+    if difficulty:
+        record["difficulty"] = difficulty
     if review_target["isReviewerAssessment"]:
         record["review_target_task_id"] = task_id
         record["review_target_agent_id"] = review_target["agentId"]

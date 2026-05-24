@@ -457,6 +457,84 @@ def test_task_publish_persists_structured_summary_data(tmp_path) -> None:
     assert payload["comment"]["data"]["reviewerFocus"] == ["routing"]
 
 
+def test_plan_add_and_update_task_persist_architect_difficulty_estimate(tmp_path) -> None:
+    fixture = create_team(tmp_path, "plan-difficulty", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {"developer-a": {"role": "developer", "status": "idle", "currentTaskId": None}}
+    write_state(fixture.state_path, state)
+
+    added = fixture.cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Implement difficult feature",
+        "--role",
+        "developer",
+        "--no-quality-gates",
+        "--difficulty-pct",
+        "42",
+        "--difficulty-reason",
+        "Several integration points.",
+    )
+    assert added["task"]["difficulty"] == {
+        "architectEstimatePct": 42,
+        "architectEstimateReason": "Several integration points.",
+    }
+
+    updated = fixture.cli.run(
+        "plan",
+        "update-task",
+        "--task-id",
+        added["task"]["id"],
+        "--difficulty-pct",
+        "55",
+        "--difficulty-reason",
+        "State model expanded.",
+    )
+    assert updated["task"]["difficulty"] == {
+        "architectEstimatePct": 55,
+        "architectEstimateReason": "State model expanded.",
+    }
+
+
+def test_task_publish_records_implementer_actual_difficulty(tmp_path) -> None:
+    fixture = create_team(tmp_path, "publish-actual-difficulty", [gated_task()])
+
+    payload = fixture.cli.run(
+        "task",
+        "publish",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--summary",
+        "Implemented the backend path.",
+        "--actual-difficulty-pct",
+        "63",
+        "--actual-difficulty-reason",
+        "Moderate state coordination.",
+    )
+
+    assert payload["task"]["difficulty"] == {
+        "implementerActualPct": 63,
+        "implementerActualReason": "Moderate state coordination.",
+    }
+
+
+def test_old_task_without_difficulty_still_loads_and_dispatches(tmp_path) -> None:
+    fixture = create_team(tmp_path, "old-task-no-difficulty", [task("T1", "Old task", "developer")])
+    state = read_state(fixture.state_path)
+    get_task(state, "T1").pop("difficulty", None)
+    write_state(fixture.state_path, state)
+
+    payload = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+
+    assert payload["claimed"] is True
+    assert payload["task"]["id"] == "T1"
+    assert "difficulty" not in payload["task"]
+
+
 def test_task_publish_skips_missing_phase_gates_and_can_complete(tmp_path) -> None:
     record = gated_task()
     record["qualityGates"] = [

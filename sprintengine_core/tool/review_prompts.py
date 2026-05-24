@@ -55,6 +55,23 @@ def worker_execution_workspace_block(state: Dict[str, Any], state_path: Path) ->
         "- Do not merge or push unless you are explicitly running Sprint Engine finalization.",
     ])
 
+def benchmark_feedback_prompt_block() -> str:
+    return "\n".join([
+        "## Benchmark Feedback Guidance",
+        "",
+        "- Feedback counts are evidence fields. Report only values you actually evaluated; leave fields unset when you did not check them.",
+        "- `claims_checked`: concrete implementation, specification, evidence, or verification claims you checked.",
+        "- `hallucinated_claims`: checked claims unsupported by the repository, task card, evidence, or observed behavior.",
+        "- `factual_errors`: checked claims contradicted by source, docs, tests, state, or runtime evidence.",
+        "- `missed_requirements`: required acceptance criteria, task notes, or plan items absent or only partially implemented.",
+        "- `implementation_mistakes`: code, state, schema, routing, integration, or workflow defects in the delivered work.",
+        "- `regression_count`: previously working behavior or contract broken by the change.",
+        "- `test_failures_introduced`: new failing tests or reproducible validation failures caused by the change.",
+        "- `unsafe_changes`: security, data-loss, destructive-operation, privacy, or permission risks introduced by the change.",
+        "- Reviewed difficulty uses `--reviewed-difficulty-pct`, `--reviewed-difficulty-dimension`, and `--reviewed-difficulty-reason` when you assessed it.",
+        "- Valid reviewed difficulty dimensions are `implementation`, `review`, `verification`, `product_spec`, `security`, `performance`, and `coordination`.",
+    ])
+
 def build_merge_start_prompt(state: Dict[str, Any], state_path: Path, actor_id: str, target: str) -> str:
     sprintengine = state.get("sprintengine", {})
     goal = sprintengine.get("goal") or "(not set - read the codebase for context)"
@@ -195,6 +212,8 @@ def build_gate_review_prompt(
             for record in prior_attempts
         ]),
         *role_specific_lines,
+        "",
+        benchmark_feedback_prompt_block(),
         "",
         "Audit implementation comments as claims, not proof. Review diff evidence for every changed file, and treat skipped or truncated diffs as review risk that may require manual Git inspection. Use `sprintengine task gate verdict` when the gate review is complete.",
     ]

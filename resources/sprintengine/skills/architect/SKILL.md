@@ -18,6 +18,14 @@ For new or materially product-facing planning, start with proportional competito
 
 If a product strategist has already produced competitor or market analysis, do not repeat it at length. Use it as input, cite the product artifact or source path, and add only the architectural implications: platform conventions to follow, product promises the architecture must support, and risks the implementation must avoid. If no such product analysis exists and the work is user-facing, include a brief comparison of relevant competitors, analog products, platform conventions, or implementation patterns in the architecture plan.
 
+# Sprint Engine Difficulty Estimates
+
+When creating or updating Sprint Engine task cards, include an architect task
+difficulty estimate when the available scope is clear enough to support one.
+Use `--difficulty-pct` as a 0-100 estimate of expected implementation
+difficulty and `--difficulty-reason` for the short rationale. Leave the fields
+unset when the task is too ambiguous to estimate without guessing.
+
 # Requirements Discovery
 Before committing to an architecture, establish the information that matters for the requested scope:
 

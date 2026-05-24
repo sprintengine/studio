@@ -50,6 +50,28 @@ from sprintengine_core.tool.state import (
 )
 from sprintengine_core.tool.tasks import add_unique_values, recompute_phase, task_is_ready
 
+BENCHMARK_FEEDBACK_GUIDANCE = (
+    "Benchmark feedback counts are evidence fields, not guesses. "
+    "`claims_checked` is the number of concrete implementation, spec, evidence, or verification claims you actually checked. "
+    "`hallucinated_claims` counts checked claims unsupported by the repo, task card, evidence, or observed behavior. "
+    "`factual_errors` counts checked claims contradicted by source or runtime evidence. "
+    "`missed_requirements` counts required acceptance or plan items absent or only partially implemented. "
+    "`implementation_mistakes` counts code, state, schema, routing, or integration defects in the delivered work. "
+    "`regression_count` counts previously working behavior that the change breaks. "
+    "`test_failures_introduced` counts new failing tests or reproducible validation failures caused by the change. "
+    "`unsafe_changes` counts changes that create security, data-loss, destructive-operation, privacy, or permission risk. "
+    "Leave fields unset when you did not evaluate them."
+)
+
+DIFFICULTY_FEEDBACK_GUIDANCE = (
+    "Use difficulty percentages only when you assessed the work: architects may estimate task difficulty with "
+    "`--difficulty-pct` and `--difficulty-reason`; implementers may report actual difficulty at publish/done time with "
+    "`--actual-difficulty-pct` and `--actual-difficulty-reason`; reviewers and testers may record reviewed difficulty "
+    "with `--reviewed-difficulty-pct`, `--reviewed-difficulty-dimension`, and `--reviewed-difficulty-reason`. "
+    "Valid reviewed dimensions are `implementation`, `review`, `verification`, `product_spec`, `security`, "
+    "`performance`, and `coordination`. Do not guess counts or difficulty values you did not evaluate."
+)
+
 def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
     team_slug = slugify_team_name(args.name)
     state_path = (args.state or sprintengine_state_path_for(Path.cwd(), team_slug)).resolve()
@@ -377,6 +399,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "artifact is requested, `--recommended-task`; include severity, impact, recommended fix, owner role, "
                 "and verification steps. Move the task to `needs_input` only when the review output requires approval "
                 "or the task is blocked from meeting acceptance. "
+                f"{BENCHMARK_FEEDBACK_GUIDANCE} {DIFFICULTY_FEEDBACK_GUIDANCE} "
             )
         return (
             "When complete: if you produced findings, issues, or changes_requested, move the task back to "
@@ -391,6 +414,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             "After you finish your current work and should not accept more work because of context capacity, run "
             "`sprintengine roster retire --id <your-agent-id> --reason \"context capacity near limit\"`. "
             "Sprint Engine decides whether to replenish the roster; do not try to spawn your own replacement. "
+            f"{BENCHMARK_FEEDBACK_GUIDANCE} {DIFFICULTY_FEEDBACK_GUIDANCE} "
         )
 
     def role_boundary_instruction() -> str:
@@ -412,13 +436,15 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "A tester gate validates another role's completed task while the task remains in its lifecycle folder. "
                 "Run independent verification and, for UI or browser-visible work, use Playwright/browser MCP or equivalent browser automation when available and proportionate. "
                 "You may add narrow regression tests, fixtures, or test harness wiring when that is the smallest safe way to validate the task; keep edits tightly scoped and document any companion test edits in the verdict summary or a validation_report artifact. "
-                "If broader implementation changes are needed, request changes or block the gate instead of taking over the implementer's work."
+                "If broader implementation changes are needed, request changes or block the gate instead of taking over the implementer's work. "
+                f"{BENCHMARK_FEEDBACK_GUIDANCE} {DIFFICULTY_FEEDBACK_GUIDANCE}"
             )
         return (
             f"You are assigned role `{args.role}` as a quality-gate reviewer/tester/product reviewer. "
             "Claim quality gates with `sprintengine task gate next`, not `sprintengine task next`. "
             "A gate reviews another role's task while the task remains in its lifecycle folder; do not edit "
-            "application or test code unless the user explicitly changes your assignment."
+            "application or test code unless the user explicitly changes your assignment. "
+            f"{BENCHMARK_FEEDBACK_GUIDANCE} {DIFFICULTY_FEEDBACK_GUIDANCE}"
         )
 
     def runner_policy(state: Dict[str, Any]) -> Dict[str, Any]:

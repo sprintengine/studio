@@ -243,6 +243,15 @@ export function agentHasOpenSprintEngineGateWork(
   })
 }
 
+export function roleHasClaimableSprintEngineImplementationWork(
+  sprintEngineState: SprintEngineState,
+  role: SprintEngineRoleId
+): boolean {
+  return sprintEngineState.tasks.some((task) =>
+    task.role === role && isSprintEngineTaskLaunchable(task, sprintEngineState)
+  )
+}
+
 export function shouldSkipExitedSprintEngineRosterAgent(
   currentAgent: SprintEngineExitedAgentLike | null | undefined,
   hasOpenWork: boolean

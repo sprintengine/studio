@@ -90,6 +90,7 @@ export function ConfirmDialog({
           variant={tone === 'danger' ? 'danger' : 'primary'}
           onClick={onConfirm}
           disabled={pending}
+          autoFocus
         >
           {confirmText}
         </ModalButton>

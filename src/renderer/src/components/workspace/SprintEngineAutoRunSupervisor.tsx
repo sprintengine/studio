@@ -43,6 +43,7 @@ import {
   getPendingAgentNotificationEvents,
   isSprintEngineAutoPendingSpawnStillRelevant,
   pickNextAutoRuns,
+  roleHasClaimableSprintEngineImplementationWork,
   shouldSkipExitedSprintEngineRosterAgent,
   withTimeout,
   type AutoRunCandidate,
@@ -1370,7 +1371,8 @@ async function startMissingRosterAgents(
     const currentAgent = workspace.agents[agent.id]
     const ownsOpenImplementationWork = agentOwnsOpenSprintEngineImplementationWork(sprintEngineState, agent.id)
     const hasOpenGateWork = agentHasOpenSprintEngineGateWork(sprintEngineState, agent.id, agent.role)
-    const hasOpenWork = ownsOpenImplementationWork || hasOpenGateWork
+    const hasClaimableImplementationWork = roleHasClaimableSprintEngineImplementationWork(sprintEngineState, agent.role)
+    const hasOpenWork = ownsOpenImplementationWork || hasOpenGateWork || hasClaimableImplementationWork
     if (shouldSkipExitedSprintEngineRosterAgent(currentAgent, hasOpenWork)) {
       logPerfEvent('SprintEngineAutoRun', 'roster-spawn-skipped-exited', {
         workspaceId: workspace.id,
@@ -1380,6 +1382,7 @@ async function startMissingRosterAgents(
         lastExitedAt: currentAgent.cliLastExitedAt,
         ownsOpenImplementationWork,
         hasOpenGateWork,
+        hasClaimableImplementationWork,
       })
       continue
     }

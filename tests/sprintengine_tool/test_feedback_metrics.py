@@ -271,6 +271,94 @@ def test_gate_verdict_records_queryable_feedback_metrics(tmp_path) -> None:
     assert record["counts"]["claims_checked"] == 7
 
 
+def test_feedback_metrics_include_difficulty_snapshot_when_recorded(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "difficulty-feedback-snapshot",
+        [task("T1", "Implement feature", "developer", "in_progress", owner="developer-fixture")],
+    )
+
+    payload = fixture.cli.run(
+        "task",
+        "status",
+        "--task-id",
+        "T1",
+        "--status",
+        "done",
+        "--id",
+        "developer-fixture",
+        "--actual-difficulty-pct",
+        "64",
+        "--actual-difficulty-reason",
+        "Touched several state transition paths.",
+        "--confidence-pct",
+        "91",
+    )
+
+    assert payload["feedbackRecorded"] is True
+    state = read_state(fixture.state_path)
+    assert get_task(state, "T1")["difficulty"] == {
+        "implementerActualPct": 64,
+        "implementerActualReason": "Touched several state transition paths.",
+    }
+    record = assert_feedback_record(fixture.team_dir, "T1", "developer-fixture")
+    assert record["difficulty"]["implementer_actual_pct"] == 64
+    assert record["difficulty"]["implementer_actual_reason"] == "Touched several state transition paths."
+
+
+def test_gate_verdict_records_reviewer_difficulty_assessment_and_metrics_snapshot(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "gate-reviewer-difficulty",
+        [review_phase_task()],
+    )
+    fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-fixture")
+
+    payload = fixture.cli.run(
+        "task",
+        "gate",
+        "verdict",
+        "--task-id",
+        "T1",
+        "--gate-id",
+        "code_reviewer",
+        "--role",
+        "code_reviewer",
+        "--id",
+        "reviewer-fixture",
+        "--verdict",
+        "approved",
+        "--summary",
+        "Implementation is correct.",
+        "--reviewed-difficulty-pct",
+        "71",
+        "--reviewed-difficulty-dimension",
+        "implementation",
+        "--reviewed-difficulty-reason",
+        "Moderate state-model coordination.",
+        "--claims-checked",
+        "7",
+    )
+
+    assert payload["feedbackRecorded"] is True
+    state = read_state(fixture.state_path)
+    assessment = get_task(state, "T1")["difficulty"]["reviewerAssessments"][0]
+    assert assessment["pct"] == 71
+    assert assessment["dimension"] == "implementation"
+    assert assessment["reviewerAgentId"] == "reviewer-fixture"
+    assert assessment["reviewerRole"] == "code_reviewer"
+    assert assessment["gateId"] == "code_reviewer"
+    assert assessment["gateAttemptId"] == "GA-001"
+    assert assessment["capturedAt"]
+
+    record = assert_feedback_record(fixture.team_dir, "T1", "reviewer-fixture")
+    reviewer_assessment = record["difficulty"]["reviewer_assessments"][0]
+    assert reviewer_assessment["pct"] == 71
+    assert reviewer_assessment["dimension"] == "implementation"
+    assert reviewer_assessment["reviewer_agent_id"] == "reviewer-fixture"
+    assert reviewer_assessment["gate_attempt_id"] == "GA-001"
+
+
 def test_reviewer_target_feedback_rejects_missing_target_task(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
@@ -407,4 +495,44 @@ def test_feedback_rejects_invalid_percentages_and_malformed_json(tmp_path) -> No
 
     state = read_state(fixture.state_path)
     assert get_task(state, "T1")["status"] == "in_progress"
+    assert read_feedback_records(fixture.team_dir) == []
+
+
+def test_difficulty_percentages_reject_invalid_values(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "difficulty-rejections",
+        [task("T1", "Implement feature", "developer", "in_progress", owner="developer-fixture")],
+    )
+
+    invalid_actual = fixture.cli.run_failure(
+        "task",
+        "status",
+        "--task-id",
+        "T1",
+        "--status",
+        "done",
+        "--id",
+        "developer-fixture",
+        "--actual-difficulty-pct",
+        "101",
+    )
+    assert "--actual-difficulty-pct must be an integer from 0 to 100" in invalid_actual.stderr
+
+    invalid_bool = fixture.cli.run_failure(
+        "task",
+        "status",
+        "--task-id",
+        "T1",
+        "--status",
+        "done",
+        "--id",
+        "developer-fixture",
+        "--actual-difficulty-pct",
+        "true",
+    )
+    assert "invalid int value" in invalid_bool.stderr
+
+    state = read_state(fixture.state_path)
+    assert "difficulty" not in get_task(state, "T1")
     assert read_feedback_records(fixture.team_dir) == []

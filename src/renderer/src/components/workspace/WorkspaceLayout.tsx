@@ -589,6 +589,21 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
     })
   }, [closeTabWithCleanup])
 
+  const hideAllAgentTabs = useCallback(() => {
+    const model = modelRef.current
+    if (!model) return
+    const agentNodeIds: string[] = []
+    model.visitNodes((candidate) => {
+      if (candidate instanceof TabNode && candidate.getComponent() === 'agent') {
+        agentNodeIds.push(candidate.getId())
+      }
+    })
+    agentNodeIds.forEach((nodeId) => {
+      hideTabWithoutCleanupRef.current.add(nodeId)
+      model.doAction(Actions.deleteTab(nodeId))
+    })
+  }, [])
+
   const hideTab = useCallback((node: TabNode) => {
     if (node.getComponent() !== 'agent') return
     hideTabWithoutCleanupRef.current.add(node.getId())
@@ -616,6 +631,11 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       ? parent.getChildren().filter((child) => child instanceof TabNode && child.getId() !== node.getId() && child.isEnableClose())
       : []
 
+    let agentTabCount = 0
+    modelRef.current?.visitNodes((candidate) => {
+      if (candidate instanceof TabNode && candidate.getComponent() === 'agent') agentTabCount += 1
+    })
+
     const isTerminal = node.getComponent() === 'terminal'
     const config = node.getConfig() as { highlightColor?: HighlightColor } | undefined
     const currentColor = config?.highlightColor ?? null
@@ -629,6 +649,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
 
     const items = [
       { id: 'hide-tab', label: 'Hide Tab', enabled: node.getComponent() === 'agent' },
+      { id: 'hide-all-tabs', label: 'Hide All', enabled: agentTabCount > 0 },
       { id: 'close-other-tabs', label: 'Close Other Tabs', enabled: otherClosableTabs.length > 0 },
       ...(isTerminal
         ? [
@@ -650,6 +671,9 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
 
     if (command === 'hide-tab') {
       hideTab(node)
+    }
+    if (command === 'hide-all-tabs') {
+      hideAllAgentTabs()
     }
     if (command === 'close-other-tabs') {
       closeOtherTabsInSet(node)
@@ -681,7 +705,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         })
       )
     }
-  }, [closeOtherTabsInSet, hideTab])
+  }, [closeOtherTabsInSet, hideAllAgentTabs, hideTab])
 
   const renderTab = useCallback(
     (node: TabNode, renderValues: ITabRenderValues) => {

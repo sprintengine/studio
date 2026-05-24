@@ -33,7 +33,7 @@ import type {
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
-import { addAgentTabTiled, focusComponentTab, focusOrAddAgentTab, focusOrAddComponentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
+import { addAgentTabTiled, addTerminalTab, focusComponentTab, focusOrAddAgentTab, focusOrAddComponentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { buildCurrentContextSprintEngineHandoffPrompt } from '../../utils/sprintengineHandoff'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
@@ -912,46 +912,8 @@ export default function WorkspaceManager() {
 
   const addNewTerminal = () => {
     if (showNewWorkspacePanel || !activeWorkspaceId) return
-    const model = getModel(activeWorkspaceId)
-    if (!model) return
-
     const newId = `terminal-${nanoid(6)}`
-    const terminalTab = {
-      type: 'tab',
-      name: 'Terminal',
-      component: 'terminal',
-      config: { terminalId: newId },
-    }
-
-    if (activeWorkspace?.mode === 'sprintengine') {
-      // The SE board's tabset has no visible tab strip, so terminals must
-      // land in a sibling tabset. Prefer (1) an existing terminal tabset so
-      // multiple terminals stack together, (2) the first non-SE tabset
-      // (typically agents on the right), (3) a new tabset docked to the
-      // right of the workspace root if no right pane exists yet.
-      const existingTerminalTabset = firstTerminalTabset(model)
-      const sprintEngineNeighborTabset =
-        existingTerminalTabset ?? firstNonSprintEngineBoardTabset(model)
-
-      if (sprintEngineNeighborTabset) {
-        model.doAction(
-          Actions.addNode(terminalTab, sprintEngineNeighborTabset.getId(), DockLocation.CENTER, -1, true)
-        )
-        return
-      }
-
-      model.doAction(
-        Actions.addNode(terminalTab, model.getRoot().getId(), DockLocation.RIGHT, -1, true)
-      )
-      return
-    }
-
-    const targetTabset = model.getActiveTabset() ?? firstTabset(model)
-    if (!targetTabset) return
-
-    model.doAction(
-      Actions.addNode(terminalTab, targetTabset.getId(), DockLocation.CENTER, -1, true)
-    )
+    addTerminalTab(activeWorkspaceId, newId, 'Terminal')
   }
 
   const openMemoryGraph = () => {
@@ -1472,30 +1434,6 @@ function firstTabset(model: Model): TabSetNode | null {
   model.visitNodes((node) => {
     if (found) return
     if (node instanceof TabSetNode) found = node
-  })
-  return found
-}
-
-function firstTerminalTabset(model: Model): TabSetNode | null {
-  let found: TabSetNode | null = null
-  model.visitNodes((node) => {
-    if (found) return
-    if (!(node instanceof TabNode) || node.getComponent() !== 'terminal') return
-    const parent = node.getParent()
-    if (parent instanceof TabSetNode) found = parent
-  })
-  return found
-}
-
-function firstNonSprintEngineBoardTabset(model: Model): TabSetNode | null {
-  let found: TabSetNode | null = null
-  model.visitNodes((node) => {
-    if (found) return
-    if (!(node instanceof TabSetNode)) return
-    const hostsSprintEngineBoard = node.getChildren().some((child) =>
-      child instanceof TabNode && child.getComponent() === 'sprintengine'
-    )
-    if (!hostsSprintEngineBoard) found = node
   })
   return found
 }

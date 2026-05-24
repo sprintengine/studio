@@ -29,10 +29,12 @@ def summarize_feedback_records(
 
     score_values: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
     count_totals: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    benchmark_count_totals: dict[str, int] = defaultdict(int)
     source_counts: dict[str, int] = {}
     friction: dict[str, dict[str, Any]] = {}
     issue_counts = _empty_issue_counts()
     finding_counts = _empty_finding_counts()
+    difficulty_records: list[dict[str, Any]] = []
 
     for record in records:
         source = str(record.get("source") or "unknown")
@@ -45,6 +47,10 @@ def summarize_feedback_records(
             for key, value in raw_counts.items():
                 if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
                     count_totals[role][str(key)] += value
+                    benchmark_count_totals[str(key)] += value
+        difficulty = _difficulty_record(record)
+        if difficulty is not None:
+            difficulty_records.append(difficulty)
 
         category = friction_category(record.get("top_friction"))
         if category != "unspecified":
@@ -66,6 +72,8 @@ def summarize_feedback_records(
         "feedbackRecordCount": len(records),
         "aggregateScoresByRole": aggregate_scores,
         "aggregateCountsByRole": _aggregate_counts_by_role(count_totals),
+        "benchmarkRates": _benchmark_rates(benchmark_count_totals),
+        "difficultyAnalytics": _difficulty_analytics(difficulty_records),
         "lowScoreDimensions": _low_score_dimensions(aggregate_scores),
         "groupedFriction": _finalize_grouped_friction(friction),
         "issueCounts": issue_counts,
@@ -205,6 +213,173 @@ def _aggregate_counts_by_role(count_totals: dict[str, dict[str, int]]) -> dict[s
         if role_counts:
             output[role] = role_counts
     return output
+
+
+def _benchmark_rates(counts: dict[str, int]) -> dict[str, Any]:
+    claims_checked = int(counts.get("claims_checked") or 0)
+    if claims_checked <= 0:
+        return {}
+    rates: dict[str, Any] = {
+        "claims_checked": claims_checked,
+    }
+    numerators = {
+        "claim_hallucination_rate_pct": "hallucinated_claims",
+        "factual_error_rate_pct": "factual_errors",
+        "missed_requirement_rate_pct": "missed_requirements",
+        "implementation_mistake_rate_pct": "implementation_mistakes",
+        "regression_rate_pct": "regression_count",
+        "unsafe_change_rate_pct": "unsafe_changes",
+    }
+    for rate_key, count_key in numerators.items():
+        value = counts.get(count_key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            rates[rate_key] = round((value / claims_checked) * 100, 1)
+    return rates
+
+
+def _difficulty_record(record: dict[str, Any]) -> dict[str, Any] | None:
+    raw = record.get("difficulty")
+    if not isinstance(raw, dict):
+        return None
+    difficulty: dict[str, Any] = {
+        "task_id": str(record.get("task_id") or record.get("taskId") or ""),
+        "role": str(record.get("role") or "unknown"),
+    }
+    architect_estimate = _percent(raw.get("architect_estimate_pct"))
+    implementer_actual = _percent(raw.get("implementer_actual_pct"))
+    if architect_estimate is not None:
+        difficulty["architect_estimate_pct"] = architect_estimate
+    if implementer_actual is not None:
+        difficulty["implementer_actual_pct"] = implementer_actual
+    assessments = raw.get("reviewer_assessments")
+    if isinstance(assessments, list):
+        normalized_assessments = []
+        for assessment in assessments:
+            if not isinstance(assessment, dict):
+                continue
+            pct = _percent(assessment.get("pct"))
+            if pct is None:
+                continue
+            normalized_assessments.append(
+                {
+                    "pct": pct,
+                    "dimension": str(assessment.get("dimension") or "unspecified"),
+                    "reviewer_role": str(assessment.get("reviewer_role") or "unknown"),
+                    "reviewer_agent_id": str(assessment.get("reviewer_agent_id") or "unknown"),
+                    "gate_id": str(assessment.get("gate_id") or ""),
+                    "gate_attempt_id": str(assessment.get("gate_attempt_id") or ""),
+                    "task_id": difficulty["task_id"],
+                    "task_role": difficulty["role"],
+                }
+            )
+        if normalized_assessments:
+            difficulty["reviewer_assessments"] = normalized_assessments
+    return difficulty if len(difficulty) > 2 else None
+
+
+def _percent(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if value < 0 or value > 100:
+        return None
+    return value
+
+
+def _difficulty_analytics(records: list[dict[str, Any]]) -> dict[str, Any]:
+    architect_errors: list[int] = []
+    architect_biases: list[int] = []
+    reviewer_assessments: list[dict[str, Any]] = []
+    seen_architect_tasks: set[str] = set()
+    seen_reviewer_assessments: set[tuple[str, str, str, str, str, str, int]] = set()
+    for record in records:
+        architect_estimate = record.get("architect_estimate_pct")
+        implementer_actual = record.get("implementer_actual_pct")
+        task_id = str(record.get("task_id") or "")
+        if (
+            task_id not in seen_architect_tasks
+            and isinstance(architect_estimate, int)
+            and isinstance(implementer_actual, int)
+        ):
+            delta = architect_estimate - implementer_actual
+            architect_errors.append(abs(delta))
+            architect_biases.append(delta)
+            seen_architect_tasks.add(task_id)
+        raw_assessments = record.get("reviewer_assessments")
+        if isinstance(raw_assessments, list):
+            for assessment in raw_assessments:
+                if not isinstance(assessment, dict):
+                    continue
+                pct = assessment.get("pct")
+                if not isinstance(pct, int) or isinstance(pct, bool):
+                    continue
+                identity = (
+                    str(assessment.get("task_id") or ""),
+                    str(assessment.get("reviewer_agent_id") or ""),
+                    str(assessment.get("reviewer_role") or ""),
+                    str(assessment.get("gate_id") or ""),
+                    str(assessment.get("gate_attempt_id") or ""),
+                    str(assessment.get("dimension") or "unspecified"),
+                    pct,
+                )
+                if identity in seen_reviewer_assessments:
+                    continue
+                seen_reviewer_assessments.add(identity)
+                reviewer_assessments.append(assessment)
+
+    analytics: dict[str, Any] = {}
+    if architect_errors:
+        analytics["architect"] = {
+            "sampleCount": len(architect_errors),
+            "mean_absolute_error_pct": round(sum(architect_errors) / len(architect_errors), 1),
+            "bias_pct": round(sum(architect_biases) / len(architect_biases), 1),
+        }
+    if reviewer_assessments:
+        reviewer_values = [assessment["pct"] for assessment in reviewer_assessments]
+        reviewer: dict[str, Any] = {
+            "sampleCount": len(reviewer_values),
+            "mean_difficulty_pct": round(sum(reviewer_values) / len(reviewer_values), 1),
+            "byDimension": _difficulty_groups(reviewer_assessments, "dimension"),
+            "byReviewerRole": _difficulty_groups(reviewer_assessments, "reviewer_role"),
+            "byTaskRole": _difficulty_groups(reviewer_assessments, "task_role"),
+            "byGateRole": _difficulty_groups(reviewer_assessments, "gate_id"),
+        }
+        disagreement = _reviewer_disagreement(reviewer_assessments)
+        if disagreement:
+            reviewer["disagreement"] = disagreement
+        analytics["reviewer"] = reviewer
+    return analytics
+
+
+def _difficulty_groups(assessments: list[dict[str, Any]], key: str) -> dict[str, Any]:
+    grouped: dict[str, list[int]] = defaultdict(list)
+    for assessment in assessments:
+        pct = assessment.get("pct")
+        if isinstance(pct, int) and not isinstance(pct, bool):
+            grouped[str(assessment.get(key) or "unspecified")].append(pct)
+    return {
+        group: {
+            "sampleCount": len(values),
+            "mean_difficulty_pct": round(sum(values) / len(values), 1),
+        }
+        for group, values in sorted(grouped.items())
+        if values
+    }
+
+
+def _reviewer_disagreement(assessments: list[dict[str, Any]]) -> dict[str, Any]:
+    grouped: dict[tuple[str, str], list[int]] = defaultdict(list)
+    for assessment in assessments:
+        pct = assessment.get("pct")
+        if isinstance(pct, int) and not isinstance(pct, bool):
+            grouped[(str(assessment.get("task_id") or ""), str(assessment.get("dimension") or "unspecified"))].append(pct)
+    ranges = [max(values) - min(values) for values in grouped.values() if len(values) >= 2]
+    if not ranges:
+        return {}
+    return {
+        "sampleCount": len(ranges),
+        "mean_range_pct": round(sum(ranges) / len(ranges), 1),
+        "max_range_pct": max(ranges),
+    }
 
 
 def _low_score_dimensions(aggregate_scores: dict[str, Any]) -> list[dict[str, Any]]:

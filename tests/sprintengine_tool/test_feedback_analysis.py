@@ -97,6 +97,11 @@ def test_feedback_summary_aggregates_scores_friction_issues_and_findings_without
     assert summary["aggregateCountsByRole"]["developer"]["claims_checked"] == 8
     assert summary["aggregateCountsByRole"]["developer"]["hallucinated_claims"] == 2
     assert summary["aggregateCountsByRole"]["developer"]["hallucination_rate_pct"] == 25.0
+    assert summary["benchmarkRates"] == {
+        "claims_checked": 8,
+        "claim_hallucination_rate_pct": 25.0,
+    }
+    assert summary["difficultyAnalytics"] == {}
     assert summary["lowScoreDimensions"] == [
         {
             "role": "developer",
@@ -138,6 +143,192 @@ def test_feedback_summary_aggregates_scores_friction_issues_and_findings_without
     encoded = json.dumps(summary, sort_keys=True)
     for marker in PRIVATE_MARKERS:
         assert marker not in encoded
+
+
+def test_feedback_summary_reports_benchmark_rates_and_difficulty_analytics() -> None:
+    records = [
+        {
+            "source": "agent_self_report",
+            "role": "developer",
+            "task_id": "T1",
+            "counts": {
+                "claims_checked": 10,
+                "hallucinated_claims": 1,
+                "factual_errors": 2,
+                "missed_requirements": 3,
+                "implementation_mistakes": 4,
+                "regression_count": 1,
+                "unsafe_changes": 0,
+            },
+            "difficulty": {
+                "architect_estimate_pct": 70,
+                "implementer_actual_pct": 60,
+                "reviewer_assessments": [
+                    {
+                        "pct": 80,
+                        "dimension": "implementation",
+                        "reviewer_agent_id": "code-reviewer",
+                        "reviewer_role": "code_reviewer",
+                        "gate_id": "code_reviewer",
+                        "gate_attempt_id": "GA-001",
+                    },
+                    {
+                        "pct": 60,
+                        "dimension": "implementation",
+                        "reviewer_agent_id": "architect",
+                        "reviewer_role": "architect",
+                        "gate_id": "architect_review",
+                        "gate_attempt_id": "GA-001",
+                    },
+                ],
+            },
+        },
+        {
+            "source": "reviewer_assessment",
+            "role": "developer",
+            "task_id": "T2",
+            "counts": {
+                "claims_checked": 5,
+                "hallucinated_claims": 0,
+                "factual_errors": 1,
+                "missed_requirements": 0,
+                "implementation_mistakes": 1,
+                "regression_count": 2,
+                "unsafe_changes": 1,
+            },
+            "difficulty": {
+                "architect_estimate_pct": 40,
+                "implementer_actual_pct": 50,
+                "reviewer_assessments": [
+                    {
+                        "pct": 55,
+                        "dimension": "review",
+                        "reviewer_agent_id": "spec-reviewer",
+                        "reviewer_role": "spec_reviewer",
+                        "gate_id": "spec_reviewer",
+                        "gate_attempt_id": "GA-001",
+                    }
+                ],
+            },
+        },
+    ]
+
+    summary = summarize_feedback_records(records)
+
+    assert summary["benchmarkRates"] == {
+        "claims_checked": 15,
+        "claim_hallucination_rate_pct": 6.7,
+        "factual_error_rate_pct": 20.0,
+        "missed_requirement_rate_pct": 20.0,
+        "implementation_mistake_rate_pct": 33.3,
+        "regression_rate_pct": 20.0,
+        "unsafe_change_rate_pct": 6.7,
+    }
+    assert summary["difficultyAnalytics"]["architect"] == {
+        "sampleCount": 2,
+        "mean_absolute_error_pct": 10.0,
+        "bias_pct": 0.0,
+    }
+    reviewer = summary["difficultyAnalytics"]["reviewer"]
+    assert reviewer["sampleCount"] == 3
+    assert reviewer["mean_difficulty_pct"] == 65.0
+    assert reviewer["byDimension"]["implementation"] == {"sampleCount": 2, "mean_difficulty_pct": 70.0}
+    assert reviewer["byTaskRole"]["developer"] == {"sampleCount": 3, "mean_difficulty_pct": 65.0}
+    assert reviewer["byGateRole"]["code_reviewer"] == {"sampleCount": 1, "mean_difficulty_pct": 80.0}
+    assert reviewer["disagreement"] == {"sampleCount": 1, "mean_range_pct": 20.0, "max_range_pct": 20}
+
+
+def test_feedback_summary_deduplicates_cumulative_difficulty_snapshots() -> None:
+    first_snapshot = {
+        "architect_estimate_pct": 70,
+        "implementer_actual_pct": 60,
+        "reviewer_assessments": [
+            {
+                "pct": 80,
+                "dimension": "implementation",
+                "reviewer_agent_id": "architect",
+                "reviewer_role": "architect",
+                "gate_id": "architect_review",
+                "gate_attempt_id": "GA-001",
+            }
+        ],
+    }
+    cumulative_snapshot = {
+        **first_snapshot,
+        "reviewer_assessments": [
+            *first_snapshot["reviewer_assessments"],
+            {
+                "pct": 60,
+                "dimension": "implementation",
+                "reviewer_agent_id": "code-reviewer",
+                "reviewer_role": "code_reviewer",
+                "gate_id": "code_reviewer",
+                "gate_attempt_id": "GA-001",
+            },
+        ],
+    }
+
+    summary = summarize_feedback_records(
+        [
+            {"role": "developer", "task_id": "T1", "difficulty": first_snapshot},
+            {"role": "developer", "task_id": "T1", "difficulty": cumulative_snapshot},
+        ]
+    )
+
+    assert summary["difficultyAnalytics"]["architect"] == {
+        "sampleCount": 1,
+        "mean_absolute_error_pct": 10.0,
+        "bias_pct": 10.0,
+    }
+    reviewer = summary["difficultyAnalytics"]["reviewer"]
+    assert reviewer["sampleCount"] == 2
+    assert reviewer["mean_difficulty_pct"] == 70.0
+    assert reviewer["byReviewerRole"] == {
+        "architect": {"sampleCount": 1, "mean_difficulty_pct": 80.0},
+        "code_reviewer": {"sampleCount": 1, "mean_difficulty_pct": 60.0},
+    }
+    assert reviewer["disagreement"] == {"sampleCount": 1, "mean_range_pct": 20.0, "max_range_pct": 20}
+
+
+def test_feedback_summary_omits_rates_when_denominator_is_zero_and_ignores_partial_difficulty() -> None:
+    summary = summarize_feedback_records(
+        [
+            {
+                "role": "developer",
+                "counts": {
+                    "claims_checked": 0,
+                    "hallucinated_claims": 2,
+                    "factual_errors": 1,
+                },
+                "difficulty": {
+                    "architect_estimate_pct": 40,
+                    "reviewer_assessments": [{"pct": 51, "dimension": "review"}],
+                },
+            },
+            {
+                "role": "tester",
+                "counts": {"claims_checked": True, "unsafe_changes": False},
+                "difficulty": {"reviewer_assessments": [{"pct": True, "dimension": "review"}]},
+            },
+            {"role": "legacy", "scores": {"confidence_pct": 90}},
+        ]
+    )
+
+    assert summary["benchmarkRates"] == {}
+    assert "hallucination_rate_pct" not in summary["aggregateCountsByRole"]["developer"]
+    assert "architect" not in summary["difficultyAnalytics"]
+    assert summary["difficultyAnalytics"]["reviewer"]["sampleCount"] == 1
+    assert summary["difficultyAnalytics"]["reviewer"]["mean_difficulty_pct"] == 51.0
+
+
+def test_feedback_summary_handles_empty_records() -> None:
+    summary = summarize_feedback_records([])
+
+    assert summary["schemaVersion"] == 2
+    assert summary["feedbackRecordCount"] == 0
+    assert summary["benchmarkRates"] == {}
+    assert summary["difficultyAnalytics"] == {}
+    assert summary["aggregateCountsByRole"] == {}
 
 
 def test_feedback_recommendations_include_actionable_ownership_fields_without_raw_content() -> None:

@@ -20,6 +20,26 @@ Optimize for the few issues that matter most:
 8. **Product quality**: UI, API, docs, and workflows match the real user need instead of generic surface completeness.
 9. **Verification**: Claims are backed by tests, type checks, migrations, screenshots, logs, or reproducible evidence.
 
+# Sprint Engine Benchmark Feedback
+
+When submitting a Sprint Engine gate verdict, use feedback count fields only for
+evidence you actually evaluated:
+
+- `claims_checked`: concrete implementation, specification, evidence, or verification claims checked.
+- `hallucinated_claims`: checked claims unsupported by repo, task, evidence, or observed behavior.
+- `factual_errors`: checked claims contradicted by source, docs, tests, state, or runtime evidence.
+- `missed_requirements`: required acceptance, task, or plan items absent or only partially implemented.
+- `implementation_mistakes`: code, state, schema, routing, integration, or workflow defects in the delivered work.
+- `regression_count`: previously working behavior or contract broken by the change.
+- `test_failures_introduced`: new failing tests or reproducible validation failures caused by the change.
+- `unsafe_changes`: security, data-loss, destructive-operation, privacy, or permission risks introduced by the change.
+
+Use `--reviewed-difficulty-pct`, `--reviewed-difficulty-dimension`, and
+`--reviewed-difficulty-reason` only when you assessed reviewed difficulty. Valid
+dimensions are `implementation`, `review`, `verification`, `product_spec`,
+`security`, `performance`, and `coordination`. Do not guess counts or difficulty
+values you did not evaluate.
+
 # Code Quality Bar
 
 Treat these as first-class review criteria, not style preferences:
