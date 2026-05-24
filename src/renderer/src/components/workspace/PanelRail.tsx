@@ -3,13 +3,13 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { jsonModelHasComponent, toggleComponentTab } from '../../utils/modelRegistry'
 import type { WorkspaceId } from '../../types/workspace'
 
-type PanelKey = 'explorer' | 'editor' | 'git'
+type PanelKey = 'explorer' | 'editor' | 'git' | 'memory-graph'
 
 type PanelDescriptor = {
   key: PanelKey
   tabName: string
   label: string
-  shortcut: string
+  shortcut?: string
   // Inline SVGs so we stay aligned with the existing 14–18 px stroke-1.3 chrome
   // used by WorkspaceTopBar buttons and the sidebar collapse glyph.
   icon: (props: { className?: string }) => JSX.Element
@@ -63,6 +63,19 @@ const PANELS: PanelDescriptor[] = [
       </svg>
     ),
   },
+  {
+    key: 'memory-graph',
+    tabName: 'Knowledge Graph',
+    label: 'Knowledge Graph',
+    icon: ({ className }) => (
+      <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+        <path d="M8 4L3.5 11.5M8 4L12.5 11.5M4 11.5h8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+        <circle cx="8" cy="4" r="1.6" fill="currentColor" />
+        <circle cx="3.5" cy="11.5" r="1.6" fill="currentColor" />
+        <circle cx="12.5" cy="11.5" r="1.6" fill="currentColor" />
+      </svg>
+    ),
+  },
 ]
 
 function shortcutLabel(shortcut: string): string {
@@ -91,7 +104,10 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
     ? 'flex flex-col items-stretch pt-2'
     : 'mt-2 flex items-center justify-center gap-4'
 
-  const tooltipPlacement = collapsed ? 'top' : 'bottom'
+  // `right` placement in collapsed mode prevents the tooltip from overflowing
+  // the viewport to the left of a 44 px sidebar (a top/bottom-centered
+  // tooltip would extend past x=0).
+  const tooltipPlacement = collapsed ? 'right' : 'bottom'
   const buttonSizing = collapsed ? 'h-9 w-full' : 'h-8 w-8'
 
   return (
@@ -104,7 +120,9 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
       {PANELS.map((panel) => {
         const Icon = panel.icon
         const active = jsonModelHasComponent(layoutModel, panel.key)
-        const tooltip = `${panel.label} (${shortcutLabel(panel.shortcut)})`
+        const tooltip = panel.shortcut
+          ? `${panel.label} (${shortcutLabel(panel.shortcut)})`
+          : panel.label
         const buttonClass = `interactive relative inline-flex ${buttonSizing} items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
           active
             ? 'text-[color:var(--text-strong)]'

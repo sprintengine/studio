@@ -10,9 +10,14 @@ type TooltipChildProps = {
 }
 
 type TooltipProps = {
-  /** Short helper text or rich node shown above/below the trigger. */
+  /** Short helper text or rich node shown above/below/right of the trigger. */
   content: React.ReactNode
-  placement?: 'top' | 'bottom'
+  /**
+   * Where to render the tooltip relative to the trigger. `right` is for
+   * narrow vertical chrome (e.g. a collapsed sidebar rail) where a `top`/
+   * `bottom` centered tooltip would overflow the viewport horizontally.
+   */
+  placement?: 'top' | 'bottom' | 'right'
   /** A single focusable trigger. The tooltip clones it to wire ARIA + handlers. */
   children: React.ReactElement<TooltipChildProps>
   /** Hover open delay. Focus opens immediately so keyboard users do not wait. */
@@ -113,8 +118,12 @@ export function Tooltip({
           role="tooltip"
           id={id}
           className={[
-            'popover-enter pointer-events-none absolute left-1/2 z-30 -translate-x-1/2',
-            placement === 'top' ? 'bottom-full mb-1' : 'top-full mt-1',
+            'popover-enter pointer-events-none absolute z-30',
+            placement === 'right'
+              ? 'left-full top-1/2 ml-1 -translate-y-1/2'
+              : placement === 'top'
+                ? 'bottom-full left-1/2 mb-1 -translate-x-1/2'
+                : 'top-full left-1/2 mt-1 -translate-x-1/2',
             'whitespace-nowrap rounded-[5px] border border-[color:var(--border-strong)]',
             'bg-[color:var(--bg-surface-raised)] px-2 py-1',
             'text-[11px] leading-snug text-[color:var(--text-strong)]',

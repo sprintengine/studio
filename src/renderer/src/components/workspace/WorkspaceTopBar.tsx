@@ -164,48 +164,6 @@ function NotificationBellIcon({ className }: { className?: string }) {
   )
 }
 
-function MemoryGraphIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M19.95 11.3c0-4.05-3.1-6.95-7.35-6.95-3.55 0-6.25 1.82-6.85 4.62-1.4.76-2.15 2.08-2.15 3.62 0 2.45 1.92 4.32 4.62 4.32h1.88c.92 0 1.66.74 1.66 1.66v1.1"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M19.95 11.3c0 1.42-.62 2.65-1.76 3.45-.72.5-1.08 1.08-1.08 1.82v.92"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M7.38 9.35c.5-1.28 1.72-2 3.02-1.78M10.4 7.57c.7-1.04 2.18-1.48 3.38-.85M13.78 6.72c1.32-.3 2.72.42 3.28 1.62"
-        stroke="currentColor"
-        strokeWidth="1.35"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M6.1 12.18c.7-1.1 2.18-1.42 3.28-.7M9.38 11.48c.66-.9 2.02-1.12 3-.48M12.38 11c.84-.92 2.38-.9 3.35.04"
-        stroke="currentColor"
-        strokeWidth="1.35"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M7.22 14.68c1.08-.48 2.48-.18 3.18.7M10.4 15.38c.84-.62 2.08-.52 2.82.26M13.22 15.64c.8-.62 1.98-.58 2.68.08"
-        stroke="currentColor"
-        strokeWidth="1.35"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
 function AccountIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -516,7 +474,6 @@ export type WorkspaceTopBarProps = {
   addNewCliAgent: (cli: AgentCli, label: string) => void
   addNewTerminal: () => void
 
-  openMemoryGraph: () => void
   openHandoffDialog: () => void
   openSettings: (checkForUpdates?: boolean, targetTab?: string | null) => void
   settingsOpen: boolean
@@ -585,7 +542,6 @@ export default function WorkspaceTopBar({
   addNewMultiloopAgent,
   addNewCliAgent,
   addNewTerminal,
-  openMemoryGraph,
   openHandoffDialog,
   openSettings,
   settingsOpen,
@@ -798,20 +754,6 @@ export default function WorkspaceTopBar({
                 setAccountOpen(false)
               }}
             />
-          ) : null}
-
-          {workspaceActionsEnabled ? (
-            <Tooltip content="Knowledge Graph" placement="bottom">
-              <button
-                type="button"
-                onClick={openMemoryGraph}
-                disabled={!activeWorkspaceId}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-surface-raised)]"
-                aria-label="Knowledge Graph"
-              >
-                <MemoryGraphIcon className="h-[18px] w-[18px]" />
-              </button>
-            </Tooltip>
           ) : null}
 
           {/* top-bar-group: communication */}

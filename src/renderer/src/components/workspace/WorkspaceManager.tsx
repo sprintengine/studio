@@ -33,7 +33,7 @@ import type {
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
-import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddComponentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
+import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { buildCurrentContextSprintEngineHandoffPrompt } from '../../utils/sprintengineHandoff'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
@@ -908,15 +908,6 @@ export default function WorkspaceManager() {
     addTerminalTab(activeWorkspaceId, newId, 'Terminal')
   }
 
-  const openMemoryGraph = () => {
-    if (!activeWorkspaceId) return
-    focusOrAddComponentTab(activeWorkspaceId, 'memory-graph', 'Knowledge Graph')
-    setSessionsOpen(false)
-    setNotificationsOpen(false)
-    setSpecialistMenuOpen(false)
-    setAccountOpen(false)
-  }
-
   const openHandoffDialog = () => {
     if (!activeWorkspace) return
     setHandoffTeamName(slugifySprintEngineName(activeWorkspace.name))
@@ -1185,7 +1176,6 @@ export default function WorkspaceManager() {
         addNewMultiloopAgent={addNewMultiloopAgent}
         addNewCliAgent={addNewCliAgent}
         addNewTerminal={addNewTerminal}
-        openMemoryGraph={openMemoryGraph}
         openHandoffDialog={openHandoffDialog}
         openSettings={openSettings}
         settingsOpen={settingsOpen}
