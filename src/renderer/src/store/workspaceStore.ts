@@ -10,6 +10,7 @@ import type {
   AgentId,
   SprintEngineAutoPendingSpawn,
   SprintEngineAutoState,
+  SprintEngineAutomationMode,
   SprintEngineCliPermissionPreset,
   MultiloopAutoPendingSpawn,
   MultiloopAutoState,
@@ -189,6 +190,7 @@ interface WorkspaceStore {
   removeWorktreeEntry: (workspaceId: WorkspaceId, worktreeId: string) => void
   setSprintEngineState: (workspaceId: WorkspaceId, sprintEngineState: SprintEngineState | null) => void
   setMultiloopState: (workspaceId: WorkspaceId, multiloopState: MultiloopState | null) => void
+  setSprintEngineAutomationMode: (workspaceId: WorkspaceId, mode: SprintEngineAutomationMode) => void
   setSprintEngineAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
   setSprintEngineAutoApproveArtifacts: (workspaceId: WorkspaceId, autoApproveArtifacts: boolean) => void
   setSprintEngineKeepDoneAgentTerminals: (workspaceId: WorkspaceId, keepDoneAgentTerminals: boolean) => void

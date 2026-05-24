@@ -91,8 +91,7 @@ export default function CommandPalette({ onClose, onNewWorkspace, onSpawnSpecial
     const sprintEngineFocusAgentVisible = focusAgentAvailability.showFocusAgentAction
     const sprintEngineCommands: Command[] = workspaceMode === 'sprintengine'
       ? [
-          { id: 'sprintengine.toggle.roster-runner', label: 'Sprint Engine: Toggle roster runner', run: runPanel('sprintengine.toggle.roster-runner') },
-          { id: 'sprintengine.toggle.approve-all', label: 'Sprint Engine: Approve all artifacts', run: runPanel('sprintengine.toggle.approve-all') },
+          { id: 'sprintengine.open.automation-settings', label: 'Sprint Engine: Automation settings', run: runPanel('sprintengine.open.automation-settings') },
           ...(sprintEngineHasArchitect
             ? [{ id: 'sprintengine.verify.progress', label: 'Sprint Engine: Verify progress', run: runPanel('sprintengine.verify.progress') }]
             : []),

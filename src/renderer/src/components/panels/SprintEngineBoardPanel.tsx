@@ -13,7 +13,6 @@ import {
  StatusDot,
  Section,
  Select,
- Switch,
  Tabs,
  TaskCard,
  Tooltip,
@@ -35,6 +34,7 @@ import type {
  AgentExecution,
  AgentState,
  SprintEngineArtifact,
+ SprintEngineAutomationMode,
  SprintEngineCliPermissionPreset,
  SprintEngineRole,
  SprintEngineRoleId,
@@ -60,6 +60,11 @@ import {
  sprintEngineTaskStateLabel,
  type SprintEngineAgentRosterItem,
 } from '../../utils/sprintengine'
+import {
+ deriveSprintEngineAutomationMode,
+ sprintEngineAutomationModeOptions,
+ sprintEngineRunnerModeForAutomationMode,
+} from '../../utils/sprintengineAutomation'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { focusOrAddAgentTab, focusOrAddFileTab } from '../../utils/modelRegistry'
 import { publishDiagnostic, publishDiagnosticSync } from '../../utils/diagnostics'
@@ -250,20 +255,16 @@ type RecoveryDialogState = {
 }
 
 function SprintEngineSettingsPopover({
- supervisorEnabled,
- autoApproveArtifacts,
+ automationMode,
  cliPermissionPreset,
- onToggleAuto,
- onToggleArtifactAutoApproval,
+ onChangeAutomationMode,
  onUpdateCliPreset,
  onVerifyProgress,
  onClose,
 }: {
- supervisorEnabled: boolean
- autoApproveArtifacts: boolean
- cliPermissionPreset: SprintEngineCliPermissionPreset
- onToggleAuto: () => void
- onToggleArtifactAutoApproval: () => void
+ automationMode: SprintEngineAutomationMode
+  cliPermissionPreset: SprintEngineCliPermissionPreset
+ onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
  onUpdateCliPreset: (preset: SprintEngineCliPermissionPreset) => void
  onVerifyProgress: (() => void) | null
  onClose: () => void
@@ -315,29 +316,41 @@ function SprintEngineSettingsPopover({
  className="w-[280px] overflow-hidden py-1"
  >
  <Section title="Run" level={3} inset={true}>
- <div className="flex flex-col gap-2">
- <div className="flex items-center justify-between gap-3 text-[12px] text-[color:var(--text-default)]">
- <span id="sprintengine-settings-auto-label">Runner</span>
- <Switch
- checked={supervisorEnabled}
- onChange={onToggleAuto}
- ariaLabelledBy="sprintengine-settings-auto-label"
- />
- </div>
- <div
- className={`flex items-center justify-between gap-3 text-[12px] ${
- supervisorEnabled
- ? 'text-[color:var(--text-default)]'
- : 'text-[color:var(--text-disabled)]'
- }`}
+ <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="Sprint Engine automation mode">
+ {sprintEngineAutomationModeOptions.map((option) => {
+ const checked = option.value === automationMode
+ return (
+ <button
+ key={option.value}
+ type="button"
+ role="radio"
+ aria-checked={checked}
+ onClick={() => onChangeAutomationMode(option.value)}
+ className={`
+ grid w-full grid-cols-[14px_minmax(0,1fr)] items-start gap-2 rounded-md border px-2.5 py-2 text-left
+ transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+ ${checked
+ ? 'border-[color:var(--color-6)] bg-[color:var(--bg-surface-raised)]'
+ : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
+ `}
  >
- <span id="sprintengine-settings-approve-label">Approve all artifacts</span>
- <Switch
- checked={autoApproveArtifacts}
- onChange={onToggleArtifactAutoApproval}
- ariaLabelledBy="sprintengine-settings-approve-label"
- />
- </div>
+ <span
+ className={`mt-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border ${
+ checked ? 'border-[color:var(--text-strong)] bg-[color:var(--text-strong)]' : 'border-[color:var(--color-6)]'
+ }`}
+ aria-hidden="true"
+ >
+ {checked ? <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--bg-app)]" /> : null}
+ </span>
+ <span className="min-w-0">
+ <span className={`block text-[12px] font-medium ${checked ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
+ {option.label}
+ </span>
+ <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">{option.hint}</span>
+ </span>
+ </button>
+ )
+ })}
  </div>
  </Section>
  <Section title="CLI permissions" level={3} inset={true}>
@@ -375,8 +388,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  (s) => s.workspaces.find((w) => w.id === workspaceId) ?? null
  )
  const setSprintEngineState = useWorkspaceStore((s) => s.setSprintEngineState)
- const setSprintEngineAutoEnabled = useWorkspaceStore((s) => s.setSprintEngineAutoEnabled)
- const setSprintEngineAutoApproveArtifacts = useWorkspaceStore((s) => s.setSprintEngineAutoApproveArtifacts)
+ const setSprintEngineAutomationMode = useWorkspaceStore((s) => s.setSprintEngineAutomationMode)
  const setSprintEngineCliPermissionPreset = useWorkspaceStore((s) => s.setSprintEngineCliPermissionPreset)
  const addSprintEngineMember = useWorkspaceStore((s) => s.addSprintEngineMember)
  const updateAgent = useWorkspaceStore((s) => s.updateAgent)
@@ -451,7 +463,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const [addMemberOpen, setAddMemberOpen] = useState(false)
  const [addMemberRole, setAddMemberRole] = useState<SprintEngineRole>('developer')
  const [manualRefreshBusy, setManualRefreshBusy] = useState(false)
- const [autoRunnerControlEnabled, setAutoRunnerControlEnabled] = useState<boolean | null>(null)
+ const [pendingAutomationMode, setPendingAutomationMode] = useState<SprintEngineAutomationMode | null>(null)
  const [artifactActions, setArtifactActions] = useState<Record<string, ArtifactActionState>>({})
  const [syncState, setSyncState] = useState<SyncState>({
  status: 'idle',
@@ -465,13 +477,12 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const folderPath = folderReadyPath
  const agents = workspace?.agents ?? {}
  const terminalSessions = useTerminalSessions()
- const projectedSupervisorEnabled = workspace?.sprintEngineAutoState?.supervisorEnabled ?? false
- const autoEnabled = autoRunnerControlEnabled ?? projectedSupervisorEnabled
- const autoApproveArtifacts = workspace?.sprintEngineAutoState?.autoApproveArtifacts ?? false
+ const projectedAutomationMode = deriveSprintEngineAutomationMode(workspace?.sprintEngineAutoState, sprintEngineState?.runner)
+ const automationMode = pendingAutomationMode ?? projectedAutomationMode
  const cliPermissionPreset = workspace?.sprintEngineAutoState?.cliPermissionPreset ?? 'default'
 
  useEffect(() => {
- setAutoRunnerControlEnabled(null)
+ setPendingAutomationMode(null)
  }, [sprintEngineContext?.statePath])
 
  const resolveReadableSprintEngineStatePath = async (): Promise<string | null> => {
@@ -1299,70 +1310,70 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  </SidePane>
  )
  }
- const toggleAuto = () => {
- const nextEnabled = !autoEnabled
- setAutoRunnerControlEnabled(nextEnabled)
- setSprintEngineAutoEnabled(workspaceId, nextEnabled)
- if (!nextEnabled) {
- setAutoRunnerControlEnabled(null)
- return
- }
+ const updateAutomationMode = (nextMode: SprintEngineAutomationMode) => {
+ if (nextMode === automationMode) return
+ const previousMode = automationMode
+ setPendingAutomationMode(nextMode)
+ setSprintEngineAutomationMode(workspaceId, nextMode)
  if (!sprintEngineContext?.statePath) {
- setSprintEngineAutoEnabled(workspaceId, false)
- setAutoRunnerControlEnabled(null)
+ if (nextMode !== 'manual') {
+ setSprintEngineAutomationMode(workspaceId, previousMode)
+ }
+ setPendingAutomationMode(null)
  return
  }
  void (async () => {
  const stateFileExists = await window.api.pathExists(sprintEngineContext.statePath).catch(() => false)
  if (!stateFileExists) {
- setSprintEngineAutoEnabled(workspaceId, false)
- setAutoRunnerControlEnabled(null)
+ if (nextMode !== 'manual') {
+ setSprintEngineAutomationMode(workspaceId, previousMode)
+ }
+ setPendingAutomationMode(null)
  return
  }
- if (sprintEngineState?.runner?.mode === 'auto') return null
+ const nextRunnerMode = sprintEngineRunnerModeForAutomationMode(nextMode)
+ if (sprintEngineState?.runner?.mode === nextRunnerMode) return null
  return window.api.setSprintEngineRunnerMode({
  statePath: sprintEngineContext.statePath,
- mode: 'auto',
+ mode: nextRunnerMode,
  })
  })().then(async (result) => {
  if (!result) {
- setAutoRunnerControlEnabled(null)
+ setPendingAutomationMode(null)
  return
  }
  if (!result.ok) {
- setAutoRunnerControlEnabled(autoEnabled)
- setSprintEngineAutoEnabled(workspaceId, autoEnabled)
+ setPendingAutomationMode(previousMode)
+ setSprintEngineAutomationMode(workspaceId, previousMode)
  await publishDiagnostic({
  level: 'warning',
  source: 'sprintengine',
- title: 'Roster runner mode was not updated',
+ title: 'Automation mode was not updated',
  message: result.message,
  workspaceId,
  workspaceName: workspace?.name,
  })
+ setPendingAutomationMode(null)
  return
  }
  const projectionApplied = applySprintEngineProjectionContent(
  (result.data as { projectionContent?: unknown } | undefined)?.projectionContent
  )
  if (!projectionApplied) await refreshSprintEngineState()
- setAutoRunnerControlEnabled(null)
+ setPendingAutomationMode(null)
  }).catch(async (error) => {
- setAutoRunnerControlEnabled(autoEnabled)
- setSprintEngineAutoEnabled(workspaceId, autoEnabled)
+ setPendingAutomationMode(previousMode)
+ setSprintEngineAutomationMode(workspaceId, previousMode)
  await publishDiagnostic({
  level: 'warning',
  source: 'sprintengine',
- title: 'Roster runner mode was not updated',
+ title: 'Automation mode was not updated',
  message: error instanceof Error ? error.message : String(error),
  workspaceId,
  workspaceName: workspace?.name,
  })
+ setPendingAutomationMode(null)
  })
- }
-
- const toggleArtifactAutoApproval = () => {
- setSprintEngineAutoApproveArtifacts(workspaceId, !autoApproveArtifacts)
  }
 
  const updateCliPermissionPreset = async (preset: SprintEngineCliPermissionPreset) => {
@@ -1576,14 +1587,9 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  }
  items.push({ kind: 'separator', id: 'sep-2' })
  items.push({
- id: 'toggle-roster-runner',
- label: autoEnabled ? 'Stop runner' : 'Start runner',
- onSelect: toggleAuto,
- })
- items.push({
- id: 'approve-all-artifacts',
- label: autoApproveArtifacts ? 'Stop approving all artifacts' : 'Approve all artifacts',
- onSelect: toggleArtifactAutoApproval,
+ id: 'automation-settings',
+ label: 'Automation settings',
+ onSelect: () => setSettingsOpen(true),
  })
  items.push({ kind: 'separator', id: 'sep-3' })
  items.push({
@@ -1639,11 +1645,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  commandHandlerRef.current = (detail) => {
  if (!detail || typeof detail.id !== 'string') return
  switch (detail.id) {
- case 'sprintengine.toggle.roster-runner':
- toggleAuto()
- break
- case 'sprintengine.toggle.approve-all':
- toggleArtifactAutoApproval()
+ case 'sprintengine.open.automation-settings':
+ setSettingsOpen(true)
  break
  case 'sprintengine.verify.progress':
  if (architectAgentId) {
@@ -1760,11 +1763,9 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  )}
  >
  <SprintEngineSettingsPopover
- supervisorEnabled={autoEnabled}
- autoApproveArtifacts={autoApproveArtifacts}
+ automationMode={automationMode}
  cliPermissionPreset={cliPermissionPreset}
- onToggleAuto={toggleAuto}
- onToggleArtifactAutoApproval={toggleArtifactAutoApproval}
+ onChangeAutomationMode={updateAutomationMode}
  onUpdateCliPreset={updateCliPermissionPreset}
  onVerifyProgress={architectAgentId ? openRecoveryDialog : null}
  onClose={() => setSettingsOpen(false)}

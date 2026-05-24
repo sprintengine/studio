@@ -552,6 +552,7 @@ export type SprintEngineAutoPendingSpawn = {
 }
 
 export type SprintEngineCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
+export type SprintEngineAutomationMode = 'manual' | 'run_agents' | 'run_agents_and_approve_artifacts'
 
 export type SprintEngineAutoState = {
   supervisorEnabled: boolean

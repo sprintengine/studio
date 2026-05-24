@@ -15,6 +15,7 @@ import type {
   MultiloopAutoState,
   SkillPackCatalogEntry,
   SprintEngineAutoState,
+  SprintEngineAutomationMode,
   SprintEngineCliPermissionPreset,
   SprintEngineMockConfig,
   SprintEngineRoleId,
@@ -62,6 +63,7 @@ import {
   getUserDisabledSprintEngineRoleIds,
   sprintEngineRoleOrder,
 } from '../../utils/sprintengine'
+import { sprintEngineAutomationModeOptions } from '../../utils/sprintengineAutomation'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import MulticodeMark from '../brand/MulticodeMark'
 import MulticodeWordmark from '../brand/MulticodeWordmark'
@@ -335,6 +337,15 @@ export default function NewWorkspacePanel({
     lastSpawnPermissionPreset,
   )
   const [seAutoApproveArtifacts, setSeAutoApproveArtifacts] = useState(false)
+  const seAutomationMode: SprintEngineAutomationMode = seAutoApproveArtifacts
+    ? 'run_agents_and_approve_artifacts'
+    : seStartRunner
+      ? 'run_agents'
+      : 'manual'
+  const setSeAutomationMode = (mode: SprintEngineAutomationMode) => {
+    setSeStartRunner(mode !== 'manual')
+    setSeAutoApproveArtifacts(mode === 'run_agents_and_approve_artifacts')
+  }
 
   const [mlName, setMlName] = useState('')
   const [mlGoal, setMlGoal] = useState('')
@@ -1535,10 +1546,8 @@ export default function NewWorkspacePanel({
               rosterDisabled={seExistingTeam != null}
               onSetRoleCount={setRoleCount}
               onSetRoleCli={setRoleCli}
-              startRunner={seStartRunner}
-              onChangeStartRunner={setSeStartRunner}
-              autoApproveArtifacts={seAutoApproveArtifacts}
-              onChangeAutoApproveArtifacts={setSeAutoApproveArtifacts}
+              automationMode={seAutomationMode}
+              onChangeAutomationMode={setSeAutomationMode}
               cliPermissionPreset={cliPermissionPreset}
               onChangeCliPermissionPreset={setCliPermissionPreset}
               totalAgents={totalAgents}
@@ -2524,10 +2533,8 @@ function SprintEngineRosterStep(props: {
   rosterDisabled: boolean
   onSetRoleCount: (role: SprintEngineRoleId, count: number) => void
   onSetRoleCli: (role: SprintEngineRoleId, cli: AgentCli) => void
-  startRunner: boolean
-  onChangeStartRunner: (value: boolean) => void
-  autoApproveArtifacts: boolean
-  onChangeAutoApproveArtifacts: (value: boolean) => void
+  automationMode: SprintEngineAutomationMode
+  onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
   cliPermissionPreset: SprintEngineCliPermissionPreset
   onChangeCliPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   totalAgents: number
@@ -2546,10 +2553,8 @@ function SprintEngineRosterStep(props: {
     rosterDisabled,
     onSetRoleCount,
     onSetRoleCli,
-    startRunner,
-    onChangeStartRunner,
-    autoApproveArtifacts,
-    onChangeAutoApproveArtifacts,
+    automationMode,
+    onChangeAutomationMode,
     cliPermissionPreset,
     onChangeCliPermissionPreset,
     totalAgents,
@@ -2596,23 +2601,6 @@ function SprintEngineRosterStep(props: {
         />
       </div>
 
-      <label className="flex items-start justify-between gap-3 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3">
-        <span className="min-w-0">
-          <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">
-            Start roster runner when workspace opens
-          </span>
-          <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
-            Launch selected Sprint Engine agents in the background as soon as the workspace mounts.
-          </span>
-        </span>
-        <input
-          type="checkbox"
-          checked={startRunner}
-          onChange={(event) => onChangeStartRunner(event.currentTarget.checked)}
-          className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[color:var(--accent-primary)]"
-        />
-      </label>
-
       <div className="flex flex-col gap-2">
         <FieldLabel>Run settings</FieldLabel>
         <div className="overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
@@ -2620,27 +2608,25 @@ function SprintEngineRosterStep(props: {
             preset={cliPermissionPreset}
             onChange={onChangeCliPermissionPreset}
           />
-          <label
-            className={`flex items-start justify-between gap-3 border-t border-[color:var(--border-default)] px-3.5 py-3 ${
-              startRunner ? '' : 'opacity-60'
-            }`}
-          >
-            <span className="min-w-0">
-              <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">
-                Approve all artifacts
-              </span>
+          <div className="flex flex-col gap-2 border-t border-[color:var(--border-default)] px-3.5 py-3">
+            <div>
+              <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Automation</span>
               <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
-                Auto-approve artifacts as agents publish them so the runner does not stall.
+                How Sprint Engine should continue after this workspace opens.
               </span>
-            </span>
-            <input
-              type="checkbox"
-              checked={autoApproveArtifacts}
-              disabled={!startRunner}
-              onChange={(event) => onChangeAutoApproveArtifacts(event.currentTarget.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[color:var(--accent-primary)] disabled:cursor-not-allowed"
-            />
-          </label>
+            </div>
+            <div className="grid gap-2" role="radiogroup" aria-label="Sprint Engine automation mode">
+              {sprintEngineAutomationModeOptions.map((option) => (
+                <PathRadio
+                  key={option.value}
+                  checked={automationMode === option.value}
+                  label={option.label}
+                  hint={option.hint}
+                  onSelect={() => onChangeAutomationMode(option.value)}
+                />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -83,8 +83,8 @@ export function buildSprintEngineStartupPrompt(
   const autonomousPlanningOverride = options.autonomousPlanningOverride
     ? [
       '## Autonomous Planning Override',
-      'Sprint Engine Approve all artifacts is enabled. Treat this as user intent for non-interactive planning and artifact-gate progression.',
-      'Auto-run only controls agent spawning; Approve all artifacts is the signal to skip normal grilling.',
+      'Sprint Engine automation mode is Run agents + approve artifacts. Treat this as user intent for non-interactive planning and artifact-gate progression.',
+      'Agent automation controls spawning; artifact approval automation is the signal to skip normal grilling.',
       'Use approved artifacts, the Knowledge Graph, current code, tests, and commands to answer discovery questions yourself where possible.',
       'Do not pause for ordinary preference, naming, scope-shaping, or plan-review questions. Proceed with conservative defaults, record them in `plan.md`, and only ask the user if a decision is unsafe to default, destructive, privacy/security-sensitive, legally sensitive, impossible to verify, or blocked by a missing dependency.',
     ].join('\n')

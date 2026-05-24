@@ -54,6 +54,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { focusOrAddAgentTab } from '../../utils/modelRegistry'
+import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
 import {
   agentCliSupportsConversationResume,
 } from '../../utils/agentCliResume'
@@ -1123,7 +1124,7 @@ export async function spawnAutoRunCandidate(
     if (!folderExists) {
       currentState.setFolderMissing(workspace.id, true)
       setAutoRunPendingSpawns(workspace.id, [])
-      currentState.setSprintEngineAutoEnabled(workspace.id, false)
+      currentState.setSprintEngineAutomationMode(workspace.id, 'manual')
       await publishDiagnostic({
         level: 'error',
         source: 'filesystem',
@@ -1288,7 +1289,7 @@ export async function spawnAutoRunCandidate(
     })
     if (!spawnResult.ok) {
       const latestState = useWorkspaceStore.getState()
-      latestState.setSprintEngineAutoEnabled(workspace.id, false)
+      latestState.setSprintEngineAutomationMode(workspace.id, 'manual')
       setAutoRunPendingSpawns(workspace.id, [])
       latestState.updateAgent(workspace.id, nextRun.agentId, {
         cliSessionId: undefined,
@@ -1565,8 +1566,9 @@ async function superviseWorkspace(
   const superviseStartedAt = performance.now()
   let sprintEngineState = workspace.sprintEngineState
   const autoState = getSprintEngineAutoState(workspace)
-  const runnerActive = autoState.supervisorEnabled
-  const approvalActive = autoState.autoApproveArtifacts
+  const automationMode = deriveSprintEngineAutomationMode(autoState, sprintEngineState?.runner)
+  const runnerActive = automationMode !== 'manual'
+  const approvalActive = automationMode === 'run_agents_and_approve_artifacts'
   if ((!runnerActive && !approvalActive) || !workspace.folderPath || !sprintEngineState || !workspace.sprintEngineContext) return
 
   logPerfEvent('SprintEngineAutoRun', 'supervise-start', {
@@ -1836,7 +1838,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   }
 
   if (sprintEngineState.tasks.length > 0 && sprintEngineState.tasks.every((task) => task.status === 'done')) {
-    useWorkspaceStore.getState().setSprintEngineAutoEnabled(workspace.id, false)
+    useWorkspaceStore.getState().setSprintEngineAutomationMode(workspace.id, 'manual')
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -1916,7 +1918,10 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   })
   for (const nextRun of nextRuns) {
     const latestWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
-    if (!latestWorkspace || !getSprintEngineAutoState(latestWorkspace).supervisorEnabled) return
+    if (
+      !latestWorkspace
+      || deriveSprintEngineAutomationMode(getSprintEngineAutoState(latestWorkspace), latestWorkspace.sprintEngineState?.runner) === 'manual'
+    ) return
     const spawnResult = await spawnAutoRunCandidate(
       latestWorkspace,
       sprintEngineState,

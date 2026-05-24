@@ -3,6 +3,7 @@ import {
   getNextSprintEngineAgentId,
   normalizeSprintEngineState,
 } from '../../utils/sprintengine'
+import { patchSprintEngineAutoStateForMode } from '../../utils/sprintengineAutomation'
 import {
   getSprintEngineDirectoryPath,
   getSprintEngineStateFilePath,
@@ -32,6 +33,7 @@ import type {
   MultiloopWorkspaceContext,
   SprintEngineAutoPendingSpawn,
   SprintEngineAutoState,
+  SprintEngineAutomationMode,
   SprintEngineCliPermissionPreset,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
@@ -346,6 +348,7 @@ export interface RunStateSliceActions {
   setMultiloopContext: (id: WorkspaceId, multiloopContext: MultiloopWorkspaceContext | null) => void
   setSprintEngineState: (workspaceId: WorkspaceId, sprintEngineState: SprintEngineState | null) => void
   setMultiloopState: (workspaceId: WorkspaceId, multiloopState: MultiloopState | null) => void
+  setSprintEngineAutomationMode: (workspaceId: WorkspaceId, mode: SprintEngineAutomationMode) => void
   setSprintEngineAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
   setSprintEngineAutoApproveArtifacts: (workspaceId: WorkspaceId, autoApproveArtifacts: boolean) => void
   setSprintEngineKeepDoneAgentTerminals: (workspaceId: WorkspaceId, keepDoneAgentTerminals: boolean) => void
@@ -431,6 +434,14 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         ws.multiloopAutoState = multiloopState
           ? normalizeMultiloopAutoState(ws.multiloopAutoState)
           : defaultMultiloopAutoState()
+      }),
+
+    setSprintEngineAutomationMode: (workspaceId, mode) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === workspaceId)
+        if (!ws) return
+        const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
+        ws.sprintEngineAutoState = patchSprintEngineAutoStateForMode(current, mode)
       }),
 
     setSprintEngineAutoEnabled: (workspaceId, enabled) =>

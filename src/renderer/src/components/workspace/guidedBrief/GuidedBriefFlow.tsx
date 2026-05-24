@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electron-api'
 import type {
   SprintEngineCliPermissionPreset,
+  SprintEngineAutomationMode,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
@@ -13,9 +14,10 @@ import {
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
 import { applyUserDisabledSprintEngineRoleCounts } from '../../../utils/sprintengine'
+import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAutomation'
 import { CloseIconButton, StatusDot, Tabs, Tooltip, WizardProgress, type TabItem } from '../../ui'
 import { SprintEngineRosterTable } from '../newWorkspace/SprintEngineRosterTable'
-import { CliPermissionPresetRow } from '../newWorkspace/WizardControls'
+import { CliPermissionPresetRow, PathRadio } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
 import { MockupPreviewPane } from './MockupPreviewPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
@@ -173,7 +175,12 @@ export function GuidedBriefFlow({
   const [startBuildError, setStartBuildError] = useState<string | null>(null)
   const [skippingPlanning, setSkippingPlanning] = useState(false)
   const [skipError, setSkipError] = useState<string | null>(null)
-  const effectiveAutoApprove = runtimeState.buildStartRunner && runtimeState.buildAutoApproveArtifacts
+  const automationMode: SprintEngineAutomationMode = runtimeState.buildAutoApproveArtifacts
+    ? 'run_agents_and_approve_artifacts'
+    : runtimeState.buildStartRunner
+      ? 'run_agents'
+      : 'manual'
+  const effectiveAutoApprove = automationMode === 'run_agents_and_approve_artifacts'
 
   const acceptStrategistBrief = async () => {
     if (!strategist.readiness.fileReady) return
@@ -961,6 +968,11 @@ function HandoffBody({
     (total, count) => total + Math.max(0, count),
     0,
   )
+  const automationMode: SprintEngineAutomationMode = runtimeState.buildAutoApproveArtifacts
+    ? 'run_agents_and_approve_artifacts'
+    : runtimeState.buildStartRunner
+      ? 'run_agents'
+      : 'manual'
 
   const setBuildRoleCount = (role: SprintEngineRoleId, count: number) => {
     const min = role === 'architect' ? 1 : 0
@@ -984,6 +996,14 @@ function HandoffBody({
         ...runtimeState.buildRoleCliDefaults,
         [role]: cli,
       },
+    })
+  }
+
+  const setAutomationMode = (mode: SprintEngineAutomationMode) => {
+    onChange({
+      ...runtimeState,
+      buildStartRunner: mode !== 'manual',
+      buildAutoApproveArtifacts: mode === 'run_agents_and_approve_artifacts',
     })
   }
 
@@ -1058,44 +1078,28 @@ function HandoffBody({
               preset={runtimeState.buildCliPermissionPreset}
               onChange={(preset) => onChange({ ...runtimeState, buildCliPermissionPreset: preset })}
             />
+            <div className="flex flex-col gap-2 border-t border-[color:var(--border-default)] px-3.5 py-3">
+              <div>
+                <span className="block text-[12px] font-medium text-[color:var(--text-default)]">
+                  Automation
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
+                  How Sprint Engine should continue after this workspace opens.
+                </span>
+              </div>
+              <div className="grid gap-2" role="radiogroup" aria-label="Sprint Engine automation mode">
+                {sprintEngineAutomationModeOptions.map((option) => (
+                  <PathRadio
+                    key={option.value}
+                    checked={automationMode === option.value}
+                    label={option.label}
+                    hint={option.hint}
+                    onSelect={() => setAutomationMode(option.value)}
+                  />
+                ))}
+              </div>
+            </div>
           </div>
-          <label className="flex items-start justify-between gap-3 py-0.5">
-            <span className="min-w-0">
-              <span className="block text-[12px] font-medium text-[color:var(--text-default)]">
-                Start roster runner when workspace opens
-              </span>
-              <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
-                Launch the Sprint Engine specialists in the background as soon as the workspace mounts.
-              </span>
-            </span>
-            <input
-              type="checkbox"
-              checked={runtimeState.buildStartRunner}
-              onChange={(event) => onChange({ ...runtimeState, buildStartRunner: event.currentTarget.checked })}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[color:var(--accent-primary)]"
-            />
-          </label>
-          <label
-            className={`flex items-start justify-between gap-3 py-0.5 ${
-              runtimeState.buildStartRunner ? '' : 'opacity-60'
-            }`}
-          >
-            <span className="min-w-0">
-              <span className="block text-[12px] font-medium text-[color:var(--text-default)]">
-                Approve all artifacts
-              </span>
-              <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
-                Auto-approve artifacts as agents publish them so the runner does not stall.
-              </span>
-            </span>
-            <input
-              type="checkbox"
-              checked={runtimeState.buildAutoApproveArtifacts}
-              disabled={!runtimeState.buildStartRunner}
-              onChange={(event) => onChange({ ...runtimeState, buildAutoApproveArtifacts: event.currentTarget.checked })}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[color:var(--accent-primary)] disabled:cursor-not-allowed"
-            />
-          </label>
         </div>
         {handoffStatus === 'missing' ? (
           <span className="text-[12px] text-[color:var(--tone-error)]">
