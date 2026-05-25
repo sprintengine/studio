@@ -64,6 +64,7 @@ const INACTIVE_AUTO_RUN_POLL_MS = 15000
 const AUTO_RUN_STARTUP_SPAWN_DELAY_MS = 10000
 const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
 const AUTO_RUN_ROLE_CONTINUATION_RETRY_MS = 60000
+export const AUTO_RUN_MAX_PROMPT_RETRIES = 50
 const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
 const AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS = 30000
 const TERMINAL_IPC_TIMEOUT_MS = 3000
@@ -81,10 +82,12 @@ type RunningContinuationCapacity = {
 
 type RoleContinuationMessage = {
   sentAt: number
+  attempts?: number
 }
 
 type ArchitectTriageMessage = {
   sentAt: number
+  attempts?: number
 }
 
 const DEFAULT_AUTO_STATE: SprintEngineAutoState = {
@@ -637,6 +640,24 @@ function bracketedTerminalPaste(text: string): string {
   return `\x1b[200~${text.replace(/\r?\n/g, '\n')}\x1b[201~\r`
 }
 
+function promptRetryLimitReached(
+  message: RoleContinuationMessage | ArchitectTriageMessage | undefined
+): boolean {
+  return (message?.attempts ?? 0) >= AUTO_RUN_MAX_PROMPT_RETRIES
+}
+
+function recordPromptRetry<T extends RoleContinuationMessage | ArchitectTriageMessage>(
+  messages: Map<string, T>,
+  key: string,
+  sentAt: number
+): void {
+  const previous = messages.get(key)
+  messages.set(key, {
+    sentAt,
+    attempts: (previous?.attempts ?? 0) + 1,
+  } as T)
+}
+
 export async function deliverAgentNotificationEvents(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
@@ -682,6 +703,18 @@ export async function deliverAgentNotificationEvents(
     })
     const session = await findRunningAgentSession(workspace, targetAgentId)
     if (session) {
+      if (event.taskId && runtimeAgent?.currentTaskId && runtimeAgent.currentTaskId !== event.taskId) {
+        logPerfEvent('SprintEngineAutoRun', 'agent-notification-skipped-active-different-task', {
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          eventId: event.id,
+          agentId: targetAgentId,
+          eventTaskId: event.taskId,
+          activeTaskId: runtimeAgent.currentTaskId,
+          notificationKind: event.notificationKind ?? null,
+        })
+        continue
+      }
       await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(prompt))
       if (!isAgentNotificationCompletionEvent(event)) {
         applyAgentTerminalRevealPolicy(
@@ -756,6 +789,10 @@ async function sendContinuationPromptsToIdleAgents(
 
   const readyTasks = sprintEngineState.tasks.filter((task) =>
     isSprintEngineTaskLaunchable(task, sprintEngineState)
+    || (
+      task.status === 'changes_requested'
+      && getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'changes_requested'
+    )
   )
   if (readyTasks.length === 0) return
 
@@ -776,12 +813,24 @@ async function sendContinuationPromptsToIdleAgents(
     const task = readyTasks.find((candidate) =>
       candidate.role === runtimeAgent.role
       && !reservedWakeCandidateTaskIds.has(candidate.id)
-      && (!candidate.ownerAgentId || candidate.ownerAgentId === agentId)
+      && (!candidate.ownerAgentId || candidate.ownerAgentId === agentId || candidate.status === 'changes_requested')
     )
     if (!task) continue
 
     const key = continuationMessageKey(workspace, task.id, agentId)
     const previous = sentContinuationMessages.current.get(key)
+    if (promptRetryLimitReached(previous)) {
+      logPerfEvent('SprintEngineAutoRun', 'continuation-prompt-retry-limit-reached', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId,
+        role: runtimeAgent.role,
+        taskId: task.id,
+        attempts: previous?.attempts ?? 0,
+        maxRetries: AUTO_RUN_MAX_PROMPT_RETRIES,
+      })
+      continue
+    }
     if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) {
       reservedWakeCandidateTaskIds.add(task.id)
       continue
@@ -793,7 +842,7 @@ async function sendContinuationPromptsToIdleAgents(
     await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(
       buildSprintEngineContinuationPrompt(task, agentId)
     ))
-    sentContinuationMessages.current.set(key, { sentAt: now })
+    recordPromptRetry(sentContinuationMessages.current, key, now)
     reservedWakeCandidateTaskIds.add(task.id)
     logPerfEvent('SprintEngineAutoRun', 'continuation-prompt-sent', {
       workspaceId: workspace.id,
@@ -826,13 +875,27 @@ async function sendGateContinuationPromptsToAgents(
       if (!runningAgentIds.has(agentId)) continue
       const key = continuationMessageKey(workspace, `${task.id}:${claim.gate.id}`, agentId)
       const previous = sentContinuationMessages.current.get(key)
+      if (promptRetryLimitReached(previous)) {
+        logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-retry-limit-reached', {
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          agentId,
+          role: claim.gate.role,
+          taskId: task.id,
+          gateId: claim.gate.id,
+          claimed: true,
+          attempts: previous?.attempts ?? 0,
+          maxRetries: AUTO_RUN_MAX_PROMPT_RETRIES,
+        })
+        continue
+      }
       if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
       const session = await findRunningAgentSession(workspace, agentId)
       if (!session) continue
       await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(
         buildSprintEngineGateContinuationPrompt(task, claim.gate, agentId, true)
       ))
-      sentContinuationMessages.current.set(key, { sentAt: now })
+      recordPromptRetry(sentContinuationMessages.current, key, now)
       logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-sent', {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
@@ -854,6 +917,20 @@ async function sendGateContinuationPromptsToAgents(
       if (!agentId) continue
       const key = continuationMessageKey(workspace, `${task.id}:${gate.id}`, agentId)
       const previous = sentContinuationMessages.current.get(key)
+      if (promptRetryLimitReached(previous)) {
+        logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-retry-limit-reached', {
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          agentId,
+          role: gate.role,
+          taskId: task.id,
+          gateId: gate.id,
+          claimed: false,
+          attempts: previous?.attempts ?? 0,
+          maxRetries: AUTO_RUN_MAX_PROMPT_RETRIES,
+        })
+        continue
+      }
       if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) {
         usedIdleAgentIds.add(agentId)
         continue
@@ -863,7 +940,7 @@ async function sendGateContinuationPromptsToAgents(
       await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(
         buildSprintEngineGateContinuationPrompt(task, gate, agentId, false)
       ))
-      sentContinuationMessages.current.set(key, { sentAt: now })
+      recordPromptRetry(sentContinuationMessages.current, key, now)
       usedIdleAgentIds.add(agentId)
       logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-sent', {
         workspaceId: workspace.id,
@@ -893,9 +970,49 @@ export async function sendDispatchPromptsToRunningAgents(
     if (!dispatch || runtimeAgent.status === 'retired') continue
     const key = sprintEngineDispatchDeliveryKey(workspace, agentId, dispatch)
     activeKeys.add(key)
+    if (runtimeAgent.status === 'needs_input') {
+      sentDispatchMessages.current.delete(key)
+      logPerfEvent('SprintEngineAutoRun', 'dispatch-prompt-skipped-needs-input', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId,
+        dispatchId: dispatch.dispatchId ?? null,
+        targetKind: dispatch.targetKind ?? null,
+        taskId: dispatch.taskId ?? null,
+        gateId: dispatch.gateId ?? null,
+      })
+      continue
+    }
     if (!runningAgentIds.has(agentId)) continue
     const previous = sentDispatchMessages.current.get(key)
+    if (promptRetryLimitReached(previous)) {
+      logPerfEvent('SprintEngineAutoRun', 'dispatch-prompt-retry-limit-reached', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId,
+        role: dispatch.role ?? runtimeAgent.role,
+        dispatchId: dispatch.dispatchId ?? null,
+        targetKind: dispatch.targetKind ?? null,
+        taskId: dispatch.taskId ?? null,
+        gateId: dispatch.gateId ?? null,
+        attempts: previous?.attempts ?? 0,
+        maxRetries: AUTO_RUN_MAX_PROMPT_RETRIES,
+      })
+      continue
+    }
     if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
+    if (dispatch.taskId && runtimeAgent.currentTaskId && runtimeAgent.currentTaskId !== dispatch.taskId) {
+      logPerfEvent('SprintEngineAutoRun', 'dispatch-prompt-skipped-active-different-task', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId,
+        dispatchId: dispatch.dispatchId ?? null,
+        dispatchTaskId: dispatch.taskId,
+        activeTaskId: runtimeAgent.currentTaskId,
+        targetKind: dispatch.targetKind ?? null,
+      })
+      continue
+    }
 
     const session = await findRunningAgentSession(workspace, agentId)
     if (!session) continue
@@ -906,7 +1023,7 @@ export async function sendDispatchPromptsToRunningAgents(
         dispatch,
       })
     ))
-    sentDispatchMessages.current.set(key, { sentAt: now })
+    recordPromptRetry(sentDispatchMessages.current, key, now)
     logPerfEvent('SprintEngineAutoRun', 'dispatch-prompt-sent', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -1541,6 +1658,7 @@ async function signalArchitectForNeedsInputTriage(
   const messageKey = architectTriageMessageKey(workspace, taskIds, architect.id)
   const previous = sentArchitectTriageMessages.current.get(messageKey)
   const retryPending = previous && Date.now() - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS
+  const retryLimitReached = promptRetryLimitReached(previous)
 
   if (runningAgentIds.has(architect.id)) {
     applyAgentTerminalRevealPolicy(
@@ -1549,13 +1667,24 @@ async function signalArchitectForNeedsInputTriage(
       workspace.agents[architect.id]?.name ?? architect.label,
       'background'
     )
+    if (retryLimitReached) {
+      logPerfEvent('SprintEngineAutoRun', 'architect-triage-prompt-retry-limit-reached', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId: architect.id,
+        taskIds,
+        attempts: previous?.attempts ?? 0,
+        maxRetries: AUTO_RUN_MAX_PROMPT_RETRIES,
+      })
+      return 'none'
+    }
     if (retryPending) return 'none'
 
     const session = await findRunningAgentSession(workspace, architect.id)
     if (!session) return 'none'
 
     await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(triagePrompt))
-    sentArchitectTriageMessages.current.set(messageKey, { sentAt: Date.now() })
+    recordPromptRetry(sentArchitectTriageMessages.current, messageKey, Date.now())
     logPerfEvent('SprintEngineAutoRun', 'architect-triage-prompt-sent', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -1823,14 +1952,12 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     .filter((agentId) => runningAgentIds.has(agentId))
     .filter((agentId) => !architectActionableNeedsInputOwnerIds.has(agentId))
   if (runningNeedsInputAgentIds.length > 0) {
-    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
+    logPerfEvent('SprintEngineAutoRun', 'needs-input-agents-ignored-for-unrelated-work', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
-      reason: 'agent-needs-input',
       agentIds: runningNeedsInputAgentIds,
       elapsedMs: Math.round(performance.now() - superviseStartedAt),
     })
-    return
   }
 
   const runningNeedsInputTaskIds = sprintEngineState.tasks
@@ -1842,14 +1969,12 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     )
     .map((task) => task.id)
   if (runningNeedsInputTaskIds.length > 0) {
-    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
+    logPerfEvent('SprintEngineAutoRun', 'needs-input-tasks-ignored-for-unrelated-work', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
-      reason: 'task-needs-input',
       taskIds: runningNeedsInputTaskIds,
       elapsedMs: Math.round(performance.now() - superviseStartedAt),
     })
-    return
   }
 
   await sendContinuationPromptsToIdleAgents(

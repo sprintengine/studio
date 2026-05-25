@@ -142,9 +142,9 @@ Each agent record normalizes to:
 - `gateId`: present for gate targets.
 - `role`: target role used for routing.
 - `reason`: dispatch reason such as `task_claimed`, `gate_claimed`,
-  `changes_requested_rework`, `needs_triage`, or `final_review`. Normal
-  unclaimed ready tasks are wake candidates and must not be represented as
-  `currentDispatch` assignments.
+  `needs_triage`, or `final_review`. Normal unclaimed ready tasks, including
+  ownerless `changes_requested` rework, are wake candidates and must not be
+  represented as `currentDispatch` assignments.
 - `assignedAt`: UTC timestamp of assignment.
 
 Agents and app code must not edit this map directly. Use the lifecycle tools or
@@ -474,9 +474,11 @@ include a `difficulty` snapshot using snake_case analytics keys:
 
 `needsInput` routes blocked work:
 
-- `kind`: actor who must act, normally `architect`, `user`, or `owner`.
-- `reason`: `task_scope`, `artifact_review`, `tooling`, `verification`,
-  `product_decision`, or `blocked_other`.
+- `kind`: actor or external condition that must act, normally `architect`,
+  `user`, `owner`, or `external_validation`.
+- `reason`: short category or issue text. Common categories are `task_scope`,
+  `artifact_review`, `tooling`, `verification`, `product_decision`, and
+  `blocked_other`.
 - `question`: concrete unblock question.
 - `suggestedResolution`: optional proposed next step.
 - `artifactId`: optional artifact related to an artifact review blocker.
@@ -574,10 +576,12 @@ reports lock state and stale-lock warnings in the normalized projection.
 ## DAG Readiness
 
 `tasks/ready/` is a materialized deterministic queue for normal `todo` work. A
-`changes_requested` task uses the same dependency and ownership readiness rules
-but stays in `tasks/changes_requested/` so reviewers, testers, and product
-flows can count rework separately. A normal implementation task is claimable
-when:
+`changes_requested` task uses the same dependency and active-claim readiness
+rules but stays in `tasks/changes_requested/` so reviewers, testers, and
+product flows can count rework separately. Rework is claimable by any matching
+role roster agent when it has no `ownerAgentId`; previous implementer
+attribution lives in comments, evidence, and optional attribution fields. A
+normal implementation task is claimable when:
 
 - its semantic status is `todo` or `changes_requested`;
 - it has no `ownerAgentId`;

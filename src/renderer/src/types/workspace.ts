@@ -186,7 +186,7 @@ export type SprintEngineRecordedArtifact = {
   createdAt?: string
 }
 
-export type SprintEngineNeedsInputKind = 'architect' | 'user' | 'owner'
+export type SprintEngineNeedsInputKind = 'architect' | 'user' | 'owner' | 'external_validation'
 export type SprintEngineNeedsInputReason =
   | 'task_scope'
   | 'artifact_review'
@@ -194,6 +194,7 @@ export type SprintEngineNeedsInputReason =
   | 'verification'
   | 'product_decision'
   | 'blocked_other'
+  | string
 
 export type SprintEngineArtifactKind =
   | 'architect_plan'

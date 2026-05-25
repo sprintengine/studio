@@ -34,6 +34,7 @@ from sprintengine_core.tool.state import (
     append_event,
     append_task_activity,
     assign_task,
+    clear_non_active_task_owner_claims,
     clear_task_refs,
     create_task_comment,
     ensure_gate_dispatch,
@@ -285,11 +286,30 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
         with folder_store.FolderLock(args.state.parent / folder_store.CLAIM_QUEUE_LOCK_FILE):
             ensure_agent_in_roster(state, args.id, args.role)
             expired = release_expired_agent_targets(state, actor="sprintengine", excluding_agent_id=args.id)
+            stale_owner_dirty = clear_non_active_task_owner_claims(state)
             runtime = reconcile_agent(state, args.id, args.role)
             agent = runtime["agent"]
             active = runtime["activeTask"]
             if active:
-                return {"ok": True, "claimed": False, "reason": "agent_already_has_active_task", "task": active, "agent": agent, "prompt": build_rework_prompt(args.state, active), "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
+                if active.get("status") == "needs_input":
+                    needs_input = active.get("needsInput") if isinstance(active.get("needsInput"), dict) else {}
+                    question = str(needs_input.get("question") or "").strip()
+                    return {
+                        "ok": True,
+                        "claimed": False,
+                        "reason": "task_needs_input",
+                        "message": "Current task is blocked on needs_input. Stop until input is resolved.",
+                        "task": active,
+                        "agent": agent,
+                        "blocker": {
+                            "reason": "needs_input",
+                            "kind": str(needs_input.get("kind") or ""),
+                            "question": question,
+                        },
+                        "releasedExpired": expired["released"],
+                        "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty,
+                    }
+                return {"ok": True, "claimed": False, "reason": "agent_already_has_active_task", "task": active, "agent": agent, "prompt": build_rework_prompt(args.state, active), "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
 
             ready_ids = read_ready_task_ids(state)
             tasks_by_id = {
@@ -317,7 +337,7 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                 return {"ok": True, "claimed": True, "task": selected, "agent": result["agent"], "prompt": build_rework_prompt(args.state, selected), "event": event, "releasedExpired": expired["released"]}
 
             phase_dirty = recompute_phase(state)
-            return {"ok": True, "claimed": False, "reason": "no_ready_task", "message": f"No ready {args.role} tasks. Stop.", "releasedExpired": expired["released"], "write": runtime["dirty"] or phase_dirty or expired["dirty"]}
+            return {"ok": True, "claimed": False, "reason": "no_ready_task", "message": f"No ready {args.role} tasks. Stop.", "releasedExpired": expired["released"], "write": runtime["dirty"] or phase_dirty or expired["dirty"] or stale_owner_dirty}
 
     return with_locked_state(args.state, run)
 
@@ -327,6 +347,7 @@ def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
             task = find_task(state, args.task_id)
             ensure_agent_in_roster(state, args.id, str(task.get("role") or ""))
             agent = ensure_agent(state, args.id, task.get("role"))
+            clear_non_active_task_owner_claims(state)
             ready_ids = set(read_ready_task_ids(state))
             if args.task_id not in ready_ids or not task_is_ready(state, task):
                 return {"ok": False, "error": "Task is not ready.", "task": {"id": task.get("id"), "status": task.get("status")}, "write": False}
@@ -340,6 +361,7 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
+        previous_status = task.get("status")
         previous_owner_id = task.get("ownerAgentId")
         if feedback_args_present(args) and args.status != "done":
             raise SystemExit("Feedback flags on `sprintengine task status` are only supported with --status done.")
@@ -398,6 +420,9 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             task["completedAt"] = None
         if args.status == "done":
             task["completedAt"] = now_iso()
+            if previous_status in {"in_progress", "changes_requested", "needs_input"}:
+                task["lastImplementedByAgentId"] = str(actor)
+                task["lastPublishedAt"] = task["completedAt"]
             set_implementer_actual_difficulty(
                 task,
                 getattr(args, "actual_difficulty_pct", None),
@@ -420,8 +445,9 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
         cleared = []
         if args.status not in ACTIVE_TASK_STATUSES:
             cleared = clear_task_refs(state, args.task_id)
-        if args.status == "done" and task.get("ownerAgentId"):
-            set_agent_idle(ensure_agent(state, task["ownerAgentId"], task.get("role")))
+            if previous_owner_id:
+                set_agent_idle(ensure_agent(state, previous_owner_id, task.get("role")))
+            task["ownerAgentId"] = None
         feedback_payload = build_feedback_payload(args, state, args.state, task, actor)
         if feedback_payload:
             attach_feedback_payload(state, feedback_payload, actor)
@@ -652,12 +678,23 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 def cmd_task_note(args: argparse.Namespace) -> Dict[str, Any]:
+    # Runtime notes flow through task.comments so the body, author, and timestamp
+    # appear in the activity feed. task.notes stays reserved for plan-time design
+    # intent set via `plan add-task --task-note`.
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
-        task.setdefault("notes", []).append(args.note)
-        append_task_activity(task, "comment", args.id, f"{args.id} added a note to {args.task_id}.")
-        event = append_event(state, "task_note_added", args.id, f"{args.id} added note to {args.task_id}.")
-        return {"ok": True, "task": task, "event": event}
+        actor = args.id or "user"
+        role = str(state.get("agents", {}).get(actor, {}).get("role") or "").strip().lower()
+        comment_type = "architect_feedback" if role == "architect" else "user_note"
+        comment = create_task_comment(
+            state,
+            task,
+            actor=actor,
+            body=args.note,
+            comment_type=comment_type,
+        )
+        event = append_event(state, "task_note_added", actor, f"{actor} added note to {args.task_id}.")
+        return {"ok": True, "task": task, "comment": comment, "event": event}
     return with_locked_state(args.state, run)
 
 def cmd_task_comment(args: argparse.Namespace) -> Dict[str, Any]:

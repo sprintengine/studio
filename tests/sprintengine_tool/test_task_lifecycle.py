@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import os
 import subprocess
 
@@ -20,6 +21,7 @@ from fixtures import (
     write_state,
 )
 from sprintengine_core import store
+from sprintengine_core.tool.commands.run import build_agent_next_directive
 from sprintengine_core.tool import runner_watch_delay_seconds
 from sprintengine_core.tool.tasks import normalize_task
 
@@ -315,6 +317,85 @@ def gated_task(status: str = "in_progress", owner: str | None = "developer-fixtu
     return record
 
 
+def test_task_note_routes_architect_actor_to_architect_feedback_comment(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "task-note-architect",
+        [task("T1", "Implement feature", "developer", "in_progress", owner="developer-fixture")],
+    )
+    state = read_state(fixture.state_path)
+    state["agents"] = {
+        "architect-fixture": {"role": "architect", "status": "idle", "currentTaskId": None},
+        "developer-fixture": {"role": "developer", "status": "running", "currentTaskId": "T1"},
+    }
+    write_state(fixture.state_path, state)
+
+    payload = fixture.cli.run(
+        "task",
+        "note",
+        "--task-id",
+        "T1",
+        "--id",
+        "architect-fixture",
+        "--note",
+        "Reviewer's finding is out of scope; ship as-is.",
+    )
+
+    assert payload["ok"] is True
+    assert payload["comment"]["type"] == "architect_feedback"
+    assert payload["comment"]["body"] == "Reviewer's finding is out of scope; ship as-is."
+    assert payload["comment"]["authorRole"] == "architect"
+
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    # Runtime notes no longer pollute the planning-notes bag.
+    assert task_record["notes"] == []
+    assert any(
+        comment["type"] == "architect_feedback" and "out of scope" in comment["body"]
+        for comment in task_record["comments"]
+    )
+    # Activity entry carries the body so it surfaces in the inspector feed
+    # instead of the boilerplate "added a note" verb.
+    assert any(
+        entry["type"] == "comment" and "out of scope" in entry["message"]
+        for entry in task_record.get("activity", [])
+    )
+
+
+def test_task_note_from_non_architect_actor_uses_user_note_type(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "task-note-developer",
+        [task("T1", "Implement feature", "developer", "in_progress", owner="developer-fixture")],
+    )
+    state = read_state(fixture.state_path)
+    state["agents"] = {
+        "developer-fixture": {"role": "developer", "status": "running", "currentTaskId": "T1"},
+    }
+    write_state(fixture.state_path, state)
+
+    payload = fixture.cli.run(
+        "task",
+        "note",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--note",
+        "Pausing while I refresh the local env.",
+    )
+
+    assert payload["comment"]["type"] == "user_note"
+    assert payload["comment"]["authorRole"] == "developer"
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert task_record["notes"] == []
+    assert any(
+        comment["body"] == "Pausing while I refresh the local env."
+        for comment in task_record["comments"]
+    )
+
+
 def test_task_publish_requires_summary_before_leaving_in_progress(tmp_path) -> None:
     fixture = create_team(tmp_path, "publish-summary-required", [gated_task()])
 
@@ -362,8 +443,49 @@ def test_task_publish_records_implementation_summary_and_routes_to_next_phase(tm
     state = read_state(fixture.state_path)
     task_record = get_task(state, "T1")
     assert task_record["status"] == "review"
+    assert task_record["ownerAgentId"] is None
+    assert task_record["lastImplementedByAgentId"] == "developer-fixture"
+    assert task_record["lastPublishedAt"]
     assert task_record["completedAt"] is None
     assert task_record["comments"][0]["body"] == "Implemented the backend path."
+
+
+def test_gate_self_review_uses_implementation_attribution_after_publish_clears_owner(tmp_path) -> None:
+    fixture = create_team(tmp_path, "self-review-attribution", [gated_task()])
+    fixture.cli.run(
+        "task",
+        "publish",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--summary",
+        "Ready for review.",
+    )
+
+    rejected = fixture.cli.run(
+        "task",
+        "gate",
+        "next",
+        "--role",
+        "code_reviewer",
+        "--id",
+        "developer-fixture",
+    )
+    claimed = fixture.cli.run(
+        "task",
+        "gate",
+        "next",
+        "--role",
+        "code_reviewer",
+        "--id",
+        "code-reviewer",
+    )
+
+    assert rejected["claimed"] is False
+    assert rejected["reason"] == "no_ready_gate"
+    assert claimed["claimed"] is True
+    assert claimed["gate"]["id"] == "code-review"
 
 
 def test_task_publish_captures_diff_evidence_for_declared_paths(tmp_path) -> None:
@@ -600,6 +722,8 @@ def test_rework_publish_records_response_and_resets_required_gates(tmp_path) -> 
     assert payload["comment"]["data"]["feedbackCommentIds"] == ["C1"]
     state = read_state(fixture.state_path)
     task_record = get_task(state, "T1")
+    assert task_record["ownerAgentId"] is None
+    assert task_record["lastImplementedByAgentId"] == "developer-fixture"
     assert [gate["status"] for gate in task_record["qualityGates"]] == ["pending", "pending"]
 
 
@@ -866,6 +990,73 @@ def test_join_watch_routes_architect_needs_input_before_ready_task(tmp_path) -> 
     assert "triage needs-input" in payload["prompt"]
 
 
+def test_join_watch_stops_owner_on_unresolved_needs_input(tmp_path) -> None:
+    blocked = task("T1", "Needs product decision", "developer", "needs_input", owner="developer-1")
+    blocked["needsInput"] = {
+        "kind": "user",
+        "reason": "product_decision",
+        "question": "Which export format should ship?",
+        "reportedBy": "developer-1",
+        "reportedAt": "2026-05-25T00:00:00Z",
+    }
+    fixture = create_team(tmp_path, "join-watch-owner-needs-input-stops", [blocked])
+    fixture.cli.run("runner", "set", "--mode", "auto")
+
+    payload = fixture.cli.run("join", "--role", "developer", "--id", "developer-1", "--watch", "--max-wait-seconds", "0")
+
+    assert payload["action"] == "blocked"
+    assert payload["blocker"]["reason"] == "needs_input"
+    assert payload["blocker"]["kind"] == "user"
+    assert "Stop until the blocker is resolved" in payload["message"]
+
+
+def test_agent_next_directive_stops_owner_on_unresolved_needs_input(tmp_path) -> None:
+    blocked = task("T1", "Needs product decision", "developer", "needs_input", owner="developer-1")
+    blocked["needsInput"] = {
+        "kind": "user",
+        "reason": "product_decision",
+        "question": "Which export format should ship?",
+        "reportedBy": "developer-1",
+        "reportedAt": "2026-05-25T00:00:00Z",
+    }
+    fixture = create_team(tmp_path, "next-directive-owner-needs-input-stops", [blocked])
+    fixture.cli.run("runner", "set", "--mode", "auto")
+
+    payload = build_agent_next_directive(argparse.Namespace(
+        state=fixture.state_path,
+        role="developer",
+        id="developer-1",
+        attempts=1,
+    ))
+
+    assert payload["directiveType"] == "blocked"
+    assert payload["nextMcpToolName"] is None
+    assert payload["nextMcpArguments"] is None
+    assert payload["blocker"]["reason"] == "needs_input"
+    assert payload["blocker"]["kind"] == "user"
+    assert payload["task"]["id"] == "T1"
+
+
+def test_task_next_stops_owner_on_unresolved_needs_input(tmp_path) -> None:
+    blocked = task("T1", "Needs product decision", "developer", "needs_input", owner="developer-1")
+    blocked["needsInput"] = {
+        "kind": "user",
+        "reason": "product_decision",
+        "question": "Which export format should ship?",
+        "reportedBy": "developer-1",
+        "reportedAt": "2026-05-25T00:00:00Z",
+    }
+    fixture = create_team(tmp_path, "task-next-owner-needs-input-stops", [blocked])
+
+    payload = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+
+    assert payload["claimed"] is False
+    assert payload["reason"] == "task_needs_input"
+    assert payload["blocker"]["reason"] == "needs_input"
+    assert payload["blocker"]["kind"] == "user"
+    assert "prompt" not in payload
+
+
 def test_task_status_done_rejects_open_required_quality_gates(tmp_path) -> None:
     for gate_status in ["pending", "in_progress", "changes_requested", "blocked"]:
         record = gated_task()
@@ -931,6 +1122,8 @@ def test_task_status_done_allows_legacy_and_closed_gate_tasks(tmp_path) -> None:
     assert "nextCommand" not in payload
     state = read_state(fixture.state_path)
     assert_task_status(state, "T1", "done")
+    assert get_task(state, "T1")["ownerAgentId"] is None
+    assert get_task(state, "T1")["lastImplementedByAgentId"] == "developer-fixture"
 
     closed = gated_task(owner="developer-fixture")
     closed["qualityGates"][0]["status"] = "approved"
@@ -945,6 +1138,7 @@ def test_task_status_done_allows_legacy_and_closed_gate_tasks(tmp_path) -> None:
     assert "Auto Mode is on" in payload["nextAction"]
     state = read_state(fixture.state_path)
     assert_task_status(state, "T1", "done")
+    assert get_task(state, "T1")["ownerAgentId"] is None
 
 
 def test_task_status_done_captures_diff_evidence_before_completion(tmp_path) -> None:
@@ -1023,6 +1217,7 @@ def test_gated_phase_and_rework_statuses_keep_run_executing(tmp_path) -> None:
         state = read_state(fixture.state_path)
         assert state["sprintengine"]["status"] == "executing"
         assert_task_status(state, "T1", status)
+        assert get_task(state, "T1")["ownerAgentId"] is None
 
 
 def test_task_publish_to_review_keeps_run_executing(tmp_path) -> None:
@@ -1637,7 +1832,7 @@ def test_active_task_reconnect_and_join_do_not_rewrite_state(tmp_path) -> None:
     assert join_payload["task"]["id"] == "T1"
 
 
-def test_join_and_task_next_resume_owned_changes_requested_rework(tmp_path) -> None:
+def test_join_clears_stale_owned_changes_requested_rework_for_normal_claim(tmp_path) -> None:
     rework_task = task("T1", "Needs implementation rework", "frontend", "changes_requested")
     rework_task["ownerAgentId"] = "frontend-1"
     fixture = create_team(tmp_path, "owned-rework-resume", [rework_task])
@@ -1652,7 +1847,9 @@ def test_join_and_task_next_resume_owned_changes_requested_rework(tmp_path) -> N
         "--max-wait-seconds",
         "0",
     )
-    assert other_agent["action"] == "idle"
+    assert other_agent["action"] == "work"
+    state = read_state(fixture.state_path)
+    assert get_task(state, "T1")["ownerAgentId"] is None
 
     join_payload = fixture.cli.run(
         "join",
@@ -1664,13 +1861,53 @@ def test_join_and_task_next_resume_owned_changes_requested_rework(tmp_path) -> N
         "--max-wait-seconds",
         "0",
     )
-    assert join_payload["action"] == "resume"
-    assert join_payload["task"]["id"] == "T1"
+    assert join_payload["action"] == "work"
+    assert join_payload["readyTaskCount"] == 1
 
-    next_payload = fixture.cli.run("task", "next", "--role", "frontend", "--id", "frontend-1")
-    assert next_payload["claimed"] is False
-    assert next_payload["reason"] == "agent_already_has_active_task"
+    next_payload = fixture.cli.run("task", "next", "--role", "frontend", "--id", "frontend-2")
+    assert next_payload["claimed"] is True
     assert next_payload["task"]["id"] == "T1"
+    assert next_payload["task"]["ownerAgentId"] == "frontend-2"
+
+
+def test_stale_owner_cleanup_preserves_terminal_agent_statuses(tmp_path) -> None:
+    rework_task = task("T1", "Needs implementation rework", "frontend", "changes_requested")
+    rework_task["ownerAgentId"] = "frontend-1"
+    fixture = create_team(tmp_path, "stale-owner-terminal-statuses", [rework_task])
+    state = read_state(fixture.state_path)
+    state["agents"]["frontend-1"] = {
+        "role": "frontend",
+        "status": "retired",
+        "currentTaskId": "T1",
+        "currentDispatch": {"dispatchId": "D1", "targetKind": "task", "role": "frontend", "reason": "task_claimed", "taskId": "T1"},
+    }
+    state["agents"]["frontend-dead"] = {
+        "role": "frontend",
+        "status": "dead",
+        "currentTaskId": "T1",
+        "currentDispatch": {"dispatchId": "D2", "targetKind": "task", "role": "frontend", "reason": "task_claimed", "taskId": "T1"},
+    }
+    write_state(fixture.state_path, state)
+
+    fixture.cli.run(
+        "join",
+        "--role",
+        "frontend",
+        "--id",
+        "frontend-2",
+        "--watch",
+        "--max-wait-seconds",
+        "0",
+    )
+
+    state = read_state(fixture.state_path)
+    assert get_task(state, "T1")["ownerAgentId"] is None
+    assert state["agents"]["frontend-1"]["status"] == "retired"
+    assert state["agents"]["frontend-1"]["currentTaskId"] is None
+    assert state["agents"]["frontend-1"]["currentDispatch"] is None
+    assert state["agents"]["frontend-dead"]["status"] == "dead"
+    assert state["agents"]["frontend-dead"]["currentTaskId"] is None
+    assert state["agents"]["frontend-dead"]["currentDispatch"] is None
 
 
 def test_join_ready_task_wake_candidate_does_not_create_dispatch(tmp_path) -> None:
@@ -1741,7 +1978,7 @@ def test_claimed_gate_current_dispatch_is_idempotent(tmp_path) -> None:
     assert run["agents"]["code-reviewer"]["currentDispatch"]["attemptId"] == "GA-001"
 
 
-def test_changes_requested_owner_resume_records_rework_dispatch(tmp_path) -> None:
+def test_changes_requested_rework_is_ownerless_normal_role_work(tmp_path) -> None:
     fixture = create_team(tmp_path, "changes-requested-rework-dispatch", [gated_task("todo", owner=None)])
 
     fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
@@ -1767,40 +2004,39 @@ def test_changes_requested_owner_resume_records_rework_dispatch(tmp_path) -> Non
         "Address review feedback.",
     )
 
-    resumed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
-    assert resumed["claimed"] is False
-    assert resumed["reason"] == "agent_already_has_active_task"
-    assert resumed["task"]["status"] == "changes_requested"
+    state = read_state(fixture.state_path)
+    rework_task = get_task(state, "T1")
+    assert rework_task["status"] == "changes_requested"
+    assert rework_task["ownerAgentId"] is None
+
+    joined = fixture.cli.run(
+        "join",
+        "--role",
+        "developer",
+        "--id",
+        "developer-2",
+        "--watch",
+        "--max-wait-seconds",
+        "0",
+    )
+    assert joined["action"] == "work"
+    assert joined["readyTaskCount"] == 1
+
+    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
+    assert claimed["claimed"] is True
+    assert claimed["task"]["status"] == "in_progress"
+    assert claimed["task"]["ownerAgentId"] == "developer-2"
 
     run = store.load_run_yaml(fixture.team_dir)
-    agent = run["agents"]["developer-fixture"]
     dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
     rework_dispatches = [record for record in dispatches if record["reason"] == "changes_requested_rework"]
-    assert len(rework_dispatches) == 1
-    assert agent["currentDispatch"]["dispatchId"] == rework_dispatches[0]["id"]
-    assert agent["currentDispatch"]["targetKind"] == "task"
-    assert agent["currentDispatch"]["taskId"] == "T1"
-    assert agent["currentDispatch"]["gateId"] == "code-review"
-    assert agent["currentDispatch"]["attemptId"] == "GA-001"
-    assert agent["currentDispatch"]["reason"] == "changes_requested_rework"
-    assert rework_dispatches[0]["target"] == {
-        "kind": "task",
-        "taskId": "T1",
-        "gateId": "code-review",
-        "attemptId": "GA-001",
-    }
+    assert rework_dispatches == []
+    assert run["agents"]["developer-2"]["currentDispatch"]["reason"] == "task_claimed"
 
     projection = fixture.cli.run("projection")
-    assert projection["roster"]["developer-fixture"]["currentDispatch"]["dispatchId"] == rework_dispatches[0]["id"]
+    assert projection["roster"]["developer-2"]["currentDispatch"]["reason"] == "task_claimed"
 
-    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
-    assert len([
-        record
-        for record in store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
-        if record["reason"] == "changes_requested_rework"
-    ]) == 1
-
-    fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Reworked.")
+    fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-2", "--summary", "Reworked.")
     fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer")
     fixture.cli.run(
         "task",
@@ -1821,20 +2057,15 @@ def test_changes_requested_owner_resume_records_rework_dispatch(tmp_path) -> Non
         "--required-action",
         "Address second review feedback.",
     )
-    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+    state = read_state(fixture.state_path)
+    assert get_task(state, "T1")["ownerAgentId"] is None
+    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-3")
     second_cycle_dispatches = [
         record
         for record in store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
         if record["reason"] == "changes_requested_rework"
     ]
-    assert len(second_cycle_dispatches) == 2
-    assert second_cycle_dispatches[0]["id"] != second_cycle_dispatches[1]["id"]
-    assert second_cycle_dispatches[1]["target"] == {
-        "kind": "task",
-        "taskId": "T1",
-        "gateId": "code-review",
-        "attemptId": "GA-002",
-    }
+    assert second_cycle_dispatches == []
 
 
 def test_ready_task_dispatch_rotates_after_released_target(tmp_path) -> None:

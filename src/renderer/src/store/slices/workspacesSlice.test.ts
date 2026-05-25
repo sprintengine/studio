@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import type { LayoutTemplate } from '../../types/workspace'
 import { getEditorBuffer } from '../../utils/editorBuffers'
+import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { useWorkspaceStore } from '../workspaceStore'
 import { normalizeWorkspaceMode, workspaceFolderKey } from './workspacesSlice'
 
@@ -168,5 +169,29 @@ assert.equal(
   state.appSettings.recentWorkspaceFolders.some((folder) => folder.includes('switchboard')),
   false,
 )
+
+const sprintEngineState = createInitialSprintEngineState({
+  name: 'Runtime Choice Team',
+  goal: 'Preserve agent runtime choices.',
+  roleCounts: { architect: 1, developer: 2 },
+})
+const sprintEngineId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Runtime Choice Team',
+  folderPath: '/Users/example/runtime-choice',
+  sprintEngineState,
+  sprintEngineRoleCliDefaults: {
+    architect: 'claude',
+    developer: 'claude',
+  },
+  sprintEngineAgentCliOverrides: {
+    'developer-1': 'codex',
+    'developer-2': 'claude',
+  },
+})
+state = useWorkspaceStore.getState()
+const sprintEngineWorkspace = state.workspaces.find((workspace) => workspace.id === sprintEngineId)
+assert.equal(sprintEngineWorkspace?.agents.architect?.cli, 'claude')
+assert.equal(sprintEngineWorkspace?.agents['developer-1']?.cli, 'codex')
+assert.equal(sprintEngineWorkspace?.agents['developer-2']?.cli, 'claude')
 
 console.log('workspacesSlice.test.ts: ok')

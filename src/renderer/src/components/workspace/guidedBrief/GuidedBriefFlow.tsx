@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electron-api'
 import type {
   SprintEngineCliPermissionPreset,
@@ -16,6 +16,7 @@ import {
 import { applyUserDisabledSprintEngineRoleCounts } from '../../../utils/sprintengine'
 import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAutomation'
 import { CloseIconButton, StatusDot, Tabs, Tooltip, WizardProgress, type TabItem } from '../../ui'
+import { buildCliRuntimeOptions } from '../newWorkspace/cliRuntimeOptions'
 import { SprintEngineRosterTable } from '../newWorkspace/SprintEngineRosterTable'
 import { CliPermissionPresetRow, PathRadio } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
@@ -73,6 +74,7 @@ export function GuidedBriefFlow({
   sprintEngineDisabledRoleIds = null,
 }: Props) {
   const { stage, hasUi, workspaceRoot, workspaceName, acceptedProductBrief, acceptedArchitecturePlan } = runtimeState
+  const cliOptions = useMemo(() => buildCliRuntimeOptions(cliRuntimes), [cliRuntimes])
   const progressOptions = {
     wantsProductDiscussion: runtimeState.wantsProductDiscussion,
     wantsArchitectureDiscussion: runtimeState.wantsArchitectureDiscussion,
@@ -520,6 +522,7 @@ export function GuidedBriefFlow({
           <HandoffBody
             runtimeState={runtimeState}
             onChange={onChange}
+            cliOptions={cliOptions}
             sprintEngineRoleRegistry={sprintEngineRoleRegistry}
             sprintEngineDisabledRoleIds={sprintEngineDisabledRoleIds}
           />
@@ -966,11 +969,13 @@ function DesignerReviewPane({
 function HandoffBody({
   runtimeState,
   onChange,
+  cliOptions,
   sprintEngineRoleRegistry,
   sprintEngineDisabledRoleIds,
 }: {
   runtimeState: GuidedBriefRuntimeState
   onChange: (next: GuidedBriefRuntimeState) => void
+  cliOptions: Array<{ value: AgentCli; label: string }>
   sprintEngineRoleRegistry: SprintEngineRoleRegistry | null
   sprintEngineDisabledRoleIds: ReadonlySet<SprintEngineRoleId> | null
 }) {
@@ -1081,9 +1086,11 @@ function HandoffBody({
           <SprintEngineRosterTable
             roleCounts={visibleRoleCounts}
             roleCliDefaults={runtimeState.buildRoleCliDefaults}
+            cliOptions={cliOptions}
             registry={sprintEngineRoleRegistry}
             disabledRoleIds={sprintEngineDisabledRoleIds}
-            disabled={false}
+            countDisabled={false}
+            cliDisabled={false}
             onSetCount={setBuildRoleCount}
             onSetCli={setBuildRoleCli}
           />

@@ -151,6 +151,7 @@ interface WorkspaceStore {
       multiloopState?: MultiloopState | null
       multiloopContext?: MultiloopWorkspaceContext | null
       sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
+      sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
       sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
       multiloopAutoState?: Partial<MultiloopAutoState> | null
       guidedBriefState?: GuidedBriefRuntimeState | null

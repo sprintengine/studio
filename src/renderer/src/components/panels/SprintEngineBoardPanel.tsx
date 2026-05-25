@@ -1217,7 +1217,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  : ''
  const selectedTaskOwnerLabel = selectedTask ? getTaskOwnerLabel(selectedTask, rosterById) : ''
  const selectedTaskNeedsInputNote = selectedTask?.status === 'needs_input'
- ? selectedTask.notes[0] || 'Worker is waiting for input.'
+ ? 'Worker is waiting for input.'
  : null
  const selectedTaskArtifacts = selectedTask
  ? [...(artifactsByTaskId[selectedTask.id] ?? [])].sort((a, b) => {

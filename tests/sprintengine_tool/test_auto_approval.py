@@ -180,10 +180,53 @@ def test_artifact_request_changes_records_rework_before_owner_wakeup(tmp_path) -
     assert requested["ok"] is True
     assert_artifact_status(state, "A1", "changes_requested")
     assert_task_status(state, "T1", "in_progress")
-    assert any("Tighten acceptance criteria" in note for note in task_record["notes"])
+    # Feedback is captured as a comment so author/timestamp/body land in the
+    # activity feed and the open_feedback queue.
+    assert task_record["notes"] == []
+    assert any(
+        comment["type"] == "review_feedback"
+        and "Tighten acceptance criteria" in comment["body"]
+        and comment.get("data", {}).get("artifactId") == "A1"
+        for comment in task_record["comments"]
+    )
     assert notification["targetAgentId"] == "product-fixture"
     assert notification["notificationKind"] == "task_changes_requested_after_artifact_review"
     assert_event_type(state, "artifact_changes_requested")
+
+
+def test_artifact_request_changes_uses_architect_feedback_when_actor_is_architect(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "artifact-request-changes-architect",
+        [task("T1", "Requirements gate", "product", "needs_input", owner="product-fixture")],
+    )
+    state = read_state(fixture.state_path)
+    state["agents"] = {
+        "architect-fixture": {"role": "architect", "status": "idle", "currentTaskId": None},
+        "product-fixture": {"role": "product", "status": "idle", "currentTaskId": "T1"},
+    }
+    write_state(fixture.state_path, state)
+    add_ready_artifact(fixture, "A1", "T1", "requirements", "requirements.md", "Requirements")
+
+    fixture.cli.run(
+        "artifact",
+        "request-changes",
+        "--artifact-id",
+        "A1",
+        "--id",
+        "architect-fixture",
+        "--feedback",
+        "Scope is wider than the current sprint allows.",
+    )
+
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert any(
+        comment["type"] == "architect_feedback"
+        and "wider than the current sprint" in comment["body"]
+        and comment["authorRole"] == "architect"
+        for comment in task_record["comments"]
+    )
 
 
 def test_auto_approval_policy_allows_only_approved_artifact_kinds(tmp_path) -> None:

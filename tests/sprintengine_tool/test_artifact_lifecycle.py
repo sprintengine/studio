@@ -82,7 +82,14 @@ def test_artifact_add_ready_approve_and_request_changes_cover_lifecycle_statuses
     assert_artifact_status(changes_state, "A1", "changes_requested")
     assert_task_status(changes_state, "T1", "in_progress")
     assert "needsInput" not in get_task(changes_state, "T1")
-    assert any(feedback in note for note in get_task(changes_state, "T1")["notes"])
+    # Feedback flows through comments now, not the planning-notes bag.
+    assert get_task(changes_state, "T1")["notes"] == []
+    assert any(
+        comment["type"] == "review_feedback"
+        and feedback in comment["body"]
+        and comment.get("data", {}).get("artifactId") == "A1"
+        for comment in get_task(changes_state, "T1")["comments"]
+    )
 
     fixture.cli.run("artifact", "ready", "--artifact-id", "A1", "--id", "product-fixture")
     approved = fixture.cli.run("artifact", "approve", "--artifact-id", "A1", "--id", "user")

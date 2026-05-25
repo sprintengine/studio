@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from sprintengine_core import store as folder_store
+from sprintengine_core.tool.comments import latest_implementation_comment
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import now_iso
 from sprintengine_core.tool.roles import require_configured_role
@@ -32,12 +33,22 @@ def find_active_gate_claim(state: Dict[str, Any], agent_id: str, role: str) -> O
                     return {"task": task, "gate": gate, "attempt": attempt}
     return None
 
+def latest_implementer_agent_id(task: Dict[str, Any]) -> Optional[str]:
+    attributed = str(task.get("lastImplementedByAgentId") or "").strip()
+    if attributed:
+        return attributed
+    comment = latest_implementation_comment(task)
+    if not comment:
+        return None
+    author = str(comment.get("authorAgentId") or comment.get("actor") or "").strip()
+    return author or None
+
 def gate_is_claimable_for_role(task: Dict[str, Any], gate: Dict[str, Any], role: str, agent_id: str) -> bool:
     if canonical_gate_role(gate) != role or gate.get("status") != "pending":
         return False
     if str(task.get("status") or "") != str(gate.get("phase") or ""):
         return False
-    if gate.get("allowSelfReview") is False and task.get("ownerAgentId") == agent_id:
+    if gate.get("allowSelfReview") is False and latest_implementer_agent_id(task) == agent_id:
         return False
     return True
 
@@ -345,6 +356,8 @@ def apply_gate_verdict(
         else:
             next_status = next_status_after_gate_verdict(task, phase)
         task["status"] = next_status
+        if next_status in {"review", "testing", "product", "changes_requested", "done"}:
+            task["ownerAgentId"] = None
         if next_status == "done":
             task["completedAt"] = now_iso()
         else:
@@ -371,6 +384,7 @@ def apply_gate_verdict(
             },
         )
         task["status"] = "changes_requested"
+        task["ownerAgentId"] = None
         task["completedAt"] = None
         task.pop("needsInput", None)
         next_status = "changes_requested"

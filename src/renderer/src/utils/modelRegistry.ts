@@ -171,6 +171,38 @@ export function addAgentTabTiled(
   const model = models.get(workspaceId)
   if (!model) return false
 
+  // Sprint Engine layouts: agent terminals share a right-hand "terminals"
+  // tabset with plain terminals so the SE board keeps its real estate. Stack
+  // into an existing terminal-like tabset when one exists; otherwise dock a
+  // fresh tabset on the right edge of the root.
+  if (modelHasSprintEngineBoard(model)) {
+    const terminalHost = firstTerminalLikeTabset(model)
+    if (terminalHost) {
+      model.doAction(
+        Actions.addNode(
+          agentTabNode(agentId, name, config),
+          terminalHost.getId(),
+          DockLocation.CENTER,
+          -1,
+          true
+        )
+      )
+      window.setTimeout(() => clearAgentSpawnFlash(model, agentId), 13200)
+      return true
+    }
+    model.doAction(
+      Actions.addNode(
+        agentTabNode(agentId, name, config),
+        model.getRoot().getId(),
+        DockLocation.RIGHT,
+        -1,
+        true
+      )
+    )
+    window.setTimeout(() => clearAgentSpawnFlash(model, agentId), 13200)
+    return true
+  }
+
   const targetTabset = model.getActiveTabset() ?? firstTabset(model)
   if (!targetTabset) return false
 
@@ -332,6 +364,28 @@ function firstTerminalTabset(model: Model): TabSetNode | null {
   return found
 }
 
+// Returns the first tabset hosting an agent or terminal tab that does NOT also
+// host the Sprint Engine board. Lets agent terminals and plain terminals share
+// a right-hand "terminals" panel in SE layouts without ever stacking into the
+// board's tabset.
+function firstTerminalLikeTabset(model: Model): TabSetNode | null {
+  let found: TabSetNode | null = null
+  model.visitNodes((node) => {
+    if (found) return
+    if (!(node instanceof TabNode)) return
+    const component = node.getComponent()
+    if (component !== 'agent' && component !== 'terminal') return
+    const parent = node.getParent()
+    if (!(parent instanceof TabSetNode)) return
+    const hostsBoard = parent.getChildren().some(
+      (child) => child instanceof TabNode && child.getComponent() === 'sprintengine'
+    )
+    if (hostsBoard) return
+    found = parent
+  })
+  return found
+}
+
 function modelHasSprintEngineBoard(model: Model): boolean {
   let found = false
   model.visitNodes((node) => {
@@ -347,8 +401,10 @@ function terminalTabJson(terminalId: string, name: string) {
 
 // Places a new terminal tab in the layout. Stacks into an existing terminal
 // tabset when one exists so multiple terminals share a tab strip. In Sprint
-// Engine layouts a fresh terminal tabset is docked to the right of the root
-// so the board stays visible; outside SE mode the active tabset is used.
+// Engine layouts the right-hand "terminals" tabset is shared with agent
+// terminals — plain terminals stack into it (or dock a fresh tabset on the
+// right edge of the root) so the board stays visible; outside SE mode the
+// active tabset is used.
 export function addTerminalTab(
   workspaceId: string,
   terminalId: string,
@@ -359,17 +415,24 @@ export function addTerminalTab(
 
   const tabJson = terminalTabJson(terminalId, name)
 
-  const existingTerminalTabset = firstTerminalTabset(model)
-  if (existingTerminalTabset) {
+  if (modelHasSprintEngineBoard(model)) {
+    const terminalHost = firstTerminalLikeTabset(model)
+    if (terminalHost) {
+      model.doAction(
+        Actions.addNode(tabJson, terminalHost.getId(), DockLocation.CENTER, -1, true)
+      )
+      return true
+    }
     model.doAction(
-      Actions.addNode(tabJson, existingTerminalTabset.getId(), DockLocation.CENTER, -1, true)
+      Actions.addNode(tabJson, model.getRoot().getId(), DockLocation.RIGHT, -1, true)
     )
     return true
   }
 
-  if (modelHasSprintEngineBoard(model)) {
+  const existingTerminalTabset = firstTerminalTabset(model)
+  if (existingTerminalTabset) {
     model.doAction(
-      Actions.addNode(tabJson, model.getRoot().getId(), DockLocation.RIGHT, -1, true)
+      Actions.addNode(tabJson, existingTerminalTabset.getId(), DockLocation.CENTER, -1, true)
     )
     return true
   }

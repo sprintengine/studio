@@ -1106,6 +1106,81 @@ function TaskScoresLine({ task }: { task: SprintEngineTask }) {
   )
 }
 
+const needsInputKindLabels: Record<string, string> = {
+  architect: 'Architect',
+  user: 'User',
+  owner: 'Worker',
+  external_validation: 'External validation',
+}
+
+const needsInputReasonLabels: Record<string, string> = {
+  task_scope: 'Task scope',
+  artifact_review: 'Artifact review',
+  tooling: 'Tooling',
+  verification: 'Verification',
+  product_decision: 'Product decision',
+  blocked_other: 'Blocked',
+}
+
+function formatNeedsInputValue(value: string | undefined): string | null {
+  if (!value?.trim()) return null
+  const trimmed = value.trim()
+  return needsInputReasonLabels[trimmed]
+    ?? needsInputKindLabels[trimmed]
+    ?? trimmed.replace(/_/g, ' ')
+}
+
+function TaskNeedsInputCallout({
+  task,
+  fallbackNote,
+}: {
+  task: SprintEngineTask
+  fallbackNote: string | null
+}) {
+  if (task.status !== 'needs_input') return null
+
+  const needsInput = task.needsInput
+  const kindLabel = formatNeedsInputValue(needsInput?.kind)
+  const reasonLabel = formatNeedsInputValue(needsInput?.reason)
+  const question = needsInput?.question?.trim()
+  const suggestedResolution = needsInput?.suggestedResolution?.trim()
+  const reportedBy = needsInput?.reportedBy?.trim()
+  const reportedAt = needsInput?.reportedAt?.trim()
+  const fallback = fallbackNote?.trim() || 'Worker is waiting for input.'
+
+  return (
+    <TaskCallout tone="warn" label={kindLabel ? `Needs input: ${kindLabel}` : 'Needs input'}>
+      <div className="space-y-2">
+        {question ? (
+          <div>
+            <div className="text-[11px] font-semibold uppercase text-[color:var(--text-muted)]">Question</div>
+            <div>{question}</div>
+          </div>
+        ) : (
+          <div>{fallback}</div>
+        )}
+        {reasonLabel ? (
+          <div>
+            <div className="text-[11px] font-semibold uppercase text-[color:var(--text-muted)]">Issue</div>
+            <div>{reasonLabel}</div>
+          </div>
+        ) : null}
+        {suggestedResolution ? (
+          <div>
+            <div className="text-[11px] font-semibold uppercase text-[color:var(--text-muted)]">Suggested resolution</div>
+            <div>{suggestedResolution}</div>
+          </div>
+        ) : null}
+        {(reportedBy || reportedAt) ? (
+          <div className="text-[11px] text-[color:var(--text-muted)]">
+            {reportedBy ? `Reported by ${reportedBy}` : 'Reported'}{reportedAt ? ` · ${formatTimestamp(reportedAt)}` : ''}
+          </div>
+        ) : null}
+      </div>
+    </TaskCallout>
+  )
+}
+
 function TaskOpenFindings({
   issues,
   findings,
@@ -1231,6 +1306,9 @@ const SUPPRESS_ACTIVITY_MESSAGE_TYPES = new Set<SprintEngineTaskActivityType>([
   'evidence',
   'status_change',
   'feedback',
+  // Artifact entries pair with a comment carrying the prose; the verb chip
+  // ("requested artifact changes", "approved artifact") is the signal here.
+  'artifact',
 ])
 
 // Coalesce consecutive identical-actor/type events within this window into one
@@ -2006,14 +2084,7 @@ function SprintEngineTaskBody({
         onOpenAgentTerminal={onOpenAgentTerminal}
       />
 
-      {selectedTaskNeedsInputNote ? (
-        <TaskCallout tone="warn" label="Needs input">
-          <div>{selectedTaskNeedsInputNote}</div>
-          <div className="mt-1 text-[11px] text-[color:var(--text-muted)]">
-            Respond in the worker CLI to unblock this task.
-          </div>
-        </TaskCallout>
-      ) : null}
+      <TaskNeedsInputCallout task={selectedTask} fallbackNote={selectedTaskNeedsInputNote} />
 
       {selectedTaskArtifactBlockers.length > 0 ? (
         <ArtifactBlockerList blockers={selectedTaskArtifactBlockers} />
@@ -2150,7 +2221,9 @@ function SprintEngineTaskBody({
               items={selectedTask.implementationNotes}
               emptyLabel="No implementation notes recorded."
             />
-            <SectionList title="Notes" items={selectedTask.notes} emptyLabel="No notes recorded." />
+            {selectedTask.notes.length > 0 ? (
+              <SectionList title="Planning notes" items={selectedTask.notes} emptyLabel="" />
+            ) : null}
 
             <SprintEngineArtifactList
               artifacts={selectedTaskArtifacts}

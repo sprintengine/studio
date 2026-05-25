@@ -154,6 +154,43 @@ assert.equal(state!.locks?.warnings[0]?.ageSeconds, 360)
 assert.equal(state!.creation?.source, 'folder_store')
 assert.equal(state!.tasks.length, 3)
 
+const externalNeedsInputState = normalizeSprintEngineProjection(fakeProjection({
+  tasks: [
+    {
+      id: 'T-needs-input',
+      title: 'Device validation',
+      description: '',
+      role: 'developer',
+      status: 'needs_input',
+      folderStatus: 'needs_input',
+      stateStatus: 'needs_input',
+      boardColumn: 'needs_input',
+      ownedPaths: [],
+      dependsOn: [],
+      acceptanceCriteria: [],
+      implementationNotes: [],
+      notes: [],
+      comments: [],
+      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+      activity: [],
+      startedAt: null,
+      completedAt: null,
+      ownerAgentId: 'developer-1',
+      needsInput: {
+        kind: 'external_validation',
+        reason: 'A real device or supported simulator is required.',
+        question: 'Can a tester verify native calendar side effects?',
+        suggestedResolution: 'Run the app on a supported device.',
+        reportedBy: 'developer-1',
+        reportedAt: '2026-05-25T17:55:16Z',
+      },
+    },
+  ],
+}))
+assert.equal(externalNeedsInputState?.tasks[0]?.needsInput?.kind, 'external_validation')
+assert.equal(externalNeedsInputState?.tasks[0]?.needsInput?.reason, 'A real device or supported simulator is required.')
+assert.equal(externalNeedsInputState?.tasks[0]?.needsInput?.question, 'Can a tester verify native calendar side effects?')
+
 const dispatchState = normalizeSprintEngineProjection(fakeProjection({
   roster: {
     'frontend-3': {

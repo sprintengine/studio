@@ -102,7 +102,7 @@ export function buildSprintEngineStartupPrompt(
     '- Register an artifact: `sprintengine.artifact.add` with `{taskId, kind, title, path, createdBy, ready}` — set `ready: true` only when the artifact must wait for human approval.',
     '- Record a gate verdict: `sprintengine.gate.verdict` (or `sprintengine.gate.publish`) with `{taskId, gateId, role, id, verdict, summary}`.',
     '- Move a task to `needs_input`: `sprintengine.task.status` with `{taskId, id, status: "needs_input", needsInputKind, needsInputReason, needsInputQuestion, needsInputArtifactId?, needsInputSuggestedResolution?}`.',
-    '  - `needsInputKind` is the actor who must act: `architect` for task-card/scope/artifact-review/tooling/verification blockers, `user` for product decisions or approvals, `owner` when you are waiting for your own external condition.',
+    '  - `needsInputKind` is who or what must act: `architect` for task-card/scope/artifact-review/tooling blockers, `user` for product decisions or approvals, `owner` when you are waiting on your own condition, `external_validation` when real hardware, credentials, or another outside check is required.',
     '  - `needsInputReason` classifies the blocker: `task_scope`, `artifact_review`, `tooling`, `verification`, `product_decision`, or `blocked_other`.',
   ].join('\n')
 

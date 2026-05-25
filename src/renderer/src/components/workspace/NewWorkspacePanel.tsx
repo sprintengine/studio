@@ -9,6 +9,7 @@ import {
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
   AgentCli,
+  AgentId,
   FuturePlanWorkspaceSource,
   LayoutTemplate,
   McpCatalogServer,
@@ -28,6 +29,7 @@ import type {
   SprintEngineState,
   SprintEngineWorkspaceContext,
   WorkspaceMode,
+  Workspace,
   GuidedBriefRoleCliDefaults,
 } from '../../types/workspace'
 import {
@@ -79,6 +81,7 @@ import {
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind } from './newWorkspace/helpers'
 import type { CreationMode, ExistingTeam, GuidedBriefHasUi, SprintEnginePath } from './newWorkspace/types'
 import { CliPermissionPresetRow, PathRadio } from './newWorkspace/WizardControls'
+import { buildCliRuntimeOptions } from './newWorkspace/cliRuntimeOptions'
 
 const MAX_RECENT_FOLDERS = 6
 const MODES: CreationMode[] = ['standard', 'switchboard', 'sprintengine', 'multiloop', 'guided-brief']
@@ -223,6 +226,51 @@ function sprintEngineRosterSummary(roleCounts: SprintEngineRoleCounts, registry?
     .map((role) => `${getSprintEngineRoleLabel(role, registry)}: ${roleCounts[role]}`)
 }
 
+function normalizedPathKey(path: string | null | undefined): string | null {
+  if (!path) return null
+  return path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
+}
+
+function cliSelectionForExistingSprintEngineTeam(
+  team: ExistingTeam,
+  folderPath: string | null,
+  workspaces: Workspace[],
+  fallback: Required<SprintEngineRoleCliDefaults>,
+): {
+  roleDefaults: Required<SprintEngineRoleCliDefaults>
+  agentOverrides: Record<AgentId, AgentCli>
+} {
+  const roleDefaults = { ...fallback }
+  const agentOverrides: Record<AgentId, AgentCli> = {}
+  const selectedFolderKey = normalizedPathKey(folderPath)
+  const matchingWorkspace = workspaces.find((workspace) => (
+    workspace.sprintEngineContext?.teamSlug === team.slug
+    && normalizedPathKey(workspace.folderPath) === selectedFolderKey
+  )) ?? workspaces.find((workspace) => (
+    workspace.sprintEngineContext?.teamDirectoryPath
+    && normalizedPathKey(workspace.sprintEngineContext.teamDirectoryPath) === normalizedPathKey(team.context.teamDirectoryPath)
+  ))
+
+  if (matchingWorkspace?.sprintEngineRoleCliDefaults) {
+    for (const [role, cli] of Object.entries(matchingWorkspace.sprintEngineRoleCliDefaults)) {
+      if (typeof cli === 'string' && cli.trim()) roleDefaults[role] = cli.trim()
+    }
+  }
+
+  if (matchingWorkspace) {
+    for (const [agentId, runtimeAgent] of Object.entries(team.state.sprintEngineAgents)) {
+      const cli = matchingWorkspace.agents[agentId]?.cli
+      if (typeof cli === 'string' && cli.trim()) {
+        const trimmed = cli.trim()
+        roleDefaults[runtimeAgent.role] = trimmed
+        agentOverrides[agentId] = trimmed
+      }
+    }
+  }
+
+  return { roleDefaults, agentOverrides }
+}
+
 const initialGuidedBriefRoleCliDefaults: GuidedBriefRoleCliDefaults = {
   product: initialSprintEngineRoleCliDefaults.product ?? 'claude',
   architect: initialSprintEngineRoleCliDefaults.architect ?? 'claude',
@@ -268,6 +316,7 @@ interface Props {
     sprintEngineState?: SprintEngineState | null
     sprintEngineContext?: SprintEngineWorkspaceContext | null
     sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
+    sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
     sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
     mode?: WorkspaceMode
   }) => void
@@ -329,6 +378,7 @@ export default function NewWorkspacePanel({
   const [seRoleCliDefaults, setSeRoleCliDefaults] = useState<Required<SprintEngineRoleCliDefaults>>(
     initialSprintEngineRoleCliDefaults,
   )
+  const [seAgentCliOverrides, setSeAgentCliOverrides] = useState<Record<AgentId, AgentCli>>({})
   const [seRoleRegistry, setSeRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
   const [seRoleRegistryStatus, setSeRoleRegistryStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
   const [seStartRunner, setSeStartRunner] = useState(true)
@@ -365,6 +415,10 @@ export default function NewWorkspacePanel({
   const [closeConfirmation, setCloseConfirmation] = useState(false)
 
   const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const sprintEngineCliOptions = useMemo(
+    () => buildCliRuntimeOptions(appCliRuntimes),
+    [appCliRuntimes],
+  )
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
   const sprintEngineDisabledRoleIds = useMemo(
     () => getUserDisabledSprintEngineRoleIds(sprintEngineRoleSettings),
@@ -579,6 +633,7 @@ export default function NewWorkspacePanel({
     if (sePath === 'existing' && folderScan.result.teams.length === 0) {
       setSePath('new')
       setSeExistingTeam(null)
+      setSeAgentCliOverrides({})
     }
     if (sePath === 'plan' && !folderScan.isScanning && folderScan.result.plans.length === 0 && !sePlanPath) {
       setSePath('new')
@@ -714,6 +769,7 @@ export default function NewWorkspacePanel({
       setName(toTitleName(basename(folderPath ?? '')) || 'Guided brief')
     if (next !== 'sprintengine') {
       setSeExistingTeam(null)
+      setSeAgentCliOverrides({})
     }
     if (next !== 'guided-brief') {
       setGuidedError(null)
@@ -736,6 +792,7 @@ export default function NewWorkspacePanel({
     const folderName = basename(dir)
     setFolderPath(dir)
     setSeExistingTeam(null)
+    setSeAgentCliOverrides({})
     setSePlanPath('')
     setSePlanContent(null)
     setSeSourcePlanKind('unknown')
@@ -763,12 +820,16 @@ export default function NewWorkspacePanel({
     const team = folderScan.result.teams.find((candidate) => candidate.slug === slug)
     if (!team) {
       setSeExistingTeam(null)
+      setSeAgentCliOverrides({})
       return
     }
+    const cliSelection = cliSelectionForExistingSprintEngineTeam(team, folderPath, workspaces, seRoleCliDefaults)
     setSeExistingTeam(team)
     setSeTeamName(team.displayName)
     setSeGoal(team.state.goal)
     setSeRoleCounts(team.state.roleCounts)
+    setSeRoleCliDefaults(cliSelection.roleDefaults)
+    setSeAgentCliOverrides(cliSelection.agentOverrides)
   }
 
   const handleSelectPlan = async (sourcePath: string) => {
@@ -804,6 +865,7 @@ export default function NewWorkspacePanel({
       if (!seTeamNameTouched) setSeTeamName(slugifySprintEngineName(fallbackName))
       setSeGoal(goal)
       setSeExistingTeam(null)
+      setSeAgentCliOverrides({})
     } catch {
       setSePlanContent(null)
       setSePlanError('Could not read the selected markdown file.')
@@ -813,6 +875,7 @@ export default function NewWorkspacePanel({
   const setRoleCount = (role: SprintEngineRoleId, count: number) => {
     const min = role === 'architect' ? 1 : 0
     setSeExistingTeam(null)
+    setSeAgentCliOverrides({})
     setSeRoleCliDefaults((current) => ({
       ...current,
       [role]: current[role] ?? 'claude',
@@ -825,6 +888,19 @@ export default function NewWorkspacePanel({
 
   const setRoleCli = (role: SprintEngineRoleId, cli: AgentCli) => {
     setSeRoleCliDefaults((current) => ({ ...current, [role]: cli }))
+    setSeAgentCliOverrides((current) => {
+      if (!seExistingTeam) return current
+      let changed = false
+      const next = { ...current }
+      for (const [agentId, runtimeAgent] of Object.entries(seExistingTeam.state.sprintEngineAgents)) {
+        if (runtimeAgent.role !== role) continue
+        if (agentId in next) {
+          delete next[agentId]
+          changed = true
+        }
+      }
+      return changed ? next : current
+    })
   }
 
   const setGuidedRoleCli = (role: keyof GuidedBriefRoleCliDefaults, cli: AgentCli) => {
@@ -1019,6 +1095,7 @@ export default function NewWorkspacePanel({
           sprintEngineState: loadedState,
           sprintEngineContext: context,
           sprintEngineRoleCliDefaults: seRoleCliDefaults,
+          sprintEngineAgentCliOverrides: seAgentCliOverrides,
           sprintEngineAutoState: {
             enabled: seStartRunner,
             autoApproveArtifacts: seAutoApproveArtifacts,
@@ -1455,6 +1532,7 @@ export default function NewWorkspacePanel({
               onChangePath={(p) => {
                 setSePath(p)
                 setSeExistingTeam(null)
+                setSeAgentCliOverrides({})
                 if (p !== 'plan') {
                   setSePlanPath('')
                   setSePlanContent(null)
@@ -1494,6 +1572,7 @@ export default function NewWorkspacePanel({
               teamName={seTeamName}
               onChangeTeamName={(value) => {
                 setSeExistingTeam(null)
+                setSeAgentCliOverrides({})
                 setSeTeamName(value)
                 setSeTeamNameTouched(true)
                 setSePlanError(null)
@@ -1501,6 +1580,7 @@ export default function NewWorkspacePanel({
               goal={seGoal}
               onChangeGoal={(value) => {
                 setSeExistingTeam(null)
+                setSeAgentCliOverrides({})
                 setSeGoal(value)
                 setSePlanError(null)
               }}
@@ -1540,6 +1620,7 @@ export default function NewWorkspacePanel({
               onSignIn={() => void startLogin()}
               roleCounts={visibleSprintEngineRoleCounts}
               roleCliDefaults={seRoleCliDefaults}
+              cliOptions={sprintEngineCliOptions}
               registry={seRoleRegistry}
               registryStatus={seRoleRegistryStatus}
               disabledRoleIds={effectiveSprintEngineDisabledRoleIds}
@@ -1754,16 +1835,27 @@ function McpServersStep({
   onToggleMcp: (server: McpCatalogServer) => void
   message: string | null
 }) {
+  const selectedCount = mcpCatalog.reduce(
+    (count, server) => count + (mcpSettings?.servers[server.id]?.enabled ? 1 : 0),
+    0,
+  )
+
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-        Selected servers are saved to this project and synced to Codex and Claude config from
-        Settings.
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          Selected servers are saved to this project and synced to agent configs from Settings.
+        </p>
+        {mcpCatalog.length > 0 ? (
+          <span className="shrink-0 pt-0.5 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+            {selectedCount} selected
+          </span>
+        ) : null}
+      </div>
       {mcpCatalog.length === 0 ? (
         <p className="text-[11px] text-[color:var(--text-subtle)]">Catalog loading…</p>
       ) : (
-        <ul className="flex flex-col gap-1.5">
+        <ul className="grid grid-cols-1 gap-2 min-[760px]:grid-cols-2">
           {mcpCatalog.map((server) => {
             const enabled = Boolean(mcpSettings?.servers[server.id]?.enabled)
             return (
@@ -1773,7 +1865,7 @@ function McpServersStep({
                   onClick={() => onToggleMcp(server)}
                   aria-pressed={enabled}
                   className={`
-                    grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-3 rounded-md border px-3.5 py-2.5 text-left
+                    grid h-full min-h-[58px] w-full grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md border px-3 py-2 text-left
                     transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
                     ${enabled
                       ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
@@ -1798,12 +1890,14 @@ function McpServersStep({
                     <span className="block truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
                       {server.name}
                     </span>
-                    <span className="mt-0.5 block truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
+                    <span className="mt-0.5 block truncate font-mono text-[10px] leading-4 text-[color:var(--text-subtle)]">
                       {server.transport} · {server.category ?? 'Other'}
                     </span>
                   </span>
                   {server.recommendedScope === 'user' ? (
-                    <span className="font-mono text-[10px] text-[color:var(--text-subtle)]">user</span>
+                    <span className="rounded-sm border border-[color:var(--border-default)] px-1.5 py-0.5 font-mono text-[10px] text-[color:var(--text-subtle)]">
+                      user
+                    </span>
                   ) : null}
                 </button>
               </li>
@@ -1829,17 +1923,28 @@ function SkillPacksStep({
   onToggleSkillPack: (pack: SkillPackCatalogEntry) => void
   message: string | null
 }) {
+  const selectedCount = skillPackCatalog.reduce(
+    (count, pack) => count + (selectedSkillPackIds.has(pack.id) ? 1 : 0),
+    0,
+  )
+
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-        Each selected pack runs <code className="font-mono">npx skills add</code> against the
-        workspace root after creation, writing into whichever harness directories already exist
-        (.claude, .codex, .cursor, …).
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          Each selected pack runs <code className="font-mono">npx skills add</code> after creation,
+          writing into whichever harness directories already exist.
+        </p>
+        {skillPackCatalog.length > 0 ? (
+          <span className="shrink-0 pt-0.5 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+            {selectedCount} selected
+          </span>
+        ) : null}
+      </div>
       {skillPackCatalog.length === 0 ? (
         <p className="text-[11px] text-[color:var(--text-subtle)]">Catalog loading…</p>
       ) : (
-        <ul className="flex flex-col gap-1.5">
+        <ul className="grid grid-cols-1 gap-2 min-[760px]:grid-cols-2">
           {skillPackCatalog.map((pack) => {
             const selected = selectedSkillPackIds.has(pack.id)
             return (
@@ -1849,7 +1954,7 @@ function SkillPacksStep({
                   onClick={() => onToggleSkillPack(pack)}
                   aria-pressed={selected}
                   className={`
-                    grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-3 rounded-md border px-3.5 py-2.5 text-left
+                    grid h-full min-h-[58px] w-full grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md border px-3 py-2 text-left
                     transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
                     ${selected
                       ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
@@ -1873,19 +1978,23 @@ function SkillPacksStep({
                   <span className="min-w-0">
                     <span className="block truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
                       {pack.name}
-                      {pack.recommended ? (
-                        <span className="ml-2 font-mono text-[10px] font-medium text-[color:var(--text-subtle)]">
-                          recommended
-                        </span>
-                      ) : null}
                     </span>
-                    <span className="mt-0.5 block truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
+                    <span className="mt-0.5 block truncate font-mono text-[10px] leading-4 text-[color:var(--text-subtle)]">
                       {pack.slug}
                     </span>
                   </span>
-                  {pack.version ? (
-                    <span className="font-mono text-[10px] text-[color:var(--text-subtle)]">
-                      v{pack.version}
+                  {pack.recommended || pack.version ? (
+                    <span className="flex max-w-[92px] flex-col items-end gap-1">
+                      {pack.recommended ? (
+                        <span className="rounded-sm border border-[color:var(--border-default)] px-1.5 py-0.5 font-mono text-[10px] text-[color:var(--text-subtle)]">
+                          rec
+                        </span>
+                      ) : null}
+                      {pack.version ? (
+                        <span className="font-mono text-[10px] text-[color:var(--text-subtle)]">
+                          v{pack.version}
+                        </span>
+                      ) : null}
                     </span>
                   ) : null}
                 </button>
@@ -2527,6 +2636,7 @@ function SprintEngineRosterStep(props: {
   onSignIn: () => void
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
+  cliOptions: Array<{ value: AgentCli; label: string }>
   registry: SprintEngineRoleRegistry | null
   registryStatus: 'idle' | 'loading' | 'ready' | 'unavailable'
   disabledRoleIds: ReadonlySet<SprintEngineRoleId> | null
@@ -2547,6 +2657,7 @@ function SprintEngineRosterStep(props: {
     onSignIn,
     roleCounts,
     roleCliDefaults,
+    cliOptions,
     registry,
     registryStatus,
     disabledRoleIds,
@@ -2571,7 +2682,7 @@ function SprintEngineRosterStep(props: {
     <div className="flex flex-col gap-5">
       {hasExistingTeam ? (
         <p className="rounded-md border border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn-soft)] px-3 py-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
-          Loading <span className="font-semibold">{existingTeamName}</span> — roster is read-only.
+          Loading <span className="font-semibold">{existingTeamName}</span> — roster size is read-only; CLI choices can be changed before launch.
         </p>
       ) : null}
 
@@ -2593,9 +2704,11 @@ function SprintEngineRosterStep(props: {
         <SprintEngineRosterTable
           roleCounts={roleCounts}
           roleCliDefaults={roleCliDefaults}
+          cliOptions={cliOptions}
           registry={registry}
           disabledRoleIds={disabledRoleIds}
-          disabled={rosterDisabled}
+          countDisabled={rosterDisabled}
+          cliDisabled={false}
           onSetCount={onSetRoleCount}
           onSetCli={onSetRoleCli}
         />

@@ -202,7 +202,7 @@ export type MobileControlCommand =
   | AgentFollowUpCommand
   | DeviceRevokeCommand;
 
-export type MobileControlNeedsInputKind = "architect" | "user" | "owner";
+export type MobileControlNeedsInputKind = "architect" | "user" | "owner" | "external_validation";
 
 export interface MobileControlTaskNeedsInput {
   kind?: MobileControlNeedsInputKind;
@@ -654,7 +654,7 @@ const notificationCategories = [
   "sprintengine.complete",
 ] as const satisfies readonly MobileNotificationCategory[];
 const notificationTargetKinds = ["artifact", "task", "sprintEngine", "command", "desktop"] as const;
-const needsInputKinds = ["architect", "user", "owner"] as const satisfies readonly MobileControlNeedsInputKind[];
+const needsInputKinds = ["architect", "user", "owner", "external_validation"] as const satisfies readonly MobileControlNeedsInputKind[];
 
 export function validateMobileControlCommand(input: unknown): ValidationResult<MobileControlCommand> {
   const base = validateObject(input, "command");

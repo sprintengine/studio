@@ -21,6 +21,7 @@ from sprintengine_core.tool.state import (
     append_agent_notification_event,
     append_event,
     append_task_activity,
+    create_task_comment,
     find_task,
     with_locked_state,
 )
@@ -176,8 +177,30 @@ def cmd_artifact_request_changes(args: argparse.Namespace) -> Dict[str, Any]:
         artifact.pop("approvedAt", None)
         append_artifact_history(artifact, "changes_requested", args.id, feedback)
 
-        note = f"Changes requested for artifact {artifact.get('id')} ({artifact.get('title')}): {feedback}"
-        task.setdefault("notes", []).append(note)
+        # Feedback flows through the comments stream so the body, author, and
+        # timestamp surface in the activity feed and enter open_feedback /
+        # open_rework comment queues. The artifact-state activity entry above
+        # carries the verb; this comment carries the human prose.
+        actor_role = str(state.get("agents", {}).get(args.id, {}).get("role") or "").strip().lower()
+        if actor_role == "architect":
+            comment_type = "architect_feedback"
+        elif actor_role == "tester":
+            comment_type = "test_feedback"
+        elif actor_role == "product":
+            comment_type = "product_feedback"
+        else:
+            comment_type = "review_feedback"
+        artifact_id = str(artifact.get("id") or "")
+        artifact_title = str(artifact.get("title") or "")
+        comment_body = f"Changes requested for artifact {artifact_id} ({artifact_title}): {feedback}"
+        create_task_comment(
+            state,
+            task,
+            actor=args.id,
+            body=comment_body,
+            comment_type=comment_type,
+            data={"artifactId": artifact_id, "artifactStatus": "changes_requested"},
+        )
         owner_id = str(task.get("ownerAgentId") or "").strip()
         reopened_status = reopen_task_for_artifact_changes(state, task)
         append_task_activity(task, "artifact", args.id, f"{args.id} requested changes for artifact {args.artifact_id}.", {"artifactId": args.artifact_id, "artifactStatus": "changes_requested", "status": reopened_status})
@@ -189,7 +212,7 @@ def cmd_artifact_request_changes(args: argparse.Namespace) -> Dict[str, Any]:
             owner_id,
             str(task.get("id") or ""),
             "task_changes_requested_after_artifact_review",
-            f"Changes were requested for artifact {args.artifact_id} by {args.id}. Re-read task notes and revise if you still own the task.",
+            f"Changes were requested for artifact {args.artifact_id} by {args.id}. Re-read the task feedback comments and revise if you still own the task.",
             args.artifact_id,
         )
         return {

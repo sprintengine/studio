@@ -13,6 +13,8 @@ import type {
   SprintEngineRoleRegistry,
 } from '../../../types/workspace'
 
+export type SprintEngineCliOption = { value: AgentCli; label: string }
+
 const roleSummaries: Record<SprintEngineRole, string> = {
   architect: 'Plans the work, owns dependencies, gates reviews.',
   product: 'Clarifies scope, tradeoffs, and acceptance criteria.',
@@ -25,17 +27,14 @@ const roleSummaries: Record<SprintEngineRole, string> = {
   security: 'Reviews trust boundaries, secrets, and abuse cases.',
 }
 
-const cliOptions: Array<{ value: AgentCli; label: string }> = [
-  { value: 'codex', label: 'Codex' },
-  { value: 'claude', label: 'Claude' },
-]
-
 interface RosterTableProps {
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
+  cliOptions: SprintEngineCliOption[]
   registry?: SprintEngineRoleRegistry | null
   disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null
-  disabled: boolean
+  countDisabled: boolean
+  cliDisabled: boolean
   onSetCount: (role: SprintEngineRoleId, count: number) => void
   onSetCli: (role: SprintEngineRoleId, cli: AgentCli) => void
 }
@@ -43,13 +42,16 @@ interface RosterTableProps {
 export function SprintEngineRosterTable({
   roleCounts,
   roleCliDefaults,
+  cliOptions,
   registry,
   disabledRoleIds,
-  disabled,
+  countDisabled,
+  cliDisabled,
   onSetCount,
   onSetCli,
 }: RosterTableProps) {
   const roles = orderSprintEngineRosterRoles(registry, disabledRoleIds)
+  const fallbackCli = cliOptions[0]?.value ?? 'claude'
   return (
     <div className="divide-y divide-[color:var(--border-default)] rounded-md border border-[color:var(--border-default)]">
       {roles.map((role) => {
@@ -63,21 +65,22 @@ export function SprintEngineRosterTable({
               role={role}
               label={label}
               count={count}
-              disabled={disabled}
+              disabled={countDisabled}
               onSetCount={onSetCount}
             />
             <CliPicker
               role={role}
               label={label}
-              value={roleCliDefaults[role] ?? 'claude'}
-              disabled={disabled}
+              value={roleCliDefaults[role] ?? fallbackCli}
+              disabled={cliDisabled}
+              cliOptions={cliOptions}
               onChange={onSetCli}
             />
           </div>
         ) : (
           <button
             type="button"
-            disabled={disabled}
+            disabled={countDisabled}
             onClick={() => onSetCount(role, 1)}
             className="
               inline-flex h-7 items-center gap-1.5 rounded border border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)] px-2
@@ -161,15 +164,20 @@ function CliPicker({
   label,
   value,
   disabled,
+  cliOptions,
   onChange,
 }: {
   role: SprintEngineRoleId
   label: string
   value: AgentCli
   disabled: boolean
+  cliOptions: SprintEngineCliOption[]
   onChange: (role: SprintEngineRoleId, cli: AgentCli) => void
 }) {
-  const items: SelectItem<AgentCli>[] = cliOptions.map((option) => ({
+  const options = cliOptions.some((option) => option.value === value)
+    ? cliOptions
+    : [{ value, label: value }, ...cliOptions]
+  const items: SelectItem<AgentCli>[] = options.map((option) => ({
     value: option.value,
     label: option.label,
   }))

@@ -150,7 +150,14 @@ def test_change_request_requires_feedback_notes_task_and_reopens_only_linked_pro
     assert_task_status(state, "T2", "todo")
     assert_task_status(state, "T3", "todo")
     assert_board_column(state, "T3", "todo")
-    assert any(feedback in note for note in get_task(state, "T2")["notes"])
+    # Feedback rides on the comments stream; the planning-notes bag stays clean.
+    assert get_task(state, "T2")["notes"] == []
+    assert any(
+        comment["type"] == "review_feedback"
+        and feedback in comment["body"]
+        and comment.get("data", {}).get("artifactId") == "A2"
+        for comment in get_task(state, "T2")["comments"]
+    )
     assert_artifact_status(state, "A2", "changes_requested")
 
 
@@ -287,6 +294,7 @@ def test_gate_failed_verdict_creates_open_feedback_and_routes_to_changes_request
     state = read_state(fixture.state_path)
     assert state["sprintengine"]["status"] == "executing"
     assert_task_status(state, "T1", "changes_requested")
+    assert get_task(state, "T1")["ownerAgentId"] is None
     assert get_task(state, "T1")["qualityGates"][0]["status"] == "changes_requested"
 
 

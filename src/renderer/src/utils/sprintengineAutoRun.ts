@@ -235,7 +235,7 @@ export function agentOwnsOpenSprintEngineImplementationWork(
 ): boolean {
   return sprintEngineState.tasks.some((task) =>
     task.ownerAgentId === agentId
-    && (task.status === 'in_progress' || task.status === 'changes_requested')
+    && task.status === 'in_progress'
   )
 }
 
@@ -262,8 +262,16 @@ export function roleHasClaimableSprintEngineImplementationWork(
   role: SprintEngineRoleId
 ): boolean {
   return sprintEngineState.tasks.some((task) =>
-    task.role === role && isSprintEngineTaskLaunchable(task, sprintEngineState)
+    task.role === role && isSprintEngineAutoRunImplementationWakeCandidate(task, sprintEngineState)
   )
+}
+
+function isSprintEngineAutoRunImplementationWakeCandidate(
+  task: SprintEngineTask,
+  sprintEngineState: SprintEngineState
+): boolean {
+  return isSprintEngineTaskLaunchable(task, sprintEngineState)
+    || (task.status === 'changes_requested' && getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'changes_requested')
 }
 
 export function shouldSkipExitedSprintEngineRosterAgent(
@@ -291,7 +299,6 @@ export function getSprintEngineAutoRunOccupiedAgentIds(input: {
       .filter((task) =>
         (
           task.status === 'in_progress'
-          || task.status === 'changes_requested'
           || (task.status === 'needs_input' && (!input.runningAgentIds || input.runningAgentIds.has(task.ownerAgentId ?? '')))
         )
         && Boolean(task.ownerAgentId)
@@ -356,10 +363,10 @@ export function buildAgentNotificationPrompt(
 ): string {
   const isCompletion = isAgentNotificationCompletionEvent(event)
   const taskReadCall = !isCompletion && event.taskId
-    ? `Re-read the current task card via \`sprintengine.task.get\` with \`{ taskId: "${event.taskId}" }\`, then review its notes, acceptance criteria, and evidence before continuing. Do not claim a new task.`
+    ? `Re-read the current task card via \`sprintengine.task.get\` with \`{ taskId: "${event.taskId}" }\`, then review its feedback comments, notes, acceptance criteria, and evidence before continuing. Do not claim a new task.`
     : isCompletion
       ? 'Your Sprint Engine task is complete. Do not claim another task in this terminal unless explicitly instructed.'
-      : 'Re-read the current task card via `sprintengine.task.get`, then review its notes, acceptance criteria, and evidence before continuing. Do not claim a new task.'
+      : 'Re-read the current task card via `sprintengine.task.get`, then review its feedback comments, notes, acceptance criteria, and evidence before continuing. Do not claim a new task.'
   const reconcileBlock = !isCompletion && options.agentId && options.role
     ? [
       'Then call the directive tool to reconcile this notification:',
@@ -525,7 +532,7 @@ export function pickNextAutoRuns(
   }
 
   const activeTasks = sprintEngineState.tasks.filter((task) =>
-    (task.status === 'in_progress' || task.status === 'changes_requested') && Boolean(task.ownerAgentId)
+    task.status === 'in_progress' && Boolean(task.ownerAgentId)
   )
   logPerfEvent('SprintEngineAutoRun', 'candidate-pick-active-tasks', {
     workspaceId: workspace.id,
@@ -542,26 +549,8 @@ export function pickNextAutoRuns(
     addCandidate(task, agentId, rosterAgent?.label ?? agentId)
   }
 
-  const recoverableNeedsInputTasks = sprintEngineState.tasks.filter((task) =>
-    task.status === 'needs_input'
-    && (!task.ownerAgentId || !options.runningAgentIds.has(task.ownerAgentId))
-  )
-  logPerfEvent('SprintEngineAutoRun', 'candidate-pick-recoverable-needs-input-tasks', {
-    workspaceId: workspace.id,
-    workspaceName: workspace.name,
-    taskCount: recoverableNeedsInputTasks.length,
-  })
-
-  for (const task of recoverableNeedsInputTasks) {
-    if (candidates.length >= options.limit) break
-    const agentId = task.ownerAgentId ?? findReusableRoleAgent(task.role)
-    if (!agentId) continue
-    addCandidate(task, agentId, rosterById[agentId]?.label ?? agentId)
-  }
-
   const readyTasks = sprintEngineState.tasks.filter((task) =>
-    isSprintEngineTaskLaunchable(task, sprintEngineState)
-    || (task.status === 'changes_requested' && Boolean(task.ownerAgentId))
+    isSprintEngineAutoRunImplementationWakeCandidate(task, sprintEngineState)
   )
   logPerfEvent('SprintEngineAutoRun', 'candidate-pick-ready-tasks', {
     workspaceId: workspace.id,

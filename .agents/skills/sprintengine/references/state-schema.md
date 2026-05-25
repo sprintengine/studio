@@ -27,7 +27,7 @@ Use `sprintengine summary` to print a read-only completion summary from task evi
 Use `sprintengine join --role <role> --id <agent-id> --watch` for standalone/headless CLI agent startup and continuation. Multicode-launched MCP-native agents use the managed MCP server and runtime dispatch instead. The join/directive response tells agents when to run `task next`, `task gate next`, or `triage needs-input`.
 Use `sprintengine task next --role <role> --id <agent-id>` for normal worker task claiming when the join directive tells the agent to claim or resume implementation work.
 Use `sprintengine task claim --task-id <id> --id <agent-id>` when a specific ready task must be claimed.
-Use `sprintengine task status`, `sprintengine task note`, and `sprintengine task log` to update task status, notes, and evidence.
+Use `sprintengine task status` to update task status, `sprintengine task note` to append a runtime comment to the task (architect actors route to `architect_feedback`, all others to `user_note`; the body appears in `task.comments[]` and the activity feed), and `sprintengine task log` to update evidence. `task.notes[]` itself is reserved for plan-time design intent set through `plan add-task --task-note` and `plan update-task --task-note`.
 Use `Sprint Engine plan add-task` to build the task board one task at a time while planning.
 Use `Sprint Engine plan update-task`, `Sprint Engine plan delete-task`, `Sprint Engine plan add-dependency`, and `Sprint Engine plan remove-dependency` to revise the board during user review.
 Use `Sprint Engine plan start-review --role <role> --id <agent-id>` when a specialist should critique the architect plan before execution.
@@ -139,8 +139,8 @@ The app uses narrow IPC to request artifact review mutations through the Python 
     - `status` (optional): `open`, `accepted`, `fixed`, `rejected`, or `deferred`; omitted values are treated as `open`
 - `notes`
 - `needsInput` (optional; set when a task is in `needs_input` and needs routed attention)
-  - `kind`: `architect`, `user`, or `owner`
-  - `reason`: `task_scope`, `artifact_review`, `tooling`, `verification`, `product_decision`, or `blocked_other`
+  - `kind`: `architect`, `user`, `owner`, or `external_validation`
+  - `reason`: short category or issue text; common categories are `task_scope`, `artifact_review`, `tooling`, `verification`, `product_decision`, and `blocked_other`
   - `question`
   - `suggestedResolution` (optional)
   - `reportedBy` (optional)
@@ -225,7 +225,7 @@ When feedback is supplied, the tool also appends a normalized record to `.multi-
 - Review artifacts may include `recommendedTasks`; the architect decides whether to convert those recommendations into task cards.
 - `artifact ready` moves the linked producing task and owning agent to `needs_input`.
 - `artifact approve` marks the linked task `done` only when every non-superseded artifact for that task is `approved`.
-- `artifact request-changes` stores feedback in task notes and reopens the producing task without changing unrelated tasks.
+- `artifact request-changes` records feedback as a typed comment on the producing task (`review_feedback` by default; `architect_feedback` / `test_feedback` / `product_feedback` when the requester's role is architect / tester / product) with `data.artifactId` set, then reopens the producing task without changing unrelated tasks. The feedback surfaces in the activity feed and enters the open-feedback / open-rework comment queues.
 
 ## Plan Review Flow
 

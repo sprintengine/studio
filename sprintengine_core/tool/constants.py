@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 VALID_TASK_STATUSES = {"todo", "in_progress", "review", "testing", "product", "changes_requested", "needs_input", "done", "canceled"}
-ACTIVE_TASK_STATUSES = {"in_progress", "needs_input", "changes_requested"}
-RUN_EXECUTING_TASK_STATUSES = ACTIVE_TASK_STATUSES | {"review", "testing", "product"}
+ACTIVE_TASK_STATUSES = {"in_progress", "needs_input"}
+RUN_EXECUTING_TASK_STATUSES = ACTIVE_TASK_STATUSES | {"review", "testing", "product", "changes_requested"}
 TERMINAL_AGENT_STATUSES = {"retired"}
 VALID_TASK_COMMENT_TYPES = {
     "implementation_summary",
@@ -22,7 +22,7 @@ VALID_TASK_SOURCE_SYNC_STATUSES = {"clean", "local_changed", "remote_changed", "
 VALID_TASK_DISPATCH_MODES = {"dependency", "manual"}
 VALID_TASK_DISPATCH_STATUSES = {"todo", "ready"}
 VALID_TASK_DISPATCH_TRIAGED_BY = {"none", "user", "architect"}
-VALID_NEEDS_INPUT_KINDS = {"architect", "user", "owner"}
+VALID_NEEDS_INPUT_KINDS = {"architect", "user", "owner", "external_validation"}
 VALID_NEEDS_INPUT_REASONS = {
     "task_scope",
     "artifact_review",
@@ -35,6 +35,7 @@ NEEDS_INPUT_KIND_DEFAULT_REASONS = {
     "architect": "task_scope",
     "user": "product_decision",
     "owner": "blocked_other",
+    "external_validation": "verification",
 }
 ARCHITECT_ROUTED_NEEDS_INPUT_KINDS = {"architect"}
 VALID_ARTIFACT_KINDS = {

@@ -402,8 +402,7 @@ const sprintEngineTaskSourceSyncStatuses: readonly SprintEngineTaskSourceSyncSta
 const sprintEngineTaskDispatchModes: readonly SprintEngineTaskDispatchMode[] = ['dependency', 'manual']
 const sprintEngineTaskDispatchStatuses: readonly SprintEngineTaskDispatchStatus[] = ['todo', 'ready']
 const sprintEngineTaskDispatchTriagedByValues: readonly SprintEngineTaskDispatchTriagedBy[] = ['none', 'user', 'architect']
-const sprintEngineNeedsInputKinds: readonly SprintEngineNeedsInputKind[] = ['architect', 'user', 'owner']
-const sprintEngineNeedsInputReasons: readonly SprintEngineNeedsInputReason[] = ['task_scope', 'artifact_review', 'tooling', 'verification', 'product_decision', 'blocked_other']
+const sprintEngineNeedsInputKinds: readonly SprintEngineNeedsInputKind[] = ['architect', 'user', 'owner', 'external_validation']
 
 const sprintEngineTaskActivityTypes: readonly SprintEngineTaskActivityType[] = [
   'comment',
@@ -1105,10 +1104,6 @@ function isSprintEngineNeedsInputKind(value: unknown): value is SprintEngineNeed
   return sprintEngineNeedsInputKinds.includes(value as SprintEngineNeedsInputKind)
 }
 
-function isSprintEngineNeedsInputReason(value: unknown): value is SprintEngineNeedsInputReason {
-  return sprintEngineNeedsInputReasons.includes(value as SprintEngineNeedsInputReason)
-}
-
 function optionalTrimmedString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
@@ -1168,9 +1163,10 @@ function normalizeSprintEngineTaskNeedsInput(value: unknown): SprintEngineTaskNe
     architect: 'task_scope',
     user: 'product_decision',
     owner: 'blocked_other',
+    external_validation: 'verification',
   }
-  const reason = isSprintEngineNeedsInputReason(record.reason)
-    ? record.reason
+  const reason = optionalTrimmedString(record.reason)
+    ? optionalTrimmedString(record.reason)!
     : defaultReasonByKind[record.kind]
   const artifactId = optionalTrimmedString(record.artifactId)
   const suggestedResolution = optionalTrimmedString(record.suggestedResolution)

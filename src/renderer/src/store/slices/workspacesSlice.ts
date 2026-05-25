@@ -100,6 +100,7 @@ export interface WorkspacesSliceActions {
       multiloopState?: MultiloopState | null
       multiloopContext?: MultiloopWorkspaceContext | null
       sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
+      sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
       sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
       multiloopAutoState?: Partial<MultiloopAutoState> | null
       guidedBriefState?: import('../../types/workspace').GuidedBriefRuntimeState | null
@@ -362,13 +363,16 @@ export function createWorkspacesSlice(
             throw new Error('Missing Sprint Engine CLI defaults for workspace creation.')
           }
           buildSprintEngineAgentRosterForState(sprintEngineState).forEach((agent) => {
+            const overrideCli = options?.sprintEngineAgentCliOverrides?.[agent.id]
             agents[agent.id] = {
               ...deps.defaultAgent(
                 agent.id,
                 deps.pickWorkspaceAgentName(agents),
                 'sprintengine'
               ),
-              cli: requireSprintEngineRoleCli(sprintEngineRoleCliDefaults, agent.role),
+              cli: typeof overrideCli === 'string' && overrideCli.trim()
+                ? overrideCli.trim()
+                : requireSprintEngineRoleCli(sprintEngineRoleCliDefaults, agent.role),
             }
           })
         } else {

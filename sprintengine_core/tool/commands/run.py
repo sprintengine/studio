@@ -38,6 +38,7 @@ from sprintengine_core.tool.state import (
     agent_is_retired,
     append_event,
     apply_agent_specs,
+    clear_non_active_task_owner_claims,
     ensure_agent_in_roster,
     load_mutation_state,
     parse_agent_specs,
@@ -486,6 +487,19 @@ def agent_next_directive_from_join(
             "nextTool": None,
         }
 
+    if action == "blocked":
+        task = _directive_context(result.get("task"))
+        return {
+            **base,
+            "directiveType": "blocked",
+            "message": result.get("message") or "This Sprint Engine task is blocked on input. Stop until input is resolved.",
+            "nextMcpToolName": None,
+            "nextMcpArguments": None,
+            "nextTool": None,
+            "task": task,
+            "blocker": result.get("blocker") or {"reason": "needs_input"},
+        }
+
     if action == "retired":
         return {
             **base,
@@ -548,7 +562,7 @@ def auto_mode_continuation(state: Dict[str, Any], role: str, agent_id: str) -> O
         "nextCommand": command,
         "nextAction": (
             "Auto Mode is on. Run the join watch command again so the Sprint Engine CLI can keep polling, "
-            "resume owned rework, or claim the next gate/task for this role."
+            "resume active work, or claim the next gate/task for this role."
         ),
     }
 
@@ -575,7 +589,8 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             "`needs_input` so the implementer/author can address them. If you move a task to `needs_input`, "
             "classify it with `--needs-input-kind`: use `architect` for stale plans, impossible acceptance criteria, "
             "wrong paths, or architectural scope mismatches; use `user` for product decisions or approvals; use "
-            "`owner` when you are waiting on your own external condition. Add `--needs-input-reason tooling` for "
+            "`owner` when you are waiting on your own external condition; use `external_validation` when real hardware, "
+            "credentials, or another outside check is required. Add `--needs-input-reason tooling` for "
             "missing commands/dependencies, or `--needs-input-reason verification` when real validation cannot be completed. "
             "Include `--needs-input-question` and, when useful, `--needs-input-suggested-resolution`. Otherwise, mark it done. "
             "If the task is too large for one agent or needs decomposition, use `needs_input` with "
@@ -626,6 +641,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         ensure_agent_in_roster(state, args.id, args.role, allow_retired=True)
         expired = release_expired_agent_targets(state, actor="sprintengine", excluding_agent_id=args.id)
+        stale_owner_dirty = clear_non_active_task_owner_claims(state)
         runtime = reconcile_agent(state, args.id, args.role)
         agent = runtime["agent"]
         if agent_is_retired(agent):
@@ -637,7 +653,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "runner": runner_policy(state),
                 "message": "This Sprint Engine agent is retired and must not claim more work. Stop now.",
                 "releasedExpired": expired["released"],
-                "write": runtime["dirty"] or expired["dirty"],
+                "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty,
             }
         active = runtime["activeTask"]
         active_gate = find_active_gate_claim(state, args.id, args.role)
@@ -669,11 +685,38 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "gate_resume", "task": task, "gate": gate, "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "gate_resume", "task": task, "gate": gate, "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
 
         if active:
             task_id = active.get("id")
             task_title = active.get("title") or "(untitled task)"
+            if active.get("status") == "needs_input":
+                needs_input = active.get("needsInput") if isinstance(active.get("needsInput"), dict) else {}
+                question = str(needs_input.get("question") or "").strip()
+                route = str(needs_input.get("kind") or "input").strip()
+                message = (
+                    f"Task {task_id} is in needs_input"
+                    f"{f' ({route})' if route else ''}. "
+                    "Stop until the blocker is resolved."
+                )
+                if question:
+                    message = f"{message} Question: {question}"
+                return {
+                    "ok": True,
+                    "role": args.role,
+                    "agentId": args.id,
+                    "action": "blocked",
+                    "task": active,
+                    "runner": policy,
+                    "message": message,
+                    "blocker": {
+                        "reason": "needs_input",
+                        "kind": route,
+                        "question": question,
+                    },
+                    "releasedExpired": expired["released"],
+                    "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty,
+                }
             directive = (
                 f"\n\n---\n"
                 f"## Your First Action\n"
@@ -693,7 +736,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "resume", "task": active, "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "resume", "task": active, "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
 
         if args.role == "architect" and architect_actionable_needs_input_tasks(state):
             directive = (
@@ -707,7 +750,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "needs_input_triage", "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "needs_input_triage", "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
 
         if pending_gates:
             first = pending_gates[0]
@@ -725,12 +768,12 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "gate_work", "readyGateCount": len(pending_gates), "task": first["task"], "gate": first["gate"], "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "gate_work", "readyGateCount": len(pending_gates), "task": first["task"], "gate": first["gate"], "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
 
         if not active and not ready:
             if policy.get("stopWhenComplete") and all_tasks_done(state):
-                return {"ok": True, "role": args.role, "agentId": args.id, "action": "complete", "runner": policy, "message": "All Sprint Engine tasks are done. Stop now.", "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "idle", "runner": policy, "message": f"No tasks or gates are currently ready for the '{args.role}' role.", "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
+                return {"ok": True, "role": args.role, "agentId": args.id, "action": "complete", "runner": policy, "message": "All Sprint Engine tasks are done. Stop now.", "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "idle", "runner": policy, "message": f"No tasks or gates are currently ready for the '{args.role}' role.", "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
 
         directive = (
             f"\n\n---\n"
@@ -750,7 +793,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
             "All updates must go through the Sprint Engine tool.**"
         )
-        return {"ok": True, "role": args.role, "agentId": args.id, "action": "work", "readyTaskCount": len(ready), "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
+        return {"ok": True, "role": args.role, "agentId": args.id, "action": "work", "readyTaskCount": len(ready), "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
 
     if not getattr(args, "watch", False):
         return with_locked_state(args.state, run)
@@ -925,7 +968,7 @@ def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
             "",
             "Rules:",
             "- Inspect the blocked task card, notes, evidence, owned paths, and current code before changing the plan.",
-            "- `needsInput.kind` routes who acts: architect, user, or owner. Use `reason` for artifact, tooling, verification, product, and task-scope classification.",
+            "- `needsInput.kind` routes who or what acts: architect, user, owner, or external_validation. Use `reason` for artifact, tooling, verification, product, and task-scope classification.",
             "- Resolve planning defects by updating task cards or adding follow-up tasks; do not edit application source in this triage mode.",
             "- For reason=artifact_review, read the referenced artifact, adjudicate recommended follow-up tasks, wire blockers before validation when needed, then approve/request changes or resolve the blocked task.",
             "- Use `sprintengine plan update-task --force` for active task-card corrections.",

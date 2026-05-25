@@ -611,7 +611,15 @@ def clear_task_refs(state: Dict[str, Any], task_id: str) -> List[str]:
     cleared = []
     for agent_id, agent in state.get("agents", {}).items():
         if isinstance(agent, dict) and agent.get("currentTaskId") == task_id:
-            set_agent_idle(agent)
+            if agent.get("status") in TERMINAL_AGENT_STATUSES or agent.get("status") in {"left", "dead"}:
+                set_if_changed(agent, "currentTaskId", None)
+                if "currentGateId" in agent:
+                    agent.pop("currentGateId", None)
+                if "currentGate" in agent:
+                    agent.pop("currentGate", None)
+                set_if_changed(agent, "currentDispatch", None)
+            else:
+                set_agent_idle(agent)
             cleared.append(str(agent_id))
     return cleared
 
@@ -853,41 +861,6 @@ def ensure_gate_dispatch(
     return True
 
 
-def ensure_rework_dispatch(state: Dict[str, Any], agent: Dict[str, Any], task: Dict[str, Any], agent_id: str) -> bool:
-    if task.get("status") != "changes_requested":
-        return False
-    reason = "changes_requested_rework"
-    rework_context = latest_rework_gate_attempt(task)
-    gate_id = rework_context.get("gateId")
-    attempt_id = rework_context.get("attemptId")
-    if current_dispatch_matches_task(agent, task, reason, gate_id=gate_id, attempt_id=attempt_id):
-        return False
-    role = str(task.get("role") or agent.get("role") or "")
-    dispatch = queue_dispatch_record(
-        state,
-        agent_id=agent_id,
-        role=role,
-        target_kind="task",
-        task_id=str(task.get("id") or ""),
-        task_status=str(task.get("status") or ""),
-        gate_id=gate_id,
-        attempt_id=attempt_id,
-        reason=reason,
-    )
-    agent["currentDispatch"] = current_dispatch_payload(
-        dispatch_id=dispatch["id"],
-        target_kind="task",
-        role=role,
-        reason=reason,
-        task_id=str(task.get("id") or ""),
-        gate_id=gate_id,
-        attempt_id=attempt_id,
-        assigned_at=dispatch["timestamp"],
-    )
-    agent["lastDirectiveAt"] = dispatch["timestamp"]
-    return True
-
-
 def reconcile_agent(state: Dict[str, Any], agent_id: str, role: str) -> Dict[str, Any]:
     agent, dirty = ensure_agent_for_reconcile(state, agent_id, role)
     dirty = set_if_changed(agent, "role", role) or dirty
@@ -902,7 +875,6 @@ def reconcile_agent(state: Dict[str, Any], agent_id: str, role: str) -> Dict[str
         elif current_task.get("ownerAgentId") in (None, "", agent_id):
             dirty = set_if_changed(current_task, "ownerAgentId", agent_id) or dirty
             dirty = set_agent_active(agent, current_task, refresh_heartbeat=False) or dirty
-            dirty = ensure_rework_dispatch(state, agent, current_task, agent_id) or dirty
             return {"agent": agent, "activeTask": current_task, "repairs": repairs, "dirty": dirty}
         else:
             dirty = set_agent_idle(agent) or dirty
@@ -915,7 +887,6 @@ def reconcile_agent(state: Dict[str, Any], agent_id: str, role: str) -> Dict[str
     )
     if active_task:
         dirty = set_agent_active(agent, active_task, refresh_heartbeat=False) or dirty
-        dirty = ensure_rework_dispatch(state, agent, active_task, agent_id) or dirty
         return {"agent": agent, "activeTask": active_task, "repairs": repairs, "dirty": dirty}
 
     if agent_is_retired(agent):
@@ -931,6 +902,31 @@ def reconcile_agent(state: Dict[str, Any], agent_id: str, role: str) -> Dict[str
 
     dirty = set_agent_idle(agent) or dirty
     return {"agent": agent, "activeTask": None, "repairs": repairs, "dirty": dirty}
+
+
+def clear_non_active_task_owner_claims(state: Dict[str, Any]) -> bool:
+    dirty = False
+    non_active_owned_statuses = {"review", "testing", "product", "changes_requested", "done"}
+    for task in state.get("tasks", []) or []:
+        if not isinstance(task, dict):
+            continue
+        task_id = str(task.get("id") or "")
+        if task.get("status") not in non_active_owned_statuses or not task.get("ownerAgentId"):
+            continue
+        previous_owner_id = task.get("ownerAgentId")
+        task["ownerAgentId"] = None
+        dirty = True
+        if task_id:
+            cleared_refs = clear_task_refs(state, task_id)
+            dirty = bool(cleared_refs) or dirty
+        append_task_activity(
+            task,
+            "status_change",
+            "sprintengine",
+            f"Sprint Engine cleared stale active owner claim from {task_id}.",
+            {"status": task.get("status"), "previousOwnerAgentId": previous_owner_id, "reason": "non_active_status"},
+        )
+    return dirty
 
 
 def assign_task(state: Dict[str, Any], task: Dict[str, Any], agent_id: str) -> Dict[str, Any]:

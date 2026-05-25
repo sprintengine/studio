@@ -56,10 +56,14 @@ def publish_task(
         )
 
     next_status = next_publish_status(task)
+    published_at = now_iso()
+    task["lastImplementedByAgentId"] = actor
+    task["lastPublishedAt"] = published_at
     task["status"] = next_status
+    task["ownerAgentId"] = None
     task.pop("needsInput", None)
     if next_status == "done":
-        task["completedAt"] = now_iso()
+        task["completedAt"] = published_at
     else:
         task["completedAt"] = None
     cleared = clear_task_refs(state, str(task.get("id")))
@@ -269,10 +273,6 @@ def normalize_task_needs_input(raw: Any, task_id: str) -> Optional[Dict[str, Any
     needs_input: Dict[str, Any] = {"kind": kind}
     reason = optional_non_empty_string(raw, "reason")
     if reason is not None:
-        if reason not in VALID_NEEDS_INPUT_REASONS:
-            raise SystemExit(
-                f"Task {task_id} needsInput.reason must be one of: {', '.join(sorted(VALID_NEEDS_INPUT_REASONS))}."
-            )
         needs_input["reason"] = reason
     elif kind in NEEDS_INPUT_KIND_DEFAULT_REASONS:
         needs_input["reason"] = NEEDS_INPUT_KIND_DEFAULT_REASONS[kind]

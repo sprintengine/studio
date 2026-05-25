@@ -840,6 +840,8 @@ def test_mcp_next_directive_matches_join_for_needs_input_idle_complete_blocked_a
 
     needs_join = needs_fixture.cli.run("join", "--role", "architect", "--id", "architect-a")
     needs = next_directive(server, needs_fixture, "architect", "architect-a")
+    blocked_owner_join = needs_fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
+    blocked_owner = next_directive(server, needs_fixture, "developer", "developer-a")
     triage = server.call_tool(
         "sprintengine.triage.needs_input",
         {"statePath": str(needs_fixture.state_path), "id": "architect-a"},
@@ -856,6 +858,11 @@ def test_mcp_next_directive_matches_join_for_needs_input_idle_complete_blocked_a
     assert needs_join["action"] == "needs_input_triage"
     assert needs["directiveType"] == "needs_input_triage"
     assert needs["nextMcpToolName"] == "sprintengine.triage.needs_input"
+    assert blocked_owner_join["action"] == "blocked"
+    assert blocked_owner["directiveType"] == "blocked"
+    assert blocked_owner["nextMcpToolName"] is None
+    assert blocked_owner["blocker"]["reason"] == "needs_input"
+    assert blocked_owner["task"]["id"] == "T1"
     assert triage["ok"] is True
     assert triage["result"]["tasks"][0]["id"] == "T1"
     assert idle_join["action"] == "idle"
