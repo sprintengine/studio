@@ -182,19 +182,6 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
     storeSetter: 'setUsageTelemetrySettings',
   },
 
-  // MCP servers — sync toggle. Per-server config is compound and rendered
-  // by the existing MCP catalog/forms.
-  {
-    id: 'mcp-sync-enabled',
-    label: 'Sync MCP servers across machines',
-    help: 'When on, MCP server configuration syncs through this workspace.',
-    scope: 'app',
-    group: 'mcps',
-    field: { type: 'switch' },
-    storePath: 'appSettings.mcp.syncEnabled',
-    storeSetter: 'setMcpSyncEnabled',
-  },
-
   // File search excludes — one pattern per line.
   {
     id: 'search-excludes',

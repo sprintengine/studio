@@ -792,23 +792,6 @@ export default function WorkspaceTopBar({
           </div>
 
           {/* top-bar-group: agent-spawn */}
-          {workspaceActionsEnabled ? (
-            <Tooltip content={`Open terminal (${shortcutLabel("Ctrl+Shift+'")})`} placement="bottom">
-              <button
-                onClick={addNewTerminal}
-                disabled={!activeWorkspaceId}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-surface-raised)]"
-                aria-label="Open terminal"
-              >
-                <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <rect x="3.5" y="5" width="17" height="14" rx="2.5" stroke="currentColor" strokeWidth="1.7" />
-                  <path d="M7.25 10L10 12.5L7.25 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M12.5 15H16.75" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                </svg>
-              </button>
-            </Tooltip>
-          ) : null}
-
           {workspaceActionsEnabled ? (() => {
             const triggerCli: AgentCli = multiloopLaunchMenu
               ? (multiloopRoleCliDefaults[selectedMultiloopRoleDescriptor.role] ?? lastSelectedCli)
@@ -834,6 +817,10 @@ export default function WorkspaceTopBar({
             const safeHighlight = visibleItems.length === 0
               ? 0
               : Math.min(agentMenuHighlight, visibleItems.length - 1)
+            const quickTerminalVisible = !multiloopLaunchMenu && (!menuQuery || 'terminal'.includes(menuQuery))
+            const quickGeneralVisible = !multiloopLaunchMenu && (!menuQuery || 'general agent'.includes(menuQuery))
+            const hasQuickMatches = quickTerminalVisible || quickGeneralVisible
+            const hasAnyMatches = hasQuickMatches || visibleItems.length > 0
             const cycleCli = (current: AgentCli): AgentCli => {
               const index = AGENT_SPAWN_CLI_OPTIONS.findIndex((option) => option.value === current)
               const next = AGENT_SPAWN_CLI_OPTIONS[(index + 1) % AGENT_SPAWN_CLI_OPTIONS.length]
@@ -990,12 +977,49 @@ export default function WorkspaceTopBar({
                     />
                   </div>
 
-                  {visibleItems.length === 0 ? (
+                  {hasQuickMatches ? (
+                    <div className="py-1">
+                      {quickTerminalVisible ? (
+                        <Tooltip content={`Open a plain terminal (${shortcutLabel("Ctrl+Shift+'")})`} placement="bottom">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              addNewTerminal()
+                              setSpecialistMenuOpen(false)
+                            }}
+                            className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[rgba(92,124,255,0.05)] hover:text-[color:var(--text-strong)]"
+                          >
+                            <TerminalSessionIcon className="h-4 w-4 text-[color:var(--text-muted)]" />
+                            <span className="truncate text-[13px]">Terminal</span>
+                            <span aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                      ) : null}
+                      {quickGeneralVisible ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            addNewCliAgent(lastSelectedCli, 'General Agent')
+                            setSpecialistMenuOpen(false)
+                          }}
+                          className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[rgba(92,124,255,0.05)] hover:text-[color:var(--text-strong)]"
+                        >
+                          <CliIcon cli={lastSelectedCli} className="h-4 w-4 text-[color:var(--text-muted)]" />
+                          <span className="truncate text-[13px]">General Agent</span>
+                          <span aria-hidden="true" />
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {!hasAnyMatches ? (
                     <div className="px-3 py-5 text-center text-[11px] text-[color:var(--text-disabled)]">
                       No matches
                     </div>
-                  ) : (
-                    <div className="max-h-[340px] overflow-y-auto py-1">
+                  ) : visibleItems.length === 0 ? null : (
+                    <div className={`max-h-[340px] overflow-y-auto py-1 ${hasQuickMatches ? 'border-t border-white/[0.06]' : ''}`}>
                       {multiloopLaunchMenu
                         ? filteredMultiloop.map((soul, index) => {
                             const highlighted = index === safeHighlight
@@ -1215,21 +1239,6 @@ export default function WorkspaceTopBar({
                               </div>
                             )
                           })}
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          addNewCliAgent(lastSelectedCli, 'General Agent')
-                          setSpecialistMenuOpen(false)
-                        }}
-                        className="mt-1 grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 border-t border-white/[0.06] py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-muted)] transition-colors hover:bg-[rgba(92,124,255,0.05)] hover:text-[color:var(--text-strong)]"
-                      >
-                        <CliIcon cli={lastSelectedCli} className="icon-md" />
-                        <span className="truncate text-[13px]">General Agent</span>
-                        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-[color:var(--text-disabled)]">
-                          <CliIcon cli={lastSelectedCli} className="icon-sm" />
-                        </span>
-                      </button>
                     </div>
                   )}
 

@@ -501,6 +501,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         const current = normalizeMcpSettings(state.appSettings.mcp)
         state.appSettings.mcp = {
           ...current,
+          syncEnabled: true,
           servers: {
             ...current.servers,
             [normalized.id]: normalized,
@@ -512,7 +513,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         const current = normalizeMcpSettings(state.appSettings.mcp)
         delete current.servers[normalizeMcpId(serverId)]
-        state.appSettings.mcp = current
+        state.appSettings.mcp = { ...current, syncEnabled: true }
       }),
 
     setSkillPacksInstalled: (installed) =>

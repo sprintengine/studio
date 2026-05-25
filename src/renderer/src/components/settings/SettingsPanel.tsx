@@ -422,7 +422,6 @@ export default function SettingsPanel({
   const appearanceTheme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
   const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
-  const setMcpSyncEnabled = useWorkspaceStore((s) => s.setMcpSyncEnabled)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
   const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
   const skillPackSettings = useWorkspaceStore(
@@ -461,7 +460,6 @@ export default function SettingsPanel({
   const [builtinSkillMessage, setBuiltinSkillMessage] = useState<string | null>(null)
   const [mcpCatalog, setMcpCatalog] = useState<McpCatalogServer[]>([])
   const [mcpMessage, setMcpMessage] = useState<string | null>(null)
-  const [mcpPending, setMcpPending] = useState(false)
   const [selectedCatalogId, setSelectedCatalogId] = useState<string | null>(null)
   const [skillPackCatalog, setSkillPackCatalog] = useState<SkillPackCatalogEntry[]>([])
   const [skillPackMessage, setSkillPackMessage] = useState<string | null>(null)
@@ -747,32 +745,34 @@ export default function SettingsPanel({
   }, [activeProjectRoot, setSkillPacksInstalled])
 
   const syncMcps = useCallback(async () => {
-    if (!activeProjectRoot) {
-      setMcpMessage('Open a workspace folder before syncing MCPs.')
-      return
-    }
-    setMcpPending(true)
-    setMcpMessage(null)
+    if (!activeProjectRoot) return
     try {
       const result = await window.api.mcpSync({
         workspaceRoot: activeProjectRoot,
         settings: mcpSettings,
       })
-      if (result.ok) {
-        const targetCount = result.targets.length
-        const issueText = result.issues.length ? ` ${result.issues.map((issue) => issue.message).join(' ')}` : ''
-        setMcpMessage(targetCount
-          ? `Synced ${targetCount} MCP target${targetCount === 1 ? '' : 's'}.${issueText}`
-          : `No enabled MCP targets to sync.${issueText}`)
-      } else {
+      if (!result.ok) {
         setMcpMessage(result.message)
+        return
       }
+      const blockingIssue = result.issues.find((issue) => issue.level === 'error')
+      if (blockingIssue) setMcpMessage(blockingIssue.message)
+      // Success path leaves mcpMessage alone so setup-notes or default copy persists.
     } catch (error) {
       setMcpMessage(error instanceof Error ? error.message : 'MCP sync failed.')
-    } finally {
-      setMcpPending(false)
     }
   }, [activeProjectRoot, mcpSettings])
+
+  const lastSyncedServersRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!activeProjectRoot) return
+    const snapshot = JSON.stringify(mcpSettings.servers)
+    if (lastSyncedServersRef.current === snapshot) return
+    const isFirstRun = lastSyncedServersRef.current === null
+    lastSyncedServersRef.current = snapshot
+    if (isFirstRun) return
+    void syncMcps()
+  }, [activeProjectRoot, mcpSettings.servers, syncMcps])
 
   const addCustomMcp = useCallback(() => {
     const id = customMcpId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
@@ -810,7 +810,7 @@ export default function SettingsPanel({
     setCustomMcpArgs('')
     setCustomMcpUrl('')
     setCustomMcpEnv('')
-    setMcpMessage('Custom MCP added. Sync applies to new agent terminals.')
+    setMcpMessage(null)
   }, [
     customMcpArgs,
     customMcpCommand,
@@ -992,7 +992,6 @@ export default function SettingsPanel({
     : null
   const installedSkillPacks = Object.values(skillPackSettings.installed)
 
-  const mcpSyncDescriptor = getSettingDescriptor('mcp-sync-enabled')
   const searchExcludesDescriptor = getSettingDescriptor('search-excludes')
   const telemetrySendDescriptor = getSettingDescriptor('usage-telemetry-send-data')
   const telemetryLocalDescriptor = getSettingDescriptor('usage-telemetry-local-export')
@@ -1002,12 +1001,10 @@ export default function SettingsPanel({
     const existing = mcpSettings.servers[server.id]
     if (existing?.enabled) {
       removeMcpServer(server.id)
-      setMcpMessage(`${server.name} removed.`)
+      setMcpMessage(null)
     } else {
       upsertMcpServer(mcpServerFromCatalog(server))
-      setMcpMessage(server.setupNotes
-        ? `${server.name} added. ${server.setupNotes}`
-        : `${server.name} added.`)
+      setMcpMessage(server.setupNotes ? server.setupNotes : null)
     }
   }, [mcpSettings.servers, removeMcpServer, upsertMcpServer])
 
@@ -1552,27 +1549,7 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-mcps"
           className="space-y-5"
         >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              {mcpSyncDescriptor ? (
-                <RegistrySwitchRow
-                  descriptor={mcpSyncDescriptor}
-                  checked={mcpSettings.syncEnabled}
-                  onChange={setMcpSyncEnabled}
-                />
-              ) : null}
-            </div>
-            <PrimaryButton
-              size="md"
-              onClick={() => void syncMcps()}
-              disabled={mcpPending || !activeProjectRoot}
-              className="mt-3 h-9 shrink-0"
-            >
-              {mcpPending ? 'Syncing' : 'Sync now'}
-            </PrimaryButton>
-          </div>
-
-          <section className="space-y-2 border-t border-[color:var(--border-subtle)] pt-4">
+          <section className="space-y-2">
             <div className="flex items-baseline justify-between gap-3">
               <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">
                 Active
@@ -1608,7 +1585,7 @@ export default function SettingsPanel({
                       type="button"
                       onClick={() => {
                         removeMcpServer(server.id)
-                        setMcpMessage(`${server.name} removed.`)
+                        setMcpMessage(null)
                       }}
                       className="text-[12px] font-semibold text-[color:var(--text-subtle)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline"
                     >
@@ -1750,7 +1727,9 @@ export default function SettingsPanel({
           </details>
 
           <MessageBlock tone={mcpMessage ? 'accent' : 'neutral'}>
-            {mcpMessage || 'Workspace-scoped sync writes plugin MCP config for clients with supported mcpConfig formats. Existing terminals are unchanged.'}
+            {mcpMessage || (activeProjectRoot
+              ? 'Changes apply automatically across Claude, Codex, and other terminal agents. Existing terminals keep their current config until relaunched.'
+              : 'Open a workspace folder to sync MCPs to terminal agents.')}
           </MessageBlock>
         </div>
       ) : null}
