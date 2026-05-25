@@ -10,10 +10,12 @@ T3 migrated bundled role manifests from one monolithic role skill to ordered com
 - `evidence_quality_assessment`: consolidates evidence-quality expectations used by reviewer, tester, security, performance, and product roles.
 - `post_change_self_review`: consolidates post-change self-review instructions.
 - `collaboration_norms`: consolidates ask-vs-act and role-boundary collaboration instructions.
-- `sprintengine_workflow`: adds the shared Sprint Engine command workflow, evidence logging, `needs_input`, standalone/headless CLI join-watch continuation rules, and Multicode MCP-native runtime dispatch boundaries to every bundled rendered Soul.
+- `workspace_knowledge`: adds env-var-gated Knowledge Graph read/update guidance for workspaces that configure it.
+- `sprintengine_workflow`: retained as a Sprint Engine runtime workflow skill, but not included in base bundled role Souls. Sprint Engine roster agents receive coordination mechanics through `sprintengine.agent.join`, where the MCP server composes the role Soul with MCP-specific workflow rules.
+- `sprintengine_architect_workflow`, `sprintengine_publish_feedback`, and `sprintengine_gate_feedback`: runtime-only Sprint Engine skills for role-specific planning, publish feedback, and gate verdict feedback. They live beside the bundled skills but are injected by the Sprint Engine runtime rather than referenced by role manifests.
 
 ## Intentional Prompt Drift
 
-- Some role-specific skills that did not previously carry every shared section now inherit the common Sprint Engine operating rules. This is intentional so bundled roles render from a consistent production-quality baseline.
+- Some role-specific skills that did not previously carry every shared section now inherit common production, evidence, fallback, collaboration, and Knowledge Graph rules. This is intentional so bundled roles render from a consistent production-quality baseline without coupling manual Souls to Sprint Engine dispatch.
 - Role-specific sections remain in their original skill documents. The migration removed duplicated common sections only where the heading clearly matched one of the shared skills above.
 - No bundled role has a documented exception to single-skill composition; each bundled role now uses its role-specific skill plus shared skills.

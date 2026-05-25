@@ -210,7 +210,7 @@ function buildManagedSprintEngineServer(input: McpSyncInput): McpServerConfig | 
     }
   }
   return missingManagedSprintEngineServer(
-    'Managed Sprint Engine HTTP MCP connection was not supplied; autonomous Sprint Engine agents require an app-owned HTTP MCP session.',
+    'Managed Sprint Engine HTTP MCP connection was not supplied; autonomous Sprint Engine agents require an app-owned HTTP MCP run.',
     clients
   )
 }
@@ -388,7 +388,17 @@ function validateServer(server: McpServerConfig): McpValidationIssue[] {
   if ((server.transport === 'http' || server.transport === 'sse') && !server.url?.trim()) {
     issues.push({ level: 'error', serverId: server.id, message: `${server.name} is missing a URL.` })
   }
+  if (server.id === MANAGED_SPRINTENGINE_MCP_SERVER_ID && server.transport === 'http' && !server.envVarNames?.[0]) {
+    issues.push({
+      level: 'error',
+      serverId: server.id,
+      message: `${server.name} requires an env-backed bearer token for managed Sprint Engine HTTP MCP launches.`,
+    })
+  }
   for (const envVar of server.envVarNames ?? []) {
+    if (server.id === MANAGED_SPRINTENGINE_MCP_SERVER_ID && server.transport === 'http') {
+      continue
+    }
     if (!process.env[envVar]) {
       issues.push({ level: server.required ? 'error' : 'warning', serverId: server.id, message: `${server.name} expects environment variable ${envVar}.` })
     }
@@ -455,7 +465,7 @@ function syncForFormat(input: SyncForFormatInput): {
             level: hasRequired ? 'error' : 'warning',
             client: input.client,
             message: hasRequired
-              ? `MCP sync writer for format "${format}" is not implemented yet; Sprint Engine autonomous mode requires an HTTP MCP-capable config writer for plugin "${input.plugin.id}".`
+              ? `MCP sync writer for format "${format}" is not implemented yet; Sprint Engine autonomous mode requires an HTTP MCP-capable config writer with env-backed bearer token support for plugin "${input.plugin.id}".`
               : `MCP sync writer for format "${format}" is not implemented yet; declared in plugin "${input.plugin.id}".`,
           },
         ],

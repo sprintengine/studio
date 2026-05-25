@@ -7,11 +7,35 @@ from typing import Optional
 from sprintengine_core.tool.paths import PROMPTS_DIR, REPO_ROOT
 from sprintengine_core.role_registry import SoulRenderError, discover_role_registry
 
+
+SPRINTENGINE_SKILLS_DIR = REPO_ROOT / "resources" / "sprintengine" / "skills"
+SPRINTENGINE_IMPLEMENTATION_ROLES = {"blog_writer", "coordinator", "developer", "devops", "frontend", "presentation", "product"}
+SPRINTENGINE_GATE_ROLES = {"code_reviewer", "performance", "product", "security", "spec_reviewer", "tester"}
+
+
 def load_soul_prompt(role: str) -> Optional[str]:
     try:
         return discover_role_registry().render_soul(role, workspace_root=REPO_ROOT).content
     except (KeyError, SoulRenderError):
         return None
+
+
+def load_sprintengine_runtime_skill(skill_id: str) -> str:
+    path = SPRINTENGINE_SKILLS_DIR / skill_id / "SKILL.md"
+    if not path.exists():
+        raise FileNotFoundError(f"Sprint Engine runtime skill is missing: {path}")
+    return path.read_text(encoding="utf-8").strip()
+
+
+def sprintengine_runtime_skill_ids(role: str) -> list[str]:
+    skill_ids = ["sprintengine_workflow"]
+    if role == "architect":
+        skill_ids.append("sprintengine_architect_workflow")
+    if role in SPRINTENGINE_IMPLEMENTATION_ROLES:
+        skill_ids.append("sprintengine_publish_feedback")
+    if role in SPRINTENGINE_GATE_ROLES:
+        skill_ids.append("sprintengine_gate_feedback")
+    return skill_ids
 
 
 def generic_role_swarm_prompt(role: str) -> str:
@@ -46,6 +70,16 @@ def generic_role_swarm_prompt(role: str) -> str:
         "- Do not mark work complete when the main behavior depends on sample data, fake responses, mocked transports, stubbed commands, placeholder persistence, or disconnected local state.",
         "- If real verification is blocked, route the task or gate to `needs_input` via `sprintengine.task.status` with the appropriate actor, reason, and question.",
         "- If `MULTICODE_KNOWLEDGE_ROOT` is set and your change affects a behavior, contract, file layout, or convention documented in the Knowledge Graph, update the relevant note in the same publish. Log the note path as `sprintengine.task.log` `file` evidence. See the `workspace_knowledge` skill for the full read/update workflow and the env-var gate.",
+    ])
+
+
+def load_sprintengine_coordination_prompt(role: str) -> str:
+    path = PROMPTS_DIR / f"{role}.md"
+    role_prompt = path.read_text(encoding="utf-8").strip() if path.exists() else generic_role_swarm_prompt(role)
+    runtime_skills = [load_sprintengine_runtime_skill(skill_id) for skill_id in sprintengine_runtime_skill_ids(role)]
+    return "\n\n---\n\n".join([
+        *runtime_skills,
+        role_prompt,
     ])
 
 
@@ -162,11 +196,9 @@ def compose_prompt(
 
 
 def load_prompt(role: str) -> str:
-    path = PROMPTS_DIR / f"{role}.md"
-    swarm_prompt = path.read_text(encoding="utf-8").strip() if path.exists() else generic_role_swarm_prompt(role)
     return compose_prompt(
         "# SprintEngine Coordination Rules",
-        swarm_prompt,
+        load_sprintengine_coordination_prompt(role),
         load_soul_prompt(role),
         (
             "Use the Soul prompt above for role personality, judgment, and quality bar. "

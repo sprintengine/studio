@@ -36,7 +36,8 @@ def test_discovers_production_bundled_role_manifest_and_referenced_skill() -> No
     assert discovery.role_entry("tester").source.layer.name == "bundled"
     assert [skill.id for skill in skills][:2] == ["tester", "project_relative_paths"]
     assert "production_reality_gate" in [skill.id for skill in skills]
-    assert "sprintengine_workflow" in [skill.id for skill in skills]
+    assert "workspace_knowledge" in [skill.id for skill in skills]
+    assert "sprintengine_workflow" not in [skill.id for skill in skills]
     assert "principal QA engineer" in skills[0].body
 
 
@@ -229,31 +230,41 @@ def test_rendering_missing_or_malformed_skill_fails_direct_render_without_breaki
     assert any(warning.code == "missing_render_skill" for warning in exc_info.value.warnings)
 
 
-def test_every_bundled_role_manifest_includes_workspace_knowledge_skill() -> None:
-    """Regression: every bundled Sprint Engine role must pull in the workspace_knowledge skill.
+def test_every_bundled_role_manifest_has_expected_shared_skill_boundary() -> None:
+    """Regression: bundled roles include KG guidance but not Sprint Engine dispatch mechanics.
 
     The skill itself is env-var-gated, so adding it to every role's Soul is safe
     for workspaces with no Knowledge Graph configured. The agent reads the skill,
     sees that MULTICODE_KNOWLEDGE_ROOT is unset, and no-ops. The point of this
     test is to stop a future role manifest from silently dropping the skill, which
     would re-introduce the gap where agents change behavior without updating the
-    KG and reviewers have no canonical basis to flag the drift.
+    KG and reviewers have no canonical basis to flag the drift. Sprint Engine
+    workflow mechanics are injected by sprintengine.agent.join, not base Souls,
+    so manual specialist launches do not inherit run-dispatch instructions.
     """
     roles_dir = Path(__file__).resolve().parents[2] / "resources" / "sprintengine" / "roles"
     manifests = sorted(roles_dir.glob("*.json"))
     assert manifests, f"Expected bundled role manifests under {roles_dir}"
 
     missing: list[str] = []
+    coupled: list[str] = []
     for path in manifests:
         data = json.loads(path.read_text(encoding="utf-8"))
         soul = data.get("soul") or []
         skills = [entry.get("skill") for entry in soul if isinstance(entry, dict)]
         if "workspace_knowledge" not in skills:
             missing.append(path.name)
+        if any(str(skill_id).startswith("sprintengine_") for skill_id in skills):
+            coupled.append(path.name)
 
     assert not missing, (
         "These role manifests are missing the workspace_knowledge skill: "
         f"{missing}. Every role's Soul must include workspace_knowledge so agents "
         "receive the env-var-gated KG read/update guidance and reviewers can flag "
         "documented-behavior drift when a KG is configured."
+    )
+    assert not coupled, (
+        "These role manifests include Sprint Engine runtime skills: "
+        f"{coupled}. Sprint Engine dispatch mechanics must be injected by "
+        "sprintengine.agent.join, not included in base Souls."
     )

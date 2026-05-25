@@ -31,9 +31,9 @@ function testPlanFileHandoffIsMcpNative(): void {
   assert.ok(prompt.includes('"frontend:frontend"'), 'roster preserves agent specs verbatim')
   assert.ok(prompt.includes('"role": "architect"'), 'auto-run flow joins as architect')
   assert.ok(prompt.includes('"agentId": "architect"'), 'auto-run flow uses the architect agent id')
-  assert.ok(prompt.includes('with `{role, agentId}`'), 'handoff prompt documents the session-context directive payload')
+  assert.ok(prompt.includes('with `{role, agentId}`'), 'handoff prompt documents the run-context directive payload')
   assert.ok(!prompt.includes('{statePath, role, agentId}'), 'handoff prompt does not document the stale path-bearing directive payload')
-  assert.ok(prompt.includes('registered HTTP session context'), 'handoff prompt explains managed session-context routing')
+  assert.ok(prompt.includes('registered HTTP run context'), 'handoff prompt explains managed run-context routing')
   assert.ok(prompt.includes('Multicode app owns runner policy'), 'auto-run flow defers runner mode to the app supervisor instead of a CLI command')
   assert.ok(
     !CLI_INSTRUCTION_PATTERN.test(prompt),

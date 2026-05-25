@@ -108,7 +108,7 @@ const terminalRuntime = createTerminalRuntime({
   logMainPerfEvent,
   onAgentSessionExit: (input) => input.workspaceRoot ? recordSwitchboardSessionExit(input) : undefined,
   syncMcpConfig: (input) => syncManagedSprintEngineMcpConfig(input, { mcpConfigService, sprintEngineMcpHub }),
-  releaseManagedSprintEngineSession: (sessionId) => sprintEngineMcpHub.unregisterSession(sessionId),
+  releaseManagedSprintEngineRun: (runId) => sprintEngineMcpHub.unregisterRun(runId),
 })
 const mobileSnapshotService = new MobileSprintEngineSnapshotService()
 const updateService = new MulticodeUpdateService({ writeDiagnosticLog })

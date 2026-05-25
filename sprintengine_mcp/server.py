@@ -79,7 +79,7 @@ from sprintengine_core.tool import (
 from sprintengine_core.tool.artifacts import release_task_from_owner
 from sprintengine_core.tool.gates import find_active_gate_claim
 from sprintengine_core.tool.plans import plan_path_for_state
-from sprintengine_core.tool.prompts import compose_prompt, generic_role_swarm_prompt
+from sprintengine_core.tool.prompts import compose_prompt, load_sprintengine_coordination_prompt
 from sprintengine_core.tool.state import (
     append_event,
     append_task_activity,
@@ -883,6 +883,7 @@ class SprintEngineMcpServer:
                 dispatch_status=payload.get("dispatchStatus") or "todo",
                 triaged_by=payload.get("triagedBy") or "none",
             )
+            _add_architect_difficulty_defaults(base, payload)
         elif tool_name == "sprintengine.plan.update_task":
             base.update(
                 actor=payload.get("actor") or (actor.id if actor else "architect"),
@@ -912,6 +913,7 @@ class SprintEngineMcpServer:
                 skip_gate=list(payload.get("skipGate") or []),
                 force=bool(payload.get("force", False)),
             )
+            _add_architect_difficulty_defaults(base, payload)
         elif tool_name == "sprintengine.plan.delete_task":
             base.update(
                 actor=payload.get("actor") or (actor.id if actor else "architect"),
@@ -984,7 +986,7 @@ class SprintEngineMcpServer:
                     raise McpToolError("invalid_state_path", "statePath must be a string.")
                 supplied = self._path_from_string(raw, "statePath", "invalid_state_path")
                 if supplied != context.state_path:
-                    raise McpToolError("state_path_not_allowed", "HTTP session cannot access a different Sprint Engine statePath.")
+                    raise McpToolError("state_path_not_allowed", "HTTP run cannot access a different Sprint Engine statePath.")
             return context.state_path if (required or raw or context.state_path is not None) else None
         if not raw:
             if not required:
@@ -1019,7 +1021,7 @@ class SprintEngineMcpServer:
                     raise McpToolError("invalid_workspace_root", "workspaceRoot must be a string.")
                 supplied = self._path_from_string(raw, "workspaceRoot", "invalid_workspace_root")
                 if supplied != context.workspace_root:
-                    raise McpToolError("workspace_root_not_allowed", "HTTP session cannot access a different workspaceRoot.")
+                    raise McpToolError("workspace_root_not_allowed", "HTTP run cannot access a different workspaceRoot.")
             return context.workspace_root
         # Resolution chain so autonomous agents don't need to pass workspaceRoot in payloads:
         #   1. explicit `workspaceRoot` in payload (debug / CLI overrides)
@@ -1076,64 +1078,9 @@ class SprintEngineMcpServer:
         return path
 
     def _validate_session_identity_payload(self, tool_name: str, payload: dict[str, Any]) -> None:
-        context = self._request_context()
-        if context is None:
-            return
-        role_tools = {
-            "sprintengine.agent.join",
-            "sprintengine.agent.next_directive",
-            "sprintengine.join",
-            "sprintengine.task.next",
-            "sprintengine.gate.next",
-            "sprintengine.gate.claim",
-            "sprintengine.gate.verdict",
-            "sprintengine.gate.publish",
-            "sprintengine.gate.skip",
-            "sprintengine.plan.start_review",
-        }
-        id_tools = {
-            "sprintengine.join",
-            "sprintengine.triage.needs_input",
-            "sprintengine.task.next",
-            "sprintengine.task.claim",
-            "sprintengine.task.status",
-            "sprintengine.task.resolve_input",
-            "sprintengine.task.release",
-            "sprintengine.task.ready",
-            "sprintengine.task.log",
-            "sprintengine.task.publish",
-            "sprintengine.task.note",
-            "sprintengine.task.comment",
-            "sprintengine.gate.next",
-            "sprintengine.gate.claim",
-            "sprintengine.gate.verdict",
-            "sprintengine.gate.publish",
-            "sprintengine.gate.skip",
-            "sprintengine.plan.start_review",
-            "sprintengine.artifact.ready",
-            "sprintengine.artifact.approve",
-            "sprintengine.artifact.request_changes",
-        }
-        agent_id_tools = {
-            "sprintengine.agent.join",
-            "sprintengine.agent.next_directive",
-            "sprintengine.agent.heartbeat",
-            "sprintengine.agent.leave",
-            "sprintengine.dispatch.next",
-            "sprintengine.dispatch.ack",
-            "sprintengine.subscribe",
-        }
-        if tool_name in role_tools:
-            self._reject_session_mismatch(payload, "role", context.role, "role_not_allowed")
-        if tool_name in id_tools:
-            self._reject_session_mismatch(payload, "id", context.agent_id, "agent_id_not_allowed")
-        if tool_name in agent_id_tools:
-            self._reject_session_mismatch(payload, "agentId", context.agent_id, "agent_id_not_allowed")
-
-    def _reject_session_mismatch(self, payload: dict[str, Any], field: str, expected: str, code: str) -> None:
-        value = payload.get(field)
-        if expected and value is not None and str(value).strip() != expected:
-            raise McpToolError(code, f"HTTP session cannot use a different {field}.")
+        # HTTP run tokens scope routing to a workspace/run store. Agents still
+        # self-identify with their own role and id in tool payloads.
+        return
 
     def _request_context(self) -> McpRequestContext | None:
         return _REQUEST_CONTEXT.get()
@@ -1314,6 +1261,11 @@ def _add_implementer_difficulty_defaults(target: dict[str, Any], payload: dict[s
     target["actual_difficulty_reason"] = payload.get("actualDifficultyReason", payload.get("actual_difficulty_reason", ""))
 
 
+def _add_architect_difficulty_defaults(target: dict[str, Any], payload: dict[str, Any]) -> None:
+    target["difficulty_pct"] = payload.get("difficulty_pct", payload.get("difficultyPct"))
+    target["difficulty_reason"] = payload.get("difficultyReason", payload.get("difficulty_reason", ""))
+
+
 def _add_reviewer_difficulty_defaults(target: dict[str, Any], payload: dict[str, Any]) -> None:
     target["reviewed_difficulty_pct"] = payload.get("reviewed_difficulty_pct", payload.get("reviewedDifficultyPct"))
     target["reviewed_difficulty_dimension"] = payload.get(
@@ -1370,7 +1322,7 @@ def _compose_registry_prompt(registry: RegistryDiscovery, role: str, workspace_r
         soul_prompt = None
     return compose_prompt(
         "# SprintEngine Coordination Rules",
-        generic_role_swarm_prompt(role),
+        load_sprintengine_coordination_prompt(role),
         soul_prompt,
         (
             "Use the Soul prompt above for role personality, judgment, and quality bar. "

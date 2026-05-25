@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import type { McpSettings } from '../shared/electron-api'
 import type { PluginManifest, PluginMcpConfigFormat } from '../shared/plugin-manifest'
 import { MANAGED_SPRINTENGINE_MCP_SERVER_ID, createMcpConfigService, type PluginLookup } from './mcp-config-service'
+import { MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR } from './sprintengine-managed-mcp-sync'
 import { createPluginRegistry } from './plugin-registry'
 import { __resetPluginRegistryForTest, __setPluginRegistryForTest } from './plugin-registry-instance'
 import { buildManagedSprintEngineSyncInputForLaunch } from './terminal-runtime'
@@ -275,8 +276,6 @@ async function main(): Promise<void> {
     runtimeRoot: () => process.cwd(),
   })
   const managedSettings: McpSettings = { syncEnabled: false, servers: {} }
-  const previousManagedToken = process.env.MULTICODE_SPRINTENGINE_MCP_TOKEN
-  process.env.MULTICODE_SPRINTENGINE_MCP_TOKEN = 'test-token'
   const managedHttpResult = managedService.sync({
     workspaceRoot: siblingRoot,
     settings: managedSettings,
@@ -286,8 +285,7 @@ async function main(): Promise<void> {
       actorId: 'workspace-user',
       http: {
         url: 'http://127.0.0.1:49152/mcp',
-        authTokenEnvVar: 'MULTICODE_SPRINTENGINE_MCP_TOKEN',
-        headers: { 'X-Multicode-Session': 'session-a' },
+        authTokenEnvVar: MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR,
       },
     },
   })
@@ -295,9 +293,11 @@ async function main(): Promise<void> {
   const managedHttpCodexConfig = await readFile(join(siblingRoot, '.codex', 'config.toml'), 'utf-8')
   assert.match(managedHttpCodexConfig, new RegExp(`\\[mcp_servers\\.${MANAGED_SPRINTENGINE_MCP_SERVER_ID}\\]`))
   assert.match(managedHttpCodexConfig, /url = "http:\/\/127\.0\.0\.1:49152\/mcp"/)
-  assert.match(managedHttpCodexConfig, /bearer_token_env_var = "MULTICODE_SPRINTENGINE_MCP_TOKEN"/)
+  assert.match(managedHttpCodexConfig, new RegExp(`bearer_token_env_var = "${MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR}"`))
   assert.doesNotMatch(managedHttpCodexConfig, /Authorization/)
-  assert.match(managedHttpCodexConfig, /"X-Multicode-Session" = "session-a"/)
+  assert.doesNotMatch(managedHttpCodexConfig, /X-Multicode-Session-Id/)
+  assert.doesNotMatch(managedHttpCodexConfig, /env_http_headers/)
+  assert.doesNotMatch(managedHttpCodexConfig, /session-a/)
   assert.doesNotMatch(managedHttpCodexConfig, /multicode-sprintengine-mcp/)
   assert.doesNotMatch(managedHttpCodexConfig, /--state-path/)
   assert.doesNotMatch(managedHttpCodexConfig, /SPRINTENGINE_STATE_PATH/)
@@ -308,19 +308,14 @@ async function main(): Promise<void> {
     type: 'http',
     url: 'http://127.0.0.1:49152/mcp',
     headers: {
-      Authorization: 'Bearer ${MULTICODE_SPRINTENGINE_MCP_TOKEN}',
-      'X-Multicode-Session': 'session-a',
+      Authorization: `Bearer \${${MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR}}`,
     },
   })
   const managedHttpClaudeRaw = await readFile(join(siblingRoot, '.mcp.json'), 'utf-8')
   assert.doesNotMatch(managedHttpClaudeRaw, /multicode-sprintengine-mcp/)
   assert.doesNotMatch(managedHttpClaudeRaw, /--state-path/)
   assert.doesNotMatch(managedHttpClaudeRaw, /SPRINTENGINE_STATE_PATH/)
-  if (previousManagedToken === undefined) {
-    delete process.env.MULTICODE_SPRINTENGINE_MCP_TOKEN
-  } else {
-    process.env.MULTICODE_SPRINTENGINE_MCP_TOKEN = previousManagedToken
-  }
+  assert.doesNotMatch(managedHttpClaudeRaw, /session-a/)
 
   const managedResult = managedService.sync({
     workspaceRoot: siblingRoot,
@@ -345,9 +340,29 @@ async function main(): Promise<void> {
     ...managedInputForFailures,
     http: {
       url: 'http://127.0.0.1:49152/mcp',
-      headers: { 'X-Multicode-Session': 'session-a' },
+      authTokenEnvVar: MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR,
     },
   }
+  const missingRunTokenEnvResult = managedService.sync({
+    workspaceRoot: siblingRoot,
+    settings: { syncEnabled: false, servers: {} },
+    clients: ['codex'],
+    managedSprintEngine: {
+      ...managedInputForFailures,
+      http: {
+        url: 'http://127.0.0.1:49152/mcp',
+      },
+    },
+  })
+  assert.equal(missingRunTokenEnvResult.ok, false)
+  assert.equal(
+    (missingRunTokenEnvResult.issues ?? []).some((issue) =>
+      issue.level === 'error'
+      && issue.message.includes('env-backed bearer token')
+    ),
+    true,
+    `missing run-token env var should fail required managed HTTP sync, got: ${JSON.stringify(missingRunTokenEnvResult.issues ?? [])}`
+  )
   __resetPluginRegistryForTest()
 
   const noMcpPluginLookup: PluginLookup = () => undefined
@@ -456,6 +471,7 @@ async function main(): Promise<void> {
       issue.level === 'error'
       && issue.message.includes('Sprint Engine autonomous mode requires')
       && issue.message.includes('HTTP MCP-capable config writer')
+      && issue.message.includes('env-backed bearer token support')
     ),
     true,
     `unsupported format should fail required sync, got: ${JSON.stringify(unsupportedFormatIssues)}`

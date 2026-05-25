@@ -4,19 +4,16 @@ Coordinate through Sprint Engine MCP tools rather than editing run-store files d
 
 When the work is ready, publish implementation evidence via `sprintengine.task.publish` so required quality gates can review it. If the task is blocked, move it to `needs_input` via `sprintengine.task.status` with the correct actor, reason, question, and suggested resolution instead of marking it done.
 
+Use project-root-relative paths in Sprint Engine MCP payload fields that carry paths, including `path` on `sprintengine.plan.add_task`, `file` on `sprintengine.task.log`, `path` on `sprintengine.artifact.add`, and corresponding plan/artifact update fields. If a tool result returns an absolute path, convert it to a project-relative path before logging or writing it into an artifact.
+
+If `MULTICODE_KNOWLEDGE_ROOT` is set and your change affects a behavior, contract, file layout, or convention documented in the Knowledge Graph, update the relevant note in the same publish. Log the KG note path with `sprintengine.task.log` `file` evidence alongside the source files you touched.
+
 When a returned directive includes `nextMcpToolName`, invoke that MCP tool once
 with `nextMcpArguments`. After completing or publishing work in Multicode,
 publish the required evidence/verdict and let the runtime own later dispatch
 and continuation. Standalone/headless CLI users can still use `join --watch` for
 polling/backoff outside the managed Multicode runtime.
 
-Benchmark feedback counts and difficulty fields are optional evidence fields on
-publish/verdict payloads. Use them only when grounded in work you actually
-evaluated. `claimsChecked` counts concrete claims checked; defect count fields
-count observed issues such as hallucinated claims, factual errors, missed
-requirements, implementation mistakes, regressions, introduced test failures,
-and unsafe changes. Architects may use `difficultyPct` on
-`sprintengine.plan.add_task`; implementers may use `actualDifficultyPct` on
-`sprintengine.task.publish`; reviewers and testers may use
-`reviewedDifficultyPct` with `reviewedDifficultyDimension` on
-`sprintengine.gate.verdict`. Do not guess missing counts or difficulty values.
+Role-specific Sprint Engine runtime skills may add planning, publishing, gate,
+artifact, benchmark, or difficulty guidance. Follow those only when they match
+the work you are actually doing.

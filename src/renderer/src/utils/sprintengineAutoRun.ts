@@ -106,7 +106,7 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: 
 
 function nextDirectivePayloadBlock(role: SprintEngineRoleId | string, agentId: string): string {
   // The managed Sprint Engine MCP server resolves run and workspace routing
-  // from the HTTP session context. Agents do not pass statePath or
+  // from the HTTP run context. Agents do not pass statePath or
   // workspaceRoot in tool payloads.
   const payload: Record<string, string> = {
     role,
@@ -387,7 +387,7 @@ export function buildArchitectNeedsInputTriagePrompt(input: {
   taskIds: string[]
 }): string {
   // The managed Sprint Engine MCP server resolves run routing from the HTTP
-  // session context.
+  // run context.
   const triagePayload = {
     id: 'architect',
   }

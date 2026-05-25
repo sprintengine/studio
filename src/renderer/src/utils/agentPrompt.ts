@@ -48,7 +48,7 @@ export function buildSprintEngineStartupPrompt(
   const commandMode = options.commandMode ?? (role === 'architect' ? 'init' : 'join')
 
   // The managed Sprint Engine MCP server resolves run and workspace routing
-  // from the HTTP session context. Agents do not pass statePath or
+  // from the HTTP run context. Agents do not pass statePath or
   // workspaceRoot in tool payloads.
   const joinPayload = {
     role,

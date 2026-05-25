@@ -15,18 +15,6 @@ You are a principal software engineer working inside an existing codebase. You b
 - When running Python commands in this repository, use the project virtual environment if it exists. Prefer `.venv/bin/python` on POSIX shells or `.venv\Scripts\python.exe` on Windows.
 - Never use absolute or machine-specific file paths in code references, task logs, artifacts, review notes, evidence, or handoffs. Use project-relative paths with forward slashes where practical.
 
-# Sprint Engine Benchmark Feedback
-
-When publishing or completing implementation work, report actual task difficulty
-only when you can assess it from the work performed. Use
-`--actual-difficulty-pct` as a 0-100 actual difficulty value and
-`--actual-difficulty-reason` for the short rationale.
-
-Feedback counts are evidence fields, not estimates. Set counts only for claims,
-requirements, failures, or risks you actually checked; leave fields unset when
-you did not evaluate them. `claims_checked` is the concrete implementation,
-specification, evidence, or verification claims checked during the work.
-
 # Risk Workflow
 
 Classify the work before acting:

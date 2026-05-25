@@ -17,32 +17,36 @@ from .server import McpRequestContext, SprintEngineMcpServer, _handle_jsonrpc_me
 
 SESSION_HEADER = "Mcp-Session-Id"
 PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
-MULTICODE_SESSION_HEADER = "X-Multicode-Session-Id"
+MULTICODE_RUN_HEADER = "X-Multicode-Run-Id"
 
 
 @dataclass(frozen=True)
 class HttpMcpSession:
     id: str
+    run_token: str
     actor: ActorContext | None
     context: McpRequestContext | None = None
 
 
 @dataclass(frozen=True)
-class HttpMcpRegisteredSession:
+class HttpMcpRegisteredRun:
     id: str
+    token: str
     context: McpRequestContext
 
 
-class HttpMcpSessionRegistry:
+class HttpMcpRunRegistry:
     def __init__(self, actor: ActorContext | None):
         self._actor = actor
         self._sessions: dict[str, HttpMcpSession] = {}
-        self._registered: dict[str, HttpMcpRegisteredSession] = {}
+        self._runs_by_id: dict[str, HttpMcpRegisteredRun] = {}
+        self._runs_by_token: dict[str, HttpMcpRegisteredRun] = {}
 
-    def register(self, payload: dict[str, Any]) -> HttpMcpRegisteredSession:
-        session_id = _required_string(payload, "sessionId")
-        if session_id in self._registered:
-            raise ValueError("sessionId is already registered.")
+    def register(self, payload: dict[str, Any]) -> HttpMcpRegisteredRun:
+        run_id = _required_string(payload, "runId")
+        existing = self._runs_by_id.get(run_id)
+        if existing is not None:
+            return existing
         workspace_root = _path_field(payload, "workspaceRoot")
         state_path = _path_field(payload, "statePath")
         allowed_roots = tuple(_path_value(root, "allowedRoots") for root in _required_string_list(payload, "allowedRoots"))
@@ -66,39 +70,55 @@ class HttpMcpSessionRegistry:
             plugin_registry_roots=registry_roots,
             user_root=user_root,
             actor_id=actor_id,
-            agent_id=_required_string(payload, "agentId"),
-            role=_required_string(payload, "role"),
-            cli=_required_string(payload, "cli"),
         )
-        session = HttpMcpRegisteredSession(id=session_id, context=context)
-        self._registered[session_id] = session
-        return session
+        token = secrets.token_urlsafe(32)
+        run = HttpMcpRegisteredRun(id=run_id, token=token, context=context)
+        self._runs_by_id[run_id] = run
+        self._runs_by_token[token] = run
+        return run
 
-    def create(self, registered_session_id: str | None) -> HttpMcpSession:
-        registered = self._registered.get(registered_session_id or "")
-        if registered is None:
-            raise KeyError("registered session is required.")
+    def create(self, run_token: str | None) -> HttpMcpSession:
+        run = self.get_run(run_token)
+        if run is None:
+            raise KeyError("registered run token is required.")
         session_id = secrets.token_urlsafe(24)
-        session = HttpMcpSession(id=session_id, actor=registered.context.actor or self._actor, context=registered.context)
+        session = HttpMcpSession(id=session_id, run_token=run.token, actor=run.context.actor or self._actor, context=run.context)
         self._sessions[session_id] = session
         return session
 
-    def get(self, session_id: str | None) -> HttpMcpSession | None:
+    def get_run(self, run_token: str | None) -> HttpMcpRegisteredRun | None:
+        if not run_token:
+            return None
+        return self._runs_by_token.get(run_token)
+
+    def get(self, session_id: str | None, run_token: str | None) -> HttpMcpSession | None:
         if not session_id:
             return None
-        return self._sessions.get(session_id)
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+        if not run_token or not secrets.compare_digest(session.run_token, run_token):
+            return None
+        return session
 
-    def delete(self, session_id: str | None) -> bool:
-        if not session_id:
+    def delete_session(self, session_id: str | None, run_token: str | None) -> bool:
+        session = self.get(session_id, run_token)
+        if session is None:
             return False
-        deleted = self._sessions.pop(session_id, None) is not None
-        registered = self._registered.pop(session_id, None)
-        if registered is not None:
-            stale_protocol_sessions = [key for key, session in self._sessions.items() if session.context == registered.context]
-            for key in stale_protocol_sessions:
-                self._sessions.pop(key, None)
-            deleted = True
-        return deleted
+        self._sessions.pop(session.id, None)
+        return True
+
+    def delete_run(self, run_id: str | None) -> bool:
+        if not run_id:
+            return False
+        run = self._runs_by_id.pop(run_id, None)
+        if run is None:
+            return False
+        self._runs_by_token.pop(run.token, None)
+        stale_protocol_sessions = [key for key, session in self._sessions.items() if session.run_token == run.token]
+        for key in stale_protocol_sessions:
+            self._sessions.pop(key, None)
+        return True
 
 
 class SprintEngineHttpMcpServer(ThreadingHTTPServer):
@@ -111,11 +131,11 @@ class SprintEngineHttpMcpServer(ThreadingHTTPServer):
         auth_token: str,
     ):
         if not auth_token:
-            raise ValueError("HTTP MCP mode requires an auth token.")
+            raise ValueError("HTTP MCP mode requires an app admin token.")
         super().__init__(server_address, SprintEngineHttpMcpRequestHandler)
         self.mcp_server = mcp_server
-        self.auth_token = auth_token
-        self.sessions = HttpMcpSessionRegistry(actor)
+        self.admin_token = auth_token
+        self.runs = HttpMcpRunRegistry(actor)
 
 
 class SprintEngineHttpMcpRequestHandler(BaseHTTPRequestHandler):
@@ -123,8 +143,8 @@ class SprintEngineHttpMcpRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
-        if path == "/mcp/sessions":
-            self._handle_register_session()
+        if path in {"/mcp/runs", "/mcp/sessions"}:
+            self._handle_register_run()
             return
         if path != "/mcp":
             self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
@@ -132,7 +152,8 @@ class SprintEngineHttpMcpRequestHandler(BaseHTTPRequestHandler):
         if not self._local_origin_allowed():
             self._write_json(HTTPStatus.FORBIDDEN, {"error": "origin_not_allowed"})
             return
-        if not self._authorized():
+        run_token = self._bearer_token()
+        if self.server.runs.get_run(run_token) is None:
             self._write_json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
             return
         try:
@@ -153,14 +174,14 @@ class SprintEngineHttpMcpRequestHandler(BaseHTTPRequestHandler):
         method = message.get("method")
         if method == "initialize":
             try:
-                session = self.server.sessions.create(self.headers.get(MULTICODE_SESSION_HEADER))
+                session = self.server.runs.create(run_token)
             except KeyError:
                 self._write_json(
                     HTTPStatus.BAD_REQUEST,
                     {
                         "jsonrpc": "2.0",
                         "id": message.get("id"),
-                        "error": {"code": "invalid_session", "message": f"{MULTICODE_SESSION_HEADER} is required."},
+                        "error": {"code": "invalid_run", "message": "A registered Sprint Engine run token is required."},
                     },
                 )
                 return
@@ -171,7 +192,7 @@ class SprintEngineHttpMcpRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.OK, response, session.id)
             return
 
-        session = self.server.sessions.get(self.headers.get(SESSION_HEADER))
+        session = self.server.runs.get(self.headers.get(SESSION_HEADER), run_token)
         if session is None:
             self._write_json(
                 HTTPStatus.BAD_REQUEST,
@@ -196,37 +217,49 @@ class SprintEngineHttpMcpRequestHandler(BaseHTTPRequestHandler):
         if not self._local_origin_allowed():
             self._write_json(HTTPStatus.FORBIDDEN, {"error": "origin_not_allowed"})
             return
-        if not self._authorized():
+        if self.server.runs.get_run(self._bearer_token()) is None:
             self._write_json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
             return
         self._write_json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "sse_not_supported"})
 
     def do_DELETE(self) -> None:
         path = self.path.split("?", 1)[0]
-        if path not in {"/mcp", "/mcp/sessions"}:
+        if path not in {"/mcp", "/mcp/runs", "/mcp/sessions"}:
             self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
             return
         if not self._local_origin_allowed():
             self._write_json(HTTPStatus.FORBIDDEN, {"error": "origin_not_allowed"})
             return
-        if not self._authorized():
+        if path in {"/mcp/runs", "/mcp/sessions"}:
+            if not self._admin_authorized():
+                self._write_json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
+                return
+            deleted = self.server.runs.delete_run(self.headers.get(MULTICODE_RUN_HEADER))
+            self._write_json(HTTPStatus.OK if deleted else HTTPStatus.NOT_FOUND, {"deleted": deleted})
+            return
+        run_token = self._bearer_token()
+        if self.server.runs.get_run(run_token) is None:
             self._write_json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
             return
-        deleted = self.server.sessions.delete(self.headers.get(SESSION_HEADER) or self.headers.get(MULTICODE_SESSION_HEADER))
+        deleted = self.server.runs.delete_session(self.headers.get(SESSION_HEADER), run_token)
         self._write_json(HTTPStatus.OK if deleted else HTTPStatus.NOT_FOUND, {"deleted": deleted})
 
     def log_message(self, format: str, *args: Any) -> None:
         return
 
-    def _authorized(self) -> bool:
+    def _bearer_token(self) -> str:
         header = self.headers.get("Authorization") or ""
-        return secrets.compare_digest(header, f"Bearer {self.server.auth_token}")
+        prefix = "Bearer "
+        return header[len(prefix):] if header.startswith(prefix) else ""
 
-    def _handle_register_session(self) -> None:
+    def _admin_authorized(self) -> bool:
+        return secrets.compare_digest(self._bearer_token(), self.server.admin_token)
+
+    def _handle_register_run(self) -> None:
         if not self._local_origin_allowed():
             self._write_json(HTTPStatus.FORBIDDEN, {"error": "origin_not_allowed"})
             return
-        if not self._authorized():
+        if not self._admin_authorized():
             self._write_json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
             return
         try:
@@ -241,14 +274,14 @@ class SprintEngineHttpMcpRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_json"})
             return
         if not isinstance(payload, dict):
-            self._write_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_session_registration"})
+            self._write_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_run_registration"})
             return
         try:
-            session = self.server.sessions.register(payload)
+            run = self.server.runs.register(payload)
         except ValueError as exc:
-            self._write_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_session_registration", "message": str(exc)})
+            self._write_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_run_registration", "message": str(exc)})
             return
-        self._write_json(HTTPStatus.OK, {"sessionId": session.id, "headerName": MULTICODE_SESSION_HEADER})
+        self._write_json(HTTPStatus.OK, {"runId": run.id, "runToken": run.token})
 
     def _local_origin_allowed(self) -> bool:
         origin = self.headers.get("Origin")

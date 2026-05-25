@@ -32,7 +32,8 @@ function withSprintEngineEnv(
   cwd: string,
   sprintEngineStatePath?: string,
   memoryRootPath?: string,
-  memoryRelativeRoot?: string
+  memoryRelativeRoot?: string,
+  managedMcpEnv?: Record<string, string>
 ): Record<string, string> {
   const bundledToolPath = getBundledSprintEngineToolPath()
   const soulsRoot = getBundledSoulsRoot()
@@ -43,6 +44,7 @@ function withSprintEngineEnv(
     ...(bundledToolPath ? { MULTICODE_SPRINTENGINE_TOOL_PATH: bundledToolPath } : {}),
     ...(soulsRoot ? { MULTICODE_SOULS_ROOT: soulsRoot } : {}),
     ...(sprintEngineStatePath ? { SPRINTENGINE_STATE_PATH: sprintEngineStatePath } : {}),
+    ...(managedMcpEnv ?? {}),
     ...(memoryRootPath ? { MULTICODE_KNOWLEDGE_ROOT: memoryRootPath, MULTICODE_MEMORY_ROOT: memoryRootPath } : {}),
     ...(memoryRelativeRoot
       ? { MULTICODE_KNOWLEDGE_RELATIVE_ROOT: memoryRelativeRoot, MULTICODE_MEMORY_RELATIVE_ROOT: memoryRelativeRoot }
@@ -326,7 +328,8 @@ function getBundledSoulsRoot(): string | null {
 function buildSprintEngineShellBootstrap(
   sprintEngineStatePath?: string,
   memoryRootPath?: string,
-  memoryRelativeRoot?: string
+  memoryRelativeRoot?: string,
+  managedMcpEnv?: Record<string, string>
 ): string {
   const shellStatePath =
     sprintEngineStatePath && process.platform === 'win32' ? toWslPath(sprintEngineStatePath) : sprintEngineStatePath
@@ -352,6 +355,12 @@ function buildSprintEngineShellBootstrap(
 
   if (shellStatePath) {
     lines.push(`export SPRINTENGINE_STATE_PATH=${quotePosix(shellStatePath)}`)
+  }
+
+  for (const [key, value] of Object.entries(managedMcpEnv ?? {})) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      lines.push(`export ${key}=${quotePosix(value)}`)
+    }
   }
 
   if (shellMemoryRootPath) {
@@ -477,13 +486,14 @@ function buildWslShellScript(
   cliRuntime?: CliRuntimeSettings,
   cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
   memoryRootPath?: string,
-  memoryRelativeRoot?: string
+  memoryRelativeRoot?: string,
+  managedMcpEnv?: Record<string, string>
 ): string {
   const shellInitialPrompt = normalizeInitialPromptPaths(initialPrompt, 'wsl', [cwd, sprintEngineStatePath, memoryRootPath])
   return [
     buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
-    buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot),
+    buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv),
     buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset),
     'exec bash -li',
   ].join('; ')
@@ -499,7 +509,8 @@ export function getShellLaunchConfig(
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
   cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
   memoryRootPath?: string,
-  memoryRelativeRoot?: string
+  memoryRelativeRoot?: string,
+  managedMcpEnv?: Record<string, string>
 ): ShellLaunchConfig {
   assertExistingDirectory(cwd)
 
@@ -532,7 +543,7 @@ export function getShellLaunchConfig(
     return {
       command: 'powershell.exe',
       args: ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', startupScriptPath],
-      env: withSprintEngineEnv(getTerminalEnv(), windowsCwd, windowsStatePath, windowsMemoryRootPath, memoryRelativeRoot),
+      env: withSprintEngineEnv(getTerminalEnv(), windowsCwd, windowsStatePath, windowsMemoryRootPath, memoryRelativeRoot, managedMcpEnv),
       cwd: windowsCwd,
       pathStyle: 'windows',
       startupScriptPath,
@@ -553,7 +564,8 @@ export function getShellLaunchConfig(
         cliRuntime,
         cliPermissionPreset,
         memoryRootPath,
-        memoryRelativeRoot
+        memoryRelativeRoot,
+        managedMcpEnv
       )
     )
     return {
@@ -572,7 +584,7 @@ export function getShellLaunchConfig(
   const shellPath = getPosixShellPath()
   const shellName = shellPath.split(/[\\/]/).at(-1)
   const launchCommand = [
-    buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot),
+    buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv),
     buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset),
     buildInteractiveShellExec(shellPath, shellName),
   ].join('; ')
@@ -582,7 +594,7 @@ export function getShellLaunchConfig(
     command: shellPath,
     args: isLoginShell(shellName) ? ['-l', startupScriptPath] : [startupScriptPath],
     cwd,
-    env: withSprintEngineEnv(getTerminalEnv(), cwd, sprintEngineStatePath, memoryRootPath, memoryRelativeRoot),
+    env: withSprintEngineEnv(getTerminalEnv(), cwd, sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv),
     pathStyle: 'posix',
     startupScriptPath,
   }

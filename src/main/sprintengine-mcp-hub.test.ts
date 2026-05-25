@@ -9,7 +9,6 @@ async function main(): Promise<void> {
   const diagnostics: Array<{ scope: string; event: string; payload: Record<string, unknown> }> = []
   const service = createSprintEngineMcpHubService({
     runtimeRoot: () => process.cwd(),
-    authTokenEnvVar: 'MULTICODE_TEST_SPRINTENGINE_MCP_TOKEN',
     logMainPerfEvent: (scope, event, payload) => {
       diagnostics.push({ scope, event, payload })
     },
@@ -19,46 +18,73 @@ async function main(): Promise<void> {
   const second = await service.ensureStarted()
 
   assert.equal(first.url, second.url)
-  assert.equal(first.authToken, second.authToken)
-  assert.equal(first.authTokenEnvVar, 'MULTICODE_TEST_SPRINTENGINE_MCP_TOKEN')
-  assert.equal(process.env.MULTICODE_TEST_SPRINTENGINE_MCP_TOKEN, first.authToken)
+  assert.equal(first.adminToken, second.adminToken)
+  assert.equal(process.env.MULTICODE_TEST_SPRINTENGINE_MCP_TOKEN, undefined)
   assert.match(first.url, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
   const readyStatus = service.status()
   assert.equal(readyStatus.state, 'ready')
   assert.equal(readyStatus.port, Number(new URL(first.url).port))
-  assert.equal(readyStatus.activeSessionCount, 0)
-  assert.equal('authToken' in readyStatus, false)
-  assert.equal(JSON.stringify(readyStatus).includes(first.authToken), false)
+  assert.equal(readyStatus.activeRunCount, 0)
+  assert.equal('adminToken' in readyStatus, false)
+  assert.equal(JSON.stringify(readyStatus).includes(first.adminToken), false)
 
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mcp-hub-'))
   const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', 'team')
   await mkdir(teamDirectory, { recursive: true })
-  const registration = await service.registerSession({
+  const registration = await service.ensureRunRegistered({
     workspaceRoot,
     statePath: join(teamDirectory, 'run.yaml'),
     allowedRoots: [workspaceRoot],
     registryRoots: [],
     actorId: 'multicode-app',
-    agentId: 'developer-1',
-    role: 'developer',
-    cli: 'codex',
   })
-  assert.equal(registration.headerName, 'X-Multicode-Session-Id')
-  assert.equal(registration.headers[registration.headerName], registration.sessionId)
-  assert.equal(service.status().activeSessionCount, 1)
-  await service.unregisterSession(registration.sessionId)
-  assert.equal(service.status().activeSessionCount, 0)
+  const duplicateRegistration = await service.ensureRunRegistered({
+    workspaceRoot,
+    statePath: join(teamDirectory, 'run.yaml'),
+    allowedRoots: [workspaceRoot],
+    registryRoots: [],
+    actorId: 'multicode-app',
+  })
+  assert.equal(registration.runId, duplicateRegistration.runId)
+  assert.equal(registration.runToken, duplicateRegistration.runToken)
+  assert.equal(duplicateRegistration.reused, true)
+  assert.ok(registration.runToken)
+  assert.equal(service.status().activeRunCount, 1)
+
+  const concurrentWorkspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mcp-hub-concurrent-'))
+  const concurrentTeamDirectory = join(concurrentWorkspaceRoot, '.multi-code', 'sprintengine', 'team')
+  await mkdir(concurrentTeamDirectory, { recursive: true })
+  const concurrentInput = {
+    workspaceRoot: concurrentWorkspaceRoot,
+    statePath: join(concurrentTeamDirectory, 'run.yaml'),
+    allowedRoots: [concurrentWorkspaceRoot],
+    registryRoots: [],
+    actorId: 'multicode-app',
+  }
+  const [concurrentFirst, concurrentSecond] = await Promise.all([
+    service.ensureRunRegistered(concurrentInput),
+    service.ensureRunRegistered(concurrentInput),
+  ])
+  assert.equal(concurrentFirst.runId, concurrentSecond.runId)
+  assert.equal(concurrentFirst.runToken, concurrentSecond.runToken)
+  assert.equal(concurrentSecond.reused, true)
+  assert.equal(service.status().activeRunCount, 2)
+  await service.unregisterRun(concurrentFirst.runId)
+  assert.equal(service.status().activeRunCount, 1)
+
+  await service.unregisterRun(registration.runId)
+  assert.equal(service.status().activeRunCount, 0)
 
   await service.stop()
 
   assert.equal(service.status().state, 'stopped')
-  assert.equal(process.env.MULTICODE_TEST_SPRINTENGINE_MCP_TOKEN, undefined)
   assert.equal(
     diagnostics.some((entry) => entry.scope === 'SprintEngineMcpHub' && entry.event === 'ready' && entry.payload.port === readyStatus.port),
     true,
     `expected sanitized ready diagnostic, got ${JSON.stringify(diagnostics)}`
   )
-  assert.equal(JSON.stringify(diagnostics).includes(first.authToken), false, 'hub diagnostics must not leak the bearer token')
+  assert.equal(JSON.stringify(diagnostics).includes(first.adminToken), false, 'hub diagnostics must not leak the admin token')
+  assert.equal(JSON.stringify(diagnostics).includes(registration.runToken), false, 'hub diagnostics must not leak run tokens')
 
   const failedService = createSprintEngineMcpHubService({
     runtimeRoot: () => null,
@@ -71,7 +97,7 @@ async function main(): Promise<void> {
     /Bundled Sprint Engine MCP runtime was not found/
   )
   assert.equal(failedService.status().state, 'failed')
-  assert.equal(failedService.status().activeSessionCount, 0)
+  assert.equal(failedService.status().activeRunCount, 0)
   assert.match(failedService.status().lastError ?? '', /Bundled Sprint Engine MCP runtime was not found/)
 
   const slowDiagnostics: Array<{ event: string; payload: Record<string, unknown> }> = []

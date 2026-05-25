@@ -2,13 +2,12 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { randomBytes } from 'crypto'
 import { existsSync } from 'fs'
 import http from 'http'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { findSprintEngineRuntimeRoot } from './mcp-config-service'
 
 export type SprintEngineMcpHubInfo = {
   url: string
-  authTokenEnvVar: string
-  authToken: string
+  adminToken: string
   pid?: number
 }
 
@@ -17,11 +16,11 @@ export type SprintEngineMcpHubStatus = {
   url?: string
   port?: number
   pid?: number
-  activeSessionCount: number
+  activeRunCount: number
   lastError?: string
 }
 
-export type SprintEngineMcpSessionRegistrationInput = {
+export type SprintEngineMcpRunRegistrationInput = {
   workspaceRoot: string
   statePath: string
   allowedRoots: string[]
@@ -29,21 +28,18 @@ export type SprintEngineMcpSessionRegistrationInput = {
   userRoot?: string
   actorId: string
   workspaceId?: string
-  agentId: string
-  role: string
-  cli: string
 }
 
-export type SprintEngineMcpSessionRegistration = {
-  sessionId: string
-  headerName: string
-  headers: Record<string, string>
+export type SprintEngineMcpRunRegistration = {
+  runId: string
+  runToken: string
+  reused?: boolean
 }
 
 export type SprintEngineMcpHubService = {
   ensureStarted(): Promise<SprintEngineMcpHubInfo>
-  registerSession(input: SprintEngineMcpSessionRegistrationInput): Promise<SprintEngineMcpSessionRegistration>
-  unregisterSession(sessionId: string): Promise<void>
+  ensureRunRegistered(input: SprintEngineMcpRunRegistrationInput): Promise<SprintEngineMcpRunRegistration>
+  unregisterRun(runId: string): Promise<void>
   stop(): Promise<void>
   status(): SprintEngineMcpHubStatus
 }
@@ -51,17 +47,13 @@ export type SprintEngineMcpHubService = {
 export type SprintEngineMcpHubOptions = {
   runtimeRoot?: () => string | null
   pythonCommand?: (runtimeRoot: string) => string
-  authTokenEnvVar?: string
   logMainPerfEvent?: (scope: string, event: string, payload: Record<string, unknown>) => void
   spawnProcess?: typeof spawn
 }
 
-const DEFAULT_AUTH_TOKEN_ENV_VAR = 'MULTICODE_SPRINTENGINE_MCP_TOKEN'
-
 export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptions = {}): SprintEngineMcpHubService {
   const runtimeRoot = options.runtimeRoot ?? findSprintEngineRuntimeRoot
   const pythonCommand = options.pythonCommand ?? defaultPythonCommand
-  const authTokenEnvVar = options.authTokenEnvVar ?? DEFAULT_AUTH_TOKEN_ENV_VAR
   const logMainPerfEvent = options.logMainPerfEvent
   const spawnProcess = options.spawnProcess ?? spawn
 
@@ -72,7 +64,8 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
   let pending: Promise<SprintEngineMcpHubInfo> | null = null
   let cancelPendingStart: (() => void) | null = null
   let stopping = false
-  const activeSessionIds = new Set<string>()
+  const activeRunsByKey = new Map<string, SprintEngineMcpRunRegistration>()
+  const pendingRunsByKey = new Map<string, Promise<SprintEngineMcpRunRegistration>>()
 
   async function ensureStarted(): Promise<SprintEngineMcpHubInfo> {
     if (state === 'ready' && child && !child.killed && info) return info
@@ -85,13 +78,37 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
     }
   }
 
-  async function registerSession(input: SprintEngineMcpSessionRegistrationInput): Promise<SprintEngineMcpSessionRegistration> {
+  async function ensureRunRegistered(input: SprintEngineMcpRunRegistrationInput): Promise<SprintEngineMcpRunRegistration> {
     const hub = await ensureStarted()
-    const sessionId = randomBytes(32).toString('base64url')
-    let response: { sessionId?: string; headerName?: string }
+    const runKey = runRegistrationKey(input)
+    const existing = activeRunsByKey.get(runKey)
+    if (existing) return { ...existing, reused: true }
+    const pendingRun = pendingRunsByKey.get(runKey)
+    if (pendingRun) {
+      const registration = await pendingRun
+      return { ...registration, reused: true }
+    }
+    const registrationPromise = registerRun(hub, runKey, input)
+    pendingRunsByKey.set(runKey, registrationPromise)
     try {
-      response = await postJson<{ sessionId?: string; headerName?: string }>(`${hub.url}/sessions`, hub.authToken, {
-        sessionId,
+      return await registrationPromise
+    } finally {
+      if (pendingRunsByKey.get(runKey) === registrationPromise) {
+        pendingRunsByKey.delete(runKey)
+      }
+    }
+  }
+
+  async function registerRun(
+    hub: SprintEngineMcpHubInfo,
+    runKey: string,
+    input: SprintEngineMcpRunRegistrationInput
+  ): Promise<SprintEngineMcpRunRegistration> {
+    const runId = randomBytes(32).toString('base64url')
+    let response: { runId?: string; runToken?: string }
+    try {
+      response = await postJson<{ runId?: string; runToken?: string }>(`${hub.url}/runs`, hub.adminToken, {
+        runId,
         workspaceRoot: input.workspaceRoot,
         statePath: input.statePath,
         allowedRoots: input.allowedRoots,
@@ -99,45 +116,43 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
         userRoot: input.userRoot,
         actorId: input.actorId,
         workspaceId: input.workspaceId,
-        agentId: input.agentId,
-        role: input.role,
-        cli: input.cli,
       })
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
-      logHubDiagnostic('session-register-failed', {
-        cli: input.cli,
-        role: input.role,
-        agentId: input.agentId,
+      logHubDiagnostic('run-register-failed', {
         workspaceId: input.workspaceId,
         message: lastError,
       })
       throw error
     }
-    const headerName = response.headerName || 'X-Multicode-Session-Id'
-    const registeredSessionId = response.sessionId || sessionId
-    activeSessionIds.add(registeredSessionId)
-    logHubDiagnostic('session-registered', {
-      cli: input.cli,
-      role: input.role,
-      agentId: input.agentId,
+    const registration = {
+      runId: response.runId || runId,
+      runToken: response.runToken || '',
+    }
+    if (!registration.runToken) {
+      throw new Error('Sprint Engine MCP run registration did not return a run token.')
+    }
+    activeRunsByKey.set(runKey, registration)
+    logHubDiagnostic('run-registered', {
       workspaceId: input.workspaceId,
     })
-    return {
-      sessionId: registeredSessionId,
-      headerName,
-      headers: { [headerName]: registeredSessionId },
-    }
+    return registration
   }
 
-  async function unregisterSession(sessionId: string): Promise<void> {
-    const hadSession = activeSessionIds.delete(sessionId)
-    if (!sessionId || !info) return
+  async function unregisterRun(runId: string): Promise<void> {
+    let hadRun = false
+    for (const [key, registration] of activeRunsByKey) {
+      if (registration.runId === runId) {
+        activeRunsByKey.delete(key)
+        hadRun = true
+      }
+    }
+    if (!runId || !info) return
     try {
-      await deleteSession(`${info.url}/sessions`, info.authToken, sessionId)
-      if (hadSession) logHubDiagnostic('session-unregistered', {})
+      await deleteRun(`${info.url}/runs`, info.adminToken, runId)
+      if (hadRun) logHubDiagnostic('run-unregistered', {})
     } catch {
-      // Session cleanup is best-effort; the hub process also dies on app shutdown.
+      // Run cleanup is best-effort; the hub process also dies on app shutdown.
     }
   }
 
@@ -150,7 +165,7 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
       throw new Error(lastError)
     }
     const python = pythonCommand(root)
-    const authToken = randomBytes(32).toString('base64url')
+    const adminToken = randomBytes(32).toString('base64url')
     state = 'starting'
     lastError = undefined
     logHubDiagnostic('starting', {})
@@ -161,8 +176,7 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
         PYTHONPATH: [root, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
         SPRINTENGINE_MCP_USER_ID: 'multicode-app',
         SPRINTENGINE_MCP_USER_AUTHORIZED: '1',
-        SPRINTENGINE_MCP_HTTP_TOKEN: authToken,
-        [authTokenEnvVar]: authToken,
+        SPRINTENGINE_MCP_HTTP_TOKEN: adminToken,
       },
     })
 
@@ -179,8 +193,8 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
         clearTimeout(timeout)
         child = null
         info = undefined
-        activeSessionIds.clear()
-        if (process.env[authTokenEnvVar] === authToken) delete process.env[authTokenEnvVar]
+        activeRunsByKey.clear()
+        pendingRunsByKey.clear()
         reject(new Error('Sprint Engine MCP HTTP hub startup was stopped.'))
       }
       cancelPendingStart = settleStopped
@@ -194,8 +208,8 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
         if (child && !child.killed) child.kill()
         child = null
         info = undefined
-        activeSessionIds.clear()
-        if (process.env[authTokenEnvVar] === authToken) delete process.env[authTokenEnvVar]
+        activeRunsByKey.clear()
+        pendingRunsByKey.clear()
         logHubDiagnostic('start-failed', { message: lastError })
         reject(error)
       }
@@ -214,8 +228,8 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
         lastError = `Sprint Engine MCP HTTP hub exited unexpectedly with code ${code ?? 'unknown'}.`
         child = null
         info = undefined
-        activeSessionIds.clear()
-        if (process.env[authTokenEnvVar] === authToken) delete process.env[authTokenEnvVar]
+        activeRunsByKey.clear()
+        pendingRunsByKey.clear()
         logHubDiagnostic('exited-unexpectedly', { message: lastError })
       })
       child?.stderr.on('data', (chunk: Buffer) => {
@@ -228,11 +242,9 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
           clearTimeout(timeout)
           info = {
             url: `http://${descriptor.host}:${descriptor.port}${descriptor.path || '/mcp'}`,
-            authTokenEnvVar,
-            authToken,
+            adminToken,
             pid: child?.pid,
           }
-          process.env[authTokenEnvVar] = authToken
           state = 'ready'
           settled = true
           cancelPendingStart = null
@@ -247,14 +259,13 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
 
   async function stop(): Promise<void> {
     const active = child
-    const activeToken = info?.authToken
     const cancelStart = cancelPendingStart
     cancelPendingStart = null
     info = undefined
     child = null
-    activeSessionIds.clear()
+    activeRunsByKey.clear()
+    pendingRunsByKey.clear()
     state = 'stopped'
-    if (activeToken && process.env[authTokenEnvVar] === activeToken) delete process.env[authTokenEnvVar]
     if (!active || active.killed) {
       cancelStart?.()
       return
@@ -278,8 +289,8 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
 
   return {
     ensureStarted,
-    registerSession,
-    unregisterSession,
+    ensureRunRegistered,
+    unregisterRun,
     stop,
     status,
   }
@@ -290,7 +301,7 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
       url: info?.url,
       port: info ? portFromUrl(info.url) : undefined,
       pid: info?.pid,
-      activeSessionCount: activeSessionIds.size,
+      activeRunCount: activeRunsByKey.size,
       lastError,
     }
   }
@@ -299,9 +310,13 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
     logMainPerfEvent?.('SprintEngineMcpHub', event, {
       ...status(),
       ...payload,
-      authTokenConfigured: Boolean(info?.authTokenEnvVar),
+      adminTokenConfigured: Boolean(info?.adminToken),
     })
   }
+}
+
+function runRegistrationKey(input: SprintEngineMcpRunRegistrationInput): string {
+  return resolve(input.statePath)
 }
 
 function defaultPythonCommand(runtimeRoot: string): string {
@@ -334,7 +349,7 @@ function postJson<T>(url: string, authToken: string, payload: Record<string, unk
       })
       response.on('end', () => {
         if ((response.statusCode ?? 500) < 200 || (response.statusCode ?? 500) >= 300) {
-          reject(new Error(formatHttpFailure('Sprint Engine MCP session registration', response.statusCode, raw)))
+          reject(new Error(formatHttpFailure('Sprint Engine MCP run registration', response.statusCode, raw)))
           return
         }
         try {
@@ -373,7 +388,7 @@ function portFromUrl(url: string): number | undefined {
   }
 }
 
-function deleteSession(url: string, authToken: string, sessionId: string): Promise<void> {
+function deleteRun(url: string, authToken: string, runId: string): Promise<void> {
   const target = new URL(url)
   return new Promise((resolve, reject) => {
     const request = http.request({
@@ -383,13 +398,13 @@ function deleteSession(url: string, authToken: string, sessionId: string): Promi
       method: 'DELETE',
       headers: {
         Authorization: `Bearer ${authToken}`,
-        'X-Multicode-Session-Id': sessionId,
+        'X-Multicode-Run-Id': runId,
       },
     }, (response) => {
       response.resume()
       response.on('end', () => {
         if ((response.statusCode ?? 500) < 200 || (response.statusCode ?? 500) >= 300) {
-          reject(new Error(`Sprint Engine MCP session cleanup failed with HTTP ${response.statusCode ?? 'unknown'}.`))
+          reject(new Error(`Sprint Engine MCP run cleanup failed with HTTP ${response.statusCode ?? 'unknown'}.`))
           return
         }
         resolve()

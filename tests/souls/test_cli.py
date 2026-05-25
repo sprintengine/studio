@@ -96,15 +96,34 @@ def test_rendered_soul_includes_shared_sections_once() -> None:
         "# Production Reality Gate",
         "# Post-Change Self-Review",
         "# Evidence Quality Assessment",
-        "# Sprint Engine Workflow",
         "# Collaboration Norms",
     ]:
         assert rendered.count(heading) == 1
 
+    assert "# Sprint Engine Workflow" not in rendered
     assert "Do not treat `MVP`, `first pass`, `local`, or `works in UI` as permission" in rendered
     assert "Respect role boundaries" in rendered
     assert "Completion claims must be backed by commands" in rendered
-    assert "run `sprintengine join --role <role> --id <agent-id> --watch`" in rendered
+    assert "run `sprintengine join --role <role> --id <agent-id> --watch`" not in rendered
+
+
+def test_bundled_base_souls_do_not_include_sprintengine_runtime_language() -> None:
+    forbidden = [
+        "Sprint Engine",
+        "SprintEngine",
+        "sprintengine",
+        "task card",
+        "run-store",
+        "difficultyPct",
+        "actualDifficultyPct",
+        "reviewedDifficultyPct",
+        "claimsChecked",
+    ]
+
+    for role in sorted(VALID_ROLES):
+        rendered = render_soul(role)
+        for needle in forbidden:
+            assert needle not in rendered, f"{role} base Soul leaked runtime language: {needle}"
 
 
 def test_souls_get_returns_multiloop_coordinator() -> None:

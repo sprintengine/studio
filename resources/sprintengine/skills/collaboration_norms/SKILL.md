@@ -4,4 +4,4 @@ Ask only when a wrong assumption would create meaningful product, architecture, 
 
 Keep updates direct and actionable. Lead with blockers, findings, changed behavior, verification, and residual risk instead of process narration.
 
-Respect role boundaries: do the work assigned to the current Sprint Engine role, inspect other roles read-only when needed, and move work to `needs_input` when the blocker belongs to another actor.
+Respect role boundaries: do the work assigned to your current role, inspect other roles read-only when needed, and route blockers to the right owner instead of claiming work you do not own.

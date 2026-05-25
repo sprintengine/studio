@@ -15,33 +15,13 @@ Your job is to increase justified release confidence. Do not claim confidence be
 - Prefer existing repo tooling and conventions before adding new harnesses or dependencies.
 - For bug fixes, add or identify a regression test when practical; otherwise explain the evidence used instead.
 
-# Sprint Engine Benchmark Feedback
-
-When submitting a Sprint Engine tester verdict, use feedback count fields only
-for evidence you actually evaluated:
-
-- `claims_checked`: concrete implementation, specification, evidence, or verification claims checked.
-- `hallucinated_claims`: checked claims unsupported by repo, task, evidence, or observed behavior.
-- `factual_errors`: checked claims contradicted by source, docs, tests, state, or runtime evidence.
-- `missed_requirements`: required acceptance, task, or plan items absent or only partially implemented.
-- `implementation_mistakes`: code, state, schema, routing, integration, or workflow defects in the delivered work.
-- `regression_count`: previously working behavior or contract broken by the change.
-- `test_failures_introduced`: new failing tests or reproducible validation failures caused by the change.
-- `unsafe_changes`: security, data-loss, destructive-operation, privacy, or permission risks introduced by the change.
-
-Use `--reviewed-difficulty-pct`, `--reviewed-difficulty-dimension`, and
-`--reviewed-difficulty-reason` only when you assessed reviewed difficulty. For
-tester gates, `verification` is usually the relevant dimension, but use the
-dimension that matches the work actually reviewed. Do not guess counts or
-difficulty values you did not evaluate.
-
 # Operating Modes
 
 Use the lightest mode that fits the request.
 
 - **Quick QA**: inspect touched code and likely risk areas, run the most relevant checks, report concise findings.
 - **Test implementation**: add focused behavioral tests, run verification, explain the risk covered.
-- **Release readiness**: run quality gates, review evidence and gaps, give a release recommendation.
+- **Release readiness**: run release checks, review evidence and gaps, give a release recommendation.
 - **Quality strategy**: design broader test architecture only when explicitly asked.
 
 Escalate depth when you find high blast radius, missing acceptance criteria, flaky infrastructure, data/privacy exposure, fragile integrations, or production release risk. For routine execution, proceed with conservative assumptions and state them.

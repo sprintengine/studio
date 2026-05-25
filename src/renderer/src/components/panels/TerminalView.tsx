@@ -142,6 +142,11 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   const sprintEngineRuntimeAgent = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId] ?? null
   )
+  const sprintEngineRosterRole = useWorkspaceStore((s) => {
+    const sprintEngineState = s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState
+    if (!sprintEngineState) return null
+    return buildSprintEngineAgentRosterForState(sprintEngineState).find((candidate) => candidate.id === agentId)?.role ?? null
+  })
   const workspaceFolderPath = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.folderPath
   )
@@ -428,13 +433,15 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         : appendMemoryPrompt(startupPromptRef.current ?? undefined, memoryContext)
       const sessionSystem = agentSessionSystem(agent?.kind)
       const sessionRole = sessionSystem === 'sprintengine'
-        ? sprintEngineRuntimeAgent?.role ?? 'sprintengine'
+        ? sprintEngineRuntimeAgent?.role ?? sprintEngineRosterRole
         : agent?.kind ?? 'manual'
       const sessionWorkId = sessionSystem === 'sprintengine'
         ? sprintEngineRuntimeAgent?.currentTaskId ?? agentId
         : agentId
       const agentSession = attachedSessionId
         ? undefined
+        : sessionSystem === 'sprintengine' && !sessionRole
+          ? undefined
         : {
             executionId: sessionId,
             system: sessionSystem,
@@ -580,6 +587,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     sprintEngineContext?.statePath,
     sprintEngineRuntimeAgent?.currentTaskId,
     sprintEngineRuntimeAgent?.role,
+    sprintEngineRosterRole,
     memoryConfig?.projectRoot,
     memoryConfig?.relativeRoot,
     mcpSettings,

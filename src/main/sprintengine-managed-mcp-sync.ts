@@ -3,21 +3,25 @@ import type { SprintEngineMcpHubService } from './sprintengine-mcp-hub'
 import type { McpSyncInput } from '../shared/electron-api'
 
 export type ManagedSprintEngineMcpSyncResult =
-  | { ok: true; managedSprintEngineSessionId?: string }
+  | { ok: true; managedSprintEngineRunId?: string; runTokenEnv?: Record<string, string> }
   | { ok: false; message: string }
+
+export const MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR = 'MULTICODE_SPRINTENGINE_MCP_RUN_TOKEN'
 
 export async function syncManagedSprintEngineMcpConfig(
   input: McpSyncInput,
   deps: {
     mcpConfigService: Pick<McpConfigService, 'sync'>
-    sprintEngineMcpHub: Pick<SprintEngineMcpHubService, 'ensureStarted' | 'registerSession' | 'unregisterSession'>
+    sprintEngineMcpHub: Pick<SprintEngineMcpHubService, 'ensureStarted' | 'ensureRunRegistered' | 'unregisterRun'>
   }
 ): Promise<ManagedSprintEngineMcpSyncResult> {
   let syncInput = input
-  let registeredSessionId: string | undefined
+  let registeredRunId: string | undefined
+  let registeredRunWasCreated = false
+  let runToken: string | undefined
   if (input.managedSprintEngine) {
     const hub = await deps.sprintEngineMcpHub.ensureStarted()
-    const session = await deps.sprintEngineMcpHub.registerSession({
+    const run = await deps.sprintEngineMcpHub.ensureRunRegistered({
       workspaceRoot: input.managedSprintEngine.workspaceRoot || input.workspaceRoot,
       statePath: input.managedSprintEngine.statePath,
       allowedRoots: input.managedSprintEngine.allowedRoots || [input.managedSprintEngine.workspaceRoot || input.workspaceRoot],
@@ -25,19 +29,17 @@ export async function syncManagedSprintEngineMcpConfig(
       userRoot: input.managedSprintEngine.userRoot,
       actorId: input.managedSprintEngine.actorId || 'multicode-app',
       workspaceId: input.managedSprintEngine.workspaceId,
-      agentId: input.managedSprintEngine.agentId || 'agent',
-      role: input.managedSprintEngine.role || 'agent',
-      cli: input.managedSprintEngine.cli || input.clients?.[0] || 'codex',
     })
-    registeredSessionId = session.sessionId
+    registeredRunId = run.runId
+    registeredRunWasCreated = !run.reused
+    runToken = run.runToken
     syncInput = {
       ...input,
       managedSprintEngine: {
         ...input.managedSprintEngine,
         http: {
           url: hub.url,
-          authTokenEnvVar: hub.authTokenEnvVar,
-          headers: session.headers,
+          authTokenEnvVar: MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR,
         },
       },
     }
@@ -47,12 +49,16 @@ export async function syncManagedSprintEngineMcpConfig(
   try {
     result = deps.mcpConfigService.sync(syncInput)
   } catch (error) {
-    if (registeredSessionId) await deps.sprintEngineMcpHub.unregisterSession(registeredSessionId)
+    if (registeredRunId && registeredRunWasCreated) await deps.sprintEngineMcpHub.unregisterRun(registeredRunId)
     throw error
   }
   if (!result.ok) {
-    if (registeredSessionId) await deps.sprintEngineMcpHub.unregisterSession(registeredSessionId)
+    if (registeredRunId && registeredRunWasCreated) await deps.sprintEngineMcpHub.unregisterRun(registeredRunId)
     return { ok: false, message: result.message }
   }
-  return { ok: true, managedSprintEngineSessionId: registeredSessionId }
+  return {
+    ok: true,
+    managedSprintEngineRunId: registeredRunId,
+    runTokenEnv: runToken ? { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: runToken } : undefined,
+  }
 }

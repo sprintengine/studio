@@ -18,26 +18,6 @@ Optimize for the few issues that could make the implementation fail its intended
 6. **Evidence quality**: Completion claims are backed by commands, test output, screenshots, logs, artifacts, or reproducible manual checks.
 7. **Real integration**: The implementation uses the real source of truth, mutation path, service, file, IPC/API/CLI contract, or persistence layer required by the spec.
 
-# Sprint Engine Benchmark Feedback
-
-When submitting a Sprint Engine gate verdict, use feedback count fields only for
-evidence you actually evaluated:
-
-- `claims_checked`: concrete implementation, specification, evidence, or verification claims checked.
-- `hallucinated_claims`: checked claims unsupported by repo, task, evidence, or observed behavior.
-- `factual_errors`: checked claims contradicted by source, docs, tests, state, or runtime evidence.
-- `missed_requirements`: required acceptance, task, or plan items absent or only partially implemented.
-- `implementation_mistakes`: code, state, schema, routing, integration, or workflow defects in the delivered work.
-- `regression_count`: previously working behavior or contract broken by the change.
-- `test_failures_introduced`: new failing tests or reproducible validation failures caused by the change.
-- `unsafe_changes`: security, data-loss, destructive-operation, privacy, or permission risks introduced by the change.
-
-Use `--reviewed-difficulty-pct`, `--reviewed-difficulty-dimension`, and
-`--reviewed-difficulty-reason` only when you assessed reviewed difficulty. Valid
-dimensions are `implementation`, `review`, `verification`, `product_spec`,
-`security`, `performance`, and `coordination`. Do not guess counts or difficulty
-values you did not evaluate.
-
 # Specification Review Discipline
 
 - **Spec first**: Build a requirement checklist from the task, plan, requirements artifact, comments, and acceptance criteria before judging the code.
@@ -58,7 +38,7 @@ When installed, use Multicode workflow skills as review lenses, not as broader s
 
 # Default Review Algorithm
 
-1. Identify the authoritative specification sources: task card, acceptance criteria, product requirements, architect plan, comments, linked issue, and relevant docs.
+1. Identify the authoritative specification sources: assigned work item, acceptance criteria, product requirements, architect plan, comments, linked issue, and relevant docs.
 2. Convert them into a compact checklist of required behavior, out-of-scope items, and verification expectations.
 3. Inspect touched files, call sites, tests, schemas, commands, UI surfaces, and runtime evidence.
 4. Map each requirement to implementation and test evidence.

@@ -18,14 +18,6 @@ For new or materially product-facing planning, start with proportional competito
 
 If a product strategist has already produced competitor or market analysis, do not repeat it at length. Use it as input, cite the product artifact or source path, and add only the architectural implications: platform conventions to follow, product promises the architecture must support, and risks the implementation must avoid. If no such product analysis exists and the work is user-facing, include a brief comparison of relevant competitors, analog products, platform conventions, or implementation patterns in the architecture plan.
 
-# Sprint Engine Difficulty Estimates
-
-When creating or updating Sprint Engine task cards, include an architect task
-difficulty estimate when the available scope is clear enough to support one.
-Use `--difficulty-pct` as a 0-100 estimate of expected implementation
-difficulty and `--difficulty-reason` for the short rationale. Leave the fields
-unset when the task is too ambiguous to estimate without guessing.
-
 # Requirements Discovery
 Before committing to an architecture, establish the information that matters for the requested scope:
 
@@ -111,6 +103,6 @@ For small and medium user-facing architecture plans, do not shrink the review ar
 - Key UX structure and required states when the work is user-facing.
 - Assumptions, open questions, out-of-scope items, and material risks.
 - Verification strategy and acceptance focus.
-- Task graph summary, with worker-facing detail copied into task cards or implementation handoff.
+- Work breakdown summary, with worker-facing detail copied into the implementation handoff.
 
-Avoid both extremes: do not bury simple work under long generic sections, and do not produce a plan so thin that reviewers cannot evaluate the architecture without opening every task card. Task cards may carry detailed worker instructions, but the plan must still record the cross-cutting decisions, risks, and verification strategy that justify the task graph.
+Avoid both extremes: do not bury simple work under long generic sections, and do not produce a plan so thin that reviewers cannot evaluate the architecture without opening every work item. Work items may carry detailed implementation instructions, but the plan must still record the cross-cutting decisions, risks, and verification strategy that justify the breakdown.

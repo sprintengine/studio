@@ -19,7 +19,7 @@ The KG is opt-in per workspace. Respect the user's choice when it is unset.
 
 ## Update Workflow (when KG is configured)
 
-Treat KG updates as part of acceptance evidence, not as follow-up work. The update happens in the same `sprintengine.task.publish` as the source change.
+Treat KG updates as part of acceptance evidence, not as follow-up work. The update happens in the same work handoff as the source change.
 
 Update an existing note when your work changes any of:
 
@@ -30,7 +30,7 @@ Update an existing note when your work changes any of:
 
 Create a new note only for a durable concept that does not fit an existing page. New notes must be linked from `<kg-root>/README.md`, an ecosystem map, or the most relevant existing note via `[[wikilinks]]`.
 
-Log the KG note path in `sprintengine.task.log` `file` evidence alongside the source files you touched. Reviewers use that evidence to confirm the KG stayed in sync with the change.
+Log the KG note path as file evidence alongside the source files you touched. Reviewers use that evidence to confirm the KG stayed in sync with the change.
 
 ## Do Not Store
 
