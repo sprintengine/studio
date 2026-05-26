@@ -607,9 +607,15 @@ async function writeSprintEngineFixture(): Promise<{ workspaceRoot: string; stat
   const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', 'relay-team')
   await mkdir(join(teamDirectory, 'documents'), { recursive: true })
   await writeFile(join(teamDirectory, 'documents', 'requirements.md'), '# Requirements\n', 'utf8')
-  const statePath = join(teamDirectory, 'state.yaml')
-  await writeFile(statePath, `${JSON.stringify({
-    sprintengine: {
+  const statePath = join(teamDirectory, 'run.yaml')
+  await writeFile(statePath, 'managed sprintengine fixture\n', 'utf8')
+  await writeFile(join(teamDirectory, 'projection.json'), `${JSON.stringify({
+    ok: true,
+    projectionVersion: 1,
+    source: 'folder_store',
+    updatedAt: now.toISOString(),
+    run: {
+      id: 'relay-team',
       name: 'relay-team',
       updatedAt: now.toISOString(),
     },
@@ -618,7 +624,8 @@ async function writeSprintEngineFixture(): Promise<{ workspaceRoot: string; stat
         id: 'T1',
         title: 'Ready task',
         role: 'developer',
-        status: 'todo',
+        status: 'ready',
+        stateStatus: 'todo',
         ownerAgentId: null,
         dependsOn: [],
       },
@@ -633,6 +640,7 @@ async function writeSprintEngineFixture(): Promise<{ workspaceRoot: string; stat
         taskId: 'T1',
       },
     ],
+    roster: {},
   }, null, 2)}\n`, 'utf8')
   return { workspaceRoot, statePath }
 }

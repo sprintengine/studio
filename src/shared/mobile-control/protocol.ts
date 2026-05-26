@@ -235,6 +235,61 @@ export interface MobileControlTaskRelease {
   reason?: string;
 }
 
+export type MobileControlQualityGatePhase = "review" | "testing" | "product";
+export type MobileControlQualityGateStatus = "pending" | "in_progress" | "approved" | "changes_requested" | "blocked" | "skipped";
+export type MobileControlTaskCommentType =
+  | "implementation_summary"
+  | "implementation_response"
+  | "review_feedback"
+  | "test_feedback"
+  | "product_feedback"
+  | "architect_feedback"
+  | "needs_input"
+  | "user_note"
+  | "system_note";
+
+export interface MobileControlSprintEngineQualityPolicy {
+  enabled: boolean;
+  rosterDriven: boolean;
+  lifecyclePhases: MobileControlQualityGatePhase[];
+}
+
+export interface MobileControlSprintEngineQualityGateSummary {
+  total: number;
+  required: number;
+  openRequired: number;
+  byPhase: Partial<Record<MobileControlQualityGatePhase, number>>;
+  byStatus: Partial<Record<MobileControlQualityGateStatus, number>>;
+}
+
+export interface MobileControlSprintEngineQualityGate {
+  id: string;
+  phase: MobileControlQualityGatePhase;
+  role: string;
+  status: MobileControlQualityGateStatus;
+  required: boolean;
+  attemptCount: number;
+  latestVerdict?: string;
+}
+
+export interface MobileControlTaskCommentSummary {
+  id: string;
+  type?: MobileControlTaskCommentType;
+  actor: string;
+  authorRole?: string;
+  body: string;
+  createdAt?: string;
+}
+
+export interface MobileControlRecordedArtifactSummary {
+  id: string;
+  kind?: string;
+  title?: string;
+  path?: string;
+  gateId?: string;
+  createdAt?: string;
+}
+
 export interface MobileControlTaskSnapshot {
   taskId: string;
   title: string;
@@ -247,6 +302,11 @@ export interface MobileControlTaskSnapshot {
   feedback?: MobileControlTaskFeedback;
   reviewSignals?: MobileControlTaskReviewSignals;
   release?: MobileControlTaskRelease;
+  qualityGateSummary?: MobileControlSprintEngineQualityGateSummary;
+  qualityGates?: MobileControlSprintEngineQualityGate[];
+  latestComments?: MobileControlTaskCommentSummary[];
+  latestOpenFeedback?: MobileControlTaskCommentSummary[];
+  recordedArtifacts?: MobileControlRecordedArtifactSummary[];
 }
 
 export interface MobileControlRosterEntry {
@@ -321,6 +381,7 @@ export interface MobileControlSprintEngineSnapshot {
     blocked: number;
     done: number;
   };
+  qualityPolicy?: MobileControlSprintEngineQualityPolicy;
   tasks: MobileControlTaskSnapshot[];
   artifacts: MobileControlArtifactSnapshot[];
   roster?: Record<string, MobileControlRosterEntry>;
@@ -347,6 +408,7 @@ export interface MobileControlSprintEngineWorkspaceDetail {
   roster?: Record<string, MobileControlRosterEntry>;
   runSummary?: Record<string, string | number | boolean | null>;
   planReview?: Record<string, string | number | boolean | null>;
+  qualityPolicy?: MobileControlSprintEngineQualityPolicy;
 }
 
 export interface MobileControlSwitchboardSourceSummary {
@@ -630,6 +692,19 @@ const artifactPreviewModes = ["text", "markdown", "restrictedHtml"] as const sat
 const devicePlatforms = ["ios", "android", "web"] as const satisfies readonly MobileControlDevicePlatform[];
 const taskStatuses = ["todo", "ready", "in_progress", "review", "testing", "product", "changes_requested", "needs_input", "blocked", "done"] as const;
 const artifactStatuses = ["draft", "ready_for_review", "approved", "changes_requested"] as const;
+const qualityGatePhases = ["review", "testing", "product"] as const satisfies readonly MobileControlQualityGatePhase[];
+const qualityGateStatuses = ["pending", "in_progress", "approved", "changes_requested", "blocked", "skipped"] as const satisfies readonly MobileControlQualityGateStatus[];
+const taskCommentTypes = [
+  "implementation_summary",
+  "implementation_response",
+  "review_feedback",
+  "test_feedback",
+  "product_feedback",
+  "architect_feedback",
+  "needs_input",
+  "user_note",
+  "system_note",
+] as const satisfies readonly MobileControlTaskCommentType[];
 const presenceValues = ["online", "offline", "revoked"] as const;
 const severityValues = ["info", "warning", "error"] as const;
 const worktreeIsolationValues = ["required", "preferred", "disabled"] as const;
@@ -1078,6 +1153,7 @@ function validateSprintEngineSnapshot(input: unknown): string | null {
     validateOptionalRoster(sprintEngine.value.roster, "snapshot.sprintEngine.roster") ??
     validateOptionalRecordSummary(sprintEngine.value.runSummary, "snapshot.sprintEngine.runSummary") ??
     validateOptionalRecordSummary(sprintEngine.value.planReview, "snapshot.sprintEngine.planReview") ??
+    validateOptionalQualityPolicy(sprintEngine.value.qualityPolicy, "snapshot.sprintEngine.qualityPolicy") ??
     validateOptionalLockState(sprintEngine.value.locks, "snapshot.sprintEngine.locks") ??
     validateOptionalActivitySummary(sprintEngine.value.activity, "snapshot.sprintEngine.activity") ??
     validateOptionalProjectionCounts(sprintEngine.value.counts, "snapshot.sprintEngine.counts")
@@ -1217,7 +1293,12 @@ function validateTaskSnapshot(input: unknown): string | null {
     validateOptionalTaskEvidence(task.value.evidence) ??
     validateOptionalTaskFeedback(task.value.feedback) ??
     validateOptionalReviewSignals(task.value.reviewSignals) ??
-    validateOptionalTaskRelease(task.value.release)
+    validateOptionalTaskRelease(task.value.release) ??
+    validateOptionalQualityGateSummary(task.value.qualityGateSummary) ??
+    validateOptionalArray(task.value.qualityGates, "task.qualityGates", validateQualityGate) ??
+    validateOptionalArray(task.value.latestComments, "task.latestComments", validateTaskCommentSummary) ??
+    validateOptionalArray(task.value.latestOpenFeedback, "task.latestOpenFeedback", validateTaskCommentSummary) ??
+    validateOptionalArray(task.value.recordedArtifacts, "task.recordedArtifacts", validateRecordedArtifactSummary)
   );
 }
 
@@ -1292,6 +1373,85 @@ function validateOptionalTaskRelease(input: unknown): string | null {
     return release.error;
   }
   return optionalString(release.value, "requestedBy") ?? optionalString(release.value, "reason");
+}
+
+function validateOptionalQualityPolicy(input: unknown, fieldName: string): string | null {
+  if (input === undefined) {
+    return null;
+  }
+  const policy = validateObject(input, fieldName);
+  if (policy.ok === false) {
+    return policy.error;
+  }
+  return (
+    requireBoolean(policy.value, "enabled") ??
+    requireBoolean(policy.value, "rosterDriven") ??
+    requireArray(policy.value, "lifecyclePhases") ??
+    validateStringLiteralArray(policy.value.lifecyclePhases, qualityGatePhases, `${fieldName}.lifecyclePhases`)
+  );
+}
+
+function validateOptionalQualityGateSummary(input: unknown): string | null {
+  if (input === undefined) {
+    return null;
+  }
+  const summary = validateObject(input, "task.qualityGateSummary");
+  if (summary.ok === false) {
+    return summary.error;
+  }
+  return (
+    requireNonNegativeInteger(summary.value, "total") ??
+    requireNonNegativeInteger(summary.value, "required") ??
+    requireNonNegativeInteger(summary.value, "openRequired") ??
+    validateOptionalNumberRecord(summary.value.byPhase, "task.qualityGateSummary.byPhase", qualityGatePhases) ??
+    validateOptionalNumberRecord(summary.value.byStatus, "task.qualityGateSummary.byStatus", qualityGateStatuses)
+  );
+}
+
+function validateQualityGate(input: unknown, fieldName: string): string | null {
+  const gate = validateObject(input, fieldName);
+  if (gate.ok === false) {
+    return gate.error;
+  }
+  return (
+    requireString(gate.value, "id") ??
+    requireLiteral(gate.value, "phase", qualityGatePhases) ??
+    requireString(gate.value, "role") ??
+    requireLiteral(gate.value, "status", qualityGateStatuses) ??
+    requireBoolean(gate.value, "required") ??
+    requireNonNegativeInteger(gate.value, "attemptCount") ??
+    optionalString(gate.value, "latestVerdict")
+  );
+}
+
+function validateTaskCommentSummary(input: unknown, fieldName: string): string | null {
+  const comment = validateObject(input, fieldName);
+  if (comment.ok === false) {
+    return comment.error;
+  }
+  return (
+    requireString(comment.value, "id") ??
+    optionalLiteral(comment.value, "type", taskCommentTypes, `${fieldName}.type`) ??
+    requireString(comment.value, "actor") ??
+    optionalString(comment.value, "authorRole") ??
+    requireString(comment.value, "body") ??
+    optionalIsoDate(comment.value, "createdAt")
+  );
+}
+
+function validateRecordedArtifactSummary(input: unknown, fieldName: string): string | null {
+  const artifact = validateObject(input, fieldName);
+  if (artifact.ok === false) {
+    return artifact.error;
+  }
+  return (
+    requireString(artifact.value, "id") ??
+    optionalString(artifact.value, "kind") ??
+    optionalString(artifact.value, "title") ??
+    optionalString(artifact.value, "path") ??
+    optionalString(artifact.value, "gateId") ??
+    optionalIsoDate(artifact.value, "createdAt")
+  );
 }
 
 function validateArtifactSnapshot(input: unknown): string | null {
@@ -1410,7 +1570,8 @@ function validateWorkspaceDetail(kind: MobileControlWorkspaceKind, input: unknow
         validateBoardCounts(board.value, "workspace.detail.data.board") ??
         validateOptionalRoster(data.value.roster, "workspace.detail.data.roster") ??
         validateOptionalRecordSummary(data.value.runSummary, "workspace.detail.data.runSummary") ??
-        validateOptionalRecordSummary(data.value.planReview, "workspace.detail.data.planReview")
+        validateOptionalRecordSummary(data.value.planReview, "workspace.detail.data.planReview") ??
+        validateOptionalQualityPolicy(data.value.qualityPolicy, "workspace.detail.data.qualityPolicy")
       );
     }
     case "switchboard":
@@ -1701,6 +1862,32 @@ function optionalNumberRecord(record: Record<string, unknown>, field: string): s
   for (const [key, value] of Object.entries(object.value)) {
     if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
       return `${field}.${key} must be a non-negative integer`;
+    }
+  }
+
+  return null;
+}
+
+function validateOptionalNumberRecord<const Keys extends readonly string[]>(
+  input: unknown,
+  fieldName: string,
+  allowedKeys: Keys,
+): string | null {
+  if (input === undefined) {
+    return null;
+  }
+
+  const object = validateObject(input, fieldName);
+  if (object.ok === false) {
+    return object.error;
+  }
+
+  for (const [key, value] of Object.entries(object.value)) {
+    if (!isOneOf(key, allowedKeys)) {
+      return `${fieldName}.${key} is not supported`;
+    }
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+      return `${fieldName}.${key} must be a non-negative integer`;
     }
   }
 

@@ -65,6 +65,11 @@ const validSnapshot: MobileControlSnapshot = {
         blocked: 0,
         done: 4,
       },
+      qualityPolicy: {
+        enabled: true,
+        rosterDriven: true,
+        lifecyclePhases: ["review", "testing"],
+      },
       tasks: [
         {
           taskId: "T3",
@@ -73,6 +78,54 @@ const validSnapshot: MobileControlSnapshot = {
           status: "in_progress",
           ownerAgentId: "developer-2",
           dependsOn: ["T1"],
+          qualityGateSummary: {
+            total: 2,
+            required: 2,
+            openRequired: 1,
+            byPhase: { review: 1, testing: 1 },
+            byStatus: { approved: 1, pending: 1 },
+          },
+          qualityGates: [
+            {
+              id: "code_reviewer",
+              phase: "review",
+              role: "code_reviewer",
+              status: "approved",
+              required: true,
+              attemptCount: 1,
+              latestVerdict: "approved",
+            },
+          ],
+          latestComments: [
+            {
+              id: "C1",
+              type: "implementation_summary",
+              actor: "developer-2",
+              authorRole: "developer",
+              body: "Implemented the bridge update.",
+              createdAt: now,
+            },
+          ],
+          latestOpenFeedback: [
+            {
+              id: "C2",
+              type: "review_feedback",
+              actor: "code_reviewer",
+              authorRole: "code_reviewer",
+              body: "Add one regression test.",
+              createdAt: now,
+            },
+          ],
+          recordedArtifacts: [
+            {
+              id: "R1",
+              kind: "code_review",
+              title: "Code review",
+              path: ".multi-code/sprintengine/team/reviews/code-review.md",
+              gateId: "code_reviewer",
+              createdAt: now,
+            },
+          ],
         },
       ],
       artifacts: [
@@ -121,6 +174,11 @@ const validSnapshot: MobileControlSnapshot = {
             needsInput: 0,
             blocked: 0,
             done: 4,
+          },
+          qualityPolicy: {
+            enabled: true,
+            rosterDriven: true,
+            lifecyclePhases: ["review", "testing"],
           },
         },
       },

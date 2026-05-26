@@ -50,7 +50,7 @@ async function main(): Promise<void> {
     managedSprintEngineRunId: 'registered-run',
     runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'run-token' },
   })
-  assert.deepEqual(unregistered, [])
+  assert.deepEqual([...unregistered], [])
   assert.equal(syncInputs[0]?.managedSprintEngine?.http?.authTokenEnvVar, MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR)
   assert.equal(
     JSON.stringify(syncInputs[0]).includes('run-token'),
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
     /config write failed/
   )
 
-  assert.deepEqual(unregistered, ['registered-run'])
+  assert.deepEqual([...unregistered], ['registered-run'])
   assert.equal(syncInputs[0]?.managedSprintEngine?.http?.authTokenEnvVar, MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR)
   assert.equal(
     JSON.stringify(syncInputs[0]).includes('run-token'),
@@ -117,7 +117,7 @@ async function main(): Promise<void> {
     }),
     /config write failed for reused run/
   )
-  assert.deepEqual(unregistered, [], 'config failure must not unregister an existing shared run token')
+  assert.deepEqual([...unregistered], [], 'config failure must not unregister an existing shared run token')
 }
 
 main().catch((error) => {
