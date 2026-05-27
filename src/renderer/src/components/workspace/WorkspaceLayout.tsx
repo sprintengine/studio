@@ -34,6 +34,7 @@ import type { FuturePlanWorkspaceSource, HighlightColor, SprintEngineRole, Sprin
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
+import { disableSprintEngineAutoRun } from '../../utils/sprintengineSupervisorNotifications'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import { StatusDot, type Tone } from '../ui'
@@ -201,7 +202,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const setActiveFile = useWorkspaceStore((s) => s.setActiveFile)
   const closeFile = useWorkspaceStore((s) => s.closeFile)
-  const setSprintEngineAutoEnabled = useWorkspaceStore((s) => s.setSprintEngineAutoEnabled)
   // Keep a stable Model instance per workspace — re-creating it destroys drag/resize state
   const modelRef = useRef<Model | null>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
@@ -464,7 +464,9 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           void window.api.terminalKill(sessionId).catch(() => {})
         })
         if (agent) {
-          if (agent.kind === 'sprintengine') setSprintEngineAutoEnabled(workspaceId, false)
+          if (agent.kind === 'sprintengine') {
+            disableSprintEngineAutoRun(workspaceId, 'agent_terminal_closed', { agentId })
+          }
           updateAgent(workspaceId, agentId, {
             cliStartRequested: false,
             cliHasLaunched: false,
@@ -492,7 +494,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         })
       }
     },
-    [closeFile, setSprintEngineAutoEnabled, terminalSessions, updateAgent, workspace.agents, workspaceId]
+    [closeFile, terminalSessions, updateAgent, workspace.agents, workspaceId]
   )
 
   const handleAction = useCallback(

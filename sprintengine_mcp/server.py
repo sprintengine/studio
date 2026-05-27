@@ -12,7 +12,7 @@ import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any
 
 from sprintengine_core.analysis import analyze_feedback_metrics
 from sprintengine_core.audit import record_audit_event
@@ -29,51 +29,9 @@ from sprintengine_core.role_registry import (
     normalize_role_id,
 )
 from sprintengine_core.tool import (
-    FEEDBACK_COUNT_FIELDS,
-    FEEDBACK_SCORE_FIELDS,
-    FEEDBACK_TEXT_FIELDS,
-    build_agent_next_directive,
-    cmd_artifact_add,
-    cmd_artifact_approve,
-    cmd_artifact_list,
-    cmd_artifact_ready,
-    cmd_artifact_request_changes,
     cmd_handover,
-    cmd_init,
-    cmd_join,
-    cmd_plan_add_dependency,
-    cmd_plan_add_task,
-    cmd_plan_address_reviews,
-    cmd_plan_delete_task,
-    cmd_plan_list,
-    cmd_plan_remove_dependency,
-    cmd_plan_review_status,
-    cmd_plan_start_review,
-    cmd_plan_update_task,
-    cmd_recover,
-    cmd_roster_add,
-    cmd_roster_list,
-    cmd_roster_replenish,
-    cmd_roster_retire,
-    cmd_summary,
-    cmd_triage_needs_input,
-    cmd_task_claim,
-    cmd_task_comment_list,
-    cmd_task_gate_claim,
-    cmd_task_gate_list,
-    cmd_task_gate_next,
-    cmd_task_gate_verdict,
-    cmd_task_list,
-    cmd_task_log,
-    cmd_task_next,
-    cmd_task_note,
-    cmd_task_publish,
     cmd_task_comment,
-    cmd_task_ready,
-    cmd_task_release,
-    cmd_task_resolve_input,
     cmd_task_status,
-    cmd_projection,
     load_mutation_state,
 )
 from sprintengine_core.tool.artifacts import release_task_from_owner
@@ -92,7 +50,9 @@ from sprintengine_core.tool.state import (
 )
 
 from .auth import MUTATING_TOOLS, ActorContext, AuthorizationError, authorize_tool
+from .payloads import add_feedback_defaults, command_payload_to_namespace
 from .schemas import TOOL_SCHEMAS, list_tool_schemas
+from .tool_contracts import MCP_TOOL_CONTRACTS
 
 
 @dataclass(frozen=True)
@@ -169,7 +129,9 @@ class SprintEngineMcpServer:
             if not isinstance(payload, dict):
                 raise McpToolError("invalid_payload", "Tool payload must be an object.")
             self._validate_session_identity_payload(tool_name, payload)
-            state_path = self._state_path(payload, required=_tool_requires_state_path(tool_name))
+            contract = MCP_TOOL_CONTRACTS[tool_name]
+            state_path = self._state_path(payload, required=contract.requires_state_path)
+            self._validate_request_workspace_root(payload)
             authorize_tool(tool_name, payload, actor_context, state_path)
             if tool_name == "sprintengine.health":
                 result = build_health_report(
@@ -178,7 +140,7 @@ class SprintEngineMcpServer:
                     backend_mode="mcp-local",
                 )
             else:
-                if _tool_requires_state_path(tool_name):
+                if contract.requires_state_path:
                     assert state_path is not None
                 result = self._dispatch(tool_name, state_path, payload, actor_context)
             self._audit(tool_name, state_path, actor_context, payload, start, "success", None)
@@ -208,51 +170,6 @@ class SprintEngineMcpServer:
         payload: dict[str, Any],
         actor: ActorContext | None,
     ) -> dict[str, Any]:
-        handlers: dict[str, Callable[[Any], dict[str, Any]]] = {
-            "sprintengine.handover": cmd_handover,
-            "sprintengine.init": cmd_init,
-            "sprintengine.recover": cmd_recover,
-            "sprintengine.roster.add": cmd_roster_add,
-            "sprintengine.roster.retire": cmd_roster_retire,
-            "sprintengine.roster.replenish": cmd_roster_replenish,
-            "sprintengine.roster.list": cmd_roster_list,
-            "sprintengine.agent.next_directive": build_agent_next_directive,
-            "sprintengine.join": cmd_join,
-            "sprintengine.summary": cmd_summary,
-            "sprintengine.run.projection": cmd_projection,
-            "sprintengine.task.next": cmd_task_next,
-            "sprintengine.task.claim": cmd_task_claim,
-            "sprintengine.task.status": cmd_task_status,
-            "sprintengine.task.resolve_input": cmd_task_resolve_input,
-            "sprintengine.task.release": cmd_task_release,
-            "sprintengine.task.ready": cmd_task_ready,
-            "sprintengine.task.log": cmd_task_log,
-            "sprintengine.task.publish": cmd_task_publish,
-            "sprintengine.task.note": cmd_task_note,
-            "sprintengine.task.comment": cmd_task_comment,
-            "sprintengine.task.comment.list": cmd_task_comment_list,
-            "sprintengine.task.list": cmd_task_list,
-            "sprintengine.gate.list": cmd_task_gate_list,
-            "sprintengine.gate.next": cmd_task_gate_next,
-            "sprintengine.gate.claim": cmd_task_gate_claim,
-            "sprintengine.gate.verdict": cmd_task_gate_verdict,
-            "sprintengine.gate.publish": cmd_task_gate_verdict,
-            "sprintengine.plan.add_task": cmd_plan_add_task,
-            "sprintengine.plan.update_task": cmd_plan_update_task,
-            "sprintengine.plan.delete_task": cmd_plan_delete_task,
-            "sprintengine.plan.add_dependency": cmd_plan_add_dependency,
-            "sprintengine.plan.remove_dependency": cmd_plan_remove_dependency,
-            "sprintengine.plan.start_review": cmd_plan_start_review,
-            "sprintengine.plan.review_status": cmd_plan_review_status,
-            "sprintengine.plan.address_reviews": cmd_plan_address_reviews,
-            "sprintengine.plan.list": cmd_plan_list,
-            "sprintengine.artifact.add": cmd_artifact_add,
-            "sprintengine.artifact.list": cmd_artifact_list,
-            "sprintengine.artifact.ready": cmd_artifact_ready,
-            "sprintengine.artifact.approve": cmd_artifact_approve,
-            "sprintengine.artifact.request_changes": cmd_artifact_request_changes,
-            "sprintengine.triage.needs_input": cmd_triage_needs_input,
-        }
         if tool_name == "sprintengine.agent.join":
             assert state_path is not None
             return self._agent_join(state_path, payload)
@@ -312,8 +229,11 @@ class SprintEngineMcpServer:
             state = load_mutation_state(state_path)
             return {"ok": True, "recommendations": analyze_feedback_metrics(state_path.parent, state)["recommendations"]}
         assert state_path is not None
-        handler = handlers[tool_name]
-        args = self._namespace(tool_name, state_path, payload, actor)
+        contract = MCP_TOOL_CONTRACTS[tool_name]
+        if contract.command_handler is None or contract.payload_adapter is None:
+            raise McpToolError("unknown_tool", f"Unknown command-backed tool: {tool_name}")
+        handler = contract.command_handler
+        args = contract.payload_adapter(tool_name, state_path, payload, actor)
         result = handler(args)
         return self._with_progress_context(tool_name, result)
 
@@ -613,12 +533,15 @@ class SprintEngineMcpServer:
             needs_input_question=payload.get("needsInputQuestion") or payload["reason"],
             needs_input_suggested_resolution=payload.get("needsInputSuggestedResolution"),
         )
-        _add_feedback_defaults(status_args.__dict__, payload)
+        add_feedback_defaults(status_args.__dict__, payload)
         status_result = cmd_task_status(status_args)
         return {"ok": True, "comment": comment_result["comment"], "task": status_result["task"], "event": status_result["event"]}
 
     def _handover(self, state_path: Path, payload: dict[str, Any], actor: ActorContext | None) -> dict[str, Any]:
-        args = self._namespace("sprintengine.handover", state_path, payload, actor)
+        handover_payload = dict(payload)
+        if handover_payload.get("handoverPath"):
+            handover_payload["handoverPath"] = self._input_file_path(handover_payload["handoverPath"])
+        args = command_payload_to_namespace("sprintengine.handover", state_path, handover_payload, actor)
         result = cmd_handover(args)
         result.pop("architectStartupPrompt", None)
         result["bootstrap"] = {
@@ -733,229 +656,6 @@ class SprintEngineMcpServer:
         if enforce_allowed and allowed_roots and not any(_is_relative_to(path, root) for root in allowed_roots):
             raise McpToolError("plugin_registry_root_not_allowed", "Plugin registry root is outside the configured allowed roots.")
         return path
-
-    def _namespace(
-        self,
-        tool_name: str,
-        state_path: Path,
-        payload: dict[str, Any],
-        actor: ActorContext | None,
-    ) -> SimpleNamespace:
-        base: dict[str, Any] = {"state": state_path}
-        if tool_name == "sprintengine.init":
-            base["goal"] = payload.get("goal")
-            base["use_worktrees"] = bool(payload.get("useWorktrees", False))
-            base["agent"] = list(payload.get("agent") or [])
-        elif tool_name == "sprintengine.handover":
-            base.update(
-                name=payload["name"],
-                goal=payload.get("goal"),
-                handover=self._input_file_path(payload["handoverPath"]) if payload.get("handoverPath") else None,
-                handover_text=payload.get("handoverText"),
-                handover_stdin=False,
-                source=[],
-                source_plan_kind=payload.get("sourcePlanKind") or "unknown",
-                actor=payload.get("actor") or (actor.id if actor else "sprintengine"),
-                force=bool(payload.get("force", False)),
-            )
-        elif tool_name == "sprintengine.join":
-            base.update(
-                role=payload["role"],
-                id=payload["id"],
-                watch=bool(payload.get("watch", False)),
-                max_wait_seconds=payload.get("maxWaitSeconds"),
-            )
-        elif tool_name == "sprintengine.agent.next_directive":
-            base.update(role=payload["role"], id=payload["agentId"], attempts=payload.get("attempts") or 1)
-        elif tool_name == "sprintengine.roster.add":
-            base.update(role=payload["role"], id=payload["id"], actor=payload.get("actor") or (actor.id if actor else "architect"))
-        elif tool_name == "sprintengine.roster.retire":
-            base.update(id=payload["id"], reason=payload["reason"], actor=payload.get("actor") or (actor.id if actor else payload["id"]))
-        elif tool_name == "sprintengine.roster.replenish":
-            base.update(role=payload.get("role"), actor=payload.get("actor") or (actor.id if actor else "runner"))
-        elif tool_name == "sprintengine.roster.list":
-            pass
-        elif tool_name == "sprintengine.triage.needs_input":
-            base.update(id=payload["id"])
-        elif tool_name == "sprintengine.task.next":
-            base.update(role=payload["role"], id=payload["id"])
-        elif tool_name == "sprintengine.task.claim":
-            base.update(task_id=payload["taskId"], id=payload["id"])
-        elif tool_name == "sprintengine.task.status":
-            base.update(task_id=payload["taskId"], status=payload["status"], id=payload["id"], summary=payload.get("summary"))
-            base.update(
-                needs_input_kind=payload.get("needsInputKind"),
-                needs_input_reason=payload.get("needsInputReason"),
-                needs_input_artifact_id=payload.get("needsInputArtifactId"),
-                needs_input_question=payload.get("needsInputQuestion"),
-                needs_input_suggested_resolution=payload.get("needsInputSuggestedResolution"),
-            )
-            _add_feedback_defaults(base, payload)
-        elif tool_name == "sprintengine.task.resolve_input":
-            base.update(task_id=payload["taskId"], id=payload["id"], resolution=payload["resolution"], complete=bool(payload.get("complete", False)))
-        elif tool_name == "sprintengine.task.release":
-            base.update(task_id=payload["taskId"], id=payload["id"], reason=payload["reason"])
-        elif tool_name == "sprintengine.task.ready":
-            base.update(task_id=payload["taskId"], id=payload["id"], triaged_by=payload.get("triagedBy") or "user")
-        elif tool_name == "sprintengine.task.log":
-            base.update(
-                task_id=payload["taskId"],
-                id=payload["id"],
-                summary=payload.get("summary"),
-                file=list(payload.get("file") or []),
-                command=list(payload.get("command") or []),
-                result=list(payload.get("result") or []),
-                scope_expansion_json=list(payload.get("scopeExpansionJson") or payload.get("scopeExpansion") or []),
-            )
-        elif tool_name == "sprintengine.task.publish":
-            base.update(
-                task_id=payload["taskId"],
-                id=payload["id"],
-                summary=payload["summary"],
-                path=list(payload.get("path") or payload.get("file") or []),
-                summary_data_json=json.dumps(payload.get("data")) if isinstance(payload.get("data"), dict) else payload.get("summaryDataJson"),
-            )
-            _add_implementer_difficulty_defaults(base, payload)
-        elif tool_name == "sprintengine.task.note":
-            base.update(task_id=payload["taskId"], id=payload["id"], note=payload["note"])
-        elif tool_name == "sprintengine.task.comment":
-            base.update(
-                task_id=payload["taskId"],
-                id=payload["id"],
-                body=payload["body"],
-                source=payload.get("source") or "user",
-                comment_type=payload.get("commentType"),
-                path=list(payload.get("paths") or payload.get("path") or []),
-                data_json=json.dumps(payload.get("data")) if isinstance(payload.get("data"), dict) else payload.get("dataJson"),
-            )
-        elif tool_name == "sprintengine.task.comment.list":
-            base.update(task_id=payload["taskId"])
-        elif tool_name == "sprintengine.task.list":
-            base["role"] = payload.get("role")
-        elif tool_name == "sprintengine.gate.list":
-            base.update(task_id=payload.get("taskId"), role=payload.get("role"))
-        elif tool_name == "sprintengine.gate.next":
-            base.update(role=payload["role"], id=payload["id"])
-        elif tool_name == "sprintengine.gate.claim":
-            base.update(task_id=payload["taskId"], gate_id=payload["gateId"], role=payload["role"], id=payload["id"])
-        elif tool_name in {"sprintengine.gate.verdict", "sprintengine.gate.publish"}:
-            base.update(
-                task_id=payload["taskId"],
-                gate_id=payload["gateId"],
-                role=payload["role"],
-                id=payload["id"],
-                verdict=payload["verdict"],
-                summary=payload["summary"],
-                required_action=list(payload.get("requiredAction") or []),
-                artifact_path=payload.get("artifactPath"),
-                artifact_title=payload.get("artifactTitle"),
-                artifact_kind=payload.get("artifactKind"),
-                needs_input_kind=payload.get("needsInputKind"),
-                needs_input_reason=payload.get("needsInputReason"),
-                needs_input_question=payload.get("needsInputQuestion"),
-                needs_input_suggested_resolution=payload.get("needsInputSuggestedResolution"),
-            )
-            _add_reviewer_difficulty_defaults(base, payload)
-            _add_feedback_defaults(base, payload)
-        elif tool_name == "sprintengine.plan.add_task":
-            base.update(
-                actor=payload.get("actor") or (actor.id if actor else "architect"),
-                task_id=payload.get("taskId"),
-                title=payload["title"],
-                description=payload.get("description", ""),
-                role=payload["role"],
-                depends_on=list(payload.get("dependsOn") or []),
-                path=list(payload.get("path") or []),
-                acceptance=list(payload.get("acceptance") or []),
-                note=list(payload.get("note") or []),
-                task_note=list(payload.get("taskNote") or []),
-                produces_implementation=bool(payload.get("producesImplementation", False)),
-                needs_triage=bool(payload.get("needsTriage", False)),
-                no_quality_gates=bool(payload.get("noQualityGates", False)),
-                no_review=bool(payload.get("noReview", False)),
-                no_testing=bool(payload.get("noTesting", False)),
-                product_facing=bool(payload.get("productFacing", False)),
-                not_product_facing=bool(payload.get("notProductFacing", False)),
-                no_product_acceptance=bool(payload.get("noProductAcceptance", False)),
-                require_gate=list(payload.get("requireGate") or []),
-                skip_gate=list(payload.get("skipGate") or []),
-                manual_dispatch=bool(payload.get("manualDispatch", False)),
-                dispatch_status=payload.get("dispatchStatus") or "todo",
-                triaged_by=payload.get("triagedBy") or "none",
-            )
-            _add_architect_difficulty_defaults(base, payload)
-        elif tool_name == "sprintengine.plan.update_task":
-            base.update(
-                actor=payload.get("actor") or (actor.id if actor else "architect"),
-                task_id=payload["taskId"],
-                title=payload.get("title"),
-                description=payload.get("description"),
-                clear_description=bool(payload.get("clearDescription", False)),
-                role=payload.get("role"),
-                path=payload.get("path"),
-                clear_paths=bool(payload.get("clearPaths", False)),
-                acceptance=payload.get("acceptance"),
-                clear_acceptance=bool(payload.get("clearAcceptance", False)),
-                note=payload.get("note"),
-                clear_notes=bool(payload.get("clearNotes", False)),
-                task_note=payload.get("taskNote"),
-                clear_task_notes=bool(payload.get("clearTaskNotes", False)),
-                produces_implementation=bool(payload.get("producesImplementation", False)),
-                needs_triage=payload.get("needsTriage") if "needsTriage" in payload else None,
-                clear_needs_triage=bool(payload.get("clearNeedsTriage", False)),
-                no_quality_gates=bool(payload.get("noQualityGates", False)),
-                no_review=bool(payload.get("noReview", False)),
-                no_testing=bool(payload.get("noTesting", False)),
-                product_facing=bool(payload.get("productFacing", False)),
-                not_product_facing=bool(payload.get("notProductFacing", False)),
-                no_product_acceptance=bool(payload.get("noProductAcceptance", False)),
-                require_gate=list(payload.get("requireGate") or []),
-                skip_gate=list(payload.get("skipGate") or []),
-                force=bool(payload.get("force", False)),
-            )
-            _add_architect_difficulty_defaults(base, payload)
-        elif tool_name == "sprintengine.plan.delete_task":
-            base.update(
-                actor=payload.get("actor") or (actor.id if actor else "architect"),
-                task_id=payload["taskId"],
-                unlink_dependents=bool(payload.get("unlinkDependents", False)),
-                force=bool(payload.get("force", False)),
-            )
-        elif tool_name in {"sprintengine.plan.add_dependency", "sprintengine.plan.remove_dependency"}:
-            base.update(
-                actor=payload.get("actor") or (actor.id if actor else "architect"),
-                task_id=payload["taskId"],
-                depends_on=list(payload.get("dependsOn") or []),
-                force=bool(payload.get("force", False)),
-            )
-        elif tool_name == "sprintengine.plan.start_review":
-            base.update(role=payload["role"], id=payload["id"])
-        elif tool_name == "sprintengine.plan.address_reviews":
-            base["actor"] = payload.get("actor") or (actor.id if actor else "architect")
-        elif tool_name in {"sprintengine.plan.list", "sprintengine.plan.read"}:
-            pass
-        elif tool_name == "sprintengine.artifact.add":
-            base.update(
-                actor=payload.get("actor") or (actor.id if actor else "agent"),
-                artifact_id=payload.get("artifactId"),
-                task_id=payload["taskId"],
-                kind=payload["kind"],
-                title=payload["title"],
-                path=payload["path"],
-                created_by=payload.get("createdBy"),
-                recommended_task=list(payload.get("recommendedTask") or []),
-                ready=bool(payload.get("ready", False)),
-            )
-        elif tool_name == "sprintengine.artifact.list":
-            base.update(task_id=payload.get("taskId"), kind=payload.get("kind"), status=payload.get("status"))
-        elif tool_name == "sprintengine.artifact.ready":
-            base.update(artifact_id=payload["artifactId"], id=payload["id"])
-            _add_feedback_defaults(base, payload)
-        elif tool_name == "sprintengine.artifact.approve":
-            base.update(artifact_id=payload["artifactId"], id=payload["id"])
-        elif tool_name == "sprintengine.artifact.request_changes":
-            base.update(artifact_id=payload["artifactId"], id=payload["id"], feedback=payload["feedback"])
-        return SimpleNamespace(**base)
 
     def _with_progress_context(self, tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
         events = _result_events(result)
@@ -1081,6 +781,17 @@ class SprintEngineMcpServer:
         # HTTP run tokens scope routing to a workspace/run store. Agents still
         # self-identify with their own role and id in tool payloads.
         return
+
+    def _validate_request_workspace_root(self, payload: dict[str, Any]) -> None:
+        context = self._request_context()
+        if context is None or not payload.get("workspaceRoot"):
+            return
+        raw = payload["workspaceRoot"]
+        if not isinstance(raw, str):
+            raise McpToolError("invalid_workspace_root", "workspaceRoot must be a string.")
+        supplied = self._path_from_string(raw, "workspaceRoot", "invalid_workspace_root")
+        if supplied != context.workspace_root:
+            raise McpToolError("workspace_root_not_allowed", "HTTP run cannot access a different workspaceRoot.")
 
     def _request_context(self) -> McpRequestContext | None:
         return _REQUEST_CONTEXT.get()
@@ -1243,57 +954,6 @@ def _handle_jsonrpc_message(
     if "tool" in message:
         return server.call_tool(message.get("tool", ""), message.get("payload") or {}, actor, context=context)
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": "method_not_found", "message": f"Unsupported method: {method}"}}
-
-
-def _add_feedback_defaults(target: dict[str, Any], payload: dict[str, Any]) -> None:
-    for attr, camel, _ in FEEDBACK_SCORE_FIELDS:
-        target[attr] = payload.get(attr, payload.get(camel))
-    for attr, camel, _ in FEEDBACK_COUNT_FIELDS:
-        target[attr] = payload.get(attr, payload.get(camel))
-    for attr, camel, _ in FEEDBACK_TEXT_FIELDS:
-        target[attr] = payload.get(camel, payload.get(attr, ""))
-    target["issue_json"] = _json_list(payload.get("issueJson", payload.get("issue_json", [])))
-    target["finding_json"] = _json_list(payload.get("findingJson", payload.get("finding_json", [])))
-
-
-def _add_implementer_difficulty_defaults(target: dict[str, Any], payload: dict[str, Any]) -> None:
-    target["actual_difficulty_pct"] = payload.get("actual_difficulty_pct", payload.get("actualDifficultyPct"))
-    target["actual_difficulty_reason"] = payload.get("actualDifficultyReason", payload.get("actual_difficulty_reason", ""))
-
-
-def _add_architect_difficulty_defaults(target: dict[str, Any], payload: dict[str, Any]) -> None:
-    target["difficulty_pct"] = payload.get("difficulty_pct", payload.get("difficultyPct"))
-    target["difficulty_reason"] = payload.get("difficultyReason", payload.get("difficulty_reason", ""))
-
-
-def _add_reviewer_difficulty_defaults(target: dict[str, Any], payload: dict[str, Any]) -> None:
-    target["reviewed_difficulty_pct"] = payload.get("reviewed_difficulty_pct", payload.get("reviewedDifficultyPct"))
-    target["reviewed_difficulty_dimension"] = payload.get(
-        "reviewedDifficultyDimension",
-        payload.get("reviewed_difficulty_dimension", ""),
-    )
-    target["reviewed_difficulty_reason"] = payload.get(
-        "reviewedDifficultyReason",
-        payload.get("reviewed_difficulty_reason", ""),
-    )
-
-
-def _json_list(values: Any) -> list[str]:
-    output = []
-    for value in values or []:
-        output.append(value if isinstance(value, str) else json.dumps(value))
-    return output
-
-
-def _tool_requires_state_path(tool_name: str) -> bool:
-    return tool_name not in {
-        "sprintengine.health",
-        "sprintengine.roles.list",
-        "sprintengine.roles.get",
-        "sprintengine.soul.get",
-        "sprintengine.skills.list",
-        "sprintengine.skill.get",
-    }
 
 
 def _default_workspace_root(state_path: Path) -> Path:

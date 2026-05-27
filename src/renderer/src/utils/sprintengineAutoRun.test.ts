@@ -25,6 +25,7 @@ import {
   getPendingAgentNotificationEvents,
   getSprintEngineAutoRunOccupiedAgentIds,
   isSprintEngineAutoPendingSpawnStillRelevant,
+  isSprintEngineRunBlockedOnExternalInput,
   pickNextAutoRuns,
   roleHasClaimableSprintEngineImplementationWork,
   shouldSkipExitedSprintEngineRosterAgent,
@@ -67,6 +68,10 @@ async function main(): Promise<void> {
   testDispatchPromptUsesJoinReconciliation()
   testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles()
   testGetArchitectActionableNeedsInputTasksFiltersByKind()
+  testRunBlockedOnExternalInputDetectsBlockedDependencyTail()
+  testRunBlockedOnExternalInputKeepsAutoRunWhenWorkExists()
+  testRunBlockedOnExternalInputKeepsAutoRunWithActiveDispatch()
+  testRunBlockedOnExternalInputKeepsAutoRunWithReadyApproval()
   testGetAutoApprovalIntentArtifactsRespectsEligibility()
   testGetPendingAgentNotificationEventsFiltersDeliveredAndSent()
   testAgentOwnsOpenSprintEngineImplementationWorkIgnoresOwnerlessRework()
@@ -102,6 +107,9 @@ async function main(): Promise<void> {
   await testDeliverNotificationLeavesPendingWhenSupervisorDisabledAndNoTerminal()
   await testDispatchPromptDeliveryUsesDispatchIdCooldown()
   await testDispatchPromptStopsAfterRetryLimit()
+  await testWakeCandidatePromptStopsAfterSmallRetryLimit()
+  await testWakeCandidateCleanupPreservesGateRetryKeys()
+  await testClaimedGateContinuationSkipsMatchingCurrentDispatch()
   await testDispatchPromptSkipsBusyDifferentTaskTerminal()
   await testDispatchPromptSkipsNeedsInputAgent()
   await testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt()
@@ -1402,6 +1410,231 @@ async function testDispatchPromptStopsAfterRetryLimit(): Promise<void> {
   assert.equal(sent.current.get(key)?.attempts, supervisor.AUTO_RUN_MAX_PROMPT_RETRIES)
 }
 
+async function testWakeCandidatePromptStopsAfterSmallRetryLimit(): Promise<void> {
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-frontend',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'frontend-2',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+      },
+    ],
+    terminalWrite: async (sessionId, text) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const workspace = workspaceFixture({
+    agents: {
+      'frontend-2': sprintAgent('frontend-2', 'Zion'),
+    },
+  })
+  const readyTask = task({
+    id: 'T12',
+    title: 'Build member home',
+    status: 'todo',
+    boardColumn: 'ready',
+    role: 'frontend',
+    ownerAgentId: null,
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [readyTask],
+    sprintEngineAgents: {
+      'frontend-2': runtimeAgent('frontend', { status: 'idle' }),
+    },
+  })
+  const key = continuationMessageKey(workspace, 'T12', 'frontend-2')
+  const sent = mutableRef(new Map<string, { sentAt: number; attempts?: number }>([
+    [key, { sentAt: Date.now() - 120_000, attempts: supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES - 1 }],
+  ]))
+
+  await supervisor.sendContinuationPromptsToIdleAgents(
+    workspace,
+    state,
+    {
+      capacityByRole: new Map([['frontend', 1]]),
+      agentIds: new Set(['frontend-2']),
+    },
+    sent
+  )
+  assert.equal(writes.length, 1, 'wake-candidate prompt is still pasted for the final allowed retry')
+  assert.equal(sent.current.get(key)?.attempts, supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)
+
+  sent.current.set(key, { sentAt: Date.now() - 120_000, attempts: supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES })
+  await supervisor.sendContinuationPromptsToIdleAgents(
+    workspace,
+    state,
+    {
+      capacityByRole: new Map([['frontend', 1]]),
+      agentIds: new Set(['frontend-2']),
+    },
+    sent
+  )
+
+  assert.equal(writes.length, 1, 'wake-candidate prompt is not pasted after the small retry cap is reached')
+  assert.equal(sent.current.get(key)?.attempts, supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)
+}
+
+async function testWakeCandidateCleanupPreservesGateRetryKeys(): Promise<void> {
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-frontend',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'frontend-2',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+      },
+    ],
+    terminalWrite: async (sessionId, text) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const workspace = workspaceFixture({
+    agents: {
+      'frontend-2': sprintAgent('frontend-2', 'Zion'),
+    },
+  })
+  const readyTask = task({
+    id: 'T12',
+    title: 'Build member home',
+    status: 'todo',
+    boardColumn: 'ready',
+    role: 'frontend',
+    ownerAgentId: null,
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [readyTask],
+    sprintEngineAgents: {
+      'frontend-2': runtimeAgent('frontend', { status: 'idle' }),
+    },
+  })
+  const staleTaskKey = continuationMessageKey(workspace, 'T-old', 'frontend-2')
+  const gateKey = continuationMessageKey(workspace, 'T6:tester', 'tester-1')
+  const sent = mutableRef(new Map<string, { sentAt: number; attempts?: number }>([
+    [staleTaskKey, { sentAt: Date.now() - 120_000, attempts: 1 }],
+    [gateKey, { sentAt: Date.now() - 120_000, attempts: 1 }],
+  ]))
+
+  await supervisor.sendContinuationPromptsToIdleAgents(
+    workspace,
+    state,
+    {
+      capacityByRole: new Map([['frontend', 1]]),
+      agentIds: new Set(['frontend-2']),
+    },
+    sent
+  )
+
+  assert.equal(writes.length, 1, 'ready task wake candidate is still sent')
+  assert.equal(sent.current.has(staleTaskKey), false, 'stale task wake-candidate retry state is pruned')
+  assert.equal(sent.current.has(gateKey), true, 'claimed-gate retry state is not pruned by task wake cleanup')
+}
+
+async function testClaimedGateContinuationSkipsMatchingCurrentDispatch(): Promise<void> {
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-tester',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'tester-1',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+      },
+    ],
+    terminalWrite: async (sessionId, text) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const workspace = workspaceFixture({
+    agents: {
+      'tester-1': sprintAgent('tester-1', 'Tess'),
+    },
+  })
+  const testingTask = task({
+    id: 'T6',
+    title: 'Normalize Sprint Engine MCP tool contracts',
+    status: 'testing',
+    boardColumn: 'testing',
+    role: 'developer',
+    ownerAgentId: null,
+    qualityGates: [
+      { id: 'code_reviewer', phase: 'review', role: 'code_reviewer', status: 'approved', required: true, allowSelfReview: true, focus: '', attempts: [] },
+      { id: 'spec_reviewer', phase: 'review', role: 'spec_reviewer', status: 'approved', required: true, allowSelfReview: true, focus: '', attempts: [] },
+      {
+        id: 'tester',
+        phase: 'testing',
+        role: 'tester',
+        status: 'in_progress',
+        required: true,
+        allowSelfReview: true,
+        focus: '',
+        attempts: [{ id: 'GA-001', status: 'in_progress', role: 'tester', claimedBy: 'tester-1', startedAt: '2026-05-27T19:57:15Z' }],
+      },
+    ],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [testingTask],
+    sprintEngineAgents: {
+      'tester-1': runtimeAgent('tester', {
+        status: 'running',
+        currentTaskId: 'T6',
+        currentDispatch: {
+          dispatchId: 'DISP-dd5c336fd44f0fb7',
+          targetKind: 'gate',
+          role: 'tester',
+          reason: 'gate_claimed',
+          taskId: 'T6',
+          gateId: 'tester',
+          attemptId: 'GA-001',
+        },
+      }),
+    },
+  })
+  const key = continuationMessageKey(workspace, 'T6:tester', 'tester-1')
+  const sent = mutableRef(new Map<string, { sentAt: number; attempts?: number }>([
+    [key, { sentAt: Date.now() - 120_000, attempts: 4 }],
+  ]))
+
+  await supervisor.sendGateContinuationPromptsToAgents(
+    workspace,
+    state,
+    new Set(['tester-1']),
+    { capacityByRole: new Map(), agentIds: new Set() },
+    sent
+  )
+
+  assert.equal(writes.length, 0, 'claimed gate prompt is not pasted once the matching durable dispatch is current')
+  assert.equal(sent.current.has(key), false, 'stale claimed-gate continuation retry state is cleared')
+}
+
 async function testDispatchPromptSkipsBusyDifferentTaskTerminal(): Promise<void> {
   const writes: Array<{ sessionId: string; text: string }> = []
   installTestWindow({
@@ -2493,6 +2726,178 @@ function testGetArchitectActionableNeedsInputTasksFiltersByKind(): void {
   const state = sprintEngineStateFixture({ tasks })
   const filtered = getArchitectActionableNeedsInputTasks(state).map((task) => task.id)
   assert.deepEqual(filtered.sort(), ['T1', 'T3'], 'architect-routed kinds include architect/artifact/tooling/verification/other')
+}
+
+function testRunBlockedOnExternalInputDetectsBlockedDependencyTail(): void {
+  const blockedSmoke = task({
+    id: 'T23',
+    status: 'needs_input',
+    boardColumn: 'needs_input',
+    role: 'tester',
+    ownerAgentId: 'tester',
+    dependsOn: ['T22'],
+    needsInput: {
+      kind: 'external_validation',
+      reason: 'verification',
+      question: 'Needs a physical mobile pairing session.',
+    },
+    qualityGates: [],
+  })
+  const finalSignoff = task({
+    id: 'T24',
+    title: 'Final architect signoff',
+    status: 'todo',
+    boardColumn: 'todo',
+    role: 'architect',
+    ownerAgentId: null,
+    dependsOn: ['T23'],
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T22', status: 'done', boardColumn: 'done', ownerAgentId: null, qualityGates: [] }),
+      blockedSmoke,
+      finalSignoff,
+    ],
+    sprintEngineAgents: {
+      tester: runtimeAgent('tester', { status: 'needs_input', currentTaskId: 'T23' }),
+      architect: runtimeAgent('architect', { status: 'idle' }),
+    },
+  })
+
+  assert.equal(
+    isSprintEngineRunBlockedOnExternalInput(state),
+    true,
+    'a final todo task dependency-blocked by external_validation should quiesce auto-run'
+  )
+}
+
+function testRunBlockedOnExternalInputKeepsAutoRunWhenWorkExists(): void {
+  const blockedTask = task({
+    id: 'T1',
+    status: 'needs_input',
+    boardColumn: 'needs_input',
+    role: 'tester',
+    ownerAgentId: 'tester',
+    needsInput: {
+      kind: 'external_validation',
+      reason: 'verification',
+      question: 'Needs device validation.',
+    },
+    qualityGates: [],
+  })
+  const readyTask = task({
+    id: 'T2',
+    status: 'todo',
+    boardColumn: 'ready',
+    role: 'developer',
+    ownerAgentId: null,
+    dependsOn: [],
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [blockedTask, readyTask],
+    sprintEngineAgents: {
+      tester: runtimeAgent('tester', { status: 'needs_input', currentTaskId: 'T1' }),
+      'developer-1': runtimeAgent('developer'),
+    },
+  })
+
+  assert.equal(
+    isSprintEngineRunBlockedOnExternalInput(state),
+    false,
+    'external validation blockers must not stop auto-run while unrelated ready work exists'
+  )
+}
+
+function testRunBlockedOnExternalInputKeepsAutoRunWithActiveDispatch(): void {
+  const blockedTask = task({
+    id: 'T1',
+    status: 'needs_input',
+    boardColumn: 'needs_input',
+    role: 'tester',
+    ownerAgentId: 'tester',
+    needsInput: {
+      kind: 'external_validation',
+      reason: 'verification',
+      question: 'Needs device validation.',
+    },
+    qualityGates: [],
+  })
+  const dependentTask = task({
+    id: 'T2',
+    status: 'todo',
+    boardColumn: 'todo',
+    role: 'architect',
+    ownerAgentId: null,
+    dependsOn: ['T1'],
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [blockedTask, dependentTask],
+    sprintEngineAgents: {
+      tester: runtimeAgent('tester', { status: 'needs_input', currentTaskId: 'T1' }),
+      architect: runtimeAgent('architect', {
+        status: 'idle',
+        currentDispatch: {
+          dispatchId: 'D-1',
+          targetKind: 'task',
+          taskId: 'T2',
+          reason: 'resume',
+        },
+      }),
+    },
+  })
+
+  assert.equal(
+    isSprintEngineRunBlockedOnExternalInput(state),
+    false,
+    'auto-run must not quiesce while a durable dispatch still needs delivery'
+  )
+}
+
+function testRunBlockedOnExternalInputKeepsAutoRunWithReadyApproval(): void {
+  const blockedTask = task({
+    id: 'T1',
+    status: 'needs_input',
+    boardColumn: 'needs_input',
+    role: 'tester',
+    ownerAgentId: 'tester',
+    needsInput: {
+      kind: 'external_validation',
+      reason: 'verification',
+      question: 'Needs device validation.',
+    },
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [blockedTask],
+    artifacts: [
+      {
+        id: 'A-1',
+        taskId: 'T1',
+        kind: 'validation_report',
+        title: 'Validation report',
+        status: 'ready_for_review',
+        path: 'artifacts/validation.md',
+        createdBy: 'tester',
+        fingerprint: null,
+        reviewHistory: [],
+        recommendedTasks: [],
+        createdAt: '2026-05-27T12:00:00Z',
+        updatedAt: '2026-05-27T12:00:00Z',
+      },
+    ],
+    sprintEngineAgents: {
+      tester: runtimeAgent('tester', { status: 'needs_input', currentTaskId: 'T1' }),
+    },
+  })
+
+  assert.equal(
+    isSprintEngineRunBlockedOnExternalInput(state),
+    false,
+    'auto-run must keep running when a ready artifact can still be auto-approved'
+  )
 }
 
 function testGetAutoApprovalIntentArtifactsRespectsEligibility(): void {

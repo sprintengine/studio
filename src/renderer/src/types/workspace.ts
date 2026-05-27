@@ -116,6 +116,8 @@ export type SprintEngineQualityGateAttempt = {
   completedAt?: string
   verdict?: string
   note?: string
+  /** Reviewer prose attached on gate verdict (the review itself). */
+  summary?: string
 }
 
 export type SprintEngineQualityGate = {
@@ -846,6 +848,8 @@ export type SprintEngineTask = {
   implementationNotes: string[]
   evidence: SprintEngineTaskEvidence
   feedback?: SprintEngineTaskFeedback
+  /** Reviewer assessments captured against this task (one per review pass). */
+  feedbackAssessments?: SprintEngineTaskFeedback[]
   triage?: SprintEngineTaskTriage
   needsInput?: SprintEngineTaskNeedsInput
   notes: string[]

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { getSprintEngineStartupCommandMode } from './agentPrompt'
 import {
   applyUserDisabledSprintEngineRoleCounts,
+  bracketedTerminalPaste,
   buildSprintEngineAgentRosterFromRuntimeAgents,
   buildSprintEngineRoleRegistry,
   formatSprintEngineLockAge,
@@ -11,24 +12,48 @@ import {
   getOpenSprintEngineFeedbackFindings,
   getOpenSprintEngineFeedbackIssues,
   getOpenSprintEngineQualityGates,
+  getSprintEngineBoardRunPhase,
+  getSprintEngineKanbanEmptyMessage,
   getSprintEngineRoleAccent,
   getSprintEngineRoleGlyphKind,
   getSprintEngineRoleLabel,
+  getSprintEngineAgentActivityDescending,
   getSprintEngineTaskActivityDescending,
   getSprintEngineTaskBoardColumn,
+  getSprintEngineTaskOwnerLabel,
   getSprintEngineTaskQualityGates,
+  getSprintEngineTasksReviewedByAgent,
+  getSprintEngineTasksWorkedOnByAgent,
   getSprintEngineVisibleBoardColumns,
   getUserDisabledSprintEngineRoleIds,
   humanizeSprintEngineRoleId,
   isBundledSprintEngineRole,
+  isPathInsideOrEqual,
   isSprintEngineRoleId,
   isSprintEngineTaskLaunchable,
   normalizeSprintEngineProjection,
   orderSprintEngineRosterRoles,
+  resolveSprintEngineArtifactEditorPath,
   sprintEngineNeutralRoleAccent,
   sprintEngineRoleOrder,
 } from './sprintengine'
 import { taskGraphEdgeStyle, taskGraphEndEdgeStyle } from '../components/panels/sprintEngineTaskGraph'
+import {
+  BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES,
+  BUNDLED_SPRINT_ENGINE_BOARD_ROLE_SUMMARIES,
+  BUNDLED_SPRINT_ENGINE_WIZARD_ROLE_SUMMARIES,
+  buildSprintEngineAddMemberOptions,
+  buildSprintEngineRosterCountByRole,
+  findFirstUncoveredSprintEngineRole,
+  getSprintEngineWizardRoleSummary,
+  listSprintEngineAddableRoles,
+} from './sprintengineRoleOptions'
+import {
+  buildSprintEngineAddressPlanReviewsPrompt,
+  buildSprintEnginePlanReviewStartupPrompt,
+  buildSprintEngineRecoveryAuditPrompt,
+  buildSprintEngineRosterRevisionPrompt,
+} from './sprintenginePlanReviewPrompts'
 import type { SprintEngineRoleRegistry, SprintEngineTask } from '../types/workspace'
 
 function fakeProjection(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
@@ -1237,6 +1262,744 @@ assert.equal(getUserDisabledSprintEngineRoleIds({ enabled: {} }).size, 0)
   assert.equal(disabledIds.has('developer'), true)
   const stillThere = normalized?.tasks.find((task) => task.id === 'T1')
   assert.equal(stillThere?.role, 'developer', 'projection unchanged by user role settings')
+}
+
+// ---------------------------------------------------------------------------
+// Sprint Engine role option derivation (extracted utility)
+// ---------------------------------------------------------------------------
+type FakeRoster = { role: string }[]
+type FakeTask = { role: string; status: string }
+
+// AC: bundled fallback constant exists and matches the canonical bundled
+// order. Custom registry roles are not required to appear when no registry
+// is provided.
+{
+  assert.deepEqual(
+    [...BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES],
+    ['architect', 'product', 'frontend', 'developer', 'code_reviewer', 'spec_reviewer', 'performance', 'tester', 'security'],
+    'bundled addable roles match historical board list',
+  )
+}
+
+// AC: `buildSprintEngineAddMemberOptions` returns one option per visible
+// role in canonical order, computes counts from roster + tasks, and falls
+// back to bundled summary copy when no override is provided.
+{
+  const roster: FakeRoster = [
+    { role: 'architect' },
+    { role: 'developer' },
+    { role: 'developer' },
+  ]
+  const tasks: FakeTask[] = [
+    { role: 'developer', status: 'in_progress' },
+    { role: 'developer', status: 'done' },
+    { role: 'frontend', status: 'todo' },
+  ]
+  const options = buildSprintEngineAddMemberOptions({ roster, tasks })
+  // No registry, no disabled set → bundled order.
+  assert.deepEqual(
+    options.map((option) => option.role),
+    [...BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES],
+    'options preserve bundled role order',
+  )
+  const developer = options.find((option) => option.role === 'developer')
+  assert.ok(developer)
+  assert.equal(developer.activeForRole, 2, 'roster counts collapse duplicates')
+  assert.equal(developer.openTasksForRole, 1, 'done tasks excluded from open count')
+  assert.equal(
+    developer.summary,
+    BUNDLED_SPRINT_ENGINE_BOARD_ROLE_SUMMARIES.developer,
+    'bundled board summary used as default',
+  )
+  const frontend = options.find((option) => option.role === 'frontend')
+  assert.equal(frontend?.activeForRole, 0)
+  assert.equal(frontend?.openTasksForRole, 1)
+  const architect = options.find((option) => option.role === 'architect')
+  assert.equal(architect?.label, 'Architect', 'bundled label resolves from registry helper')
+}
+
+// AC4: custom registry roles appear in add-member options without rendering
+// React. Manifest-disabled registry roles stay hidden.
+{
+  const registry: SprintEngineRoleRegistry = buildSprintEngineRoleRegistry({
+    roles: [
+      {
+        id: 'marketer',
+        label: 'Marketer',
+        aliases: [],
+        summary: 'Owns positioning and copy.',
+        source: { layer: 'workspace' },
+      },
+      {
+        id: 'analyst',
+        label: 'Analyst',
+        aliases: [],
+        source: { layer: 'workspace' },
+        enabled: false,
+      },
+    ],
+  })
+  const options = buildSprintEngineAddMemberOptions({
+    registry,
+    roster: [{ role: 'marketer' }],
+    tasks: [{ role: 'marketer', status: 'in_progress' }],
+  })
+  const marketer = options.find((option) => option.role === 'marketer')
+  assert.ok(marketer, 'custom role appears in options')
+  assert.equal(marketer.label, 'Marketer', 'registry label used for custom role')
+  assert.equal(marketer.summary, 'Owns positioning and copy.', 'registry summary used when no override')
+  assert.equal(marketer.activeForRole, 1)
+  assert.equal(marketer.openTasksForRole, 1)
+  assert.equal(
+    options.some((option) => option.role === 'analyst'),
+    false,
+    'manifest-disabled registry role hidden',
+  )
+}
+
+// AC: disabled-role set hides bundled and custom roles but never architect.
+{
+  const registry: SprintEngineRoleRegistry = buildSprintEngineRoleRegistry({
+    roles: [
+      { id: 'marketer', label: 'Marketer', aliases: [], source: { layer: 'workspace' } },
+    ],
+  })
+  const options = buildSprintEngineAddMemberOptions({
+    registry,
+    disabledRoleIds: new Set(['frontend', 'marketer', 'architect']),
+    roster: [],
+    tasks: [],
+  })
+  const ids = options.map((option) => option.role)
+  assert.equal(ids.includes('architect'), true, 'architect survives disabled set')
+  assert.equal(ids.includes('frontend'), false, 'bundled disabled role removed')
+  assert.equal(ids.includes('marketer'), false, 'custom disabled role removed')
+}
+
+// AC: `findFirstUncoveredSprintEngineRole` picks the first role with open
+// tasks but no agent on the roster, in bundled order.
+{
+  const tasks: FakeTask[] = [
+    { role: 'frontend', status: 'todo' },
+    { role: 'developer', status: 'in_progress' },
+  ]
+  const roster: FakeRoster = [{ role: 'developer' }]
+  const uncovered = findFirstUncoveredSprintEngineRole({ roster, tasks })
+  assert.equal(uncovered, 'frontend', 'uncovered frontend selected over staffed developer')
+}
+
+// `findFirstUncoveredSprintEngineRole` returns null when every open task is
+// already covered by an active agent.
+{
+  const uncovered = findFirstUncoveredSprintEngineRole({
+    roster: [{ role: 'developer' }],
+    tasks: [{ role: 'developer', status: 'todo' }],
+  })
+  assert.equal(uncovered, null, 'covered role returns null')
+}
+
+// `buildSprintEngineRosterCountByRole` mirrors the option builder.
+{
+  const counts = buildSprintEngineRosterCountByRole({
+    roster: [{ role: 'developer' }, { role: 'developer' }, { role: 'architect' }],
+    tasks: [],
+  })
+  assert.equal(counts.developer, 2)
+  assert.equal(counts.architect, 1)
+  assert.equal(counts.frontend, 0, 'zero-count bundled roles still appear')
+}
+
+// `listSprintEngineAddableRoles` is the registry-aware list helper used by
+// callers that just need the ordered role ids.
+{
+  const ids = listSprintEngineAddableRoles()
+  assert.deepEqual(ids, [...BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES], 'no-registry list matches bundled order')
+}
+
+// AC2: new-workspace roster wizard consumes the shared utility. It calls
+// `listSprintEngineAddableRoles(registry, disabledRoleIds)` and resolves
+// summaries via `getSprintEngineWizardRoleSummary`, so custom registry roles
+// and disabled-set semantics stay aligned with the live board without
+// rendering React.
+{
+  const registry: SprintEngineRoleRegistry = buildSprintEngineRoleRegistry({
+    roles: [
+      {
+        id: 'marketer',
+        label: 'Marketer',
+        aliases: [],
+        summary: 'Owns positioning and launch copy.',
+        source: { layer: 'workspace' },
+      },
+      {
+        id: 'analyst',
+        label: 'Analyst',
+        aliases: [],
+        source: { layer: 'workspace' },
+        enabled: false,
+      },
+    ],
+  })
+  const wizardRoles = listSprintEngineAddableRoles(registry, new Set<string>(['developer']))
+  assert.equal(wizardRoles.includes('developer'), false, 'disabled bundled role hidden from wizard')
+  assert.equal(wizardRoles.includes('marketer'), true, 'custom enabled role appears in wizard')
+  assert.equal(wizardRoles.includes('analyst'), false, 'manifest-disabled role hidden from wizard')
+
+  // Wizard summary copy is the wizard table, not the board table.
+  assert.equal(
+    getSprintEngineWizardRoleSummary('frontend'),
+    BUNDLED_SPRINT_ENGINE_WIZARD_ROLE_SUMMARIES.frontend,
+    'bundled wizard summary used for bundled role',
+  )
+  assert.notEqual(
+    getSprintEngineWizardRoleSummary('frontend'),
+    BUNDLED_SPRINT_ENGINE_BOARD_ROLE_SUMMARIES.frontend,
+    'wizard summary distinct from board summary',
+  )
+  assert.equal(
+    getSprintEngineWizardRoleSummary('marketer', registry),
+    'Owns positioning and launch copy.',
+    'registry summary used when bundled wizard copy is unavailable',
+  )
+  assert.equal(
+    getSprintEngineWizardRoleSummary('unknown_role'),
+    'Custom registry role.',
+    'unknown role falls back to generic wizard label',
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Sprint Engine plan review / spawn prompt builders (extracted utility)
+// ---------------------------------------------------------------------------
+
+// Recovery prompt: points at the canonical CLI, no statePath/workspaceRoot.
+{
+  const prompt = buildSprintEngineRecoveryAuditPrompt()
+  assert.ok(prompt.includes('sprintengine recover'), 'recovery prompt names the CLI verb')
+  assert.equal(prompt.includes('statePath'), false, 'recovery prompt must not include statePath')
+  assert.equal(prompt.includes('workspaceRoot'), false, 'recovery prompt must not include workspaceRoot')
+}
+
+// Plan review prompt: role + agent id are interpolated, no routing fields.
+{
+  const prompt = buildSprintEnginePlanReviewStartupPrompt('frontend', 'frontend-1')
+  assert.ok(prompt.includes('--role frontend'), 'role flag present')
+  assert.ok(prompt.includes('--id frontend-1'), 'agent id flag present')
+  assert.equal(prompt.includes('statePath'), false)
+  assert.equal(prompt.includes('workspaceRoot'), false)
+}
+
+// Address-plan-reviews prompt: architect actor, no routing fields.
+{
+  const prompt = buildSprintEngineAddressPlanReviewsPrompt()
+  assert.ok(prompt.includes('--actor architect'), 'architect actor selected')
+  assert.equal(prompt.includes('statePath'), false)
+  assert.equal(prompt.includes('workspaceRoot'), false)
+}
+
+// Roster revision prompt: bundled label and registry label both flow.
+{
+  const bundled = buildSprintEngineRosterRevisionPrompt({
+    role: 'frontend',
+    agentId: 'frontend-1',
+    teamSlug: 'team-x',
+  })
+  assert.ok(bundled.includes('Frontend Engineer'), 'bundled role label used')
+  assert.ok(bundled.includes('team-x'), 'team slug interpolated')
+  assert.ok(
+    bundled.includes('sprintengine roster add --role frontend --id frontend-1 --actor architect'),
+    'roster-add command embeds role, id, architect actor',
+  )
+  assert.equal(bundled.includes('statePath'), false)
+  assert.equal(bundled.includes('workspaceRoot'), false)
+
+  const registry: SprintEngineRoleRegistry = buildSprintEngineRoleRegistry({
+    roles: [
+      { id: 'marketer', label: 'Brand Marketer', aliases: [], source: { layer: 'workspace' } },
+    ],
+  })
+  const custom = buildSprintEngineRosterRevisionPrompt({
+    role: 'marketer',
+    agentId: 'marketer-1',
+    teamSlug: 'team-y',
+    registry,
+  })
+  assert.ok(custom.includes('Brand Marketer'), 'registry label flows into custom-role prompt')
+  assert.ok(custom.includes('(`marketer`)'), 'role id still emitted verbatim')
+}
+
+// ---------------------------------------------------------------------------
+// Agent inspector aggregation helpers
+// ---------------------------------------------------------------------------
+
+// Gate attempts normalize claimedBy, role, and summary; previously claimedBy
+// was dropped which broke per-agent review attribution.
+{
+  const projection = fakeProjection({
+    tasks: [
+      {
+        id: 'T1',
+        title: 'Reviewed task',
+        role: 'developer',
+        status: 'done',
+        stateStatus: 'done',
+        ownerAgentId: null,
+        dependsOn: [],
+        ownedPaths: [],
+        acceptanceCriteria: [],
+        implementationNotes: [],
+        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+        notes: [],
+        comments: [],
+        startedAt: null,
+        completedAt: null,
+        activity: [],
+        qualityGates: [
+          {
+            id: 'code_reviewer',
+            phase: 'review',
+            role: 'code_reviewer',
+            status: 'approved',
+            required: true,
+            allowSelfReview: true,
+            attempts: [
+              {
+                id: 'GA-001',
+                status: 'approved',
+                role: 'code_reviewer',
+                claimedBy: 'code_reviewer-1',
+                startedAt: '2026-05-27T07:24:00Z',
+                completedAt: '2026-05-27T07:25:00Z',
+                verdict: 'approved',
+                summary: 'Reviewed evidence; LGTM.',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  })
+  const state = normalizeSprintEngineProjection(projection)
+  assert.ok(state, 'projection normalizes')
+  const attempt = state!.tasks[0]?.qualityGates?.[0]?.attempts?.[0]
+  assert.equal(attempt?.claimedBy, 'code_reviewer-1', 'claimedBy survives normalization')
+  assert.equal(attempt?.role, 'code_reviewer', 'role survives normalization')
+  assert.equal(attempt?.summary, 'Reviewed evidence; LGTM.', 'summary survives normalization')
+}
+
+// getSprintEngineTasksReviewedByAgent matches by claimedBy (and actor for legacy
+// records), returns latest-first, and includes the summary on the attempt.
+{
+  const tasks: SprintEngineTask[] = [
+    {
+      id: 'T1',
+      title: 'First',
+      description: '',
+      role: 'developer',
+      status: 'done',
+      ownerAgentId: null,
+      dependsOn: [],
+      ownedPaths: [],
+      acceptanceCriteria: [],
+      implementationNotes: [],
+      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+      notes: [],
+      comments: [],
+      startedAt: null,
+      completedAt: null,
+      qualityGates: [
+        {
+          id: 'code_reviewer',
+          phase: 'review',
+          role: 'code_reviewer',
+          status: 'approved',
+          required: true,
+          allowSelfReview: true,
+          attempts: [
+            {
+              id: 'GA-001',
+              status: 'approved',
+              role: 'code_reviewer',
+              claimedBy: 'code_reviewer-1',
+              startedAt: '2026-05-27T07:24:00Z',
+              completedAt: '2026-05-27T07:25:00Z',
+              verdict: 'approved',
+              summary: 'first review',
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'T2',
+      title: 'Second',
+      description: '',
+      role: 'developer',
+      status: 'review',
+      ownerAgentId: null,
+      dependsOn: [],
+      ownedPaths: [],
+      acceptanceCriteria: [],
+      implementationNotes: [],
+      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+      notes: [],
+      comments: [],
+      startedAt: null,
+      completedAt: null,
+      qualityGates: [
+        {
+          id: 'code_reviewer',
+          phase: 'review',
+          role: 'code_reviewer',
+          status: 'in_progress',
+          required: true,
+          allowSelfReview: true,
+          attempts: [
+            {
+              id: 'GA-001',
+              status: 'in_progress',
+              role: 'code_reviewer',
+              claimedBy: 'code_reviewer-1',
+              startedAt: '2026-05-27T09:00:00Z',
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'T3',
+      title: 'Untouched',
+      description: '',
+      role: 'developer',
+      status: 'todo',
+      ownerAgentId: null,
+      dependsOn: [],
+      ownedPaths: [],
+      acceptanceCriteria: [],
+      implementationNotes: [],
+      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+      notes: [],
+      comments: [],
+      startedAt: null,
+      completedAt: null,
+      qualityGates: [],
+    },
+  ]
+  const reviewed = getSprintEngineTasksReviewedByAgent('code_reviewer-1', tasks)
+  assert.equal(reviewed.length, 2, 'returns both reviewed tasks')
+  assert.equal(reviewed[0]?.task.id, 'T2', 'most recent attempt first')
+  assert.equal(reviewed[1]?.task.id, 'T1', 'older attempt second')
+  assert.equal(reviewed[1]?.attempts[0]?.summary, 'first review', 'summary surfaced on attempt')
+
+  const otherAgent = getSprintEngineTasksReviewedByAgent('code_reviewer-2', tasks)
+  assert.equal(otherAgent.length, 0, 'agents with no attempts get no rows')
+}
+
+// getSprintEngineTasksWorkedOnByAgent collects every task where the agent
+// appears as an activity actor, including tasks now in `done` (covering the
+// ownerAgentId-cleared regression).
+{
+  const tasks: SprintEngineTask[] = [
+    {
+      id: 'T1',
+      title: 'Completed',
+      description: '',
+      role: 'developer',
+      status: 'done',
+      ownerAgentId: null,
+      dependsOn: [],
+      ownedPaths: [],
+      acceptanceCriteria: [],
+      implementationNotes: [],
+      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+      notes: [],
+      comments: [],
+      startedAt: null,
+      completedAt: null,
+      activity: [
+        {
+          id: 'A1',
+          timestamp: '2026-05-27T07:22:00Z',
+          type: 'claim',
+          actor: 'developer-1',
+          message: '',
+        },
+        {
+          id: 'A2',
+          timestamp: '2026-05-27T07:24:00Z',
+          type: 'evidence',
+          actor: 'developer-1',
+          message: '',
+        },
+      ],
+    },
+    {
+      id: 'T2',
+      title: 'Touched by someone else',
+      description: '',
+      role: 'developer',
+      status: 'in_progress',
+      ownerAgentId: 'developer-2',
+      dependsOn: [],
+      ownedPaths: [],
+      acceptanceCriteria: [],
+      implementationNotes: [],
+      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+      notes: [],
+      comments: [],
+      startedAt: null,
+      completedAt: null,
+      activity: [
+        {
+          id: 'A1',
+          timestamp: '2026-05-27T08:00:00Z',
+          type: 'claim',
+          actor: 'developer-2',
+          message: '',
+        },
+      ],
+    },
+  ]
+  const worked = getSprintEngineTasksWorkedOnByAgent('developer-1', tasks)
+  assert.equal(worked.length, 1, 'finds T1 even though ownerAgentId is null')
+  assert.equal(worked[0]?.task.id, 'T1')
+  assert.equal(worked[0]?.latestActivityAt, '2026-05-27T07:24:00Z', 'tracks the latest stamp')
+
+  const empty = getSprintEngineTasksWorkedOnByAgent('developer-3', tasks)
+  assert.equal(empty.length, 0, 'agent with no activity returns nothing')
+}
+
+// getSprintEngineAgentActivityDescending decorates entries with task context
+// and sorts newest-first.
+{
+  const tasks: SprintEngineTask[] = [
+    {
+      id: 'T1',
+      title: 'First',
+      description: '',
+      role: 'developer',
+      status: 'done',
+      ownerAgentId: null,
+      dependsOn: [],
+      ownedPaths: [],
+      acceptanceCriteria: [],
+      implementationNotes: [],
+      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+      notes: [],
+      comments: [],
+      startedAt: null,
+      completedAt: null,
+      activity: [
+        { id: 'A1', timestamp: '2026-05-27T07:00:00Z', type: 'claim', actor: 'developer-1', message: '' },
+        { id: 'A2', timestamp: '2026-05-27T08:00:00Z', type: 'evidence', actor: 'developer-1', message: '' },
+        { id: 'A3', timestamp: '2026-05-27T09:00:00Z', type: 'claim', actor: 'developer-2', message: '' },
+      ],
+    },
+    {
+      id: 'T2',
+      title: 'Second',
+      description: '',
+      role: 'developer',
+      status: 'review',
+      ownerAgentId: null,
+      dependsOn: [],
+      ownedPaths: [],
+      acceptanceCriteria: [],
+      implementationNotes: [],
+      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+      notes: [],
+      comments: [],
+      startedAt: null,
+      completedAt: null,
+      activity: [
+        { id: 'A1', timestamp: '2026-05-27T10:00:00Z', type: 'comment', actor: 'developer-1', message: 'hi' },
+      ],
+    },
+  ]
+  const entries = getSprintEngineAgentActivityDescending('developer-1', tasks)
+  assert.equal(entries.length, 3, 'collects only developer-1 entries')
+  assert.deepEqual(
+    entries.map((e) => e.entry.id),
+    ['A1', 'A2', 'A1'],
+    'newest-first ordering',
+  )
+  assert.deepEqual(
+    entries.map((e) => e.taskId),
+    ['T2', 'T1', 'T1'],
+    'decorated with task id',
+  )
+  assert.equal(entries[0]?.taskTitle, 'Second', 'task title carried through')
+}
+
+// getSprintEngineBoardRunPhase resolves the board hero phase from task
+// completion and active runtime agent states.
+{
+  const emptyState = { tasks: [] as SprintEngineTask[] }
+  assert.equal(
+    getSprintEngineBoardRunPhase(emptyState, []),
+    'Planning',
+    'no tasks, no runtime → Planning',
+  )
+
+  const taskedState = {
+    tasks: [
+      { ...({} as SprintEngineTask), status: 'todo' as const },
+      { ...({} as SprintEngineTask), status: 'review' as const },
+    ],
+  }
+  assert.equal(
+    getSprintEngineBoardRunPhase(taskedState, []),
+    'Tasked',
+    'tasks present but no runtime activity → Tasked',
+  )
+
+  assert.equal(
+    getSprintEngineBoardRunPhase(taskedState, [
+      { agentId: 'developer-1', role: 'developer' as const, status: 'running' },
+    ]),
+    'Running',
+    'any running agent → Running',
+  )
+
+  assert.equal(
+    getSprintEngineBoardRunPhase(taskedState, [
+      { agentId: 'developer-1', role: 'developer' as const, status: 'needs_input' },
+    ]),
+    'Running',
+    'needs_input agent counts as active → Running',
+  )
+
+  const completeState = {
+    tasks: [
+      { ...({} as SprintEngineTask), status: 'done' as const },
+      { ...({} as SprintEngineTask), status: 'done' as const },
+    ],
+  }
+  assert.equal(
+    getSprintEngineBoardRunPhase(completeState, [
+      { agentId: 'developer-1', role: 'developer' as const, status: 'running' },
+    ]),
+    'Complete',
+    'all tasks done overrides runtime state → Complete',
+  )
+}
+
+// getSprintEngineTaskOwnerLabel: owner -> roster label, done -> role label,
+// otherwise -> sentinel.
+{
+  const rosterById = {
+    'developer-1': { label: 'Dev One' },
+    'frontend-2': { label: 'Front Two' },
+  }
+  const ownedTask = { ownerAgentId: 'developer-1', role: 'developer' as const, status: 'in_progress' as const }
+  assert.equal(getSprintEngineTaskOwnerLabel(ownedTask, rosterById), 'Dev One')
+
+  const ownedUnknown = { ownerAgentId: 'ghost-9', role: 'developer' as const, status: 'in_progress' as const }
+  assert.equal(
+    getSprintEngineTaskOwnerLabel(ownedUnknown, rosterById),
+    'ghost-9',
+    'unknown roster id falls back to the agent id',
+  )
+
+  const doneUnowned = { ownerAgentId: null, role: 'frontend' as const, status: 'done' as const }
+  assert.equal(
+    getSprintEngineTaskOwnerLabel(doneUnowned, rosterById),
+    getSprintEngineRoleLabel('frontend'),
+    'done + no owner → role label',
+  )
+
+  const inFlightUnowned = { ownerAgentId: null, role: 'developer' as const, status: 'review' as const }
+  assert.equal(
+    getSprintEngineTaskOwnerLabel(inFlightUnowned, rosterById),
+    'No active worker',
+    'in-flight + no owner → sentinel',
+  )
+}
+
+// getSprintEngineKanbanEmptyMessage covers every board column.
+{
+  assert.match(getSprintEngineKanbanEmptyMessage('ready'), /No ready work/)
+  assert.match(getSprintEngineKanbanEmptyMessage('changes_requested'), /No rework/)
+  assert.match(getSprintEngineKanbanEmptyMessage('in_progress'), /actively claiming/)
+  assert.match(getSprintEngineKanbanEmptyMessage('review'), /awaiting review/)
+  assert.match(getSprintEngineKanbanEmptyMessage('testing'), /test verification/)
+  assert.match(getSprintEngineKanbanEmptyMessage('product'), /product acceptance/)
+  assert.match(getSprintEngineKanbanEmptyMessage('needs_input'), /No blocked tasks/)
+  assert.match(getSprintEngineKanbanEmptyMessage('done'), /Completed work/)
+  assert.match(
+    getSprintEngineKanbanEmptyMessage('todo' as unknown as Parameters<typeof getSprintEngineKanbanEmptyMessage>[0]),
+    /waiting on dependencies/,
+    'unknown column falls back to the planned-task copy',
+  )
+}
+
+// bracketedTerminalPaste wraps text in xterm bracketed-paste markers and
+// normalizes CRLF newlines.
+{
+  const result = bracketedTerminalPaste('line1\r\nline2\nline3')
+  assert.equal(result.startsWith('\x1b[200~'), true, 'starts with bracket-open')
+  assert.equal(result.endsWith('\x1b[201~\r'), true, 'ends with bracket-close + CR')
+  assert.ok(!result.includes('\r\n'), 'CRLF normalized to LF inside the payload')
+}
+
+// isPathInsideOrEqual handles equality, nesting, slash normalization, and
+// drive-letter casing on Windows-style paths.
+{
+  assert.equal(isPathInsideOrEqual('/team', '/team'), true, 'equal paths count as inside')
+  assert.equal(isPathInsideOrEqual('/team', '/team/sub/file.md'), true, 'nested under parent')
+  assert.equal(isPathInsideOrEqual('/team', '/teamx/file.md'), false, 'sibling with shared prefix is not inside')
+  assert.equal(isPathInsideOrEqual('/team', '/team/'), true, 'trailing slash on parent is normalized')
+  assert.equal(isPathInsideOrEqual('C:\\Team', 'c:/team/sub'), true, 'mixed slashes and drive-letter casing match')
+  assert.equal(isPathInsideOrEqual('/team', '/other'), false, 'unrelated path is not inside')
+}
+
+// resolveSprintEngineArtifactEditorPath: clamps to the team directory and
+// rejects remote URLs, traversal, and absolute paths outside the team root.
+{
+  const helpers = {
+    parentPath: (p: string) => {
+      const idx = p.replace(/\\/g, '/').lastIndexOf('/')
+      return idx <= 0 ? '/' : p.slice(0, idx)
+    },
+    joinFilePath: (a: string, b: string) => `${a.replace(/\/$/, '')}/${b.replace(/^\//, '')}`,
+    isAbsoluteFilePath: (p: string) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p),
+  }
+  // statePath is `<workspaceRoot>/.multi-code/sprintengine/<team>/run.yaml`.
+  // teamDirectory = `<workspaceRoot>/.multi-code/sprintengine/<team>`.
+  // workspaceRoot = parentPath x 3 of teamDirectory.
+  const statePath = '/root/.multi-code/sprintengine/team-1/run.yaml'
+  const teamDir = '/root/.multi-code/sprintengine/team-1'
+
+  // Relative artifact path resolves under team directory.
+  const resolved = resolveSprintEngineArtifactEditorPath(statePath, 'designs/mockup.html', helpers)
+  assert.equal(resolved, `${teamDir}/designs/mockup.html`)
+
+  // Empty input throws.
+  assert.throws(() => resolveSprintEngineArtifactEditorPath(statePath, '   ', helpers), /required/i)
+
+  // Remote URLs throw.
+  assert.throws(
+    () => resolveSprintEngineArtifactEditorPath(statePath, 'https://example.com/a.md', helpers),
+    /Remote artifact/,
+  )
+
+  // Parent-relative traversal throws.
+  assert.throws(
+    () => resolveSprintEngineArtifactEditorPath(statePath, '../escape.md', helpers),
+    /must stay inside/,
+  )
+
+  // Absolute path outside team directory throws.
+  assert.throws(
+    () => resolveSprintEngineArtifactEditorPath(statePath, '/etc/passwd', helpers),
+    /must stay inside/,
+  )
+
+  // Schemed non-file paths throw (e.g. mailto:, weird drive-letter-looking strings).
+  assert.throws(
+    () => resolveSprintEngineArtifactEditorPath(statePath, 'mailto:foo@bar', helpers),
+    /Only workspace artifact file paths/,
+  )
 }
 
 // eslint-disable-next-line no-console

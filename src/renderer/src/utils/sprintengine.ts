@@ -912,18 +912,24 @@ function normalizeSprintEngineQualityGateAttempts(input: unknown): SprintEngineQ
     const id = optionalTrimmedString(record.id) ?? `attempt-${index + 1}`
     const status = isSprintEngineQualityGateStatus(record.status) ? record.status : undefined
     const actor = optionalTrimmedString(record.actor)
+    const role = normalizeSprintEngineRoleId(record.role)
+    const claimedBy = optionalTrimmedString(record.claimedBy)
     const startedAt = optionalTrimmedString(record.startedAt)
     const completedAt = optionalTrimmedString(record.completedAt)
     const verdict = optionalTrimmedString(record.verdict)
     const note = optionalTrimmedString(record.note)
+    const summary = optionalTrimmedString(record.summary)
     return [{
       id,
       ...(status ? { status } : {}),
       ...(actor ? { actor } : {}),
+      ...(role ? { role } : {}),
+      ...(claimedBy ? { claimedBy } : {}),
       ...(startedAt ? { startedAt } : {}),
       ...(completedAt ? { completedAt } : {}),
       ...(verdict ? { verdict } : {}),
       ...(note ? { note } : {}),
+      ...(summary ? { summary } : {}),
     }]
   })
 }
@@ -1864,6 +1870,11 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
 
   const tasks = (Array.isArray(input.tasks) ? input.tasks : []).map((task, index) => {
     const feedback = normalizeSprintEngineTaskFeedback(task.feedback)
+    const feedbackAssessments = Array.isArray((task as { feedbackAssessments?: unknown }).feedbackAssessments)
+      ? ((task as { feedbackAssessments?: unknown[] }).feedbackAssessments ?? [])
+        .map((entry) => normalizeSprintEngineTaskFeedback(entry))
+        .filter((entry): entry is SprintEngineTaskFeedback => Boolean(entry))
+      : []
     const triage = normalizeSprintEngineTaskTriage(task.triage)
     const source = normalizeSprintEngineTaskSource(task.source)
     const dispatch = normalizeSprintEngineTaskDispatch(task.dispatch)
@@ -1906,6 +1917,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       implementationNotes: task.implementationNotes ?? [],
       evidence: normalizeSprintEngineTaskEvidence(task.evidence),
       ...(feedback ? { feedback } : {}),
+      ...(feedbackAssessments.length > 0 ? { feedbackAssessments } : {}),
       ...(triage ? { triage } : {}),
       ...(needsInput ? { needsInput } : {}),
       notes: Array.isArray(task.notes) ? task.notes : [],
@@ -2142,6 +2154,123 @@ export function getSprintEngineTaskActivityDescending(
   return [...activity].sort((a, b) => (b.timestamp ?? '').localeCompare(a.timestamp ?? ''))
 }
 
+export type SprintEngineAgentReviewedTask = {
+  task: SprintEngineTask
+  attempts: Array<{
+    gateId: string
+    phase: SprintEngineQualityGatePhase
+    gateStatus: SprintEngineQualityGate['status']
+    role: SprintEngineRoleId
+    attemptStatus?: string
+    verdict?: string
+    summary?: string
+    completedAt?: string
+    startedAt?: string
+  }>
+  latestAttemptAt: string | null
+}
+
+/**
+ * Tasks that the given agent has a quality-gate attempt on, with attempt
+ * summaries. Sorted by most recent attempt first.
+ */
+export function getSprintEngineTasksReviewedByAgent(
+  agentId: string,
+  tasks: ReadonlyArray<SprintEngineTask>,
+): SprintEngineAgentReviewedTask[] {
+  const out: SprintEngineAgentReviewedTask[] = []
+  for (const task of tasks) {
+    const gates = task.qualityGates ?? []
+    if (gates.length === 0) continue
+    const matchingAttempts: SprintEngineAgentReviewedTask['attempts'] = []
+    let latest: string | null = null
+    for (const gate of gates) {
+      for (const attempt of gate.attempts) {
+        if (attempt.actor !== agentId && attempt.claimedBy !== agentId) continue
+        const completed = attempt.completedAt ?? null
+        const started = attempt.startedAt ?? null
+        const stamp = completed ?? started
+        if (stamp && (!latest || stamp > latest)) latest = stamp
+        matchingAttempts.push({
+          gateId: gate.id,
+          phase: gate.phase,
+          gateStatus: gate.status,
+          role: gate.role,
+          ...(attempt.status ? { attemptStatus: attempt.status } : {}),
+          ...(attempt.verdict ? { verdict: attempt.verdict } : {}),
+          ...(attempt.summary ? { summary: attempt.summary } : {}),
+          ...(completed ? { completedAt: completed } : {}),
+          ...(started ? { startedAt: started } : {}),
+        })
+      }
+    }
+    if (matchingAttempts.length === 0) continue
+    out.push({ task, attempts: matchingAttempts, latestAttemptAt: latest })
+  }
+  out.sort((a, b) => (b.latestAttemptAt ?? '').localeCompare(a.latestAttemptAt ?? ''))
+  return out
+}
+
+export type SprintEngineAgentWorkedOnTask = {
+  task: SprintEngineTask
+  latestActivityAt: string | null
+}
+
+/**
+ * Tasks the agent has any recorded activity on. Most useful as the "did /
+ * completed / in-flight" view in the agent inspector, since ownerAgentId is
+ * cleared the moment a task moves out of in_progress so it can't survive as
+ * a historical record.
+ *
+ * Returned newest-first by the agent's latest activity timestamp.
+ */
+export function getSprintEngineTasksWorkedOnByAgent(
+  agentId: string,
+  tasks: ReadonlyArray<SprintEngineTask>,
+): SprintEngineAgentWorkedOnTask[] {
+  const out: SprintEngineAgentWorkedOnTask[] = []
+  for (const task of tasks) {
+    let latest: string | null = null
+    let matched = false
+    for (const entry of task.activity ?? []) {
+      if (entry.actor !== agentId) continue
+      matched = true
+      const stamp = entry.timestamp || null
+      if (stamp && (!latest || stamp > latest)) latest = stamp
+    }
+    if (!matched) continue
+    out.push({ task, latestActivityAt: latest })
+  }
+  out.sort((a, b) => (b.latestActivityAt ?? '').localeCompare(a.latestActivityAt ?? ''))
+  return out
+}
+
+export type SprintEngineAgentActivityEntry = {
+  entry: SprintEngineTaskActivityEntry
+  taskId: string
+  taskTitle: string
+  taskStatus: SprintEngineTask['status']
+}
+
+/**
+ * Newest-first activity entries authored by `agentId` across every task,
+ * decorated with the task context the agent view needs to render them.
+ */
+export function getSprintEngineAgentActivityDescending(
+  agentId: string,
+  tasks: ReadonlyArray<SprintEngineTask>,
+): SprintEngineAgentActivityEntry[] {
+  const out: SprintEngineAgentActivityEntry[] = []
+  for (const task of tasks) {
+    for (const entry of task.activity ?? []) {
+      if (entry.actor !== agentId) continue
+      out.push({ entry, taskId: task.id, taskTitle: task.title, taskStatus: task.status })
+    }
+  }
+  out.sort((a, b) => (b.entry.timestamp ?? '').localeCompare(a.entry.timestamp ?? ''))
+  return out
+}
+
 /**
  * Open feedback items the inspector should surface above secondary metadata —
  * issues and findings whose status is still active (not applied/rejected/fixed).
@@ -2312,4 +2441,149 @@ export function hexToRgba(hex: string, alpha: number): string {
   const green = parseInt(value.slice(2, 4), 16)
   const blue = parseInt(value.slice(4, 6), 16)
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
+// Sprint Engine board view-model helpers — pure derivations consumed by the
+// board shell, model hook, and sub-views. Kept testable so the board panel can
+// stay a thin composition over them.
+
+export type SprintEngineBoardRuntimeAgentView = {
+  agentId: string
+  role: SprintEngineRoleId
+  status: string
+}
+
+export type SprintEngineBoardRunPhase = 'Planning' | 'Tasked' | 'Running' | 'Complete'
+
+/**
+ * Resolve the high-level run-phase label rendered in the board hero. Driven by
+ * task completion + active runtime agent states, not by surface chrome.
+ */
+export function getSprintEngineBoardRunPhase(
+  sprintEngineState: Pick<SprintEngineState, 'tasks'>,
+  runtimeAgents: SprintEngineBoardRuntimeAgentView[],
+): SprintEngineBoardRunPhase {
+  if (sprintEngineState.tasks.length > 0 && sprintEngineState.tasks.every((task) => task.status === 'done')) {
+    return 'Complete'
+  }
+  if (runtimeAgents.some((agent) => agent.status === 'running' || agent.status === 'needs_input')) {
+    return 'Running'
+  }
+  if (sprintEngineState.tasks.length > 0) {
+    return 'Tasked'
+  }
+  return 'Planning'
+}
+
+/**
+ * Resolve the per-task owner label shown in the inspector and kanban detail.
+ * Falls back to the role label for `done` tasks (workers may have detached) and
+ * to the explicit "No active worker" copy for unowned in-flight tasks.
+ */
+export function getSprintEngineTaskOwnerLabel(
+  task: Pick<SprintEngineTask, 'ownerAgentId' | 'role' | 'status'>,
+  rosterById: Record<string, { label: string } | undefined>,
+): string {
+  if (task.ownerAgentId) {
+    return rosterById[task.ownerAgentId]?.label ?? task.ownerAgentId
+  }
+  return task.status === 'done' ? getSprintEngineRoleLabel(task.role) : 'No active worker'
+}
+
+/**
+ * Per-column empty-state copy for the kanban layout. Each column maps to a
+ * single sentence; the board panel renders the result as the column's empty
+ * placeholder line.
+ */
+export function getSprintEngineKanbanEmptyMessage(column: SprintEngineTaskBoardColumn): string {
+  switch (column) {
+    case 'ready':
+      return 'No ready work. Waiting on dependencies or active workers.'
+    case 'changes_requested':
+      return 'No rework queued from reviewers or testers.'
+    case 'in_progress':
+      return 'No workers are actively claiming tasks.'
+    case 'review':
+      return 'No tasks awaiting review gates.'
+    case 'testing':
+      return 'No tasks awaiting test verification.'
+    case 'product':
+      return 'No tasks awaiting product acceptance.'
+    case 'needs_input':
+      return 'No blocked tasks or worker questions.'
+    case 'done':
+      return 'Completed work will collect here.'
+    default:
+      return 'Planned tasks that are waiting on dependencies appear here.'
+  }
+}
+
+/**
+ * Wrap text in xterm bracketed-paste markers so multi-line agent prompts are
+ * pasted as a single block when written to a live terminal session.
+ */
+export function bracketedTerminalPaste(text: string): string {
+  return `\x1b[200~${text.replace(/\r?\n/g, '\n')}\x1b[201~\r`
+}
+
+function normalizeComparableArtifactPath(path: string): string {
+  const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')
+  return /^[A-Za-z]:/.test(normalized) ? normalized.toLowerCase() : normalized
+}
+
+/**
+ * True when `targetPath` equals `parentDir` or is nested under it, after
+ * normalizing slashes and Windows drive-letter casing. Path containment check
+ * used by the artifact path resolver.
+ */
+export function isPathInsideOrEqual(parentDir: string, targetPath: string): boolean {
+  const parent = normalizeComparableArtifactPath(parentDir)
+  const target = normalizeComparableArtifactPath(targetPath)
+  return target === parent || target.startsWith(`${parent}/`)
+}
+
+/**
+ * Resolve a Sprint Engine artifact path (as written into the projection) to an
+ * absolute file path safe to open in the editor. Rejects remote URLs,
+ * parent-relative traversal, and paths that resolve outside the Sprint Engine
+ * team directory. The {@link parentPath} and {@link joinFilePath} helpers are
+ * passed in so this util stays decoupled from any specific filesystem adapter.
+ */
+export function resolveSprintEngineArtifactEditorPath(
+  statePath: string,
+  artifactPathInput: string,
+  helpers: {
+    parentPath: (path: string) => string
+    joinFilePath: (a: string, b: string) => string
+    isAbsoluteFilePath: (path: string) => boolean
+  },
+): string {
+  const { parentPath, joinFilePath, isAbsoluteFilePath } = helpers
+  const artifactPath = artifactPathInput.trim()
+  if (!artifactPath) throw new Error('Artifact path is required.')
+  if (/^https?:\/\//i.test(artifactPath)) {
+    throw new Error('Remote artifact links cannot be opened in the editor.')
+  }
+  if (artifactPath.split(/[\\/]+/).includes('..')) {
+    throw new Error('Artifact path must stay inside the Sprint Engine team directory.')
+  }
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/i.test(artifactPath) && !isAbsoluteFilePath(artifactPath)) {
+    throw new Error('Only workspace artifact file paths can be opened.')
+  }
+
+  const teamDirectory = parentPath(statePath)
+  const workspaceRoot = parentPath(parentPath(parentPath(teamDirectory)))
+  const targetPath = isAbsoluteFilePath(artifactPath)
+    ? artifactPath
+    : [
+        joinFilePath(workspaceRoot, artifactPath),
+        joinFilePath(teamDirectory, artifactPath),
+      ].find((candidate) => isPathInsideOrEqual(teamDirectory, candidate))
+      ?? joinFilePath(workspaceRoot, artifactPath)
+
+  if (!isPathInsideOrEqual(teamDirectory, targetPath)) {
+    throw new Error('Artifact path must stay inside the Sprint Engine team directory.')
+  }
+
+  return targetPath
 }

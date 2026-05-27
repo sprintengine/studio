@@ -31,6 +31,7 @@ import type {
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { disableSprintEngineAutoRun } from '../../utils/sprintengineSupervisorNotifications'
 import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
@@ -97,7 +98,6 @@ export default function WorkspaceManager() {
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
-  const setSprintEngineAutoEnabled = useWorkspaceStore((s) => s.setSprintEngineAutoEnabled)
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli ?? 'claude')
@@ -1001,7 +1001,11 @@ export default function WorkspaceManager() {
   const stopSession = (item: SessionItem) => {
     void window.api.terminalKill(item.sessionId).catch(() => {})
     setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))
-    if (item.workspace.mode === 'sprintengine') setSprintEngineAutoEnabled(item.workspace.id, false)
+    if (item.workspace.mode === 'sprintengine') {
+      disableSprintEngineAutoRun(item.workspace.id, 'agent_terminal_closed', {
+        ...(item.agentId ? { agentId: item.agentId } : {}),
+      })
+    }
     if (item.agentId) {
       updateAgent(item.workspace.id, item.agentId, {
         cliStartRequested: false,
@@ -1249,7 +1253,9 @@ function killTerminalForLayoutTab(
     sessionIds.forEach((sessionId) => {
       void window.api.terminalKill(sessionId).catch(() => {})
     })
-    if (agent?.kind === 'sprintengine') state.setSprintEngineAutoEnabled(workspaceId, false)
+    if (agent?.kind === 'sprintengine') {
+      disableSprintEngineAutoRun(workspaceId, 'agent_terminal_closed', { agentId })
+    }
     state.updateAgent(workspaceId, agentId, {
       cliStartRequested: false,
       cliHasLaunched: false,

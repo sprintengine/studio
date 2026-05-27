@@ -1,21 +1,16 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { selectSprintEngineView, useSprintEngineViewStore } from '../../store/sprintEngineViewStore'
 import {
- BoardLane,
  CloseIconButton,
  OverflowMenu,
  GhostButton,
- InboxSearchInput,
  Popover,
- RoleAvatar,
  SidePane,
  StatusDot,
  Section,
  Select,
  Tabs,
- TaskCard,
- Tooltip,
  DefinitionList,
  type OverflowMenuItem,
  type TabItem,
@@ -31,65 +26,63 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { useTerminalSessions } from '../../hooks/useTerminalSessions'
 import type {
  AgentCli,
- AgentExecution,
- AgentState,
  SprintEngineArtifact,
  SprintEngineAutomationMode,
  SprintEngineCliPermissionPreset,
  SprintEngineRole,
  SprintEngineRoleId,
- SprintEngineState,
- SprintEngineTask,
  SprintEngineTaskBoardColumn,
 } from '../../types/workspace'
 import { SprintEngineRoleIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import {
- buildSprintEngineAgentRosterForState,
+ bracketedTerminalPaste,
  formatSprintEngineLockAge,
  getNextSprintEngineAgentId,
- getReviewableSprintEngineArtifacts,
- getSprintEngineArtifactDependencyBlockers,
- getSprintEngineArtifactsByTaskId,
+ getSprintEngineBoardRunPhase,
  getSprintEngineTaskBoardColumn,
- getSprintEngineVisibleBoardColumns,
+ getSprintEngineTaskOwnerLabel,
  getSprintEngineRoleAccent,
- isSprintEngineTaskLaunchable,
  normalizeSprintEngineProjection,
  getSprintEngineRoleLabel,
  sprintEngineTaskStateLabel,
- type SprintEngineAgentRosterItem,
 } from '../../utils/sprintengine'
 import {
  deriveSprintEngineAutomationMode,
  sprintEngineAutomationModeOptions,
  sprintEngineCliWatchPollingForAutomationMode,
 } from '../../utils/sprintengineAutomation'
-import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
-import { focusOrAddAgentTab, focusOrAddFileTab } from '../../utils/modelRegistry'
+import { disableSprintEngineAutoRun } from '../../utils/sprintengineSupervisorNotifications'
+import { findFirstUncoveredSprintEngineRole } from '../../utils/sprintengineRoleOptions'
+import {
+ buildSprintEngineRosterRevisionPrompt,
+} from '../../utils/sprintenginePlanReviewPrompts'
+import { normalizeAgentIdentifier } from '../../utils/agentPrompt'
+import { focusOrAddAgentTab } from '../../utils/modelRegistry'
 import { publishDiagnostic, publishDiagnosticSync } from '../../utils/diagnostics'
 import { isEditableTarget } from '../../utils/keyboard'
-import { basename, isAbsoluteFilePath, joinFilePath, parentPath } from '../../utils/paths'
 import {
  artifactTimestampMs,
- getSprintEngineInboxArtifacts,
  runtimeStatusLabel,
- runtimeStatusTone,
- sprintEngineInboxEmptyMessage,
  type ArtifactActionState,
- type RuntimeAgentView,
  type SprintEngineInspectorSelection,
 } from './sprintEngineInspector'
-import {
- SprintEngineInspectorPanel,
- SprintEngineInboxRow,
- SprintEngineBlockedByRow,
-} from './SprintEngineInspectorPanel'
+import { SprintEngineInspectorPanel } from './SprintEngineInspectorPanel'
 import { SprintEngineTaskGraphView } from './SprintEngineTaskGraphView'
+import {
+ SprintEngineInboxIcon,
+ SprintEngineRosterNavIcon,
+ SprintEngineTasksNavIcon,
+} from './sprintEngineBoard/SprintEngineBoardIcons'
+import { SprintEngineInboxView } from './sprintEngineBoard/SprintEngineInboxView'
+import { SprintEngineRosterView } from './sprintEngineBoard/SprintEngineRosterView'
+import { SprintEngineTasksKanbanView } from './sprintEngineBoard/SprintEngineTasksKanbanView'
+import { useSprintEngineBoardModel } from './sprintEngineBoard/useSprintEngineBoardModel'
+import { useSprintEngineBoardArtifactActions } from './sprintEngineBoard/useSprintEngineBoardArtifactActions'
+import { useSprintEngineBoardTerminalActions } from './sprintEngineBoard/useSprintEngineBoardTerminalActions'
 
 
 
-const addableRoles: SprintEngineRole[] = ['architect', 'product', 'frontend', 'developer', 'code_reviewer', 'spec_reviewer', 'performance', 'tester', 'security']
 const cliOptions: Array<{ value: AgentCli; label: string; description: string }> = [
  { value: 'codex', label: 'Codex', description: 'OpenAI Codex CLI' },
  { value: 'claude', label: 'Claude', description: 'Claude Code CLI' },
@@ -117,65 +110,6 @@ const sprintEngineCliPermissionOptions: Array<{
 ]
 
 
-type OpenedSprintEngineArtifact = {
- path: string
- name: string
- content: string
-}
-
-function normalizeComparablePath(path: string): string {
- const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')
- return /^[A-Za-z]:/.test(normalized) ? normalized.toLowerCase() : normalized
-}
-
-function isPathInsideOrEqual(parentPath: string, targetPath: string): boolean {
- const parent = normalizeComparablePath(parentPath)
- const target = normalizeComparablePath(targetPath)
- return target === parent || target.startsWith(`${parent}/`)
-}
-
-function resolveArtifactPathForEditor(statePath: string, artifactPathInput: string): string {
- const artifactPath = artifactPathInput.trim()
- if (!artifactPath) throw new Error('Artifact path is required.')
- if (/^https?:\/\//i.test(artifactPath)) {
- throw new Error('Remote artifact links cannot be opened in the editor.')
- }
- if (artifactPath.split(/[\\/]+/).includes('..')) {
- throw new Error('Artifact path must stay inside the Sprint Engine team directory.')
- }
- if (/^[A-Za-z][A-Za-z0-9+.-]*:/i.test(artifactPath) && !isAbsoluteFilePath(artifactPath)) {
- throw new Error('Only workspace artifact file paths can be opened.')
- }
-
- const teamDirectory = parentPath(statePath)
- const workspaceRoot = parentPath(parentPath(parentPath(teamDirectory)))
- const targetPath = isAbsoluteFilePath(artifactPath)
- ? artifactPath
- : [
- joinFilePath(workspaceRoot, artifactPath),
- joinFilePath(teamDirectory, artifactPath),
- ].find((candidate) => isPathInsideOrEqual(teamDirectory, candidate))
- ?? joinFilePath(workspaceRoot, artifactPath)
-
- if (!isPathInsideOrEqual(teamDirectory, targetPath)) {
- throw new Error('Artifact path must stay inside the Sprint Engine team directory.')
- }
-
- return targetPath
-}
-
-const roleSummaries: Record<SprintEngineRole, string> = {
- architect: 'Plans the run and gates readiness.',
- product: 'Shapes scope, positioning, audience fit, and priority tradeoffs.',
- developer: 'Builds implementation and integration work.',
- frontend: 'Owns interaction design, visual quality, and UI implementation.',
- code_reviewer: 'Reviews implementation quality, regressions, and evidence.',
- spec_reviewer: 'Checks implementation against requirements, acceptance criteria, and tests.',
- performance: 'Reviews latency, CPU, memory, runtime cost, and measurement gaps.',
- tester: 'Validates behavior, regressions, and acceptance criteria.',
- security: 'Reviews trust boundaries, command safety, data handling, and hardening.',
-}
-
 interface Props {
  workspaceId: string
  fixedView?: SprintEngineView
@@ -194,55 +128,6 @@ type SyncState = {
 
 type SprintEngineView = 'inbox' | 'roster' | 'tasks'
 type SprintEngineTasksLayout = 'graph' | 'kanban'
-
-function SprintEngineInboxIcon({ className }: { className?: string }) {
- return (
- <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
- <rect x="2.5" y="3.5" width="11" height="9" rx="1.2" stroke="currentColor" strokeWidth="1.25" />
- <path
- d="M2.5 8.75H5.25L6.25 10.25H9.75L10.75 8.75H13.5"
- stroke="currentColor"
- strokeWidth="1.25"
- strokeLinecap="round"
- strokeLinejoin="round"
- />
- </svg>
- )
-}
-
-function SprintEngineRosterNavIcon({ className }: { className?: string }) {
- return (
- <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
- <circle cx="5.5" cy="6.5" r="2" stroke="currentColor" strokeWidth="1.25" />
- <circle cx="10.75" cy="7" r="1.6" stroke="currentColor" strokeWidth="1.25" />
- <path
- d="M1.75 13.25C1.75 11.5 3.25 10.5 5.5 10.5C7.75 10.5 9.25 11.5 9.25 13.25"
- stroke="currentColor"
- strokeWidth="1.25"
- strokeLinecap="round"
- />
- <path
- d="M9.5 13.25C9.5 12 10.5 11.25 12 11.25C13.5 11.25 14.25 12 14.25 13.25"
- stroke="currentColor"
- strokeWidth="1.25"
- strokeLinecap="round"
- />
- </svg>
- )
-}
-
-function SprintEngineTasksNavIcon({ className }: { className?: string }) {
- return (
- <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
- <path d="M2.75 4.25L4 5.5L6.25 3.25" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
- <path d="M2.75 8.5L4 9.75L6.25 7.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
- <path d="M2.75 12.75L4 14L6.25 11.75" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
- <line x1="8.25" y1="4.5" x2="13.5" y2="4.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
- <line x1="8.25" y1="8.75" x2="13.5" y2="8.75" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
- <line x1="8.25" y1="13" x2="13.5" y2="13" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
- </svg>
- )
-}
 
 type SpawnDialogState = {
  agentId: string
@@ -490,15 +375,21 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  return sprintEngineContext?.statePath ?? null
  }
 
- const roster = useMemo(
- () => buildSprintEngineAgentRosterForState(sprintEngineState),
- [sprintEngineState]
- )
-
- const rosterById = useMemo(
- () => Object.fromEntries(roster.map((agent) => [agent.id, agent])),
- [roster]
- )
+ const sprintEngineTasks = sprintEngineState?.tasks ?? []
+ const {
+ roster,
+ rosterById,
+ runtimeAgents,
+ runtimeAgentById,
+ readyTasks,
+ boardColumns,
+ reviewArtifacts,
+ artifactsByTaskId,
+ artifactBlockersByTaskId,
+ tasksById,
+ inboxArtifactCount,
+ addMemberOptions,
+ } = useSprintEngineBoardModel({ sprintEngineState, agents })
 
  const getLiveAgentTerminalSession = useCallback(
  (agentId: string) => {
@@ -553,164 +444,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  })
  }, [folderMissing, folderPath, savedFolderPath, sprintEngineContext?.statePath])
 
- const runtimeAgents = useMemo(
- () => roster.map((agent) => {
- const runtime = sprintEngineState?.sprintEngineAgents[agent.id]
- const localAgent = agents[agent.id]
- const localExited = Boolean(
- localAgent?.kind === 'sprintengine'
- && localAgent.cliLastExitedAt
- && !localAgent.cliStartRequested
- && !localAgent.cliHasLaunched
- )
-
- return {
- agentId: agent.id,
- label: agent.label,
- role: runtime?.role ?? agent.role,
- status: localExited ? 'exited' : runtime?.status ?? 'idle',
- currentTaskId: runtime?.currentTaskId ?? null,
- }
- }),
- [agents, roster, sprintEngineState?.sprintEngineAgents]
- )
-
- const runtimeAgentById = useMemo(
- () => Object.fromEntries(runtimeAgents.map((agent) => [agent.agentId, agent])),
- [runtimeAgents]
- )
-
- const readyTasks = useMemo(() => (
- sprintEngineState?.tasks.filter((task) => isSprintEngineTaskLaunchable(task, sprintEngineState)) ?? []
- ), [sprintEngineState])
-
- function startAgentTerminal(
- agentId: string,
- label: string,
- cli?: AgentCli,
- options?: {
- startupPrompt?: string
- freshSession?: boolean
- agentName?: string
- execution?: AgentExecution
- }
- ): boolean {
- const current = agents[agentId]
- const selectedCli = cli ?? current?.cli
- if (!selectedCli) {
- void publishDiagnostic({
- level: 'error',
- source: 'terminal',
- title: `${label} was not started`,
- message: 'Sprint Engine agent is missing its CLI selection.',
- details: [
- `Workspace ID: ${workspaceId}`,
- `Agent ID: ${agentId}`,
- ].join('\n'),
- workspaceId,
- workspaceName: workspace?.name,
- agentId,
- })
- return false
- }
- const role = sprintEngineState?.sprintEngineAgents[agentId]?.role
- const roleLabel = role
- ? getSprintEngineRoleLabel(role)
- : undefined
- const startupPrompt = options?.startupPrompt && options.agentName
- ? prependAgentIdentifier(options.startupPrompt, options.agentName, roleLabel)
- : options?.startupPrompt
- const hasLegacyLaunchedSession =
- current?.cli === undefined
- && Boolean(current?.cliStartRequested || current?.cliHasLaunched || current?.cliSessionId)
- const shouldResetSession =
- hasLegacyLaunchedSession || (current?.cli !== undefined && current.cli !== selectedCli)
- const shouldStartFresh = Boolean(options?.freshSession || shouldResetSession)
- const previousSessionId = current?.cliSessionId
- const nextSessionId = current?.cliStartRequested && previousSessionId && !shouldStartFresh
- ? previousSessionId
- : crypto.randomUUID()
-
- if (shouldStartFresh && previousSessionId && previousSessionId !== nextSessionId) {
- void window.api.terminalKill(previousSessionId).catch(() => {})
- }
-
- updateAgent(workspaceId, agentId, {
- name: label,
- ...(options?.execution ? { execution: options.execution } : {}),
- cliStartRequested: true,
- cliSessionId: nextSessionId,
- cliHasLaunched: current?.cliStartRequested && !shouldStartFresh ? current.cliHasLaunched ?? false : false,
- cliOnboardingPromptSent: current?.cliStartRequested && !shouldStartFresh ? current.cliOnboardingPromptSent ?? false : false,
- cliResumeAvailable: shouldStartFresh ? false : current?.cliResumeAvailable ?? false,
- cliLastExitCode: undefined,
- cliLastExitedAt: undefined,
- cli: selectedCli,
- cliStartupPrompt: startupPrompt,
- kind: 'sprintengine',
- })
- focusOrAddAgentTab(workspaceId, agentId, label)
- return true
- }
-
- async function ensureWorkspaceFolderReadyForLaunch(agentId: string, label: string): Promise<boolean> {
- if (!savedFolderPath) return true
-
- const result = folderPath
- ? { ok: true as const, checkedPath: folderPath, message: `Workspace folder is ready: ${folderPath}` }
- : await window.api.checkWorkspaceFolder(savedFolderPath).catch((error): WorkspaceFolderCheckResult => ({
- ok: false,
- status: 'inaccessible',
- path: savedFolderPath,
- checkedPath: savedFolderPath,
- message: error instanceof Error ? error.message : 'Failed to check workspace folder.',
- }))
-
- if (result.ok) return true
-
- void recheckFolder()
- await publishDiagnostic({
- level: 'error',
- source: 'filesystem',
- title: `${label} was not started`,
- message: result.message || folderStatusMessage || 'Workspace folder could not be verified.',
- details: [
- `Saved path: ${savedFolderPath}`,
- `Checked path: ${result.checkedPath || folderCheckedPath || savedFolderPath}`,
- `Agent: ${agentId}`,
- ].join('\n'),
- workspaceId,
- workspaceName: workspace?.name,
- agentId,
- })
- return false
- }
-
- async function startAgentTerminalWhenReady(
- agentId: string,
- label: string,
- cli?: AgentCli,
- options?: {
- startupPrompt?: string
- freshSession?: boolean
- agentName?: string
- execution?: AgentExecution
- }
- ): Promise<boolean> {
- if (!(await ensureWorkspaceFolderReadyForLaunch(agentId, label))) return false
- return startAgentTerminal(agentId, label, cli, options)
- }
-
- const boardColumns = useMemo(() => {
- if (!sprintEngineState) return []
-
- return getSprintEngineVisibleBoardColumns(sprintEngineState).map((column) => ({
- ...column,
- cards: sprintEngineState.tasks.filter(
- (task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === column.key
- ),
- }))
- }, [sprintEngineState])
+ // startAgentTerminal / ensureWorkspaceFolderReadyForLaunch / startAgentTerminalWhenReady
+ // moved to useSprintEngineBoardTerminalActions hook (initialized below).
 
  const previousColumnByTaskRef = useRef<Map<string, SprintEngineTaskBoardColumn>>(new Map())
  const [recentlyMovedTaskIds, setRecentlyMovedTaskIds] = useState<Set<string>>(new Set())
@@ -831,31 +566,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  [boardColumns, tasksKanbanActive, selectedTaskId, inspectorExpanded]
  )
 
- const reviewArtifacts = useMemo(
- () => getReviewableSprintEngineArtifacts(sprintEngineState?.artifacts ?? []),
- [sprintEngineState?.artifacts]
- )
-
- const artifactsByTaskId = useMemo(
- () => getSprintEngineArtifactsByTaskId(reviewArtifacts),
- [reviewArtifacts]
- )
-
- const artifactBlockersByTaskId = useMemo(() => {
- if (!sprintEngineState) return {}
- return Object.fromEntries(
- sprintEngineState.tasks.map((task) => [
- task.id,
- getSprintEngineArtifactDependencyBlockers(task, sprintEngineState.tasks, reviewArtifacts),
- ])
- )
- }, [reviewArtifacts, sprintEngineState])
-
- const tasksById = useMemo(
- () => Object.fromEntries((sprintEngineState?.tasks ?? []).map((task) => [task.id, task])),
- [sprintEngineState?.tasks]
- )
-
  const selectedTask = sprintEngineState?.tasks.find((task) => task.id === selectedTaskId) ?? null
 
  if (!sprintEngineState) {
@@ -867,7 +577,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  }
 
  const doneCount = sprintEngineState.tasks.filter((task) => task.status === 'done').length
- const runPhase = getRunPhase(sprintEngineState, runtimeAgents)
+ const runPhase = getSprintEngineBoardRunPhase(sprintEngineState, runtimeAgents)
  const allTasksDone = sprintEngineState.tasks.length > 0 && doneCount === sprintEngineState.tasks.length
  const runSummary = buildRunSummary(sprintEngineState.tasks)
  const totalTasks = sprintEngineState.tasks.length
@@ -947,222 +657,29 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  }
  }
 
- const applySprintEngineProjectionContent = (projectionContent: unknown): boolean => {
- if (typeof projectionContent !== 'string') return false
- try {
- const projection = JSON.parse(projectionContent) as unknown
- const parsed = normalizeSprintEngineProjection(projection, sprintEngineContext?.teamName)
- if (!parsed) return false
- setSprintEngineState(workspaceId, parsed)
- setSyncState({
- status: 'live',
- message: `Refreshed ${parsed.tasks.length} tasks from projection.json`,
+ const {
+ applySprintEngineProjectionContent,
+ openArtifact,
+ popOutPreviewedArtifact,
+ approveArtifact,
+ requestArtifactChanges,
+ cancelRequestArtifactChangesDialog,
+ submitRequestArtifactChanges,
+ } = useSprintEngineBoardArtifactActions({
+ workspaceId,
+ statePath: sprintEngineContext?.statePath,
+ teamName: sprintEngineContext?.teamName,
+ setArtifactActions,
+ setPreviewedArtifact,
+ previewedArtifact,
+ setRequestChangesDialog,
+ requestChangesDialog,
+ setSyncState,
+ setSprintEngineState,
+ openFile,
+ refreshSprintEngineState,
+ api: window.api,
  })
- return true
- } catch {
- return false
- }
- }
-
- const setArtifactAction = (
- artifactId: string,
- state: ArtifactActionState | null
- ) => {
- setArtifactActions((current) => {
- const next = { ...current }
- if (state) {
- next[artifactId] = state
- } else {
- delete next[artifactId]
- }
- return next
- })
- }
-
- const requireArtifactStatePath = (): string | null => {
- if (!sprintEngineContext?.statePath) {
- setSyncState({
- status: 'error',
- message: 'This Sprint Engine workspace is missing its selected team context.',
- })
- return null
- }
- return sprintEngineContext.statePath
- }
-
- const readArtifactForEditor = async (
- statePath: string,
- artifact: SprintEngineArtifact
- ): Promise<OpenedSprintEngineArtifact> => {
- const artifactPath = resolveArtifactPathForEditor(statePath, artifact.path)
- const exists = await window.api.pathExists(artifactPath)
- if (!exists) {
- throw new Error(`Artifact file does not exist: ${artifactPath}`)
- }
-
- const content = await window.api.readfile(artifactPath)
- return {
- path: artifactPath,
- name: basename(artifactPath) || artifact.title || artifact.id,
- content,
- }
- }
-
- const openArtifact = async (artifact: SprintEngineArtifact) => {
- const statePath = requireArtifactStatePath()
- if (!statePath) return
-
- setArtifactAction(artifact.id, { kind: 'open', status: 'pending', message: 'Opening...' })
- try {
- const openedArtifact = await readArtifactForEditor(statePath, artifact)
- setPreviewedArtifact({
- id: artifact.id,
- path: openedArtifact.path,
- name: openedArtifact.name,
- content: openedArtifact.content,
- })
- setArtifactAction(artifact.id, {
- kind: 'open',
- status: 'success',
- message: 'Opened in preview.',
- })
- } catch (error) {
- const message = error instanceof Error ? error.message : 'Failed to open artifact.'
- setArtifactAction(artifact.id, {
- kind: 'open',
- status: 'error',
- message,
- })
- setSyncState({
- status: 'error',
- message,
- })
- }
- }
-
- // Pop the previewed artifact out into a real flexlayout file-editor tab.
- // Useful when the user wants the full editor experience (split view, code
- // language features) instead of the inline preview.
- const popOutPreviewedArtifact = () => {
- if (!previewedArtifact) return
- openFile(workspaceId, previewedArtifact.path, previewedArtifact.name, previewedArtifact.content)
- focusOrAddFileTab(workspaceId, previewedArtifact.path, previewedArtifact.name)
- setPreviewedArtifact(null)
- }
-
- // Manual artifact review actions are authenticated Sprint Engine MCP/core
- // mutations: the renderer hands intent to main IPC, Sprint Engine performs
- // the state transition, and the returned projection drives the UI. No
- // approval text is typed into the producer terminal.
- const applyMutationResultProjection = async (
- result: { ok: true; data: unknown } | { ok: false; message: string },
- ): Promise<void> => {
- if (!result.ok) return
- const projectionContent = (result.data as { projectionContent?: unknown } | undefined)?.projectionContent
- const applied = applySprintEngineProjectionContent(projectionContent)
- if (!applied) await refreshSprintEngineState()
- }
-
- const approveArtifact = async (artifact: SprintEngineArtifact) => {
- const statePath = requireArtifactStatePath()
- if (!statePath) return
-
- setArtifactAction(artifact.id, { kind: 'approve', status: 'pending', message: 'Approving artifact...' })
- try {
- const result = await window.api.approveSprintEngineArtifact(statePath, artifact.id)
- if (!result.ok) {
- setArtifactAction(artifact.id, {
- kind: 'approve',
- status: 'error',
- message: result.message || 'Sprint Engine rejected the approval.',
- })
- return
- }
- await applyMutationResultProjection(result)
- setArtifactAction(artifact.id, {
- kind: 'approve',
- status: 'success',
- message: 'Approved through Sprint Engine.',
- })
- } catch (error) {
- const message = error instanceof Error ? error.message : 'Failed to approve artifact.'
- setArtifactAction(artifact.id, {
- kind: 'approve',
- status: 'error',
- message,
- })
- }
- }
-
- const requestArtifactChanges = (artifact: SprintEngineArtifact) => {
- if (!requireArtifactStatePath()) return
- setRequestChangesDialog({ artifact, feedback: '', submitting: false, error: null })
- }
-
- const cancelRequestArtifactChangesDialog = () => {
- setRequestChangesDialog((current) => (current?.submitting ? current : null))
- }
-
- const submitRequestArtifactChanges = async () => {
- const dialogState = requestChangesDialog
- if (!dialogState || dialogState.submitting) return
- const feedback = dialogState.feedback.trim()
- if (!feedback) {
- setRequestChangesDialog((current) =>
- current ? { ...current, error: 'Feedback is required to request changes.' } : current,
- )
- return
- }
- const statePath = requireArtifactStatePath()
- if (!statePath) {
- setRequestChangesDialog((current) =>
- current
- ? { ...current, error: 'This Sprint Engine workspace is missing its selected team context.' }
- : current,
- )
- return
- }
-
- const { artifact } = dialogState
- setRequestChangesDialog((current) => (current ? { ...current, submitting: true, error: null } : current))
- setArtifactAction(artifact.id, {
- kind: 'requestChanges',
- status: 'pending',
- message: 'Requesting changes...',
- })
- try {
- const result = await window.api.requestSprintEngineArtifactChanges(statePath, artifact.id, feedback)
- if (!result.ok) {
- const message = result.message || 'Sprint Engine rejected the change request.'
- setRequestChangesDialog((current) =>
- current ? { ...current, submitting: false, error: message } : current,
- )
- setArtifactAction(artifact.id, {
- kind: 'requestChanges',
- status: 'error',
- message,
- })
- return
- }
- await applyMutationResultProjection(result)
- setArtifactAction(artifact.id, {
- kind: 'requestChanges',
- status: 'success',
- message: 'Changes requested through Sprint Engine.',
- })
- setRequestChangesDialog(null)
- } catch (error) {
- const message = error instanceof Error ? error.message : 'Failed to request changes.'
- setRequestChangesDialog((current) =>
- current ? { ...current, submitting: false, error: message } : current,
- )
- setArtifactAction(artifact.id, {
- kind: 'requestChanges',
- status: 'error',
- message,
- })
- }
- }
 
  const folderStatusBanner = savedFolderPath && !folderPath ? (
  <div className="border-b border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] px-4 py-2 text-[12px] text-[color:var(--text-muted)]">
@@ -1215,7 +732,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const selectedTaskStatusLabel = selectedTask
  ? selectedTaskBoardColumn === 'ready' ? 'Ready' : sprintEngineTaskStateLabel[selectedTask.status]
  : ''
- const selectedTaskOwnerLabel = selectedTask ? getTaskOwnerLabel(selectedTask, rosterById) : ''
+ const selectedTaskOwnerLabel = selectedTask ? getSprintEngineTaskOwnerLabel(selectedTask, rosterById) : ''
  const selectedTaskNeedsInputNote = selectedTask?.status === 'needs_input'
  ? 'Worker is waiting for input.'
  : null
@@ -1314,7 +831,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  if (nextMode === automationMode) return
  const previousMode = automationMode
  setPendingAutomationMode(nextMode)
- setSprintEngineAutomationMode(workspaceId, nextMode)
+ if (nextMode === 'manual') {
+  disableSprintEngineAutoRun(workspaceId, 'user_manual_toggle')
+ } else {
+  setSprintEngineAutomationMode(workspaceId, nextMode)
+ }
  if (!sprintEngineContext?.statePath) {
  if (nextMode !== 'manual') {
  setSprintEngineAutomationMode(workspaceId, previousMode)
@@ -1400,11 +921,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  }
 
  const openAddMemberDialog = () => {
- const uncoveredRole = addableRoles.find((role) =>
- sprintEngineState.tasks.some((task) => task.role === role && task.status !== 'done')
- && !roster.some((agent) => agent.role === role)
- )
- setAddMemberRole(uncoveredRole ?? 'developer')
+ const uncoveredRole = findFirstUncoveredSprintEngineRole({
+ roster,
+ tasks: sprintEngineTasks,
+ })
+ setAddMemberRole((uncoveredRole ?? 'developer') as SprintEngineRole)
  setAddMemberOpen(true)
  }
 
@@ -1414,7 +935,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const agentId = getNextSprintEngineAgentId(role, sprintEngineState.sprintEngineAgents)
  const fallbackLabel = rosterById[architectAgentId]?.label ?? 'Architect'
  const label = getAgentName(architectAgentId, fallbackLabel)
- const prompt = buildRosterRevisionPrompt(role, agentId, sprintEngineContext.teamSlug)
+ const prompt = buildSprintEngineRosterRevisionPrompt({
+ role,
+ agentId,
+ teamSlug: sprintEngineContext.teamSlug,
+ })
  const liveArchitectSession = getLiveAgentTerminalSession(architectAgentId)
  if (liveArchitectSession) {
  await window.api.terminalWrite(liveArchitectSession.sessionId, bracketedTerminalPaste(prompt))
@@ -1442,105 +967,41 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  setAddMemberOpen(false)
  }
 
- const openAgentTerminal = (agentId: string) => {
- const fallbackLabel = rosterById[agentId]?.label ?? agentId
- const label = getAgentName(agentId, fallbackLabel)
- const liveSession = getLiveAgentTerminalSession(agentId)
- setSelectedAgentId(agentId)
- if (liveSession) {
- const effectiveCli = liveSession.cli ?? agents[agentId]?.cli
- updateAgent(workspaceId, agentId, {
- name: label,
- cliStartRequested: true,
- cliHasLaunched: true,
- cliOnboardingPromptSent: true,
- cliSessionId: liveSession.sessionId,
- ...(effectiveCli ? { cli: effectiveCli } : {}),
- kind: 'sprintengine',
+ const {
+ startAgentTerminalWhenReady,
+ openAgentTerminal,
+ openSpawnDialog,
+ confirmSpawnDialog,
+ openRecoveryDialog,
+ confirmRecoveryAudit,
+ requestPlanReviews,
+ addressPlanReviews,
+ } = useSprintEngineBoardTerminalActions({
+ workspaceId,
+ workspace,
+ agents,
+ sprintEngineState,
+ rosterById,
+ architectAgentId,
+ specialistReviewAgents,
+ savedFolderPath,
+ folderPath,
+ folderStatusMessage,
+ folderCheckedPath,
+ lastSelectedCli,
+ spawnDialog,
+ recoveryDialog,
+ spawnDialogHasLiveTerminal,
+ updateAgent,
+ recheckFolder,
+ setSelectedAgentId,
+ setCliPickerOpen,
+ setSpawnDialog,
+ setRecoveryDialog,
+ getAgentName,
+ getCustomAgentName,
+ getLiveAgentTerminalSession,
  })
- focusOrAddAgentTab(workspaceId, agentId, label, { sessionId: liveSession.sessionId })
- return
- }
- void startAgentTerminalWhenReady(agentId, label)
- }
-
- const openSpawnDialog = (agentId: string) => {
- const agentState = agents[agentId]
- const defaultName = rosterById[agentId]?.label ?? agentId
- const role = rosterById[agentId]?.role
- const defaultCli = role ? workspace?.sprintEngineRoleCliDefaults?.[role] ?? lastSelectedCli : lastSelectedCli
- const savedName = agentState?.name && agentState.name !== defaultName ? agentState.name : ''
- setSelectedAgentId(agentId)
- setCliPickerOpen(false)
- setSpawnDialog({
- agentId,
- cli: agentState?.cli ?? defaultCli,
- name: savedName,
- })
- }
-
- const confirmSpawnDialog = async () => {
- if (!spawnDialog) return
- const defaultName = rosterById[spawnDialog.agentId]?.label ?? spawnDialog.agentId
- const agentName = normalizeAgentIdentifier(spawnDialog.name)
- const label = agentName || defaultName
- const started = await startAgentTerminalWhenReady(spawnDialog.agentId, label, spawnDialog.cli, {
- agentName,
- freshSession: !spawnDialogHasLiveTerminal,
- })
- if (!started) return
- setCliPickerOpen(false)
- setSpawnDialog(null)
- }
-
- const openRecoveryDialog = () => {
- setCliPickerOpen(false)
- setRecoveryDialog({ cli: 'codex' })
- }
-
- const confirmRecoveryAudit = async () => {
- if (!recoveryDialog || !architectAgentId || !folderPath) return
- const fallbackLabel = rosterById[architectAgentId]?.label ?? 'Architect'
- const label = getAgentName(architectAgentId, fallbackLabel)
-
- const started = await startAgentTerminalWhenReady(architectAgentId, label, recoveryDialog.cli, {
- freshSession: true,
- agentName: getCustomAgentName(architectAgentId, fallbackLabel),
- startupPrompt: buildRecoveryAuditPrompt(),
- })
- if (!started) return
- setSelectedAgentId(architectAgentId)
- setCliPickerOpen(false)
- setRecoveryDialog(null)
- }
-
- const requestPlanReviews = () => {
- if (!folderPath || specialistReviewAgents.length === 0) return
-
- specialistReviewAgents.forEach((agent) => {
- const label = getAgentName(agent.id, agent.label)
- void startAgentTerminalWhenReady(agent.id, label, agents[agent.id]?.cli, {
- freshSession: true,
- agentName: getCustomAgentName(agent.id, agent.label),
- startupPrompt: buildPlanReviewStartupPrompt(agent.role, agent.id),
- })
- })
-
- setSelectedAgentId(specialistReviewAgents.at(-1)?.id ?? null)
- }
-
- const addressPlanReviews = () => {
- if (!folderPath || !architectAgentId) return
- const fallbackLabel = rosterById[architectAgentId]?.label ?? 'Architect'
- const label = getAgentName(architectAgentId, fallbackLabel)
-
- void startAgentTerminalWhenReady(architectAgentId, label, agents[architectAgentId]?.cli, {
- freshSession: true,
- agentName: getCustomAgentName(architectAgentId, fallbackLabel),
- startupPrompt: buildAddressPlanReviewsPrompt(),
- })
- setSelectedAgentId(architectAgentId)
- }
 
  const chromeOverflowItems: OverflowMenuItem[] = (() => {
  const items: OverflowMenuItem[] = []
@@ -1608,10 +1069,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  return items
  })()
 
- const inboxArtifactCount = useMemo(
- () => getSprintEngineInboxArtifacts(reviewArtifacts).length,
- [reviewArtifacts]
- )
  const chromeTabItems: TabItem<SprintEngineView>[] = [
  {
  id: 'inbox',
@@ -1927,6 +1384,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  onAddRole={(role) => {
  void confirmAddMember(role)
  }}
+ addMemberOptions={addMemberOptions}
  isAgentTerminalLive={isAgentTerminalLive}
  inspectorContent={renderInspectorPanel()}
  inspectorExpanded={inspectorExpanded}
@@ -1956,84 +1414,13 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  onSelectTask={setSelectedTaskId}
  />
  ) : (
- <div className="flex min-w-0 flex-1 flex-col">
- <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto px-1.5 py-2">
- {sprintEngineState.tasks.length === 0 ? (
- <div className="flex h-full min-h-[320px] w-full items-center justify-center p-6 text-center">
- <div className="max-w-xl">
- <div className="text-[13px] font-semibold text-[color:var(--text-strong)]">
- Waiting for the architect plan
- </div>
- <p className="mt-2 text-[12px] leading-5 text-[color:var(--text-muted)]">
- The board will populate as the architect adds tasks through the Sprint Engine tool.
- </p>
- </div>
- </div>
- ) : null}
- {sprintEngineState.tasks.length > 0 ? boardColumns.map((column) => {
- return (
- <BoardLane
- key={column.key}
- label={column.label}
- count={column.cards.length}
- flipKey={column.cards.map((card) => card.id).join(',')}
- >
- {column.cards.map((task) => {
- const boardColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
- const cardTone: Tone =
- task.status === 'done'
- ? 'good'
- : task.status === 'needs_input'
- ? 'warn'
- : task.status === 'in_progress'
- || boardColumn === 'ready'
- || boardColumn === 'changes_requested'
- || boardColumn === 'review'
- || boardColumn === 'testing'
- || boardColumn === 'product'
- ? 'accent'
- : 'neutral'
- const taskSelected = selectedTaskId === task.id
- const justMoved = recentlyMovedTaskIds.has(task.id)
- const isLive = task.status === 'in_progress'
- return (
- <TaskCard
- key={task.id}
- variant="card"
- tone={cardTone}
- pulse={isLive}
- identifier={task.id}
- title={task.title}
- selected={taskSelected}
- onSelect={() => setSelectedTaskId(task.id)}
- flipKey={task.id}
- justMovedClassName={justMoved ? 'card-just-moved-gold' : undefined}
- trailing={
- <Tooltip content={getSprintEngineRoleLabel(task.role)}>
- <span
- // design-tokens-allow: role glyph is the one place per the redesign where role tones are retained.
- style={{ color: getSprintEngineRoleAccent(task.role) }}
- aria-label={`Role: ${getSprintEngineRoleLabel(task.role)}`}
- role="img"
- >
- <SprintEngineRoleIcon role={task.role} className="icon-sm" />
- </span>
- </Tooltip>
- }
+ <SprintEngineTasksKanbanView
+ sprintEngineState={sprintEngineState}
+ boardColumns={boardColumns}
+ selectedTaskId={selectedTaskId}
+ onSelectTask={setSelectedTaskId}
+ recentlyMovedTaskIds={recentlyMovedTaskIds}
  />
- )
- })}
-
- {column.cards.length === 0 ? (
- <li className="m-1 rounded-[5px] px-2 py-3 text-[11px] leading-5 text-[color:var(--text-disabled)]">
- {emptyKanbanColumnLabel(column.key)}
- </li>
- ) : null}
- </BoardLane>
- )
- }) : null}
- </div>
- </div>
  )}
 
  {renderInspectorAside()}
@@ -2470,17 +1857,14 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  </div>
 
  <ModalBody className="space-y-1">
- {addableRoles.map((role) => {
+ {addMemberOptions.map((option) => {
+ const role = option.role
  const selected = role === addMemberRole
- const activeForRole = roster.filter((agent) => agent.role === role).length
- const openTasksForRole = sprintEngineState.tasks.filter(
- (task) => task.role === role && task.status !== 'done'
- ).length
 
  return (
  <button
  key={role}
- onClick={() => setAddMemberRole(role)}
+ onClick={() => setAddMemberRole(role as SprintEngineRole)}
  aria-pressed={selected}
  className={`w-full rounded-md border-l-2 px-3 py-3 text-left interactive transition-colors ${
  selected
@@ -2500,16 +1884,16 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  </span>
  <div className="min-w-0 flex-1">
  <div className="truncate text-sm font-semibold">
- {getSprintEngineRoleLabel(role)}
+ {option.label}
  </div>
  <p className={`mt-1 text-[12px] leading-5 ${selected ? 'text-[color:var(--accent-primary)]' : 'text-[color:var(--text-muted)]'}`}>
- {roleSummaries[role]}
+ {option.summary}
  </p>
  </div>
  <span className={`shrink-0 pt-0.5 text-right text-[11px] font-semibold ${
  selected ? 'text-[color:var(--accent-primary)]' : 'text-[color:var(--text-disabled)]'
  }`}>
- {activeForRole} active / {openTasksForRole} open
+ {option.activeForRole} active / {option.openTasksForRole} open
  </span>
  </div>
  </button>
@@ -2531,486 +1915,4 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
 
  </div>
  )
-}
-
-
-function SprintEngineEmptyDetail({ message }: { message: string }) {
- return (
- <section className="flex min-w-0 flex-1 items-center justify-center bg-[color:var(--bg-app)] p-6 text-center">
- <p className="max-w-md text-[12px] leading-5 text-[color:var(--text-muted)]">
- {message}
- </p>
- </section>
- )
-}
-
-// Inbox tab: list + detail. The artifact queue sits in the primary content
-// column on the left; the inspector fills the remaining width when something
-// is selected, and a quiet empty state when not. This matches Watchtower's
-// two-pane chrome — the roster lives on its own tab now, so the right pane
-// never has to compete for width with a third column. The "Inbox · N"
-// header and search live inside the list pane so the active tab carries
-// its own identity (the panel-wide hero shows run status, not list state).
-function SprintEngineInboxView({
- sprintEngineState,
- reviewArtifacts,
- runPhase,
- selectedArtifactId,
- onSelectArtifact,
- onSelectTask,
- inspectorContent,
- inspectorExpanded,
-}: {
- sprintEngineState: SprintEngineState
- reviewArtifacts: SprintEngineArtifact[]
- runPhase: string
- selectedArtifactId: string | null
- onSelectArtifact: (artifactId: string | null) => void
- onSelectTask: (taskId: string) => void
- inspectorContent: React.ReactNode
- inspectorExpanded: boolean
-}) {
- const tasksById = useMemo(
- () => Object.fromEntries(sprintEngineState.tasks.map((task) => [task.id, task])),
- [sprintEngineState.tasks]
- )
- const inboxArtifacts = useMemo(
- () => getSprintEngineInboxArtifacts(reviewArtifacts),
- [reviewArtifacts]
- )
- const [search, setSearch] = useState('')
- const visibleArtifacts = useMemo(() => {
- const query = search.trim().toLowerCase()
- if (!query) return inboxArtifacts
- return inboxArtifacts.filter((artifact) => {
- const task = tasksById[artifact.taskId]
- const haystack = [
- artifact.id,
- artifact.title,
- artifact.kind,
- artifact.createdBy,
- task?.id,
- task?.title,
- ]
- .filter(Boolean)
- .join(' ')
- .toLowerCase()
- return haystack.includes(query)
- })
- }, [inboxArtifacts, search, tasksById])
- const blockedByArtifacts = useMemo(() => (
- sprintEngineState.tasks
- .map((task) => ({
- task,
- blockers: getSprintEngineArtifactDependencyBlockers(task, sprintEngineState.tasks, reviewArtifacts),
- }))
- .filter(({ blockers }) => blockers.length > 0)
- ), [reviewArtifacts, sprintEngineState.tasks])
-
- const inboxEmptyMessage = sprintEngineInboxEmptyMessage(runPhase)
- const filteringActive = search.trim().length > 0
- const emptyMessage =
- filteringActive && inboxArtifacts.length > 0
- ? 'No inbox artifacts match the current search.'
- : inboxEmptyMessage
-
- // Drop a selection when the search has filtered it out so the inspector
- // never shows an artifact that isn't visible in the list.
- useEffect(() => {
- if (selectedArtifactId && !visibleArtifacts.some((artifact) => artifact.id === selectedArtifactId)) {
- onSelectArtifact(null)
- }
- }, [selectedArtifactId, visibleArtifacts, onSelectArtifact])
- const handleInboxKeyDown = useCallback(
- (event: React.KeyboardEvent<HTMLDivElement>) => {
- if (isEditableTarget(event.target)) return
- if (visibleArtifacts.length === 0) return
- if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
- event.preventDefault()
- const currentIndex = selectedArtifactId
- ? visibleArtifacts.findIndex((artifact) => artifact.id === selectedArtifactId)
- : -1
- const delta = event.key === 'ArrowDown' ? 1 : -1
- let nextIndex: number
- if (currentIndex === -1) {
- nextIndex = event.key === 'ArrowDown' ? 0 : visibleArtifacts.length - 1
- } else {
- nextIndex = (currentIndex + delta + visibleArtifacts.length) % visibleArtifacts.length
- }
- onSelectArtifact(visibleArtifacts[nextIndex].id)
- return
- }
- if (event.key === 'Home') {
- event.preventDefault()
- onSelectArtifact(visibleArtifacts[0].id)
- return
- }
- if (event.key === 'End') {
- event.preventDefault()
- onSelectArtifact(visibleArtifacts[visibleArtifacts.length - 1].id)
- return
- }
- if (event.key === 'Escape' && selectedArtifactId) {
- event.preventDefault()
- onSelectArtifact(null)
- }
- },
- [visibleArtifacts, onSelectArtifact, selectedArtifactId]
- )
-
- const hasInspector = inspectorContent !== null && inspectorContent !== undefined
-
- return (
- <div className="flex min-h-0 flex-1 min-w-0">
- {inspectorExpanded ? null : (
- <SidePane as="section" side="left" width="lg" ariaLabel="Inbox">
- <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
- <InboxSearchInput
- value={search}
- onChange={setSearch}
- ariaLabel="Search inbox artifacts"
- />
- </div>
- <div className="flex flex-1 flex-col overflow-auto">
- <div
- tabIndex={0}
- onKeyDown={handleInboxKeyDown}
- className="focus:outline-none"
- role="region"
- aria-label="Inbox artifacts (use arrow keys)"
- >
- {visibleArtifacts.length === 0 ? (
- <div className="px-3 py-6 text-[12px] leading-5 text-[color:var(--text-muted)]">
- {emptyMessage}
- </div>
- ) : (
- <ul>
- {visibleArtifacts.map((artifact) => (
- <li key={artifact.id}>
- <SprintEngineInboxRow
- artifact={artifact}
- task={tasksById[artifact.taskId]}
- selected={selectedArtifactId === artifact.id}
- onSelect={() => onSelectArtifact(artifact.id)}
- />
- </li>
- ))}
- </ul>
- )}
- </div>
-
- {blockedByArtifacts.length > 0 ? (
- <div role="region" aria-label="Tasks blocked by review">
- <Section
- title="Blocked by review"
- count={blockedByArtifacts.length}
- level={3}
- inset={false}
- className="border-t border-[color:var(--border-default)]"
- >
- <ul>
- {blockedByArtifacts.map(({ task, blockers }) => (
- <li key={task.id}>
- <SprintEngineBlockedByRow
- task={task}
- blockers={blockers}
- selected={false}
- onSelect={() => onSelectTask(task.id)}
- />
- </li>
- ))}
- </ul>
- </Section>
- </div>
- ) : null}
- </div>
- </SidePane>
- )}
-
- {hasInspector ? (
- <section
- className="flex min-w-0 flex-1 flex-col"
- aria-label="Selected item detail"
- >
- {inspectorContent}
- </section>
- ) : (
- <SprintEngineEmptyDetail
- message={
- inboxArtifacts.length > 0
- ? 'Pick an artifact on the left to review evidence, approve, or request changes.'
- : 'Nothing is queued for review. New artifacts land here as workers finish and reviewers gate them.'
- }
- />
- )}
- </div>
- )
-}
-
-// Roster tab: agent list + detail. Mirrors the Inbox shape — roster on the
-// left, inspector (with agent-specific actions) on the right when an agent
-// is selected. Add-member affordance sticks to the foot of the list rail so
-// it stays one click away regardless of how many agents are on board.
-function SprintEngineRosterView({
- sprintEngineState,
- roster,
- agents,
- runtimeAgents,
- selectedAgentId,
- onSelectAgent,
- onAddRole,
- isAgentTerminalLive,
- inspectorContent,
- inspectorExpanded,
-}: {
- sprintEngineState: SprintEngineState
- roster: SprintEngineAgentRosterItem[]
- agents: Record<string, AgentState>
- runtimeAgents: RuntimeAgentView[]
- selectedAgentId: string | null
- onSelectAgent: (agentId: string) => void
- onAddRole: (role: SprintEngineRole) => void
- isAgentTerminalLive: (agentId: string) => boolean
- inspectorContent: React.ReactNode
- inspectorExpanded: boolean
-}) {
- const rosterCountByRole = useMemo(() => {
- const counts = Object.fromEntries(addableRoles.map((role) => [role, 0])) as Record<SprintEngineRole, number>
- for (const agent of roster) {
- counts[agent.role] = (counts[agent.role] ?? 0) + 1
- }
- return counts
- }, [roster])
-
- const hasInspector = inspectorContent !== null && inspectorContent !== undefined
-
- return (
- <div className="flex min-h-0 flex-1 min-w-0">
- {inspectorExpanded ? null : (
- <SidePane as="section" side="left" width="lg" ariaLabel="Roster agents">
- <div className="flex-1 overflow-auto">
- {roster.length === 0 ? (
- <div className="px-3 py-6 text-[12px] leading-5 text-[color:var(--text-subtle)]">
- No agents on roster yet. Pick a role below to add the first member.
- </div>
- ) : (
- <ol aria-label="Roster agents">
- {roster.map((agent) => {
- const runtime = runtimeAgents.find((entry) => entry.agentId === agent.id) ?? null
- const hasLiveTerminal = isAgentTerminalLive(agent.id)
- const statusKey = runtime?.status ?? (hasLiveTerminal ? 'running' : 'idle')
- const displayName = agents[agent.id]?.name?.trim() || agent.label
- const roleSlotLabel = agent.label !== displayName ? agent.label : null
- const currentTask = runtime?.currentTaskId
- ? sprintEngineState.tasks.find((task) => task.id === runtime.currentTaskId) ?? null
- : null
- const selected = selectedAgentId === agent.id
- return (
- <li key={agent.id}>
- <button
- type="button"
- onClick={() => onSelectAgent(agent.id)}
- aria-pressed={selected}
- className={`interactive relative flex w-full min-w-0 gap-2.5 px-3 py-2.5 text-left border-b border-[color:var(--border-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] focus-visible:ring-inset ${
- selected
- ? 'bg-[color:var(--bg-hover)] pl-[9px] text-[color:var(--text-strong)] before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r before:bg-[color:var(--accent-primary)]'
- : 'hover:bg-[color:var(--bg-surface)] text-[color:var(--text-default)]'
- }`}
- >
- <RoleAvatar role={agent.role} size="md" className="mt-0.5" ariaLabel="" />
- <span className="min-w-0 flex-1 space-y-0.5">
- <span className="flex min-w-0 items-baseline gap-2">
- <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
- {displayName}
- </span>
- {roleSlotLabel ? (
- <span className="min-w-0 shrink truncate text-[11px] text-[color:var(--text-muted)]">
- {roleSlotLabel}
- </span>
- ) : null}
- </span>
- <span className="flex min-w-0 items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
- <span className="flex shrink-0 items-center gap-1.5">
- <StatusDot tone={runtimeStatusTone(statusKey)} />
- <span className="capitalize">{statusKey}</span>
- </span>
- {currentTask ? (
- <span className="min-w-0 truncate">
- <span className="font-mono text-[color:var(--text-muted)]">{currentTask.id}</span>
- <span className="text-[color:var(--text-disabled)]"> · </span>
- <span>{currentTask.title}</span>
- </span>
- ) : (
- <span className="text-[color:var(--text-disabled)]">No active task</span>
- )}
- </span>
- </span>
- </button>
- </li>
- )
- })}
- </ol>
- )}
- </div>
-
- <section
- aria-label="Add a roster member"
- className="shrink-0 border-t border-[color:var(--border-default)] bg-[color:var(--bg-surface)]"
- >
- <div className="flex items-center justify-between gap-3 px-3 py-2">
- <h4 className="truncate text-[11px] font-semibold text-[color:var(--text-muted)]">
- Add member
- </h4>
- <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]">
- {addableRoles.length} roles
- </span>
- </div>
- <div className="flex flex-wrap gap-1.5 px-3 pb-2.5">
- {addableRoles.map((role) => {
- const count = rosterCountByRole[role] ?? 0
- const addLabel = `${count > 0 ? 'Add another' : 'Add'} ${getSprintEngineRoleLabel(role)}`
- return (
- <Tooltip key={role} content={addLabel}>
- <button
- type="button"
- onClick={() => onAddRole(role)}
- aria-label={addLabel}
- className="interactive inline-flex items-center gap-1.5 rounded border border-dashed border-[color:var(--border-strong)] px-2 py-1 text-[11px] font-medium text-[color:var(--text-default)] transition-colors hover:border-[color:var(--accent-primary-soft)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
- >
- <RoleAvatar role={role} size="xs" ariaLabel="" />
- <span>{getSprintEngineRoleLabel(role)}</span>
- {count > 0 ? (
- <span className="ml-0.5 rounded bg-[color:var(--bg-hover)] px-1 tabular-nums text-[color:var(--text-muted)]">
- {count}
- </span>
- ) : null}
- </button>
- </Tooltip>
- )
- })}
- </div>
- </section>
- </SidePane>
- )}
-
- {hasInspector ? (
- <section
- className="flex min-w-0 flex-1 flex-col"
- aria-label="Selected agent detail"
- >
- {inspectorContent}
- </section>
- ) : (
- <SprintEngineEmptyDetail
- message={
- roster.length > 0
- ? 'Select an agent on the left to open their terminal, see current task, or focus the session.'
- : 'Add a role from the footer to put the first agent on the roster.'
- }
- />
- )}
- </div>
- )
-}
-
-
-
-
-
-
-function emptyKanbanColumnLabel(column: SprintEngineTaskBoardColumn): string {
- switch (column) {
- case 'ready':
- return 'No ready work. Waiting on dependencies or active workers.'
- case 'changes_requested':
- return 'No rework queued from reviewers or testers.'
- case 'in_progress':
- return 'No workers are actively claiming tasks.'
- case 'review':
- return 'No tasks awaiting review gates.'
- case 'testing':
- return 'No tasks awaiting test verification.'
- case 'product':
- return 'No tasks awaiting product acceptance.'
- case 'needs_input':
- return 'No blocked tasks or worker questions.'
- case 'done':
- return 'Completed work will collect here.'
- default:
- return 'Planned tasks that are waiting on dependencies appear here.'
- }
-}
-
-
-
-
-
-
-
-function getTaskOwnerLabel(
- task: SprintEngineTask,
- rosterById: Record<string, { label: string } | undefined>
-): string {
- if (task.ownerAgentId) {
- return rosterById[task.ownerAgentId]?.label ?? task.ownerAgentId
- }
-
- return task.status === 'done' ? getSprintEngineRoleLabel(task.role) : 'No active worker'
-}
-
-function getRunPhase(sprintEngineState: SprintEngineState, runtimeAgents: RuntimeAgentView[]): string {
- if (sprintEngineState.tasks.length > 0 && sprintEngineState.tasks.every((task) => task.status === 'done')) {
- return 'Complete'
- }
- if (runtimeAgents.some((agent) => agent.status === 'running' || agent.status === 'needs_input')) {
- return 'Running'
- }
- if (sprintEngineState.tasks.length > 0) {
- return 'Tasked'
- }
- return 'Planning'
-}
-
-
-function buildRecoveryAuditPrompt(): string {
- return [
- 'Fetch the canonical recovery instructions from the Python tool.',
- 'Run `sprintengine recover` now.',
- ].join('\n')
-}
-
-function buildPlanReviewStartupPrompt(role: SprintEngineRoleId, agentId: string): string {
- return [
- 'Fetch the canonical plan review instructions from the Python tool.',
- `Run \`Sprint Engine plan start-review --role ${role} --id ${agentId}\` now.`,
- ].join('\n')
-}
-
-function buildAddressPlanReviewsPrompt(): string {
- return [
- 'Fetch the canonical plan review feedback instructions from the Python tool.',
- 'Run `Sprint Engine plan address-reviews --actor architect` now.',
- ].join('\n')
-}
-
-function bracketedTerminalPaste(text: string): string {
- return `\x1b[200~${text.replace(/\r?\n/g, '\n')}\x1b[201~\r`
-}
-
-function buildRosterRevisionPrompt(role: SprintEngineRoleId, agentId: string, teamSlug: string): string {
- return [
- 'Revise this Sprint Engine plan for a newly added roster member.',
- `Team: \`${teamSlug}\``,
- `New roster member: ${getSprintEngineRoleLabel(role)} (\`${role}\`) with agent id \`${agentId}\`.`,
- '',
- 'First add the member to the canonical Sprint Engine roster:',
- '',
- '```shell',
- `sprintengine roster add --role ${role} --id ${agentId} --actor architect`,
- '```',
- '',
- 'Then inspect the current plan, task graph, completed evidence, and open risks. If this new specialist should do work, add only the needed task cards with normal `Sprint Engine plan add-task` commands and correct dependencies. If no task is needed, record a concise rationale in the architect terminal and stop.',
- '',
- 'Do not implement work yourself. Do not create tasks for unrelated roles. Do not edit Sprint Engine run-store files directly.',
- ].join('\n')
 }

@@ -90,6 +90,16 @@ assert.equal(normalized.strategistSessionId, 'strategist-session')
 assert.equal(normalized.architectSessionId, 'architect-session')
 assert.equal(normalized.designerSessionId, 'designer-session')
 
+const defaultAutomation = normalizeGuidedBriefState({
+  workspaceRoot: '/repo',
+  workspaceName: 'Manual by default',
+  idea: 'Build carefully',
+  hasUi: 'no',
+})
+assert.ok(defaultAutomation)
+assert.equal(defaultAutomation.buildStartRunner, false)
+assert.equal(defaultAutomation.buildAutoApproveArtifacts, false)
+
 const carrier = {
   workspaces: [
     {

@@ -5,7 +5,7 @@ import type {
   SwitchboardImportResult,
   SwitchboardImportSummary,
 } from '../shared/switchboard'
-import { importSwitchboardItem } from './switchboard-python'
+import { importSwitchboardItem } from './switchboard-operations'
 
 export function normalizeImportLabels(labels: unknown): string[] {
   if (!Array.isArray(labels)) return []

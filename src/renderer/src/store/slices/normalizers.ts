@@ -27,6 +27,7 @@ export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace
       ...sprintEngineAutoState,
       supervisorEnabled: false,
       enabled: false,
+      autoApproveArtifacts: false,
       pendingSpawns: [],
     },
     multiloopAutoState: normalizeMultiloopAutoState(workspace.multiloopAutoState),

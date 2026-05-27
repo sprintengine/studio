@@ -73,7 +73,7 @@ const autoRunCleaned = normalizeWorkspaceForPartialize(baseWorkspace({
 assert.equal(autoRunCleaned.sprintEngineAutoState.enabled, false)
 assert.equal(autoRunCleaned.sprintEngineAutoState.supervisorEnabled, false)
 assert.deepEqual(autoRunCleaned.sprintEngineAutoState.pendingSpawns, [])
-assert.equal(autoRunCleaned.sprintEngineAutoState.autoApproveArtifacts, true)
+assert.equal(autoRunCleaned.sprintEngineAutoState.autoApproveArtifacts, false)
 assert.equal(autoRunCleaned.sprintEngineAutoState.maxConcurrentAgents, 4)
 
 // normalizeWorkspaceForPartialize zeros the in-memory stream buffer + status on agents

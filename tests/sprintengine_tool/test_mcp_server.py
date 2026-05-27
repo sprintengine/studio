@@ -14,7 +14,9 @@ from sprintengine_core.tool.constants import FEEDBACK_COUNT_FIELDS, FEEDBACK_SCO
 from sprintengine_mcp import SprintEngineMcpServer
 from sprintengine_mcp.auth import ActorContext
 from sprintengine_mcp.http_server import SESSION_HEADER, SprintEngineHttpMcpServer
+from sprintengine_mcp.payloads import command_payload_to_namespace
 from sprintengine_mcp.schemas import MCP_V1_CONTRACT_SCHEMAS, TOOL_SCHEMAS
+from sprintengine_mcp.tool_contracts import MCP_TOOL_CONTRACTS
 
 
 def actor(agent_id: str, role: str = "product") -> dict[str, object]:
@@ -221,9 +223,72 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
     }
 
     assert set(TOOL_SCHEMAS) == expected
+    assert set(MCP_TOOL_CONTRACTS) == expected
     listed = SprintEngineMcpServer().list_tools()
     assert {tool["name"] for tool in listed} == expected
     assert all("inputSchema" in tool for tool in listed)
+
+
+def test_mcp_contract_registry_covers_schemas_and_payload_adapters(tmp_path) -> None:
+    assert set(MCP_TOOL_CONTRACTS) == set(TOOL_SCHEMAS)
+    assert set(MCP_TOOL_CONTRACTS) == set(MCP_V1_CONTRACT_SCHEMAS)
+
+    command_payloads = {
+        "sprintengine.handover": {"name": "Run"},
+        "sprintengine.init": {},
+        "sprintengine.recover": {},
+        "sprintengine.roster.add": {"role": "developer", "id": "developer-1"},
+        "sprintengine.roster.retire": {"id": "developer-1", "reason": "done"},
+        "sprintengine.roster.replenish": {},
+        "sprintengine.roster.list": {},
+        "sprintengine.agent.next_directive": {"role": "developer", "agentId": "developer-1"},
+        "sprintengine.join": {"role": "developer", "id": "developer-1"},
+        "sprintengine.summary": {},
+        "sprintengine.triage.needs_input": {"id": "architect"},
+        "sprintengine.task.next": {"role": "developer", "id": "developer-1"},
+        "sprintengine.task.claim": {"taskId": "T1", "id": "developer-1"},
+        "sprintengine.task.status": {"taskId": "T1", "status": "done", "id": "developer-1"},
+        "sprintengine.task.resolve_input": {"taskId": "T1", "id": "developer-1", "resolution": "resolved"},
+        "sprintengine.task.release": {"taskId": "T1", "id": "developer-1", "reason": "released"},
+        "sprintengine.task.ready": {"taskId": "T1", "id": "architect"},
+        "sprintengine.task.log": {"taskId": "T1", "id": "developer-1"},
+        "sprintengine.task.publish": {"taskId": "T1", "id": "developer-1", "summary": "ready"},
+        "sprintengine.task.note": {"taskId": "T1", "id": "developer-1", "note": "note"},
+        "sprintengine.task.comment": {"taskId": "T1", "id": "developer-1", "body": "comment"},
+        "sprintengine.task.comment.list": {"taskId": "T1"},
+        "sprintengine.task.list": {},
+        "sprintengine.gate.list": {},
+        "sprintengine.gate.next": {"role": "tester", "id": "tester"},
+        "sprintengine.gate.claim": {"taskId": "T1", "gateId": "tester", "role": "tester", "id": "tester"},
+        "sprintengine.gate.verdict": {"taskId": "T1", "gateId": "tester", "role": "tester", "id": "tester", "verdict": "approved", "summary": "ok"},
+        "sprintengine.gate.publish": {"taskId": "T1", "gateId": "tester", "role": "tester", "id": "tester", "verdict": "approved", "summary": "ok"},
+        "sprintengine.plan.add_task": {"title": "Task", "role": "developer"},
+        "sprintengine.plan.update_task": {"taskId": "T1"},
+        "sprintengine.plan.delete_task": {"taskId": "T1"},
+        "sprintengine.plan.add_dependency": {"taskId": "T1", "dependsOn": ["T0"]},
+        "sprintengine.plan.remove_dependency": {"taskId": "T1", "dependsOn": ["T0"]},
+        "sprintengine.plan.start_review": {"role": "developer", "id": "developer-1"},
+        "sprintengine.plan.review_status": {},
+        "sprintengine.plan.address_reviews": {},
+        "sprintengine.plan.list": {},
+        "sprintengine.artifact.add": {"taskId": "T1", "kind": "plan", "title": "Plan", "path": "plan.md"},
+        "sprintengine.artifact.list": {},
+        "sprintengine.artifact.ready": {"artifactId": "A1", "id": "developer-1"},
+        "sprintengine.artifact.approve": {"artifactId": "A1", "id": "product"},
+        "sprintengine.artifact.request_changes": {"artifactId": "A1", "id": "product", "feedback": "revise"},
+        "sprintengine.run.projection": {},
+    }
+    state_path = tmp_path / "run.yaml"
+    actor_context = ActorContext(id="workspace-user", role="user", authenticated=True, mcp_authorized=True)
+
+    for tool_name, contract in MCP_TOOL_CONTRACTS.items():
+        if not contract.command_backed:
+            continue
+        assert contract.command_handler is not None, tool_name
+        assert contract.payload_adapter is command_payload_to_namespace, tool_name
+        assert tool_name in command_payloads, tool_name
+        adapted = contract.payload_adapter(tool_name, state_path, command_payloads[tool_name], actor_context)
+        assert adapted.state == state_path
 
 
 def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() -> None:
@@ -1769,6 +1834,47 @@ def test_http_run_token_rejects_cross_workspace_state_path(tmp_path) -> None:
     assert body["result"]["isError"] is True
     assert result["ok"] is False
     assert result["error"]["code"] == "state_path_not_allowed"
+
+
+def test_http_run_token_rejects_cross_workspace_root_for_run_tool(tmp_path) -> None:
+    first = create_workspace_team(tmp_path, "workspace-a", "team-a", [task("T1", "First task", "developer")])
+    create_workspace_team(tmp_path, "workspace-b", "team-b", [task("T2", "Second task", "developer")])
+    server = SprintEngineMcpServer()
+
+    with run_http_mcp_server(server, token="secret-token") as base_url:
+        run = register_http_run(
+            base_url,
+            token="secret-token",
+            run_id="launch-a",
+            workspace_root=tmp_path / "workspace-a",
+            state_path=first.state_path,
+            allowed_roots=[tmp_path / "workspace-a"],
+        )
+        _, headers, _ = http_post(
+            base_url,
+            token=run["runToken"],
+            payload={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        )
+        status, _, body = http_post(
+            base_url,
+            token=run["runToken"],
+            session_id=headers[SESSION_HEADER],
+            payload={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "sprintengine.task.list",
+                    "arguments": {"workspaceRoot": str(tmp_path / "workspace-b"), "role": "developer"},
+                },
+            },
+        )
+
+    result = json.loads(body["result"]["content"][0]["text"])
+    assert status == 200
+    assert body["result"]["isError"] is True
+    assert result["ok"] is False
+    assert result["error"]["code"] == "workspace_root_not_allowed"
 
 
 def test_http_run_token_allows_different_agent_payload_identities_in_same_run(tmp_path) -> None:

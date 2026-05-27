@@ -164,6 +164,56 @@ export function getAutoApprovalIntentArtifacts(sprintEngineState: SprintEngineSt
   })
 }
 
+export function isSprintEngineRunBlockedOnExternalInput(sprintEngineState: SprintEngineState): boolean {
+  const incompleteTasks = sprintEngineState.tasks.filter((task) => task.status !== 'done')
+  if (incompleteTasks.length === 0) return false
+
+  const tasksById = new Map(sprintEngineState.tasks.map((task) => [task.id, task]))
+  const externallyBlockedTaskIds = new Set(
+    incompleteTasks
+      .filter((task) =>
+        task.status === 'needs_input'
+        && (task.needsInput?.kind === 'external_validation' || task.needsInput?.kind === 'user')
+      )
+      .map((task) => task.id)
+  )
+  if (externallyBlockedTaskIds.size === 0) return false
+
+  const hasActiveDispatch = Object.values(sprintEngineState.sprintEngineAgents).some((agent) =>
+    agent.status === 'running' || Boolean(agent.currentDispatch)
+  )
+  if (hasActiveDispatch) return false
+
+  const hasRunnableImplementationTask = sprintEngineState.tasks.some((task) =>
+    isSprintEngineAutoRunImplementationWakeCandidate(task, sprintEngineState)
+  )
+  if (hasRunnableImplementationTask) return false
+
+  const hasOpenGateWork = sprintEngineState.tasks.some((task) => {
+    const taskColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
+    return getOpenSprintEngineQualityGates(task).some((gate) =>
+      gate.phase === taskColumn && (gate.status === 'pending' || gate.status === 'in_progress')
+    )
+  })
+  if (hasOpenGateWork) return false
+
+  const hasReadyArtifactApproval = getAutoApprovalIntentArtifacts(sprintEngineState)
+    .some((artifact) => artifact.status === 'ready_for_review')
+  if (hasReadyArtifactApproval) return false
+
+  const isBlockedByExternalInput = (taskId: string, seen = new Set<string>()): boolean => {
+    if (externallyBlockedTaskIds.has(taskId)) return true
+    if (seen.has(taskId)) return false
+    seen.add(taskId)
+    const task = tasksById.get(taskId)
+    if (!task || task.status === 'done') return false
+    if (task.status !== 'todo' && task.status !== 'needs_input') return false
+    return task.dependsOn.some((dependencyId) => isBlockedByExternalInput(dependencyId, seen))
+  }
+
+  return incompleteTasks.every((task) => isBlockedByExternalInput(task.id))
+}
+
 export function continuationMessageKey(workspace: Workspace, taskId: string, agentId: string): string {
   return [
     workspace.id,

@@ -41,6 +41,7 @@ import {
   getSprintEngineAutoRunOccupiedAgentIds,
   getClaimableSprintEngineAutoRunGates,
   getPendingAgentNotificationEvents,
+  isSprintEngineRunBlockedOnExternalInput,
   isSprintEngineAutoPendingSpawnStillRelevant,
   pickNextAutoRuns,
   roleHasClaimableSprintEngineImplementationWork,
@@ -55,6 +56,7 @@ import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { applyAgentTerminalRevealPolicy, type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
 import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
+import { disableSprintEngineAutoRun } from '../../utils/sprintengineSupervisorNotifications'
 import {
   agentCliSupportsConversationResume,
 } from '../../utils/agentCliResume'
@@ -64,7 +66,8 @@ const INACTIVE_AUTO_RUN_POLL_MS = 15000
 const AUTO_RUN_STARTUP_SPAWN_DELAY_MS = 10000
 const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
 const AUTO_RUN_ROLE_CONTINUATION_RETRY_MS = 60000
-export const AUTO_RUN_MAX_PROMPT_RETRIES = 50
+export const AUTO_RUN_MAX_PROMPT_RETRIES = 5
+export const AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES = 3
 const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
 const AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS = 30000
 const TERMINAL_IPC_TIMEOUT_MS = 3000
@@ -641,9 +644,10 @@ function bracketedTerminalPaste(text: string): string {
 }
 
 function promptRetryLimitReached(
-  message: RoleContinuationMessage | ArchitectTriageMessage | undefined
+  message: RoleContinuationMessage | ArchitectTriageMessage | undefined,
+  maxRetries = AUTO_RUN_MAX_PROMPT_RETRIES
 ): boolean {
-  return (message?.attempts ?? 0) >= AUTO_RUN_MAX_PROMPT_RETRIES
+  return (message?.attempts ?? 0) >= maxRetries
 }
 
 function recordPromptRetry<T extends RoleContinuationMessage | ArchitectTriageMessage>(
@@ -656,6 +660,14 @@ function recordPromptRetry<T extends RoleContinuationMessage | ArchitectTriageMe
     sentAt,
     attempts: (previous?.attempts ?? 0) + 1,
   } as T)
+}
+
+function getContinuationMessageWorkKey(workspace: Workspace, key: string): string | null {
+  const prefix = `${workspace.id}:${workspace.sprintEngineContext?.statePath ?? ''}:`
+  if (!key.startsWith(prefix)) return null
+  const agentSeparatorIndex = key.lastIndexOf(':')
+  if (agentSeparatorIndex <= prefix.length) return null
+  return key.slice(prefix.length, agentSeparatorIndex)
 }
 
 export async function deliverAgentNotificationEvents(
@@ -779,7 +791,7 @@ export async function deliverAgentNotificationEvents(
   return started ? 'started' : 'none'
 }
 
-async function sendContinuationPromptsToIdleAgents(
+export async function sendContinuationPromptsToIdleAgents(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   continuationCapacity: RunningContinuationCapacity,
@@ -799,10 +811,9 @@ async function sendContinuationPromptsToIdleAgents(
   const now = Date.now()
   const readyTaskIds = new Set(readyTasks.map((task) => task.id))
   sentContinuationMessages.current.forEach((_, key) => {
-    if (!key.startsWith(`${workspace.id}:`)) return
-    const keyParts = key.split(':')
-    const taskId = keyParts[keyParts.length - 2]
-    if (taskId && !readyTaskIds.has(taskId)) sentContinuationMessages.current.delete(key)
+    const workKey = getContinuationMessageWorkKey(workspace, key)
+    if (!workKey || workKey.includes(':')) return
+    if (!readyTaskIds.has(workKey)) sentContinuationMessages.current.delete(key)
   })
 
   const reservedWakeCandidateTaskIds = new Set<string>()
@@ -819,7 +830,7 @@ async function sendContinuationPromptsToIdleAgents(
 
     const key = continuationMessageKey(workspace, task.id, agentId)
     const previous = sentContinuationMessages.current.get(key)
-    if (promptRetryLimitReached(previous)) {
+    if (promptRetryLimitReached(previous, AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)) {
       logPerfEvent('SprintEngineAutoRun', 'continuation-prompt-retry-limit-reached', {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
@@ -827,7 +838,7 @@ async function sendContinuationPromptsToIdleAgents(
         role: runtimeAgent.role,
         taskId: task.id,
         attempts: previous?.attempts ?? 0,
-        maxRetries: AUTO_RUN_MAX_PROMPT_RETRIES,
+        maxRetries: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES,
       })
       continue
     }
@@ -855,7 +866,7 @@ async function sendContinuationPromptsToIdleAgents(
   }
 }
 
-async function sendGateContinuationPromptsToAgents(
+export async function sendGateContinuationPromptsToAgents(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   runningAgentIds: Set<string>,
@@ -874,6 +885,26 @@ async function sendGateContinuationPromptsToAgents(
       const agentId = claim.claimedBy
       if (!runningAgentIds.has(agentId)) continue
       const key = continuationMessageKey(workspace, `${task.id}:${claim.gate.id}`, agentId)
+      const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
+      const dispatch = runtimeAgent?.currentDispatch
+      if (
+        dispatch?.targetKind === 'gate'
+        && dispatch.taskId === task.id
+        && dispatch.gateId === claim.gate.id
+      ) {
+        sentContinuationMessages.current.delete(key)
+        logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-skipped', {
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          agentId,
+          role: claim.gate.role,
+          taskId: task.id,
+          gateId: claim.gate.id,
+          claimed: true,
+          reason: 'matching-current-dispatch',
+        })
+        continue
+      }
       const previous = sentContinuationMessages.current.get(key)
       if (promptRetryLimitReached(previous)) {
         logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-retry-limit-reached', {
@@ -917,7 +948,7 @@ async function sendGateContinuationPromptsToAgents(
       if (!agentId) continue
       const key = continuationMessageKey(workspace, `${task.id}:${gate.id}`, agentId)
       const previous = sentContinuationMessages.current.get(key)
-      if (promptRetryLimitReached(previous)) {
+      if (promptRetryLimitReached(previous, AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)) {
         logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-retry-limit-reached', {
           workspaceId: workspace.id,
           workspaceName: workspace.name,
@@ -927,7 +958,7 @@ async function sendGateContinuationPromptsToAgents(
           gateId: gate.id,
           claimed: false,
           attempts: previous?.attempts ?? 0,
-          maxRetries: AUTO_RUN_MAX_PROMPT_RETRIES,
+          maxRetries: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES,
         })
         continue
       }
@@ -1208,7 +1239,10 @@ export async function spawnAutoRunCandidate(
     if (!folderExists) {
       currentState.setFolderMissing(workspace.id, true)
       setAutoRunPendingSpawns(workspace.id, [])
-      currentState.setSprintEngineAutomationMode(workspace.id, 'manual')
+      disableSprintEngineAutoRun(workspace.id, 'folder_missing', {
+        agentId: nextRun.agentId,
+        taskId: nextRun.taskId,
+      })
       await publishDiagnostic({
         level: 'error',
         source: 'filesystem',
@@ -1754,6 +1788,20 @@ async function superviseWorkspace(
   // polling flag here. That bridge was removed: local autoState is enough to
   // decide whether to spawn agents, and the CLI flag is the CLI's concern.
 
+  if (isSprintEngineRunBlockedOnExternalInput(sprintEngineState)) {
+    disableSprintEngineAutoRun(workspace.id, 'blocked_on_external_input')
+    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      reason: 'blocked-on-external-input',
+      blockedTaskIds: sprintEngineState.tasks
+        .filter((task) => task.status === 'needs_input')
+        .map((task) => task.id),
+      elapsedMs: Math.round(performance.now() - superviseStartedAt),
+    })
+    return
+  }
+
   if (approvalActive) {
     const approvalResult = await sendApprovalToNextEligibleArtifactProducer(
       workspace,
@@ -1992,7 +2040,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   )
 
   if (sprintEngineState.tasks.length > 0 && sprintEngineState.tasks.every((task) => task.status === 'done')) {
-    useWorkspaceStore.getState().setSprintEngineAutomationMode(workspace.id, 'manual')
+    disableSprintEngineAutoRun(workspace.id, 'all_tasks_done')
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,

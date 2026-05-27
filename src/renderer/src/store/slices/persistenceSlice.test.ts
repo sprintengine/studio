@@ -126,4 +126,48 @@ assert.equal(migrated.workspaces[0].folderPath, null)
 assert.ok(migrated.workspaces[0].editorState, 'v1 migration backfills editorState')
 assert.equal(migrated.workspaces[0].mode, 'standard')
 
+const v52AutoRunState = {
+  workspaces: [
+    {
+      id: 'ws-auto',
+      name: 'Auto Run',
+      mode: 'sprintengine',
+      folderPath: '/repo',
+      agents: {},
+      sprintEngineAutoState: {
+        supervisorEnabled: true,
+        enabled: true,
+        autoApproveArtifacts: true,
+        keepDoneAgentTerminals: true,
+        cliPermissionPreset: 'bypass_all',
+        maxConcurrentAgents: 4,
+        pendingSpawns: [{ taskId: 'T1', agentId: 'developer-1', startedAt: 1 }],
+        deliveredAgentNotificationEventKeys: ['EVT-1'],
+      },
+    },
+  ],
+}
+const migratedAutoRun = migratePersistedWorkspaceState(v52AutoRunState, 52) as {
+  workspaces: Array<{
+    sprintEngineAutoState: {
+      supervisorEnabled: boolean
+      enabled: boolean
+      autoApproveArtifacts: boolean
+      keepDoneAgentTerminals: boolean
+      cliPermissionPreset: string
+      maxConcurrentAgents: number
+      pendingSpawns: unknown[]
+      deliveredAgentNotificationEventKeys: string[]
+    }
+  }>
+}
+assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.supervisorEnabled, false)
+assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.enabled, false)
+assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.autoApproveArtifacts, false)
+assert.deepEqual(migratedAutoRun.workspaces[0].sprintEngineAutoState.pendingSpawns, [])
+assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.keepDoneAgentTerminals, true)
+assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.cliPermissionPreset, 'bypass_all')
+assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.maxConcurrentAgents, 4)
+assert.deepEqual(migratedAutoRun.workspaces[0].sprintEngineAutoState.deliveredAgentNotificationEventKeys, ['EVT-1'])
+
 console.log('persistenceSlice.test.ts: ok')

@@ -1,11 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  createGuidedBriefTemplate,
-  createMultiloopTemplate,
-  createSprintEngineTemplate,
-  createSwitchboardTemplate,
-  LAYOUT_TEMPLATES,
-} from '../../layouts/templates'
+import { LAYOUT_TEMPLATES, createGuidedBriefTemplate, createMultiloopTemplate } from '../../layouts/templates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
   AgentCli,
@@ -13,7 +7,6 @@ import type {
   FuturePlanWorkspaceSource,
   LayoutTemplate,
   McpCatalogServer,
-  MultiloopAutoState,
   SkillPackCatalogEntry,
   SprintEngineAutoState,
   SprintEngineAutomationMode,
@@ -32,20 +25,6 @@ import type {
   Workspace,
   GuidedBriefRoleCliDefaults,
 } from '../../types/workspace'
-import {
-  createPlanSourcedSprintEngineWorkspace,
-  PlanSourcedSprintEngineWorkspaceError,
-} from '../../utils/sprintengineWorkspaceCreation'
-import {
-  createMultiloopWorkspace,
-  MultiloopWorkspaceCreationError,
-} from '../../utils/multiloopWorkspaceCreation'
-import {
-  GuidedBriefWorkspaceError,
-  scaffoldGuidedBriefWorkspace,
-  writeGuidedBriefBuildHandoff,
-  type GuidedBriefAcceptedArtifact,
-} from '../../utils/guidedBriefWorkspace'
 import { GuidedBriefFlow } from './guidedBrief/GuidedBriefFlow'
 import { GuidedBriefCloseConfirmation } from './guidedBrief/GuidedBriefCloseConfirmation'
 import { isMidStageGuidedRuntime, type GuidedBriefRuntimeState } from './guidedBrief/types'
@@ -53,35 +32,43 @@ import {
   guidedBriefBuildHandoffRelativePath,
   guidedBriefPlanningDecisionNotes,
   guidedBriefPlanningValidationNotes,
-  guidedBriefSprintEngineGoal,
 } from './guidedBrief/handoff'
 import { joinWorkspacePath as joinGuidedWorkspacePath } from './guidedBrief/paths'
 import {
   applyUserDisabledSprintEngineRoleCounts,
   countSprintEngineAgents,
   buildSprintEngineRoleRegistry,
-  createInitialSprintEngineState,
   getSprintEngineRoleLabel,
   getUserDisabledSprintEngineRoleIds,
   sprintEngineRoleOrder,
 } from '../../utils/sprintengine'
 import { sprintEngineAutomationModeOptions } from '../../utils/sprintengineAutomation'
-import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import MulticodeMark from '../brand/MulticodeMark'
 import MulticodeWordmark from '../brand/MulticodeWordmark'
 import { CloseIconButton, Field, Select, WizardProgress } from '../ui'
 import { ModeCard } from './newWorkspace/ModeCard'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
 import { SprintEngineRosterTable } from './newWorkspace/SprintEngineRosterTable'
-import {
-  buildSprintEngineContext,
-  useFolderHints,
-  useFolderScan,
-} from './newWorkspace/useNewWorkspaceFolder'
+import { useFolderHints, useFolderScan } from './newWorkspace/useNewWorkspaceFolder'
+import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind } from './newWorkspace/helpers'
 import type { CreationMode, ExistingTeam, GuidedBriefHasUi, SprintEnginePath } from './newWorkspace/types'
 import { CliPermissionPresetRow, PathRadio } from './newWorkspace/WizardControls'
 import { buildCliRuntimeOptions } from './newWorkspace/cliRuntimeOptions'
+import {
+  GuidedBriefScaffoldError,
+  GuidedBriefStartBuildError,
+  MultiloopControllerError,
+  SprintEnginePlanSourcedError,
+  buildSprintEngineExistingTeamCreation,
+  buildSprintEngineNewTeamCreation,
+  buildStandardCreation,
+  buildSwitchboardCreation,
+  runGuidedBriefScaffold,
+  runGuidedBriefStartBuild,
+  runMultiloopCreation,
+  runSprintEnginePlanSourcedCreation,
+} from './newWorkspace/controllers'
 
 const MAX_RECENT_FOLDERS = 6
 const MODES: CreationMode[] = ['standard', 'switchboard', 'sprintengine', 'multiloop', 'guided-brief']
@@ -277,31 +264,6 @@ const initialGuidedBriefRoleCliDefaults: GuidedBriefRoleCliDefaults = {
   frontend: initialSprintEngineRoleCliDefaults.frontend ?? 'claude',
 }
 
-async function buildGuidedBriefSprintEngineSourceBundle(
-  workspaceRoot: string,
-  handoffPath: string,
-  handoffContent: string,
-  architecturePlan: GuidedBriefAcceptedArtifact | null,
-): Promise<SprintEngineSourceBundleItem[] | undefined> {
-  if (!architecturePlan) return undefined
-  const architectureContent = await window.api.readfile(joinGuidedWorkspacePath(workspaceRoot, architecturePlan.path))
-  return [
-    {
-      kind: 'product_plan',
-      sourcePath: handoffPath,
-      sourceRelativePath: handoffPath,
-      sourceContent: handoffContent,
-    },
-    {
-      kind: 'architect_plan',
-      sourcePath: architecturePlan.path,
-      sourceRelativePath: architecturePlan.path,
-      sourceContent: architectureContent,
-    },
-  ]
-}
-
-
 export type NewWorkspacePanelInitialState = {
   mode?: CreationMode
   folderPath?: string | null
@@ -381,7 +343,7 @@ export default function NewWorkspacePanel({
   const [seAgentCliOverrides, setSeAgentCliOverrides] = useState<Record<AgentId, AgentCli>>({})
   const [seRoleRegistry, setSeRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
   const [seRoleRegistryStatus, setSeRoleRegistryStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
-  const [seStartRunner, setSeStartRunner] = useState(true)
+  const [seStartRunner, setSeStartRunner] = useState(false)
   const [sePlanError, setSePlanError] = useState<string | null>(null)
   const [cliPermissionPreset, setCliPermissionPreset] = useState<SprintEngineCliPermissionPreset>(
     lastSpawnPermissionPreset,
@@ -923,139 +885,95 @@ export default function NewWorkspacePanel({
   const handleCreate = async () => {
     if (!sprintEngineRosterReady && mode === 'sprintengine') return
     if (mode === 'sprintengine') setSePlanError(null)
+
     if (mode === 'guided-brief') {
       if (!folderPath) {
         setGuidedError('Pick a folder before continuing.')
         return
       }
       if (!guidedIdea.trim() || guidedHasUi == null) return
-      // If runtime state already exists (user pressed Back, then Continue),
-      // just return to the live runtime without rescaffolding.
       if (guidedRuntimeState) {
+        // User pressed Back, then Continue — return to the live runtime without rescaffolding.
         setViewingIdeaAfterCommit(false)
         return
       }
       setIsCreating(true)
       setGuidedError(null)
       try {
-        await scaffoldGuidedBriefWorkspace({
-          workspaceRoot: folderPath,
-          idea: guidedIdea,
-          hasUi: guidedHasUi,
-          filesystem: {
-            ensureDir: window.api.ensureDir,
-            readFile: window.api.readfile,
-            writeFile: window.api.writefile,
-          },
-        })
-        const wantsFrontendDiscussion = guidedHasUi === 'yes' && guidedWantsFrontend
-        const initialStage: GuidedBriefRuntimeState['stage'] = guidedWantsProduct
-          ? 'strategist-working'
-          : guidedWantsArchitecture
-            ? 'architect-working'
-            : wantsFrontendDiscussion
-              ? 'designer-working'
-              : 'handoff'
-        if (initialStage === 'handoff') {
-          await writeGuidedBriefBuildHandoff({
-            workspaceRoot: folderPath,
+        const { runtimeState } = await runGuidedBriefScaffold(
+          {
+            folderPath,
+            workspaceName: name,
             idea: guidedIdea,
             hasUi: guidedHasUi,
-            productBrief: null,
-            architecturePlan: null,
-            requireMockups: false,
-            confirmedDecisions: [
-              guidedHasUi === 'yes'
-                ? 'Application includes a visual UI, but no frontend design stage was requested.'
-                : 'No visual UI is required.',
-              'Product strategy discussion was not requested.',
-              'Architecture discussion was not requested.',
-            ],
+            wantsProduct: guidedWantsProduct,
+            wantsArchitecture: guidedWantsArchitecture,
+            wantsFrontend: guidedWantsFrontend,
+            guidedRoleCliDefaults,
+            buildRoleCounts: applyUserDisabledSprintEngineRoleCounts(
+              guidedBriefBuildRoleCountsForSurface(guidedHasUi),
+              sprintEngineDisabledRoleIds,
+            ),
+            buildRoleCliDefaults: seRoleCliDefaults,
+            buildCliPermissionPreset: cliPermissionPreset,
+            buildStartRunner: seStartRunner,
+            buildAutoApproveArtifacts: seAutoApproveArtifacts,
+          },
+          {
             filesystem: {
               ensureDir: window.api.ensureDir,
               readFile: window.api.readfile,
               writeFile: window.api.writefile,
             },
-          })
-        }
-        const workspaceLabel = toTitleName(basename(folderPath)) || name.trim() || 'Guided brief'
-        const runtimeState: GuidedBriefRuntimeState = {
-          workspaceRoot: folderPath,
-          workspaceName: workspaceLabel,
-          idea: guidedIdea,
-          hasUi: guidedHasUi,
-          wantsProductDiscussion: guidedWantsProduct,
-          wantsArchitectureDiscussion: guidedWantsArchitecture,
-          wantsFrontendDiscussion,
-          guidedRoleCliDefaults,
-          buildRoleCounts: applyUserDisabledSprintEngineRoleCounts(
-            guidedBriefBuildRoleCountsForSurface(guidedHasUi),
-            sprintEngineDisabledRoleIds,
-          ),
-          buildRoleCliDefaults: seRoleCliDefaults,
-          buildCliPermissionPreset: cliPermissionPreset,
-          buildStartRunner: seStartRunner,
-          buildAutoApproveArtifacts: seAutoApproveArtifacts,
-          stage: initialStage,
-          acceptedProductBrief: null,
-          acceptedArchitecturePlan: null,
-          acceptedUiDirection: null,
-          acceptedMockups: [],
-          activeMockupPath: null,
-          strategistSessionId: null,
-          architectSessionId: null,
-          designerSessionId: null,
-        }
-        addWorkspace(createGuidedBriefTemplate(), {
-          name: workspaceLabel,
-          folderPath,
-          mode: 'guided-brief',
-          guidedBriefState: runtimeState,
-        })
+            addWorkspace,
+            createGuidedBriefTemplate,
+          },
+        )
+        void runtimeState
         triggerSelectedSkillPackInstalls(folderPath)
         onClose()
       } catch (error) {
         setGuidedError(
-          error instanceof GuidedBriefWorkspaceError
-            ? `Could not scaffold the guided brief workspace (${error.code}).`
-            : error instanceof Error
-              ? error.message
-              : 'Could not scaffold the guided brief workspace.',
+          error instanceof GuidedBriefScaffoldError && error.message !== error.code
+            ? error.message
+            : error instanceof GuidedBriefScaffoldError
+              ? `Could not scaffold the guided brief workspace (${error.code}).`
+              : error instanceof Error
+                ? error.message
+                : 'Could not scaffold the guided brief workspace.',
         )
       } finally {
         setIsCreating(false)
       }
       return
     }
+
     if (mode === 'multiloop') {
       if (!folderPath) return
       setIsCreating(true)
       setMlError(null)
       try {
-        const loopName = (mlName.trim() || name.trim() || 'Multiloop').trim()
-        const created = await createMultiloopWorkspace({
-          rootPath: folderPath,
-          loopName,
-          finalGoal: mlGoal,
-          initializeState: window.api.initializeMultiloopState,
-          readFile: window.api.readfile,
-        })
-        const multiloopAutoState: Partial<MultiloopAutoState> = {
-          cliPermissionPreset,
-        }
-        addWorkspace(createMultiloopTemplate(), {
-          name: loopName,
-          folderPath,
-          multiloopState: created.state,
-          multiloopContext: created.context,
-          multiloopAutoState,
-        })
+        await runMultiloopCreation(
+          {
+            folderPath,
+            workspaceName: name,
+            loopName: mlName,
+            finalGoal: mlGoal,
+            cliPermissionPreset,
+          },
+          {
+            initializeMultiloopState: window.api.initializeMultiloopState,
+            readFile: window.api.readfile,
+            addWorkspace,
+            createMultiloopTemplate,
+          },
+        )
         triggerSelectedSkillPackInstalls(folderPath)
         persistLastPermissionPreset()
         onClose()
       } catch (error) {
         setMlError(
-          error instanceof MultiloopWorkspaceCreationError || error instanceof Error
+          error instanceof MultiloopControllerError || error instanceof Error
             ? error.message
             : 'Could not create the Multiloop workspace.',
         )
@@ -1067,42 +985,26 @@ export default function NewWorkspacePanel({
 
     if (mode === 'switchboard') {
       if (!folderPath) return
+      const args = buildSwitchboardCreation({ name, folderPath })
       triggerSelectedSkillPackInstalls(folderPath)
-      onCreate({
-        template: createSwitchboardTemplate(),
-        name: name.trim() || 'Switchboard',
-        folderPath,
-        mode: 'switchboard',
-      })
+      onCreate(args)
       onClose()
       return
     }
 
     if (mode === 'sprintengine') {
       if (seExistingTeam) {
-        const { displayName, state, context } = seExistingTeam
-        const loadedState = { ...state, name: displayName }
-        const template = createSprintEngineTemplate({
-          name: loadedState.name,
-          goal: loadedState.goal,
-          roleCounts: loadedState.roleCounts,
+        const args = buildSprintEngineExistingTeamCreation({
+          folderPath,
+          existingTeam: seExistingTeam,
+          roleCliDefaults: seRoleCliDefaults,
+          agentCliOverrides: seAgentCliOverrides,
+          startRunner: seStartRunner,
+          autoApproveArtifacts: seAutoApproveArtifacts,
+          cliPermissionPreset,
         })
         triggerSelectedSkillPackInstalls(folderPath)
-        onCreate({
-          template,
-          name: loadedState.name,
-          folderPath,
-          sprintEngineState: loadedState,
-          sprintEngineContext: context,
-          sprintEngineRoleCliDefaults: seRoleCliDefaults,
-          sprintEngineAgentCliOverrides: seAgentCliOverrides,
-          sprintEngineAutoState: {
-            enabled: seStartRunner,
-            autoApproveArtifacts: seAutoApproveArtifacts,
-            cliPermissionPreset,
-            maxConcurrentAgents: Math.max(1, countSprintEngineAgents(loadedState.roleCounts)),
-          },
-        })
+        onCreate(args)
         persistLastPermissionPreset()
         return
       }
@@ -1134,34 +1036,31 @@ export default function NewWorkspacePanel({
         }
         setIsCreating(true)
         try {
-          if (!(await window.api.pathExists(option.path))) {
-            setSePlanError('Selected source file is not available.')
-            return
-          }
-          await createPlanSourcedSprintEngineWorkspace({
-            rootPath: folderPath,
-            teamName: seTeamName,
-            goal: seGoal,
-            sourcePath: option.relativePath,
-            sourceContent: sePlanContent,
-            sourcePlanKind: seSourcePlanKind,
-            sourceBundle: seSourceBundle ?? undefined,
-            roleCounts: visibleSprintEngineRoleCounts,
-            roleCliDefaults: seRoleCliDefaults,
-            sprintEngineAutoState: {
-              enabled: seStartRunner,
+          await runSprintEnginePlanSourcedCreation(
+            {
+              folderPath,
+              teamName: seTeamName,
+              goal: seGoal,
+              sourcePlanPath: option.path,
+              sourcePlanRelativePath: option.relativePath,
+              sourcePlanContent: sePlanContent,
+              sourcePlanKind: seSourcePlanKind,
+              sourceBundle: seSourceBundle ?? null,
+              visibleRoleCounts: visibleSprintEngineRoleCounts,
+              totalAgents,
+              roleCliDefaults: seRoleCliDefaults,
+              startRunner: seStartRunner,
               autoApproveArtifacts: seAutoApproveArtifacts,
               cliPermissionPreset,
-              maxConcurrentAgents: Math.max(1, totalAgents),
             },
-            pathExists: window.api.pathExists,
-          })
+            { pathExists: window.api.pathExists },
+          )
           triggerSelectedSkillPackInstalls(folderPath)
           persistLastPermissionPreset()
           onClose()
         } catch (error) {
-          if (error instanceof PlanSourcedSprintEngineWorkspaceError && error.code === 'team-exists') {
-            setSePlanError('A Sprint Engine team with this name already exists.')
+          if (error instanceof SprintEnginePlanSourcedError) {
+            setSePlanError(planSourcedErrorMessage(error))
           } else {
             setSePlanError(
               error instanceof Error ? error.message : 'Could not create the Sprint Engine workspace.',
@@ -1173,42 +1072,28 @@ export default function NewWorkspacePanel({
         return
       }
 
-      const sprintEngineState = createInitialSprintEngineState(sprintEngineConfig)
-      const template = createSprintEngineTemplate(sprintEngineConfig)
-      const sprintEngineContext = folderPath
-        ? buildSprintEngineContext(
-            folderPath,
-            sprintEngineState.name,
-            slugifySprintEngineName(sprintEngineState.name),
-          )
-        : null
-      triggerSelectedSkillPackInstalls(folderPath)
-      onCreate({
-        template,
-        name: sprintEngineState.name,
+      const args = buildSprintEngineNewTeamCreation({
         folderPath,
-        sprintEngineState,
-        sprintEngineContext,
-        sprintEngineRoleCliDefaults: seRoleCliDefaults,
-        sprintEngineAutoState: {
-          enabled: seStartRunner,
-          autoApproveArtifacts: seAutoApproveArtifacts,
-          cliPermissionPreset,
-          maxConcurrentAgents: Math.max(1, totalAgents),
-        },
+        teamName: sprintEngineConfig.name,
+        goal: sprintEngineConfig.goal,
+        roleCounts: visibleSprintEngineRoleCounts,
+        visibleRoleCounts: visibleSprintEngineRoleCounts,
+        totalAgents,
+        roleCliDefaults: seRoleCliDefaults,
+        startRunner: seStartRunner,
+        autoApproveArtifacts: seAutoApproveArtifacts,
+        cliPermissionPreset,
       })
+      triggerSelectedSkillPackInstalls(folderPath)
+      onCreate(args)
       persistLastPermissionPreset()
       return
     }
 
     // Standard
-    const template = LAYOUT_TEMPLATES.find((t) => t.id === layoutId) ?? LAYOUT_TEMPLATES[0]
+    const args = buildStandardCreation({ layoutId, name, folderPath })
     triggerSelectedSkillPackInstalls(folderPath)
-    onCreate({
-      template,
-      name: name.trim(),
-      folderPath,
-    })
+    onCreate(args)
   }
 
   const goNext = () => {
@@ -1261,80 +1146,47 @@ export default function NewWorkspacePanel({
       cliPermissionPreset: runtimeState.buildCliPermissionPreset,
     },
   ) => {
-    const finalRoleCounts = applyUserDisabledSprintEngineRoleCounts(
-      runOptions.roleCounts,
-      sprintEngineDisabledRoleIds,
-    )
     if (!sprintEngineAccess.allowed) {
       await startLogin()
       throw new Error('Sign in to use Sprint Engine mode.')
     }
-    if (runtimeState.wantsProductDiscussion && !runtimeState.acceptedProductBrief) {
-      throw new Error('Accept the product brief before starting the build.')
-    }
-    if (runtimeState.wantsArchitectureDiscussion && !runtimeState.acceptedArchitecturePlan) {
-      throw new Error('Accept the architecture plan before starting the build.')
-    }
-    if (runtimeState.hasUi === 'yes' && runtimeState.wantsFrontendDiscussion && (!runtimeState.acceptedUiDirection || runtimeState.acceptedMockups.length === 0)) {
-      throw new Error('Accept the UI direction and mockups before starting the build.')
-    }
-
-    await writeGuidedBriefBuildHandoff({
-      workspaceRoot: runtimeState.workspaceRoot,
-      idea: runtimeState.idea,
-      hasUi: runtimeState.hasUi,
-      productBrief: runtimeState.acceptedProductBrief,
-      architecturePlan: runtimeState.acceptedArchitecturePlan,
-      uiDirection: runtimeState.acceptedUiDirection,
-      mockups: runtimeState.acceptedMockups,
-      requireMockups: runtimeState.hasUi === 'yes' && runtimeState.wantsFrontendDiscussion,
-      confirmedDecisions: guidedBriefPlanningDecisionNotes(runtimeState),
-      roster: sprintEngineRosterSummary(finalRoleCounts, seRoleRegistry),
-      validationNotes: guidedBriefPlanningValidationNotes(runtimeState),
-      filesystem: {
-        ensureDir: window.api.ensureDir,
-        readFile: window.api.readfile,
-        writeFile: window.api.writefile,
-      },
-    })
-    const sourcePath = guidedBriefBuildHandoffRelativePath()
-    const sourceContent = await window.api.readfile(joinGuidedWorkspacePath(runtimeState.workspaceRoot, sourcePath))
-    const sourceBundle = await buildGuidedBriefSprintEngineSourceBundle(
-      runtimeState.workspaceRoot,
-      sourcePath,
-      sourceContent,
-      runtimeState.acceptedArchitecturePlan,
+    const finalRoleCounts = applyUserDisabledSprintEngineRoleCounts(
+      runOptions.roleCounts,
+      sprintEngineDisabledRoleIds,
     )
-    const goal = guidedBriefSprintEngineGoal(sourceContent, runtimeState.hasUi)
-
     try {
-      await createPlanSourcedSprintEngineWorkspace({
-        rootPath: runtimeState.workspaceRoot,
-        teamName: `${runtimeState.workspaceName} Build`,
-        goal,
-        sourcePath,
-        sourceContent,
-        sourcePlanKind: 'product_plan',
-        sourceBundle,
-        roleCounts: finalRoleCounts,
-        roleCliDefaults: runOptions.roleCliDefaults,
-        sprintEngineAutoState: {
-          enabled: runOptions.startRunner,
-          autoApproveArtifacts: runOptions.autoApproveArtifacts,
-          cliPermissionPreset: runOptions.cliPermissionPreset,
-          maxConcurrentAgents: Math.max(1, countSprintEngineAgents(finalRoleCounts)),
+      await runGuidedBriefStartBuild(
+        {
+          runtimeState,
+          runOptions,
+          finalRoleCounts,
+          rosterSummary: sprintEngineRosterSummary(finalRoleCounts, seRoleRegistry),
+          planningDecisions: guidedBriefPlanningDecisionNotes(runtimeState),
+          planningValidationNotes: guidedBriefPlanningValidationNotes(runtimeState),
+          buildHandoffRelativePath: guidedBriefBuildHandoffRelativePath(),
         },
-        pathExists: window.api.pathExists,
-      })
-      triggerSelectedSkillPackInstalls(runtimeState.workspaceRoot)
-      persistLastPermissionPreset()
-      onClose()
+        {
+          filesystem: {
+            ensureDir: window.api.ensureDir,
+            readFile: window.api.readfile,
+            writeFile: window.api.writefile,
+          },
+          pathExists: window.api.pathExists,
+          readArchitecturePlan: (workspaceRoot, path) =>
+            window.api.readfile(joinGuidedWorkspacePath(workspaceRoot, path)),
+          readBuildHandoff: (workspaceRoot, path) =>
+            window.api.readfile(joinGuidedWorkspacePath(workspaceRoot, path)),
+        },
+      )
     } catch (error) {
-      if (error instanceof PlanSourcedSprintEngineWorkspaceError && error.code === 'team-exists') {
-        throw new Error('A Sprint Engine team with this name already exists.')
+      if (error instanceof GuidedBriefStartBuildError) {
+        throw new Error(guidedBriefStartBuildErrorMessage(error))
       }
       throw error instanceof Error ? error : new Error('Could not create the Sprint Engine workspace.')
     }
+    triggerSelectedSkillPackInstalls(runtimeState.workspaceRoot)
+    persistLastPermissionPreset()
+    onClose()
   }
 
   const primaryLabel = isLastStep
@@ -2744,6 +2596,46 @@ function SprintEngineRosterStep(props: {
       </div>
     </div>
   )
+}
+
+function planSourcedErrorMessage(error: SprintEnginePlanSourcedError): string {
+  switch (error.code) {
+    case 'missing-folder':
+      return 'Pick a folder before creating from a plan.'
+    case 'missing-plan-option':
+      return 'Selected plan is no longer available. Pick it again on the previous step.'
+    case 'missing-plan-content':
+      return 'Plan content was not loaded. Re-select the plan on the previous step.'
+    case 'missing-team-name':
+      return 'Add a team name on the previous step.'
+    case 'missing-goal':
+      return 'Add an objective on the previous step.'
+    case 'plan-not-on-disk':
+      return 'Selected source file is not available.'
+    case 'team-exists':
+      return 'A Sprint Engine team with this name already exists.'
+    case 'unknown':
+      return error.message && error.message !== error.code
+        ? error.message
+        : 'Could not create the Sprint Engine workspace.'
+  }
+}
+
+function guidedBriefStartBuildErrorMessage(error: GuidedBriefStartBuildError): string {
+  switch (error.code) {
+    case 'missing-product-brief':
+      return 'Accept the product brief before starting the build.'
+    case 'missing-architecture-plan':
+      return 'Accept the architecture plan before starting the build.'
+    case 'missing-ui-direction-or-mockups':
+      return 'Accept the UI direction and mockups before starting the build.'
+    case 'team-exists':
+      return 'A Sprint Engine team with this name already exists.'
+    case 'unknown':
+      return error.message && error.message !== error.code
+        ? error.message
+        : 'Could not create the Sprint Engine workspace.'
+  }
 }
 
 function labelFor(mode: CreationMode): string {

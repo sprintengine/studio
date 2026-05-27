@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu } from 'electron'
 import { resolve } from 'path'
 import { createAppMenu } from './app-menu'
 import { createMainWindow } from './window-factory'
-import { beginSwitchboardPythonRuntimeShutdown, shutdownSwitchboardPythonRuntime } from './switchboard-python'
+import { beginSwitchboardPythonRuntimeShutdown, shutdownSwitchboardPythonRuntime } from './switchboard-runtime-service'
 import { releaseAllWorkspaceRunnerLocks } from './workspace-runner-lock'
 import type { MulticodeUpdateService } from './update-service'
 

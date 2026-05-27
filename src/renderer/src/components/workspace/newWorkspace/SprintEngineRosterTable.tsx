@@ -1,12 +1,12 @@
 import CliIcon from '../../CliIcon'
 import { InboxRow, Select, type SelectItem } from '../../ui'
+import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
-  getSprintEngineRoleLabel,
-  orderSprintEngineRosterRoles,
-} from '../../../utils/sprintengine'
+  getSprintEngineWizardRoleSummary,
+  listSprintEngineAddableRoles,
+} from '../../../utils/sprintengineRoleOptions'
 import type {
   AgentCli,
-  SprintEngineRole,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
@@ -14,18 +14,6 @@ import type {
 } from '../../../types/workspace'
 
 export type SprintEngineCliOption = { value: AgentCli; label: string }
-
-const roleSummaries: Record<SprintEngineRole, string> = {
-  architect: 'Plans the work, owns dependencies, gates reviews.',
-  product: 'Clarifies scope, tradeoffs, and acceptance criteria.',
-  frontend: 'Implements UI, interaction states, and polish.',
-  developer: 'Builds core logic, integrations, and refactors.',
-  code_reviewer: 'Reviews implementation quality before validation.',
-  spec_reviewer: 'Checks implementation against requirements and acceptance criteria.',
-  performance: 'Reviews latency, runtime cost, and measurement gaps.',
-  tester: 'Runs acceptance checks and publishes evidence.',
-  security: 'Reviews trust boundaries, secrets, and abuse cases.',
-}
 
 interface RosterTableProps {
   roleCounts: SprintEngineRoleCounts
@@ -50,7 +38,7 @@ export function SprintEngineRosterTable({
   onSetCount,
   onSetCli,
 }: RosterTableProps) {
-  const roles = orderSprintEngineRosterRoles(registry, disabledRoleIds)
+  const roles = listSprintEngineAddableRoles(registry, disabledRoleIds)
   const fallbackCli = cliOptions[0]?.value ?? 'claude'
   return (
     <div className="divide-y divide-[color:var(--border-default)] rounded-md border border-[color:var(--border-default)]">
@@ -58,7 +46,7 @@ export function SprintEngineRosterTable({
         const count = roleCounts[role] ?? 0
         const isAdded = role === 'architect' || count > 0
         const label = getSprintEngineRoleLabel(role, registry)
-        const summary = roleSummaries[role as SprintEngineRole] ?? registry?.roles[role]?.summary ?? 'Custom registry role.'
+        const summary = getSprintEngineWizardRoleSummary(role, registry)
         const trailing = isAdded ? (
           <div className="flex items-center gap-2">
             <CountStepper

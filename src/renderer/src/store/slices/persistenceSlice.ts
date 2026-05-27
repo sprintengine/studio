@@ -46,7 +46,7 @@ import { mapMigrationWorkspaces } from './normalizers'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 52
+export const WORKSPACE_STORE_VERSION = 53
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
 export type WorkspaceMigrationState = {
@@ -642,6 +642,24 @@ export function migratePersistedWorkspaceState(
     mapMigrationWorkspaces(migrationState, (ws) => {
       const next = hideGuidedBriefTabStrip(ws.layoutModel)
       return next ? { ...ws, layoutModel: next } : ws
+    })
+  }
+  if (version < 53) {
+    // Sprint Engine automation is a live operator choice, not a cold-start
+    // resume contract. Force already-persisted runs back to Manual so opening
+    // Multicode never restarts autonomous agent spawning or artifact approval.
+    mapMigrationWorkspaces(migrationState, (ws) => {
+      const sprintEngineAutoState = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
+      return {
+        ...ws,
+        sprintEngineAutoState: {
+          ...sprintEngineAutoState,
+          supervisorEnabled: false,
+          enabled: false,
+          autoApproveArtifacts: false,
+          pendingSpawns: [],
+        },
+      }
     })
   }
 

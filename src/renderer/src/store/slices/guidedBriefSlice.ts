@@ -225,7 +225,7 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
     buildCliPermissionPreset,
     buildStartRunner: typeof candidate.buildStartRunner === 'boolean'
       ? candidate.buildStartRunner
-      : true,
+      : false,
     buildAutoApproveArtifacts: typeof candidate.buildAutoApproveArtifacts === 'boolean'
       ? candidate.buildAutoApproveArtifacts
       : false,
