@@ -117,7 +117,7 @@ export function buildSprintEngineStartupPrompt(
   const roleBoundary = [
     '## Role Boundaries',
     `You are assigned role: ${role}. Only claim work whose Sprint Engine \`task.role\` matches \`${role}\`. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role. You may read other roles' state via MCP read tools to diagnose blockers.`,
-    'Sprint Engine work runs exclusively through the managed `multicode-sprintengine` MCP server in this terminal. Do not run `sprintengine` shell commands for autonomous Sprint Engine work; the CLI is reserved for human and debug operators. If the managed MCP server cannot be reached, stop and surface the failure — do not fall back to shell commands.',
+    'Sprint Engine work runs through the managed `multicode-sprintengine` MCP server in this terminal. If the managed MCP server cannot be reached, stop and surface the failure.',
   ].join('\n')
 
   const missingRunNote = commandMode === 'join' && options.sprintEngineStatePath

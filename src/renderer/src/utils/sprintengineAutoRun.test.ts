@@ -2280,6 +2280,16 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
   assert.ok(claimed.includes('sprintengine.agent.next_directive'), 'claimed gate prompt names the MCP directive tool')
   assert.ok(!claimed.includes('"statePath"'), 'claimed gate prompt must not embed statePath; the managed MCP server resolves it from run context')
   assert.ok(claimed.includes('sprintengine.gate.verdict'), 'claimed gate prompt names the MCP verdict tool')
+  const broadCommandBan = ['do not run', 'shell', 'commands'].join(' ')
+  const commandCategory = ['shell', 'commands'].join(' ')
+  assert.ok(
+    !claimed.includes(broadCommandBan),
+    'claimed gate prompt does not block local verification commands'
+  )
+  assert.ok(
+    !claimed.includes(commandCategory),
+    'claimed gate prompt avoids shell-command wording entirely'
+  )
   assert.ok(
     !/sprintengine (join|task|gate|triage|init|handover)/.test(claimed),
     'claimed gate prompt does not embed a sprintengine CLI command'
@@ -2293,6 +2303,14 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
   assert.ok(ready.includes('"role": "code_reviewer"'))
   assert.ok(ready.includes('"agentId": "code_reviewer"'))
   assert.ok(ready.includes('sprintengine.gate.next'), 'unclaimed gate prompt names the MCP gate-next tool to invoke')
+  assert.ok(
+    !ready.includes(broadCommandBan),
+    'unclaimed gate prompt does not block local verification commands'
+  )
+  assert.ok(
+    !ready.includes(commandCategory),
+    'unclaimed gate prompt avoids shell-command wording entirely'
+  )
   assert.ok(
     !/sprintengine (join|task|gate|triage|init|handover)/.test(ready),
     'unclaimed gate prompt does not embed a sprintengine CLI command'

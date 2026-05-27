@@ -10,6 +10,13 @@ export async function dispatchDeviceRevoke(input: {
 }): Promise<MobileSprintEngineCommandResult> {
   const { command, revokeDevice } = input
   const deviceId = stringPayload(command.payload, 'deviceId')
+  if (deviceId !== command.deviceId) {
+    return failedCommandResult(
+      command,
+      'unauthorized',
+      'Mobile devices can only revoke their own pairing.'
+    )
+  }
   const payload = command.payload as Record<string, unknown>
   const reason = typeof payload.reason === 'string' ? payload.reason : undefined
   let device: MobileControlDevice

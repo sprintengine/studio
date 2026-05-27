@@ -47,6 +47,7 @@ export type MobileControlErrorCode =
   | "task_not_ready"
   | "artifact_not_found"
   | "path_not_allowed"
+  | "snapshot_too_large"
   | "python_tool_failed"
   | "internal_error";
 
@@ -684,6 +685,7 @@ const errorCodes = [
   "task_not_ready",
   "artifact_not_found",
   "path_not_allowed",
+  "snapshot_too_large",
   "python_tool_failed",
   "internal_error",
 ] as const satisfies readonly MobileControlErrorCode[];

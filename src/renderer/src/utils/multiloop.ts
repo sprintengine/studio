@@ -374,7 +374,7 @@ function buildMultiloopRoleCommandLines(
         `Then request your structured directive: call \`sprintengine.agent.next_directive\` with ${directivePayload}. Invoke the returned \`nextMcpToolName\` with \`nextMcpArguments\` to claim normal work, resume work, triage needs_input, or claim a quality gate.`,
         `Log evidence before handoff: call \`sprintengine.task.log\` with ${logPayload}.`,
         `Publish completion after evidence: call \`sprintengine.task.publish\` with ${publishPayload}.`,
-        'Do not run `sprintengine` shell commands for autonomous Sprint Engine work; the CLI is reserved for human and debug operators.',
+        'Use the managed Sprint Engine MCP tools for autonomous Sprint Engine work.',
       ]
     }
     return [

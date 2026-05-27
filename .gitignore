@@ -40,6 +40,14 @@ electron.vite.config.*.mjs
 # Switchboard runtime state
 .multi-code/switchboard/
 
+# Sprint Engine runtime state
+.multi-code/sprintengine/*
+!.multi-code/sprintengine/README.md
+!.multi-code/sprintengine/fixtures/
+!.multi-code/sprintengine/fixtures/**
+!.multi-code/sprintengine/evidence/
+!.multi-code/sprintengine/evidence/**
+
 # Editor directories and files
 .idea
 .vscode

@@ -27,6 +27,7 @@ import type {
   SprintEngineTaskComment,
   SprintEngineTaskDiff,
   SprintEngineTaskDiffLine,
+  SprintEngineTaskEvidence,
   SprintEngineTaskFeedbackFinding,
   SprintEngineTaskFeedbackIssue,
 } from '../../types/workspace'
@@ -1130,12 +1131,31 @@ function formatNeedsInputValue(value: string | undefined): string | null {
     ?? trimmed.replace(/_/g, ' ')
 }
 
+function resolveNeedsInputReporterRole(
+  task: SprintEngineTask,
+  reporter: string,
+  runtimeAgents: RuntimeAgentView[],
+) {
+  // Prefer the gate that this reporter actually attempted on, since that's
+  // the role the work is blocked behind (e.g. a tester escalating from the
+  // test gate, even after they've been released from runtime).
+  for (const gate of task.qualityGates ?? []) {
+    if (gate.attempts.some((attempt) => attempt.actor === reporter || attempt.claimedBy === reporter)) {
+      return gate.role
+    }
+  }
+  const runtime = runtimeAgents.find((entry) => entry.agentId === reporter)
+  return runtime?.role ?? null
+}
+
 function TaskNeedsInputCallout({
   task,
   fallbackNote,
+  runtimeAgents,
 }: {
   task: SprintEngineTask
   fallbackNote: string | null
+  runtimeAgents: RuntimeAgentView[]
 }) {
   if (task.status !== 'needs_input') return null
 
@@ -1147,10 +1167,22 @@ function TaskNeedsInputCallout({
   const reportedBy = needsInput?.reportedBy?.trim()
   const reportedAt = needsInput?.reportedAt?.trim()
   const fallback = fallbackNote?.trim() || 'Worker is waiting for input.'
+  const reporterRole = reportedBy ? resolveNeedsInputReporterRole(task, reportedBy, runtimeAgents) : null
+  const reportedAtLabel = reportedAt ? formatTimestamp(reportedAt) : null
 
   return (
     <TaskCallout tone="warn" label={kindLabel ? `Needs input: ${kindLabel}` : 'Needs input'}>
       <div className="space-y-2">
+        {reportedBy ? (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-[color:var(--text-strong)]">
+            {reporterRole ? <RoleAvatar role={reporterRole} size="sm" ariaLabel="" /> : null}
+            <span className="font-mono">{reportedBy}</span>
+            <span className="text-[color:var(--text-muted)]">needs input</span>
+            {reportedAtLabel ? (
+              <span className="text-[11px] text-[color:var(--text-disabled)]">· {reportedAtLabel}</span>
+            ) : null}
+          </div>
+        ) : null}
         {question ? (
           <div>
             <div className="text-[11px] font-semibold uppercase text-[color:var(--text-muted)]">Question</div>
@@ -1169,11 +1201,6 @@ function TaskNeedsInputCallout({
           <div>
             <div className="text-[11px] font-semibold uppercase text-[color:var(--text-muted)]">Suggested resolution</div>
             <div>{suggestedResolution}</div>
-          </div>
-        ) : null}
-        {(reportedBy || reportedAt) ? (
-          <div className="text-[11px] text-[color:var(--text-muted)]">
-            {reportedBy ? `Reported by ${reportedBy}` : 'Reported'}{reportedAt ? ` · ${formatTimestamp(reportedAt)}` : ''}
           </div>
         ) : null}
       </div>
@@ -1444,15 +1471,92 @@ function activityVerb(entry: SprintEngineTaskActivityEntry): string {
   }
 }
 
+function evidenceHasContent(evidence: SprintEngineTaskEvidence): boolean {
+  return Boolean(
+    evidence.summary?.trim()
+      || evidence.touchedFiles.length > 0
+      || evidence.commandsRan.length > 0
+      || evidence.results.length > 0
+      || (evidence.diffs?.length ?? 0) > 0,
+  )
+}
+
+function activityEntryHasDetail(
+  entry: SprintEngineTaskActivityEntry,
+  task: SprintEngineTask,
+): boolean {
+  if (entry.type === 'evidence') return evidenceHasContent(task.evidence)
+  return false
+}
+
+function EvidenceDetail({
+  evidence,
+  onViewDiff,
+}: {
+  evidence: SprintEngineTaskEvidence
+  onViewDiff: (() => void) | null
+}) {
+  const summary = evidence.summary?.trim()
+  const fileCount = evidence.touchedFiles.length
+  const commandCount = evidence.commandsRan.length
+  const resultCount = evidence.results.length
+  const diffCount = evidence.diffs?.length ?? 0
+
+  return (
+    <div className="mt-2 space-y-2 border-l border-[color:var(--border-subtle)] pl-3 text-[12px] leading-5">
+      <div className="text-[10.5px] text-[color:var(--text-disabled)]">Recorded evidence (latest snapshot)</div>
+      {summary ? (
+        <div className="text-[color:var(--text-default)] [overflow-wrap:anywhere]">{summary}</div>
+      ) : (
+        <div className="text-[color:var(--text-disabled)]">No summary recorded.</div>
+      )}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[color:var(--text-muted)]">
+        <span>
+          <span className="tabular-nums font-mono text-[color:var(--text-default)]">{fileCount}</span> files
+        </span>
+        <span>
+          <span className="tabular-nums font-mono text-[color:var(--text-default)]">{commandCount}</span> commands
+        </span>
+        <span>
+          <span className="tabular-nums font-mono text-[color:var(--text-default)]">{resultCount}</span> results
+        </span>
+        {diffCount > 0 ? (
+          <span>
+            <span className="tabular-nums font-mono text-[color:var(--text-default)]">{diffCount}</span> diffs
+          </span>
+        ) : null}
+      </div>
+      {diffCount > 0 && onViewDiff ? (
+        <button
+          type="button"
+          onClick={onViewDiff}
+          className={
+            'interactive -mx-1 inline-flex items-center rounded px-1 py-0.5 text-[11px] '
+            + 'text-[color:var(--accent-primary)] underline-offset-2 transition-colors '
+            + 'hover:text-[color:var(--accent-primary-hover)] hover:underline '
+            + FOCUS_RING_CLASS
+          }
+        >
+          View diff →
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 function TaskActivityFeed({
   entries,
   emptyLabel,
+  task,
+  onViewDiff,
 }: {
   entries: SprintEngineTaskActivityEntry[]
   emptyLabel: string
+  task: SprintEngineTask
+  onViewDiff: (() => void) | null
 }) {
   const [filter, setFilter] = useState<ActivityFilter>('all')
-  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(() => new Set())
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
 
   const filteredEntries = useMemo(() => {
     if (filter === 'all') return entries
@@ -1462,7 +1566,7 @@ function TaskActivityFeed({
   const groups = useMemo(() => groupActivityEntries(filteredEntries), [filteredEntries])
 
   const toggleExpanded = useCallback((id: string) => {
-    setExpandedMessages((prev) => {
+    setExpanded((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -2084,7 +2188,11 @@ function SprintEngineTaskBody({
         onOpenAgentTerminal={onOpenAgentTerminal}
       />
 
-      <TaskNeedsInputCallout task={selectedTask} fallbackNote={selectedTaskNeedsInputNote} />
+      <TaskNeedsInputCallout
+        task={selectedTask}
+        fallbackNote={selectedTaskNeedsInputNote}
+        runtimeAgents={runtimeAgents}
+      />
 
       {selectedTaskArtifactBlockers.length > 0 ? (
         <ArtifactBlockerList blockers={selectedTaskArtifactBlockers} />

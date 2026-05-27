@@ -45,6 +45,7 @@
     "lint:palette-contract:report": "node scripts/lint-palette-contract.mjs --report",
     "lint:primitive-duplication": "node scripts/lint-primitive-duplication.mjs",
     "lint:primitive-duplication:report": "node scripts/lint-primitive-duplication.mjs --report",
+    "report:source-size": "node scripts/report-source-size.mjs",
     "verify:panels": "npm run lint && npm run test:renderer:switchboard-board && npm run test:renderer:ui-accessibility-contracts",
     "verify:app": "npm run typecheck && npm run lint && npm run test:main:git-branch-actions && npm run test:main:plugin-render && npm run test:main:plugin-registry && npm run test:main:agent-launch-render && npm run test:main:agent-stream-watcher && npm run test:main:mcp-config && npm run test:main:sprintengine-artifacts && npm run test:main:terminal-runtime && npm run test:renderer:markdown && npm run test:renderer:switchboard-board && npm run test:renderer:terminal-sessions && npm run test:renderer:ui-accessibility-contracts",
     "marketing:video:preview": "remotion studio src/remotion/index.ts",

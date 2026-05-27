@@ -16,6 +16,8 @@ import {
 } from './validation'
 import {
   failedCommandResult,
+  relaySummaryByteLength,
+  relayResultSummaryMaxBytes,
   summarizeCommandResult,
 } from './command-results'
 import { relayCommandTypeToMobile, relayEnvelopeToMobileCommand } from './relay-command'
@@ -78,6 +80,7 @@ export type MobileControlErrorCode =
   | 'task_not_ready'
   | 'artifact_not_found'
   | 'path_not_allowed'
+  | 'snapshot_too_large'
   | 'python_tool_failed'
   | 'internal_error'
 
@@ -1006,15 +1009,33 @@ export class MobileBridge {
 
   private async postCommandResult(commandId: string, result: MobileSprintEngineCommandResult): Promise<void> {
     if (!this.relayUrl || !this.relayToken) return
-    const summary = summarizeCommandResult(result)
+    const resultForRelay = this.ensureRelaySizedCommandResult(result)
+    const summary = summarizeCommandResult(resultForRelay)
     await this.relayTransport.postCommandResult({
       relayUrl: this.relayUrl,
       relayToken: this.relayToken,
       commandId,
-      status: result.ok ? 'completed' : 'failed',
-      resultCode: result.ok ? 'OK' : result.error.code.toUpperCase(),
+      status: resultForRelay.ok ? 'completed' : 'failed',
+      resultCode: resultForRelay.ok ? 'OK' : resultForRelay.error.code.toUpperCase(),
       summary,
     })
+  }
+
+  private ensureRelaySizedCommandResult(result: MobileSprintEngineCommandResult): MobileSprintEngineCommandResult {
+    if (!result.ok || result.commandType !== 'snapshot.request') {
+      return result
+    }
+
+    if (relaySummaryByteLength(result.data) > relayResultSummaryMaxBytes) {
+      return failedSnapshotSizeResult(result)
+    }
+
+    const summary = summarizeCommandResult(result)
+    if (relaySummaryByteLength(summary) <= relayResultSummaryMaxBytes) {
+      return result
+    }
+
+    return failedSnapshotSizeResult(result)
   }
 
   private async publishSnapshotToRelay(): Promise<void> {
@@ -1037,6 +1058,18 @@ export class MobileBridge {
       this.recordDiagnostic('warning', 'relay_unavailable', `Snapshot publication failed: ${getErrorMessage(error)}`, true)
     }
   }
+}
+
+function failedSnapshotSizeResult(result: Extract<MobileSprintEngineCommandResult, { ok: true }>): MobileSprintEngineCommandResult {
+  return failedCommandResult(
+    {
+      commandId: result.commandId,
+      type: result.commandType,
+      ...(result.idempotencyKey ? { idempotencyKey: result.idempotencyKey } : {}),
+    },
+    'snapshot_too_large',
+    'Mobile control snapshot result exceeded the relay result summary size limit.'
+  )
 }
 
 function normalizeRelayCommandDelivery(delivery: RelayCommandDelivery): {

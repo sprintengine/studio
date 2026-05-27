@@ -3,8 +3,10 @@ import { createRequire } from 'node:module'
 import { mkdir, mkdtemp, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { MobileBridge, type MobileRelayTransport, type MobileRelayAuthenticatedDevice } from './index'
+import { MobileBridge, type MobileRelayTransport, type MobileRelayAuthenticatedDevice, type MobileRelayScope } from './index'
 import { MobileSprintEngineCommandService } from '../sprintengine/command'
+import { relaySummaryByteLength, relayResultSummaryMaxBytes } from './command-results'
+import { validateMobileControlSnapshot } from '../../../shared/mobile-control/protocol'
 
 const now = new Date('2026-04-28T22:00:00.000Z')
 
@@ -16,6 +18,10 @@ async function main(): Promise<void> {
   await assertDesktopPairingDisplayUsesCurrentRelayPayload()
   await assertDesktopPairingDisplayRejectsLegacyRelayChallenge()
   await assertAuthenticatedRelayTransportDispatchesAndFailsClosed()
+  await assertOversizedSnapshotRequestFailsWithoutTruncatedSuccess()
+  await assertNonAsciiSnapshotRequestUsesUtf8ByteCap()
+  await assertMobileDeviceCannotRevokeSiblingDevice()
+  await assertRelayBackedMobileDeviceRevokeCommandRevokesIssuingDevice()
   await assertRelayServiceDeliveriesDispatchAndRecordResults()
   await assertDesktopRevocationUpdatesRelayAuthority()
 }
@@ -102,6 +108,18 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
       payload: { sprintEngineId: 'relay-team', artifactId: 'A1', feedback: 'Sensitive reviewer feedback.' },
       device: pairedDevice({ scopes: ['relay:artifact:review'] }),
     }),
+    commandDelivery('cmd_snapshot', {
+      desktopRelaySessionId: 'drs_desktop_1',
+      commandType: 'snapshot.request',
+      payload: {},
+      device: pairedDevice({ scopes: ['relay:snapshot:read'] }),
+    }),
+    commandDelivery('cmd_artifact_read', {
+      desktopRelaySessionId: 'drs_desktop_1',
+      commandType: 'artifact.read',
+      payload: { sprintEngineId: 'relay-team', artifactId: 'A1', previewMode: 'markdown' },
+      device: pairedDevice({ scopes: ['relay:artifact:read'] }),
+    }),
     commandDelivery('cmd_missing_device', {
       desktopRelaySessionId: 'drs_desktop_1',
       commandType: 'artifact.approve',
@@ -151,7 +169,7 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
   )
 
   await bridge.updateSettings({ enabled: true })
-  await waitFor(() => relay.results.length === 6 && relay.snapshots.length === 1)
+  await waitFor(() => relay.results.length === 8 && relay.snapshots.length === 1)
   bridge.shutdown()
 
   assert.equal(relay.connects.length, 1)
@@ -165,6 +183,10 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
   const resultByCommand = new Map(relay.results.map((result) => [result.commandId, result]))
   assert.equal(resultByCommand.get('cmd_approve')?.status, 'completed')
   assert.equal(resultByCommand.get('cmd_request_changes')?.status, 'completed')
+  assert.equal(resultByCommand.get('cmd_snapshot')?.status, 'completed')
+  assert.equal(resultByCommand.get('cmd_snapshot')?.resultCode, 'OK')
+  assert.equal(resultByCommand.get('cmd_artifact_read')?.status, 'completed')
+  assert.equal(resultByCommand.get('cmd_artifact_read')?.resultCode, 'OK')
   assert.equal(resultByCommand.get('cmd_missing_device')?.resultCode, 'UNAUTHENTICATED')
   assert.equal(resultByCommand.get('cmd_revoked')?.resultCode, 'DEVICE_REVOKED')
   assert.equal(resultByCommand.get('cmd_wrong_session')?.resultCode, 'UNAUTHORIZED')
@@ -176,7 +198,6 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
   assert.equal(approveAudit.deviceId, 'pdv_phone_1')
   assert.equal(approveAudit.commandType, 'artifact.approve')
   assert.equal(approveAudit.status, 'accepted')
-  assert.equal(approveAudit.statePath, fixture.statePath)
   assert.equal(approveAudit.artifactId, 'A1')
   assert.equal(approveAudit.exitCode, 0)
   assert.equal(typeof approveAudit.recordedAt, 'string')
@@ -184,19 +205,168 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
   const requestChangesSummary = resultByCommand.get('cmd_request_changes')?.summary ?? {}
   const requestChangesAudit = requestChangesSummary.audit as Record<string, unknown>
   assert.equal(requestChangesAudit.commandId, 'cmd_request_changes')
-  assert.deepEqual(requestChangesAudit.toolArgs, [
-    '--state',
-    fixture.statePath,
-    'artifact',
-    'request-changes',
-    '--artifact-id',
-    'A1',
-    '--id',
-    'mobile:pdv_phone_1',
-    '--feedback',
-    '[redacted]',
-  ])
+  assert.equal(requestChangesAudit.artifactId, 'A1')
   assert.equal(JSON.stringify(requestChangesSummary).includes('Sensitive reviewer feedback.'), false)
+  assert.equal(JSON.stringify(requestChangesSummary).includes(fixture.statePath), false)
+
+  const snapshotSummary = resultByCommand.get('cmd_snapshot')?.summary ?? {}
+  assert.equal(snapshotSummary.ok, true)
+  assert.notDeepEqual((snapshotSummary as { data?: unknown }).data, { truncated: true })
+  const snapshotValidation = validateMobileControlSnapshot((snapshotSummary as { data?: unknown }).data)
+  assert.equal(snapshotValidation.ok, true, snapshotValidation.ok === false ? snapshotValidation.error.message : undefined)
+  assert.equal(relaySummaryByteLength(snapshotSummary) < relayResultSummaryMaxBytes, true)
+
+  const artifactReadSummary = resultByCommand.get('cmd_artifact_read')?.summary ?? {}
+  assert.equal(artifactReadSummary.ok, true)
+  assert.equal((artifactReadSummary as { data?: { content?: unknown } }).data?.content, '# Requirements\n')
+}
+
+async function assertOversizedSnapshotRequestFailsWithoutTruncatedSuccess(): Promise<void> {
+  const fixture = await writeSprintEngineFixture({ extraTaskCount: 7000 })
+  const relay = new FakeRelayTransport([
+    commandDelivery('cmd_oversized_snapshot', {
+      desktopRelaySessionId: 'drs_desktop_1',
+      commandType: 'snapshot.request',
+      payload: {},
+      device: pairedDevice({ scopes: ['relay:snapshot:read'] }),
+    }),
+  ])
+  const bridge = new MobileBridge(
+    async () => ({
+      authenticated: true,
+      session: { id: 'ses_seed_usr_seed_pro', expiresAt: new Date(now.getTime() + 60_000).toISOString() },
+    }),
+    {
+      relayUrl: 'https://relay.test',
+      storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
+      accessTokenProvider: async () => 'desktop-access-token',
+      relayTransport: relay,
+      statePathsProvider: async () => [fixture.statePath],
+      commandPollIntervalMs: 10_000,
+    }
+  )
+
+  await bridge.updateSettings({ enabled: true })
+  await waitFor(() => relay.results.some((result) => result.commandId === 'cmd_oversized_snapshot'))
+  bridge.shutdown()
+
+  const result = relay.results.find((candidate) => candidate.commandId === 'cmd_oversized_snapshot')
+  assert.equal(result?.status, 'failed')
+  assert.equal(result?.resultCode, 'SNAPSHOT_TOO_LARGE')
+  assert.equal(result?.summary.ok, false)
+  assert.equal(result?.summary.code, 'snapshot_too_large')
+  assert.equal(JSON.stringify(result?.summary).includes('"truncated":true'), false)
+  assert.equal(relaySummaryByteLength(result?.summary) < relayResultSummaryMaxBytes, true)
+}
+
+async function assertNonAsciiSnapshotRequestUsesUtf8ByteCap(): Promise<void> {
+  const fixture = await writeSprintEngineFixture({ nonAsciiPayload: createNonAsciiPayloadBelowCharacterCapAboveByteCap() })
+  const relay = new FakeRelayTransport([
+    commandDelivery('cmd_non_ascii_snapshot', {
+      desktopRelaySessionId: 'drs_desktop_1',
+      commandType: 'snapshot.request',
+      payload: {},
+      device: pairedDevice({ scopes: ['relay:snapshot:read'] }),
+    }),
+  ])
+  const bridge = new MobileBridge(
+    async () => ({
+      authenticated: true,
+      session: { id: 'ses_seed_usr_seed_pro', expiresAt: new Date(now.getTime() + 60_000).toISOString() },
+    }),
+    {
+      relayUrl: 'https://relay.test',
+      storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
+      accessTokenProvider: async () => 'desktop-access-token',
+      relayTransport: relay,
+      statePathsProvider: async () => [fixture.statePath],
+      commandPollIntervalMs: 10_000,
+    }
+  )
+
+  await bridge.updateSettings({ enabled: true })
+  await waitFor(() => relay.results.some((result) => result.commandId === 'cmd_non_ascii_snapshot'))
+  bridge.shutdown()
+
+  const result = relay.results.find((candidate) => candidate.commandId === 'cmd_non_ascii_snapshot')
+  assert.equal(result?.status, 'failed')
+  assert.equal(result?.resultCode, 'SNAPSHOT_TOO_LARGE')
+  assert.equal(result?.summary.ok, false)
+  assert.equal(result?.summary.code, 'snapshot_too_large')
+  assert.equal(JSON.stringify(result?.summary).includes('"truncated":true'), false)
+  assert.equal(relaySummaryByteLength(result?.summary) < relayResultSummaryMaxBytes, true)
+}
+
+async function assertMobileDeviceCannotRevokeSiblingDevice(): Promise<void> {
+  const fixture = await writeSprintEngineFixture()
+  const relay = new FakeRelayTransport([
+    commandDelivery('cmd_revoke_sibling', {
+      desktopRelaySessionId: 'drs_desktop_1',
+      commandType: 'device.revoke',
+      payload: { deviceId: 'pdv_phone_2', reason: 'Compromised sibling revoke attempt' },
+      device: pairedDevice({ deviceId: 'pdv_phone_1', scopes: ['relay:device:revoke'] }),
+    }),
+  ])
+  const bridge = new MobileBridge(
+    async () => ({
+      authenticated: true,
+      session: { id: 'ses_seed_usr_seed_pro', expiresAt: new Date(now.getTime() + 60_000).toISOString() },
+    }),
+    {
+      relayUrl: 'https://relay.test',
+      storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
+      accessTokenProvider: async () => 'desktop-access-token',
+      relayTransport: relay,
+      statePathsProvider: async () => [fixture.statePath],
+      commandPollIntervalMs: 10_000,
+    }
+  )
+
+  await bridge.updateSettings({ enabled: true })
+  await waitFor(() => relay.results.some((result) => result.commandId === 'cmd_revoke_sibling'))
+  bridge.shutdown()
+
+  const result = relay.results.find((candidate) => candidate.commandId === 'cmd_revoke_sibling')
+  assert.equal(result?.status, 'failed')
+  assert.equal(result?.resultCode, 'UNAUTHORIZED')
+  assert.equal(result?.summary.ok, false)
+  assert.equal(result?.summary.code, 'unauthorized')
+  assert.equal(relay.revocations.length, 0)
+}
+
+async function assertRelayBackedMobileDeviceRevokeCommandRevokesIssuingDevice(): Promise<void> {
+  const fixture = await writeSprintEngineFixture()
+  const relay = new RelayServiceBackedTransport({ enqueueOwnDeviceRevoke: true })
+  const bridge = new MobileBridge(
+    async () => ({
+      authenticated: true,
+      session: { id: 'desktop-session-1', expiresAt: new Date(now.getTime() + 60_000).toISOString() },
+    }),
+    {
+      relayUrl: 'https://relay.test',
+      storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
+      accessTokenProvider: async () => relay.desktopAccessToken,
+      relayTransport: relay,
+      commandService: new MobileSprintEngineCommandService({
+        workspaceRoot: fixture.workspaceRoot,
+        statePaths: [fixture.statePath],
+        now: () => now,
+        execute: async () => ({ exitCode: 0, stdout: '{"ok":true,"action":"approved"}', stderr: '' }),
+      }),
+      statePathsProvider: async () => [fixture.statePath],
+      commandPollIntervalMs: 10_000,
+    }
+  )
+
+  await bridge.updateSettings({ enabled: true })
+  await waitFor(() => relay.results.some((result) => result.commandId === 'cmd_relay_service_device_revoke'))
+  bridge.shutdown()
+
+  const result = relay.results.find((candidate) => candidate.commandId === 'cmd_relay_service_device_revoke')
+  assert.equal(result?.status, 'completed')
+  assert.equal(result?.resultCode, 'OK')
+  assert.deepEqual((result?.summary as { data?: unknown }).data, { revoked: true, deviceId: relay.pairedDeviceId })
+  await relay.assertRecreatedRelayRejectsRevokedDevice()
 }
 
 async function assertDesktopRevocationUpdatesRelayAuthority(): Promise<void> {
@@ -281,6 +451,7 @@ class FakeRelayTransport implements MobileRelayTransport {
     resultCode: string
     summary: Record<string, unknown>
   }> = []
+  readonly revocations: Parameters<MobileRelayTransport['revokeDevice']>[0][] = []
   readonly snapshots: Array<{ snapshot: { sprintEngines: Array<{ sprintEngineId: string }> } }> = []
   private delivered = false
 
@@ -319,7 +490,8 @@ class FakeRelayTransport implements MobileRelayTransport {
     })
   }
 
-  async revokeDevice(_input: Parameters<MobileRelayTransport['revokeDevice']>[0]) {
+  async revokeDevice(input: Parameters<MobileRelayTransport['revokeDevice']>[0]) {
+    this.revocations.push(input)
     return { revoked: true as const }
   }
 
@@ -403,14 +575,19 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
     recordCommandResult(input: Record<string, unknown>): Promise<unknown>
     revokeDevice(input: Record<string, unknown>): Promise<{ revoked: true }>
   }
-  private readonly requestedScopes = ['relay:artifact:review']
+  private readonly requestedScopes: MobileRelayScope[]
   private desktopRelayToken = ''
   private mobileRelayToken = ''
   private desktopRelaySessionId = ''
   private pairedDeviceIdValue = ''
   private readonly relayStore: unknown
+  private readonly enqueueOwnDeviceRevoke: boolean
 
-  constructor() {
+  constructor(options: { enqueueOwnDeviceRevoke?: boolean } = {}) {
+    this.enqueueOwnDeviceRevoke = options.enqueueOwnDeviceRevoke === true
+    this.requestedScopes = this.enqueueOwnDeviceRevoke
+      ? ['relay:artifact:review', 'relay:device:revoke']
+      : ['relay:artifact:review']
     const { AuthService, MemoryAuthStore } = require('../../../../../multiauth/src/auth') as {
       AuthService: new (input: Record<string, unknown>) => RelayServiceBackedTransport['auth']
       MemoryAuthStore: new () => unknown
@@ -489,6 +666,9 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
     this.pairedDeviceIdValue = paired.pairedDeviceId as string
     this.mobileRelayToken = paired.relayToken
     await this.enqueueApproveCommand()
+    if (this.enqueueOwnDeviceRevoke) {
+      await this.enqueueOwnDeviceRevokeCommand()
+    }
 
     return desktop
   }
@@ -600,9 +780,26 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
       },
     })
   }
+
+  private async enqueueOwnDeviceRevokeCommand(): Promise<void> {
+    await this.relay.enqueueCommand({
+      relayToken: this.mobileRelayToken,
+      idempotencyKey: 'idem-relay-service-device-revoke',
+      envelope: {
+        desktopRelaySessionId: this.desktopRelaySessionId,
+        commandId: 'cmd_relay_service_device_revoke',
+        commandType: 'device.revoke',
+        issuedAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + 30_000).toISOString(),
+        payload: { deviceId: this.pairedDeviceId, reason: 'Lost phone' },
+      },
+    })
+  }
 }
 
-async function writeSprintEngineFixture(): Promise<{ workspaceRoot: string; statePath: string }> {
+async function writeSprintEngineFixture(
+  options: { extraTaskCount?: number; nonAsciiPayload?: string } = {}
+): Promise<{ workspaceRoot: string; statePath: string }> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-'))
   const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', 'relay-team')
   await mkdir(join(teamDirectory, 'documents'), { recursive: true })
@@ -622,13 +819,22 @@ async function writeSprintEngineFixture(): Promise<{ workspaceRoot: string; stat
     tasks: [
       {
         id: 'T1',
-        title: 'Ready task',
+        title: options.nonAsciiPayload ?? 'Ready task',
         role: 'developer',
         status: 'ready',
         stateStatus: 'todo',
         ownerAgentId: null,
         dependsOn: [],
       },
+      ...Array.from({ length: options.extraTaskCount ?? 0 }, (_, index) => ({
+        id: `TS${index}`,
+        title: `Snapshot sizing task ${index}`,
+        role: 'developer',
+        status: 'ready',
+        stateStatus: 'todo',
+        ownerAgentId: null,
+        dependsOn: [],
+      })),
     ],
     artifacts: [
       {
@@ -645,11 +851,18 @@ async function writeSprintEngineFixture(): Promise<{ workspaceRoot: string; stat
   return { workspaceRoot, statePath }
 }
 
+function createNonAsciiPayloadBelowCharacterCapAboveByteCap(): string {
+  const payload = 'é'.repeat(140_000)
+  assert.equal(JSON.stringify({ payload }).length < relayResultSummaryMaxBytes, true)
+  assert.equal(relaySummaryByteLength({ payload }) > relayResultSummaryMaxBytes, true)
+  return payload
+}
+
 function commandDelivery(
   commandId: string,
   input: {
     desktopRelaySessionId: string
-    commandType: 'artifact.approve' | 'artifact.requestChanges' | 'task.start'
+    commandType: 'snapshot.request' | 'artifact.read' | 'artifact.approve' | 'artifact.requestChanges' | 'task.start' | 'device.revoke'
     payload: Record<string, unknown>
     device: MobileRelayAuthenticatedDevice | null
   }

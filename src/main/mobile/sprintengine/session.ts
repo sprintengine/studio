@@ -298,7 +298,7 @@ function buildStartupPrompt(input: {
     `${input.label}: ${input.label} - Fetch the canonical Sprint Engine instructions from the managed Sprint Engine MCP server.`,
     `Worker cwd: ${input.executionCwd}`,
     `Shared Sprint Engine state: ${input.statePath}`,
-    `You are assigned role: ${input.role}. Only claim and work Sprint Engine tasks or quality gates whose role exactly matches ${input.role}. Sprint Engine work runs exclusively through the managed Sprint Engine MCP server in this terminal; do not run \`sprintengine\` shell commands for autonomous Sprint Engine work.`,
+    `You are assigned role: ${input.role}. Only claim and work Sprint Engine tasks or quality gates whose role exactly matches ${input.role}. Sprint Engine work runs through the managed Sprint Engine MCP server in this terminal.`,
     'Register this agent with `sprintengine.agent.join`:',
     ['```json', joinPayload, '```'].join('\n'),
     'Then request your structured directive with `sprintengine.agent.next_directive`:',

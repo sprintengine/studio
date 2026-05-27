@@ -344,7 +344,7 @@ export function buildSprintEngineGateContinuationPrompt(
       : 'This is not a durable gate dispatch assignment; the Sprint Engine state will record one only after you claim the gate through MCP.',
     'Call the directive tool to receive the current MCP-native directive:',
     nextDirectivePayloadBlock(gate.role, agentId),
-    'The returned directive will name the next MCP tool to invoke — typically `sprintengine.gate.next` for an unclaimed gate, or context for `sprintengine.gate.verdict` / `sprintengine.gate.publish` after review. Record the verdict through MCP; do not run shell commands.',
+    'The returned directive will name the next MCP tool to invoke — typically `sprintengine.gate.next` for an unclaimed gate, or context for `sprintengine.gate.verdict` / `sprintengine.gate.publish` after review. Record the verdict through MCP.',
   ].join('\n')
 }
 
@@ -404,7 +404,7 @@ export function buildArchitectNeedsInputTriagePrompt(input: {
     `Architect-actionable needs_input tasks detected: ${input.taskIds.join(', ')}.`,
     'Call the triage tool through MCP:',
     ['`sprintengine.triage.needs_input`', '```json', JSON.stringify(triagePayload, null, 2), '```'].join('\n'),
-    'Follow the returned directive. Resolve planning or task-card blockers only; do not edit application source in this triage mode. Add task notes via `sprintengine.task.note` when the original worker can continue, then stop. Do not run `sprintengine` shell commands.',
+    'Follow the returned directive. Resolve planning or task-card blockers only; do not edit application source in this triage mode. Add task notes via `sprintengine.task.note` when the original worker can continue, then stop.',
   ].join('\n\n')
 }
 

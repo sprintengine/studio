@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { randomUUID } from 'crypto'
 import type {
   MobileControlCommand,
@@ -11,6 +12,11 @@ import type {
 import { relayCommandTypeToMobile } from './relay-command'
 
 const mobileControlProtocolVersion = 1 as const
+export const relayResultSummaryMaxBytes = 256 * 1024
+
+export function relaySummaryByteLength(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value) ?? 'null', 'utf8')
+}
 
 export function acceptedBridgeCommand(
   command: MobileControlCommand,
@@ -99,10 +105,7 @@ function summarizeAudit(audit: MobileSprintEngineCommandAuditEntry): Record<stri
     commandType: audit.commandType,
     status: audit.status,
     ...(audit.code ? { code: audit.code } : {}),
-    ...(audit.statePath ? { statePath: audit.statePath } : {}),
-    ...(audit.workspacePath ? { workspacePath: audit.workspacePath } : {}),
     ...(audit.artifactId ? { artifactId: audit.artifactId } : {}),
-    ...(audit.toolArgs ? { toolArgs: audit.toolArgs } : {}),
     ...(audit.exitCode !== undefined ? { exitCode: audit.exitCode } : {}),
     recordedAt: audit.recordedAt,
   }
@@ -110,8 +113,7 @@ function summarizeAudit(audit: MobileSprintEngineCommandAuditEntry): Record<stri
 
 function sanitizeResultData(data: unknown): unknown {
   if (!data || typeof data !== 'object') return data
-  const json = JSON.stringify(data)
-  if (json.length > 256 * 1024) {
+  if (relaySummaryByteLength(data) > relayResultSummaryMaxBytes) {
     return { truncated: true }
   }
   return data
