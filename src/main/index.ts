@@ -4,7 +4,11 @@ import { registerAppLifecycle } from './app-lifecycle'
 import { createAppServices } from './app-services'
 import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
-import { GitHubTokenStoreToken, TerminalRuntimeToken } from './module-host/service-tokens'
+import {
+  GitHubTokenStoreToken,
+  SprintEngineArtifactsToken,
+  TerminalRuntimeToken,
+} from './module-host/service-tokens'
 import { BUNDLED_MAIN_MODULES } from './modules'
 import { registerCoreIpc } from './register-core-ipc'
 import { registerWorkflowIpc } from './register-workflow-ipc'
@@ -27,6 +31,7 @@ const moduleLoad = loadMainModules({
   provideServices: (host) => {
     host.provideService(TerminalRuntimeToken, () => services.terminalRuntime)
     host.provideService(GitHubTokenStoreToken, () => services.githubTokenStore)
+    host.provideService(SprintEngineArtifactsToken, () => services.sprintEngineArtifacts)
   },
 })
 if (MULTICODE_DIAGNOSTICS && moduleLoad.report.errors.length > 0) {

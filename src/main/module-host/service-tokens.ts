@@ -11,3 +11,6 @@ export const TerminalRuntimeToken = createServiceToken<AppServices['terminalRunt
 export const GitHubTokenStoreToken = createServiceToken<AppServices['githubTokenStore']>(
   'core.github-token-store'
 )
+export const SprintEngineArtifactsToken = createServiceToken<AppServices['sprintEngineArtifacts']>(
+  'core.sprintengine-artifacts'
+)
