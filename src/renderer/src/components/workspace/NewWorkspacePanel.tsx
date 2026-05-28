@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { LAYOUT_TEMPLATES, createGuidedBriefTemplate, createMultiloopTemplate } from '../../layouts/templates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { selectModuleEnabled } from '../../modules'
 import type {
   AgentCli,
   AgentId,
@@ -1650,6 +1651,11 @@ function ModeStep({
   folderPath: string | null
   folderHint: { hasSprintEngineTeam?: boolean; hasMultiloop?: boolean } | null
 }) {
+  const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
+  const visibleModes = MODES.filter(
+    (m) => m !== 'switchboard' || selectModuleEnabled(moduleOverrides, 'switchboard')
+  )
+
   const suggested: CreationMode | null = (() => {
     if (!folderHint) return null
     if (folderHint.hasSprintEngineTeam) return 'sprintengine'
@@ -1667,7 +1673,7 @@ function ModeStep({
         </p>
       ) : null}
       <div role="radiogroup" aria-label="Workspace mode" className="grid grid-cols-2 gap-2.5">
-        {MODES.map((m) => (
+        {visibleModes.map((m) => (
           <ModeCard key={m} mode={m} active={mode === m} onSelect={onSelect} />
         ))}
       </div>

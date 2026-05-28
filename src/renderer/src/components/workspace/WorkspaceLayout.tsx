@@ -57,9 +57,6 @@ const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictR
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
 const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBoardPanel'))
 const MultiloopBoardPanel = React.lazy(() => import('../panels/MultiloopBoardPanel'))
-const WatchtowerPanel = React.lazy(() => import('../panels/WatchtowerPanel'))
-const SwitchboardBoardPanel = React.lazy(() => import('../panels/SwitchboardBoardPanel'))
-const SwitchboardWorkspacePanel = React.lazy(() => import('../panels/SwitchboardWorkspacePanel'))
 const GuidedBriefWorkspacePanel = React.lazy(() => import('./guidedBrief/GuidedBriefWorkspacePanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const loadedPanelComponents = new Set<string>()
@@ -314,6 +311,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
   // is neither openable (PanelRail hides it) nor rendered (factory falls back to
   // an empty surface for any stale persisted layout that still references it).
   const memoryEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'memory-graph'))
+  const switchboardEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'switchboard'))
 
   const factory = useCallback(
     (node: TabNode) => {
@@ -407,15 +405,27 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
             'GuidedBriefWorkspacePanel',
             <GuidedBriefWorkspacePanel workspaceId={workspaceId} />
           )
-        case 'switchboard-workspace':
-          return timedPanel('SwitchboardWorkspacePanel', <SwitchboardWorkspacePanel workspaceId={workspaceId} />)
+        case 'switchboard-workspace': {
+          const Panel = switchboardEnabled ? getRendererHost().getPanel('switchboard-workspace') : undefined
+          return Panel
+            ? timedPanel('SwitchboardWorkspacePanel', <Panel workspaceId={workspaceId} />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
+        }
         // Defensive fallbacks for stale layouts that escaped migration — the
         // canonical Switchboard layout now uses a single 'switchboard-workspace'
         // tab whose internal sub-nav covers Watchtower + Switchboard.
-        case 'watchtower-panel':
-          return timedPanel('WatchtowerPanel', <WatchtowerPanel workspaceId={workspaceId} />)
-        case 'switchboard-board':
-          return timedPanel('SwitchboardBoardPanel', <SwitchboardBoardPanel workspaceId={workspaceId} />)
+        case 'watchtower-panel': {
+          const Panel = switchboardEnabled ? getRendererHost().getPanel('watchtower-panel') : undefined
+          return Panel
+            ? timedPanel('WatchtowerPanel', <Panel workspaceId={workspaceId} />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
+        }
+        case 'switchboard-board': {
+          const Panel = switchboardEnabled ? getRendererHost().getPanel('switchboard-board') : undefined
+          return Panel
+            ? timedPanel('SwitchboardBoardPanel', <Panel workspaceId={workspaceId} />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
+        }
         case 'memory-graph': {
           const MemoryPanel = memoryEnabled ? getRendererHost().getPanel('memory-graph') : undefined
           return MemoryPanel
@@ -444,7 +454,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return <div className="h-full bg-[color:var(--bg-app)]" />
       }
     },
-    [memoryEnabled, onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
+    [memoryEnabled, switchboardEnabled, onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
   )
 
   const cleanupNode = useCallback(

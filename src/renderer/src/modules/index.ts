@@ -1,11 +1,15 @@
 import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import { memoryRendererModule } from './memory-module'
+import { switchboardRendererModule } from './switchboard-module'
 import { createRendererHost, isModuleEnabled, type RendererModule } from './renderer-host'
 
 // Bundled renderer capability modules. Features migrate onto the host one at a
 // time; this list grows as each renderer surface is extracted from the
 // hardcoded factory switch / panel rail.
-export const BUNDLED_RENDERER_MODULES: RendererModule[] = [memoryRendererModule]
+export const BUNDLED_RENDERER_MODULES: RendererModule[] = [
+  memoryRendererModule,
+  switchboardRendererModule,
+]
 
 export const BUNDLED_RENDERER_MODULE_MANIFESTS: ReadonlyArray<CapabilityManifest> =
   BUNDLED_RENDERER_MODULES.map((module) => module.manifest)
