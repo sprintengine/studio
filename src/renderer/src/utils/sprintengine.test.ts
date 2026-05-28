@@ -1398,6 +1398,50 @@ type FakeTask = { role: string; status: string }
   assert.equal(uncovered, null, 'covered role returns null')
 }
 
+// AC: the live board's Add Member path surfaces a custom enabled registry
+// role and selects it as the uncovered default when an open task names that
+// role. Mirrors the inputs `SprintEngineBoardPanel` threads into
+// `useSprintEngineBoardModel` (`registry` + `disabledRoleIds`).
+{
+  const registry: SprintEngineRoleRegistry = buildSprintEngineRoleRegistry({
+    roles: [
+      {
+        id: 'marketer',
+        label: 'Marketer',
+        aliases: [],
+        summary: 'Owns positioning and copy.',
+        source: { layer: 'workspace' },
+      },
+    ],
+  })
+  // Workspace settings disable a bundled role; the live board must respect
+  // the disabled set while still surfacing custom enabled registry roles.
+  const disabledRoleIds = new Set<SprintEngineRoleId>(['frontend'])
+  const liveBoardInput = {
+    registry,
+    disabledRoleIds,
+    roster: [{ role: 'architect' as SprintEngineRoleId }],
+    tasks: [
+      { role: 'marketer' as SprintEngineRoleId, status: 'todo' as SprintEngineTask['status'] },
+    ],
+  }
+
+  const options = buildSprintEngineAddMemberOptions(liveBoardInput)
+  const marketerOption = options.find((option) => option.role === 'marketer')
+  assert.ok(marketerOption, 'custom enabled registry role appears in live board Add Member options')
+  assert.equal(marketerOption.label, 'Marketer', 'registry label used for custom role in live board')
+  assert.equal(marketerOption.openTasksForRole, 1, 'open marketer task counted in live board options')
+  assert.equal(marketerOption.activeForRole, 0, 'no marketer on roster yet')
+  assert.equal(
+    options.some((option) => option.role === 'frontend'),
+    false,
+    'workspace-disabled bundled role hidden from live board Add Member',
+  )
+
+  const uncovered = findFirstUncoveredSprintEngineRole(liveBoardInput)
+  assert.equal(uncovered, 'marketer', 'custom enabled registry role is the uncovered default for its open task')
+}
+
 // `buildSprintEngineRosterCountByRole` mirrors the option builder.
 {
   const counts = buildSprintEngineRosterCountByRole({

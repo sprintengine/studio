@@ -494,6 +494,13 @@ export type SprintEngineRuntimeAgent = {
   role: SprintEngineRoleId
   status: SprintEngineRuntimeAgentStatus
   currentTaskId: string | null
+  currentGateId?: string | null
+  currentGate?: {
+    taskId?: string
+    gateId?: string
+    attemptId?: string
+  } | null
+  lastDirectiveAt?: string | null
   currentDispatch?: SprintEngineCurrentDispatch | null
 }
 

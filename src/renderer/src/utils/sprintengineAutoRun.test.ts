@@ -111,6 +111,8 @@ async function main(): Promise<void> {
   await testWakeCandidateCleanupPreservesGateRetryKeys()
   await testClaimedGateContinuationSkipsMatchingCurrentDispatch()
   await testDispatchPromptSkipsBusyDifferentTaskTerminal()
+  await testDispatchPromptSkipsAgentAlreadyWorkingDispatchTask()
+  await testDispatchPromptSkipsAgentAlreadyReviewingDispatchGate()
   await testDispatchPromptSkipsNeedsInputAgent()
   await testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt()
   await testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity()
@@ -1295,7 +1297,7 @@ async function testDispatchPromptDeliveryUsesDispatchIdCooldown(): Promise<void>
     sprintEngineAgents: {
       'frontend-3': runtimeAgent('frontend', {
         status: 'running',
-        currentTaskId: 'T4',
+        currentTaskId: null,
         currentDispatch: {
           dispatchId: 'DISP-6ed51f5daa40b4bd',
           targetKind: 'task',
@@ -1369,7 +1371,7 @@ async function testDispatchPromptStopsAfterRetryLimit(): Promise<void> {
     sprintEngineAgents: {
       'frontend-3': runtimeAgent('frontend', {
         status: 'running',
-        currentTaskId: 'T4',
+        currentTaskId: null,
         currentDispatch: {
           dispatchId: 'DISP-retry-limit',
           targetKind: 'task',
@@ -1386,7 +1388,7 @@ async function testDispatchPromptStopsAfterRetryLimit(): Promise<void> {
     state.sprintEngineAgents['frontend-3'].currentDispatch
   )
   const sent = mutableRef(new Map<string, { sentAt: number; attempts?: number }>([
-    [key, { sentAt: Date.now() - 120_000, attempts: supervisor.AUTO_RUN_MAX_PROMPT_RETRIES - 1 }],
+    [key, { sentAt: Date.now() - 360_000, attempts: supervisor.AUTO_RUN_MAX_PROMPT_RETRIES - 1 }],
   ]))
 
   await supervisor.sendDispatchPromptsToRunningAgents(
@@ -1398,7 +1400,7 @@ async function testDispatchPromptStopsAfterRetryLimit(): Promise<void> {
   assert.equal(writes.length, 1, 'dispatch prompt is still pasted for the final allowed retry')
   assert.equal(sent.current.get(key)?.attempts, supervisor.AUTO_RUN_MAX_PROMPT_RETRIES)
 
-  sent.current.set(key, { sentAt: Date.now() - 120_000, attempts: supervisor.AUTO_RUN_MAX_PROMPT_RETRIES })
+  sent.current.set(key, { sentAt: Date.now() - 360_000, attempts: supervisor.AUTO_RUN_MAX_PROMPT_RETRIES })
   await supervisor.sendDispatchPromptsToRunningAgents(
     workspace,
     state,
@@ -1689,6 +1691,126 @@ async function testDispatchPromptSkipsBusyDifferentTaskTerminal(): Promise<void>
 
   assert.equal(writes.length, 0, 'dispatch prompts do not interrupt terminals working a different active task')
   assert.equal(sent.current.size, 0, 'skipped dispatch prompts are not marked delivered')
+}
+
+async function testDispatchPromptSkipsAgentAlreadyWorkingDispatchTask(): Promise<void> {
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-frontend',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'frontend-3',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+      },
+    ],
+    terminalWrite: async (sessionId, text) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const sent = mutableRef(new Map<string, { sentAt: number }>())
+  const workspace = workspaceFixture({
+    agents: {
+      'frontend-3': sprintAgent('frontend-3', 'Reagan'),
+    },
+  })
+  const state = sprintEngineStateFixture({
+    sprintEngineAgents: {
+      'frontend-3': runtimeAgent('frontend', {
+        status: 'running',
+        currentTaskId: 'T-active',
+        currentDispatch: {
+          dispatchId: 'DISP-active-task',
+          targetKind: 'task',
+          role: 'frontend',
+          taskId: 'T-active',
+          reason: 'task_claimed',
+        },
+      }),
+    },
+  })
+
+  await supervisor.sendDispatchPromptsToRunningAgents(
+    workspace,
+    state,
+    new Set(['frontend-3']),
+    sent
+  )
+
+  assert.equal(writes.length, 0, 'dispatch prompts do not interrupt an agent already working the same task')
+  assert.equal(sent.current.size, 0, 'skipped active task dispatch prompts are not marked delivered')
+}
+
+async function testDispatchPromptSkipsAgentAlreadyReviewingDispatchGate(): Promise<void> {
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-reviewer',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'code-reviewer',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+      },
+    ],
+    terminalWrite: async (sessionId, text) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const sent = mutableRef(new Map<string, { sentAt: number }>())
+  const workspace = workspaceFixture({
+    agents: {
+      'code-reviewer': sprintAgent('code-reviewer', 'Casey'),
+    },
+  })
+  const state = sprintEngineStateFixture({
+    sprintEngineAgents: {
+      'code-reviewer': runtimeAgent('code_reviewer', {
+        status: 'running',
+        currentTaskId: 'T12',
+        currentGateId: 'code_reviewer',
+        currentGate: {
+          taskId: 'T12',
+          gateId: 'code_reviewer',
+          attemptId: 'GATE-code_reviewer-1',
+        },
+        currentDispatch: {
+          dispatchId: 'DISP-active-gate',
+          targetKind: 'gate',
+          role: 'code_reviewer',
+          taskId: 'T12',
+          gateId: 'code_reviewer',
+          attemptId: 'GATE-code_reviewer-1',
+          reason: 'gate_claimed',
+        },
+      }),
+    },
+  })
+
+  await supervisor.sendDispatchPromptsToRunningAgents(
+    workspace,
+    state,
+    new Set(['code-reviewer']),
+    sent
+  )
+
+  assert.equal(writes.length, 0, 'dispatch prompts do not interrupt an agent already reviewing the same gate')
+  assert.equal(sent.current.size, 0, 'skipped active gate dispatch prompts are not marked delivered')
 }
 
 async function testDispatchPromptSkipsNeedsInputAgent(): Promise<void> {

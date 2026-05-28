@@ -70,7 +70,6 @@ import {
   runSprintEnginePlanSourcedCreation,
 } from './newWorkspace/controllers'
 
-const MAX_RECENT_FOLDERS = 6
 const MODES: CreationMode[] = ['standard', 'switchboard', 'sprintengine', 'multiloop', 'guided-brief']
 
 type StepId =
@@ -543,7 +542,7 @@ export default function NewWorkspacePanel({
       seen.add(key)
       folders.push(path)
     })
-    return folders.slice(0, MAX_RECENT_FOLDERS)
+    return folders
   }, [storedRecentFolders, workspaces])
 
   const folderHints = useFolderHints(recentFolders)
@@ -1617,7 +1616,7 @@ function WorkspaceStep({
           <div className="px-1 text-[11px] font-medium text-[color:var(--text-muted)]">
             Recent
           </div>
-          <div className="flex flex-col gap-0.5">
+          <div className="flex max-h-[260px] flex-col gap-0.5 overflow-y-auto pr-1">
             {recentFolders.map((recent) => {
               const hint = folderHints.get(recent)
               const hints: Array<'sprintengine' | 'multiloop'> = []

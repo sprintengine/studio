@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { selectSprintEngineView, useSprintEngineViewStore } from '../../store/sprintEngineViewStore'
 import {
@@ -31,18 +31,21 @@ import type {
  SprintEngineCliPermissionPreset,
  SprintEngineRole,
  SprintEngineRoleId,
+ SprintEngineRoleRegistry,
  SprintEngineTaskBoardColumn,
 } from '../../types/workspace'
 import { SprintEngineRoleIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import {
  bracketedTerminalPaste,
+ buildSprintEngineRoleRegistry,
  formatSprintEngineLockAge,
  getNextSprintEngineAgentId,
  getSprintEngineBoardRunPhase,
  getSprintEngineTaskBoardColumn,
  getSprintEngineTaskOwnerLabel,
  getSprintEngineRoleAccent,
+ getUserDisabledSprintEngineRoleIds,
  normalizeSprintEngineProjection,
  getSprintEngineRoleLabel,
  sprintEngineTaskStateLabel,
@@ -280,6 +283,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const openFile = useWorkspaceStore((s) => s.openFile)
  const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
  const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli)
+ const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
+ const disabledRoleIds = useMemo<ReadonlySet<SprintEngineRoleId>>(
+   () => getUserDisabledSprintEngineRoleIds(sprintEngineRoleSettings),
+   [sprintEngineRoleSettings],
+ )
  const dialog = useConfirmDialog()
  const {
  folderPath: savedFolderPath,
@@ -366,6 +374,36 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const automationMode = pendingAutomationMode ?? projectedAutomationMode
  const cliPermissionPreset = workspace?.sprintEngineAutoState?.cliPermissionPreset ?? 'default'
 
+ // Sprint Engine role registry for the workspace. Loaded once per folder so
+ // the Add Member options and uncovered-role detection surface custom enabled
+ // registry roles alongside the bundled board roles. The list silently falls
+ // back to the bundled set when the IPC bridge or the registry payload is
+ // unavailable.
+ const [roleRegistry, setRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
+ useEffect(() => {
+   let cancelled = false
+   if (!folderPath || typeof window.api.readSprintEngineRegistryRoles !== 'function') {
+     setRoleRegistry(null)
+     return undefined
+   }
+   void window.api.readSprintEngineRegistryRoles({ workspaceRoot: folderPath, includeShadowed: true })
+     .then((result) => {
+       if (cancelled) return
+       if (result.ok) {
+         setRoleRegistry(buildSprintEngineRoleRegistry(result.data))
+       } else {
+         setRoleRegistry(null)
+       }
+     })
+     .catch(() => {
+       if (cancelled) return
+       setRoleRegistry(null)
+     })
+   return () => {
+     cancelled = true
+   }
+ }, [folderPath])
+
  useEffect(() => {
  setPendingAutomationMode(null)
  }, [sprintEngineContext?.statePath])
@@ -389,7 +427,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  tasksById,
  inboxArtifactCount,
  addMemberOptions,
- } = useSprintEngineBoardModel({ sprintEngineState, agents })
+ } = useSprintEngineBoardModel({ sprintEngineState, agents, roleRegistry, disabledRoleIds })
 
  const getLiveAgentTerminalSession = useCallback(
  (agentId: string) => {
@@ -922,6 +960,8 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
 
  const openAddMemberDialog = () => {
  const uncoveredRole = findFirstUncoveredSprintEngineRole({
+ registry: roleRegistry,
+ disabledRoleIds,
  roster,
  tasks: sprintEngineTasks,
  })

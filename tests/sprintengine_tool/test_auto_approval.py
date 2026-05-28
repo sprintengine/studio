@@ -284,11 +284,23 @@ def test_electron_auto_run_approves_through_sprint_engine_not_terminal() -> None
     supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
         encoding="utf-8"
     )
+    executor_source = (repo_root / "src/renderer/src/utils/sprintengineAutoRunExecutor.ts").read_text(
+        encoding="utf-8"
+    )
     artifacts_source = (repo_root / "src/main/sprintengine-artifacts.ts").read_text(encoding="utf-8")
 
+    # Supervisor must not push approval through the agent terminal.
     assert "sendArtifactApprovalToTerminal" not in supervisor_source
     assert "Sent the user approval intent to the responsible agent terminal." not in supervisor_source
-    assert "window.api.autoApproveSprintEngineArtifact(statePath, artifact.id)" in supervisor_source
+    # Post-T5 boundary: the supervisor routes auto-approval through the
+    # executor port, and the executor binds the live IPC call. Behaviour test:
+    # the supervisor calls the port, and the default-port factory wires the
+    # window.api IPC.
+    assert "defaultExecutorPorts.autoApproveSprintEngineArtifact(statePath, artifact.id)" in supervisor_source
+    assert (
+        "autoApproveSprintEngineArtifact: (statePath, artifactId) =>" in executor_source
+        and "window.api.autoApproveSprintEngineArtifact(statePath, artifactId)" in executor_source
+    )
     assert "Artifact auto-approved through Sprint Engine" in supervisor_source
     assert "action: 'approve-intent'" not in artifacts_source
     assert "await assertAutoApprovalAllowed(state, artifactId)" in artifacts_source
@@ -367,12 +379,25 @@ def test_electron_auto_run_clears_stale_spawn_state_before_retrying() -> None:
     supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
         encoding="utf-8"
     )
+    executor_source = (repo_root / "src/renderer/src/utils/sprintengineAutoRunExecutor.ts").read_text(
+        encoding="utf-8"
+    )
 
-    assert "const status = await window.api.terminalStatus(latestAgent.cliSessionId).catch(() => ({ processAlive: false }))" in supervisor_source
+    # Post-T5 boundary: the supervisor checks the existing session via the
+    # executor's safeTerminalStatus helper (which routes the catch-fallback
+    # through the executor port) before declaring the session stale and
+    # clearing the cliSessionId.
+    assert "const status = await safeTerminalStatus(defaultExecutorPorts, latestAgent.cliSessionId)" in supervisor_source
     assert "if (status.processAlive) return 'skipped'" in supervisor_source
     assert "cliSessionId: undefined" in supervisor_source
     assert "if (!agent.cliSessionId)" in supervisor_source
     assert "agent.kind !== 'sprintengine'" in supervisor_source
+    # safeTerminalStatus must keep the fallback shape (terminalStatus call wrapped
+    # in try/catch returning processAlive: false) so transient IPC failures do
+    # not crash the retry path.
+    assert "export async function safeTerminalStatus" in executor_source
+    assert "return await ports.terminalStatus(sessionId)" in executor_source
+    assert "return { processAlive: false }" in executor_source
 
 
 def test_electron_roster_runner_starts_roster_agents_without_task_named_workers() -> None:

@@ -46,31 +46,75 @@ import {
   pickNextAutoRuns,
   roleHasClaimableSprintEngineImplementationWork,
   shouldSkipExitedSprintEngineRosterAgent,
-  withTimeout,
   type AutoRunCandidate,
   type RoleContinuationGrace,
 } from '../../utils/sprintengineAutoRun'
-import { publishDiagnostic } from '../../utils/diagnostics'
+import {
+  TerminalListIpcError,
+  createDefaultSprintEngineAutoRunExecutorPorts,
+  listTerminalSessionsForAutoRun as executorListTerminalSessionsForAutoRun,
+  publishTerminalListIpcFailureNotice as executorPublishTerminalListIpcFailureNotice,
+  recordSpawnFailure,
+  safeTerminalKill,
+  safeTerminalStatus,
+  spawnTerminalSession,
+  writeBracketedPrompt,
+  type SprintEngineAutoRunExecutorPorts,
+  type TerminalListNoticeCooldown,
+} from '../../utils/sprintengineAutoRunExecutor'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
-import { applyAgentTerminalRevealPolicy, type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
+import { type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
 import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
-import { disableSprintEngineAutoRun } from '../../utils/sprintengineSupervisorNotifications'
 import {
   agentCliSupportsConversationResume,
 } from '../../utils/agentCliResume'
+
+export { TerminalListIpcError } from '../../utils/sprintengineAutoRunExecutor'
+
+const defaultExecutorPorts: SprintEngineAutoRunExecutorPorts =
+  createDefaultSprintEngineAutoRunExecutorPorts()
+const terminalListIpcLastNoticeAt: TerminalListNoticeCooldown = new Map()
+
+export function listTerminalSessionsForAutoRun(
+  workspace: Workspace,
+  cause: string
+): Promise<TerminalSessionSnapshot[]> {
+  return executorListTerminalSessionsForAutoRun(defaultExecutorPorts, workspace, cause)
+}
+
+function publishTerminalListIpcFailureNotice(
+  workspace: Workspace,
+  error: TerminalListIpcError,
+  phase: 'reconcile' | 'supervise'
+): Promise<void> {
+  logPerfEvent('SprintEngineAutoRun', 'terminal-list-ipc-paused', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    intent: error.intent,
+    phase,
+    message: error.cause instanceof Error ? error.cause.message : String(error.cause),
+  })
+  return executorPublishTerminalListIpcFailureNotice(
+    defaultExecutorPorts,
+    workspace,
+    error,
+    phase,
+    terminalListIpcLastNoticeAt,
+  )
+}
 
 const AUTO_RUN_POLL_MS = 2000
 const INACTIVE_AUTO_RUN_POLL_MS = 15000
 const AUTO_RUN_STARTUP_SPAWN_DELAY_MS = 10000
 const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
 const AUTO_RUN_ROLE_CONTINUATION_RETRY_MS = 60000
+const AUTO_RUN_DISPATCH_PROMPT_RETRY_MS = 300000
 export const AUTO_RUN_MAX_PROMPT_RETRIES = 5
 export const AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES = 3
 const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
 const AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS = 30000
-const TERMINAL_IPC_TIMEOUT_MS = 3000
 const BACKGROUND_TERMINAL_COLS = 100
 const BACKGROUND_TERMINAL_ROWS = 30
 const SPAWNABLE_NOTIFICATION_KINDS = new Set([
@@ -111,102 +155,6 @@ function getSprintEngineAutoState(workspace: Workspace | null | undefined): Spri
 function isSprintEngineRunnerActive(workspace: Workspace | null | undefined): boolean {
   const autoState = getSprintEngineAutoState(workspace)
   return autoState.supervisorEnabled || autoState.autoApproveArtifacts
-}
-
-export class TerminalListIpcError extends Error {
-  readonly cause: unknown
-  readonly workspaceId: string
-  readonly workspaceName: string
-  readonly intent: string
-
-  constructor(input: {
-    workspaceId: string
-    workspaceName: string
-    intent: string
-    cause: unknown
-  }) {
-    const causeMessage = input.cause instanceof Error ? input.cause.message : String(input.cause)
-    super(`Terminal-list IPC failed while ${input.intent} for workspace ${input.workspaceName}: ${causeMessage}`)
-    this.name = 'TerminalListIpcError'
-    this.cause = input.cause
-    this.workspaceId = input.workspaceId
-    this.workspaceName = input.workspaceName
-    this.intent = input.intent
-  }
-}
-
-export async function listTerminalSessionsForAutoRun(
-  workspace: Workspace,
-  cause: string
-): Promise<TerminalSessionSnapshot[]> {
-  const startedAt = performance.now()
-  logPerfEvent('SprintEngineAutoRun', 'terminal-list-start', {
-    workspaceId: workspace.id,
-    workspaceName: workspace.name,
-    cause,
-    timeoutMs: TERMINAL_IPC_TIMEOUT_MS,
-  })
-
-  try {
-    const sessions = await withTimeout(
-      window.api.terminalList(),
-      TERMINAL_IPC_TIMEOUT_MS,
-      `Timed out waiting for terminal sessions after ${TERMINAL_IPC_TIMEOUT_MS}ms.`
-    )
-    logPerfEvent('SprintEngineAutoRun', 'terminal-list-end', {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      cause,
-      sessionCount: sessions.length,
-      elapsedMs: Math.round(performance.now() - startedAt),
-    })
-    return sessions
-  } catch (error) {
-    throw new TerminalListIpcError({
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      intent: cause,
-      cause: error,
-    })
-  }
-}
-
-const TERMINAL_LIST_IPC_NOTICE_COOLDOWN_MS = 30000
-const terminalListIpcLastNoticeAt = new Map<string, number>()
-
-async function publishTerminalListIpcFailureNotice(
-  workspace: Workspace,
-  error: TerminalListIpcError,
-  phase: 'reconcile' | 'supervise'
-): Promise<void> {
-  const causeMessage = error.cause instanceof Error ? error.cause.message : String(error.cause)
-  logPerfEvent('SprintEngineAutoRun', 'terminal-list-ipc-paused', {
-    workspaceId: workspace.id,
-    workspaceName: workspace.name,
-    intent: error.intent,
-    phase,
-    message: causeMessage,
-  })
-
-  const now = Date.now()
-  const previousAt = terminalListIpcLastNoticeAt.get(workspace.id) ?? 0
-  if (now - previousAt < TERMINAL_LIST_IPC_NOTICE_COOLDOWN_MS) return
-  terminalListIpcLastNoticeAt.set(workspace.id, now)
-
-  await publishDiagnostic({
-    level: 'warning',
-    source: 'sprintengine',
-    title: 'Auto-run paused: terminal IPC unavailable',
-    message: 'Could not list running terminals. Auto-run skipped this tick to avoid spawning duplicate agents.',
-    details: [
-      `Workspace: ${workspace.name}`,
-      `Operation: ${error.intent}`,
-      `Error: ${causeMessage}`,
-      'Auto-run will retry on the next tick.',
-    ].join('\n'),
-    workspaceId: workspace.id,
-    workspaceName: workspace.name,
-  })
 }
 
 function isMatchingWorkspaceAgentSession(
@@ -253,7 +201,7 @@ async function refreshAutoWorkspaceState(
 
   try {
     const startedAt = performance.now()
-    const projectionResult = await window.api.readSprintEngineProjection(stateFilePath)
+    const projectionResult = await defaultExecutorPorts.readSprintEngineProjection(stateFilePath)
     if (!projectionResult.ok) {
       throw new Error(projectionResult.message)
     }
@@ -312,7 +260,7 @@ async function publishArtifactApprovalWarning(
 ): Promise<void> {
   const task = workspace.sprintEngineState?.tasks.find((candidate) => candidate.id === artifact.taskId)
 
-  await publishDiagnostic({
+  await defaultExecutorPorts.publishDiagnostic({
     level: 'warning',
     source: 'sprintengine',
     title: 'Artifact auto-approval skipped',
@@ -353,7 +301,7 @@ async function publishAutoApprovalDiagnostic(
   if (now - previousAt < AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS) return
 
   diagnostics.current.set(key, now)
-  await publishDiagnostic({
+  await defaultExecutorPorts.publishDiagnostic({
     level: input.level,
     source: 'sprintengine',
     title: input.title,
@@ -390,7 +338,7 @@ async function findRunningAgentSession(
 
   const effectiveCli = runningSession.cli ?? agent?.cli
   if (!effectiveCli) {
-    await publishDiagnostic({
+    await defaultExecutorPorts.publishDiagnostic({
       level: 'error',
       source: 'terminal',
       title: 'Roster runner could not attach terminal',
@@ -500,7 +448,7 @@ export async function sendApprovalToNextEligibleArtifactProducer(
   // approval mid-flight.
   sentArtifactApprovalMessages.current.set(approvalKey, Date.now())
   try {
-    const result = await window.api.autoApproveSprintEngineArtifact(statePath, artifact.id)
+    const result = await defaultExecutorPorts.autoApproveSprintEngineArtifact(statePath, artifact.id)
     if (!result.ok) {
       await publishArtifactApprovalWarning(
         workspace,
@@ -639,10 +587,6 @@ async function getRunningContinuationCapacityByRole(
   return { capacityByRole, agentIds: countedAgentIds }
 }
 
-function bracketedTerminalPaste(text: string): string {
-  return `\x1b[200~${text.replace(/\r?\n/g, '\n')}\x1b[201~\r`
-}
-
 function promptRetryLimitReached(
   message: RoleContinuationMessage | ArchitectTriageMessage | undefined,
   maxRetries = AUTO_RUN_MAX_PROMPT_RETRIES
@@ -660,6 +604,26 @@ function recordPromptRetry<T extends RoleContinuationMessage | ArchitectTriageMe
     sentAt,
     attempts: (previous?.attempts ?? 0) + 1,
   } as T)
+}
+
+function runtimeAgentAlreadyOwnsDispatchTarget(
+  runtimeAgent: SprintEngineState['sprintEngineAgents'][string],
+  dispatch: NonNullable<SprintEngineState['sprintEngineAgents'][string]['currentDispatch']>
+): boolean {
+  if (runtimeAgent.status !== 'running') return false
+  if (!dispatch.taskId || runtimeAgent.currentTaskId !== dispatch.taskId) return false
+  if (dispatch.targetKind === 'task') return true
+  if (dispatch.targetKind !== 'gate') return false
+
+  const currentGate = runtimeAgent.currentGate
+  if (dispatch.gateId && runtimeAgent.currentGateId === dispatch.gateId) return true
+  return Boolean(
+    dispatch.gateId
+    && currentGate
+    && currentGate.taskId === dispatch.taskId
+    && currentGate.gateId === dispatch.gateId
+    && (!dispatch.attemptId || currentGate.attemptId === dispatch.attemptId)
+  )
 }
 
 function getContinuationMessageWorkKey(workspace: Workspace, key: string): string | null {
@@ -727,9 +691,9 @@ export async function deliverAgentNotificationEvents(
         })
         continue
       }
-      await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(prompt))
+      await writeBracketedPrompt(defaultExecutorPorts, session.sessionId, prompt)
       if (!isAgentNotificationCompletionEvent(event)) {
-        applyAgentTerminalRevealPolicy(
+        defaultExecutorPorts.applyTerminalRevealPolicy(
           workspace.id,
           targetAgentId,
           workspace.agents[targetAgentId]?.name ?? rosterAgent?.label ?? targetAgentId,
@@ -850,9 +814,11 @@ export async function sendContinuationPromptsToIdleAgents(
     const session = await findRunningAgentSession(workspace, agentId)
     if (!session) continue
 
-    await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(
-      buildSprintEngineContinuationPrompt(task, agentId)
-    ))
+    await writeBracketedPrompt(
+      defaultExecutorPorts,
+      session.sessionId,
+      buildSprintEngineContinuationPrompt(task, agentId),
+    )
     recordPromptRetry(sentContinuationMessages.current, key, now)
     reservedWakeCandidateTaskIds.add(task.id)
     logPerfEvent('SprintEngineAutoRun', 'continuation-prompt-sent', {
@@ -923,9 +889,11 @@ export async function sendGateContinuationPromptsToAgents(
       if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
       const session = await findRunningAgentSession(workspace, agentId)
       if (!session) continue
-      await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(
-        buildSprintEngineGateContinuationPrompt(task, claim.gate, agentId, true)
-      ))
+      await writeBracketedPrompt(
+        defaultExecutorPorts,
+        session.sessionId,
+        buildSprintEngineGateContinuationPrompt(task, claim.gate, agentId, true),
+      )
       recordPromptRetry(sentContinuationMessages.current, key, now)
       logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-sent', {
         workspaceId: workspace.id,
@@ -968,9 +936,11 @@ export async function sendGateContinuationPromptsToAgents(
       }
       const session = await findRunningAgentSession(workspace, agentId)
       if (!session) continue
-      await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(
-        buildSprintEngineGateContinuationPrompt(task, gate, agentId, false)
-      ))
+      await writeBracketedPrompt(
+        defaultExecutorPorts,
+        session.sessionId,
+        buildSprintEngineGateContinuationPrompt(task, gate, agentId, false),
+      )
       recordPromptRetry(sentContinuationMessages.current, key, now)
       usedIdleAgentIds.add(agentId)
       logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-sent', {
@@ -1031,7 +1001,7 @@ export async function sendDispatchPromptsToRunningAgents(
       })
       continue
     }
-    if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
+    if (previous && now - previous.sentAt < AUTO_RUN_DISPATCH_PROMPT_RETRY_MS) continue
     if (dispatch.taskId && runtimeAgent.currentTaskId && runtimeAgent.currentTaskId !== dispatch.taskId) {
       logPerfEvent('SprintEngineAutoRun', 'dispatch-prompt-skipped-active-different-task', {
         workspaceId: workspace.id,
@@ -1044,16 +1014,32 @@ export async function sendDispatchPromptsToRunningAgents(
       })
       continue
     }
+    if (runtimeAgentAlreadyOwnsDispatchTarget(runtimeAgent, dispatch)) {
+      sentDispatchMessages.current.delete(key)
+      logPerfEvent('SprintEngineAutoRun', 'dispatch-prompt-skipped-active-target', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId,
+        role: dispatch.role ?? runtimeAgent.role,
+        dispatchId: dispatch.dispatchId ?? null,
+        targetKind: dispatch.targetKind ?? null,
+        taskId: dispatch.taskId ?? null,
+        gateId: dispatch.gateId ?? null,
+      })
+      continue
+    }
 
     const session = await findRunningAgentSession(workspace, agentId)
     if (!session) continue
-    await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(
+    await writeBracketedPrompt(
+      defaultExecutorPorts,
+      session.sessionId,
       buildSprintEngineDispatchPrompt({
         role: dispatch.role ?? runtimeAgent.role,
         agentId,
         dispatch,
-      })
-    ))
+      }),
+    )
     recordPromptRetry(sentDispatchMessages.current, key, now)
     logPerfEvent('SprintEngineAutoRun', 'dispatch-prompt-sent', {
       workspaceId: workspace.id,
@@ -1097,11 +1083,7 @@ async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<vo
     await Promise.all(
       agentSessions
         .filter((session) => session.sessionId !== preferredSession.sessionId)
-        .map((session) => withTimeout(
-          window.api.terminalKill(session.sessionId),
-          TERMINAL_IPC_TIMEOUT_MS,
-          `Timed out killing terminal session ${session.sessionId}.`
-        ).catch(() => {}))
+        .map((session) => safeTerminalKill(defaultExecutorPorts, session.sessionId))
     )
 
     const agent = workspace.agents[agentId]
@@ -1198,7 +1180,7 @@ export async function spawnAutoRunCandidate(
 
   if (!workspace.folderPath || !workspace.sprintEngineContext) return 'skipped'
   if (!selectedCli) {
-    await publishDiagnostic({
+    await defaultExecutorPorts.publishDiagnostic({
       level: 'error',
       source: 'terminal',
       title: 'Roster runner skipped agent',
@@ -1235,15 +1217,15 @@ export async function spawnAutoRunCandidate(
       taskId: nextRun.taskId,
       sessionId,
     })
-    const folderExists = await window.api.pathExists(workspaceFolderPath)
+    const folderExists = await defaultExecutorPorts.pathExists(workspaceFolderPath)
     if (!folderExists) {
       currentState.setFolderMissing(workspace.id, true)
       setAutoRunPendingSpawns(workspace.id, [])
-      disableSprintEngineAutoRun(workspace.id, 'folder_missing', {
+      defaultExecutorPorts.disableAutoRun(workspace.id, 'folder_missing', {
         agentId: nextRun.agentId,
         taskId: nextRun.taskId,
       })
-      await publishDiagnostic({
+      await defaultExecutorPorts.publishDiagnostic({
         level: 'error',
         source: 'filesystem',
         title: 'Roster runner stopped',
@@ -1266,7 +1248,7 @@ export async function spawnAutoRunCandidate(
       .workspaces.find((candidate) => candidate.id === workspace.id)
       ?.agents[nextRun.agentId]
     if (latestAgent?.cliSessionId) {
-      const status = await window.api.terminalStatus(latestAgent.cliSessionId).catch(() => ({ processAlive: false }))
+      const status = await safeTerminalStatus(defaultExecutorPorts, latestAgent.cliSessionId)
       if (status.processAlive) return 'skipped'
       latestStateBeforeSpawn.updateAgent(workspace.id, nextRun.agentId, {
         cliSessionId: undefined,
@@ -1295,7 +1277,7 @@ export async function spawnAutoRunCandidate(
     )
     const memoryRelativeRoot = memoryConfig?.relativeRoot ?? null
     const memoryStatus = memoryRelativeRoot
-      ? await window.api.memoryResolveRoot({
+      ? await defaultExecutorPorts.memoryResolveRoot({
         workspaceRoot: memoryConfig?.projectRoot ?? workspaceFolderPath,
         relativeRoot: memoryRelativeRoot,
       }).catch((): MemoryRootStatus => ({
@@ -1376,24 +1358,19 @@ export async function spawnAutoRunCandidate(
       executionMode: 'current_workspace' | 'worktree'
     }
 
-    const spawnResult = await window.api.terminalSpawn(
+    const spawnResult = await spawnTerminalSession(defaultExecutorPorts, {
       sessionId,
-      BACKGROUND_TERMINAL_COLS,
-      BACKGROUND_TERMINAL_ROWS,
-      executionCwd,
-      false,
+      cols: BACKGROUND_TERMINAL_COLS,
+      rows: BACKGROUND_TERMINAL_ROWS,
+      cwd: executionCwd,
+      resume: false,
       sprintEngineStatePath,
-      selectedCli,
-      startupPrompt,
+      cli: selectedCli,
+      initialPrompt: startupPrompt,
       cliRuntimes,
-      false,
-      terminalMetadata
-    ).catch((error): TerminalSpawnResult => ({
-      ok: false,
-      sessionId,
-      message: error instanceof Error ? error.message : 'Failed to start terminal.',
-      exitCode: 1,
-    }))
+      shellOnly: false,
+      metadata: terminalMetadata,
+    })
     logPerfEvent('SprintEngineAutoRun', 'spawn-result', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -1406,35 +1383,18 @@ export async function spawnAutoRunCandidate(
       message: spawnResult.ok ? null : spawnResult.message,
     })
     if (!spawnResult.ok) {
-      const latestState = useWorkspaceStore.getState()
-      latestState.setSprintEngineAutomationMode(workspace.id, 'manual')
-      setAutoRunPendingSpawns(workspace.id, [])
-      latestState.updateAgent(workspace.id, nextRun.agentId, {
-        cliSessionId: undefined,
-        cliStartRequested: false,
-        cliHasLaunched: false,
-        cliOnboardingPromptSent: false,
-        cliResumeAvailable: false,
-      })
-      await publishDiagnostic({
-        level: 'error',
-        source: 'terminal',
-        title: `${nextRun.label} was not started`,
-        message: spawnResult.message,
-        details: [
-          `Workspace: ${workspace.name}`,
-          `CLI: ${selectedCli}`,
-          `CLI permissions: ${getSprintEngineAutoState(workspace).cliPermissionPreset}`,
-          `Task: ${nextRun.taskId}`,
-          `Session: ${sessionId}`,
-          `Cwd: ${executionCwd}`,
-          `Sprint Engine state: ${sprintEngineStatePath}`,
-        ].filter(Boolean).join('\n'),
+      await recordSpawnFailure(defaultExecutorPorts, {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
         agentId: nextRun.agentId,
+        agentLabel: nextRun.label,
+        selectedCli,
+        cliPermissionPreset: getSprintEngineAutoState(workspace).cliPermissionPreset,
         taskId: nextRun.taskId,
         sessionId,
+        executionCwd,
+        sprintEngineStatePath,
+        spawnMessage: spawnResult.message,
       })
       return 'failed'
     }
@@ -1442,7 +1402,13 @@ export async function spawnAutoRunCandidate(
     currentState.updateAgent(workspace.id, nextRun.agentId, {
       cliStartupPrompt: undefined,
     })
-    applyAgentTerminalRevealPolicy(workspace.id, nextRun.agentId, nextRun.label, options.revealPolicy ?? 'background', { sessionId })
+    defaultExecutorPorts.applyTerminalRevealPolicy(
+      workspace.id,
+      nextRun.agentId,
+      nextRun.label,
+      options.revealPolicy ?? 'background',
+      { sessionId },
+    )
     return 'started'
   } finally {
     inFlightSpawns.current.delete(spawnKey)
@@ -1493,7 +1459,7 @@ async function startMissingRosterAgents(
     return 'none'
   }
 
-  const stateFileExists = await window.api.pathExists(workspace.sprintEngineContext.statePath).catch(() => false)
+  const stateFileExists = await defaultExecutorPorts.pathExists(workspace.sprintEngineContext.statePath).catch(() => false)
   const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
   let started = false
 
@@ -1577,7 +1543,7 @@ async function startMissingRosterAgents(
       })
     }
     const status = currentAgent?.cliSessionId
-      ? await window.api.terminalStatus(currentAgent.cliSessionId).catch(() => ({ processAlive: false }))
+      ? await safeTerminalStatus(defaultExecutorPorts, currentAgent.cliSessionId)
       : { processAlive: false }
     if (status.processAlive) {
       logPerfEvent('SprintEngineAutoRun', 'roster-spawn-skipped-terminal-alive', {
@@ -1629,11 +1595,11 @@ async function replenishRetiredRosterCapacity(
     .some((agent) => agent.status === 'retired')
   if (!hasRetiredAgent) return { status: 'none' }
 
-  const result = await window.api.replenishSprintEngineRoster({
+  const result = await defaultExecutorPorts.replenishSprintEngineRoster({
     statePath: workspace.sprintEngineContext.statePath,
   })
   if (!result.ok) {
-    await publishDiagnostic({
+    await defaultExecutorPorts.publishDiagnostic({
       level: 'warning',
       source: 'sprintengine',
       title: 'Roster replenishment failed',
@@ -1695,7 +1661,7 @@ async function signalArchitectForNeedsInputTriage(
   const retryLimitReached = promptRetryLimitReached(previous)
 
   if (runningAgentIds.has(architect.id)) {
-    applyAgentTerminalRevealPolicy(
+    defaultExecutorPorts.applyTerminalRevealPolicy(
       workspace.id,
       architect.id,
       workspace.agents[architect.id]?.name ?? architect.label,
@@ -1717,7 +1683,7 @@ async function signalArchitectForNeedsInputTriage(
     const session = await findRunningAgentSession(workspace, architect.id)
     if (!session) return 'none'
 
-    await window.api.terminalWrite(session.sessionId, bracketedTerminalPaste(triagePrompt))
+    await writeBracketedPrompt(defaultExecutorPorts, session.sessionId, triagePrompt)
     recordPromptRetry(sentArchitectTriageMessages.current, messageKey, Date.now())
     logPerfEvent('SprintEngineAutoRun', 'architect-triage-prompt-sent', {
       workspaceId: workspace.id,
@@ -1789,7 +1755,7 @@ async function superviseWorkspace(
   // decide whether to spawn agents, and the CLI flag is the CLI's concern.
 
   if (isSprintEngineRunBlockedOnExternalInput(sprintEngineState)) {
-    disableSprintEngineAutoRun(workspace.id, 'blocked_on_external_input')
+    defaultExecutorPorts.disableAutoRun(workspace.id, 'blocked_on_external_input')
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -2040,7 +2006,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   )
 
   if (sprintEngineState.tasks.length > 0 && sprintEngineState.tasks.every((task) => task.status === 'done')) {
-    disableSprintEngineAutoRun(workspace.id, 'all_tasks_done')
+    defaultExecutorPorts.disableAutoRun(workspace.id, 'all_tasks_done')
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -2093,7 +2059,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
       workspaceName: workspace.name,
       message: error instanceof Error ? error.message : String(error),
     })
-    await publishDiagnostic({
+    await defaultExecutorPorts.publishDiagnostic({
       level: 'warning',
       source: 'sprintengine',
       title: 'Roster runner skipped this tick',
@@ -2174,7 +2140,7 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
       continue
     }
 
-    const status = await window.api.terminalStatus(agent.cliSessionId)
+    const status = await defaultExecutorPorts.terminalStatus(agent.cliSessionId)
     if (status.processAlive) continue
 
     useWorkspaceStore.getState().updateAgent(workspace.id, agent.id, {

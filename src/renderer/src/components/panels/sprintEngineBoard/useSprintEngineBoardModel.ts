@@ -17,6 +17,8 @@ import { getSprintEngineInboxArtifacts, type RuntimeAgentView } from '../sprintE
 import type {
   AgentState,
   SprintEngineArtifact,
+  SprintEngineRoleId,
+  SprintEngineRoleRegistry,
   SprintEngineState,
   SprintEngineTask,
   SprintEngineTaskBoardColumn,
@@ -53,11 +55,15 @@ export type SprintEngineBoardModel = {
  * inputs as the source of truth — it never mutates Sprint Engine state and
  * never reaches into projection or artifact folders directly.
  */
-export function useSprintEngineBoardModel(input: {
+export type SprintEngineBoardModelInput = {
   sprintEngineState: SprintEngineState | null
   agents: Record<string, AgentState>
-}): SprintEngineBoardModel {
-  const { sprintEngineState, agents } = input
+  roleRegistry?: SprintEngineRoleRegistry | null
+  disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null
+}
+
+export function useSprintEngineBoardModel(input: SprintEngineBoardModelInput): SprintEngineBoardModel {
+  const { sprintEngineState, agents, roleRegistry = null, disabledRoleIds = null } = input
 
   const roster = useMemo(
     () => buildSprintEngineAgentRosterForState(sprintEngineState),
@@ -74,17 +80,20 @@ export function useSprintEngineBoardModel(input: {
 
   const sprintEngineTasks = sprintEngineState?.tasks ?? []
 
-  // Registry-aware add-member options. The board does not yet read the Sprint
-  // Engine role registry directly; passing `null` keeps the bundled
-  // compatibility fallback (see `BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES`).
+  // Registry-aware add-member options. When the panel loads the Sprint Engine
+  // role registry for the workspace, custom enabled roles surface alongside the
+  // bundled board roles; user-disabled roles are filtered out. With no registry
+  // available, the bundled compatibility fallback (see
+  // `BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES`) still renders.
   const addMemberOptions = useMemo<SprintEngineAddMemberOption[]>(
     () =>
       buildSprintEngineAddMemberOptions({
-        registry: null,
+        registry: roleRegistry,
+        disabledRoleIds,
         roster,
         tasks: sprintEngineTasks,
       }),
-    [roster, sprintEngineTasks],
+    [roleRegistry, disabledRoleIds, roster, sprintEngineTasks],
   )
 
   const runtimeAgents = useMemo<RuntimeAgentView[]>(

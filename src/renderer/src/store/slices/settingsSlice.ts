@@ -19,7 +19,7 @@ import type {
 } from '../../types/workspace'
 import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
 
-export const MAX_RECENT_WORKSPACE_FOLDERS = 12
+export const MAX_RECENT_WORKSPACE_FOLDERS = 50
 
 export type SettingsOverlayState = {
   open: boolean
