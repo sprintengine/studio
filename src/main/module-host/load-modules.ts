@@ -30,12 +30,17 @@ export type LoadMainModulesResult = {
 // Resolve enablement, then register each enabled module through the kernel in
 // dependency-safe order. A module whose `registerMain` throws is recorded as an
 // error and skipped — one bad module must not abort the rest of startup.
+//
+// `provideServices` runs first (on a synthetic host) so the host's existing
+// services — terminal runtime, token stores — are available for modules to
+// requireService before any module registers.
 export function loadMainModules(options: {
   ipcMain: IpcMain
   modules: CapabilityModule[]
   overrides?: ModuleEnablementOverrides
+  provideServices?: (host: MainHost) => void
 }): LoadMainModulesResult {
-  const { ipcMain, modules, overrides = {} } = options
+  const { ipcMain, modules, overrides = {}, provideServices } = options
   const byId = new Map(modules.map((module) => [module.manifest.id, module]))
   const resolution = resolveModuleEnablement(
     modules.map((module) => module.manifest),
@@ -43,6 +48,7 @@ export function loadMainModules(options: {
   )
 
   const kernel = createMainKernel(ipcMain)
+  provideServices?.(kernel.hostFor('@host'))
   const loaded: string[] = []
   const errors: MainModuleLoadError[] = resolution.errors.map((error) => ({
     id: error.id,

@@ -17,6 +17,7 @@ function createFakeIpcMain(): { ipcMain: IpcMain; handled: string[] } {
 function main(): void {
   testEnabledModulesRegisterInDependencyOrder()
   testDisabledModuleNeverRegisters()
+  testProvideServicesSeedsBeforeModules()
   testCrossModuleServiceWiring()
   testThrowingModuleIsIsolated()
   testDuplicateChannelIsReportedNotFatal()
@@ -65,6 +66,27 @@ function testDisabledModuleNeverRegisters(): void {
   assert.equal(registered, false, 'disabled module must not register')
   assert.deepEqual(report.loaded, [])
   assert.deepEqual(report.disabled, ['off'])
+}
+
+function testProvideServicesSeedsBeforeModules(): void {
+  const token = createServiceToken<{ name: string }>('seeded.service')
+  let seen: { name: string } | null = null
+  const consumer: CapabilityModule = {
+    manifest: { id: 'consumer', displayName: 'Consumer', version: 1, defaultEnabled: true },
+    registerMain: (host) => {
+      seen = host.requireService(token)
+    },
+  }
+
+  const { ipcMain } = createFakeIpcMain()
+  const { report } = loadMainModules({
+    ipcMain,
+    modules: [consumer],
+    provideServices: (host) => host.provideService(token, () => ({ name: 'seeded' })),
+  })
+
+  assert.deepEqual(report.errors, [])
+  assert.deepEqual(seen, { name: 'seeded' })
 }
 
 function testCrossModuleServiceWiring(): void {
