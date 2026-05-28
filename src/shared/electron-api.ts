@@ -1047,6 +1047,9 @@ export type WorkspaceBackupReadResult =
 
 export type WorkspaceBackupWriteResult = { ok: boolean; message?: string }
 
+export type ModuleEnablementOverrides = Record<string, boolean>
+export type ModuleEnablementWriteResult = { ok: boolean; message?: string }
+
 export type ElectronApi = {
   platform: string
   isDevelopment: boolean
@@ -1264,4 +1267,6 @@ export type ElectronApi = {
   onAppMenuCommand: (cb: (command: string) => void) => () => void
   workspaceBackupWrite: (payload: WorkspaceBackupPayload) => Promise<WorkspaceBackupWriteResult>
   workspaceBackupRead: () => Promise<WorkspaceBackupReadResult>
+  getModuleEnablement: () => Promise<ModuleEnablementOverrides>
+  setModuleEnablement: (overrides: ModuleEnablementOverrides) => Promise<ModuleEnablementWriteResult>
 }

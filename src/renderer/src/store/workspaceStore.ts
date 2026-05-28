@@ -904,6 +904,28 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
   ),
 )
 
+// Mirror module enablement to the main process so it can gate module IPC and
+// sidecar spawning at the next launch. The renderer is the source of truth; the
+// main cache is updated whenever the override changes (deduped). Guarded for
+// non-browser bundles (node test harnesses) where window/api are absent.
+function syncModuleEnablementToMain(): void {
+  if (typeof window === 'undefined') return
+  const api = window.api as { setModuleEnablement?: (o: Record<string, boolean>) => Promise<unknown> } | undefined
+  if (!api?.setModuleEnablement) return
+
+  let lastSerialized = ''
+  const push = (overrides: Record<string, boolean>): void => {
+    const serialized = JSON.stringify(overrides)
+    if (serialized === lastSerialized) return
+    lastSerialized = serialized
+    void api.setModuleEnablement!(overrides)
+  }
+
+  push(useWorkspaceStore.getState().appSettings.modules ?? {})
+  useWorkspaceStore.subscribe((state) => push(state.appSettings.modules ?? {}))
+}
+syncModuleEnablementToMain()
+
 // Re-export so consumers (tests, devtools) can use a single import surface.
 export {
   WORKSPACE_STORAGE_KEY,

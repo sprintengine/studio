@@ -1,8 +1,9 @@
-import { ipcMain } from 'electron'
+import { app, ipcMain } from 'electron'
 import { parseAuthCallbackFromArgv } from './auth-service'
 import { registerAppLifecycle } from './app-lifecycle'
 import { createAppServices } from './app-services'
 import { loadMainModules } from './module-host/load-modules'
+import { readModuleOverridesSync } from './module-host/enablement-store'
 import { BUNDLED_MAIN_MODULES } from './modules'
 import { registerCoreIpc } from './register-core-ipc'
 import { registerWorkflowIpc } from './register-workflow-ipc'
@@ -14,12 +15,25 @@ registerCoreIpc(ipcMain, services, MULTICODE_DIAGNOSTICS)
 registerWorkflowIpc(ipcMain, services)
 
 // Capability modules register their own IPC/services/sidecars through the host
-// kernel. Migrating one feature at a time; all bundled modules are enabled by
-// default, so behavior is unchanged until the chooser lands (see
-// future-plans/2026-05-28-feature-level-pluggable-architecture.md).
-const moduleLoad = loadMainModules({ ipcMain, modules: BUNDLED_MAIN_MODULES })
+// kernel, gated by the user's enablement overrides (mirrored from the renderer
+// into userData). A disabled module skips registration entirely. See
+// future-plans/2026-05-28-feature-level-pluggable-architecture.md.
+const moduleOverrides = readModuleEnablementOverrides()
+const moduleLoad = loadMainModules({
+  ipcMain,
+  modules: BUNDLED_MAIN_MODULES,
+  overrides: moduleOverrides,
+})
 if (MULTICODE_DIAGNOSTICS && moduleLoad.report.errors.length > 0) {
   console.warn('[modules] load errors:', moduleLoad.report.errors)
+}
+
+function readModuleEnablementOverrides(): Record<string, boolean> {
+  try {
+    return readModuleOverridesSync(app.getPath('userData'))
+  } catch {
+    return {}
+  }
 }
 
 registerAppLifecycle({
