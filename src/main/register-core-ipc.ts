@@ -8,8 +8,6 @@ import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-
 import { registerGitHubTokenIpc } from './ipc/github-token-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
 import { registerMcpIpc } from './ipc/mcp-ipc'
-import { registerMemoryActivityIpc } from './ipc/memory-activity-ipc'
-import { registerMemoryIpc } from './ipc/memory-ipc'
 import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
 import { registerSkillPackIpc } from './ipc/skill-pack-ipc'
 import { registerSoulsIpc } from './ipc/souls-ipc'
@@ -32,8 +30,6 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
   registerSkillPackIpc(ipcMain, services.skillPackService)
   registerFilesystemWatchSearchIpc(ipcMain, createFilesystemWatchSearchHandlers())
   registerFilesystemReadIpc(ipcMain, createFilesystemReadHandlers())
-  registerMemoryIpc(ipcMain)
-  registerMemoryActivityIpc(ipcMain)
   registerDiagnosticsIpc(ipcMain, {
     writeDiagnosticLog,
     openDiagnosticsLogsFolder,
