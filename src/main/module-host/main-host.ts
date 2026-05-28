@@ -59,6 +59,10 @@ export type MainKernel = {
   startupHooks(): ReadonlyArray<StartupHook>
   shutdownHooks(): ReadonlyArray<ShutdownHook>
   sidecars(): ReadonlyArray<SidecarSpec>
+  /** Run all registered startup hooks (in registration order), isolating failures. */
+  runStartup(): Promise<void>
+  /** Run all registered shutdown hooks (reverse registration order), isolating failures. */
+  runShutdown(): Promise<void>
 }
 
 export function createMainKernel(ipcMain: IpcMain): MainKernel {
@@ -121,5 +125,23 @@ export function createMainKernel(ipcMain: IpcMain): MainKernel {
     startupHooks: () => startupHooks,
     shutdownHooks: () => shutdownHooks,
     sidecars: () => sidecars,
+    async runStartup(): Promise<void> {
+      for (const hook of startupHooks) {
+        try {
+          await hook()
+        } catch (err) {
+          console.warn('[modules] startup hook failed:', err)
+        }
+      }
+    },
+    async runShutdown(): Promise<void> {
+      for (const hook of [...shutdownHooks].reverse()) {
+        try {
+          await hook()
+        } catch (err) {
+          console.warn('[modules] shutdown hook failed:', err)
+        }
+      }
+    },
   }
 }

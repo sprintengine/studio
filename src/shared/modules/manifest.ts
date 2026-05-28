@@ -46,6 +46,18 @@ export type CapabilityManifest = {
  */
 export type ModuleEnablementOverrides = Record<string, boolean>
 
+// Shared by the renderer settings store and the main-process enablement cache
+// so both processes normalize persisted/IPC overrides identically: drop empty
+// keys and non-boolean values.
+export function normalizeModuleOverrides(value: unknown): ModuleEnablementOverrides {
+  if (!value || typeof value !== 'object') return {}
+  const out: ModuleEnablementOverrides = {}
+  for (const [key, enabled] of Object.entries(value as Record<string, unknown>)) {
+    if (key.length > 0 && typeof enabled === 'boolean') out[key] = enabled
+  }
+  return out
+}
+
 export type ModuleResolutionErrorCode =
   | 'duplicate_id'
   | 'missing_dependency'

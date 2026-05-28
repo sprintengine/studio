@@ -3,9 +3,9 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { normalizeModuleOverrides } from '../../shared/modules/manifest'
 import {
   moduleEnablementPath,
-  normalizeModuleOverrides,
   parseModuleOverrides,
   readModuleOverridesSync,
   writeModuleOverrides,

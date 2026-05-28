@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'fs'
 import { mkdir, rename, writeFile } from 'fs/promises'
 import { join } from 'path'
 
-import type { ModuleEnablementOverrides } from '../../shared/modules/manifest'
+import { normalizeModuleOverrides, type ModuleEnablementOverrides } from '../../shared/modules/manifest'
 
 // Main-readable mirror of the renderer's appSettings.modules override. The
 // renderer is the source of truth (the user toggles modules there); it pushes
@@ -14,15 +14,6 @@ const FILE_NAME = 'module-enablement.json'
 
 export function moduleEnablementPath(userDataDir: string): string {
   return join(userDataDir, FILE_NAME)
-}
-
-export function normalizeModuleOverrides(value: unknown): ModuleEnablementOverrides {
-  if (!value || typeof value !== 'object') return {}
-  const out: ModuleEnablementOverrides = {}
-  for (const [key, enabled] of Object.entries(value as Record<string, unknown>)) {
-    if (key.length > 0 && typeof enabled === 'boolean') out[key] = enabled
-  }
-  return out
 }
 
 export function parseModuleOverrides(raw: string): ModuleEnablementOverrides {

@@ -14,7 +14,7 @@ function createFakeIpcMain(): { ipcMain: IpcMain; handled: string[] } {
   return { ipcMain, handled }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   testEnabledModulesRegisterInDependencyOrder()
   testDisabledModuleNeverRegisters()
   testProvideServicesSeedsBeforeModules()
@@ -22,6 +22,7 @@ function main(): void {
   testThrowingModuleIsIsolated()
   testDuplicateChannelIsReportedNotFatal()
   testLifecycleAndSidecarsCollected()
+  await testRunStartupAndShutdownInvokeHooks()
 
   console.log('module-host tests passed')
 }
@@ -178,4 +179,32 @@ function testLifecycleAndSidecarsCollected(): void {
   assert.deepEqual(report.sidecars, [{ id: 'svc-py', kind: 'python', module: 'svc_core' }])
 }
 
-main()
+async function testRunStartupAndShutdownInvokeHooks(): Promise<void> {
+  const order: string[] = []
+  const mod: CapabilityModule = {
+    manifest: { id: 'svc', displayName: 'Svc', version: 1, defaultEnabled: true },
+    registerMain: (host) => {
+      host.onStartup(() => {
+        order.push('start')
+      })
+      host.onShutdown(() => {
+        throw new Error('shutdown boom')
+      })
+      host.onShutdown(async () => {
+        order.push('stop')
+      })
+    },
+  }
+
+  const { ipcMain } = createFakeIpcMain()
+  const { kernel } = loadMainModules({ ipcMain, modules: [mod] })
+
+  await kernel.runStartup()
+  await kernel.runShutdown()
+
+  // Startup ran; shutdown ran in reverse registration order and isolated the
+  // throwing hook so the later-registered hook still ran.
+  assert.deepEqual(order, ['start', 'stop'])
+}
+
+void main()

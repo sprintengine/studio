@@ -806,7 +806,7 @@ export default function WorkspaceManager() {
     if (!model) return
 
     const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
-    if (!activeWorkspace || activeWorkspace.mode !== 'multiloop') return
+    if (!multiloopEnabled || !activeWorkspace || activeWorkspace.mode !== 'multiloop') return
 
     const soul = getMultiloopRole(role)
     const agentName = normalizeAgentIdentifier(requestedName)

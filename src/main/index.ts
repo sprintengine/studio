@@ -34,8 +34,15 @@ const moduleLoad = loadMainModules({
     host.provideService(SprintEngineArtifactsToken, () => services.sprintEngineArtifacts)
   },
 })
-if (MULTICODE_DIAGNOSTICS && moduleLoad.report.errors.length > 0) {
-  console.warn('[modules] load errors:', moduleLoad.report.errors)
+if (MULTICODE_DIAGNOSTICS) {
+  console.info(
+    '[modules] loaded:', moduleLoad.report.loaded,
+    'disabled:', moduleLoad.report.disabled,
+    'sidecars:', moduleLoad.report.sidecars.map((s) => s.id)
+  )
+  if (moduleLoad.report.errors.length > 0) {
+    console.warn('[modules] load errors:', moduleLoad.report.errors)
+  }
 }
 
 function readModuleEnablementOverrides(): Record<string, boolean> {
@@ -51,6 +58,7 @@ registerAppLifecycle({
   mobileBridge: services.mobileBridge,
   terminalRuntime: services.terminalRuntime,
   sprintEngineMcpHub: services.sprintEngineMcpHub,
+  moduleKernel: moduleLoad.kernel,
   updateService: services.updateService,
   handleAuthCallback: (argv) => {
     void parseAuthCallbackFromArgv(services.multicodeAuth, argv)

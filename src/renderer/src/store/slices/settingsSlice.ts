@@ -18,18 +18,9 @@ import type {
   Workspace,
 } from '../../types/workspace'
 import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
-import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
+import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
 
 export const MAX_RECENT_WORKSPACE_FOLDERS = 50
-
-export function normalizeModuleOverrides(value: unknown): ModuleEnablementOverrides {
-  if (!value || typeof value !== 'object') return {}
-  const out: ModuleEnablementOverrides = {}
-  for (const [key, enabled] of Object.entries(value as Record<string, unknown>)) {
-    if (key.length > 0 && typeof enabled === 'boolean') out[key] = enabled
-  }
-  return out
-}
 
 export type SettingsOverlayState = {
   open: boolean
