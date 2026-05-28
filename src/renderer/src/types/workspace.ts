@@ -1124,6 +1124,7 @@ export type LearningSettings = {
 // every other theme symbol (AppTheme, ResolvedAppTheme, the picker option list,
 // the normalizer) imports directly from appTheme.ts.
 import type { AppearanceSettings } from './appTheme'
+import type { ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
@@ -1142,6 +1143,8 @@ export type AppSettings = {
   usageTelemetry: UsageTelemetrySettings
   learning: LearningSettings
   appearance: AppearanceSettings
+  /** Capability-module enablement overrides, keyed by module id. */
+  modules: ModuleEnablementOverrides
 }
 
 export type GuidedBriefHasUi = 'yes' | 'no'

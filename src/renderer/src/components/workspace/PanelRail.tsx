@@ -1,6 +1,7 @@
 import { Tooltip } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitStatus } from '../../hooks/useGitStatus'
+import { selectModuleEnabled } from '../../modules'
 import { jsonModelHasComponent, togglePanelRailComponent } from '../../utils/modelRegistry'
 import type { WorkspaceId } from '../../types/workspace'
 
@@ -104,6 +105,12 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
     (state) => state.workspaces.find((workspace) => workspace.id === workspaceId)?.folderPath ?? null
   )
 
+  // Hide a panel button when its capability module is disabled. memory-graph is
+  // the first module wired through this gate; other rail panels are always on
+  // until they're migrated.
+  const memoryEnabled = useWorkspaceStore((state) => selectModuleEnabled(state.appSettings.modules, 'memory-graph'))
+  const panels = PANELS.filter((panel) => panel.key !== 'memory-graph' || memoryEnabled)
+
   // Source of truth for the git change count badge on the Git rail icon
   // (consolidated here when the top-bar git button was retired).
   const { status: gitStatus, repoState: gitRepoState } = useGitStatus(folderPath)
@@ -132,7 +139,7 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
       aria-orientation={collapsed ? 'vertical' : 'horizontal'}
       className={containerClass}
     >
-      {PANELS.map((panel) => {
+      {panels.map((panel) => {
         const Icon = panel.icon
         const active = jsonModelHasComponent(layoutModel, panel.key)
         const showGitBadge = panel.key === 'git' && gitHasChanges

@@ -20,6 +20,7 @@ import {
 import 'flexlayout-react/style/combined.css'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { getRendererHost, selectModuleEnabled } from '../../modules'
 import {
   isSessionFailed,
   isSessionWorking,
@@ -59,7 +60,6 @@ const MultiloopBoardPanel = React.lazy(() => import('../panels/MultiloopBoardPan
 const WatchtowerPanel = React.lazy(() => import('../panels/WatchtowerPanel'))
 const SwitchboardBoardPanel = React.lazy(() => import('../panels/SwitchboardBoardPanel'))
 const SwitchboardWorkspacePanel = React.lazy(() => import('../panels/SwitchboardWorkspacePanel'))
-const MemoryGraphPanel = React.lazy(() => import('../panels/MemoryGraphPanel'))
 const GuidedBriefWorkspacePanel = React.lazy(() => import('./guidedBrief/GuidedBriefWorkspacePanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const loadedPanelComponents = new Set<string>()
@@ -310,6 +310,11 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
     })
   }, [workspace.agents, workspace.mode, workspace.sprintEngineState?.sprintEngineAgents])
 
+  // Capability-module gate. When the Memory Graph module is disabled the panel
+  // is neither openable (PanelRail hides it) nor rendered (factory falls back to
+  // an empty surface for any stale persisted layout that still references it).
+  const memoryEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'memory-graph'))
+
   const factory = useCallback(
     (node: TabNode) => {
       const component = node.getComponent()
@@ -411,8 +416,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return timedPanel('WatchtowerPanel', <WatchtowerPanel workspaceId={workspaceId} />)
         case 'switchboard-board':
           return timedPanel('SwitchboardBoardPanel', <SwitchboardBoardPanel workspaceId={workspaceId} />)
-        case 'memory-graph':
-          return timedPanel('MemoryGraphPanel', <MemoryGraphPanel workspaceId={workspaceId} />)
+        case 'memory-graph': {
+          const MemoryPanel = memoryEnabled ? getRendererHost().getPanel('memory-graph') : undefined
+          return MemoryPanel
+            ? timedPanel('MemoryGraphPanel', <MemoryPanel workspaceId={workspaceId} />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
+        }
         case 'sprintengine-run-summary':
           return (
             <SprintEngineRunSummaryPanel
@@ -435,7 +444,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return <div className="h-full bg-[color:var(--bg-app)]" />
       }
     },
-    [onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
+    [memoryEnabled, onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
   )
 
   const cleanupNode = useCallback(

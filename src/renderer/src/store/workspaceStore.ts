@@ -136,6 +136,7 @@ interface WorkspaceStore {
   setProjectKnowledgeRoot: (projectRoot: string, relativeRoot: string | null) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
+  setModuleEnabled: (moduleId: string, enabled: boolean) => void
   setLearningShowTipsOnStartup: (enabled: boolean) => void
   markLearningTipSeen: (tipId: string) => void
   markLearningLessonCompleted: (lessonId: string, completed?: boolean) => void

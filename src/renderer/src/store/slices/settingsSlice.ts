@@ -18,8 +18,18 @@ import type {
   Workspace,
 } from '../../types/workspace'
 import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
+import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
 
 export const MAX_RECENT_WORKSPACE_FOLDERS = 50
+
+export function normalizeModuleOverrides(value: unknown): ModuleEnablementOverrides {
+  if (!value || typeof value !== 'object') return {}
+  const out: ModuleEnablementOverrides = {}
+  for (const [key, enabled] of Object.entries(value as Record<string, unknown>)) {
+    if (key.length > 0 && typeof enabled === 'boolean') out[key] = enabled
+  }
+  return out
+}
 
 export type SettingsOverlayState = {
   open: boolean
@@ -380,6 +390,7 @@ export const defaultAppSettings = (): AppSettings => ({
   usageTelemetry: defaultUsageTelemetrySettings(),
   learning: defaultLearningSettings(),
   appearance: defaultAppearanceSettings(),
+  modules: {},
 })
 
 export function normalizeAppSettings(settings: Partial<AppSettings> | undefined, workspaces: Workspace[]): AppSettings {
@@ -408,6 +419,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     usageTelemetry: normalizeUsageTelemetrySettings(settings?.usageTelemetry),
     learning: normalizeLearningSettings(settings?.learning),
     appearance: normalizeAppearanceSettings(settings?.appearance),
+    modules: normalizeModuleOverrides(settings?.modules),
   }
 }
 
@@ -435,6 +447,7 @@ export interface SettingsSliceActions {
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
+  setModuleEnabled: (moduleId: string, enabled: boolean) => void
   setSearchExcludes: (patterns: string[]) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setLearningShowTipsOnStartup: (enabled: boolean) => void
@@ -597,6 +610,16 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
             ...current.enabled,
             [id]: enabled,
           },
+        }
+      }),
+
+    setModuleEnabled: (moduleId, enabled) =>
+      set((state) => {
+        const id = moduleId.trim()
+        if (!id) return
+        state.appSettings.modules = {
+          ...normalizeModuleOverrides(state.appSettings.modules),
+          [id]: enabled,
         }
       }),
 
