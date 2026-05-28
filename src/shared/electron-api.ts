@@ -1267,6 +1267,5 @@ export type ElectronApi = {
   onAppMenuCommand: (cb: (command: string) => void) => () => void
   workspaceBackupWrite: (payload: WorkspaceBackupPayload) => Promise<WorkspaceBackupWriteResult>
   workspaceBackupRead: () => Promise<WorkspaceBackupReadResult>
-  getModuleEnablement: () => Promise<ModuleEnablementOverrides>
   setModuleEnablement: (overrides: ModuleEnablementOverrides) => Promise<ModuleEnablementWriteResult>
 }

@@ -1,19 +1,13 @@
 import { app, type IpcMain } from 'electron'
 
 import type { ModuleEnablementOverrides } from '../../shared/modules/manifest'
-import {
-  readModuleOverridesSync,
-  writeModuleOverrides,
-  type ModuleEnablementWriteResult,
-} from '../module-host/enablement-store'
+import { writeModuleOverrides, type ModuleEnablementWriteResult } from '../module-host/enablement-store'
 
-// Kernel-level (not feature-owned) IPC: lets the renderer read the main-cached
-// module overrides and push updates so main can gate modules on next launch.
+// Kernel-level (not feature-owned) IPC: the renderer pushes its module
+// enablement overrides here so main can gate modules at the next launch. The
+// renderer owns the source of truth (persisted settings), so there's no read
+// path back — main only caches the latest pushed value.
 export function registerModuleEnablementIpc(ipcMain: IpcMain): void {
-  ipcMain.handle('modules:get-enablement', (): ModuleEnablementOverrides => {
-    return readModuleOverridesSync(app.getPath('userData'))
-  })
-
   ipcMain.handle(
     'modules:set-enablement',
     (_event, overrides: ModuleEnablementOverrides): Promise<ModuleEnablementWriteResult> => {
