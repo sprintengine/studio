@@ -616,13 +616,17 @@ function runtimeAgentAlreadyOwnsDispatchTarget(
   if (dispatch.targetKind !== 'gate') return false
 
   const currentGate = runtimeAgent.currentGate
-  if (dispatch.gateId && runtimeAgent.currentGateId === dispatch.gateId) return true
   return Boolean(
     dispatch.gateId
-    && currentGate
-    && currentGate.taskId === dispatch.taskId
-    && currentGate.gateId === dispatch.gateId
-    && (!dispatch.attemptId || currentGate.attemptId === dispatch.attemptId)
+    && (
+      (
+        currentGate
+        && currentGate.taskId === dispatch.taskId
+        && currentGate.gateId === dispatch.gateId
+        && (!dispatch.attemptId || currentGate.attemptId === dispatch.attemptId)
+      )
+      || (!dispatch.attemptId && runtimeAgent.currentGateId === dispatch.gateId)
+    )
   )
 }
 
