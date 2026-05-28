@@ -56,7 +56,6 @@ const GitPanel = React.lazy(() => import('../panels/GitPanel'))
 const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
 const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBoardPanel'))
-const MultiloopBoardPanel = React.lazy(() => import('../panels/MultiloopBoardPanel'))
 const GuidedBriefWorkspacePanel = React.lazy(() => import('./guidedBrief/GuidedBriefWorkspacePanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const loadedPanelComponents = new Set<string>()
@@ -312,6 +311,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
   // an empty surface for any stale persisted layout that still references it).
   const memoryEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'memory-graph'))
   const switchboardEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'switchboard'))
+  const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
 
   const factory = useCallback(
     (node: TabNode) => {
@@ -395,11 +395,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="roster" />)
         case 'sprintengine-tasks':
           return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="tasks" />)
-        case 'multiloop-board':
-          return timedPanel(
-            'MultiloopBoardPanel',
-            <MultiloopBoardPanel workspaceId={workspaceId} />
-          )
+        case 'multiloop-board': {
+          const Panel = multiloopEnabled ? getRendererHost().getPanel('multiloop-board') : undefined
+          return Panel
+            ? timedPanel('MultiloopBoardPanel', <Panel workspaceId={workspaceId} />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
+        }
         case 'guided-brief':
           return timedPanel(
             'GuidedBriefWorkspacePanel',
@@ -454,7 +455,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return <div className="h-full bg-[color:var(--bg-app)]" />
       }
     },
-    [memoryEnabled, switchboardEnabled, onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
+    [memoryEnabled, switchboardEnabled, multiloopEnabled, onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
   )
 
   const cleanupNode = useCallback(

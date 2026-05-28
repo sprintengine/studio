@@ -1652,9 +1652,11 @@ function ModeStep({
   folderHint: { hasSprintEngineTeam?: boolean; hasMultiloop?: boolean } | null
 }) {
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
-  const visibleModes = MODES.filter(
-    (m) => m !== 'switchboard' || selectModuleEnabled(moduleOverrides, 'switchboard')
-  )
+  const visibleModes = MODES.filter((m) => {
+    if (m === 'switchboard') return selectModuleEnabled(moduleOverrides, 'switchboard')
+    if (m === 'multiloop') return selectModuleEnabled(moduleOverrides, 'multiloop')
+    return true
+  })
 
   const suggested: CreationMode | null = (() => {
     if (!folderHint) return null

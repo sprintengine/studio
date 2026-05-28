@@ -1,13 +1,13 @@
 import type { IpcMain } from 'electron'
 import { registerMobileBridgeIpc } from './ipc/mobile-bridge-ipc'
-import { registerMultiloopIpc } from './ipc/multiloop-ipc'
 import { registerSprintEngineIpc } from './ipc/sprintengine-ipc'
 import { registerTerminalIpc } from './ipc/terminal-ipc'
 import type { AppServices } from './app-services'
-import { initializeMultiloopState } from './multiloop-init'
 
-// Switchboard + Watchtower IPC moved to the switchboard capability module
-// (src/main/modules/switchboard-module.ts), registered through the host kernel.
+// Switchboard + Watchtower and Multiloop IPC moved to their capability modules
+// (src/main/modules/), registered through the host kernel. What remains here is
+// the always-on workflow surface (mobile relay, terminal runtime, Sprint
+// Engine) not yet migrated.
 export function registerWorkflowIpc(ipcMain: IpcMain, services: AppServices): void {
   registerMobileBridgeIpc(ipcMain, {
     bridge: services.mobileBridge,
@@ -29,8 +29,5 @@ export function registerWorkflowIpc(ipcMain: IpcMain, services: AppServices): vo
     readRegistryRoles: services.sprintEngineArtifacts.readRegistryRoles,
     readRegistryRole: services.sprintEngineArtifacts.readRegistryRole,
     readDispatch: services.sprintEngineArtifacts.readDispatch,
-  })
-  registerMultiloopIpc(ipcMain, {
-    initializeMultiloopState,
   })
 }

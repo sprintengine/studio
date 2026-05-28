@@ -6,6 +6,7 @@ import { TipStartupModal } from '../learn/TipStartupModal'
 import SettingsOverlay from '../settings/SettingsOverlay'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { selectModuleEnabled } from '../../modules'
 import {
   deriveWorkspaceLastOutputAt,
   deriveWorkspaceTerminalActivity,
@@ -86,6 +87,7 @@ export default function WorkspaceManager() {
   const dialog = useConfirmDialog()
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
   const removeWorkspace = useWorkspaceStore((s) => s.removeWorkspace)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
@@ -1029,8 +1031,8 @@ export default function WorkspaceManager() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-strong)]">
       <SprintEngineAutoRunSupervisor />
-      <MultiloopAutoRunSupervisor />
-      {workspaces.map((workspace) => (
+      {multiloopEnabled ? <MultiloopAutoRunSupervisor /> : null}
+      {multiloopEnabled && workspaces.map((workspace) => (
         workspace.id === activeWorkspaceId && (workspace.mode === 'multiloop' || workspace.multiloopContext)
           ? <MultiloopStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
           : null
