@@ -4,9 +4,12 @@
 // capture, Escape close, body scroll-lock, focus restoration, and
 // click-outside-to-close.
 
-import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
+import React, { Suspense, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import SettingsPanel from './SettingsPanel'
+
+// Lazy so the (large) settings UI is code-split out of the eager boot chunk and
+// only fetched when the overlay first opens. The overlay renders null until then.
+const SettingsPanel = React.lazy(() => import('./SettingsPanel'))
 
 type Lifecycle = 'closed' | 'entering' | 'open' | 'closing'
 
@@ -173,14 +176,16 @@ export default function SettingsOverlay() {
         tabIndex={-1}
         className="flex h-full max-h-[min(760px,calc(100vh-2rem))] w-full max-w-[1080px] flex-col overflow-hidden rounded-[8px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-drawer)] outline-none"
       >
-        <SettingsPanel
-          chrome="overlay"
-          titleId={titleId}
-          initialTab={overlay.initialTab}
-          checkForUpdatesRequestId={overlay.checkForUpdatesRequestId ?? undefined}
-          onOpenSettingsTab={handleOpenSettingsTab}
-          onClose={closeSettingsOverlay}
-        />
+        <Suspense fallback={<div className="flex-1" aria-busy="true" />}>
+          <SettingsPanel
+            chrome="overlay"
+            titleId={titleId}
+            initialTab={overlay.initialTab}
+            checkForUpdatesRequestId={overlay.checkForUpdatesRequestId ?? undefined}
+            onOpenSettingsTab={handleOpenSettingsTab}
+            onClose={closeSettingsOverlay}
+          />
+        </Suspense>
       </div>
       <div
         data-focus-sentinel="true"

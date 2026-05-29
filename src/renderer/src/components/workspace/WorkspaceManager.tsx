@@ -38,7 +38,7 @@ import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddTermina
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
-import NewWorkspacePanel, { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
+import { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
 import SprintEngineAutoRunSupervisor from './SprintEngineAutoRunSupervisor'
 import MultiloopAutoRunSupervisor from './MultiloopAutoRunSupervisor'
 import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
@@ -61,6 +61,12 @@ import {
   uniqueAgentName,
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
+
+// Lazy so the (large) new-workspace wizard — and everything it pulls in
+// (GuidedBriefFlow, the markdown renderer) — is code-split out of the eager boot
+// chunk and only fetched when the user opens "new workspace". Rendered only when
+// showNewWorkspacePanel is true.
+const NewWorkspacePanel = React.lazy(() => import('./NewWorkspacePanel'))
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 const EMPTY_SPECIALIST_CLI_DEFAULTS: Partial<Record<SpecialistActionId, AgentCli>> = {}
@@ -1159,15 +1165,17 @@ export default function WorkspaceManager() {
           {...(settingsOverlayOpen ? ({ inert: '' } as Record<string, string>) : {})}
         >
           {showNewWorkspacePanel ? (
-            <NewWorkspacePanel
-              onCreate={handleCreate}
-              onClose={() => {
-                setShowNewWorkspacePanel(false)
-                setNewWorkspacePanelInitialState(null)
-              }}
-              allowClose={workspaces.length > 0}
-              initialState={newWorkspacePanelInitialState}
-            />
+            <React.Suspense fallback={<div className="flex-1" aria-busy="true" />}>
+              <NewWorkspacePanel
+                onCreate={handleCreate}
+                onClose={() => {
+                  setShowNewWorkspacePanel(false)
+                  setNewWorkspacePanelInitialState(null)
+                }}
+                allowClose={workspaces.length > 0}
+                initialState={newWorkspacePanelInitialState}
+              />
+            </React.Suspense>
           ) : (
             <>
               {workspaces.length === 0 && <EmptyState onNew={openNewWorkspacePanel} />}
