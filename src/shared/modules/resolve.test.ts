@@ -18,8 +18,50 @@ function main(): void {
   testConflict()
   testDuplicateId()
   testCycle()
+  testIneligibleUntrusted()
+  testIneligibleCascadesToDependents()
+  testIneligibleInvalidSignature()
 
   console.log('module-resolve tests passed')
+}
+
+function testIneligibleUntrusted(): void {
+  const result = resolveModuleEnablement(
+    [manifest('thirdparty', { source: 'third-party', defaultEnabled: true })],
+    {},
+    { ineligible: { thirdparty: 'untrusted' } }
+  )
+  assert.deepEqual(result.order, [], 'an untrusted module does not load')
+  assert.equal(result.errors.some((e) => e.id === 'thirdparty' && e.code === 'untrusted'), true)
+}
+
+function testIneligibleCascadesToDependents(): void {
+  // A dependent of an ineligible module must also be excluded.
+  const result = resolveModuleEnablement(
+    [
+      manifest('base', { source: 'third-party' }),
+      manifest('dependent', { dependsOn: ['base'] }),
+    ],
+    {},
+    { ineligible: { base: 'untrusted' } }
+  )
+  assert.deepEqual(result.order, [])
+  assert.equal(result.errors.some((e) => e.id === 'base' && e.code === 'untrusted'), true)
+  assert.equal(
+    result.errors.some((e) => e.id === 'dependent' && e.code === 'disabled_dependency'),
+    true,
+    'dependent cascades to disabled_dependency'
+  )
+}
+
+function testIneligibleInvalidSignature(): void {
+  const result = resolveModuleEnablement(
+    [manifest('tampered', { source: 'third-party' })],
+    {},
+    { ineligible: { tampered: 'invalid_signature' } }
+  )
+  assert.deepEqual(result.order, [])
+  assert.equal(result.errors.some((e) => e.id === 'tampered' && e.code === 'invalid_signature'), true)
 }
 
 function testDefaultsAndExplicitDisable(): void {

@@ -16,6 +16,7 @@ import { registerModuleEnablementIpc } from './ipc/module-enablement-ipc'
 import { registerSkillPackIpc } from './ipc/skill-pack-ipc'
 import { registerSoulsIpc } from './ipc/souls-ipc'
 import { registerSprintEngineRoleRegistryIpc } from './ipc/sprintengine-role-registry-ipc'
+import { registerThirdPartyModuleIpc } from './ipc/third-party-module-ipc'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { registerWorkspaceBackupIpc } from './ipc/workspace-backup-ipc'
@@ -61,4 +62,5 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
   registerModuleEnablementIpc(ipcMain)
   registerSprintEngineRoleRegistryIpc(ipcMain)
   registerLayoutTemplateRegistryIpc(ipcMain)
+  registerThirdPartyModuleIpc(ipcMain)
 }

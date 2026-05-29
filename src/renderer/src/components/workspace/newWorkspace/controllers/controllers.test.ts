@@ -364,7 +364,7 @@ async function testGuidedBriefStartBuildValidation(): Promise<void> {
 
   const withBrief: GuidedBriefRuntimeState = {
     ...baseRuntime,
-    acceptedProductBrief: { title: 'Brief', hash: 'h', path: 'product/.versions/h.md' },
+    acceptedProductBrief: { kind: 'product', title: 'Brief', hash: 'h', path: 'product/.versions/h.md' },
   }
   await assert.rejects(
     () => runGuidedBriefStartBuild(
@@ -385,7 +385,7 @@ async function testGuidedBriefStartBuildValidation(): Promise<void> {
 
   const withBriefAndPlan: GuidedBriefRuntimeState = {
     ...withBrief,
-    acceptedArchitecturePlan: { title: 'Arch', hash: 'a', path: 'product/.versions/a.md' },
+    acceptedArchitecturePlan: { kind: 'product', title: 'Arch', hash: 'a', path: 'product/.versions/a.md' },
   }
   await assert.rejects(
     () => runGuidedBriefStartBuild(
@@ -447,10 +447,10 @@ async function testGuidedBriefStartBuildHandoffPath(): Promise<void> {
     buildStartRunner: false,
     buildAutoApproveArtifacts: false,
     stage: 'handoff',
-    acceptedProductBrief: { title: 'Brief', hash: 'h', path: 'product/.versions/h.md' },
-    acceptedArchitecturePlan: { title: 'Arch', hash: 'a', path: 'product/.versions/a.md' },
-    acceptedUiDirection: { title: 'UI', hash: 'u', path: 'product/.versions/u.md' },
-    acceptedMockups: [{ title: 'Mock', hash: 'm', path: 'mockups/.versions/m.html' }],
+    acceptedProductBrief: { kind: 'product', title: 'Brief', hash: 'h', path: 'product/.versions/h.md' },
+    acceptedArchitecturePlan: { kind: 'product', title: 'Arch', hash: 'a', path: 'product/.versions/a.md' },
+    acceptedUiDirection: { kind: 'product', title: 'UI', hash: 'u', path: 'product/.versions/u.md' },
+    acceptedMockups: [{ kind: 'mockup', title: 'Mock', hash: 'm', path: 'mockups/.versions/m.html' }],
     activeMockupPath: null,
     strategistSessionId: null,
     architectSessionId: null,

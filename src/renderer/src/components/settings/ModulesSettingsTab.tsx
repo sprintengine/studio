@@ -1,5 +1,6 @@
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { ModuleProfilePicker, ModuleToggleList } from './ModuleControls'
+import { ThirdPartyModuleList } from './ThirdPartyModuleList'
 
 // Capability-module manager. A profile picker for one-click setups plus a
 // category-grouped toggle list. Reads/writes the per-module enablement override
@@ -31,6 +32,8 @@ export function ModulesSettingsTab() {
       </div>
 
       <ModuleToggleList overrides={overrides} onToggle={setModuleEnabled} />
+
+      <ThirdPartyModuleList />
     </div>
   )
 }

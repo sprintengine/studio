@@ -4,9 +4,26 @@ import type {
   ModuleEnablementOverrides,
   ModuleEnablementWriteResult,
 } from '../../shared/electron-api'
+import type {
+  ThirdPartyModuleInstallResult,
+  ThirdPartyModuleListResult,
+  ThirdPartyModuleTrustResult,
+} from '../../shared/modules/manifest'
 
 export const modulesApi = {
   setModuleEnablement: (
     overrides: ModuleEnablementOverrides
   ): Promise<ModuleEnablementWriteResult> => ipcRenderer.invoke('modules:set-enablement', overrides),
-} satisfies Pick<ElectronApi, 'setModuleEnablement'>
+  listThirdPartyModules: (): Promise<ThirdPartyModuleListResult> =>
+    ipcRenderer.invoke('modules:third-party:list'),
+  installThirdPartyModuleFolder: (srcDir: string): Promise<ThirdPartyModuleInstallResult> =>
+    ipcRenderer.invoke('modules:third-party:install-folder', srcDir),
+  setThirdPartyModuleTrust: (id: string, trusted: boolean): Promise<ThirdPartyModuleTrustResult> =>
+    ipcRenderer.invoke('modules:third-party:set-trust', { id, trusted }),
+} satisfies Pick<
+  ElectronApi,
+  | 'setModuleEnablement'
+  | 'listThirdPartyModules'
+  | 'installThirdPartyModuleFolder'
+  | 'setThirdPartyModuleTrust'
+>
