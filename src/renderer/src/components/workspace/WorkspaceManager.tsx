@@ -5,6 +5,7 @@ import CommandPalette from '../CommandPalette'
 import { TipStartupModal } from '../learn/TipStartupModal'
 import OnboardingFlow from '../onboarding/OnboardingFlow'
 import SettingsOverlay from '../settings/SettingsOverlay'
+import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { selectModuleEnabled } from '../../modules'
@@ -1174,7 +1175,7 @@ export default function WorkspaceManager() {
           {...(settingsOverlayOpen ? ({ inert: '' } as Record<string, string>) : {})}
         >
           {showNewWorkspacePanel ? (
-            <React.Suspense fallback={<div className="flex-1" aria-busy="true" />}>
+            <React.Suspense fallback={<SuspenseFallback label="Loading workspace setup" />}>
               <NewWorkspacePanel
                 onCreate={handleCreate}
                 onClose={() => {

@@ -6,6 +6,7 @@
 
 import React, { Suspense, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { SuspenseFallback } from '../ui/SuspenseFallback'
 
 // Lazy so the (large) settings UI is code-split out of the eager boot chunk and
 // only fetched when the overlay first opens. The overlay renders null until then.
@@ -176,7 +177,7 @@ export default function SettingsOverlay() {
         tabIndex={-1}
         className="flex h-full max-h-[min(760px,calc(100vh-2rem))] w-full max-w-[1080px] flex-col overflow-hidden rounded-[8px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-drawer)] outline-none"
       >
-        <Suspense fallback={<div className="flex-1" aria-busy="true" />}>
+        <Suspense fallback={<SuspenseFallback label="Loading settings" />}>
           <SettingsPanel
             chrome="overlay"
             titleId={titleId}
