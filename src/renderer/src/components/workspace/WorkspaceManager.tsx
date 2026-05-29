@@ -5,6 +5,7 @@ import CommandPalette from '../CommandPalette'
 import { TipStartupModal } from '../learn/TipStartupModal'
 import OnboardingFlow from '../onboarding/OnboardingFlow'
 import SettingsOverlay from '../settings/SettingsOverlay'
+import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { selectModuleEnabled } from '../../modules'
@@ -97,7 +98,7 @@ export default function WorkspaceManager() {
   const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const onboardingStep = useWorkspaceStore((s) => s.appSettings.onboardingStep)
-  const advanceOnboarding = useWorkspaceStore((s) => s.advanceOnboarding)
+  const setOnboardingStep = useWorkspaceStore((s) => s.setOnboardingStep)
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
   const removeWorkspace = useWorkspaceStore((s) => s.removeWorkspace)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
@@ -704,8 +705,9 @@ export default function WorkspaceManager() {
     addWorkspace(template, { name, folderPath, sprintEngineState, sprintEngineContext, sprintEngineRoleCliDefaults, sprintEngineAutoState, mode })
     setShowNewWorkspacePanel(false)
     setNewWorkspacePanelInitialState(null)
-    // Creating the first workspace is the final onboarding step → mark complete.
-    if (onboardingStep !== 'complete') advanceOnboarding()
+    // Creating the first workspace ends onboarding — jump straight to 'complete'
+    // (not a single advance) so it's correct regardless of the current step.
+    if (onboardingStep !== 'complete') setOnboardingStep('complete')
   }
 
   const deleteWorkspaceWithState = useCallback(
@@ -1173,7 +1175,7 @@ export default function WorkspaceManager() {
           {...(settingsOverlayOpen ? ({ inert: '' } as Record<string, string>) : {})}
         >
           {showNewWorkspacePanel ? (
-            <React.Suspense fallback={<div className="flex-1" aria-busy="true" />}>
+            <React.Suspense fallback={<SuspenseFallback label="Loading workspace setup" />}>
               <NewWorkspacePanel
                 onCreate={handleCreate}
                 onClose={() => {
