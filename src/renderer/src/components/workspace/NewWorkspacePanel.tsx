@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LAYOUT_TEMPLATES, createGuidedBriefTemplate, createMultiloopTemplate } from '../../layouts/templates'
+import { userLayoutTemplateToTemplate } from '../../layouts/userTemplates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { selectModuleEnabled } from '../../modules'
 import type {
@@ -46,7 +47,7 @@ import {
 import { sprintEngineAutomationModeOptions } from '../../utils/sprintengineAutomation'
 import MulticodeMark from '../brand/MulticodeMark'
 import MulticodeWordmark from '../brand/MulticodeWordmark'
-import { CloseIconButton, Field, Select, WizardProgress } from '../ui'
+import { CloseIconButton, Field, GhostButton, Select, WizardProgress } from '../ui'
 import { ModeCard } from './newWorkspace/ModeCard'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
 import { SprintEngineRosterTable } from './newWorkspace/SprintEngineRosterTable'
@@ -320,6 +321,21 @@ export default function NewWorkspacePanel({
   const [layoutId, setLayoutId] = useState<string>(
     LAYOUT_TEMPLATES[2]?.id ?? LAYOUT_TEMPLATES[0].id,
   )
+  const [userLayoutTemplates, setUserLayoutTemplates] = useState<LayoutTemplate[]>([])
+
+  const loadUserLayoutTemplates = useCallback(async () => {
+    if (typeof window.api.listUserLayoutTemplates !== 'function') return
+    try {
+      const result = await window.api.listUserLayoutTemplates()
+      setUserLayoutTemplates(result.templates.map(userLayoutTemplateToTemplate))
+    } catch {
+      // Best-effort; the bundled templates are always available.
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadUserLayoutTemplates()
+  }, [loadUserLayoutTemplates])
 
   const [sePath, setSePath] = useState<SprintEnginePath>(initialFuturePlan ? 'plan' : 'new')
   const [sePlanPath, setSePlanPath] = useState(initialFuturePlan?.sourcePath ?? '')
@@ -1093,7 +1109,7 @@ export default function NewWorkspacePanel({
     }
 
     // Standard
-    const args = buildStandardCreation({ layoutId, name, folderPath })
+    const args = buildStandardCreation({ layoutId, name, folderPath, userTemplates: userLayoutTemplates })
     triggerSelectedSkillPackInstalls(folderPath)
     onCreate(args)
   }
@@ -1358,7 +1374,12 @@ export default function NewWorkspacePanel({
           ) : null}
 
           {step === 'standard-layout' ? (
-            <StandardLayoutStep layoutId={layoutId} onChange={setLayoutId} />
+            <StandardLayoutStep
+              layoutId={layoutId}
+              onChange={setLayoutId}
+              userTemplates={userLayoutTemplates}
+              onTemplatesChanged={loadUserLayoutTemplates}
+            />
           ) : null}
 
           {step === 'multiloop-goal' ? (
@@ -1876,50 +1897,121 @@ function SkillPacksStep({
   )
 }
 
-function StandardLayoutStep({
-  layoutId,
+function LayoutTemplateRadio({
+  template,
+  active,
   onChange,
 }: {
-  layoutId: string
+  template: LayoutTemplate
+  active: boolean
   onChange: (id: string) => void
 }) {
   return (
-    <div role="radiogroup" aria-label="IDE layout" className="flex flex-col gap-1.5">
-      {LAYOUT_TEMPLATES.map((template) => {
-        const active = template.id === layoutId
-        return (
-          <button
-            key={template.id}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            onClick={() => onChange(template.id)}
-            className={`
-              grid w-full grid-cols-[18px_minmax(0,1fr)] items-start gap-3 rounded-md border px-3.5 py-3 text-left
-              transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-              ${active
-                ? 'border-[color:var(--color-6)] bg-[color:var(--bg-surface-raised)]'
-                : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
-            `}
-          >
-            <span
-              className={`mt-1 inline-flex h-4 w-4 items-center justify-center rounded-full border ${
-                active ? 'border-[color:var(--text-strong)] bg-[color:var(--text-strong)]' : 'border-[color:var(--color-6)]'
-              }`}
-              aria-hidden="true"
-            >
-              {/* design-tokens-allow: inner glyph of a custom radio control — not a status dot */}
-              {active ? <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--bg-app)]" /> : null}
-            </span>
-            <span className="min-w-0">
-              <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">{template.name}</span>
-              <span className="mt-0.5 block text-[12px] leading-5 text-[color:var(--text-muted)]">
-                {template.description}
-              </span>
-            </span>
-          </button>
-        )
-      })}
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      onClick={() => onChange(template.id)}
+      className={`
+        grid w-full grid-cols-[18px_minmax(0,1fr)] items-start gap-3 rounded-md border px-3.5 py-3 text-left
+        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+        ${active
+          ? 'border-[color:var(--color-6)] bg-[color:var(--bg-surface-raised)]'
+          : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
+      `}
+    >
+      <span
+        className={`mt-1 inline-flex h-4 w-4 items-center justify-center rounded-full border ${
+          active ? 'border-[color:var(--text-strong)] bg-[color:var(--text-strong)]' : 'border-[color:var(--color-6)]'
+        }`}
+        aria-hidden="true"
+      >
+        {/* design-tokens-allow: inner glyph of a custom radio control — not a status dot */}
+        {active ? <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--bg-app)]" /> : null}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">{template.name}</span>
+        <span className="mt-0.5 block text-[12px] leading-5 text-[color:var(--text-muted)]">
+          {template.description}
+        </span>
+      </span>
+    </button>
+  )
+}
+
+function StandardLayoutStep({
+  layoutId,
+  onChange,
+  userTemplates,
+  onTemplatesChanged,
+}: {
+  layoutId: string
+  onChange: (id: string) => void
+  userTemplates: LayoutTemplate[]
+  onTemplatesChanged: () => void
+}) {
+  const [installing, setInstalling] = useState(false)
+  const [installMessage, setInstallMessage] = useState<{ tone: 'accent' | 'warn' | 'error'; text: string } | null>(null)
+
+  const installTemplateFolder = async () => {
+    if (typeof window.api.installUserLayoutTemplateFolder !== 'function') return
+    setInstalling(true)
+    setInstallMessage(null)
+    try {
+      const folder = await window.api.openDir()
+      if (!folder) return
+      const result = await window.api.installUserLayoutTemplateFolder(folder)
+      const rejected = result.rejected.length
+      if (!result.ok && result.installed.length === 0) {
+        setInstallMessage({
+          tone: 'error',
+          text:
+            result.message
+            ?? (rejected > 0 ? `${rejected} template${rejected === 1 ? '' : 's'} rejected as invalid.` : 'Nothing to install.'),
+        })
+      } else {
+        const summary = `${result.installed.length} template${result.installed.length === 1 ? '' : 's'} installed`
+        setInstallMessage({
+          tone: rejected > 0 ? 'warn' : 'accent',
+          text: rejected > 0 ? `${summary}, ${rejected} rejected.` : `${summary}.`,
+        })
+      }
+      onTemplatesChanged()
+    } catch (error) {
+      setInstallMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Install failed.' })
+    } finally {
+      setInstalling(false)
+    }
+  }
+
+  const messageColor =
+    installMessage?.tone === 'error'
+      ? 'text-[color:var(--tone-error)]'
+      : installMessage?.tone === 'warn'
+        ? 'text-[color:var(--tone-warn)]'
+        : 'text-[color:var(--accent-primary)]'
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div role="radiogroup" aria-label="IDE layout" className="flex flex-col gap-1.5">
+        {LAYOUT_TEMPLATES.map((template) => (
+          <LayoutTemplateRadio key={template.id} template={template} active={template.id === layoutId} onChange={onChange} />
+        ))}
+        {userTemplates.length > 0 ? (
+          <>
+            <div className="mt-2 text-[11px] font-medium text-[color:var(--text-subtle)]">Installed templates</div>
+            {userTemplates.map((template) => (
+              <LayoutTemplateRadio key={template.id} template={template} active={template.id === layoutId} onChange={onChange} />
+            ))}
+          </>
+        ) : null}
+      </div>
+      <div className="mt-1 flex items-center gap-3">
+        <GhostButton size="sm" onClick={() => void installTemplateFolder()} disabled={installing}>
+          {installing ? 'Installing' : 'Install template from folder'}
+        </GhostButton>
+        {installMessage ? <span className={`text-[12px] leading-5 ${messageColor}`}>{installMessage.text}</span> : null}
+      </div>
     </div>
   )
 }

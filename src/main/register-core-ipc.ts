@@ -7,6 +7,7 @@ import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
 import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-ipc'
 import { registerGitHubTokenIpc } from './ipc/github-token-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
+import { registerLayoutTemplateRegistryIpc } from './ipc/layout-template-registry-ipc'
 import { registerMcpIpc } from './ipc/mcp-ipc'
 import { registerMemoryActivityIpc } from './ipc/memory-activity-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
@@ -59,4 +60,5 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
   registerMenuDialogIpc(ipcMain)
   registerModuleEnablementIpc(ipcMain)
   registerSprintEngineRoleRegistryIpc(ipcMain)
+  registerLayoutTemplateRegistryIpc(ipcMain)
 }

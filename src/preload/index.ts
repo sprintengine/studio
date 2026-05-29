@@ -5,6 +5,7 @@ import { authApi } from './api/auth'
 import { builtinSkillsApi } from './api/builtinSkills'
 import { filesystemApi } from './api/filesystem'
 import { gitApi } from './api/git'
+import { layoutTemplatesApi } from './api/layout-templates'
 import { memoryActivityApi } from './api/memoryActivity'
 import { mcpApi } from './api/mcp'
 import { modulesApi } from './api/modules'
@@ -30,6 +31,7 @@ const api = {
   ...filesystemApi,
   ...soulsApi,
   ...gitApi,
+  ...layoutTemplatesApi,
   ...memoryActivityApi,
   ...mcpApi,
   ...modulesApi,

@@ -6,11 +6,13 @@ export type StandardControllerInput = {
   layoutId: string
   name: string
   folderPath: string | null
+  /** User-installed templates, searched alongside the bundled ones. */
+  userTemplates?: LayoutTemplate[]
 }
 
 export function buildStandardCreation(input: StandardControllerInput): OnCreateArgs {
-  const template: LayoutTemplate =
-    LAYOUT_TEMPLATES.find((candidate) => candidate.id === input.layoutId) ?? LAYOUT_TEMPLATES[0]
+  const candidates: LayoutTemplate[] = [...LAYOUT_TEMPLATES, ...(input.userTemplates ?? [])]
+  const template = candidates.find((candidate) => candidate.id === input.layoutId) ?? LAYOUT_TEMPLATES[0]
   return {
     template,
     name: input.name.trim(),
