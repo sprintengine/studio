@@ -112,13 +112,14 @@ export async function installRoleFolder(srcDir: string, root: string): Promise<R
       continue
     }
     await mkdir(rolesDir, { recursive: true })
-    await cp(roleFile, join(rolesDir, basename(roleFile)))
+    // force: true (the fs.cp default) overwrites a prior install of the same file.
+    await cp(roleFile, join(rolesDir, basename(roleFile)), { force: true })
     installedRoles.push(result.manifest.id)
   }
 
   for (const skillDir of skillDirs) {
     await mkdir(skillsDir, { recursive: true })
-    await cp(skillDir, join(skillsDir, basename(skillDir)), { recursive: true })
+    await cp(skillDir, join(skillsDir, basename(skillDir)), { recursive: true, force: true })
     installedSkills.push(basename(skillDir))
   }
 

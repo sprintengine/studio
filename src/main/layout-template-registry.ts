@@ -76,7 +76,8 @@ export async function installLayoutTemplateFolder(
     await mkdir(root, { recursive: true })
     // Name on disk by validated id so re-installing an updated template replaces
     // it deterministically rather than accumulating duplicate filenames.
-    await cp(file, join(root, `${result.manifest.id}.json`))
+    // force: true (the fs.cp default) makes the overwrite explicit.
+    await cp(file, join(root, `${result.manifest.id}.json`), { force: true })
     installed.push(result.manifest.id)
   }
 

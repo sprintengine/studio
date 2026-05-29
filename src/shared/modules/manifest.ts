@@ -10,9 +10,13 @@
 // pure enablement resolver; later phases migrate features onto it and add the
 // renderer/preload hosts plus the user-facing module chooser.
 
-// Ids of the bundled (first-party) modules. A third-party module may not claim
-// one of these — it must not be able to shadow/impersonate a built-in feature.
-// Keep in sync with BUNDLED_MAIN_MODULES + BUNDLED_RENDERER_MODULES.
+// Ids of the bundled (first-party) modules — the reserved set a third-party
+// module may not claim (it must not shadow/impersonate a built-in feature).
+// This is the explicit cross-process source of truth: neither process can
+// derive it alone (main sees only main modules; the renderer can't be imported
+// here). MUST be updated when a bundled module is added/renamed — the drift
+// guard in src/renderer/src/modules/bundled-ids.test.ts fails if it diverges
+// from the actual bundled renderer module manifests.
 export const BUNDLED_MODULE_IDS: readonly string[] = [
   'agent-runtime',
   'dev-tools',

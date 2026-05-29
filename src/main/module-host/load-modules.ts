@@ -1,6 +1,10 @@
 import type { IpcMain } from 'electron'
 
-import type { CapabilityManifest, ModuleEnablementOverrides } from '../../shared/modules/manifest'
+import type {
+  CapabilityManifest,
+  ModuleEnablementOverrides,
+  ModuleResolutionErrorCode,
+} from '../../shared/modules/manifest'
 import { resolveModuleEnablement } from '../../shared/modules/resolve'
 import { createMainKernel, type MainHost, type MainKernel, type SidecarSpec } from './main-host'
 
@@ -39,12 +43,21 @@ export function loadMainModules(options: {
   modules: CapabilityModule[]
   overrides?: ModuleEnablementOverrides
   provideServices?: (host: MainHost) => void
+  /**
+   * Modules that must not load regardless of enablement, keyed by id to the
+   * reason. The trust gate for third-party modules: when a future increment
+   * adds discovered third-party modules to `modules`, it MUST pass each
+   * non-`trusted` module here (e.g. `'untrusted'` / `'invalid_signature'`) so
+   * its `registerMain` never runs. Bundled modules never appear here.
+   */
+  ineligible?: Record<string, ModuleResolutionErrorCode>
 }): LoadMainModulesResult {
-  const { ipcMain, modules, overrides = {}, provideServices } = options
+  const { ipcMain, modules, overrides = {}, provideServices, ineligible } = options
   const byId = new Map(modules.map((module) => [module.manifest.id, module]))
   const resolution = resolveModuleEnablement(
     modules.map((module) => module.manifest),
-    overrides
+    overrides,
+    { ineligible }
   )
 
   const kernel = createMainKernel(ipcMain)
