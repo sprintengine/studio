@@ -1145,6 +1145,12 @@ export type AppSettings = {
   appearance: AppearanceSettings
   /** Capability-module enablement overrides, keyed by module id. */
   modules: ModuleEnablementOverrides
+  /**
+   * Whether the user has made a first-run capability-module choice. Until then
+   * the module chooser is shown. Existing installs (with workspaces) are treated
+   * as already-chosen so an upgrade never interrupts them.
+   */
+  modulesChosen: boolean
 }
 
 export type GuidedBriefHasUi = 'yes' | 'no'

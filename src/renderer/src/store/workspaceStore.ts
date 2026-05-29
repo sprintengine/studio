@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import type { IJsonModel } from 'flexlayout-react'
+import type { ModuleProfileId } from '../../../shared/modules/profiles'
 import type {
   Workspace,
   WorkspaceId,
@@ -137,6 +138,8 @@ interface WorkspaceStore {
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
+  applyModuleProfile: (profileId: ModuleProfileId) => void
+  setModulesChosen: (chosen: boolean) => void
   setLearningShowTipsOnStartup: (enabled: boolean) => void
   markLearningTipSeen: (tipId: string) => void
   markLearningLessonCompleted: (lessonId: string, completed?: boolean) => void

@@ -19,6 +19,7 @@ import type {
 } from '../../types/workspace'
 import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
+import { moduleProfile, type ModuleProfileId } from '../../../../shared/modules/profiles'
 
 export const MAX_RECENT_WORKSPACE_FOLDERS = 50
 
@@ -382,6 +383,7 @@ export const defaultAppSettings = (): AppSettings => ({
   learning: defaultLearningSettings(),
   appearance: defaultAppearanceSettings(),
   modules: {},
+  modulesChosen: false,
 })
 
 export function normalizeAppSettings(settings: Partial<AppSettings> | undefined, workspaces: Workspace[]): AppSettings {
@@ -411,6 +413,9 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     learning: normalizeLearningSettings(settings?.learning),
     appearance: normalizeAppearanceSettings(settings?.appearance),
     modules: normalizeModuleOverrides(settings?.modules),
+    // Existing installs (already have workspaces) are treated as chosen so the
+    // first-run chooser only appears for a genuinely fresh install.
+    modulesChosen: settings?.modulesChosen ?? workspaces.length > 0,
   }
 }
 
@@ -439,6 +444,8 @@ export interface SettingsSliceActions {
   setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
+  applyModuleProfile: (profileId: ModuleProfileId) => void
+  setModulesChosen: (chosen: boolean) => void
   setSearchExcludes: (patterns: string[]) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setLearningShowTipsOnStartup: (enabled: boolean) => void
@@ -612,6 +619,18 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
           ...normalizeModuleOverrides(state.appSettings.modules),
           [id]: enabled,
         }
+      }),
+
+    applyModuleProfile: (profileId) =>
+      set((state) => {
+        const profile = moduleProfile(profileId)
+        if (!profile) return
+        state.appSettings.modules = normalizeModuleOverrides({ ...profile.modules })
+      }),
+
+    setModulesChosen: (chosen) =>
+      set((state) => {
+        state.appSettings.modulesChosen = chosen
       }),
 
     setSearchExcludes: (patterns) =>

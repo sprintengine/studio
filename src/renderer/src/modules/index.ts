@@ -1,5 +1,6 @@
 import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import { resolveModuleEnablement } from '../../../shared/modules/resolve'
+import { MODULE_PROFILES, type ModuleProfileId } from '../../../shared/modules/profiles'
 import { agentRuntimeRendererModule } from './agent-runtime-module'
 import { devToolsRendererModule } from './dev-tools-module'
 import { gitRendererModule } from './git-module'
@@ -69,6 +70,18 @@ export function selectModuleEnabled(
   moduleId: string
 ): boolean {
   return enabledModuleSet(overrides).has(moduleId)
+}
+
+// The profile whose optional-module selection exactly matches the current
+// enablement, or null for a custom mix. Used to highlight the active profile in
+// the chooser and the Settings → Modules manager.
+export function matchModuleProfile(overrides: ModuleEnablementOverrides): ModuleProfileId | null {
+  const enabled = enabledModuleSet(overrides)
+  for (const profile of MODULE_PROFILES) {
+    const matches = Object.entries(profile.modules).every(([id, on]) => enabled.has(id) === on)
+    if (matches) return profile.id
+  }
+  return null
 }
 
 export type { RendererModule } from './renderer-host'
