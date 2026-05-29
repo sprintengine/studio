@@ -19,7 +19,8 @@ import type {
 } from '../../types/workspace'
 import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
-import { moduleProfile, type ModuleProfileId } from '../../../../shared/modules/profiles'
+import { moduleProfile, profileOverrides, type ModuleProfileId } from '../../../../shared/modules/profiles'
+import { OPTIONAL_MODULE_IDS } from '../../modules'
 
 export const MAX_RECENT_WORKSPACE_FOLDERS = 50
 
@@ -625,7 +626,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         const profile = moduleProfile(profileId)
         if (!profile) return
-        state.appSettings.modules = normalizeModuleOverrides({ ...profile.modules })
+        state.appSettings.modules = profileOverrides(profile, OPTIONAL_MODULE_IDS)
       }),
 
     setModulesChosen: (chosen) =>

@@ -1,6 +1,6 @@
 import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import { resolveModuleEnablement } from '../../../shared/modules/resolve'
-import { MODULE_PROFILES, type ModuleProfileId } from '../../../shared/modules/profiles'
+import { MODULE_PROFILES, profileEnables, type ModuleProfileId } from '../../../shared/modules/profiles'
 import { agentRuntimeRendererModule } from './agent-runtime-module'
 import { devToolsRendererModule } from './dev-tools-module'
 import { gitRendererModule } from './git-module'
@@ -27,6 +27,12 @@ export const BUNDLED_RENDERER_MODULES: RendererModule[] = [
 
 export const BUNDLED_RENDERER_MODULE_MANIFESTS: ReadonlyArray<CapabilityManifest> =
   BUNDLED_RENDERER_MODULES.map((module) => module.manifest)
+
+// The optional (non-core) module ids — the universe profiles select from. Core
+// modules are always on and never appear in an override map.
+export const OPTIONAL_MODULE_IDS: ReadonlyArray<string> = BUNDLED_RENDERER_MODULE_MANIFESTS.filter(
+  (manifest) => !manifest.core
+).map((manifest) => manifest.id)
 
 // Eager singleton: registering a panel only stores a (lazy) component reference,
 // so there's no render cost. The actual bundle loads when the panel renders.
@@ -78,7 +84,7 @@ export function selectModuleEnabled(
 export function matchModuleProfile(overrides: ModuleEnablementOverrides): ModuleProfileId | null {
   const enabled = enabledModuleSet(overrides)
   for (const profile of MODULE_PROFILES) {
-    const matches = Object.entries(profile.modules).every(([id, on]) => enabled.has(id) === on)
+    const matches = OPTIONAL_MODULE_IDS.every((id) => enabled.has(id) === profileEnables(profile, id))
     if (matches) return profile.id
   }
   return null
