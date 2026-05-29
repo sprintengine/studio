@@ -49,6 +49,7 @@ export const switchboardModule: CapabilityModule = {
     category: 'orchestration',
     summary: 'Durable task board (Switchboard) and triage/review inbox (Watchtower).',
     defaultEnabled: true,
+    dependsOn: ['agent-runtime'],
   },
   registerMain(host) {
     const terminalRuntime = host.requireService(TerminalRuntimeToken)

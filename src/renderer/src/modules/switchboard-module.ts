@@ -21,6 +21,7 @@ export const switchboardRendererModule: RendererModule = {
     category: 'orchestration',
     summary: 'Durable task board (Switchboard) and triage/review inbox (Watchtower).',
     defaultEnabled: true,
+    dependsOn: ['agent-runtime'],
   },
   registerRenderer(host) {
     host.registerPanel('switchboard-workspace', SwitchboardWorkspacePanel)

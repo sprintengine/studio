@@ -21,6 +21,7 @@ export const sprintEngineModule: CapabilityModule = {
     category: 'orchestration',
     summary: 'Autonomous multi-agent sprint board with quality gates and managed MCP runtime.',
     defaultEnabled: true,
+    dependsOn: ['agent-runtime'],
   },
   registerMain(host) {
     const artifacts = host.requireService(SprintEngineArtifactsToken)

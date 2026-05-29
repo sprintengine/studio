@@ -29,6 +29,8 @@ import type {
   WatchtowerStartReviewInput,
   WatchtowerStartTriageInput,
 } from './switchboard'
+import type { RoleInstallResult, UserRoleListResult } from './sprintengine/role-manifest'
+import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
 
 export type SaveDialogOptions = {
   title?: string
@@ -1211,6 +1213,14 @@ export type ElectronApi = {
   readSprintEngineProjection: (statePath: string) => Promise<SprintEngineProjectionReadResult>
   readSprintEngineRegistryRoles: (input: SprintEngineRegistryRolesReadInput) => Promise<SprintEngineMcpReadResult>
   readSprintEngineRegistryRole: (input: SprintEngineRegistryRoleReadInput) => Promise<SprintEngineMcpReadResult>
+  /** Install third-party Sprint Engine roles from a folder into the user-global registry. */
+  installUserSprintEngineRoleFolder: (srcDir: string) => Promise<RoleInstallResult>
+  /** List the roles currently installed in the user-global registry. */
+  listUserSprintEngineRoles: () => Promise<UserRoleListResult>
+  /** Install third-party workspace layout templates from a folder. */
+  installUserLayoutTemplateFolder: (srcDir: string) => Promise<LayoutTemplateInstallResult>
+  /** List the layout templates installed in the user-global registry. */
+  listUserLayoutTemplates: () => Promise<UserLayoutTemplateListResult>
   readSprintEngineDispatch: (input: SprintEngineDispatchReadInput) => Promise<SprintEngineMcpReadResult>
   initializeSwitchboard: (workspaceRoot: string) => Promise<SwitchboardInitApiResult>
   readSwitchboardTasks: (workspaceRoot: string) => Promise<SwitchboardReadResult>

@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { selectModuleEnabled } from '../../modules'
 import type {
   AgentCli,
   McpCatalogServer,
@@ -423,6 +424,12 @@ export default function SettingsPanel({
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const usageTelemetry = useWorkspaceStore((s) => s.appSettings.usageTelemetry)
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
+  // The Mobile tab gates on the mobile-relay module; hide it when disabled.
+  const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
+  const visibleSettingsTabs = useMemo(
+    () => settingsTabs.filter((tab) => tab.id !== 'mobile' || mobileRelayEnabled),
+    [mobileRelayEnabled]
+  )
   const appearanceTheme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
   const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
@@ -474,6 +481,9 @@ export default function SettingsPanel({
   const [roleRegistryMessage, setRoleRegistryMessage] = useState<string | null>(null)
   const [roleInstallPending, setRoleInstallPending] = useState(false)
   const [roleInstallMessage, setRoleInstallMessage] = useState<RoleInstallMessage>(null)
+  const [userRoles, setUserRoles] = useState<Array<{ id: string; label: string; summary?: string }>>([])
+  const [globalInstallPending, setGlobalInstallPending] = useState(false)
+  const [globalInstallMessage, setGlobalInstallMessage] = useState<RoleInstallMessage>(null)
   const [customMcpId, setCustomMcpId] = useState('')
   const [customMcpName, setCustomMcpName] = useState('')
   const [customMcpCommand, setCustomMcpCommand] = useState('')
@@ -491,6 +501,15 @@ export default function SettingsPanel({
       window.requestAnimationFrame(() => tabRefs.current[initialTab]?.focus())
     }
   }, [initialTab])
+
+  // If the active tab is no longer visible (e.g. the Mobile module was disabled
+  // while its tab was active), fall back to the first visible tab so the panel
+  // body never goes blank on a hidden tab.
+  useEffect(() => {
+    if (!visibleSettingsTabs.some((tab) => tab.id === activeSettingsTab)) {
+      setActiveSettingsTab(visibleSettingsTabs[0]?.id ?? 'updates')
+    }
+  }, [visibleSettingsTabs, activeSettingsTab])
   const tabRefs = useRef<Record<SettingsTabId, HTMLButtonElement | null>>({
     appearance: null,
     modules: null,
@@ -980,7 +999,7 @@ export default function SettingsPanel({
       ? 'download'
       : 'check'
 
-  const activeTab = settingsTabs.find((tab) => tab.id === activeSettingsTab) ?? settingsTabs[0]
+  const activeTab = visibleSettingsTabs.find((tab) => tab.id === activeSettingsTab) ?? visibleSettingsTabs[0]
   const groupedMcpCatalog = groupMcpCatalog(mcpCatalog)
   const selectedCatalogServer = selectedCatalogId
     ? mcpCatalog.find((server) => server.id === selectedCatalogId) ?? null
@@ -1161,26 +1180,78 @@ export default function SettingsPanel({
     }
   }, [activeSprintEngineRoot, loadSprintEngineRoles])
 
+  const loadUserRoles = useCallback(async () => {
+    if (typeof window.api.listUserSprintEngineRoles !== 'function') return
+    try {
+      const result = await window.api.listUserSprintEngineRoles()
+      setUserRoles(result.roles)
+    } catch {
+      // Listing is best-effort; the install flow surfaces actionable errors.
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadUserRoles()
+  }, [loadUserRoles])
+
+  const installGlobalRoleFolder = useCallback(async () => {
+    if (typeof window.api.installUserSprintEngineRoleFolder !== 'function') return
+    setGlobalInstallPending(true)
+    setGlobalInstallMessage(null)
+    try {
+      const selectedFolder = await window.api.openDir()
+      if (!selectedFolder) return
+      const result = await window.api.installUserSprintEngineRoleFolder(selectedFolder)
+      const installed = result.installedRoles.length
+      const rejected = result.rejected.length
+      if (!result.ok && installed === 0) {
+        const reason = result.message
+          ?? (rejected > 0
+            ? `${rejected} manifest${rejected === 1 ? '' : 's'} rejected as invalid.`
+            : 'Nothing to install.')
+        setGlobalInstallMessage({ tone: 'error', text: reason })
+      } else {
+        const parts = [`${installed} role${installed === 1 ? '' : 's'} installed`]
+        if (result.installedSkills.length > 0) {
+          parts.push(`${result.installedSkills.length} skill${result.installedSkills.length === 1 ? '' : 's'}`)
+        }
+        if (rejected > 0) parts.push(`${rejected} rejected`)
+        setGlobalInstallMessage({
+          tone: rejected > 0 ? 'warn' : 'accent',
+          text: `${parts.join(', ')}. Reload to pick up new roles in open workspaces.`,
+        })
+      }
+      await loadUserRoles()
+    } catch (error) {
+      setGlobalInstallMessage({
+        tone: 'error',
+        text: error instanceof Error ? error.message : 'Install failed.',
+      })
+    } finally {
+      setGlobalInstallPending(false)
+    }
+  }, [loadUserRoles])
+
   const selectSettingsTab = useCallback((tabId: SettingsTabId) => {
     setActiveSettingsTab(tabId)
   }, [])
 
   const onSettingsTabKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
     const keyToIndex: Record<string, number> = {
-      ArrowDown: (index + 1) % settingsTabs.length,
-      ArrowRight: (index + 1) % settingsTabs.length,
-      ArrowUp: (index - 1 + settingsTabs.length) % settingsTabs.length,
-      ArrowLeft: (index - 1 + settingsTabs.length) % settingsTabs.length,
+      ArrowDown: (index + 1) % visibleSettingsTabs.length,
+      ArrowRight: (index + 1) % visibleSettingsTabs.length,
+      ArrowUp: (index - 1 + visibleSettingsTabs.length) % visibleSettingsTabs.length,
+      ArrowLeft: (index - 1 + visibleSettingsTabs.length) % visibleSettingsTabs.length,
       Home: 0,
-      End: settingsTabs.length - 1,
+      End: visibleSettingsTabs.length - 1,
     }
     const nextIndex = keyToIndex[event.key]
     if (nextIndex === undefined) return
     event.preventDefault()
-    const nextTab = settingsTabs[nextIndex]
+    const nextTab = visibleSettingsTabs[nextIndex]
     setActiveSettingsTab(nextTab.id)
     window.requestAnimationFrame(() => tabRefs.current[nextTab.id]?.focus())
-  }, [])
+  }, [visibleSettingsTabs])
 
   const sidebarNode = (
     <div
@@ -1189,7 +1260,7 @@ export default function SettingsPanel({
       aria-orientation="vertical"
       className="grid grid-cols-2 gap-1 md:grid-cols-1"
     >
-      {settingsTabs.map((tab, index) => (
+      {visibleSettingsTabs.map((tab, index) => (
         <SettingsTabButton
           key={tab.id}
           ref={(node) => {
@@ -1544,6 +1615,53 @@ export default function SettingsPanel({
               Install accepts a registry folder with roles and skills, a roles folder with JSON manifests, or a skills folder with SKILL.md directories.
             </MessageBlock>
           )}
+
+          <div className="space-y-3 border-t border-[color:var(--border-subtle)] pt-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-[color:var(--text-strong)]">Global roles</div>
+                <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                  Third-party roles installed for every workspace. Manifests are validated on install;
+                  invalid ones are skipped. Reload to pick them up in open workspaces.
+                </p>
+              </div>
+              <GhostButton
+                size="md"
+                onClick={() => void installGlobalRoleFolder()}
+                disabled={globalInstallPending}
+                className="h-9"
+              >
+                {globalInstallPending ? 'Installing' : 'Install from folder'}
+              </GhostButton>
+            </div>
+
+            {globalInstallMessage ? (
+              <MessageBlock tone={globalInstallMessage.tone}>{globalInstallMessage.text}</MessageBlock>
+            ) : null}
+
+            {userRoles.length === 0 ? (
+              <MessageBlock tone="neutral">
+                No global roles installed. Install a folder of role manifests to share roles across
+                workspaces.
+              </MessageBlock>
+            ) : (
+              <div className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
+                {userRoles.map((role) => (
+                  <div key={role.id} className="flex items-baseline justify-between gap-3 py-2.5">
+                    <div className="min-w-0">
+                      <div className="text-[12px] font-medium text-[color:var(--text-default)]">{role.label}</div>
+                      {role.summary ? (
+                        <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                          {role.summary}
+                        </div>
+                      ) : null}
+                    </div>
+                    <span className="shrink-0 font-mono text-[11px] text-[color:var(--text-subtle)]">{role.id}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       ) : null}
 
@@ -2045,7 +2163,7 @@ export default function SettingsPanel({
 
       {activeSettingsTab === 'modules' ? <ModulesSettingsTab /> : null}
 
-      {activeSettingsTab === 'mobile' ? <MobileSettingsTab /> : null}
+      {activeSettingsTab === 'mobile' && mobileRelayEnabled ? <MobileSettingsTab /> : null}
 
       {activeSettingsTab === 'telemetry' ? (
         <div

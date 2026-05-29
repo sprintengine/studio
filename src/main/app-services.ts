@@ -4,9 +4,6 @@ import { installMulticodeCliTools } from './cli-install'
 import { MulticodeAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
 import { createMcpConfigService } from './mcp-config-service'
-import { MobileBridge } from './mobile/bridge'
-import { discoverMobileSprintEngineStatePaths } from './mobile-sprintengine-discovery'
-import { MobileSprintEngineSnapshotService } from './mobile/sprintengine/snapshot'
 import { createSkillPackService } from './skill-pack-service'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
 import { createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
@@ -58,21 +55,15 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     syncMcpConfig: (input) => syncManagedSprintEngineMcpConfig(input, { mcpConfigService, sprintEngineMcpHub }),
     releaseManagedSprintEngineRun: (runId) => sprintEngineMcpHub.unregisterRun(runId),
   })
-  const mobileSnapshotService = new MobileSprintEngineSnapshotService()
   const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
   const builtinSkillManager = createBuiltinSkillManager()
   const githubTokenStore = new GitHubTokenStore()
-  let mobileWorkspaceRoots: string[] = []
-  const mobileBridge = new MobileBridge(() => multicodeAuth.getSession(), {
-    accessTokenProvider: () => multicodeAuth.getRelayAccessToken(),
-    commandService: terminalRuntime.commandService,
-    snapshotService: mobileSnapshotService,
-    statePathsProvider: () => discoverMobileSprintEngineStatePaths(mobileWorkspaceRoots),
-    workspaceRootsProvider: async () => mobileWorkspaceRoots,
-  })
 
-  // Switchboard session spawner/stopper/inventory wiring moved to the
-  // switchboard capability module (registered through the host kernel).
+  // The mobile relay bridge (construction + IPC + shutdown) and the Switchboard
+  // session spawner/stopper/inventory wiring moved to their capability modules
+  // (src/main/modules/), registered through the host kernel. multicodeAuth and
+  // terminalRuntime are seeded into the kernel so those modules can build on
+  // them via the service bridge.
 
   const workspaceBackupService = createWorkspaceBackupService({
     resolveUserDataDir: () => app.getPath('userData'),
@@ -87,7 +78,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     githubTokenStore,
     logMainPerfEvent,
     mcpConfigService,
-    mobileBridge,
     multicodeAuth,
     skillPackService,
     sprintEngineArtifacts,
@@ -96,10 +86,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     updateService,
     withIpcDiagnostics,
     workspaceBackupService,
-    getMobileWorkspaceRoots: () => mobileWorkspaceRoots,
-    setMobileWorkspaceRoots: (roots: string[]) => {
-      mobileWorkspaceRoots = roots
-    },
   }
 }
 

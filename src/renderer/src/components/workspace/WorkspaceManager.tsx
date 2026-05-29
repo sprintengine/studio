@@ -3,6 +3,7 @@ import { Actions, DockLocation, TabNode, TabSetNode, type Model } from 'flexlayo
 import { nanoid } from 'nanoid'
 import CommandPalette from '../CommandPalette'
 import { TipStartupModal } from '../learn/TipStartupModal'
+import ModuleChooserOverlay from '../settings/ModuleChooserOverlay'
 import SettingsOverlay from '../settings/SettingsOverlay'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -88,6 +89,8 @@ export default function WorkspaceManager() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
+  const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
+  const modulesChosen = useWorkspaceStore((s) => s.appSettings.modulesChosen)
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
   const removeWorkspace = useWorkspaceStore((s) => s.removeWorkspace)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
@@ -1030,14 +1033,14 @@ export default function WorkspaceManager() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-strong)]">
-      <SprintEngineAutoRunSupervisor />
+      {sprintEngineEnabled ? <SprintEngineAutoRunSupervisor /> : null}
       {multiloopEnabled ? <MultiloopAutoRunSupervisor /> : null}
       {multiloopEnabled && workspaces.map((workspace) => (
         workspace.id === activeWorkspaceId && (workspace.mode === 'multiloop' || workspace.multiloopContext)
           ? <MultiloopStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
           : null
       ))}
-      {!MULTICODE_DISABLE_SPRINTENGINE_SYNC && workspaces.map((workspace) => (
+      {sprintEngineEnabled && !MULTICODE_DISABLE_SPRINTENGINE_SYNC && workspaces.map((workspace) => (
         workspace.id === activeWorkspaceId && (workspace.mode === 'sprintengine' || workspace.sprintEngineContext)
           ? <SprintEngineStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
           : null
@@ -1185,6 +1188,7 @@ export default function WorkspaceManager() {
           )}
         </div>
         <SettingsOverlay />
+        {!modulesChosen ? <ModuleChooserOverlay /> : null}
       </div>
       </div>
       </div>

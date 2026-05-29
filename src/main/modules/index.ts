@@ -1,4 +1,5 @@
 import type { CapabilityModule } from '../module-host/load-modules'
+import { mobileRelayModule } from './mobile-relay-module'
 import { multiloopModule } from './multiloop-module'
 import { sprintEngineModule } from './sprint-engine-module'
 import { switchboardModule } from './switchboard-module'
@@ -7,11 +8,12 @@ import { switchboardModule } from './switchboard-module'
 // Features migrate onto the kernel one at a time; this list grows as each is
 // extracted from the static register-*-ipc / app-services wiring.
 //
-// Note: memory-graph has no main module — its knowledge-graph backend IPC is
-// foundational (always registered in register-core-ipc); only its renderer
-// visualization panel is a capability module.
+// Note: memory-graph and dev-tools have no main module — their backends
+// (knowledge graph, filesystem) are foundational, always registered in
+// register-core-ipc; only their renderer panels are capability modules.
 export const BUNDLED_MAIN_MODULES: CapabilityModule[] = [
   switchboardModule,
   multiloopModule,
   sprintEngineModule,
+  mobileRelayModule,
 ]

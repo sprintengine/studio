@@ -15,6 +15,7 @@ export const multiloopRendererModule: RendererModule = {
     category: 'orchestration',
     summary: 'Milestone-driven loop: roadmap, active work, blockers, and evidence.',
     defaultEnabled: true,
+    dependsOn: ['agent-runtime'],
   },
   registerRenderer(host) {
     host.registerPanel('multiloop-board', MultiloopBoardPanel)
