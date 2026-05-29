@@ -31,6 +31,11 @@ import type {
 } from './switchboard'
 import type { RoleInstallResult, UserRoleListResult } from './sprintengine/role-manifest'
 import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
+import type {
+  ThirdPartyModuleInstallResult,
+  ThirdPartyModuleListResult,
+  ThirdPartyModuleTrustResult,
+} from './modules/manifest'
 
 export type SaveDialogOptions = {
   title?: string
@@ -1221,6 +1226,12 @@ export type ElectronApi = {
   installUserLayoutTemplateFolder: (srcDir: string) => Promise<LayoutTemplateInstallResult>
   /** List the layout templates installed in the user-global registry. */
   listUserLayoutTemplates: () => Promise<UserLayoutTemplateListResult>
+  /** List installed third-party capability modules with their trust + permissions. */
+  listThirdPartyModules: () => Promise<ThirdPartyModuleListResult>
+  /** Install a third-party capability module from a folder (validated, not executed). */
+  installThirdPartyModuleFolder: (srcDir: string) => Promise<ThirdPartyModuleInstallResult>
+  /** Trust or untrust an installed third-party module. */
+  setThirdPartyModuleTrust: (id: string, trusted: boolean) => Promise<ThirdPartyModuleTrustResult>
   readSprintEngineDispatch: (input: SprintEngineDispatchReadInput) => Promise<SprintEngineMcpReadResult>
   initializeSwitchboard: (workspaceRoot: string) => Promise<SwitchboardInitApiResult>
   readSwitchboardTasks: (workspaceRoot: string) => Promise<SwitchboardReadResult>

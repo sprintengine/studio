@@ -3,7 +3,18 @@ import type {
   ModuleEnablementOverrides,
   ModuleResolution,
   ModuleResolutionError,
+  ModuleResolutionErrorCode,
 } from './manifest'
+
+export type ModuleResolutionOptions = {
+  /**
+   * Modules that cannot load regardless of enablement, keyed by id to the reason
+   * (e.g. an untrusted or invalid-signature third-party module). Computed outside
+   * this pure function (signature verification + trust store live in main); the
+   * resolver just excludes them and cascades the effect to their dependents.
+   */
+  ineligible?: Record<string, ModuleResolutionErrorCode>
+}
 
 // Pure function: given the installed module manifests and the user's enablement
 // overrides, decide which modules load, in what order, and why any are blocked.
@@ -12,9 +23,11 @@ import type {
 // UI all share this so "what's enabled" is computed identically everywhere.
 export function resolveModuleEnablement(
   manifests: CapabilityManifest[],
-  overrides: ModuleEnablementOverrides = {}
+  overrides: ModuleEnablementOverrides = {},
+  options: ModuleResolutionOptions = {}
 ): ModuleResolution {
   const errors: ModuleResolutionError[] = []
+  const ineligible = options.ineligible ?? {}
 
   // 1. Index by id; first definition of an id wins.
   const byId = new Map<string, CapabilityManifest>()
@@ -51,6 +64,23 @@ export function resolveModuleEnablement(
       continue
     }
     accepted.add(id)
+  }
+
+  // 3b. Drop modules the caller marked ineligible (untrusted / invalid-signature
+  //     third-party). Done before dependency validation so a dependent of an
+  //     ineligible module cascades to disabled_dependency below.
+  for (const id of [...accepted]) {
+    const reason = ineligible[id]
+    if (!reason) continue
+    errors.push({
+      id,
+      code: reason,
+      message:
+        reason === 'invalid_signature'
+          ? `Module "${id}" has an invalid signature and will not load.`
+          : `Module "${id}" is not trusted yet; trust it in Settings → Modules to enable.`,
+    })
+    accepted.delete(id)
   }
 
   // 4. Dependency validation with cascading exclusion. Excluding a module can
