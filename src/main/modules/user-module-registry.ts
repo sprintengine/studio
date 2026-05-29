@@ -9,7 +9,8 @@ import { classifyModuleTrust, type ModuleTrust, type ModuleTrustContext } from '
 // Discovery + install for third-party capability modules under
 // ~/.multicode/modules/<id>/manifest.json. Mirrors the BYO-CLI plugin-registry
 // pattern. This layer validates, classifies trust, and installs — it does NOT
-// execute module code (runtime isolation is a later Phase 7 increment).
+// execute module code (in-process loading of trusted modules is a later Phase 7
+// increment).
 
 export function defaultUserModuleRoot(): string {
   return join(homedir(), '.multicode', 'modules')

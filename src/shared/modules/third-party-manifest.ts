@@ -9,8 +9,8 @@
 //
 // Notably it FORCES `source: 'third-party'` and strips `core`: a third-party
 // module can never be a core/always-on module, and can never masquerade as
-// bundled. Code loading/isolation is a later Phase 7 increment; this validates
-// the declaration only.
+// bundled. In-process loading of trusted modules is a later Phase 7 increment;
+// this validates the declaration only.
 
 import type { CapabilityManifest, ModuleEntry, ModuleSignature } from './manifest'
 import { validateCapabilityPermissions } from './permissions'

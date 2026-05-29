@@ -15,8 +15,8 @@ import { readTrustedModulesSync, setModuleTrust } from '../modules/trust-store'
 
 // Kernel-level IPC for the third-party module registry (Tier 2 trust
 // foundation). Pure filesystem + crypto verification — it installs, validates,
-// trust-classifies, and records trust. It does NOT execute module code; runtime
-// activation/isolation is a later Phase 7 increment.
+// trust-classifies, and records trust. It does NOT execute module code; in-process
+// loading of trusted modules is a later Phase 7 increment.
 export function registerThirdPartyModuleIpc(ipcMain: IpcMain): void {
   const trustContext = (): ModuleTrustContext => ({
     trustedModules: readTrustedModulesSync(app.getPath('userData')),

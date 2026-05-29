@@ -52,7 +52,8 @@ export type ModuleSignature = {
 }
 
 // Code entry points for a third-party module's bundles (relative to the module
-// root). Declared here; actual loading/isolation is a later Phase 7 increment.
+// root). The v1 loader imports these in-process for trusted modules (like a
+// bundled module's registerMain); wiring is a later Phase 7 increment.
 export type ModuleEntry = {
   main?: string
   preload?: string
@@ -81,7 +82,7 @@ export type CapabilityManifest = {
   source?: ModuleSource
   /** Capability scopes a third-party module requests (shown at install/trust). */
   permissions?: string[]
-  /** Code entry points (third-party); loading/isolation is a later increment. */
+  /** Code entry points (third-party); in-process loading is a later increment. */
   entry?: ModuleEntry
   /** Detached signature over the manifest, if the module is signed. */
   signature?: ModuleSignature
