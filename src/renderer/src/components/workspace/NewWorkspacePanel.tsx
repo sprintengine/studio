@@ -327,7 +327,15 @@ export default function NewWorkspacePanel({
     if (typeof window.api.listUserLayoutTemplates !== 'function') return
     try {
       const result = await window.api.listUserLayoutTemplates()
-      setUserLayoutTemplates(result.templates.map(userLayoutTemplateToTemplate))
+      // Drop ids that collide with a bundled template: bundled wins in
+      // buildStandardCreation, so a colliding user entry would be an
+      // unselectable duplicate (and a duplicate React key) in the picker.
+      const bundledIds = new Set(LAYOUT_TEMPLATES.map((template) => template.id))
+      setUserLayoutTemplates(
+        result.templates
+          .filter((manifest) => !bundledIds.has(manifest.id))
+          .map(userLayoutTemplateToTemplate)
+      )
     } catch {
       // Best-effort; the bundled templates are always available.
     }
@@ -1984,12 +1992,14 @@ function StandardLayoutStep({
     }
   }
 
-  const messageColor =
+  // Match the panel's existing inline-message idiom (border-l-2 + tone), as used
+  // for plan/create errors elsewhere in this file.
+  const messageClass =
     installMessage?.tone === 'error'
-      ? 'text-[color:var(--tone-error)]'
+      ? 'border-[color:var(--tone-error)] text-[color:var(--tone-error)]'
       : installMessage?.tone === 'warn'
-        ? 'text-[color:var(--tone-warn)]'
-        : 'text-[color:var(--accent-primary)]'
+        ? 'border-[color:var(--tone-warn)] text-[color:var(--tone-warn)]'
+        : 'border-[color:var(--accent-primary)] text-[color:var(--accent-primary)]'
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -2006,11 +2016,13 @@ function StandardLayoutStep({
           </>
         ) : null}
       </div>
-      <div className="mt-1 flex items-center gap-3">
-        <GhostButton size="sm" onClick={() => void installTemplateFolder()} disabled={installing}>
+      <div className="mt-1 flex flex-col gap-2">
+        <GhostButton size="sm" onClick={() => void installTemplateFolder()} disabled={installing} className="self-start">
           {installing ? 'Installing' : 'Install template from folder'}
         </GhostButton>
-        {installMessage ? <span className={`text-[12px] leading-5 ${messageColor}`}>{installMessage.text}</span> : null}
+        {installMessage ? (
+          <div className={`border-l-2 pl-3 text-[12px] leading-5 ${messageClass}`}>{installMessage.text}</div>
+        ) : null}
       </div>
     </div>
   )
