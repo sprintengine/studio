@@ -14,6 +14,7 @@ import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
 import { registerModuleEnablementIpc } from './ipc/module-enablement-ipc'
 import { registerSkillPackIpc } from './ipc/skill-pack-ipc'
 import { registerSoulsIpc } from './ipc/souls-ipc'
+import { registerSprintEngineRoleRegistryIpc } from './ipc/sprintengine-role-registry-ipc'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { registerWorkspaceBackupIpc } from './ipc/workspace-backup-ipc'
@@ -57,4 +58,5 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
   registerGitHubTokenIpc(ipcMain, services.githubTokenStore)
   registerMenuDialogIpc(ipcMain)
   registerModuleEnablementIpc(ipcMain)
+  registerSprintEngineRoleRegistryIpc(ipcMain)
 }

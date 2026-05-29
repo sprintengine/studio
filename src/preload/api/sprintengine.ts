@@ -82,6 +82,9 @@ export const sprintEngineApi = {
     input: SprintEngineDispatchReadInput
   ): Promise<SprintEngineMcpReadResult> =>
     ipcRenderer.invoke('sprintengine:dispatch:read', input),
+  installUserSprintEngineRoleFolder: (srcDir: string) =>
+    ipcRenderer.invoke('sprintengine:user-roles:install-folder', srcDir),
+  listUserSprintEngineRoles: () => ipcRenderer.invoke('sprintengine:user-roles:list'),
 } satisfies Pick<
   ElectronApi,
   | 'openSprintEngineArtifact'
@@ -99,4 +102,6 @@ export const sprintEngineApi = {
   | 'readSprintEngineRegistryRoles'
   | 'readSprintEngineRegistryRole'
   | 'readSprintEngineDispatch'
+  | 'installUserSprintEngineRoleFolder'
+  | 'listUserSprintEngineRoles'
 >

@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://multicode.dev/schemas/sprintengine-role-manifest.json",
+  "title": "Sprint Engine role manifest",
+  "description": "A declarative Sprint Engine role. Pure data: the runtime composes the agent prompt from the referenced skill ids. No code is executed, so third-party roles are safe to install (Tier 1). Mirror of src/shared/sprintengine/role-manifest.ts.",
+  "type": "object",
+  "required": ["id", "label", "soul"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,62}$",
+      "description": "Lowercase snake_case identifier, 1–63 chars."
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable role name, sentence case."
+    },
+    "summary": {
+      "type": "string",
+      "description": "One-line description of what the role does."
+    },
+    "aliases": {
+      "type": "array",
+      "description": "Alternate ids that resolve to this role.",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]{0,62}$"
+      }
+    },
+    "soul": {
+      "type": "array",
+      "description": "Ordered skill references composing the role's prompt.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["skill"],
+        "additionalProperties": false,
+        "properties": {
+          "skill": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,62}$"
+          }
+        }
+      }
+    }
+  }
+}

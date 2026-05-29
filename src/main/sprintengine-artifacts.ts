@@ -27,6 +27,7 @@ import type {
 } from './ipc/sprintengine-ipc'
 import { findSprintEngineRuntimeRoot } from './mcp-config-service'
 import { getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
+import { defaultUserRoleRegistryRoot } from './sprintengine-role-registry'
 
 type SprintEngineArtifactDependencies = {
   getAuthenticatedUserId(): string | null
@@ -471,7 +472,13 @@ function rendererMcpActor(): SprintEngineMcpActorContext {
 
 function sprintEngineRegistryRootsForRead(): Array<{ id: string; root: string }> {
   try {
-    return getPluginSprintEngineRegistryRoots()
+    const roots = [...getPluginSprintEngineRegistryRoots()]
+    // User-global third-party roles: same { roles/, skills/ } shape as plugin
+    // souls dirs, so the existing MCP discovery enumerates them once the root is
+    // on the search path. Only added when the directory exists.
+    const userRoot = defaultUserRoleRegistryRoot()
+    if (existsSync(userRoot)) roots.push({ id: 'user-roles', root: userRoot })
+    return roots
   } catch {
     return []
   }
