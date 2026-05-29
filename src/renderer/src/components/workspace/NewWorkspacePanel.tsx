@@ -381,6 +381,7 @@ export default function NewWorkspacePanel({
     () => buildCliRuntimeOptions(appCliRuntimes),
     [appCliRuntimes],
   )
+  const sprintEngineModuleEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
   const sprintEngineDisabledRoleIds = useMemo(
     () => getUserDisabledSprintEngineRoleIds(sprintEngineRoleSettings),
@@ -767,7 +768,8 @@ export default function NewWorkspacePanel({
 
     const hint = folderHints.get(dir)
     if (hint && (hint.hasSprintEngineTeam || hint.hasMultiloop)) {
-      if (!nameTouched && hint.hasSprintEngineTeam) handleSelectMode('sprintengine')
+      // Don't auto-select a mode whose module the user disabled.
+      if (!nameTouched && hint.hasSprintEngineTeam && sprintEngineModuleEnabled) handleSelectMode('sprintengine')
       else if (!nameTouched && hint.hasMultiloop) handleSelectMode('multiloop')
     }
   }
@@ -1652,16 +1654,21 @@ function ModeStep({
   folderHint: { hasSprintEngineTeam?: boolean; hasMultiloop?: boolean } | null
 }) {
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
+  // guided-brief hands its build off to a Sprint Engine run, so it depends on
+  // the sprint-engine module and is hidden when Sprint Engine is disabled.
+  const sprintEngineEnabled = selectModuleEnabled(moduleOverrides, 'sprint-engine')
   const visibleModes = MODES.filter((m) => {
     if (m === 'switchboard') return selectModuleEnabled(moduleOverrides, 'switchboard')
     if (m === 'multiloop') return selectModuleEnabled(moduleOverrides, 'multiloop')
+    if (m === 'sprintengine') return sprintEngineEnabled
+    if (m === 'guided-brief') return sprintEngineEnabled
     return true
   })
 
   const suggested: CreationMode | null = (() => {
     if (!folderHint) return null
-    if (folderHint.hasSprintEngineTeam) return 'sprintengine'
-    if (folderHint.hasMultiloop) return 'multiloop'
+    if (folderHint.hasSprintEngineTeam) return sprintEngineEnabled ? 'sprintengine' : null
+    if (folderHint.hasMultiloop) return selectModuleEnabled(moduleOverrides, 'multiloop') ? 'multiloop' : null
     return null
   })()
 

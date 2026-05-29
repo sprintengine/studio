@@ -42,8 +42,6 @@ import { StatusDot, type Tone } from '../ui'
 import MulticodeSpinner from '../brand/MulticodeSpinner'
 import AgentPanel from '../panels/AgentPanel'
 import FileExplorer from '../panels/FileExplorer'
-import SprintEngineRunSummaryPanel from '../panels/SprintEngineRunSummaryPanel'
-import SprintEnginePlanReaderPanel from '../panels/SprintEnginePlanReaderPanel'
 
 interface Props {
   workspaceId: string
@@ -54,7 +52,15 @@ const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
 const ContentSearchPanel = React.lazy(() => import('../panels/ContentSearchPanel'))
 const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
+// Local lazy const for the defensive fixed-view fallbacks below; the canonical
+// 'sprintengine' board is served through the renderer host (gated). Both resolve
+// to the same chunk, so a disabled Sprint Engine module ships neither.
 const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBoardPanel'))
+// Lazy so the run-summary / plan-reader bundles only load with their tabs — and
+// never when Sprint Engine is disabled. They stay local (not host-registered)
+// because they take an onClose callback the generic host panel contract omits.
+const SprintEngineRunSummaryPanel = React.lazy(() => import('../panels/SprintEngineRunSummaryPanel'))
+const SprintEnginePlanReaderPanel = React.lazy(() => import('../panels/SprintEnginePlanReaderPanel'))
 const GuidedBriefWorkspacePanel = React.lazy(() => import('./guidedBrief/GuidedBriefWorkspacePanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const loadedPanelComponents = new Set<string>()
@@ -312,6 +318,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
   const gitEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'git'))
   const switchboardEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'switchboard'))
   const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
+  const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
 
   const factory = useCallback(
     (node: TabNode) => {
@@ -388,17 +395,27 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
               shouldKillOnUnmount={shouldKillTerminalOnUnmount}
             />
           )))
-        case 'sprintengine':
-          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} />)
+        case 'sprintengine': {
+          const Panel = sprintEngineEnabled ? getRendererHost().getPanel('sprintengine') : undefined
+          return Panel
+            ? timedPanel('SprintEngineBoardPanel', <Panel workspaceId={workspaceId} />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
+        }
         // Defensive fallbacks for stale layouts that escaped migration — the
         // canonical layout now uses a single 'sprintengine' tab whose internal
         // segmented chrome covers all three views.
         case 'sprintengine-inbox':
-          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="inbox" />)
+          return sprintEngineEnabled
+            ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="inbox" />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
         case 'sprintengine-roster':
-          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="roster" />)
+          return sprintEngineEnabled
+            ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="roster" />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
         case 'sprintengine-tasks':
-          return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="tasks" />)
+          return sprintEngineEnabled
+            ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="tasks" />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
         case 'multiloop-board': {
           const Panel = multiloopEnabled ? getRendererHost().getPanel('multiloop-board') : undefined
           return Panel
@@ -406,10 +423,15 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
             : <div className="h-full bg-[color:var(--bg-app)]" />
         }
         case 'guided-brief':
-          return timedPanel(
-            'GuidedBriefWorkspacePanel',
-            <GuidedBriefWorkspacePanel workspaceId={workspaceId} />
-          )
+          // Guided Brief hands its build off to a Sprint Engine run, so it
+          // follows sprint-engine enablement: a stale guided-brief workspace
+          // blanks when Sprint Engine is disabled, matching the other modes.
+          return sprintEngineEnabled
+            ? timedPanel(
+              'GuidedBriefWorkspacePanel',
+              <GuidedBriefWorkspacePanel workspaceId={workspaceId} />
+            )
+            : <div className="h-full bg-[color:var(--bg-app)]" />
         case 'switchboard-workspace': {
           const Panel = switchboardEnabled ? getRendererHost().getPanel('switchboard-workspace') : undefined
           return Panel
@@ -438,28 +460,32 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
             : <div className="h-full bg-[color:var(--bg-app)]" />
         }
         case 'sprintengine-run-summary':
-          return (
-            <SprintEngineRunSummaryPanel
-              workspaceId={workspaceId}
-              onClose={() => {
-                modelRef.current?.doAction(Actions.deleteTab(node.getId()))
-              }}
-            />
-          )
+          return sprintEngineEnabled
+            ? timedPanel('SprintEngineRunSummaryPanel', (
+              <SprintEngineRunSummaryPanel
+                workspaceId={workspaceId}
+                onClose={() => {
+                  modelRef.current?.doAction(Actions.deleteTab(node.getId()))
+                }}
+              />
+            ))
+            : <div className="h-full bg-[color:var(--bg-app)]" />
         case 'sprintengine-plan-reader':
-          return (
-            <SprintEnginePlanReaderPanel
-              workspaceId={workspaceId}
-              onClose={() => {
-                modelRef.current?.doAction(Actions.deleteTab(node.getId()))
-              }}
-            />
-          )
+          return sprintEngineEnabled
+            ? timedPanel('SprintEnginePlanReaderPanel', (
+              <SprintEnginePlanReaderPanel
+                workspaceId={workspaceId}
+                onClose={() => {
+                  modelRef.current?.doAction(Actions.deleteTab(node.getId()))
+                }}
+              />
+            ))
+            : <div className="h-full bg-[color:var(--bg-app)]" />
         default:
           return <div className="h-full bg-[color:var(--bg-app)]" />
       }
     },
-    [memoryEnabled, gitEnabled, switchboardEnabled, multiloopEnabled, onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
+    [memoryEnabled, gitEnabled, switchboardEnabled, multiloopEnabled, sprintEngineEnabled, onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
   )
 
   const cleanupNode = useCallback(

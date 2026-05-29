@@ -88,6 +88,7 @@ export default function WorkspaceManager() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
+  const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
   const removeWorkspace = useWorkspaceStore((s) => s.removeWorkspace)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
@@ -1030,14 +1031,14 @@ export default function WorkspaceManager() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-strong)]">
-      <SprintEngineAutoRunSupervisor />
+      {sprintEngineEnabled ? <SprintEngineAutoRunSupervisor /> : null}
       {multiloopEnabled ? <MultiloopAutoRunSupervisor /> : null}
       {multiloopEnabled && workspaces.map((workspace) => (
         workspace.id === activeWorkspaceId && (workspace.mode === 'multiloop' || workspace.multiloopContext)
           ? <MultiloopStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
           : null
       ))}
-      {!MULTICODE_DISABLE_SPRINTENGINE_SYNC && workspaces.map((workspace) => (
+      {sprintEngineEnabled && !MULTICODE_DISABLE_SPRINTENGINE_SYNC && workspaces.map((workspace) => (
         workspace.id === activeWorkspaceId && (workspace.mode === 'sprintengine' || workspace.sprintEngineContext)
           ? <SprintEngineStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
           : null

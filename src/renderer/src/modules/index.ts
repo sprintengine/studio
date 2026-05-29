@@ -2,6 +2,7 @@ import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../sha
 import { gitRendererModule } from './git-module'
 import { memoryRendererModule } from './memory-module'
 import { multiloopRendererModule } from './multiloop-module'
+import { sprintEngineRendererModule } from './sprint-engine-module'
 import { switchboardRendererModule } from './switchboard-module'
 import { createRendererHost, isModuleEnabled, type RendererModule } from './renderer-host'
 
@@ -13,6 +14,7 @@ export const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   gitRendererModule,
   switchboardRendererModule,
   multiloopRendererModule,
+  sprintEngineRendererModule,
 ]
 
 export const BUNDLED_RENDERER_MODULE_MANIFESTS: ReadonlyArray<CapabilityManifest> =
