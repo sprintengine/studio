@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { selectModuleEnabled } from '../../modules'
 import type {
   AgentCli,
   McpCatalogServer,
@@ -423,6 +424,12 @@ export default function SettingsPanel({
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const usageTelemetry = useWorkspaceStore((s) => s.appSettings.usageTelemetry)
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
+  // The Mobile tab gates on the mobile-relay module; hide it when disabled.
+  const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
+  const visibleSettingsTabs = useMemo(
+    () => settingsTabs.filter((tab) => tab.id !== 'mobile' || mobileRelayEnabled),
+    [mobileRelayEnabled]
+  )
   const appearanceTheme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
   const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
@@ -491,6 +498,14 @@ export default function SettingsPanel({
       window.requestAnimationFrame(() => tabRefs.current[initialTab]?.focus())
     }
   }, [initialTab])
+
+  // If the Mobile module is disabled while its tab is active, fall back to a
+  // visible tab so the panel body never goes blank on a hidden tab.
+  useEffect(() => {
+    if (!mobileRelayEnabled && activeSettingsTab === 'mobile') {
+      setActiveSettingsTab('updates')
+    }
+  }, [mobileRelayEnabled, activeSettingsTab])
   const tabRefs = useRef<Record<SettingsTabId, HTMLButtonElement | null>>({
     appearance: null,
     modules: null,
@@ -980,7 +995,7 @@ export default function SettingsPanel({
       ? 'download'
       : 'check'
 
-  const activeTab = settingsTabs.find((tab) => tab.id === activeSettingsTab) ?? settingsTabs[0]
+  const activeTab = visibleSettingsTabs.find((tab) => tab.id === activeSettingsTab) ?? visibleSettingsTabs[0]
   const groupedMcpCatalog = groupMcpCatalog(mcpCatalog)
   const selectedCatalogServer = selectedCatalogId
     ? mcpCatalog.find((server) => server.id === selectedCatalogId) ?? null
@@ -1167,20 +1182,20 @@ export default function SettingsPanel({
 
   const onSettingsTabKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
     const keyToIndex: Record<string, number> = {
-      ArrowDown: (index + 1) % settingsTabs.length,
-      ArrowRight: (index + 1) % settingsTabs.length,
-      ArrowUp: (index - 1 + settingsTabs.length) % settingsTabs.length,
-      ArrowLeft: (index - 1 + settingsTabs.length) % settingsTabs.length,
+      ArrowDown: (index + 1) % visibleSettingsTabs.length,
+      ArrowRight: (index + 1) % visibleSettingsTabs.length,
+      ArrowUp: (index - 1 + visibleSettingsTabs.length) % visibleSettingsTabs.length,
+      ArrowLeft: (index - 1 + visibleSettingsTabs.length) % visibleSettingsTabs.length,
       Home: 0,
-      End: settingsTabs.length - 1,
+      End: visibleSettingsTabs.length - 1,
     }
     const nextIndex = keyToIndex[event.key]
     if (nextIndex === undefined) return
     event.preventDefault()
-    const nextTab = settingsTabs[nextIndex]
+    const nextTab = visibleSettingsTabs[nextIndex]
     setActiveSettingsTab(nextTab.id)
     window.requestAnimationFrame(() => tabRefs.current[nextTab.id]?.focus())
-  }, [])
+  }, [visibleSettingsTabs])
 
   const sidebarNode = (
     <div
@@ -1189,7 +1204,7 @@ export default function SettingsPanel({
       aria-orientation="vertical"
       className="grid grid-cols-2 gap-1 md:grid-cols-1"
     >
-      {settingsTabs.map((tab, index) => (
+      {visibleSettingsTabs.map((tab, index) => (
         <SettingsTabButton
           key={tab.id}
           ref={(node) => {
@@ -2045,7 +2060,7 @@ export default function SettingsPanel({
 
       {activeSettingsTab === 'modules' ? <ModulesSettingsTab /> : null}
 
-      {activeSettingsTab === 'mobile' ? <MobileSettingsTab /> : null}
+      {activeSettingsTab === 'mobile' && mobileRelayEnabled ? <MobileSettingsTab /> : null}
 
       {activeSettingsTab === 'telemetry' ? (
         <div

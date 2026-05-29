@@ -6,6 +6,7 @@ import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
 import {
   GitHubTokenStoreToken,
+  MulticodeAuthToken,
   SprintEngineArtifactsToken,
   TerminalRuntimeToken,
 } from './module-host/service-tokens'
@@ -32,6 +33,7 @@ const moduleLoad = loadMainModules({
     host.provideService(TerminalRuntimeToken, () => services.terminalRuntime)
     host.provideService(GitHubTokenStoreToken, () => services.githubTokenStore)
     host.provideService(SprintEngineArtifactsToken, () => services.sprintEngineArtifacts)
+    host.provideService(MulticodeAuthToken, () => services.multicodeAuth)
   },
 })
 if (MULTICODE_DIAGNOSTICS) {
@@ -55,7 +57,6 @@ function readModuleEnablementOverrides(): Record<string, boolean> {
 
 registerAppLifecycle({
   diagnosticsEnabled: MULTICODE_DIAGNOSTICS,
-  mobileBridge: services.mobileBridge,
   terminalRuntime: services.terminalRuntime,
   sprintEngineMcpHub: services.sprintEngineMcpHub,
   moduleKernel: moduleLoad.kernel,

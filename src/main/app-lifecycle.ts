@@ -8,9 +8,6 @@ import type { MulticodeUpdateService } from './update-service'
 
 type RegisterAppLifecycleOptions = {
   diagnosticsEnabled: boolean
-  mobileBridge: {
-    shutdown(): void
-  }
   terminalRuntime: {
     shutdown(): Promise<void>
   }
@@ -30,7 +27,6 @@ type RegisterAppLifecycleOptions = {
 
 export function registerAppLifecycle({
   diagnosticsEnabled,
-  mobileBridge,
   terminalRuntime,
   sprintEngineMcpHub,
   moduleKernel,
@@ -94,8 +90,9 @@ export function registerAppLifecycle({
       await terminalRuntime.shutdown()
       await sprintEngineMcpHub?.stop()
       await shutdownSwitchboardPythonRuntime()
-      mobileBridge.shutdown()
       await releaseAllWorkspaceRunnerLocks()
+      // The mobile relay bridge's shutdown runs here, via its module's
+      // onShutdown hook (it owns the bridge now).
       await moduleKernel?.runShutdown()
     }
 

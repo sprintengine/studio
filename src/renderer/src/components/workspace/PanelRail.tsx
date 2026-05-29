@@ -105,14 +105,16 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
     (state) => state.workspaces.find((workspace) => workspace.id === workspaceId)?.folderPath ?? null
   )
 
-  // Hide a panel button when its capability module is disabled. memory-graph is
-  // the first module wired through this gate; other rail panels are always on
-  // until they're migrated.
+  // Hide a panel button when its capability module is disabled. The Files and
+  // Editor buttons gate on the dev-tools module; Git and Knowledge Graph on
+  // their own modules.
   const memoryEnabled = useWorkspaceStore((state) => selectModuleEnabled(state.appSettings.modules, 'memory-graph'))
   const gitEnabled = useWorkspaceStore((state) => selectModuleEnabled(state.appSettings.modules, 'git'))
+  const devToolsEnabled = useWorkspaceStore((state) => selectModuleEnabled(state.appSettings.modules, 'dev-tools'))
   const panels = PANELS.filter((panel) => {
     if (panel.key === 'memory-graph') return memoryEnabled
     if (panel.key === 'git') return gitEnabled
+    if (panel.key === 'explorer' || panel.key === 'editor') return devToolsEnabled
     return true
   })
 

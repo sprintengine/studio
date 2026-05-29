@@ -41,15 +41,20 @@ import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '.
 import { StatusDot, type Tone } from '../ui'
 import MulticodeSpinner from '../brand/MulticodeSpinner'
 import AgentPanel from '../panels/AgentPanel'
-import FileExplorer from '../panels/FileExplorer'
 
 interface Props {
   workspaceId: string
   onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
 }
 
+// Dev Tools panels. The canonical `editor` and `content-search` panels are
+// served through the renderer host (gated on the dev-tools module). These local
+// lazy consts back the panels that take extra props the host contract omits:
+// `file-editor` (a per-file editor with a `filePath`) and `explorer`
+// (`onStartFuturePlan`). They share the editor/explorer chunks with the
+// host-served panels, so a disabled dev-tools module ships none of them.
 const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
-const ContentSearchPanel = React.lazy(() => import('../panels/ContentSearchPanel'))
+const FileExplorer = React.lazy(() => import('../panels/FileExplorer'))
 const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
 // Local lazy const for the defensive fixed-view fallbacks below; the canonical
@@ -315,6 +320,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
   // is neither openable (PanelRail hides it) nor rendered (factory falls back to
   // an empty surface for any stale persisted layout that still references it).
   const memoryEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'memory-graph'))
+  const devToolsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'dev-tools'))
   const gitEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'git'))
   const switchboardEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'switchboard'))
   const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
@@ -361,16 +367,26 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
               shouldKillTerminalOnUnmount={shouldKillTerminalOnUnmount}
             />
           )
-        case 'editor':
-          return timedPanel('EditorPanel', <EditorPanel workspaceId={workspaceId} />)
+        case 'editor': {
+          const Panel = devToolsEnabled ? getRendererHost().getPanel('editor') : undefined
+          return Panel
+            ? timedPanel('EditorPanel', <Panel workspaceId={workspaceId} />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
+        }
         case 'file-editor':
-          return config?.filePath
+          return devToolsEnabled && config?.filePath
             ? timedPanel('EditorPanel', <EditorPanel workspaceId={workspaceId} filePath={config.filePath} />)
             : <div className="h-full bg-[color:var(--bg-app)]" />
         case 'explorer':
-          return <FileExplorer workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />
-        case 'content-search':
-          return timedPanel('ContentSearchPanel', <ContentSearchPanel workspaceId={workspaceId} />)
+          return devToolsEnabled
+            ? timedPanel('FileExplorer', <FileExplorer workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
+        case 'content-search': {
+          const Panel = devToolsEnabled ? getRendererHost().getPanel('content-search') : undefined
+          return Panel
+            ? timedPanel('ContentSearchPanel', <Panel workspaceId={workspaceId} />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
+        }
         case 'git': {
           const Panel = gitEnabled ? getRendererHost().getPanel('git') : undefined
           return Panel
@@ -485,7 +501,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return <div className="h-full bg-[color:var(--bg-app)]" />
       }
     },
-    [memoryEnabled, gitEnabled, switchboardEnabled, multiloopEnabled, sprintEngineEnabled, onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
+    [memoryEnabled, devToolsEnabled, gitEnabled, switchboardEnabled, multiloopEnabled, sprintEngineEnabled, onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
   )
 
   const cleanupNode = useCallback(
