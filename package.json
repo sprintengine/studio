@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node scripts/dev.js",
     "dev": "node scripts/dev.js",
-    "build": "electron-vite build",
+    "build": "electron-vite build && node scripts/check-bundle-budget.mjs",
     "dist": "electron-vite build && electron-builder",
     "dist:win": "electron-vite build && electron-builder --win",
     "dist:mac": "electron-vite build && electron-builder --mac",

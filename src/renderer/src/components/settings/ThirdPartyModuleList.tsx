@@ -7,9 +7,10 @@ import { GhostButton, StatusDot, Switch } from '../ui'
 
 // Settings → Modules: the third-party (installed-from-disk) module group. It
 // installs, validates, and trust-classifies modules; trusting one persists to
-// the trust store. Third-party code is NOT executed yet — the isolated runtime
-// (utilityProcess + brokered, permission-enforcing channel) is a later Phase 7
-// increment — so this surface is the install + review + trust workflow.
+// the trust store. Third-party code is NOT executed yet — in-process loading of
+// trusted modules (signing + trusted publisher, the IDE-plugin model — no sandbox)
+// is a later Phase 7 increment — so this surface is the install + review + trust
+// workflow.
 
 type TrustPresentation = { tone: Tone; label: string }
 

@@ -1,11 +1,12 @@
 // Tier 2 third-party capability modules: the permission vocabulary.
 //
-// A third-party module declares, in its manifest, the capabilities it needs. The
-// list is shown to the user at install/trust time (a consent prompt) and is the
-// contract the isolation runtime will enforce once it lands (utilityProcess +
-// brokered channel — a later Phase 7 increment). This is deliberately separate
-// from the BYO-CLI `permissionPresets` (which are opaque launch-arg bundles for a
-// CLI, not capability scopes for code).
+// A third-party module declares, in its manifest, the capabilities it needs. In
+// the v1 security model (signing + trusted publisher, in-process execution — the
+// IDE-plugin model), this list is install-time DISCLOSURE shown before you trust a
+// module, not a runtime-enforced cage. Runtime enforcement (a permission broker)
+// is only needed in a future open-ecosystem phase that runs non-trusted authors'
+// code. This is deliberately separate from the BYO-CLI `permissionPresets`
+// (opaque launch-arg bundles for a CLI, not capability scopes for code).
 //
 // See future-plans/2026-05-28-feature-level-pluggable-architecture.md (Phase 7).
 
