@@ -67,6 +67,8 @@ const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBo
 const SprintEngineRunSummaryPanel = React.lazy(() => import('../panels/SprintEngineRunSummaryPanel'))
 const SprintEnginePlanReaderPanel = React.lazy(() => import('../panels/SprintEnginePlanReaderPanel'))
 const GuidedBriefWorkspacePanel = React.lazy(() => import('./guidedBrief/GuidedBriefWorkspacePanel'))
+// Shown for a disabled module's panel or an unknown/stale layout component.
+const EMPTY_SURFACE = <div className="h-full bg-[color:var(--bg-app)]" />
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const loadedPanelComponents = new Set<string>()
 type AgentTabActivity = 'needs-input' | 'working' | 'failed' | 'idle'
@@ -316,19 +318,22 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
     })
   }, [workspace.agents, workspace.mode, workspace.sprintEngineState?.sprintEngineAgents])
 
-  // Capability-module gate. When the Memory Graph module is disabled the panel
-  // is neither openable (PanelRail hides it) nor rendered (factory falls back to
-  // an empty surface for any stale persisted layout that still references it).
-  const memoryEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'memory-graph'))
-  const devToolsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'dev-tools'))
-  const gitEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'git'))
-  const switchboardEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'switchboard'))
-  const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
-  const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
+  // Capability-module gate. Host-registered panels (editor, git, sprintengine,
+  // switchboard, multiloop, memory-graph, …) are gated generically in the
+  // factory's default case by their owning module's enablement, so a disabled
+  // module's panel falls back to an empty surface and PanelRail hides its
+  // button. Only the panels with bespoke props (file-editor, explorer, the
+  // sprintengine fixed-view/summary fallbacks, guided-brief, git-conflict) need
+  // an explicit gated arm below; those read enablement from this single
+  // overrides object.
+  const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
 
   const factory = useCallback(
     (node: TabNode) => {
       const component = node.getComponent()
+      const devToolsEnabled = selectModuleEnabled(moduleOverrides, 'dev-tools')
+      const gitEnabled = selectModuleEnabled(moduleOverrides, 'git')
+      const sprintEngineEnabled = selectModuleEnabled(moduleOverrides, 'sprint-engine')
       const config = node.getConfig() as {
         agentId?: string
         terminalId?: string
@@ -357,6 +362,13 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         )
       }
 
+      // Arms below are only for components the host can't serve generically:
+      // always-on chrome (agent, terminal) and panels that take bespoke props
+      // (file-editor's filePath, explorer's onStartFuturePlan, git-conflict's
+      // paths, the sprintengine fixed-view/summary fallbacks, guided-brief).
+      // Every plain `{ workspaceId }` host panel — editor, content-search, git,
+      // sprintengine, multiloop-board, switchboard-*, memory-graph — falls
+      // through to `default`, which renders it gated by its owning module.
       switch (component) {
         case 'agent':
           return (
@@ -367,32 +379,14 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
               shouldKillTerminalOnUnmount={shouldKillTerminalOnUnmount}
             />
           )
-        case 'editor': {
-          const Panel = devToolsEnabled ? getRendererHost().getPanel('editor') : undefined
-          return Panel
-            ? timedPanel('EditorPanel', <Panel workspaceId={workspaceId} />)
-            : <div className="h-full bg-[color:var(--bg-app)]" />
-        }
         case 'file-editor':
           return devToolsEnabled && config?.filePath
             ? timedPanel('EditorPanel', <EditorPanel workspaceId={workspaceId} filePath={config.filePath} />)
-            : <div className="h-full bg-[color:var(--bg-app)]" />
+            : EMPTY_SURFACE
         case 'explorer':
           return devToolsEnabled
             ? timedPanel('FileExplorer', <FileExplorer workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />)
-            : <div className="h-full bg-[color:var(--bg-app)]" />
-        case 'content-search': {
-          const Panel = devToolsEnabled ? getRendererHost().getPanel('content-search') : undefined
-          return Panel
-            ? timedPanel('ContentSearchPanel', <Panel workspaceId={workspaceId} />)
-            : <div className="h-full bg-[color:var(--bg-app)]" />
-        }
-        case 'git': {
-          const Panel = gitEnabled ? getRendererHost().getPanel('git') : undefined
-          return Panel
-            ? timedPanel('GitPanel', <Panel workspaceId={workspaceId} />)
-            : <div className="h-full bg-[color:var(--bg-app)]" />
-        }
+            : EMPTY_SURFACE
         case 'git-conflict':
           return gitEnabled && config?.repoRoot && config.filePath
             ? timedPanel('GitConflictResolverPanel', (
@@ -402,7 +396,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
                 filePath={config.filePath}
               />
             ))
-            : <div className="h-full bg-[color:var(--bg-app)]" />
+            : EMPTY_SURFACE
         case 'terminal':
           return wrapWithHighlight(timedPanel('PlainTerminalPanel', (
             <PlainTerminalPanel
@@ -411,33 +405,21 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
               shouldKillOnUnmount={shouldKillTerminalOnUnmount}
             />
           )))
-        case 'sprintengine': {
-          const Panel = sprintEngineEnabled ? getRendererHost().getPanel('sprintengine') : undefined
-          return Panel
-            ? timedPanel('SprintEngineBoardPanel', <Panel workspaceId={workspaceId} />)
-            : <div className="h-full bg-[color:var(--bg-app)]" />
-        }
         // Defensive fallbacks for stale layouts that escaped migration — the
         // canonical layout now uses a single 'sprintengine' tab whose internal
         // segmented chrome covers all three views.
         case 'sprintengine-inbox':
           return sprintEngineEnabled
             ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="inbox" />)
-            : <div className="h-full bg-[color:var(--bg-app)]" />
+            : EMPTY_SURFACE
         case 'sprintengine-roster':
           return sprintEngineEnabled
             ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="roster" />)
-            : <div className="h-full bg-[color:var(--bg-app)]" />
+            : EMPTY_SURFACE
         case 'sprintengine-tasks':
           return sprintEngineEnabled
             ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="tasks" />)
-            : <div className="h-full bg-[color:var(--bg-app)]" />
-        case 'multiloop-board': {
-          const Panel = multiloopEnabled ? getRendererHost().getPanel('multiloop-board') : undefined
-          return Panel
-            ? timedPanel('MultiloopBoardPanel', <Panel workspaceId={workspaceId} />)
-            : <div className="h-full bg-[color:var(--bg-app)]" />
-        }
+            : EMPTY_SURFACE
         case 'guided-brief':
           // Guided Brief hands its build off to a Sprint Engine run, so it
           // follows sprint-engine enablement: a stale guided-brief workspace
@@ -447,34 +429,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
               'GuidedBriefWorkspacePanel',
               <GuidedBriefWorkspacePanel workspaceId={workspaceId} />
             )
-            : <div className="h-full bg-[color:var(--bg-app)]" />
-        case 'switchboard-workspace': {
-          const Panel = switchboardEnabled ? getRendererHost().getPanel('switchboard-workspace') : undefined
-          return Panel
-            ? timedPanel('SwitchboardWorkspacePanel', <Panel workspaceId={workspaceId} />)
-            : <div className="h-full bg-[color:var(--bg-app)]" />
-        }
-        // Defensive fallbacks for stale layouts that escaped migration — the
-        // canonical Switchboard layout now uses a single 'switchboard-workspace'
-        // tab whose internal sub-nav covers Watchtower + Switchboard.
-        case 'watchtower-panel': {
-          const Panel = switchboardEnabled ? getRendererHost().getPanel('watchtower-panel') : undefined
-          return Panel
-            ? timedPanel('WatchtowerPanel', <Panel workspaceId={workspaceId} />)
-            : <div className="h-full bg-[color:var(--bg-app)]" />
-        }
-        case 'switchboard-board': {
-          const Panel = switchboardEnabled ? getRendererHost().getPanel('switchboard-board') : undefined
-          return Panel
-            ? timedPanel('SwitchboardBoardPanel', <Panel workspaceId={workspaceId} />)
-            : <div className="h-full bg-[color:var(--bg-app)]" />
-        }
-        case 'memory-graph': {
-          const MemoryPanel = memoryEnabled ? getRendererHost().getPanel('memory-graph') : undefined
-          return MemoryPanel
-            ? timedPanel('MemoryGraphPanel', <MemoryPanel workspaceId={workspaceId} />)
-            : <div className="h-full bg-[color:var(--bg-app)]" />
-        }
+            : EMPTY_SURFACE
         case 'sprintengine-run-summary':
           return sprintEngineEnabled
             ? timedPanel('SprintEngineRunSummaryPanel', (
@@ -485,7 +440,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
                 }}
               />
             ))
-            : <div className="h-full bg-[color:var(--bg-app)]" />
+            : EMPTY_SURFACE
         case 'sprintengine-plan-reader':
           return sprintEngineEnabled
             ? timedPanel('SprintEnginePlanReaderPanel', (
@@ -496,12 +451,21 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
                 }}
               />
             ))
-            : <div className="h-full bg-[color:var(--bg-app)]" />
-        default:
-          return <div className="h-full bg-[color:var(--bg-app)]" />
+            : EMPTY_SURFACE
+        default: {
+          // Host-registered panels: render the registered component gated by its
+          // owning module's enablement. A disabled module (or an unknown/stale
+          // component) falls back to an empty surface.
+          const host = getRendererHost()
+          const Panel = component ? host.getPanel(component) : undefined
+          if (!Panel) return EMPTY_SURFACE
+          const moduleId = host.getPanelModule(component!)
+          if (moduleId && !selectModuleEnabled(moduleOverrides, moduleId)) return EMPTY_SURFACE
+          return timedPanel(component!, <Panel workspaceId={workspaceId} />)
+        }
       }
     },
-    [memoryEnabled, devToolsEnabled, gitEnabled, switchboardEnabled, multiloopEnabled, sprintEngineEnabled, onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
+    [moduleOverrides, onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
   )
 
   const cleanupNode = useCallback(

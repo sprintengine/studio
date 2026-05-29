@@ -499,13 +499,14 @@ export default function SettingsPanel({
     }
   }, [initialTab])
 
-  // If the Mobile module is disabled while its tab is active, fall back to a
-  // visible tab so the panel body never goes blank on a hidden tab.
+  // If the active tab is no longer visible (e.g. the Mobile module was disabled
+  // while its tab was active), fall back to the first visible tab so the panel
+  // body never goes blank on a hidden tab.
   useEffect(() => {
-    if (!mobileRelayEnabled && activeSettingsTab === 'mobile') {
-      setActiveSettingsTab('updates')
+    if (!visibleSettingsTabs.some((tab) => tab.id === activeSettingsTab)) {
+      setActiveSettingsTab(visibleSettingsTabs[0]?.id ?? 'updates')
     }
-  }, [mobileRelayEnabled, activeSettingsTab])
+  }, [visibleSettingsTabs, activeSettingsTab])
   const tabRefs = useRef<Record<SettingsTabId, HTMLButtonElement | null>>({
     appearance: null,
     modules: null,

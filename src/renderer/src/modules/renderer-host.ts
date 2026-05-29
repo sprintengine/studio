@@ -21,20 +21,40 @@ export type WorkspacePanelComponent =
 
 export type RendererHost = {
   registerPanel(componentId: string, component: WorkspacePanelComponent): void
-  getPanel(componentId: string): WorkspacePanelComponent | undefined
 }
 
-export function createRendererHost(): RendererHost {
+// The kernel owns the registries and is consumed by the factory/rail. Modules
+// register through a scoped `hostFor(moduleId)` (mirroring the main-process
+// MainKernel) so each panel records its owning module — that's what lets the
+// factory gate a host panel by its module's enablement without a per-feature
+// switch arm.
+export type RendererKernel = {
+  hostFor(moduleId: string): RendererHost
+  getPanel(componentId: string): WorkspacePanelComponent | undefined
+  /** The capability module that registered the panel, for enablement gating. */
+  getPanelModule(componentId: string): string | undefined
+}
+
+export function createRendererHost(): RendererKernel {
   const panels = new Map<string, WorkspacePanelComponent>()
+  const panelModules = new Map<string, string>()
   return {
-    registerPanel(componentId, component) {
-      if (panels.has(componentId)) {
-        throw new Error(`Renderer panel "${componentId}" is already registered.`)
+    hostFor(moduleId) {
+      return {
+        registerPanel(componentId, component) {
+          if (panels.has(componentId)) {
+            throw new Error(`Renderer panel "${componentId}" is already registered.`)
+          }
+          panels.set(componentId, component)
+          panelModules.set(componentId, moduleId)
+        },
       }
-      panels.set(componentId, component)
     },
     getPanel(componentId) {
       return panels.get(componentId)
+    },
+    getPanelModule(componentId) {
+      return panelModules.get(componentId)
     },
   }
 }

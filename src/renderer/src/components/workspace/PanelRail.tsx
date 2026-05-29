@@ -16,6 +16,9 @@ type PanelDescriptor = {
   tabName: string
   label: string
   shortcut?: string
+  // Capability module that gates this button; the rail hides it when the module
+  // is disabled. (All current rail panels belong to a module.)
+  moduleId: string
   // Inline SVGs so we stay aligned with the existing 14–18 px stroke-1.3 chrome
   // used by WorkspaceTopBar buttons and the sidebar collapse glyph.
   icon: (props: { className?: string }) => JSX.Element
@@ -24,6 +27,7 @@ type PanelDescriptor = {
 const PANELS: PanelDescriptor[] = [
   {
     key: 'explorer',
+    moduleId: 'dev-tools',
     tabName: 'Files',
     label: 'Files',
     shortcut: 'Ctrl+Shift+E',
@@ -40,6 +44,7 @@ const PANELS: PanelDescriptor[] = [
   },
   {
     key: 'editor',
+    moduleId: 'dev-tools',
     tabName: 'Editor',
     label: 'Editor',
     shortcut: 'Ctrl+Shift+O',
@@ -57,6 +62,7 @@ const PANELS: PanelDescriptor[] = [
   },
   {
     key: 'git',
+    moduleId: 'git',
     tabName: 'Git',
     label: 'Git',
     shortcut: 'Ctrl+Shift+G',
@@ -71,6 +77,7 @@ const PANELS: PanelDescriptor[] = [
   },
   {
     key: 'memory-graph',
+    moduleId: 'memory-graph',
     tabName: 'Knowledge Graph',
     label: 'Knowledge Graph',
     icon: ({ className }) => (
@@ -105,18 +112,10 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
     (state) => state.workspaces.find((workspace) => workspace.id === workspaceId)?.folderPath ?? null
   )
 
-  // Hide a panel button when its capability module is disabled. The Files and
-  // Editor buttons gate on the dev-tools module; Git and Knowledge Graph on
-  // their own modules.
-  const memoryEnabled = useWorkspaceStore((state) => selectModuleEnabled(state.appSettings.modules, 'memory-graph'))
-  const gitEnabled = useWorkspaceStore((state) => selectModuleEnabled(state.appSettings.modules, 'git'))
-  const devToolsEnabled = useWorkspaceStore((state) => selectModuleEnabled(state.appSettings.modules, 'dev-tools'))
-  const panels = PANELS.filter((panel) => {
-    if (panel.key === 'memory-graph') return memoryEnabled
-    if (panel.key === 'git') return gitEnabled
-    if (panel.key === 'explorer' || panel.key === 'editor') return devToolsEnabled
-    return true
-  })
+  // Hide a panel button when its capability module is disabled — driven by each
+  // descriptor's moduleId, so a new gated rail panel just sets moduleId.
+  const moduleOverrides = useWorkspaceStore((state) => state.appSettings.modules)
+  const panels = PANELS.filter((panel) => selectModuleEnabled(moduleOverrides, panel.moduleId))
 
   // Source of truth for the git change count badge on the Git rail icon
   // (consolidated here when the top-bar git button was retired).
