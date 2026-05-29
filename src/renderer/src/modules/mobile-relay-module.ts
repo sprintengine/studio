@@ -17,5 +17,6 @@ export const mobileRelayRendererModule: RendererModule = {
     category: 'connectivity',
     summary: 'Pair a phone with the desktop app over an encrypted relay to drive agents remotely.',
     defaultEnabled: true,
+    dependsOn: ['agent-runtime'],
   },
 }

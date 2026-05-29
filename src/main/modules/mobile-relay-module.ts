@@ -24,6 +24,9 @@ export const mobileRelayModule: CapabilityModule = {
     category: 'connectivity',
     summary: 'Pair a phone with the desktop app over an encrypted relay to drive agents remotely.',
     defaultEnabled: true,
+    // Needs the agent runtime (terminal command service) and auth, both seeded
+    // by the agent-runtime core module via the service bridge.
+    dependsOn: ['agent-runtime'],
   },
   registerMain(host) {
     const terminalRuntime = host.requireService(TerminalRuntimeToken)

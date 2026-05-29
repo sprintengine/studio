@@ -14,6 +14,7 @@ export const multiloopModule: CapabilityModule = {
     category: 'orchestration',
     summary: 'Milestone-driven loop: roadmap, active work, blockers, and evidence.',
     defaultEnabled: true,
+    dependsOn: ['agent-runtime'],
   },
   registerMain(host) {
     host.registerSidecar({
