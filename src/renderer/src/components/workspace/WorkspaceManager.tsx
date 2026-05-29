@@ -3,7 +3,7 @@ import { Actions, DockLocation, TabNode, TabSetNode, type Model } from 'flexlayo
 import { nanoid } from 'nanoid'
 import CommandPalette from '../CommandPalette'
 import { TipStartupModal } from '../learn/TipStartupModal'
-import ModuleChooserOverlay from '../settings/ModuleChooserOverlay'
+import OnboardingFlow from '../onboarding/OnboardingFlow'
 import SettingsOverlay from '../settings/SettingsOverlay'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -96,7 +96,8 @@ export default function WorkspaceManager() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
-  const modulesChosen = useWorkspaceStore((s) => s.appSettings.modulesChosen)
+  const onboardingStep = useWorkspaceStore((s) => s.appSettings.onboardingStep)
+  const advanceOnboarding = useWorkspaceStore((s) => s.advanceOnboarding)
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
   const removeWorkspace = useWorkspaceStore((s) => s.removeWorkspace)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
@@ -338,8 +339,13 @@ export default function WorkspaceManager() {
   }, [mobileWorkspaceRootKey])
 
   useEffect(() => {
-    if (workspaces.length === 0) setShowNewWorkspacePanel(true)
-  }, [workspaces.length])
+    // Auto-open the new-workspace panel when there are no workspaces — but during
+    // onboarding hold off until the flow reaches its workspace step, so the panel
+    // doesn't pop behind the welcome/modules overlay.
+    if (workspaces.length === 0 && (onboardingStep === 'workspace' || onboardingStep === 'complete')) {
+      setShowNewWorkspacePanel(true)
+    }
+  }, [workspaces.length, onboardingStep])
 
   useEffect(() => {
     let disposed = false
@@ -698,6 +704,8 @@ export default function WorkspaceManager() {
     addWorkspace(template, { name, folderPath, sprintEngineState, sprintEngineContext, sprintEngineRoleCliDefaults, sprintEngineAutoState, mode })
     setShowNewWorkspacePanel(false)
     setNewWorkspacePanelInitialState(null)
+    // Creating the first workspace is the final onboarding step → mark complete.
+    if (onboardingStep !== 'complete') advanceOnboarding()
   }
 
   const deleteWorkspaceWithState = useCallback(
@@ -1196,7 +1204,7 @@ export default function WorkspaceManager() {
           )}
         </div>
         <SettingsOverlay />
-        {!modulesChosen ? <ModuleChooserOverlay /> : null}
+        <OnboardingFlow />
       </div>
       </div>
       </div>

@@ -3,6 +3,7 @@ import { createJSONStorage, persist, type StateStorage } from 'zustand/middlewar
 import { immer } from 'zustand/middleware/immer'
 import type { IJsonModel } from 'flexlayout-react'
 import type { ModuleProfileId } from '../../../shared/modules/profiles'
+import type { OnboardingStep } from './onboardingState'
 import type {
   Workspace,
   WorkspaceId,
@@ -140,6 +141,8 @@ interface WorkspaceStore {
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   applyModuleProfile: (profileId: ModuleProfileId) => void
   setModulesChosen: (chosen: boolean) => void
+  setOnboardingStep: (step: OnboardingStep) => void
+  advanceOnboarding: () => void
   setLearningShowTipsOnStartup: (enabled: boolean) => void
   markLearningTipSeen: (tipId: string) => void
   markLearningLessonCompleted: (lessonId: string, completed?: boolean) => void
