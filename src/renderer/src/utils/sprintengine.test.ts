@@ -54,7 +54,7 @@ import {
   buildSprintEngineRecoveryAuditPrompt,
   buildSprintEngineRosterRevisionPrompt,
 } from './sprintenginePlanReviewPrompts'
-import type { SprintEngineRoleRegistry, SprintEngineTask } from '../types/workspace'
+import type { SprintEngineRoleId, SprintEngineRoleRegistry, SprintEngineTask } from '../types/workspace'
 
 function fakeProjection(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
@@ -1268,7 +1268,7 @@ assert.equal(getUserDisabledSprintEngineRoleIds({ enabled: {} }).size, 0)
 // Sprint Engine role option derivation (extracted utility)
 // ---------------------------------------------------------------------------
 type FakeRoster = { role: string }[]
-type FakeTask = { role: string; status: string }
+type FakeTask = { role: string; status: SprintEngineTask['status'] }
 
 // AC: bundled fallback constant exists and matches the canonical bundled
 // order. Custom registry roles are not required to appear when no registry
