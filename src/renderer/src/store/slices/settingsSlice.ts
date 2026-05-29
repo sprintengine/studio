@@ -17,6 +17,11 @@ import type {
   UsageTelemetrySettings,
   Workspace,
 } from '../../types/workspace'
+import {
+  advanceOnboardingStep,
+  resolveInitialOnboardingStep,
+  type OnboardingStep,
+} from '../onboardingState'
 import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
 import { moduleProfile, profileOverrides, type ModuleProfileId } from '../../../../shared/modules/profiles'
@@ -385,6 +390,7 @@ export const defaultAppSettings = (): AppSettings => ({
   appearance: defaultAppearanceSettings(),
   modules: {},
   modulesChosen: false,
+  onboardingStep: 'welcome',
 })
 
 export function normalizeAppSettings(settings: Partial<AppSettings> | undefined, workspaces: Workspace[]): AppSettings {
@@ -417,6 +423,14 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     // Existing installs (already have workspaces) are treated as chosen so the
     // first-run chooser only appears for a genuinely fresh install.
     modulesChosen: settings?.modulesChosen ?? workspaces.length > 0,
+    // Resume a persisted onboarding step; fresh installs start at 'welcome',
+    // existing installs (workspaces present, or legacy modulesChosen) resolve to
+    // 'complete' so upgrades never re-onboard.
+    onboardingStep: resolveInitialOnboardingStep({
+      persisted: settings?.onboardingStep,
+      modulesChosen: settings?.modulesChosen,
+      hasWorkspaces: workspaces.length > 0,
+    }),
   }
 }
 
@@ -447,6 +461,10 @@ export interface SettingsSliceActions {
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   applyModuleProfile: (profileId: ModuleProfileId) => void
   setModulesChosen: (chosen: boolean) => void
+  /** Set the onboarding step explicitly. */
+  setOnboardingStep: (step: OnboardingStep) => void
+  /** Advance onboarding to the next step (welcome → modules → workspace → complete). */
+  advanceOnboarding: () => void
   setSearchExcludes: (patterns: string[]) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setLearningShowTipsOnStartup: (enabled: boolean) => void
@@ -632,6 +650,20 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setModulesChosen: (chosen) =>
       set((state) => {
         state.appSettings.modulesChosen = chosen
+      }),
+
+    setOnboardingStep: (step) =>
+      set((state) => {
+        state.appSettings.onboardingStep = step
+      }),
+
+    advanceOnboarding: () =>
+      set((state) => {
+        const next = advanceOnboardingStep(state.appSettings.onboardingStep)
+        state.appSettings.onboardingStep = next
+        // Keep the legacy modulesChosen flag consistent: once onboarding moves
+        // past the modules step, the user has made their first-run choice.
+        if (next === 'workspace' || next === 'complete') state.appSettings.modulesChosen = true
       }),
 
     setSearchExcludes: (patterns) =>
