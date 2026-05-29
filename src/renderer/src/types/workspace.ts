@@ -1,4 +1,5 @@
 import type { IJsonModel } from 'flexlayout-react'
+import type { OnboardingStep } from '../store/onboardingState'
 
 export type WorkspaceId = string
 export type AgentId = string
@@ -1151,6 +1152,12 @@ export type AppSettings = {
    * as already-chosen so an upgrade never interrupts them.
    */
   modulesChosen: boolean
+  /**
+   * Current step of the first-run onboarding flow (welcome → modules → workspace
+   * → complete). Fresh installs start at 'welcome'; existing installs resolve to
+   * 'complete'. See store/onboardingState.ts.
+   */
+  onboardingStep: OnboardingStep
 }
 
 export type GuidedBriefHasUi = 'yes' | 'no'
