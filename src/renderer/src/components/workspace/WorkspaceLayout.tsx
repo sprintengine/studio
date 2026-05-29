@@ -52,7 +52,6 @@ interface Props {
 
 const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
 const ContentSearchPanel = React.lazy(() => import('../panels/ContentSearchPanel'))
-const GitPanel = React.lazy(() => import('../panels/GitPanel'))
 const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
 const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBoardPanel'))
@@ -310,6 +309,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
   // is neither openable (PanelRail hides it) nor rendered (factory falls back to
   // an empty surface for any stale persisted layout that still references it).
   const memoryEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'memory-graph'))
+  const gitEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'git'))
   const switchboardEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'switchboard'))
   const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
 
@@ -364,10 +364,14 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return <FileExplorer workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />
         case 'content-search':
           return timedPanel('ContentSearchPanel', <ContentSearchPanel workspaceId={workspaceId} />)
-        case 'git':
-          return timedPanel('GitPanel', <GitPanel workspaceId={workspaceId} />)
+        case 'git': {
+          const Panel = gitEnabled ? getRendererHost().getPanel('git') : undefined
+          return Panel
+            ? timedPanel('GitPanel', <Panel workspaceId={workspaceId} />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
+        }
         case 'git-conflict':
-          return config?.repoRoot && config.filePath
+          return gitEnabled && config?.repoRoot && config.filePath
             ? timedPanel('GitConflictResolverPanel', (
               <GitConflictResolverPanel
                 workspaceId={workspaceId}
@@ -455,7 +459,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return <div className="h-full bg-[color:var(--bg-app)]" />
       }
     },
-    [memoryEnabled, switchboardEnabled, multiloopEnabled, onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
+    [memoryEnabled, gitEnabled, switchboardEnabled, multiloopEnabled, onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
   )
 
   const cleanupNode = useCallback(

@@ -109,7 +109,12 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
   // the first module wired through this gate; other rail panels are always on
   // until they're migrated.
   const memoryEnabled = useWorkspaceStore((state) => selectModuleEnabled(state.appSettings.modules, 'memory-graph'))
-  const panels = PANELS.filter((panel) => panel.key !== 'memory-graph' || memoryEnabled)
+  const gitEnabled = useWorkspaceStore((state) => selectModuleEnabled(state.appSettings.modules, 'git'))
+  const panels = PANELS.filter((panel) => {
+    if (panel.key === 'memory-graph') return memoryEnabled
+    if (panel.key === 'git') return gitEnabled
+    return true
+  })
 
   // Source of truth for the git change count badge on the Git rail icon
   // (consolidated here when the top-bar git button was retired).

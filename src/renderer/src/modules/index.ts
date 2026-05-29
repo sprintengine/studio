@@ -1,4 +1,5 @@
 import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../shared/modules/manifest'
+import { gitRendererModule } from './git-module'
 import { memoryRendererModule } from './memory-module'
 import { multiloopRendererModule } from './multiloop-module'
 import { switchboardRendererModule } from './switchboard-module'
@@ -9,6 +10,7 @@ import { createRendererHost, isModuleEnabled, type RendererModule } from './rend
 // hardcoded factory switch / panel rail.
 export const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   memoryRendererModule,
+  gitRendererModule,
   switchboardRendererModule,
   multiloopRendererModule,
 ]
