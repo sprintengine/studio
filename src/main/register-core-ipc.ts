@@ -11,6 +11,7 @@ import { registerMcpIpc } from './ipc/mcp-ipc'
 import { registerMemoryActivityIpc } from './ipc/memory-activity-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
 import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
+import { registerModuleEnablementIpc } from './ipc/module-enablement-ipc'
 import { registerSkillPackIpc } from './ipc/skill-pack-ipc'
 import { registerSoulsIpc } from './ipc/souls-ipc'
 import { registerUpdateIpc } from './ipc/update-ipc'
@@ -32,6 +33,10 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
   registerSkillPackIpc(ipcMain, services.skillPackService)
   registerFilesystemWatchSearchIpc(ipcMain, createFilesystemWatchSearchHandlers())
   registerFilesystemReadIpc(ipcMain, createFilesystemReadHandlers())
+  // Memory/knowledge-graph backend is foundational: agent context injection
+  // (TerminalView, Sprint Engine auto-run) and the Knowledge Graph settings tab
+  // depend on it, so it is always registered. The memory-graph capability
+  // module gates only the visualization panel (renderer side).
   registerMemoryIpc(ipcMain)
   registerMemoryActivityIpc(ipcMain)
   registerDiagnosticsIpc(ipcMain, {
@@ -51,4 +56,5 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
   })
   registerGitHubTokenIpc(ipcMain, services.githubTokenStore)
   registerMenuDialogIpc(ipcMain)
+  registerModuleEnablementIpc(ipcMain)
 }

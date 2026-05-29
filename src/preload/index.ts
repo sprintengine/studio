@@ -7,6 +7,7 @@ import { filesystemApi } from './api/filesystem'
 import { gitApi } from './api/git'
 import { memoryActivityApi } from './api/memoryActivity'
 import { mcpApi } from './api/mcp'
+import { modulesApi } from './api/modules'
 import { skillPackApi } from './api/skill-pack'
 import { mobileBridgeApi } from './api/mobile-bridge'
 import { multiloopApi } from './api/multiloop'
@@ -31,6 +32,7 @@ const api = {
   ...gitApi,
   ...memoryActivityApi,
   ...mcpApi,
+  ...modulesApi,
   ...skillPackApi,
   ...sprintEngineApi,
   ...switchboardApi,

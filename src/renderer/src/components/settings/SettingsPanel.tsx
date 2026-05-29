@@ -33,6 +33,7 @@ import {
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import LearnCenter from '../learn/LearnCenter'
 import MobileSettingsTab from './MobileSettingsTab'
+import { ModulesSettingsTab } from './ModulesSettingsTab'
 import {
   McpBrandIcon,
   McpCatalogTile,
@@ -83,6 +84,7 @@ const MCP_TRANSPORT_ITEMS: SelectItem<'stdio' | 'http'>[] = [
 
 type SettingsTabId =
   | 'appearance'
+  | 'modules'
   | 'updates'
   | 'github'
   | 'agents'
@@ -97,6 +99,7 @@ type SettingsTabId =
 
 const settingsTabs: Array<{ id: SettingsTabId; label: string; description: string }> = [
   { id: 'appearance', label: 'Appearance', description: 'Theme and visual style' },
+  { id: 'modules', label: 'Modules', description: 'Enable or disable features' },
   { id: 'updates', label: 'Updates', description: 'Version and release channel' },
   { id: 'github', label: 'GitHub', description: 'Issue import token' },
   { id: 'agents', label: 'Agents', description: 'CLI runtime commands' },
@@ -113,6 +116,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
 function isSettingsTabId(value: unknown): value is SettingsTabId {
   return (
     value === 'appearance'
+    || value === 'modules'
     || value === 'updates'
     || value === 'github'
     || value === 'agents'
@@ -489,6 +493,7 @@ export default function SettingsPanel({
   }, [initialTab])
   const tabRefs = useRef<Record<SettingsTabId, HTMLButtonElement | null>>({
     appearance: null,
+    modules: null,
     updates: null,
     github: null,
     agents: null,
@@ -2037,6 +2042,8 @@ export default function SettingsPanel({
           <LearnCenter onSettingsTab={onOpenSettingsTab} />
         </div>
       ) : null}
+
+      {activeSettingsTab === 'modules' ? <ModulesSettingsTab /> : null}
 
       {activeSettingsTab === 'mobile' ? <MobileSettingsTab /> : null}
 

@@ -15,12 +15,7 @@ import { createTerminalRuntime } from './terminal-runtime'
 import { MulticodeUpdateService } from './update-service'
 import { GitHubTokenStore } from './github-token-store'
 import { createWorkspaceBackupService } from './workspace-backup'
-import {
-  configureSwitchboardRuntimeInventoryProvider,
-  configureSwitchboardSessionSpawner,
-  configureSwitchboardSessionStopper,
-  recordSwitchboardSessionExit,
-} from './switchboard-files'
+import { recordSwitchboardSessionExit } from './switchboard-files'
 import { writeDiagnosticLog } from './diagnostics-service'
 
 export function createAppServices(diagnosticsEnabled: boolean) {
@@ -76,9 +71,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     workspaceRootsProvider: async () => mobileWorkspaceRoots,
   })
 
-  configureSwitchboardSessionSpawner(terminalRuntime.spawnAgentSession)
-  configureSwitchboardSessionStopper(terminalRuntime.killAgentSession)
-  configureSwitchboardRuntimeInventoryProvider(() => terminalRuntime.getLiveAgentExecutionIds())
+  // Switchboard session spawner/stopper/inventory wiring moved to the
+  // switchboard capability module (registered through the host kernel).
 
   const workspaceBackupService = createWorkspaceBackupService({
     resolveUserDataDir: () => app.getPath('userData'),

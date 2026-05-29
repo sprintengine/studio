@@ -17,6 +17,13 @@ type RegisterAppLifecycleOptions = {
   sprintEngineMcpHub?: {
     stop(): Promise<void>
   }
+  // Capability-module kernel: runs module startup hooks on ready and shutdown
+  // hooks on quit. Currently no bundled module registers hooks, so these are
+  // no-ops, but this is the integration point for module-owned lifecycle.
+  moduleKernel?: {
+    runStartup(): Promise<void>
+    runShutdown(): Promise<void>
+  }
   updateService: MulticodeUpdateService
   handleAuthCallback(argv: string[]): void
 }
@@ -26,6 +33,7 @@ export function registerAppLifecycle({
   mobileBridge,
   terminalRuntime,
   sprintEngineMcpHub,
+  moduleKernel,
   updateService,
   handleAuthCallback,
 }: RegisterAppLifecycleOptions): void {
@@ -60,6 +68,7 @@ export function registerAppLifecycle({
 
     Menu.setApplicationMenu(createAppMenu())
     createMainWindow({ diagnosticsEnabled })
+    void moduleKernel?.runStartup()
     handleAuthCallback(process.argv)
 
     if (app.isPackaged) {
@@ -87,6 +96,7 @@ export function registerAppLifecycle({
       await shutdownSwitchboardPythonRuntime()
       mobileBridge.shutdown()
       await releaseAllWorkspaceRunnerLocks()
+      await moduleKernel?.runShutdown()
     }
 
     void shutdown().finally(() => {

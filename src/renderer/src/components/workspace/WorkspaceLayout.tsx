@@ -20,6 +20,7 @@ import {
 import 'flexlayout-react/style/combined.css'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { getRendererHost, selectModuleEnabled } from '../../modules'
 import {
   isSessionFailed,
   isSessionWorking,
@@ -51,15 +52,9 @@ interface Props {
 
 const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
 const ContentSearchPanel = React.lazy(() => import('../panels/ContentSearchPanel'))
-const GitPanel = React.lazy(() => import('../panels/GitPanel'))
 const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
 const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBoardPanel'))
-const MultiloopBoardPanel = React.lazy(() => import('../panels/MultiloopBoardPanel'))
-const WatchtowerPanel = React.lazy(() => import('../panels/WatchtowerPanel'))
-const SwitchboardBoardPanel = React.lazy(() => import('../panels/SwitchboardBoardPanel'))
-const SwitchboardWorkspacePanel = React.lazy(() => import('../panels/SwitchboardWorkspacePanel'))
-const MemoryGraphPanel = React.lazy(() => import('../panels/MemoryGraphPanel'))
 const GuidedBriefWorkspacePanel = React.lazy(() => import('./guidedBrief/GuidedBriefWorkspacePanel'))
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const loadedPanelComponents = new Set<string>()
@@ -310,6 +305,14 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
     })
   }, [workspace.agents, workspace.mode, workspace.sprintEngineState?.sprintEngineAgents])
 
+  // Capability-module gate. When the Memory Graph module is disabled the panel
+  // is neither openable (PanelRail hides it) nor rendered (factory falls back to
+  // an empty surface for any stale persisted layout that still references it).
+  const memoryEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'memory-graph'))
+  const gitEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'git'))
+  const switchboardEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'switchboard'))
+  const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
+
   const factory = useCallback(
     (node: TabNode) => {
       const component = node.getComponent()
@@ -361,10 +364,14 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return <FileExplorer workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />
         case 'content-search':
           return timedPanel('ContentSearchPanel', <ContentSearchPanel workspaceId={workspaceId} />)
-        case 'git':
-          return timedPanel('GitPanel', <GitPanel workspaceId={workspaceId} />)
+        case 'git': {
+          const Panel = gitEnabled ? getRendererHost().getPanel('git') : undefined
+          return Panel
+            ? timedPanel('GitPanel', <Panel workspaceId={workspaceId} />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
+        }
         case 'git-conflict':
-          return config?.repoRoot && config.filePath
+          return gitEnabled && config?.repoRoot && config.filePath
             ? timedPanel('GitConflictResolverPanel', (
               <GitConflictResolverPanel
                 workspaceId={workspaceId}
@@ -392,27 +399,44 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="roster" />)
         case 'sprintengine-tasks':
           return timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="tasks" />)
-        case 'multiloop-board':
-          return timedPanel(
-            'MultiloopBoardPanel',
-            <MultiloopBoardPanel workspaceId={workspaceId} />
-          )
+        case 'multiloop-board': {
+          const Panel = multiloopEnabled ? getRendererHost().getPanel('multiloop-board') : undefined
+          return Panel
+            ? timedPanel('MultiloopBoardPanel', <Panel workspaceId={workspaceId} />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
+        }
         case 'guided-brief':
           return timedPanel(
             'GuidedBriefWorkspacePanel',
             <GuidedBriefWorkspacePanel workspaceId={workspaceId} />
           )
-        case 'switchboard-workspace':
-          return timedPanel('SwitchboardWorkspacePanel', <SwitchboardWorkspacePanel workspaceId={workspaceId} />)
+        case 'switchboard-workspace': {
+          const Panel = switchboardEnabled ? getRendererHost().getPanel('switchboard-workspace') : undefined
+          return Panel
+            ? timedPanel('SwitchboardWorkspacePanel', <Panel workspaceId={workspaceId} />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
+        }
         // Defensive fallbacks for stale layouts that escaped migration — the
         // canonical Switchboard layout now uses a single 'switchboard-workspace'
         // tab whose internal sub-nav covers Watchtower + Switchboard.
-        case 'watchtower-panel':
-          return timedPanel('WatchtowerPanel', <WatchtowerPanel workspaceId={workspaceId} />)
-        case 'switchboard-board':
-          return timedPanel('SwitchboardBoardPanel', <SwitchboardBoardPanel workspaceId={workspaceId} />)
-        case 'memory-graph':
-          return timedPanel('MemoryGraphPanel', <MemoryGraphPanel workspaceId={workspaceId} />)
+        case 'watchtower-panel': {
+          const Panel = switchboardEnabled ? getRendererHost().getPanel('watchtower-panel') : undefined
+          return Panel
+            ? timedPanel('WatchtowerPanel', <Panel workspaceId={workspaceId} />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
+        }
+        case 'switchboard-board': {
+          const Panel = switchboardEnabled ? getRendererHost().getPanel('switchboard-board') : undefined
+          return Panel
+            ? timedPanel('SwitchboardBoardPanel', <Panel workspaceId={workspaceId} />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
+        }
+        case 'memory-graph': {
+          const MemoryPanel = memoryEnabled ? getRendererHost().getPanel('memory-graph') : undefined
+          return MemoryPanel
+            ? timedPanel('MemoryGraphPanel', <MemoryPanel workspaceId={workspaceId} />)
+            : <div className="h-full bg-[color:var(--bg-app)]" />
+        }
         case 'sprintengine-run-summary':
           return (
             <SprintEngineRunSummaryPanel
@@ -435,7 +459,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           return <div className="h-full bg-[color:var(--bg-app)]" />
       }
     },
-    [onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
+    [memoryEnabled, gitEnabled, switchboardEnabled, multiloopEnabled, onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
   )
 
   const cleanupNode = useCallback(
