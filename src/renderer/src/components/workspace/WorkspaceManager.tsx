@@ -3,6 +3,7 @@ import { Actions, DockLocation, TabNode, TabSetNode, type Model } from 'flexlayo
 import { nanoid } from 'nanoid'
 import CommandPalette from '../CommandPalette'
 import { TipStartupModal } from '../learn/TipStartupModal'
+import ModuleChooserOverlay from '../settings/ModuleChooserOverlay'
 import SettingsOverlay from '../settings/SettingsOverlay'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -89,6 +90,7 @@ export default function WorkspaceManager() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
+  const modulesChosen = useWorkspaceStore((s) => s.appSettings.modulesChosen)
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
   const removeWorkspace = useWorkspaceStore((s) => s.removeWorkspace)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
@@ -1186,6 +1188,7 @@ export default function WorkspaceManager() {
           )}
         </div>
         <SettingsOverlay />
+        {!modulesChosen ? <ModuleChooserOverlay /> : null}
       </div>
       </div>
       </div>
