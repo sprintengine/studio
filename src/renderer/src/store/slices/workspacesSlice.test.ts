@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
-import type { LayoutTemplate } from '../../types/workspace'
+import type { GuidedBriefRuntimeState, LayoutTemplate } from '../../types/workspace'
+import { createGuidedBriefTemplate } from '../../layouts/templates'
 import { getEditorBuffer } from '../../utils/editorBuffers'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { useWorkspaceStore } from '../workspaceStore'
@@ -75,11 +76,13 @@ const soloDevId = useWorkspaceStore.getState().addWorkspace(soloDevTemplate, {
 
 let state = useWorkspaceStore.getState()
 assert.equal(state.activeWorkspaceId, soloDevId)
+// New workspaces insert at the head of their folder block; each of these three
+// lives in a distinct folder, so the newest-created sorts to the top.
 assert.deepEqual(
   state.workspaces.map((workspace) => workspace.id),
-  [firstId, secondId, soloDevId],
+  [soloDevId, secondId, firstId],
 )
-assert.equal(state.workspaces[0].name, 'First Workspace')
+assert.equal(state.workspaces.find((workspace) => workspace.id === firstId)?.name, 'First Workspace')
 assert.deepEqual(state.appSettings.recentWorkspaceFolders, [
   '/Users/example/solo-dev',
   '/Users/example/other',
@@ -170,6 +173,44 @@ assert.equal(
   false,
 )
 
+const guidedBriefState: GuidedBriefRuntimeState = {
+  workspaceRoot: '/Users/example/guided',
+  workspaceName: 'Guided Project',
+  idea: 'Build a guided workspace regression test.',
+  hasUi: 'yes',
+  wantsProductDiscussion: true,
+  wantsArchitectureDiscussion: true,
+  wantsFrontendDiscussion: true,
+  guidedRoleCliDefaults: { product: 'codex', architect: 'codex', frontend: 'claude' },
+  buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+  buildRoleCliDefaults: { architect: 'codex', product: 'codex', frontend: 'claude', developer: 'codex', code_reviewer: 'codex', spec_reviewer: 'codex', performance: 'codex', cross_platform: 'codex', tester: 'codex', security: 'codex' },
+  buildCliPermissionPreset: 'default',
+  buildStartRunner: false,
+  buildAutoApproveArtifacts: false,
+  stage: 'strategist-working',
+  acceptedProductBrief: null,
+  acceptedArchitecturePlan: null,
+  acceptedUiDirection: null,
+  acceptedMockups: [],
+  activeMockupPath: null,
+  strategistSessionId: null,
+  architectSessionId: null,
+  designerSessionId: null,
+}
+const guidedBriefId = useWorkspaceStore.getState().addWorkspace(createGuidedBriefTemplate(), {
+  name: guidedBriefState.workspaceName,
+  folderPath: guidedBriefState.workspaceRoot,
+  mode: 'guided-brief',
+  guidedBriefState,
+})
+state = useWorkspaceStore.getState()
+const guidedWorkspace = state.workspaces.find((workspace) => workspace.id === guidedBriefId)
+assert.ok(guidedWorkspace, 'guided brief workspace is added through the store')
+assert.equal(guidedWorkspace?.mode, 'guided-brief')
+assert.equal(guidedWorkspace?.guidedBriefState?.idea, guidedBriefState.idea)
+assert.equal(guidedWorkspace?.folderPath, guidedBriefState.workspaceRoot)
+assert.equal(state.activeWorkspaceId, guidedBriefId, 'guided brief workspace is activated')
+
 const sprintEngineState = createInitialSprintEngineState({
   name: 'Runtime Choice Team',
   goal: 'Preserve agent runtime choices.',
@@ -193,5 +234,22 @@ const sprintEngineWorkspace = state.workspaces.find((workspace) => workspace.id 
 assert.equal(sprintEngineWorkspace?.agents.architect?.cli, 'claude')
 assert.equal(sprintEngineWorkspace?.agents['developer-1']?.cli, 'codex')
 assert.equal(sprintEngineWorkspace?.agents['developer-2']?.cli, 'claude')
+
+// A second workspace in the same folder inserts directly above the first
+// (top of that folder's block), not at the global head and not at the tail.
+const blockFolder = '/Users/example/insert-order'
+const olderInBlock = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Older In Block',
+  folderPath: blockFolder,
+})
+const newerInBlock = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Newer In Block',
+  folderPath: blockFolder,
+})
+state = useWorkspaceStore.getState()
+const blockIds = state.workspaces
+  .filter((workspace) => workspace.folderPath === blockFolder)
+  .map((workspace) => workspace.id)
+assert.deepEqual(blockIds, [newerInBlock, olderInBlock])
 
 console.log('workspacesSlice.test.ts: ok')

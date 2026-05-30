@@ -64,6 +64,7 @@ Bundled roles:
 - `code_reviewer`
 - `spec_reviewer`
 - `performance`
+- `cross_platform`
 - `presentation`
 
 Supported aliases:
@@ -78,6 +79,7 @@ Supported aliases:
 - `code-review`, `code-reviewer` -> `code_reviewer`
 - `spec-review`, `spec-reviewer` -> `spec_reviewer`
 - `performance-engineer` -> `performance`
+- `cross-platform`, `compatibility`, `platform-compatibility` -> `cross_platform`
 - `presenter`, `deck-writer`, `slide-author`, `slides` -> `presentation`
 
 Some bundled Souls exist for non-Sprint specialist surfaces. Sprint Engine

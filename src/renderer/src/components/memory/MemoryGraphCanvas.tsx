@@ -115,14 +115,61 @@ const MAX_ZOOM = 4
 
 const PULSE_DURATION_MS = 600
 const SPARK_DURATION_MS = 800
-const SYNAPSE_COLOR = '#22d3ee'
-const PULSE_COLOR = '#22d3ee'
-// Memory graph atmosphere exception: scoped to this canvas only per
-// knowledge/brand/aesthetic-north-star.md memory-graph exception.
-const CANVAS_ATMOSPHERE_VAR = {
-  '--memory-graph-atmosphere':
-    'radial-gradient(circle at 50% 45%, rgba(92, 124, 255, 0.08), transparent 48%)',
-} as React.CSSProperties
+// The graph chrome (background, starfield, edges, node outlines, labels and
+// activity glows) resolves from the active theme each frame so one canvas
+// serves every theme: light themes get ink-on-light, dark themes keep the
+// luminous-on-dark look. Node category colours (TYPE_COLORS) are
+// theme-independent and read identically in the legend/HUD/preview.
+type GraphPalette = {
+  background: string
+  star: string
+  edgeBase: string
+  edgeDim: string
+  edgeHover: string
+  nodeStrokeHover: string
+  nodeStrokePin: string
+  nodeBorder: string
+  labelStrong: string
+  labelMuted: string
+  activity: string
+}
+
+// Perceived luminance (Rec. 601); > 0.6 reads as a light surface. Mirrors the
+// gate in utils/terminalTheme.ts so terminals and the graph agree on "light".
+function isLightHex(color: string): boolean {
+  const match = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim())
+  if (!match) return false
+  let hex = match[1]
+  if (hex.length === 3) hex = hex.split('').map((c) => c + c).join('')
+  const r = parseInt(hex.slice(0, 2), 16)
+  const g = parseInt(hex.slice(2, 4), 16)
+  const b = parseInt(hex.slice(4, 6), 16)
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6
+}
+
+function readGraphPalette(): GraphPalette {
+  const cs = typeof window === 'undefined' ? null : getComputedStyle(document.documentElement)
+  const read = (name: string, fallback: string): string =>
+    cs?.getPropertyValue(name).trim() || fallback
+  const background = read('--bg-app', '#08080c')
+  const isLight = isLightHex(background)
+  return {
+    background,
+    star: isLight ? '#c2c7cd' : '#e0e0e0',
+    edgeBase: isLight ? 'rgba(32, 36, 40, 0.10)' : 'rgba(255, 255, 255, 0.07)',
+    edgeDim: isLight ? 'rgba(32, 36, 40, 0.04)' : 'rgba(255, 255, 255, 0.025)',
+    edgeHover: 'rgba(96, 165, 250, 0.62)',
+    nodeStrokeHover: isLight ? 'rgba(32, 36, 40, 0.78)' : 'rgba(255, 255, 255, 0.85)',
+    nodeStrokePin: isLight ? 'rgba(32, 36, 40, 0.40)' : 'rgba(255, 255, 255, 0.45)',
+    // Resting outline so filled disks read as defined chips rather than bare
+    // blobs. Near-black hairline on light; a soft dark ring on dark adds edge
+    // definition without competing with the glow.
+    nodeBorder: isLight ? 'rgba(20, 24, 28, 0.90)' : 'rgba(0, 0, 0, 0.30)',
+    labelStrong: isLight ? read('--text-strong', '#202428') : '#ffffff',
+    labelMuted: isLight ? read('--text-default', '#3c444c') : '#e0e0e0',
+    activity: isLight ? read('--accent-primary', '#385cfc') : '#22d3ee',
+  }
+}
 
 const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(function MemoryGraphCanvas(
   {
@@ -359,6 +406,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
       const camera = cameraRef.current
       const matchSet = matchIdsRef.current
       const hoveredId = hoveredIdRef.current
+      const palette = readGraphPalette()
 
       const drag = dragStateRef.current
       const isDraggingNode = drag?.kind === 'node'
@@ -383,7 +431,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
       }
 
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-      ctx.fillStyle = '#0a0a1a'
+      ctx.fillStyle = palette.background
       ctx.fillRect(0, 0, width, height)
 
       // Starfield in a pseudo-camera scaled down so stars parallax behind the
@@ -397,7 +445,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
         const alpha = clamp01(star.baseAlpha + Math.sin(t) * star.amp)
         if (alpha <= 0.02) continue
         ctx.globalAlpha = alpha
-        ctx.fillStyle = '#e0e0e0'
+        ctx.fillStyle = palette.star
         ctx.beginPath()
         ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2)
         ctx.fill()
@@ -427,10 +475,10 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
         const dimmed = matchSet && !bothMatched
 
         ctx.strokeStyle = touchesHover
-          ? 'rgba(96, 165, 250, 0.62)'
+          ? palette.edgeHover
           : dimmed
-            ? 'rgba(255, 255, 255, 0.025)'
-            : 'rgba(255, 255, 255, 0.07)'
+            ? palette.edgeDim
+            : palette.edgeBase
         ctx.lineWidth = touchesHover ? baseLine * 1.35 : baseLine * 0.85
         ctx.beginPath()
         ctx.moveTo(a.x, a.y)
@@ -450,7 +498,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
           if (!a || !b) continue
           const norm = logMax > 0 ? Math.log(s.count + 1) / logMax : 0
           const alpha = 0.1 + 0.3 * norm
-          ctx.strokeStyle = hexWithAlpha(SYNAPSE_COLOR, alpha)
+          ctx.strokeStyle = hexWithAlpha(palette.activity, alpha)
           ctx.lineWidth = baseLine * (0.9 + 1.05 * norm)
           ctx.beginPath()
           ctx.moveTo(a.x, a.y)
@@ -492,11 +540,15 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
         ctx.fill()
         if (isHover) {
           ctx.lineWidth = 1.5 / camera.zoom
-          ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+          ctx.strokeStyle = palette.nodeStrokeHover
           ctx.stroke()
         } else if (node.fx !== null) {
           ctx.lineWidth = 1 / camera.zoom
-          ctx.strokeStyle = 'rgba(255,255,255,0.45)'
+          ctx.strokeStyle = palette.nodeStrokePin
+          ctx.stroke()
+        } else {
+          ctx.lineWidth = 1.25 / camera.zoom
+          ctx.strokeStyle = palette.nodeBorder
           ctx.stroke()
         }
       }
@@ -519,7 +571,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
           const ringRadius = node.radius * (1 + eased * 5)
           const alpha = (1 - t) * 0.85
           ctx.lineWidth = (2 + (1 - t) * 3) / camera.zoom
-          ctx.strokeStyle = hexWithAlpha(PULSE_COLOR, alpha)
+          ctx.strokeStyle = hexWithAlpha(palette.activity, alpha)
           ctx.beginPath()
           ctx.arc(node.x, node.y, ringRadius, 0, Math.PI * 2)
           ctx.stroke()
@@ -548,12 +600,12 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
           const tailX = a.x + (b.x - a.x) * Math.max(0, eased - 0.12)
           const tailY = a.y + (b.y - a.y) * Math.max(0, eased - 0.12)
           ctx.lineWidth = (3 / camera.zoom)
-          ctx.strokeStyle = hexWithAlpha(PULSE_COLOR, 0.55 * (1 - t))
+          ctx.strokeStyle = hexWithAlpha(palette.activity, 0.55 * (1 - t))
           ctx.beginPath()
           ctx.moveTo(tailX, tailY)
           ctx.lineTo(x, y)
           ctx.stroke()
-          ctx.fillStyle = hexWithAlpha(PULSE_COLOR, 0.95)
+          ctx.fillStyle = hexWithAlpha(palette.activity, 0.95)
           ctx.beginPath()
           ctx.arc(x, y, dotR, 0, Math.PI * 2)
           ctx.fill()
@@ -592,7 +644,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
         const focused = isHover || isNeighbor
         const alpha = isHover ? 1 : focused ? 0.95 : matchSet ? 1 : 0.78
         ctx.globalAlpha = alpha
-        ctx.fillStyle = isHover ? '#ffffff' : '#e0e0e0'
+        ctx.fillStyle = isHover ? palette.labelStrong : palette.labelMuted
         const label = node.title?.trim() || node.name
         ctx.fillText(label, node.x, node.y + node.radius + 4 / camera.zoom)
       }
@@ -619,11 +671,21 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
     const resizeObserver = new ResizeObserver(() => requestRender())
     resizeObserver.observe(canvas)
 
+    // The palette is read from CSS vars each frame, but an idle canvas sleeps —
+    // so a theme switch (data-theme on <html>) needs an explicit repaint to
+    // re-resolve and re-tint, matching utils/terminalTheme.ts behaviour.
+    const themeObserver = new MutationObserver(() => requestRender())
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    })
+
     requestRender()
     return () => {
       disposed = true
       if (frame !== null) cancelAnimationFrame(frame)
       resizeObserver.disconnect()
+      themeObserver.disconnect()
       if (requestRenderRef.current === requestRender) requestRenderRef.current = null
       if (bumpSimHotRef.current === bumpSimHot) bumpSimHotRef.current = null
     }
@@ -734,7 +796,6 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
     <canvas
       ref={canvasRef}
       className="block h-full w-full cursor-grab select-none bg-[image:var(--memory-graph-atmosphere)] active:cursor-grabbing"
-      style={CANVAS_ATMOSPHERE_VAR}
       onMouseDown={(event) => {
         const target = hitTest(event.clientX, event.clientY)
         if (target) {

@@ -147,7 +147,13 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
     >
       {panels.map((panel) => {
         const Icon = panel.icon
-        const active = jsonModelHasComponent(layoutModel, panel.key)
+        // The Editor keeps its own document tab strip, so its switch reads as
+        // active whenever an editor surface is open — the welcome 'editor' tab
+        // or any open file ('file-editor'). The nav switches map 1:1 to their
+        // component.
+        const active = panel.key === 'editor'
+          ? jsonModelHasComponent(layoutModel, 'editor') || jsonModelHasComponent(layoutModel, 'file-editor')
+          : jsonModelHasComponent(layoutModel, panel.key)
         const showGitBadge = panel.key === 'git' && gitHasChanges
         const baseTooltip = panel.shortcut
           ? `${panel.label} (${shortcutLabel(panel.shortcut)})`

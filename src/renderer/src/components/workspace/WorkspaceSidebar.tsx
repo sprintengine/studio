@@ -33,6 +33,7 @@ import {
 } from '../../utils/tabDragPayload'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
+import { partitionWorkspacesByRecency } from '../../utils/workspaceRecency'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
 
@@ -299,6 +300,7 @@ export default function WorkspaceSidebar({
   const now = useRelativeNow()
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
+  const [expandedStaleFolders, setExpandedStaleFolders] = useState<Record<string, boolean>>({})
   const [starredCollapsed, setStarredCollapsed] = useState(false)
   const [renamingId, setRenamingId] = useState<WorkspaceId | null>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -338,6 +340,19 @@ export default function WorkspaceSidebar({
     for (const ws of workspaces) map.set(ws.id, ws)
     return map
   }, [workspaces])
+
+  // A workspace stays out of the per-folder "Show older" fold while it is the
+  // active one, starred, or busy — a workspace waiting on input or running a
+  // live agent must never hide itself, even if its last terminal output was
+  // days ago.
+  const isWorkspacePinned = useCallback(
+    (workspace: Workspace) => {
+      if (workspace.id === activeWorkspaceId) return true
+      if (isStarred(workspace.highlight)) return true
+      return (activityByWorkspaceId[workspace.id] ?? 'idle') !== 'idle'
+    },
+    [activeWorkspaceId, activityByWorkspaceId]
+  )
 
   useEffect(() => {
     if (renamingId && renameInputRef.current) {
@@ -751,7 +766,7 @@ export default function WorkspaceSidebar({
               />
             ) : (
               <span
-                className={`flex min-w-0 flex-1 items-center gap-1.5 truncate ${folderMissing ? 'line-through decoration-[rgba(255,255,255,0.2)]' : ''}`}
+                className={`flex min-w-0 flex-1 items-center gap-1.5 truncate ${folderMissing ? 'line-through decoration-[color:var(--text-subtle)]' : ''}`}
               >
                 {starred ? (
                   <svg
@@ -785,7 +800,7 @@ export default function WorkspaceSidebar({
                 {tone ? <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} /> : null}
                 {showRecencyText ? (
                   <span
-                    className="text-[10px] tabular-nums text-[color:var(--text-disabled)]"
+                    className="text-[10px] tabular-nums text-[color:var(--text-subtle)]"
                     title={`Last terminal output ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)} (${new Date(recency!.lastFinishedAt!).toLocaleString()})`}
                     aria-label={`Last terminal output ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)}`}
                   >
@@ -860,6 +875,79 @@ export default function WorkspaceSidebar({
     )
   }
 
+  // Renders a folder's workspace rows. In the collapsed icon rail every row is
+  // shown (no fold — it is already a compact strip). In the expanded sidebar,
+  // rows untouched for 5+ days collapse behind a single "Show N older"
+  // disclosure at the bottom of the folder, Cursor-style. Manual order is
+  // preserved within both the recent and folded groups.
+  const renderFolderBody = (
+    group: FolderGroup,
+    visibleWorkspaces: Workspace[],
+    folderCollapsed: boolean
+  ) => {
+    if (folderCollapsed && !sidebarCollapsed) return null
+    if (sidebarCollapsed) {
+      return (
+        <div className="border-b border-[color:var(--bg-hover)] pb-1.5 last:border-b-0">
+          {visibleWorkspaces.map((workspace) => renderWorkspaceRow(workspace, group.key))}
+        </div>
+      )
+    }
+
+    const { recent, stale } = partitionWorkspacesByRecency(visibleWorkspaces, now, isWorkspacePinned)
+
+    // A disclosure that hides a single row saves no space — the toggle row just
+    // replaces the row it would hide — so only fold when there are at least two
+    // stale workspaces. A folder with a single workspace is therefore never
+    // folded; it just shows in place.
+    if (stale.length < 2) {
+      return (
+        <div>
+          {visibleWorkspaces.map((workspace) => renderWorkspaceRow(workspace, group.key))}
+        </div>
+      )
+    }
+
+    const staleExpanded = expandedStaleFolders[group.key] === true
+    const olderListId = `ws-older-${group.key.replace(/[^a-z0-9]+/giu, '-')}`
+
+    return (
+      <div>
+        {recent.map((workspace) => renderWorkspaceRow(workspace, group.key))}
+        <div
+          id={olderListId}
+          role="group"
+          aria-label={`Older workspaces in ${group.displayName}`}
+          hidden={!staleExpanded}
+        >
+          {stale.map((workspace) => renderWorkspaceRow(workspace, group.key))}
+        </div>
+        <button
+          type="button"
+          onClick={() =>
+            setExpandedStaleFolders((prev) => ({ ...prev, [group.key]: !staleExpanded }))
+          }
+          aria-expanded={staleExpanded}
+          aria-controls={olderListId}
+          className="relative mx-1.5 my-[1px] flex h-[26px] w-[calc(100%-12px)] cursor-pointer select-none items-center gap-1.5 rounded-md pl-[30px] pr-1.5 text-[12px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]"
+        >
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform ${
+              staleExpanded ? '' : '-rotate-90'
+            }`}
+          >
+            <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="tabular-nums">
+            {staleExpanded ? 'Show fewer' : `Show ${stale.length} older`}
+          </span>
+        </button>
+      </div>
+    )
+  }
+
   return (
     <aside
       aria-label="Workspaces"
@@ -904,7 +992,7 @@ export default function WorkspaceSidebar({
         </Tooltip>
       </div>
 
-      {/* Panel rail — Files / Editor / Git toggles, scoped to the active workspace */}
+      {/* Panel rail — Files / Editor / Git / Knowledge Graph switches, scoped to the active workspace */}
       {activeWorkspaceId ? (
         <PanelRail workspaceId={activeWorkspaceId} collapsed={sidebarCollapsed} />
       ) : null}
@@ -1073,11 +1161,7 @@ export default function WorkspaceSidebar({
                   </Tooltip>
                 </header>
               )}
-              {(!collapsed || sidebarCollapsed) && (
-                <div className={sidebarCollapsed ? 'border-b border-[color:var(--bg-hover)] pb-1.5 last:border-b-0' : ''}>
-                  {visibleWorkspaces.map((workspace) => renderWorkspaceRow(workspace, group.key))}
-                </div>
-              )}
+              {renderFolderBody(group, visibleWorkspaces, collapsed)}
             </section>
           )
         })}

@@ -9,6 +9,8 @@ import { BUNDLED_MAIN_MODULES } from './modules'
 import { registerCoreIpc } from './register-core-ipc'
 import { registerWorkflowIpc } from './register-workflow-ipc'
 
+configureDevUserData()
+
 const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
 const services = createAppServices(MULTICODE_DIAGNOSTICS)
 
@@ -48,8 +50,19 @@ function readModuleEnablementOverrides(): Record<string, boolean> {
   }
 }
 
+function configureDevUserData(): void {
+  const userDataDir = process.env['MULTICODE_USER_DATA_DIR']?.trim()
+  if (!userDataDir || app.isPackaged) return
+
+  app.setPath('userData', userDataDir)
+}
+
 registerAppLifecycle({
   diagnosticsEnabled: MULTICODE_DIAGNOSTICS,
+  allowMultipleInstances:
+    !app.isPackaged &&
+    process.env['MULTICODE_ALLOW_MULTI_INSTANCE'] === '1' &&
+    Boolean(process.env['MULTICODE_USER_DATA_DIR']?.trim()),
   terminalRuntime: services.terminalRuntime,
   sprintEngineMcpHub: services.sprintEngineMcpHub,
   moduleKernel: moduleLoad.kernel,

@@ -9,7 +9,7 @@ from sprintengine_core.role_registry import SoulRenderError, discover_role_regis
 
 
 SPRINTENGINE_SKILLS_DIR = REPO_ROOT / "resources" / "sprintengine" / "skills"
-SPRINTENGINE_IMPLEMENTATION_ROLES = {"blog_writer", "coordinator", "developer", "devops", "frontend", "presentation", "product"}
+SPRINTENGINE_IMPLEMENTATION_ROLES = {"blog_writer", "coordinator", "creative", "developer", "devops", "frontend", "presentation", "product"}
 SPRINTENGINE_GATE_ROLES = {"code_reviewer", "performance", "product", "security", "spec_reviewer", "tester"}
 
 
@@ -225,7 +225,8 @@ def artifact_registration_instruction(agent_id: str) -> str:
         "to confirm registration.\n\n"
         "Use the task's requested kind when specified. Otherwise use `security_review` for "
         "security reviews, `code_review` for code reviews, `spec_review` for spec reviews, "
-        "`performance_review` for performance reviews, `validation_report` for validation reports, "
+        "`performance_review` for performance reviews, `cross_platform_review` for compatibility reviews, "
+        "`validation_report` for validation reports, "
         "`requirements` or `product_strategy` for product outputs, `design_notes` or `html_mockup` "
         "for frontend outputs, and `architect_plan` for plan gates. If a review artifact approves "
         "the work with no findings, register the artifact, log evidence, and follow the completion "

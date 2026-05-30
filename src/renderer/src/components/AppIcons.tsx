@@ -91,6 +91,8 @@ export function SpecialistActionIcon({ icon, className }: IconProps & { icon: Sp
       return <ProductIcon className={className} />
     case 'performance':
       return <PerformanceIcon className={className} />
+    case 'cross_platform':
+      return <ReviewIcon className={className} />
     case 'writing':
       return <WritingIcon className={className} />
   }
@@ -128,6 +130,8 @@ export function SprintEngineRoleIcon({
       return <ReviewIcon className={className} />
     case 'performance':
       return <PerformanceIcon className={className} />
+    case 'cross_platform':
+      return <ReviewIcon className={className} />
     case 'unknown':
     default:
       return <RoleGenericIcon className={className} />

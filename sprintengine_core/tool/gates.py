@@ -268,6 +268,8 @@ def recorded_artifact_kind_for_gate(gate: Dict[str, Any]) -> str:
         return "spec_review"
     if role == "performance":
         return "performance_review"
+    if role == "cross_platform":
+        return "cross_platform_review"
     if role == "security":
         return "security_review"
     if role == "product":

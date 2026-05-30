@@ -501,6 +501,8 @@ def canonical_quality_gate_id(value: str) -> str:
         "security": "security",
         "performance_review": "performance",
         "performance": "performance",
+        "cross_platform_review": "cross_platform",
+        "cross_platform": "cross_platform",
     }
     return aliases.get(normalized, normalized)
 

@@ -49,6 +49,7 @@ VALID_ARTIFACT_KINDS = {
     "code_review",
     "spec_review",
     "performance_review",
+    "cross_platform_review",
     "validation_report",
 }
 VALID_ARTIFACT_STATUSES = {"draft", "recorded", "ready_for_review", "approved", "changes_requested", "superseded"}

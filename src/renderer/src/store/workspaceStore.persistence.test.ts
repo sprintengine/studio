@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import type { AgentState, Workspace } from '../types/workspace'
+import type { AgentState, LayoutTemplate, Workspace } from '../types/workspace'
 import type { WorkspaceBackupPayload } from '../../../shared/electron-api'
 import { defaultAuthState } from './slices/authSlice'
 
@@ -80,15 +80,17 @@ type WorkspaceBackupApi = {
   >
   workspaceBackupWrite: (payload: WorkspaceBackupPayload) => Promise<{ ok: boolean; message?: string }>
 }
+type WorkspaceBackupReadResult = Awaited<ReturnType<WorkspaceBackupApi['workspaceBackupRead']>>
 
 const backupWriteCalls: WorkspaceBackupPayload[] = []
-let backupReadResponse: Awaited<ReturnType<WorkspaceBackupApi['workspaceBackupRead']>> = {
+let backupReadResponse: WorkspaceBackupReadResult = {
   ok: false,
   reason: 'missing',
 }
+let backupReadDeferred: Promise<WorkspaceBackupReadResult> | null = null
 
 const workspaceBackupApi: WorkspaceBackupApi = {
-  workspaceBackupRead: async () => backupReadResponse,
+  workspaceBackupRead: async () => backupReadDeferred ?? backupReadResponse,
   workspaceBackupWrite: async (payload) => {
     backupWriteCalls.push(payload)
     return { ok: true }
@@ -475,6 +477,71 @@ assert.equal(recoveryDiag.classification, 'dangerous_empty_unreadable')
 assert.equal(recoveryDiag.hydratedWorkspaceCount, 1)
 
 // ── CASE 7 ──────────────────────────────────────────────────────────────────
+// If the user creates a workspace while async backup recovery is in flight, the
+// just-written registry is newer than the backup and must not be overwritten.
+diagnosticLog.length = 0
+stored['multicode-workspaces'] = 'unreadable garbage {{{'
+useWorkspaceStore.setState({
+  workspaces: [],
+  activeWorkspaceId: null,
+  workspaceRegistryEmptyState: null,
+})
+
+let resolveBackupRead!: (value: WorkspaceBackupReadResult) => void
+backupReadDeferred = new Promise<WorkspaceBackupReadResult>((resolve) => {
+  resolveBackupRead = resolve
+})
+const inFlightRecovery = __workspaceStoreRunBackupRecoveryForTests()
+await new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+const raceTemplate: LayoutTemplate = {
+  id: 'race-template',
+  name: 'Race',
+  description: 'Race test template',
+  previewSlots: [],
+  layout: { global: {}, borders: [], layout: { type: 'row', children: [] } },
+}
+const freshWorkspaceId = useWorkspaceStore.getState().addWorkspace(raceTemplate, {
+  name: 'Fresh Workspace',
+  folderPath: '/Users/example/fresh',
+})
+resolveBackupRead({
+  ok: true,
+  payload: {
+    version: 46,
+    writtenAt: new Date().toISOString(),
+    data: {
+      registry: JSON.stringify({
+        state: {
+          workspaces: [{
+            id: 'ws-stale-backup',
+            name: 'Stale backup',
+            folderPath: '/Users/example/stale',
+            agents: {},
+          } as Workspace],
+          activeWorkspaceId: 'ws-stale-backup',
+          workspaceRegistryEmptyState: null,
+        },
+        version: 46,
+      } satisfies RegistryRecord),
+      settings: JSON.stringify({ state: {}, version: 46 } satisfies SettingsRecord),
+    } satisfies BackupPair,
+  },
+})
+await inFlightRecovery
+backupReadDeferred = null
+
+const raceState = useWorkspaceStore.getState()
+assert.equal(raceState.activeWorkspaceId, freshWorkspaceId)
+assert.equal(raceState.workspaces.length, 1)
+assert.equal(raceState.workspaces[0]?.id, freshWorkspaceId)
+assert.equal(
+  raceState.workspaces.some((workspace) => workspace.id === 'ws-stale-backup'),
+  false,
+  'in-flight backup recovery must not replace a freshly-created workspace',
+)
+
+// ── CASE 8 ──────────────────────────────────────────────────────────────────
 // Legacy T22-era backup salvage. Pre-T23 backups mirrored the full envelope
 // including appSettings (projectKnowledgeRoots, recentWorkspaceFolders,
 // learning, CLI/MCP, etc.). On a dangerous-empty cold-load that triggers

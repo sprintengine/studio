@@ -113,6 +113,7 @@ const SPECIALIST_OPTIONS: ReadonlyArray<SelectOption<SpecialistActionId>> = [
   { value: 'developer', label: 'Developer' },
   { value: 'devops-infra', label: 'DevOps / infrastructure' },
   { value: 'performance', label: 'Performance' },
+  { value: 'cross-platform', label: 'Cross-platform compatibility' },
   { value: 'blog-writer', label: 'Blog writer' },
   { value: 'qa-test', label: 'QA / test' },
   { value: 'security-review', label: 'Security review' },
@@ -135,6 +136,7 @@ const MULTILOOP_ROLE_OPTIONS: ReadonlyArray<SelectOption<MultiloopRole>> = [
   { value: 'security', label: 'Security' },
   { value: 'code_reviewer', label: 'Code reviewer' },
   { value: 'performance', label: 'Performance' },
+  { value: 'cross_platform', label: 'Cross-platform' },
 ]
 
 export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [

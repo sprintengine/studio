@@ -1,5 +1,6 @@
 import type { IJsonModel } from 'flexlayout-react'
 import { buildSprintEngineAgentRosterForState } from '../../utils/sprintengine'
+import { NAV_RAIL_COMPONENTS } from '../../utils/modelRegistry'
 import type {
   SprintEngineState,
   Workspace,
@@ -259,6 +260,53 @@ export function hideGuidedBriefTabStrip(
   const layout = layoutModel.layout
   if (!layout) return layoutModel
   const nextLayout = hideGuidedBriefTabStripInNode(layout)
+  return { ...layoutModel, layout: nextLayout as IJsonModel['layout'] }
+}
+
+// Files / Git / Knowledge Graph are exclusive strip-less switches sharing one
+// left pane; NAV_RAIL_COMPONENTS is owned by modelRegistry so the migration and
+// the runtime toggle never drift.
+function tabsetIsAllNavRail(record: Record<string, unknown>): boolean {
+  const children = Array.isArray(record.children) ? record.children : []
+  if (children.length === 0) return false
+  return children.every((child) => {
+    if (!child || typeof child !== 'object') return false
+    const childRecord = child as Record<string, unknown>
+    return (
+      childRecord.type === 'tab'
+      && typeof childRecord.component === 'string'
+      && NAV_RAIL_COMPONENTS.has(childRecord.component)
+    )
+  })
+}
+
+function hideNavRailTabStripInNode(node: unknown): unknown {
+  if (!node || typeof node !== 'object') return node
+  const record = node as Record<string, unknown>
+
+  if (record.type === 'tabset' && tabsetIsAllNavRail(record)) {
+    return { ...record, enableTabStrip: false }
+  }
+
+  const rawChildren = record.children
+  if (!Array.isArray(rawChildren)) return record
+
+  const nextChildren = rawChildren.map((child) => hideNavRailTabStripInNode(child))
+  return { ...record, children: nextChildren }
+}
+
+// The nav-rail switches (Files / Git / Knowledge Graph) carry their own
+// selection chrome in the sidebar PanelRail, so the FlexLayout tab strip on a
+// tabset that holds only nav switches is redundant. Stamp enableTabStrip: false
+// onto those tabsets without touching mixed tabsets (e.g. a nav tab parked
+// beside the editor) — those keep their strip and self-heal on the next toggle.
+export function hideNavRailTabStrip(
+  layoutModel: IJsonModel | null | undefined
+): IJsonModel | null | undefined {
+  if (!layoutModel || typeof layoutModel !== 'object') return layoutModel
+  const layout = layoutModel.layout
+  if (!layout) return layoutModel
+  const nextLayout = hideNavRailTabStripInNode(layout)
   return { ...layoutModel, layout: nextLayout as IJsonModel['layout'] }
 }
 

@@ -168,6 +168,7 @@ const initialSprintEngineRoleCounts: SprintEngineRoleCounts = {
   code_reviewer: 0,
   spec_reviewer: 0,
   performance: 0,
+  cross_platform: 0,
   tester: 0,
   security: 0,
 }
@@ -180,6 +181,7 @@ const initialSprintEngineRoleCliDefaults: Required<SprintEngineRoleCliDefaults> 
   code_reviewer: 'claude',
   spec_reviewer: 'claude',
   performance: 'claude',
+  cross_platform: 'claude',
   tester: 'claude',
   security: 'claude',
 }
@@ -192,6 +194,7 @@ const guidedBriefSprintEngineRoleCounts: SprintEngineRoleCounts = {
   code_reviewer: 1,
   spec_reviewer: 1,
   performance: 0,
+  cross_platform: 0,
   tester: 1,
   security: 0,
 }
@@ -281,6 +284,7 @@ interface Props {
     sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
     sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
     sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
+    guidedBriefState?: GuidedBriefRuntimeState | null
     mode?: WorkspaceMode
   }) => void
   onClose: () => void
@@ -951,13 +955,16 @@ export default function NewWorkspacePanel({
               readFile: window.api.readfile,
               writeFile: window.api.writefile,
             },
-            addWorkspace,
-            createGuidedBriefTemplate,
           },
         )
-        void runtimeState
         triggerSelectedSkillPackInstalls(folderPath)
-        onClose()
+        onCreate({
+          template: createGuidedBriefTemplate(),
+          name: runtimeState.workspaceName,
+          folderPath,
+          mode: 'guided-brief',
+          guidedBriefState: runtimeState,
+        })
       } catch (error) {
         setGuidedError(
           error instanceof GuidedBriefScaffoldError && error.message !== error.code
@@ -2326,7 +2333,7 @@ function SprintEngineAccessNotice({
         onClick={onSignIn}
         className="
           mt-3 inline-flex h-8 items-center justify-center rounded-md bg-[color:var(--text-strong)] px-3
-          text-[12px] font-semibold text-[color:var(--bg-app)] transition-colors hover:bg-white
+          text-[12px] font-semibold text-[color:var(--bg-app)] transition-colors hover:bg-[color:var(--bg-inverted-hover)]
           focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
         "
       >

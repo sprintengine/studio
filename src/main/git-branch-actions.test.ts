@@ -3,12 +3,79 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pullGitBranchWithStash } from './git-branch-actions'
+import {
+  checkoutGitCommit,
+  checkoutGitCommitAsBranch,
+  createGitBranchFromCommit,
+  createGitTagFromCommit,
+  pullGitBranchWithStash,
+} from './git-branch-actions'
 
 void main()
 
 async function main(): Promise<void> {
   await assertPullMergesDivergentBranches()
+  await assertCommitActions()
+}
+
+async function assertCommitActions(): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), 'multicode-git-commit-actions-'))
+  const repo = join(root, 'repo')
+
+  try {
+    git(root, ['init', '--initial-branch=main', repo])
+    configureRepo(repo)
+    writeFileSync(join(repo, 'file.txt'), 'v1\n')
+    git(repo, ['add', 'file.txt'])
+    git(repo, ['commit', '-m', 'first'])
+    const firstCommit = git(repo, ['rev-parse', 'HEAD']).trim()
+    writeFileSync(join(repo, 'file.txt'), 'v2\n')
+    git(repo, ['commit', '-am', 'second'])
+
+    // Invalid hash is rejected before shelling out.
+    const invalid = await checkoutGitCommit(repo, 'not-a-hash')
+    assert.equal(invalid.ok, false)
+    assert.equal(invalid.message, 'Invalid commit hash.')
+
+    // Empty branch name is rejected.
+    const emptyName = await createGitBranchFromCommit(repo, '   ', firstCommit)
+    assert.equal(emptyName.ok, false)
+
+    // Branch from a commit creates the ref without moving HEAD.
+    const branched = await createGitBranchFromCommit(repo, 'feature', firstCommit)
+    assert.equal(branched.ok, true, branched.message ?? branched.stderr)
+    assert.equal(git(repo, ['rev-parse', 'feature']).trim(), firstCommit)
+
+    // Checkout on a clean tree detaches HEAD at the requested commit.
+    const checkedOut = await checkoutGitCommit(repo, firstCommit)
+    assert.equal(checkedOut.ok, true, checkedOut.message ?? checkedOut.stderr)
+    assert.equal(git(repo, ['rev-parse', 'HEAD']).trim(), firstCommit)
+    assert.throws(() => git(repo, ['symbolic-ref', '-q', 'HEAD']), 'HEAD should be detached')
+
+    git(repo, ['switch', 'main'])
+
+    // A dirty tracked file blocks the detaching checkout with a clear message.
+    writeFileSync(join(repo, 'file.txt'), 'dirty\n')
+    const blocked = await checkoutGitCommit(repo, firstCommit)
+    assert.equal(blocked.ok, false)
+    assert.match(blocked.message ?? '', /tracked changes/)
+    git(repo, ['checkout', '--', 'file.txt'])
+
+    // Create-and-switch lands on a new branch at the commit.
+    const asBranch = await checkoutGitCommitAsBranch(repo, 'feature2', firstCommit)
+    assert.equal(asBranch.ok, true, asBranch.message ?? asBranch.stderr)
+    assert.equal(git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']).trim(), 'feature2')
+    assert.equal(git(repo, ['rev-parse', 'HEAD']).trim(), firstCommit)
+
+    // Tagging points a tag at the commit.
+    const tagged = await createGitTagFromCommit(repo, 'v1.0.0', firstCommit)
+    assert.equal(tagged.ok, true, tagged.message ?? tagged.stderr)
+    assert.equal(git(repo, ['rev-parse', 'v1.0.0^{commit}']).trim(), firstCommit)
+
+    console.log('ok - commit actions: checkout, branch, tag, dirty guard, invalid hash')
+  } finally {
+    rmSync(root, { force: true, recursive: true })
+  }
 }
 
 async function assertPullMergesDivergentBranches(): Promise<void> {

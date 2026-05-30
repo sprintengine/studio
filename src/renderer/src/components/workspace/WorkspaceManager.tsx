@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Actions, DockLocation, TabNode, TabSetNode, type Model } from 'flexlayout-react'
+import { Actions, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
 import CommandPalette from '../CommandPalette'
 import { TipStartupModal } from '../learn/TipStartupModal'
@@ -35,7 +35,7 @@ import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { disableSprintEngineAutoRun } from '../../utils/sprintengineSupervisorNotifications'
-import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddTerminalTab, getModel } from '../../utils/modelRegistry'
+import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddTerminalTab, getModel, togglePanelRailComponent } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -86,8 +86,6 @@ const SPECIALIST_KEYBOARD_CODE_SHORTCUTS: Record<string, SpecialistActionId> = {
   KeyM: 'performance',
   KeyP: 'architect',
 }
-
-type WorkspacePanelComponent = 'explorer' | 'editor' | 'git' | 'memory-graph'
 
 
 export default function WorkspaceManager() {
@@ -674,11 +672,11 @@ export default function WorkspaceManager() {
       }
       if (!activeWorkspaceId) return
       if (command === 'toggle-explorer') {
-        toggleWorkspacePanel(activeWorkspaceId, 'explorer')
+        togglePanelRailComponent(activeWorkspaceId, 'explorer', 'Files')
       } else if (command === 'toggle-editor') {
-        toggleWorkspacePanel(activeWorkspaceId, 'editor')
+        togglePanelRailComponent(activeWorkspaceId, 'editor', 'Editor')
       } else if (command === 'toggle-git') {
-        toggleWorkspacePanel(activeWorkspaceId, 'git')
+        togglePanelRailComponent(activeWorkspaceId, 'git', 'Git')
       }
     })
   }, [activeWorkspaceId, openSettings])
@@ -690,7 +688,9 @@ export default function WorkspaceManager() {
     sprintEngineState,
     sprintEngineContext,
     sprintEngineRoleCliDefaults,
+    sprintEngineAgentCliOverrides,
     sprintEngineAutoState,
+    guidedBriefState,
     mode,
   }: {
     template: LayoutTemplate
@@ -699,10 +699,12 @@ export default function WorkspaceManager() {
     sprintEngineState?: Workspace['sprintEngineState']
     sprintEngineContext?: Workspace['sprintEngineContext']
     sprintEngineRoleCliDefaults?: Workspace['sprintEngineRoleCliDefaults'] | null
+    sprintEngineAgentCliOverrides?: Record<string, AgentCli> | null
     sprintEngineAutoState?: Partial<Workspace['sprintEngineAutoState']> | null
+    guidedBriefState?: Workspace['guidedBriefState'] | null
     mode?: Workspace['mode']
   }) => {
-    addWorkspace(template, { name, folderPath, sprintEngineState, sprintEngineContext, sprintEngineRoleCliDefaults, sprintEngineAutoState, mode })
+    addWorkspace(template, { name, folderPath, sprintEngineState, sprintEngineContext, sprintEngineRoleCliDefaults, sprintEngineAgentCliOverrides, sprintEngineAutoState, guidedBriefState, mode })
     setShowNewWorkspacePanel(false)
     setNewWorkspacePanelInitialState(null)
     // Creating the first workspace ends onboarding — jump straight to 'complete'
@@ -1355,93 +1357,6 @@ function firstTabset(model: Model): TabSetNode | null {
   return found
 }
 
-function findPanelTab(model: Model, component: WorkspacePanelComponent): TabNode | null {
-  let found: TabNode | null = null
-  model.visitNodes((node) => {
-    if (found) return
-    if (node instanceof TabNode && node.getComponent() === component) {
-      found = node
-    }
-  })
-  return found
-}
-
-function toggleWorkspacePanel(workspaceId: string, component: WorkspacePanelComponent): void {
-  const model = getModel(workspaceId)
-  if (!model) return
-
-  const existingTab = findPanelTab(model, component)
-  if (existingTab) {
-    model.doAction(Actions.deleteTab(existingTab.getId()))
-    return
-  }
-
-  const tabName = component === 'explorer'
-    ? 'Files'
-    : component === 'git'
-      ? 'Git'
-      : component === 'memory-graph'
-        ? 'Knowledge Graph'
-        : 'Editor'
-  const target = getPreferredPanelTarget(model, component)
-
-  model.doAction(
-    Actions.addNode(
-      { type: 'tab', name: tabName, component },
-      target.id,
-      target.location,
-      -1,
-      true
-    )
-  )
-}
-
-function getPreferredPanelTarget(
-  model: Model,
-  component: WorkspacePanelComponent
-): { id: string; location: DockLocation } {
-  if (component === 'memory-graph') {
-    const targetTabset = model.getActiveTabset() ?? firstTabset(model)
-    return {
-      id: targetTabset?.getId() ?? model.getRoot().getId(),
-      location: DockLocation.CENTER,
-    }
-  }
-
-  if (component === 'git') {
-    const explorerTab = findPanelTab(model, 'explorer')
-    const explorerParent = explorerTab?.getParent()
-    if (explorerParent instanceof TabSetNode) {
-      return {
-        id: explorerParent.getId(),
-        location: DockLocation.CENTER,
-      }
-    }
-  }
-
-  if (component === 'explorer') {
-    const targetTabset = model.getActiveTabset() ?? firstTabset(model)
-    return {
-      id: targetTabset?.getId() ?? model.getRoot().getId(),
-      location: DockLocation.LEFT,
-    }
-  }
-
-  const explorerTab = findPanelTab(model, 'explorer')
-  const explorerParent = explorerTab?.getParent()
-  if (explorerParent instanceof TabSetNode) {
-    return {
-      id: explorerParent.getId(),
-      location: DockLocation.RIGHT,
-    }
-  }
-
-  const targetTabset = model.getActiveTabset() ?? firstTabset(model)
-  return {
-    id: targetTabset?.getId() ?? model.getRoot().getId(),
-    location: DockLocation.LEFT,
-  }
-}
 
 type LayoutSessionNode = {
   component?: string

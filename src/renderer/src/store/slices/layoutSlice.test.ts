@@ -9,6 +9,7 @@ import {
   createLayoutSlice,
   ensureMultiloopLayoutModel,
   hideGuidedBriefTabStrip,
+  hideNavRailTabStrip,
   hideSprintEngineBoardTabStrip,
   isLegacySprintEngineLayout,
   markSwitchboardAnchorTabsSticky,
@@ -301,6 +302,59 @@ const templateGbTabset = findTabset(guidedBriefTemplate.layout, (record) => {
   return children.some((child) => (child as Record<string, unknown>)?.component === 'guided-brief')
 })!
 assert.equal(templateGbTabset.enableTabStrip, false)
+
+// Nav-rail strip migration: a tabset holding only Files / Git / Knowledge
+// Graph switches loses its strip; a tabset mixing a nav switch with the editor
+// keeps its strip (so the editor's file tabs survive) and self-heals later.
+const navRailLayoutForStripMigration: IJsonModel = {
+  global: {},
+  borders: [],
+  layout: {
+    type: 'row',
+    children: [
+      {
+        type: 'tabset',
+        weight: 18,
+        children: [
+          { type: 'tab', name: 'Files', component: 'explorer' },
+          { type: 'tab', name: 'Git', component: 'git' },
+        ],
+      },
+      {
+        type: 'tabset',
+        weight: 52,
+        children: [
+          { type: 'tab', name: 'Knowledge Graph', component: 'memory-graph' },
+          { type: 'tab', name: 'Editor', component: 'editor' },
+        ],
+      },
+      {
+        type: 'tabset',
+        weight: 30,
+        children: [
+          { type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'a-1' } },
+        ],
+      },
+    ],
+  },
+}
+const navStripHidden = hideNavRailTabStrip(navRailLayoutForStripMigration) as IJsonModel
+const navOnlyTabset = findTabset(navStripHidden, (record) => {
+  const children = Array.isArray(record.children) ? record.children : []
+  return children.some((child) => (child as Record<string, unknown>)?.component === 'explorer')
+})!
+const mixedEditorTabset = findTabset(navStripHidden, (record) => {
+  const children = Array.isArray(record.children) ? record.children : []
+  return children.some((child) => (child as Record<string, unknown>)?.component === 'editor')
+})!
+const agentOnlyTabset = findTabset(navStripHidden, (record) => {
+  const children = Array.isArray(record.children) ? record.children : []
+  return children.some((child) => (child as Record<string, unknown>)?.component === 'agent')
+})!
+assert.equal(navOnlyTabset.enableTabStrip, false)
+// Mixed nav+editor and pure-agent tabsets keep their strips.
+assert.equal(mixedEditorTabset.enableTabStrip, undefined)
+assert.equal(agentOnlyTabset.enableTabStrip, undefined)
 
 const stripped = stripSettingsTabsFromLayout({
   global: {},

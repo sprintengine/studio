@@ -5,6 +5,9 @@ import { FOCUS_RING_CLASS, type Tone } from './tokens'
 type InboxRowProps = {
   /** Leading dot tone. Use `neutral` when the row has no live state. */
   tone?: Tone
+  /** Hide the leading status dot — use when the row carries status another way
+   *  (e.g. colour-coded title text), so it stays a single status idiom. */
+  hideDot?: boolean
   /** Primary line — sentence case, no uppercase tracking. */
   title: React.ReactNode
   /** Single supporting line. Keep to ≤ ~80 chars; truncate beyond that. */
@@ -28,6 +31,7 @@ type InboxRowProps = {
 
 export function InboxRow({
   tone = 'neutral',
+  hideDot = false,
   title,
   supporting,
   trailing,
@@ -42,7 +46,7 @@ export function InboxRow({
 
   const content = (
     <>
-      <StatusDot tone={tone} className="mt-1" />
+      {hideDot ? null : <StatusDot tone={tone} className="mt-1" />}
       <div className="min-w-0 flex-1">
         <div className="truncate text-[12px] font-medium text-[color:var(--text-strong)]">
           {title}

@@ -504,7 +504,8 @@ Artifact records include:
 - `id`
 - `kind`: `architect_plan`, `product_strategy`, `requirements`,
   `html_mockup`, `design_notes`, `branding`, `security_review`, `code_review`,
-  `spec_review`, `performance_review`, or `validation_report`
+  `spec_review`, `performance_review`, `cross_platform_review`, or
+  `validation_report`
 - `title`
 - `path`
 - `status`

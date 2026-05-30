@@ -1,11 +1,16 @@
 import type { IpcMain } from 'electron'
 import {
+  checkoutGitCommit,
+  checkoutGitCommitAsBranch,
   commitGitChanges,
   copyGitWorktreeIncludedFiles,
+  createGitBranchFromCommit,
+  createGitTagFromCommit,
   createGitWorktree,
   discardUnstagedGitChanges,
   fetchGitRemotes,
   getGitBranches,
+  getGitCommitGraph,
   getGitConflictFile,
   getGitConflicts,
   getGitFileBase,
@@ -68,6 +73,12 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-history', { repoRoot, limit }, () => getGitHistory(repoRoot, limit))
   })
 
+  ipcMain.handle('git:get-commit-graph', async (_, repoRoot: string, options?: { limit?: number; skip?: number }) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-commit-graph', { repoRoot, ...options }, () =>
+      getGitCommitGraph(repoRoot, options ?? {})
+    )
+  })
+
   ipcMain.handle('git:get-conflicts', async (_, repoRoot: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-conflicts', { repoRoot }, () => getGitConflicts(repoRoot))
   })
@@ -114,6 +125,28 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
 
   ipcMain.handle('git:switch-branch', async (_, repoRoot: string, branchName: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'switch-branch', { repoRoot, branchName }, () => switchGitBranch(repoRoot, branchName))
+  })
+
+  ipcMain.handle('git:checkout-commit', async (_, repoRoot: string, commitHash: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'checkout-commit', { repoRoot, commitHash }, () => checkoutGitCommit(repoRoot, commitHash))
+  })
+
+  ipcMain.handle('git:branch-from-commit', async (_, repoRoot: string, branchName: string, commitHash: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'branch-from-commit', { repoRoot, branchName, commitHash }, () =>
+      createGitBranchFromCommit(repoRoot, branchName, commitHash)
+    )
+  })
+
+  ipcMain.handle('git:checkout-commit-as-branch', async (_, repoRoot: string, branchName: string, commitHash: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'checkout-commit-as-branch', { repoRoot, branchName, commitHash }, () =>
+      checkoutGitCommitAsBranch(repoRoot, branchName, commitHash)
+    )
+  })
+
+  ipcMain.handle('git:tag-from-commit', async (_, repoRoot: string, tagName: string, commitHash: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'tag-from-commit', { repoRoot, tagName, commitHash }, () =>
+      createGitTagFromCommit(repoRoot, tagName, commitHash)
+    )
   })
 
   ipcMain.handle('git:worktree:list', async (_, repoRoot: string) => {

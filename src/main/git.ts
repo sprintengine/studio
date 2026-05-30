@@ -23,7 +23,7 @@ import { getGitStatus } from './git-status'
 
 export { listGitWorktrees, parseGitWorktreePorcelain } from './git-worktree-list'
 export { getGitStatus } from './git-status'
-export { getGitBranches, getGitHistory } from './git-read-models'
+export { getGitBranches, getGitHistory, getGitCommitGraph } from './git-read-models'
 export {
   discardUnstagedGitChanges,
   revertGitPaths,
@@ -31,7 +31,11 @@ export {
   unstageGitPaths,
 } from './git-file-actions'
 export {
+  checkoutGitCommit,
+  checkoutGitCommitAsBranch,
   commitGitChanges,
+  createGitBranchFromCommit,
+  createGitTagFromCommit,
   fetchGitRemotes,
   pullGitBranchWithStash,
   pushGitBranch,
@@ -86,6 +90,25 @@ export type GitHistorySnapshot = {
   refs: GitRef[]
   totalCount: number
   updatedAt: number
+}
+
+export type GitGraphCommit = GitCommit & {
+  parents: string[]
+}
+
+export type GitGraphSnapshot = {
+  commits: GitGraphCommit[]
+  refs: GitRef[]
+  headHash: string | null
+  detached: boolean
+  totalCount: number
+  hasMore: boolean
+  updatedAt: number
+}
+
+export type GitGraphOptions = {
+  limit?: number
+  skip?: number
 }
 
 export type GitRef = {

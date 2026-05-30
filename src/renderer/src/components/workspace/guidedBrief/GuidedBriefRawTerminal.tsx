@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { bindTerminalClipboardHandlers } from '../../../utils/terminalClipboard'
+import { bindTerminalTheme, getTerminalTheme } from '../../../utils/terminalTheme'
 import { createXtermOutputQueue } from '../../../utils/xtermOutputQueue'
 
 type Props = {
@@ -19,17 +20,13 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
     const focusTerminal = () => terminal.focus()
 
     const terminal = new Terminal({
-      // design-tokens-allow: xterm-256 host palette — same exemption as TerminalView/PlainTerminalPanel
-      theme: {
-        background: '#09090b', // design-tokens-allow: xterm host palette
-        foreground: '#e4e4e7', // design-tokens-allow: xterm host palette
-        cursor: '#818cf8', // design-tokens-allow: xterm host palette
-      },
+      theme: getTerminalTheme(),
       fontFamily: 'ui-monospace, "Cascadia Code", Consolas, monospace',
       fontSize: 13,
       cursorBlink: true,
       scrollback: 5000,
     })
+    const disposeTheme = bindTerminalTheme(terminal)
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
     terminal.open(container)
@@ -83,6 +80,7 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
       container.removeEventListener('click', focusTerminal)
       container.removeEventListener('focus', focusTerminal)
       disposeClipboardHandlers()
+      disposeTheme()
       disposeData()
       disposeExit()
       disposeError()

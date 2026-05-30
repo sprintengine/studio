@@ -12,6 +12,7 @@ export type SpecialistIcon =
   | 'infra'
   | 'product'
   | 'performance'
+  | 'cross_platform'
   | 'writing'
 
 export type SpecialistAction = {
@@ -41,6 +42,7 @@ export const MULTILOOP_ROLES: MultiloopRoleDescriptor[] = [
   { role: 'security', label: 'Security', shortLabel: 'Security', icon: 'shield' },
   { role: 'code_reviewer', label: 'Code Reviewer', shortLabel: 'Code Reviewer', icon: 'review' },
   { role: 'performance', label: 'Performance', shortLabel: 'Performance', icon: 'performance' },
+  { role: 'cross_platform', label: 'Cross-platform', shortLabel: 'Compatibility', icon: 'cross_platform' },
 ]
 
 export const SPECIALIST_ACTIONS: SpecialistAction[] = [
@@ -85,6 +87,14 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     icon: 'performance',
     soulRole: 'performance',
     shortcut: 'Ctrl+Alt+M',
+  },
+  {
+    id: 'cross-platform',
+    label: 'Cross-platform Specialist',
+    shortLabel: 'Compatibility',
+    description: 'Review operating system, browser, device, shell, filesystem, packaging, and runtime compatibility.',
+    icon: 'cross_platform',
+    soulRole: 'cross_platform',
   },
   {
     id: 'frontend-design-review',

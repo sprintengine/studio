@@ -167,7 +167,7 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
             type="button"
             onClick={() => void saveResolved()}
             disabled={state.saving}
-            className="h-8 shrink-0 rounded-md border border-[color:var(--color-6)] bg-[color:var(--text-strong)] px-3 text-[11px] font-semibold text-[color:var(--bg-surface-raised)] transition-colors hover:bg-white disabled:border-[color:var(--bg-selected)] disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]"
+            className="h-8 shrink-0 rounded-md border border-[color:var(--color-6)] bg-[color:var(--text-strong)] px-3 text-[11px] font-semibold text-[color:var(--bg-surface-raised)] transition-colors hover:bg-[color:var(--bg-inverted-hover)] disabled:border-[color:var(--bg-selected)] disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]"
           >
             {state.saving ? 'Saving...' : 'Save & Mark Resolved'}
           </button>

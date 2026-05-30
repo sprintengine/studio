@@ -36,9 +36,14 @@ import {
 } from './sprintengineAutoRun'
 import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode } from './agentPrompt'
 import { deriveSprintEngineAutomationMode } from './sprintengineAutomation'
+import {
+  SPRINT_ENGINE_AUTOMATION_NOTIFICATION_TITLE,
+  countUnreadSprintEngineAutomationNotifications,
+} from './sprintengineNotifications'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type {
   AgentCli,
+  AppNotification,
   SprintEngineArtifact,
   SprintEngineEvent,
   SprintEngineQualityGate,
@@ -65,6 +70,7 @@ async function main(): Promise<void> {
   testStartupPromptIsMcpNative()
   testArchitectInitStartupPromptIsMcpNative()
   testPromptBuildersIncludeAgentIdAndCommand()
+  testSprintEngineAutomationNotificationCountIsWorkspaceScoped()
   testDispatchPromptUsesJoinReconciliation()
   testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles()
   testGetArchitectActionableNeedsInputTasksFiltersByKind()
@@ -110,6 +116,7 @@ async function main(): Promise<void> {
   await testWakeCandidatePromptStopsAfterSmallRetryLimit()
   await testWakeCandidateCleanupPreservesGateRetryKeys()
   await testClaimedGateContinuationSkipsMatchingCurrentDispatch()
+  await testClaimedGateContinuationSkipsMatchingCurrentGateWhenDispatchMissing()
   await testDispatchPromptSkipsBusyDifferentTaskTerminal()
   await testDispatchPromptSkipsAgentAlreadyWorkingDispatchTask()
   await testDispatchPromptSkipsAgentAlreadyReviewingDispatchGate()
@@ -1637,6 +1644,88 @@ async function testClaimedGateContinuationSkipsMatchingCurrentDispatch(): Promis
   assert.equal(sent.current.has(key), false, 'stale claimed-gate continuation retry state is cleared')
 }
 
+async function testClaimedGateContinuationSkipsMatchingCurrentGateWhenDispatchMissing(): Promise<void> {
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-tester',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'tester-1',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+      },
+    ],
+    terminalWrite: async (sessionId, text) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const workspace = workspaceFixture({
+    agents: {
+      'tester-1': sprintAgent('tester-1', 'Tess'),
+    },
+  })
+  const testingTask = task({
+    id: 'T16',
+    title: 'Implement gig edit and cancellation flows',
+    status: 'testing',
+    boardColumn: 'testing',
+    role: 'developer',
+    ownerAgentId: null,
+    qualityGates: [
+      { id: 'code_reviewer', phase: 'review', role: 'code_reviewer', status: 'approved', required: true, allowSelfReview: true, focus: '', attempts: [] },
+      {
+        id: 'tester',
+        phase: 'testing',
+        role: 'tester',
+        status: 'in_progress',
+        required: true,
+        allowSelfReview: true,
+        focus: '',
+        attempts: [{ id: 'GA-T16-001', status: 'in_progress', role: 'tester', claimedBy: 'tester-1', startedAt: '2026-05-30T10:15:00Z' }],
+      },
+    ],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [testingTask],
+    sprintEngineAgents: {
+      'tester-1': runtimeAgent('tester', {
+        status: 'running',
+        currentTaskId: 'T16',
+        currentGateId: 'tester',
+        currentGate: {
+          taskId: 'T16',
+          gateId: 'tester',
+          attemptId: 'GA-T16-001',
+        },
+        currentDispatch: null,
+      }),
+    },
+  })
+  const key = continuationMessageKey(workspace, 'T16:tester', 'tester-1')
+  const sent = mutableRef(new Map<string, { sentAt: number; attempts?: number }>([
+    [key, { sentAt: Date.now() - 120_000, attempts: 4 }],
+  ]))
+
+  await supervisor.sendGateContinuationPromptsToAgents(
+    workspace,
+    state,
+    new Set(['tester-1']),
+    { capacityByRole: new Map(), agentIds: new Set() },
+    sent
+  )
+
+  assert.equal(writes.length, 0, 'claimed gate prompt is not pasted when the runtime agent already owns the gate')
+  assert.equal(sent.current.has(key), false, 'stale claimed-gate retry state is cleared even without currentDispatch')
+}
+
 async function testDispatchPromptSkipsBusyDifferentTaskTerminal(): Promise<void> {
   const writes: Array<{ sessionId: string; text: string }> = []
   installTestWindow({
@@ -2738,6 +2827,38 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
     !/sprintengine (join|task |gate |triage |init |handover)/.test(triage),
     'architect triage prompt does not embed a sprintengine CLI command'
   )
+}
+
+function testSprintEngineAutomationNotificationCountIsWorkspaceScoped(): void {
+  const notifications: AppNotification[] = [
+    automationNotification({ workspaceId: 'workspace-1', read: false }),
+    automationNotification({ workspaceId: 'workspace-1', read: false }),
+    automationNotification({ workspaceId: 'workspace-1', read: true }),
+    automationNotification({ workspaceId: 'workspace-2', read: false }),
+    {
+      ...automationNotification({ workspaceId: 'workspace-1', read: false }),
+      title: 'Other Sprint Engine notification',
+    },
+  ]
+
+  assert.equal(
+    countUnreadSprintEngineAutomationNotifications(notifications, 'workspace-1'),
+    2,
+    'Sprint Engine automation badge counts unread matching notifications for the current workspace only',
+  )
+}
+
+function automationNotification(input: { workspaceId: string; read: boolean }): AppNotification {
+  return {
+    id: `notification-${input.workspaceId}-${input.read ? 'read' : 'unread'}`,
+    timestamp: '2026-05-28T08:00:00.000Z',
+    level: 'info',
+    source: 'sprintengine',
+    title: SPRINT_ENGINE_AUTOMATION_NOTIFICATION_TITLE,
+    message: 'Sprint Engine automation is now Run agents.',
+    workspaceId: input.workspaceId,
+    read: input.read,
+  }
 }
 
 function testDispatchPromptUsesJoinReconciliation(): void {

@@ -23,6 +23,7 @@ export const BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES: readonly SprintEngineRole[] = 
   'code_reviewer',
   'spec_reviewer',
   'performance',
+  'cross_platform',
   'tester',
   'security',
 ]
@@ -39,6 +40,7 @@ export const BUNDLED_SPRINT_ENGINE_BOARD_ROLE_SUMMARIES: Record<SprintEngineRole
   code_reviewer: 'Reviews implementation quality, regressions, and evidence.',
   spec_reviewer: 'Checks implementation against requirements, acceptance criteria, and tests.',
   performance: 'Reviews latency, CPU, memory, runtime cost, and measurement gaps.',
+  cross_platform: 'Reviews OS, browser, device, filesystem, shell, packaging, and runtime compatibility.',
   tester: 'Validates behavior, regressions, and acceptance criteria.',
   security: 'Reviews trust boundaries, command safety, data handling, and hardening.',
 }
@@ -54,6 +56,7 @@ export const BUNDLED_SPRINT_ENGINE_WIZARD_ROLE_SUMMARIES: Record<SprintEngineRol
   code_reviewer: 'Reviews implementation quality before validation.',
   spec_reviewer: 'Checks implementation against requirements and acceptance criteria.',
   performance: 'Reviews latency, runtime cost, and measurement gaps.',
+  cross_platform: 'Checks compatibility across platforms, browsers, devices, and packaging targets.',
   tester: 'Runs acceptance checks and publishes evidence.',
   security: 'Reviews trust boundaries, secrets, and abuse cases.',
 }

@@ -6,72 +6,80 @@ delete env.ELECTRON_RUN_AS_NODE
 
 const { spawnSync } = require('child_process')
 const net = require('net')
-const bin = require('path').join(require.resolve('electron-vite/package.json'), '../bin/electron-vite.js')
+const os = require('os')
+const path = require('path')
+const bin = path.join(require.resolve('electron-vite/package.json'), '../bin/electron-vite.js')
 
-const rendererPort = 5173
+const defaultRendererPort = 5173
 
-function findPortOwner(port) {
-  if (process.platform === 'win32') return ''
+function parsePort(value) {
+  if (typeof value !== 'string' || !value.trim()) return null
 
-  const result = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN'], {
-    encoding: 'utf8',
-  })
-
-  return result.stdout.trim()
+  const port = Number(value)
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null
 }
 
-function assertPortAvailable(port) {
-  return new Promise((resolve, reject) => {
+function canListen(port, host) {
+  return new Promise((resolve) => {
     const server = net.createServer()
-
     server.once('error', (error) => {
-      if (error.code === 'EADDRINUSE') {
-        const owner = findPortOwner(port)
-        reject(
-          new Error(
-            [
-              `Multicode dev renderer requires http://localhost:${port}.`,
-              'That port is already in use, so starting on a fallback port would hide persisted workspaces.',
-              owner ? `\nPort owner:\n${owner}` : '',
-            ].join('\n')
-          )
-        )
-        return
-      }
-
-      reject(error)
+      resolve(error.code === 'EADDRNOTAVAIL' || error.code === 'EAFNOSUPPORT')
     })
-
-    server.once('listening', () => {
-      server.close(() => resolve())
-    })
-
-    server.listen(port, '127.0.0.1')
+    server.once('listening', () => server.close(() => resolve(true)))
+    server.listen(port, host)
   })
+}
+
+async function isPortAvailable(port) {
+  const ipv4Available = await canListen(port, '127.0.0.1')
+  const ipv6Available = await canListen(port, '::1')
+  return ipv4Available && ipv6Available
+}
+
+async function findAvailablePort(start) {
+  for (let port = start; port <= 65535; port += 1) {
+    if (await isPortAvailable(port)) return port
+  }
+  return null
+}
+
+function devProfileDir(port) {
+  if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Application Support', `multicode-dev-${port}`)
+  }
+  if (process.platform === 'win32') {
+    return path.join(process.env.APPDATA || os.homedir(), `multicode-dev-${port}`)
+  }
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), `multicode-dev-${port}`)
+}
+
+async function configureParallelDevInstance() {
+  const requestedPort = parsePort(env.MULTICODE_RENDERER_PORT)
+  let rendererPort = requestedPort ?? defaultRendererPort
+
+  if (!requestedPort && !(await isPortAvailable(defaultRendererPort))) {
+    const availablePort = await findAvailablePort(defaultRendererPort + 1)
+    if (!availablePort) throw new Error('No available renderer port found for Multicode dev.')
+    rendererPort = availablePort
+    env.MULTICODE_RENDERER_PORT = String(rendererPort)
+  }
+
+  if (rendererPort !== defaultRendererPort && !env.MULTICODE_USER_DATA_DIR) {
+    env.MULTICODE_USER_DATA_DIR = devProfileDir(rendererPort)
+    env.MULTICODE_ALLOW_MULTI_INSTANCE = '1'
+    console.info(
+      `Starting parallel Multicode dev instance on port ${rendererPort} with userData ${env.MULTICODE_USER_DATA_DIR}`
+    )
+  }
 }
 
 async function main() {
-  const owner = findPortOwner(rendererPort)
-  if (owner) {
-    console.error(
-      [
-        `Multicode dev renderer requires http://localhost:${rendererPort}.`,
-        'That port is already in use, so starting on a fallback or split localhost binding would hide persisted workspaces.',
-        `\nPort owner:\n${owner}`,
-      ].join('\n')
-    )
-    process.exit(1)
-  }
-
-  try {
-    await assertPortAvailable(rendererPort)
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : error)
-    process.exit(1)
-  }
-
+  await configureParallelDevInstance()
   const result = spawnSync('node', [bin, 'dev'], { stdio: 'inherit', env })
   process.exit(result.status ?? 0)
 }
 
-main()
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : error)
+  process.exit(1)
+})

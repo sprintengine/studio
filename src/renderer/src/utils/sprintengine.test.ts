@@ -222,6 +222,12 @@ const dispatchState = normalizeSprintEngineProjection(fakeProjection({
       role: 'frontend',
       status: 'running',
       currentTaskId: 'T4',
+      currentGateId: 'tester',
+      currentGate: {
+        taskId: 'T4',
+        gateId: 'tester',
+        attemptId: 'GA-001',
+      },
       currentDispatch: {
         dispatchId: 'DISP-6ed51f5daa40b4bd',
         targetKind: 'task',
@@ -240,6 +246,12 @@ assert.deepEqual(dispatchState?.sprintEngineAgents['frontend-3']?.currentDispatc
   reason: 'task_claimed',
   taskId: 'T4',
   assignedAt: '2026-05-20T21:49:44Z',
+})
+assert.equal(dispatchState?.sprintEngineAgents['frontend-3']?.currentGateId, 'tester')
+assert.deepEqual(dispatchState?.sprintEngineAgents['frontend-3']?.currentGate, {
+  taskId: 'T4',
+  gateId: 'tester',
+  attemptId: 'GA-001',
 })
 
 const runnerState = normalizeSprintEngineProjection(fakeProjection({
@@ -1276,7 +1288,7 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
 {
   assert.deepEqual(
     [...BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES],
-    ['architect', 'product', 'frontend', 'developer', 'code_reviewer', 'spec_reviewer', 'performance', 'tester', 'security'],
+    ['architect', 'product', 'frontend', 'developer', 'code_reviewer', 'spec_reviewer', 'performance', 'cross_platform', 'tester', 'security'],
     'bundled addable roles match historical board list',
   )
 }

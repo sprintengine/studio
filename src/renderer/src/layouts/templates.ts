@@ -15,6 +15,14 @@ const agentTab = (id: string, name = id) => ({
 })
 const editorTab = { type: 'tab', name: 'Editor', component: 'editor' }
 const explorerTab = { type: 'tab', name: 'Files', component: 'explorer' }
+// Files / Git / Knowledge Graph are exclusive strip-less nav switches driven by
+// the sidebar PanelRail, so the tabset holding the explorer hides its strip.
+const navRailTabset = (weight: number) => ({
+  type: 'tabset',
+  weight,
+  enableTabStrip: false,
+  children: [explorerTab],
+})
 const sprintEngineBoardTab = () => ({
   type: 'tab',
   name: 'Sprint Engine',
@@ -202,7 +210,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
       layout: {
         type: 'row',
         children: [
-          { type: 'tabset', weight: 18, children: [explorerTab] },
+          navRailTabset(18),
           { type: 'tabset', weight: 52, children: [editorTab] },
           { type: 'tabset', weight: 30, children: [agentTab('agent-1', 'Agent')] },
         ],
@@ -225,7 +233,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
       layout: {
         type: 'row',
         children: [
-          { type: 'tabset', weight: 18, children: [explorerTab] },
+          navRailTabset(18),
           { type: 'tabset', weight: 52, children: [editorTab] },
           {
             type: 'row',
@@ -257,7 +265,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
       layout: {
         type: 'row',
         children: [
-          { type: 'tabset', weight: 16, children: [explorerTab] },
+          navRailTabset(16),
           { type: 'tabset', weight: 44, children: [editorTab] },
           {
             type: 'row',

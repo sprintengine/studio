@@ -464,6 +464,7 @@ export type SpecialistActionId =
   | 'developer'
   | 'devops-infra'
   | 'performance'
+  | 'cross-platform'
   | 'blog-writer'
   | 'qa-test'
   | 'security-review'
@@ -485,6 +486,7 @@ export type MultiloopRole =
   | 'security'
   | 'code_reviewer'
   | 'performance'
+  | 'cross_platform'
 
 export type GitFileStatus = 'new' | 'modified' | 'deleted' | 'renamed' | 'conflicted'
 
@@ -540,6 +542,25 @@ export type GitHistorySnapshot = {
   refs: GitRef[]
   totalCount: number
   updatedAt: number
+}
+
+export type GitGraphCommit = GitCommit & {
+  parents: string[]
+}
+
+export type GitGraphSnapshot = {
+  commits: GitGraphCommit[]
+  refs: GitRef[]
+  headHash: string | null
+  detached: boolean
+  totalCount: number
+  hasMore: boolean
+  updatedAt: number
+}
+
+export type GitGraphOptions = {
+  limit?: number
+  skip?: number
 }
 
 export type GitCommandResult = {
@@ -765,6 +786,7 @@ export type SprintEngineTaskMutationRole =
   | 'code_reviewer'
   | 'spec_reviewer'
   | 'performance'
+  | 'cross_platform'
 
 export type SprintEngineTaskUpdateInput = {
   statePath: string
@@ -1170,6 +1192,7 @@ export type ElectronApi = {
   getGitFileBase: (repoRoot: string, filePath: string) => Promise<GitFileBaseResult>
   getGitBranches: (repoRoot: string) => Promise<GitBranchSnapshot>
   getGitHistory: (repoRoot: string, limit?: number) => Promise<GitHistorySnapshot>
+  getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions) => Promise<GitGraphSnapshot>
   getGitConflicts: (repoRoot: string) => Promise<GitConflictSnapshot>
   getGitConflictFile: (repoRoot: string, filePath: string) => Promise<GitConflictFileContent | null>
   resolveGitConflict: (repoRoot: string, filePath: string, content: string) => Promise<GitCommandResult>
@@ -1182,6 +1205,10 @@ export type ElectronApi = {
   fetchGitRemotes: (repoRoot: string) => Promise<GitCommandResult>
   pullGitBranchWithStash: (repoRoot: string) => Promise<GitCommandResult>
   switchGitBranch: (repoRoot: string, branchName: string) => Promise<GitCommandResult>
+  checkoutGitCommit: (repoRoot: string, commitHash: string) => Promise<GitCommandResult>
+  createGitBranchFromCommit: (repoRoot: string, branchName: string, commitHash: string) => Promise<GitCommandResult>
+  checkoutGitCommitAsBranch: (repoRoot: string, branchName: string, commitHash: string) => Promise<GitCommandResult>
+  createGitTagFromCommit: (repoRoot: string, tagName: string, commitHash: string) => Promise<GitCommandResult>
   listGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>>
   createGitWorktree: (input: GitWorktreeCreateInput) => Promise<GitWorktreeOperationResult<GitWorktreeEntry>>
   removeGitWorktree: (input: GitWorktreeRemoveInput) => Promise<GitWorktreeOperationResult<GitCommandResult>>

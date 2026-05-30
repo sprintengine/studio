@@ -406,7 +406,13 @@ export default function WorktreeManager({
 
       {contentOpen ? (
         <>
-          <div className="mb-3 grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(80px,0.6fr)_auto]">
+          {/*
+           * The base-ref Select trigger has an intrinsic min-w-[140px]; its
+           * grid track min must match it, otherwise a narrow panel shrinks the
+           * track below the control and the Select overflows rightward over the
+           * Create button.
+           */}
+          <div className="mb-3 grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(140px,0.6fr)_auto]">
             <input
               value={worktreeName}
               onChange={(event) => setWorktreeName(event.target.value)}
@@ -436,7 +442,7 @@ export default function WorktreeManager({
               type="button"
               onClick={() => void handleCreate()}
               disabled={formDisabled || !worktreeName.trim() || !branchName.trim()}
-              className="h-8 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--text-strong)] px-3 text-[11px] font-semibold text-[color:var(--bg-surface-raised)] transition-colors hover:bg-white focus:outline-none focus:ring-1 focus:ring-[color:var(--text-muted)] disabled:border-[color:var(--border-subtle)] disabled:bg-[color:var(--bg-hover)] disabled:text-[color:var(--text-disabled)]"
+              className="h-8 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--text-strong)] px-3 text-[11px] font-semibold text-[color:var(--bg-surface-raised)] transition-colors hover:bg-[color:var(--bg-inverted-hover)] focus:outline-none focus:ring-1 focus:ring-[color:var(--text-muted)] disabled:border-[color:var(--border-subtle)] disabled:bg-[color:var(--bg-hover)] disabled:text-[color:var(--text-disabled)]"
             >
               Create
             </button>

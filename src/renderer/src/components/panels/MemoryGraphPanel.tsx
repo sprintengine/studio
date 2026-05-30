@@ -231,7 +231,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
         >
           <div className="relative">
             <span
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-[color:var(--text-disabled)]"
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-[color:var(--text-subtle)]"
               aria-hidden
             >
               ⌕
@@ -241,7 +241,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search notes…"
-              className="h-8 w-64 rounded-[5px] border border-[color:var(--border-strong)] bg-transparent pl-7 pr-7 text-xs text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-disabled)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+              className="h-8 w-64 rounded-[5px] border border-[color:var(--border-strong)] bg-transparent pl-7 pr-7 text-xs text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-subtle)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
             />
             <kbd
               className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded-[3px] bg-[color:var(--bg-surface-raised)] px-1 py-0.5 font-mono text-[10px] text-[color:var(--text-disabled)]"
@@ -249,7 +249,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
               /
             </kbd>
           </div>
-          <Tooltip content="Refresh index">
+          <Tooltip content="Refresh index" placement="bottom">
             <button
               type="button"
               onClick={() => void loadGraph()}
@@ -348,10 +348,10 @@ function MemoryNotice({
   return (
     <div className="flex h-full w-full items-center justify-center px-6 text-center">
       <div className="max-w-md">
-        <div className="mb-3 text-xl text-white/40" aria-hidden>
+        <div className="mb-3 text-xl text-[color:var(--text-subtle)]" aria-hidden>
           {tone === 'error' ? '!' : '◌'}
         </div>
-        <div className="text-sm font-semibold text-white">{title}</div>
+        <div className="text-sm font-semibold text-[color:var(--text-strong)]">{title}</div>
         {tone === 'error' ? (
           <div
             className="mx-auto mt-3 max-w-md rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-left font-mono text-[11px] text-[color:var(--text-muted)]"
@@ -359,9 +359,9 @@ function MemoryNotice({
             {message}
           </div>
         ) : (
-          <div className="mt-2 text-xs leading-6 text-white/55">{message}</div>
+          <div className="mt-2 text-xs leading-6 text-[color:var(--text-muted)]">{message}</div>
         )}
-        {hint ? <div className="mt-3 text-xs leading-6 text-white/55">{hint}</div> : null}
+        {hint ? <div className="mt-3 text-xs leading-6 text-[color:var(--text-muted)]">{hint}</div> : null}
       </div>
     </div>
   )
@@ -374,7 +374,9 @@ function MemoryActivityStatusBadge({ status }: { status: MemoryActivityStatus })
   //   - Tracking live: a recent event landed; pulse the indicator.
   const isLive = status.lastEventAt !== null && Date.now() - status.lastEventAt < 5000
   const dotTone = !status.isInstalled ? 'neutral' : isLive ? 'accent' : 'good'
-  const labelTone = status.isInstalled ? 'text-white/75' : 'text-white/45'
+  const labelTone = status.isInstalled
+    ? 'text-[color:var(--text-default)]'
+    : 'text-[color:var(--text-muted)]'
 
   return (
     <div
@@ -393,12 +395,12 @@ function MemoryActivityStatusBadge({ status }: { status: MemoryActivityStatus })
           <span className={labelTone}>Activity tracking off</span>
         ) : (
           <span className={labelTone}>
-            <span className="font-semibold text-white/85">{status.sessionsRecorded}</span>{' '}
+            <span className="font-semibold text-[color:var(--text-strong)]">{status.sessionsRecorded}</span>{' '}
             session{status.sessionsRecorded === 1 ? '' : 's'}
-            <span className="mx-1.5 text-white/25">·</span>
-            <span className="font-semibold text-white/85">{status.eventsToday}</span> today
-            <span className="mx-1.5 text-white/25">·</span>
-            <span className="font-semibold text-white/85">{status.totalEvents}</span> total
+            <span className="mx-1.5 text-[color:var(--text-disabled)]">·</span>
+            <span className="font-semibold text-[color:var(--text-strong)]">{status.eventsToday}</span> today
+            <span className="mx-1.5 text-[color:var(--text-disabled)]">·</span>
+            <span className="font-semibold text-[color:var(--text-strong)]">{status.totalEvents}</span> total
           </span>
         )}
       </div>

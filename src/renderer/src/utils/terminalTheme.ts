@@ -14,16 +14,57 @@ function readVar(name: string, fallback: string): string {
   return value || fallback
 }
 
+// xterm's default 16-color ANSI palette is tuned for dark backgrounds: its
+// `white`/`brightWhite` (and the bright variants agents use for bold text)
+// sit near #fff and vanish on a light surface. Themes with a light terminal
+// background get this palette instead — darkened hues that hold WCAG-AA
+// contrast on near-white. Derived from the GitHub light terminal palette.
+const LIGHT_TERMINAL_ANSI: ITheme = {
+  black: '#24292e',
+  red: '#cf222e',
+  green: '#116329',
+  yellow: '#9a6700',
+  blue: '#0969da',
+  magenta: '#8250df',
+  cyan: '#1b7c83',
+  white: '#6e7781',
+  brightBlack: '#57606a',
+  brightRed: '#a40e26',
+  brightGreen: '#1a7f37',
+  brightYellow: '#7d4e00',
+  brightBlue: '#218bff',
+  brightMagenta: '#a475f9',
+  brightCyan: '#3192aa',
+  brightWhite: '#24292e',
+  selectionBackground: 'rgba(56, 92, 252, 0.20)',
+}
+
+// Perceived luminance (Rec. 601). Returns false for any value we can't parse
+// as a hex color, so unknown backgrounds keep the dark-tuned default palette.
+function isLightBackground(color: string): boolean {
+  const match = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim())
+  if (!match) return false
+  let hex = match[1]
+  if (hex.length === 3) hex = hex.split('').map((c) => c + c).join('')
+  const r = parseInt(hex.slice(0, 2), 16)
+  const g = parseInt(hex.slice(2, 4), 16)
+  const b = parseInt(hex.slice(4, 6), 16)
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6
+}
+
 export function getTerminalTheme(): ITheme {
   // Terminals read from dedicated --terminal-* tokens so they can sit deeper
-  // than the panel chrome (e.g. inverted "dark screen" on Light theme). Fall
-  // back to the surface scale tokens for any theme that hasn't declared
-  // terminal-specific values, which preserves backwards compatibility.
-  return {
-    background: readVar('--terminal-bg', readVar('--bg-app', '#08090b')),
+  // than the panel chrome. Fall back to the surface scale tokens for any theme
+  // that hasn't declared terminal-specific values, preserving compatibility.
+  const background = readVar('--terminal-bg', readVar('--bg-app', '#08090b'))
+  const base: ITheme = {
+    background,
     foreground: readVar('--terminal-fg', readVar('--text-strong', '#ececee')),
     cursor: readVar('--terminal-cursor', readVar('--accent-primary', '#5c7cff')),
   }
+  // A light terminal surface needs the light ANSI palette or colored/bold agent
+  // output washes out; dark surfaces keep xterm's default palette untouched.
+  return isLightBackground(background) ? { ...base, ...LIGHT_TERMINAL_ANSI } : base
 }
 
 type Subscriber = () => void

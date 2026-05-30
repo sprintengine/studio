@@ -8,6 +8,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { isImageFile } from '../../utils/files'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { setFileDropData } from '../../utils/terminalDrop'
+import { IconButton } from '../ui/Buttons'
 import { Tooltip } from '../ui/Tooltip'
 import { Toast } from '../ui/Toast'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -1697,49 +1698,35 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
             </span>
             {folderReadyPath && (
               <div className="flex shrink-0 items-center gap-1">
-                <Tooltip content="New file">
-                  <button
-                    type="button"
-                    onClick={() => requestCreateEntry('file')}
-                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
-                    aria-label="New file"
-                  >
+                <Tooltip content="New file" placement="bottom">
+                  <IconButton aria-label="New file" onClick={() => requestCreateEntry('file')}>
                     <NewFileIcon />
-                  </button>
+                  </IconButton>
                 </Tooltip>
-                <Tooltip content="New folder">
-                  <button
-                    type="button"
-                    onClick={() => requestCreateEntry('dir')}
-                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
-                    aria-label="New folder"
-                  >
+                <Tooltip content="New folder" placement="bottom">
+                  <IconButton aria-label="New folder" onClick={() => requestCreateEntry('dir')}>
                     <NewFolderIcon />
-                  </button>
+                  </IconButton>
                 </Tooltip>
-                <Tooltip content={canRevealActiveFile ? 'Reveal active file' : 'No active file to reveal'}>
-                  <button
-                    type="button"
+                <Tooltip content={canRevealActiveFile ? 'Reveal active file' : 'No active file to reveal'} placement="bottom">
+                  <IconButton
+                    aria-label="Reveal active file"
                     onClick={revealActiveFile}
                     disabled={!canRevealActiveFile}
-                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
-                    aria-label="Reveal active file"
                   >
                     <RevealActiveFileIcon />
-                  </button>
+                  </IconButton>
                 </Tooltip>
-                <Tooltip content="Refresh files">
-                  <button
-                    type="button"
+                <Tooltip content="Refresh files" placement="bottom">
+                  <IconButton
+                    aria-label="Refresh files"
                     onClick={() => {
                       setRefreshToken((current) => current + 1)
                       void refreshGitStatus()
                     }}
-                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
-                    aria-label="Refresh files"
                   >
                     <RefreshFilesIcon />
-                  </button>
+                  </IconButton>
                 </Tooltip>
               </div>
             )}

@@ -3,7 +3,7 @@ import { LAYOUT_TEMPLATES } from '../layouts/templates'
 import { SPECIALIST_ACTIONS } from '../specialists/specialistActions'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type { SpecialistActionId } from '../types/workspace'
-import { focusOrAddComponentTab, focusOrAddFileTab } from '../utils/modelRegistry'
+import { focusOrAddComponentTab, focusOrAddFileTab, revealNavRailComponent } from '../utils/modelRegistry'
 import {
   buildSprintEngineAgentRosterForState,
   computeSprintEngineFocusAgentAvailability,
@@ -180,7 +180,7 @@ export default function CommandPalette({ onClose, onNewWorkspace, onSpawnSpecial
               label: 'Git: Manage Worktrees',
               description: activeWorkspace.folderPath ?? 'Open the Git panel',
               run: () => {
-                focusOrAddComponentTab(activeWorkspace.id, 'git', 'Git')
+                revealNavRailComponent(activeWorkspace.id, 'git', 'Git')
                 onClose()
               },
             },

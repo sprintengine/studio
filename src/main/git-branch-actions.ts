@@ -119,3 +119,82 @@ export async function switchGitBranch(repoRoot: string, branchName: string): Pro
 
   return runGitCommand(repoRoot, ['switch', trimmedBranch])
 }
+
+const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i
+
+function invalidCommit(): GitCommandResult {
+  return { ok: false, stdout: '', stderr: '', message: 'Invalid commit hash.' }
+}
+
+function validateRefName(name: string, kind: 'branch' | 'tag'): GitCommandResult | null {
+  const trimmed = name.trim()
+  if (!trimmed) return { ok: false, stdout: '', stderr: '', message: `Enter a ${kind} name.` }
+  if (trimmed.startsWith('-')) {
+    return { ok: false, stdout: '', stderr: '', message: `${kind === 'branch' ? 'Branch' : 'Tag'} names cannot start with a dash.` }
+  }
+  return null
+}
+
+/** Tracked, uncommitted modifications block a detaching checkout to avoid silent carry-over. */
+async function hasUncommittedTrackedChanges(repoRoot: string): Promise<boolean> {
+  const result = await runGitCommand(repoRoot, ['status', '--porcelain=v1', '--untracked-files=no'])
+  return result.ok && result.stdout.trim().length > 0
+}
+
+export async function checkoutGitCommit(repoRoot: string, commitHash: string): Promise<GitCommandResult> {
+  const hash = commitHash.trim()
+  if (!COMMIT_HASH_PATTERN.test(hash)) return invalidCommit()
+  if (await hasUncommittedTrackedChanges(repoRoot)) {
+    return {
+      ok: false,
+      stdout: '',
+      stderr: '',
+      message: 'Commit, stash, or discard your tracked changes before checking out a commit.',
+    }
+  }
+  return runGitCommand(repoRoot, ['checkout', hash])
+}
+
+export async function createGitBranchFromCommit(
+  repoRoot: string,
+  branchName: string,
+  commitHash: string
+): Promise<GitCommandResult> {
+  const hash = commitHash.trim()
+  if (!COMMIT_HASH_PATTERN.test(hash)) return invalidCommit()
+  const invalid = validateRefName(branchName, 'branch')
+  if (invalid) return invalid
+  return runGitCommand(repoRoot, ['branch', branchName.trim(), hash])
+}
+
+export async function checkoutGitCommitAsBranch(
+  repoRoot: string,
+  branchName: string,
+  commitHash: string
+): Promise<GitCommandResult> {
+  const hash = commitHash.trim()
+  if (!COMMIT_HASH_PATTERN.test(hash)) return invalidCommit()
+  const invalid = validateRefName(branchName, 'branch')
+  if (invalid) return invalid
+  if (await hasUncommittedTrackedChanges(repoRoot)) {
+    return {
+      ok: false,
+      stdout: '',
+      stderr: '',
+      message: 'Commit, stash, or discard your tracked changes before creating a branch here.',
+    }
+  }
+  return runGitCommand(repoRoot, ['checkout', '-b', branchName.trim(), hash])
+}
+
+export async function createGitTagFromCommit(
+  repoRoot: string,
+  tagName: string,
+  commitHash: string
+): Promise<GitCommandResult> {
+  const hash = commitHash.trim()
+  if (!COMMIT_HASH_PATTERN.test(hash)) return invalidCommit()
+  const invalid = validateRefName(tagName, 'tag')
+  if (invalid) return invalid
+  return runGitCommand(repoRoot, ['tag', tagName.trim(), hash])
+}

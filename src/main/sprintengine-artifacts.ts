@@ -125,6 +125,7 @@ const autoApprovableArtifactKinds = new Set([
   'code_review',
   'spec_review',
   'performance_review',
+  'cross_platform_review',
   'validation_report',
 ])
 

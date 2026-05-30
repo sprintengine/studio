@@ -630,6 +630,27 @@ function runtimeAgentAlreadyOwnsDispatchTarget(
   )
 }
 
+function runtimeAgentAlreadyOwnsGateClaim(
+  runtimeAgent: SprintEngineState['sprintEngineAgents'][string] | undefined,
+  taskId: string,
+  gateId: string,
+  attemptId: string | null | undefined
+): boolean {
+  if (!runtimeAgent || runtimeAgent.status !== 'running') return false
+  if (runtimeAgent.currentTaskId !== taskId) return false
+
+  const currentGate = runtimeAgent.currentGate
+  return Boolean(
+    (
+      currentGate
+      && currentGate.taskId === taskId
+      && currentGate.gateId === gateId
+      && (!attemptId || currentGate.attemptId === attemptId)
+    )
+    || (!currentGate && runtimeAgent.currentGateId === gateId)
+  )
+}
+
 function getContinuationMessageWorkKey(workspace: Workspace, key: string): string | null {
   const prefix = `${workspace.id}:${workspace.sprintEngineContext?.statePath ?? ''}:`
   if (!key.startsWith(prefix)) return null
@@ -856,11 +877,17 @@ export async function sendGateContinuationPromptsToAgents(
       if (!runningAgentIds.has(agentId)) continue
       const key = continuationMessageKey(workspace, `${task.id}:${claim.gate.id}`, agentId)
       const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
+      const attemptId = claim.gate.attempts.find((attempt) =>
+        attempt.status === 'in_progress' && attempt.claimedBy === agentId
+      )?.id
       const dispatch = runtimeAgent?.currentDispatch
       if (
-        dispatch?.targetKind === 'gate'
-        && dispatch.taskId === task.id
-        && dispatch.gateId === claim.gate.id
+        (
+          dispatch?.targetKind === 'gate'
+          && dispatch.taskId === task.id
+          && dispatch.gateId === claim.gate.id
+        )
+        || runtimeAgentAlreadyOwnsGateClaim(runtimeAgent, task.id, claim.gate.id, attemptId)
       ) {
         sentContinuationMessages.current.delete(key)
         logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-skipped', {

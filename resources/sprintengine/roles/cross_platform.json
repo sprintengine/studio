@@ -1,0 +1,36 @@
+{
+  "id": "cross_platform",
+  "label": "Cross-platform",
+  "aliases": [
+    "cross-platform",
+    "compatibility",
+    "platform-compatibility"
+  ],
+  "summary": "Reviews applications for operating system, browser, device, filesystem, shell, packaging, and runtime compatibility risks.",
+  "soul": [
+    {
+      "skill": "cross_platform"
+    },
+    {
+      "skill": "project_relative_paths"
+    },
+    {
+      "skill": "production_reality_gate"
+    },
+    {
+      "skill": "fallback_discipline"
+    },
+    {
+      "skill": "evidence_quality_assessment"
+    },
+    {
+      "skill": "post_change_self_review"
+    },
+    {
+      "skill": "collaboration_norms"
+    },
+    {
+      "skill": "workspace_knowledge"
+    }
+  ]
+}

@@ -129,13 +129,6 @@ export async function runGuidedBriefScaffold(
     designerSessionId: null,
   }
 
-  ports.addWorkspace(ports.createGuidedBriefTemplate(), {
-    name: workspaceLabel,
-    folderPath,
-    mode: 'guided-brief',
-    guidedBriefState: runtimeState,
-  })
-
   return { runtimeState }
 }
 
@@ -241,4 +234,3 @@ async function buildSprintEngineSourceBundle(
     },
   ]
 }
-

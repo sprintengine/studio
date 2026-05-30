@@ -48,6 +48,7 @@ import {
 import {
   createLayoutSlice,
   ensureMultiloopLayoutModel,
+  hideNavRailTabStrip,
   migrateSprintEngineLayout,
   multiloopTabsLayoutModel,
   sprintEngineTabsLayoutModel,
@@ -267,6 +268,7 @@ const workspacesSliceDeps: WorkspacesSliceDependencies = {
   multiloopTabsLayoutModel,
   sprintEngineTabsLayoutModel,
   ensureMultiloopLayoutModel,
+  hideNavRailTabStrip,
   migrateSprintEngineLayout,
   pickWorkspaceAgentName,
   isPathOrChild,
@@ -676,6 +678,31 @@ async function attemptBackupRecovery(): Promise<void> {
       if (result.reason !== 'missing') {
         hydrationContext.recoveryError = `${result.reason}${result.message ? `:${result.message}` : ''}`
       }
+      emitHydrationDiagnostic()
+      return
+    }
+
+    // The backup IPC is async. A user can create a workspace while recovery is
+    // in flight; if that happens, the new non-empty registry is the fresher
+    // source of truth and must not be replaced by an older backup snapshot.
+    let latestRaw: string | null = null
+    try {
+      latestRaw = window.localStorage.getItem(WORKSPACE_STORAGE_KEY)
+    } catch {
+      latestRaw = null
+    }
+    const latestClassification = classifyPersistedWorkspaceState({ rawLocalStorage: latestRaw })
+    const latestWorkspaceCount = getPersistedWorkspaceCount(latestRaw)
+    const latestIntent = useWorkspaceStore.getState().workspaceRegistryEmptyState
+    if (
+      useWorkspaceStore.getState().workspaces.length > 0
+      || latestWorkspaceCount > 0
+      || !isDangerousEmptyClassification(latestClassification)
+      || latestIntent != null
+    ) {
+      hydrationContext.classification = latestClassification
+      hydrationContext.persistedWorkspaceCount = latestWorkspaceCount
+      hydrationContext.storageSource = latestClassification === 'present' ? 'localStorage' : 'fresh'
       emitHydrationDiagnostic()
       return
     }

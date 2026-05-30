@@ -97,7 +97,7 @@ export const multiloopCliPermissionOptions: Array<{
 export const TERMINAL_GROUPS: Array<{ label: string; roles: MultiloopRole[] }> = [
   { label: 'Coordinator', roles: ['coordinator'] },
   { label: 'Workers', roles: ['architect', 'developer', 'frontend'] },
-  { label: 'Reviewers', roles: ['product', 'tester', 'security', 'code_reviewer', 'performance'] },
+  { label: 'Reviewers', roles: ['product', 'tester', 'security', 'code_reviewer', 'performance', 'cross_platform'] },
 ]
 
 export type LinkedSprintEngineRole = Extract<SprintEngineRole, MultiloopRole>

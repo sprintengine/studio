@@ -8,6 +8,7 @@ import type { MulticodeUpdateService } from './update-service'
 
 type RegisterAppLifecycleOptions = {
   diagnosticsEnabled: boolean
+  allowMultipleInstances?: boolean
   terminalRuntime: {
     shutdown(): Promise<void>
   }
@@ -27,16 +28,20 @@ type RegisterAppLifecycleOptions = {
 
 export function registerAppLifecycle({
   diagnosticsEnabled,
+  allowMultipleInstances = false,
   terminalRuntime,
   sprintEngineMcpHub,
   moduleKernel,
   updateService,
   handleAuthCallback,
 }: RegisterAppLifecycleOptions): void {
-  const singleInstanceLock = app.requestSingleInstanceLock()
-  if (!singleInstanceLock) {
-    app.quit()
-  } else {
+  if (!allowMultipleInstances) {
+    const singleInstanceLock = app.requestSingleInstanceLock()
+    if (!singleInstanceLock) {
+      app.quit()
+      return
+    }
+
     app.on('second-instance', (_, argv) => {
       const win = BrowserWindow.getAllWindows()[0]
       if (win) {

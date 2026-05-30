@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { selectSprintEngineView, useSprintEngineViewStore } from '../../store/sprintEngineViewStore'
+import { useNotificationStore } from '../../store/notificationStore'
 import {
  CloseIconButton,
  OverflowMenu,
@@ -56,6 +57,10 @@ import {
  sprintEngineCliWatchPollingForAutomationMode,
 } from '../../utils/sprintengineAutomation'
 import { disableSprintEngineAutoRun } from '../../utils/sprintengineSupervisorNotifications'
+import {
+ countUnreadSprintEngineAutomationNotifications,
+ publishSprintEngineAutomationModeNotification,
+} from '../../utils/sprintengineNotifications'
 import { findFirstUncoveredSprintEngineRole } from '../../utils/sprintengineRoleOptions'
 import {
  buildSprintEngineRosterRevisionPrompt,
@@ -144,6 +149,7 @@ type RecoveryDialogState = {
 
 function SprintEngineSettingsPopover({
  automationMode,
+ automationNotificationCount,
  cliPermissionPreset,
  onChangeAutomationMode,
  onUpdateCliPreset,
@@ -151,6 +157,7 @@ function SprintEngineSettingsPopover({
  onClose,
 }: {
  automationMode: SprintEngineAutomationMode
+ automationNotificationCount: number
   cliPermissionPreset: SprintEngineCliPermissionPreset
  onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
  onUpdateCliPreset: (preset: SprintEngineCliPermissionPreset) => void
@@ -203,7 +210,12 @@ function SprintEngineSettingsPopover({
  onKeyDown={onPanelKey}
  className="w-[280px] overflow-hidden py-1"
  >
- <Section title="Run" level={3} inset={true}>
+ <Section
+ title="Run"
+ level={3}
+ inset={true}
+ action={<NotificationCountBadge count={automationNotificationCount} />}
+ >
  <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="Sprint Engine automation mode">
  {sprintEngineAutomationModeOptions.map((option) => {
  const checked = option.value === automationMode
@@ -271,6 +283,21 @@ function SprintEngineSettingsPopover({
  )
 }
 
+function NotificationCountBadge({ count, className = '' }: { count: number; className?: string }) {
+ if (count <= 0) return null
+ return (
+ <span
+ aria-hidden="true"
+ className={[
+ 'flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-error)] px-1 text-[10px] font-bold leading-none text-[color:var(--bg-app)] shadow-sm',
+ className,
+ ].filter(Boolean).join(' ')}
+ >
+ {count > 9 ? '9+' : count}
+ </span>
+ )
+}
+
 export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTasksLayout }: Props) {
  const workspace = useWorkspaceStore(
  (s) => s.workspaces.find((w) => w.id === workspaceId) ?? null
@@ -284,6 +311,9 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
  const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli)
  const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
+ const automationNotificationCount = useNotificationStore((s) =>
+ countUnreadSprintEngineAutomationNotifications(s.notifications, workspaceId)
+ )
  const disabledRoleIds = useMemo<ReadonlySet<SprintEngineRoleId>>(
    () => getUserDisabledSprintEngineRoleIds(sprintEngineRoleSettings),
    [sprintEngineRoleSettings],
@@ -634,7 +664,7 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  // Bundled worker roles ship dedicated role-task launch buttons. Custom
  // registry roles do not yet, so they always defer to the generic focus
  // agent action below.
- const workerRoles: SprintEngineRole[] = ['developer', 'frontend', 'product', 'code_reviewer', 'spec_reviewer', 'performance', 'tester', 'security']
+ const workerRoles: SprintEngineRole[] = ['developer', 'frontend', 'product', 'code_reviewer', 'spec_reviewer', 'performance', 'cross_platform', 'tester', 'security']
  const roleTaskLaunches = workerRoles.flatMap((role) => {
  const activeTask = sprintEngineState.tasks.find((task) =>
  task.role === role && (task.status === 'in_progress' || task.status === 'needs_input' || task.status === 'changes_requested')
@@ -889,6 +919,13 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  }
  setPendingAutomationMode(null)
  return
+ }
+ if (nextMode !== 'manual') {
+ publishSprintEngineAutomationModeNotification({
+ workspaceId,
+ workspaceName: workspace?.name,
+ mode: nextMode,
+ })
  }
  const nextCliWatchPolling = sprintEngineCliWatchPollingForAutomationMode(nextMode)
  if (sprintEngineState?.runner?.cliWatchPolling === nextCliWatchPolling) return null
@@ -1258,11 +1295,15 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  popupRole="dialog"
  placement="bottom-end"
  renderTrigger={() => (
+ <span className="relative inline-flex">
  <OverflowMenu ariaLabel="Sprint Engine overflow" items={chromeOverflowItems} />
+ <NotificationCountBadge count={automationNotificationCount} className="pointer-events-none absolute -right-1.5 -top-1.5" />
+ </span>
  )}
  >
  <SprintEngineSettingsPopover
  automationMode={automationMode}
+ automationNotificationCount={automationNotificationCount}
  cliPermissionPreset={cliPermissionPreset}
  onChangeAutomationMode={updateAutomationMode}
  onUpdateCliPreset={updateCliPermissionPreset}

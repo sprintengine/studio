@@ -16,6 +16,7 @@ import {
   consolidateSwitchboardWorkspaceLayout,
   ensureMultiloopLayoutModel,
   hideGuidedBriefTabStrip,
+  hideNavRailTabStrip,
   hideSprintEngineBoardTabStrip,
   markSwitchboardAnchorTabsSticky,
   migrateSprintEngineLayout,
@@ -46,7 +47,7 @@ import { mapMigrationWorkspaces } from './normalizers'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 53
+export const WORKSPACE_STORE_VERSION = 54
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
 export type WorkspaceMigrationState = {
@@ -660,6 +661,17 @@ export function migratePersistedWorkspaceState(
           pendingSpawns: [],
         },
       }
+    })
+  }
+  if (version < 54) {
+    // Files / Git / Knowledge Graph are now exclusive strip-less switches that
+    // share one left pane; the sidebar PanelRail carries their selection chrome,
+    // so the FlexLayout tab strip on a nav-only tabset is redundant. Stamp
+    // enableTabStrip: false onto existing layouts' nav-only tabsets without
+    // touching mixed tabsets (those self-heal on the next rail toggle).
+    mapMigrationWorkspaces(migrationState, (ws) => {
+      const next = hideNavRailTabStrip(ws.layoutModel)
+      return next ? { ...ws, layoutModel: next } : ws
     })
   }
 

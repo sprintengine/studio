@@ -82,6 +82,7 @@ const SPRINTENGINE_ROLES: SprintEngineRole[] = [
   'code_reviewer',
   'spec_reviewer',
   'performance',
+  'cross_platform',
 ]
 
 type AgentTabActivityDot = {

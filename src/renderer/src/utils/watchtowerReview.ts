@@ -50,6 +50,7 @@ export const WATCHTOWER_REVIEW_SPECIALIST_FOCUS: Record<SpecialistActionId, Watc
   developer: ['code_review', 'architecture_quality', 'performance', 'documentation'],
   'devops-infra': ['infrastructure', 'cross_platform', 'performance', 'documentation'],
   performance: ['performance', 'cross_platform'],
+  'cross-platform': ['cross_platform', 'qa_testing', 'infrastructure', 'accessibility'],
   'qa-test': ['qa_testing', 'cross_platform', 'accessibility', 'documentation'],
   'security-review': ['security'],
   'frontend-design-review': ['frontend_design', 'accessibility', 'brand_alignment', 'cross_platform'],
@@ -154,6 +155,8 @@ export function defaultSectorsForSpecialist(specialistId: SpecialistActionId): W
       return ['infrastructure', 'cross_platform']
     case 'performance':
       return ['performance']
+    case 'cross-platform':
+      return ['cross_platform']
     case 'qa-test':
       return ['qa_testing', 'cross_platform']
     case 'security-review':

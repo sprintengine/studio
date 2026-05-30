@@ -1,0 +1,40 @@
+{
+  "id": "creative",
+  "label": "Creative Engineer",
+  "aliases": [
+    "motion",
+    "motion-designer",
+    "animation",
+    "remotion",
+    "video",
+    "marketing",
+    "brand"
+  ],
+  "summary": "Creates programmatic video, premium motion, and expressive marketing surfaces.",
+  "soul": [
+    {
+      "skill": "creative"
+    },
+    {
+      "skill": "project_relative_paths"
+    },
+    {
+      "skill": "production_reality_gate"
+    },
+    {
+      "skill": "fallback_discipline"
+    },
+    {
+      "skill": "evidence_quality_assessment"
+    },
+    {
+      "skill": "post_change_self_review"
+    },
+    {
+      "skill": "collaboration_norms"
+    },
+    {
+      "skill": "workspace_knowledge"
+    }
+  ]
+}

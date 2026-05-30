@@ -7,6 +7,8 @@ import type {
   GitConflictFileContent,
   GitConflictSnapshot,
   GitFileBaseResult,
+  GitGraphOptions,
+  GitGraphSnapshot,
   GitHistorySnapshot,
   GitStatusSnapshot,
   GitWorktreeCopyIncludedInput,
@@ -30,6 +32,8 @@ export const gitApi = {
     ipcRenderer.invoke('git:get-branches', repoRoot),
   getGitHistory: (repoRoot: string, limit?: number): Promise<GitHistorySnapshot> =>
     ipcRenderer.invoke('git:get-history', repoRoot, limit),
+  getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions): Promise<GitGraphSnapshot> =>
+    ipcRenderer.invoke('git:get-commit-graph', repoRoot, options),
   getGitConflicts: (repoRoot: string): Promise<GitConflictSnapshot> =>
     ipcRenderer.invoke('git:get-conflicts', repoRoot),
   getGitConflictFile: (repoRoot: string, filePath: string): Promise<GitConflictFileContent | null> =>
@@ -54,6 +58,14 @@ export const gitApi = {
     ipcRenderer.invoke('git:pull-with-stash', repoRoot),
   switchGitBranch: (repoRoot: string, branchName: string): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:switch-branch', repoRoot, branchName),
+  checkoutGitCommit: (repoRoot: string, commitHash: string): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:checkout-commit', repoRoot, commitHash),
+  createGitBranchFromCommit: (repoRoot: string, branchName: string, commitHash: string): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:branch-from-commit', repoRoot, branchName, commitHash),
+  checkoutGitCommitAsBranch: (repoRoot: string, branchName: string, commitHash: string): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:checkout-commit-as-branch', repoRoot, branchName, commitHash),
+  createGitTagFromCommit: (repoRoot: string, tagName: string, commitHash: string): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:tag-from-commit', repoRoot, tagName, commitHash),
   listGitWorktrees: (repoRoot: string): Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>> =>
     ipcRenderer.invoke('git:worktree:list', repoRoot),
   createGitWorktree: (input: GitWorktreeCreateInput): Promise<GitWorktreeOperationResult<GitWorktreeEntry>> =>
@@ -81,6 +93,7 @@ export const gitApi = {
   | 'getGitFileBase'
   | 'getGitBranches'
   | 'getGitHistory'
+  | 'getGitCommitGraph'
   | 'getGitConflicts'
   | 'getGitConflictFile'
   | 'resolveGitConflict'
@@ -93,6 +106,10 @@ export const gitApi = {
   | 'fetchGitRemotes'
   | 'pullGitBranchWithStash'
   | 'switchGitBranch'
+  | 'checkoutGitCommit'
+  | 'createGitBranchFromCommit'
+  | 'checkoutGitCommitAsBranch'
+  | 'createGitTagFromCommit'
   | 'listGitWorktrees'
   | 'createGitWorktree'
   | 'removeGitWorktree'

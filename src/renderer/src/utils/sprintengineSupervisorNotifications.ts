@@ -1,7 +1,7 @@
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type { WorkspaceId } from '../types/workspace'
-import { publishDiagnostic } from './diagnostics'
 import { deriveSprintEngineAutomationMode } from './sprintengineAutomation'
+import { publishSprintEngineAutomationModeNotification } from './sprintengineNotifications'
 
 export type SprintEngineAutoRunDisableReason =
   | 'user_manual_toggle'
@@ -36,11 +36,10 @@ export function disableSprintEngineAutoRun(
   store.setSprintEngineAutomationMode(workspaceId, 'manual')
   if (!wasActive) return
 
-  publishDiagnostic({
+  publishSprintEngineAutomationModeNotification({
     level: reason === 'folder_missing' ? 'error' : 'info',
-    source: 'sprintengine',
-    title: 'AutoRun supervisor switched off',
-    message: REASON_MESSAGES[reason],
+    mode: 'manual',
+    reason: REASON_MESSAGES[reason],
     workspaceId,
     ...(workspace?.name ? { workspaceName: workspace.name } : {}),
     ...(context.taskId ? { taskId: context.taskId } : {}),

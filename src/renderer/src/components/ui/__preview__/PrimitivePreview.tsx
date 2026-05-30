@@ -80,6 +80,7 @@ const ROLE_GLYPHS: SprintEngineRole[] = [
   'developer',
   'code_reviewer',
   'spec_reviewer',
+  'cross_platform',
   'tester',
   'security',
   'performance',

@@ -172,6 +172,7 @@ export interface WorkspacesSliceDependencies {
     options?: { includeAgentTabs?: boolean }
   ) => IJsonModel
   ensureMultiloopLayoutModel: (model: IJsonModel | null | undefined) => IJsonModel
+  hideNavRailTabStrip: (model: IJsonModel | null | undefined) => IJsonModel | null | undefined
   migrateSprintEngineLayout: (ws: Workspace) => Workspace
   pickWorkspaceAgentName: (agents: Workspace['agents']) => string
   isPathOrChild: (path: string, parentPath: string) => boolean
@@ -387,7 +388,7 @@ export function createWorkspacesSlice(
             }
           })
         }
-        state.workspaces.push({
+        const newWorkspace: Workspace = {
           id,
           name: workspaceName,
           mode: multiloopState || isMultiloop
@@ -418,7 +419,10 @@ export function createWorkspacesSlice(
               ? guidedBriefLayoutModel()
             : sprintEngineState
             ? deps.sprintEngineTabsLayoutModel(sprintEngineState, agents, { includeAgentTabs: false })
-            : template.layout,
+            // Standard/dev templates: normalize nav-only tabsets to strip-less
+            // so a user-saved template predating the nav-switch model never
+            // seeds a redundant tab strip on Files / Git / Knowledge Graph.
+            : deps.hideNavRailTabStrip(template.layout) ?? template.layout,
           agents,
           worktreeState: deps.defaultWorkspaceWorktreeState(),
           memory: deps.defaultWorkspaceMemoryConfig(),
@@ -430,7 +434,20 @@ export function createWorkspacesSlice(
           sprintEngineAutoState: deps.normalizeSprintEngineAutoState(options?.sprintEngineAutoState),
           multiloopAutoState: deps.normalizeMultiloopAutoState(options?.multiloopAutoState),
           createdAt: Date.now(),
-        })
+        }
+        // New workspaces appear at the top of their folder's block (newest
+        // first), matching the recency-ordered sidebar. A brand-new folder
+        // lands at the head of the registry so its group renders first. Manual
+        // drag-reorder still rewrites this order afterward.
+        const insertFolderKey = workspaceFolderKey(folderPath)
+        const blockStart = state.workspaces.findIndex(
+          (existing) => workspaceFolderKey(existing.folderPath) === insertFolderKey
+        )
+        if (blockStart === -1) {
+          state.workspaces.unshift(newWorkspace)
+        } else {
+          state.workspaces.splice(blockStart, 0, newWorkspace)
+        }
         if (folderPath) {
           state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
             [folderPath],

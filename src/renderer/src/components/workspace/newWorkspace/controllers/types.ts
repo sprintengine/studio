@@ -29,6 +29,7 @@ export type OnCreateArgs = {
   sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
   sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
   sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
+  guidedBriefState?: GuidedBriefRuntimeState | null
   mode?: WorkspaceMode
 }
 
@@ -154,8 +155,6 @@ export type GuidedBriefScaffoldInput = {
 
 export type GuidedBriefScaffoldPorts = {
   filesystem: GuidedBriefFilesystemPort
-  addWorkspace: AddWorkspacePort
-  createGuidedBriefTemplate: () => LayoutTemplate
 }
 
 export type GuidedBriefScaffoldResult = {

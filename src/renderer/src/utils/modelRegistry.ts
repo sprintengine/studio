@@ -761,17 +761,98 @@ export function toggleComponentTab(
   return focusOrAddComponentTab(workspaceId, component, name)
 }
 
-// Components that belong to the workspace-sidebar PanelRail. Opening any of
-// these from the rail prefers the left-docked workspace column so terminals
-// and agents that live in the existing tabsets are not displaced into a
-// stacked tab cluster.
-const PANEL_RAIL_COMPONENTS = new Set<string>(['explorer', 'editor', 'git', 'memory-graph'])
+// Strip-less navigational rail components. Files / Git / Knowledge Graph are
+// single-instance navigational surfaces, so they share ONE left-docked pane
+// whose FlexLayout tab strip is hidden and the PanelRail buttons act as
+// exclusive switches into it — exactly one shows at a time. The Editor is
+// deliberately excluded: it owns a document tab strip so multiple open files
+// stay switchable (see toggleEditorRailComponent).
+export const NAV_RAIL_COMPONENTS = new Set<string>(['explorer', 'git', 'memory-graph'])
 
-// PanelRail toggle: same focus/remove semantics as toggleComponentTab, but
-// when adding a new tab it stacks into the existing PanelRail tabset (so
-// Files / Editor / Git / Knowledge Graph share one column) or docks a fresh
-// tabset on the LEFT edge of the root.
+// PanelRail click handler. Nav switches (Files / Git / Knowledge Graph) route
+// to the exclusive strip-less left pane; the Editor keeps standard
+// document-tab semantics so its open files stay switchable.
 export function togglePanelRailComponent(
+  workspaceId: string,
+  component: string,
+  name: string
+): boolean {
+  if (NAV_RAIL_COMPONENTS.has(component)) {
+    return toggleNavRailComponent(workspaceId, component, name)
+  }
+  return toggleEditorRailComponent(workspaceId, component, name)
+}
+
+// The single left-docked pane that hosts the nav switches. Matches only a
+// tabset whose every tab is a nav component, so a legacy layout that stacked a
+// nav tab beside the editor never gets its strip hidden (which would hide the
+// editor's file tabs); those legacy tabs are pulled into a clean pane on the
+// next toggle instead.
+function findNavRailTabset(model: Model): TabSetNode | null {
+  let found: TabSetNode | null = null
+  model.visitNodes((node) => {
+    if (found || !(node instanceof TabSetNode)) return
+    const tabs = node.getChildren().filter((child): child is TabNode => child instanceof TabNode)
+    if (tabs.length === 0) return
+    const allNav = tabs.every((tab) => {
+      const component = tab.getComponent()
+      return Boolean(component && NAV_RAIL_COMPONENTS.has(component))
+    })
+    if (allNav) found = node
+  })
+  return found
+}
+
+// Drops every nav tab except the one just selected, anywhere in the model, so
+// the rail stays single-select even when an older layout left a stray nav tab
+// in another tabset.
+function removeNavRailTabsExcept(model: Model, keepComponent: string): void {
+  const tabIds: string[] = []
+  model.visitNodes((node) => {
+    if (!(node instanceof TabNode)) return
+    const component = node.getComponent()
+    if (component && NAV_RAIL_COMPONENTS.has(component) && component !== keepComponent) {
+      tabIds.push(node.getId())
+    }
+  })
+  tabIds.forEach((tabId) => model.doAction(Actions.deleteTab(tabId)))
+}
+
+// Reveals a nav switch in the exclusive strip-less left pane: focuses it when
+// it's already open, swaps it in when another switch is showing, or docks a
+// fresh LEFT column when none is. The non-toggling entry point shared by the
+// command palette and menu reveals.
+export function revealNavRailComponent(
+  workspaceId: string,
+  component: string,
+  name: string
+): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+
+  // Already open — just make sure it's the visible switch.
+  if (focusComponentTab(workspaceId, component)) return true
+
+  // Stack into the existing nav pane when one is open, else dock a fresh column
+  // on the LEFT of the root so terminals/agents stay on the right.
+  const navTabset = findNavRailTabset(model)
+  const targetId = navTabset ? navTabset.getId() : model.getRoot().getId()
+  const location = navTabset ? DockLocation.CENTER : DockLocation.LEFT
+  model.doAction(Actions.addNode({ type: 'tab', name, component }, targetId, location, -1, true))
+
+  // Enforce single-select, then hide the strip on whichever tabset now holds
+  // the lone nav switch.
+  removeNavRailTabsExcept(model, component)
+  const pane = findNavRailTabset(model)
+  if (pane) {
+    model.doAction(Actions.updateNodeAttributes(pane.getId(), { enableTabStrip: false }))
+  }
+  return true
+}
+
+// Exclusive toggle into the strip-less left nav pane. Clicking the open switch
+// closes it (the pane collapses when it empties); clicking another swaps it in.
+export function toggleNavRailComponent(
   workspaceId: string,
   component: string,
   name: string
@@ -779,61 +860,45 @@ export function togglePanelRailComponent(
   if (hasComponentTab(workspaceId, component)) {
     return removeComponentTab(workspaceId, component)
   }
-  return focusOrAddPanelRailComponent(workspaceId, component, name)
+  return revealNavRailComponent(workspaceId, component, name)
 }
 
-function findPanelRailHostTabset(model: Model): TabSetNode | null {
-  // Returns the tabset hosting any existing rail component (Files / Editor /
-  // Git / KG), or null if none are open yet.
-  const found: TabSetNode[] = []
-  model.visitNodes((node) => {
-    if (found.length > 0) return
-    if (!(node instanceof TabNode)) return
-    const nodeComponent = node.getComponent()
-    if (!nodeComponent || !PANEL_RAIL_COMPONENTS.has(nodeComponent)) return
-    const parent = node.getParent()
-    if (parent instanceof TabSetNode) {
-      found.push(parent)
-    }
-  })
-  return found[0] ?? null
-}
-
-export function focusOrAddPanelRailComponent(
+// The Editor keeps its document tab strip. Toggling removes the standalone
+// 'editor' welcome tab (open files — the 'file-editor' tabs — are closed from
+// their own strip); when no welcome tab is open it reveals the editor surface
+// without stacking a second one: it focuses an existing open file, else docks a
+// fresh welcome editor center-stage, to the RIGHT of the nav pane.
+function toggleEditorRailComponent(
   workspaceId: string,
   component: string,
   name: string
 ): boolean {
+  if (hasComponentTab(workspaceId, component)) {
+    return removeComponentTab(workspaceId, component)
+  }
+
+  // Files already open — reveal that surface rather than adding a 2nd welcome
+  // tab the user would then have to close.
+  if (focusComponentTab(workspaceId, 'file-editor')) return true
+
   const model = models.get(workspaceId)
   if (!model) return false
-  if (focusComponentTab(workspaceId, component)) return true
 
-  // Prefer stacking into the tabset that already hosts another rail component
-  // — that's the user's "workspace column" of Files / Editor / Git / KG.
-  const railTabset = findPanelRailHostTabset(model)
-  if (railTabset) {
+  // No editor surface at all. Sit the document area between the nav pane (left)
+  // and terminals (right) by docking to the RIGHT of the nav pane; without a
+  // nav pane, center it in the active/first tabset.
+  const navTabset = findNavRailTabset(model)
+  if (navTabset) {
     model.doAction(
-      Actions.addNode(
-        { type: 'tab', name, component },
-        railTabset.getId(),
-        DockLocation.CENTER,
-        -1,
-        true
-      )
+      Actions.addNode({ type: 'tab', name, component }, navTabset.getId(), DockLocation.RIGHT, -1, true)
     )
     return true
   }
 
-  // No rail tabset yet — dock a new column on the LEFT of the workspace root
-  // so terminals/agents that already populate the layout stay on the right.
+  const target = model.getActiveTabset() ?? firstTabset(model)
+  if (!target) return false
   model.doAction(
-    Actions.addNode(
-      { type: 'tab', name, component },
-      model.getRoot().getId(),
-      DockLocation.LEFT,
-      -1,
-      true
-    )
+    Actions.addNode({ type: 'tab', name, component }, target.getId(), DockLocation.CENTER, -1, true)
   )
   return true
 }
@@ -862,44 +927,6 @@ export function focusOrAddComponentTab(
       { type: 'tab', name, component },
       targetTabset.getId(),
       DockLocation.CENTER,
-      -1,
-      true
-    )
-  )
-  return true
-}
-
-export function focusOrAddEditorBesideExplorer(workspaceId: string): boolean {
-  const model = models.get(workspaceId)
-  if (!model) return false
-  if (focusComponentTab(workspaceId, 'editor')) return true
-
-  let explorerParent: TabSetNode | null = null
-  model.visitNodes((node) => {
-    if (explorerParent) return
-    if (!(node instanceof TabNode) || node.getComponent() !== 'explorer') return
-
-    const parent = node.getParent()
-    if (parent instanceof TabSetNode) {
-      explorerParent = parent
-    }
-  })
-
-  let targetTabset = explorerParent ?? model.getActiveTabset() ?? null
-  if (!targetTabset) {
-    model.visitNodes((node) => {
-      if (!targetTabset && node instanceof TabSetNode) {
-        targetTabset = node
-      }
-    })
-  }
-  if (!targetTabset) return false
-
-  model.doAction(
-    Actions.addNode(
-      { type: 'tab', name: 'Editor', component: 'editor' },
-      targetTabset.getId(),
-      explorerParent ? DockLocation.RIGHT : DockLocation.CENTER,
       -1,
       true
     )

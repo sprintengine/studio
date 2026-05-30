@@ -397,7 +397,7 @@ function AccountPopover({
           <button
             type="button"
             onClick={onUpgrade}
-            className="h-8 rounded-md border border-[color:var(--text-strong)] bg-[color:var(--text-strong)] px-3 text-[12px] font-semibold text-[color:var(--bg-app)] hover:bg-white"
+            className="h-8 rounded-md border border-[color:var(--text-strong)] bg-[color:var(--text-strong)] px-3 text-[12px] font-semibold text-[color:var(--bg-app)] hover:bg-[color:var(--bg-inverted-hover)]"
           >
             Upgrade
           </button>

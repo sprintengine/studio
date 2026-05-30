@@ -123,6 +123,7 @@ export const sprintEngineRoleLabels: Record<SprintEngineRole, string> = {
   code_reviewer: 'Code Reviewer',
   spec_reviewer: 'Spec Reviewer',
   performance: 'Performance Engineer',
+  cross_platform: 'Cross-platform Specialist',
 }
 
 /**
@@ -190,6 +191,7 @@ export const sprintEngineRoleAccent: Record<SprintEngineRole, string> = {
   code_reviewer: '#f59e0b',
   spec_reviewer: '#22c55e',
   performance: '#a78bfa',
+  cross_platform: '#14b8a6',
 }
 
 // Neutral accent used when an extensible role has no registry icon/colour
@@ -217,6 +219,7 @@ const SOUL_ROLE_TO_SPRINT_ENGINE_ROLE: Record<string, SprintEngineRole> = {
   code_reviewer: 'code_reviewer',
   spec_reviewer: 'spec_reviewer',
   performance: 'performance',
+  cross_platform: 'cross_platform',
 }
 
 export function soulRoleToSprintEngineRole(soulRole: string): SprintEngineRole | null {
@@ -234,6 +237,7 @@ export const sprintEngineArtifactKindLabels: Record<SprintEngineArtifactKind, st
   code_review: 'Code Review',
   spec_review: 'Spec Review',
   performance_review: 'Performance Review',
+  cross_platform_review: 'Cross-platform Review',
   validation_report: 'Validation Report',
 }
 
@@ -253,6 +257,7 @@ export const sprintEngineRoleOrder: SprintEngineRole[] = [
   'code_reviewer',
   'spec_reviewer',
   'performance',
+  'cross_platform',
   'tester',
   'security',
 ]
@@ -340,6 +345,7 @@ const sprintEngineArtifactKinds: readonly SprintEngineArtifactKind[] = [
   'code_review',
   'spec_review',
   'performance_review',
+  'cross_platform_review',
   'validation_report',
 ]
 
@@ -465,6 +471,7 @@ const reviewGateArtifactKinds = new Set<SprintEngineArtifactKind>([
   'code_review',
   'spec_review',
   'performance_review',
+  'cross_platform_review',
   'validation_report',
 ])
 
@@ -604,6 +611,7 @@ function isSprintEngineRole(value: unknown): value is SprintEngineRole {
     || value === 'code_reviewer'
     || value === 'spec_reviewer'
     || value === 'performance'
+    || value === 'cross_platform'
   )
 }
 
@@ -676,6 +684,7 @@ export type SprintEngineRoleGlyphKind =
   | 'code_reviewer'
   | 'spec_reviewer'
   | 'performance'
+  | 'cross_platform'
   | 'unknown'
 
 export function getSprintEngineRoleGlyphKind(
@@ -1426,7 +1435,18 @@ function normalizeSprintEngineArtifacts(value: unknown): SprintEngineArtifact[] 
 }
 
 export function createDefaultSprintEngineRoleCounts(): SprintEngineRoleCounts {
-  return { architect: 1, product: 1, developer: 1, frontend: 0, tester: 0, security: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0 }
+  return {
+    architect: 1,
+    product: 1,
+    developer: 1,
+    frontend: 0,
+    tester: 0,
+    security: 0,
+    code_reviewer: 0,
+    spec_reviewer: 0,
+    performance: 0,
+    cross_platform: 0,
+  }
 }
 
 export function createDefaultSprintEngineSkills(): SprintEngineSkillMap {
@@ -1440,6 +1460,7 @@ export function createDefaultSprintEngineSkills(): SprintEngineSkillMap {
     code_reviewer: ['Code review', 'Regression risk', 'Maintainability', 'Evidence quality'],
     spec_reviewer: ['Spec conformance', 'Acceptance coverage', 'Behavioral gaps', 'Test evidence'],
     performance: ['Latency review', 'Memory and CPU analysis', 'Bundle/runtime cost', 'Measurement quality'],
+    cross_platform: ['OS compatibility', 'Browser/device coverage', 'Path and shell portability', 'Packaging checks'],
   }
 }
 
@@ -1588,6 +1609,7 @@ const SPRINT_ENGINE_FOCUS_WORKER_ROLES: SprintEngineRole[] = [
   'code_reviewer',
   'spec_reviewer',
   'performance',
+  'cross_platform',
   'tester',
   'security',
 ]
@@ -2037,6 +2059,20 @@ function normalizeCurrentDispatch(value: unknown): SprintEngineRuntimeAgent['cur
   }
 }
 
+function normalizeCurrentGate(value: unknown): SprintEngineRuntimeAgent['currentGate'] {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  const taskId = optionalTrimmedString(record.taskId)
+  const gateId = optionalTrimmedString(record.gateId)
+  const attemptId = optionalTrimmedString(record.attemptId)
+  if (!taskId && !gateId && !attemptId) return null
+  return {
+    ...(taskId ? { taskId } : {}),
+    ...(gateId ? { gateId } : {}),
+    ...(attemptId ? { attemptId } : {}),
+  }
+}
+
 function projectionSourceValue(value: unknown): SprintEngineProjectionSource {
   return value === 'folder_store' || value === 'unavailable'
     ? value
@@ -2057,10 +2093,14 @@ function normalizeProjectionRoster(value: unknown): Record<string, SprintEngineR
     const status = record.status === 'running' || record.status === 'needs_input' || record.status === 'done' || record.status === 'retired'
       ? record.status
       : 'idle' as const
+    const currentGateId = optionalTrimmedString(record.currentGateId)
+    const currentGate = normalizeCurrentGate(record.currentGate)
     result[agentId] = {
       role: roleId,
       status,
       currentTaskId: typeof record.currentTaskId === 'string' ? record.currentTaskId : null,
+      ...(currentGateId ? { currentGateId } : {}),
+      ...(currentGate ? { currentGate } : {}),
       currentDispatch: normalizeCurrentDispatch(record.currentDispatch),
     }
   }

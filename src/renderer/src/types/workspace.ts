@@ -40,7 +40,7 @@ export type LayoutTemplate = {
 // defined under workspace / user / plugin layers. Those fields use
 // `SprintEngineRoleId` below so unknown configured ids round-trip through
 // normalization without being coerced or dropped.
-export type SprintEngineRole = 'architect' | 'product' | 'developer' | 'frontend' | 'tester' | 'security' | 'code_reviewer' | 'spec_reviewer' | 'performance'
+export type SprintEngineRole = 'architect' | 'product' | 'developer' | 'frontend' | 'tester' | 'security' | 'code_reviewer' | 'spec_reviewer' | 'performance' | 'cross_platform'
 
 // Registry-keyed role identifier. Any non-empty string the role registry
 // emitted (bundled, workspace, user, or plugin layer). UI/runtime surfaces
@@ -210,6 +210,7 @@ export type SprintEngineArtifactKind =
   | 'code_review'
   | 'spec_review'
   | 'performance_review'
+  | 'cross_platform_review'
   | 'validation_report'
 
 export type SprintEngineArtifactStatus =
@@ -936,6 +937,7 @@ export type MultiloopRole =
   | 'security'
   | 'code_reviewer'
   | 'performance'
+  | 'cross_platform'
 
 export type AgentKind = 'general' | 'specialist' | 'watchtower' | 'sprintengine' | 'multiloop'
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
@@ -946,6 +948,7 @@ export type SpecialistActionId =
   | 'developer'
   | 'devops-infra'
   | 'performance'
+  | 'cross-platform'
   | 'blog-writer'
   | 'qa-test'
   | 'security-review'

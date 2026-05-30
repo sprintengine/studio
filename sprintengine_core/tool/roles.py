@@ -19,6 +19,7 @@ BUNDLED_ROLE_IDS = frozenset({
     "code_reviewer",
     "spec_reviewer",
     "performance",
+    "cross_platform",
 })
 
 

@@ -34,6 +34,11 @@
   --bg-hover: #18181c;
   --bg-active: #1c2024;
   --bg-selected: #24242c;
+  /* Hover target for inverted high-contrast buttons (bg = --text-strong). On
+     dark the button is near-white so hover intensifies toward pure white; the
+     light theme flips this to near-black (see below) so the button's light
+     label stays legible instead of vanishing on a white hover. */
+  --bg-inverted-hover: #ffffff;
   /* Modal / dialog scrim above panel chrome. */
   --surface-overlay-backdrop: rgba(8, 8, 12, 0.7);
 
@@ -103,6 +108,12 @@
   --terminal-fg: #ececec;
   --terminal-cursor: var(--accent-primary);
 
+  /* Memory-graph atmosphere — faint radial glow behind the knowledge graph
+     canvas. Scoped to MemoryGraphCanvas per knowledge/brand/aesthetic-north-star.md.
+     Dark default here; the light theme overrides it below. */
+  --memory-graph-atmosphere:
+    radial-gradient(circle at 50% 45%, rgba(92, 124, 255, 0.08), transparent 48%);
+
   /* Type scale. Body is 12 px to match existing flexlayout chrome. */
   --text-size-2xs: 10.5px;
   --text-size-xs: 11px;
@@ -148,30 +159,50 @@
 :root[data-theme="light"] {
   /* Anti-dither baseline (multiples of 4); pure white #ffffff and pure
      black are kept as-is — every panel renders the extremes natively. */
-  --bg-app: #f4f8f8;
+  /* App is a touch greyer than the white card surfaces so panels/cards read as
+     elevated against it (a distinct neutral step) instead of white-on-white. */
+  --bg-app: #eaeef2;
   --bg-surface: #ffffff;
   --bg-surface-raised: #ffffff;
   --bg-hover: #f0f0f4;
   --bg-active: #e0e4e8;
   --bg-selected: #d8dce0;
+  /* Inverted button is near-black here; hover intensifies toward black so its
+     light label keeps contrast (a white hover would erase the text). */
+  --bg-inverted-hover: #08080c;
   --surface-overlay-backdrop: rgba(20, 24, 28, 0.42);
 
   --text-strong: #202428;
   --text-default: #3c444c;
   --text-muted: #646c78;
-  --text-subtle: #889098;
-  --text-disabled: #a8b0bc;
+  /* Secondary + tertiary text darkened from #889098/#a8b0bc: these carry
+     meaning-bearing copy (counts, labels, hints), so subtle now clears AA body
+     (≥4.5:1) and disabled stays clearly de-emphasised (~3:1) but legible. */
+  --text-subtle: #5f6772;
+  --text-disabled: #8f97a3;
   --text-on-accent: #ffffff;
 
-  --border-subtle: rgba(32, 36, 40, 0.08);
-  --border-default: rgba(32, 36, 40, 0.13);
-  --border-strong: rgba(32, 36, 40, 0.20);
+  /* Hairlines lifted so structure reads on white (was 0.08/0.13/0.20, nearly
+     invisible): subtle divider → clear hairline → structural separator. */
+  --border-subtle: rgba(32, 36, 40, 0.10);
+  --border-default: rgba(32, 36, 40, 0.20);
+  --border-strong: rgba(32, 36, 40, 0.30);
   --border-focus: rgba(56, 92, 252, 0.55);
 
   --accent-primary: #385cfc;
   --accent-primary-hover: #284cfc;
   --accent-primary-soft: rgba(56, 92, 252, 0.10);
   --accent-primary-soft-strong: rgba(56, 92, 252, 0.18);
+
+  /* Solid status tones overridden for light: the dark-theme hexes (#30d058,
+     #fcc030, #fc787c) are luminous-on-dark and wash out on white — the git
+     count badge rendered white-on-bright-amber at ~1.6:1. These darker tones
+     read as status dots on light and carry white badge text (≥4:1). */
+  --tone-neutral: #6b7280;
+  --tone-accent: #385cfc;
+  --tone-good: #1a8f43;
+  --tone-warn: #9a6000;
+  --tone-error: #d92d2d;
 
   --tone-neutral-soft: rgba(100, 108, 120, 0.14);
   --tone-accent-soft: rgba(56, 92, 252, 0.14);
@@ -188,8 +219,13 @@
     0 1px 3px rgba(16, 20, 24, 0.06),
     0 8px 24px -6px rgba(16, 20, 24, 0.10);
 
-  --terminal-bg: #2c3038;
-  --terminal-fg: #e8e8ec;
+  --terminal-bg: #fafafb;
+  --terminal-fg: #202428;
+
+  /* Light atmosphere: a barely-there cool tint on the near-white canvas so the
+     graph still has depth without a blue vignette reading as a colour cast. */
+  --memory-graph-atmosphere:
+    radial-gradient(circle at 50% 45%, rgba(56, 92, 252, 0.045), transparent 52%);
 }
 
 /* Slate uses a neutral grey ramp, lighter than the default ink scale so
