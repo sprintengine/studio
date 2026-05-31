@@ -157,12 +157,60 @@ async function testInFlightRefreshDoesNotOverwriteRememberedMutation(): Promise<
   assert.equal(next.value, 'started')
 }
 
+async function testForcedRefreshBypassesInFlightBackgroundRead(): Promise<void> {
+  clearSwitchboardRefreshCoordinatorForTests()
+  let calls = 0
+  let releaseBackground!: (value: string) => void
+  let releaseForced!: (value: string) => void
+
+  const background = runSwitchboardRefresh(
+    'tasks:/repo',
+    () => {
+      calls += 1
+      return new Promise<string>((resolve) => {
+        releaseBackground = resolve
+      })
+    },
+    { force: false, now: () => 1_000 }
+  )
+
+  const forced = runSwitchboardRefresh(
+    'tasks:/repo',
+    () => {
+      calls += 1
+      return new Promise<string>((resolve) => {
+        releaseForced = resolve
+      })
+    },
+    { force: true, now: () => 1_100 }
+  )
+
+  assert.equal(calls, 2)
+  releaseBackground('stale')
+  releaseForced('fresh')
+
+  const [backgroundResult, forcedResult] = await Promise.all([background, forced])
+  assert.equal(backgroundResult.kind, 'loaded')
+  assert.equal(backgroundResult.value, 'stale')
+  assert.equal(forcedResult.kind, 'loaded')
+  assert.equal(forcedResult.value, 'fresh')
+
+  const next = await runSwitchboardRefresh(
+    'tasks:/repo',
+    async () => 'unexpected',
+    { force: false, now: () => 1_200 }
+  )
+  assert.equal(next.kind, 'cached')
+  assert.equal(next.value, 'fresh')
+}
+
 async function main(): Promise<void> {
   await testConcurrentRequestsShareOneLoad()
   await testRecentNonForcedRequestUsesCache()
   await testHiddenRefreshWaitsLonger()
   await testRememberedMutationResultPreventsStaleCache()
   await testInFlightRefreshDoesNotOverwriteRememberedMutation()
+  await testForcedRefreshBypassesInFlightBackgroundRead()
 }
 
 void main()

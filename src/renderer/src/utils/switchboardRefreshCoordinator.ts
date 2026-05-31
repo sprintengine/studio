@@ -47,7 +47,7 @@ export async function runSwitchboardRefresh<T>(
   options: SwitchboardRefreshOptions = {}
 ): Promise<SwitchboardRefreshResult<T>> {
   const entry = getEntry<T>(key)
-  if (entry.inFlight) {
+  if (entry.inFlight && !options.force) {
     const result = await entry.inFlight
     return result.kind === 'loaded'
       ? { ...result, shared: true }
@@ -75,7 +75,7 @@ export async function runSwitchboardRefresh<T>(
   try {
     return await promise
   } finally {
-    entry.inFlight = null
+    if (entry.inFlight === promise) entry.inFlight = null
   }
 }
 

@@ -243,6 +243,7 @@ function SprintEngineSettingsPopover({
  }`}
  aria-hidden="true"
  >
+ {/* design-tokens-allow: radio selected indicator, not a status dot */}
  {checked ? <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--bg-app)]" /> : null}
  </span>
  <span className="min-w-0">
