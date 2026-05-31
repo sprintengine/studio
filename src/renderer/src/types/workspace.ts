@@ -2,6 +2,7 @@ import type { IJsonModel } from 'flexlayout-react'
 import type { OnboardingStep } from '../store/onboardingState'
 
 export type WorkspaceId = string
+export type WorkspaceWindowId = string
 export type AgentId = string
 export type WorkspaceMode = 'standard' | 'sprintengine' | 'switchboard' | 'multiloop' | 'guided-brief'
 
@@ -1106,6 +1107,18 @@ export type WorkspaceMemoryConfig = {
 export type WorkspaceRegistryEmptyState = {
   reason: 'user_removed_all'
   updatedAt: string
+}
+
+export type WorkspaceWindowState = {
+  id: WorkspaceWindowId
+  kind: 'primary' | 'detached'
+  workspaceIds: WorkspaceId[]
+  activeWorkspaceId: WorkspaceId | null
+  bounds: { x: number; y: number; width: number; height: number } | null
+  isMaximized: boolean
+  displayId: number | null
+  createdAt: number
+  lastFocusedAt: number
 }
 
 export type UsageTelemetrySettings = {

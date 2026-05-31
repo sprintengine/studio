@@ -3,7 +3,19 @@ import { access, readdir, readFile, stat } from 'fs/promises'
 import { extname } from 'path'
 import { pathToFileURL } from 'url'
 import { imageMimeType } from './filesystem-image'
+import {
+  MAX_IMAGE_DATA_URL_BYTES,
+  MAX_TEXT_FILE_READ_BYTES,
+} from './filesystem-read-limits'
 import { checkWorkspaceFolder, pathExists } from './filesystem-workspace'
+
+const BINARY_SNIFF_BYTES = 4096
+const MAX_CONTROL_CHARACTER_RATIO = 0.05
+
+export {
+  MAX_IMAGE_DATA_URL_BYTES,
+  MAX_TEXT_FILE_READ_BYTES,
+}
 
 export function createFilesystemReadHandlers() {
   return {
@@ -12,11 +24,35 @@ export function createFilesystemReadHandlers() {
       return entries.map((entry) => ({ name: entry.name, isDir: entry.isDirectory() }))
     },
     async readTextFile(filePath: string) {
-      return readFile(filePath, 'utf-8')
+      const targetStats = await stat(filePath)
+      if (!targetStats.isFile()) {
+        throw new Error('Only files can be read.')
+      }
+      if (targetStats.size > MAX_TEXT_FILE_READ_BYTES) {
+        throw new Error(
+          `File is too large to open in Multicode (${formatBytes(targetStats.size)}; limit ${formatBytes(MAX_TEXT_FILE_READ_BYTES)}).`
+        )
+      }
+
+      const content = await readFile(filePath)
+      if (looksLikeBinary(content)) {
+        throw new Error('File appears to be binary and cannot be opened as text.')
+      }
+
+      return content.toString('utf-8')
     },
     async readImageDataUrl(filePath: string) {
       const mimeType = imageMimeType(filePath)
       if (!mimeType) throw new Error('Unsupported image file type.')
+      const targetStats = await stat(filePath)
+      if (!targetStats.isFile()) {
+        throw new Error('Only files can be read.')
+      }
+      if (targetStats.size > MAX_IMAGE_DATA_URL_BYTES) {
+        throw new Error(
+          `Image is too large to preview in Multicode (${formatBytes(targetStats.size)}; limit ${formatBytes(MAX_IMAGE_DATA_URL_BYTES)}).`
+        )
+      }
       const content = await readFile(filePath)
       return `data:${mimeType};base64,${content.toString('base64')}`
     },
@@ -40,4 +76,29 @@ export function createFilesystemReadHandlers() {
       await shell.openExternal(pathToFileURL(targetPath).toString())
     },
   }
+}
+
+export function looksLikeBinary(content: Buffer): boolean {
+  if (content.length === 0) return false
+  const sample = content.subarray(0, Math.min(content.length, BINARY_SNIFF_BYTES))
+  let controlCharacters = 0
+
+  for (const byte of sample) {
+    if (byte === 0) return true
+    const isAllowedControl =
+      byte === 0x09
+      || byte === 0x0a
+      || byte === 0x0d
+      || byte === 0x1b
+    if (byte < 0x20 && !isAllowedControl) controlCharacters += 1
+  }
+
+  return controlCharacters / sample.length > MAX_CONTROL_CHARACTER_RATIO
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const kib = bytes / 1024
+  if (kib < 1024) return `${kib.toFixed(1)} KiB`
+  return `${(kib / 1024).toFixed(1)} MiB`
 }

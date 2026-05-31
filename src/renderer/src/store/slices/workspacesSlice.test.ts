@@ -121,6 +121,61 @@ assert.equal(
 
 useWorkspaceStore.getState().setActiveWorkspace(firstId)
 assert.equal(useWorkspaceStore.getState().activeWorkspaceId, firstId)
+state = useWorkspaceStore.getState()
+assert.equal(state.workspaceWindows.length, 1)
+assert.deepEqual(state.workspaceWindows[0]?.workspaceIds, [secondId, firstId, soloDevId])
+
+useWorkspaceStore.getState().registerWorkspaceWindow('detached-test', 'detached')
+useWorkspaceStore.getState().moveWorkspaceToWindow(firstId, 'detached-test', state.primaryWorkspaceWindowId)
+state = useWorkspaceStore.getState()
+assert.deepEqual(
+  state.workspaceWindows.find((windowState) => windowState.id === 'detached-test')?.workspaceIds,
+  [firstId],
+)
+assert.equal(
+  state.workspaceWindows.find((windowState) => windowState.id === 'detached-test')?.activeWorkspaceId,
+  firstId,
+)
+assert.equal(
+  state.workspaceWindows.find((windowState) => windowState.id === state.primaryWorkspaceWindowId)?.workspaceIds.includes(firstId),
+  false,
+)
+useWorkspaceStore.getState().updateWorkspaceWindowPlacement('detached-test', {
+  bounds: { x: 120.4, y: 80.8, width: 720, height: 540 },
+  isMaximized: true,
+  displayId: 3,
+})
+state = useWorkspaceStore.getState()
+assert.deepEqual(
+  state.workspaceWindows.find((windowState) => windowState.id === 'detached-test')?.bounds,
+  { x: 120, y: 81, width: 800, height: 600 },
+)
+assert.equal(
+  state.workspaceWindows.find((windowState) => windowState.id === 'detached-test')?.isMaximized,
+  true,
+)
+assert.equal(
+  state.workspaceWindows.find((windowState) => windowState.id === 'detached-test')?.displayId,
+  3,
+)
+useWorkspaceStore.getState().moveWorkspaceToWindow(firstId, state.primaryWorkspaceWindowId, 'detached-test')
+state = useWorkspaceStore.getState()
+assert.equal(
+  state.workspaceWindows.find((windowState) => windowState.id === state.primaryWorkspaceWindowId)?.activeWorkspaceId,
+  firstId,
+)
+assert.equal(
+  state.workspaceWindows.find((windowState) => windowState.id === 'detached-test'),
+  undefined,
+)
+useWorkspaceStore.getState().moveWorkspaceToWindow(firstId, 'detached-test', state.primaryWorkspaceWindowId)
+useWorkspaceStore.getState().closeWorkspaceWindow('detached-test')
+state = useWorkspaceStore.getState()
+assert.equal(state.workspaceWindows.find((windowState) => windowState.id === 'detached-test'), undefined)
+assert.equal(
+  state.workspaceWindows.find((windowState) => windowState.id === state.primaryWorkspaceWindowId)?.workspaceIds.includes(firstId),
+  true,
+)
 useWorkspaceStore.getState().setFolderPath(firstId, '/Users/example/renamed')
 state = useWorkspaceStore.getState()
 assert.equal(state.workspaces.find((workspace) => workspace.id === firstId)?.folderPath, '/Users/example/renamed')

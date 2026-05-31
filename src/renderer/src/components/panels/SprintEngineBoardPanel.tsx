@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { selectSprintEngineView, useSprintEngineViewStore } from '../../store/sprintEngineViewStore'
+import {
+  selectSprintEngineView,
+  useSprintEngineViewStore,
+  type SprintEngineView,
+} from '../../store/sprintEngineViewStore'
 import { useNotificationStore } from '../../store/notificationStore'
 import {
  CloseIconButton,
@@ -58,7 +62,8 @@ import {
 } from '../../utils/sprintengineAutomation'
 import { disableSprintEngineAutoRun } from '../../utils/sprintengineSupervisorNotifications'
 import {
- countUnreadSprintEngineAutomationNotifications,
+ countUnreadSprintEngineRunActivity,
+ getSprintEngineRunActivity,
  publishSprintEngineAutomationModeNotification,
 } from '../../utils/sprintengineNotifications'
 import { findFirstUncoveredSprintEngineRole } from '../../utils/sprintengineRoleOptions'
@@ -78,10 +83,12 @@ import {
 import { SprintEngineInspectorPanel } from './SprintEngineInspectorPanel'
 import { SprintEngineTaskGraphView } from './SprintEngineTaskGraphView'
 import {
+ SprintEngineActivityNavIcon,
  SprintEngineInboxIcon,
  SprintEngineRosterNavIcon,
  SprintEngineTasksNavIcon,
 } from './sprintEngineBoard/SprintEngineBoardIcons'
+import { SprintEngineActivityView } from './sprintEngineBoard/SprintEngineActivityView'
 import { SprintEngineInboxView } from './sprintEngineBoard/SprintEngineInboxView'
 import { SprintEngineRosterView } from './sprintEngineBoard/SprintEngineRosterView'
 import { SprintEngineTasksKanbanView } from './sprintEngineBoard/SprintEngineTasksKanbanView'
@@ -134,7 +141,6 @@ type SyncState = {
 }
 
 
-type SprintEngineView = 'inbox' | 'roster' | 'tasks'
 type SprintEngineTasksLayout = 'graph' | 'kanban'
 
 type SpawnDialogState = {
@@ -149,7 +155,6 @@ type RecoveryDialogState = {
 
 function SprintEngineSettingsPopover({
  automationMode,
- automationNotificationCount,
  cliPermissionPreset,
  onChangeAutomationMode,
  onUpdateCliPreset,
@@ -157,7 +162,6 @@ function SprintEngineSettingsPopover({
  onClose,
 }: {
  automationMode: SprintEngineAutomationMode
- automationNotificationCount: number
   cliPermissionPreset: SprintEngineCliPermissionPreset
  onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
  onUpdateCliPreset: (preset: SprintEngineCliPermissionPreset) => void
@@ -214,7 +218,6 @@ function SprintEngineSettingsPopover({
  title="Run"
  level={3}
  inset={true}
- action={<NotificationCountBadge count={automationNotificationCount} />}
  >
  <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="Sprint Engine automation mode">
  {sprintEngineAutomationModeOptions.map((option) => {
@@ -283,21 +286,6 @@ function SprintEngineSettingsPopover({
  )
 }
 
-function NotificationCountBadge({ count, className = '' }: { count: number; className?: string }) {
- if (count <= 0) return null
- return (
- <span
- aria-hidden="true"
- className={[
- 'flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-error)] px-1 text-[10px] font-bold leading-none text-[color:var(--bg-app)] shadow-sm',
- className,
- ].filter(Boolean).join(' ')}
- >
- {count > 9 ? '9+' : count}
- </span>
- )
-}
-
 export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTasksLayout }: Props) {
  const workspace = useWorkspaceStore(
  (s) => s.workspaces.find((w) => w.id === workspaceId) ?? null
@@ -311,9 +299,21 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
  const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli)
  const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
- const automationNotificationCount = useNotificationStore((s) =>
- countUnreadSprintEngineAutomationNotifications(s.notifications, workspaceId)
+ const runActivity = useNotificationStore((s) =>
+ getSprintEngineRunActivity(s.notifications, workspaceId)
  )
+ const runActivityUnread = useNotificationStore((s) =>
+ countUnreadSprintEngineRunActivity(s.notifications, workspaceId)
+ )
+ const markNotificationRead = useNotificationStore((s) => s.markRead)
+ const markNotificationsReadWhere = useNotificationStore((s) => s.markReadWhere)
+ const clearNotificationsWhere = useNotificationStore((s) => s.clearWhere)
+ const markRunActivityAllRead = useCallback(() => {
+ markNotificationsReadWhere((n) => n.source === 'sprintengine' && n.workspaceId === workspaceId)
+ }, [markNotificationsReadWhere, workspaceId])
+ const clearRunActivity = useCallback(() => {
+ clearNotificationsWhere((n) => n.source === 'sprintengine' && n.workspaceId === workspaceId)
+ }, [clearNotificationsWhere, workspaceId])
  const disabledRoleIds = useMemo<ReadonlySet<SprintEngineRoleId>>(
    () => getUserDisabledSprintEngineRoleIds(sprintEngineRoleSettings),
    [sprintEngineRoleSettings],
@@ -1165,6 +1165,12 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  icon: SprintEngineTasksNavIcon,
  count: sprintEngineState.tasks.length > 0 ? sprintEngineState.tasks.length : undefined,
  },
+ {
+ id: 'activity',
+ label: 'Activity',
+ icon: SprintEngineActivityNavIcon,
+ count: runActivityUnread > 0 ? runActivityUnread : undefined,
+ },
  ]
  const activateView = (view: SprintEngineView) => {
  if (fixedView) return
@@ -1237,6 +1243,9 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  case 'sprintengine.goto.tasks':
  if (!fixedView) setActiveView('tasks')
  break
+ case 'sprintengine.goto.activity':
+ if (!fixedView) setActiveView('activity')
+ break
  case 'sprintengine.goto.graph':
  if (!fixedView) setActiveView('tasks')
  if (!fixedTasksLayout) setActiveTasksLayout('graph')
@@ -1295,15 +1304,11 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  popupRole="dialog"
  placement="bottom-end"
  renderTrigger={() => (
- <span className="relative inline-flex">
  <OverflowMenu ariaLabel="Sprint Engine overflow" items={chromeOverflowItems} />
- <NotificationCountBadge count={automationNotificationCount} className="pointer-events-none absolute -right-1.5 -top-1.5" />
- </span>
  )}
  >
  <SprintEngineSettingsPopover
  automationMode={automationMode}
- automationNotificationCount={automationNotificationCount}
  cliPermissionPreset={cliPermissionPreset}
  onChangeAutomationMode={updateAutomationMode}
  onUpdateCliPreset={updateCliPermissionPreset}
@@ -1506,6 +1511,22 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
 
  {renderInspectorAside()}
  </div>
+ </div>
+ ) : null}
+
+ {effectiveView === 'activity' ? (
+ <div
+ id="sprintengine-view-panel-activity"
+ role="tabpanel"
+ aria-labelledby="sprintengine-view-tab-activity"
+ className="flex min-h-0 flex-1"
+ >
+ <SprintEngineActivityView
+ activity={runActivity}
+ onMarkRead={markNotificationRead}
+ onMarkAllRead={markRunActivityAllRead}
+ onClear={clearRunActivity}
+ />
  </div>
  ) : null}
 

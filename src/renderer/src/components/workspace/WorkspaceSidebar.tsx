@@ -34,18 +34,28 @@ import {
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import { partitionWorkspacesByRecency } from '../../utils/workspaceRecency'
+import { beginSidebarTransition } from '../../utils/sidebarTransition'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
 
 type TerminalRecency = { hasRunning: boolean; lastFinishedAt: number | null }
 
+type WorkspaceDetachPlacement = {
+  screenX: number
+  screenY: number
+}
+
 type WorkspaceSidebarProps = {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
+  workspaceWindowId: string
+  isDetachedWindow: boolean
   sidebarCollapsed: boolean
   activityByWorkspaceId: Record<WorkspaceId, Activity>
   terminalRecencyByWorkspaceId: Record<WorkspaceId, TerminalRecency>
   onSelectWorkspace: (id: WorkspaceId) => void
+  onMoveWorkspaceToNewWindow: (id: WorkspaceId, placement?: WorkspaceDetachPlacement) => void
+  onMoveWorkspaceToMainWindow: (id: WorkspaceId) => void
   onCloseWorkspace: (id: WorkspaceId) => void
   onDeleteWorkspaceWithState: (id: WorkspaceId) => Promise<void> | void
   onForgetFolder: (folderPath: string) => void
@@ -267,6 +277,24 @@ function reorderFolders(
   return remaining.flatMap((g) => g.workspaces.map((w) => w.id))
 }
 
+function didWorkspaceDragLeaveSidebar(event: React.DragEvent, sidebar: HTMLElement | null): boolean {
+  if (!sidebar) return false
+  const rect = sidebar.getBoundingClientRect()
+  const clientOutside = event.clientX < rect.left
+    || event.clientX > rect.right
+    || event.clientY < rect.top
+    || event.clientY > rect.bottom
+  const screenLeft = window.screenX + rect.left
+  const screenRight = window.screenX + rect.right
+  const screenTop = window.screenY + rect.top
+  const screenBottom = window.screenY + rect.bottom
+  const screenOutside = event.screenX < screenLeft
+    || event.screenX > screenRight
+    || event.screenY < screenTop
+    || event.screenY > screenBottom
+  return clientOutside || screenOutside
+}
+
 function workspaceHasOnDiskState(workspace: Workspace): boolean {
   if (workspace.mode === 'sprintengine') return Boolean(workspace.sprintEngineContext?.teamDirectoryPath)
   if (workspace.mode === 'multiloop') return Boolean(workspace.multiloopContext?.loopDirectoryPath)
@@ -276,10 +304,14 @@ function workspaceHasOnDiskState(workspace: Workspace): boolean {
 export default function WorkspaceSidebar({
   workspaces,
   activeWorkspaceId,
+  workspaceWindowId,
+  isDetachedWindow,
   sidebarCollapsed,
   activityByWorkspaceId,
   terminalRecencyByWorkspaceId,
   onSelectWorkspace,
+  onMoveWorkspaceToNewWindow,
+  onMoveWorkspaceToMainWindow,
   onCloseWorkspace,
   onDeleteWorkspaceWithState,
   onForgetFolder,
@@ -312,6 +344,7 @@ export default function WorkspaceSidebar({
   const [deleteTypedName, setDeleteTypedName] = useState('')
 
   const renameInputRef = useRef<HTMLInputElement>(null)
+  const sidebarRef = useRef<HTMLElement>(null)
   const dragRef = useRef<
     | { type: 'workspace'; id: WorkspaceId; folderKey: string }
     | { type: 'folder'; folderKey: string }
@@ -508,7 +541,11 @@ export default function WorkspaceSidebar({
     reorderWorkspaces(newOrder)
   }
 
-  const handleDragEnd = () => {
+  const handleDragEnd = (event: React.DragEvent) => {
+    const drag = dragRef.current
+    if (drag?.type === 'workspace' && didWorkspaceDragLeaveSidebar(event, sidebarRef.current)) {
+      onMoveWorkspaceToNewWindow(drag.id, { screenX: event.screenX, screenY: event.screenY })
+    }
     dragRef.current = null
     setDropIndicator(null)
     setTabDropTarget(null)
@@ -585,12 +622,13 @@ export default function WorkspaceSidebar({
       const newWorkspaceId = addWorkspaceFromStore(syntheticTemplate, {
         name: payload.name || undefined,
         folderPath: inheritedFolderPath,
+        windowId: workspaceWindowId,
       })
 
       migrateTabSideEffects(payload, newWorkspaceId)
-      removeTab(payload.sourceWorkspaceId, payload.tabId)
+      removeTab(payload.sourceWorkspaceId, payload.tabId, { preserveRuntime: true })
     },
-    [addWorkspaceFromStore, migrateTabSideEffects, workspaceById]
+    [addWorkspaceFromStore, migrateTabSideEffects, workspaceById, workspaceWindowId]
   )
 
   const handleTabDragOverRow = useCallback(
@@ -640,7 +678,7 @@ export default function WorkspaceSidebar({
       }
 
       migrateTabSideEffects(payload, workspace.id)
-      removeTab(payload.sourceWorkspaceId, payload.tabId)
+      removeTab(payload.sourceWorkspaceId, payload.tabId, { preserveRuntime: true })
       setActiveWorkspace(workspace.id)
     },
     [migrateTabSideEffects, setActiveWorkspace, updateLayout]
@@ -950,8 +988,9 @@ export default function WorkspaceSidebar({
 
   return (
     <aside
+      ref={sidebarRef}
       aria-label="Workspaces"
-      className={`flex shrink-0 flex-col bg-[color:var(--bg-app)] transition-[width] duration-150 ease-out ${
+      className={`flex shrink-0 flex-col bg-[color:var(--bg-app)] transition-[width] duration-150 ease-out motion-reduce:transition-none ${
         sidebarCollapsed ? 'w-[44px]' : 'w-[296px]'
       }`}
     >
@@ -974,20 +1013,25 @@ export default function WorkspaceSidebar({
         >
           <button
             type="button"
-            onClick={() => onSetSidebarCollapsed(!sidebarCollapsed)}
+            onClick={() => {
+              // Protect the width-transition window: hold heavy panel resize
+              // work (xterm fit, PTY resize, Monaco layout) until the glide
+              // lands, so it runs once instead of every animation frame.
+              beginSidebarTransition()
+              onSetSidebarCollapsed(!sidebarCollapsed)
+            }}
             className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
             aria-label={sidebarCollapsed ? 'Open sidebar' : 'Collapse sidebar'}
           >
-            {sidebarCollapsed ? (
-              <svg viewBox="0 0 16 16" fill="none" className="icon-sm">
-                <rect x="2.5" y="3" width="3.5" height="10" rx="1" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M9.5 8H13.5M11.5 6L13.5 8L11.5 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 16 16" fill="none" className="icon-sm">
-                <path d="M10 4L6 8L10 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            )}
+            {/*
+             * Standard `panel-left` sidebar glyph (rounded rect + left-panel
+             * divider), the formal idiom of desktop developer tools.
+             * One glyph for both states — the aria-label carries open/collapsed.
+             */}
+            <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
+              <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M6 3V13" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
           </button>
         </Tooltip>
       </div>
@@ -1173,6 +1217,7 @@ export default function WorkspaceSidebar({
           x={contextMenu.x}
           y={contextMenu.y}
           workspace={workspaceById.get(contextMenu.workspaceId) ?? null}
+          isDetachedWindow={isDetachedWindow}
           onClose={() => setContextMenu(null)}
           onSelect={(action) => {
             const workspace = workspaceById.get(contextMenu.workspaceId)
@@ -1197,6 +1242,16 @@ export default function WorkspaceSidebar({
             }
             if (action === 'reveal' && workspace.folderPath) {
               onRevealFolder(workspace.folderPath)
+              setContextMenu(null)
+              return
+            }
+            if (action === 'move-to-new-window') {
+              onMoveWorkspaceToNewWindow(workspace.id)
+              setContextMenu(null)
+              return
+            }
+            if (action === 'move-to-main-window') {
+              onMoveWorkspaceToMainWindow(workspace.id)
               setContextMenu(null)
               return
             }
@@ -1403,6 +1458,8 @@ type ContextMenuAction =
   | 'rename'
   | 'new-workspace'
   | 'reveal'
+  | 'move-to-new-window'
+  | 'move-to-main-window'
   | 'close'
   | 'delete'
   | 'toggle-star'
@@ -1441,6 +1498,7 @@ function ContextMenu({
   x,
   y,
   workspace,
+  isDetachedWindow,
   onClose,
   onSelect,
   onPickColor,
@@ -1448,6 +1506,7 @@ function ContextMenu({
   x: number
   y: number
   workspace: Workspace | null
+  isDetachedWindow: boolean
   onClose: () => void
   onSelect: (action: ContextMenuAction) => void
   onPickColor: (color: HighlightColor) => void
@@ -1485,6 +1544,11 @@ function ContextMenu({
         <MenuItem onClick={() => onSelect('new-workspace')}>New workspace in project</MenuItem>
       ) : null}
       {folderPathExists ? <MenuItem onClick={() => onSelect('reveal')}>Reveal folder</MenuItem> : null}
+      {isDetachedWindow ? (
+        <MenuItem onClick={() => onSelect('move-to-main-window')}>Move to Main Window</MenuItem>
+      ) : (
+        <MenuItem onClick={() => onSelect('move-to-new-window')}>Move to New Window</MenuItem>
+      )}
       <MenuDivider />
       <button
         type="button"

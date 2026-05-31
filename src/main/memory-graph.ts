@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from 'fs/promises'
 import { extname, isAbsolute, join, relative, resolve, sep } from 'path'
+import { MAX_IMAGE_DATA_URL_BYTES } from './filesystem-read-limits'
 
 export type MemoryGraphNodeKind = 'markdown' | 'image' | 'text' | 'asset'
 
@@ -597,6 +598,9 @@ export async function readMemoryPreview(
     if (node.kind === 'image') {
       const mimeType = imageMimeType(filePath)
       if (!mimeType) return { ok: true, node, previewKind: 'unsupported', message: 'Image type is not supported.' }
+      if (stats.size > MAX_IMAGE_DATA_URL_BYTES) {
+        return { ok: true, node, previewKind: 'unsupported', message: 'Image is too large to preview.' }
+      }
       const content = await readFile(filePath)
       return { ok: true, node, previewKind: 'image', dataUrl: `data:${mimeType};base64,${content.toString('base64')}` }
     }

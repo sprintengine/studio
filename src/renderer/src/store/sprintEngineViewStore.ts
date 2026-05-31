@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 
-export type SprintEngineView = 'inbox' | 'roster' | 'tasks'
+export type SprintEngineView = 'inbox' | 'roster' | 'tasks' | 'activity'
 
 const SPRINT_ENGINE_VIEW_STORAGE_KEY = 'multicode-sprintengine-view'
 

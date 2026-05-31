@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { LAYOUT_TEMPLATES } from '../layouts/templates'
 import { SPECIALIST_ACTIONS } from '../specialists/specialistActions'
 import { useWorkspaceStore } from '../store/workspaceStore'
-import type { SpecialistActionId } from '../types/workspace'
+import type { SpecialistActionId, Workspace, WorkspaceId, WorkspaceWindowId } from '../types/workspace'
 import { focusOrAddComponentTab, focusOrAddFileTab, revealNavRailComponent } from '../utils/modelRegistry'
 import {
   buildSprintEngineAgentRosterForState,
@@ -31,13 +31,23 @@ interface Props {
   onClose: () => void
   onNewWorkspace: () => void
   onSpawnSpecialist: (specialistId: SpecialistActionId) => void
+  workspaceWindowId: WorkspaceWindowId
+  workspaces: Workspace[]
+  activeWorkspaceId: WorkspaceId | null
 }
 
-export default function CommandPalette({ onClose, onNewWorkspace, onSpawnSpecialist }: Props) {
+export default function CommandPalette({
+  onClose,
+  onNewWorkspace,
+  onSpawnSpecialist,
+  workspaceWindowId,
+  workspaces,
+  activeWorkspaceId,
+}: Props) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
-  const { workspaces, activeWorkspaceId, setActiveWorkspace, addWorkspace, setActiveFile } = useWorkspaceStore()
+  const { setActiveWorkspaceForWindow, addWorkspace, setActiveFile } = useWorkspaceStore()
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
   const openFiles = activeWorkspace?.editorState?.openFiles ?? []
 
@@ -106,6 +116,7 @@ export default function CommandPalette({ onClose, onNewWorkspace, onSpawnSpecial
           { id: 'sprintengine.goto.inbox', label: 'Sprint Engine: Inbox', run: runPanel('sprintengine.goto.inbox') },
           { id: 'sprintengine.goto.roster', label: 'Sprint Engine: Roster', run: runPanel('sprintengine.goto.roster') },
           { id: 'sprintengine.goto.tasks', label: 'Sprint Engine: Tasks', run: runPanel('sprintengine.goto.tasks') },
+          { id: 'sprintengine.goto.activity', label: 'Sprint Engine: Activity', run: runPanel('sprintengine.goto.activity') },
           { id: 'sprintengine.goto.graph', label: 'Sprint Engine: Tasks → Graph layout', run: runPanel('sprintengine.goto.graph') },
           { id: 'sprintengine.goto.kanban', label: 'Sprint Engine: Tasks → Kanban layout', run: runPanel('sprintengine.goto.kanban') },
           { id: 'sprintengine.open.settings', label: 'Sprint Engine: Settings', shortcut: '⌘ ,', run: runPanel('sprintengine.open.settings') },
@@ -129,7 +140,7 @@ export default function CommandPalette({ onClose, onNewWorkspace, onSpawnSpecial
         label: `New Workspace: ${template.name}`,
         description: template.description,
         run: () => {
-          addWorkspace(template)
+          addWorkspace(template, { windowId: workspaceWindowId })
           onClose()
         },
       })),
@@ -138,7 +149,7 @@ export default function CommandPalette({ onClose, onNewWorkspace, onSpawnSpecial
         label: `Switch to: ${workspace.name}`,
         description: workspace.id === activeWorkspaceId ? 'active' : '',
         run: () => {
-          setActiveWorkspace(workspace.id)
+          setActiveWorkspaceForWindow(workspaceWindowId, workspace.id)
           onClose()
         },
       })),
@@ -201,7 +212,7 @@ export default function CommandPalette({ onClose, onNewWorkspace, onSpawnSpecial
         },
       },
     ]
-  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspace, setActiveFile, onClose, onNewWorkspace, onSpawnSpecialist])
+  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, onClose, onNewWorkspace, onSpawnSpecialist, workspaceWindowId])
 
   const filtered = query.trim()
     ? commands.filter((command) => {

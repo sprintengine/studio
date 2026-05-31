@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { LAYOUT_TEMPLATES, createGuidedBriefTemplate, createMultiloopTemplate } from '../../layouts/templates'
 import { userLayoutTemplateToTemplate } from '../../layouts/userTemplates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -26,6 +26,7 @@ import type {
   WorkspaceMode,
   Workspace,
   GuidedBriefRoleCliDefaults,
+  WorkspaceWindowId,
 } from '../../types/workspace'
 import { GuidedBriefFlow } from './guidedBrief/GuidedBriefFlow'
 import { GuidedBriefCloseConfirmation } from './guidedBrief/GuidedBriefCloseConfirmation'
@@ -48,6 +49,7 @@ import { sprintEngineAutomationModeOptions } from '../../utils/sprintengineAutom
 import MulticodeMark from '../brand/MulticodeMark'
 import MulticodeWordmark from '../brand/MulticodeWordmark'
 import { CloseIconButton, Field, GhostButton, Select, WizardProgress } from '../ui'
+import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { ModeCard } from './newWorkspace/ModeCard'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
 import { SprintEngineRosterTable } from './newWorkspace/SprintEngineRosterTable'
@@ -73,6 +75,7 @@ import {
 } from './newWorkspace/controllers'
 
 const MODES: CreationMode[] = ['standard', 'switchboard', 'sprintengine', 'multiloop', 'guided-brief']
+const DEFAULT_NEW_FOLDER_NAME = 'new-workspace'
 
 type StepId =
   | 'workspace'
@@ -222,6 +225,34 @@ function normalizedPathKey(path: string | null | undefined): string | null {
   return path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
 }
 
+function suggestedWorkspaceFolderName(workspaceName: string): string {
+  const slug = workspaceName
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9.-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[.-]+|[.-]+$/g, '')
+  return slug || DEFAULT_NEW_FOLDER_NAME
+}
+
+function validateWorkspaceFolderName(name: string): string | null {
+  const trimmed = name.trim()
+  if (!trimmed || trimmed === '.' || trimmed === '..' || /[/\\]/.test(trimmed)) {
+    return 'Enter a valid folder name.'
+  }
+  if (/[\u0000-\u001f<>:"|?*]/u.test(trimmed)) {
+    return 'Folder names cannot contain control characters or <>:"|?*.'
+  }
+  if (/[. ]$/u.test(trimmed)) {
+    return 'Folder names cannot end with a period or space.'
+  }
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu.test(trimmed)) {
+    return 'That folder name is reserved by Windows.'
+  }
+  return null
+}
+
 function cliSelectionForExistingSprintEngineTeam(
   team: ExistingTeam,
   folderPath: string | null,
@@ -288,6 +319,7 @@ interface Props {
     mode?: WorkspaceMode
   }) => void
   onClose: () => void
+  workspaceWindowId: WorkspaceWindowId
   allowClose?: boolean
   initialState?: NewWorkspacePanelInitialState | null
 }
@@ -295,6 +327,7 @@ interface Props {
 export default function NewWorkspacePanel({
   onCreate,
   onClose,
+  workspaceWindowId,
   allowClose = true,
   initialState = null,
 }: Props) {
@@ -322,6 +355,13 @@ export default function NewWorkspacePanel({
   const [folderPath, setFolderPath] = useState<string | null>(initialFolderPath)
   const [name, setName] = useState(initialWorkspaceName)
   const [nameTouched, setNameTouched] = useState(false)
+  const [newFolderParentPath, setNewFolderParentPath] = useState<string | null>(null)
+  const [newFolderName, setNewFolderName] = useState(
+    suggestedWorkspaceFolderName(initialWorkspaceName),
+  )
+  const [isNewFolderDialogOpen, setIsNewFolderDialogOpen] = useState(false)
+  const [newFolderError, setNewFolderError] = useState<string | null>(null)
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false)
   const [layoutId, setLayoutId] = useState<string>(
     LAYOUT_TEMPLATES[2]?.id ?? LAYOUT_TEMPLATES[0].id,
   )
@@ -808,6 +848,59 @@ export default function NewWorkspacePanel({
     handleSelectFolder(dir)
   }
 
+  const openNewFolderDialog = () => {
+    setNewFolderParentPath(folderPath)
+    setNewFolderName(suggestedWorkspaceFolderName(name))
+    setNewFolderError(null)
+    setIsNewFolderDialogOpen(true)
+  }
+
+  const pickNewFolderParent = async () => {
+    const parentDir = await window.api.openDir()
+    if (!parentDir) return
+    setNewFolderParentPath(parentDir)
+    setNewFolderError(null)
+  }
+
+  const closeNewFolderDialog = () => {
+    if (isCreatingFolder) return
+    setIsNewFolderDialogOpen(false)
+    setNewFolderParentPath(null)
+    setNewFolderError(null)
+  }
+
+  const submitNewFolder = async (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault()
+    if (isCreatingFolder) return
+    if (!newFolderParentPath) {
+      setNewFolderError('Choose a parent folder.')
+      return
+    }
+
+    const validationError = validateWorkspaceFolderName(newFolderName)
+    if (validationError) {
+      setNewFolderError(validationError)
+      return
+    }
+
+    setIsCreatingFolder(true)
+    setNewFolderError(null)
+    try {
+      if (typeof window.api.createWorkspaceFolder !== 'function') {
+        throw new Error('Restart Multicode to finish enabling folder creation.')
+      }
+      const createdPath = await window.api.createWorkspaceFolder(newFolderParentPath, newFolderName.trim())
+      setIsNewFolderDialogOpen(false)
+      setNewFolderParentPath(null)
+      handleSelectFolder(createdPath)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not create that folder.'
+      setNewFolderError(message)
+    } finally {
+      setIsCreatingFolder(false)
+    }
+  }
+
   const handleSelectExistingTeam = (slug: string) => {
     const team = folderScan.result.teams.find((candidate) => candidate.slug === slug)
     if (!team) {
@@ -993,6 +1086,7 @@ export default function NewWorkspacePanel({
             loopName: mlName,
             finalGoal: mlGoal,
             cliPermissionPreset,
+            workspaceWindowId,
           },
           {
             initializeMultiloopState: window.api.initializeMultiloopState,
@@ -1085,6 +1179,7 @@ export default function NewWorkspacePanel({
               startRunner: seStartRunner,
               autoApproveArtifacts: seAutoApproveArtifacts,
               cliPermissionPreset,
+              workspaceWindowId,
             },
             { pathExists: window.api.pathExists },
           )
@@ -1197,6 +1292,7 @@ export default function NewWorkspacePanel({
           planningDecisions: guidedBriefPlanningDecisionNotes(runtimeState),
           planningValidationNotes: guidedBriefPlanningValidationNotes(runtimeState),
           buildHandoffRelativePath: guidedBriefBuildHandoffRelativePath(),
+          workspaceWindowId,
         },
         {
           filesystem: {
@@ -1354,6 +1450,7 @@ export default function NewWorkspacePanel({
               onChangeName={handleChangeName}
               folderPath={folderPath}
               onPickFolder={() => void pickFolder()}
+              onCreateFolder={openNewFolderDialog}
               onSelectRecent={handleSelectFolder}
               recentFolders={recentFolders}
               folderHints={folderHints}
@@ -1576,6 +1673,20 @@ export default function NewWorkspacePanel({
           onClose()
         }}
       />
+      <NewFolderDialog
+        open={isNewFolderDialogOpen}
+        parentPath={newFolderParentPath}
+        name={newFolderName}
+        error={newFolderError}
+        isCreating={isCreatingFolder}
+        onChangeName={(value) => {
+          setNewFolderName(value)
+          setNewFolderError(null)
+        }}
+        onClose={closeNewFolderDialog}
+        onPickParent={() => void pickNewFolderParent()}
+        onSubmit={(event) => void submitNewFolder(event)}
+      />
     </section>
   )
 }
@@ -1583,11 +1694,110 @@ export default function NewWorkspacePanel({
 
 const FieldLabel = Field.Label
 
+function NewFolderDialog({
+  open,
+  parentPath,
+  name,
+  error,
+  isCreating,
+  onChangeName,
+  onClose,
+  onPickParent,
+  onSubmit,
+}: {
+  open: boolean
+  parentPath: string | null
+  name: string
+  error: string | null
+  isCreating: boolean
+  onChangeName: (value: string) => void
+  onClose: () => void
+  onPickParent: () => void
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const inputId = 'new-workspace-folder-name'
+  const titleId = 'new-workspace-folder-title'
+  const errorId = error ? `${inputId}-error` : undefined
+
+  useEffect(() => {
+    if (!open) return
+    const id = window.setTimeout(() => {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }, 0)
+    return () => window.clearTimeout(id)
+  }, [open])
+
+  return (
+    <Modal open={open} onClose={onClose} labelledBy={titleId} width={460} contained>
+      <form onSubmit={onSubmit}>
+        <ModalHeader
+          title="Create folder"
+          subtitle="Choose where the new project folder should live."
+          titleId={titleId}
+          onClose={onClose}
+        />
+        <ModalBody className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-medium text-[color:var(--text-muted)]">Parent folder</span>
+            <div className="flex items-center gap-2">
+              <div
+                className={`min-w-0 flex-1 truncate rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[12px] ${
+                  parentPath ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-disabled)]'
+                }`}
+              >
+                {parentPath ?? 'Choose a parent folder'}
+              </div>
+              <ModalButton type="button" onClick={onPickParent} disabled={isCreating}>
+                Browse
+              </ModalButton>
+            </div>
+          </div>
+          <label className="flex flex-col gap-1.5" htmlFor={inputId}>
+            <span className="text-[12px] font-medium text-[color:var(--text-default)]">Folder name</span>
+            <input
+              ref={inputRef}
+              id={inputId}
+              value={name}
+              onChange={(event) => onChangeName(event.target.value)}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={errorId}
+              className="
+                h-10 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3
+                text-[13px] text-[color:var(--text-strong)] outline-none transition-colors
+                placeholder:text-[color:var(--text-disabled)]
+                hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
+              "
+              placeholder={DEFAULT_NEW_FOLDER_NAME}
+              disabled={isCreating}
+            />
+          </label>
+          {error ? (
+            <p id={errorId} role="alert" className="text-[12px] leading-5 text-[color:var(--tone-error)]">
+              {error}
+            </p>
+          ) : null}
+        </ModalBody>
+        <ModalFooter>
+          <ModalButton type="button" onClick={onClose} disabled={isCreating}>
+            Cancel
+          </ModalButton>
+          <ModalButton type="submit" variant="primary" disabled={isCreating || name.trim().length === 0}>
+            {isCreating ? 'Creating...' : 'Create folder'}
+          </ModalButton>
+        </ModalFooter>
+      </form>
+    </Modal>
+  )
+}
+
 function WorkspaceStep({
   name,
   onChangeName,
   folderPath,
   onPickFolder,
+  onCreateFolder,
   onSelectRecent,
   recentFolders,
   folderHints,
@@ -1597,6 +1807,7 @@ function WorkspaceStep({
   onChangeName: (value: string) => void
   folderPath: string | null
   onPickFolder: () => void
+  onCreateFolder: () => void
   onSelectRecent: (path: string) => void
   recentFolders: string[]
   folderHints: ReturnType<typeof useFolderHints>
@@ -1622,32 +1833,77 @@ function WorkspaceStep({
 
       <div className="flex flex-col gap-2">
         <FieldLabel>Folder</FieldLabel>
-        <button
-          type="button"
-          onClick={onPickFolder}
-          className="
-            flex h-11 w-full items-center gap-3 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5
-            text-left transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]
-            focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-          "
-        >
-          <svg className="icon-md shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path
-              d="M3.75 7.5C3.75 6.39543 4.64543 5.5 5.75 5.5H9.5L11.5 7.5H18.25C19.3546 7.5 20.25 8.39543 20.25 9.5V16.25C20.25 17.3546 19.3546 18.25 18.25 18.25H5.75C4.64543 18.25 3.75 17.3546 3.75 16.25V7.5Z"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinejoin="round"
-            />
-          </svg>
-          <span
-            className={`min-w-0 flex-1 truncate text-[13px] ${
-              folderPath ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-disabled)]'
-            }`}
+        <div className="flex flex-col gap-0.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1">
+          <button
+            type="button"
+            onClick={onPickFolder}
+            className={`
+              group flex w-full min-w-0 items-center gap-3 rounded px-2 py-1.5 text-left
+              transition-colors hover:bg-[color:var(--bg-surface-raised)]
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+              ${folderPath ? 'bg-[color:var(--bg-hover)]' : ''}
+            `}
           >
-            {folderPath ?? 'Choose a folder…'}
-          </span>
-          <span className="shrink-0 text-[12px] font-semibold text-[color:var(--text-muted)]">Browse</span>
-        </button>
+            <span
+              aria-hidden="true"
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-[color:var(--text-subtle)] ${
+                folderPath ? 'bg-[color:var(--border-default)] text-[color:var(--text-muted)]' : 'bg-[color:var(--bg-surface-raised)] group-hover:text-[color:var(--text-muted)]'
+              }`}
+            >
+              <svg className="icon-md" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M3.75 7.5C3.75 6.39543 4.64543 5.5 5.75 5.5H9.5L11.5 7.5H18.25C19.3546 7.5 20.25 8.39543 20.25 9.5V16.25C20.25 17.3546 19.3546 18.25 18.25 18.25H5.75C4.64543 18.25 3.75 17.3546 3.75 16.25V7.5Z"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className={`block truncate text-[13px] font-medium ${
+                folderPath ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
+              }`}>
+                {folderPath ? basename(folderPath) || folderPath : 'Browse existing folder'}
+              </span>
+              <span className="block truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
+                {folderPath ?? 'Choose a project folder already on disk'}
+              </span>
+            </span>
+            <span className="shrink-0 text-[12px] font-semibold text-[color:var(--text-muted)]">Browse</span>
+          </button>
+          <button
+            type="button"
+            onClick={onCreateFolder}
+            className="
+              group flex w-full min-w-0 items-center gap-3 rounded px-2 py-1.5 text-left
+              transition-colors hover:bg-[color:var(--bg-surface-raised)]
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+            "
+          >
+            <span
+              aria-hidden="true"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-[color:var(--bg-surface-raised)] text-[color:var(--text-subtle)] group-hover:text-[color:var(--text-muted)]"
+            >
+              <svg className="icon-md" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M3.75 7.5C3.75 6.39543 4.64543 5.5 5.75 5.5H9.5L11.5 7.5H18.25C19.3546 7.5 20.25 8.39543 20.25 9.5V16.25C20.25 17.3546 19.3546 18.25 18.25 18.25H5.75C4.64543 18.25 3.75 17.3546 3.75 16.25V7.5Z"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinejoin="round"
+                />
+                <path d="M12 10.25V15.25M9.5 12.75H14.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+              </svg>
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-medium text-[color:var(--text-default)]">
+                Create new folder
+              </span>
+              <span className="block truncate text-[11px] leading-4 text-[color:var(--text-subtle)]">
+                Make a child folder inside a parent you choose
+              </span>
+            </span>
+          </button>
+        </div>
       </div>
 
       {recentFolders.length > 0 ? (

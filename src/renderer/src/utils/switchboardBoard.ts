@@ -8,8 +8,13 @@ import {
   type SwitchboardTaskRecord,
   type SwitchboardTaskStatus,
 } from '../../../shared/switchboard'
+import {
+  SWITCHBOARD_REFRESH_POLL_INTERVAL_MS,
+  runSwitchboardRefresh,
+  type SwitchboardRefreshOptions,
+} from './switchboardRefreshCoordinator'
 
-const TASK_POLL_INTERVAL_MS = 5_000
+const SWITCHBOARD_TASK_REFRESH_KEY_PREFIX = 'switchboard-tasks'
 
 export const BOARD_STATUS_ORDER: SwitchboardTaskStatus[] = [
   'planning',
@@ -36,7 +41,7 @@ export type SwitchboardData = {
   problems: SwitchboardFileProblem[]
   workspaceRoot: string | null
   switchboardRoot: string | null
-  refresh: () => Promise<void>
+  refresh: (options?: SwitchboardRefreshOptions) => Promise<void>
 }
 
 export function useSwitchboardData(workspaceRoot: string | null | undefined): SwitchboardData {
@@ -46,14 +51,11 @@ export function useSwitchboardData(workspaceRoot: string | null | undefined): Sw
   const [state, setState] = useState<SwitchboardLoadState>(workspaceRoot ? { kind: 'loading' } : { kind: 'idle' })
   const initializedRef = useRef<string | null>(null)
   const activeRootRef = useRef<string | null>(workspaceRoot ?? null)
-  const inFlightRef = useRef(false)
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options: SwitchboardRefreshOptions = { force: true }) => {
     activeRootRef.current = workspaceRoot ?? null
     const targetRoot = workspaceRoot ?? null
     const isStale = () => activeRootRef.current !== targetRoot
-
-    if (inFlightRef.current) return
 
     if (!targetRoot) {
       setState({ kind: 'idle' })
@@ -63,31 +65,31 @@ export function useSwitchboardData(workspaceRoot: string | null | undefined): Sw
       return
     }
 
-    inFlightRef.current = true
     setState((prev) => (prev.kind === 'ready' ? prev : { kind: 'loading' }))
 
     try {
-      if (initializedRef.current !== targetRoot) {
-        const initResult = await window.api.initializeSwitchboard(targetRoot)
-        if (isStale()) return
-        if (!initResult.ok) {
-          setState({ kind: 'error', message: initResult.message })
-          setTasks([])
-          setProblems([])
-          setSwitchboardRoot(null)
-          return
-        }
-        initializedRef.current = targetRoot
-        setSwitchboardRoot(initResult.switchboardRoot)
-      }
-
-      const result = await window.api.readSwitchboardTasks(targetRoot)
+      const coordinated = await runSwitchboardRefresh(
+        `${SWITCHBOARD_TASK_REFRESH_KEY_PREFIX}:${targetRoot}`,
+        async () => {
+          if (initializedRef.current !== targetRoot) {
+            const initResult = await window.api.initializeSwitchboard(targetRoot)
+            if (!initResult.ok) return initResult
+            initializedRef.current = targetRoot
+          }
+          return window.api.readSwitchboardTasks(targetRoot)
+        },
+        options
+      )
       if (isStale()) return
+
+      const result = coordinated.value
       if (!result.ok) {
         setState({ kind: 'error', message: result.message })
+        setSwitchboardRoot(null)
         return
       }
 
+      initializedRef.current = targetRoot
       const readResult = result as SwitchboardReadAllResult
       setSwitchboardRoot(readResult.switchboardRoot)
       setTasks(readResult.tasks)
@@ -99,8 +101,6 @@ export function useSwitchboardData(workspaceRoot: string | null | undefined): Sw
         kind: 'error',
         message: error instanceof Error ? error.message : 'Failed to read Switchboard tasks.',
       })
-    } finally {
-      inFlightRef.current = false
     }
   }, [workspaceRoot])
 
@@ -108,11 +108,11 @@ export function useSwitchboardData(workspaceRoot: string | null | undefined): Sw
     setTasks([])
     setProblems([])
     setSwitchboardRoot(null)
-    void refresh()
+    void refresh({ force: false })
     if (!workspaceRoot) return
     const handle = window.setInterval(() => {
-      void refresh()
-    }, TASK_POLL_INTERVAL_MS)
+      void refresh({ force: false })
+    }, SWITCHBOARD_REFRESH_POLL_INTERVAL_MS)
     return () => window.clearInterval(handle)
   }, [refresh, workspaceRoot])
 

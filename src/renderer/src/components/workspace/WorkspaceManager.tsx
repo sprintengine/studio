@@ -30,6 +30,7 @@ import type {
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
   Workspace,
+  WorkspaceWindowId,
 } from '../../types/workspace'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
@@ -46,6 +47,7 @@ import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
 import SprintEngineStateSynchronizer from './SprintEngineStateSynchronizer'
 import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
+import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { WindowControls } from './WindowControls'
 import WorkspaceTopBar, {
   AGENT_SPAWN_PERMISSION_OPTIONS,
@@ -76,6 +78,7 @@ const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 
 const TERMINAL_SESSION_RECOVERY_POLL_MS = 30_000
 const WORKSPACE_LAYOUT_IDLE_UNLOAD_MS = 5 * 60_000
+const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const SPECIALIST_KEYBOARD_SHORTCUTS: Record<string, SpecialistActionId> = {
   f: 'frontend-design-review',
   m: 'performance',
@@ -91,13 +94,19 @@ const SPECIALIST_KEYBOARD_CODE_SHORTCUTS: Record<string, SpecialistActionId> = {
 export default function WorkspaceManager() {
   useAppTheme()
   const dialog = useConfirmDialog()
+  const workspaceWindowId = useMemo(() => getWorkspaceWindowIdFromLocation(), [])
   const workspaces = useWorkspaceStore((s) => s.workspaces)
-  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const workspaceWindows = useWorkspaceStore((s) => s.workspaceWindows)
+  const primaryWorkspaceWindowId = useWorkspaceStore((s) => s.primaryWorkspaceWindowId)
   const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const onboardingStep = useWorkspaceStore((s) => s.appSettings.onboardingStep)
   const setOnboardingStep = useWorkspaceStore((s) => s.setOnboardingStep)
-  const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
+  const setActiveWorkspaceForWindow = useWorkspaceStore((s) => s.setActiveWorkspaceForWindow)
+  const registerWorkspaceWindow = useWorkspaceStore((s) => s.registerWorkspaceWindow)
+  const updateWorkspaceWindowPlacement = useWorkspaceStore((s) => s.updateWorkspaceWindowPlacement)
+  const closeWorkspaceWindow = useWorkspaceStore((s) => s.closeWorkspaceWindow)
+  const moveWorkspaceToWindow = useWorkspaceStore((s) => s.moveWorkspaceToWindow)
   const removeWorkspace = useWorkspaceStore((s) => s.removeWorkspace)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
   const sidebarCollapsed = useWorkspaceStore((s) => s.sidebarCollapsed)
@@ -139,7 +148,26 @@ export default function WorkspaceManager() {
   const markAllNotificationsRead = useNotificationStore((s) => s.markAllRead)
   const clearNotifications = useNotificationStore((s) => s.clearAll)
 
-  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null
+  const currentWorkspaceWindow = useMemo(
+    () => workspaceWindows.find((windowState) => windowState.id === workspaceWindowId)
+      ?? workspaceWindows.find((windowState) => windowState.id === primaryWorkspaceWindowId)
+      ?? null,
+    [primaryWorkspaceWindowId, workspaceWindowId, workspaceWindows]
+  )
+  const isPrimaryWorkspaceWindow = workspaceWindowId === (primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID)
+  const visibleWorkspaceIdSet = useMemo(
+    () => new Set(currentWorkspaceWindow?.workspaceIds ?? workspaces.map((workspace) => workspace.id)),
+    [currentWorkspaceWindow, workspaces]
+  )
+  const visibleWorkspaces = useMemo(
+    () => workspaces.filter((workspace) => visibleWorkspaceIdSet.has(workspace.id)),
+    [visibleWorkspaceIdSet, workspaces]
+  )
+  const windowActiveWorkspaceId =
+    currentWorkspaceWindow?.activeWorkspaceId && visibleWorkspaceIdSet.has(currentWorkspaceWindow.activeWorkspaceId)
+      ? currentWorkspaceWindow.activeWorkspaceId
+      : visibleWorkspaces[0]?.id ?? null
+  const activeWorkspace = visibleWorkspaces.find((workspace) => workspace.id === windowActiveWorkspaceId) ?? null
   const mobileWorkspaceRootKey = workspaces
     .map((workspace) => workspace.folderPath)
     .filter((folderPath): folderPath is string => Boolean(folderPath?.trim()))
@@ -188,17 +216,19 @@ export default function WorkspaceManager() {
   const reportedTerminalLastOutputRef = useRef<Map<string, number>>(new Map())
   const reconciledLaunchFlagsRef = useRef(false)
   const workspaceLayoutUnloadTimersRef = useRef<Record<string, number>>({})
+  const collapsedStaleDetachedWindowsRef = useRef(false)
   const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel
-  const sessions = getSessionItems(workspaces, terminalSessions)
+  const sessions = getSessionItems(visibleWorkspaces, terminalSessions)
   const sidebarWorkspaceOrder = useMemo(
-    () => buildSidebarWorkspaceOrder(workspaces),
-    [workspaces]
+    () => buildSidebarWorkspaceOrder(visibleWorkspaces),
+    [visibleWorkspaces]
   )
   const unreadNotificationCount = notifications.filter((notification) => !notification.read).length
   const settingsOpen = settingsOverlayOpen
-  const renderedWorkspaceIds = workspaces
+  const ownsGlobalSupervisors = isPrimaryWorkspaceWindow
+  const renderedWorkspaceIds = visibleWorkspaces
     .map((workspace) => workspace.id)
-    .filter((workspaceId) => workspaceId === activeWorkspaceId || mountedWorkspaceIds.includes(workspaceId))
+    .filter((workspaceId) => workspaceId === windowActiveWorkspaceId || mountedWorkspaceIds.includes(workspaceId))
 
   const openNewWorkspacePanel = () => {
     setNewWorkspacePanelInitialState(null)
@@ -273,6 +303,69 @@ export default function WorkspaceManager() {
     setTipModalOpen(true)
   }, [showTipsOnStartup])
 
+  useEffect(() => {
+    registerWorkspaceWindow(
+      workspaceWindowId,
+      isPrimaryWorkspaceWindow ? 'primary' : 'detached'
+    )
+  }, [isPrimaryWorkspaceWindow, registerWorkspaceWindow, workspaceWindowId])
+
+  useEffect(() => {
+    if (collapsedStaleDetachedWindowsRef.current) return
+    collapsedStaleDetachedWindowsRef.current = true
+    if (!isPrimaryWorkspaceWindow) return
+    const restoreDetachedWindows = async () => {
+      const persistedDetachedWindows = useWorkspaceStore
+      .getState()
+      .workspaceWindows
+      .filter((windowState) => windowState.id !== (primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID))
+      for (const windowState of persistedDetachedWindows) {
+        let restored = false
+        try {
+          const result = await window.api.createWorkspaceWindow({
+            windowId: windowState.id,
+            workspaceId: windowState.activeWorkspaceId,
+            bounds: windowState.bounds,
+            isMaximized: windowState.isMaximized,
+          })
+          restored = result.ok
+        } catch {
+          restored = false
+        }
+        if (!restored) {
+          closeWorkspaceWindow(windowState.id, primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID)
+        }
+      }
+    }
+    void restoreDetachedWindows()
+  }, [closeWorkspaceWindow, isPrimaryWorkspaceWindow, primaryWorkspaceWindowId])
+
+  useEffect(() => {
+    void window.api.getWindowPlacement().then((placement) => {
+      if (!placement) return
+      updateWorkspaceWindowPlacement(workspaceWindowId, placement)
+    }).catch(() => {})
+
+    return window.api.onWindowPlacementChanged((placement) => {
+      updateWorkspaceWindowPlacement(workspaceWindowId, placement)
+    })
+  }, [updateWorkspaceWindowPlacement, workspaceWindowId])
+
+  useEffect(() => {
+    if (isPrimaryWorkspaceWindow) return
+    const onBeforeUnload = () => {
+      closeWorkspaceWindow(workspaceWindowId, primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID)
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [closeWorkspaceWindow, isPrimaryWorkspaceWindow, primaryWorkspaceWindowId, workspaceWindowId])
+
+  useEffect(() => {
+    const windowName = activeWorkspace?.name?.trim()
+    const projectName = activeWorkspace?.folderPath ? folderName(activeWorkspace.folderPath) : null
+    document.title = [windowName, projectName, 'Multicode'].filter(Boolean).join(' - ')
+  }, [activeWorkspace?.folderPath, activeWorkspace?.name])
+
   const learningContext = useMemo(() => ({
     activeWorkspace,
     hasAnyTerminal: terminalSessions.length > 0,
@@ -288,12 +381,12 @@ export default function WorkspaceManager() {
   }, [lastAgentSpawnPermissionPreset])
 
   useEffect(() => {
-    const workspaceIds = new Set(workspaces.map((workspace) => workspace.id))
+    const workspaceIds = new Set(visibleWorkspaces.map((workspace) => workspace.id))
 
     setMountedWorkspaceIds((current) => {
       const next = current.filter((workspaceId) => workspaceIds.has(workspaceId))
-      if (activeWorkspaceId && workspaceIds.has(activeWorkspaceId) && !next.includes(activeWorkspaceId)) {
-        next.push(activeWorkspaceId)
+      if (windowActiveWorkspaceId && workspaceIds.has(windowActiveWorkspaceId) && !next.includes(windowActiveWorkspaceId)) {
+        next.push(windowActiveWorkspaceId)
       }
       return next.length === current.length && next.every((workspaceId, index) => workspaceId === current[index])
         ? current
@@ -301,17 +394,17 @@ export default function WorkspaceManager() {
     })
 
     Object.keys(workspaceLayoutUnloadTimersRef.current).forEach((workspaceId) => {
-      if (!workspaceIds.has(workspaceId) || workspaceId === activeWorkspaceId) {
+      if (!workspaceIds.has(workspaceId) || workspaceId === windowActiveWorkspaceId) {
         clearWorkspaceLayoutUnloadTimer(workspaceId)
       }
     })
-  }, [activeWorkspaceId, workspaces])
+  }, [visibleWorkspaces, windowActiveWorkspaceId])
 
   useEffect(() => {
-    const workspaceIds = new Set(workspaces.map((workspace) => workspace.id))
+    const workspaceIds = new Set(visibleWorkspaces.map((workspace) => workspace.id))
 
     mountedWorkspaceIds.forEach((workspaceId) => {
-      if (workspaceId === activeWorkspaceId || !workspaceIds.has(workspaceId)) {
+      if (workspaceId === windowActiveWorkspaceId || !workspaceIds.has(workspaceId)) {
         clearWorkspaceLayoutUnloadTimer(workspaceId)
         return
       }
@@ -320,12 +413,14 @@ export default function WorkspaceManager() {
       workspaceLayoutUnloadTimersRef.current[workspaceId] = window.setTimeout(() => {
         delete workspaceLayoutUnloadTimersRef.current[workspaceId]
         setMountedWorkspaceIds((current) => {
-          if (useWorkspaceStore.getState().activeWorkspaceId === workspaceId) return current
+          const state = useWorkspaceStore.getState()
+          const currentWindow = state.workspaceWindows.find((windowState) => windowState.id === workspaceWindowId)
+          if (currentWindow?.activeWorkspaceId === workspaceId) return current
           return current.filter((id) => id !== workspaceId)
         })
       }, WORKSPACE_LAYOUT_IDLE_UNLOAD_MS)
     })
-  }, [activeWorkspaceId, mountedWorkspaceIds, workspaces])
+  }, [mountedWorkspaceIds, visibleWorkspaces, windowActiveWorkspaceId, workspaceWindowId])
 
   useEffect(() => () => {
     Object.values(workspaceLayoutUnloadTimersRef.current).forEach((timer) => window.clearTimeout(timer))
@@ -341,10 +436,10 @@ export default function WorkspaceManager() {
     // Auto-open the new-workspace panel when there are no workspaces — but during
     // onboarding hold off until the flow reaches its workspace step, so the panel
     // doesn't pop behind the welcome/modules overlay.
-    if (workspaces.length === 0 && (onboardingStep === 'workspace' || onboardingStep === 'complete')) {
+    if (visibleWorkspaces.length === 0 && (onboardingStep === 'workspace' || onboardingStep === 'complete')) {
       setShowNewWorkspacePanel(true)
     }
-  }, [workspaces.length, onboardingStep])
+  }, [visibleWorkspaces.length, onboardingStep])
 
   useEffect(() => {
     let disposed = false
@@ -531,7 +626,7 @@ export default function WorkspaceManager() {
     setSpecialistMenuOpen(false)
     setSessionsOpen(false)
     setNotificationsOpen(false)
-  }, [activeWorkspaceId])
+  }, [windowActiveWorkspaceId])
 
   const closeWorkspaceById = useCallback(
     (id: string) => {
@@ -565,7 +660,7 @@ export default function WorkspaceManager() {
         const direction = event.key === 'Tab'
           ? (event.shiftKey ? -1 : 1)
           : (event.code === 'BracketLeft' ? -1 : 1)
-        if (activeWorkspaceId) cycleActiveLayoutTab(activeWorkspaceId, direction)
+        if (windowActiveWorkspaceId) cycleActiveLayoutTab(windowActiveWorkspaceId, direction)
         return
       }
 
@@ -578,13 +673,13 @@ export default function WorkspaceManager() {
         event.preventDefault()
         event.stopPropagation()
         const nextWorkspaceId = getNextWorkspaceId(
-          workspaces,
-          activeWorkspaceId,
+          visibleWorkspaces,
+          windowActiveWorkspaceId,
           event.shiftKey || event.code === 'ArrowLeft' ? -1 : 1
         )
         if (nextWorkspaceId) {
           setShowNewWorkspacePanel(false)
-          setActiveWorkspace(nextWorkspaceId)
+          setActiveWorkspaceForWindow(workspaceWindowId, nextWorkspaceId)
         }
         return
       }
@@ -616,39 +711,41 @@ export default function WorkspaceManager() {
       }
       if (key === 'b') {
         event.preventDefault()
+        beginSidebarTransition()
         setSidebarCollapsed(!sidebarCollapsed)
         return
       }
-      if (key === 'w' && event.shiftKey && activeWorkspaceId) {
+      if (key === 'w' && event.shiftKey && windowActiveWorkspaceId) {
         event.preventDefault()
-        closeWorkspaceById(activeWorkspaceId)
+        closeWorkspaceById(windowActiveWorkspaceId)
         return
       }
       if (key === 'w' && showNewWorkspacePanel) {
         event.preventDefault()
-        if (workspaces.length > 0) setShowNewWorkspacePanel(false)
-      } else if (key === 'w' && activeWorkspaceId) {
+        if (visibleWorkspaces.length > 0) setShowNewWorkspacePanel(false)
+      } else if (key === 'w' && windowActiveWorkspaceId) {
         event.preventDefault()
-        closeActiveLayoutTab(activeWorkspaceId, terminalSessions)
+        closeActiveLayoutTab(windowActiveWorkspaceId, terminalSessions)
       }
 
       const n = parseInt(event.key)
-      if (n >= 1 && n <= 9 && workspaces[n - 1]) {
+      if (n >= 1 && n <= 9 && visibleWorkspaces[n - 1]) {
         event.preventDefault()
         setShowNewWorkspacePanel(false)
-        setActiveWorkspace(workspaces[n - 1].id)
+        setActiveWorkspaceForWindow(workspaceWindowId, visibleWorkspaces[n - 1].id)
       }
     }
 
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [
-    workspaces,
-    activeWorkspaceId,
+    visibleWorkspaces,
+    windowActiveWorkspaceId,
+    workspaceWindowId,
     showNewWorkspacePanel,
     lastSelectedCli,
     removeWorkspace,
-    setActiveWorkspace,
+    setActiveWorkspaceForWindow,
     setLastSelectedSpecialist,
     sidebarCollapsed,
     setSidebarCollapsed,
@@ -670,16 +767,16 @@ export default function WorkspaceManager() {
         openSettings(true)
         return
       }
-      if (!activeWorkspaceId) return
+      if (!windowActiveWorkspaceId) return
       if (command === 'toggle-explorer') {
-        togglePanelRailComponent(activeWorkspaceId, 'explorer', 'Files')
+        togglePanelRailComponent(windowActiveWorkspaceId, 'explorer', 'Files')
       } else if (command === 'toggle-editor') {
-        togglePanelRailComponent(activeWorkspaceId, 'editor', 'Editor')
+        togglePanelRailComponent(windowActiveWorkspaceId, 'editor', 'Editor')
       } else if (command === 'toggle-git') {
-        togglePanelRailComponent(activeWorkspaceId, 'git', 'Git')
+        togglePanelRailComponent(windowActiveWorkspaceId, 'git', 'Git')
       }
     })
-  }, [activeWorkspaceId, openSettings])
+  }, [openSettings, windowActiveWorkspaceId])
 
   const handleCreate = ({
     template,
@@ -704,7 +801,7 @@ export default function WorkspaceManager() {
     guidedBriefState?: Workspace['guidedBriefState'] | null
     mode?: Workspace['mode']
   }) => {
-    addWorkspace(template, { name, folderPath, sprintEngineState, sprintEngineContext, sprintEngineRoleCliDefaults, sprintEngineAgentCliOverrides, sprintEngineAutoState, guidedBriefState, mode })
+    addWorkspace(template, { name, folderPath, sprintEngineState, sprintEngineContext, sprintEngineRoleCliDefaults, sprintEngineAgentCliOverrides, sprintEngineAutoState, guidedBriefState, mode, windowId: workspaceWindowId })
     setShowNewWorkspacePanel(false)
     setNewWorkspacePanelInitialState(null)
     // Creating the first workspace ends onboarding — jump straight to 'complete'
@@ -758,6 +855,50 @@ export default function WorkspaceManager() {
     [workspaces, forgetFolder]
   )
 
+  const moveWorkspaceToNewWindow = useCallback(
+    async (workspaceId: string, placement?: { screenX: number; screenY: number }) => {
+      const targetWindowId = `workspace-${workspaceId}-${nanoid(6)}`
+      registerWorkspaceWindow(targetWindowId, 'detached')
+      moveWorkspaceToWindow(workspaceId, targetWindowId, workspaceWindowId)
+      let result: Awaited<ReturnType<typeof window.api.createWorkspaceWindow>>
+      try {
+        result = await window.api.createWorkspaceWindow({
+          windowId: targetWindowId,
+          workspaceId,
+          bounds: placement ? workspaceWindowBoundsForDrop(placement, currentWorkspaceWindow?.bounds) : undefined,
+        })
+      } catch (error) {
+        result = {
+          ok: false,
+          message: error instanceof Error ? error.message : String(error),
+        }
+      }
+      if (!result.ok) {
+        moveWorkspaceToWindow(workspaceId, workspaceWindowId, targetWindowId)
+        publishDiagnosticSync({
+          level: 'error',
+          source: 'workspace',
+          title: 'Move to new window failed',
+          message: result.message,
+          workspaceId,
+        })
+        setNotificationsOpen(true)
+      }
+    },
+    [currentWorkspaceWindow?.bounds, moveWorkspaceToWindow, registerWorkspaceWindow, workspaceWindowId]
+  )
+
+  const moveWorkspaceToPrimaryWindow = useCallback(
+    (workspaceId: string) => {
+      const primaryWindowId = primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID
+      moveWorkspaceToWindow(workspaceId, primaryWindowId, workspaceWindowId)
+      if (!isPrimaryWorkspaceWindow && visibleWorkspaces.length <= 1) {
+        void window.api.windowClose()
+      }
+    },
+    [isPrimaryWorkspaceWindow, moveWorkspaceToWindow, primaryWorkspaceWindowId, visibleWorkspaces.length, workspaceWindowId]
+  )
+
   const handleRevealFolder = useCallback((folderPath: string) => {
     void window.api.showItemInFolder(folderPath)
   }, [])
@@ -789,11 +930,11 @@ export default function WorkspaceManager() {
     specialistId: SpecialistActionId = lastSelectedSpecialist,
     requestedName = ''
   ) => {
-    if (showNewWorkspacePanel || !activeWorkspaceId) return
-    const model = getModel(activeWorkspaceId)
+    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
+    const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
-    const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
+    const activeWorkspace = workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
     const specialist = getSpecialistAction(specialistId)
     const agentName = normalizeAgentIdentifier(requestedName)
     const tabName = agentName || pickRandomAgentName(
@@ -804,7 +945,7 @@ export default function WorkspaceManager() {
     const prompt = buildSpecialistSoulStartupPrompt(specialist)
     const cliForSpawn = specialistCliDefaults[specialist.id] ?? lastSelectedCli
 
-    updateAgent(activeWorkspaceId, newId, {
+    updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: cliForSpawn,
       cliPermissionPreset: agentSpawnPermissionPreset,
@@ -815,18 +956,18 @@ export default function WorkspaceManager() {
       cliHasLaunched: false,
       cliResumeAvailable: false,
     })
-    addAgentTabTiled(activeWorkspaceId, newId, tabName)
+    addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
   }
 
   const addNewMultiloopAgent = async (
     role: MultiloopRole = lastSelectedMultiloopRole,
     requestedName = ''
   ) => {
-    if (showNewWorkspacePanel || !activeWorkspaceId) return
-    const model = getModel(activeWorkspaceId)
+    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
+    const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
-    const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
+    const activeWorkspace = workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
     if (!multiloopEnabled || !activeWorkspace || activeWorkspace.mode !== 'multiloop') return
 
     const soul = getMultiloopRole(role)
@@ -847,7 +988,7 @@ export default function WorkspaceManager() {
           source: 'workspace',
           title: 'Multiloop CLI unavailable',
           message: repaired.message || 'Could not prepare the Multiloop CLI wrapper for this workspace.',
-          workspaceId: activeWorkspaceId,
+          workspaceId: windowActiveWorkspaceId,
           workspaceName: activeWorkspace.name,
         })
         return
@@ -863,7 +1004,7 @@ export default function WorkspaceManager() {
     })
     const cliForSpawn = multiloopRoleCliDefaults[soul.role] ?? lastSelectedCli
 
-    updateAgent(activeWorkspaceId, newId, {
+    updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: cliForSpawn,
       cliPermissionPreset: agentSpawnPermissionPreset,
@@ -877,20 +1018,20 @@ export default function WorkspaceManager() {
       cliResumeAvailable: false,
       cliSessionId: crypto.randomUUID(),
     })
-    addAgentTabTiled(activeWorkspaceId, newId, tabName)
+    addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
   }
 
   const addNewCliAgent = (cli: AgentCli, label: string) => {
-    if (showNewWorkspacePanel || !activeWorkspaceId) return
-    const model = getModel(activeWorkspaceId)
+    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
+    const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
-    const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
+    const activeWorkspace = workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
     const tabName = uniqueAgentName(label, activeWorkspace?.agents ?? {})
     const newId = `agent-${cli}-${nanoid(6)}`
     if (!(model.getActiveTabset() ?? firstTabset(model))) return
 
-    updateAgent(activeWorkspaceId, newId, {
+    updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli,
       cliPermissionPreset: agentSpawnPermissionPreset,
@@ -901,14 +1042,14 @@ export default function WorkspaceManager() {
       cliHasLaunched: false,
       cliResumeAvailable: false,
     })
-    addAgentTabTiled(activeWorkspaceId, newId, tabName)
+    addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
     setSpecialistMenuOpen(false)
   }
 
   const addNewTerminal = () => {
-    if (showNewWorkspacePanel || !activeWorkspaceId) return
+    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const newId = `terminal-${nanoid(6)}`
-    addTerminalTab(activeWorkspaceId, newId, 'Terminal')
+    addTerminalTab(windowActiveWorkspaceId, newId, 'Terminal')
   }
 
   const handleSelectSpecialist = (specialistId: SpecialistActionId) => {
@@ -1001,7 +1142,7 @@ export default function WorkspaceManager() {
     }
 
     setShowNewWorkspacePanel(false)
-    setActiveWorkspace(item.workspace.id)
+    setActiveWorkspaceForWindow(workspaceWindowId, item.workspace.id)
     setSessionsOpen(false)
 
     requestAnimationFrame(() => {
@@ -1051,15 +1192,15 @@ export default function WorkspaceManager() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-strong)]">
-      {sprintEngineEnabled ? <SprintEngineAutoRunSupervisor /> : null}
-      {multiloopEnabled ? <MultiloopAutoRunSupervisor /> : null}
-      {multiloopEnabled && workspaces.map((workspace) => (
-        workspace.id === activeWorkspaceId && (workspace.mode === 'multiloop' || workspace.multiloopContext)
+      {sprintEngineEnabled && ownsGlobalSupervisors ? <SprintEngineAutoRunSupervisor /> : null}
+      {multiloopEnabled && ownsGlobalSupervisors ? <MultiloopAutoRunSupervisor /> : null}
+      {multiloopEnabled && visibleWorkspaces.map((workspace) => (
+        workspace.id === windowActiveWorkspaceId && (workspace.mode === 'multiloop' || workspace.multiloopContext)
           ? <MultiloopStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
           : null
       ))}
-      {sprintEngineEnabled && !MULTICODE_DISABLE_SPRINTENGINE_SYNC && workspaces.map((workspace) => (
-        workspace.id === activeWorkspaceId && (workspace.mode === 'sprintengine' || workspace.sprintEngineContext)
+      {sprintEngineEnabled && !MULTICODE_DISABLE_SPRINTENGINE_SYNC && visibleWorkspaces.map((workspace) => (
+        workspace.id === windowActiveWorkspaceId && (workspace.mode === 'sprintengine' || workspace.sprintEngineContext)
           ? <SprintEngineStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
           : null
       ))}
@@ -1086,15 +1227,19 @@ export default function WorkspaceManager() {
 
       <div className="flex min-h-0 flex-1 flex-row">
       <WorkspaceSidebar
-        workspaces={workspaces}
-        activeWorkspaceId={activeWorkspaceId}
+        workspaces={visibleWorkspaces}
+        activeWorkspaceId={windowActiveWorkspaceId}
+        workspaceWindowId={workspaceWindowId}
+        isDetachedWindow={!isPrimaryWorkspaceWindow}
         sidebarCollapsed={sidebarCollapsed}
         activityByWorkspaceId={activityByWorkspaceId}
         terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
         onSelectWorkspace={(id) => {
           setShowNewWorkspacePanel(false)
-          setActiveWorkspace(id)
+          setActiveWorkspaceForWindow(workspaceWindowId, id)
         }}
+        onMoveWorkspaceToNewWindow={(id, placement) => void moveWorkspaceToNewWindow(id, placement)}
+        onMoveWorkspaceToMainWindow={moveWorkspaceToPrimaryWindow}
         onCloseWorkspace={closeWorkspaceById}
         onDeleteWorkspaceWithState={deleteWorkspaceWithState}
         onForgetFolder={handleForgetFolder}
@@ -1105,9 +1250,9 @@ export default function WorkspaceManager() {
       />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-tl-[10px] rounded-bl-[10px] bg-[color:var(--bg-surface)] shadow-[inset_1px_0_0_rgba(255,255,255,0.04)]">
       <WorkspaceTopBar
-        workspaces={workspaces}
+        workspaces={visibleWorkspaces}
         activeWorkspace={activeWorkspace}
-        activeWorkspaceId={activeWorkspaceId}
+        activeWorkspaceId={windowActiveWorkspaceId}
         workspaceActionsEnabled={workspaceActionsEnabled}
         sessionsRef={sessionsRef}
         viewMenuRef={viewMenuRef}
@@ -1184,15 +1329,16 @@ export default function WorkspaceManager() {
                   setShowNewWorkspacePanel(false)
                   setNewWorkspacePanelInitialState(null)
                 }}
-                allowClose={workspaces.length > 0}
+                workspaceWindowId={workspaceWindowId}
+                allowClose={visibleWorkspaces.length > 0}
                 initialState={newWorkspacePanelInitialState}
               />
             </React.Suspense>
           ) : (
             <>
-              {workspaces.length === 0 && <EmptyState onNew={openNewWorkspacePanel} />}
+              {visibleWorkspaces.length === 0 && <EmptyState onNew={openNewWorkspacePanel} />}
               {renderedWorkspaceIds.map((workspaceId) => {
-                const active = workspaceId === activeWorkspaceId
+                const active = workspaceId === windowActiveWorkspaceId
                 return (
                   <div
                     key={workspaceId}
@@ -1218,6 +1364,9 @@ export default function WorkspaceManager() {
           onClose={() => setShowPalette(false)}
           onNewWorkspace={openNewWorkspacePanel}
           onSpawnSpecialist={handleSelectSpecialist}
+          workspaceWindowId={workspaceWindowId}
+          workspaces={visibleWorkspaces}
+          activeWorkspaceId={windowActiveWorkspaceId}
         />
       )}
 
@@ -1251,6 +1400,35 @@ function getNextWorkspaceId(
 
   const nextIndex = (activeIndex + step + workspaces.length) % workspaces.length
   return workspaces[nextIndex].id
+}
+
+function getWorkspaceWindowIdFromLocation(): WorkspaceWindowId {
+  try {
+    const value = new URL(window.location.href).searchParams.get('windowId')?.trim()
+    return value || PRIMARY_WORKSPACE_WINDOW_ID
+  } catch {
+    return PRIMARY_WORKSPACE_WINDOW_ID
+  }
+}
+
+function folderName(folderPath: string): string {
+  const normalized = folderPath.replace(/\\/g, '/').replace(/\/+$/u, '')
+  const slash = normalized.lastIndexOf('/')
+  return slash >= 0 ? normalized.slice(slash + 1) || normalized : normalized
+}
+
+function workspaceWindowBoundsForDrop(
+  placement: { screenX: number; screenY: number },
+  currentBounds: { width: number; height: number } | null | undefined
+): { x: number; y: number; width: number; height: number } {
+  const width = Math.max(800, Math.round(currentBounds?.width ?? 1400))
+  const height = Math.max(600, Math.round(currentBounds?.height ?? 900))
+  return {
+    x: Math.round(placement.screenX - width / 2),
+    y: Math.round(placement.screenY - 24),
+    width,
+    height,
+  }
 }
 
 function killTerminalForLayoutTab(

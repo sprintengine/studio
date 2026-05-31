@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -33,8 +33,8 @@ async function main(): Promise<void> {
     async getUniqueCopyPath() {
       throw new Error('copy is not used in this test')
     },
-    async pathExists() {
-      return false
+    async pathExists(targetPath) {
+      return stat(targetPath).then(() => true, () => false)
     },
     async trashItem() {},
   })
@@ -42,8 +42,10 @@ async function main(): Promise<void> {
   try {
     const writeBinaryFile = ipcMain.handlers.get('fs:write-binary-file')
     const copyInto = ipcMain.handlers.get('fs:copy-into')
+    const createWorkspaceFolder = ipcMain.handlers.get('fs:create-workspace-folder')
     assert.ok(writeBinaryFile, 'binary write handler should be registered')
     assert.ok(copyInto, 'basename-preserving copy handler should be registered')
+    assert.ok(createWorkspaceFolder, 'workspace folder creation handler should be registered')
 
     const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x00])
     const targetPath = join(tempRoot, 'attachment.png')
@@ -89,6 +91,32 @@ async function main(): Promise<void> {
       await readFile(join(destinationSkillsDir, 'growth-copywriter', 'SKILL.md'), 'utf-8'),
       '# Growth Copywriter v2\n',
       'overwrite updates existing installed skill folders without copy suffixes',
+    )
+
+    const projectParent = join(tempRoot, 'projects')
+    await mkdir(projectParent)
+    const createdWorkspacePath = await createWorkspaceFolder(null, projectParent, '  new-product  ')
+    assert.equal(createdWorkspacePath, join(projectParent, 'new-product'), 'workspace folder names are trimmed before creation')
+
+    await assert.rejects(
+      () => createWorkspaceFolder(null, projectParent, '../escape'),
+      /Enter a valid folder name\./,
+      'workspace folder creation rejects path traversal names',
+    )
+    await assert.rejects(
+      () => createWorkspaceFolder(null, projectParent, 'AUX'),
+      /reserved by Windows/,
+      'workspace folder creation rejects Windows reserved names',
+    )
+    await assert.rejects(
+      () => createWorkspaceFolder(null, projectParent, 'trailing-dot.'),
+      /cannot end with a period or space/,
+      'workspace folder creation rejects names that end with a period',
+    )
+    await assert.rejects(
+      () => createWorkspaceFolder(null, projectParent, 'new-product'),
+      /already exists/,
+      'workspace folder creation rejects collisions',
     )
   } finally {
     await rm(tempRoot, { force: true, recursive: true })

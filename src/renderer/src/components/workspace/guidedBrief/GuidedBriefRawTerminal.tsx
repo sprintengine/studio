@@ -5,6 +5,7 @@ import '@xterm/xterm/css/xterm.css'
 import { bindTerminalClipboardHandlers } from '../../../utils/terminalClipboard'
 import { bindTerminalTheme, getTerminalTheme } from '../../../utils/terminalTheme'
 import { createXtermOutputQueue } from '../../../utils/xtermOutputQueue'
+import { deferFitDuringSidebarAnimation } from '../../../utils/sidebarTransition'
 
 type Props = {
   sessionId: string
@@ -51,7 +52,8 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
     const onResizeDisposable = terminal.onResize(({ cols, rows }) => {
       void window.api.terminalResize(sessionId, cols, rows)
     })
-    const resizeObserver = new ResizeObserver(() => requestAnimationFrame(fitTerminal))
+    const fitScheduler = deferFitDuringSidebarAnimation(fitTerminal)
+    const resizeObserver = new ResizeObserver(() => fitScheduler.requestFit())
 
     resizeObserver.observe(container)
     fitTerminal()
@@ -75,6 +77,7 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
     return () => {
       window.clearTimeout(settleTimer)
       resizeObserver.disconnect()
+      fitScheduler.dispose()
       container.removeEventListener('mousedown', focusTerminal)
       container.removeEventListener('mouseup', focusTerminal)
       container.removeEventListener('click', focusTerminal)

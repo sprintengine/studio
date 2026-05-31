@@ -7,6 +7,8 @@ import type { OnboardingStep } from './onboardingState'
 import type {
   Workspace,
   WorkspaceId,
+  WorkspaceWindowId,
+  WorkspaceWindowState,
   LayoutTemplate,
   AgentState,
   AgentId,
@@ -81,6 +83,7 @@ import {
 import { normalizeWorkspaceForPartialize } from './slices/normalizers'
 import {
   APP_SETTINGS_STORAGE_KEY,
+  PRIMARY_WORKSPACE_WINDOW_ID,
   WORKSPACE_STORAGE_KEY,
   WORKSPACE_STORE_VERSION,
   type HydrationDiagnostic,
@@ -91,6 +94,7 @@ import {
   isDangerousEmptyClassification,
   migrateLegacyWorkspaceStorageKey,
   migratePersistedWorkspaceState,
+  normalizeWorkspaceWindows,
 } from './slices/persistenceSlice'
 import {
   isLegacyV44WorkspaceEnvelope,
@@ -103,6 +107,8 @@ migrateLegacyWorkspaceStorageKey()
 interface WorkspaceStore {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
+  workspaceWindows: WorkspaceWindowState[]
+  primaryWorkspaceWindowId: WorkspaceWindowId
   workspaceRegistryEmptyState: WorkspaceRegistryEmptyState | null
   appSettings: AppSettings
   authState: MulticodeAuthState
@@ -116,6 +122,18 @@ interface WorkspaceStore {
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
   reorderWorkspaces: (orderedIds: WorkspaceId[]) => void
+  registerWorkspaceWindow: (windowId: WorkspaceWindowId, kind?: WorkspaceWindowState['kind']) => void
+  updateWorkspaceWindowPlacement: (
+    windowId: WorkspaceWindowId,
+    placement: Pick<WorkspaceWindowState, 'bounds' | 'isMaximized' | 'displayId'>
+  ) => void
+  closeWorkspaceWindow: (windowId: WorkspaceWindowId, fallbackWindowId?: WorkspaceWindowId) => void
+  moveWorkspaceToWindow: (
+    workspaceId: WorkspaceId,
+    targetWindowId: WorkspaceWindowId,
+    sourceWindowId?: WorkspaceWindowId | null
+  ) => void
+  setActiveWorkspaceForWindow: (windowId: WorkspaceWindowId, workspaceId: WorkspaceId) => void
   forgetFolder: (folderPath: string) => void
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
@@ -164,6 +182,7 @@ interface WorkspaceStore {
       multiloopAutoState?: Partial<MultiloopAutoState> | null
       guidedBriefState?: GuidedBriefRuntimeState | null
       mode?: Workspace['mode']
+      windowId?: WorkspaceWindowId | null
     }
   ) => WorkspaceId
   removeWorkspace: (id: WorkspaceId) => void
@@ -352,6 +371,8 @@ function scheduleBackupWrite(
 type RegistryEnvelopeState = {
   workspaces: unknown
   activeWorkspaceId: unknown
+  workspaceWindows: unknown
+  primaryWorkspaceWindowId: unknown
   workspaceRegistryEmptyState: unknown
 }
 
@@ -362,11 +383,23 @@ type SettingsEnvelopeState = {
 
 let lastWrittenRegistrySerialized: string | null = null
 let lastWrittenSettingsSerialized: string | null = null
+let suppressNextPersistWrite = false
+
+function getCurrentWorkspaceWindowId(): WorkspaceWindowId {
+  if (typeof window === 'undefined') return PRIMARY_WORKSPACE_WINDOW_ID
+  try {
+    return new URL(window.location.href).searchParams.get('windowId')?.trim() || PRIMARY_WORKSPACE_WINDOW_ID
+  } catch {
+    return PRIMARY_WORKSPACE_WINDOW_ID
+  }
+}
 
 function extractRegistryFields(state: Record<string, unknown>): RegistryEnvelopeState {
   return {
     workspaces: state.workspaces,
     activeWorkspaceId: state.activeWorkspaceId,
+    workspaceWindows: state.workspaceWindows,
+    primaryWorkspaceWindowId: state.primaryWorkspaceWindowId,
     workspaceRegistryEmptyState: state.workspaceRegistryEmptyState,
   }
 }
@@ -486,6 +519,8 @@ const workspaceStateStorage: StateStorage = {
         registryState = {
           workspaces: split.registry.state.workspaces,
           activeWorkspaceId: split.registry.state.activeWorkspaceId,
+          workspaceWindows: undefined,
+          primaryWorkspaceWindowId: undefined,
           workspaceRegistryEmptyState: null,
         }
         registryVersion = split.registry.version
@@ -538,6 +573,7 @@ const workspaceStateStorage: StateStorage = {
 
   setItem: (_name: string, value: string): void => {
     if (typeof window === 'undefined') return
+    if (suppressNextPersistWrite) return
     let envelope: { state?: Record<string, unknown>; version?: number } | null = null
     try {
       envelope = JSON.parse(value) as { state?: Record<string, unknown>; version?: number }
@@ -763,12 +799,20 @@ async function attemptBackupRecovery(): Promise<void> {
 
     useWorkspaceStore.setState((current) => {
       const recoveredWorkspaces = envelope!.state!.workspaces as WorkspaceStore['workspaces']
+      const normalizedWindows = normalizeWorkspaceWindows(
+        recoveredWorkspaces,
+        envelope!.state!.workspaceWindows,
+        envelope!.state!.primaryWorkspaceWindowId,
+        envelope!.state!.activeWorkspaceId ?? current.activeWorkspaceId,
+      )
       const next: WorkspaceStore = {
         ...current,
         workspaces: recoveredWorkspaces,
         activeWorkspaceId: envelope!.state!.activeWorkspaceId
           ?? envelope!.state!.workspaces?.[0]?.id
           ?? current.activeWorkspaceId,
+        workspaceWindows: normalizedWindows.windows,
+        primaryWorkspaceWindowId: normalizedWindows.primaryWorkspaceWindowId,
         workspaceRegistryEmptyState: null,
       }
       if (legacyAppSettings !== undefined) {
@@ -861,12 +905,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       merge: (persisted, current) => {
         const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean }> | undefined
         const workspaces = state?.workspaces ?? current.workspaces
+        const normalizedWindows = normalizeWorkspaceWindows(
+          workspaces,
+          state?.workspaceWindows ?? current.workspaceWindows,
+          state?.primaryWorkspaceWindowId ?? current.primaryWorkspaceWindowId,
+          state?.activeWorkspaceId ?? current.activeWorkspaceId,
+        )
 
         return {
           ...current,
           ...(state ?? {}),
           workspaces,
           activeWorkspaceId: state?.activeWorkspaceId ?? current.activeWorkspaceId,
+          workspaceWindows: normalizedWindows.windows,
+          primaryWorkspaceWindowId: normalizedWindows.primaryWorkspaceWindowId,
           sidebarCollapsed:
             typeof state?.sidebarCollapsed === 'boolean'
               ? state.sidebarCollapsed
@@ -908,6 +960,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               sidebarCollapsed: s.sidebarCollapsed,
               workspaces: retainedWorkspaces,
               activeWorkspaceId: retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
+              workspaceWindows: normalizeWorkspaceWindows(
+                retainedWorkspaces,
+                registry.envelope!.state.workspaceWindows as WorkspaceWindowState[] | undefined,
+                registry.envelope!.state.primaryWorkspaceWindowId as WorkspaceWindowId | undefined,
+                retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
+              ).windows,
+              primaryWorkspaceWindowId:
+                (registry.envelope!.state.primaryWorkspaceWindowId as WorkspaceWindowId | undefined)
+                ?? PRIMARY_WORKSPACE_WINDOW_ID,
               workspaceRegistryEmptyState: null,
             }
           }
@@ -918,6 +979,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           sidebarCollapsed: s.sidebarCollapsed,
           workspaces: s.workspaces.map(normalizeWorkspaceForPartialize),
           activeWorkspaceId: s.activeWorkspaceId,
+          workspaceWindows: normalizeWorkspaceWindows(
+            s.workspaces,
+            s.workspaceWindows,
+            s.primaryWorkspaceWindowId,
+            s.activeWorkspaceId,
+          ).windows,
+          primaryWorkspaceWindowId: s.primaryWorkspaceWindowId,
           workspaceRegistryEmptyState: s.workspaceRegistryEmptyState,
         }
       },
@@ -958,6 +1026,80 @@ function syncModuleEnablementToMain(): void {
   useWorkspaceStore.subscribe((state) => push(state.appSettings.modules ?? {}))
 }
 syncModuleEnablementToMain()
+
+function syncWorkspaceRegistryAcrossWindows(): void {
+  if (typeof window === 'undefined') return
+  window.addEventListener('storage', (event) => {
+    if (event.key !== WORKSPACE_STORAGE_KEY || !event.newValue) return
+    let parsed: { state?: Partial<WorkspaceMigrationState> } | null = null
+    try {
+      parsed = JSON.parse(event.newValue) as { state?: Partial<WorkspaceMigrationState> }
+    } catch {
+      return
+    }
+    const incoming = parsed?.state
+    if (!incoming || !Array.isArray(incoming.workspaces)) return
+    let appliedRegistrySerialized: string | null = null
+    suppressNextPersistWrite = true
+    try {
+      useWorkspaceStore.setState((current) => {
+        const normalizedWindows = normalizeWorkspaceWindows(
+          incoming.workspaces as Workspace[],
+          incoming.workspaceWindows,
+          incoming.primaryWorkspaceWindowId,
+          incoming.activeWorkspaceId ?? current.activeWorkspaceId,
+        )
+        const workspaceWindowId = getCurrentWorkspaceWindowId()
+        const currentOwnedWindow = current.workspaceWindows.find((windowState) => windowState.id === workspaceWindowId)
+        const incomingOwnedWindow = normalizedWindows.windows.find((windowState) => windowState.id === workspaceWindowId)
+        let nextWorkspaces = incoming.workspaces as Workspace[]
+        if (currentOwnedWindow && incomingOwnedWindow) {
+          const currentWorkspaceById = new Map(current.workspaces.map((workspace) => [workspace.id, workspace] as const))
+          const preservableWorkspaceIds = new Set(
+            currentOwnedWindow.workspaceIds.filter((workspaceId) => incomingOwnedWindow.workspaceIds.includes(workspaceId))
+          )
+          nextWorkspaces = nextWorkspaces.map((workspace) =>
+            preservableWorkspaceIds.has(workspace.id)
+              ? currentWorkspaceById.get(workspace.id) ?? workspace
+              : workspace
+          )
+        }
+        if (
+          currentOwnedWindow
+          && incomingOwnedWindow
+          && currentOwnedWindow.lastFocusedAt > incomingOwnedWindow.lastFocusedAt
+        ) {
+          if (
+            currentOwnedWindow.activeWorkspaceId
+            && incomingOwnedWindow.workspaceIds.includes(currentOwnedWindow.activeWorkspaceId)
+          ) {
+            incomingOwnedWindow.activeWorkspaceId = currentOwnedWindow.activeWorkspaceId
+          }
+          incomingOwnedWindow.lastFocusedAt = currentOwnedWindow.lastFocusedAt
+        }
+        const nextState = {
+          ...current,
+          workspaces: nextWorkspaces,
+          activeWorkspaceId: incoming.activeWorkspaceId ?? current.activeWorkspaceId,
+          workspaceWindows: normalizedWindows.windows,
+          primaryWorkspaceWindowId: normalizedWindows.primaryWorkspaceWindowId,
+          workspaceRegistryEmptyState:
+            incoming.workspaceRegistryEmptyState === undefined
+              ? current.workspaceRegistryEmptyState
+              : incoming.workspaceRegistryEmptyState,
+        }
+        appliedRegistrySerialized = JSON.stringify(extractRegistryFields(nextState as unknown as Record<string, unknown>))
+        return nextState
+      })
+    } finally {
+      suppressNextPersistWrite = false
+    }
+    if (appliedRegistrySerialized) {
+      lastWrittenRegistrySerialized = appliedRegistrySerialized
+    }
+  })
+}
+syncWorkspaceRegistryAcrossWindows()
 
 // Re-export so consumers (tests, devtools) can use a single import surface.
 export {

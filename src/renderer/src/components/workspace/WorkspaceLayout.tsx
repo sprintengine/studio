@@ -533,7 +533,10 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
       if (action.type === Actions.DELETE_TAB) {
         const node = modelRef.current?.getNodeById(action.data.node)
         const nodeId = node?.getId() ?? String(action.data.node ?? '')
-        if (hideTabWithoutCleanupRef.current.has(nodeId)) {
+        const preserveRuntime = (action.data as Record<string, unknown>).__multicodePreserveRuntime === true
+        if (preserveRuntime) {
+          hideTabWithoutCleanupRef.current.delete(nodeId)
+        } else if (hideTabWithoutCleanupRef.current.has(nodeId)) {
           hideTabWithoutCleanupRef.current.delete(nodeId)
         } else if (node instanceof TabNode) {
           cleanupNode(node)

@@ -97,7 +97,11 @@ export default function WorktreeManager({
   const upsertWorktreeEntry = useWorkspaceStore((state) => state.upsertWorktreeEntry)
   const removeWorktreeEntry = useWorkspaceStore((state) => state.removeWorktreeEntry)
   const addWorkspace = useWorkspaceStore((state) => state.addWorkspace)
-  const setActiveWorkspace = useWorkspaceStore((state) => state.setActiveWorkspace)
+  const setActiveWorkspaceForWindow = useWorkspaceStore((state) => state.setActiveWorkspaceForWindow)
+  const workspaceWindowId = useWorkspaceStore((state) =>
+    state.workspaceWindows.find((windowState) => windowState.workspaceIds.includes(workspaceId))?.id
+    ?? state.primaryWorkspaceWindowId
+  )
   const dialog = useConfirmDialog()
   const [open, setOpen] = useState(true)
   const [rows, setRows] = useState<WorktreeRow[]>([])
@@ -287,8 +291,12 @@ export default function WorktreeManager({
 
   const handleOpenWorkspace = (row: WorktreeRow) => {
     const workspaceName = `Worktree: ${branchLabel(row)}`
-    const nextWorkspaceId = addWorkspace(template, { name: workspaceName, folderPath: row.path })
-    setActiveWorkspace(nextWorkspaceId)
+    const nextWorkspaceId = addWorkspace(template, {
+      name: workspaceName,
+      folderPath: row.path,
+      windowId: workspaceWindowId,
+    })
+    setActiveWorkspaceForWindow(workspaceWindowId, nextWorkspaceId)
   }
 
   const handleOpenTerminal = async (row: WorktreeRow) => {

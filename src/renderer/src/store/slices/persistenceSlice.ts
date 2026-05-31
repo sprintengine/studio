@@ -4,6 +4,8 @@ import type {
   SprintEngineWorkspaceContext,
   Workspace,
   WorkspaceId,
+  WorkspaceWindowId,
+  WorkspaceWindowState,
 } from '../../types/workspace'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { normalizeSprintEngineState } from '../../utils/sprintengine'
@@ -47,17 +49,132 @@ import { mapMigrationWorkspaces } from './normalizers'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 54
+export const WORKSPACE_STORE_VERSION = 55
+export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
 export type WorkspaceMigrationState = {
   workspaces: Workspace[]
   activeWorkspaceId?: WorkspaceId | null
+  workspaceWindows?: WorkspaceWindowState[]
+  primaryWorkspaceWindowId?: WorkspaceWindowId
   appSettings?: Partial<AppSettings> & {
     cliCommands?: Partial<Record<AgentCli, string>>
   }
   sidebarCollapsed?: boolean
   workspaceRegistryEmptyState?: import('../../types/workspace').WorkspaceRegistryEmptyState | null
+}
+
+export function normalizeWorkspaceWindows(
+  workspaces: Workspace[],
+  windows: WorkspaceWindowState[] | null | undefined,
+  primaryWorkspaceWindowId: WorkspaceWindowId | null | undefined,
+  fallbackActiveWorkspaceId?: WorkspaceId | null,
+): { windows: WorkspaceWindowState[]; primaryWorkspaceWindowId: WorkspaceWindowId } {
+  const now = Date.now()
+  const workspaceIds = workspaces.map((workspace) => workspace.id)
+  const validWorkspaceIds = new Set(workspaceIds)
+  const primaryId = primaryWorkspaceWindowId?.trim() || PRIMARY_WORKSPACE_WINDOW_ID
+  const seenWindowIds = new Set<WorkspaceWindowId>()
+  const assignedWorkspaceIds = new Set<WorkspaceId>()
+  const nextWindows: WorkspaceWindowState[] = []
+
+  const sourceWindows = Array.isArray(windows) && windows.length > 0
+    ? windows
+    : [
+        {
+          id: primaryId,
+          kind: 'primary' as const,
+          workspaceIds,
+          activeWorkspaceId: fallbackActiveWorkspaceId ?? workspaceIds[0] ?? null,
+          bounds: null,
+          isMaximized: false,
+          displayId: null,
+          createdAt: now,
+          lastFocusedAt: now,
+        },
+      ]
+
+  for (const source of sourceWindows) {
+    if (!source || typeof source.id !== 'string' || !source.id.trim()) continue
+    const id = source.id.trim()
+    if (seenWindowIds.has(id)) continue
+    seenWindowIds.add(id)
+
+    const memberIds: WorkspaceId[] = []
+    for (const workspaceId of Array.isArray(source.workspaceIds) ? source.workspaceIds : []) {
+      if (!validWorkspaceIds.has(workspaceId) || assignedWorkspaceIds.has(workspaceId)) continue
+      memberIds.push(workspaceId)
+      assignedWorkspaceIds.add(workspaceId)
+    }
+
+    nextWindows.push({
+      id,
+      kind: id === primaryId ? 'primary' : source.kind === 'primary' ? 'detached' : 'detached',
+      workspaceIds: memberIds,
+      activeWorkspaceId:
+        source.activeWorkspaceId && memberIds.includes(source.activeWorkspaceId)
+          ? source.activeWorkspaceId
+          : memberIds[0] ?? null,
+      bounds: normalizeWorkspaceWindowBounds(source.bounds),
+      isMaximized: source.isMaximized === true,
+      displayId: typeof source.displayId === 'number' ? source.displayId : null,
+      createdAt: typeof source.createdAt === 'number' ? source.createdAt : now,
+      lastFocusedAt: typeof source.lastFocusedAt === 'number' ? source.lastFocusedAt : now,
+    })
+  }
+
+  let primaryWindow = nextWindows.find((windowState) => windowState.id === primaryId)
+  if (!primaryWindow) {
+    primaryWindow = {
+      id: primaryId,
+      kind: 'primary',
+      workspaceIds: [],
+      activeWorkspaceId: null,
+      bounds: null,
+      isMaximized: false,
+      displayId: null,
+      createdAt: now,
+      lastFocusedAt: now,
+    }
+    nextWindows.unshift(primaryWindow)
+  } else {
+    primaryWindow.kind = 'primary'
+  }
+
+  for (const workspaceId of workspaceIds) {
+    if (assignedWorkspaceIds.has(workspaceId)) continue
+    primaryWindow.workspaceIds.push(workspaceId)
+    assignedWorkspaceIds.add(workspaceId)
+  }
+
+  primaryWindow.activeWorkspaceId =
+    primaryWindow.activeWorkspaceId && primaryWindow.workspaceIds.includes(primaryWindow.activeWorkspaceId)
+      ? primaryWindow.activeWorkspaceId
+      : fallbackActiveWorkspaceId && primaryWindow.workspaceIds.includes(fallbackActiveWorkspaceId)
+        ? fallbackActiveWorkspaceId
+        : primaryWindow.workspaceIds[0] ?? null
+
+  return {
+    windows: nextWindows.filter((windowState) =>
+      windowState.kind === 'primary' || windowState.workspaceIds.length > 0
+    ),
+    primaryWorkspaceWindowId: primaryId,
+  }
+}
+
+function normalizeWorkspaceWindowBounds(
+  bounds: WorkspaceWindowState['bounds'] | null | undefined
+): WorkspaceWindowState['bounds'] {
+  if (!bounds) return null
+  const { x, y, width, height } = bounds
+  if (![x, y, width, height].every(Number.isFinite)) return null
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+    width: Math.max(800, Math.round(width)),
+    height: Math.max(600, Math.round(height)),
+  }
 }
 
 export function migrateLegacyWorkspaceStorageKey(): void {
@@ -673,6 +790,16 @@ export function migratePersistedWorkspaceState(
       const next = hideNavRailTabStrip(ws.layoutModel)
       return next ? { ...ws, layoutModel: next } : ws
     })
+  }
+  if (version < 55) {
+    const normalized = normalizeWorkspaceWindows(
+      migrationState.workspaces,
+      migrationState.workspaceWindows,
+      migrationState.primaryWorkspaceWindowId,
+      migrationState.activeWorkspaceId,
+    )
+    migrationState.workspaceWindows = normalized.windows
+    migrationState.primaryWorkspaceWindowId = normalized.primaryWorkspaceWindowId
   }
 
   return state as never

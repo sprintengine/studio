@@ -9,6 +9,12 @@ import type {
   SwitchboardRunnerState,
   SwitchboardTaskRunnerExecution,
 } from '../../../shared/switchboard'
+import {
+  SWITCHBOARD_REFRESH_POLL_INTERVAL_MS,
+  rememberSwitchboardRefreshValue,
+  runSwitchboardRefresh,
+  type SwitchboardRefreshOptions,
+} from './switchboardRefreshCoordinator'
 
 export const RUNNER_QUEUES: SwitchboardRunnerQueue[] = ['ready', 'testing', 'review']
 export const RUNNER_PROVIDERS: SwitchboardExecutionProviderKind[] = ['electron-session']
@@ -20,7 +26,7 @@ export type SwitchboardRunner = {
   status: RunnerStatusKind
   error: string | null
   busy: boolean
-  refresh: () => Promise<void>
+  refresh: (options?: SwitchboardRefreshOptions) => Promise<void>
   start: (input: Omit<SwitchboardRunnerStartInput, 'workspaceRoot'>) => Promise<boolean>
   pause: () => Promise<boolean>
   resume: () => Promise<boolean>
@@ -29,7 +35,11 @@ export type SwitchboardRunner = {
   stopExecution: (executionId: string, reason?: string) => Promise<boolean>
 }
 
-const POLL_INTERVAL_MS = 5_000
+const SWITCHBOARD_RUNNER_REFRESH_KEY_PREFIX = 'switchboard-runner'
+
+function runnerRefreshKey(workspaceRoot: string): string {
+  return `${SWITCHBOARD_RUNNER_REFRESH_KEY_PREFIX}:${workspaceRoot}`
+}
 
 export function useSwitchboardRunner(
   workspaceRoot: string | null | undefined,
@@ -40,7 +50,6 @@ export function useSwitchboardRunner(
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const activeRootRef = useRef<string | null>(workspaceRoot ?? null)
-  const refreshInFlightRef = useRef(false)
 
   const apply = useCallback((result: SwitchboardRunnerResult, expectedRoot: string | null): boolean => {
     if (activeRootRef.current !== expectedRoot) return false
@@ -53,24 +62,25 @@ export function useSwitchboardRunner(
     return true
   }, [])
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options: SwitchboardRefreshOptions = { force: true }) => {
     activeRootRef.current = workspaceRoot ?? null
     const targetRoot = workspaceRoot ?? null
-    if (refreshInFlightRef.current) return
     if (!targetRoot) {
       setState(null)
       setError(null)
       return
     }
-    refreshInFlightRef.current = true
     try {
-      const result = await window.api.getSwitchboardRunnerState({ workspaceRoot: targetRoot, workspaceId, mcpSettings })
+      const coordinated = await runSwitchboardRefresh(
+        runnerRefreshKey(targetRoot),
+        () => window.api.getSwitchboardRunnerState({ workspaceRoot: targetRoot, workspaceId, mcpSettings }),
+        options
+      )
+      const result = coordinated.value
       apply(result, targetRoot)
     } catch (caught) {
       if (activeRootRef.current !== targetRoot) return
       setError(caught instanceof Error ? caught.message : 'Failed to read runner state.')
-    } finally {
-      refreshInFlightRef.current = false
     }
   }, [apply, mcpSettings, workspaceId, workspaceRoot])
 
@@ -80,10 +90,10 @@ export function useSwitchboardRunner(
     activeRootRef.current = workspaceRoot ?? null
     if (!workspaceRoot) return
 
-    void refresh()
+    void refresh({ force: false })
     const handle = window.setInterval(() => {
-      void refresh()
-    }, POLL_INTERVAL_MS)
+      void refresh({ force: false })
+    }, SWITCHBOARD_REFRESH_POLL_INTERVAL_MS)
     return () => window.clearInterval(handle)
   }, [refresh, workspaceRoot])
 
@@ -94,7 +104,9 @@ export function useSwitchboardRunner(
       setBusy(true)
       try {
         const result = await invoke(targetRoot)
-        return apply(result, targetRoot)
+        const applied = apply(result, targetRoot)
+        if (applied && result.ok !== false) rememberSwitchboardRefreshValue(runnerRefreshKey(targetRoot), result)
+        return applied
       } catch (caught) {
         if (activeRootRef.current !== targetRoot) return false
         setError(caught instanceof Error ? caught.message : 'Runner action failed.')

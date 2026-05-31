@@ -8,6 +8,7 @@ import type {
   SprintEngineSourcePlanKind,
   SprintEngineWorkspaceContext,
   WorkspaceId,
+  WorkspaceWindowId,
 } from '../types/workspace'
 import {
   buildSprintEngineAgentRosterForState,
@@ -40,6 +41,7 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   roleCounts?: SprintEngineRoleCounts
   roleCliDefaults?: SprintEngineRoleCliDefaults
   sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
+  workspaceWindowId?: WorkspaceWindowId | null
   pathExists?: (path: string) => boolean | Promise<boolean>
 }
 
@@ -92,6 +94,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   roleCounts = planSourcedSprintEngineRoleCounts,
   roleCliDefaults,
   sprintEngineAutoState,
+  workspaceWindowId,
   pathExists,
 }: PlanSourcedSprintEngineWorkspaceArgs): Promise<PlanSourcedSprintEngineWorkspaceResult> {
   const trimmedRoot = rootPath.trim()
@@ -129,6 +132,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
     sprintEngineContext,
     sprintEngineRoleCliDefaults: roleCliDefaults,
     sprintEngineAutoState,
+    windowId: workspaceWindowId,
   })
 
   const startupPrompt = buildPlanFileSprintEngineHandoffPrompt({

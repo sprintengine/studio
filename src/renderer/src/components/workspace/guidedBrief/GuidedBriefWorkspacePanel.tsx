@@ -69,6 +69,10 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
   const authState = useWorkspaceStore((s) => s.authState)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
+  const workspaceWindowId = useWorkspaceStore((s) =>
+    s.workspaceWindows.find((windowState) => windowState.workspaceIds.includes(workspaceId))?.id
+    ?? s.primaryWorkspaceWindowId
+  )
   const sprintEngineDisabledRoleIds = getUserDisabledSprintEngineRoleIds(sprintEngineRoleSettings)
   const [viewingIdea, setViewingIdea] = useState(false)
 
@@ -138,6 +142,7 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
         sourceBundle,
         roleCounts: finalRoleCounts,
         roleCliDefaults: runOptions.roleCliDefaults,
+        workspaceWindowId,
         sprintEngineAutoState: {
           enabled: runOptions.startRunner,
           autoApproveArtifacts: runOptions.autoApproveArtifacts,

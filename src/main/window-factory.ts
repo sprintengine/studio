@@ -1,15 +1,25 @@
-import { BrowserWindow, shell } from 'electron'
+import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
-import { sendWindowState } from './ipc/window-ipc'
+import { sendWindowPlacement, sendWindowState } from './ipc/window-ipc'
 
 type CreateMainWindowOptions = {
   diagnosticsEnabled: boolean
+  windowId?: string
+  bounds?: { x: number; y: number; width: number; height: number } | null
+  isMaximized?: boolean
 }
 
-export function createMainWindow({ diagnosticsEnabled }: CreateMainWindowOptions): void {
+export function createMainWindow({
+  diagnosticsEnabled,
+  windowId = 'primary',
+  bounds = null,
+  isMaximized = false,
+}: CreateMainWindowOptions): BrowserWindow {
+  const safeBounds = normalizeWindowBounds(bounds)
   const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: safeBounds?.width ?? 1400,
+    height: safeBounds?.height ?? 900,
+    ...(safeBounds ? { x: safeBounds.x, y: safeBounds.y } : {}),
     minWidth: 800,
     minHeight: 600,
     show: false,
@@ -26,11 +36,25 @@ export function createMainWindow({ diagnosticsEnabled }: CreateMainWindowOptions
     },
   })
 
-  win.on('ready-to-show', () => win.show())
-  win.on('maximize', () => sendWindowState(win))
-  win.on('unmaximize', () => sendWindowState(win))
+  win.on('ready-to-show', () => {
+    if (isMaximized) win.maximize()
+    win.show()
+    win.focus()
+  })
+  win.on('maximize', () => {
+    sendWindowState(win)
+    sendWindowPlacement(win)
+  })
+  win.on('unmaximize', () => {
+    sendWindowState(win)
+    sendWindowPlacement(win)
+  })
   win.on('enter-full-screen', () => sendWindowState(win))
   win.on('leave-full-screen', () => sendWindowState(win))
+  const schedulePlacementUpdate = createPlacementUpdateScheduler(win)
+  win.on('move', schedulePlacementUpdate)
+  win.on('resize', schedulePlacementUpdate)
+  win.on('focus', () => sendWindowPlacement(win))
 
   if (diagnosticsEnabled) {
     win.webContents.on('console-message', function (_event, detailsOrLevel) {
@@ -62,8 +86,46 @@ export function createMainWindow({ diagnosticsEnabled }: CreateMainWindowOptions
   })
 
   if (process.env['ELECTRON_RENDERER_URL']) {
-    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    const url = new URL(process.env['ELECTRON_RENDERER_URL'])
+    url.searchParams.set('windowId', windowId)
+    win.loadURL(url.toString())
   } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'))
+    win.loadFile(join(__dirname, '../renderer/index.html'), {
+      query: { windowId },
+    })
+  }
+
+  return win
+}
+
+function createPlacementUpdateScheduler(win: BrowserWindow): () => void {
+  let timer: NodeJS.Timeout | null = null
+  return () => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = null
+      sendWindowPlacement(win)
+    }, 250)
+  }
+}
+
+function normalizeWindowBounds(
+  bounds: { x: number; y: number; width: number; height: number } | null | undefined
+): { x: number; y: number; width: number; height: number } | null {
+  if (!bounds) return null
+  const { x, y, width, height } = bounds
+  if (![x, y, width, height].every(Number.isFinite)) return null
+  const next = {
+    x: Math.round(x),
+    y: Math.round(y),
+    width: Math.max(800, Math.round(width)),
+    height: Math.max(600, Math.round(height)),
+  }
+  const display = screen.getDisplayMatching(next)
+  const area = display.workArea
+  return {
+    ...next,
+    x: Math.min(Math.max(next.x, area.x), area.x + Math.max(0, area.width - next.width)),
+    y: Math.min(Math.max(next.y, area.y), area.y + Math.max(0, area.height - next.height)),
   }
 }

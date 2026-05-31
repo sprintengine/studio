@@ -695,6 +695,30 @@ export type WindowState = {
   isFullScreen: boolean
 }
 
+export type WindowBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export type WindowPlacement = {
+  bounds: WindowBounds
+  isMaximized: boolean
+  displayId: number | null
+}
+
+export type CreateWorkspaceWindowInput = {
+  windowId: string
+  workspaceId?: string | null
+  bounds?: WindowBounds | null
+  isMaximized?: boolean
+}
+
+export type CreateWorkspaceWindowResult =
+  | { ok: true; windowId: string }
+  | { ok: false; message: string }
+
 export type AppUpdateStatus =
   | 'idle'
   | 'checking'
@@ -1087,7 +1111,11 @@ export type ElectronApi = {
   windowToggleMaximize: () => Promise<WindowState | null>
   windowClose: () => Promise<void>
   getWindowState: () => Promise<WindowState | null>
+  getWindowPlacement: () => Promise<WindowPlacement | null>
+  getWorkspaceWindowId: () => Promise<string>
+  createWorkspaceWindow: (input: CreateWorkspaceWindowInput) => Promise<CreateWorkspaceWindowResult>
   onWindowStateChanged: (cb: (state: WindowState) => void) => () => void
+  onWindowPlacementChanged: (cb: (placement: WindowPlacement) => void) => () => void
   authGetState: () => Promise<MulticodeAuthState>
   authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
   authLogout: () => Promise<{ loggedOut: true }>
@@ -1175,6 +1203,7 @@ export type ElectronApi = {
   createFile: (parentDir: string, name: string) => Promise<string>
   createDir: (parentDir: string, name: string) => Promise<string>
   ensureDir: (parentDir: string, name: string) => Promise<string>
+  createWorkspaceFolder: (parentDir: string, name: string) => Promise<string>
   renamePath: (sourcePath: string, nextName: string) => Promise<string>
   copyPath: (sourcePath: string, destinationDir: string) => Promise<string>
   copyPathInto: (sourcePath: string, destinationDir: string, options?: { overwrite?: boolean }) => Promise<string>

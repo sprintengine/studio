@@ -8,6 +8,7 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createXtermOutputQueue } from '../../utils/xtermOutputQueue'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
+import { deferFitDuringSidebarAnimation } from '../../utils/sidebarTransition'
 import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/terminalDrop'
 import { Toast } from '../ui/Toast'
@@ -142,8 +143,9 @@ export default function PlainTerminalPanel({
       void window.api.terminalResize(sessionId, cols, rows)
     })
 
+    const fitScheduler = deferFitDuringSidebarAnimation(fitTerminal)
     const resizeObserver = new ResizeObserver(() => {
-      requestAnimationFrame(fitTerminal)
+      fitScheduler.requestFit()
     })
     resizeObserver.observe(container)
     container.addEventListener('mousedown', focusTerminal)
@@ -219,6 +221,7 @@ export default function PlainTerminalPanel({
     return () => {
       window.clearTimeout(settleTimer)
       resizeObserver.disconnect()
+      fitScheduler.dispose()
       container.removeEventListener('mousedown', focusTerminal)
       container.removeEventListener('mouseup', focusTerminal)
       container.removeEventListener('click', focusTerminal)

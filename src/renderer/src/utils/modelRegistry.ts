@@ -962,12 +962,21 @@ export function extractTabSpec(
   }
 }
 
-export function removeTab(workspaceId: string, tabId: string): boolean {
+export function removeTab(
+  workspaceId: string,
+  tabId: string,
+  options?: { preserveRuntime?: boolean }
+): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
   const node = model.getNodeById(tabId)
   if (!(node instanceof TabNode)) return false
-  model.doAction(Actions.deleteTab(tabId))
+  const action = Actions.deleteTab(tabId)
+  if (options?.preserveRuntime) {
+    const actionData = action.data as Record<string, unknown>
+    actionData.__multicodePreserveRuntime = true
+  }
+  model.doAction(action)
   return true
 }
 

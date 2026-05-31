@@ -120,6 +120,7 @@ export async function runSprintEnginePlanSourcedCreation(
       sourceBundle: input.sourceBundle ?? undefined,
       roleCounts: input.visibleRoleCounts,
       roleCliDefaults: input.roleCliDefaults,
+      workspaceWindowId: input.workspaceWindowId,
       sprintEngineAutoState: {
         enabled: input.startRunner,
         autoApproveArtifacts: input.autoApproveArtifacts,

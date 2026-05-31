@@ -17,6 +17,7 @@ import type {
   SprintEngineState,
   SprintEngineWorkspaceContext,
   WorkspaceId,
+  WorkspaceWindowId,
   WorkspaceMode,
 } from '../../../../types/workspace'
 
@@ -70,6 +71,7 @@ export type AddWorkspacePort = (
     multiloopAutoState?: Partial<MultiloopAutoState> | null
     guidedBriefState?: GuidedBriefRuntimeState | null
     mode?: WorkspaceMode
+    windowId?: WorkspaceWindowId | null
   }
 ) => WorkspaceId
 
@@ -79,6 +81,7 @@ export type MultiloopControllerInput = {
   loopName: string
   finalGoal: string
   cliPermissionPreset: SprintEngineCliPermissionPreset
+  workspaceWindowId?: WorkspaceWindowId | null
 }
 
 export type MultiloopControllerPorts = {
@@ -101,6 +104,7 @@ export type SprintEngineExistingTeamInput = {
   startRunner: boolean
   autoApproveArtifacts: boolean
   cliPermissionPreset: SprintEngineCliPermissionPreset
+  workspaceWindowId?: WorkspaceWindowId | null
 }
 
 export type SprintEngineNewTeamInput = {
@@ -114,6 +118,7 @@ export type SprintEngineNewTeamInput = {
   startRunner: boolean
   autoApproveArtifacts: boolean
   cliPermissionPreset: SprintEngineCliPermissionPreset
+  workspaceWindowId?: WorkspaceWindowId | null
 }
 
 export type SprintEnginePlanSourcedInput = {
@@ -131,6 +136,7 @@ export type SprintEnginePlanSourcedInput = {
   startRunner: boolean
   autoApproveArtifacts: boolean
   cliPermissionPreset: SprintEngineCliPermissionPreset
+  workspaceWindowId?: WorkspaceWindowId | null
 }
 
 export type SprintEnginePlanSourcedPorts = {
@@ -175,6 +181,7 @@ export type GuidedBriefStartBuildInput = {
   planningDecisions: string[]
   planningValidationNotes: string[]
   buildHandoffRelativePath: string
+  workspaceWindowId?: WorkspaceWindowId | null
 }
 
 export type GuidedBriefStartBuildPorts = {

@@ -34,6 +34,8 @@ type FilePreviewPaneProps = {
   onPopOut?: () => void
 }
 
+const MARKDOWN_PREVIEW_MAX_CHARS = 2 * 1024 * 1024
+
 export function FilePreviewPane({
   title,
   path,
@@ -42,6 +44,7 @@ export function FilePreviewPane({
   onPopOut,
 }: FilePreviewPaneProps) {
   const isMarkdown = path.toLowerCase().endsWith('.md')
+  const renderAsMarkdown = isMarkdown && content.length <= MARKDOWN_PREVIEW_MAX_CHARS
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-5 py-3">
@@ -90,7 +93,7 @@ export function FilePreviewPane({
         ) : null}
       </header>
       <div className="flex-1 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
-        {isMarkdown ? (
+        {renderAsMarkdown ? (
           <div className="markdown-body">{renderMarkdown(content)}</div>
         ) : (
           <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-5 text-[color:var(--text-default)]">

@@ -42,5 +42,6 @@ export async function runMultiloopCreation(
     multiloopState: created.state,
     multiloopContext: created.context,
     multiloopAutoState,
+    windowId: input.workspaceWindowId,
   })
 }

@@ -5,7 +5,7 @@ export function registerMenuDialogIpc(ipcMain: IpcMain): void {
   ipcMain.handle('fs:dialog:opendir', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     const result = await dialog.showOpenDialog(win!, {
-      properties: ['openDirectory'],
+      properties: process.platform === 'darwin' ? ['openDirectory', 'createDirectory'] : ['openDirectory'],
       title: 'Open Folder',
     })
     return result.filePaths[0] ?? null

@@ -1,0 +1,93 @@
+import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  createFilesystemReadHandlers,
+  looksLikeBinary,
+  MAX_IMAGE_DATA_URL_BYTES,
+  MAX_TEXT_FILE_READ_BYTES,
+} from './filesystem-read'
+import { readMemoryPreview } from './memory-graph'
+
+void main()
+
+async function main(): Promise<void> {
+  await assertTextReadLimits()
+  await assertImageReadLimits()
+  await assertMemoryPreviewImageLimit()
+  assertBinarySniffing()
+}
+
+async function assertTextReadLimits(): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), 'multicode-fs-read-text-'))
+  const handlers = createFilesystemReadHandlers()
+
+  try {
+    const smallPath = join(root, 'notes.txt')
+    writeFileSync(smallPath, 'hello\n', 'utf8')
+    assert.equal(await handlers.readTextFile(smallPath), 'hello\n')
+
+    const largePath = join(root, 'large.txt')
+    writeFileSync(largePath, Buffer.alloc(MAX_TEXT_FILE_READ_BYTES + 1, 0x61))
+    await assert.rejects(
+      () => handlers.readTextFile(largePath),
+      /too large/u
+    )
+
+    const binaryPath = join(root, 'binary.dat')
+    writeFileSync(binaryPath, Buffer.from([0x68, 0x69, 0x00, 0xff]))
+    await assert.rejects(
+      () => handlers.readTextFile(binaryPath),
+      /binary/u
+    )
+  } finally {
+    rmSync(root, { force: true, recursive: true })
+  }
+}
+
+async function assertImageReadLimits(): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), 'multicode-fs-read-image-'))
+  const handlers = createFilesystemReadHandlers()
+
+  try {
+    const smallImagePath = join(root, 'image.png')
+    writeFileSync(smallImagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+    const dataUrl = await handlers.readImageDataUrl(smallImagePath)
+    assert.match(dataUrl, /^data:image\/png;base64,/u)
+
+    const largeImagePath = join(root, 'large.png')
+    writeFileSync(largeImagePath, Buffer.alloc(MAX_IMAGE_DATA_URL_BYTES + 1, 0x89))
+    await assert.rejects(
+      () => handlers.readImageDataUrl(largeImagePath),
+      /too large/u
+    )
+  } finally {
+    rmSync(root, { force: true, recursive: true })
+  }
+}
+
+async function assertMemoryPreviewImageLimit(): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), 'multicode-memory-preview-image-'))
+
+  try {
+    const knowledgeRoot = join(root, 'knowledge')
+    mkdirSync(knowledgeRoot, { recursive: true })
+    const largeImagePath = join(knowledgeRoot, 'large.png')
+    writeFileSync(largeImagePath, Buffer.alloc(MAX_IMAGE_DATA_URL_BYTES + 1, 0x89))
+
+    const preview = await readMemoryPreview(root, 'knowledge', 'large.png')
+    assert.equal(preview.ok, true)
+    if (preview.ok) {
+      assert.equal(preview.previewKind, 'unsupported')
+      assert.match(preview.message, /too large/u)
+    }
+  } finally {
+    rmSync(root, { force: true, recursive: true })
+  }
+}
+
+function assertBinarySniffing(): void {
+  assert.equal(looksLikeBinary(Buffer.from('plain text\n')), false)
+  assert.equal(looksLikeBinary(Buffer.from([0x61, 0x00, 0x62])), true)
+}

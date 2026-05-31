@@ -25,6 +25,7 @@ const EDITOR_FOCUS_EVENT = 'multicode:focus-editor'
 const GIT_DECORATION_DEBOUNCE_MS = 200
 const GIT_DECORATION_MAX_CHARS = 600_000
 const GIT_DECORATION_MAX_LINES = 8_000
+const MARKDOWN_PREVIEW_MAX_CHARS = 2 * 1024 * 1024
 
 function readCssVar(name: string): string {
   if (typeof document === 'undefined') return ''
@@ -68,7 +69,8 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   const [imageDataUrl, setImageDataUrl] = useState<{ path: string; url: string } | null>(null)
   const [markdownMode, setMarkdownMode] = useState<'preview' | 'source'>('preview')
   const isMarkdown = activeFile?.language === 'markdown'
-  const showPreview = isMarkdown && markdownMode === 'preview'
+  const markdownPreviewTooLarge = isMarkdown && activeContent.length > MARKDOWN_PREVIEW_MAX_CHARS
+  const showPreview = isMarkdown && markdownMode === 'preview' && !markdownPreviewTooLarge
   const activeGitEntry = useMemo(
     () => getGitEntry(gitStatus, activeFilePath),
     [activeFilePath, gitStatus]
@@ -377,10 +379,14 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
 
   const markdownModeToggle = isMarkdown ? (
     <div className="absolute right-3 top-3 z-10">
-      <Tooltip content={showPreview ? 'Edit Markdown source' : 'Preview Markdown'} placement="bottom">
+      <Tooltip
+        content={markdownPreviewTooLarge ? 'Markdown preview disabled for large files' : showPreview ? 'Edit Markdown source' : 'Preview Markdown'}
+        placement="bottom"
+      >
         <IconButton
           aria-label={showPreview ? 'Edit Markdown source' : 'Preview Markdown'}
           onClick={() => setMarkdownMode((mode) => (mode === 'preview' ? 'source' : 'preview'))}
+          disabled={markdownPreviewTooLarge}
           className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]"
         >
           {showPreview ? (

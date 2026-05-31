@@ -189,6 +189,7 @@ export async function runGuidedBriefStartBuild(
       sourceBundle,
       roleCounts: finalRoleCounts,
       roleCliDefaults: runOptions.roleCliDefaults,
+      workspaceWindowId: input.workspaceWindowId,
       sprintEngineAutoState: {
         enabled: runOptions.startRunner,
         autoApproveArtifacts: runOptions.autoApproveArtifacts,

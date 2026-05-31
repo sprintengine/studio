@@ -43,12 +43,16 @@ import type {
   Workspace,
   WorkspaceHighlight,
   WorkspaceId,
+  WorkspaceWindowId,
+  WorkspaceWindowState,
   WorkspaceMemoryConfig,
   WorkspaceMode,
   WorkspaceWorktreeState,
   WorktreeEntry,
 } from '../../types/workspace'
 // TerminalSessionSnapshot is a global ambient type from src/renderer/src/env.d.ts.
+
+const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 
 export function workspaceFolderKey(value: string | null | undefined): string | null {
   const normalized = normalizeProjectRootKey(value)
@@ -77,6 +81,8 @@ export function normalizeWorkspaceMode(
 export interface WorkspacesSliceState {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
+  workspaceWindows: WorkspaceWindowState[]
+  primaryWorkspaceWindowId: WorkspaceWindowId
   // Explicit intent record set by removeWorkspace when the splice leaves
   // workspaces=[] and cleared by addWorkspace/importWorkspace. Persisted into
   // the workspace-registry storage key so cold-load distinguishes user-removed-
@@ -86,6 +92,18 @@ export interface WorkspacesSliceState {
 
 export interface WorkspacesSliceActions {
   reorderWorkspaces: (orderedIds: WorkspaceId[]) => void
+  registerWorkspaceWindow: (windowId: WorkspaceWindowId, kind?: WorkspaceWindowState['kind']) => void
+  updateWorkspaceWindowPlacement: (
+    windowId: WorkspaceWindowId,
+    placement: Pick<WorkspaceWindowState, 'bounds' | 'isMaximized' | 'displayId'>
+  ) => void
+  closeWorkspaceWindow: (windowId: WorkspaceWindowId, fallbackWindowId?: WorkspaceWindowId) => void
+  moveWorkspaceToWindow: (
+    workspaceId: WorkspaceId,
+    targetWindowId: WorkspaceWindowId,
+    sourceWindowId?: WorkspaceWindowId | null
+  ) => void
+  setActiveWorkspaceForWindow: (windowId: WorkspaceWindowId, workspaceId: WorkspaceId) => void
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastOutputAt: number) => void
@@ -105,6 +123,7 @@ export interface WorkspacesSliceActions {
       multiloopAutoState?: Partial<MultiloopAutoState> | null
       guidedBriefState?: import('../../types/workspace').GuidedBriefRuntimeState | null
       mode?: Workspace['mode']
+      windowId?: WorkspaceWindowId | null
     }
   ) => WorkspaceId
   removeWorkspace: (id: WorkspaceId) => void
@@ -181,6 +200,83 @@ export interface WorkspacesSliceDependencies {
 type WorkspacesSliceCarrier = WorkspacesSliceState & { appSettings: AppSettings }
 type WorkspacesSliceSet = (mutator: (state: WorkspacesSliceCarrier) => void) => void
 
+function findWorkspaceWindow(state: WorkspacesSliceCarrier, workspaceId: WorkspaceId): WorkspaceWindowState | undefined {
+  return state.workspaceWindows.find((windowState) => windowState.workspaceIds.includes(workspaceId))
+}
+
+function ensureWorkspaceWindow(
+  state: WorkspacesSliceCarrier,
+  windowId: WorkspaceWindowId,
+  kind: WorkspaceWindowState['kind'] = windowId === state.primaryWorkspaceWindowId ? 'primary' : 'detached',
+): WorkspaceWindowState {
+  const existing = state.workspaceWindows.find((windowState) => windowState.id === windowId)
+  if (existing) return existing
+
+  const now = Date.now()
+  const windowState: WorkspaceWindowState = {
+    id: windowId,
+    kind,
+    workspaceIds: [],
+    activeWorkspaceId: null,
+    bounds: null,
+    isMaximized: false,
+    displayId: null,
+    createdAt: now,
+    lastFocusedAt: now,
+  }
+  state.workspaceWindows.push(windowState)
+  return windowState
+}
+
+function normalizeBounds(
+  bounds: WorkspaceWindowState['bounds'] | null | undefined
+): WorkspaceWindowState['bounds'] {
+  if (!bounds) return null
+  const { x, y, width, height } = bounds
+  if (![x, y, width, height].every(Number.isFinite)) return null
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+    width: Math.max(800, Math.round(width)),
+    height: Math.max(600, Math.round(height)),
+  }
+}
+
+function normalizeWindowAssignments(state: WorkspacesSliceCarrier): void {
+  const workspaceOrder = new Map(state.workspaces.map((workspace, index) => [workspace.id, index] as const))
+  const validWorkspaceIds = new Set(workspaceOrder.keys())
+  const assignedWorkspaceIds = new Set<WorkspaceId>()
+  const primaryWindow = ensureWorkspaceWindow(state, state.primaryWorkspaceWindowId, 'primary')
+  primaryWindow.kind = 'primary'
+
+  state.workspaceWindows.forEach((windowState) => {
+    const nextWorkspaceIds: WorkspaceId[] = []
+    for (const workspaceId of windowState.workspaceIds) {
+      if (!validWorkspaceIds.has(workspaceId) || assignedWorkspaceIds.has(workspaceId)) continue
+      nextWorkspaceIds.push(workspaceId)
+      assignedWorkspaceIds.add(workspaceId)
+    }
+    windowState.workspaceIds = nextWorkspaceIds.sort(
+      (left, right) => (workspaceOrder.get(left) ?? 0) - (workspaceOrder.get(right) ?? 0)
+    )
+    if (!windowState.activeWorkspaceId || !nextWorkspaceIds.includes(windowState.activeWorkspaceId)) {
+      windowState.activeWorkspaceId = nextWorkspaceIds[0] ?? null
+    }
+  })
+
+  for (const workspace of state.workspaces) {
+    if (assignedWorkspaceIds.has(workspace.id)) continue
+    primaryWindow.workspaceIds.push(workspace.id)
+    assignedWorkspaceIds.add(workspace.id)
+  }
+  if (!primaryWindow.activeWorkspaceId || !primaryWindow.workspaceIds.includes(primaryWindow.activeWorkspaceId)) {
+    primaryWindow.activeWorkspaceId = primaryWindow.workspaceIds[0] ?? null
+  }
+  state.workspaceWindows = state.workspaceWindows.filter((windowState) =>
+    windowState.kind === 'primary' || windowState.workspaceIds.length > 0
+  )
+}
+
 function requireSprintEngineRoleCli(
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>,
   role: SprintEngineRoleId
@@ -235,6 +331,20 @@ export function createWorkspacesSlice(
   return {
     workspaces: [],
     activeWorkspaceId: null,
+    workspaceWindows: [
+      {
+        id: PRIMARY_WORKSPACE_WINDOW_ID,
+        kind: 'primary',
+        workspaceIds: [],
+        activeWorkspaceId: null,
+        bounds: null,
+        isMaximized: false,
+        displayId: null,
+        createdAt: Date.now(),
+        lastFocusedAt: Date.now(),
+      },
+    ],
+    primaryWorkspaceWindowId: PRIMARY_WORKSPACE_WINDOW_ID,
     workspaceRegistryEmptyState: null,
 
     reorderWorkspaces: (orderedIds) =>
@@ -250,6 +360,82 @@ export function createWorkspacesSlice(
         }
         for (const remaining of byId.values()) next.push(remaining)
         state.workspaces = next
+        normalizeWindowAssignments(state)
+      }),
+
+    registerWorkspaceWindow: (windowId, kind) =>
+      set((state) => {
+        if (!windowId.trim()) return
+        ensureWorkspaceWindow(state, windowId.trim(), kind)
+        normalizeWindowAssignments(state)
+      }),
+
+    updateWorkspaceWindowPlacement: (windowId, placement) =>
+      set((state) => {
+        const windowState = ensureWorkspaceWindow(state, windowId)
+        windowState.bounds = normalizeBounds(placement.bounds)
+        windowState.isMaximized = placement.isMaximized === true
+        windowState.displayId = typeof placement.displayId === 'number' ? placement.displayId : null
+        windowState.lastFocusedAt = Date.now()
+      }),
+
+    closeWorkspaceWindow: (windowId, fallbackWindowId) =>
+      set((state) => {
+        if (windowId === state.primaryWorkspaceWindowId) return
+        const closing = state.workspaceWindows.find((windowState) => windowState.id === windowId)
+        if (!closing) return
+        const target = ensureWorkspaceWindow(
+          state,
+          fallbackWindowId ?? state.primaryWorkspaceWindowId,
+          fallbackWindowId && fallbackWindowId !== state.primaryWorkspaceWindowId ? 'detached' : 'primary',
+        )
+        for (const workspaceId of closing.workspaceIds) {
+          if (!target.workspaceIds.includes(workspaceId)) target.workspaceIds.push(workspaceId)
+        }
+        if (!target.activeWorkspaceId && target.workspaceIds.length > 0) {
+          target.activeWorkspaceId = closing.activeWorkspaceId && target.workspaceIds.includes(closing.activeWorkspaceId)
+            ? closing.activeWorkspaceId
+            : target.workspaceIds[0] ?? null
+        }
+        state.workspaceWindows = state.workspaceWindows.filter((windowState) => windowState.id !== windowId)
+        normalizeWindowAssignments(state)
+      }),
+
+    moveWorkspaceToWindow: (workspaceId, targetWindowId, sourceWindowId) =>
+      set((state) => {
+        if (!state.workspaces.find((workspace) => workspace.id === workspaceId)) return
+        const target = ensureWorkspaceWindow(
+          state,
+          targetWindowId,
+          targetWindowId === state.primaryWorkspaceWindowId ? 'primary' : 'detached',
+        )
+        for (const windowState of state.workspaceWindows) {
+          if (windowState.id === targetWindowId) continue
+          windowState.workspaceIds = windowState.workspaceIds.filter((id) => id !== workspaceId)
+          if (windowState.activeWorkspaceId === workspaceId) {
+            windowState.activeWorkspaceId = windowState.workspaceIds[0] ?? null
+          }
+        }
+        if (!target.workspaceIds.includes(workspaceId)) target.workspaceIds.push(workspaceId)
+        target.activeWorkspaceId = workspaceId
+        target.lastFocusedAt = Date.now()
+        state.activeWorkspaceId = workspaceId
+        if (sourceWindowId && sourceWindowId !== targetWindowId) {
+          const source = state.workspaceWindows.find((windowState) => windowState.id === sourceWindowId)
+          if (source && source.activeWorkspaceId === workspaceId) {
+            source.activeWorkspaceId = source.workspaceIds[0] ?? null
+          }
+        }
+        normalizeWindowAssignments(state)
+      }),
+
+    setActiveWorkspaceForWindow: (windowId, workspaceId) =>
+      set((state) => {
+        const windowState = state.workspaceWindows.find((candidate) => candidate.id === windowId)
+        if (!windowState?.workspaceIds.includes(workspaceId)) return
+        windowState.activeWorkspaceId = workspaceId
+        windowState.lastFocusedAt = Date.now()
+        state.activeWorkspaceId = workspaceId
       }),
 
     setWorkspaceHighlight: (id, highlight) =>
@@ -297,6 +483,7 @@ export function createWorkspacesSlice(
         ) {
           state.activeWorkspaceId = state.workspaces.at(-1)?.id ?? null
         }
+        normalizeWindowAssignments(state)
         state.appSettings.recentWorkspaceFolders = state.appSettings.recentWorkspaceFolders.filter(
           (folder) => normalize(folder) !== key
         )
@@ -324,6 +511,10 @@ export function createWorkspacesSlice(
         const isMultiloop = template.id === 'multiloop-mode' || Boolean(options?.multiloopState)
         const guidedBriefState = normalizeGuidedBriefState(options?.guidedBriefState)
         const isGuidedBrief = explicitMode === 'guided-brief' || template.id === 'guided-brief-mode' || Boolean(guidedBriefState)
+        const targetWindowId =
+          options?.windowId
+          ?? (state.activeWorkspaceId ? findWorkspaceWindow(state, state.activeWorkspaceId)?.id : null)
+          ?? state.primaryWorkspaceWindowId
         const switchboardFolderKey = isSwitchboard ? workspaceFolderKey(folderPath) : null
         const existingSwitchboard = switchboardFolderKey
           ? state.workspaces.find((workspace) =>
@@ -341,6 +532,15 @@ export function createWorkspacesSlice(
           id = existingSwitchboard.id
           existingSwitchboard.folderMissing = false
           state.activeWorkspaceId = existingSwitchboard.id
+          const targetWindow = ensureWorkspaceWindow(
+            state,
+            options?.windowId ?? findWorkspaceWindow(state, existingSwitchboard.id)?.id ?? targetWindowId,
+          )
+          if (!targetWindow.workspaceIds.includes(existingSwitchboard.id)) {
+            targetWindow.workspaceIds.push(existingSwitchboard.id)
+          }
+          targetWindow.activeWorkspaceId = existingSwitchboard.id
+          normalizeWindowAssignments(state)
           return
         }
         const sprintEngineState = isSprintEngine
@@ -455,6 +655,16 @@ export function createWorkspacesSlice(
           )
         }
         state.activeWorkspaceId = id
+        const targetWindow = ensureWorkspaceWindow(
+          state,
+          targetWindowId,
+        )
+        targetWindow.workspaceIds = [
+          id,
+          ...targetWindow.workspaceIds.filter((workspaceId) => workspaceId !== id),
+        ]
+        targetWindow.activeWorkspaceId = id
+        normalizeWindowAssignments(state)
         state.workspaceRegistryEmptyState = null
       })
 
@@ -469,6 +679,7 @@ export function createWorkspacesSlice(
         if (state.activeWorkspaceId === id) {
           state.activeWorkspaceId = state.workspaces.at(-1)?.id ?? null
         }
+        normalizeWindowAssignments(state)
         if (state.workspaces.length === 0) {
           // Explicit registry empty-state record. Persisted into the
           // workspace-registry storage key so cold-load can distinguish this
@@ -487,7 +698,14 @@ export function createWorkspacesSlice(
       }),
 
     setActiveWorkspace: (id) =>
-      set((state) => { state.activeWorkspaceId = id }),
+      set((state) => {
+        state.activeWorkspaceId = id
+        const windowState = findWorkspaceWindow(state, id)
+        if (windowState) {
+          windowState.activeWorkspaceId = id
+          windowState.lastFocusedAt = Date.now()
+        }
+      }),
 
     setFolderPath: (id, folderPath) =>
       set((state) => {
@@ -573,6 +791,10 @@ export function createWorkspacesSlice(
           )
         }
         state.activeWorkspaceId = id
+        const targetWindow = ensureWorkspaceWindow(state, state.primaryWorkspaceWindowId)
+        targetWindow.workspaceIds.push(id)
+        targetWindow.activeWorkspaceId = id
+        normalizeWindowAssignments(state)
         state.workspaceRegistryEmptyState = null
       }),
 
