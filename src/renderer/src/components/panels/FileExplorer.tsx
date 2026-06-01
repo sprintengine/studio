@@ -223,10 +223,14 @@ function FileIcon({ name }: { name: string }) {
   // chip lands native on every theme without a per-theme palette table.
   const bg = `color-mix(in oklab, var(--bg-surface) 84%, ${accent})`
   const border = `color-mix(in oklab, var(--bg-surface) 55%, ${accent})`
+  // On dark --file-badge-ink-mix is 0% so the label is the pure language hue;
+  // on Light it rises to ~50% so the hue is pulled toward ink and stays legible
+  // on the near-white chip instead of washing out (amber was ~1.6:1).
+  const ink = `color-mix(in oklab, ${accent}, var(--text-strong) var(--file-badge-ink-mix))`
   return (
     <span
       className="inline-flex h-[18px] w-[20px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-[8px] font-black leading-none ring-1 ring-[color:var(--border-subtle)]"
-      style={{ color: accent, backgroundColor: bg, borderColor: border }}
+      style={{ color: ink, backgroundColor: bg, borderColor: border }}
     >
       {label}
     </span>

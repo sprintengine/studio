@@ -958,7 +958,7 @@ export default function WorkspaceTopBar({
                   )}
                 >
                 <div className="w-[320px] overflow-hidden">
-                  <div className="flex items-center gap-2 border-b border-white/[0.06] px-2.5 py-2">
+                  <div className="flex items-center gap-2 border-b border-[color:var(--border-subtle)] px-2.5 py-2">
                     <svg className="icon-sm shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
                       <circle cx="9" cy="9" r="5" stroke="currentColor" strokeWidth="1.6" />
                       <path d="M13 13l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -1019,7 +1019,7 @@ export default function WorkspaceTopBar({
                       No matches
                     </div>
                   ) : visibleItems.length === 0 ? null : (
-                    <div className={`max-h-[340px] overflow-y-auto py-1 ${hasQuickMatches ? 'border-t border-white/[0.06]' : ''}`}>
+                    <div className={`max-h-[340px] overflow-y-auto py-1 ${hasQuickMatches ? 'border-t border-[color:var(--border-subtle)]' : ''}`}>
                       {multiloopLaunchMenu
                         ? filteredMultiloop.map((soul, index) => {
                             const highlighted = index === safeHighlight
@@ -1120,7 +1120,7 @@ export default function WorkspaceTopBar({
                                           setMultiloopRoleCliDefault(soul.role, null)
                                           setChipPopoverForRole(null)
                                         }}
-                                        className="mt-0.5 flex w-full items-center gap-2 border-t border-white/[0.06] px-2 py-1.5 text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
+                                        className="mt-0.5 flex w-full items-center gap-2 border-t border-[color:var(--border-subtle)] px-2 py-1.5 text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
                                       >
                                         Unpin
                                       </button>
@@ -1229,7 +1229,7 @@ export default function WorkspaceTopBar({
                                           setSpecialistCliDefault(action.id, null)
                                           setChipPopoverForRole(null)
                                         }}
-                                        className="mt-0.5 flex w-full items-center gap-2 border-t border-white/[0.06] px-2 py-1.5 text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
+                                        className="mt-0.5 flex w-full items-center gap-2 border-t border-[color:var(--border-subtle)] px-2 py-1.5 text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
                                       >
                                         Unpin
                                       </button>
@@ -1242,7 +1242,7 @@ export default function WorkspaceTopBar({
                     </div>
                   )}
 
-                  <div className="flex items-center gap-1 border-t border-white/[0.06] px-2 py-1.5">
+                  <div className="flex items-center gap-1 border-t border-[color:var(--border-subtle)] px-2 py-1.5">
                     {AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
                       const active = option.value === agentSpawnPermissionPreset
                       const isBypass = option.value === 'bypass_all'

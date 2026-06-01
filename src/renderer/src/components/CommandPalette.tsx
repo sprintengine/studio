@@ -237,7 +237,7 @@ export default function CommandPalette({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[15vh] backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-[color:var(--surface-overlay-backdrop)] pt-[15vh] backdrop-blur-sm"
       onClick={(event) => event.target === event.currentTarget && onClose()}
     >
       <div className="w-[600px] max-w-[95vw] overflow-hidden rounded-xl border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] shadow-2xl">
