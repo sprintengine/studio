@@ -117,7 +117,7 @@ export interface SprintEngineAutoRunExecutorPorts {
   disableAutoRun(
     workspaceId: WorkspaceId,
     reason: SprintEngineAutoRunDisableReason,
-    context?: { taskId?: string; agentId?: string }
+    context?: { taskId?: string; agentId?: string; message?: string; details?: string }
   ): void
 }
 
@@ -322,7 +322,17 @@ export async function recordSpawnFailure(
   ports: SprintEngineAutoRunExecutorPorts,
   input: RecordSpawnFailureInput
 ): Promise<void> {
-  ports.setSprintEngineAutomationMode(input.workspaceId, 'manual')
+  ports.disableAutoRun(input.workspaceId, 'agent_spawn_failed', {
+    agentId: input.agentId,
+    taskId: input.taskId,
+    message: `${input.agentLabel} could not be started for task ${input.taskId}.`,
+    details: [
+      `Spawn error: ${input.spawnMessage}`,
+      `CLI: ${input.selectedCli}`,
+      `CLI permissions: ${input.cliPermissionPreset}`,
+      `Session: ${input.sessionId}`,
+    ].join('\n'),
+  })
   ports.setSprintEngineAutoPendingSpawns(input.workspaceId, [])
   ports.updateAgent(input.workspaceId, input.agentId, {
     cliSessionId: undefined,

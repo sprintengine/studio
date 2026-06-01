@@ -8,6 +8,8 @@ type RegistryRecord = {
   state: {
     workspaces: Workspace[]
     activeWorkspaceId: string | null
+    workspaceWindows?: import('../types/workspace').WorkspaceWindowState[]
+    primaryWorkspaceWindowId?: string
     workspaceRegistryEmptyState: { reason: 'user_removed_all'; updatedAt: string } | null
   }
   version: number
@@ -73,6 +75,9 @@ const localStorageMock = {
   },
 }
 
+type StorageListener = (event: { key: string | null; newValue: string | null }) => void
+const storageListeners: StorageListener[] = []
+
 type WorkspaceBackupApi = {
   workspaceBackupRead: () => Promise<
     | { ok: true; payload: WorkspaceBackupPayload }
@@ -109,8 +114,12 @@ console.info = ((...args: unknown[]) => {
 
 Object.defineProperty(globalThis, 'window', {
   value: {
+    location: { href: 'http://localhost/?windowId=primary' },
     localStorage: localStorageMock,
     api: workspaceBackupApi,
+    addEventListener: (type: string, listener: StorageListener) => {
+      if (type === 'storage') storageListeners.push(listener)
+    },
   },
   configurable: true,
 })
@@ -250,6 +259,150 @@ assert.equal(persistedAgentAfterReconcile?.cliStartRequested, true)
 assert.equal(persistedAgentAfterReconcile?.cliHasLaunched, true)
 assert.equal(persistedAgentAfterReconcile?.cliSessionId, 'session-stale')
 assert.equal(persistedAgentAfterReconcile?.cliResumeAvailable, true)
+
+// ── CASE 2b ─────────────────────────────────────────────────────────────────
+// Cross-window storage imports are still the temporary live-sync path during
+// migration. A stale snapshot from another renderer must not erase terminal
+// session identity for workspaces owned by the current window, and a newer
+// foreign active selection must not replace a more recent local window-scoped
+// active selection.
+const locallyOwnedWorkspace = {
+  ...persistedWorkspace,
+  id: 'ws-local-owned',
+  name: 'Local Owned',
+  agents: {
+    'agent-1': {
+      ...(persistedWorkspace.agents['agent-1'] as AgentState),
+      cliSessionId: 'session-local-owned',
+      cliStartRequested: true,
+      cliHasLaunched: true,
+      cliResumeAvailable: true,
+    },
+  },
+} as Workspace
+const sameFolderWorkspace = {
+  ...persistedWorkspace,
+  id: 'ws-same-window',
+  name: 'Same Window',
+  agents: {},
+} as Workspace
+;(globalThis.window as unknown as { location: { href: string } }).location.href =
+  'http://localhost/?windowId=detached-local'
+useWorkspaceStore.setState({
+  workspaces: [locallyOwnedWorkspace, sameFolderWorkspace],
+  activeWorkspaceId: locallyOwnedWorkspace.id,
+  workspaceWindows: [
+    {
+      id: 'primary',
+      kind: 'primary',
+      workspaceIds: [],
+      activeWorkspaceId: null,
+      bounds: null,
+      isMaximized: false,
+      displayId: null,
+      createdAt: 1,
+      lastFocusedAt: 1,
+    },
+    {
+      id: 'detached-local',
+      kind: 'detached',
+      workspaceIds: [locallyOwnedWorkspace.id, sameFolderWorkspace.id],
+      activeWorkspaceId: locallyOwnedWorkspace.id,
+      bounds: null,
+      isMaximized: false,
+      displayId: null,
+      createdAt: 1,
+      lastFocusedAt: 50,
+    },
+  ],
+})
+const staleRegistryImport = JSON.stringify({
+  state: {
+    workspaces: [
+      {
+        ...locallyOwnedWorkspace,
+        agents: {
+          'agent-1': {
+            ...(locallyOwnedWorkspace.agents['agent-1'] as AgentState),
+            cliSessionId: undefined,
+            cliStartRequested: false,
+            cliHasLaunched: false,
+            cliResumeAvailable: false,
+          },
+        },
+      },
+      sameFolderWorkspace,
+    ],
+    activeWorkspaceId: sameFolderWorkspace.id,
+    primaryWorkspaceWindowId: 'primary',
+    workspaceWindows: [
+      {
+        id: 'primary',
+        kind: 'primary',
+        workspaceIds: [],
+        activeWorkspaceId: null,
+        bounds: null,
+        isMaximized: false,
+        displayId: null,
+        createdAt: 1,
+        lastFocusedAt: 1,
+      },
+      {
+        id: 'detached-local',
+        kind: 'detached',
+        workspaceIds: [locallyOwnedWorkspace.id, sameFolderWorkspace.id],
+        activeWorkspaceId: sameFolderWorkspace.id,
+        bounds: null,
+        isMaximized: false,
+        displayId: null,
+        createdAt: 1,
+        lastFocusedAt: 10,
+      },
+    ],
+    workspaceRegistryEmptyState: null,
+  },
+  version: 46,
+} satisfies RegistryRecord)
+for (const listener of storageListeners) {
+  listener({ key: 'multicode-workspaces', newValue: staleRegistryImport })
+}
+const afterStorageImport = useWorkspaceStore.getState()
+const preservedAgent = afterStorageImport.workspaces.find((workspace) => workspace.id === locallyOwnedWorkspace.id)
+  ?.agents['agent-1'] as Partial<AgentState> | undefined
+assert.equal(
+  preservedAgent?.cliSessionId,
+  'session-local-owned',
+  'stale storage snapshot cannot erase cliSessionId for a workspace owned by the current window',
+)
+assert.equal(preservedAgent?.cliStartRequested, true)
+assert.equal(preservedAgent?.cliHasLaunched, true)
+assert.equal(preservedAgent?.cliResumeAvailable, true)
+assert.equal(
+  afterStorageImport.workspaceWindows.find((windowState) => windowState.id === 'detached-local')?.activeWorkspaceId,
+  locallyOwnedWorkspace.id,
+  'current-window active workspace selection stays scoped when the incoming snapshot is older',
+)
+;(globalThis.window as unknown as { location: { href: string } }).location.href =
+  'http://localhost/?windowId=primary'
+useWorkspaceStore.setState({
+  workspaces: [persistedWorkspace],
+  activeWorkspaceId: persistedWorkspace.id,
+  workspaceWindows: [
+    {
+      id: 'primary',
+      kind: 'primary',
+      workspaceIds: [persistedWorkspace.id],
+      activeWorkspaceId: persistedWorkspace.id,
+      bounds: null,
+      isMaximized: false,
+      displayId: null,
+      createdAt: 1,
+      lastFocusedAt: 1,
+    },
+  ],
+  primaryWorkspaceWindowId: 'primary',
+  workspaceRegistryEmptyState: null,
+})
 
 // Settings-touching surfaces DID rewrite the settings key.
 assert.notEqual(

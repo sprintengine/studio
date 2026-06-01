@@ -58,6 +58,7 @@ export function publishSprintEngineAutomationModeNotification(input: {
   workspaceName?: string
   mode: SprintEngineAutomationMode
   reason?: string
+  details?: string
   level?: DiagnosticLevel
   taskId?: string
   agentId?: string
@@ -68,6 +69,7 @@ export function publishSprintEngineAutomationModeNotification(input: {
     source: 'sprintengine',
     title: SPRINT_ENGINE_AUTOMATION_NOTIFICATION_TITLE,
     message: input.reason ? `${modeLabel}: ${input.reason}` : `Sprint Engine automation is now ${modeLabel}.`,
+    ...(input.details ? { details: input.details } : {}),
     workspaceId: input.workspaceId,
     ...(input.workspaceName ? { workspaceName: input.workspaceName } : {}),
     ...(input.taskId ? { taskId: input.taskId } : {}),

@@ -19,6 +19,7 @@ import { registerSprintEngineRoleRegistryIpc } from './ipc/sprintengine-role-reg
 import { registerThirdPartyModuleIpc } from './ipc/third-party-module-ipc'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
+import { registerWorkspaceSyncIpc } from './ipc/workspace-sync-ipc'
 import { createMainWindow } from './window-factory'
 import { registerWorkspaceBackupIpc } from './ipc/workspace-backup-ipc'
 import type { AppServices } from './app-services'
@@ -34,6 +35,7 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
       createMainWindow({ diagnosticsEnabled, windowId, bounds, isMaximized })
     },
   })
+  registerWorkspaceSyncIpc(ipcMain, services.workspaceSyncService)
   registerWorkspaceBackupIpc(ipcMain, services.workspaceBackupService)
   registerAuthIpc(ipcMain, services.multicodeAuth)
   registerBuiltinSkillsIpc(ipcMain, services.builtinSkillManager)

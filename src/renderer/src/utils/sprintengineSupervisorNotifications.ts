@@ -10,6 +10,7 @@ export type SprintEngineAutoRunDisableReason =
   | 'all_tasks_done'
   | 'workspace_removed'
   | 'agent_terminal_closed'
+  | 'agent_spawn_failed'
 
 const REASON_MESSAGES: Record<SprintEngineAutoRunDisableReason, string> = {
   user_manual_toggle: 'Switched to manual mode by the user.',
@@ -18,6 +19,7 @@ const REASON_MESSAGES: Record<SprintEngineAutoRunDisableReason, string> = {
   all_tasks_done: 'All tasks are complete.',
   workspace_removed: 'Workspace was removed.',
   agent_terminal_closed: 'An agent terminal was closed.',
+  agent_spawn_failed: 'An agent terminal could not be started.',
 }
 
 // Centralized off-switch for the Sprint Engine AutoRun supervisor. Routes
@@ -28,7 +30,7 @@ const REASON_MESSAGES: Record<SprintEngineAutoRunDisableReason, string> = {
 export function disableSprintEngineAutoRun(
   workspaceId: WorkspaceId,
   reason: SprintEngineAutoRunDisableReason,
-  context: { taskId?: string; agentId?: string } = {},
+  context: { taskId?: string; agentId?: string; message?: string; details?: string } = {},
 ): void {
   const store = useWorkspaceStore.getState()
   const workspace = store.workspaces.find((ws) => ws.id === workspaceId)
@@ -37,9 +39,10 @@ export function disableSprintEngineAutoRun(
   if (!wasActive) return
 
   publishSprintEngineAutomationModeNotification({
-    level: reason === 'folder_missing' ? 'error' : 'info',
+    level: reason === 'folder_missing' || reason === 'agent_spawn_failed' ? 'error' : 'info',
     mode: 'manual',
-    reason: REASON_MESSAGES[reason],
+    reason: context.message ?? REASON_MESSAGES[reason],
+    ...(context.details ? { details: context.details } : {}),
     workspaceId,
     ...(workspace?.name ? { workspaceName: workspace.name } : {}),
     ...(context.taskId ? { taskId: context.taskId } : {}),

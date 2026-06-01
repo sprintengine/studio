@@ -16,6 +16,7 @@ import {
   buildSprintEngineContinuationPrompt,
   buildSprintEngineGateContinuationPrompt,
   continuationMessageKey,
+  describeSprintEngineExternalInputAutoRunBlock,
   getActiveSprintEngineAutoRunGateClaims,
   agentHasOpenSprintEngineGateWork,
   agentOwnsOpenSprintEngineImplementationWork,
@@ -75,6 +76,7 @@ async function main(): Promise<void> {
   testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles()
   testGetArchitectActionableNeedsInputTasksFiltersByKind()
   testRunBlockedOnExternalInputDetectsBlockedDependencyTail()
+  testDescribeExternalInputBlockNamesBlockingTask()
   testRunBlockedOnExternalInputKeepsAutoRunWhenWorkExists()
   testRunBlockedOnExternalInputKeepsAutoRunWithActiveDispatch()
   testRunBlockedOnExternalInputKeepsAutoRunWithReadyApproval()
@@ -3013,6 +3015,43 @@ function testRunBlockedOnExternalInputDetectsBlockedDependencyTail(): void {
     true,
     'a final todo task dependency-blocked by external_validation should quiesce auto-run'
   )
+}
+
+function testDescribeExternalInputBlockNamesBlockingTask(): void {
+  const blockedSmoke = task({
+    id: 'T23',
+    title: 'Validate pairing on a real device',
+    status: 'needs_input',
+    boardColumn: 'needs_input',
+    role: 'tester',
+    ownerAgentId: 'tester',
+    needsInput: {
+      kind: 'external_validation',
+      reason: 'verification',
+      question: 'Needs a physical mobile pairing session.',
+    },
+    qualityGates: [],
+  })
+  const finalSignoff = task({
+    id: 'T24',
+    title: 'Final architect signoff',
+    status: 'todo',
+    boardColumn: 'todo',
+    role: 'architect',
+    ownerAgentId: null,
+    dependsOn: ['T23'],
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({ tasks: [blockedSmoke, finalSignoff] })
+
+  const description = describeSprintEngineExternalInputAutoRunBlock(state)
+
+  assert.equal(description.taskId, 'T23')
+  assert.equal(description.agentId, 'tester')
+  assert.match(description.message, /Waiting on T23/)
+  assert.match(description.message, /physical mobile pairing/)
+  assert.match(description.details, /Blocking task: T23 - Validate pairing on a real device/)
+  assert.match(description.details, /Blocked dependents: T24/)
 }
 
 function testRunBlockedOnExternalInputKeepsAutoRunWhenWorkExists(): void {

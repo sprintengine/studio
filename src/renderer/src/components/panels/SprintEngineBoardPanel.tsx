@@ -37,7 +37,9 @@ import type {
  SprintEngineRole,
  SprintEngineRoleId,
  SprintEngineRoleRegistry,
+ SprintEngineState,
  SprintEngineTaskBoardColumn,
+ Workspace,
 } from '../../types/workspace'
 import { SprintEngineRoleIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
@@ -287,10 +289,38 @@ function SprintEngineSettingsPopover({
  )
 }
 
-export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTasksLayout }: Props) {
+export default function SprintEngineBoardPanel(props: Props) {
  const workspace = useWorkspaceStore(
- (s) => s.workspaces.find((w) => w.id === workspaceId) ?? null
+ (s) => s.workspaces.find((w) => w.id === props.workspaceId) ?? null
  )
+
+ if (!workspace?.sprintEngineState) {
+ return (
+ <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] text-sm text-[color:var(--text-disabled)]">
+ Sprint Engine workspace data is missing.
+ </div>
+ )
+ }
+
+ return (
+ <SprintEngineBoardPanelContent
+ {...props}
+ workspace={workspace}
+ sprintEngineState={workspace.sprintEngineState}
+ />
+ )
+}
+
+function SprintEngineBoardPanelContent({
+ workspaceId,
+ fixedView,
+ fixedTasksLayout,
+ workspace,
+ sprintEngineState,
+}: Props & {
+ workspace: Workspace
+ sprintEngineState: SprintEngineState
+}) {
  const setSprintEngineState = useWorkspaceStore((s) => s.setSprintEngineState)
  const setSprintEngineAutomationMode = useWorkspaceStore((s) => s.setSprintEngineAutomationMode)
  const setSprintEngineCliPermissionPreset = useWorkspaceStore((s) => s.setSprintEngineCliPermissionPreset)
@@ -300,11 +330,20 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
  const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli)
  const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
- const runActivity = useNotificationStore((s) =>
- getSprintEngineRunActivity(s.notifications, workspaceId)
+ // Select the stable notifications array and derive the run-activity list +
+ // unread count with useMemo. Returning the filtered array straight from the
+ // selector hands Zustand v5's useSyncExternalStore a fresh reference every
+ // render, which trips its "getSnapshot should be cached" invariant and throws
+ // inside the panel — see the perf follow-up plan. (countUnread returns a
+ // primitive, so it never tripped this on its own, but it shares the source.)
+ const notifications = useNotificationStore((s) => s.notifications)
+ const runActivity = useMemo(
+ () => getSprintEngineRunActivity(notifications, workspaceId),
+ [notifications, workspaceId],
  )
- const runActivityUnread = useNotificationStore((s) =>
- countUnreadSprintEngineRunActivity(s.notifications, workspaceId)
+ const runActivityUnread = useMemo(
+ () => countUnreadSprintEngineRunActivity(notifications, workspaceId),
+ [notifications, workspaceId],
  )
  const markNotificationRead = useNotificationStore((s) => s.markRead)
  const markNotificationsReadWhere = useNotificationStore((s) => s.markReadWhere)
@@ -394,7 +433,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  message: 'Waiting for a Sprint Engine workspace folder.',
  })
 
- const sprintEngineState = workspace?.sprintEngineState ?? null
  const sprintEngineContext = workspace?.sprintEngineContext ?? null
  const effectiveView = fixedView ?? activeView
  const effectiveTasksLayout: SprintEngineTasksLayout = fixedTasksLayout ?? activeTasksLayout
@@ -636,14 +674,6 @@ export default function SprintEngineBoardPanel({ workspaceId, fixedView, fixedTa
  )
 
  const selectedTask = sprintEngineState?.tasks.find((task) => task.id === selectedTaskId) ?? null
-
- if (!sprintEngineState) {
- return (
- <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] text-sm text-[color:var(--text-disabled)]">
- Sprint Engine workspace data is missing.
- </div>
- )
- }
 
  const doneCount = sprintEngineState.tasks.filter((task) => task.status === 'done').length
  const runPhase = getSprintEngineBoardRunPhase(sprintEngineState, runtimeAgents)

@@ -293,10 +293,21 @@ async function testRecordSpawnFailureResetsStoreAndPublishesDiagnostic(): Promis
   })
   const findCall = (method: string): Call | undefined => calls.find((call) => call.method === method)
 
-  const automationCall = findCall('setSprintEngineAutomationMode')
-  assert.ok(automationCall)
-  assert.equal(automationCall!.args[0], 'workspace-1')
-  assert.equal(automationCall!.args[1], 'manual')
+  const disableCall = findCall('disableAutoRun')
+  assert.ok(disableCall)
+  assert.equal(disableCall!.args[0], 'workspace-1')
+  assert.equal(disableCall!.args[1], 'agent_spawn_failed')
+  assert.deepEqual(disableCall!.args[2], {
+    agentId: 'developer-1',
+    taskId: 'T1',
+    message: 'Developer 1 could not be started for task T1.',
+    details: [
+      'Spawn error: MCP config sync failed: missing server multicode-sprintengine',
+      'CLI: codex',
+      'CLI permissions: default',
+      'Session: session-x',
+    ].join('\n'),
+  })
 
   const pendingCall = findCall('setSprintEngineAutoPendingSpawns')
   assert.ok(pendingCall)
@@ -347,12 +358,12 @@ async function testRecordSpawnFailureOrdersStoreUpdatesBeforeDiagnostic(): Promi
     spawnMessage: 'spawn failed',
   })
   const order = calls.map((call) => call.method)
-  const automationIdx = order.indexOf('setSprintEngineAutomationMode')
+  const disableIdx = order.indexOf('disableAutoRun')
   const pendingIdx = order.indexOf('setSprintEngineAutoPendingSpawns')
   const agentIdx = order.indexOf('updateAgent')
   const diagnosticIdx = order.indexOf('publishDiagnostic')
-  assert.ok(automationIdx >= 0)
-  assert.ok(pendingIdx > automationIdx)
+  assert.ok(disableIdx >= 0)
+  assert.ok(pendingIdx > disableIdx)
   assert.ok(agentIdx > pendingIdx)
   assert.ok(diagnosticIdx > agentIdx, 'diagnostic must publish after store mutations settle')
 }

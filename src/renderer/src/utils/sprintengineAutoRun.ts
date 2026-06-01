@@ -214,6 +214,47 @@ export function isSprintEngineRunBlockedOnExternalInput(sprintEngineState: Sprin
   return incompleteTasks.every((task) => isBlockedByExternalInput(task.id))
 }
 
+export function describeSprintEngineExternalInputAutoRunBlock(
+  sprintEngineState: SprintEngineState
+): { message: string; details: string; taskId?: string; agentId?: string } {
+  const blockedTasks = sprintEngineState.tasks.filter((task) =>
+    task.status === 'needs_input'
+    && (task.needsInput?.kind === 'external_validation' || task.needsInput?.kind === 'user')
+  )
+  const primary = blockedTasks[0]
+  if (!primary) {
+    return {
+      message: 'A task needs user or external validation input before agents can continue.',
+      details: 'No user or external-validation needs_input task was present when the notification was built.',
+    }
+  }
+
+  const dependentTaskIds = sprintEngineState.tasks
+    .filter((task) => task.status !== 'done' && task.dependsOn.includes(primary.id))
+    .map((task) => task.id)
+  const question = primary.needsInput?.question?.trim()
+  const reason = primary.needsInput?.reason?.trim()
+  const owner = primary.ownerAgentId?.trim()
+  const details = [
+    `Blocking task: ${primary.id} - ${primary.title}`,
+    `Needs input from: ${primary.needsInput?.kind ?? 'unknown'}`,
+    reason ? `Reason: ${reason}` : null,
+    question ? `Question: ${question}` : null,
+    owner ? `Owner: ${owner}` : null,
+    dependentTaskIds.length > 0 ? `Blocked dependents: ${dependentTaskIds.join(', ')}` : null,
+    blockedTasks.length > 1 ? `Other input-blocked tasks: ${blockedTasks.slice(1).map((task) => task.id).join(', ')}` : null,
+  ].filter((line): line is string => Boolean(line))
+
+  return {
+    message: question
+      ? `Waiting on ${primary.id}: ${question}`
+      : `Waiting on ${primary.id} (${primary.needsInput?.kind ?? 'input'}).`,
+    details: details.join('\n'),
+    taskId: primary.id,
+    ...(owner ? { agentId: owner } : {}),
+  }
+}
+
 export function continuationMessageKey(workspace: Workspace, taskId: string, agentId: string): string {
   return [
     workspace.id,

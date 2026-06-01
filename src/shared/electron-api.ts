@@ -36,6 +36,12 @@ import type {
   ThirdPartyModuleListResult,
   ThirdPartyModuleTrustResult,
 } from './modules/manifest'
+import type {
+  WorkspaceSyncCommand,
+  WorkspaceSyncCommandResult,
+  WorkspaceSyncEvent,
+  WorkspaceSyncSnapshot,
+} from './workspace-sync'
 
 export type SaveDialogOptions = {
   title?: string
@@ -1116,6 +1122,10 @@ export type ElectronApi = {
   createWorkspaceWindow: (input: CreateWorkspaceWindowInput) => Promise<CreateWorkspaceWindowResult>
   onWindowStateChanged: (cb: (state: WindowState) => void) => () => void
   onWindowPlacementChanged: (cb: (placement: WindowPlacement) => void) => () => void
+  workspaceSyncDispatch: (command: WorkspaceSyncCommand) => Promise<WorkspaceSyncCommandResult>
+  workspaceSyncGetSnapshot: () => Promise<WorkspaceSyncSnapshot>
+  workspaceSyncGetEventsAfter: (sequence: number) => Promise<WorkspaceSyncEvent[]>
+  onWorkspaceSyncEvent: (cb: (event: WorkspaceSyncEvent) => void) => () => void
   authGetState: () => Promise<MulticodeAuthState>
   authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
   authLogout: () => Promise<{ loggedOut: true }>

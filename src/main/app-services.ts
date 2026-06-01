@@ -12,6 +12,7 @@ import { createTerminalRuntime } from './terminal-runtime'
 import { MulticodeUpdateService } from './update-service'
 import { GitHubTokenStore } from './github-token-store'
 import { createWorkspaceBackupService } from './workspace-backup'
+import { createWorkspaceSyncService } from './workspace-sync-service'
 import { recordSwitchboardSessionExit } from './switchboard-files'
 import { writeDiagnosticLog } from './diagnostics-service'
 
@@ -68,6 +69,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const workspaceBackupService = createWorkspaceBackupService({
     resolveUserDataDir: () => app.getPath('userData'),
   })
+  const workspaceSyncService = createWorkspaceSyncService()
   const sprintEngineArtifacts = createSprintEngineArtifactHandlers({
     getAuthenticatedUserId: getAuthenticatedMulticodeUserId,
     openExternal: (url) => shell.openExternal(url),
@@ -86,6 +88,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     updateService,
     withIpcDiagnostics,
     workspaceBackupService,
+    workspaceSyncService,
   }
 }
 

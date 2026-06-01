@@ -13,7 +13,11 @@
 //      `src/renderer/index.html` (it can't import bundled code).
 // Nothing else needs to change.
 
-import type { SelectItem } from '../components/ui'
+type SelectItem<V extends string = string> = {
+  value: V
+  label: string
+  disabled?: boolean
+}
 
 export type AppTheme =
   | 'system'

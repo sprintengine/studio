@@ -32,6 +32,7 @@ import {
   buildSprintEngineContinuationPrompt,
   buildSprintEngineGateContinuationPrompt,
   continuationMessageKey,
+  describeSprintEngineExternalInputAutoRunBlock,
   describeNeedsInputAutoApprovalState,
   isAgentNotificationCompletionEvent,
   sprintEngineDispatchDeliveryKey,
@@ -1786,7 +1787,8 @@ async function superviseWorkspace(
   // decide whether to spawn agents, and the CLI flag is the CLI's concern.
 
   if (isSprintEngineRunBlockedOnExternalInput(sprintEngineState)) {
-    defaultExecutorPorts.disableAutoRun(workspace.id, 'blocked_on_external_input')
+    const blockReason = describeSprintEngineExternalInputAutoRunBlock(sprintEngineState)
+    defaultExecutorPorts.disableAutoRun(workspace.id, 'blocked_on_external_input', blockReason)
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
