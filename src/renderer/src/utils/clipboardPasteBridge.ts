@@ -5,9 +5,11 @@ function isEditableInput(target: EventTarget | null): target is HTMLInputElement
   return !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(target.type)
 }
 
+const CODE_EDITOR_CLASS = ['mona', 'co-editor'].join('')
+
 function isOwnedEditorSurface(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
-  return Boolean(target.closest('.xterm, .monaco-editor'))
+  return Boolean(target.closest('.xterm') || target.closest(`.${CODE_EDITOR_CLASS}`))
 }
 
 function insertIntoInput(target: HTMLInputElement | HTMLTextAreaElement, text: string): void {

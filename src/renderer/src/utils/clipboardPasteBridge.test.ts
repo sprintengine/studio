@@ -185,6 +185,36 @@ async function testSkipsTerminalOwnedTextarea(): Promise<void> {
   wrapper.remove()
 }
 
+async function testSkipsCodeEditorOwnedTextarea(): Promise<void> {
+  const wrapper = new TestElement()
+  wrapper.className = 'monaco-editor'
+  const textarea = new TestTextArea()
+  wrapper.appendChild(textarea)
+  testDocument.body.appendChild(wrapper)
+  textarea.focus()
+  let reads = 0
+
+  Object.defineProperty(window, 'api', {
+    configurable: true,
+    value: {
+      clipboardReadText: async () => {
+        reads += 1
+        return 'editor'
+      },
+    },
+  })
+
+  const dispose = bindElectronClipboardPasteBridge(textarea as unknown as Document)
+  textarea.dispatchEvent(pasteEvent())
+  await flushPromises()
+
+  assert.equal(textarea.value, '')
+  assert.equal(reads, 0)
+  dispose()
+  wrapper.remove()
+}
+
 void testPastesIntoInputFromElectronClipboard()
   .then(testLeavesNormalPasteEventsAlone)
   .then(testSkipsTerminalOwnedTextarea)
+  .then(testSkipsCodeEditorOwnedTextarea)
