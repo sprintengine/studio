@@ -14,6 +14,7 @@ import {
   deriveWorkspaceTerminalActivity,
 } from '../../hooks/useTerminalSessions'
 import { useAppTheme } from '../../hooks/useAppTheme'
+import { useVoiceDictation } from '../../hooks/useVoiceDictation'
 import {
   MULTILOOP_ROLES,
   SPECIALIST_ACTIONS,
@@ -100,6 +101,8 @@ export default function WorkspaceManager() {
   const primaryWorkspaceWindowId = useWorkspaceStore((s) => s.primaryWorkspaceWindowId)
   const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
+  const voiceDictationEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'voice-dictation'))
+  const voiceDictation = useVoiceDictation()
   const onboardingStep = useWorkspaceStore((s) => s.appSettings.onboardingStep)
   const setOnboardingStep = useWorkspaceStore((s) => s.setOnboardingStep)
   const setActiveWorkspaceForWindow = useWorkspaceStore((s) => s.setActiveWorkspaceForWindow)
@@ -641,6 +644,23 @@ export default function WorkspaceManager() {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return
 
+      // Cmd/Ctrl+Shift+1 toggles voice transcription. Handled before the
+      // text-field guard below so it still works while typing in the agent
+      // prompt (the whole point of dictation). Keyed off event.code so it's
+      // layout-independent (Shift turns event.key into '!'), which also keeps it
+      // clear of the Cmd/Ctrl+1-9 workspace switches further down.
+      if (
+        voiceDictationEnabled
+        && (event.ctrlKey || event.metaKey)
+        && event.shiftKey
+        && event.code === 'Digit1'
+      ) {
+        event.preventDefault()
+        event.stopPropagation()
+        voiceDictation.toggle()
+        return
+      }
+
       const target = event.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
         return
@@ -751,6 +771,8 @@ export default function WorkspaceManager() {
     setSidebarCollapsed,
     closeWorkspaceById,
     terminalSessions,
+    voiceDictationEnabled,
+    voiceDictation,
   ])
 
   useEffect(() => {
@@ -1277,6 +1299,10 @@ export default function WorkspaceManager() {
         markNotificationRead={markNotificationRead}
         markAllNotificationsRead={markAllNotificationsRead}
         clearNotifications={clearNotifications}
+        voiceDictationEnabled={voiceDictationEnabled}
+        voiceRecording={voiceDictation.recording}
+        voiceTranscribing={voiceDictation.transcribing}
+        toggleVoiceDictation={voiceDictation.toggle}
         specialistMenuOpen={specialistMenuOpen}
         setSpecialistMenuOpen={setSpecialistMenuOpen}
         agentMenuQuery={agentMenuQuery}

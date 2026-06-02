@@ -85,6 +85,15 @@ export function createMainWindow({
     return { action: 'deny' }
   })
 
+  // Voice dictation captures the microphone via getUserMedia in the renderer.
+  // Grant the media permission for this trusted first-party window (the OS still
+  // gates the actual microphone via its own permission prompt on macOS/Windows).
+  const grantMedia = (permission: string): boolean => permission === 'media' || permission === 'audioCapture'
+  win.webContents.session.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(grantMedia(permission))
+  })
+  win.webContents.session.setPermissionCheckHandler((_webContents, permission) => grantMedia(permission))
+
   if (process.env['ELECTRON_RENDERER_URL']) {
     const url = new URL(process.env['ELECTRON_RENDERER_URL'])
     url.searchParams.set('windowId', windowId)

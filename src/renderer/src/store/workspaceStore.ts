@@ -27,6 +27,7 @@ import type {
   AgentCli,
   AppSettings,
   UsageTelemetrySettings,
+  VoiceDictationSettings,
   CliRuntimeSettings,
   SpecialistActionId,
   MultiloopRole,
@@ -156,6 +157,7 @@ interface WorkspaceStore {
   setSearchExcludes: (patterns: string[]) => void
   setProjectKnowledgeRoot: (projectRoot: string, relativeRoot: string | null) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
+  setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   applyModuleProfile: (profileId: ModuleProfileId) => void
