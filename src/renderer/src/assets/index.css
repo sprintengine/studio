@@ -150,6 +150,12 @@
   /* Canonical elevation. Drawers reuse this single shadow value so panel-local
      drawers stop hand-rolling `shadow-[...]` literals. */
   --shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+
+  /* How much theme ink is mixed into the FileExplorer file-type badge label.
+     0% on dark = the badge keeps its pure language hue; the Light theme raises
+     this so the same hue is darkened toward ink and clears AA on white instead
+     of washing out (e.g. amber-on-pale-amber at ~1.6:1). */
+  --file-badge-ink-mix: 0%;
 }
 
 /* Light theme — paper-warm whites, dark ink text. References: Linear Light,
@@ -179,7 +185,10 @@
      meaning-bearing copy (counts, labels, hints), so subtle now clears AA body
      (≥4.5:1) and disabled stays clearly de-emphasised (~3:1) but legible. */
   --text-subtle: #5f6772;
-  --text-disabled: #8f97a3;
+  /* #8f97a3 measured 2.95:1 on white — a hair under AA-large (3:1), so disabled
+     copy in empty states / hints sat just below the legibility floor. #838b97
+     clears it (3.44:1) while staying clearly de-emphasised vs muted. */
+  --text-disabled: #838b97;
   --text-on-accent: #ffffff;
 
   /* Hairlines lifted so structure reads on white (was 0.08/0.13/0.20, nearly
@@ -200,13 +209,16 @@
      read as status dots on light and carry white badge text (≥4:1). */
   --tone-neutral: #6b7280;
   --tone-accent: #385cfc;
-  --tone-good: #1a8f43;
+  /* #1a8f43 gave white-on-good and good-on-white both 4.16:1 — under AA (4.5)
+     for the white-text git/status count badges. #157f37 clears it at 5.09:1
+     both directions while staying recognisably emerald. */
+  --tone-good: #157f37;
   --tone-warn: #9a6000;
   --tone-error: #d92d2d;
 
   --tone-neutral-soft: rgba(100, 108, 120, 0.14);
   --tone-accent-soft: rgba(56, 92, 252, 0.14);
-  --tone-good-soft: rgba(32, 156, 68, 0.18);
+  --tone-good-soft: rgba(21, 127, 55, 0.20);
   --tone-warn-soft: rgba(204, 132, 0, 0.20);
   --tone-error-soft: rgba(220, 40, 40, 0.16);
 
@@ -226,6 +238,10 @@
      graph still has depth without a blue vignette reading as a colour cast. */
   --memory-graph-atmosphere:
     radial-gradient(circle at 50% 45%, rgba(56, 92, 252, 0.045), transparent 52%);
+
+  /* Darken file-type badge labels toward ink so language hues clear AA on the
+     near-white chip surface instead of washing out. */
+  --file-badge-ink-mix: 50%;
 }
 
 /* Slate uses a neutral grey ramp, lighter than the default ink scale so
@@ -697,6 +713,47 @@ samp,
 .chip-text-good { color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-good)); }
 .chip-text-warn { color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-warn)); }
 .chip-text-error { color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-error)); }
+/* design-tokens-allow-end */
+
+/* Light-theme legibility overrides for the user-chosen highlight / tab-highlight
+ * palettes. The base rules mix mostly-hue with --text-strong (good on dark,
+ * where that lands a bright pastel on an ink surface) and tint the tab
+ * background at ~0.10 alpha. On white that produces a washed label on a barely
+ * visible chip — the exact "colours/glyphs are hard to see" report. Here the
+ * label is pulled to majority-ink so the hue reads as a coloured-but-legible
+ * label, and the tab fills/borders are deepened so the coloured tab registers
+ * against white. Higher specificity wins regardless of source order.
+ * design-tokens-allow-block: user-chosen highlight palette, hue literals */
+:root[data-theme="light"] .highlight-text-red,
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red { color: color-mix(in oklab, var(--text-strong) 55%, #ff5a5f); }
+:root[data-theme="light"] .highlight-text-orange,
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange { color: color-mix(in oklab, var(--text-strong) 55%, #ff8c42); }
+:root[data-theme="light"] .highlight-text-amber,
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber { color: color-mix(in oklab, var(--text-strong) 55%, #ffbf2f); }
+:root[data-theme="light"] .highlight-text-green,
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green { color: color-mix(in oklab, var(--text-strong) 55%, #30d158); }
+:root[data-theme="light"] .highlight-text-blue,
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue { color: color-mix(in oklab, var(--text-strong) 52%, #5c7cff); }
+:root[data-theme="light"] .highlight-text-purple,
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple { color: color-mix(in oklab, var(--text-strong) 52%, #a78bfa); }
+:root[data-theme="light"] .highlight-text-pink,
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink { color: color-mix(in oklab, var(--text-strong) 55%, #ff7eb3); }
+
+/* Deepen the tab fill/border so the coloured tab itself reads on white. */
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red { background: rgba(255, 90, 95, 0.16); border-color: rgba(255, 90, 95, 0.52); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected { background: rgba(255, 90, 95, 0.28); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange { background: rgba(255, 140, 66, 0.16); border-color: rgba(255, 140, 66, 0.52); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected { background: rgba(255, 140, 66, 0.28); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber { background: rgba(255, 191, 47, 0.18); border-color: rgba(255, 191, 47, 0.52); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected { background: rgba(255, 191, 47, 0.30); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green { background: rgba(48, 209, 88, 0.16); border-color: rgba(48, 209, 88, 0.52); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected { background: rgba(48, 209, 88, 0.28); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue { background: rgba(92, 124, 255, 0.16); border-color: rgba(92, 124, 255, 0.55); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected { background: rgba(92, 124, 255, 0.28); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple { background: rgba(167, 139, 250, 0.16); border-color: rgba(167, 139, 250, 0.55); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected { background: rgba(167, 139, 250, 0.28); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink { background: rgba(255, 126, 179, 0.16); border-color: rgba(255, 126, 179, 0.55); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected { background: rgba(255, 126, 179, 0.28); }
 /* design-tokens-allow-end */
 
 /* Canonical SVG icon size utilities. Pair with the --icon-* token scale.
