@@ -205,7 +205,7 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
               <span className="relative inline-flex">
                 <Icon className="h-[16px] w-[16px]" />
                 {showGitBadge ? (
-                  <span className="pointer-events-none absolute -right-[5px] -top-[10px] flex h-[14px] min-w-[14px] items-center justify-center rounded-full border-2 border-[color:var(--bg-app)] bg-[color:var(--tone-warn)] px-[3px] text-[9px] font-bold leading-none tabular-nums text-[color:var(--text-on-accent)]">
+                  <span className="pointer-events-none absolute -right-[8px] -top-[10px] flex h-[14px] min-w-[14px] items-center justify-center rounded-full border-2 border-[color:var(--bg-app)] bg-[color:var(--git-count-badge-bg)] px-[3px] text-[9px] font-bold leading-none tabular-nums text-[color:var(--git-count-badge-ink)]">
                     {gitBadgeLabel}
                   </span>
                 ) : null}

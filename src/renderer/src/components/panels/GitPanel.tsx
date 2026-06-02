@@ -692,7 +692,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   const copyToClipboard = async (value: string, success: string) => {
     try {
-      await navigator.clipboard.writeText(value)
+      await window.api.clipboardWriteText(value)
       setMessage({ tone: 'success', text: success })
     } catch {
       setMessage({ tone: 'error', text: 'Could not copy to the clipboard.' })
@@ -1306,4 +1306,3 @@ function CommitComposer({
     </section>
   )
 }
-

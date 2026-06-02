@@ -3,7 +3,10 @@ import ReactDOM from 'react-dom/client'
 import './assets/index.css'
 import { ConfirmDialogProvider } from './components/ui'
 import WorkspaceManager from './components/workspace/WorkspaceManager'
+import { bindElectronClipboardPasteBridge } from './utils/clipboardPasteBridge'
 import { logPerfEvent, perfDiagnosticsEnabled } from './utils/perfDiagnostics'
+
+bindElectronClipboardPasteBridge()
 
 window.addEventListener('error', (event) => {
   console.error('[RendererError]', {

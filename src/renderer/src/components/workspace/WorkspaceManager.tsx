@@ -8,6 +8,7 @@ import SettingsOverlay from '../settings/SettingsOverlay'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import { selectModuleEnabled } from '../../modules'
 import {
   deriveWorkspaceLastOutputAt,
@@ -123,7 +124,7 @@ export default function WorkspaceManager() {
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
-  const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli ?? 'claude')
+  const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
   const lastSelectedSpecialist = useWorkspaceStore(
     (s) => s.appSettings.lastSelectedSpecialist ?? SPECIALIST_ACTIONS[0].id
   )
@@ -950,7 +951,8 @@ export default function WorkspaceManager() {
 
   const addNewSpecialist = async (
     specialistId: SpecialistActionId = lastSelectedSpecialist,
-    requestedName = ''
+    requestedName = '',
+    selectedCli?: AgentCli
   ) => {
     if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
@@ -965,7 +967,7 @@ export default function WorkspaceManager() {
     const newId = `specialist-${specialist.id}-${nanoid(6)}`
     if (!(model.getActiveTabset() ?? firstTabset(model))) return
     const prompt = buildSpecialistSoulStartupPrompt(specialist)
-    const cliForSpawn = specialistCliDefaults[specialist.id] ?? lastSelectedCli
+    const cliForSpawn = normalizeSelectedCli(selectedCli ?? specialistCliDefaults[specialist.id], lastSelectedCli)
 
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
@@ -983,7 +985,8 @@ export default function WorkspaceManager() {
 
   const addNewMultiloopAgent = async (
     role: MultiloopRole = lastSelectedMultiloopRole,
-    requestedName = ''
+    requestedName = '',
+    selectedCli?: AgentCli
   ) => {
     if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
@@ -1024,7 +1027,7 @@ export default function WorkspaceManager() {
       workspace: activeWorkspace,
       agentId: newId,
     })
-    const cliForSpawn = multiloopRoleCliDefaults[soul.role] ?? lastSelectedCli
+    const cliForSpawn = normalizeSelectedCli(selectedCli ?? multiloopRoleCliDefaults[soul.role], lastSelectedCli)
 
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
@@ -1074,16 +1077,16 @@ export default function WorkspaceManager() {
     addTerminalTab(windowActiveWorkspaceId, newId, 'Terminal')
   }
 
-  const handleSelectSpecialist = (specialistId: SpecialistActionId) => {
+  const handleSelectSpecialist = (specialistId: SpecialistActionId, selectedCli?: AgentCli) => {
     setLastSelectedSpecialist(specialistId)
     setSpecialistMenuOpen(false)
-    void addNewSpecialist(specialistId)
+    void addNewSpecialist(specialistId, '', selectedCli)
   }
 
-  const handleSelectMultiloopRole = (role: MultiloopRole) => {
+  const handleSelectMultiloopRole = (role: MultiloopRole, selectedCli?: AgentCli) => {
     setLastSelectedMultiloopRole(role)
     setSpecialistMenuOpen(false)
-    void addNewMultiloopAgent(role)
+    void addNewMultiloopAgent(role, '', selectedCli)
   }
 
   const startLogin = async () => {
@@ -1324,8 +1327,8 @@ export default function WorkspaceManager() {
         setAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
         handleSelectSpecialist={handleSelectSpecialist}
         handleSelectMultiloopRole={handleSelectMultiloopRole}
-        addNewSpecialist={addNewSpecialist}
-        addNewMultiloopAgent={addNewMultiloopAgent}
+        addNewSpecialist={(cli) => addNewSpecialist(lastSelectedSpecialist, '', cli)}
+        addNewMultiloopAgent={(cli) => addNewMultiloopAgent(lastSelectedMultiloopRole, '', cli)}
         addNewCliAgent={addNewCliAgent}
         addNewTerminal={addNewTerminal}
         openSettings={openSettings}

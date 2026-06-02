@@ -3,11 +3,13 @@ import assert from 'node:assert/strict'
 import {
   buildTranscriptionHeaders,
   buildTranscriptionUrl,
+  parseTranscriptionResponse,
+  TranscriptionError,
+} from '../../../shared/voiceTranscription'
+import {
   downsampleFloat32,
   encodeWav,
   floatTo16BitPCM,
-  parseTranscriptionResponse,
-  TranscriptionError,
   TRANSCRIBE_TARGET_SAMPLE_RATE,
 } from './voiceTranscription'
 import type { VoiceDictationSettings } from '../types/workspace'

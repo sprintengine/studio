@@ -45,11 +45,11 @@ import {
 } from './settingsSlice'
 import { normalizeWorkspaceMode } from './workspacesSlice'
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
-import { mapMigrationWorkspaces } from './normalizers'
+import { clearSprintEngineAgentLaunchState, mapMigrationWorkspaces } from './normalizers'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 56
+export const WORKSPACE_STORE_VERSION = 57
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -806,6 +806,12 @@ export function migratePersistedWorkspaceState(
     // up the default Whisper/server configuration.
     const current = migrationState
     current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
+  }
+  if (version < 57) {
+    // Sprint Engine roster membership is durable, but app-owned terminal
+    // processes are not. Clear stale launch intent so reopening Multicode or
+    // restoring an agent tab does not spawn autonomous agents.
+    mapMigrationWorkspaces(migrationState, clearSprintEngineAgentLaunchState)
   }
 
   return state as never

@@ -1,3 +1,4 @@
+import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type {
   SwitchboardAddCommentInput,
   SwitchboardCancelTaskInput,
@@ -1226,6 +1227,12 @@ export type ElectronApi = {
   openFile: (options?: OpenDialogOptions) => Promise<string | null>
   showContextMenu: (items: ContextMenuItem[]) => Promise<string | null>
   showMenubarMenu: (label: string, position?: { x?: number; y?: number }) => Promise<boolean>
+  clipboardReadText: () => Promise<string>
+  clipboardWriteText: (text: string) => Promise<void>
+  voiceTranscribe: (
+    wav: ArrayBuffer,
+    settings: TranscriptionRequestSettings
+  ) => Promise<VoiceTranscribeResponse>
   getGitRepoRoot: (folderPath: string) => Promise<string | null>
   getGitStatus: (repoRoot: string) => Promise<GitStatusSnapshot>
   getGitFileBase: (repoRoot: string, filePath: string) => Promise<GitFileBaseResult>

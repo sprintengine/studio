@@ -234,7 +234,7 @@ export default function MobileSettingsTab() {
   const copyPairingCode = async () => {
     if (!pairingChallenge) return
     try {
-      await navigator.clipboard.writeText(pairingChallenge.pairingCode)
+      await window.api.clipboardWriteText(pairingChallenge.pairingCode)
       setAction({ status: 'idle', message: 'Pairing code copied to clipboard.' })
     } catch {
       setAction({ status: 'error', message: 'Could not copy pairing code.' })

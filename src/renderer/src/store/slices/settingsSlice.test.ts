@@ -47,6 +47,7 @@ const normalized = normalizeAppSettings(
         } as never,
       },
     },
+    lastSelectedCli: ' ',
     lastAgentSpawnPermissionPreset: 'unsafe' as never,
     specialistCliDefaults: {
       architect: 'codex',
@@ -76,6 +77,7 @@ const normalized = normalizeAppSettings(
 
 assert.equal(normalized.cliRuntimes.codex.command, 'codex-next')
 assert.equal(normalized.cliRuntimes.claude.command, defaultAppSettings().cliRuntimes.claude.command)
+assert.equal(normalized.lastSelectedCli, 'claude')
 assert.equal(normalized.mcp.syncEnabled, true)
 assert.deepEqual(Object.keys(normalized.mcp.servers), ['valid-server'])
 assert.deepEqual(normalized.mcp.servers['valid-server'].args, ['package'])

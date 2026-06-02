@@ -74,7 +74,7 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, Props>(function W
 
       <div className={`flex min-h-0 flex-1 ${sidebar ? 'flex-col md:flex-row' : 'flex-col'}`}>
         {sidebar ? (
-          <aside className="shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-1.5 md:w-48 md:border-b-0 md:border-r">
+          <aside className="shrink-0 overflow-y-auto border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-1.5 md:w-48 md:border-b-0 md:border-r">
             {sidebar}
           </aside>
         ) : null}

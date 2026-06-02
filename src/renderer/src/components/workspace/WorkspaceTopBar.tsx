@@ -482,10 +482,10 @@ export type WorkspaceTopBarProps = {
   setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
   agentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   setAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
-  handleSelectSpecialist: (id: SpecialistActionId) => void
-  handleSelectMultiloopRole: (role: MultiloopRole) => void
-  addNewSpecialist: () => void | Promise<void>
-  addNewMultiloopAgent: () => void | Promise<void>
+  handleSelectSpecialist: (id: SpecialistActionId, cli: AgentCli) => void
+  handleSelectMultiloopRole: (role: MultiloopRole, cli: AgentCli) => void
+  addNewSpecialist: (cli: AgentCli) => void | Promise<void>
+  addNewMultiloopAgent: (cli: AgentCli) => void | Promise<void>
   addNewCliAgent: (cli: AgentCli, label: string) => void
   addNewTerminal: () => void
 
@@ -852,6 +852,9 @@ export default function WorkspaceTopBar({
             const triggerCliOption =
               AGENT_SPAWN_CLI_OPTIONS.find((option) => option.value === triggerCli)
               ?? AGENT_SPAWN_CLI_OPTIONS[0]
+            const resolvePickerCli = (cli: AgentCli): AgentCli =>
+              AGENT_SPAWN_CLI_OPTIONS.find((option) => option.value === cli)?.value
+              ?? AGENT_SPAWN_CLI_OPTIONS[0].value
             const menuQuery = agentMenuQuery.trim().toLowerCase()
             const filteredSpecialists = menuQuery
               ? SPECIALIST_ACTIONS.filter((action) =>
@@ -897,9 +900,11 @@ export default function WorkspaceTopBar({
                 const item = visibleItems[safeHighlight]
                 if (!item) return
                 if (multiloopLaunchMenu) {
-                  handleSelectMultiloopRole((item as MultiloopRoleDescriptor).role)
+                  const role = (item as MultiloopRoleDescriptor).role
+                  handleSelectMultiloopRole(role, resolvePickerCli(multiloopRoleCliDefaults[role] ?? lastSelectedCli))
                 } else {
-                  handleSelectSpecialist((item as SpecialistAction).id)
+                  const id = (item as SpecialistAction).id
+                  handleSelectSpecialist(id, resolvePickerCli(specialistCliDefaults[id] ?? lastSelectedCli))
                 }
                 return
               }
@@ -960,9 +965,9 @@ export default function WorkspaceTopBar({
                   <button
                     onClick={() => {
                       if (multiloopLaunchMenu) {
-                        void addNewMultiloopAgent()
+                        void addNewMultiloopAgent(triggerCliOption.value)
                       } else {
-                        void addNewSpecialist()
+                        void addNewSpecialist(triggerCliOption.value)
                       }
                     }}
                     disabled={!activeWorkspaceId}
@@ -1076,7 +1081,7 @@ export default function WorkspaceTopBar({
                       {multiloopLaunchMenu
                         ? filteredMultiloop.map((soul, index) => {
                             const highlighted = index === safeHighlight
-                            const boundCli = multiloopRoleCliDefaults[soul.role] ?? lastSelectedCli
+                            const boundCli = resolvePickerCli(multiloopRoleCliDefaults[soul.role] ?? lastSelectedCli)
                             const popoverOpen =
                               chipPopoverForRole?.kind === 'multiloop'
                               && chipPopoverForRole.role === soul.role
@@ -1087,7 +1092,7 @@ export default function WorkspaceTopBar({
                                   type="button"
                                   role="menuitemradio"
                                   aria-checked={highlighted}
-                                  onClick={() => handleSelectMultiloopRole(soul.role)}
+                                  onClick={() => handleSelectMultiloopRole(soul.role, boundCli)}
                                   onMouseEnter={() => setAgentMenuHighlight(index)}
                                   className={`grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pr-2 text-left transition-colors ${
                                     highlighted
@@ -1185,7 +1190,7 @@ export default function WorkspaceTopBar({
                           })
                         : filteredSpecialists.map((action, index) => {
                             const highlighted = index === safeHighlight
-                            const boundCli = specialistCliDefaults[action.id] ?? lastSelectedCli
+                            const boundCli = resolvePickerCli(specialistCliDefaults[action.id] ?? lastSelectedCli)
                             const popoverOpen =
                               chipPopoverForRole?.kind === 'specialist'
                               && chipPopoverForRole.id === action.id
@@ -1196,7 +1201,7 @@ export default function WorkspaceTopBar({
                                   type="button"
                                   role="menuitemradio"
                                   aria-checked={highlighted}
-                                  onClick={() => handleSelectSpecialist(action.id)}
+                                  onClick={() => handleSelectSpecialist(action.id, boundCli)}
                                   onMouseEnter={() => setAgentMenuHighlight(index)}
                                   className={`grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pr-2 text-left transition-colors ${
                                     highlighted

@@ -1,6 +1,7 @@
 import type { IpcMain } from 'electron'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
+import { registerClipboardIpc } from './ipc/clipboard-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
@@ -18,6 +19,7 @@ import { registerSoulsIpc } from './ipc/souls-ipc'
 import { registerSprintEngineRoleRegistryIpc } from './ipc/sprintengine-role-registry-ipc'
 import { registerThirdPartyModuleIpc } from './ipc/third-party-module-ipc'
 import { registerUpdateIpc } from './ipc/update-ipc'
+import { registerVoiceIpc } from './ipc/voice-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { registerWorkspaceSyncIpc } from './ipc/workspace-sync-ipc'
 import { createMainWindow } from './window-factory'
@@ -37,6 +39,8 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
   })
   registerWorkspaceSyncIpc(ipcMain, services.workspaceSyncService)
   registerWorkspaceBackupIpc(ipcMain, services.workspaceBackupService)
+  registerClipboardIpc(ipcMain)
+  registerVoiceIpc(ipcMain)
   registerAuthIpc(ipcMain, services.multicodeAuth)
   registerBuiltinSkillsIpc(ipcMain, services.builtinSkillManager)
   registerMcpIpc(ipcMain, services.mcpConfigService)

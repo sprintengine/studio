@@ -8,6 +8,11 @@ type TerminalClipboardHandlersOptions = {
   recordKeydown: (event: KeyboardEvent) => void
 }
 
+type RuntimeClipboardApi = {
+  clipboardReadText?: () => Promise<string>
+  clipboardWriteText?: (text: string) => Promise<void>
+}
+
 export function bindTerminalClipboardHandlers({
   container,
   term,
@@ -15,13 +20,49 @@ export function bindTerminalClipboardHandlers({
   focusTerminal,
   recordKeydown,
 }: TerminalClipboardHandlersOptions): () => void {
-  let secondaryClickArmed = false
+  let lastKnownSelection = term.getSelection()
+  let secondaryClickSelection = ''
+  let pasteOnNextContextMenu = false
+  let lastTerminalCopiedText = ''
 
-  const copySelection = async () => {
-    const selection = term.getSelection()
-    if (!selection) return
-    await navigator.clipboard.writeText(selection)
+  const writeClipboardText = async (text: string): Promise<boolean> => {
+    if (!text) return false
+    const api = window.api as typeof window.api & RuntimeClipboardApi
+    if (typeof api.clipboardWriteText === 'function') {
+      try {
+        await api.clipboardWriteText(text)
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    return false
   }
+
+  const readClipboardText = async (): Promise<string> => {
+    const api = window.api as typeof window.api & RuntimeClipboardApi
+    if (typeof api.clipboardReadText === 'function') {
+      try {
+        return await api.clipboardReadText()
+      } catch {
+        return ''
+      }
+    }
+
+    return ''
+  }
+
+  const copyText = async (text: string) => {
+    lastTerminalCopiedText = text
+    await writeClipboardText(text)
+  }
+
+  const copySelection = async (selection = term.getSelection()) => {
+    await copyText(selection)
+  }
+
+  const getCopySelection = () => secondaryClickSelection || term.getSelection() || lastKnownSelection
 
   const pasteText = async (text: string) => {
     if (!text) return
@@ -30,11 +71,12 @@ export function bindTerminalClipboardHandlers({
   }
 
   const handleCopy = (event: ClipboardEvent) => {
-    const selection = term.getSelection()
+    const selection = getCopySelection()
     if (!selection) return
     event.preventDefault()
     event.clipboardData?.setData('text/plain', selection)
-    void navigator.clipboard.writeText(selection).catch(() => {})
+    lastTerminalCopiedText = selection
+    void writeClipboardText(selection)
   }
 
   const handlePaste = (event: ClipboardEvent) => {
@@ -46,6 +88,7 @@ export function bindTerminalClipboardHandlers({
 
   const handleKeyDown = (event: KeyboardEvent) => {
     recordKeydown(event)
+    pasteOnNextContextMenu = false
     const mod = event.ctrlKey || event.metaKey
     if (!mod) return
 
@@ -57,12 +100,14 @@ export function bindTerminalClipboardHandlers({
 
     if (key === 'v' && event.shiftKey) {
       event.preventDefault()
-      void navigator.clipboard.readText().then(pasteText).catch(() => {})
+      void readClipboardText().then((text) => pasteText(text || lastTerminalCopiedText))
     }
   }
 
   const handleMouseDown = (event: MouseEvent) => {
-    secondaryClickArmed = event.button === 2 || (event.ctrlKey && event.button === 0)
+    const isSecondaryClick = event.button === 2 || (event.ctrlKey && event.button === 0)
+    if (!isSecondaryClick) pasteOnNextContextMenu = false
+    secondaryClickSelection = isSecondaryClick ? getCopySelection() : ''
     focusTerminal()
   }
 
@@ -70,35 +115,47 @@ export function bindTerminalClipboardHandlers({
     event.preventDefault()
     event.stopPropagation()
 
-    const shouldRunTerminalContextAction = secondaryClickArmed
-    secondaryClickArmed = false
+    const selectedText = getCopySelection()
+    secondaryClickSelection = ''
 
-    if (!shouldRunTerminalContextAction) {
+    if (selectedText && !pasteOnNextContextMenu) {
+      term.clearSelection()
+      lastKnownSelection = ''
+      pasteOnNextContextMenu = true
+      lastTerminalCopiedText = selectedText
+      void copyText(selectedText).catch(() => {})
       focusTerminal()
       return
     }
 
-    if (term.hasSelection()) {
-      void copySelection().catch(() => {})
-      focusTerminal()
-      return
-    }
-
-    void navigator.clipboard.readText().then(pasteText).catch(() => {})
+    pasteOnNextContextMenu = false
+    void readClipboardText()
+      .then((text) => pasteText(text || lastTerminalCopiedText))
+      .catch(() => pasteText(lastTerminalCopiedText))
     focusTerminal()
   }
 
-  container.addEventListener('mousedown', handleMouseDown)
+  const selectionDisposable = term.onSelectionChange?.(() => {
+    // Assign every time, including empty. The secondary-click path captures the
+    // live selection at mousedown (capture phase) into secondaryClickSelection,
+    // so this fallback only needs to reflect the current selection. Keeping a
+    // stale non-empty value here turns a later right-click-to-paste into an
+    // unintended copy of the old selection.
+    lastKnownSelection = term.getSelection()
+  }) ?? { dispose: () => {} }
+
+  container.addEventListener('mousedown', handleMouseDown, { capture: true })
   container.addEventListener('copy', handleCopy)
   container.addEventListener('paste', handlePaste)
   container.addEventListener('keydown', handleKeyDown)
   container.addEventListener('contextmenu', handleContextMenu, { capture: true })
 
   return () => {
-    container.removeEventListener('mousedown', handleMouseDown)
+    container.removeEventListener('mousedown', handleMouseDown, { capture: true })
     container.removeEventListener('copy', handleCopy)
     container.removeEventListener('paste', handlePaste)
     container.removeEventListener('keydown', handleKeyDown)
     container.removeEventListener('contextmenu', handleContextMenu, { capture: true })
+    selectionDisposable.dispose()
   }
 }

@@ -4,14 +4,24 @@
 // popover body stays composable. Pure presentation — list and intent
 // callbacks in, IPC and store mutations stay in the parent.
 
-import React from 'react'
+import React, { useState } from 'react'
 import type { AppNotification } from '../../../types/workspace'
 import { StatusDot } from '../../ui'
+
+type RuntimeClipboardApi = {
+  clipboardWriteText?: (text: string) => Promise<void>
+}
 
 function formatNotificationTime(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+async function writeClipboardText(text: string): Promise<void> {
+  const api = window.api as typeof window.api & RuntimeClipboardApi
+  if (typeof api.clipboardWriteText !== 'function') throw new Error('Clipboard API is unavailable.')
+  await api.clipboardWriteText(text)
 }
 
 export function NotificationsPopover({
@@ -27,7 +37,9 @@ export function NotificationsPopover({
   onClear: () => void
   onOpenLogs: () => void
 }) {
-  const copyNotification = (notification: AppNotification) => {
+  const [copyErrorId, setCopyErrorId] = useState<string | null>(null)
+
+  const copyNotification = async (notification: AppNotification) => {
     const details = [
       `[${notification.level.toUpperCase()}] ${notification.title}`,
       notification.message,
@@ -40,7 +52,13 @@ export function NotificationsPopover({
       .filter(Boolean)
       .join('\n')
 
-    void navigator.clipboard.writeText(details).catch(() => {})
+    try {
+      await writeClipboardText(details)
+      setCopyErrorId(null)
+    } catch {
+      setCopyErrorId(notification.id)
+      return
+    }
     onMarkRead(notification.id)
   }
 
@@ -127,11 +145,20 @@ export function NotificationsPopover({
                   <div className="mt-2 flex items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => copyNotification(notification)}
+                      onClick={() => void copyNotification(notification)}
                       className="rounded border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                     >
                       Copy
                     </button>
+                    {copyErrorId === notification.id ? (
+                      <span
+                        role="status"
+                        aria-live="polite"
+                        className="text-[11px] font-semibold text-[color:var(--tone-error)]"
+                      >
+                        Could not copy
+                      </span>
+                    ) : null}
                     {notification.logPath ? (
                       <button
                         type="button"

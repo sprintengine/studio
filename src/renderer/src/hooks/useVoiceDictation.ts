@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { publishDiagnosticSync } from '../utils/diagnostics'
-import { pcmFloatToWav, transcribeAudio, TranscriptionError } from '../utils/voiceTranscription'
+import { pcmFloatToWav } from '../utils/voiceTranscription'
 
 type RecordingContext = {
   stream: MediaStream
@@ -110,23 +110,25 @@ export function useVoiceDictation(): VoiceDictationController {
     setTranscribing(true)
     try {
       const wav = pcmFloatToWav(merged, sampleRate)
-      const result = await transcribeAudio(wav, settingsRef.current)
-      await navigator.clipboard.writeText(result.text).catch(() => {
+      // The transcription POST runs in the main process: the Multivoice host
+      // sends no CORS headers, so a renderer fetch is blocked by the preflight.
+      const response = await window.api.voiceTranscribe(wav, settingsRef.current)
+      if (!response.ok) {
+        notifyVoiceError(response.message)
+        return
+      }
+      const { text } = response.result
+      await window.api.clipboardWriteText(text).catch(() => {
         notifyVoiceError('Transcribed text could not be copied to the clipboard.')
       })
       publishDiagnosticSync({
         level: 'info',
         source: 'voice',
         title: 'Transcription copied to clipboard',
-        message: result.text.length > 160 ? `${result.text.slice(0, 157)}…` : result.text,
+        message: text.length > 160 ? `${text.slice(0, 157)}…` : text,
       })
     } catch (error) {
-      const message =
-        error instanceof TranscriptionError
-          ? error.message
-          : error instanceof Error
-            ? error.message
-            : 'Transcription failed.'
+      const message = error instanceof Error ? error.message : 'Transcription failed.'
       notifyVoiceError(message)
     } finally {
       setTranscribing(false)

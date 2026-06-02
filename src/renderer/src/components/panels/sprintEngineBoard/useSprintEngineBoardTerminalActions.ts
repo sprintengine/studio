@@ -235,7 +235,16 @@ export function useSprintEngineBoardTerminalActions(
       focusOrAddAgentTab(workspaceId, agentId, label, { sessionId: liveSession.sessionId })
       return
     }
-    void startAgentTerminalWhenReady(agentId, label)
+    updateAgent(workspaceId, agentId, {
+      name: label,
+      cliStartRequested: false,
+      cliHasLaunched: false,
+      cliSessionId: undefined,
+      cliOnboardingPromptSent: false,
+      cliResumeAvailable: false,
+      kind: 'sprintengine',
+    })
+    focusOrAddAgentTab(workspaceId, agentId, label)
   }
 
   const openSpawnDialog: SprintEngineBoardTerminalActions['openSpawnDialog'] = (agentId) => {

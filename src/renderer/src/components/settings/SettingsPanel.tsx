@@ -2355,7 +2355,7 @@ export default function SettingsPanel({
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-          <aside className="shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] p-2 md:w-56 md:border-b-0 md:border-r md:p-3">
+          <aside className="shrink-0 overflow-y-auto border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] p-2 md:w-56 md:border-b-0 md:border-r md:p-3">
             {sidebarNode}
           </aside>
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">

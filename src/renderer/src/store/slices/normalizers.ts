@@ -16,13 +16,49 @@ export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(
   state.workspaces = state.workspaces.map(migrate)
 }
 
-export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace {
-  const sprintEngineAutoState = normalizeSprintEngineAutoState(workspace.sprintEngineAutoState)
+export function clearSprintEngineAgentLaunchState(workspace: Workspace): Workspace {
+  if (workspace.mode !== 'sprintengine' && !workspace.sprintEngineState) return workspace
+
+  const sprintEngineAgentIds = new Set(Object.keys(workspace.sprintEngineState?.sprintEngineAgents ?? {}))
+  const hasSprintEngineAgents = Object.entries(workspace.agents).some(
+    ([id, agent]) => agent.kind === 'sprintengine' || sprintEngineAgentIds.has(id)
+  )
+  if (!hasSprintEngineAgents) return workspace
+
   return {
     ...workspace,
-    mode: normalizeWorkspaceMode(workspace.mode, workspace.sprintEngineState, workspace.multiloopState),
-    guidedBriefState: normalizeGuidedBriefState(workspace.guidedBriefState),
-    memory: normalizeWorkspaceMemoryConfig(workspace.memory),
+    agents: Object.fromEntries(
+      Object.entries(workspace.agents).map(([id, agent]) => {
+        if (agent.kind !== 'sprintengine' && !sprintEngineAgentIds.has(id)) return [id, agent]
+        return [
+          id,
+          normalizeAgentState({
+            ...agent,
+            kind: 'sprintengine',
+            status: 'idle',
+            streamBuffer: '',
+            cliSessionId: undefined,
+            cliStartRequested: false,
+            cliRestartNonce: 0,
+            cliHasLaunched: false,
+            cliOnboardingPromptSent: false,
+            cliResumeAvailable: false,
+            cliStartupPrompt: undefined,
+          }),
+        ]
+      }),
+    ),
+  }
+}
+
+export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace {
+  const sprintEngineAutoState = normalizeSprintEngineAutoState(workspace.sprintEngineAutoState)
+  const launchSafeWorkspace = clearSprintEngineAgentLaunchState(workspace)
+  return {
+    ...launchSafeWorkspace,
+    mode: normalizeWorkspaceMode(launchSafeWorkspace.mode, launchSafeWorkspace.sprintEngineState, launchSafeWorkspace.multiloopState),
+    guidedBriefState: normalizeGuidedBriefState(launchSafeWorkspace.guidedBriefState),
+    memory: normalizeWorkspaceMemoryConfig(launchSafeWorkspace.memory),
     sprintEngineAutoState: {
       ...sprintEngineAutoState,
       supervisorEnabled: false,
@@ -30,9 +66,9 @@ export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace
       autoApproveArtifacts: false,
       pendingSpawns: [],
     },
-    multiloopAutoState: normalizeMultiloopAutoState(workspace.multiloopAutoState),
+    multiloopAutoState: normalizeMultiloopAutoState(launchSafeWorkspace.multiloopAutoState),
     agents: Object.fromEntries(
-      Object.entries(workspace.agents).map(([id, a]) => {
+      Object.entries(launchSafeWorkspace.agents).map(([id, a]) => {
         const shouldKeepStartupPrompt =
           !a.cliOnboardingPromptSent
           && (
@@ -59,13 +95,13 @@ export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace
         ]
       }),
     ),
-    worktreeState: normalizeWorkspaceWorktreeState(workspace.worktreeState),
+    worktreeState: normalizeWorkspaceWorktreeState(launchSafeWorkspace.worktreeState),
     editorState: {
-      openFiles: (workspace.editorState?.openFiles ?? []).map(({ content: _content, ...f }) => ({
+      openFiles: (launchSafeWorkspace.editorState?.openFiles ?? []).map(({ content: _content, ...f }) => ({
         ...f,
         isDirty: false,
       })),
-      activeFilePath: workspace.editorState?.activeFilePath ?? null,
+      activeFilePath: launchSafeWorkspace.editorState?.activeFilePath ?? null,
     },
   }
 }

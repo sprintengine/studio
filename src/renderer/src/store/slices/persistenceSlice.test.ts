@@ -170,4 +170,66 @@ assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.cliPermissionPr
 assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.maxConcurrentAgents, 4)
 assert.deepEqual(migratedAutoRun.workspaces[0].sprintEngineAutoState.deliveredAgentNotificationEventKeys, ['EVT-1'])
 
+const v56SprintEngineLaunchState = {
+  workspaces: [
+    {
+      id: 'ws-sprintengine-launch',
+      name: 'Sprint Engine Launch',
+      mode: 'sprintengine',
+      folderPath: '/repo',
+      agents: {
+        architect: {
+          id: 'architect',
+          name: 'Architect',
+          kind: 'sprintengine',
+          cli: 'claude',
+          cliStartRequested: true,
+          cliHasLaunched: true,
+          cliSessionId: 'stale-architect-session',
+          cliOnboardingPromptSent: true,
+          cliResumeAvailable: true,
+          cliStartupPrompt: 'stale prompt',
+          cliRestartNonce: 3,
+          status: 'streaming',
+          streamBuffer: 'stale output',
+        },
+      },
+      sprintEngineState: {
+        sprintEngineAgents: {
+          architect: { role: 'architect', status: 'idle', currentTaskId: null },
+        },
+      },
+    },
+  ],
+}
+const migratedSprintEngineLaunch = migratePersistedWorkspaceState(v56SprintEngineLaunchState, 56) as {
+  workspaces: Array<{
+    agents: Record<string, {
+      kind: string
+      cliStartRequested: boolean
+      cliHasLaunched: boolean
+      cliSessionId?: string
+      cliOnboardingPromptSent: boolean
+      cliResumeAvailable: boolean
+      cliStartupPrompt?: string
+      cliRestartNonce: number
+      status: string
+      streamBuffer: string
+    }>
+    sprintEngineState: { sprintEngineAgents: Record<string, unknown> }
+  }>
+}
+const migratedArchitect = migratedSprintEngineLaunch.workspaces[0].agents.architect
+assert.ok(migratedSprintEngineLaunch.workspaces[0].sprintEngineState.sprintEngineAgents.architect)
+assert.equal(migratedArchitect.kind, 'sprintengine')
+assert.equal(migratedArchitect.cliStartRequested, false)
+assert.equal(migratedArchitect.cliHasLaunched, false)
+assert.equal(migratedArchitect.cliSessionId, undefined)
+assert.equal(migratedArchitect.cliOnboardingPromptSent, false)
+assert.equal(migratedArchitect.cliResumeAvailable, false)
+assert.equal(migratedArchitect.cliStartupPrompt, undefined)
+assert.equal(migratedArchitect.cliRestartNonce, 0)
+assert.equal(migratedArchitect.status, 'idle')
+assert.equal(migratedArchitect.streamBuffer, '')
+
 console.log('persistenceSlice.test.ts: ok')

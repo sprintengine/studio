@@ -3,6 +3,7 @@ import type { ElectronApi } from '../shared/electron-api'
 import { appMenuApi } from './api/app-menu'
 import { authApi } from './api/auth'
 import { builtinSkillsApi } from './api/builtinSkills'
+import { clipboardApi } from './api/clipboard'
 import { filesystemApi } from './api/filesystem'
 import { gitApi } from './api/git'
 import { layoutTemplatesApi } from './api/layout-templates'
@@ -17,6 +18,7 @@ import { sprintEngineApi } from './api/sprintengine'
 import { switchboardApi } from './api/switchboard'
 import { terminalApi } from './api/terminal'
 import { updateApi } from './api/update'
+import { voiceApi } from './api/voice'
 import { windowApi } from './api/window'
 import { workspaceBackupApi } from './api/workspace-backup'
 import { workspaceSyncApi } from './api/workspace-sync'
@@ -28,6 +30,7 @@ const api = {
   ...windowApi,
   ...authApi,
   ...builtinSkillsApi,
+  ...clipboardApi,
   ...mobileBridgeApi,
   ...filesystemApi,
   ...soulsApi,
@@ -42,6 +45,7 @@ const api = {
   ...multiloopApi,
   ...terminalApi,
   ...updateApi,
+  ...voiceApi,
   ...appMenuApi,
   ...workspaceBackupApi,
   ...workspaceSyncApi,

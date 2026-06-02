@@ -79,6 +79,14 @@
   --tone-warn-soft: rgba(252, 192, 48, 0.18);
   --tone-error-soft: rgba(252, 120, 124, 0.18);
 
+  /* Git change-count badge on the panel rail. A count chip is self-contained,
+     so it carries one fixed amber fill + near-black ink across every theme
+     rather than borrowing --text-on-accent — that token is tuned for the blue
+     accent and flips to white on several dark themes, leaving illegible
+     white-on-amber. Defined once here; themes inherit it unchanged. */
+  --git-count-badge-bg: #fcc030;
+  --git-count-badge-ink: #1c1408;
+
   /* Diff palette — file-status badges in Git surfaces and (future) diff-hunk
      line backgrounds. Aliased to the canonical tone tokens so chrome stays
      visually aligned with the rest of the design system. */

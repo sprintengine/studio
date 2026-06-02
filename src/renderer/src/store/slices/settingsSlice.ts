@@ -377,6 +377,11 @@ export function normalizeCliDefaults<K extends string>(
   return result
 }
 
+export function normalizeSelectedCli(input: AgentCli | null | undefined, fallback: AgentCli = 'claude'): AgentCli {
+  if (typeof input === 'string' && input.trim()) return input.trim()
+  return fallback
+}
+
 // Architect is the only role Sprint Engine planning truly requires. It is
 // excluded from user disablement so a stray persisted `architect: false`
 // cannot strand future workspaces without a planner. Settings normalization
@@ -444,7 +449,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     },
     mcp: normalizeMcpSettings(settings?.mcp),
     skillPacks: normalizeSkillPackSettings(settings?.skillPacks),
-    lastSelectedCli: settings?.lastSelectedCli ?? defaults.lastSelectedCli,
+    lastSelectedCli: normalizeSelectedCli(settings?.lastSelectedCli, defaults.lastSelectedCli),
     lastSelectedSpecialist: settings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
     lastSelectedMultiloopRole: settings?.lastSelectedMultiloopRole ?? defaults.lastSelectedMultiloopRole,
     lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
