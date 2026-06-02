@@ -226,7 +226,7 @@ function FileIcon({ name }: { name: string }) {
   // On dark --file-badge-ink-mix is 0% so the label is the pure language hue;
   // on Light it rises to ~50% so the hue is pulled toward ink and stays legible
   // on the near-white chip instead of washing out (amber was ~1.6:1).
-  const ink = `color-mix(in oklab, ${accent}, var(--text-strong) var(--file-badge-ink-mix))`
+  const ink = `color-mix(in oklab, ${accent}, var(--text-strong) var(--file-badge-ink-mix, 0%))`
   return (
     <span
       className="inline-flex h-[18px] w-[20px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-[8px] font-black leading-none ring-1 ring-[color:var(--border-subtle)]"
