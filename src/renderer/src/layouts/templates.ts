@@ -49,6 +49,7 @@ const guidedBriefTab = () => ({
   type: 'tab',
   name: 'Guided Brief',
   component: 'guided-brief',
+  enableClose: false,
 })
 
 export function createGuidedBriefTemplate(): LayoutTemplate {
@@ -62,7 +63,7 @@ export function createGuidedBriefTemplate(): LayoutTemplate {
       editor('Mockup', 148, 58, 148, 48),
     ],
     layout: {
-      global: { tabSetEnableDrop: true, tabEnableClose: false },
+      global: { tabSetEnableDrop: true, tabEnableClose: true },
       borders: [],
       layout: {
         type: 'row',

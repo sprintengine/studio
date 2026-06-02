@@ -238,8 +238,21 @@ function hideGuidedBriefTabStripInNode(node: unknown): unknown {
   if (!node || typeof node !== 'object') return node
   const record = node as Record<string, unknown>
 
+  if (record.type === 'tab' && record.component === 'guided-brief') {
+    return { ...record, enableClose: false }
+  }
+
+  if (record.type === 'tab' && record.component === 'file-editor') {
+    return { ...record, enableClose: true }
+  }
+
   if (record.type === 'tabset' && tabsetContainsGuidedBrief(record)) {
-    return { ...record, enableTabStrip: false }
+    const rawChildren = Array.isArray(record.children) ? record.children : []
+    return {
+      ...record,
+      enableTabStrip: false,
+      children: rawChildren.map((child) => hideGuidedBriefTabStripInNode(child)),
+    }
   }
 
   const rawChildren = record.children
@@ -251,8 +264,9 @@ function hideGuidedBriefTabStripInNode(node: unknown): unknown {
 
 // The guided brief panel owns the visible chrome (step nav, conversation /
 // preview / brief panes), so the FlexLayout tab strip on the tabset that
-// hosts it is redundant. Stamp enableTabStrip: false onto whichever tabset
-// wraps the 'guided-brief' tab without touching other tabsets.
+// hosts it is redundant. Also repair older Guided Brief layouts that disabled
+// close globally: the root guided-brief tab stays sticky, but document
+// file-editor tabs must remain closeable.
 export function hideGuidedBriefTabStrip(
   layoutModel: IJsonModel | null | undefined
 ): IJsonModel | null | undefined {

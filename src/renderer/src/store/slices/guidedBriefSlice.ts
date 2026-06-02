@@ -11,7 +11,7 @@ import type {
 const GUIDED_BRIEF_LAYOUT_COMPONENT = 'guided-brief'
 
 export const guidedBriefLayoutModel = (): IJsonModel => ({
-  global: { tabSetEnableDrop: true, tabEnableClose: false },
+  global: { tabSetEnableDrop: true, tabEnableClose: true },
   borders: [],
   layout: {
     type: 'row',
@@ -23,7 +23,12 @@ export const guidedBriefLayoutModel = (): IJsonModel => ({
         // tab strip on this tabset would just be redundant chrome.
         enableTabStrip: false,
         children: [
-          { type: 'tab', name: 'Guided Brief', component: GUIDED_BRIEF_LAYOUT_COMPONENT },
+          {
+            type: 'tab',
+            name: 'Guided Brief',
+            component: GUIDED_BRIEF_LAYOUT_COMPONENT,
+            enableClose: false,
+          },
         ],
       },
     ],

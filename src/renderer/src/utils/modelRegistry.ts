@@ -616,6 +616,7 @@ export function focusOrAddFileTab(
         id: fileTabId(filePath),
         name,
         component: 'file-editor',
+        enableClose: true,
         config: { filePath },
       },
       finalTarget.getId(),

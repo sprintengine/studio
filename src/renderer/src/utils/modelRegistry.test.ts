@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import { Model, type IJsonModel } from 'flexlayout-react'
 import {
+  focusOrAddFileTab,
   registerModel,
   unregisterModel,
   togglePanelRailComponent,
@@ -33,6 +34,7 @@ function freshModel(): Model {
 }
 
 type TabsetJson = { type?: string; component?: string; enableTabStrip?: boolean; children?: TabsetJson[] }
+type TabJson = TabsetJson & { enableClose?: boolean; config?: { filePath?: string } }
 
 function tabsets(model: Model): TabsetJson[] {
   const out: TabsetJson[] = []
@@ -57,6 +59,17 @@ function allComponents(model: Model): string[] {
     node.children?.forEach(walk)
   }
   walk((model.toJson() as unknown as { layout: TabsetJson }).layout)
+  return out
+}
+
+function allTabs(model: Model): TabJson[] {
+  const out: TabJson[] = []
+  const walk = (node: TabJson | undefined) => {
+    if (!node) return
+    if (node.type === 'tab') out.push(node)
+    node.children?.forEach(walk)
+  }
+  walk((model.toJson() as unknown as { layout: TabJson }).layout)
   return out
 }
 
@@ -155,6 +168,36 @@ function navTabsets(model: Model): TabsetJson[] {
   togglePanelRailComponent(WS, 'editor', 'Editor')
   assert.equal(allComponents(model).filter((c) => c === 'editor').length, 0)
   assert.equal(allComponents(model).filter((c) => c === 'file-editor').length, 1)
+  unregisterModel(WS)
+}
+
+// Guided Brief layouts historically set global tabEnableClose=false to protect
+// the root Guided Brief tab. File editor tabs must still be explicitly
+// closeable so their close affordance and close-active-tab command work.
+{
+  const json: IJsonModel = {
+    global: { tabSetEnableDrop: true, tabEnableClose: false },
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [
+        {
+          type: 'tabset',
+          weight: 100,
+          enableTabStrip: false,
+          children: [
+            { type: 'tab', name: 'Guided Brief', component: 'guided-brief', enableClose: false },
+          ],
+        },
+      ],
+    },
+  }
+  const model = Model.fromJson(json)
+  registerModel(WS, model)
+  assert.equal(focusOrAddFileTab(WS, '/tmp/brief.md', 'brief.md'), true)
+  const fileTab = allTabs(model).find((tab) => tab.component === 'file-editor')
+  assert.ok(fileTab)
+  assert.equal(fileTab.enableClose, true)
   unregisterModel(WS)
 }
 
