@@ -9,6 +9,7 @@ import { mobileRelayRendererModule } from './mobile-relay-module'
 import { multiloopRendererModule } from './multiloop-module'
 import { sprintEngineRendererModule } from './sprint-engine-module'
 import { switchboardRendererModule } from './switchboard-module'
+import { voiceDictationRendererModule } from './voice-dictation-module'
 import { createRendererHost, type RendererModule } from './renderer-host'
 
 // Bundled renderer capability modules. Features migrate onto the host one at a
@@ -23,6 +24,7 @@ export const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   multiloopRendererModule,
   sprintEngineRendererModule,
   mobileRelayRendererModule,
+  voiceDictationRendererModule,
 ]
 
 export const BUNDLED_RENDERER_MODULE_MANIFESTS: ReadonlyArray<CapabilityManifest> =

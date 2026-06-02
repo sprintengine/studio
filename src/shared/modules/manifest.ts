@@ -26,6 +26,7 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'multiloop',
   'sprint-engine',
   'mobile-relay',
+  'voice-dictation',
 ]
 
 export type CapabilityCategory =

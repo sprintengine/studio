@@ -163,6 +163,16 @@ function NotificationBellIcon({ className }: { className?: string }) {
   )
 }
 
+function MicIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="9" y="3.25" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M5.75 11.5a6.25 6.25 0 0 0 12.5 0" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <path d="M12 17.75V20.5M8.75 20.5h6.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function AccountIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -447,6 +457,12 @@ export type WorkspaceTopBarProps = {
   markAllNotificationsRead: () => void
   clearNotifications: () => void
 
+  /** Voice dictation (gated on the voice-dictation module). */
+  voiceDictationEnabled: boolean
+  voiceRecording: boolean
+  voiceTranscribing: boolean
+  toggleVoiceDictation: () => void
+
   specialistMenuOpen: boolean
   setSpecialistMenuOpen: React.Dispatch<React.SetStateAction<boolean>>
   agentMenuQuery: string
@@ -515,6 +531,10 @@ export default function WorkspaceTopBar({
   markNotificationRead,
   markAllNotificationsRead,
   clearNotifications,
+  voiceDictationEnabled,
+  voiceRecording,
+  voiceTranscribing,
+  toggleVoiceDictation,
   specialistMenuOpen,
   setSpecialistMenuOpen,
   agentMenuQuery,
@@ -790,6 +810,39 @@ export default function WorkspaceTopBar({
               />
             </Popover>
           </div>
+
+          {voiceDictationEnabled ? (
+            <Tooltip
+              content={
+                voiceRecording
+                  ? `Stop voice transcription (${shortcutLabel('Ctrl+Shift+1')})`
+                  : voiceTranscribing
+                    ? 'Transcribing…'
+                    : `Start voice transcription (${shortcutLabel('Ctrl+Shift+1')})`
+              }
+              placement="bottom"
+            >
+              <button
+                type="button"
+                onClick={toggleVoiceDictation}
+                disabled={voiceTranscribing}
+                aria-label={voiceRecording ? 'Stop voice transcription' : 'Start voice transcription'}
+                aria-pressed={voiceRecording}
+                className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors disabled:opacity-60 ${
+                  voiceRecording
+                    ? 'border-[color:var(--tone-error)] bg-[color:var(--bg-hover)] text-[color:var(--tone-error)]'
+                    : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
+                }`}
+              >
+                <MicIcon className="h-[18px] w-[18px]" />
+                {voiceRecording ? (
+                  <span className="absolute -right-1 -top-1">
+                    <StatusDot tone="error" pulse label="Recording" />
+                  </span>
+                ) : null}
+              </button>
+            </Tooltip>
+          ) : null}
 
           {/* top-bar-group: agent-spawn */}
           {workspaceActionsEnabled ? (() => {
