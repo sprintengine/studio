@@ -27,9 +27,8 @@ function workspace(id: string, folderPath: string | null = null): Workspace {
     editorState: { openFiles: [], activeFilePath: null },
     sprintEngineState: null,
     sprintEngineAutoState: {
-      supervisorEnabled: false,
-      enabled: false,
-      autoApproveArtifacts: false,
+      desiredMode: 'manual',
+      runtimeState: 'idle',
       keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 0,
@@ -210,7 +209,7 @@ const close = applyWorkspaceSyncEvent(
   event<Extract<WorkspaceSyncEvent, { type: 'workspace_window.closed' }>>({
     type: 'workspace_window.closed',
     sequence: 13,
-    payload: { windowId: 'detached-a', fallbackWindowId: 'primary' },
+    payload: { windowId: 'detached-a', fallbackWindowId: 'primary', movedWorkspaceIds: ['ws-three', 'ws-one'] },
   })
 )
 assert.equal(close.status, 'applied')
@@ -289,6 +288,7 @@ const launchUpdate = applyWorkspaceSyncEvent(
     payload: {
       workspaceId: 'ws-one',
       agentId: 'agent-one',
+      cliSessionId: null,
       cliStartRequested: false,
       cliOnboardingPromptSent: false,
     },
@@ -296,7 +296,7 @@ const launchUpdate = applyWorkspaceSyncEvent(
 )
 assert.equal(launchUpdate.status, 'applied')
 const launchAgent = launchUpdate.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents['agent-one']
-assert.equal(launchAgent?.cliSessionId, 'session-from-event', 'launch state events preserve existing session id')
+assert.equal(launchAgent?.cliSessionId, undefined, 'launch state events can clear a stale session id')
 assert.equal(launchAgent?.cliStartRequested, false)
 assert.equal(launchAgent?.cliHasLaunched, true, 'omitted launch fields remain unchanged')
 assert.equal(launchAgent?.cliOnboardingPromptSent, false)

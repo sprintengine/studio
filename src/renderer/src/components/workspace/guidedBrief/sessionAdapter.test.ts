@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import type { TerminalSpawnMetadata } from '../../../../../shared/electron-api'
 import { buildGuidedBriefSpecialistStartupPrompt } from '../../../specialists/specialistActions'
 import {
   containsGuidedBriefMarker,
@@ -8,7 +9,7 @@ import {
 } from './sessionAdapter'
 
 function createTerminalApi(): GuidedBriefTerminalApi & {
-  spawned: Array<{ sessionId: string; prompt?: string; cwd?: string }>
+  spawned: Array<{ sessionId: string; prompt?: string; cwd?: string; metadata?: TerminalSpawnMetadata }>
   killed: string[]
   dataHandlerCount: () => number
   emitData: (sessionId: string, chunk: string) => void
@@ -16,7 +17,7 @@ function createTerminalApi(): GuidedBriefTerminalApi & {
   const dataHandlers = new Map<string, (chunk: string) => void>()
   const exitHandlers = new Map<string, (code: number) => void>()
   const errorHandlers = new Map<string, (message: string) => void>()
-  const spawned: Array<{ sessionId: string; prompt?: string; cwd?: string }> = []
+  const spawned: Array<{ sessionId: string; prompt?: string; cwd?: string; metadata?: TerminalSpawnMetadata }> = []
   const killed: string[] = []
 
   return {
@@ -26,8 +27,8 @@ function createTerminalApi(): GuidedBriefTerminalApi & {
     emitData(sessionId, chunk) {
       dataHandlers.get(sessionId)?.(chunk)
     },
-    async terminalSpawn(sessionId, _cols, _rows, cwd, _resume, _statePath, _cli, initialPrompt) {
-      spawned.push({ sessionId, prompt: initialPrompt, cwd })
+    async terminalSpawn(sessionId, _cols, _rows, cwd, _resume, _statePath, _cli, initialPrompt, _cliRuntimes, _shellOnly, metadata) {
+      spawned.push({ sessionId, prompt: initialPrompt, cwd, metadata })
       return { ok: true, sessionId }
     },
     async terminalKill(sessionId) {
@@ -210,6 +211,11 @@ const reattachResult = await startGuidedBriefSpecialistSession(
 assert.equal(reattachResult.ok, true, 'reattach spawn returns ok')
 if (reattachResult.ok) {
   assert.equal(reattachApi.spawned[0]?.sessionId, 'persisted-designer-id', 'persisted sessionId is reused, not regenerated')
+  assert.equal(
+    reattachApi.spawned[0]?.metadata?.cliPermissionPreset,
+    'bypass_all',
+    'guided brief designer sessions request bypass-all CLI permissions',
+  )
   assert.equal(reattachResult.session.sessionId, 'persisted-designer-id', 'session exposes the persisted id back to the hook')
 }
 

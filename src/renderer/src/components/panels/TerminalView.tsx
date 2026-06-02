@@ -19,8 +19,10 @@ import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/term
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { resolveAgentCliPermissionPreset } from '../../utils/agentCliPermissions'
 import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
+import { deriveSprintEngineAutomationDesiredMode } from '../../utils/sprintengineAutomationLifecycle'
 import type { McpSettings } from '../../types/workspace'
 import { Toast } from '../ui/Toast'
+import { workspaceSyncClient } from '../../store/workspaceSyncClient'
 
 interface Props {
   workspaceId: string
@@ -199,7 +201,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         sprintEngineStatePath: workspace.sprintEngineContext?.statePath,
         rosterArgs: buildSprintEngineRosterCommandArgs(workspace.sprintEngineState),
         commandMode: getSprintEngineStartupCommandMode(rosterAgent.role, agentId, workspace.sprintEngineState),
-        autonomousPlanningOverride: rosterAgent.role === 'architect' && Boolean(workspace.sprintEngineAutoState?.autoApproveArtifacts),
+        autonomousPlanningOverride:
+          rosterAgent.role === 'architect'
+          && deriveSprintEngineAutomationDesiredMode(workspace.sprintEngineAutoState) === 'run_agents_and_approve_artifacts',
       }
     )
     const customName = currentAgent?.name && currentAgent.name !== rosterAgent.label
@@ -339,6 +343,11 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         cliOnboardingPromptSent: false,
         cliLastExitCode: code,
         cliLastExitedAt: Date.now(),
+      })
+      void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspaceId, agentId, {
+        cliStartRequested: false,
+        cliHasLaunched: false,
+        cliOnboardingPromptSent: false,
       })
     })
 
@@ -499,6 +508,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         if (attachedSessionId) return
         if (currentSessionId !== sessionId) return
         updateAgent(workspaceId, agentId, {
+          cliSessionId: undefined,
+          cliStartRequested: false,
+          cliHasLaunched: false,
+          cliOnboardingPromptSent: false,
+        })
+        void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspaceId, agentId, {
+          cliSessionId: null,
           cliStartRequested: false,
           cliHasLaunched: false,
           cliOnboardingPromptSent: false,
@@ -521,17 +537,25 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       }
 
       if (!resumeExistingPty) {
-        if (attachedSessionId) return
-        updateAgent(workspaceId, agentId, {
-          cliHasLaunched: true,
-          ...(agentCliSupportsConversationResume(cli) ? { cliResumeAvailable: true } : {}),
-          ...(launchInitialPrompt
-            ? {
-                cliOnboardingPromptSent: true,
-                cliStartupPrompt: undefined,
-              }
-            : {}),
-        })
+        if (!attachedSessionId) {
+          updateAgent(workspaceId, agentId, {
+            cliHasLaunched: true,
+            ...(agentCliSupportsConversationResume(cli) ? { cliResumeAvailable: true } : {}),
+            ...(launchInitialPrompt
+              ? {
+                  cliOnboardingPromptSent: true,
+                  cliStartupPrompt: undefined,
+                }
+              : {}),
+          })
+        }
+      }
+      void workspaceSyncClient.dispatchAssignTerminalSession(workspaceId, agentId, sessionId, cli)
+      const launchState: Parameters<typeof workspaceSyncClient.dispatchUpdateTerminalLaunchState>[2] = {}
+      if (!agentCliSupportsConversationResume(cli)) launchState.cliResumeAvailable = false
+      if (launchInitialPrompt) launchState.cliOnboardingPromptSent = true
+      if (Object.keys(launchState).length > 0) {
+        void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspaceId, agentId, launchState)
       }
     }
 

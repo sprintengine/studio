@@ -56,6 +56,7 @@ type RegisterWindowIpcOptions = {
     bounds?: WindowBounds | null
     isMaximized?: boolean
   }): void
+  confirmWindowClose(win: BrowserWindow): void
 }
 
 function getWorkspaceWindowId(win: BrowserWindow): string {
@@ -105,6 +106,11 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
   ipcMain.handle('window:get-workspace-window-id', (event) => {
     const win = getRequestWindow(event)
     return win ? getWorkspaceWindowId(win) : 'primary'
+  })
+
+  ipcMain.handle('window:confirm-close', (event) => {
+    const win = getRequestWindow(event)
+    if (win) options.confirmWindowClose(win)
   })
 
   ipcMain.handle('window:create-workspace-window', (_event, input: {

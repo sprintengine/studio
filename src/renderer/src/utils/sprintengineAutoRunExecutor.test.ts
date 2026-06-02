@@ -77,8 +77,8 @@ function createFakePorts(overrides: Overrides = {}): FakePorts {
       ?? ((workspaceId, agentId, update) => { record('updateAgent', [workspaceId, agentId, update]) }),
     markSprintEngineAgentNotificationDelivered: overrides.markSprintEngineAgentNotificationDelivered
       ?? ((workspaceId, key) => { record('markSprintEngineAgentNotificationDelivered', [workspaceId, key]) }),
-    disableAutoRun: overrides.disableAutoRun
-      ?? ((workspaceId, reason, context) => { record('disableAutoRun', [workspaceId, reason, context]) }),
+    applyAutomationStopReason: overrides.applyAutomationStopReason
+      ?? ((workspaceId, reason, context) => { record('applyAutomationStopReason', [workspaceId, reason, context]) }),
   }
   return { ports, calls }
 }
@@ -293,11 +293,11 @@ async function testRecordSpawnFailureResetsStoreAndPublishesDiagnostic(): Promis
   })
   const findCall = (method: string): Call | undefined => calls.find((call) => call.method === method)
 
-  const disableCall = findCall('disableAutoRun')
-  assert.ok(disableCall)
-  assert.equal(disableCall!.args[0], 'workspace-1')
-  assert.equal(disableCall!.args[1], 'agent_spawn_failed')
-  assert.deepEqual(disableCall!.args[2], {
+  const stopCall = findCall('applyAutomationStopReason')
+  assert.ok(stopCall)
+  assert.equal(stopCall!.args[0], 'workspace-1')
+  assert.equal(stopCall!.args[1], 'agent_spawn_failed')
+  assert.deepEqual(stopCall!.args[2], {
     agentId: 'developer-1',
     taskId: 'T1',
     message: 'Developer 1 could not be started for task T1.',
@@ -358,12 +358,12 @@ async function testRecordSpawnFailureOrdersStoreUpdatesBeforeDiagnostic(): Promi
     spawnMessage: 'spawn failed',
   })
   const order = calls.map((call) => call.method)
-  const disableIdx = order.indexOf('disableAutoRun')
+  const stopIdx = order.indexOf('applyAutomationStopReason')
   const pendingIdx = order.indexOf('setSprintEngineAutoPendingSpawns')
   const agentIdx = order.indexOf('updateAgent')
   const diagnosticIdx = order.indexOf('publishDiagnostic')
-  assert.ok(disableIdx >= 0)
-  assert.ok(pendingIdx > disableIdx)
+  assert.ok(stopIdx >= 0)
+  assert.ok(pendingIdx > stopIdx)
   assert.ok(agentIdx > pendingIdx)
   assert.ok(diagnosticIdx > agentIdx, 'diagnostic must publish after store mutations settle')
 }

@@ -97,11 +97,14 @@ function shortcutLabel(shortcut: string): string {
 }
 
 type PanelRailProps = {
-  workspaceId: WorkspaceId
+  // Null while no workspace is active: the rail still renders so the collapse
+  // toggle (its trailing chrome) stays reachable; the panel switches hide.
+  workspaceId: WorkspaceId | null
   collapsed: boolean
+  onToggleCollapse: () => void
 }
 
-export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
+export default function PanelRail({ workspaceId, collapsed, onToggleCollapse }: PanelRailProps) {
   // Subscribe to the persisted layout model so the rail re-renders whenever
   // any path (rail toggle, View menu, menu accelerator, drag-and-drop, tab
   // close) mutates the layout.
@@ -128,9 +131,12 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
   // chrome, no chip on active, hover just brightens the icon. Active state =
   // brighter foreground + 2px accent stripe (left edge in collapsed/vertical
   // mode hugs the sidebar's outer edge; bottom underline in expanded mode).
+  // Expanded, the rail is the sidebar's top chrome row (48 px, hairline
+  // underline) so the workspace tree below lines up with the workspace top
+  // bar; collapsed it stacks vertically with the collapse toggle on top.
   const containerClass = collapsed
     ? 'flex flex-col items-stretch pt-2'
-    : 'mt-2 flex items-center justify-center gap-4'
+    : 'flex h-[48px] items-center border-b border-[color:var(--border-subtle)] px-2'
 
   // `right` placement in collapsed mode prevents the tooltip from overflowing
   // the viewport to the left of a 44 px sidebar (a top/bottom-centered
@@ -138,14 +144,36 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
   const tooltipPlacement = collapsed ? 'right' : 'bottom'
   const buttonSizing = collapsed ? 'h-9 w-full' : 'h-8 w-8'
 
-  return (
-    <div
-      role="toolbar"
-      aria-label="Workspace panels"
-      aria-orientation={collapsed ? 'vertical' : 'horizontal'}
-      className={containerClass}
+  // The collapse toggle is chrome, not a nav switch: it brightens on hover
+  // like the rail icons but carries no accent stripe. Collapsed it leads the
+  // vertical stack (full-width row); expanded it sits in the rail's trailing
+  // flex cell so it owns its own space and never overlaps the last switch.
+  const collapseToggle = (
+    <Tooltip
+      content={collapsed ? `Open sidebar (${shortcutLabel('Ctrl+B')})` : `Collapse sidebar (${shortcutLabel('Ctrl+B')})`}
+      placement={tooltipPlacement}
     >
-      {panels.map((panel) => {
+      <button
+        type="button"
+        onClick={onToggleCollapse}
+        aria-label={collapsed ? 'Open sidebar' : 'Collapse sidebar'}
+        className={`interactive inline-flex items-center justify-center bg-transparent text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${buttonSizing}`}
+      >
+        {/*
+         * Standard `panel-left` sidebar glyph (rounded rect + left-panel
+         * divider), the formal idiom of desktop developer tools.
+         * One glyph for both states — the aria-label carries open/collapsed.
+         */}
+        <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
+          <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M6 3V13" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      </button>
+    </Tooltip>
+  )
+
+  // Shared between layouts: one nav switch button.
+  const renderPanelButton = (panel: PanelDescriptor) => {
         const Icon = panel.icon
         // The Editor keeps its own document tab strip, so its switch reads as
         // active whenever an editor surface is open — the welcome 'editor' tab
@@ -169,7 +197,7 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
         const buttonClass = `interactive relative inline-flex ${buttonSizing} items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
           active
             ? 'text-[color:var(--text-strong)]'
-            : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]'
+            : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]'
         }`
         const accentClass = collapsed
           ? 'pointer-events-none absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-[color:var(--accent-primary)]'
@@ -178,7 +206,9 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
           <Tooltip key={panel.key} content={tooltip} placement={tooltipPlacement}>
             <button
               type="button"
-              onClick={() => togglePanelRailComponent(workspaceId, panel.key, panel.tabName)}
+              onClick={() => {
+                if (workspaceId) togglePanelRailComponent(workspaceId, panel.key, panel.tabName)
+              }}
               aria-pressed={active}
               aria-label={ariaLabel}
               className={buttonClass}
@@ -214,7 +244,32 @@ export default function PanelRail({ workspaceId, collapsed }: PanelRailProps) {
             </button>
           </Tooltip>
         )
-      })}
+  }
+
+  // Expanded: nav switches group at the left (the navigation), the collapse
+  // toggle isolates at the far right (utility chrome) — the standard
+  // activity-bar split, so the toggle never reads as a fifth nav item.
+  // Collapsed: the toggle leads the vertical stack.
+  return (
+    <div
+      role="toolbar"
+      aria-label="Workspace panels"
+      aria-orientation={collapsed ? 'vertical' : 'horizontal'}
+      className={containerClass}
+    >
+      {collapsed ? (
+        <>
+          {collapseToggle}
+          {workspaceId ? panels.map(renderPanelButton) : null}
+        </>
+      ) : (
+        <>
+          <div className="flex items-center gap-4">
+            {workspaceId ? panels.map(renderPanelButton) : null}
+          </div>
+          <div className="ml-auto flex">{collapseToggle}</div>
+        </>
+      )}
     </div>
   )
 }

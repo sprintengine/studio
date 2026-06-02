@@ -35,7 +35,7 @@ import type { FuturePlanWorkspaceSource, HighlightColor, SprintEngineRole, Sprin
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { disableSprintEngineAutoRun } from '../../utils/sprintengineSupervisorNotifications'
+import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import { StatusDot, type Tone } from '../ui'
@@ -496,7 +496,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
         })
         if (agent) {
           if (agent.kind === 'sprintengine') {
-            disableSprintEngineAutoRun(workspaceId, 'agent_terminal_closed', { agentId })
+            applySprintEngineAutomationStopReason(workspaceId, 'agent_terminal_closed', { agentId })
           }
           updateAgent(workspaceId, agentId, {
             cliStartRequested: false,

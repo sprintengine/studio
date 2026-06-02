@@ -51,6 +51,30 @@ export function clearSprintEngineAgentLaunchState(workspace: Workspace): Workspa
   }
 }
 
+export function preserveNewerSprintEngineAutomationState(
+  incomingWorkspace: Workspace,
+  currentWorkspace: Workspace | undefined,
+): Workspace {
+  if (!currentWorkspace?.sprintEngineAutoState) return incomingWorkspace
+
+  const incomingAutoState = normalizeSprintEngineAutoState(incomingWorkspace.sprintEngineAutoState)
+  const currentAutoState = normalizeSprintEngineAutoState(currentWorkspace.sprintEngineAutoState)
+  const incomingChangedAt = incomingAutoState.changedAt
+  const currentChangedAt = currentAutoState.changedAt
+  const currentIsNewer =
+    typeof currentChangedAt === 'number'
+    && (
+      typeof incomingChangedAt !== 'number'
+      || currentChangedAt > incomingChangedAt
+    )
+
+  if (!currentIsNewer) return incomingWorkspace
+  return {
+    ...incomingWorkspace,
+    sprintEngineAutoState: currentAutoState,
+  }
+}
+
 export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace {
   const sprintEngineAutoState = normalizeSprintEngineAutoState(workspace.sprintEngineAutoState)
   const launchSafeWorkspace = clearSprintEngineAgentLaunchState(workspace)
@@ -61,9 +85,6 @@ export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace
     memory: normalizeWorkspaceMemoryConfig(launchSafeWorkspace.memory),
     sprintEngineAutoState: {
       ...sprintEngineAutoState,
-      supervisorEnabled: false,
-      enabled: false,
-      autoApproveArtifacts: false,
       pendingSpawns: [],
     },
     multiloopAutoState: normalizeMultiloopAutoState(launchSafeWorkspace.multiloopAutoState),

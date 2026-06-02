@@ -29,30 +29,6 @@ export function countUnreadSprintEngineAutomationNotifications(
   ).length
 }
 
-// The run's Activity feed: every Sprint Engine notification scoped to this
-// workspace, newest first (the store already unshifts new entries). This is the
-// single source of truth the Activity tab renders AND the source of its unread
-// count — the two must never diverge, which was the original defect: a count on
-// the settings gear that led to a list living somewhere else.
-export function getSprintEngineRunActivity(
-  notifications: AppNotification[],
-  workspaceId: WorkspaceId,
-): AppNotification[] {
-  return notifications.filter(
-    (notification) =>
-      notification.source === 'sprintengine' && notification.workspaceId === workspaceId,
-  )
-}
-
-export function countUnreadSprintEngineRunActivity(
-  notifications: AppNotification[],
-  workspaceId: WorkspaceId,
-): number {
-  return getSprintEngineRunActivity(notifications, workspaceId).filter(
-    (notification) => !notification.read,
-  ).length
-}
-
 export function publishSprintEngineAutomationModeNotification(input: {
   workspaceId: WorkspaceId
   workspaceName?: string

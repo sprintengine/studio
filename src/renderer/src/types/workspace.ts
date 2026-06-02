@@ -572,11 +572,54 @@ export type SprintEngineAutoPendingSpawn = {
 
 export type SprintEngineCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
 export type SprintEngineAutomationMode = 'manual' | 'run_agents' | 'run_agents_and_approve_artifacts'
+export type SprintEngineAutomationDesiredMode = SprintEngineAutomationMode
+export type SprintEngineAutomationRuntimeState =
+  | 'idle'
+  | 'running'
+  | 'paused'
+  | 'blocked'
+  | 'failed'
+  | 'complete'
+
+export type SprintEngineAutomationStopReason =
+  | 'user_selected_manual'
+  | 'folder_missing'
+  | 'spawn_failed'
+  | 'blocked_on_input'
+  | 'all_tasks_done'
+  | 'terminal_closed'
+  | 'workspace_removed'
+  | 'startup'
+
+export type SprintEngineAutomationEvent =
+  | { type: 'user_set_mode'; mode: SprintEngineAutomationDesiredMode }
+  | { type: 'runner_started' }
+  | {
+    type: 'runner_paused'
+    reason: SprintEngineAutomationStopReason
+    message?: string
+    taskId?: string
+    agentId?: string
+  }
+  | { type: 'runner_blocked'; message: string; taskId?: string; agentId?: string }
+  | {
+    type: 'runner_failed'
+    reason: SprintEngineAutomationStopReason
+    message: string
+    taskId?: string
+    agentId?: string
+  }
+  | { type: 'runner_complete'; message?: string }
+  | { type: 'pending_spawns_changed'; pendingSpawns: SprintEngineAutoPendingSpawn[] }
 
 export type SprintEngineAutoState = {
-  supervisorEnabled: boolean
-  enabled: boolean
-  autoApproveArtifacts: boolean
+  desiredMode?: SprintEngineAutomationDesiredMode
+  runtimeState?: SprintEngineAutomationRuntimeState
+  reason?: SprintEngineAutomationStopReason
+  reasonMessage?: string
+  reasonTaskId?: string
+  reasonAgentId?: string
+  changedAt?: number
   keepDoneAgentTerminals: boolean
   cliPermissionPreset: SprintEngineCliPermissionPreset
   maxConcurrentAgents: number

@@ -333,9 +333,8 @@ function workspaceFixture(overrides: Partial<Workspace> = {}): Workspace {
     editorState: { openFiles: [], activeFilePath: null },
     sprintEngineState: null,
     sprintEngineAutoState: {
-      supervisorEnabled: false,
-      enabled: false,
-      autoApproveArtifacts: true,
+      desiredMode: 'run_agents_and_approve_artifacts',
+      runtimeState: 'running',
       keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
@@ -466,9 +465,8 @@ async function testAutoApprovalOnlyBranchSkipsTerminalListWhenNothingToApprove()
   const supervisor = await loadSupervisor()
   const workspace = workspaceFixture({
     sprintEngineAutoState: {
-      supervisorEnabled: false,
-      enabled: false,
-      autoApproveArtifacts: true,
+      desiredMode: 'run_agents_and_approve_artifacts',
+      runtimeState: 'running',
       keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
@@ -533,9 +531,8 @@ function autoApprovalFixture(): {
   const workspace = workspaceFixture({
     sprintEngineState,
     sprintEngineAutoState: {
-      supervisorEnabled: false,
-      enabled: false,
-      autoApproveArtifacts: true,
+      desiredMode: 'run_agents_and_approve_artifacts',
+      runtimeState: 'running',
       keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
@@ -751,9 +748,8 @@ async function testDeliverAgentNotificationsSkipsRetiredTargets(): Promise<void>
   const sentNotifications = mutableRef(new Set<string>())
   const workspace = workspaceFixture({
     sprintEngineAutoState: {
-      supervisorEnabled: true,
-      enabled: true,
-      autoApproveArtifacts: false,
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
       keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
@@ -800,9 +796,8 @@ function reworkNotificationWorkspaceFixture(): Workspace {
       'frontend-2': sprintAgent('frontend-2', 'Reagan'),
     },
     sprintEngineAutoState: {
-      supervisorEnabled: true,
-      enabled: true,
-      autoApproveArtifacts: false,
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
       keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
@@ -1208,9 +1203,6 @@ async function testDeliverNotificationLeavesPendingWhenSupervisorDisabledAndNoTe
   const supervisor = await loadSupervisor()
   const workspace = workspaceFixture({
     sprintEngineAutoState: {
-      supervisorEnabled: false,
-      enabled: false,
-      autoApproveArtifacts: true,
       keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
@@ -2018,9 +2010,8 @@ async function testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt(): P
       'code_reviewer': sprintAgent('code_reviewer', 'Code Reviewer'),
     },
     sprintEngineAutoState: {
-      supervisorEnabled: true,
-      enabled: true,
-      autoApproveArtifacts: false,
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
       keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
@@ -2144,9 +2135,8 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
       'developer-1': sprintAgent('developer-1', 'Perry'),
     },
     sprintEngineAutoState: {
-      supervisorEnabled: true,
-      enabled: true,
-      autoApproveArtifacts: false,
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
       keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
@@ -2244,9 +2234,8 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
       },
     },
     sprintEngineAutoState: {
-      supervisorEnabled: true,
-      enabled: true,
-      autoApproveArtifacts: false,
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
       keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
@@ -2337,9 +2326,8 @@ async function testSuperviseRunnerCycleDoesNotRestartUnresolvedNeedsInputOwner()
       },
     },
     sprintEngineAutoState: {
-      supervisorEnabled: true,
-      enabled: true,
-      autoApproveArtifacts: false,
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
       keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 1,
@@ -2442,9 +2430,8 @@ async function testSuperviseRunnerCycleStartsReviewGateWhenUnrelatedAgentNeedsIn
       'code_reviewer': sprintAgent('code_reviewer', 'Code Reviewer'),
     },
     sprintEngineAutoState: {
-      supervisorEnabled: true,
-      enabled: true,
-      autoApproveArtifacts: false,
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
       keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
@@ -2537,9 +2524,8 @@ async function testSuperviseRunnerCycleDoesNotMutateTaskOrGateState(): Promise<v
       'code_reviewer': sprintAgent('code_reviewer', 'Code Reviewer'),
     },
     sprintEngineAutoState: {
-      supervisorEnabled: true,
-      enabled: true,
-      autoApproveArtifacts: false,
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
       keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
@@ -2652,18 +2638,17 @@ function testStartupPromptIsMcpNative(): void {
   assert.ok(!prompt.includes('SPRINTENGINE_STATE_PATH'), 'startup prompt must not reference env-based managed routing')
   assert.ok(!prompt.includes('SPRINTENGINE_WORKSPACE_ROOT'), 'startup prompt must not reference env-based managed routing')
   assert.ok(!prompt.includes('launch env'), 'startup prompt must describe run-context routing, not launch-env routing')
-  assert.ok(prompt.includes('directiveType'), 'startup prompt documents the directive contract field names')
+  assert.ok(prompt.includes('sprintengine.help'), 'startup prompt directs agents to read MCP-owned workflow help first')
   assert.ok(prompt.includes('nextMcpToolName') && prompt.includes('nextMcpArguments'), 'startup prompt names the directive routing fields')
   assert.ok(!prompt.includes('retryAfterMs'), 'startup prompt does not instruct Multicode agents to use retryAfterMs')
   assert.doesNotMatch(prompt, /sleep .*sprintengine\.agent\.next_directive/iu, 'startup prompt does not define an idle sleep/retry loop')
-  assert.ok(prompt.includes('sprintengine.task.next'), 'startup prompt references the MCP task-next tool')
-  assert.ok(prompt.includes('sprintengine.gate.next'), 'startup prompt references the MCP gate-next tool')
-  assert.ok(prompt.includes('sprintengine.triage.needs_input'), 'startup prompt references the MCP triage tool')
-  assert.ok(prompt.includes('sprintengine.task.publish'), 'startup prompt references the MCP publish tool')
-  assert.ok(prompt.includes('sprintengine.gate.verdict'), 'startup prompt references the MCP gate verdict tool')
-  assert.ok(prompt.includes('sprintengine.artifact.add'), 'startup prompt references the MCP artifact add tool')
-  assert.ok(prompt.includes('sprintengine.task.status'), 'startup prompt references the MCP task status tool for needs_input transitions')
-  assert.ok(prompt.includes('needsInputKind') && prompt.includes('needsInputReason'), 'startup prompt names the needs_input payload fields')
+  assert.ok(!prompt.includes('sprintengine.task.next'), 'startup prompt does not inline MCP task workflow details')
+  assert.ok(!prompt.includes('sprintengine.gate.next'), 'startup prompt does not inline MCP gate workflow details')
+  assert.ok(!prompt.includes('sprintengine.triage.needs_input'), 'startup prompt does not inline MCP triage workflow details')
+  assert.ok(!prompt.includes('sprintengine.task.publish'), 'startup prompt does not inline MCP publish workflow details')
+  assert.ok(!prompt.includes('sprintengine.gate.verdict'), 'startup prompt does not inline MCP gate verdict workflow details')
+  assert.ok(!prompt.includes('sprintengine.artifact.add'), 'startup prompt does not inline MCP artifact workflow details')
+  assert.ok(!prompt.includes('needsInputKind') && !prompt.includes('needsInputReason'), 'startup prompt does not inline needs_input payload details')
   assert.ok(prompt.includes('multicode-sprintengine'), 'startup prompt names the managed MCP server entry')
   assert.ok(
     !/sprintengine (join|task|gate|triage|init|handover)/.test(prompt),
@@ -3639,7 +3624,7 @@ function testDeriveAutomationModeTrustsLocalAutoStateOverRunnerPolicy(): void {
   // the previous automation mode. See sprintengineAutomation.ts for the full
   // rationale.
 
-  const manualAutoState = { supervisorEnabled: false, enabled: false, autoApproveArtifacts: false }
+  const manualAutoState = { desiredMode: 'manual' as const, runtimeState: 'idle' as const }
   const runnerAuto = { cliWatchPolling: 'enabled' as const, pollIntervalSeconds: 10, idleBackoffSeconds: 30, maxBackoffSeconds: 120, stopWhenComplete: true }
   const runnerOff = { cliWatchPolling: 'disabled' as const, pollIntervalSeconds: 10, idleBackoffSeconds: 30, maxBackoffSeconds: 120, stopWhenComplete: true }
 
@@ -3657,14 +3642,14 @@ function testDeriveAutomationModeTrustsLocalAutoStateOverRunnerPolicy(): void {
     'local manual autoState yields manual when runner.cliWatchPolling is also disabled'
   )
   assert.equal(
-    derive({ supervisorEnabled: true, enabled: true, autoApproveArtifacts: false }, runnerOff),
+    derive({ desiredMode: 'run_agents', runtimeState: 'running' }, runnerOff),
     'run_agents',
-    'local auto autoState yields run_agents even when run.yaml runner.cliWatchPolling is still disabled (pre-persistence)'
+    'local auto autoState yields run_agents even when run.yaml runner.cliWatchPolling is still disabled'
   )
   assert.equal(
-    derive({ supervisorEnabled: true, enabled: true, autoApproveArtifacts: true }, runnerOff),
+    derive({ desiredMode: 'run_agents_and_approve_artifacts', runtimeState: 'running' }, runnerOff),
     'run_agents_and_approve_artifacts',
-    'autoApproveArtifacts trumps run_agents regardless of runner.cliWatchPolling'
+    'explicit approval mode wins regardless of runner.cliWatchPolling'
   )
 }
 

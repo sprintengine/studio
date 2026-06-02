@@ -1161,8 +1161,8 @@ async function testSprintEngineWorkspaceCreationAutoRunPromptContinuesToJoin() {
     sourceContent: '# Auto Run Plan',
     sourcePlanKind: 'architect_plan',
     sprintEngineAutoState: {
-      enabled: true,
-      autoApproveArtifacts: true,
+      desiredMode: 'run_agents_and_approve_artifacts',
+      runtimeState: 'running',
     },
     pathExists: async (path) => {
       assert.equal(path, 'C:\\repo\\.multi-code\\sprintengine\\auto-run-sprint\\run.yaml')
@@ -1179,8 +1179,8 @@ async function testSprintEngineWorkspaceCreationAutoRunPromptContinuesToJoin() {
   assert.equal(prompt.includes('"role": "architect"'), true)
   assert.equal(prompt.includes('"agentId": "architect"'), true)
   assert.equal(prompt.includes('only creates the first architect task'), true)
-  assert.equal(createdWorkspace.sprintEngineAutoState?.enabled, true)
-  assert.equal(createdWorkspace.sprintEngineAutoState?.autoApproveArtifacts, true)
+  assert.equal(createdWorkspace.sprintEngineAutoState?.desiredMode, 'run_agents_and_approve_artifacts')
+  assert.equal(createdWorkspace.sprintEngineAutoState?.runtimeState, 'running')
 }
 
 async function testSprintEngineWorkspaceCreationGuidesSingleContextBundle() {

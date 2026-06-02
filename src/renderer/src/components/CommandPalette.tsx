@@ -116,7 +116,6 @@ export default function CommandPalette({
           { id: 'sprintengine.goto.inbox', label: 'Sprint Engine: Inbox', run: runPanel('sprintengine.goto.inbox') },
           { id: 'sprintengine.goto.roster', label: 'Sprint Engine: Roster', run: runPanel('sprintengine.goto.roster') },
           { id: 'sprintengine.goto.tasks', label: 'Sprint Engine: Tasks', run: runPanel('sprintengine.goto.tasks') },
-          { id: 'sprintengine.goto.activity', label: 'Sprint Engine: Activity', run: runPanel('sprintengine.goto.activity') },
           { id: 'sprintengine.goto.graph', label: 'Sprint Engine: Tasks → Graph layout', run: runPanel('sprintengine.goto.graph') },
           { id: 'sprintengine.goto.kanban', label: 'Sprint Engine: Tasks → Kanban layout', run: runPanel('sprintengine.goto.kanban') },
           { id: 'sprintengine.open.settings', label: 'Sprint Engine: Settings', shortcut: '⌘ ,', run: runPanel('sprintengine.open.settings') },

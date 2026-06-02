@@ -1,5 +1,6 @@
 import { useEffect, useRef, type MutableRefObject } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { workspaceSyncClient } from '../../store/workspaceSyncClient'
 import type {
   AgentCli,
   CliRuntimeSettings,
@@ -186,6 +187,13 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
     const preserveSessionId = canResume || agentCliUsesStableSessionIdForResume(agent.cli)
     useWorkspaceStore.getState().updateAgent(workspace.id, agent.id, {
       cliSessionId: preserveSessionId ? agent.cliSessionId : undefined,
+      cliStartRequested: preserveSessionId,
+      cliHasLaunched: preserveSessionId,
+      cliOnboardingPromptSent: false,
+      cliResumeAvailable: canResume ? agent.cliResumeAvailable ?? true : false,
+    })
+    void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, agent.id, {
+      cliSessionId: preserveSessionId ? agent.cliSessionId : null,
       cliStartRequested: preserveSessionId,
       cliHasLaunched: preserveSessionId,
       cliOnboardingPromptSent: false,
@@ -428,6 +436,14 @@ async function spawnMultiloopAutoRunCandidate(
       latestState.setMultiloopAutoEnabled(workspace.id, false)
       latestState.setMultiloopAutoPendingSpawns(workspace.id, [])
       latestState.updateAgent(workspace.id, candidate.agentId, {
+        cliSessionId: undefined,
+        cliStartRequested: true,
+        cliHasLaunched: false,
+        cliOnboardingPromptSent: false,
+        cliResumeAvailable: false,
+      })
+      void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, candidate.agentId, {
+        cliSessionId: null,
         cliStartRequested: true,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
@@ -459,6 +475,11 @@ async function spawnMultiloopAutoRunCandidate(
       return 'failed'
     }
 
+    void workspaceSyncClient.dispatchAssignTerminalSession(workspace.id, candidate.agentId, sessionId, selectedCli)
+    void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, candidate.agentId, {
+      cliOnboardingPromptSent: true,
+      cliResumeAvailable: agentCliSupportsConversationResume(selectedCli),
+    })
     revealMultiloopAgentTerminal(workspace.id, candidate.agentId, candidate.label)
     return 'started'
   } finally {

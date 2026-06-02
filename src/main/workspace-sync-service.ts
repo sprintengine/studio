@@ -4,10 +4,11 @@ import {
   type WorkspaceSyncCommandResult,
   type WorkspaceSyncEvent,
   type WorkspaceSyncEventType,
+  type WorkspaceSyncRoutingSnapshot,
   type WorkspaceSyncSnapshot,
   type WorkspaceSyncState,
 } from '../shared/workspace-sync'
-import type { Workspace } from '../renderer/src/types/workspace'
+import type { Workspace, WorkspaceId, WorkspaceWindowState } from '../renderer/src/types/workspace'
 
 const DEFAULT_PRIMARY_WINDOW_ID = 'primary'
 const MAX_REPLAY_EVENTS = 500
@@ -19,8 +20,12 @@ type DispatchInput = {
 
 type WorkspaceSyncServiceOptions = {
   initialSnapshot?: WorkspaceSyncSnapshot
+  initialRoutingSnapshot?: WorkspaceSyncRoutingSnapshot
   maxReplayEvents?: number
   now?: () => number
+  persistDebounceMs?: number
+  persistRoutingSnapshot?: (snapshot: WorkspaceSyncRoutingSnapshot) => void | Promise<void>
+  logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
 }
 
 export type WorkspaceSyncService = ReturnType<typeof createWorkspaceSyncService>
@@ -28,12 +33,16 @@ export type WorkspaceSyncService = ReturnType<typeof createWorkspaceSyncService>
 export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions = {}) {
   const maxReplayEvents = Math.max(1, Math.floor(options.maxReplayEvents ?? MAX_REPLAY_EVENTS))
   const now = options.now ?? Date.now
-  const initialSequence = options.initialSnapshot?.sequence ?? 0
+  const initialSequence = options.initialSnapshot?.sequence ?? options.initialRoutingSnapshot?.sequence ?? 0
   let state: WorkspaceSyncState = options.initialSnapshot
     ? snapshotToState(options.initialSnapshot)
+    : options.initialRoutingSnapshot
+      ? routingSnapshotToState(options.initialRoutingSnapshot)
     : createEmptyState(initialSequence)
   let nextSequence = initialSequence + 1
   const events: WorkspaceSyncEvent[] = []
+  let pendingPersistTimer: ReturnType<typeof setTimeout> | null = null
+  let pendingPersistPromise: Promise<void> = Promise.resolve()
 
   function getSnapshot(): WorkspaceSyncSnapshot {
     return stateToSnapshot(state)
@@ -61,7 +70,7 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions 
       sourceWindowId,
       sequence: nextSequence,
       createdAt: now(),
-      payload: clone(validation.command.payload),
+      payload: eventPayloadForCommand(validation.command, state),
     } as WorkspaceSyncEvent
 
     const applied = applyWorkspaceSyncEvent(state, event)
@@ -73,13 +82,53 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions 
     state = applied.state
     events.push(event)
     if (events.length > maxReplayEvents) events.splice(0, events.length - maxReplayEvents)
+    schedulePersist()
     return { ok: true, event: clone(event) }
+  }
+
+  async function flushRoutingSnapshot(): Promise<void> {
+    if (pendingPersistTimer) {
+      clearTimeout(pendingPersistTimer)
+      pendingPersistTimer = null
+    }
+    await persistRoutingSnapshotNow()
+    await pendingPersistPromise
   }
 
   return {
     dispatch,
+    flushRoutingSnapshot,
     getEventsAfter,
     getSnapshot,
+  }
+
+  function schedulePersist(): void {
+    if (!options.persistRoutingSnapshot) return
+    if (pendingPersistTimer) clearTimeout(pendingPersistTimer)
+    pendingPersistTimer = setTimeout(() => {
+      pendingPersistTimer = null
+      void persistRoutingSnapshotNow()
+    }, Math.max(0, Math.floor(options.persistDebounceMs ?? 250)))
+  }
+
+  function persistRoutingSnapshotNow(): Promise<void> {
+    if (!options.persistRoutingSnapshot) return pendingPersistPromise
+    const snapshot = stateToRoutingSnapshot(state)
+    pendingPersistPromise = pendingPersistPromise
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await options.persistRoutingSnapshot!(snapshot)
+        } catch (error) {
+          options.logDiagnostic?.({
+            level: 'warning',
+            title: 'Workspace sync routing snapshot write failed',
+            message: 'Unable to persist the workspace sync routing snapshot.',
+            details: error instanceof Error ? error.message : 'unknown_write_error',
+          })
+        }
+      })
+    return pendingPersistPromise
   }
 }
 
@@ -116,11 +165,110 @@ function snapshotToState(snapshot: WorkspaceSyncSnapshot): WorkspaceSyncState {
   }
 }
 
+function routingSnapshotToState(snapshot: WorkspaceSyncRoutingSnapshot): WorkspaceSyncState {
+  const workspaceWindows = normalizeRoutingWindows(snapshot.workspaceWindows, snapshot.primaryWorkspaceWindowId)
+  const workspaceIds = Array.from(
+    new Set(
+      workspaceWindows.flatMap((windowState) => [
+        ...windowState.workspaceIds,
+        ...(windowState.activeWorkspaceId ? [windowState.activeWorkspaceId] : []),
+      ])
+    )
+  )
+  return {
+    activeWorkspaceId: workspaceWindows.find((windowState) => windowState.id === snapshot.primaryWorkspaceWindowId)?.activeWorkspaceId ?? null,
+    lastAppliedWorkspaceSyncSequence: snapshot.sequence,
+    primaryWorkspaceWindowId: snapshot.primaryWorkspaceWindowId,
+    workspaces: workspaceIds.map(createRoutingPlaceholderWorkspace),
+    workspaceWindows,
+  }
+}
+
 function stateToSnapshot(state: WorkspaceSyncState): WorkspaceSyncSnapshot {
   const { lastAppliedWorkspaceSyncSequence: sequence, ...snapshotState } = state
   return {
     sequence,
     state: clone(snapshotState),
+  }
+}
+
+function stateToRoutingSnapshot(state: WorkspaceSyncState): WorkspaceSyncRoutingSnapshot {
+  return {
+    sequence: state.lastAppliedWorkspaceSyncSequence,
+    primaryWorkspaceWindowId: state.primaryWorkspaceWindowId,
+    workspaceWindows: state.workspaceWindows.map((windowState) => ({
+      ...windowState,
+      workspaceIds: [...windowState.workspaceIds],
+      bounds: windowState.bounds ? { ...windowState.bounds } : null,
+    })),
+  }
+}
+
+function normalizeRoutingWindows(
+  workspaceWindows: WorkspaceWindowState[],
+  primaryWorkspaceWindowId: string
+): WorkspaceWindowState[] {
+  const windows: WorkspaceWindowState[] = workspaceWindows
+    .filter((windowState) => normalizeId(windowState.id))
+    .map((windowState) => {
+      const workspaceIds = Array.from(new Set(windowState.workspaceIds.filter((workspaceId) => normalizeId(workspaceId))))
+      const activeWorkspaceId = windowState.activeWorkspaceId && workspaceIds.includes(windowState.activeWorkspaceId)
+        ? windowState.activeWorkspaceId
+        : workspaceIds[0] ?? null
+      const kind: WorkspaceWindowState['kind'] = windowState.id === primaryWorkspaceWindowId ? 'primary' : 'detached'
+      return {
+        ...windowState,
+        kind,
+        workspaceIds,
+        activeWorkspaceId,
+        bounds: windowState.bounds ? { ...windowState.bounds } : null,
+      }
+    })
+  if (!windows.some((windowState) => windowState.id === primaryWorkspaceWindowId)) {
+    windows.unshift({
+      id: primaryWorkspaceWindowId,
+      kind: 'primary',
+      workspaceIds: [],
+      activeWorkspaceId: null,
+      bounds: null,
+      isMaximized: false,
+      displayId: null,
+      createdAt: 0,
+      lastFocusedAt: 0,
+    })
+  }
+  return windows
+}
+
+function createRoutingPlaceholderWorkspace(id: WorkspaceId): Workspace {
+  return {
+    id,
+    name: id,
+    mode: 'standard',
+    folderPath: null,
+    templateId: 'workspace-sync-routing-placeholder',
+    layoutModel: { global: {}, borders: [], layout: { type: 'row', children: [] } },
+    agents: {},
+    worktreeState: { containerPath: null, entries: {}, updatedAt: null },
+    memory: { relativeRoot: null },
+    editorState: { openFiles: [], activeFilePath: null },
+    sprintEngineState: null,
+    sprintEngineAutoState: {
+      desiredMode: 'manual',
+      runtimeState: 'idle',
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 0,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+    multiloopAutoState: {
+      enabled: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 0,
+      pendingSpawns: [],
+    },
+    createdAt: 0,
   }
 }
 
@@ -139,7 +287,7 @@ function validateCommand(input: unknown, state: WorkspaceSyncState, sourceWindow
     case 'workspace.move_to_window':
       return validateMoveToWindow(input.payload, state, sourceWindowId)
     case 'workspace_window.update_placement':
-      return validatePlacement(input.payload, sourceWindowId)
+      return validatePlacement(input.payload, state, sourceWindowId)
     case 'workspace_window.close':
       return validateWindowClose(input.payload, state, sourceWindowId)
     case 'workspace.created':
@@ -213,11 +361,18 @@ function validateMoveToWindow(
   }
 }
 
-function validatePlacement(payload: Record<string, unknown>, sourceWindowId: string): ValidationResult {
+function validatePlacement(
+  payload: Record<string, unknown>,
+  state: WorkspaceSyncState,
+  sourceWindowId: string
+): ValidationResult {
   const windowId = normalizeId(payload.windowId)
   if (!windowId) return reject('invalid_window_id', 'Placement commands require a window id.')
   if (windowId !== sourceWindowId) {
     return reject('window_authority_mismatch', `Window "${sourceWindowId}" cannot update placement for window "${windowId}".`)
+  }
+  if (!state.workspaceWindows.some((candidate) => candidate.id === windowId)) {
+    return reject('unknown_window', `Window "${windowId}" is not known to workspace sync.`)
   }
   const bounds = payload.bounds
   if (bounds !== null && !isBounds(bounds)) {
@@ -281,6 +436,9 @@ function validateWorkspaceCreated(
   if (windowId !== sourceWindowId) {
     return reject('window_authority_mismatch', `Window "${sourceWindowId}" cannot create a workspace in window "${windowId}".`)
   }
+  if (!state.workspaceWindows.some((candidate) => candidate.id === windowId)) {
+    return reject('unknown_window', `Window "${windowId}" is not known to workspace sync.`)
+  }
   if (state.workspaces.some((workspace) => workspace.id === workspaceId)) {
     return reject('workspace_already_exists', `Workspace "${workspaceId}" already exists.`)
   }
@@ -343,6 +501,12 @@ function validateLaunchState(
     workspaceId,
     agentId,
   }
+  if (payload.cliSessionId !== undefined) {
+    if (payload.cliSessionId !== null && !normalizeId(payload.cliSessionId)) {
+      return reject('invalid_terminal_launch_payload', 'Terminal launch state field "cliSessionId" must be a non-empty string or null when provided.')
+    }
+    commandPayload.cliSessionId = payload.cliSessionId === null ? null : normalizeId(payload.cliSessionId)
+  }
   for (const key of ['cliStartRequested', 'cliHasLaunched', 'cliOnboardingPromptSent', 'cliResumeAvailable'] as const) {
     if (payload[key] !== undefined) {
       if (typeof payload[key] !== 'boolean') {
@@ -368,6 +532,21 @@ function validateSourceWindowOwnsWorkspace(
     return reject('workspace_not_in_source_window', `Workspace "${workspaceId}" is not assigned to source window "${sourceWindowId}".`)
   }
   return { ok: true, command: { type: 'workspace_window.set_active', payload: { windowId: sourceWindowId, workspaceId } } }
+}
+
+// Most accepted events carry the validated command payload verbatim. The close
+// event additionally records the workspace ids the fallback window inherits,
+// computed from the closing window's current membership in the service snapshot
+// (the same set the reducer routes to the fallback).
+function eventPayloadForCommand(command: WorkspaceSyncCommand, state: WorkspaceSyncState): unknown {
+  if (command.type === 'workspace_window.close') {
+    const closing = state.workspaceWindows.find((windowState) => windowState.id === command.payload.windowId)
+    return {
+      ...clone(command.payload),
+      movedWorkspaceIds: closing ? [...closing.workspaceIds] : [],
+    }
+  }
+  return clone(command.payload)
 }
 
 function eventTypeForCommand(command: WorkspaceSyncCommand): WorkspaceSyncEventType {

@@ -293,6 +293,7 @@ export async function startGuidedBriefSpecialistSession(
     {
       kind: 'agent',
       agentId: `guided-brief-${input.kind}`,
+      ...(input.kind === 'designer' ? { cliPermissionPreset: 'bypass_all' as const } : {}),
       visible: true,
     },
   ).catch((error): TerminalSpawnResult => ({

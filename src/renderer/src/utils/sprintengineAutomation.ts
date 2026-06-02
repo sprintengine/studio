@@ -3,6 +3,7 @@ import type {
   SprintEngineAutomationMode,
   SprintEngineRunnerPolicy,
 } from '../types/workspace'
+import { deriveSprintEngineAutomationDesiredMode } from './sprintengineAutomationLifecycle'
 
 export const sprintEngineAutomationModeOptions: Array<{
   value: SprintEngineAutomationMode
@@ -40,9 +41,7 @@ export function deriveSprintEngineAutomationMode(
   // persisted runner mode in one explicit place.
   _runnerPolicy?: SprintEngineRunnerPolicy | null,
 ): SprintEngineAutomationMode {
-  if (autoState?.autoApproveArtifacts) return 'run_agents_and_approve_artifacts'
-  if (autoState?.supervisorEnabled || autoState?.enabled) return 'run_agents'
-  return 'manual'
+  return deriveSprintEngineAutomationDesiredMode(autoState)
 }
 
 export function sprintEngineCliWatchPollingForAutomationMode(
@@ -62,9 +61,13 @@ export function patchSprintEngineAutoStateForMode(
   const enabled = mode !== 'manual'
   return {
     ...current,
-    supervisorEnabled: enabled,
-    enabled,
-    autoApproveArtifacts: mode === 'run_agents_and_approve_artifacts',
+    desiredMode: mode,
+    runtimeState: enabled ? 'running' : 'idle',
+    reason: enabled ? undefined : 'user_selected_manual',
+    reasonMessage: enabled ? undefined : 'Switched to manual mode by the user.',
+    reasonTaskId: undefined,
+    reasonAgentId: undefined,
+    changedAt: Date.now(),
     pendingSpawns: enabled ? current.pendingSpawns : [],
   }
 }

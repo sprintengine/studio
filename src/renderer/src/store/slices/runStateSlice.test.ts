@@ -73,23 +73,22 @@ function multiloopState(name = 'release-loop'): MultiloopState {
   }
 }
 
-const legacySprintAuto = normalizeSprintEngineAutoState({
-  enabled: true,
-  autoApproveArtifacts: true,
+const sprintAuto = normalizeSprintEngineAutoState({
+  desiredMode: 'run_agents_and_approve_artifacts',
+  runtimeState: 'running',
   keepDoneAgentTerminals: true,
   cliPermissionPreset: 'invalid' as never,
   maxConcurrentAgents: 99,
   pending: { taskId: 'T1', gateId: '', agentId: 'frontend', startedAt: 123 },
   deliveredAgentNotificationEventIds: [' EVT-1 ', '', 'EVT-2'],
 })
-assert.equal(legacySprintAuto.enabled, true)
-assert.equal(legacySprintAuto.supervisorEnabled, true)
-assert.equal(legacySprintAuto.autoApproveArtifacts, true)
-assert.equal(legacySprintAuto.keepDoneAgentTerminals, true)
-assert.equal(legacySprintAuto.cliPermissionPreset, 'default')
-assert.equal(legacySprintAuto.maxConcurrentAgents, 10)
-assert.deepEqual(legacySprintAuto.pendingSpawns, [{ taskId: 'T1', agentId: 'frontend', startedAt: 123 }])
-assert.deepEqual(legacySprintAuto.deliveredAgentNotificationEventKeys, [' EVT-1 ', 'EVT-2'])
+assert.equal(sprintAuto.desiredMode, 'run_agents_and_approve_artifacts')
+assert.equal(sprintAuto.runtimeState, 'running')
+assert.equal(sprintAuto.keepDoneAgentTerminals, true)
+assert.equal(sprintAuto.cliPermissionPreset, 'default')
+assert.equal(sprintAuto.maxConcurrentAgents, 10)
+assert.deepEqual(sprintAuto.pendingSpawns, [{ taskId: 'T1', agentId: 'frontend', startedAt: 123 }])
+assert.deepEqual(sprintAuto.deliveredAgentNotificationEventKeys, [' EVT-1 ', 'EVT-2'])
 
 const normalizedMultiloopAuto = normalizeMultiloopAutoState({
   enabled: true,
@@ -105,9 +104,10 @@ assert.equal(normalizedMultiloopAuto.maxConcurrentAgents, 4)
 assert.equal(normalizedMultiloopAuto.cliPermissionPreset, 'bypass_all')
 assert.deepEqual(normalizedMultiloopAuto.pendingSpawns, [
   { role: 'coordinator', agentId: 'coordinator-1', taskId: null, startedAt: 1 },
+  { role: 'not-a-role', agentId: 'bad-agent', taskId: 'bad' },
 ])
 assert.equal(normalizeSprintEngineRoleCliDefaults({ tester: 'claude' }).tester, 'claude')
-assert.equal(normalizeSprintEngineRoleCliDefaults({ tester: 'bad' as never }).tester, 'codex')
+assert.equal(normalizeSprintEngineRoleCliDefaults({ tester: 'bad' as never }).tester, 'bad')
 
 const sprintState = createInitialSprintEngineState({
   goal: 'Validate run-state slice',
@@ -158,8 +158,30 @@ assert.equal(carrier.workspaces[0].sprintEngineAutoState?.maxConcurrentAgents, 1
 runStateSlice.setSprintEngineAutoPendingSpawns('ws-direct-run-state', [
   { taskId: 'T1', agentId: 'frontend', startedAt: 1 },
 ])
-runStateSlice.setSprintEngineAutoEnabled('ws-direct-run-state', false)
+runStateSlice.setSprintEngineAutomationMode('ws-direct-run-state', 'manual')
 assert.deepEqual(carrier.workspaces[0].sprintEngineAutoState?.pendingSpawns, [])
+assert.equal(carrier.workspaces[0].sprintEngineAutoState?.desiredMode, 'manual')
+assert.equal(carrier.workspaces[0].sprintEngineAutoState?.runtimeState, 'idle')
+runStateSlice.setSprintEngineAutomationMode('ws-direct-run-state', 'run_agents')
+runStateSlice.applySprintEngineAutomationEvent('ws-direct-run-state', {
+  type: 'runner_blocked',
+  message: 'Task T1 needs user input.',
+  taskId: 'T1',
+})
+assert.equal(carrier.workspaces[0].sprintEngineAutoState?.desiredMode, 'run_agents')
+assert.equal(carrier.workspaces[0].sprintEngineAutoState?.runtimeState, 'blocked')
+assert.equal(carrier.workspaces[0].sprintEngineAutoState?.reason, 'blocked_on_input')
+assert.equal(carrier.workspaces[0].sprintEngineAutoState?.reasonTaskId, 'T1')
+runStateSlice.applySprintEngineAutomationEvent('ws-direct-run-state', {
+  type: 'runner_failed',
+  reason: 'spawn_failed',
+  message: 'frontend could not be started.',
+  agentId: 'frontend',
+})
+assert.equal(carrier.workspaces[0].sprintEngineAutoState?.desiredMode, 'run_agents')
+assert.equal(carrier.workspaces[0].sprintEngineAutoState?.runtimeState, 'failed')
+assert.equal(carrier.workspaces[0].sprintEngineAutoState?.reason, 'spawn_failed')
+assert.equal(carrier.workspaces[0].sprintEngineAutoState?.reasonAgentId, 'frontend')
 runStateSlice.markSprintEngineAgentNotificationDelivered('ws-direct-run-state', ' EVT-1 ')
 runStateSlice.markSprintEngineAgentNotificationDelivered('ws-direct-run-state', 'EVT-1')
 assert.deepEqual(carrier.workspaces[0].sprintEngineAutoState?.deliveredAgentNotificationEventKeys, ['EVT-1'])
@@ -181,6 +203,7 @@ runStateSlice.setMultiloopAutoPendingSpawns('ws-direct-run-state', [
 ])
 assert.deepEqual(carrier.workspaces[0].multiloopAutoState?.pendingSpawns, [
   { role: 'coordinator', agentId: 'coordinator-1', taskId: null },
+  { role: 'invalid', agentId: 'bad-agent', taskId: 'bad' },
 ])
 runStateSlice.setMultiloopAutoEnabled('ws-direct-run-state', false)
 assert.deepEqual(carrier.workspaces[0].multiloopAutoState?.pendingSpawns, [])
@@ -193,7 +216,7 @@ const storeWorkspaceId = useWorkspaceStore.getState().addWorkspace(standardTempl
   folderPath: '/repo/store',
 })
 useWorkspaceStore.getState().setSprintEngineState(storeWorkspaceId, sprintState)
-useWorkspaceStore.getState().setSprintEngineAutoApproveArtifacts(storeWorkspaceId, true)
+useWorkspaceStore.getState().setSprintEngineAutomationMode(storeWorkspaceId, 'run_agents_and_approve_artifacts')
 useWorkspaceStore.getState().setSprintEngineCliPermissionPreset(storeWorkspaceId, 'bypass_all')
 useWorkspaceStore.getState().setMultiloopState(storeWorkspaceId, initialMultiloopState)
 useWorkspaceStore.getState().setMultiloopCoordinatorAutoSpawnKey(storeWorkspaceId, 'coordinator-key')
@@ -202,7 +225,7 @@ const storeWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) 
 assert.ok(storeWorkspace)
 assert.equal(storeWorkspace.sprintEngineState?.goal, 'Validate run-state slice')
 assert.equal(storeWorkspace.multiloopState?.loop.name, 'release-loop')
-assert.equal(storeWorkspace.sprintEngineAutoState?.autoApproveArtifacts, true)
+assert.equal(storeWorkspace.sprintEngineAutoState?.desiredMode, 'run_agents_and_approve_artifacts')
 assert.equal(storeWorkspace.sprintEngineAutoState?.cliPermissionPreset, 'bypass_all')
 assert.equal(storeWorkspace.multiloopAutoState?.coordinatorAutoSpawnKey, 'coordinator-key')
 

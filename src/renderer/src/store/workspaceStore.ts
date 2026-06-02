@@ -14,6 +14,7 @@ import type {
   AgentId,
   SprintEngineAutoPendingSpawn,
   SprintEngineAutoState,
+  SprintEngineAutomationEvent,
   SprintEngineAutomationMode,
   SprintEngineCliPermissionPreset,
   MultiloopAutoPendingSpawn,
@@ -81,7 +82,21 @@ import {
   createMemorySlice,
   defaultWorkspaceMemoryConfig,
 } from './slices/memorySlice'
-import { normalizeWorkspaceForPartialize } from './slices/normalizers'
+import {
+  normalizeWorkspaceForPartialize,
+  preserveNewerSprintEngineAutomationState,
+} from './slices/normalizers'
+import {
+  configureWorkspaceSyncClient,
+  workspaceSyncClient,
+  type AgentTerminalLaunchStateApply,
+  type AgentTerminalSessionApply,
+  type WorkspaceActiveChangedApply,
+  type WorkspaceClosedApply,
+  type WorkspaceCreatedApply,
+  type WorkspaceMovedApply,
+  type WorkspacePlacementApply,
+} from './workspaceSyncClient'
 import {
   APP_SETTINGS_STORAGE_KEY,
   PRIMARY_WORKSPACE_WINDOW_ID,
@@ -135,6 +150,11 @@ interface WorkspaceStore {
     sourceWindowId?: WorkspaceWindowId | null
   ) => void
   setActiveWorkspaceForWindow: (windowId: WorkspaceWindowId, workspaceId: WorkspaceId) => void
+  applyWorkspaceActiveChangedEvent: (apply: WorkspaceActiveChangedApply) => void
+  applyWorkspaceMovedEvent: (apply: WorkspaceMovedApply) => void
+  applyWorkspaceClosedEvent: (apply: WorkspaceClosedApply) => void
+  applyWorkspacePlacementEvent: (apply: WorkspacePlacementApply) => void
+  applyWorkspaceCreatedEvent: (apply: WorkspaceCreatedApply) => void
   forgetFolder: (folderPath: string) => void
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
@@ -199,6 +219,8 @@ interface WorkspaceStore {
   ) => void
   setFolderMissing: (id: WorkspaceId, folderMissing: boolean) => void
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
+  applyAgentTerminalSessionEvent: (apply: AgentTerminalSessionApply) => void
+  applyAgentTerminalLaunchStateEvent: (apply: AgentTerminalLaunchStateApply) => void
   setAgentExecution: (
     workspaceId: WorkspaceId,
     agentId: AgentId,
@@ -220,9 +242,15 @@ interface WorkspaceStore {
   removeWorktreeEntry: (workspaceId: WorkspaceId, worktreeId: string) => void
   setSprintEngineState: (workspaceId: WorkspaceId, sprintEngineState: SprintEngineState | null) => void
   setMultiloopState: (workspaceId: WorkspaceId, multiloopState: MultiloopState | null) => void
-  setSprintEngineAutomationMode: (workspaceId: WorkspaceId, mode: SprintEngineAutomationMode) => void
-  setSprintEngineAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
-  setSprintEngineAutoApproveArtifacts: (workspaceId: WorkspaceId, autoApproveArtifacts: boolean) => void
+  setSprintEngineAutomationMode: (
+    workspaceId: WorkspaceId,
+    mode: SprintEngineAutomationMode,
+    options?: { suppressManualAudit?: boolean; reason?: string; details?: string }
+  ) => void
+  applySprintEngineAutomationEvent: (
+    workspaceId: WorkspaceId,
+    event: SprintEngineAutomationEvent
+  ) => void
   setSprintEngineKeepDoneAgentTerminals: (workspaceId: WorkspaceId, keepDoneAgentTerminals: boolean) => void
   setSprintEngineCliPermissionPreset: (
     workspaceId: WorkspaceId,
@@ -396,11 +424,66 @@ function getCurrentWorkspaceWindowId(): WorkspaceWindowId {
   }
 }
 
+function preserveAgentTerminalMetadata(incomingWorkspace: Workspace, currentWorkspace: Workspace | undefined): Workspace {
+  if (!currentWorkspace) return incomingWorkspace
+  let changed = false
+  const nextAgents = { ...incomingWorkspace.agents }
+  for (const [agentId, currentAgent] of Object.entries(currentWorkspace.agents)) {
+    if (
+      !currentAgent.cliStartRequested
+      && !currentAgent.cliHasLaunched
+      && !currentAgent.cliSessionId
+      && !currentAgent.cliResumeAvailable
+      && !currentAgent.cliOnboardingPromptSent
+    ) continue
+    const incomingAgent = nextAgents[agentId] ?? defaultAgent(agentId)
+    nextAgents[agentId] = {
+      ...incomingAgent,
+      cliSessionId: currentAgent.cliSessionId,
+      cliStartRequested: currentAgent.cliStartRequested,
+      cliHasLaunched: currentAgent.cliHasLaunched,
+      cliOnboardingPromptSent: currentAgent.cliOnboardingPromptSent,
+      cliResumeAvailable: currentAgent.cliResumeAvailable,
+      cli: currentAgent.cli ?? incomingAgent.cli,
+    }
+    changed = true
+  }
+  return changed ? { ...incomingWorkspace, agents: nextAgents } : incomingWorkspace
+}
+
 function extractRegistryFields(state: Record<string, unknown>): RegistryEnvelopeState {
   return {
     workspaces: state.workspaces,
     activeWorkspaceId: state.activeWorkspaceId,
     workspaceWindows: state.workspaceWindows,
+    primaryWorkspaceWindowId: state.primaryWorkspaceWindowId,
+    workspaceRegistryEmptyState: state.workspaceRegistryEmptyState,
+  }
+}
+
+// The persist `partialize` normalizes the registry portion before it reaches
+// `setItem` — it strips workspace file content and in-memory agent buffers and
+// re-derives window membership. Any code that advances the registry dedup
+// baseline (`lastWrittenRegistrySerialized`) without going through a real
+// persist write must serialize this SAME normalized shape, otherwise a later
+// unrelated `setItem` sees a phantom registry diff and writes the registry.
+// This is the single source of that normalized shape, shared by `partialize`
+// and the imported-event no-echo baseline advance.
+type RegistryFields = Pick<
+  WorkspaceStore,
+  'workspaces' | 'activeWorkspaceId' | 'workspaceWindows' | 'primaryWorkspaceWindowId' | 'workspaceRegistryEmptyState'
+>
+
+function partializeRegistryFields(state: RegistryFields): RegistryFields {
+  return {
+    workspaces: state.workspaces.map(normalizeWorkspaceForPartialize),
+    activeWorkspaceId: state.activeWorkspaceId,
+    workspaceWindows: normalizeWorkspaceWindows(
+      state.workspaces,
+      state.workspaceWindows,
+      state.primaryWorkspaceWindowId,
+      state.activeWorkspaceId,
+    ).windows,
     primaryWorkspaceWindowId: state.primaryWorkspaceWindowId,
     workspaceRegistryEmptyState: state.workspaceRegistryEmptyState,
   }
@@ -979,16 +1062,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         return {
           appSettings: s.appSettings,
           sidebarCollapsed: s.sidebarCollapsed,
-          workspaces: s.workspaces.map(normalizeWorkspaceForPartialize),
-          activeWorkspaceId: s.activeWorkspaceId,
-          workspaceWindows: normalizeWorkspaceWindows(
-            s.workspaces,
-            s.workspaceWindows,
-            s.primaryWorkspaceWindowId,
-            s.activeWorkspaceId,
-          ).windows,
-          primaryWorkspaceWindowId: s.primaryWorkspaceWindowId,
-          workspaceRegistryEmptyState: s.workspaceRegistryEmptyState,
+          ...partializeRegistryFields(s),
         }
       },
       // Hydration diagnostic emission moved to attemptBackupRecovery so the
@@ -1031,6 +1105,7 @@ syncModuleEnablementToMain()
 
 function syncWorkspaceRegistryAcrossWindows(): void {
   if (typeof window === 'undefined') return
+  if (!isStorageEventWorkspaceLiveSyncEnabled()) return
   window.addEventListener('storage', (event) => {
     if (event.key !== WORKSPACE_STORAGE_KEY || !event.newValue) return
     let parsed: { state?: Partial<WorkspaceMigrationState> } | null = null
@@ -1054,9 +1129,16 @@ function syncWorkspaceRegistryAcrossWindows(): void {
         const workspaceWindowId = getCurrentWorkspaceWindowId()
         const currentOwnedWindow = current.workspaceWindows.find((windowState) => windowState.id === workspaceWindowId)
         const incomingOwnedWindow = normalizedWindows.windows.find((windowState) => windowState.id === workspaceWindowId)
-        let nextWorkspaces = incoming.workspaces as Workspace[]
+        const currentWorkspaceById = new Map(current.workspaces.map((workspace) => [workspace.id, workspace] as const))
+        const currentOwnedWorkspaceIds = new Set(currentOwnedWindow?.workspaceIds ?? [])
+        let nextWorkspaces = (incoming.workspaces as Workspace[]).map((workspace) => {
+          const currentWorkspace = currentWorkspaceById.get(workspace.id)
+          const automationSafe = preserveNewerSprintEngineAutomationState(workspace, currentWorkspace)
+          return currentOwnedWorkspaceIds.has(workspace.id)
+            ? preserveAgentTerminalMetadata(automationSafe, currentWorkspace)
+            : automationSafe
+        })
         if (currentOwnedWindow && incomingOwnedWindow) {
-          const currentWorkspaceById = new Map(current.workspaces.map((workspace) => [workspace.id, workspace] as const))
           const preservableWorkspaceIds = new Set(
             currentOwnedWindow.workspaceIds.filter((workspaceId) => incomingOwnedWindow.workspaceIds.includes(workspaceId))
           )
@@ -1090,7 +1172,12 @@ function syncWorkspaceRegistryAcrossWindows(): void {
               ? current.workspaceRegistryEmptyState
               : incoming.workspaceRegistryEmptyState,
         }
-        appliedRegistrySerialized = JSON.stringify(extractRegistryFields(nextState as unknown as Record<string, unknown>))
+        // Advance the dedup baseline with the SAME normalized shape partialize
+        // feeds setItem. nextWorkspaces can reuse live workspace objects (with
+        // file content / in-memory buffers) for preserved ids, so serializing
+        // the raw state here would differ from the normalized partialized form
+        // and let a later unrelated write re-emit this imported registry.
+        appliedRegistrySerialized = JSON.stringify(partializeRegistryFields(nextState))
         return nextState
       })
     } finally {
@@ -1102,6 +1189,67 @@ function syncWorkspaceRegistryAcrossWindows(): void {
   })
 }
 syncWorkspaceRegistryAcrossWindows()
+
+function isStorageEventWorkspaceLiveSyncEnabled(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    if (window.localStorage.getItem('multicode.workspaceStorageLiveSync') === '1') return true
+  } catch {
+    // Dev/rollback flag read is best-effort.
+  }
+  return import.meta.env.DEV && import.meta.env.VITE_MULTICODE_WORKSPACE_STORAGE_LIVE_SYNC === '1'
+}
+
+// Wire the main-mediated workspace sync bus. The client dispatches active
+// selection commands and applies accepted/broadcast active_changed events to
+// the store. Storage-event sync above remains the functional rollback path.
+function initWorkspaceSyncClient(): void {
+  if (typeof window === 'undefined') return
+  // Applying an imported (accepted or broadcast) event must not re-emit a live
+  // command. Each apply runs under `suppressNextPersistWrite` so it mutates the
+  // in-memory store but does not write the registry to localStorage — without
+  // this, the application would persist the full registry and another window's
+  // storage listener would import routing/active wholesale, echoing the event
+  // back and potentially flipping a window that the event did not target
+  // (AC5/AC6 of the active path; the same hazard applies to move/close/
+  // placement). The change still reaches other windows through the source
+  // renderer's own persisted user-action write, so suppression only removes the
+  // echo. Suppressing the immediate write is not enough on its own: the registry
+  // dedup baseline (`lastWrittenRegistrySerialized`) must also advance to the
+  // post-apply state, or the next unrelated persisted mutation (e.g.
+  // setSidebarCollapsed) would detect a phantom registry diff and serialize the
+  // imported snapshot later. The baseline uses the SAME normalized shape
+  // `partialize` feeds setItem, so this reuses partializeRegistryFields.
+  const applyImportedSyncEvent = (apply: () => void): void => {
+    suppressNextPersistWrite = true
+    try {
+      apply()
+    } finally {
+      suppressNextPersistWrite = false
+    }
+    lastWrittenRegistrySerialized = JSON.stringify(
+      partializeRegistryFields(useWorkspaceStore.getState()),
+    )
+  }
+  configureWorkspaceSyncClient({
+    applyActiveChanged: (apply: WorkspaceActiveChangedApply) =>
+      applyImportedSyncEvent(() => useWorkspaceStore.getState().applyWorkspaceActiveChangedEvent(apply)),
+    applyWorkspaceMoved: (apply: WorkspaceMovedApply) =>
+      applyImportedSyncEvent(() => useWorkspaceStore.getState().applyWorkspaceMovedEvent(apply)),
+    applyWorkspaceClosed: (apply: WorkspaceClosedApply) =>
+      applyImportedSyncEvent(() => useWorkspaceStore.getState().applyWorkspaceClosedEvent(apply)),
+    applyWorkspacePlacement: (apply: WorkspacePlacementApply) =>
+      applyImportedSyncEvent(() => useWorkspaceStore.getState().applyWorkspacePlacementEvent(apply)),
+    applyWorkspaceCreated: (apply: WorkspaceCreatedApply) =>
+      applyImportedSyncEvent(() => useWorkspaceStore.getState().applyWorkspaceCreatedEvent(apply)),
+    applyAgentTerminalSession: (apply: AgentTerminalSessionApply) =>
+      applyImportedSyncEvent(() => useWorkspaceStore.getState().applyAgentTerminalSessionEvent(apply)),
+    applyAgentTerminalLaunchState: (apply: AgentTerminalLaunchStateApply) =>
+      applyImportedSyncEvent(() => useWorkspaceStore.getState().applyAgentTerminalLaunchStateEvent(apply)),
+  })
+  workspaceSyncClient.start()
+}
+initWorkspaceSyncClient()
 
 // Re-export so consumers (tests, devtools) can use a single import surface.
 export {

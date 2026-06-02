@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Menu } from 'electron'
 import { resolve } from 'path'
 import { createAppMenu } from './app-menu'
-import { createMainWindow } from './window-factory'
+import { createMainWindow, markAppQuitInProgressForWindowClose } from './window-factory'
 import { beginSwitchboardPythonRuntimeShutdown, shutdownSwitchboardPythonRuntime } from './switchboard-runtime-service'
 import { releaseAllWorkspaceRunnerLocks } from './workspace-runner-lock'
 import type { MulticodeUpdateService } from './update-service'
@@ -11,6 +11,9 @@ type RegisterAppLifecycleOptions = {
   allowMultipleInstances?: boolean
   terminalRuntime: {
     shutdown(): Promise<void>
+  }
+  workspaceSyncService?: {
+    flushRoutingSnapshot(): Promise<void>
   }
   sprintEngineMcpHub?: {
     stop(): Promise<void>
@@ -30,6 +33,7 @@ export function registerAppLifecycle({
   diagnosticsEnabled,
   allowMultipleInstances = false,
   terminalRuntime,
+  workspaceSyncService,
   sprintEngineMcpHub,
   moduleKernel,
   updateService,
@@ -90,9 +94,11 @@ export function registerAppLifecycle({
     if (isShuttingDown) return
     event.preventDefault()
     isShuttingDown = true
+    markAppQuitInProgressForWindowClose()
     beginSwitchboardPythonRuntimeShutdown()
     const shutdown = async () => {
       await terminalRuntime.shutdown()
+      await workspaceSyncService?.flushRoutingSnapshot()
       await sprintEngineMcpHub?.stop()
       await shutdownSwitchboardPythonRuntime()
       await releaseAllWorkspaceRunnerLocks()

@@ -150,9 +150,8 @@ const v52AutoRunState = {
 const migratedAutoRun = migratePersistedWorkspaceState(v52AutoRunState, 52) as {
   workspaces: Array<{
     sprintEngineAutoState: {
-      supervisorEnabled: boolean
-      enabled: boolean
-      autoApproveArtifacts: boolean
+      desiredMode: string
+      runtimeState: string
       keepDoneAgentTerminals: boolean
       cliPermissionPreset: string
       maxConcurrentAgents: number
@@ -161,9 +160,17 @@ const migratedAutoRun = migratePersistedWorkspaceState(v52AutoRunState, 52) as {
     }
   }>
 }
-assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.supervisorEnabled, false)
-assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.enabled, false)
-assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.autoApproveArtifacts, false)
+assert.equal(
+  'supervisorEnabled' in migratedAutoRun.workspaces[0].sprintEngineAutoState,
+  false,
+)
+assert.equal('enabled' in migratedAutoRun.workspaces[0].sprintEngineAutoState, false)
+assert.equal(
+  'autoApproveArtifacts' in migratedAutoRun.workspaces[0].sprintEngineAutoState,
+  false,
+)
+assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.desiredMode, 'run_agents_and_approve_artifacts')
+assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.runtimeState, 'running')
 assert.deepEqual(migratedAutoRun.workspaces[0].sprintEngineAutoState.pendingSpawns, [])
 assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.keepDoneAgentTerminals, true)
 assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.cliPermissionPreset, 'bypass_all')

@@ -4,6 +4,7 @@ import type { Workspace } from '../../types/workspace'
 import {
   mapMigrationWorkspaces,
   normalizeWorkspaceForPartialize,
+  preserveNewerSprintEngineAutomationState,
 } from './normalizers'
 
 const baseWorkspace = (overrides: Partial<Workspace> = {}): Workspace => ({
@@ -60,9 +61,8 @@ assert.equal(cleaned.editorState?.activeFilePath, '/a.ts')
 
 const autoRunCleaned = normalizeWorkspaceForPartialize(baseWorkspace({
   sprintEngineAutoState: {
-    supervisorEnabled: false,
-    enabled: true,
-    autoApproveArtifacts: true,
+    desiredMode: 'run_agents_and_approve_artifacts',
+    runtimeState: 'running',
     keepDoneAgentTerminals: true,
     cliPermissionPreset: 'bypass_all',
     maxConcurrentAgents: 4,
@@ -70,10 +70,9 @@ const autoRunCleaned = normalizeWorkspaceForPartialize(baseWorkspace({
     deliveredAgentNotificationEventKeys: ['EVT-1'],
   },
 }))
-assert.equal(autoRunCleaned.sprintEngineAutoState.enabled, false)
-assert.equal(autoRunCleaned.sprintEngineAutoState.supervisorEnabled, false)
+assert.equal(autoRunCleaned.sprintEngineAutoState.desiredMode, 'run_agents_and_approve_artifacts')
+assert.equal(autoRunCleaned.sprintEngineAutoState.runtimeState, 'running')
 assert.deepEqual(autoRunCleaned.sprintEngineAutoState.pendingSpawns, [])
-assert.equal(autoRunCleaned.sprintEngineAutoState.autoApproveArtifacts, false)
 assert.equal(autoRunCleaned.sprintEngineAutoState.maxConcurrentAgents, 4)
 
 // normalizeWorkspaceForPartialize zeros the in-memory stream buffer + status on agents
@@ -116,5 +115,51 @@ const withAgentAlreadyOnboarded = baseWorkspace({
 const onboardedCleaned = normalizeWorkspaceForPartialize(withAgentAlreadyOnboarded)
 const onboardedAgent = (onboardedCleaned.agents as Record<string, { cliStartupPrompt?: string }>)['agent-2']
 assert.equal(onboardedAgent.cliStartupPrompt, undefined)
+
+const newerLocalAutomation = preserveNewerSprintEngineAutomationState(
+  baseWorkspace({
+    id: 'ws-sync',
+    sprintEngineAutoState: {
+      desiredMode: 'manual',
+      runtimeState: 'idle',
+      changedAt: 100,
+    } as Workspace['sprintEngineAutoState'],
+  }),
+  baseWorkspace({
+    id: 'ws-sync',
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'blocked',
+      reason: 'blocked_on_input',
+      reasonTaskId: 'T3',
+      reasonMessage: 'Task T3 is waiting on input.',
+      changedAt: 200,
+    } as Workspace['sprintEngineAutoState'],
+  }),
+)
+assert.equal(newerLocalAutomation.sprintEngineAutoState?.desiredMode, 'run_agents')
+assert.equal(newerLocalAutomation.sprintEngineAutoState?.runtimeState, 'blocked')
+assert.equal(newerLocalAutomation.sprintEngineAutoState?.reasonTaskId, 'T3')
+
+const newerIncomingAutomation = preserveNewerSprintEngineAutomationState(
+  baseWorkspace({
+    id: 'ws-sync',
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents_and_approve_artifacts',
+      runtimeState: 'running',
+      changedAt: 300,
+    } as Workspace['sprintEngineAutoState'],
+  }),
+  baseWorkspace({
+    id: 'ws-sync',
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'blocked',
+      changedAt: 200,
+    } as Workspace['sprintEngineAutoState'],
+  }),
+)
+assert.equal(newerIncomingAutomation.sprintEngineAutoState?.desiredMode, 'run_agents_and_approve_artifacts')
+assert.equal(newerIncomingAutomation.sprintEngineAutoState?.runtimeState, 'running')
 
 console.log('normalizers.test.ts: ok')

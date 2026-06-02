@@ -156,6 +156,7 @@ def http_get(
 
 def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
     expected = {
+        "sprintengine.help",
         "sprintengine.handover",
         "sprintengine.init",
         "sprintengine.recover",
@@ -291,8 +292,29 @@ def test_mcp_contract_registry_covers_schemas_and_payload_adapters(tmp_path) -> 
         assert adapted.state == state_path
 
 
+def test_mcp_help_returns_versioned_agent_workflow_without_state_path() -> None:
+    server = SprintEngineMcpServer()
+    response = server.call_tool(
+        "sprintengine.help",
+        {"role": "architect", "agentId": "architect", "topic": "agent_workflow"},
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is True
+    result = response["result"]
+    assert result["ok"] is True
+    assert result["topic"] == "agent_workflow"
+    assert result["role"] == "architect"
+    assert result["agentId"] == "architect"
+    assert "sprintengine.task.next" in result["markdown"]
+    assert "needsInputKind" in result["markdown"]
+    assert "sprintengine.artifact.add" in result["markdown"]
+    assert "sprintengine.gate.verdict" in result["markdown"]
+
+
 def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() -> None:
     planned = {
+        "sprintengine.help",
         "sprintengine.handover",
         "sprintengine.agent.join",
         "sprintengine.agent.next_directive",

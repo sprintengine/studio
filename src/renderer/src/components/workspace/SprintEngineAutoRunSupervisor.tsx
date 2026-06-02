@@ -1,5 +1,6 @@
 import { useEffect, useRef, type MutableRefObject } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { workspaceSyncClient } from '../../store/workspaceSyncClient'
 import type {
   AgentCli,
   CliRuntimeSettings,
@@ -69,6 +70,11 @@ import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
 import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
 import {
+  deriveSprintEngineAutomationDesiredMode,
+  normalizeSprintEngineAutomationRuntimeState,
+  sprintEngineAutomationShouldRun,
+} from '../../utils/sprintengineAutomationLifecycle'
+import {
   agentCliSupportsConversationResume,
 } from '../../utils/agentCliResume'
 
@@ -77,6 +83,10 @@ export { TerminalListIpcError } from '../../utils/sprintengineAutoRunExecutor'
 const defaultExecutorPorts: SprintEngineAutoRunExecutorPorts =
   createDefaultSprintEngineAutoRunExecutorPorts()
 const terminalListIpcLastNoticeAt: TerminalListNoticeCooldown = new Map()
+
+function sprintEngineArtifactApprovalDesired(autoState: Partial<SprintEngineAutoState> | null | undefined): boolean {
+  return deriveSprintEngineAutomationDesiredMode(autoState) === 'run_agents_and_approve_artifacts'
+}
 
 export function listTerminalSessionsForAutoRun(
   workspace: Workspace,
@@ -139,9 +149,8 @@ type ArchitectTriageMessage = {
 }
 
 const DEFAULT_AUTO_STATE: SprintEngineAutoState = {
-  supervisorEnabled: false,
-  enabled: false,
-  autoApproveArtifacts: false,
+  desiredMode: 'manual',
+  runtimeState: 'idle',
   keepDoneAgentTerminals: false,
   cliPermissionPreset: 'default',
   maxConcurrentAgents: 3,
@@ -154,8 +163,7 @@ function getSprintEngineAutoState(workspace: Workspace | null | undefined): Spri
 }
 
 function isSprintEngineRunnerActive(workspace: Workspace | null | undefined): boolean {
-  const autoState = getSprintEngineAutoState(workspace)
-  return autoState.supervisorEnabled || autoState.autoApproveArtifacts
+  return sprintEngineAutomationShouldRun(getSprintEngineAutoState(workspace))
 }
 
 function isMatchingWorkspaceAgentSession(
@@ -359,6 +367,10 @@ async function findRunningAgentSession(
     cli: effectiveCli,
     kind: 'sprintengine',
   })
+  void workspaceSyncClient.dispatchAssignTerminalSession(workspace.id, agentId, runningSession.sessionId, effectiveCli)
+  void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, agentId, {
+    cliResumeAvailable: false,
+  })
   return runningSession
 }
 
@@ -391,7 +403,7 @@ export async function sendApprovalToNextEligibleArtifactProducer(
   lastContentByWorkspace: MutableRefObject<Map<string, string>>
 ): Promise<'sent' | 'failed' | 'none'> {
   const autoState = getSprintEngineAutoState(workspace)
-  if (!autoState.autoApproveArtifacts || !workspace.sprintEngineContext) {
+  if (!sprintEngineArtifactApprovalDesired(autoState) || !workspace.sprintEngineContext) {
     return 'none'
   }
 
@@ -549,6 +561,7 @@ async function getRunningAutoRunAgentIds(
         cli: effectiveCli,
         kind: 'sprintengine',
       })
+      void workspaceSyncClient.dispatchAssignTerminalSession(workspace.id, session.agentId, session.sessionId, effectiveCli)
     }
   }
 
@@ -741,7 +754,7 @@ export async function deliverAgentNotificationEvents(
       continue
     }
 
-    if (!getSprintEngineAutoState(workspace).supervisorEnabled || !SPAWNABLE_NOTIFICATION_KINDS.has(event.notificationKind ?? '')) {
+    if (!sprintEngineAutomationShouldRun(getSprintEngineAutoState(workspace)) || !SPAWNABLE_NOTIFICATION_KINDS.has(event.notificationKind ?? '')) {
       logPerfEvent('SprintEngineAutoRun', 'agent-notification-pending-no-session', {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
@@ -1130,6 +1143,7 @@ async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<vo
         cli: effectiveCli,
         kind: 'sprintengine',
       })
+      void workspaceSyncClient.dispatchAssignTerminalSession(workspace.id, agentId, preferredSession.sessionId, effectiveCli)
     }
   }
 }
@@ -1181,6 +1195,13 @@ async function reconcileAutoRunPendingSpawns(
     if (pendingAgent && pendingAgent.cliStartRequested && !pendingAgentHasProcess) {
       useWorkspaceStore.getState().updateAgent(workspace.id, pending.agentId, {
         cliSessionId: undefined,
+        cliStartRequested: false,
+        cliHasLaunched: false,
+        cliOnboardingPromptSent: false,
+        cliResumeAvailable: false,
+      })
+      void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, pending.agentId, {
+        cliSessionId: null,
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
@@ -1253,7 +1274,7 @@ export async function spawnAutoRunCandidate(
     if (!folderExists) {
       currentState.setFolderMissing(workspace.id, true)
       setAutoRunPendingSpawns(workspace.id, [])
-      defaultExecutorPorts.disableAutoRun(workspace.id, 'folder_missing', {
+      defaultExecutorPorts.applyAutomationStopReason(workspace.id, 'folder_missing', {
         agentId: nextRun.agentId,
         taskId: nextRun.taskId,
       })
@@ -1289,8 +1310,21 @@ export async function spawnAutoRunCandidate(
         cliOnboardingPromptSent: false,
         cliResumeAvailable: false,
       })
+      void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, nextRun.agentId, {
+        cliSessionId: null,
+        cliStartRequested: false,
+        cliHasLaunched: false,
+        cliOnboardingPromptSent: false,
+        cliResumeAvailable: false,
+      })
     } else if (latestAgent?.cliStartRequested) {
       latestStateBeforeSpawn.updateAgent(workspace.id, nextRun.agentId, {
+        cliStartRequested: false,
+        cliHasLaunched: false,
+        cliOnboardingPromptSent: false,
+        cliResumeAvailable: false,
+      })
+      void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, nextRun.agentId, {
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
@@ -1337,7 +1371,7 @@ export async function spawnAutoRunCandidate(
         sprintEngineStatePath,
         rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
         commandMode: getSprintEngineStartupCommandMode(nextRun.role, nextRun.agentId, sprintEngineState),
-        autonomousPlanningOverride: nextRun.role === 'architect' && autoState.autoApproveArtifacts,
+        autonomousPlanningOverride: nextRun.role === 'architect' && sprintEngineArtifactApprovalDesired(autoState),
       }),
       nextRun.label,
       getSprintEngineRoleLabel(nextRun.role)
@@ -1428,11 +1462,23 @@ export async function spawnAutoRunCandidate(
         sprintEngineStatePath,
         spawnMessage: spawnResult.message,
       })
+      void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, nextRun.agentId, {
+        cliSessionId: null,
+        cliStartRequested: false,
+        cliHasLaunched: false,
+        cliOnboardingPromptSent: false,
+        cliResumeAvailable: false,
+      })
       return 'failed'
     }
 
     currentState.updateAgent(workspace.id, nextRun.agentId, {
       cliStartupPrompt: undefined,
+    })
+    void workspaceSyncClient.dispatchAssignTerminalSession(workspace.id, nextRun.agentId, sessionId, selectedCli)
+    void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, nextRun.agentId, {
+      cliOnboardingPromptSent: true,
+      cliResumeAvailable: false,
     })
     defaultExecutorPorts.applyTerminalRevealPolicy(
       workspace.id,
@@ -1462,11 +1508,10 @@ async function startMissingRosterAgents(
     workspaceId: workspace.id,
     workspaceName: workspace.name,
     automationMode,
+    runtimeState: autoState.runtimeState ?? null,
     runnerCliWatchPolling: sprintEngineState.runner?.cliWatchPolling ?? null,
     localRunnerActive,
-    supervisorEnabled: autoState.supervisorEnabled,
-    legacyEnabled: autoState.enabled,
-    autoApproveArtifacts: autoState.autoApproveArtifacts,
+    artifactApprovalDesired: sprintEngineArtifactApprovalDesired(autoState),
     runningAgentIds: [...runningAgentIds],
     rosterAgentCount: Object.keys(sprintEngineState.sprintEngineAgents).length,
     taskCounts: {
@@ -1483,10 +1528,10 @@ async function startMissingRosterAgents(
       workspaceName: workspace.name,
       reason: !workspace.sprintEngineContext ? 'missing-sprintengine-context' : 'local-runner-inactive',
       automationMode,
+      runtimeState: autoState.runtimeState ?? null,
       runnerCliWatchPolling: sprintEngineState.runner?.cliWatchPolling ?? null,
       localRunnerActive,
-      supervisorEnabled: autoState.supervisorEnabled,
-      autoApproveArtifacts: autoState.autoApproveArtifacts,
+      artifactApprovalDesired: sprintEngineArtifactApprovalDesired(autoState),
     })
     return 'none'
   }
@@ -1770,8 +1815,9 @@ async function superviseWorkspace(
   let sprintEngineState = workspace.sprintEngineState
   const autoState = getSprintEngineAutoState(workspace)
   const automationMode = deriveSprintEngineAutomationMode(autoState, sprintEngineState?.runner)
-  const runnerActive = automationMode !== 'manual'
-  const approvalActive = automationMode === 'run_agents_and_approve_artifacts'
+  const runtimeState = normalizeSprintEngineAutomationRuntimeState(autoState.runtimeState, automationMode)
+  const runnerActive = automationMode !== 'manual' && runtimeState === 'running'
+  const approvalActive = automationMode === 'run_agents_and_approve_artifacts' && runtimeState === 'running'
   if ((!runnerActive && !approvalActive) || !workspace.folderPath || !sprintEngineState || !workspace.sprintEngineContext) return
 
   logPerfEvent('SprintEngineAutoRun', 'supervise-start', {
@@ -1779,7 +1825,9 @@ async function superviseWorkspace(
     workspaceName: workspace.name,
     taskCount: sprintEngineState.tasks.length,
     agentCount: Object.keys(sprintEngineState.sprintEngineAgents).length,
-    autoApproveArtifacts: autoState.autoApproveArtifacts,
+    automationMode,
+    runtimeState,
+    artifactApprovalDesired: sprintEngineArtifactApprovalDesired(autoState),
   })
 
   // The supervisor used to bridge local autoState into the run.yaml CLI-watch
@@ -1788,7 +1836,7 @@ async function superviseWorkspace(
 
   if (isSprintEngineRunBlockedOnExternalInput(sprintEngineState)) {
     const blockReason = describeSprintEngineExternalInputAutoRunBlock(sprintEngineState)
-    defaultExecutorPorts.disableAutoRun(workspace.id, 'blocked_on_external_input', blockReason)
+    defaultExecutorPorts.applyAutomationStopReason(workspace.id, 'blocked_on_external_input', blockReason)
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -2039,7 +2087,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   )
 
   if (sprintEngineState.tasks.length > 0 && sprintEngineState.tasks.every((task) => task.status === 'done')) {
-    defaultExecutorPorts.disableAutoRun(workspace.id, 'all_tasks_done')
+    defaultExecutorPorts.applyAutomationStopReason(workspace.id, 'all_tasks_done')
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -2134,7 +2182,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     const latestWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
     if (
       !latestWorkspace
-      || deriveSprintEngineAutomationMode(getSprintEngineAutoState(latestWorkspace), latestWorkspace.sprintEngineState?.runner) === 'manual'
+      || !sprintEngineAutomationShouldRun(getSprintEngineAutoState(latestWorkspace))
     ) return
     const spawnResult = await spawnAutoRunCandidate(
       latestWorkspace,
@@ -2170,6 +2218,12 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
         cliOnboardingPromptSent: false,
         cliResumeAvailable: false,
       })
+      void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, agent.id, {
+        cliStartRequested: false,
+        cliHasLaunched: false,
+        cliOnboardingPromptSent: false,
+        cliResumeAvailable: false,
+      })
       continue
     }
 
@@ -2183,6 +2237,13 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
       cliOnboardingPromptSent: false,
       cliLastExitCode: null,
       cliLastExitedAt: Date.now(),
+      cliResumeAvailable: false,
+    })
+    void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, agent.id, {
+      cliSessionId: null,
+      cliStartRequested: false,
+      cliHasLaunched: false,
+      cliOnboardingPromptSent: false,
       cliResumeAvailable: false,
     })
   }
@@ -2243,9 +2304,8 @@ export default function SprintEngineAutoRunSupervisor() {
             enabled: isSprintEngineRunnerActive(workspace),
             automationMode: deriveSprintEngineAutomationMode(getSprintEngineAutoState(workspace), workspace.sprintEngineState?.runner),
             runnerCliWatchPolling: workspace.sprintEngineState?.runner?.cliWatchPolling ?? null,
-            supervisorEnabled: getSprintEngineAutoState(workspace).supervisorEnabled,
-            legacyEnabled: getSprintEngineAutoState(workspace).enabled,
-            autoApproveArtifacts: getSprintEngineAutoState(workspace).autoApproveArtifacts,
+            runtimeState: getSprintEngineAutoState(workspace).runtimeState ?? null,
+            artifactApprovalDesired: sprintEngineArtifactApprovalDesired(getSprintEngineAutoState(workspace)),
             keepDoneAgentTerminals: getSprintEngineAutoState(workspace).keepDoneAgentTerminals,
           })),
         })

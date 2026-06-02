@@ -163,6 +163,18 @@ ARCHITECT_DIFFICULTY_PROPERTIES = {
 
 
 MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
+    "sprintengine.help": object_schema(
+        [],
+        {
+            "role": ROLE_PROPERTY,
+            "agentId": AGENT_ID_PROPERTY,
+            "topic": {
+                "type": "string",
+                "enum": ["agent_workflow", "tools", "needs_input", "artifacts", "gates"],
+                "description": "Optional help topic. Defaults to agent_workflow.",
+            },
+        },
+    ),
     "sprintengine.handover": object_schema(
         ["statePath", "name"],
         {

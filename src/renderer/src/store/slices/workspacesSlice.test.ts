@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import type { GuidedBriefRuntimeState, LayoutTemplate } from '../../types/workspace'
+import type { GuidedBriefRuntimeState, LayoutTemplate, Workspace, WorkspaceWindowState } from '../../types/workspace'
 import { createGuidedBriefTemplate } from '../../layouts/templates'
 import { getEditorBuffer } from '../../utils/editorBuffers'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
@@ -205,7 +205,12 @@ assert.equal(getEditorBuffer(secondId, '/tmp/example.ts'), 'const value = 1')
 useWorkspaceStore.getState().removeWorkspace(secondId)
 state = useWorkspaceStore.getState()
 assert.deepEqual(state.workspaces.map((workspace) => workspace.id), [firstId, soloDevId])
-assert.equal(state.activeWorkspaceId, firstId)
+// Moving the active workspace (firstId) out of the primary window above fell the
+// store's global active back to the primary window's remaining workspace
+// (secondId) — a cross-window move no longer leaves global active pointing at a
+// workspace that now lives in another window. Removing that fallback active
+// (secondId) then reassigns to the last remaining workspace (soloDevId).
+assert.equal(state.activeWorkspaceId, soloDevId)
 
 const switchboardId = useWorkspaceStore.getState().addWorkspace(switchboardTemplate, {
   folderPath: '/Users/example/switchboard',
@@ -306,5 +311,198 @@ const blockIds = state.workspaces
   .filter((workspace) => workspace.folderPath === blockFolder)
   .map((workspace) => workspace.id)
 assert.deepEqual(blockIds, [newerInBlock, olderInBlock])
+
+// Regression: a workspace_window.closed event can reach a renderer that never
+// held the closing window record (routing drift). The movedWorkspaceIds payload
+// must still route those workspaces to the fallback window, and a foreign-window
+// close must not flip this renderer's global active workspace.
+const driftWorkspace = (id: string, folderPath: string | null = null): Workspace =>
+  ({ id, name: id, folderPath, agents: {} }) as unknown as Workspace
+const driftWindow = (id: string, workspaceIds: string[], active: string | null): WorkspaceWindowState => ({
+  id,
+  kind: id === 'A' ? 'primary' : 'detached',
+  workspaceIds,
+  activeWorkspaceId: active,
+  bounds: null,
+  isMaximized: false,
+  displayId: null,
+  createdAt: 1,
+  lastFocusedAt: 1,
+})
+useWorkspaceStore.setState({
+  workspaces: [driftWorkspace('drift-a'), driftWorkspace('drift-b')],
+  activeWorkspaceId: 'drift-a',
+  primaryWorkspaceWindowId: 'A',
+  // This renderer only knows window A; the closing window 'B' is absent locally.
+  workspaceWindows: [driftWindow('A', ['drift-a'], 'drift-a')],
+  workspaceRegistryEmptyState: null,
+})
+useWorkspaceStore.getState().applyWorkspaceClosedEvent({
+  windowId: 'B',
+  fallbackWindowId: 'A',
+  movedWorkspaceIds: ['drift-b'],
+  createdAt: 2000,
+})
+state = useWorkspaceStore.getState()
+assert.deepEqual(
+  state.workspaceWindows.find((windowState) => windowState.id === 'A')?.workspaceIds,
+  ['drift-a', 'drift-b'],
+  'movedWorkspaceIds route to the fallback window even when the closing window record is absent locally',
+)
+assert.equal(
+  state.workspaceWindows.find((windowState) => windowState.id === 'A')?.activeWorkspaceId,
+  'drift-a',
+  'a foreign-window close does not flip the fallback window active workspace',
+)
+assert.equal(state.activeWorkspaceId, 'drift-a', 'a foreign-window close does not flip the global active workspace')
+
+// Regression: a user move of the active workspace from the current/source window
+// ('primary' — the id the slice derives for this renderer in the test env) to
+// another window transfers exactly one-window membership and falls this
+// renderer's global active back to its own window's remaining workspace, so
+// global active never points at a workspace that now lives in another window.
+useWorkspaceStore.setState({
+  workspaces: [driftWorkspace('move-1'), driftWorkspace('move-2')],
+  activeWorkspaceId: 'move-1',
+  primaryWorkspaceWindowId: 'primary',
+  workspaceWindows: [driftWindow('primary', ['move-1', 'move-2'], 'move-1')],
+  workspaceRegistryEmptyState: null,
+})
+useWorkspaceStore.getState().moveWorkspaceToWindow('move-1', 'detached-b', 'primary')
+state = useWorkspaceStore.getState()
+assert.deepEqual(
+  state.workspaceWindows.find((windowState) => windowState.id === 'primary')?.workspaceIds,
+  ['move-2'],
+  'source window keeps only its remaining workspace after the move',
+)
+assert.deepEqual(
+  state.workspaceWindows.find((windowState) => windowState.id === 'detached-b')?.workspaceIds,
+  ['move-1'],
+  'target window owns exactly the moved workspace (one-window membership)',
+)
+assert.equal(
+  state.workspaceWindows.find((windowState) => windowState.id === 'primary')?.activeWorkspaceId,
+  'move-2',
+  'source window active falls back deterministically',
+)
+assert.equal(
+  state.workspaceWindows.find((windowState) => windowState.id === 'detached-b')?.activeWorkspaceId,
+  'move-1',
+  'target window focuses the moved workspace',
+)
+assert.equal(
+  state.activeWorkspaceId,
+  'move-2',
+  'global active follows this renderer window fallback, not the moved-away workspace',
+)
+// The source renderer applying its own accepted moved event (target is the other
+// window, not this renderer's window) stays idempotent and must not flip global
+// active back to the moved-away workspace.
+useWorkspaceStore.getState().applyWorkspaceMovedEvent({
+  workspaceId: 'move-1',
+  fromWindowId: 'primary',
+  toWindowId: 'detached-b',
+  makeActive: true,
+  createdAt: 3000,
+  isCurrentWindowTarget: false,
+})
+state = useWorkspaceStore.getState()
+assert.deepEqual(
+  state.workspaceWindows.find((windowState) => windowState.id === 'primary')?.workspaceIds,
+  ['move-2'],
+  'accepted event re-application is idempotent for source membership',
+)
+assert.equal(
+  state.activeWorkspaceId,
+  'move-2',
+  'an accepted move event for another window does not flip the source renderer global active',
+)
+
+// Regression: the failed createWorkspaceWindow rollback path moves the workspace
+// back INTO the current window ('primary') using the failed target ('detached-b')
+// as sourceWindowId. Because the move target is this renderer's own window, the
+// restored workspace must be refocused as the global active, while real move-out
+// operations (above) keep the source-window fallback.
+useWorkspaceStore.getState().moveWorkspaceToWindow('move-1', 'primary', 'detached-b')
+state = useWorkspaceStore.getState()
+assert.deepEqual(
+  state.workspaceWindows.find((windowState) => windowState.id === 'primary')?.workspaceIds,
+  ['move-1', 'move-2'],
+  'the restored workspace returns to the current window (one-window membership)',
+)
+assert.equal(
+  state.workspaceWindows.find((windowState) => windowState.id === 'detached-b'),
+  undefined,
+  'the emptied target window is dropped after the rollback move',
+)
+assert.equal(
+  state.workspaceWindows.find((windowState) => windowState.id === 'primary')?.activeWorkspaceId,
+  'move-1',
+  'the current window refocuses the restored workspace',
+)
+assert.equal(
+  state.activeWorkspaceId,
+  'move-1',
+  'the rollback restores global active to the returned workspace',
+)
+
+// Regression: applying a broadcast workspace.created event inserts the workspace
+// at its folder head (deterministic) and assigns it to the target window. When
+// the target is ANOTHER window, this renderer's global active is not flipped;
+// when the target is this renderer's own window, the creation is focused.
+useWorkspaceStore.setState({
+  workspaces: [driftWorkspace('repo-a-1', '/repo/a'), driftWorkspace('repo-b-1', '/repo/b')],
+  activeWorkspaceId: 'repo-a-1',
+  primaryWorkspaceWindowId: 'primary',
+  workspaceWindows: [driftWindow('primary', ['repo-a-1', 'repo-b-1'], 'repo-a-1')],
+  workspaceRegistryEmptyState: null,
+})
+useWorkspaceStore.getState().applyWorkspaceCreatedEvent({
+  workspace: driftWorkspace('repo-a-2', '/repo/a'),
+  windowId: 'detached-z',
+  folderPath: '/repo/a',
+  createdAt: 4000,
+  isCurrentWindowTarget: false,
+})
+state = useWorkspaceStore.getState()
+assert.deepEqual(
+  state.workspaces.map((workspace) => workspace.id),
+  ['repo-a-2', 'repo-a-1', 'repo-b-1'],
+  'a created event inserts the workspace at the head of its folder block',
+)
+assert.deepEqual(
+  state.workspaceWindows.find((windowState) => windowState.id === 'detached-z')?.workspaceIds,
+  ['repo-a-2'],
+  'the created workspace is assigned to the target window',
+)
+assert.equal(
+  state.workspaceWindows.find((windowState) => windowState.id === 'detached-z')?.activeWorkspaceId,
+  'repo-a-2',
+  'the target window focuses the created workspace',
+)
+assert.equal(
+  state.activeWorkspaceId,
+  'repo-a-1',
+  'a creation targeting another window does not flip this renderer global active',
+)
+// A creation targeting THIS renderer's own window ('primary') focuses it globally.
+useWorkspaceStore.getState().applyWorkspaceCreatedEvent({
+  workspace: driftWorkspace('repo-a-3', '/repo/a'),
+  windowId: 'primary',
+  folderPath: '/repo/a',
+  createdAt: 4100,
+  isCurrentWindowTarget: true,
+})
+state = useWorkspaceStore.getState()
+assert.equal(
+  state.workspaceWindows.find((windowState) => windowState.id === 'primary')?.workspaceIds[0],
+  'repo-a-3',
+  'a creation into this window is assigned at its head',
+)
+assert.equal(
+  state.activeWorkspaceId,
+  'repo-a-3',
+  'a creation into this renderer window is focused as global active',
+)
 
 console.log('workspacesSlice.test.ts: ok')

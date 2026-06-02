@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -22,6 +22,7 @@ async function main(): Promise<void> {
   await testReadRegistryRolesUsesRealMcpBridgeForBundledAndCustomRoles()
   await testReadRegistryRoleSurfacesUnknownRole()
   await testReadDispatchUsesMcpTool()
+  await testRunnerModeCliInvocationUsesSprintEngineTool()
   await testReadBridgeSurfacesUnavailableMcpAndMalformedPayloads()
   await testIpcRegistersReadOnlyBridgeChannels()
 
@@ -481,6 +482,35 @@ async function testReadDispatchUsesMcpTool(): Promise<void> {
   assert.equal(calls[0]?.context.workspaceRoot, workspaceRoot)
   assert.equal(calls[0]?.tool, 'sprintengine.dispatch.next')
   assert.deepEqual(calls[0]?.payload, { statePath, agentId: 'developer-1', lastDispatchId: 'DISP-0' })
+}
+
+async function testRunnerModeCliInvocationUsesSprintEngineTool(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-runner-'))
+  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'team', 'run.yaml')
+  const handlers = createHandlers(async () => {
+    throw new Error('runner mode writes must use the Sprint Engine CLI bridge')
+  })
+
+  try {
+    const init = await handlers.initializeSprintEngineState({
+      statePath,
+      name: 'Runner bridge test',
+      goal: 'Verify runner mode CLI invocation',
+      agents: {
+        architect: { role: 'architect' },
+      },
+    })
+    assert.equal(init.ok, true, init.ok ? undefined : init.message)
+
+    const result = await handlers.setRunnerMode({ statePath, cliWatchPolling: 'enabled' })
+    assert.equal(result.ok, true, result.ok ? undefined : result.message)
+    if (!result.ok) return
+
+    const runYaml = await readFile(statePath, 'utf-8')
+    assert.match(runYaml, /cliWatchPolling:\s+enabled/u)
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
 }
 
 async function testReadBridgeSurfacesUnavailableMcpAndMalformedPayloads(): Promise<void> {

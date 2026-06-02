@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 
-export type SprintEngineView = 'inbox' | 'roster' | 'tasks' | 'activity'
+export type SprintEngineView = 'inbox' | 'roster' | 'tasks'
 
 const SPRINT_ENGINE_VIEW_STORAGE_KEY = 'multicode-sprintengine-view'
 
@@ -33,5 +33,6 @@ export function selectSprintEngineView(
   state: SprintEngineViewStore,
   workspaceId: string,
 ): SprintEngineView {
-  return state.viewByWorkspace[workspaceId] ?? DEFAULT_VIEW
+  const view = state.viewByWorkspace[workspaceId]
+  return view === 'inbox' || view === 'roster' || view === 'tasks' ? view : DEFAULT_VIEW
 }

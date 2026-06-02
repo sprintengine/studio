@@ -4,6 +4,10 @@ import type {
 } from '../../../../types/workspace'
 import { countSprintEngineAgents } from '../../../../utils/sprintengine'
 import {
+  sprintEngineAutomationInitialStateForMode,
+  sprintEngineAutomationModeForRunOptions,
+} from '../../../../utils/sprintengineAutomationLifecycle'
+import {
   GuidedBriefWorkspaceError,
   scaffoldGuidedBriefWorkspace,
   writeGuidedBriefBuildHandoff,
@@ -191,8 +195,7 @@ export async function runGuidedBriefStartBuild(
       roleCliDefaults: runOptions.roleCliDefaults,
       workspaceWindowId: input.workspaceWindowId,
       sprintEngineAutoState: {
-        enabled: runOptions.startRunner,
-        autoApproveArtifacts: runOptions.autoApproveArtifacts,
+        ...sprintEngineAutomationInitialStateForMode(sprintEngineAutomationModeForRunOptions(runOptions)),
         cliPermissionPreset: runOptions.cliPermissionPreset,
         maxConcurrentAgents: Math.max(1, countSprintEngineAgents(finalRoleCounts)),
       },

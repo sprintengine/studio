@@ -13,9 +13,26 @@ const ASSETS_DIR = 'out/renderer/assets'
 const CEILING_KB = 2048
 
 // Signatures of heavy deps that must only ever appear in lazy chunks.
+// `allow` lists benign exact substrings that happen to contain the signature
+// but are NOT the heavy dependency's code (e.g. a CSS-class selector that boot
+// code references by name). They are stripped before the membership test so the
+// ratchet stays precise: it still fails on a real eager import of the dep, but
+// does not trip on an incidental class-name string.
 const FORBIDDEN = [
   { sig: 'micromark', why: 'markdown renderer (react-markdown) — keep it in lazy panels' },
-  { sig: 'monaco', why: 'Monaco editor — keep it in the EditorPanel chunk' },
+  {
+    sig: 'monaco',
+    why: 'Monaco editor — keep it in the EditorPanel chunk',
+    // `.monaco-editor` is the DOM class Monaco renders at runtime. Boot-level
+    // clipboard/paste routing (src/renderer/src/utils/clipboardPasteBridge.ts)
+    // references it via closest('.xterm, .monaco-editor') to detect paste
+    // targets owned by the editor. That selector string bundles no editor code,
+    // so it must not register as Monaco landing in the eager chunk. The actual
+    // editor stays behind the EditorPanel / GitConflictResolverPanel React.lazy
+    // boundaries; statically importing either into boot reintroduces real
+    // `monaco.` API references that survive this allowance and fail the ratchet.
+    allow: ['.monaco-editor'],
+  },
   { sig: 'forceSimulation', why: 'd3-force — keep it in the MemoryGraphPanel chunk' },
 ]
 
@@ -44,8 +61,9 @@ const problems = []
 if (kb > CEILING_KB) {
   problems.push(`eager chunk is ${kb} KB, over the ${CEILING_KB} KB ceiling`)
 }
-for (const { sig, why } of FORBIDDEN) {
-  if (code.includes(sig)) problems.push(`eager chunk contains "${sig}" — ${why}`)
+for (const { sig, why, allow } of FORBIDDEN) {
+  const haystack = (allow ?? []).reduce((acc, benign) => acc.split(benign).join(''), code)
+  if (haystack.includes(sig)) problems.push(`eager chunk contains "${sig}" — ${why}`)
 }
 
 if (problems.length > 0) {

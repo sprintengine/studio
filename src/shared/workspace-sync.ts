@@ -54,6 +54,7 @@ export type WorkspaceSyncCommand =
       payload: {
         workspaceId: WorkspaceId
         agentId: AgentId
+        cliSessionId?: string | null
         cliStartRequested?: boolean
         cliHasLaunched?: boolean
         cliOnboardingPromptSent?: boolean
@@ -70,11 +71,20 @@ export type WorkspaceSyncEventType =
   | 'agent_terminal.session_assigned'
   | 'agent_terminal.launch_state_updated'
 
+// The closed event extends the close command payload with the ids the service
+// actually routed to the fallback window. The source renderer already knows the
+// closing window's membership, but receiving renderers do not necessarily have
+// the closing window's full record, so the moved ids travel with the event.
+export type WorkspaceWindowClosedEventPayload = Extract<
+  WorkspaceSyncCommand,
+  { type: 'workspace_window.close' }
+>['payload'] & { movedWorkspaceIds: WorkspaceId[] }
+
 export type WorkspaceSyncEvent =
   | WorkspaceSyncBaseEvent<'workspace_window.active_changed', Extract<WorkspaceSyncCommand, { type: 'workspace_window.set_active' }>['payload']>
   | WorkspaceSyncBaseEvent<'workspace.moved_to_window', Extract<WorkspaceSyncCommand, { type: 'workspace.move_to_window' }>['payload']>
   | WorkspaceSyncBaseEvent<'workspace_window.placement_updated', Extract<WorkspaceSyncCommand, { type: 'workspace_window.update_placement' }>['payload']>
-  | WorkspaceSyncBaseEvent<'workspace_window.closed', Extract<WorkspaceSyncCommand, { type: 'workspace_window.close' }>['payload']>
+  | WorkspaceSyncBaseEvent<'workspace_window.closed', WorkspaceWindowClosedEventPayload>
   | WorkspaceSyncBaseEvent<'workspace.created', Extract<WorkspaceSyncCommand, { type: 'workspace.created' }>['payload']>
   | WorkspaceSyncBaseEvent<'agent_terminal.session_assigned', Extract<WorkspaceSyncCommand, { type: 'agent_terminal.assign_session' }>['payload']>
   | WorkspaceSyncBaseEvent<'agent_terminal.launch_state_updated', Extract<WorkspaceSyncCommand, { type: 'agent_terminal.update_launch_state' }>['payload']>
@@ -102,6 +112,12 @@ export type WorkspaceSyncState = {
 export type WorkspaceSyncSnapshot = {
   sequence: number
   state: Omit<WorkspaceSyncState, 'lastAppliedWorkspaceSyncSequence'>
+}
+
+export type WorkspaceSyncRoutingSnapshot = {
+  sequence: number
+  workspaceWindows: WorkspaceWindowState[]
+  primaryWorkspaceWindowId: WorkspaceWindowId
 }
 
 export type WorkspaceSyncCommandResult =
@@ -399,7 +415,7 @@ function assignAgentTerminalSession(
   agent.cli = payload.cli
   agent.cliStartRequested = true
   agent.cliHasLaunched = true
-  agent.cliResumeAvailable = true
+  agent.cliResumeAvailable = agentCliSupportsConversationResume(payload.cli)
 }
 
 function updateAgentTerminalLaunchState(
@@ -408,12 +424,17 @@ function updateAgentTerminalLaunchState(
 ): void {
   const agent = findOrCreateAgent(state, payload.workspaceId, payload.agentId)
   if (!agent) return
+  if (payload.cliSessionId !== undefined) agent.cliSessionId = payload.cliSessionId ?? undefined
   if (payload.cliStartRequested !== undefined) agent.cliStartRequested = payload.cliStartRequested
   if (payload.cliHasLaunched !== undefined) agent.cliHasLaunched = payload.cliHasLaunched
   if (payload.cliOnboardingPromptSent !== undefined) {
     agent.cliOnboardingPromptSent = payload.cliOnboardingPromptSent
   }
   if (payload.cliResumeAvailable !== undefined) agent.cliResumeAvailable = payload.cliResumeAvailable
+}
+
+function agentCliSupportsConversationResume(cli: AgentCli | undefined): boolean {
+  return cli === 'codex' || cli === 'claude'
 }
 
 function findOrCreateAgent(

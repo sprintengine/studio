@@ -17,6 +17,7 @@ import {
 } from './sprintengine'
 import { buildPlanFileSprintEngineHandoffPrompt } from './sprintengineHandoff'
 import { buildRunWorkspaceContext } from './runWorkspaceCreation'
+import { deriveSprintEngineAutomationDesiredMode } from './sprintengineAutomationLifecycle'
 
 const planSourcedSprintEngineRoleCounts: SprintEngineRoleCounts = {
   architect: 1,
@@ -144,7 +145,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
     sourceBundle,
     statePath: sprintEngineContext.statePath,
     rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
-    autoRunRequested: Boolean(sprintEngineAutoState?.enabled || sprintEngineAutoState?.autoApproveArtifacts),
+    autoRunRequested: deriveSprintEngineAutomationDesiredMode(sprintEngineAutoState) !== 'manual',
   })
 
   useWorkspaceStore.getState().updateAgent(workspaceId, architect.id, {

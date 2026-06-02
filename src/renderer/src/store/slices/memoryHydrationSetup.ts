@@ -41,8 +41,8 @@ const seededWorkspace = {
   editorState: { openFiles: [], activeFilePath: null },
   sprintEngineState: null,
   sprintEngineAutoState: {
-    supervisorEnabled: false,
-    enabled: false,
+    desiredMode: 'manual',
+    runtimeState: 'idle',
     pendingSpawns: [],
     notificationsDelivered: {},
   },

@@ -39,21 +39,6 @@ export function SprintEngineRosterNavIcon({ className }: { className?: string })
   )
 }
 
-export function SprintEngineActivityNavIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <circle cx="8" cy="8" r="5.25" stroke="currentColor" strokeWidth="1.25" />
-      <path
-        d="M8 5.25V8L9.75 9.5"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
 export function SprintEngineTasksNavIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">

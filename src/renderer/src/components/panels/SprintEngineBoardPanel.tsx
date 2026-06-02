@@ -5,7 +5,6 @@ import {
   useSprintEngineViewStore,
   type SprintEngineView,
 } from '../../store/sprintEngineViewStore'
-import { useNotificationStore } from '../../store/notificationStore'
 import {
  CloseIconButton,
  OverflowMenu,
@@ -33,6 +32,7 @@ import type {
  AgentCli,
  SprintEngineArtifact,
  SprintEngineAutomationMode,
+ SprintEngineAutomationRuntimeState,
  SprintEngineCliPermissionPreset,
  SprintEngineRole,
  SprintEngineRoleId,
@@ -62,10 +62,9 @@ import {
  sprintEngineAutomationModeOptions,
  sprintEngineCliWatchPollingForAutomationMode,
 } from '../../utils/sprintengineAutomation'
-import { disableSprintEngineAutoRun } from '../../utils/sprintengineSupervisorNotifications'
+import { normalizeSprintEngineAutomationRuntimeState } from '../../utils/sprintengineAutomationLifecycle'
+import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
 import {
- countUnreadSprintEngineRunActivity,
- getSprintEngineRunActivity,
  publishSprintEngineAutomationModeNotification,
 } from '../../utils/sprintengineNotifications'
 import { findFirstUncoveredSprintEngineRole } from '../../utils/sprintengineRoleOptions'
@@ -85,12 +84,10 @@ import {
 import { SprintEngineInspectorPanel } from './SprintEngineInspectorPanel'
 import { SprintEngineTaskGraphView } from './SprintEngineTaskGraphView'
 import {
- SprintEngineActivityNavIcon,
  SprintEngineInboxIcon,
  SprintEngineRosterNavIcon,
  SprintEngineTasksNavIcon,
 } from './sprintEngineBoard/SprintEngineBoardIcons'
-import { SprintEngineActivityView } from './sprintEngineBoard/SprintEngineActivityView'
 import { SprintEngineInboxView } from './sprintEngineBoard/SprintEngineInboxView'
 import { SprintEngineRosterView } from './sprintEngineBoard/SprintEngineRosterView'
 import { SprintEngineTasksKanbanView } from './sprintEngineBoard/SprintEngineTasksKanbanView'
@@ -142,6 +139,10 @@ type SyncState = {
  message: string
 }
 
+type PendingRosterMemberSpawn = {
+ agentId: string
+ role: SprintEngineRoleId
+}
 
 type SprintEngineTasksLayout = 'graph' | 'kanban'
 
@@ -155,17 +156,49 @@ type RecoveryDialogState = {
  cli: AgentCli
 }
 
+const sprintEngineAutomationRuntimeLabels: Record<SprintEngineAutomationRuntimeState, string> = {
+ idle: 'Idle',
+ running: 'Running',
+ paused: 'Paused',
+ blocked: 'Blocked',
+ failed: 'Failed',
+ complete: 'Complete',
+}
+
+const sprintEngineAutomationRuntimeTones: Record<SprintEngineAutomationRuntimeState, Tone> = {
+ idle: 'neutral',
+ running: 'good',
+ paused: 'warn',
+ blocked: 'warn',
+ failed: 'error',
+ complete: 'good',
+}
+
+function sprintEngineAutomationRuntimeActionLabel(
+ runtimeState: SprintEngineAutomationRuntimeState,
+): string | null {
+ if (runtimeState === 'failed') return 'Retry'
+ if (runtimeState === 'paused' || runtimeState === 'blocked') return 'Resume'
+ return null
+}
+
 function SprintEngineSettingsPopover({
  automationMode,
+ runtimeState,
+ runtimeReason,
  cliPermissionPreset,
  onChangeAutomationMode,
+ onResumeAutomation,
  onUpdateCliPreset,
  onVerifyProgress,
  onClose,
 }: {
  automationMode: SprintEngineAutomationMode
-  cliPermissionPreset: SprintEngineCliPermissionPreset
+ runtimeState: SprintEngineAutomationRuntimeState
+ runtimeReason?: string
+ cliPermissionPreset: SprintEngineCliPermissionPreset
  onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
+ onResumeAutomation: (() => void) | null
  onUpdateCliPreset: (preset: SprintEngineCliPermissionPreset) => void
  onVerifyProgress: (() => void) | null
  onClose: () => void
@@ -208,6 +241,7 @@ function SprintEngineSettingsPopover({
  const currentPresetLabel =
  sprintEngineCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.label
  ?? cliPermissionPreset
+ const runtimeActionLabel = sprintEngineAutomationRuntimeActionLabel(runtimeState)
  return (
  <div
  ref={containerRef}
@@ -257,6 +291,34 @@ function SprintEngineSettingsPopover({
  </button>
  )
  })}
+ </div>
+ <div className="mt-2 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-2">
+ <div className="flex items-center gap-2">
+ <StatusDot
+ tone={sprintEngineAutomationRuntimeTones[runtimeState]}
+ label={`Automation status: ${sprintEngineAutomationRuntimeLabels[runtimeState]}`}
+ />
+ <div className="min-w-0 flex-1">
+ <div className="truncate text-[11px] font-medium text-[color:var(--text-default)]">
+ {sprintEngineAutomationRuntimeLabels[runtimeState]}
+ </div>
+ {runtimeReason ? (
+ <div className="mt-0.5 truncate text-[11px] text-[color:var(--text-muted)]">
+ {runtimeReason}
+ </div>
+ ) : null}
+ </div>
+ {runtimeActionLabel && onResumeAutomation ? (
+ <GhostButton
+ onClick={() => {
+ onResumeAutomation()
+ onClose()
+ }}
+ >
+ {runtimeActionLabel}
+ </GhostButton>
+ ) : null}
+ </div>
  </div>
  </Section>
  <Section title="CLI permissions" level={3} inset={true}>
@@ -321,9 +383,10 @@ function SprintEngineBoardPanelContent({
  workspace: Workspace
  sprintEngineState: SprintEngineState
 }) {
- const setSprintEngineState = useWorkspaceStore((s) => s.setSprintEngineState)
- const setSprintEngineAutomationMode = useWorkspaceStore((s) => s.setSprintEngineAutomationMode)
- const setSprintEngineCliPermissionPreset = useWorkspaceStore((s) => s.setSprintEngineCliPermissionPreset)
+  const setSprintEngineState = useWorkspaceStore((s) => s.setSprintEngineState)
+  const setSprintEngineAutomationMode = useWorkspaceStore((s) => s.setSprintEngineAutomationMode)
+  const applySprintEngineAutomationEvent = useWorkspaceStore((s) => s.applySprintEngineAutomationEvent)
+  const setSprintEngineCliPermissionPreset = useWorkspaceStore((s) => s.setSprintEngineCliPermissionPreset)
  const addSprintEngineMember = useWorkspaceStore((s) => s.addSprintEngineMember)
  const updateAgent = useWorkspaceStore((s) => s.updateAgent)
  const openFile = useWorkspaceStore((s) => s.openFile)
@@ -336,24 +399,6 @@ function SprintEngineBoardPanelContent({
  // render, which trips its "getSnapshot should be cached" invariant and throws
  // inside the panel — see the perf follow-up plan. (countUnread returns a
  // primitive, so it never tripped this on its own, but it shares the source.)
- const notifications = useNotificationStore((s) => s.notifications)
- const runActivity = useMemo(
- () => getSprintEngineRunActivity(notifications, workspaceId),
- [notifications, workspaceId],
- )
- const runActivityUnread = useMemo(
- () => countUnreadSprintEngineRunActivity(notifications, workspaceId),
- [notifications, workspaceId],
- )
- const markNotificationRead = useNotificationStore((s) => s.markRead)
- const markNotificationsReadWhere = useNotificationStore((s) => s.markReadWhere)
- const clearNotificationsWhere = useNotificationStore((s) => s.clearWhere)
- const markRunActivityAllRead = useCallback(() => {
- markNotificationsReadWhere((n) => n.source === 'sprintengine' && n.workspaceId === workspaceId)
- }, [markNotificationsReadWhere, workspaceId])
- const clearRunActivity = useCallback(() => {
- clearNotificationsWhere((n) => n.source === 'sprintengine' && n.workspaceId === workspaceId)
- }, [clearNotificationsWhere, workspaceId])
  const disabledRoleIds = useMemo<ReadonlySet<SprintEngineRoleId>>(
    () => getUserDisabledSprintEngineRoleIds(sprintEngineRoleSettings),
    [sprintEngineRoleSettings],
@@ -425,6 +470,8 @@ function SprintEngineBoardPanelContent({
  const [settingsOpen, setSettingsOpen] = useState(false)
  const [addMemberOpen, setAddMemberOpen] = useState(false)
  const [addMemberRole, setAddMemberRole] = useState<SprintEngineRole>('developer')
+ const [pendingRosterMemberSpawns, setPendingRosterMemberSpawns] = useState<PendingRosterMemberSpawn[]>([])
+ const pendingRosterMemberSpawnInFlightRef = useRef<Set<string>>(new Set())
  const [manualRefreshBusy, setManualRefreshBusy] = useState(false)
  const [pendingAutomationMode, setPendingAutomationMode] = useState<SprintEngineAutomationMode | null>(null)
  const [artifactActions, setArtifactActions] = useState<Record<string, ArtifactActionState>>({})
@@ -439,9 +486,14 @@ function SprintEngineBoardPanelContent({
  const folderPath = folderReadyPath
  const agents = workspace?.agents ?? {}
  const terminalSessions = useTerminalSessions()
- const projectedAutomationMode = deriveSprintEngineAutomationMode(workspace?.sprintEngineAutoState, sprintEngineState?.runner)
- const automationMode = pendingAutomationMode ?? projectedAutomationMode
- const cliPermissionPreset = workspace?.sprintEngineAutoState?.cliPermissionPreset ?? 'default'
+  const projectedAutomationMode = deriveSprintEngineAutomationMode(workspace?.sprintEngineAutoState, sprintEngineState?.runner)
+  const automationMode = pendingAutomationMode ?? projectedAutomationMode
+  const automationRuntimeState = normalizeSprintEngineAutomationRuntimeState(
+  workspace?.sprintEngineAutoState?.runtimeState,
+  projectedAutomationMode,
+  )
+  const automationRuntimeReason = workspace?.sprintEngineAutoState?.reasonMessage
+  const cliPermissionPreset = workspace?.sprintEngineAutoState?.cliPermissionPreset ?? 'default'
 
  // Sprint Engine role registry for the workspace. Loaded once per folder so
  // the Add Member options and uncovered-role detection surface custom enabled
@@ -475,6 +527,8 @@ function SprintEngineBoardPanelContent({
 
  useEffect(() => {
  setPendingAutomationMode(null)
+ setPendingRosterMemberSpawns([])
+ pendingRosterMemberSpawnInFlightRef.current.clear()
  }, [sprintEngineContext?.statePath])
 
  const resolveReadableSprintEngineStatePath = async (): Promise<string | null> => {
@@ -926,12 +980,12 @@ function SprintEngineBoardPanelContent({
  </SidePane>
  )
  }
- const updateAutomationMode = (nextMode: SprintEngineAutomationMode) => {
- if (nextMode === automationMode) return
- const previousMode = automationMode
+  const updateAutomationMode = (nextMode: SprintEngineAutomationMode) => {
+  if (nextMode === automationMode) return
+  const previousMode = automationMode
  setPendingAutomationMode(nextMode)
  if (nextMode === 'manual') {
-  disableSprintEngineAutoRun(workspaceId, 'user_manual_toggle')
+  applySprintEngineAutomationStopReason(workspaceId, 'user_manual_toggle')
  } else {
   setSprintEngineAutomationMode(workspaceId, nextMode)
  }
@@ -1001,11 +1055,19 @@ function SprintEngineBoardPanelContent({
  workspaceId,
  workspaceName: workspace?.name,
  })
- setPendingAutomationMode(null)
- })
- }
+  setPendingAutomationMode(null)
+  })
+  }
 
- const updateCliPermissionPreset = async (preset: SprintEngineCliPermissionPreset) => {
+  const resumeAutomation = automationRuntimeState === 'paused'
+  || automationRuntimeState === 'blocked'
+  || automationRuntimeState === 'failed'
+  ? () => {
+  applySprintEngineAutomationEvent(workspaceId, { type: 'runner_started' })
+  }
+  : null
+
+  const updateCliPermissionPreset = async (preset: SprintEngineCliPermissionPreset) => {
  if (preset === 'bypass_all') {
  const confirmed = await dialog.confirm({
  title: 'Bypass CLI permissions?',
@@ -1024,6 +1086,13 @@ function SprintEngineBoardPanelContent({
  const getCustomAgentName = (agentId: string, fallback: string) => {
  const name = agents[agentId]?.name
  return name && name !== fallback ? name : ''
+ }
+
+ const enqueuePendingRosterMemberSpawn = (pending: PendingRosterMemberSpawn) => {
+ setPendingRosterMemberSpawns((current) => {
+ if (current.some((candidate) => candidate.agentId === pending.agentId)) return current
+ return [...current, pending]
+ })
  }
 
  const openAddMemberDialog = () => {
@@ -1051,6 +1120,7 @@ function SprintEngineBoardPanelContent({
  const liveArchitectSession = getLiveAgentTerminalSession(architectAgentId)
  if (liveArchitectSession) {
  await window.api.terminalWrite(liveArchitectSession.sessionId, bracketedTerminalPaste(prompt))
+ enqueuePendingRosterMemberSpawn({ agentId, role })
  focusOrAddAgentTab(workspaceId, architectAgentId, label)
  setSelectedAgentId(architectAgentId)
  setAddMemberOpen(false)
@@ -1062,6 +1132,7 @@ function SprintEngineBoardPanelContent({
  startupPrompt: prompt,
  })
  if (!started) return
+ enqueuePendingRosterMemberSpawn({ agentId, role })
  setSelectedAgentId(architectAgentId)
  setAddMemberOpen(false)
  return
@@ -1110,6 +1181,41 @@ function SprintEngineBoardPanelContent({
  getCustomAgentName,
  getLiveAgentTerminalSession,
  })
+
+ useEffect(() => {
+ if (pendingRosterMemberSpawns.length === 0) return
+
+ for (const pending of pendingRosterMemberSpawns) {
+ const rosterAgent = rosterById[pending.agentId]
+ if (!rosterAgent || rosterAgent.role !== pending.role) continue
+ if (getLiveAgentTerminalSession(pending.agentId)) {
+ setPendingRosterMemberSpawns((current) => current.filter((candidate) => candidate.agentId !== pending.agentId))
+ continue
+ }
+ if (pendingRosterMemberSpawnInFlightRef.current.has(pending.agentId)) continue
+
+ pendingRosterMemberSpawnInFlightRef.current.add(pending.agentId)
+ const label = getAgentName(pending.agentId, rosterAgent.label)
+ void startAgentTerminalWhenReady(
+ pending.agentId,
+ label,
+ agents[pending.agentId]?.cli,
+ ).then((started) => {
+ if (!started) return
+ setSelectedAgentId(pending.agentId)
+ setPendingRosterMemberSpawns((current) => current.filter((candidate) => candidate.agentId !== pending.agentId))
+ }).finally(() => {
+ pendingRosterMemberSpawnInFlightRef.current.delete(pending.agentId)
+ })
+ }
+ }, [
+ agents,
+ getAgentName,
+ getLiveAgentTerminalSession,
+ pendingRosterMemberSpawns,
+ rosterById,
+ startAgentTerminalWhenReady,
+ ])
 
  const chromeOverflowItems: OverflowMenuItem[] = (() => {
  const items: OverflowMenuItem[] = []
@@ -1196,12 +1302,6 @@ function SprintEngineBoardPanelContent({
  icon: SprintEngineTasksNavIcon,
  count: sprintEngineState.tasks.length > 0 ? sprintEngineState.tasks.length : undefined,
  },
- {
- id: 'activity',
- label: 'Activity',
- icon: SprintEngineActivityNavIcon,
- count: runActivityUnread > 0 ? runActivityUnread : undefined,
- },
  ]
  const activateView = (view: SprintEngineView) => {
  if (fixedView) return
@@ -1274,9 +1374,6 @@ function SprintEngineBoardPanelContent({
  case 'sprintengine.goto.tasks':
  if (!fixedView) setActiveView('tasks')
  break
- case 'sprintengine.goto.activity':
- if (!fixedView) setActiveView('activity')
- break
  case 'sprintengine.goto.graph':
  if (!fixedView) setActiveView('tasks')
  if (!fixedTasksLayout) setActiveTasksLayout('graph')
@@ -1325,10 +1422,20 @@ function SprintEngineBoardPanelContent({
  <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
  {sprintEngineState.name}
  </h2>
- <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">
- {doneCount}/{totalTasks}
- </span>
- <Popover
+  <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">
+  {doneCount}/{totalTasks}
+  </span>
+  <span
+  className="hidden max-w-[180px] shrink-0 items-center gap-1.5 truncate text-[11px] text-[color:var(--text-muted)] sm:inline-flex"
+  title={automationRuntimeReason ?? sprintEngineAutomationRuntimeLabels[automationRuntimeState]}
+  >
+  <StatusDot
+  tone={sprintEngineAutomationRuntimeTones[automationRuntimeState]}
+  label={`Automation status: ${sprintEngineAutomationRuntimeLabels[automationRuntimeState]}`}
+  />
+  <span className="truncate">{sprintEngineAutomationRuntimeLabels[automationRuntimeState]}</span>
+  </span>
+  <Popover
  open={settingsOpen}
  onOpenChange={setSettingsOpen}
  ariaLabel="Sprint Engine settings"
@@ -1338,11 +1445,14 @@ function SprintEngineBoardPanelContent({
  <OverflowMenu ariaLabel="Sprint Engine overflow" items={chromeOverflowItems} />
  )}
  >
- <SprintEngineSettingsPopover
- automationMode={automationMode}
- cliPermissionPreset={cliPermissionPreset}
- onChangeAutomationMode={updateAutomationMode}
- onUpdateCliPreset={updateCliPermissionPreset}
+  <SprintEngineSettingsPopover
+  automationMode={automationMode}
+  runtimeState={automationRuntimeState}
+  runtimeReason={automationRuntimeReason}
+  cliPermissionPreset={cliPermissionPreset}
+  onChangeAutomationMode={updateAutomationMode}
+  onResumeAutomation={resumeAutomation}
+  onUpdateCliPreset={updateCliPermissionPreset}
  onVerifyProgress={architectAgentId ? openRecoveryDialog : null}
  onClose={() => setSettingsOpen(false)}
  />
@@ -1542,22 +1652,6 @@ function SprintEngineBoardPanelContent({
 
  {renderInspectorAside()}
  </div>
- </div>
- ) : null}
-
- {effectiveView === 'activity' ? (
- <div
- id="sprintengine-view-panel-activity"
- role="tabpanel"
- aria-labelledby="sprintengine-view-tab-activity"
- className="flex min-h-0 flex-1"
- >
- <SprintEngineActivityView
- activity={runActivity}
- onMarkRead={markNotificationRead}
- onMarkAllRead={markRunActivityAllRead}
- onClear={clearRunActivity}
- />
  </div>
  ) : null}
 

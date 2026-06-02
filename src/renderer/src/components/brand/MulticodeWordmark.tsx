@@ -17,8 +17,9 @@ export default function MulticodeWordmark({
       xmlns="http://www.w3.org/2000/svg"
     >
       <text
-        x="0"
+        x="70"
         y="23"
+        textAnchor="middle"
         fontFamily="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
         fontSize="22"
         fontWeight="600"

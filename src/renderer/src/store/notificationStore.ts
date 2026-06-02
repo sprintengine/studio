@@ -6,21 +6,12 @@ import type { AppNotification, DiagnosticLogEntry } from '../types/workspace'
 const NOTIFICATION_STORAGE_KEY = 'multicode-notifications'
 const MAX_NOTIFICATIONS = 120
 
-type NotificationPredicate = (notification: AppNotification) => boolean
-
 interface NotificationStore {
   notifications: AppNotification[]
   addNotification: (entry: DiagnosticLogEntry) => AppNotification
   markRead: (id: string) => void
   markAllRead: () => void
   clearAll: () => void
-  /** Mark every notification matching `predicate` as read. Used by scoped
-   *  surfaces (e.g. a single Sprint Engine run's Activity tab) that must not
-   *  touch notifications belonging to other workspaces or sources. */
-  markReadWhere: (predicate: NotificationPredicate) => void
-  /** Remove every notification matching `predicate`. Same scoping rationale as
-   *  `markReadWhere`. */
-  clearWhere: (predicate: NotificationPredicate) => void
 }
 
 export const useNotificationStore = create<NotificationStore>()(
@@ -60,20 +51,6 @@ export const useNotificationStore = create<NotificationStore>()(
       clearAll: () =>
         set((state) => {
           state.notifications = []
-        }),
-
-      markReadWhere: (predicate) =>
-        set((state) => {
-          state.notifications.forEach((notification) => {
-            if (predicate(notification)) notification.read = true
-          })
-        }),
-
-      clearWhere: (predicate) =>
-        set((state) => {
-          state.notifications = state.notifications.filter(
-            (notification) => !predicate(notification),
-          )
         }),
     })),
     {

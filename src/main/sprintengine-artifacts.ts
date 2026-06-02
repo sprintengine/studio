@@ -372,7 +372,7 @@ function validateWorkspaceRoot(input: unknown): string {
 }
 
 function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: SerializableSprintEngineStatePayload): string[] {
-  const args = [join(getSprintEngineMcpRuntimeRoot(), 'scripts', 'sprintengine_tool.py'), '--state', state.statePath, 'init', '--goal', payload.goal || payload.name]
+  const args = ['--state', state.statePath, 'init', '--goal', payload.goal || payload.name]
   for (const [agentId, agent] of Object.entries(payload.agents)) {
     if (!agent || typeof agent !== 'object' || Array.isArray(agent)) continue
     const role = (agent as Record<string, unknown>).role
@@ -386,7 +386,8 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
 function runSprintEngineCli(state: ValidSprintEngineStatePath, args: string[]): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
   return new Promise((resolvePromise) => {
     const runtimeRoot = getSprintEngineMcpRuntimeRoot()
-    const child = spawn(getSprintEngineMcpPythonExecutable(runtimeRoot), args, {
+    const toolPath = join(runtimeRoot, 'scripts', 'sprintengine_tool.py')
+    const child = spawn(getSprintEngineMcpPythonExecutable(runtimeRoot), [toolPath, ...args], {
       cwd: state.workspaceRoot,
       env: {
         ...process.env,

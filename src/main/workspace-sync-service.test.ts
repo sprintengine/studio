@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 
 import { createWorkspaceSyncService } from './workspace-sync-service'
 import type { Workspace } from '../renderer/src/types/workspace'
-import type { WorkspaceSyncCommand, WorkspaceSyncSnapshot } from '../shared/workspace-sync'
+import type { WorkspaceSyncCommand, WorkspaceSyncRoutingSnapshot, WorkspaceSyncSnapshot } from '../shared/workspace-sync'
 
 function workspace(id: string, folderPath: string | null = null): Workspace {
   return {
@@ -18,9 +18,8 @@ function workspace(id: string, folderPath: string | null = null): Workspace {
     editorState: { openFiles: [], activeFilePath: null },
     sprintEngineState: null,
     sprintEngineAutoState: {
-      supervisorEnabled: false,
-      enabled: false,
-      autoApproveArtifacts: false,
+      desiredMode: 'manual',
+      runtimeState: 'idle',
       keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 0,
@@ -72,7 +71,7 @@ function snapshot(): WorkspaceSyncSnapshot {
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const service = createWorkspaceSyncService({ initialSnapshot: snapshot(), maxReplayEvents: 2, now: () => 1234 })
 
   function assertRejectedWithoutMutation(
@@ -123,6 +122,19 @@ function main(): void {
   )
   assertRejectedWithoutMutation(
     {
+      type: 'workspace_window.update_placement',
+      payload: {
+        windowId: 'unknown-window',
+        bounds: { x: 1, y: 2, width: 900, height: 700 },
+        isMaximized: true,
+        displayId: 9,
+      },
+    },
+    'unknown_window',
+    'unknown-window',
+  )
+  assertRejectedWithoutMutation(
+    {
       type: 'workspace_window.close',
       payload: { windowId: 'detached-a', fallbackWindowId: 'primary' },
     },
@@ -138,6 +150,18 @@ function main(): void {
       },
     },
     'window_authority_mismatch',
+  )
+  assertRejectedWithoutMutation(
+    {
+      type: 'workspace.created',
+      payload: {
+        workspace: workspace('unknown-window-created'),
+        windowId: 'unknown-window',
+        insert: { kind: 'folder_head', folderPath: null },
+      },
+    },
+    'unknown_window',
+    'unknown-window',
   )
 
   const invalidMove = service.dispatch({
@@ -212,7 +236,7 @@ function main(): void {
     sourceWindowId: 'detached-a',
     command: {
       type: 'agent_terminal.update_launch_state',
-      payload: { workspaceId: 'ws-one', agentId: 'agent-one', cliHasLaunched: false },
+      payload: { workspaceId: 'ws-one', agentId: 'agent-one', cliSessionId: null, cliHasLaunched: false },
     },
   })
   assert.equal(terminalFromWrongWindow.ok, false)
@@ -234,7 +258,117 @@ function main(): void {
   assert.equal(transfer.ok, true, 'source window can transfer a workspace it owns to another window')
   assert.equal(transfer.event.sequence, 14)
 
+  // AC2: the primary window cannot be closed, even by its own renderer.
+  assertRejectedWithoutMutation(
+    {
+      type: 'workspace_window.close',
+      payload: { windowId: 'primary', fallbackWindowId: 'detached-a' },
+    },
+    'cannot_close_primary_window',
+    'primary',
+    14,
+  )
+
+  // AC5: a successful detached-window close records the workspace ids the
+  // fallback window inherits in the event payload. After the transfer above,
+  // detached-a owns ws-two (seeded) plus ws-one (moved in), in that order.
+  const close = service.dispatch({
+    sourceWindowId: 'detached-a',
+    command: {
+      type: 'workspace_window.close',
+      payload: { windowId: 'detached-a', fallbackWindowId: 'primary' },
+    },
+  })
+  assert.equal(close.ok, true, 'a detached window can close itself with a known fallback')
+  assert.equal(close.event.sequence, 15)
+  assert.equal(close.event.type, 'workspace_window.closed')
+  assert.ok('movedWorkspaceIds' in close.event.payload, 'closed event payload records the moved workspace ids')
+  assert.deepEqual(
+    (close.event.payload as { movedWorkspaceIds: string[] }).movedWorkspaceIds,
+    ['ws-two', 'ws-one'],
+    'closed event records every closing-window workspace routed to the fallback',
+  )
+  assert.equal(
+    service.getSnapshot().state.workspaceWindows.find((windowState) => windowState.id === 'detached-a'),
+    undefined,
+    'the closed window is dropped from the service snapshot',
+  )
+
+  const routingSnapshot: WorkspaceSyncRoutingSnapshot = {
+    sequence: 20,
+    primaryWorkspaceWindowId: 'primary',
+    workspaceWindows: [
+      {
+        id: 'primary',
+        kind: 'primary',
+        workspaceIds: ['ws-one'],
+        activeWorkspaceId: 'ws-one',
+        bounds: null,
+        isMaximized: false,
+        displayId: null,
+        createdAt: 1,
+        lastFocusedAt: 1,
+      },
+      {
+        id: 'detached-b',
+        kind: 'detached',
+        workspaceIds: ['ws-two'],
+        activeWorkspaceId: 'ws-two',
+        bounds: { x: 10, y: 20, width: 800, height: 600 },
+        isMaximized: false,
+        displayId: 3,
+        createdAt: 2,
+        lastFocusedAt: 2,
+      },
+    ],
+  }
+  const persistedRoutingSnapshots: WorkspaceSyncRoutingSnapshot[] = []
+  const hydratedService = createWorkspaceSyncService({
+    initialRoutingSnapshot: routingSnapshot,
+    persistDebounceMs: 60_000,
+    persistRoutingSnapshot: (persisted) => {
+      persistedRoutingSnapshots.push(persisted)
+    },
+    now: () => 2000,
+  })
+  assert.deepEqual(
+    hydratedService.getSnapshot().state.workspaceWindows.map((windowState) => ({
+      id: windowState.id,
+      workspaceIds: windowState.workspaceIds,
+      activeWorkspaceId: windowState.activeWorkspaceId,
+    })),
+    [
+      { id: 'primary', workspaceIds: ['ws-one'], activeWorkspaceId: 'ws-one' },
+      { id: 'detached-b', workspaceIds: ['ws-two'], activeWorkspaceId: 'ws-two' },
+    ],
+    'restart hydration seeds the service routing table from compact persisted fields',
+  )
+  const hydratedActive = hydratedService.dispatch({
+    sourceWindowId: 'detached-b',
+    command: {
+      type: 'workspace_window.set_active',
+      payload: { windowId: 'detached-b', workspaceId: 'ws-two' },
+    },
+  })
+  assert.equal(hydratedActive.ok, true)
+  assert.equal(hydratedService.getSnapshot().sequence, 21)
+  assert.equal(persistedRoutingSnapshots.length, 0, 'routing snapshot writes are debounced until flushed')
+  await hydratedService.flushRoutingSnapshot()
+  assert.equal(persistedRoutingSnapshots.length, 1)
+  const persistedRoutingSnapshot = persistedRoutingSnapshots[0]
+  assert.ok(persistedRoutingSnapshot)
+  assert.deepEqual(
+    Object.keys(persistedRoutingSnapshot).sort(),
+    ['primaryWorkspaceWindowId', 'sequence', 'workspaceWindows'],
+    'persisted routing snapshot stays compact',
+  )
+  assert.equal(persistedRoutingSnapshot.sequence, 21)
+  assert.deepEqual(
+    persistedRoutingSnapshot.workspaceWindows.find((windowState) => windowState.id === 'detached-b')?.workspaceIds,
+    ['ws-two'],
+  )
+
   console.log('workspace-sync-service.test.ts: ok')
 }
 
-main()
+void main()

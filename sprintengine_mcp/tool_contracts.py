@@ -82,6 +82,7 @@ def _special(name: str, *, requires_state_path: bool = True) -> McpToolContract:
 MCP_TOOL_CONTRACTS: dict[str, McpToolContract] = {
     contract.name: contract
     for contract in [
+        _special("sprintengine.help", requires_state_path=False),
         _command("sprintengine.handover", cmd_handover),
         _command("sprintengine.init", cmd_init),
         _command("sprintengine.recover", cmd_recover),

@@ -11,6 +11,10 @@ import {
 } from '../../utils/agentCliResume'
 import { normalizeCliPermissionPreset } from './settingsSlice'
 import type {
+  AgentTerminalLaunchStateApply,
+  AgentTerminalSessionApply,
+} from '../workspaceSyncClient'
+import type {
   AgentCli,
   AgentExecution,
   AgentId,
@@ -99,6 +103,8 @@ export interface AgentsSliceState {}
 
 export interface AgentsSliceActions {
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
+  applyAgentTerminalSessionEvent: (apply: AgentTerminalSessionApply) => void
+  applyAgentTerminalLaunchStateEvent: (apply: AgentTerminalLaunchStateApply) => void
   setAgentExecution: (
     workspaceId: WorkspaceId,
     agentId: AgentId,
@@ -130,6 +136,43 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
         if (!ws.agents[agentId]) ws.agents[agentId] = defaultAgent(agentId)
         Object.assign(ws.agents[agentId], update)
         ws.agents[agentId].execution = normalizeAgentExecution(ws.agents[agentId].execution)
+      }),
+
+    applyAgentTerminalSessionEvent: ({ workspaceId, agentId, sessionId, cli }) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === workspaceId)
+        if (!ws) return
+        if (!ws.agents[agentId]) ws.agents[agentId] = defaultAgent(agentId)
+        Object.assign(ws.agents[agentId], {
+          cliSessionId: sessionId,
+          cli,
+          cliStartRequested: true,
+          cliHasLaunched: true,
+          cliResumeAvailable: agentCliSupportsConversationResume(cli),
+        })
+        ws.agents[agentId].execution = normalizeAgentExecution(ws.agents[agentId].execution)
+      }),
+
+    applyAgentTerminalLaunchStateEvent: ({
+      workspaceId,
+      agentId,
+      cliSessionId,
+      cliStartRequested,
+      cliHasLaunched,
+      cliOnboardingPromptSent,
+      cliResumeAvailable,
+    }) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === workspaceId)
+        if (!ws) return
+        if (!ws.agents[agentId]) ws.agents[agentId] = defaultAgent(agentId)
+        const agent = ws.agents[agentId]
+        if (cliSessionId !== undefined) agent.cliSessionId = cliSessionId ?? undefined
+        if (cliStartRequested !== undefined) agent.cliStartRequested = cliStartRequested
+        if (cliHasLaunched !== undefined) agent.cliHasLaunched = cliHasLaunched
+        if (cliOnboardingPromptSent !== undefined) agent.cliOnboardingPromptSent = cliOnboardingPromptSent
+        if (cliResumeAvailable !== undefined) agent.cliResumeAvailable = cliResumeAvailable
+        agent.execution = normalizeAgentExecution(agent.execution)
       }),
 
     setAgentExecution: (workspaceId, agentId, execution) =>

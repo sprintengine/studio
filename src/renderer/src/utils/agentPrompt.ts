@@ -58,6 +58,11 @@ export function buildSprintEngineStartupPrompt(
     role,
     agentId,
   }
+  const helpPayload = {
+    role,
+    agentId,
+    topic: 'agent_workflow',
+  }
   const initPayload: Record<string, unknown> = {
     goal: goal || '<run goal>',
   }
@@ -66,6 +71,8 @@ export function buildSprintEngineStartupPrompt(
   const initBlock = commandMode === 'init'
     ? [
       '## First MCP Calls — architect bootstrap',
+      'Call `sprintengine.help` first to read the current Sprint Engine MCP workflow contract:',
+      jsonBlock(helpPayload),
       'Call `sprintengine.init` once to initialize the run:',
       jsonBlock(initPayload),
       'Then register as the architect agent with `sprintengine.agent.join`:',
@@ -75,6 +82,8 @@ export function buildSprintEngineStartupPrompt(
     ].join('\n')
     : [
       '## First MCP Calls',
+      'Call `sprintengine.help` first to read the current Sprint Engine MCP workflow contract:',
+      jsonBlock(helpPayload),
       'Register this agent with `sprintengine.agent.join`:',
       jsonBlock(joinPayload),
       'Then request your structured directive with `sprintengine.agent.next_directive`:',
@@ -84,34 +93,15 @@ export function buildSprintEngineStartupPrompt(
   const directiveContract = [
     '## Directive Contract',
     '`sprintengine.agent.next_directive` returns a structured payload:',
-    '- `directiveType`: `task_work` | `resume` | `gate_work` | `needs_input_triage` | `idle` | `complete` | `blocked` | `error`',
-    '- `nextMcpToolName` and `nextMcpArguments`: the exact MCP tool and payload to invoke next (or `null` when idle/complete/blocked)',
-    '- `task`, `gate`, `triage`, `blocker`, `error`: contextual fields when applicable',
-    '- `runnerPolicy.cliWatchPolling`: `enabled` or `disabled` (CLI-only; Multicode supervisor ignores)',
-    'Invoke `nextMcpToolName` with `nextMcpArguments` verbatim to claim or resume work.',
-  ].join('\n')
-
-  const workflowTools = [
-    '## Workflow MCP Tools',
-    `- Claim next ready role work: \`sprintengine.task.next\` with \`{role, id: "${agentId}"}\`.`,
-    `- Claim next ready quality gate: \`sprintengine.gate.next\` with \`{role, id: "${agentId}"}\`.`,
-    `- Architect-actionable triage: \`sprintengine.triage.needs_input\` with \`{id: "${agentId}"}\`.`,
-    '- Read a task card: `sprintengine.task.get` with `{taskId}`.',
-    '- Log evidence: `sprintengine.task.log` with `{taskId, id, summary, file, command, result, scopeExpansionJson}`.',
-    '- Publish implementation evidence: `sprintengine.task.publish` with `{taskId, id, summary, ...}`.',
-    '- Register an artifact: `sprintengine.artifact.add` with `{taskId, kind, title, path, createdBy, ready}` — set `ready: true` only when the artifact must wait for human approval.',
-    '- Record a gate verdict: `sprintengine.gate.verdict` (or `sprintengine.gate.publish`) with `{taskId, gateId, role, id, verdict, summary}`.',
-    '- Move a task to `needs_input`: `sprintengine.task.status` with `{taskId, id, status: "needs_input", needsInputKind, needsInputReason, needsInputQuestion, needsInputArtifactId?, needsInputSuggestedResolution?}`.',
-    '  - `needsInputKind` is who or what must act: `architect` for task-card/scope/artifact-review/tooling blockers, `user` for product decisions or approvals, `owner` when you are waiting on your own condition, `external_validation` when real hardware, credentials, or another outside check is required.',
-    '  - `needsInputReason` classifies the blocker: `task_scope`, `artifact_review`, `tooling`, `verification`, `product_decision`, or `blocked_other`.',
+    '- `nextMcpToolName` and `nextMcpArguments` are the exact MCP tool and payload to invoke next, or `null` when there is no follow-up tool.',
+    'Use `sprintengine.help` for the current workflow/tool details instead of relying on this startup prompt.',
   ].join('\n')
 
   const autoModeBlock = [
     '## Directive Handling',
-    'After you finish one task or gate, publish evidence (or a gate verdict) through the MCP tools above. If a returned directive includes `nextMcpToolName`, invoke it once with `nextMcpArguments`; otherwise there is no MCP tool to invoke for that directive.',
+    'After you finish one task or gate, publish evidence or a gate verdict as described by `sprintengine.help`.',
+    'If a returned directive includes `nextMcpToolName`, invoke it once with `nextMcpArguments`; otherwise there is no MCP tool to invoke for that directive.',
     'Multicode owns later runtime dispatch and continuation.',
-    'Stop earlier if Auto Mode is off, you are blocked, you need user input, the terminal is being shut down, or your context window is about 70% full. At about 70% context, publish a concise continuation note via `sprintengine.task.note`, compact or restart, then fetch your Soul again via `sprintengine.soul.get` when the runtime continues this terminal.',
-    'If you receive a Sprint Engine notification that your blocked task was resolved, re-read the task card via `sprintengine.task.get`, then continue that same task; if the notification says the task is complete, stop.',
   ].join('\n')
 
   const roleBoundary = [
@@ -147,7 +137,6 @@ export function buildSprintEngineStartupPrompt(
     roleBoundary,
     initBlock,
     directiveContract,
-    workflowTools,
     autoModeBlock,
     missingRunNote,
   ].filter(Boolean).join('\n\n')

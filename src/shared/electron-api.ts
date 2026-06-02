@@ -1121,8 +1121,10 @@ export type ElectronApi = {
   getWindowPlacement: () => Promise<WindowPlacement | null>
   getWorkspaceWindowId: () => Promise<string>
   createWorkspaceWindow: (input: CreateWorkspaceWindowInput) => Promise<CreateWorkspaceWindowResult>
+  confirmWindowClose: () => Promise<void>
   onWindowStateChanged: (cb: (state: WindowState) => void) => () => void
   onWindowPlacementChanged: (cb: (placement: WindowPlacement) => void) => () => void
+  onWindowCloseRequested: (cb: () => void) => () => void
   workspaceSyncDispatch: (command: WorkspaceSyncCommand) => Promise<WorkspaceSyncCommandResult>
   workspaceSyncGetSnapshot: () => Promise<WorkspaceSyncSnapshot>
   workspaceSyncGetEventsAfter: (sequence: number) => Promise<WorkspaceSyncEvent[]>

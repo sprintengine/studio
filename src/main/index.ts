@@ -64,6 +64,7 @@ registerAppLifecycle({
     process.env['MULTICODE_ALLOW_MULTI_INSTANCE'] === '1' &&
     Boolean(process.env['MULTICODE_USER_DATA_DIR']?.trim()),
   terminalRuntime: services.terminalRuntime,
+  workspaceSyncService: services.workspaceSyncService,
   sprintEngineMcpHub: services.sprintEngineMcpHub,
   moduleKernel: moduleLoad.kernel,
   updateService: services.updateService,

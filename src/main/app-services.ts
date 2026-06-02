@@ -12,6 +12,7 @@ import { createTerminalRuntime } from './terminal-runtime'
 import { MulticodeUpdateService } from './update-service'
 import { GitHubTokenStore } from './github-token-store'
 import { createWorkspaceBackupService } from './workspace-backup'
+import { createWorkspaceSyncRoutingSnapshotStore } from './workspace-sync-routing-snapshot'
 import { createWorkspaceSyncService } from './workspace-sync-service'
 import { recordSwitchboardSessionExit } from './switchboard-files'
 import { writeDiagnosticLog } from './diagnostics-service'
@@ -69,7 +70,23 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const workspaceBackupService = createWorkspaceBackupService({
     resolveUserDataDir: () => app.getPath('userData'),
   })
-  const workspaceSyncService = createWorkspaceSyncService()
+  const logWorkspaceSyncDiagnostic = (diagnostic: {
+    level: 'warning'
+    title: string
+    message: string
+    details?: string
+  }) => {
+    void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+  }
+  const workspaceSyncRoutingSnapshotStore = createWorkspaceSyncRoutingSnapshotStore({
+    resolveUserDataDir: () => app.getPath('userData'),
+    logDiagnostic: logWorkspaceSyncDiagnostic,
+  })
+  const workspaceSyncService = createWorkspaceSyncService({
+    initialRoutingSnapshot: workspaceSyncRoutingSnapshotStore.read() ?? undefined,
+    persistRoutingSnapshot: (snapshot) => workspaceSyncRoutingSnapshotStore.write(snapshot),
+    logDiagnostic: logWorkspaceSyncDiagnostic,
+  })
   const sprintEngineArtifacts = createSprintEngineArtifactHandlers({
     getAuthenticatedUserId: getAuthenticatedMulticodeUserId,
     openExternal: (url) => shell.openExternal(url),
@@ -89,6 +106,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     withIpcDiagnostics,
     workspaceBackupService,
     workspaceSyncService,
+    workspaceSyncRoutingSnapshotStore,
   }
 }
 

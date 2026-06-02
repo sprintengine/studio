@@ -54,6 +54,7 @@ const persistedWorkspace = {
 // to multicode-app-settings, leave multicode-workspaces as registry-only, and
 // surface a hydrated store with both halves.
 const stored: Record<string, string> = {
+  'multicode.workspaceStorageLiveSync': '1',
   'multicode-workspaces': JSON.stringify({
     state: {
       appSettings: {},
@@ -381,6 +382,99 @@ assert.equal(
   afterStorageImport.workspaceWindows.find((windowState) => windowState.id === 'detached-local')?.activeWorkspaceId,
   locallyOwnedWorkspace.id,
   'current-window active workspace selection stays scoped when the incoming snapshot is older',
+)
+
+const foreignSpecialistWorkspace = {
+  ...persistedWorkspace,
+  id: 'ws-foreign-specialist',
+  name: 'Foreign Specialist Workspace',
+  agents: {
+    'specialist-architect-1': {
+      ...(persistedWorkspace.agents['agent-1'] as AgentState),
+      id: 'specialist-architect-1',
+      name: 'Architect',
+      kind: 'specialist',
+      specialistId: 'architect',
+      cli: 'codex',
+      cliStartupPrompt: 'architect startup prompt',
+      cliStartRequested: false,
+      cliHasLaunched: false,
+      cliSessionId: undefined,
+      cliResumeAvailable: false,
+      cliOnboardingPromptSent: false,
+    },
+  },
+} as Workspace
+const specialistCreationImport = JSON.stringify({
+  state: {
+    workspaces: [
+      {
+        ...locallyOwnedWorkspace,
+        agents: {
+          'agent-1': {
+            ...(locallyOwnedWorkspace.agents['agent-1'] as AgentState),
+            cliSessionId: undefined,
+            cliStartRequested: false,
+            cliHasLaunched: false,
+            cliResumeAvailable: false,
+          },
+        },
+      },
+      sameFolderWorkspace,
+      foreignSpecialistWorkspace,
+    ],
+    activeWorkspaceId: foreignSpecialistWorkspace.id,
+    primaryWorkspaceWindowId: 'primary',
+    workspaceWindows: [
+      {
+        id: 'primary',
+        kind: 'primary',
+        workspaceIds: [foreignSpecialistWorkspace.id],
+        activeWorkspaceId: foreignSpecialistWorkspace.id,
+        bounds: null,
+        isMaximized: false,
+        displayId: null,
+        createdAt: 1,
+        lastFocusedAt: 60,
+      },
+      {
+        id: 'detached-local',
+        kind: 'detached',
+        workspaceIds: [locallyOwnedWorkspace.id, sameFolderWorkspace.id],
+        activeWorkspaceId: sameFolderWorkspace.id,
+        bounds: null,
+        isMaximized: false,
+        displayId: null,
+        createdAt: 1,
+        lastFocusedAt: 10,
+      },
+    ],
+    workspaceRegistryEmptyState: null,
+  },
+  version: 46,
+} satisfies RegistryRecord)
+for (const listener of storageListeners) {
+  listener({ key: 'multicode-workspaces', newValue: specialistCreationImport })
+}
+const afterSpecialistCreationImport = useWorkspaceStore.getState()
+const preservedAgentAfterSpecialistCreation = afterSpecialistCreationImport.workspaces.find((workspace) => workspace.id === locallyOwnedWorkspace.id)
+  ?.agents['agent-1'] as Partial<AgentState> | undefined
+assert.equal(
+  preservedAgentAfterSpecialistCreation?.cliSessionId,
+  'session-local-owned',
+  'foreign specialist creation snapshot cannot erase cliSessionId for the current-window workspace',
+)
+assert.equal(preservedAgentAfterSpecialistCreation?.cliStartRequested, true)
+assert.equal(
+  afterSpecialistCreationImport.workspaces.find((workspace) => workspace.id === foreignSpecialistWorkspace.id)
+    ?.agents['specialist-architect-1']?.kind,
+  'specialist',
+  'foreign-window specialist creation is still imported',
+)
+assert.equal(
+  afterSpecialistCreationImport.workspaceWindows.find((windowState) => windowState.id === 'detached-local')?.activeWorkspaceId,
+  locallyOwnedWorkspace.id,
+  'foreign specialist creation does not replace a newer current-window active selection',
 )
 ;(globalThis.window as unknown as { location: { href: string } }).location.href =
   'http://localhost/?windowId=primary'

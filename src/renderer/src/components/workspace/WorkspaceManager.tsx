@@ -37,7 +37,7 @@ import type {
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
-import { disableSprintEngineAutoRun } from '../../utils/sprintengineSupervisorNotifications'
+import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
 import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddTerminalTab, getModel, togglePanelRailComponent } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
@@ -50,7 +50,7 @@ import SprintEngineStateSynchronizer from './SprintEngineStateSynchronizer'
 import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
-import { WindowControls } from './WindowControls'
+import { AppTitleBar } from './AppTitleBar'
 import WorkspaceTopBar, {
   AGENT_SPAWN_PERMISSION_OPTIONS,
   type ChipPopoverForRole,
@@ -66,6 +66,7 @@ import {
   uniqueAgentName,
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
+import { restoreDetachedWorkspaceWindowsOnStartup } from './workspaceWindowRestore'
 
 // Lazy so the (large) new-workspace wizard — and everything it pulls in
 // (GuidedBriefFlow, the markdown renderer) — is code-split out of the eager boot
@@ -318,30 +319,12 @@ export default function WorkspaceManager() {
     if (collapsedStaleDetachedWindowsRef.current) return
     collapsedStaleDetachedWindowsRef.current = true
     if (!isPrimaryWorkspaceWindow) return
-    const restoreDetachedWindows = async () => {
-      const persistedDetachedWindows = useWorkspaceStore
-      .getState()
-      .workspaceWindows
-      .filter((windowState) => windowState.id !== (primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID))
-      for (const windowState of persistedDetachedWindows) {
-        let restored = false
-        try {
-          const result = await window.api.createWorkspaceWindow({
-            windowId: windowState.id,
-            workspaceId: windowState.activeWorkspaceId,
-            bounds: windowState.bounds,
-            isMaximized: windowState.isMaximized,
-          })
-          restored = result.ok
-        } catch {
-          restored = false
-        }
-        if (!restored) {
-          closeWorkspaceWindow(windowState.id, primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID)
-        }
-      }
-    }
-    void restoreDetachedWindows()
+    void restoreDetachedWorkspaceWindowsOnStartup({
+      primaryWorkspaceWindowId: primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID,
+      workspaceWindows: useWorkspaceStore.getState().workspaceWindows,
+      createWorkspaceWindow: window.api.createWorkspaceWindow,
+      closeWorkspaceWindow,
+    })
   }, [closeWorkspaceWindow, isPrimaryWorkspaceWindow, primaryWorkspaceWindowId])
 
   useEffect(() => {
@@ -357,11 +340,10 @@ export default function WorkspaceManager() {
 
   useEffect(() => {
     if (isPrimaryWorkspaceWindow) return
-    const onBeforeUnload = () => {
+    return window.api.onWindowCloseRequested(() => {
       closeWorkspaceWindow(workspaceWindowId, primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID)
-    }
-    window.addEventListener('beforeunload', onBeforeUnload)
-    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+      void window.api.confirmWindowClose()
+    })
   }, [closeWorkspaceWindow, isPrimaryWorkspaceWindow, primaryWorkspaceWindowId, workspaceWindowId])
 
   useEffect(() => {
@@ -1191,7 +1173,7 @@ export default function WorkspaceManager() {
     void window.api.terminalKill(item.sessionId).catch(() => {})
     setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))
     if (item.workspace.mode === 'sprintengine') {
-      disableSprintEngineAutoRun(item.workspace.id, 'agent_terminal_closed', {
+      applySprintEngineAutomationStopReason(item.workspace.id, 'agent_terminal_closed', {
         ...(item.agentId ? { agentId: item.agentId } : {}),
       })
     }
@@ -1230,25 +1212,12 @@ export default function WorkspaceManager() {
           : null
       ))}
 
-      {window.api.platform !== 'darwin' && (
-        <div
-          className="app-drag flex h-[34px] shrink-0 items-stretch justify-between border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]"
-        >
-          <div className="flex min-w-0 items-center gap-1 px-2">
-            {MENU_BAR_ITEMS.map((label) => (
-              <button
-                key={label}
-                onClick={(event) => void handleShowMenubarMenu(event, label)}
-                className="app-no-drag inline-flex h-7 items-center rounded-md px-2.5 text-[12px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <WindowControls isMaximized={windowState.isMaximized} />
-        </div>
-      )}
+      <AppTitleBar
+        isMac={window.api.platform === 'darwin'}
+        isMaximized={windowState.isMaximized}
+        menuItems={MENU_BAR_ITEMS}
+        onShowMenu={(event, label) => void handleShowMenubarMenu(event, label)}
+      />
 
       <div className="flex min-h-0 flex-1 flex-row">
       <WorkspaceSidebar
@@ -1487,7 +1456,7 @@ function killTerminalForLayoutTab(
       void window.api.terminalKill(sessionId).catch(() => {})
     })
     if (agent?.kind === 'sprintengine') {
-      disableSprintEngineAutoRun(workspaceId, 'agent_terminal_closed', { agentId })
+      applySprintEngineAutomationStopReason(workspaceId, 'agent_terminal_closed', { agentId })
     }
     state.updateAgent(workspaceId, agentId, {
       cliStartRequested: false,

@@ -36,7 +36,7 @@ import type {
 import { publishDiagnostic } from './diagnostics'
 import { applyAgentTerminalRevealPolicy, type AgentTerminalRevealPolicy } from './modelRegistry'
 import {
-  disableSprintEngineAutoRun,
+  applySprintEngineAutomationStopReason,
   type SprintEngineAutoRunDisableReason,
 } from './sprintengineSupervisorNotifications'
 import { withTimeout } from './sprintengineAutoRun'
@@ -113,8 +113,8 @@ export interface SprintEngineAutoRunExecutorPorts {
     eventKey: string
   ): void
 
-  // Auto-run off-switch -------------------------------------------------
-  disableAutoRun(
+  // Automation lifecycle stops ------------------------------------------
+  applyAutomationStopReason(
     workspaceId: WorkspaceId,
     reason: SprintEngineAutoRunDisableReason,
     context?: { taskId?: string; agentId?: string; message?: string; details?: string }
@@ -162,7 +162,7 @@ export function createDefaultSprintEngineAutoRunExecutorPorts(): SprintEngineAut
       useWorkspaceStore.getState().updateAgent(workspaceId, agentId, update),
     markSprintEngineAgentNotificationDelivered: (workspaceId, eventKey) =>
       useWorkspaceStore.getState().markSprintEngineAgentNotificationDelivered(workspaceId, eventKey),
-    disableAutoRun: disableSprintEngineAutoRun,
+    applyAutomationStopReason: applySprintEngineAutomationStopReason,
   }
 }
 
@@ -322,7 +322,7 @@ export async function recordSpawnFailure(
   ports: SprintEngineAutoRunExecutorPorts,
   input: RecordSpawnFailureInput
 ): Promise<void> {
-  ports.disableAutoRun(input.workspaceId, 'agent_spawn_failed', {
+  ports.applyAutomationStopReason(input.workspaceId, 'agent_spawn_failed', {
     agentId: input.agentId,
     taskId: input.taskId,
     message: `${input.agentLabel} could not be started for task ${input.taskId}.`,

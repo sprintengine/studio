@@ -331,7 +331,11 @@ function installTestLocalStorage(): void {
     },
   }
   Object.defineProperty(globalThis, 'window', {
-    value: { localStorage },
+    value: {
+      localStorage,
+      location: { href: 'http://localhost/?windowId=primary' },
+      addEventListener: () => {},
+    },
     configurable: true,
   })
 }

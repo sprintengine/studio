@@ -1,6 +1,7 @@
 import type {
   AgentCli,
   AppSettings,
+  SprintEngineAutomationDesiredMode,
   SprintEngineWorkspaceContext,
   Workspace,
   WorkspaceId,
@@ -49,7 +50,7 @@ import { clearSprintEngineAgentLaunchState, mapMigrationWorkspaces } from './nor
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 57
+export const WORKSPACE_STORE_VERSION = 58
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -63,6 +64,46 @@ export type WorkspaceMigrationState = {
   }
   sidebarCollapsed?: boolean
   workspaceRegistryEmptyState?: import('../../types/workspace').WorkspaceRegistryEmptyState | null
+}
+
+type LegacySprintEngineAutoState = Partial<Workspace['sprintEngineAutoState']> & {
+  supervisorEnabled?: unknown
+  enabled?: unknown
+  autoApproveArtifacts?: unknown
+}
+
+function sprintEngineDesiredModeFromLegacyBooleans(
+  input: LegacySprintEngineAutoState | null | undefined
+): SprintEngineAutomationDesiredMode {
+  const explicitMode = input?.desiredMode
+  if (
+    explicitMode === 'manual'
+    || explicitMode === 'run_agents'
+    || explicitMode === 'run_agents_and_approve_artifacts'
+  ) {
+    return explicitMode
+  }
+  const runnerEnabled = input?.supervisorEnabled === true || input?.enabled === true
+  if (runnerEnabled && input?.autoApproveArtifacts === true) return 'run_agents_and_approve_artifacts'
+  if (runnerEnabled) return 'run_agents'
+  return 'manual'
+}
+
+function repairSprintEngineAutomationLifecycleState(workspace: Workspace): Workspace {
+  const legacyAutoState = workspace.sprintEngineAutoState as LegacySprintEngineAutoState | null | undefined
+  const desiredMode = sprintEngineDesiredModeFromLegacyBooleans(legacyAutoState)
+  const sprintEngineAutoState = normalizeSprintEngineAutoState({
+    ...legacyAutoState,
+    desiredMode,
+    runtimeState: legacyAutoState?.runtimeState ?? (desiredMode === 'manual' ? 'idle' : 'running'),
+  })
+  return {
+    ...workspace,
+    sprintEngineAutoState: {
+      ...sprintEngineAutoState,
+      pendingSpawns: [],
+    },
+  }
 }
 
 export function normalizeWorkspaceWindows(
@@ -738,6 +779,12 @@ export function migratePersistedWorkspaceState(
       return next ? { ...ws, layoutModel: next } : ws
     })
   }
+  if (version < 58) {
+    // One-time local repair for development snapshots that still carried the
+    // removed Sprint Engine automation boolean mirrors. Run before older
+    // automation normalization steps so pre-v53 snapshots do not lose intent.
+    mapMigrationWorkspaces(migrationState, repairSprintEngineAutomationLifecycleState)
+  }
   if (version < 51) {
     mapMigrationWorkspaces(migrationState, (ws) => {
       const sprintEngineAutoState = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
@@ -745,8 +792,6 @@ export function migratePersistedWorkspaceState(
         ...ws,
         sprintEngineAutoState: {
           ...sprintEngineAutoState,
-          supervisorEnabled: false,
-          enabled: false,
           pendingSpawns: [],
         },
       }
@@ -763,18 +808,13 @@ export function migratePersistedWorkspaceState(
     })
   }
   if (version < 53) {
-    // Sprint Engine automation is a live operator choice, not a cold-start
-    // resume contract. Force already-persisted runs back to Manual so opening
-    // Multicode never restarts autonomous agent spawning or artifact approval.
+    // Normalize automation state while clearing transient spawn bookkeeping.
     mapMigrationWorkspaces(migrationState, (ws) => {
       const sprintEngineAutoState = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
       return {
         ...ws,
         sprintEngineAutoState: {
           ...sprintEngineAutoState,
-          supervisorEnabled: false,
-          enabled: false,
-          autoApproveArtifacts: false,
           pendingSpawns: [],
         },
       }

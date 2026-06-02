@@ -20,6 +20,14 @@ import {
   normalizeGuidedBriefState,
 } from './guidedBriefSlice'
 import { normalizeRecentWorkspaceFolders } from './settingsSlice'
+import {
+  workspaceSyncClient,
+  type WorkspaceActiveChangedApply,
+  type WorkspaceClosedApply,
+  type WorkspaceCreatedApply,
+  type WorkspaceMovedApply,
+  type WorkspacePlacementApply,
+} from '../workspaceSyncClient'
 import type {
   AgentCli,
   AgentExecution,
@@ -53,6 +61,19 @@ import type {
 // TerminalSessionSnapshot is a global ambient type from src/renderer/src/env.d.ts.
 
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
+
+// This renderer's own window id, derived from the URL like workspaceStore and
+// workspaceSyncClient. Used to decide whether a move targets this renderer's
+// window (refocus the moved workspace) or another window (keep global active on
+// the window this renderer displays). Guarded for the non-DOM test environment.
+function getCurrentWorkspaceWindowIdForSlice(): WorkspaceWindowId {
+  if (typeof window === 'undefined') return PRIMARY_WORKSPACE_WINDOW_ID
+  try {
+    return new URL(window.location.href).searchParams.get('windowId')?.trim() || PRIMARY_WORKSPACE_WINDOW_ID
+  } catch {
+    return PRIMARY_WORKSPACE_WINDOW_ID
+  }
+}
 
 export function workspaceFolderKey(value: string | null | undefined): string | null {
   const normalized = normalizeProjectRootKey(value)
@@ -104,6 +125,11 @@ export interface WorkspacesSliceActions {
     sourceWindowId?: WorkspaceWindowId | null
   ) => void
   setActiveWorkspaceForWindow: (windowId: WorkspaceWindowId, workspaceId: WorkspaceId) => void
+  applyWorkspaceActiveChangedEvent: (apply: WorkspaceActiveChangedApply) => void
+  applyWorkspaceMovedEvent: (apply: WorkspaceMovedApply) => void
+  applyWorkspaceClosedEvent: (apply: WorkspaceClosedApply) => void
+  applyWorkspacePlacementEvent: (apply: WorkspacePlacementApply) => void
+  applyWorkspaceCreatedEvent: (apply: WorkspaceCreatedApply) => void
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastOutputAt: number) => void
@@ -370,24 +396,39 @@ export function createWorkspacesSlice(
         normalizeWindowAssignments(state)
       }),
 
-    updateWorkspaceWindowPlacement: (windowId, placement) =>
+    updateWorkspaceWindowPlacement: (windowId, placement) => {
       set((state) => {
         const windowState = ensureWorkspaceWindow(state, windowId)
         windowState.bounds = normalizeBounds(placement.bounds)
         windowState.isMaximized = placement.isMaximized === true
         windowState.displayId = typeof placement.displayId === 'number' ? placement.displayId : null
         windowState.lastFocusedAt = Date.now()
-      }),
+      })
+      // Local state is the functional path; storage-event sync still mirrors it
+      // to other windows as rollback. Also broadcast the placement through main.
+      // Callers pass only their own window id, and these calls already arrive
+      // pre-debounced by the 250 ms window placement debounce in
+      // window-factory.ts/window-ipc.ts, so dispatch frequency stays bounded.
+      // Fire-and-forget: an unseeded/rejecting main service is a logged no-op.
+      void workspaceSyncClient.dispatchUpdatePlacement({
+        windowId,
+        bounds: placement.bounds ?? null,
+        isMaximized: placement.isMaximized === true,
+        displayId: typeof placement.displayId === 'number' ? placement.displayId : null,
+      })
+    },
 
-    closeWorkspaceWindow: (windowId, fallbackWindowId) =>
+    closeWorkspaceWindow: (windowId, fallbackWindowId) => {
+      let resolvedFallbackWindowId: WorkspaceWindowId | null = null
       set((state) => {
         if (windowId === state.primaryWorkspaceWindowId) return
         const closing = state.workspaceWindows.find((windowState) => windowState.id === windowId)
         if (!closing) return
+        resolvedFallbackWindowId = fallbackWindowId ?? state.primaryWorkspaceWindowId
         const target = ensureWorkspaceWindow(
           state,
-          fallbackWindowId ?? state.primaryWorkspaceWindowId,
-          fallbackWindowId && fallbackWindowId !== state.primaryWorkspaceWindowId ? 'detached' : 'primary',
+          resolvedFallbackWindowId,
+          resolvedFallbackWindowId !== state.primaryWorkspaceWindowId ? 'detached' : 'primary',
         )
         for (const workspaceId of closing.workspaceIds) {
           if (!target.workspaceIds.includes(workspaceId)) target.workspaceIds.push(workspaceId)
@@ -399,9 +440,17 @@ export function createWorkspacesSlice(
         }
         state.workspaceWindows = state.workspaceWindows.filter((windowState) => windowState.id !== windowId)
         normalizeWindowAssignments(state)
-      }),
+      })
+      // Broadcast the detached-window close through main (functional path stays
+      // local + storage-event rollback). Only dispatch when a close actually
+      // happened: a non-existent or primary window short-circuits above.
+      if (resolvedFallbackWindowId) {
+        void workspaceSyncClient.dispatchCloseWorkspaceWindow(windowId, resolvedFallbackWindowId)
+      }
+    },
 
-    moveWorkspaceToWindow: (workspaceId, targetWindowId, sourceWindowId) =>
+    moveWorkspaceToWindow: (workspaceId, targetWindowId, sourceWindowId) => {
+      let moved = false
       set((state) => {
         if (!state.workspaces.find((workspace) => workspace.id === workspaceId)) return
         const target = ensureWorkspaceWindow(
@@ -419,9 +468,105 @@ export function createWorkspacesSlice(
         if (!target.workspaceIds.includes(workspaceId)) target.workspaceIds.push(workspaceId)
         target.activeWorkspaceId = workspaceId
         target.lastFocusedAt = Date.now()
+        const currentWindowId = getCurrentWorkspaceWindowIdForSlice()
+        if (targetWindowId === currentWindowId) {
+          // The workspace landed in THIS renderer's own window — focus it
+          // globally. This covers same-window moves and the failed move-out
+          // rollback (createWorkspaceWindow failure) that restores the workspace
+          // to the current window using the failed target id as sourceWindowId.
+          state.activeWorkspaceId = workspaceId
+        } else if (state.activeWorkspaceId === workspaceId || state.activeWorkspaceId == null) {
+          // The workspace moved to another window. Keep this renderer's global
+          // active on the window it displays (its own/source window's
+          // deterministic fallback, already advanced off the moved workspace by
+          // the loop) rather than a workspace that now lives elsewhere. Only
+          // adjust when global active was the moved-away workspace or unset; a
+          // still-present active workspace in this window stays.
+          const anchorWindow =
+            state.workspaceWindows.find((windowState) => windowState.id === currentWindowId)
+            ?? (sourceWindowId
+              ? state.workspaceWindows.find((windowState) => windowState.id === sourceWindowId)
+              : undefined)
+          state.activeWorkspaceId = anchorWindow?.activeWorkspaceId ?? null
+        }
+        normalizeWindowAssignments(state)
+        moved = true
+      })
+      // A user move always focuses the moved workspace in its destination, so
+      // dispatch makeActive: true. Broadcast through main (functional path stays
+      // local + storage-event rollback). Skip when the workspace was unknown.
+      if (moved) {
+        void workspaceSyncClient.dispatchMoveWorkspaceToWindow(
+          workspaceId,
+          sourceWindowId ?? null,
+          targetWindowId,
+          true
+        )
+      }
+    },
+
+    setActiveWorkspaceForWindow: (windowId, workspaceId) => {
+      let changed = false
+      set((state) => {
+        const windowState = state.workspaceWindows.find((candidate) => candidate.id === windowId)
+        if (!windowState?.workspaceIds.includes(workspaceId)) return
+        changed = windowState.activeWorkspaceId !== workspaceId
+        windowState.activeWorkspaceId = workspaceId
+        windowState.lastFocusedAt = Date.now()
         state.activeWorkspaceId = workspaceId
-        if (sourceWindowId && sourceWindowId !== targetWindowId) {
-          const source = state.workspaceWindows.find((windowState) => windowState.id === sourceWindowId)
+      })
+      // Local state is the functional path (storage-event sync still mirrors it
+      // to other windows as rollback). When the active selection actually
+      // changes, also dispatch it through main so the event bus can broadcast it
+      // once the main service is authoritative. Re-focusing the already-active
+      // workspace bumps lastFocusedAt locally but emits no cross-window event.
+      // Fire-and-forget: dispatch failures are logged, never thrown.
+      if (changed) void workspaceSyncClient.dispatchSetActiveWorkspace(windowId, workspaceId)
+    },
+
+    // Applies an accepted/broadcast active_changed event without re-dispatching,
+    // so an imported event never re-emits a new command. Updates only the
+    // targeted window's active workspace; global active selection is claimed
+    // only when this renderer owns the targeted window.
+    applyWorkspaceActiveChangedEvent: ({ windowId, workspaceId, createdAt, isCurrentWindow }) =>
+      set((state) => {
+        const windowState = state.workspaceWindows.find((candidate) => candidate.id === windowId)
+        if (!windowState) return
+        if (workspaceId !== null && !windowState.workspaceIds.includes(workspaceId)) return
+        windowState.activeWorkspaceId = workspaceId
+        if (Number.isFinite(createdAt)) windowState.lastFocusedAt = createdAt
+        if (isCurrentWindow && workspaceId) state.activeWorkspaceId = workspaceId
+      }),
+
+    // Applies an accepted/broadcast moved_to_window event without re-dispatching.
+    // Mirrors the move membership transfer but only claims the single global
+    // active id when this renderer owns the destination window — a move targeting
+    // another window updates routing without flipping this renderer's selection.
+    applyWorkspaceMovedEvent: ({ workspaceId, fromWindowId, toWindowId, makeActive, createdAt, isCurrentWindowTarget }) =>
+      set((state) => {
+        if (!state.workspaces.find((workspace) => workspace.id === workspaceId)) return
+        const target = ensureWorkspaceWindow(
+          state,
+          toWindowId,
+          toWindowId === state.primaryWorkspaceWindowId ? 'primary' : 'detached',
+        )
+        for (const windowState of state.workspaceWindows) {
+          if (windowState.id === toWindowId) continue
+          windowState.workspaceIds = windowState.workspaceIds.filter((id) => id !== workspaceId)
+          if (windowState.activeWorkspaceId === workspaceId) {
+            windowState.activeWorkspaceId = windowState.workspaceIds[0] ?? null
+          }
+        }
+        if (!target.workspaceIds.includes(workspaceId)) target.workspaceIds.push(workspaceId)
+        if (makeActive) {
+          target.activeWorkspaceId = workspaceId
+          if (Number.isFinite(createdAt)) target.lastFocusedAt = createdAt
+          if (isCurrentWindowTarget) state.activeWorkspaceId = workspaceId
+        } else if (!target.activeWorkspaceId) {
+          target.activeWorkspaceId = target.workspaceIds[0] ?? null
+        }
+        if (fromWindowId && fromWindowId !== toWindowId) {
+          const source = state.workspaceWindows.find((windowState) => windowState.id === fromWindowId)
           if (source && source.activeWorkspaceId === workspaceId) {
             source.activeWorkspaceId = source.workspaceIds[0] ?? null
           }
@@ -429,13 +574,82 @@ export function createWorkspacesSlice(
         normalizeWindowAssignments(state)
       }),
 
-    setActiveWorkspaceForWindow: (windowId, workspaceId) =>
+    // Applies an accepted/broadcast closed event without re-dispatching. Routes
+    // the moved workspaces to the fallback window and drops the closing window.
+    // The event can reach a renderer that never held the closing window record
+    // (routing drift) — `movedWorkspaceIds` carries the ids the service routed to
+    // the fallback so the transfer still completes; the closing record's own
+    // membership is only a fallback for an empty payload. Global active selection
+    // is left untouched — closing a foreign window must not flip this renderer's
+    // active workspace.
+    applyWorkspaceClosedEvent: ({ windowId, fallbackWindowId, movedWorkspaceIds, createdAt }) =>
       set((state) => {
-        const windowState = state.workspaceWindows.find((candidate) => candidate.id === windowId)
-        if (!windowState?.workspaceIds.includes(workspaceId)) return
-        windowState.activeWorkspaceId = workspaceId
-        windowState.lastFocusedAt = Date.now()
-        state.activeWorkspaceId = workspaceId
+        if (windowId === state.primaryWorkspaceWindowId) return
+        const closing = state.workspaceWindows.find((windowState) => windowState.id === windowId)
+        const routedWorkspaceIds = movedWorkspaceIds.length > 0 ? movedWorkspaceIds : closing?.workspaceIds ?? []
+        if (!closing && routedWorkspaceIds.length === 0) return
+        const fallback = ensureWorkspaceWindow(
+          state,
+          fallbackWindowId,
+          fallbackWindowId !== state.primaryWorkspaceWindowId ? 'detached' : 'primary',
+        )
+        for (const id of routedWorkspaceIds) {
+          if (!fallback.workspaceIds.includes(id)) fallback.workspaceIds.push(id)
+        }
+        if (!fallback.activeWorkspaceId && fallback.workspaceIds.length > 0) {
+          fallback.activeWorkspaceId = closing?.activeWorkspaceId && fallback.workspaceIds.includes(closing.activeWorkspaceId)
+            ? closing.activeWorkspaceId
+            : fallback.workspaceIds[0] ?? null
+        }
+        if (Number.isFinite(createdAt)) fallback.lastFocusedAt = createdAt
+        if (closing) {
+          state.workspaceWindows = state.workspaceWindows.filter((windowState) => windowState.id !== windowId)
+        }
+        normalizeWindowAssignments(state)
+      }),
+
+    // Applies an accepted/broadcast placement event without re-dispatching.
+    // Touches only the target window's placement fields, never workspace objects
+    // or window membership.
+    applyWorkspacePlacementEvent: ({ windowId, bounds, isMaximized, displayId, createdAt }) =>
+      set((state) => {
+        const windowState = ensureWorkspaceWindow(state, windowId)
+        windowState.bounds = normalizeBounds(bounds)
+        windowState.isMaximized = isMaximized === true
+        windowState.displayId = typeof displayId === 'number' ? displayId : null
+        if (Number.isFinite(createdAt)) windowState.lastFocusedAt = createdAt
+      }),
+
+    // Applies an accepted/broadcast workspace.created event without re-dispatching.
+    // Inserts the workspace at its folder head (deterministic by event sequence)
+    // and assigns it to the target window at the head. A renderer that already
+    // has the workspace (the source applying its own accepted event, or a
+    // duplicate broadcast) keeps its local object and only re-confirms the
+    // assignment, so application is idempotent. Only the renderer that owns the
+    // target window claims the single global active id.
+    applyWorkspaceCreatedEvent: ({ workspace, windowId, folderPath, createdAt, isCurrentWindowTarget }) =>
+      set((state) => {
+        if (!state.workspaces.some((candidate) => candidate.id === workspace.id)) {
+          const insertFolderKey = workspaceFolderKey(folderPath)
+          const blockStart = state.workspaces.findIndex(
+            (candidate) => workspaceFolderKey(candidate.folderPath) === insertFolderKey
+          )
+          if (blockStart === -1) {
+            state.workspaces.unshift(workspace)
+          } else {
+            state.workspaces.splice(blockStart, 0, workspace)
+          }
+        }
+        for (const windowState of state.workspaceWindows) {
+          windowState.workspaceIds = windowState.workspaceIds.filter((id) => id !== workspace.id)
+        }
+        const target = ensureWorkspaceWindow(state, windowId)
+        target.workspaceIds = [workspace.id, ...target.workspaceIds]
+        target.activeWorkspaceId = workspace.id
+        if (Number.isFinite(createdAt)) target.lastFocusedAt = createdAt
+        if (isCurrentWindowTarget) state.activeWorkspaceId = workspace.id
+        state.workspaceRegistryEmptyState = null
+        normalizeWindowAssignments(state)
       }),
 
     setWorkspaceHighlight: (id, highlight) =>
@@ -501,6 +715,13 @@ export function createWorkspacesSlice(
 
     addWorkspace: (template, options) => {
       let id = nanoid()
+      // Captured only for a genuinely new workspace (not the Switchboard-reuse
+      // early return) so creation is broadcast through main as a workspace.created
+      // event. Local creation stays the functional path; storage-event sync is the
+      // rollback. Fire-and-forget after the synchronous set().
+      let createdEventPayload:
+        | { workspace: Workspace; windowId: WorkspaceWindowId; folderPath: string | null }
+        | null = null
 
       set((state) => {
         const folderPath = options?.folderPath ?? null
@@ -666,8 +887,13 @@ export function createWorkspacesSlice(
         targetWindow.activeWorkspaceId = id
         normalizeWindowAssignments(state)
         state.workspaceRegistryEmptyState = null
+        createdEventPayload = { workspace: newWorkspace, windowId: targetWindowId, folderPath }
       })
 
+      if (createdEventPayload) {
+        const { workspace, windowId, folderPath } = createdEventPayload
+        void workspaceSyncClient.dispatchCreateWorkspace(workspace, windowId, folderPath)
+      }
       return id
     },
 

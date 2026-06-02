@@ -170,6 +170,8 @@ class SprintEngineMcpServer:
         payload: dict[str, Any],
         actor: ActorContext | None,
     ) -> dict[str, Any]:
+        if tool_name == "sprintengine.help":
+            return self._help(payload)
         if tool_name == "sprintengine.agent.join":
             assert state_path is not None
             return self._agent_join(state_path, payload)
@@ -236,6 +238,54 @@ class SprintEngineMcpServer:
         args = contract.payload_adapter(tool_name, state_path, payload, actor)
         result = handler(args)
         return self._with_progress_context(tool_name, result)
+
+    def _help(self, payload: dict[str, Any]) -> dict[str, Any]:
+        role = str(payload.get("role") or "<role>").strip() or "<role>"
+        agent_id = str(payload.get("agentId") or "<agent-id>").strip() or "<agent-id>"
+        topic = str(payload.get("topic") or "agent_workflow").strip() or "agent_workflow"
+        if topic not in {"agent_workflow", "tools", "needs_input", "artifacts", "gates"}:
+            raise McpToolError("invalid_payload", "topic must be one of agent_workflow, tools, needs_input, artifacts, or gates.")
+
+        sections = {
+            "agent_workflow": [
+                "After this help call, call sprintengine.agent.join, then sprintengine.agent.next_directive.",
+                "Use nextMcpToolName and nextMcpArguments from the directive verbatim to claim or resume work.",
+                "After a task or gate, publish evidence or a verdict, then stop unless the returned directive includes another nextMcpToolName.",
+                "Multicode owns later runtime dispatch and continuation.",
+                "If Auto Mode is off, you are blocked, need user input, or are near context limit, stop after recording the appropriate note or status.",
+            ],
+            "tools": [
+                f"Claim next ready role work: sprintengine.task.next with {{role: \"{role}\", id: \"{agent_id}\"}}.",
+                f"Claim next ready quality gate: sprintengine.gate.next with {{role: \"{role}\", id: \"{agent_id}\"}}.",
+                f"Architect-actionable triage: sprintengine.triage.needs_input with {{id: \"{agent_id}\"}}.",
+                "Read a task card: sprintengine.task.get with {taskId}.",
+                "Log evidence: sprintengine.task.log with {taskId, id, summary, file, command, result, scopeExpansionJson}.",
+                "Publish implementation evidence: sprintengine.task.publish with {taskId, id, summary, ...}.",
+            ],
+            "needs_input": [
+                "Move a task to needs_input with sprintengine.task.status and {taskId, id, status: \"needs_input\", needsInputKind, needsInputReason, needsInputQuestion, needsInputArtifactId?, needsInputSuggestedResolution?}.",
+                "needsInputKind: architect for task-card/scope/artifact-review/tooling blockers; user for product decisions or approvals; owner when waiting on your own condition; external_validation for real hardware, credentials, or another outside check.",
+                "needsInputReason: task_scope, artifact_review, tooling, verification, product_decision, or blocked_other.",
+            ],
+            "artifacts": [
+                "Register an artifact with sprintengine.artifact.add and {taskId, kind, title, path, createdBy, ready}.",
+                "Set ready: true only when the artifact must wait for human approval.",
+            ],
+            "gates": [
+                "Record a gate verdict with sprintengine.gate.verdict or sprintengine.gate.publish and {taskId, gateId, role, id, verdict, summary}.",
+                "Use approved when the gate passes; changes_requested or failed for rework; blocked when routed input is needed; skipped only with rationale.",
+            ],
+        }
+        ordered_topics = [topic] if topic != "agent_workflow" else ["agent_workflow", "tools", "needs_input", "artifacts", "gates"]
+        markdown_parts = [f"## {name.replace('_', ' ').title()}\n" + "\n".join(f"- {line}" for line in sections[name]) for name in ordered_topics]
+        return {
+            "ok": True,
+            "topic": topic,
+            "role": role,
+            "agentId": agent_id,
+            "markdown": "\n\n".join(markdown_parts),
+            "sections": {name: sections[name] for name in ordered_topics},
+        }
 
     def _agent_join(self, state_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
         workspace_root = self._workspace_root(payload, required=False) or _default_workspace_root(state_path)

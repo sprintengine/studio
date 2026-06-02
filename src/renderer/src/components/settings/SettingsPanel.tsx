@@ -131,7 +131,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
   { id: 'agents', label: 'Agents', description: 'CLI runtime commands' },
   { id: 'roles', label: 'Roles', description: 'Sprint Engine role registry' },
   { id: 'mcps', label: 'MCPs', description: 'Agent tool integrations' },
-  { id: 'skill-packs', label: 'Skill packs', description: 'Curated agent skills for this project' },
+  { id: 'skill-packs', label: 'Skill packs', description: 'Bundled and ecosystem agent skills' },
   { id: 'file-search', label: 'File search', description: 'Index exclude patterns' },
   { id: 'knowledge-graph', label: 'Knowledge graph', description: 'Project knowledge' },
   { id: 'learn', label: 'Learn', description: 'Tips and lessons' },
@@ -1902,12 +1902,65 @@ export default function SettingsPanel({
           className="space-y-5"
         >
           <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            Curated agent skills installed into this workspace via the open{' '}
-            <code className="font-mono">skills</code> ecosystem. Each pack writes to whichever
-            harness directories already exist in the project (
-            <code className="font-mono">.claude/</code>, <code className="font-mono">.codex/</code>,
-            <code className="font-mono">.cursor/</code>, etc.).
+            Agent skills available to this workspace — Multicode&apos;s bundled workflow skills
+            and curated packs from the open <code className="font-mono">skills</code> ecosystem.
           </p>
+
+          <section className="space-y-2 border-t border-[color:var(--border-subtle)] pt-4">
+            <div className="flex items-baseline justify-between gap-3">
+              <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Bundled</h4>
+              {builtinSkills.length ? (
+                <span className="tabular-nums text-[11px] font-medium text-[color:var(--text-subtle)]">
+                  {builtinSkills.length} skills
+                </span>
+              ) : null}
+            </div>
+            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+              First-party workflow skills, installed into <code className="font-mono">.agents/skills</code>.
+              Workspace Knowledge reads and updates the graph configured in the Knowledge graph tab.
+            </p>
+            <div className="grid gap-2">
+              {builtinSkills.length ? builtinSkills.map((skill) => {
+                const status = builtinSkillStatuses[skill.id] ?? null
+                const installBlocked =
+                  !activeProjectRoot
+                  || !status
+                  || !status.ok
+                  || status.status === 'installed'
+                  || status.status === 'modified'
+                  || status.status === 'local'
+                return (
+                  <div
+                    key={skill.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">{skill.name}</div>
+                      <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">{skill.description}</div>
+                      <div className="mt-1 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+                        {formatBuiltinSkillStatus(status, skill.id)}
+                      </div>
+                    </div>
+                    <GhostButton
+                      size="md"
+                      onClick={() => void installBuiltinSkill(skill)}
+                      disabled={builtinSkillPendingId !== null || installBlocked}
+                      className="h-8 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                    >
+                      {status?.ok && status.status === 'update-available' ? 'Update' : 'Install'}
+                    </GhostButton>
+                  </div>
+                )
+              }) : (
+                <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                  Built-in skills have not loaded yet.
+                </div>
+              )}
+            </div>
+            {builtinSkillMessage ? (
+              <MessageBlock tone="warn">{builtinSkillMessage}</MessageBlock>
+            ) : null}
+          </section>
 
           <section className="space-y-2 border-t border-[color:var(--border-subtle)] pt-4">
             <div className="flex items-baseline justify-between gap-3">
@@ -1969,7 +2022,7 @@ export default function SettingsPanel({
             <section className="min-w-0 flex-1 space-y-4">
               <div className="flex items-baseline justify-between gap-3">
                 <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">
-                  Bundled catalog
+                  Ecosystem catalog
                 </h4>
                 {skillPackCatalog.length ? (
                   <span className="tabular-nums text-[11px] font-medium text-[color:var(--text-subtle)]">
@@ -2116,62 +2169,6 @@ export default function SettingsPanel({
           </MessageBlock>
 
           <div className="border-t border-[color:var(--border-subtle)] pt-4">
-            <div className="mb-4 border-l-2 border-[color:var(--border-subtle)] pl-3">
-              <div className="mb-3 min-w-0">
-                <div className="text-sm font-semibold text-[color:var(--text-strong)]">
-                  Built-in agent skills
-                </div>
-                <div className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
-                  {activeKnowledgeConfig?.relativeRoot
-                    ? `Install workflow skills into .agents/skills. Knowledge-aware skills will use the configured graph: ${activeKnowledgeConfig.relativeRoot}.`
-                    : ' Configure a knowledge folder so agents know which graph to read and update.'}
-                </div>
-              </div>
-              <div className="grid gap-2">
-                {builtinSkills.length ? builtinSkills.map((skill) => {
-                  const status = builtinSkillStatuses[skill.id] ?? null
-                  const installBlocked =
-                    !activeProjectRoot
-                    || !status
-                    || !status.ok
-                    || status.status === 'installed'
-                    || status.status === 'modified'
-                    || status.status === 'local'
-                  return (
-                    <div
-                      key={skill.id}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">{skill.name}</div>
-                        <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">{skill.description}</div>
-                        <div className="mt-1 text-[11px] leading-4 text-[color:var(--text-subtle)]">
-                          {formatBuiltinSkillStatus(status, skill.id)}
-                        </div>
-                      </div>
-                      <GhostButton
-                        size="md"
-                        onClick={() => void installBuiltinSkill(skill)}
-                        disabled={builtinSkillPendingId !== null || installBlocked}
-                        className="h-8 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-                      >
-                        {status?.ok && status.status === 'update-available' ? 'Update' : 'Install'}
-                      </GhostButton>
-                    </div>
-                  )
-                }) : (
-                  <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5 text-[color:var(--text-muted)]">
-                    Built-in skills have not loaded yet.
-                  </div>
-                )}
-              </div>
-              {builtinSkillMessage ? (
-                <div className="basis-full">
-                  <MessageBlock tone="warn">{builtinSkillMessage}</MessageBlock>
-                </div>
-              ) : null}
-            </div>
-
             <CompoundSwitchRow
               label="Activity tracking (Claude Code)"
               description="Record which knowledge files Claude touches in this project and animate the graph as files are read. Adds a project-local hook to .claude/settings.local.json. Only files under the knowledge folder are recorded."

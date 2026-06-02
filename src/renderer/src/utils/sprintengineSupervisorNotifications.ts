@@ -1,7 +1,6 @@
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type { WorkspaceId } from '../types/workspace'
 import { deriveSprintEngineAutomationMode } from './sprintengineAutomation'
-import { publishSprintEngineAutomationModeNotification } from './sprintengineNotifications'
 
 export type SprintEngineAutoRunDisableReason =
   | 'user_manual_toggle'
@@ -22,30 +21,55 @@ const REASON_MESSAGES: Record<SprintEngineAutoRunDisableReason, string> = {
   agent_spawn_failed: 'An agent terminal could not be started.',
 }
 
-// Centralized off-switch for the Sprint Engine AutoRun supervisor. Routes
-// every off-transition through one place so the user always gets a
-// notification explaining when and why automation stopped. Callers must
-// supply a reason; the slice action stays available for rollbacks and other
-// internal transitions that shouldn't surface a notification.
-export function disableSprintEngineAutoRun(
+// Compatibility mapper for older call sites that still report an auto-run stop
+// reason. Runtime stops become lifecycle states; only the user Manual toggle
+// changes the selected desired mode to Manual.
+export function applySprintEngineAutomationStopReason(
   workspaceId: WorkspaceId,
   reason: SprintEngineAutoRunDisableReason,
   context: { taskId?: string; agentId?: string; message?: string; details?: string } = {},
 ): void {
   const store = useWorkspaceStore.getState()
   const workspace = store.workspaces.find((ws) => ws.id === workspaceId)
-  const wasActive = deriveSprintEngineAutomationMode(workspace?.sprintEngineAutoState) !== 'manual'
-  store.setSprintEngineAutomationMode(workspaceId, 'manual')
-  if (!wasActive) return
+  const mode = deriveSprintEngineAutomationMode(workspace?.sprintEngineAutoState)
 
-  publishSprintEngineAutomationModeNotification({
-    level: reason === 'folder_missing' || reason === 'agent_spawn_failed' ? 'error' : 'info',
-    mode: 'manual',
-    reason: context.message ?? REASON_MESSAGES[reason],
-    ...(context.details ? { details: context.details } : {}),
-    workspaceId,
-    ...(workspace?.name ? { workspaceName: workspace.name } : {}),
-    ...(context.taskId ? { taskId: context.taskId } : {}),
-    ...(context.agentId ? { agentId: context.agentId } : {}),
-  })
+  if (reason === 'user_manual_toggle') {
+    store.setSprintEngineAutomationMode(workspaceId, 'manual', {
+      reason: context.message ?? REASON_MESSAGES[reason],
+      ...(context.details ? { details: context.details } : {}),
+    })
+    return
+  }
+
+  if (mode === 'manual') return
+
+  if (reason === 'blocked_on_external_input') {
+    store.applySprintEngineAutomationEvent(workspaceId, {
+      type: 'runner_blocked',
+      message: context.message ?? REASON_MESSAGES[reason],
+      ...(context.taskId ? { taskId: context.taskId } : {}),
+      ...(context.agentId ? { agentId: context.agentId } : {}),
+    })
+  } else if (reason === 'all_tasks_done') {
+    store.applySprintEngineAutomationEvent(workspaceId, {
+      type: 'runner_complete',
+      message: context.message ?? REASON_MESSAGES[reason],
+    })
+  } else if (reason === 'agent_terminal_closed' || reason === 'workspace_removed') {
+    store.applySprintEngineAutomationEvent(workspaceId, {
+      type: 'runner_paused',
+      reason: reason === 'agent_terminal_closed' ? 'terminal_closed' : 'workspace_removed',
+      message: context.message ?? REASON_MESSAGES[reason],
+      ...(context.taskId ? { taskId: context.taskId } : {}),
+      ...(context.agentId ? { agentId: context.agentId } : {}),
+    })
+  } else {
+    store.applySprintEngineAutomationEvent(workspaceId, {
+      type: 'runner_failed',
+      reason: reason === 'folder_missing' ? 'folder_missing' : 'spawn_failed',
+      message: context.message ?? REASON_MESSAGES[reason],
+      ...(context.taskId ? { taskId: context.taskId } : {}),
+      ...(context.agentId ? { agentId: context.agentId } : {}),
+    })
+  }
 }

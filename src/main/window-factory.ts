@@ -9,6 +9,19 @@ type CreateMainWindowOptions = {
   isMaximized?: boolean
 }
 
+const forceCloseWindowIds = new WeakSet<BrowserWindow>()
+let appQuitInProgress = false
+
+export function markAppQuitInProgressForWindowClose(): void {
+  appQuitInProgress = true
+}
+
+export function confirmWorkspaceWindowClose(win: BrowserWindow): void {
+  if (win.isDestroyed()) return
+  forceCloseWindowIds.add(win)
+  win.close()
+}
+
 export function createMainWindow({
   diagnosticsEnabled,
   windowId = 'primary',
@@ -27,7 +40,14 @@ export function createMainWindow({
       ? {
           frame: false,
         }
-      : {}),
+      : {
+          // Keep the native traffic lights but hide the OS title bar so the
+          // renderer can draw its own draggable title strip (centered brand).
+          titleBarStyle: 'hiddenInset' as const,
+          // Vertically center the traffic lights in the 36 px title strip
+          // (`AppTitleBar`) so they line up with the centered brand.
+          trafficLightPosition: { x: 12, y: 11 },
+        }),
     autoHideMenuBar: process.platform !== 'darwin',
     backgroundColor: '#09090b',
     webPreferences: {
@@ -55,6 +75,11 @@ export function createMainWindow({
   win.on('move', schedulePlacementUpdate)
   win.on('resize', schedulePlacementUpdate)
   win.on('focus', () => sendWindowPlacement(win))
+  win.on('close', (event) => {
+    if (windowId === 'primary' || appQuitInProgress || forceCloseWindowIds.has(win)) return
+    event.preventDefault()
+    win.webContents.send('window:close-requested')
+  })
 
   if (diagnosticsEnabled) {
     win.webContents.on('console-message', function (_event, detailsOrLevel) {

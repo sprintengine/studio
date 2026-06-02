@@ -106,8 +106,8 @@ function testBuildSprintEngineExistingTeamCreation(): void {
   assert.equal(args.name, team.displayName)
   assert.equal(args.sprintEngineContext, team.context)
   assert.ok(args.sprintEngineState, 'preserves the loaded state')
-  assert.equal(args.sprintEngineAutoState?.enabled, true)
-  assert.equal(args.sprintEngineAutoState?.autoApproveArtifacts, false)
+  assert.equal(args.sprintEngineAutoState?.desiredMode, 'run_agents')
+  assert.equal(args.sprintEngineAutoState?.runtimeState, 'running')
   assert.equal(args.sprintEngineAutoState?.cliPermissionPreset, 'default')
   assert.equal(args.sprintEngineAutoState?.maxConcurrentAgents, 2, 'two agents in roleCounts')
 }
@@ -128,6 +128,8 @@ function testBuildSprintEngineNewTeamCreation(): void {
   assert.equal(args.name, 'Ship Squad')
   assert.equal(args.folderPath, '/p')
   assert.ok(args.sprintEngineContext, 'builds a sprintengine context when folder is present')
+  assert.equal(args.sprintEngineAutoState?.desiredMode, 'manual')
+  assert.equal(args.sprintEngineAutoState?.runtimeState, 'idle')
   assert.equal(args.sprintEngineAutoState?.maxConcurrentAgents, 2)
 
   const noFolder = buildSprintEngineNewTeamCreation({

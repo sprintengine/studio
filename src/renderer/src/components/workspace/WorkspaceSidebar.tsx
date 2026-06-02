@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { WorkspaceTypeIcon } from '../AppIcons'
 import { StatusDot, Tooltip, type Tone } from '../ui'
-import MulticodeMark from '../brand/MulticodeMark'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import PanelRail from './PanelRail'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -994,52 +993,24 @@ export default function WorkspaceSidebar({
         sidebarCollapsed ? 'w-[44px]' : 'w-[296px]'
       }`}
     >
-      {/* Header */}
-      <div className="flex h-[48px] shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-2">
-        {!sidebarCollapsed && (
-          <div className="flex min-w-0 flex-1 items-center gap-2 pl-1.5 text-[13px] font-semibold tracking-tight text-[color:var(--text-strong)]">
-            <MulticodeMark className="h-[18px] w-[18px] shrink-0" />
-            <span className="truncate">multicode</span>
-          </div>
-        )}
-        {/*
-         * `bottom` placement keeps the tooltip inside the viewport: this
-         * header sits flush with the top of the app window, so the default
-         * `top` tooltip would overflow above the window chrome and clip.
-         */}
-        <Tooltip
-          content={sidebarCollapsed ? 'Open sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'}
-          placement="bottom"
-        >
-          <button
-            type="button"
-            onClick={() => {
-              // Protect the width-transition window: hold heavy panel resize
-              // work (xterm fit, PTY resize, Monaco layout) until the glide
-              // lands, so it runs once instead of every animation frame.
-              beginSidebarTransition()
-              onSetSidebarCollapsed(!sidebarCollapsed)
-            }}
-            className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
-            aria-label={sidebarCollapsed ? 'Open sidebar' : 'Collapse sidebar'}
-          >
-            {/*
-             * Standard `panel-left` sidebar glyph (rounded rect + left-panel
-             * divider), the formal idiom of desktop developer tools.
-             * One glyph for both states — the aria-label carries open/collapsed.
-             */}
-            <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
-              <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-              <path d="M6 3V13" stroke="currentColor" strokeWidth="1.5" />
-            </svg>
-          </button>
-        </Tooltip>
-      </div>
-
-      {/* Panel rail — Files / Editor / Git / Knowledge Graph switches, scoped to the active workspace */}
-      {activeWorkspaceId ? (
-        <PanelRail workspaceId={activeWorkspaceId} collapsed={sidebarCollapsed} />
-      ) : null}
+      {/*
+       * Top chrome row: Files / Editor / Git / Knowledge Graph switches scoped
+       * to the active workspace, plus the collapse toggle pinned to its right
+       * edge. The brand moved to the window title bar, so the rail is the
+       * sidebar's first row. It renders even with no active workspace so the
+       * collapse toggle stays reachable.
+       */}
+      <PanelRail
+        workspaceId={activeWorkspaceId}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => {
+          // Protect the width-transition window: hold heavy panel resize work
+          // (xterm fit, PTY resize, Monaco layout) until the glide lands, so it
+          // runs once instead of every animation frame.
+          beginSidebarTransition()
+          onSetSidebarCollapsed(!sidebarCollapsed)
+        }}
+      />
 
       {/* New workspace */}
       <Tooltip

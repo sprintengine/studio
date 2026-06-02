@@ -1,6 +1,10 @@
 import { createSprintEngineTemplate } from '../../../../layouts/templates'
 import { countSprintEngineAgents, createInitialSprintEngineState } from '../../../../utils/sprintengine'
 import {
+  sprintEngineAutomationInitialStateForMode,
+  sprintEngineAutomationModeForRunOptions,
+} from '../../../../utils/sprintengineAutomationLifecycle'
+import {
   PlanSourcedSprintEngineWorkspaceError,
   createPlanSourcedSprintEngineWorkspace,
 } from '../../../../utils/sprintengineWorkspaceCreation'
@@ -30,6 +34,13 @@ export class SprintEnginePlanSourcedError extends Error {
   }
 }
 
+function sprintEngineAutoStateFromRunOptions(input: {
+  startRunner: boolean
+  autoApproveArtifacts: boolean
+}) {
+  return sprintEngineAutomationInitialStateForMode(sprintEngineAutomationModeForRunOptions(input))
+}
+
 export function buildSprintEngineExistingTeamCreation(
   input: SprintEngineExistingTeamInput,
 ): OnCreateArgs {
@@ -49,8 +60,7 @@ export function buildSprintEngineExistingTeamCreation(
     sprintEngineRoleCliDefaults: input.roleCliDefaults,
     sprintEngineAgentCliOverrides: input.agentCliOverrides,
     sprintEngineAutoState: {
-      enabled: input.startRunner,
-      autoApproveArtifacts: input.autoApproveArtifacts,
+      ...sprintEngineAutoStateFromRunOptions(input),
       cliPermissionPreset: input.cliPermissionPreset,
       maxConcurrentAgents: Math.max(1, countSprintEngineAgents(loadedState.roleCounts)),
     },
@@ -82,8 +92,7 @@ export function buildSprintEngineNewTeamCreation(
     sprintEngineContext,
     sprintEngineRoleCliDefaults: input.roleCliDefaults,
     sprintEngineAutoState: {
-      enabled: input.startRunner,
-      autoApproveArtifacts: input.autoApproveArtifacts,
+      ...sprintEngineAutoStateFromRunOptions(input),
       cliPermissionPreset: input.cliPermissionPreset,
       maxConcurrentAgents: Math.max(1, input.totalAgents),
     },
@@ -122,8 +131,7 @@ export async function runSprintEnginePlanSourcedCreation(
       roleCliDefaults: input.roleCliDefaults,
       workspaceWindowId: input.workspaceWindowId,
       sprintEngineAutoState: {
-        enabled: input.startRunner,
-        autoApproveArtifacts: input.autoApproveArtifacts,
+        ...sprintEngineAutoStateFromRunOptions(input),
         cliPermissionPreset: input.cliPermissionPreset,
         maxConcurrentAgents: Math.max(1, input.totalAgents),
       },

@@ -3,7 +3,17 @@ import {
   getNextSprintEngineAgentId,
   normalizeSprintEngineState,
 } from '../../utils/sprintengine'
-import { patchSprintEngineAutoStateForMode } from '../../utils/sprintengineAutomation'
+import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
+import {
+  deriveSprintEngineAutomationDesiredMode,
+  normalizeSprintEngineAutomationRuntimeState,
+  normalizeSprintEngineAutomationStopReason,
+  transitionSprintEngineAutomation,
+} from '../../utils/sprintengineAutomationLifecycle'
+import {
+  auditSprintEngineLifecycleTransition,
+  auditSprintEngineManualModeTransition,
+} from '../../utils/sprintengineAutomationAudit'
 import {
   getSprintEngineDirectoryPath,
   getSprintEngineStateFilePath,
@@ -33,6 +43,7 @@ import type {
   MultiloopWorkspaceContext,
   SprintEngineAutoPendingSpawn,
   SprintEngineAutoState,
+  SprintEngineAutomationEvent,
   SprintEngineAutomationMode,
   SprintEngineCliPermissionPreset,
   SprintEngineRoleId,
@@ -44,9 +55,13 @@ import type {
 } from '../../types/workspace'
 
 export const defaultSprintEngineAutoState = (): SprintEngineAutoState => ({
-  supervisorEnabled: false,
-  enabled: false,
-  autoApproveArtifacts: false,
+  desiredMode: 'manual',
+  runtimeState: 'idle',
+  reason: undefined,
+  reasonMessage: undefined,
+  reasonTaskId: undefined,
+  reasonAgentId: undefined,
+  changedAt: undefined,
   keepDoneAgentTerminals: false,
   cliPermissionPreset: 'default',
   maxConcurrentAgents: 3,
@@ -165,10 +180,19 @@ export function normalizeSprintEngineAutoState(
       ? Math.max(1, Math.min(10, Math.floor(input.maxConcurrentAgents)))
       : 3
 
+  const desiredMode = deriveSprintEngineAutomationDesiredMode(input)
+  const runtimeState = normalizeSprintEngineAutomationRuntimeState(input?.runtimeState, desiredMode)
+
   return {
-    supervisorEnabled: Boolean(input?.supervisorEnabled ?? input?.enabled),
-    enabled: Boolean(input?.enabled),
-    autoApproveArtifacts: Boolean(input?.autoApproveArtifacts),
+    desiredMode,
+    runtimeState,
+    reason: normalizeSprintEngineAutomationStopReason(input?.reason),
+    reasonMessage: typeof input?.reasonMessage === 'string' ? input.reasonMessage : undefined,
+    reasonTaskId: typeof input?.reasonTaskId === 'string' ? input.reasonTaskId : undefined,
+    reasonAgentId: typeof input?.reasonAgentId === 'string' ? input.reasonAgentId : undefined,
+    changedAt: typeof input?.changedAt === 'number' && Number.isFinite(input.changedAt)
+      ? input.changedAt
+      : undefined,
     keepDoneAgentTerminals: Boolean(input?.keepDoneAgentTerminals),
     cliPermissionPreset,
     maxConcurrentAgents,
@@ -348,9 +372,15 @@ export interface RunStateSliceActions {
   setMultiloopContext: (id: WorkspaceId, multiloopContext: MultiloopWorkspaceContext | null) => void
   setSprintEngineState: (workspaceId: WorkspaceId, sprintEngineState: SprintEngineState | null) => void
   setMultiloopState: (workspaceId: WorkspaceId, multiloopState: MultiloopState | null) => void
-  setSprintEngineAutomationMode: (workspaceId: WorkspaceId, mode: SprintEngineAutomationMode) => void
-  setSprintEngineAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
-  setSprintEngineAutoApproveArtifacts: (workspaceId: WorkspaceId, autoApproveArtifacts: boolean) => void
+  setSprintEngineAutomationMode: (
+    workspaceId: WorkspaceId,
+    mode: SprintEngineAutomationMode,
+    options?: { suppressManualAudit?: boolean; reason?: string; details?: string }
+  ) => void
+  applySprintEngineAutomationEvent: (
+    workspaceId: WorkspaceId,
+    event: SprintEngineAutomationEvent
+  ) => void
   setSprintEngineKeepDoneAgentTerminals: (workspaceId: WorkspaceId, keepDoneAgentTerminals: boolean) => void
   setSprintEngineCliPermissionPreset: (
     workspaceId: WorkspaceId,
@@ -382,6 +412,28 @@ export type RunStateSlice = RunStateSliceState & RunStateSliceActions
 
 type RunStateSliceCarrier = { workspaces: Workspace[] }
 type RunStateSliceSet = (mutator: (state: RunStateSliceCarrier) => void) => void
+
+function sprintEngineAutomationEventReason(event: SprintEngineAutomationEvent): string | null {
+  switch (event.type) {
+    case 'runner_paused':
+    case 'runner_failed':
+    case 'runner_complete':
+      return event.message ?? null
+    case 'runner_blocked':
+      return event.message
+    default:
+      return null
+  }
+}
+
+function shouldAuditSprintEngineLifecycleState(
+  runtimeState: SprintEngineAutoState['runtimeState']
+): runtimeState is 'paused' | 'blocked' | 'failed' | 'complete' {
+  return runtimeState === 'paused'
+    || runtimeState === 'blocked'
+    || runtimeState === 'failed'
+    || runtimeState === 'complete'
+}
 
 export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
   return {
@@ -436,36 +488,46 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
           : defaultMultiloopAutoState()
       }),
 
-    setSprintEngineAutomationMode: (workspaceId, mode) =>
+    setSprintEngineAutomationMode: (workspaceId, mode, options) =>
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
         const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-        ws.sprintEngineAutoState = patchSprintEngineAutoStateForMode(current, mode)
-      }),
-
-    setSprintEngineAutoEnabled: (workspaceId, enabled) =>
-      set((state) => {
-        const ws = state.workspaces.find((w) => w.id === workspaceId)
-        if (!ws) return
-        const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-        ws.sprintEngineAutoState = {
-          ...current,
-          supervisorEnabled: enabled,
-          enabled,
-          pendingSpawns: enabled ? current.pendingSpawns : [],
+        const previousMode = deriveSprintEngineAutomationMode(current)
+        ws.sprintEngineAutoState = transitionSprintEngineAutomation(current, { type: 'user_set_mode', mode })
+        if (mode === 'manual' && !options?.suppressManualAudit) {
+          auditSprintEngineManualModeTransition({
+            workspaceId,
+            workspaceName: ws.name,
+            previousMode,
+            reason: options?.reason ?? 'Sprint Engine automation mode was set to Manual.',
+            ...(options?.details ? { details: options.details } : {}),
+          })
         }
       }),
 
-    setSprintEngineAutoApproveArtifacts: (workspaceId, autoApproveArtifacts) =>
+    applySprintEngineAutomationEvent: (workspaceId, event) =>
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
         const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-        ws.sprintEngineAutoState = {
-          ...current,
-          autoApproveArtifacts,
-        }
+        const previousMode = deriveSprintEngineAutomationMode(current)
+        const previousRuntimeState = current.runtimeState
+        const next = transitionSprintEngineAutomation(current, event)
+        ws.sprintEngineAutoState = next
+        if (previousMode === 'manual') return
+        if (!shouldAuditSprintEngineLifecycleState(next.runtimeState)) return
+        auditSprintEngineLifecycleTransition({
+          level: next.runtimeState === 'failed' ? 'error' : 'info',
+          workspaceId,
+          workspaceName: ws.name,
+          desiredMode: previousMode,
+          previousRuntimeState,
+          nextRuntimeState: next.runtimeState,
+          reason: sprintEngineAutomationEventReason(event) ?? next.reasonMessage ?? 'Sprint Engine automation state changed.',
+          ...(next.reasonTaskId ? { taskId: next.reasonTaskId } : {}),
+          ...(next.reasonAgentId ? { agentId: next.reasonAgentId } : {}),
+        })
       }),
 
     setSprintEngineKeepDoneAgentTerminals: (workspaceId, keepDoneAgentTerminals) =>
@@ -506,10 +568,10 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
         const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-        ws.sprintEngineAutoState = {
-          ...current,
-          pendingSpawns,
-        }
+        ws.sprintEngineAutoState = transitionSprintEngineAutomation(
+          current,
+          { type: 'pending_spawns_changed', pendingSpawns },
+        )
       }),
 
     markSprintEngineAgentNotificationDelivered: (workspaceId, eventKey) =>

@@ -204,6 +204,38 @@ assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliHasLaunched, 
 assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliSessionId, undefined)
 assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliResumeAvailable, false)
 
+directSlice.applyAgentTerminalSessionEvent({
+  workspaceId: 'ws-direct',
+  agentId: 'event-agent',
+  sessionId: 'event-session',
+  cli: 'codex',
+})
+assert.equal(carrier.workspaces[0].agents['event-agent'].cliSessionId, 'event-session')
+assert.equal(carrier.workspaces[0].agents['event-agent'].cliStartRequested, true)
+assert.equal(carrier.workspaces[0].agents['event-agent'].cliHasLaunched, true)
+assert.equal(carrier.workspaces[0].agents['event-agent'].cliResumeAvailable, true)
+
+directSlice.applyAgentTerminalLaunchStateEvent({
+  workspaceId: 'ws-direct',
+  agentId: 'event-agent',
+  cliStartRequested: false,
+})
+assert.equal(
+  carrier.workspaces[0].agents['event-agent'].cliSessionId,
+  'event-session',
+  'launch-state events preserve session id unless explicitly cleared',
+)
+assert.equal(carrier.workspaces[0].agents['event-agent'].cliStartRequested, false)
+
+directSlice.applyAgentTerminalLaunchStateEvent({
+  workspaceId: 'ws-direct',
+  agentId: 'event-agent',
+  cliSessionId: null,
+  cliHasLaunched: false,
+})
+assert.equal(carrier.workspaces[0].agents['event-agent'].cliSessionId, undefined)
+assert.equal(carrier.workspaces[0].agents['event-agent'].cliHasLaunched, false)
+
 const storeWorkspaceId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
   name: 'Agents Slice Store Workspace',
 })

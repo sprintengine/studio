@@ -16,6 +16,10 @@ import {
   getUserDisabledSprintEngineRoleIds,
   sprintEngineRoleOrder,
 } from '../../../utils/sprintengine'
+import {
+  sprintEngineAutomationInitialStateForMode,
+  sprintEngineAutomationModeForRunOptions,
+} from '../../../utils/sprintengineAutomationLifecycle'
 import type { SprintEngineRoleId } from '../../../types/workspace'
 import { writeGuidedBriefBuildHandoff } from '../../../utils/guidedBriefWorkspace'
 import { GuidedBriefFlow, type GuidedBriefRunOptions } from './GuidedBriefFlow'
@@ -144,8 +148,7 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
         roleCliDefaults: runOptions.roleCliDefaults,
         workspaceWindowId,
         sprintEngineAutoState: {
-          enabled: runOptions.startRunner,
-          autoApproveArtifacts: runOptions.autoApproveArtifacts,
+          ...sprintEngineAutomationInitialStateForMode(sprintEngineAutomationModeForRunOptions(runOptions)),
           cliPermissionPreset: runOptions.cliPermissionPreset,
           maxConcurrentAgents: Math.max(1, countSprintEngineAgents(finalRoleCounts)),
         },
