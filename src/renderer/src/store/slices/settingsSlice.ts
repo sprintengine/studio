@@ -15,6 +15,8 @@ import type {
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
   UsageTelemetrySettings,
+  VoiceDictationModel,
+  VoiceDictationSettings,
   Workspace,
 } from '../../types/workspace'
 import {
@@ -277,6 +279,44 @@ export function normalizeUsageTelemetrySettings(settings: unknown): UsageTelemet
   }
 }
 
+const VOICE_DICTATION_MODELS: readonly VoiceDictationModel[] = [
+  'tiny',
+  'base',
+  'small',
+  'medium',
+  'large-v2',
+  'large-v3',
+  'large-v3-turbo',
+]
+
+export function defaultVoiceDictationSettings(): VoiceDictationSettings {
+  return {
+    // Multivoice transcription-host default bind address.
+    serverUrl: 'http://127.0.0.1:48173',
+    authToken: '',
+    model: 'small',
+    language: 'auto',
+  }
+}
+
+export function normalizeVoiceDictationSettings(settings: unknown): VoiceDictationSettings {
+  const defaults = defaultVoiceDictationSettings()
+  if (!settings || typeof settings !== 'object') return defaults
+  const candidate = settings as Partial<VoiceDictationSettings>
+  return {
+    serverUrl: typeof candidate.serverUrl === 'string' ? candidate.serverUrl.trim() : defaults.serverUrl,
+    authToken: typeof candidate.authToken === 'string' ? candidate.authToken : defaults.authToken,
+    model:
+      typeof candidate.model === 'string' && VOICE_DICTATION_MODELS.includes(candidate.model as VoiceDictationModel)
+        ? (candidate.model as VoiceDictationModel)
+        : defaults.model,
+    language:
+      typeof candidate.language === 'string' && candidate.language.trim()
+        ? candidate.language.trim()
+        : defaults.language,
+  }
+}
+
 export function normalizeSearchExcludes(patterns: unknown): string[] {
   if (!Array.isArray(patterns)) return []
   const seen = new Set<string>()
@@ -388,6 +428,7 @@ export const defaultAppSettings = (): AppSettings => ({
   usageTelemetry: defaultUsageTelemetrySettings(),
   learning: defaultLearningSettings(),
   appearance: defaultAppearanceSettings(),
+  voiceDictation: defaultVoiceDictationSettings(),
   modules: {},
   modulesChosen: false,
   onboardingStep: 'welcome',
@@ -419,6 +460,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     usageTelemetry: normalizeUsageTelemetrySettings(settings?.usageTelemetry),
     learning: normalizeLearningSettings(settings?.learning),
     appearance: normalizeAppearanceSettings(settings?.appearance),
+    voiceDictation: normalizeVoiceDictationSettings(settings?.voiceDictation),
     modules: normalizeModuleOverrides(settings?.modules),
     // Existing installs (already have workspaces) are treated as chosen so the
     // first-run chooser only appears for a genuinely fresh install.
@@ -467,6 +509,7 @@ export interface SettingsSliceActions {
   advanceOnboarding: () => void
   setSearchExcludes: (patterns: string[]) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
+  setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setLearningShowTipsOnStartup: (enabled: boolean) => void
   markLearningTipSeen: (tipId: string) => void
   markLearningLessonCompleted: (lessonId: string, completed?: boolean) => void
@@ -675,6 +718,14 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         state.appSettings.usageTelemetry = normalizeUsageTelemetrySettings({
           ...state.appSettings.usageTelemetry,
+          ...update,
+        })
+      }),
+
+    setVoiceDictationSettings: (update) =>
+      set((state) => {
+        state.appSettings.voiceDictation = normalizeVoiceDictationSettings({
+          ...(state.appSettings.voiceDictation ?? defaultVoiceDictationSettings()),
           ...update,
         })
       }),

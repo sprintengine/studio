@@ -664,7 +664,7 @@ export type GitConflictFileContent = {
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
-export type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'update' | 'workspace'
+export type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'update' | 'voice' | 'workspace'
 
 export type DiagnosticLogInput = {
   level: DiagnosticLevel
