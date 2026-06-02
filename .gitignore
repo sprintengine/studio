@@ -25,6 +25,7 @@ __pycache__/
 .tmp-recovery/
 .codex-tmp/
 .codex/
+.playwright-mcp/
 pytest-run-*/
 tmp/
 
