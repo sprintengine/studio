@@ -750,6 +750,130 @@ export function bucketAgentRowsByWorkType(rows: SprintEngineAgentRow[]): Record<
   return buckets
 }
 
+// Implementation defects that reflect code quality — the "issues" the by-type
+// summary headlines. `bugs` come from structured findings; the rest are reviewer
+// count fields. Factual errors / hallucinations are claim-quality rather than
+// implementation defects, so they're deliberately excluded here.
+const IMPLEMENTATION_ISSUE_KEYS = [
+  'bugs',
+  'missedRequirements',
+  'implementationMistakes',
+  'unsafeChanges',
+  'regressionCount',
+  'testFailuresIntroduced',
+] as const
+// Per-task review detail (`taskCounts`) never carries `bugs` — those are findings,
+// tracked per-agent rather than per-task — so the "did this task have an issue?"
+// check uses the count-based subset.
+const PER_TASK_ISSUE_KEYS = IMPLEMENTATION_ISSUE_KEYS.filter((key) => key !== 'bugs')
+
+// One row of the by-type summary. `key` is a role id (role groups) or a CLI id
+// (CLI groups); `clis` lists the distinct CLIs the group's agents ran on.
+export type SprintEngineTypeStat = {
+  key: string
+  clis: string[]
+  agentCount: number
+  tasksDone: number
+  totalIssues: number
+  tasksWithIssues: number
+  /** % of done tasks with a reviewer-flagged implementation issue; null when no
+   *  tasks were done (renders "—" rather than a misleading 0%). */
+  issuePct: number | null
+  issuesPerTask: number | null
+}
+
+export type SprintEngineAgentTypeSummary = {
+  /** Implementation agents grouped by role (developer, frontend, …). */
+  roles: SprintEngineTypeStat[]
+  /** The same agents grouped by the CLI they ran on (Claude, Codex, …). */
+  clis: SprintEngineTypeStat[]
+}
+
+function typeStat(
+  key: string,
+  group: SprintEngineAgentRow[],
+  cliByAgent: Record<string, string | undefined>,
+): SprintEngineTypeStat {
+  let tasksDone = 0
+  let totalIssues = 0
+  let tasksWithIssues = 0
+  const clis = new Set<string>()
+  for (const row of group) {
+    tasksDone += row.tasksDone
+    const cli = cliByAgent[row.agentId]
+    if (cli) clis.add(cli)
+    const metrics = row.metrics
+    if (!metrics) continue
+    for (const issueKey of IMPLEMENTATION_ISSUE_KEYS) {
+      totalIssues += agentIssueCount(metrics, issueKey) ?? 0
+    }
+    for (const task of Object.values(metrics.measured.taskCounts ?? {})) {
+      if (PER_TASK_ISSUE_KEYS.some((issueKey) => (task.counts[issueKey] ?? 0) > 0)) {
+        tasksWithIssues += 1
+      }
+    }
+  }
+  return {
+    key,
+    clis: [...clis],
+    agentCount: group.length,
+    tasksDone,
+    totalIssues,
+    tasksWithIssues,
+    issuePct: tasksDone > 0 ? Math.round((tasksWithIssues / tasksDone) * 100) : null,
+    issuesPerTask: tasksDone > 0 ? Math.round((totalIssues / tasksDone) * 10) / 10 : null,
+  }
+}
+
+// Group the implementation agents two ways — by role and by CLI — so a glanceable
+// headline can compare both "which roles hit the most issues" and "which CLI
+// produced more issues" (the run records a CLI per agent).
+export function buildAgentTypeSummary(
+  rows: SprintEngineAgentRow[],
+  cliByAgent: Record<string, string | undefined>,
+): SprintEngineAgentTypeSummary {
+  const implRows = rows.filter(
+    (row) => agentWorkType(row) === 'implementation' && (row.tasksDone > 0 || row.metrics !== null),
+  )
+  const roleGroups = new Map<string, SprintEngineAgentRow[]>()
+  const cliGroups = new Map<string, SprintEngineAgentRow[]>()
+  for (const row of implRows) {
+    const roleGroup = roleGroups.get(row.role) ?? []
+    roleGroup.push(row)
+    roleGroups.set(row.role, roleGroup)
+    const cli = cliByAgent[row.agentId]
+    if (cli) {
+      const cliGroup = cliGroups.get(cli) ?? []
+      cliGroup.push(row)
+      cliGroups.set(cli, cliGroup)
+    }
+  }
+  const byTasksDesc = (a: SprintEngineTypeStat, b: SprintEngineTypeStat) => b.tasksDone - a.tasksDone
+  return {
+    roles: [...roleGroups.entries()]
+      .map(([key, group]) => typeStat(key, group, cliByAgent))
+      .sort(byTasksDesc),
+    clis: [...cliGroups.entries()]
+      .map(([key, group]) => typeStat(key, group, cliByAgent))
+      .sort(byTasksDesc),
+  }
+}
+
+// The two CLIs with the highest and lowest issue rate, when the gap is wide enough
+// to be worth calling out. Drives the one-line takeaway under the by-type panel.
+export function compareCliIssueRates(
+  clis: SprintEngineTypeStat[],
+): { worse: SprintEngineTypeStat; better: SprintEngineTypeStat } | null {
+  const ranked = clis
+    .filter((cli) => cli.tasksDone > 0 && cli.issuePct !== null)
+    .sort((a, b) => (b.issuePct ?? 0) - (a.issuePct ?? 0))
+  if (ranked.length < 2) return null
+  const worse = ranked[0]
+  const better = ranked[ranked.length - 1]
+  if ((worse.issuePct ?? 0) - (better.issuePct ?? 0) < 10) return null
+  return { worse, better }
+}
+
 // The measured issue types surfaced as per-agent columns + the run-wide
 // "issues caught in review" chart. `bugs` is special — it comes from structured
 // findings (findingsAgainst), the rest are reviewer count fields. Ordered to

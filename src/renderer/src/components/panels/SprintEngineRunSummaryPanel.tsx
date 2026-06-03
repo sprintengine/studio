@@ -7,16 +7,19 @@ import {
   RoleGlyph,
   Section,
   StatusDot,
+  Tooltip,
   type Tone,
 } from '../ui'
 import {
   agentIssueCount,
-  bucketAgentRowsByWorkType,
   buildAgentTaskDetail,
+  buildAgentTypeSummary,
+  bucketAgentRowsByWorkType,
   buildBurnup,
   buildIssueTotals,
   buildProcessHealth,
   buildRunReport,
+  compareCliIssueRates,
   feedbackFindingAreaLabels,
   feedbackFindingKindLabels,
   findingSeverityOrder,
@@ -25,13 +28,17 @@ import {
   measuredIssueTypes,
   type SprintEngineAgentRow,
   type SprintEngineAgentTaskDetail,
+  type SprintEngineAgentTypeSummary,
   type SprintEngineBurnup,
   type SprintEngineRunFinding,
   type SprintEngineRunReport,
+  type SprintEngineTypeStat,
 } from '../../utils/sprintengineRunSummary'
 import { IssueBars, ProgressRing, RunBurnupChart } from './runSummaryCharts'
 import { formatSprintEngineLockAge, getSprintEngineRoleLabel } from '../../utils/sprintengine'
+import CliIcon from '../CliIcon'
 import type {
+  AgentCli,
   SprintEngineAgentMetrics,
   SprintEngineArchitectDifficulty,
   SprintEngineFeedbackAnalysisData,
@@ -46,6 +53,23 @@ import type {
 const projectionSourceLabel: Record<SprintEngineProjectionSource, string> = {
   folder_store: 'Folder store',
   unavailable: 'Projection unavailable',
+}
+
+// Stable empty reference for the agents selector — a fresh `{}` each render would
+// trip Zustand v5's "getSnapshot should be cached" guard.
+const EMPTY_AGENTS: Record<string, never> = {}
+
+// Human label for a CLI runtime id (the run records which CLI each agent ran on).
+function cliLabel(cli: string): string {
+  if (cli === 'claude') return 'Claude'
+  if (cli === 'codex') return 'Codex'
+  return (
+    cli
+      .split(/[-_\s]+/u)
+      .filter(Boolean)
+      .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+      .join(' ') || cli
+  )
 }
 
 const STATUS_LABEL: Record<SprintEngineTaskStatus, string> = {
@@ -113,6 +137,17 @@ export default function SprintEngineRunSummaryPanel({
   const statePath = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineContext?.statePath ?? null
   )
+  // The CLI each agent ran on lives on the workspace agent record. Select the
+  // stable `agents` reference (Zustand v5 rejects fresh-object selectors) and
+  // derive the id→cli map with useMemo.
+  const agents = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.agents ?? EMPTY_AGENTS
+  )
+  const cliByAgent = useMemo<Record<string, AgentCli | undefined>>(() => {
+    const map: Record<string, AgentCli | undefined> = {}
+    for (const [agentId, agent] of Object.entries(agents)) map[agentId] = agent.cli
+    return map
+  }, [agents])
   // Re-fetch the on-demand analysis when the run state changes.
   const stateUpdatedAt = sprintEngineState?.updatedAt ?? null
 
@@ -169,6 +204,10 @@ export default function SprintEngineRunSummaryPanel({
   const burnup = useMemo(
     () => (sprintEngineState ? buildBurnup(sprintEngineState) : null),
     [sprintEngineState]
+  )
+  const agentTypeSummary = useMemo(
+    () => (report ? buildAgentTypeSummary(report.agentRows, cliByAgent) : null),
+    [report, cliByAgent]
   )
 
   if (!sprintEngineState || !report) {
@@ -237,9 +276,10 @@ export default function SprintEngineRunSummaryPanel({
         </div>
       ) : (
         <>
-          {/* Overview → output → the real measured issues → who, in detail. */}
+          {/* Overview → output → by-type headline → the real measured issues → who. */}
           <RunOverviewSection report={report} burnup={burnup} durationLabel={durationLabel} />
           <RunMetricsSection report={report} />
+          {agentTypeSummary ? <AgentTypeSummarySection summary={agentTypeSummary} /> : null}
           <IssuesCaughtSection issueTotals={issueTotals} />
           <AgentBreakdownSection
             report={report}
@@ -331,18 +371,114 @@ function highestFindingTone(bySeverity: Record<string, number>): Tone {
 // "—" for no data, the number (incl. 0) when data exists.
 const NA = <span className="text-[color:var(--text-disabled)]">—</span>
 
-// Shared table header classes. Numeric headers right-align over their data; the
-// agent header is left-aligned (kept distinct so text-right/text-left never collide).
+// Shared fixed column geometry so the three work-type tables line up: every table
+// uses the same agent-column width and the same numeric-column width, packed from
+// the left. A narrower table (Review, Planning) simply ends sooner — its columns
+// still sit directly beneath Implementation's, so every vertical gridline is shared.
+const AGENT_COL_W = 216
+const NUM_COL_W = 116
+const tableWidthFor = (numCols: number) => AGENT_COL_W + numCols * NUM_COL_W
+// The table gets the Tailwind `table-fixed` class (see `TABLE_CLASS`); this only
+// pins its overall width so the fixed column tracks have an exact box to divide.
+const tableStyleFor = (numCols: number) => ({ width: tableWidthFor(numCols) })
+// `table-fixed` makes the browser take column widths from the `<colgroup>` rather
+// than auto-sizing to content, so all three tables share the same column tracks.
+const TABLE_CLASS = 'table-fixed border-collapse text-[12px]'
+
+// One `<colgroup>` shape for all three tables: the agent column, then `numCols`
+// equal numeric columns. This is what pins the columns to the same x across tables.
+function ColGroup({ numCols }: { numCols: number }) {
+  return (
+    <colgroup>
+      <col style={{ width: AGENT_COL_W }} />
+      {Array.from({ length: numCols }, (_, index) => (
+        <col key={index} style={{ width: NUM_COL_W }} />
+      ))}
+    </colgroup>
+  )
+}
+
+// A "?" affordance for jargon column headers: a hairline circle that reveals a
+// plain-language definition on hover/focus. Rendered inline right after the
+// header text (which keeps its normal right-aligned wrapping), so it never
+// disturbs the column layout. Kept subtle — muted, brightens on interaction —
+// and used sparingly, only on headers whose meaning isn't self-evident.
+function ColumnHint({ label, hint }: { label: string; hint: string }) {
+  return (
+    <Tooltip
+      // The tooltip primitive defaults to single-line (`whitespace-nowrap`); a
+      // block child with its own width + `whitespace-normal` overrides the
+      // inherited nowrap so this longer definition wraps to a calm multi-line box.
+      content={
+        <span className="block max-w-[260px] whitespace-normal text-left leading-snug">
+          {hint}
+        </span>
+      }
+    >
+      <button
+        type="button"
+        aria-label={`What does "${label}" mean?`}
+        className={`ml-1 inline-flex h-[13px] w-[13px] translate-y-[2px] items-center justify-center rounded-full border border-[color:var(--border-strong)] text-[9px] font-normal leading-none text-[color:var(--text-disabled)] hover:border-[color:var(--text-muted)] hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
+      >
+        ?
+      </button>
+    </Tooltip>
+  )
+}
+
+// Plain-language definitions for the measured-issue columns, keyed by the issue
+// `key` in `measuredIssueTypes`. These are reviewer-assigned defect categories, so
+// the distinctions (a missed requirement vs an implementation mistake) aren't
+// self-evident from the label alone.
+const MEASURED_ISSUE_HINTS: Record<string, string> = {
+  bugs: "Defects reviewers found in this agent's work — behavior that's incorrect or broken.",
+  missedRequirements: "Acceptance criteria or requested behavior the agent didn't deliver.",
+  implementationMistakes:
+    'Coding errors — wrong logic, mishandled cases, sloppy implementation — as distinct from missing a requirement.',
+  factualErrors:
+    'Claims the agent made that were untrue — about the code, the task, or what it had done.',
+  unsafeChanges: 'Changes that introduced a security, data-loss, or stability risk.',
+  hallucinatedClaims:
+    "Assertions with no basis — invented files, APIs, or results that don't exist.",
+  regressionCount: "Previously-working behavior that this agent's changes broke.",
+  testFailuresIntroduced: "Tests that started failing because of this agent's changes.",
+}
+
+// Definitions for the review-throughput columns: "reviews" counts passes (a task
+// can be reviewed more than once) while "tasks reviewed" counts distinct tasks.
+const REVIEW_COLUMN_HINTS = {
+  reviews: 'Total review passes this agent performed; a single task can be reviewed more than once.',
+  tasksReviewed: 'Distinct tasks this agent reviewed at least once.',
+  approved: 'Reviews where this agent passed the work.',
+  changesRequested: 'Reviews where this agent sent the work back for changes.',
+} as const
+
+// Definitions for the plan & setup quality dimensions, keyed by the score key in
+// `processHealthDimensions`. These are 0–100% ratings the team gave the plan, so
+// the dimension names benefit from a one-line gloss.
+const PLAN_QUALITY_HINTS: Record<string, string> = {
+  directiveClarityPct:
+    "How clearly the run's overall directive — the goal and its constraints — was stated, as rated by the agents working from it.",
+  taskClarityPct: 'How clearly each task was specified: scope, intent, and what to build.',
+  acceptanceCriteriaClarityPct:
+    'How clear and testable the acceptance criteria were — whether agents could tell when a task was truly done.',
+  sprintEngineToolEffectivenessPct:
+    'How well the Sprint Engine tooling supported the work, as rated by the agents using it.',
+  promptOptimizationPct: 'How well-tuned the prompts and instructions were for the work at hand.',
+  contextFitPct:
+    'Whether the agent was given the right context — not too little, not too much — to do the task.',
+  roleFitPct: "How well the task matched the agent's role and capabilities.",
+}
+
+// Shared table header classes. Labels carry full words and wrap to two lines,
+// bottom-aligned so they sit just above the numbers; numeric headers share the
+// data cells' px-3 so header and number right-edges line up. The agent header is
+// left-aligned and single-line (kept distinct so text-right/text-left never collide).
 const HEADER_BASE =
-  'border-b border-[color:var(--border-subtle)] pb-1.5 text-[11px] font-medium text-[color:var(--text-muted)] whitespace-nowrap'
+  'border-b border-[color:var(--border-subtle)] pb-1.5 align-bottom text-[11px] font-medium leading-tight text-[color:var(--text-muted)]'
 const NUM_HEADER = `${HEADER_BASE} px-3 text-right`
-const AGENT_HEADER = `${HEADER_BASE} pr-3 text-left`
+const AGENT_HEADER = `${HEADER_BASE} pr-3 text-left whitespace-nowrap`
 const COL_SEP = 'border-l border-[color:var(--border-subtle)]'
-// Issue-type headers carry full labels that wrap to two lines (no `whitespace-nowrap`),
-// bottom-aligned so they sit just above the numbers. Shares the data cells' px-3
-// so header and number right-edges line up.
-const ISSUE_HEADER =
-  'border-b border-[color:var(--border-subtle)] pb-1.5 px-3 align-bottom text-right text-[11px] font-medium leading-tight text-[color:var(--text-muted)]'
 
 function AgentName({ role, agentId, idle }: { role: SprintEngineRoleId; agentId: string; idle?: boolean }) {
   return (
@@ -468,25 +604,29 @@ function ImplementationTable({
     <div className="mt-1">
       <WorkTypeHeading label="Implementation" count={rows.length} />
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-[12px]">
+        <table className={TABLE_CLASS} style={tableStyleFor(1 + measuredIssueTypes.length)}>
+          <ColGroup numCols={1 + measuredIssueTypes.length} />
           <thead>
             <tr>
               <th scope="col" className={AGENT_HEADER}>
                 Agent
               </th>
-              <th scope="col" className={NUM_HEADER}>
+              <th scope="col" className={`${NUM_HEADER} ${COL_SEP}`}>
                 Tasks
               </th>
-              {measuredIssueTypes.map((type, index) => (
+              {measuredIssueTypes.map((type) => (
                 <th
                   key={type.key}
                   scope="col"
                   // Full label, wrapping to two lines, bottom-aligned over the
                   // numbers — so "Implementation mistakes" reads in full without
-                  // a wide column or a cryptic abbreviation.
-                  className={`${ISSUE_HEADER}${index === 0 ? ` ${COL_SEP}` : ''}`}
+                  // a cryptic abbreviation.
+                  className={NUM_HEADER}
                 >
                   {type.label}
+                  {MEASURED_ISSUE_HINTS[type.key] ? (
+                    <ColumnHint label={type.label} hint={MEASURED_ISSUE_HINTS[type.key]} />
+                  ) : null}
                 </th>
               ))}
             </tr>
@@ -524,7 +664,8 @@ function ReviewTable({ rows }: { rows: SprintEngineAgentRow[] }) {
     <div className="mt-5">
       <WorkTypeHeading label="Review" count={rows.length} />
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-[12px]">
+        <table className={TABLE_CLASS} style={tableStyleFor(4)}>
+          <ColGroup numCols={4} />
           <thead>
             <tr>
               <th scope="col" className={AGENT_HEADER}>
@@ -532,15 +673,19 @@ function ReviewTable({ rows }: { rows: SprintEngineAgentRow[] }) {
               </th>
               <th scope="col" className={`${NUM_HEADER} ${COL_SEP}`}>
                 Reviews
+                <ColumnHint label="Reviews" hint={REVIEW_COLUMN_HINTS.reviews} />
               </th>
               <th scope="col" className={NUM_HEADER}>
                 Tasks reviewed
+                <ColumnHint label="Tasks reviewed" hint={REVIEW_COLUMN_HINTS.tasksReviewed} />
               </th>
               <th scope="col" className={NUM_HEADER}>
                 Approved
+                <ColumnHint label="Approved" hint={REVIEW_COLUMN_HINTS.approved} />
               </th>
               <th scope="col" className={NUM_HEADER}>
                 Changes requested
+                <ColumnHint label="Changes requested" hint={REVIEW_COLUMN_HINTS.changesRequested} />
               </th>
             </tr>
           </thead>
@@ -594,30 +739,10 @@ function PlanningTable({
   return (
     <div className="mt-5">
       <WorkTypeHeading label="Planning" count={rows.length > 0 ? rows.length : undefined} />
-      {architectDifficulty ? (
-        <div className="mb-2.5 flex flex-wrap gap-x-7 gap-y-1 text-[12px] text-[color:var(--text-muted)]">
-          <span>
-            Architect estimate accuracy{' '}
-            <span className="tabular-nums text-[color:var(--text-default)]">
-              ±{architectDifficulty.mean_absolute_error_pct}%
-            </span>{' '}
-            <span className="text-[color:var(--text-disabled)]">avg error</span>
-          </span>
-          <span>
-            Bias{' '}
-            <span className="tabular-nums text-[color:var(--text-default)]">
-              {architectDifficulty.bias_pct > 0 ? '+' : ''}
-              {architectDifficulty.bias_pct}%
-            </span>
-          </span>
-          <span className="tabular-nums text-[color:var(--text-disabled)]">
-            {architectDifficulty.sampleCount} estimate{architectDifficulty.sampleCount === 1 ? '' : 's'}
-          </span>
-        </div>
-      ) : null}
       {rows.length > 0 ? (
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-[12px]">
+          <table className={TABLE_CLASS} style={tableStyleFor(4)}>
+            <ColGroup numCols={4} />
             <thead>
               <tr>
                 <th scope="col" className={AGENT_HEADER}>
@@ -626,11 +751,32 @@ function PlanningTable({
                 <th scope="col" className={`${NUM_HEADER} ${COL_SEP}`}>
                   Tasks
                 </th>
+                <th scope="col" className={NUM_HEADER}>
+                  Estimate error
+                  <ColumnHint
+                    label="Estimate error"
+                    hint="Average gap between the architect's difficulty estimate and how hard the task actually proved, ignoring direction. Lower is more accurate."
+                  />
+                </th>
+                <th scope="col" className={NUM_HEADER}>
+                  Estimate bias
+                  <ColumnHint
+                    label="Estimate bias"
+                    hint="Which way the estimates leaned. Positive means tasks were estimated harder than they turned out (over-estimated); negative means easier (under-estimated). Near 0 is well-calibrated."
+                  />
+                </th>
+                <th scope="col" className={NUM_HEADER}>
+                  Estimates
+                </th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => {
                 const border = 'border-b border-[color:var(--border-subtle)]'
+                // Estimation accuracy is the architect's measured calibration —
+                // run-level, so it attaches to the architect's row. Other planning
+                // roles (if any) carry no estimate and read "—".
+                const diff = row.role === 'architect' ? architectDifficulty : null
                 return (
                   <tr key={row.agentId}>
                     <td className={`${border} py-[7px] pr-6`}>
@@ -639,6 +785,13 @@ function PlanningTable({
                     <NumCellB border={border} sep={COL_SEP}>
                       {row.tasksDone}
                     </NumCellB>
+                    <NumCellB border={border}>
+                      {diff ? `±${diff.mean_absolute_error_pct}%` : NA}
+                    </NumCellB>
+                    <NumCellB border={border}>
+                      {diff ? `${diff.bias_pct > 0 ? '+' : ''}${diff.bias_pct}%` : NA}
+                    </NumCellB>
+                    <NumCellB border={border}>{diff ? diff.sampleCount : NA}</NumCellB>
                   </tr>
                 )
               })}
@@ -662,7 +815,12 @@ function PlanningTable({
                 className="grid grid-cols-[140px_1fr_auto] items-center gap-2.5 py-0.5"
                 aria-label={`${stat.label}: ${stat.averagePct} percent, rated across ${stat.sampleCount} task${stat.sampleCount === 1 ? '' : 's'}`}
               >
-                <span className="text-[12px] text-[color:var(--text-muted)]">{stat.label}</span>
+                <span className="text-[12px] text-[color:var(--text-muted)]">
+                  {stat.label}
+                  {PLAN_QUALITY_HINTS[stat.key] ? (
+                    <ColumnHint label={stat.label} hint={PLAN_QUALITY_HINTS[stat.key]} />
+                  ) : null}
+                </span>
                 <span
                   aria-hidden="true"
                   className="h-1 overflow-hidden rounded-full bg-[color:var(--border-subtle)]"
@@ -763,9 +921,13 @@ function AgentRow({
           <span className="inline-flex items-baseline gap-2 whitespace-nowrap">{identity}</span>
         )}
       </td>
-      {/* tasksDone is always-known structural data — show 0, not "—". */}
-      <NumCellB border={cellBorder}>{row.tasksDone}</NumCellB>
-      {measuredIssueTypes.map((type, index) => {
+      {/* tasksDone is always-known structural data — show 0, not "—". The
+          column separator sits here, right after the agent identity, matching
+          the Review and Planning tables. */}
+      <NumCellB border={cellBorder} sep={sep}>
+        {row.tasksDone}
+      </NumCellB>
+      {measuredIssueTypes.map((type) => {
         const count = agentIssueCount(metrics, type.key)
         let content: React.ReactNode
         if (count === null) {
@@ -782,7 +944,7 @@ function AgentRow({
           content = count === 0 ? <span className="text-[color:var(--text-disabled)]">0</span> : count
         }
         return (
-          <NumCellB key={type.key} border={cellBorder} sep={index === 0 ? sep : undefined}>
+          <NumCellB key={type.key} border={cellBorder}>
             {content}
           </NumCellB>
         )
@@ -1183,14 +1345,97 @@ function RunMetricsSection({ report }: { report: SprintEngineRunReport }) {
           ? `${report.metrics.gatesApproved} / ${report.metrics.gatesTotal}`
           : '—',
     },
-    { label: 'Findings', value: report.metrics.findings },
   ]
   return (
     <SectionDivider>
       <Section title="Run metrics" level={3}>
-        <StatStrip cells={cells} columns="md:grid-cols-5" />
+        <StatStrip cells={cells} columns="md:grid-cols-4" />
       </Section>
     </SectionDivider>
+  )
+}
+
+// A glanceable headline: implementation agents grouped by role, each showing the
+// CLI it ran on and the share of its tasks that hit issues in review. When two
+// CLIs differ enough, a one-line takeaway calls out which produced more issues.
+function AgentTypeSummarySection({ summary }: { summary: SprintEngineAgentTypeSummary }) {
+  if (summary.roles.length === 0) return null
+  const comparison = compareCliIssueRates(summary.clis)
+  return (
+    <SectionDivider>
+      <Section title="By agent type" count={summary.roles.length} level={3}>
+        <div className="mb-3 flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+          {comparison ? (
+            <span>
+              <CliInline cli={comparison.worse.key} /> agents hit implementation issues on{' '}
+              <span className="tabular-nums text-[color:var(--text-default)]">
+                {comparison.worse.issuePct}%
+              </span>{' '}
+              of tasks, vs <CliInline cli={comparison.better.key} />
+              {"'s "}
+              <span className="tabular-nums text-[color:var(--text-default)]">
+                {comparison.better.issuePct}%
+              </span>
+              .
+            </span>
+          ) : (
+            <span>The implementation issues each role hit during review.</span>
+          )}
+          <ColumnHint
+            label="implementation issues"
+            hint="Bugs, missed requirements, implementation mistakes, unsafe changes, regressions, and test failures reviewers flagged in the agent's work. Factual errors and hallucinations are tracked separately."
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3 md:grid-cols-4">
+          {summary.roles.map((stat) => (
+            <TypeStatCell key={stat.key} stat={stat} />
+          ))}
+        </div>
+      </Section>
+    </SectionDivider>
+  )
+}
+
+// A CLI's brand icon followed by its name, for inline use in the takeaway line.
+function CliInline({ cli }: { cli: string }) {
+  return (
+    <span className="inline-flex items-baseline gap-1 text-[color:var(--text-default)]">
+      <CliIcon cli={cli} className="h-3.5 w-3.5 translate-y-[2px]" />
+      {cliLabel(cli)}
+    </span>
+  )
+}
+
+function TypeStatCell({ stat }: { stat: SprintEngineTypeStat }) {
+  const issues = `${stat.totalIssues} issue${stat.totalIssues === 1 ? '' : 's'}`
+  const tasks = `${stat.tasksDone} task${stat.tasksDone === 1 ? '' : 's'}`
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1.5 truncate text-[12px] text-[color:var(--text-default)]">
+          <RoleGlyph role={stat.key as SprintEngineRoleId} size="sm" />
+          <span className="truncate">{getSprintEngineRoleLabel(stat.key)}</span>
+        </span>
+        {stat.clis.length > 0 ? (
+          <span className="inline-flex flex-none items-center gap-1">
+            {stat.clis.map((cli) => (
+              <Tooltip key={cli} content={cliLabel(cli)}>
+                <span tabIndex={0} aria-label={`Ran on ${cliLabel(cli)}`} className="inline-flex">
+                  <CliIcon cli={cli} className="h-3.5 w-3.5" />
+                </span>
+              </Tooltip>
+            ))}
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-1.5 text-[20px] font-semibold tabular-nums text-[color:var(--text-strong)]">
+        {stat.issuePct === null ? '—' : `${stat.issuePct}%`}
+      </div>
+      <div className="text-[11px] text-[color:var(--text-muted)]">of tasks had issues</div>
+      <div className="mt-0.5 text-[11px] tabular-nums text-[color:var(--text-disabled)]">
+        {issues} · {tasks}
+      </div>
+    </div>
   )
 }
 

@@ -3,14 +3,17 @@ import {
   agentIssueCount,
   buildAgentRows,
   buildAgentTaskDetail,
+  buildAgentTypeSummary,
   buildBurnup,
   buildIssueTotals,
   buildProcessHealth,
   buildRunQualitySummary,
   buildRunReport,
+  compareCliIssueRates,
   computeRunDurationMs,
   formatRunDuration,
   type SprintEngineAgentRow,
+  type SprintEngineTypeStat,
 } from './sprintengineRunSummary'
 import type {
   SprintEngineAgentMetrics,
@@ -431,7 +434,117 @@ function testIssueTotalsAndPerAgentCounts(): void {
   assert.equal(agentIssueCount(rows[2].metrics, 'bugs'), null)
 }
 
+function implRow(
+  agentId: string,
+  role: string,
+  tasksDone: number,
+  taskCounts: Record<string, { reviewSampleCount: number; counts: Record<string, number> }>,
+  findingsAgainstTotal = 0,
+): SprintEngineAgentRow {
+  const counts: Record<string, number> = {}
+  for (const task of Object.values(taskCounts)) {
+    for (const [key, value] of Object.entries(task.counts)) counts[key] = (counts[key] ?? 0) + value
+  }
+  return {
+    agentId,
+    role: role as SprintEngineAgentRow['role'],
+    status: 'done',
+    tasksDone,
+    metrics: {
+      role: role as SprintEngineAgentMetrics['role'],
+      selfReported: { sampleCount: 0, scores: {} },
+      measured: {
+        reviewSampleCount: 1,
+        scores: {},
+        counts,
+        taskCounts,
+        ...(findingsAgainstTotal > 0
+          ? { findingsAgainst: { total: findingsAgainstTotal, bySeverity: { high: findingsAgainstTotal } } }
+          : {}),
+      },
+      findingsRaised: 0,
+    },
+  }
+}
+
+function testAgentTypeSummaryGroupsByRoleAndCli(): void {
+  const rows: SprintEngineAgentRow[] = [
+    implRow('developer-1', 'developer', 3, {
+      T1: { reviewSampleCount: 1, counts: { implementationMistakes: 1 } },
+      T2: { reviewSampleCount: 1, counts: { missedRequirements: 2 } },
+      T3: { reviewSampleCount: 1, counts: { claimsChecked: 9 } },
+    }, 1),
+    implRow('developer-2', 'developer', 1, {
+      T4: { reviewSampleCount: 1, counts: { claimsChecked: 4 } },
+    }),
+    implRow('frontend-1', 'frontend', 2, {
+      T5: { reviewSampleCount: 1, counts: { claimsChecked: 3 } },
+      T6: { reviewSampleCount: 1, counts: {} },
+    }),
+    // Reviewer + planner rows must be excluded from an implementation headline.
+    { agentId: 'code_reviewer-1', role: 'code_reviewer', status: 'done', tasksDone: 2, metrics: null },
+    { agentId: 'architect-1', role: 'architect', status: 'done', tasksDone: 2, metrics: null },
+  ]
+  const cliByAgent = {
+    'developer-1': 'codex',
+    'developer-2': 'codex',
+    'frontend-1': 'claude',
+    'code_reviewer-1': 'claude',
+    'architect-1': 'codex',
+  }
+
+  const summary = buildAgentTypeSummary(rows, cliByAgent)
+
+  // Only implementation roles, sorted by tasks done (developer 4 > frontend 2).
+  assert.deepEqual(summary.roles.map((r) => r.key), ['developer', 'frontend'])
+
+  const dev = summary.roles[0]
+  assert.equal(dev.agentCount, 2)
+  assert.equal(dev.tasksDone, 4)
+  assert.equal(dev.tasksWithIssues, 2, 'T1 + T2 had count issues; T3/T4 only claimsChecked')
+  assert.equal(dev.issuePct, 50, '2 of 4 done tasks had issues')
+  assert.equal(dev.totalIssues, 4, '1 bug (finding) + 1 mistake + 2 missed reqs')
+  assert.deepEqual(dev.clis, ['codex'])
+
+  const fe = summary.roles[1]
+  assert.equal(fe.issuePct, 0, 'frontend reviewed but clean')
+  assert.equal(fe.totalIssues, 0)
+  assert.deepEqual(fe.clis, ['claude'])
+
+  // CLI grouping spans roles: codex = the two developers, claude = frontend only.
+  const byCli = Object.fromEntries(summary.clis.map((c) => [c.key, c]))
+  assert.equal(byCli.codex.tasksDone, 4)
+  assert.equal(byCli.codex.issuePct, 50)
+  assert.equal(byCli.claude.issuePct, 0)
+}
+
+function testCompareCliIssueRates(): void {
+  const stat = (key: string, issuePct: number | null, tasksDone = 4): SprintEngineTypeStat => ({
+    key,
+    clis: [key],
+    agentCount: 1,
+    tasksDone,
+    totalIssues: 0,
+    tasksWithIssues: 0,
+    issuePct,
+    issuesPerTask: 0,
+  })
+
+  const wide = compareCliIssueRates([stat('claude', 10), stat('codex', 60)])
+  assert.ok(wide)
+  assert.equal(wide!.worse.key, 'codex')
+  assert.equal(wide!.better.key, 'claude')
+
+  // A single CLI, or a gap under 10 points, isn't worth a takeaway.
+  assert.equal(compareCliIssueRates([stat('codex', 60)]), null)
+  assert.equal(compareCliIssueRates([stat('claude', 52), stat('codex', 58)]), null)
+  // Zero-task CLIs are ignored.
+  assert.equal(compareCliIssueRates([stat('claude', null, 0), stat('codex', 40)]), null)
+}
+
 function main(): void {
+  testAgentTypeSummaryGroupsByRoleAndCli()
+  testCompareCliIssueRates()
   testIssueTotalsAndPerAgentCounts()
   testBuildBurnupBuildsCumulativeSeries()
   testBuildAgentTaskDetailJoinsTasksCountsAndFindings()
