@@ -6,6 +6,7 @@ import { getGitEntry, useGitStatus } from '../../hooks/useGitStatus'
 import { getGitLineChanges, type GitLineChange } from '../../utils/gitDiff'
 import { renderMarkdown } from '../../utils/markdown'
 import { isImageFile } from '../../utils/files'
+import { basename, pathSeparatorFor, trimPath } from '../../utils/paths'
 import {
   getEditorBuffer,
   hasEditorBuffer,
@@ -27,6 +28,12 @@ const GIT_DECORATION_MAX_CHARS = 600_000
 const GIT_DECORATION_MAX_LINES = 8_000
 const MARKDOWN_PREVIEW_MAX_CHARS = 2 * 1024 * 1024
 
+function isPathOrChild(path: string, parentPath: string): boolean {
+  const trimmedParent = trimPath(parentPath)
+  if (path === trimmedParent) return true
+  return path.startsWith(`${trimmedParent}${pathSeparatorFor(trimmedParent)}`)
+}
+
 function readCssVar(name: string): string {
   if (typeof document === 'undefined') return ''
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -40,6 +47,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null
   )
   const setActiveFile     = useWorkspaceStore((s) => s.setActiveFile)
+  const openFile          = useWorkspaceStore((s) => s.openFile)
   const updateFileContent = useWorkspaceStore((s) => s.updateFileContent)
   const markFileClean     = useWorkspaceStore((s) => s.markFileClean)
   const closeFile         = useWorkspaceStore((s) => s.closeFile)
@@ -68,9 +76,16 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   const [contentLoadError, setContentLoadError] = useState<{ path: string; message: string } | null>(null)
   const [imageDataUrl, setImageDataUrl] = useState<{ path: string; url: string } | null>(null)
   const [markdownMode, setMarkdownMode] = useState<'preview' | 'source'>('preview')
+  const [restoringFilePath, setRestoringFilePath] = useState<string | null>(null)
   const isMarkdown = activeFile?.language === 'markdown'
   const markdownPreviewTooLarge = isMarkdown && activeContent.length > MARKDOWN_PREVIEW_MAX_CHARS
   const showPreview = isMarkdown && markdownMode === 'preview' && !markdownPreviewTooLarge
+  const canRestoreMissingActiveFile = Boolean(
+    filePath
+    && !activeFile
+    && folderPath
+    && isPathOrChild(filePath, folderPath)
+  )
   const activeGitEntry = useMemo(
     () => getGitEntry(gitStatus, activeFilePath),
     [activeFilePath, gitStatus]
@@ -102,6 +117,48 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   useEffect(() => {
     if (filePath) setActiveFile(workspaceId, filePath)
   }, [filePath, setActiveFile, workspaceId])
+
+  useEffect(() => {
+    if (!filePath || activeFile || !folderPath || !isPathOrChild(filePath, folderPath)) {
+      setRestoringFilePath((path) => path === filePath ? null : path)
+      return
+    }
+
+    let cancelled = false
+    const name = basename(filePath)
+    setRestoringFilePath(filePath)
+    setContentLoadError(null)
+
+    if (isImageFile(filePath || name)) {
+      openFile(workspaceId, filePath, name, '')
+      setRestoringFilePath((path) => path === filePath ? null : path)
+      return
+    }
+
+    const restoreOpenFile = async () => {
+      try {
+        const content = await window.api.readfile(filePath)
+        if (cancelled) return
+        openFile(workspaceId, filePath, name, content)
+      } catch (error) {
+        if (cancelled) return
+        setContentLoadError({
+          path: filePath,
+          message: error instanceof Error ? error.message : String(error),
+        })
+      } finally {
+        if (!cancelled) {
+          setRestoringFilePath((path) => path === filePath ? null : path)
+        }
+      }
+    }
+
+    void restoreOpenFile()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeFile, filePath, folderPath, openFile, workspaceId])
 
   useEffect(() => {
     if (activeFile?.language === 'markdown') {
@@ -353,18 +410,26 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
     )
   }
 
-  if (!activeFile) {
-    return (
-      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] px-4 text-center text-[color:var(--text-disabled)] text-[13px] font-mono">
-        This file is no longer open.
-      </div>
-    )
-  }
-
   if (contentLoadError?.path === activeFilePath) {
     return (
       <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] px-4 text-center text-[color:var(--tone-error)] text-[13px] font-mono">
         Failed to load file: {contentLoadError.message}
+      </div>
+    )
+  }
+
+  if (restoringFilePath === activeFilePath || canRestoreMissingActiveFile) {
+    return (
+      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] text-[color:var(--text-disabled)] text-[13px] font-mono">
+        Loading file...
+      </div>
+    )
+  }
+
+  if (!activeFile) {
+    return (
+      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] px-4 text-center text-[color:var(--text-disabled)] text-[13px] font-mono">
+        This file is no longer open.
       </div>
     )
   }
