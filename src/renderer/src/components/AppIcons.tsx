@@ -170,6 +170,30 @@ function WritingIcon({ className }: IconProps) {
   )
 }
 
+// Compose / "new chat" glyph — the pencil-in-square idiom shared by ChatGPT
+// and Claude. Used for the sidebar New chat segment and the empty-workspace
+// surface. We deliberately do not reuse the plus glyph here: New workspace
+// already owns the plus, so a second plus would read as the same action.
+export function NewChatIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 4H6.5C5.4 4 4.5 4.9 4.5 6V17.5C4.5 18.6 5.4 19.5 6.5 19.5H18C19.1 19.5 20 18.6 20 17.5V12"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M17.6 4a1.6 1.6 0 0 1 2.4 2.4l-7.3 7.3a2 2 0 0 1-.85.5l-2.4.66a.5.5 0 0 1-.62-.62l.66-2.4a2 2 0 0 1 .5-.85z"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function priorityKey(priority: number | null | undefined): keyof typeof PRIORITY_LABELS {
   if (priority === 0) return 'urgent'
   if (priority === 1) return 'high'

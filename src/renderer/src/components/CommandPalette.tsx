@@ -30,6 +30,7 @@ function dispatchPanelCommand(id: string) {
 interface Props {
   onClose: () => void
   onNewWorkspace: () => void
+  onNewChat: () => void
   onSpawnSpecialist: (specialistId: SpecialistActionId) => void
   workspaceWindowId: WorkspaceWindowId
   workspaces: Workspace[]
@@ -39,6 +40,7 @@ interface Props {
 export default function CommandPalette({
   onClose,
   onNewWorkspace,
+  onNewChat,
   onSpawnSpecialist,
   workspaceWindowId,
   workspaces,
@@ -134,6 +136,15 @@ export default function CommandPalette({
       : []
     const navigationCommands: Command[] = []
     return [
+      {
+        id: 'new-chat',
+        label: 'New Chat',
+        description: activeWorkspace?.folderPath ? 'Create a one-agent chat in the current project' : 'Create a one-agent chat',
+        run: () => {
+          onNewChat()
+          onClose()
+        },
+      },
       ...LAYOUT_TEMPLATES.map((template) => ({
         id: `new-${template.id}`,
         label: `New Workspace: ${template.name}`,
@@ -211,7 +222,7 @@ export default function CommandPalette({
         },
       },
     ]
-  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, onClose, onNewWorkspace, onSpawnSpecialist, workspaceWindowId])
+  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, onClose, onNewChat, onNewWorkspace, onSpawnSpecialist, workspaceWindowId])
 
   const filtered = query.trim()
     ? commands.filter((command) => {

@@ -1,3 +1,5 @@
+import type { SprintEngineSourceBundleItem } from '../types/workspace'
+
 export type GuidedBriefHasUi = 'yes' | 'no'
 
 export type GuidedBriefFilesystem = {
@@ -61,6 +63,17 @@ export type GuidedBriefBuildHandoffInput = {
 export type GuidedBriefBuildHandoffResult = {
   path: string
   content: string
+}
+
+export type GuidedBriefSprintEngineSourceBundleInput = {
+  workspaceRoot: string
+  handoffPath: string
+  handoffContent: string
+  productBrief?: GuidedBriefAcceptedArtifact | null
+  architecturePlan?: GuidedBriefAcceptedArtifact | null
+  uiDirection?: GuidedBriefAcceptedArtifact | null
+  mockups?: GuidedBriefAcceptedArtifact[]
+  readArtifact: (workspaceRoot: string, path: string) => Promise<string>
 }
 
 export class GuidedBriefWorkspaceError extends Error {
@@ -298,4 +311,57 @@ export async function writeGuidedBriefBuildHandoff(input: GuidedBriefBuildHandof
     path: relativeWorkspacePath(root, handoffPath),
     content,
   }
+}
+
+export async function buildGuidedBriefSprintEngineSourceBundle({
+  workspaceRoot,
+  handoffPath,
+  handoffContent,
+  productBrief,
+  architecturePlan,
+  uiDirection,
+  mockups = [],
+  readArtifact,
+}: GuidedBriefSprintEngineSourceBundleInput): Promise<SprintEngineSourceBundleItem[]> {
+  const sourceBundle: SprintEngineSourceBundleItem[] = [
+    {
+      kind: productBrief ? 'generic_context' : 'product_plan',
+      sourcePath: handoffPath,
+      sourceRelativePath: handoffPath,
+      sourceContent: handoffContent,
+    },
+  ]
+  if (productBrief) {
+    sourceBundle.push({
+      kind: 'product_plan',
+      sourcePath: productBrief.path,
+      sourceRelativePath: productBrief.path,
+      sourceContent: await readArtifact(workspaceRoot, productBrief.path),
+    })
+  }
+  if (architecturePlan) {
+    sourceBundle.push({
+      kind: 'architect_plan',
+      sourcePath: architecturePlan.path,
+      sourceRelativePath: architecturePlan.path,
+      sourceContent: await readArtifact(workspaceRoot, architecturePlan.path),
+    })
+  }
+  if (uiDirection) {
+    sourceBundle.push({
+      kind: 'design_notes',
+      sourcePath: uiDirection.path,
+      sourceRelativePath: uiDirection.path,
+      sourceContent: await readArtifact(workspaceRoot, uiDirection.path),
+    })
+  }
+  for (const mockup of mockups) {
+    sourceBundle.push({
+      kind: 'html_mockup',
+      sourcePath: mockup.path,
+      sourceRelativePath: mockup.path,
+      sourceContent: await readArtifact(workspaceRoot, mockup.path),
+    })
+  }
+  return sourceBundle
 }

@@ -9,6 +9,7 @@ import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
+import { buildCliRuntimeOptions } from './newWorkspace/cliRuntimeOptions'
 import { selectModuleEnabled } from '../../modules'
 import {
   deriveWorkspaceLastOutputAt,
@@ -67,6 +68,7 @@ import {
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
 import { restoreDetachedWorkspaceWindowsOnStartup } from './workspaceWindowRestore'
+import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 
 // Lazy so the (large) new-workspace wizard — and everything it pulls in
 // (GuidedBriefFlow, the markdown renderer) — is code-split out of the eager boot
@@ -82,6 +84,7 @@ const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 const TERMINAL_SESSION_RECOVERY_POLL_MS = 30_000
 const WORKSPACE_LAYOUT_IDLE_UNLOAD_MS = 5 * 60_000
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
+const SOLO_CHAT_TEMPLATE = LAYOUT_TEMPLATES.find((template) => template.id === 'solo') ?? null
 const SPECIALIST_KEYBOARD_SHORTCUTS: Record<string, SpecialistActionId> = {
   f: 'frontend-design-review',
   m: 'performance',
@@ -126,6 +129,8 @@ export default function WorkspaceManager() {
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
+  const setLastSelectedCli = useWorkspaceStore((s) => s.setLastSelectedCli)
+  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const lastSelectedSpecialist = useWorkspaceStore(
     (s) => s.appSettings.lastSelectedSpecialist ?? SPECIALIST_ACTIONS[0].id
   )
@@ -242,6 +247,60 @@ export default function WorkspaceManager() {
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
   }
+
+  const pickNewChatName = useCallback((folderPath: string | null): string => {
+    const folderWorkspaces = workspaces.filter((workspace) => workspace.folderPath === folderPath)
+    const existingNames = new Set(folderWorkspaces.map((workspace) => workspace.name.trim().toLowerCase()))
+    if (!existingNames.has('chat')) return 'Chat'
+    for (let index = 2; index < 1000; index += 1) {
+      const name = `Chat ${index}`
+      if (!existingNames.has(name.toLowerCase())) return name
+    }
+    return `Chat ${Date.now()}`
+  }, [workspaces])
+
+  const createNewChat = useCallback((folderPath?: string | null, cli?: AgentCli) => {
+    if (!SOLO_CHAT_TEMPLATE) {
+      publishDiagnosticSync({
+        level: 'error',
+        source: 'workspace',
+        title: 'New chat unavailable',
+        message: 'The Solo layout template is missing, so Multicode cannot create a one-agent chat.',
+      })
+      return
+    }
+    const targetFolderPath = folderPath === undefined ? activeWorkspace?.folderPath ?? null : folderPath
+    const chosenCli = cli && cli.trim() ? cli.trim() : null
+    addWorkspace(SOLO_CHAT_TEMPLATE, {
+      name: pickNewChatName(targetFolderPath),
+      folderPath: targetFolderPath,
+      windowId: workspaceWindowId,
+      templateAgentCli: chosenCli,
+    })
+    // Remember an explicit pick so the next plain New chat repeats it.
+    if (chosenCli) setLastSelectedCli(chosenCli)
+    setShowNewWorkspacePanel(false)
+    setNewWorkspacePanelInitialState(null)
+    closeSettingsOverlay()
+    setSpecialistMenuOpen(false)
+    setNotificationsOpen(false)
+    if (onboardingStep !== 'complete') setOnboardingStep('complete')
+  }, [
+    activeWorkspace?.folderPath,
+    addWorkspace,
+    closeSettingsOverlay,
+    onboardingStep,
+    pickNewChatName,
+    setLastSelectedCli,
+    setOnboardingStep,
+    workspaceWindowId,
+  ])
+
+  // Agent CLIs offered when picking a type for a New chat. Sourced from the same
+  // plugin-aware catalog the New workspace panel uses (bundled Codex/Claude plus
+  // anything configured in cliRuntimes — opencode, custom/plugin agents), so the
+  // picker scales with installed agents instead of a hardcoded list.
+  const newChatAgentOptions = useMemo(() => buildCliRuntimeOptions(cliRuntimes), [cliRuntimes])
 
   const openNewWorkspacePanelForFolder = useCallback((folderPath: string) => {
     setNewWorkspacePanelInitialState({ folderPath })
@@ -629,7 +688,7 @@ export default function WorkspaceManager() {
 
       // Cmd/Ctrl+Shift+1 toggles voice transcription. Handled before the
       // text-field guard below so it still works while typing in the agent
-      // prompt (the whole point of dictation). Keyed off event.code so it's
+      // composer (the whole point of dictation). Keyed off event.code so it's
       // layout-independent (Shift turns event.key into '!'), which also keeps it
       // clear of the Cmd/Ctrl+1-9 workspace switches further down.
       if (
@@ -1239,6 +1298,11 @@ export default function WorkspaceManager() {
         onForgetFolder={handleForgetFolder}
         onNewWorkspace={openNewWorkspacePanel}
         onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
+        onNewChat={() => createNewChat()}
+        onNewChatInFolder={(folderPath) => createNewChat(folderPath)}
+        onNewChatWithAgent={(cli) => createNewChat(undefined, cli)}
+        onNewChatInFolderWithAgent={(folderPath, cli) => createNewChat(folderPath, cli)}
+        newChatAgentOptions={newChatAgentOptions}
         onRevealFolder={handleRevealFolder}
         onSetSidebarCollapsed={setSidebarCollapsed}
       />
@@ -1282,6 +1346,7 @@ export default function WorkspaceManager() {
         agentMenuHighlight={agentMenuHighlight}
         setAgentMenuHighlight={setAgentMenuHighlight}
         chipPopoverForRole={chipPopoverForRole}
+        agentCliOptions={newChatAgentOptions}
         setChipPopoverForRole={setChipPopoverForRole}
         multiloopLaunchMenu={multiloopLaunchMenu}
         selectedSpecialistAction={selectedSpecialistAction}
@@ -1344,7 +1409,13 @@ export default function WorkspaceManager() {
                     style={{ pointerEvents: active ? 'auto' : 'none' }}
                     aria-hidden={!active}
                   >
-                    <WorkspaceLayout workspaceId={workspaceId} onStartFuturePlan={openFuturePlanWorkspace} />
+                    <WorkspaceLayout
+                      workspaceId={workspaceId}
+                      onStartFuturePlan={openFuturePlanWorkspace}
+                      onNewChat={() => createNewChat()}
+                      onNewWorkspace={openNewWorkspacePanel}
+                      onCloseWorkspace={closeWorkspaceById}
+                    />
                   </div>
                 )
               })}
@@ -1361,6 +1432,7 @@ export default function WorkspaceManager() {
         <CommandPalette
           onClose={() => setShowPalette(false)}
           onNewWorkspace={openNewWorkspacePanel}
+          onNewChat={() => createNewChat()}
           onSpawnSpecialist={handleSelectSpecialist}
           workspaceWindowId={workspaceWindowId}
           workspaces={visibleWorkspaces}

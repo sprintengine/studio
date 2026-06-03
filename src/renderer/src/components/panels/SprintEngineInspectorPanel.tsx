@@ -31,6 +31,7 @@ import type {
   SprintEngineTaskFeedback,
   SprintEngineTaskFeedbackFinding,
   SprintEngineTaskFeedbackIssue,
+  SprintEngineRoleId,
 } from '../../types/workspace'
 import {
   feedbackFindingAreaLabels,
@@ -47,6 +48,7 @@ import {
   getSprintEngineArtifactDependencyBlockers,
   getSprintEngineAgentActivityDescending,
   getSprintEngineTaskActivityDescending,
+  getSprintEngineTaskImplementerTimeline,
   getSprintEngineTaskQualityGates,
   getSprintEngineTasksReviewedByAgent,
   getSprintEngineTasksWorkedOnByAgent,
@@ -61,6 +63,7 @@ import {
   type SprintEngineAgentReviewedTask,
   type SprintEngineAgentActivityEntry,
   type SprintEngineAgentWorkedOnTask,
+  type SprintEngineTaskImplementerEntry,
 } from '../../utils/sprintengine'
 import { formatRelativeTime } from '../../utils/switchboardBoard'
 import {
@@ -230,6 +233,45 @@ function qualityGateStatusTone(status: SprintEngineQualityGate['status']): Tone 
   }
 }
 
+// Shared check glyph: an approved gate attempt and a completed implementation
+// pass read as the same "done" tick, so both reuse this one path.
+// `label` drives the accessible name + tooltip. Omit it (decorative) when an
+// adjacent label or trail aria-label already names the glyph, to avoid a
+// screen reader announcing the same thing twice.
+type GlyphProps = { className?: string; label?: string }
+
+function glyphA11yProps(label: string | undefined) {
+  return label
+    ? ({ role: 'img', 'aria-label': label } as const)
+    : ({ 'aria-hidden': true } as const)
+}
+
+function CompletedCheckGlyph({ className, label }: GlyphProps) {
+  return (
+    <svg className={className} viewBox="0 0 12 12" fill="none" {...glyphA11yProps(label)}>
+      {label ? <title>{label}</title> : null}
+      <path
+        d="M2.8 6.4 L5 8.4 L9.2 4.2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// Shared dashed-circle glyph: the "in review / in progress" state for both an
+// in-flight gate attempt and a worker actively implementing a task.
+function InProgressGlyph({ className, label }: GlyphProps) {
+  return (
+    <svg className={className} viewBox="0 0 12 12" fill="none" {...glyphA11yProps(label)}>
+      {label ? <title>{label}</title> : null}
+      <circle cx="6" cy="6" r="3.5" stroke="currentColor" strokeWidth="1.3" strokeDasharray="1.5 1.4" />
+    </svg>
+  )
+}
+
 // Gate attempt glyph trail — shows the rework story (changes_requested →
 // approved) without repeating the verdict text. Tone-warn highlights only the
 // rework leg; approvals stay muted so a clean first-pass reads as calm.
@@ -244,18 +286,7 @@ function GateAttemptGlyph({
   const verdict = inFlight ? 'in_flight' : (attempt.verdict ?? attempt.status ?? 'in_flight')
 
   if (verdict === 'approved') {
-    return (
-      <svg className={className} viewBox="0 0 12 12" fill="none" role="img" aria-label="approved">
-        <title>approved</title>
-        <path
-          d="M2.8 6.4 L5 8.4 L9.2 4.2"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    )
+    return <CompletedCheckGlyph className={className} label="approved" />
   }
 
   if (verdict === 'changes_requested') {
@@ -300,19 +331,7 @@ function GateAttemptGlyph({
     )
   }
 
-  return (
-    <svg className={className} viewBox="0 0 12 12" fill="none" role="img" aria-label="in review">
-      <title>in review</title>
-      <circle
-        cx="6"
-        cy="6"
-        r="3.5"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeDasharray="1.5 1.4"
-      />
-    </svg>
-  )
+  return <InProgressGlyph className={className} label="in review" />
 }
 
 function gateAttemptToneClass(attempt: SprintEngineQualityGateAttempt): string {
@@ -903,41 +922,78 @@ function findGateAgent(
   return runtimeAgents.find((entry) => entry.role === gate.role) ?? null
 }
 
-function TaskOwnerLine({
-  task,
-  ownerLabel,
-  runtimeAgents,
+// Cap on visible pass ticks per worker so a heavily-reworked task never breaks
+// a row; overflow collapses to a `+N` counter.
+const MAX_VISIBLE_OWNER_PASSES = 6
+
+// One tick per implementation pass a worker has published on a task.
+function ImplementerTicks({ passCount }: { passCount: number }) {
+  if (passCount <= 0) return null
+  const visiblePasses = Math.min(passCount, MAX_VISIBLE_OWNER_PASSES)
+  const overflow = passCount - visiblePasses
+  const ariaLabel = passCount === 1 ? '1 completed pass' : `${passCount} completed passes`
+  return (
+    <span className="inline-flex items-center gap-1" aria-label={ariaLabel}>
+      {Array.from({ length: visiblePasses }, (_, index) => (
+        <CompletedCheckGlyph key={`pass-${index}`} className="icon-xs text-[color:var(--tone-good)]" />
+      ))}
+      {overflow > 0 ? (
+        <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-disabled)]">
+          +{overflow}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
+// Trailing state for the active worker's row. Running reads as "in progress";
+// the act-on states (needs input, crashed/exited) read as a warn-toned word so
+// they stay visible on the task without a separate status idiom. The full
+// needs-input detail still lives in TaskNeedsInputCallout below.
+function ActiveImplementerStatus({ runtimeStatus }: { runtimeStatus: string | null }) {
+  if (runtimeStatus === 'needs_input') {
+    return <span className="text-[color:var(--tone-warn)]">needs input</span>
+  }
+  if (runtimeStatus === 'error' || runtimeStatus === 'exited') {
+    return <span className="text-[color:var(--tone-warn)]">stopped</span>
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[color:var(--text-muted)]">
+      <InProgressGlyph className="icon-xs" />
+      <span>in progress</span>
+    </span>
+  )
+}
+
+function TaskImplementerRow({
+  entry,
+  fallbackRole,
   isAgentTerminalLive,
   onOpenAgentTerminal,
 }: {
-  task: SprintEngineTask
-  ownerLabel: string
-  runtimeAgents: RuntimeAgentView[]
+  entry: SprintEngineTaskImplementerEntry
+  fallbackRole: SprintEngineRoleId
   isAgentTerminalLive: (agentId: string) => boolean
   onOpenAgentTerminal: (agentId: string) => void
 }) {
-  const ownerAgent = task.ownerAgentId
-    ? runtimeAgents.find((entry) => entry.agentId === task.ownerAgentId)
-    : null
-  const ownerStatus = ownerAgent?.status ?? null
-  const ownerAgentId = task.ownerAgentId
-  const hasLiveTerminal = ownerAgentId ? isAgentTerminalLive(ownerAgentId) : false
-  const canOpenTerminal = Boolean(ownerAgentId)
-
+  const role = entry.role ?? fallbackRole
+  const hasLiveTerminal = isAgentTerminalLive(entry.agentId)
+  const relativeTime = entry.isActive ? null : formatRelativeTime(entry.lastActivityAt)
   const identityCluster = (
     <>
-      <RoleAvatar role={task.role} size="sm" ariaLabel="" />
-      <span className="text-[color:var(--text-default)]">{ownerLabel}</span>
+      <RoleAvatar role={role} size="sm" ariaLabel="" />
+      <span className={entry.isActive ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]'}>
+        {entry.label}
+      </span>
     </>
   )
-
   return (
-    <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
-      {canOpenTerminal && ownerAgentId ? (
+    <li className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+      {entry.isActive ? (
         <button
           type="button"
-          onClick={() => onOpenAgentTerminal(ownerAgentId)}
-          aria-label={`Open ${ownerLabel} terminal`}
+          onClick={() => onOpenAgentTerminal(entry.agentId)}
+          aria-label={`Open ${entry.label} terminal`}
           className={
             'interactive -mx-1.5 inline-flex items-center gap-2 rounded px-1.5 py-0.5 ' +
             'transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ' +
@@ -949,19 +1005,55 @@ function TaskOwnerLine({
       ) : (
         <span className="inline-flex items-center gap-2">{identityCluster}</span>
       )}
-      {ownerStatus ? (
-        <>
-          <span className="text-[color:var(--text-disabled)]">·</span>
-          <span className="inline-flex items-center gap-1.5">
-            <StatusDot tone={runtimeStatusTone(ownerStatus)} />
-            <span>{ownerStatus.replace(/_/g, ' ')}</span>
-          </span>
-        </>
+      <ImplementerTicks passCount={entry.passCount} />
+      {entry.isActive ? (
+        <ActiveImplementerStatus runtimeStatus={entry.runtimeStatus} />
+      ) : relativeTime ? (
+        <span className="tabular-nums text-[color:var(--text-disabled)]">{relativeTime}</span>
       ) : null}
       {hasLiveTerminal ? (
         <span className="ml-1 text-[10px] text-[color:var(--text-disabled)]">live</span>
       ) : null}
-    </div>
+    </li>
+  )
+}
+
+// Per-worker implementer timeline: one row per worker who has held the task,
+// active claim first, then by most-recent pass. Reassignment surfaces the new
+// owner on top while each worker keeps their own tick count.
+function TaskImplementerTimeline({
+  task,
+  runtimeAgents,
+  isAgentTerminalLive,
+  onOpenAgentTerminal,
+}: {
+  task: SprintEngineTask
+  runtimeAgents: RuntimeAgentView[]
+  isAgentTerminalLive: (agentId: string) => boolean
+  onOpenAgentTerminal: (agentId: string) => void
+}) {
+  const entries = getSprintEngineTaskImplementerTimeline(task, runtimeAgents)
+  if (entries.length === 0) {
+    const label = task.status === 'done' ? getSprintEngineRoleLabel(task.role) : 'No active worker'
+    return (
+      <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+        <RoleAvatar role={task.role} size="sm" ariaLabel="" />
+        <span>{label}</span>
+      </div>
+    )
+  }
+  return (
+    <ul className="space-y-1.5">
+      {entries.map((entry) => (
+        <TaskImplementerRow
+          key={entry.agentId}
+          entry={entry}
+          fallbackRole={task.role}
+          isAgentTerminalLive={isAgentTerminalLive}
+          onOpenAgentTerminal={onOpenAgentTerminal}
+        />
+      ))}
+    </ul>
   )
 }
 
@@ -2745,9 +2837,8 @@ function SprintEngineTaskBody({
 
   return (
     <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
-      <TaskOwnerLine
+      <TaskImplementerTimeline
         task={selectedTask}
-        ownerLabel={selectedTaskOwnerLabel}
         runtimeAgents={runtimeAgents}
         isAgentTerminalLive={isAgentTerminalLive}
         onOpenAgentTerminal={onOpenAgentTerminal}

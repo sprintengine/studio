@@ -126,6 +126,7 @@ const carrier = {
   ],
   appSettings: defaultAppSettings(),
   settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
+  runSummaryOverlay: { open: false, workspaceId: null },
   sidebarCollapsed: false,
 }
 const slice = createSettingsSlice((mutator) => mutator(carrier))

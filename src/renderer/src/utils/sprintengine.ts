@@ -1933,6 +1933,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       ...(source ? { source } : {}),
       ...(dispatch ? { dispatch } : {}),
       ownerAgentId: task.ownerAgentId ?? null,
+      ...(task.lastImplementedByAgentId ? { lastImplementedByAgentId: task.lastImplementedByAgentId } : {}),
       dependsOn: stringArray(task.dependsOn),
       ownedPaths: stringArray(task.ownedPaths),
       acceptanceCriteria: stringArray(task.acceptanceCriteria),
@@ -2517,17 +2518,122 @@ export function getSprintEngineBoardRunPhase(
 
 /**
  * Resolve the per-task owner label shown in the inspector and kanban detail.
- * Falls back to the role label for `done` tasks (workers may have detached) and
- * to the explicit "No active worker" copy for unowned in-flight tasks.
+ * Resolution order: the active owner, then the worker who last published an
+ * implementation pass (the task carries this through review/testing/product),
+ * then the role label for `done` tasks, and finally the explicit
+ * "No active worker" copy for tasks that were never implemented.
  */
 export function getSprintEngineTaskOwnerLabel(
-  task: Pick<SprintEngineTask, 'ownerAgentId' | 'role' | 'status'>,
+  task: Pick<SprintEngineTask, 'ownerAgentId' | 'lastImplementedByAgentId' | 'role' | 'status'>,
   rosterById: Record<string, { label: string } | undefined>,
 ): string {
-  if (task.ownerAgentId) {
-    return rosterById[task.ownerAgentId]?.label ?? task.ownerAgentId
+  const ownerId = task.ownerAgentId ?? task.lastImplementedByAgentId ?? null
+  if (ownerId) {
+    return rosterById[ownerId]?.label ?? ownerId
   }
   return task.status === 'done' ? getSprintEngineRoleLabel(task.role) : 'No active worker'
+}
+
+/** One row in the task inspector's implementer timeline. */
+export type SprintEngineTaskImplementerEntry = {
+  agentId: string
+  label: string
+  role: SprintEngineRoleId | null
+  /** This worker's own completed rounds (their implementation comments). */
+  passCount: number
+  /** ISO timestamp of this worker's latest implementation pass, if any. */
+  lastActivityAt: string | null
+  /** True when this worker currently holds the active claim (`ownerAgentId`). */
+  isActive: boolean
+  /** Runtime status (running/needs_input/error/exited/…) — only resolved for
+   *  the active worker; null for historical rows. */
+  runtimeStatus: string | null
+}
+
+/** Minimal runtime-agent shape the timeline needs to resolve labels/roles. */
+export type SprintEngineImplementerRuntimeAgent = {
+  agentId: string
+  label: string
+  role: SprintEngineRoleId
+  status: string
+}
+
+/**
+ * Build the per-worker implementer timeline for a task. Each hand-off to review
+ * records an `implementation_summary` (first pass) or `implementation_response`
+ * (rework pass) comment, so passes group by author into one row per worker.
+ * The active claim (`ownerAgentId`) sorts first; remaining workers follow by
+ * most-recent activity. Reassignment therefore surfaces the new owner on top
+ * while each worker keeps their own tick count.
+ */
+export function getSprintEngineTaskImplementerTimeline(
+  task: Pick<SprintEngineTask, 'comments' | 'ownerAgentId' | 'lastImplementedByAgentId' | 'role'>,
+  runtimeAgents: readonly SprintEngineImplementerRuntimeAgent[],
+): SprintEngineTaskImplementerEntry[] {
+  const runtimeById = new Map(runtimeAgents.map((agent) => [agent.agentId, agent]))
+  const ownerId = task.ownerAgentId ?? null
+
+  type Accumulator = {
+    agentId: string
+    passCount: number
+    lastActivityAt: string | null
+    role: SprintEngineRoleId | null
+  }
+  const byAgent = new Map<string, Accumulator>()
+
+  const comments = Array.isArray(task.comments) ? task.comments : []
+  for (const comment of comments) {
+    if (comment.type !== 'implementation_summary' && comment.type !== 'implementation_response') {
+      continue
+    }
+    const agentId = (comment.authorAgentId ?? comment.actor ?? '').trim()
+    if (!agentId) continue
+    const entry = byAgent.get(agentId) ?? {
+      agentId,
+      passCount: 0,
+      lastActivityAt: null,
+      role: normalizeSprintEngineRoleId(comment.authorRole) ?? null,
+    }
+    entry.passCount += 1
+    const createdAt = (comment.createdAt ?? '').trim()
+    if (createdAt && (!entry.lastActivityAt || createdAt > entry.lastActivityAt)) {
+      entry.lastActivityAt = createdAt
+    }
+    if (!entry.role) entry.role = normalizeSprintEngineRoleId(comment.authorRole) ?? null
+    byAgent.set(agentId, entry)
+  }
+
+  // Ensure the active owner appears even before they publish their first pass,
+  // and guard against trimmed comments by seeding the recorded last implementer.
+  for (const seedId of [ownerId, task.lastImplementedByAgentId ?? null]) {
+    if (seedId && !byAgent.has(seedId)) {
+      byAgent.set(seedId, { agentId: seedId, passCount: 0, lastActivityAt: null, role: null })
+    }
+  }
+
+  const entries: SprintEngineTaskImplementerEntry[] = Array.from(byAgent.values()).map((acc) => {
+    const runtime = runtimeById.get(acc.agentId)
+    const isActive = acc.agentId === ownerId
+    return {
+      agentId: acc.agentId,
+      label: runtime?.label ?? acc.agentId,
+      role: acc.role ?? runtime?.role ?? task.role ?? null,
+      passCount: acc.passCount,
+      lastActivityAt: acc.lastActivityAt,
+      isActive,
+      runtimeStatus: isActive ? runtime?.status ?? null : null,
+    }
+  })
+
+  entries.sort((a, b) => {
+    if (a.isActive !== b.isActive) return a.isActive ? -1 : 1
+    const aTime = a.lastActivityAt ?? ''
+    const bTime = b.lastActivityAt ?? ''
+    if (aTime !== bTime) return aTime > bTime ? -1 : 1
+    return a.label.localeCompare(b.label)
+  })
+
+  return entries
 }
 
 /**

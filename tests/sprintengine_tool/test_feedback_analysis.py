@@ -367,3 +367,176 @@ def test_feedback_recommendations_include_actionable_ownership_fields_without_ra
     assert any(item["category"] == "security_issue" and item["suggestedOwner"] == "security" for item in recommendations)
     encoded = json.dumps(recommendations, sort_keys=True)
     assert "RAW_PROMPT_SECRET" not in encoded
+
+
+def test_aggregate_by_agent_attributes_measured_signals_to_the_implementer() -> None:
+    # Worker self-reports its own confidence + hallucination-risk guess.
+    # A reviewer logs measured defects against the worker's task; those must
+    # land on the implementer (developer-1), never on the reviewer who logged
+    # them. The reviewer only accrues findingsRaised.
+    records = [
+        {
+            "source": "agent_self_report",
+            "agent_id": "developer-1",
+            "role": "developer",
+            "task_id": "T1",
+            "scores": {"confidence_pct": 90, "hallucination_risk_pct": 10},
+        },
+        {
+            "source": "agent_self_report",
+            "agent_id": "developer-1",
+            "role": "developer",
+            "task_id": "T2",
+            "scores": {"confidence_pct": 70, "hallucination_risk_pct": 30},
+        },
+        {
+            "source": "reviewer_assessment",
+            "agent_id": "code_reviewer-1",
+            "role": "developer",
+            "task_id": "T1",
+            "review_target_agent_id": "developer-1",
+            "reviewer_agent_id": "code_reviewer-1",
+            "reviewer_role": "code_reviewer",
+            "scores": {"correctness_pct": 60, "code_quality_pct": 55},
+            "counts": {
+                "claims_checked": 10,
+                "hallucinated_claims": 3,
+                "regression_count": 1,
+                "missed_requirements": 2,
+            },
+            "findings": [
+                {"kind": "code_bug", "severity": "high", "area": "backend"},
+                {"kind": "code_bug", "severity": "low", "area": "backend"},
+            ],
+        },
+    ]
+
+    summary = summarize_feedback_records(records)
+    by_agent = summary["aggregateByAgent"]
+
+    assert set(by_agent) == {"developer-1", "code_reviewer-1"}
+
+    dev = by_agent["developer-1"]
+    assert dev["role"] == "developer"
+    # Self-reported: averaged across the worker's own two records.
+    assert dev["selfReported"]["sampleCount"] == 2
+    assert dev["selfReported"]["scores"]["confidence_pct"]["averagePct"] == 80.0
+    assert dev["selfReported"]["scores"]["hallucination_risk_pct"]["averagePct"] == 20.0
+    # Measured: attributed to the implementer, not the reviewer.
+    measured = dev["measured"]
+    assert measured["reviewSampleCount"] == 1
+    assert measured["counts"]["regressionCount"] == 1
+    assert measured["counts"]["missedRequirements"] == 2
+    assert measured["hallucinationRatePct"] == 30.0  # 3 / 10
+    assert measured["findingsAgainst"]["total"] == 2
+    assert measured["findingsAgainst"]["bySeverity"] == {"high": 1, "low": 1}
+    assert measured["scores"]["correctness_pct"]["averagePct"] == 60.0
+    # The worker authored no review findings.
+    assert dev["findingsRaised"] == 0
+
+    reviewer = by_agent["code_reviewer-1"]
+    # The reviewer accrues no self-report and no measured-against-its-work data,
+    # only the findings it raised while reviewing.
+    assert reviewer["selfReported"]["sampleCount"] == 0
+    assert reviewer["measured"]["reviewSampleCount"] == 0
+    assert "findingsAgainst" not in reviewer["measured"]
+    assert "hallucinationRatePct" not in reviewer["measured"]
+    assert reviewer["findingsRaised"] == 2
+
+
+def test_aggregate_by_agent_distinguishes_no_review_data_from_zero_defects() -> None:
+    # A reviewer checked the work and found nothing wrong: counts are absent but
+    # a review happened, so measured columns should read as present-with-zero,
+    # not "no data".
+    records = [
+        {
+            "source": "reviewer_assessment",
+            "agent_id": "tester-1",
+            "role": "frontend",
+            "task_id": "T9",
+            "review_target_agent_id": "frontend-1",
+            "scores": {"correctness_pct": 95},
+            "counts": {"claims_checked": 4, "hallucinated_claims": 0},
+        }
+    ]
+
+    by_agent = summarize_feedback_records(records)["aggregateByAgent"]
+    measured = by_agent["frontend-1"]["measured"]
+    assert measured["reviewSampleCount"] == 1
+    # claims were checked, none hallucinated → a real measured 0% rate.
+    assert measured["hallucinationRatePct"] == 0.0
+    # no defect findings recorded → findingsAgainst omitted (renderer shows 0
+    # because reviewSampleCount > 0).
+    assert "findingsAgainst" not in measured
+
+
+def test_aggregate_by_agent_handles_empty_records() -> None:
+    assert summarize_feedback_records([])["aggregateByAgent"] == {}
+
+
+def test_aggregate_by_agent_emits_per_task_counts_for_drilldown() -> None:
+    records = [
+        {
+            "source": "gate_verdict_assessment",
+            "agent_id": "code_reviewer-1",
+            "role": "developer",
+            "task_id": "T7",
+            "review_target_task_id": "T7",
+            "review_target_agent_id": "developer-1",
+            "counts": {"claims_checked": 60, "implementation_mistakes": 2, "missed_requirements": 1},
+        },
+        {
+            "source": "gate_verdict_assessment",
+            "agent_id": "tester-1",
+            "role": "developer",
+            "task_id": "T7",
+            "review_target_task_id": "T7",
+            "review_target_agent_id": "developer-1",
+            "counts": {"claims_checked": 50, "missed_requirements": 1},
+        },
+        {
+            "source": "gate_verdict_assessment",
+            "agent_id": "spec_reviewer-1",
+            "role": "developer",
+            "task_id": "T2",
+            "review_target_task_id": "T2",
+            "review_target_agent_id": "developer-1",
+            "counts": {"claims_checked": 30},
+        },
+    ]
+
+    measured = summarize_feedback_records(records)["aggregateByAgent"]["developer-1"]["measured"]
+    task_counts = measured["taskCounts"]
+
+    # Two reviewers looked at T7; their counts sum.
+    assert task_counts["T7"]["reviewSampleCount"] == 2
+    assert task_counts["T7"]["counts"] == {"implementationMistakes": 2, "missedRequirements": 2}
+    # T2 was reviewed once with no defects → present-with-zero (empty counts, not absent).
+    assert task_counts["T2"]["reviewSampleCount"] == 1
+    assert task_counts["T2"]["counts"] == {}
+
+
+def test_aggregate_by_agent_emits_reviewer_activity() -> None:
+    records = [
+        {
+            "source": "gate_verdict_assessment", "agent_id": "code_reviewer-1", "role": "developer",
+            "task_id": "T1", "review_target_task_id": "T1", "review_target_agent_id": "developer-1",
+            "reviewer_agent_id": "code_reviewer-1", "gate_verdict": "changes_requested",
+        },
+        {
+            "source": "gate_verdict_assessment", "agent_id": "code_reviewer-1", "role": "developer",
+            "task_id": "T2", "review_target_task_id": "T2", "review_target_agent_id": "developer-1",
+            "reviewer_agent_id": "code_reviewer-1", "gate_verdict": "approved",
+        },
+        {
+            "source": "gate_verdict_assessment", "agent_id": "code_reviewer-1", "role": "developer",
+            "task_id": "T1", "review_target_task_id": "T1", "review_target_agent_id": "developer-1",
+            "reviewer_agent_id": "code_reviewer-1", "gate_verdict": "approved",
+        },
+    ]
+    reviewer = summarize_feedback_records(records)["aggregateByAgent"]["code_reviewer-1"]["reviewer"]
+    assert reviewer["reviewsPerformed"] == 3
+    assert reviewer["tasksReviewed"] == 2  # T1, T2
+    assert reviewer["approved"] == 2
+    assert reviewer["changesRequested"] == 1
+    assert reviewer["blocked"] == 0

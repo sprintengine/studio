@@ -298,6 +298,32 @@ def test_gate_failed_verdict_creates_open_feedback_and_routes_to_changes_request
     assert get_task(state, "T1")["qualityGates"][0]["status"] == "changes_requested"
 
 
+def test_gate_verdict_without_active_attempt_points_to_task_request_changes(tmp_path) -> None:
+    fixture = create_team(tmp_path, "gate-verdict-no-active-attempt-help", [gated_review_task()])
+
+    result = fixture.cli.run_failure(
+        "task",
+        "gate",
+        "verdict",
+        "--task-id",
+        "T1",
+        "--gate-id",
+        "code-review",
+        "--role",
+        "code_reviewer",
+        "--id",
+        "code-reviewer",
+        "--verdict",
+        "changes_requested",
+        "--summary",
+        "Compile failed after the prior blocked gate.",
+    )
+
+    assert "No active gate attempt is claimed by this agent" in result.stderr
+    assert "sprintengine.task.request_changes" in result.stderr
+    assert "sprintengine.task.status only for explicit repair/admin transitions" in result.stderr
+
+
 def test_late_parallel_gate_approval_does_not_escape_changes_requested(tmp_path) -> None:
     fixture = create_team(tmp_path, "parallel-approval-after-changes", [gated_review_task()])
     claim_gate(fixture, "code_reviewer", "code-reviewer")

@@ -2,7 +2,6 @@ import { useState } from 'react'
 import type {
   GuidedBriefRuntimeState,
   SprintEngineRoleCounts,
-  SprintEngineSourceBundleItem,
 } from '../../../types/workspace'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import {
@@ -21,37 +20,16 @@ import {
   sprintEngineAutomationModeForRunOptions,
 } from '../../../utils/sprintengineAutomationLifecycle'
 import type { SprintEngineRoleId } from '../../../types/workspace'
-import { writeGuidedBriefBuildHandoff } from '../../../utils/guidedBriefWorkspace'
+import {
+  buildGuidedBriefSprintEngineSourceBundle,
+  writeGuidedBriefBuildHandoff,
+} from '../../../utils/guidedBriefWorkspace'
 import { GuidedBriefFlow, type GuidedBriefRunOptions } from './GuidedBriefFlow'
 import { guidedBriefBuildHandoffRelativePath, guidedBriefSprintEngineGoal } from './handoff'
 import { joinWorkspacePath } from './paths'
 
 type Props = {
   workspaceId: string
-}
-
-async function buildGuidedBriefSprintEngineSourceBundle(
-  workspaceRoot: string,
-  handoffPath: string,
-  handoffContent: string,
-  architecturePlan: GuidedBriefRuntimeState['acceptedArchitecturePlan'],
-): Promise<SprintEngineSourceBundleItem[] | undefined> {
-  if (!architecturePlan) return undefined
-  const architectureContent = await window.api.readfile(joinWorkspacePath(workspaceRoot, architecturePlan.path))
-  return [
-    {
-      kind: 'product_plan',
-      sourcePath: handoffPath,
-      sourceRelativePath: handoffPath,
-      sourceContent: handoffContent,
-    },
-    {
-      kind: 'architect_plan',
-      sourcePath: architecturePlan.path,
-      sourceRelativePath: architecturePlan.path,
-      sourceContent: architectureContent,
-    },
-  ]
 }
 
 function sprintEngineRosterSummary(roleCounts: SprintEngineRoleCounts): string[] {
@@ -127,12 +105,16 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
     })
     const sourcePath = guidedBriefBuildHandoffRelativePath()
     const sourceContent = await window.api.readfile(joinWorkspacePath(state.workspaceRoot, sourcePath))
-    const sourceBundle = await buildGuidedBriefSprintEngineSourceBundle(
-      state.workspaceRoot,
-      sourcePath,
-      sourceContent,
-      state.acceptedArchitecturePlan,
-    )
+    const sourceBundle = await buildGuidedBriefSprintEngineSourceBundle({
+      workspaceRoot: state.workspaceRoot,
+      handoffPath: sourcePath,
+      handoffContent: sourceContent,
+      productBrief: state.acceptedProductBrief,
+      architecturePlan: state.acceptedArchitecturePlan,
+      uiDirection: state.acceptedUiDirection,
+      mockups: state.acceptedMockups,
+      readArtifact: async (workspaceRoot, path) => window.api.readfile(joinWorkspacePath(workspaceRoot, path)),
+    })
     const goal = guidedBriefSprintEngineGoal(sourceContent, state.hasUi)
 
     try {
@@ -142,7 +124,7 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
         goal,
         sourcePath,
         sourceContent,
-        sourcePlanKind: 'product_plan',
+        sourcePlanKind: 'unknown',
         sourceBundle,
         roleCounts: finalRoleCounts,
         roleCliDefaults: runOptions.roleCliDefaults,

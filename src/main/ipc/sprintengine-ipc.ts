@@ -55,6 +55,7 @@ type SprintEngineIpcDependencies = {
   readRegistryRoles(payload: SprintEngineRegistryRolesReadInput): Promise<SprintEngineMcpReadResult>
   readRegistryRole(payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult>
   readDispatch(payload: SprintEngineDispatchReadInput): Promise<SprintEngineMcpReadResult>
+  summarizeFeedback(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineMcpReadResult>
 }
 
 export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcDependencies): void {
@@ -116,5 +117,9 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:dispatch:read', async (_, payload: SprintEngineDispatchReadInput): Promise<SprintEngineMcpReadResult> => {
     return deps.readDispatch(payload)
+  })
+
+  ipcMain.handle('sprintengine:feedback:summarize', async (_, payload: SprintEngineProjectionReadPayload): Promise<SprintEngineMcpReadResult> => {
+    return deps.summarizeFeedback(payload)
   })
 }

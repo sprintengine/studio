@@ -1145,8 +1145,10 @@ async function testSprintEngineWorkspaceCreationSupportsHtmlOnlySourceBundle() {
   const prompt = createdWorkspace?.agents[result.architectAgentId].cliStartupPrompt ?? ''
 
   assert.ok(createdWorkspace)
-  assert.equal(prompt.includes('"handoverPath": "C:\\\\repo\\\\future-plans\\\\mockup.html"'), true)
-  assert.equal(prompt.includes('"sourcePlanKind": "html_mockup"'), true)
+  assert.equal(prompt.includes('"handoverPath": "future-plans/mockup.html"'), true)
+  assert.equal(prompt.includes('"sourcePath": "future-plans/mockup.html"'), true)
+  assert.equal(prompt.includes('C:\\\\repo\\\\future-plans\\\\mockup.html'), false)
+  assert.equal(prompt.includes('"kind": "html_mockup"'), true)
   assert.equal(prompt.includes('Source bundle type: HTML mockup.'), true)
   assert.equal(prompt.includes('Source plan type: generic handoff.'), false)
 }
@@ -1209,8 +1211,10 @@ async function testSprintEngineWorkspaceCreationGuidesSingleContextBundle() {
   const prompt = createdWorkspace?.agents[result.architectAgentId].cliStartupPrompt ?? ''
 
   assert.ok(createdWorkspace)
-  assert.equal(prompt.includes('"handoverPath": "C:\\\\repo\\\\future-plans\\\\context.html"'), true)
-  assert.equal(prompt.includes('"sourcePlanKind": "generic_context"'), true)
+  assert.equal(prompt.includes('"handoverPath": "future-plans/context.html"'), true)
+  assert.equal(prompt.includes('"sourcePath": "future-plans/context.html"'), true)
+  assert.equal(prompt.includes('C:\\\\repo\\\\future-plans\\\\context.html'), false)
+  assert.equal(prompt.includes('"kind": "generic_context"'), true)
   assert.equal(prompt.includes('Source bundle type: context.'), true)
   assert.equal(prompt.includes('Source bundle type: mixed sources.'), false)
 }

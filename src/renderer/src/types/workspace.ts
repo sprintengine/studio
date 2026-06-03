@@ -427,6 +427,72 @@ export type SprintEngineTaskFeedback = {
   findings?: SprintEngineTaskFeedbackFinding[]
 }
 
+/** Per-agent feedback analysis returned by the `sprintengine.feedback.summarize`
+ *  MCP tool (see sprintengine_core/analysis.py `aggregateByAgent`). Self-reported
+ *  scores are the worker's own end-of-task scores; measured signals are attributed
+ *  to the implementer being reviewed, not the reviewer who logged them. */
+export type SprintEngineFeedbackScoreStat = {
+  label: string
+  averagePct: number
+  sampleCount: number
+}
+
+export type SprintEngineAgentTaskCounts = {
+  reviewSampleCount: number
+  counts: Record<string, number>
+}
+
+export type SprintEngineAgentMeasuredMetrics = {
+  reviewSampleCount: number
+  scores: Record<string, SprintEngineFeedbackScoreStat>
+  counts: Record<string, number>
+  hallucinationRatePct?: number
+  findingsAgainst?: { total: number; bySeverity: Record<string, number> }
+  /** Per-task review detail for the drill-down, keyed by task id. */
+  taskCounts?: Record<string, SprintEngineAgentTaskCounts>
+}
+
+/** Reviewer-side activity for an agent that performed reviews. */
+export type SprintEngineAgentReviewerMetrics = {
+  reviewsPerformed: number
+  tasksReviewed: number
+  approved: number
+  changesRequested: number
+  blocked: number
+}
+
+export type SprintEngineAgentMetrics = {
+  role: SprintEngineRoleId
+  selfReported: {
+    sampleCount: number
+    scores: Record<string, SprintEngineFeedbackScoreStat>
+  }
+  measured: SprintEngineAgentMeasuredMetrics
+  findingsRaised: number
+  reviewer?: SprintEngineAgentReviewerMetrics
+}
+
+/** Architect difficulty-estimation accuracy (run-wide planning-quality signal). */
+export type SprintEngineArchitectDifficulty = {
+  sampleCount: number
+  mean_absolute_error_pct: number
+  bias_pct: number
+}
+
+/** The `summary` block of the feedback analysis. Only the fields the run summary
+ *  consumes are typed; the analysis emits more (aggregateScoresByRole, etc.). */
+export type SprintEngineFeedbackAnalysisSummary = {
+  feedbackRecordCount: number
+  aggregateByAgent: Record<string, SprintEngineAgentMetrics>
+  difficultyAnalytics?: { architect?: SprintEngineArchitectDifficulty }
+}
+
+/** Shape of `data` returned by `window.api.summarizeSprintEngineFeedback`. */
+export type SprintEngineFeedbackAnalysisData = {
+  ok: boolean
+  summary?: SprintEngineFeedbackAnalysisSummary
+}
+
 export type SprintEngineTaskTriage = {
   summary: string
   suggestedRole?: SprintEngineRoleId
@@ -895,6 +961,10 @@ export type SprintEngineTask = {
   source?: SprintEngineTaskSource
   dispatch?: SprintEngineTaskDispatch
   ownerAgentId: string | null
+  /** Worker who last published an implementation pass. Retained after the task
+   *  leaves the worker's hands (review/testing/product) so the owning worker
+   *  stays visible while `ownerAgentId` is null. */
+  lastImplementedByAgentId?: string | null
   dependsOn: string[]
   ownedPaths: string[]
   acceptanceCriteria: string[]

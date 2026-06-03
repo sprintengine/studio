@@ -234,6 +234,9 @@ Active operation names:
   `sprintengine.task.log`, `sprintengine.task.note`,
   `sprintengine.task.comment`, `sprintengine.task.comment.list`,
   `sprintengine.task.publish`, `sprintengine.task.request_changes`.
+  `sprintengine.task.request_changes` records ordinary rework feedback and
+  routes the task to `changes_requested`; routed blockers use
+  `sprintengine.task.status` with `status: needs_input`.
 - Gates: `sprintengine.gate.list`, `sprintengine.gate.next`,
   `sprintengine.gate.claim`, `sprintengine.gate.verdict`,
   `sprintengine.gate.publish`, `sprintengine.gate.skip`.
@@ -469,6 +472,34 @@ include a `difficulty` snapshot using snake_case analytics keys:
 - `reviewer_assessments`: reviewer assessment entries with `pct`, `dimension`,
   `reason`, `reviewer_agent_id`, `reviewer_role`, `gate_id`,
   `gate_attempt_id`, and `captured_at`
+
+### Feedback Analysis (`sprintengine.feedback.summarize`)
+
+`sprintengine.feedback.summarize` (`sprintengine_core/analysis.py`) reads
+`metrics/agent-feedback.jsonl` and returns a sanitized `summary` of aggregate
+signals only (no raw prompts, transcripts, or artifact bodies). In addition to
+the per-role aggregates (`aggregateScoresByRole`, `aggregateCountsByRole`,
+`benchmarkRates`, `findingCounts`, `difficultyAnalytics`) it emits
+`aggregateByAgent`, keyed by `agent_id`:
+
+- `selfReported`: `{ sampleCount, scores }` — averages of the agent's own
+  `agent_self_report` score dimensions.
+- `measured`: `{ reviewSampleCount, scores, counts, hallucinationRatePct?,
+  findingsAgainst?, taskCounts? }` — derived from `reviewer_assessment` /
+  `gate_verdict_assessment` records and attributed to the implementer via
+  `review_target_agent_id` (never the reviewer). `counts` uses camelCase keys
+  (`regressionCount`, `missedRequirements`, …); `hallucinationRatePct` is
+  emitted only when `claimsChecked > 0`; `findingsAgainst` only when defects
+  exist (so the consumer can show `0` when a review happened with no defects vs
+  `—` when no review happened). `taskCounts` is the per-task drill-down detail,
+  keyed by task id: `{ reviewSampleCount, counts }` (defect counts only —
+  `claimsChecked` is excluded). Finding prose is NOT included here (kept in the
+  projection) so the analysis output stays a sanitized aggregate.
+- `findingsRaised`: count of findings the agent authored while reviewing.
+
+The run-summary panel consumes this via the read-only
+`sprintengine:feedback:summarize` IPC and joins it against the roster + local
+task counts; agents with no records simply have no `aggregateByAgent` row.
 
 ## Needs Input
 

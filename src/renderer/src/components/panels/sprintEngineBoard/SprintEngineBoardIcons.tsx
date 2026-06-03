@@ -51,3 +51,14 @@ export function SprintEngineTasksNavIcon({ className }: { className?: string }) 
     </svg>
   )
 }
+
+export function SprintEngineSummaryNavIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <line x1="2.75" y1="13.25" x2="13.25" y2="13.25" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <line x1="4.75" y1="13.25" x2="4.75" y2="9.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <line x1="8" y1="13.25" x2="8" y2="5.75" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <line x1="11.25" y1="13.25" x2="11.25" y2="7.75" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  )
+}

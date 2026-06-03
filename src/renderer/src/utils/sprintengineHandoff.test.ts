@@ -41,7 +41,7 @@ function testPlanFileHandoffIsMcpNative(): void {
   )
 }
 
-function testPlanFileHandoffBundleIssuesOneHandoverCallPerSource(): void {
+function testPlanFileHandoffBundleIssuesOneHandoverCallWithSourceBundle(): void {
   const prompt = buildPlanFileSprintEngineHandoffPrompt({
     teamSlug: 'mcp-runtime',
     goal: 'Ship MCP runtime',
@@ -54,10 +54,13 @@ function testPlanFileHandoffBundleIssuesOneHandoverCallPerSource(): void {
     statePath: '.multi-code/sprintengine/mcp-runtime/run.yaml',
   })
 
-  assert.ok(prompt.includes('"handoverPath": "future-plans/product.md"'), 'bundle handoff emits one handover call per source (product)')
-  assert.ok(prompt.includes('"sourcePlanKind": "product_plan"'), 'bundle handoff classifies the product source')
-  assert.ok(prompt.includes('"handoverPath": "future-plans/plan.md"'), 'bundle handoff emits one handover call per source (architect)')
-  assert.ok(prompt.includes('"sourcePlanKind": "architect_plan"'), 'bundle handoff classifies the architect source')
+  assert.ok(prompt.includes('once with the selected markdown source and the complete source bundle'), 'bundle handoff uses one bootstrap call')
+  assert.ok(prompt.includes('"handoverPath": "future-plans/2026-05-23-mcp-runtime.md"'), 'bundle handoff imports the selected source as the manifest')
+  assert.ok(prompt.includes('"sourceBundle"'), 'bundle handoff includes a structured source bundle')
+  assert.ok(prompt.includes('"sourcePath": "future-plans/product.md"'), 'bundle handoff includes the product source')
+  assert.ok(prompt.includes('"kind": "product_plan"'), 'bundle handoff classifies the product source')
+  assert.ok(prompt.includes('"sourcePath": "future-plans/plan.md"'), 'bundle handoff includes the architect source')
+  assert.ok(prompt.includes('"kind": "architect_plan"'), 'bundle handoff classifies the architect source')
   assert.ok(!prompt.includes('statePath'), 'bundle handoff prompt does not expose statePath')
   assert.ok(!prompt.includes('workspaceRoot'), 'bundle handoff prompt does not expose workspaceRoot')
   assert.ok(
@@ -68,7 +71,7 @@ function testPlanFileHandoffBundleIssuesOneHandoverCallPerSource(): void {
 
 function main(): void {
   testPlanFileHandoffIsMcpNative()
-  testPlanFileHandoffBundleIssuesOneHandoverCallPerSource()
+  testPlanFileHandoffBundleIssuesOneHandoverCallWithSourceBundle()
   console.log('sprintengineHandoff.test.ts: ok')
 }
 

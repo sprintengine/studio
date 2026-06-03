@@ -476,10 +476,16 @@ export type WorkspaceTopBarProps = {
   selectedMultiloopRoleDescriptor: MultiloopRoleDescriptor
   selectedAgentPermissionOption: typeof AGENT_SPAWN_PERMISSION_OPTIONS[number]
   lastSelectedCli: AgentCli
+  // Per-agent CLI choice (e.g. Architect → Codex). The row CLI is this default
+  // when set, else the last-used CLI — picking one agent's CLI does not change
+  // the others. Not a pinned/unpin affordance; just a persisted per-row choice.
   specialistCliDefaults: Partial<Record<SpecialistActionId, AgentCli>>
   multiloopRoleCliDefaults: Partial<Record<MultiloopRole, AgentCli>>
   setSpecialistCliDefault: (id: SpecialistActionId, cli: AgentCli | null) => void
   setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
+  // Plugin-aware agent CLI catalog (bundled + configured cliRuntimes), shared
+  // with the sidebar New chat picker so the lists stay in sync.
+  agentCliOptions: Array<{ value: AgentCli; label: string }>
   agentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   setAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   handleSelectSpecialist: (id: SpecialistActionId, cli: AgentCli) => void
@@ -552,6 +558,7 @@ export default function WorkspaceTopBar({
   multiloopRoleCliDefaults,
   setSpecialistCliDefault,
   setMultiloopRoleCliDefault,
+  agentCliOptions,
   agentSpawnPermissionPreset,
   setAgentSpawnPermissionPreset,
   handleSelectSpecialist,
@@ -572,6 +579,10 @@ export default function WorkspaceTopBar({
   logout,
   switchOrganization,
 }: WorkspaceTopBarProps) {
+  // Resolve a human label for any CLI from the plugin-aware catalog, so pinned
+  // opencode/custom agents read correctly instead of falling back to "Claude Code".
+  const cliLabelFor = (cli: AgentCli): string =>
+    agentCliOptions.find((option) => option.value === cli)?.label ?? cli
   return (
       <div
         className="flex h-[48px] shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-3 transition-colors"
@@ -918,28 +929,16 @@ export default function WorkspaceTopBar({
                 return
               }
               if ((event.altKey || event.metaKey) && (event.key === 'm' || event.key === 'M')) {
+                // Cycle the CLI for the highlighted row only — per agent, not global.
                 event.preventDefault()
                 const item = visibleItems[safeHighlight]
                 if (!item) return
                 if (multiloopLaunchMenu) {
                   const role = (item as MultiloopRoleDescriptor).role
-                  const next = cycleCli(multiloopRoleCliDefaults[role] ?? lastSelectedCli)
-                  setMultiloopRoleCliDefault(role, next)
+                  setMultiloopRoleCliDefault(role, cycleCli(multiloopRoleCliDefaults[role] ?? lastSelectedCli))
                 } else {
                   const id = (item as SpecialistAction).id
-                  const next = cycleCli(specialistCliDefaults[id] ?? lastSelectedCli)
-                  setSpecialistCliDefault(id, next)
-                }
-                return
-              }
-              if (event.shiftKey && event.key === 'Backspace') {
-                event.preventDefault()
-                const item = visibleItems[safeHighlight]
-                if (!item) return
-                if (multiloopLaunchMenu) {
-                  setMultiloopRoleCliDefault((item as MultiloopRoleDescriptor).role, null)
-                } else {
-                  setSpecialistCliDefault((item as SpecialistAction).id, null)
+                  setSpecialistCliDefault(id, cycleCli(specialistCliDefaults[id] ?? lastSelectedCli))
                 }
                 return
               }
@@ -1085,7 +1084,6 @@ export default function WorkspaceTopBar({
                             const popoverOpen =
                               chipPopoverForRole?.kind === 'multiloop'
                               && chipPopoverForRole.role === soul.role
-                            const hasOverride = multiloopRoleCliDefaults[soul.role] !== undefined
                             return (
                               <div key={soul.role} className="relative">
                                 <button
@@ -1093,6 +1091,11 @@ export default function WorkspaceTopBar({
                                   role="menuitemradio"
                                   aria-checked={highlighted}
                                   onClick={() => handleSelectMultiloopRole(soul.role, boundCli)}
+                                  onContextMenu={(event) => {
+                                    event.preventDefault()
+                                    setAgentMenuHighlight(index)
+                                    setChipPopoverForRole({ kind: 'multiloop', role: soul.role })
+                                  }}
                                   onMouseEnter={() => setAgentMenuHighlight(index)}
                                   className={`grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pr-2 text-left transition-colors ${
                                     highlighted
@@ -1107,14 +1110,12 @@ export default function WorkspaceTopBar({
                                   <span className="truncate text-[13px]">{soul.label}</span>
                                   <Tooltip
                                     placement="bottom"
-                                    content={hasOverride
-                                      ? `Pinned to ${boundCli === 'codex' ? 'Codex' : 'Claude Code'} · click to change · ⇧⌫ to unpin`
-                                      : `Using last-used (${boundCli === 'codex' ? 'Codex' : 'Claude Code'}) · click to pin`}
+                                    content={`Agent CLI: ${cliLabelFor(boundCli)} · click to change`}
                                   >
                                     <span
                                       role="button"
                                       tabIndex={-1}
-                                      aria-label={`Default CLI: ${boundCli === 'codex' ? 'Codex' : 'Claude Code'}`}
+                                      aria-label={`Agent CLI: ${cliLabelFor(boundCli)}`}
                                       onClick={(event) => {
                                         event.stopPropagation()
                                         setAgentMenuHighlight(index)
@@ -1125,13 +1126,9 @@ export default function WorkspaceTopBar({
                                         )
                                       }}
                                       className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
-                                        hasOverride
-                                          ? highlighted
-                                            ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
-                                            : 'bg-[color:var(--accent-primary-soft)]/60 text-[color:var(--text-strong)]'
-                                          : highlighted
-                                            ? 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
-                                            : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-strong)]'
+                                        highlighted
+                                          ? 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
+                                          : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-strong)]'
                                       }`}
                                     >
                                       <CliIcon cli={boundCli} className="icon-sm" />
@@ -1141,13 +1138,13 @@ export default function WorkspaceTopBar({
                                 {popoverOpen ? (
                                   <div
                                     role="listbox"
-                                    aria-label={`Default CLI for ${soul.label}`}
+                                    aria-label={`Agent CLI for ${soul.label}`}
                                     // primitive-duplication-allow: nested chip-listbox inside the Popover-managed specialist menu;
                                     // anchored to a row-local `<div className="relative">` with no separate outside-click handler.
                                     // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
                                     className="absolute right-2 top-[32px] z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]"
                                   >
-                                    {AGENT_SPAWN_CLI_OPTIONS.map((option) => {
+                                    {agentCliOptions.map((option) => {
                                       const isCurrent = option.value === boundCli
                                       return (
                                         <button
@@ -1171,18 +1168,6 @@ export default function WorkspaceTopBar({
                                         </button>
                                       )
                                     })}
-                                    {hasOverride ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setMultiloopRoleCliDefault(soul.role, null)
-                                          setChipPopoverForRole(null)
-                                        }}
-                                        className="mt-0.5 flex w-full items-center gap-2 border-t border-[color:var(--border-subtle)] px-2 py-1.5 text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
-                                      >
-                                        Unpin
-                                      </button>
-                                    ) : null}
                                   </div>
                                 ) : null}
                               </div>
@@ -1194,7 +1179,6 @@ export default function WorkspaceTopBar({
                             const popoverOpen =
                               chipPopoverForRole?.kind === 'specialist'
                               && chipPopoverForRole.id === action.id
-                            const hasOverride = specialistCliDefaults[action.id] !== undefined
                             return (
                               <div key={action.id} className="relative">
                                 <button
@@ -1202,6 +1186,11 @@ export default function WorkspaceTopBar({
                                   role="menuitemradio"
                                   aria-checked={highlighted}
                                   onClick={() => handleSelectSpecialist(action.id, boundCli)}
+                                  onContextMenu={(event) => {
+                                    event.preventDefault()
+                                    setAgentMenuHighlight(index)
+                                    setChipPopoverForRole({ kind: 'specialist', id: action.id })
+                                  }}
                                   onMouseEnter={() => setAgentMenuHighlight(index)}
                                   className={`grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pr-2 text-left transition-colors ${
                                     highlighted
@@ -1216,14 +1205,12 @@ export default function WorkspaceTopBar({
                                   <span className="truncate text-[13px]">{action.shortLabel}</span>
                                   <Tooltip
                                     placement="bottom"
-                                    content={hasOverride
-                                      ? `Pinned to ${boundCli === 'codex' ? 'Codex' : 'Claude Code'} · click to change · ⇧⌫ to unpin`
-                                      : `Using last-used (${boundCli === 'codex' ? 'Codex' : 'Claude Code'}) · click to pin`}
+                                    content={`Agent CLI: ${cliLabelFor(boundCli)} · click to change`}
                                   >
                                     <span
                                       role="button"
                                       tabIndex={-1}
-                                      aria-label={`Default CLI: ${boundCli === 'codex' ? 'Codex' : 'Claude Code'}`}
+                                      aria-label={`Agent CLI: ${cliLabelFor(boundCli)}`}
                                       onClick={(event) => {
                                         event.stopPropagation()
                                         setAgentMenuHighlight(index)
@@ -1234,13 +1221,9 @@ export default function WorkspaceTopBar({
                                         )
                                       }}
                                       className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
-                                        hasOverride
-                                          ? highlighted
-                                            ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
-                                            : 'bg-[color:var(--accent-primary-soft)]/60 text-[color:var(--text-strong)]'
-                                          : highlighted
-                                            ? 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
-                                            : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-strong)]'
+                                        highlighted
+                                          ? 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
+                                          : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-strong)]'
                                       }`}
                                     >
                                       <CliIcon cli={boundCli} className="icon-sm" />
@@ -1250,13 +1233,13 @@ export default function WorkspaceTopBar({
                                 {popoverOpen ? (
                                   <div
                                     role="listbox"
-                                    aria-label={`Default CLI for ${action.label}`}
+                                    aria-label={`Agent CLI for ${action.label}`}
                                     // primitive-duplication-allow: nested chip-listbox inside the Popover-managed specialist menu;
                                     // anchored to a row-local `<div className="relative">` with no separate outside-click handler.
                                     // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
                                     className="absolute right-2 top-[32px] z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]"
                                   >
-                                    {AGENT_SPAWN_CLI_OPTIONS.map((option) => {
+                                    {agentCliOptions.map((option) => {
                                       const isCurrent = option.value === boundCli
                                       return (
                                         <button
@@ -1280,18 +1263,6 @@ export default function WorkspaceTopBar({
                                         </button>
                                       )
                                     })}
-                                    {hasOverride ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setSpecialistCliDefault(action.id, null)
-                                          setChipPopoverForRole(null)
-                                        }}
-                                        className="mt-0.5 flex w-full items-center gap-2 border-t border-[color:var(--border-subtle)] px-2 py-1.5 text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
-                                      >
-                                        Unpin
-                                      </button>
-                                    ) : null}
                                   </div>
                                 ) : null}
                               </div>

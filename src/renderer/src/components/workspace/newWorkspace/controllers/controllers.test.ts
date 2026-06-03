@@ -400,14 +400,14 @@ async function testGuidedBriefStartBuildHandoffPath(): Promise<void> {
     '/workspace/product/build-handoff.md',
     '## Suggested Sprint Engine Goal\n\nDeliver the accepted brief.\n',
   )
-  let architectureRead = false
+  const artifactReads: string[] = []
   let buildHandoffRead = false
   const ports: GuidedBriefStartBuildPorts = {
     filesystem: fs,
     pathExists: async () => true, // makes createPlanSourcedSprintEngineWorkspace throw team-exists
-    readArchitecturePlan: async () => {
-      architectureRead = true
-      return '# Architecture\n\nDetails.\n'
+    readArchitecturePlan: async (_workspaceRoot, path) => {
+      artifactReads.push(path)
+      return `# Artifact\n\n${path}\n`
     },
     readBuildHandoff: async (workspaceRoot, path) => {
       buildHandoffRead = true
@@ -461,7 +461,11 @@ async function testGuidedBriefStartBuildHandoffPath(): Promise<void> {
   // and reads the architecture plan + handoff content while assembling the
   // source bundle.
   assert.ok(buildHandoffRead, 'handoff content was read via the injected port')
-  assert.ok(architectureRead, 'architecture plan was read for the source bundle')
+  assert.deepEqual(
+    artifactReads,
+    ['product/.versions/h.md', 'product/.versions/a.md', 'product/.versions/u.md', 'mockups/.versions/m.html'],
+    'all accepted artifacts were read for the source bundle',
+  )
   // The handoff file gets rewritten through the filesystem port. Confirm a
   // build-handoff body was emitted under the workspace root.
   const writtenHandoff = fs.files.get('/workspace/product/build-handoff.md')

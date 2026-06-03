@@ -2,7 +2,9 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 
-export type SprintEngineView = 'inbox' | 'roster' | 'tasks'
+// `summary` is only reachable when the run is complete (the board adds the tab
+// and routes to it); a persisted `summary` for an incomplete run falls back.
+export type SprintEngineView = 'inbox' | 'roster' | 'tasks' | 'summary'
 
 const SPRINT_ENGINE_VIEW_STORAGE_KEY = 'multicode-sprintengine-view'
 
@@ -34,5 +36,9 @@ export function selectSprintEngineView(
   workspaceId: string,
 ): SprintEngineView {
   const view = state.viewByWorkspace[workspaceId]
-  return view === 'inbox' || view === 'roster' || view === 'tasks' ? view : DEFAULT_VIEW
+  // `summary` is only valid when the run is complete; the board coerces a stale
+  // `summary` to a default view in that case (see `effectiveView`).
+  return view === 'inbox' || view === 'roster' || view === 'tasks' || view === 'summary'
+    ? view
+    : DEFAULT_VIEW
 }

@@ -22,7 +22,11 @@ import {
 } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { Modal, ModalBody, ModalButton, ModalFooter } from '../ui/Modal'
+import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { focusOrAddComponentTab } from '../../utils/modelRegistry'
+
+// Lazy so the run-summary report (+ its charts) only loads with the Summary tab.
+const SprintEngineRunSummaryPanel = React.lazy(() => import('./SprintEngineRunSummaryPanel'))
 import {
  buildRunSummary,
 } from '../../utils/sprintengineRunSummary'
@@ -86,6 +90,7 @@ import { SprintEngineTaskGraphView } from './SprintEngineTaskGraphView'
 import {
  SprintEngineInboxIcon,
  SprintEngineRosterNavIcon,
+ SprintEngineSummaryNavIcon,
  SprintEngineTasksNavIcon,
 } from './sprintEngineBoard/SprintEngineBoardIcons'
 import { SprintEngineInboxView } from './sprintEngineBoard/SprintEngineInboxView'
@@ -481,7 +486,15 @@ function SprintEngineBoardPanelContent({
  })
 
  const sprintEngineContext = workspace?.sprintEngineContext ?? null
- const effectiveView = fixedView ?? activeView
+ // The Summary view only exists once the run is complete; coerce a stale
+ // persisted `summary` back to Tasks for incomplete runs so it can't strand.
+ const runComplete = Boolean(
+ sprintEngineState && sprintEngineState.tasks.length > 0 &&
+ sprintEngineState.tasks.every((task) => task.status === 'done')
+ )
+ const requestedView = fixedView ?? activeView
+ const effectiveView: SprintEngineView =
+ requestedView === 'summary' && !runComplete ? 'tasks' : requestedView
  const effectiveTasksLayout: SprintEngineTasksLayout = fixedTasksLayout ?? activeTasksLayout
  const folderPath = folderReadyPath
  const agents = workspace?.agents ?? {}
@@ -921,7 +934,7 @@ function SprintEngineBoardPanelContent({
  if (inspectorSelectedAgent) return { kind: 'agent', agent: inspectorSelectedAgent }
  return null
  }
- // tasks: graph and kanban both drive task detail.
+ // tasks (graph + kanban) and the summary drill-down all drive task detail.
  if (selectedTask) return { kind: 'task', task: selectedTask }
  return null
  })()
@@ -1302,6 +1315,10 @@ function SprintEngineBoardPanelContent({
  icon: SprintEngineTasksNavIcon,
  count: sprintEngineState.tasks.length > 0 ? sprintEngineState.tasks.length : undefined,
  },
+ // The run summary lives as a view that only appears once the run is complete.
+ ...(allTasksDone
+ ? [{ id: 'summary' as const, label: 'Summary', icon: SprintEngineSummaryNavIcon }]
+ : []),
  ]
  const activateView = (view: SprintEngineView) => {
  if (fixedView) return
@@ -1505,11 +1522,6 @@ function SprintEngineBoardPanelContent({
  <Section
  title="Run complete"
  level={3}
- action={
- <GhostButton onClick={() => focusOrAddComponentTab(workspaceId, 'sprintengine-run-summary', 'Run Summary')}>
- View run summary
- </GhostButton>
- }
  className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]"
  >
  <div className="text-[12px] text-[color:var(--text-default)]">
@@ -1573,6 +1585,30 @@ function SprintEngineBoardPanelContent({
  {projectionBanner}
  {runCompleteBanner}
  {folderStatusBanner}
+
+ {/* Board content area (columns / inspector / summary view). */}
+ <div className="relative flex min-h-0 flex-1 flex-col">
+ {effectiveView === 'summary' ? (
+ <div
+ id="sprintengine-view-panel-summary"
+ role="tabpanel"
+ aria-labelledby="sprintengine-view-tab-summary"
+ className="flex min-h-0 flex-1"
+ >
+ <div className="min-w-0 min-h-0 flex-1">
+ <React.Suspense fallback={<SuspenseFallback label="Loading run summary" />}>
+ <SprintEngineRunSummaryPanel
+ workspaceId={workspaceId}
+ embedded
+ // Open task detail as an aside inside the Summary view — select the
+ // task, don't navigate away to the Kanban.
+ onOpenTask={(taskId) => setSelectedTaskId(taskId)}
+ />
+ </React.Suspense>
+ </div>
+ {renderInspectorAside()}
+ </div>
+ ) : null}
 
  {effectiveView === 'inbox' ? (
  <div
@@ -1654,6 +1690,7 @@ function SprintEngineBoardPanelContent({
  </div>
  </div>
  ) : null}
+ </div>
 
  {recoveryDialog ? (
  <Modal

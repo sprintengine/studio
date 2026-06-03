@@ -80,13 +80,17 @@ export function buildPlanFileSprintEngineHandoffPrompt({
 
   const handoverCalls = hasExplicitSourceBundle
     ? [
-      'Call `sprintengine.handover` once per source in the bundle, passing `handoverPath` and `sourcePlanKind` for each. Stop and report to the user if any call reports a collision or failure:',
-      bundle.map((item) => jsonBlock({
+      'Call `sprintengine.handover` once with the selected markdown source and the complete source bundle. Stop and report to the user if the call reports a collision or failure:',
+      jsonBlock({
         name: teamSlug,
         goal,
-        handoverPath: item.sourcePath,
-        sourcePlanKind: item.kind,
-      })).join('\n'),
+        handoverPath: sourcePath,
+        sourcePlanKind,
+        sourceBundle: bundle.map((item) => ({
+          kind: item.kind,
+          sourcePath: item.sourceRelativePath ?? item.sourcePath,
+        })),
+      }),
     ].join('\n\n')
     : [
       'Call `sprintengine.handover` with the selected markdown source:',

@@ -30,8 +30,6 @@ from sprintengine_core.role_registry import (
 )
 from sprintengine_core.tool import (
     cmd_handover,
-    cmd_task_comment,
-    cmd_task_status,
     load_mutation_state,
 )
 from sprintengine_core.tool.artifacts import release_task_from_owner
@@ -41,16 +39,20 @@ from sprintengine_core.tool.prompts import compose_prompt, load_sprintengine_coo
 from sprintengine_core.tool.state import (
     append_event,
     append_task_activity,
+    clear_task_refs,
+    create_task_comment,
     ensure_agent,
+    find_task,
     record_agent_heartbeat,
     record_agent_join,
     record_agent_leave,
     set_agent_idle,
     with_locked_state,
 )
+from sprintengine_core.tool.tasks import ensure_evidence, recompute_phase
 
 from .auth import MUTATING_TOOLS, ActorContext, AuthorizationError, authorize_tool
-from .payloads import add_feedback_defaults, command_payload_to_namespace
+from .payloads import command_payload_to_namespace
 from .schemas import TOOL_SCHEMAS, list_tool_schemas
 from .tool_contracts import MCP_TOOL_CONTRACTS
 
@@ -261,11 +263,14 @@ class SprintEngineMcpServer:
                 "Read a task card: sprintengine.task.get with {taskId}.",
                 "Log evidence: sprintengine.task.log with {taskId, id, summary, file, command, result, scopeExpansionJson}.",
                 "Publish implementation evidence: sprintengine.task.publish with {taskId, id, summary, ...}.",
+                "Request ordinary task rework outside an active gate: sprintengine.task.request_changes with {taskId, id, reason, source?, paths?}.",
+                "Use sprintengine.task.status as a low-level repair/admin transition when a normal workflow tool cannot represent the correction.",
             ],
             "needs_input": [
                 "Move a task to needs_input with sprintengine.task.status and {taskId, id, status: \"needs_input\", needsInputKind, needsInputReason, needsInputQuestion, needsInputArtifactId?, needsInputSuggestedResolution?}.",
                 "needsInputKind: architect for task-card/scope/artifact-review/tooling blockers; user for product decisions or approvals; owner when waiting on your own condition; external_validation for real hardware, credentials, or another outside check.",
                 "needsInputReason: task_scope, artifact_review, tooling, verification, product_decision, or blocked_other.",
+                "Do not use needs_input for ordinary compile, test, review, or validation failures that an assigned role can fix; use gate.verdict changes_requested for an active gate or task.request_changes outside an active gate.",
             ],
             "artifacts": [
                 "Register an artifact with sprintengine.artifact.add and {taskId, kind, title, path, createdBy, ready}.",
@@ -274,6 +279,7 @@ class SprintEngineMcpServer:
             "gates": [
                 "Record a gate verdict with sprintengine.gate.verdict or sprintengine.gate.publish and {taskId, gateId, role, id, verdict, summary}.",
                 "Use approved when the gate passes; changes_requested or failed for rework; blocked when routed input is needed; skipped only with rationale.",
+                "If no active gate attempt is claimed but later evidence shows rework is needed, use sprintengine.task.request_changes instead of forcing a gate verdict.",
             ],
         }
         ordered_topics = [topic] if topic != "agent_workflow" else ["agent_workflow", "tools", "needs_input", "artifacts", "gates"]
@@ -560,37 +566,82 @@ class SprintEngineMcpServer:
         return with_locked_state(state_path, run)
 
     def _task_request_changes(self, state_path: Path, payload: dict[str, Any], actor: ActorContext | None) -> dict[str, Any]:
-        args = SimpleNamespace(
-            state=state_path,
-            task_id=payload["taskId"],
-            id=payload.get("id") or (actor.id if actor else "mcp"),
-            body=payload["reason"],
-            source=payload.get("source") or "user",
-            comment_type="review_feedback",
-            path=list(payload.get("paths") or []),
-            data_json=json.dumps({"status": "open", "reason": payload["reason"]}),
+        needs_input_fields = sorted(
+            field
+            for field in (
+                "needsInputKind",
+                "needsInputReason",
+                "needsInputArtifactId",
+                "needsInputQuestion",
+                "needsInputSuggestedResolution",
+            )
+            if payload.get(field) is not None
         )
-        comment_result = cmd_task_comment(args)
-        status_args = SimpleNamespace(
-            state=state_path,
-            task_id=payload["taskId"],
-            status="needs_input",
-            id=args.id,
-            summary=payload["reason"],
-            needs_input_kind=payload.get("needsInputKind") or "owner",
-            needs_input_reason=payload.get("needsInputReason") or "blocked_other",
-            needs_input_artifact_id=payload.get("needsInputArtifactId"),
-            needs_input_question=payload.get("needsInputQuestion") or payload["reason"],
-            needs_input_suggested_resolution=payload.get("needsInputSuggestedResolution"),
-        )
-        add_feedback_defaults(status_args.__dict__, payload)
-        status_result = cmd_task_status(status_args)
-        return {"ok": True, "comment": comment_result["comment"], "task": status_result["task"], "event": status_result["event"]}
+        if needs_input_fields:
+            raise McpToolError(
+                "invalid_payload",
+                "sprintengine.task.request_changes routes ordinary rework to changes_requested. "
+                "Use sprintengine.task.status with status=\"needs_input\" for routed blockers.",
+                {"fields": needs_input_fields},
+            )
+        task_id = str(payload["taskId"])
+        requester_id = str(payload.get("id") or (actor.id if actor else "mcp")).strip() or "mcp"
+        reason = str(payload["reason"] or "").strip()
+        paths = list(payload.get("paths") or [])
+        source = str(payload.get("source") or "user").strip() or "user"
+
+        def mutate(state: dict[str, Any]) -> dict[str, Any]:
+            task = find_task(state, task_id)
+            previous_owner_id = task.get("ownerAgentId")
+            comment = create_task_comment(
+                state,
+                task,
+                actor=requester_id,
+                body=reason,
+                comment_type="review_feedback",
+                source=source,
+                paths=paths,
+                data={"status": "open", "reason": reason},
+            )
+            task["status"] = "changes_requested"
+            task["completedAt"] = None
+            task.pop("needsInput", None)
+            ensure_evidence(task)["summary"] = reason
+            cleared = clear_task_refs(state, task_id)
+            if previous_owner_id:
+                set_agent_idle(ensure_agent(state, previous_owner_id, task.get("role")))
+            task["ownerAgentId"] = None
+            append_task_activity(
+                task,
+                "status_change",
+                requester_id,
+                f"{requester_id} moved {task_id} to changes_requested.",
+                {"status": "changes_requested"},
+            )
+            recompute_phase(state)
+            event = append_event(
+                state,
+                "task_status_changed",
+                requester_id,
+                f"{requester_id} moved {task_id} to changes_requested.",
+            )
+            return {"ok": True, "comment": comment, "task": task, "event": event, "clearedAgents": cleared}
+
+        return with_locked_state(state_path, mutate)
 
     def _handover(self, state_path: Path, payload: dict[str, Any], actor: ActorContext | None) -> dict[str, Any]:
         handover_payload = dict(payload)
+        workspace_root = self._workspace_root(payload, required=False) or _default_workspace_root(state_path)
         if handover_payload.get("handoverPath"):
-            handover_payload["handoverPath"] = self._input_file_path(handover_payload["handoverPath"])
+            handover_payload["handoverPath"] = self._input_file_path(
+                handover_payload["handoverPath"],
+                base_root=workspace_root,
+            )
+        if handover_payload.get("sourceBundle"):
+            handover_payload["source"] = self._source_bundle_args(
+                handover_payload["sourceBundle"],
+                base_root=workspace_root,
+            )
         args = command_payload_to_namespace("sprintengine.handover", state_path, handover_payload, actor)
         result = cmd_handover(args)
         result.pop("architectStartupPrompt", None)
@@ -813,7 +864,7 @@ class SprintEngineMcpServer:
             raise McpToolError("invalid_workspace_root", "workspaceRoot is required.")
         return None
 
-    def _input_file_path(self, raw: Any) -> Path:
+    def _input_file_path(self, raw: Any, *, base_root: Path | None = None) -> Path:
         if not isinstance(raw, str) or not raw.strip():
             raise McpToolError("invalid_input_path", "Input file path must be a non-empty string.")
         if _looks_like_foreign_platform_path(raw):
@@ -821,11 +872,29 @@ class SprintEngineMcpServer:
                 "invalid_input_path",
                 "Input file path appears to mix Windows and POSIX path formats. Use the path format for this process.",
             )
-        path = Path(raw).expanduser().resolve()
+        raw_path = Path(raw).expanduser()
+        if not raw_path.is_absolute() and base_root is not None:
+            raw_path = base_root / raw_path
+        path = raw_path.resolve()
         allowed_roots = self._effective_allowed_roots()
         if allowed_roots and not any(_is_relative_to(path, root) for root in allowed_roots):
             raise McpToolError("input_path_not_allowed", "Input file path is outside the configured allowed roots.")
         return path
+
+    def _source_bundle_args(self, raw: Any, *, base_root: Path | None = None) -> list[str]:
+        if not isinstance(raw, list):
+            raise McpToolError("invalid_source_bundle", "sourceBundle must be an array.")
+        values: list[str] = []
+        for index, item in enumerate(raw):
+            if not isinstance(item, dict):
+                raise McpToolError("invalid_source_bundle", f"sourceBundle[{index}] must be an object.")
+            kind = str(item.get("kind") or "").strip()
+            source_path = item.get("sourcePath") or item.get("path")
+            if not kind:
+                raise McpToolError("invalid_source_bundle", f"sourceBundle[{index}].kind is required.")
+            path = self._input_file_path(source_path, base_root=base_root)
+            values.append(f"{kind}:{path}")
+        return values
 
     def _validate_session_identity_payload(self, tool_name: str, payload: dict[str, Any]) -> None:
         # HTTP run tokens scope routing to a workspace/run store. Agents still

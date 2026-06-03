@@ -1,7 +1,4 @@
-import type {
-  GuidedBriefRuntimeState,
-  SprintEngineSourceBundleItem,
-} from '../../../../types/workspace'
+import type { GuidedBriefRuntimeState } from '../../../../types/workspace'
 import { countSprintEngineAgents } from '../../../../utils/sprintengine'
 import {
   sprintEngineAutomationInitialStateForMode,
@@ -9,6 +6,7 @@ import {
 } from '../../../../utils/sprintengineAutomationLifecycle'
 import {
   GuidedBriefWorkspaceError,
+  buildGuidedBriefSprintEngineSourceBundle,
   scaffoldGuidedBriefWorkspace,
   writeGuidedBriefBuildHandoff,
 } from '../../../../utils/guidedBriefWorkspace'
@@ -173,13 +171,16 @@ export async function runGuidedBriefStartBuild(
 
   const sourcePath = input.buildHandoffRelativePath
   const sourceContent = await ports.readBuildHandoff(runtimeState.workspaceRoot, sourcePath)
-  const sourceBundle = await buildSprintEngineSourceBundle(
-    runtimeState.workspaceRoot,
-    sourcePath,
-    sourceContent,
-    runtimeState.acceptedArchitecturePlan,
-    ports.readArchitecturePlan,
-  )
+  const sourceBundle = await buildGuidedBriefSprintEngineSourceBundle({
+    workspaceRoot: runtimeState.workspaceRoot,
+    handoffPath: sourcePath,
+    handoffContent: sourceContent,
+    productBrief: runtimeState.acceptedProductBrief,
+    architecturePlan: runtimeState.acceptedArchitecturePlan,
+    uiDirection: runtimeState.acceptedUiDirection,
+    mockups: runtimeState.acceptedMockups,
+    readArtifact: ports.readArchitecturePlan,
+  })
   const goal = guidedBriefSprintEngineGoal(sourceContent, runtimeState.hasUi)
 
   try {
@@ -189,7 +190,7 @@ export async function runGuidedBriefStartBuild(
       goal,
       sourcePath,
       sourceContent,
-      sourcePlanKind: 'product_plan',
+      sourcePlanKind: 'unknown',
       sourceBundle,
       roleCounts: finalRoleCounts,
       roleCliDefaults: runOptions.roleCliDefaults,
@@ -212,29 +213,4 @@ export async function runGuidedBriefStartBuild(
     }
     throw new GuidedBriefStartBuildError('unknown')
   }
-}
-
-async function buildSprintEngineSourceBundle(
-  workspaceRoot: string,
-  handoffPath: string,
-  handoffContent: string,
-  architecturePlan: GuidedBriefRuntimeState['acceptedArchitecturePlan'],
-  readArchitecturePlan: GuidedBriefStartBuildPorts['readArchitecturePlan'],
-): Promise<SprintEngineSourceBundleItem[] | undefined> {
-  if (!architecturePlan) return undefined
-  const architectureContent = await readArchitecturePlan(workspaceRoot, architecturePlan.path)
-  return [
-    {
-      kind: 'product_plan',
-      sourcePath: handoffPath,
-      sourceRelativePath: handoffPath,
-      sourceContent: handoffContent,
-    },
-    {
-      kind: 'architect_plan',
-      sourcePath: architecturePlan.path,
-      sourceRelativePath: architecturePlan.path,
-      sourceContent: architectureContent,
-    },
-  ]
 }

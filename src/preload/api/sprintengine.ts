@@ -82,6 +82,10 @@ export const sprintEngineApi = {
     input: SprintEngineDispatchReadInput
   ): Promise<SprintEngineMcpReadResult> =>
     ipcRenderer.invoke('sprintengine:dispatch:read', input),
+  summarizeSprintEngineFeedback: (
+    statePath: string
+  ): Promise<SprintEngineMcpReadResult> =>
+    ipcRenderer.invoke('sprintengine:feedback:summarize', { statePath }),
   installUserSprintEngineRoleFolder: (srcDir: string) =>
     ipcRenderer.invoke('sprintengine:user-roles:install-folder', srcDir),
   listUserSprintEngineRoles: () => ipcRenderer.invoke('sprintengine:user-roles:list'),
@@ -102,6 +106,7 @@ export const sprintEngineApi = {
   | 'readSprintEngineRegistryRoles'
   | 'readSprintEngineRegistryRole'
   | 'readSprintEngineDispatch'
+  | 'summarizeSprintEngineFeedback'
   | 'installUserSprintEngineRoleFolder'
   | 'listUserSprintEngineRoles'
 >

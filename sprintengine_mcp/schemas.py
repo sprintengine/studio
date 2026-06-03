@@ -9,6 +9,8 @@ from sprintengine_core.tool.constants import (
     FEEDBACK_SCORE_FIELDS,
     FEEDBACK_TEXT_FIELDS,
     VALID_DIFFICULTY_REVIEWER_DIMENSIONS,
+    VALID_GATE_VERDICTS,
+    VALID_TASK_STATUSES,
 )
 
 from .tool_contracts import ACTIVE_TOOL_NAMES
@@ -183,6 +185,21 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
             "handoverPath": {"type": "string", "description": "Markdown handoff file to import into the canonical handover.md."},
             "handoverText": {"type": "string", "description": "Inline markdown handoff context to write into the canonical handover.md."},
             "sourcePlanKind": {"type": "string", "enum": ["unknown", "product_plan", "architect_plan"]},
+            "sourceBundle": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {
+                            "type": "string",
+                            "enum": ["unknown", "product_plan", "architect_plan", "html_mockup", "design_notes", "generic_context"],
+                        },
+                        "sourcePath": {"type": "string"},
+                    },
+                    "required": ["kind", "sourcePath"],
+                    "additionalProperties": True,
+                },
+            },
             "actor": {"type": "string"},
             "force": {"type": "boolean"},
         },
@@ -252,7 +269,7 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     "sprintengine.task.get": object_schema(["statePath", "taskId"], {"taskId": TASK_ID_PROPERTY}),
     "sprintengine.task.next": object_schema(["statePath", "role", "id"], {"role": {"type": "string"}, "id": {"type": "string"}}),
     "sprintengine.task.claim": object_schema(["statePath", "taskId", "id"], {"taskId": {"type": "string"}, "id": {"type": "string"}}),
-    "sprintengine.task.status": object_schema(["statePath", "taskId", "status", "id"], {"taskId": {"type": "string"}, "status": {"type": "string"}, "id": {"type": "string"}, "summary": {"type": "string"}, "needsInputKind": {"type": "string"}, "needsInputReason": {"type": "string"}, "needsInputArtifactId": {"type": "string"}, "needsInputQuestion": {"type": "string"}, "needsInputSuggestedResolution": {"type": "string"}, **FEEDBACK_PROPERTIES}),
+    "sprintengine.task.status": object_schema(["statePath", "taskId", "status", "id"], {"taskId": {"type": "string"}, "status": {"type": "string", "enum": sorted(VALID_TASK_STATUSES)}, "id": {"type": "string"}, "summary": {"type": "string"}, "needsInputKind": {"type": "string"}, "needsInputReason": {"type": "string"}, "needsInputArtifactId": {"type": "string"}, "needsInputQuestion": {"type": "string"}, "needsInputSuggestedResolution": {"type": "string"}, **FEEDBACK_PROPERTIES}),
     "sprintengine.task.resolve_input": object_schema(["statePath", "taskId", "id", "resolution"], {"taskId": {"type": "string"}, "id": {"type": "string"}, "resolution": {"type": "string"}, "complete": {"type": "boolean"}}),
     "sprintengine.task.release": object_schema(["statePath", "taskId", "id", "reason"], {"taskId": {"type": "string"}, "id": {"type": "string"}, "reason": {"type": "string"}}),
     "sprintengine.task.ready": object_schema(["statePath", "taskId", "id"], {"taskId": {"type": "string"}, "id": {"type": "string"}, "triagedBy": {"type": "string"}}),
@@ -262,12 +279,12 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     "sprintengine.task.comment.list": object_schema(["statePath", "taskId"], {"taskId": TASK_ID_PROPERTY}),
     "sprintengine.task.list": object_schema(["statePath"], {"role": ROLE_PROPERTY, "status": {"type": "string"}, "includeDone": {"type": "boolean"}}),
     "sprintengine.task.publish": object_schema(["statePath", "taskId", "id", "summary"], {"taskId": TASK_ID_PROPERTY, "id": AGENT_ID_PROPERTY, "summary": {"type": "string"}, "path": {"type": "array", "items": {"type": "string"}}, "file": {"type": "array", "items": {"type": "string"}}, "data": {"type": "object"}, "summaryDataJson": {"type": "string"}, **IMPLEMENTER_DIFFICULTY_PROPERTIES}),
-    "sprintengine.task.request_changes": object_schema(["statePath", "taskId", "id", "reason"], {"taskId": TASK_ID_PROPERTY, "id": AGENT_ID_PROPERTY, "reason": {"type": "string"}, "source": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}, "needsInputKind": {"type": "string"}, "needsInputReason": {"type": "string"}, "needsInputArtifactId": {"type": "string"}, "needsInputQuestion": {"type": "string"}, "needsInputSuggestedResolution": {"type": "string"}}),
+    "sprintengine.task.request_changes": object_schema(["statePath", "taskId", "id", "reason"], {"taskId": TASK_ID_PROPERTY, "id": AGENT_ID_PROPERTY, "reason": {"type": "string"}, "source": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}}),
     "sprintengine.gate.list": object_schema(["statePath"], {"taskId": TASK_ID_PROPERTY, "phase": {"type": "string"}, "role": ROLE_PROPERTY}),
     "sprintengine.gate.next": object_schema(["statePath", "role", "id"], {"role": ROLE_PROPERTY, "id": AGENT_ID_PROPERTY}),
     "sprintengine.gate.claim": object_schema(["statePath", "taskId", "gateId", "role", "id"], {"taskId": TASK_ID_PROPERTY, "gateId": GATE_ID_PROPERTY, "role": ROLE_PROPERTY, "id": AGENT_ID_PROPERTY}),
-    "sprintengine.gate.verdict": object_schema(["statePath", "taskId", "gateId", "role", "id", "verdict", "summary"], {"taskId": TASK_ID_PROPERTY, "gateId": GATE_ID_PROPERTY, "role": ROLE_PROPERTY, "id": AGENT_ID_PROPERTY, "verdict": {"type": "string"}, "summary": {"type": "string"}, "requiredAction": {"type": "array", "items": {"type": "string"}}, "artifactPath": {"type": "string"}, "artifactTitle": {"type": "string"}, "artifactKind": {"type": "string"}, "needsInputKind": {"type": "string"}, "needsInputReason": {"type": "string"}, "needsInputQuestion": {"type": "string"}, "needsInputSuggestedResolution": {"type": "string"}, **REVIEWER_DIFFICULTY_PROPERTIES, **FEEDBACK_PROPERTIES}),
-    "sprintengine.gate.publish": object_schema(["statePath", "taskId", "gateId", "role", "id", "verdict", "summary"], {"taskId": TASK_ID_PROPERTY, "gateId": GATE_ID_PROPERTY, "role": ROLE_PROPERTY, "id": AGENT_ID_PROPERTY, "verdict": {"type": "string"}, "summary": {"type": "string"}, "requiredAction": {"type": "array", "items": {"type": "string"}}, "artifactPath": {"type": "string"}, "artifactTitle": {"type": "string"}, "artifactKind": {"type": "string"}, **REVIEWER_DIFFICULTY_PROPERTIES, **FEEDBACK_PROPERTIES}),
+    "sprintengine.gate.verdict": object_schema(["statePath", "taskId", "gateId", "role", "id", "verdict", "summary"], {"taskId": TASK_ID_PROPERTY, "gateId": GATE_ID_PROPERTY, "role": ROLE_PROPERTY, "id": AGENT_ID_PROPERTY, "verdict": {"type": "string", "enum": sorted(VALID_GATE_VERDICTS)}, "summary": {"type": "string"}, "requiredAction": {"type": "array", "items": {"type": "string"}}, "artifactPath": {"type": "string"}, "artifactTitle": {"type": "string"}, "artifactKind": {"type": "string"}, "needsInputKind": {"type": "string"}, "needsInputReason": {"type": "string"}, "needsInputQuestion": {"type": "string"}, "needsInputSuggestedResolution": {"type": "string"}, **REVIEWER_DIFFICULTY_PROPERTIES, **FEEDBACK_PROPERTIES}),
+    "sprintengine.gate.publish": object_schema(["statePath", "taskId", "gateId", "role", "id", "verdict", "summary"], {"taskId": TASK_ID_PROPERTY, "gateId": GATE_ID_PROPERTY, "role": ROLE_PROPERTY, "id": AGENT_ID_PROPERTY, "verdict": {"type": "string", "enum": sorted(VALID_GATE_VERDICTS)}, "summary": {"type": "string"}, "requiredAction": {"type": "array", "items": {"type": "string"}}, "artifactPath": {"type": "string"}, "artifactTitle": {"type": "string"}, "artifactKind": {"type": "string"}, **REVIEWER_DIFFICULTY_PROPERTIES, **FEEDBACK_PROPERTIES}),
     "sprintengine.gate.skip": object_schema(["statePath", "taskId", "gateId", "role", "id", "rationale"], {"taskId": TASK_ID_PROPERTY, "gateId": GATE_ID_PROPERTY, "role": ROLE_PROPERTY, "id": AGENT_ID_PROPERTY, "rationale": {"type": "string"}}),
     "sprintengine.plan.add_task": object_schema(["statePath", "title", "role"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": {"type": "string"}, "dependsOn": {"type": "array"}, "path": {"type": "array"}, "acceptance": {"type": "array"}, "note": {"type": "array"}, "taskNote": {"type": "array"}, "producesImplementation": {"type": "boolean"}, "needsTriage": {"type": "boolean"}, "noQualityGates": {"type": "boolean"}, "noReview": {"type": "boolean"}, "noTesting": {"type": "boolean"}, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, "noProductAcceptance": {"type": "boolean"}, "requireGate": {"type": "array"}, "skipGate": {"type": "array"}, "manualDispatch": {"type": "boolean"}, "dispatchStatus": {"type": "string"}, "triagedBy": {"type": "string"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),
     "sprintengine.plan.update_task": object_schema(["statePath", "taskId"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": {"type": "string"}, "path": {"type": "array"}, "acceptance": {"type": "array"}, "note": {"type": "array"}, "taskNote": {"type": "array"}, "clearTaskNotes": {"type": "boolean"}, "producesImplementation": {"type": "boolean"}, "needsTriage": {"type": "boolean"}, "clearNeedsTriage": {"type": "boolean"}, "noQualityGates": {"type": "boolean"}, "noReview": {"type": "boolean"}, "noTesting": {"type": "boolean"}, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, "noProductAcceptance": {"type": "boolean"}, "requireGate": {"type": "array"}, "skipGate": {"type": "array"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),

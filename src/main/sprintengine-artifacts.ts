@@ -633,6 +633,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   readRegistryRoles(payload: SprintEngineRegistryRolesReadInput): Promise<SprintEngineMcpReadResult>
   readRegistryRole(payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult>
   readDispatch(payload: SprintEngineDispatchReadInput): Promise<SprintEngineMcpReadResult>
+  summarizeFeedback(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineMcpReadResult>
 } {
   const runMcpTool = deps.runMcpTool ?? runSprintEngineMcpToolProcess
   return {
@@ -1057,6 +1058,20 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
             agentId,
             ...(lastDispatchId ? { lastDispatchId } : {}),
           }
+        )
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    async summarizeFeedback(payload) {
+      try {
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        return runReadOnlyMcpTool(
+          runMcpTool,
+          { workspaceRoot: state.workspaceRoot },
+          'sprintengine.feedback.summarize',
+          { statePath: state.statePath }
         )
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }

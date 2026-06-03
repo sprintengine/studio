@@ -11,7 +11,7 @@ import urllib.request
 
 from helpers import REPO_ROOT, create_team, create_workspace_team, get_task, read_state, task, write_state
 from sprintengine_core.tool.constants import FEEDBACK_COUNT_FIELDS, FEEDBACK_SCORE_FIELDS, FEEDBACK_TEXT_FIELDS
-from sprintengine_mcp import SprintEngineMcpServer
+from sprintengine_mcp import McpRequestContext, SprintEngineMcpServer
 from sprintengine_mcp.auth import ActorContext
 from sprintengine_mcp.http_server import SESSION_HEADER, SprintEngineHttpMcpServer
 from sprintengine_mcp.payloads import command_payload_to_namespace
@@ -310,6 +310,8 @@ def test_mcp_help_returns_versioned_agent_workflow_without_state_path() -> None:
     assert "needsInputKind" in result["markdown"]
     assert "sprintengine.artifact.add" in result["markdown"]
     assert "sprintengine.gate.verdict" in result["markdown"]
+    assert "sprintengine.task.request_changes" in result["markdown"]
+    assert "outside an active gate" in result["markdown"]
 
 
 def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() -> None:
@@ -346,6 +348,10 @@ def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() 
 
     assert planned <= set(MCP_V1_CONTRACT_SCHEMAS)
     assert active_now <= set(TOOL_SCHEMAS)
+    assert MCP_V1_CONTRACT_SCHEMAS["sprintengine.task.status"]["properties"]["status"]["enum"]
+    assert MCP_V1_CONTRACT_SCHEMAS["sprintengine.gate.verdict"]["properties"]["verdict"]["enum"]
+    assert MCP_V1_CONTRACT_SCHEMAS["sprintengine.gate.publish"]["properties"]["verdict"]["enum"]
+    assert "needsInputKind" not in MCP_V1_CONTRACT_SCHEMAS["sprintengine.task.request_changes"]["properties"]
 
 
 def test_mcp_feedback_schemas_expose_known_feedback_fields() -> None:
@@ -748,8 +754,42 @@ def test_mcp_task_get_comment_publish_and_request_changes_cover_agent_paths(tmp_
     assert published["result"]["nextStatus"] == "done"
     assert published["result"]["progression"]["state"] == "idle"
     assert changes["ok"] is True
-    assert changes["result"]["task"]["status"] == "needs_input"
-    assert changes["result"]["task"]["needsInput"]["kind"] == "owner"
+    assert changes["result"]["task"]["status"] == "changes_requested"
+    assert "needsInput" not in changes["result"]["task"]
+    assert changes["result"]["task"]["ownerAgentId"] is None
+    assert changes["result"]["comment"]["type"] == "review_feedback"
+    assert changes["result"]["comment"]["data"]["status"] == "open"
+    assert changes["result"]["comment"]["data"]["reason"] == "Add MCP gate coverage."
+
+
+def test_mcp_task_request_changes_rejects_needs_input_fields(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "mcp-request-changes-needs-input-fields",
+        [task("T1", "Publishable", "developer", status="in_progress", owner="developer-a")],
+    )
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    response = server.call_tool(
+        "sprintengine.task.request_changes",
+        {
+            "statePath": str(fixture.state_path),
+            "taskId": "T1",
+            "id": "reviewer-a",
+            "reason": "Compile fails.",
+            "needsInputKind": "owner",
+            "needsInputQuestion": "Please fix the compile failure.",
+        },
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "invalid_payload"
+    assert "routes ordinary rework to changes_requested" in response["error"]["message"]
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert task_record["status"] == "in_progress"
+    assert task_record["ownerAgentId"] == "developer-a"
 
 
 def test_mcp_agent_join_returns_prompt_registry_run_and_dispatch_context(tmp_path) -> None:
@@ -1750,6 +1790,58 @@ def test_http_transport_exercises_initialize_tools_list_and_tool_call(tmp_path) 
         assert wrapper["isError"] is False
         assert result["ok"] is True
         assert [entry["id"] for entry in result["result"]["readyTasks"]] == ["T1"]
+
+
+def test_handover_resolves_project_relative_bundle_paths_against_http_workspace_root(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    server_cwd = tmp_path / "server-cwd"
+    (workspace / "product" / ".versions").mkdir(parents=True)
+    (workspace / "mockups" / ".versions").mkdir(parents=True)
+    server_cwd.mkdir()
+    (workspace / "product" / "build-handoff.md").write_text("# Build Handoff\n", encoding="utf-8")
+    (workspace / "product" / ".versions" / "brief.md").write_text("# Product Brief\n", encoding="utf-8")
+    (workspace / "product" / ".versions" / "plan.md").write_text("# Architecture Plan\n", encoding="utf-8")
+    (workspace / "product" / ".versions" / "ui.md").write_text("# UI Direction\n", encoding="utf-8")
+    (workspace / "mockups" / ".versions" / "app.html").write_text("<!doctype html><title>Mockup</title>", encoding="utf-8")
+    state_path = workspace / ".multi-code" / "sprintengine" / "guided-build" / "run.yaml"
+    context = McpRequestContext(
+        actor=ActorContext(id="workspace-user", role="user", authenticated=True, mcp_authorized=True),
+        state_path=state_path,
+        workspace_root=workspace,
+        allowed_roots=(workspace,),
+    )
+    server = SprintEngineMcpServer(allowed_roots=[server_cwd])
+    monkeypatch.chdir(server_cwd)
+
+    handover = server.call_tool(
+        "sprintengine.handover",
+        {
+            "name": "guided-build",
+            "goal": "Build the accepted guided brief.",
+            "handoverPath": "product/build-handoff.md",
+            "sourcePlanKind": "unknown",
+            "sourceBundle": [
+                {"kind": "product_plan", "sourcePath": "product/.versions/brief.md"},
+                {"kind": "architect_plan", "sourcePath": "product/.versions/plan.md"},
+                {"kind": "design_notes", "sourcePath": "product/.versions/ui.md"},
+                {"kind": "html_mockup", "sourcePath": "mockups/.versions/app.html"},
+            ],
+        },
+        context=context,
+    )
+    initialized = server.call_tool("sprintengine.init", {"goal": "Build the accepted guided brief."}, context=context)
+
+    assert handover["ok"] is True
+    assert initialized["ok"] is True
+    assert (state_path.parent / "handover.md").read_text(encoding="utf-8") == "# Build Handoff\n"
+    assert (state_path.parent / "product-requirements.md").read_text(encoding="utf-8") == "# Product Brief\n"
+    assert (state_path.parent / "plan.md").read_text(encoding="utf-8") == "# Architecture Plan\n"
+    state = read_state(state_path)
+    bundle = state["sourceBundle"]
+    assert [item["kind"] for item in bundle] == ["product_plan", "architect_plan", "design_notes", "html_mockup"]
+    notes = "\n".join(initialized["result"]["planTask"].get("implementationNotes", []))
+    assert "Use design notes" in notes
+    assert "Use source mockup" in notes
 
 
 def test_http_run_tokens_route_to_distinct_registered_state_paths(tmp_path) -> None:

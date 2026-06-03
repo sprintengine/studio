@@ -145,6 +145,9 @@ export interface WorkspacesSliceActions {
       multiloopContext?: MultiloopWorkspaceContext | null
       sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
       sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
+      // CLI for the general template agents (e.g. the solo "New chat" agent).
+      // When set, overrides the remembered `lastSelectedCli` default below.
+      templateAgentCli?: AgentCli | null
       sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
       multiloopAutoState?: Partial<MultiloopAutoState> | null
       guidedBriefState?: import('../../types/workspace').GuidedBriefRuntimeState | null
@@ -798,6 +801,10 @@ export function createWorkspacesSlice(
             }
           })
         } else {
+          const templateAgentCli =
+            typeof options?.templateAgentCli === 'string' && options.templateAgentCli.trim()
+              ? options.templateAgentCli.trim()
+              : state.appSettings.lastSelectedCli
           collectTemplateAgentTabs(template).forEach((agent) => {
             agents[agent.id] = {
               ...deps.defaultAgent(
@@ -805,7 +812,7 @@ export function createWorkspacesSlice(
                 agent.name ?? deps.pickWorkspaceAgentName(agents),
                 'general'
               ),
-              cli: state.appSettings.lastSelectedCli,
+              cli: templateAgentCli,
             }
           })
         }

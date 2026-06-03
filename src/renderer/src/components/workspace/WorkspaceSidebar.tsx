@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { WorkspaceTypeIcon } from '../AppIcons'
-import { StatusDot, Tooltip, type Tone } from '../ui'
+import { NewChatIcon, WorkspaceTypeIcon } from '../AppIcons'
+import CliIcon from '../CliIcon'
+import { InboxSearchInput, StatusDot, Tooltip, type Tone } from '../ui'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import PanelRail from './PanelRail'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
+  AgentCli,
   HighlightColor,
   LayoutTemplate,
   Workspace,
@@ -34,6 +36,7 @@ import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import { partitionWorkspacesByRecency } from '../../utils/workspaceRecency'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
+import { filterWorkspacesBySearchQuery, normalizeWorkspaceSearchQuery } from '../../utils/workspaceSearch'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
 
@@ -60,6 +63,11 @@ type WorkspaceSidebarProps = {
   onForgetFolder: (folderPath: string) => void
   onNewWorkspace: () => void
   onNewWorkspaceInFolder: (folderPath: string) => void
+  onNewChat: () => void
+  onNewChatInFolder: (folderPath: string) => void
+  onNewChatWithAgent: (cli: AgentCli) => void
+  onNewChatInFolderWithAgent: (folderPath: string, cli: AgentCli) => void
+  newChatAgentOptions: Array<{ value: AgentCli; label: string }>
   onRevealFolder: (folderPath: string) => void
   onSetSidebarCollapsed: (collapsed: boolean) => void
 }
@@ -316,6 +324,11 @@ export default function WorkspaceSidebar({
   onForgetFolder,
   onNewWorkspace,
   onNewWorkspaceInFolder,
+  onNewChat,
+  onNewChatInFolder,
+  onNewChatWithAgent,
+  onNewChatInFolderWithAgent,
+  newChatAgentOptions,
   onRevealFolder,
   onSetSidebarCollapsed,
 }: WorkspaceSidebarProps) {
@@ -332,11 +345,13 @@ export default function WorkspaceSidebar({
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
   const [expandedStaleFolders, setExpandedStaleFolders] = useState<Record<string, boolean>>({})
+  const [workspaceSearchQuery, setWorkspaceSearchQuery] = useState('')
   const [starredCollapsed, setStarredCollapsed] = useState(false)
   const [renamingId, setRenamingId] = useState<WorkspaceId | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [contextMenu, setContextMenu] = useState<{ workspaceId: WorkspaceId; x: number; y: number } | null>(null)
   const [folderMenu, setFolderMenu] = useState<{ folderKey: string; x: number; y: number } | null>(null)
+  const [newChatMenu, setNewChatMenu] = useState<{ x: number; y: number; folderPath?: string } | null>(null)
   const [confirmClose, setConfirmClose] = useState<WorkspaceId | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<WorkspaceId | null>(null)
   const [confirmForget, setConfirmForget] = useState<string | null>(null)
@@ -360,11 +375,20 @@ export default function WorkspaceSidebar({
     | null
   >(null)
 
-  const groups = useMemo(() => buildFolderGroups(workspaces), [workspaces])
+  const normalizedWorkspaceSearchQuery = useMemo(
+    () => normalizeWorkspaceSearchQuery(workspaceSearchQuery),
+    [workspaceSearchQuery]
+  )
+  const searchingWorkspaces = normalizedWorkspaceSearchQuery.length > 0
+  const filteredWorkspaces = useMemo(
+    () => filterWorkspacesBySearchQuery(workspaces, workspaceSearchQuery),
+    [workspaceSearchQuery, workspaces]
+  )
+  const groups = useMemo(() => buildFolderGroups(filteredWorkspaces), [filteredWorkspaces])
 
   const starredWorkspaces = useMemo(
-    () => workspaces.filter((workspace) => isStarred(workspace.highlight)),
-    [workspaces]
+    () => filteredWorkspaces.filter((workspace) => isStarred(workspace.highlight)),
+    [filteredWorkspaces]
   )
 
   const workspaceById = useMemo(() => {
@@ -392,6 +416,10 @@ export default function WorkspaceSidebar({
       renameInputRef.current.select()
     }
   }, [renamingId])
+
+  useEffect(() => {
+    if (sidebarCollapsed && workspaceSearchQuery) setWorkspaceSearchQuery('')
+  }, [sidebarCollapsed, workspaceSearchQuery])
 
   // Close any open menu/popover on outside pointerdown or Escape
   useEffect(() => {
@@ -922,10 +950,18 @@ export default function WorkspaceSidebar({
     visibleWorkspaces: Workspace[],
     folderCollapsed: boolean
   ) => {
-    if (folderCollapsed && !sidebarCollapsed) return null
+    if (folderCollapsed && !sidebarCollapsed && !searchingWorkspaces) return null
     if (sidebarCollapsed) {
       return (
         <div className="border-b border-[color:var(--bg-hover)] pb-1.5 last:border-b-0">
+          {visibleWorkspaces.map((workspace) => renderWorkspaceRow(workspace, group.key))}
+        </div>
+      )
+    }
+
+    if (searchingWorkspaces) {
+      return (
+        <div>
           {visibleWorkspaces.map((workspace) => renderWorkspaceRow(workspace, group.key))}
         </div>
       )
@@ -1012,34 +1048,115 @@ export default function WorkspaceSidebar({
         }}
       />
 
-      {/* New workspace */}
-      <Tooltip
-        content="New workspace (Ctrl+T) — drop a tab here to extract it"
-        wrapperClassName={`mt-2 flex ${sidebarCollapsed ? 'mx-1.5' : 'mx-2'}`}
-      >
-      <button
-        type="button"
-        onClick={onNewWorkspace}
-        onDragOver={handleTabDragOverNew}
-        onDragLeave={handleTabDragLeaveNew}
-        onDrop={handleTabDropOnNew}
-        className={`flex h-[34px] w-full shrink-0 items-center justify-center gap-2 rounded-md border border-dashed px-3 text-[12px] font-medium transition-colors ${
-          tabDropTarget?.kind === 'new'
-            ? 'border-[color:var(--accent-primary)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-            : 'border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-        }`}
-        aria-label="New workspace"
-      >
-        <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none">
-          <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-        {!sidebarCollapsed && (
-          <span className="pointer-events-none">
-            {tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New workspace'}
-          </span>
+      <div className={`mt-2 flex flex-col gap-1.5 ${sidebarCollapsed ? 'mx-1.5' : 'mx-2'}`}>
+        {sidebarCollapsed ? (
+          <>
+            {/* New workspace — canonical create + tab-extract drop target */}
+            <Tooltip content="New workspace (Ctrl+T) — drop a tab here to extract it" wrapperClassName="flex">
+              <button
+                type="button"
+                onClick={onNewWorkspace}
+                onDragOver={handleTabDragOverNew}
+                onDragLeave={handleTabDragLeaveNew}
+                onDrop={handleTabDropOnNew}
+                className={`flex h-[34px] w-full shrink-0 items-center justify-center rounded-md border transition-colors ${
+                  tabDropTarget?.kind === 'new'
+                    ? 'border-[color:var(--accent-primary)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+                    : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                }`}
+                aria-label="New workspace"
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none">
+                  <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </button>
+            </Tooltip>
+
+            {/* New chat — quiet solo-agent quick spawn, subordinate to New workspace.
+               Left-click spawns the last-used agent; right-click chooses the type. */}
+            <Tooltip content="New chat · right-click to choose agent" wrapperClassName="flex">
+              <button
+                type="button"
+                onClick={onNewChat}
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  if (newChatAgentOptions.length > 0) setNewChatMenu({ x: event.clientX, y: event.clientY })
+                }}
+                className="flex h-[30px] w-full shrink-0 items-center justify-center rounded-md text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                aria-label="New chat"
+              >
+                <NewChatIcon className="icon-xs pointer-events-none" />
+              </button>
+            </Tooltip>
+          </>
+        ) : (
+          // Single creation row: New workspace is the labeled primary (Ctrl+T,
+          // tab-extract drop target); New chat is an attached compact segment
+          // that spawns a solo-agent workspace. One row, one visual priority.
+          <div
+            className={`flex h-[34px] w-full shrink-0 overflow-hidden rounded-md border transition-colors ${
+              tabDropTarget?.kind === 'new'
+                ? 'border-[color:var(--accent-primary)] bg-[color:var(--bg-hover)]'
+                : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]'
+            }`}
+          >
+            <Tooltip
+              content="New workspace (Ctrl+T) — drop a tab here to extract it"
+              wrapperClassName="flex min-w-0 flex-1"
+            >
+              <button
+                type="button"
+                onClick={onNewWorkspace}
+                onDragOver={handleTabDragOverNew}
+                onDragLeave={handleTabDragLeaveNew}
+                onDrop={handleTabDropOnNew}
+                className={`flex h-full w-full items-center justify-center gap-2 px-3 text-[12px] font-medium transition-colors ${
+                  tabDropTarget?.kind === 'new'
+                    ? 'text-[color:var(--text-strong)]'
+                    : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                }`}
+                aria-label="New workspace"
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none">
+                  <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+                <span className="pointer-events-none truncate">
+                  {tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New workspace'}
+                </span>
+              </button>
+            </Tooltip>
+
+            <span aria-hidden="true" className="w-px self-stretch bg-[color:var(--border-subtle)]" />
+
+            <Tooltip content="New chat · right-click to choose agent" wrapperClassName="flex">
+              <button
+                type="button"
+                onClick={onNewChat}
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  if (newChatAgentOptions.length > 0) setNewChatMenu({ x: event.clientX, y: event.clientY })
+                }}
+                className="flex h-full w-9 shrink-0 items-center justify-center text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                aria-label="New chat"
+              >
+                <NewChatIcon className="icon-xs pointer-events-none" />
+              </button>
+            </Tooltip>
+          </div>
         )}
-      </button>
-      </Tooltip>
+      </div>
+
+      {!sidebarCollapsed ? (
+        <div className="mx-2 mt-2">
+          <InboxSearchInput
+            value={workspaceSearchQuery}
+            onChange={setWorkspaceSearchQuery}
+            ariaLabel="Search workspaces"
+            placeholder="Search workspaces..."
+            clearAriaLabel="Clear workspace search"
+          />
+        </div>
+      ) : null}
 
       {/* Tree */}
       <nav className="mt-1 flex-1 overflow-y-auto pb-2" role="tree">
@@ -1051,7 +1168,7 @@ export default function WorkspaceSidebar({
             <div aria-hidden="true" className="mx-2 my-1.5 h-px bg-[color:var(--border-subtle)]" />
           </section>
         ) : null}
-        {starredWorkspaces.length > 0 && !sidebarCollapsed ? (
+        {starredWorkspaces.length > 0 && !sidebarCollapsed && !searchingWorkspaces ? (
           <section className="relative pt-1" aria-label="Starred workspaces">
             <header
               onClick={() =>
@@ -1180,6 +1297,11 @@ export default function WorkspaceSidebar({
             </section>
           )
         })}
+        {searchingWorkspaces && filteredWorkspaces.length === 0 && !sidebarCollapsed ? (
+          <div className="mx-3 mt-4 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-3 text-[12px] text-[color:var(--text-muted)]">
+            No workspaces found
+          </div>
+        ) : null}
       </nav>
 
       {/* Context menu (workspace row) */}
@@ -1190,6 +1312,13 @@ export default function WorkspaceSidebar({
           workspace={workspaceById.get(contextMenu.workspaceId) ?? null}
           isDetachedWindow={isDetachedWindow}
           onClose={() => setContextMenu(null)}
+          onPickNewChatAgent={(x, y) => {
+            const workspace = workspaceById.get(contextMenu.workspaceId)
+            setContextMenu(null)
+            if (workspace?.folderPath && !workspace.folderMissing && newChatAgentOptions.length > 0) {
+              setNewChatMenu({ x, y, folderPath: workspace.folderPath })
+            }
+          }}
           onSelect={(action) => {
             const workspace = workspaceById.get(contextMenu.workspaceId)
             if (!workspace) {
@@ -1203,6 +1332,11 @@ export default function WorkspaceSidebar({
             }
             if (action === 'rename') {
               startRename(workspace)
+              setContextMenu(null)
+              return
+            }
+            if (action === 'new-chat' && workspace.folderPath && !workspace.folderMissing) {
+              onNewChatInFolder(workspace.folderPath)
               setContextMenu(null)
               return
             }
@@ -1265,15 +1399,41 @@ export default function WorkspaceSidebar({
           y={folderMenu.y}
           group={groups.find((g) => g.key === folderMenu.folderKey) ?? null}
           onClose={() => setFolderMenu(null)}
+          onPickNewChatAgent={(x, y) => {
+            const group = groups.find((g) => g.key === folderMenu.folderKey)
+            setFolderMenu(null)
+            if (group?.fullPath && !group.missing && newChatAgentOptions.length > 0) {
+              setNewChatMenu({ x, y, folderPath: group.fullPath })
+            }
+          }}
           onSelect={(action) => {
             const group = groups.find((g) => g.key === folderMenu.folderKey)
             setFolderMenu(null)
             if (!group) return
+            if (action === 'new-chat' && group.fullPath && !group.missing) {
+              onNewChatInFolder(group.fullPath)
+            }
             if (action === 'new-workspace' && group.fullPath && !group.missing) {
               onNewWorkspaceInFolder(group.fullPath)
             }
             if (action === 'reveal' && group.fullPath) onRevealFolder(group.fullPath)
             if (action === 'forget' && group.fullPath) setConfirmForget(group.fullPath)
+          }}
+        />
+      ) : null}
+
+      {/* New chat agent picker (right-click on the New chat control) */}
+      {newChatMenu ? (
+        <NewChatAgentMenu
+          x={newChatMenu.x}
+          y={newChatMenu.y}
+          options={newChatAgentOptions}
+          onClose={() => setNewChatMenu(null)}
+          onSelect={(cli) => {
+            const folderPath = newChatMenu.folderPath
+            setNewChatMenu(null)
+            if (folderPath) onNewChatInFolderWithAgent(folderPath, cli)
+            else onNewChatWithAgent(cli)
           }}
         />
       ) : null}
@@ -1427,6 +1587,7 @@ export default function WorkspaceSidebar({
 type ContextMenuAction =
   | 'open'
   | 'rename'
+  | 'new-chat'
   | 'new-workspace'
   | 'reveal'
   | 'move-to-new-window'
@@ -1473,6 +1634,7 @@ function ContextMenu({
   onClose,
   onSelect,
   onPickColor,
+  onPickNewChatAgent,
 }: {
   x: number
   y: number
@@ -1481,6 +1643,7 @@ function ContextMenu({
   onClose: () => void
   onSelect: (action: ContextMenuAction) => void
   onPickColor: (color: HighlightColor) => void
+  onPickNewChatAgent: (x: number, y: number) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const pos = useClampedMenuPosition(x, y, ref)
@@ -1511,6 +1674,18 @@ function ContextMenu({
       <MenuItem onClick={() => onSelect('rename')} shortcut="F2">
         Rename
       </MenuItem>
+      {folderPathExists ? (
+        <MenuItem
+          onClick={() => onSelect('new-chat')}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onPickNewChatAgent(event.clientX, event.clientY)
+          }}
+        >
+          New chat in project
+        </MenuItem>
+      ) : null}
       {folderPathExists ? (
         <MenuItem onClick={() => onSelect('new-workspace')}>New workspace in project</MenuItem>
       ) : null}
@@ -1590,7 +1765,7 @@ function ContextMenu({
   )
 }
 
-type FolderMenuAction = 'new-workspace' | 'reveal' | 'forget'
+type FolderMenuAction = 'new-chat' | 'new-workspace' | 'reveal' | 'forget'
 
 function FolderContextMenu({
   x,
@@ -1598,12 +1773,14 @@ function FolderContextMenu({
   group,
   onClose,
   onSelect,
+  onPickNewChatAgent,
 }: {
   x: number
   y: number
   group: FolderGroup | null
   onClose: () => void
   onSelect: (action: FolderMenuAction) => void
+  onPickNewChatAgent: (x: number, y: number) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const pos = useClampedMenuPosition(x, y, ref)
@@ -1630,6 +1807,18 @@ function FolderContextMenu({
       className="min-w-[220px] rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1 text-[13px] text-[color:var(--text-default)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]"
     >
       {canCreateWorkspace ? (
+        <MenuItem
+          onClick={() => onSelect('new-chat')}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onPickNewChatAgent(event.clientX, event.clientY)
+          }}
+        >
+          New chat in project
+        </MenuItem>
+      ) : null}
+      {canCreateWorkspace ? (
         <MenuItem onClick={() => onSelect('new-workspace')}>New workspace in project</MenuItem>
       ) : null}
       {canReveal ? <MenuItem onClick={() => onSelect('reveal')}>Reveal folder</MenuItem> : null}
@@ -1643,14 +1832,74 @@ function FolderContextMenu({
   )
 }
 
+function NewChatAgentMenu({
+  x,
+  y,
+  options,
+  onClose,
+  onSelect,
+}: {
+  x: number
+  y: number
+  options: Array<{ value: AgentCli; label: string }>
+  onClose: () => void
+  onSelect: (cli: AgentCli) => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const pos = useClampedMenuPosition(x, y, ref)
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      if (!ref.current?.contains(event.target as Node)) onClose()
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  if (options.length === 0) return null
+
+  return (
+    <div
+      ref={ref}
+      data-sidebar-menu="true"
+      role="menu"
+      aria-label="Start a new chat with"
+      style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: 60 }}
+      // design-tokens-allow: popover-elevation reuses the OverflowMenu shadow shape (no glow CTA pattern)
+      className="min-w-[200px] rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1 text-[13px] text-[color:var(--text-default)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]"
+    >
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          role="menuitem"
+          onClick={() => onSelect(option.value)}
+          className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+        >
+          <CliIcon cli={option.value} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
+          <span className="min-w-0 flex-1 truncate">{option.label}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function MenuItem({
   children,
   onClick,
+  onContextMenu,
   shortcut,
   variant,
 }: {
   children: React.ReactNode
   onClick: () => void
+  onContextMenu?: (event: React.MouseEvent) => void
   shortcut?: string
   variant?: 'danger'
 }) {
@@ -1659,6 +1908,7 @@ function MenuItem({
       type="button"
       role="menuitem"
       onClick={onClick}
+      onContextMenu={onContextMenu}
       className={`flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left transition-colors ${
         variant === 'danger'
           ? 'text-[color:var(--tone-error)] hover:bg-[rgba(255,120,124,0.08)]'

@@ -137,6 +137,12 @@ interface WorkspaceStore {
   }
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
+  runSummaryOverlay: {
+    open: boolean
+    workspaceId: string | null
+  }
+  openRunSummaryOverlay: (workspaceId: string) => void
+  closeRunSummaryOverlay: () => void
   reorderWorkspaces: (orderedIds: WorkspaceId[]) => void
   registerWorkspaceWindow: (windowId: WorkspaceWindowId, kind?: WorkspaceWindowState['kind']) => void
   updateWorkspaceWindowPlacement: (
@@ -200,6 +206,7 @@ interface WorkspaceStore {
       multiloopContext?: MultiloopWorkspaceContext | null
       sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
       sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
+      templateAgentCli?: AgentCli | null
       sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
       multiloopAutoState?: Partial<MultiloopAutoState> | null
       guidedBriefState?: GuidedBriefRuntimeState | null

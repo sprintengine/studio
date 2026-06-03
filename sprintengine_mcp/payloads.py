@@ -28,7 +28,7 @@ def command_payload_to_namespace(
             handover=payload.get("handoverPath"),
             handover_text=payload.get("handoverText"),
             handover_stdin=False,
-            source=[],
+            source=list(payload.get("source") or []),
             source_plan_kind=payload.get("sourcePlanKind") or "unknown",
             actor=payload.get("actor") or _actor_id(actor, "sprintengine"),
             force=bool(payload.get("force", False)),

@@ -47,6 +47,7 @@ export const sprintEngineModule: CapabilityModule = {
       readRegistryRoles: artifacts.readRegistryRoles,
       readRegistryRole: artifacts.readRegistryRole,
       readDispatch: artifacts.readDispatch,
+      summarizeFeedback: artifacts.summarizeFeedback,
     })
   },
 }

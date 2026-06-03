@@ -37,6 +37,12 @@ export type SettingsOverlayState = {
   checkForUpdatesRequestId: number | null
 }
 
+export type RunSummaryOverlayState = {
+  open: boolean
+  /** Which workspace's run summary the overlay is showing. */
+  workspaceId: string | null
+}
+
 export const defaultLearningSettings = (): LearningSettings => ({
   showTipsOnStartup: true,
   lastShownTipId: null,
@@ -484,6 +490,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
 export interface SettingsSliceState {
   appSettings: AppSettings
   settingsOverlay: SettingsOverlayState
+  runSummaryOverlay: RunSummaryOverlayState
   sidebarCollapsed: boolean
 }
 
@@ -491,6 +498,8 @@ export interface SettingsSliceActions {
   setSidebarCollapsed: (collapsed: boolean) => void
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
+  openRunSummaryOverlay: (workspaceId: string) => void
+  closeRunSummaryOverlay: () => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setMcpSyncEnabled: (enabled: boolean) => void
   upsertMcpServer: (server: McpServerConfig) => void
@@ -531,6 +540,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
   return {
     appSettings: defaultAppSettings(),
     settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
+    runSummaryOverlay: { open: false, workspaceId: null },
     sidebarCollapsed: false,
 
     setSidebarCollapsed: (collapsed) =>
@@ -550,6 +560,18 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.settingsOverlay.open = false
         state.settingsOverlay.initialTab = null
         state.settingsOverlay.checkForUpdatesRequestId = null
+      }),
+
+    openRunSummaryOverlay: (workspaceId) =>
+      set((state) => {
+        state.runSummaryOverlay.open = true
+        state.runSummaryOverlay.workspaceId = workspaceId
+      }),
+
+    closeRunSummaryOverlay: () =>
+      set((state) => {
+        state.runSummaryOverlay.open = false
+        state.runSummaryOverlay.workspaceId = null
       }),
 
     setCliRuntime: (cli, update) =>

@@ -243,7 +243,11 @@ def current_gate_attempt(gate: Dict[str, Any], actor: str) -> Dict[str, Any]:
     for attempt in reversed(gate_attempts(gate)):
         if isinstance(attempt, dict) and attempt.get("status") == "in_progress" and attempt.get("claimedBy") == actor:
             return attempt
-    raise SystemExit("No active gate attempt is claimed by this agent.")
+    raise SystemExit(
+        "No active gate attempt is claimed by this agent. "
+        "If you are reporting rework outside an active gate, use sprintengine.task.request_changes. "
+        "Use sprintengine.task.status only for explicit repair/admin transitions."
+    )
 
 def complete_gate_attempt(attempt: Dict[str, Any], verdict: str, summary: str) -> None:
     attempt["status"] = verdict

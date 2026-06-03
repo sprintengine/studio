@@ -418,7 +418,7 @@ artifact review mutation path.
 - `sprintengine.task.comment(statePath, taskId, id, body, source?, commentType?, paths?, data?)`
 - `sprintengine.task.comment.list(statePath, taskId) → [<comment>, ...]`
 - `sprintengine.task.publish(statePath, taskId, id, summary, path?, file?, data?, summaryDataJson?)`
-- `sprintengine.task.request_changes(statePath, taskId, id, reason, source?, paths?, needsInput*)`
+- `sprintengine.task.request_changes(statePath, taskId, id, reason, source?, paths?)`
 
 ### Gate ops
 

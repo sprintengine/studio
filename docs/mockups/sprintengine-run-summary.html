@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sprint Engine — run summary redesign mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  /* ---- Dark ink scale + tones, copied from src/renderer/src/assets/index.css ---- */
+  :root {
+    --bg-app: #08080c;
+    --bg-surface: #0c0c10;
+    --bg-surface-raised: #101418;
+    --bg-hover: #18181c;
+
+    --text-strong: #e6e6ec;
+    --text-default: #c8c8d0;
+    --text-muted: #9c9ca4;
+    --text-disabled: #5c5c64;
+
+    --border-subtle: rgba(252, 252, 252, 0.06);
+    --border-default: rgba(252, 252, 252, 0.08);
+    --border-strong: rgba(252, 252, 252, 0.12);
+
+    --accent-primary: #5c7cfc;
+
+    --tone-neutral: #9c9ca4;
+    --tone-accent: #5c7cfc;
+    --tone-good: #30d058;
+    --tone-warn: #fcc030;
+    --tone-error: #fc787c;
+    --tone-neutral-soft: rgba(156, 156, 164, 0.18);
+    --tone-warn-soft: rgba(252, 192, 48, 0.18);
+
+    --tool-sprintengine: #fcc030;
+
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg-app);
+    color: var(--text-default);
+    font-family: "Inter", system-ui, sans-serif;
+    font-feature-settings: "cv05" 1, "ss01" 1, "tnum" 0;
+    -webkit-font-smoothing: antialiased;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .tnum { font-variant-numeric: tabular-nums; }
+  .mono { font-family: var(--mono); }
+
+  /* ---- Mockup chrome (not part of the app; just to switch states) ---- */
+  .mockbar {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 16px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-default);
+  }
+  .mockbar .label { color: var(--text-muted); font-size: 12px; }
+  .seg { display: inline-flex; border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden; }
+  .seg button {
+    appearance: none; border: 0; background: transparent; color: var(--text-muted);
+    font: inherit; font-size: 12px; padding: 5px 11px; cursor: pointer;
+  }
+  .seg button + button { border-left: 1px solid var(--border-subtle); }
+  .seg button[aria-pressed="true"] { background: var(--bg-hover); color: var(--text-strong); }
+  .mock-note { color: var(--text-disabled); font-size: 12px; margin-left: auto; }
+
+  /* ---- Panel ---- */
+  .panel { display: flex; flex-direction: column; min-height: 0; }
+  .panel-header {
+    background: var(--bg-surface);
+    padding: 14px 20px 13px;
+    border-bottom: 1px solid var(--border-default);
+  }
+  .panel-header .crumb { display: flex; align-items: center; gap: 8px; }
+  .panel-header h1 {
+    margin: 0; font-size: 14px; font-weight: 600; color: var(--text-strong);
+  }
+  .panel-header .subtitle {
+    margin: 3px 0 0; font-size: 12px; color: var(--text-muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 760px;
+  }
+
+  .scroll { overflow-y: auto; }
+  .reading { width: 100%; max-width: 960px; margin: 0 auto; padding: 18px 20px 28px; }
+
+  /* ---- Dot ---- */
+  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .dot.lg { width: 7px; height: 7px; }
+  .dot.neutral { background: var(--tone-neutral); }
+  .dot.accent  { background: var(--tone-accent); }
+  .dot.good    { background: var(--tone-good); }
+  .dot.warn    { background: var(--tone-warn); }
+  .dot.error   { background: var(--tone-error); }
+  .dot.tool    { background: var(--tool-sprintengine); }
+
+  /* ---- Verdict line (the one priority) ---- */
+  .verdict { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding-bottom: 14px; }
+  .verdict .phase { display: inline-flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: var(--text-strong); }
+  .verdict .crumbs { display: flex; align-items: baseline; gap: 0; color: var(--text-muted); font-size: 12px; }
+  .verdict .crumbs span { white-space: nowrap; }
+  .verdict .crumbs span + span::before { content: "·"; margin: 0 8px; color: var(--text-disabled); }
+
+  /* ---- Section ---- */
+  .section { padding-top: 18px; }
+  .section + .section { margin-top: 18px; border-top: 1px solid var(--border-subtle); }
+  .section > h2 {
+    margin: 0 0 10px; font-size: 12px; font-weight: 600; color: var(--text-strong);
+    display: flex; align-items: baseline; gap: 7px;
+  }
+  .section > h2 .count { color: var(--text-muted); font-weight: 400; }
+  .empty { color: var(--text-disabled); font-size: 12px; }
+
+  /* ---- Attention rows (needs input / open questions) ---- */
+  .row { display: grid; grid-template-columns: 7px auto 1fr; gap: 9px; align-items: baseline; padding: 5px 0; }
+  .row + .row { border-top: 1px solid var(--border-subtle); }
+  .row .dot { margin-top: 6px; }
+  .row .id { font-family: var(--mono); font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+  .row .body { min-width: 0; }
+  .row .title { color: var(--text-default); }
+  .row .meta { color: var(--text-muted); font-size: 12px; margin-top: 1px; }
+  .row .meta .role { color: var(--text-muted); }
+
+  .subhead { display: flex; align-items: baseline; gap: 7px; margin: 14px 0 4px; font-size: 12px; color: var(--text-muted); }
+  .subhead:first-of-type { margin-top: 0; }
+  .subhead .n { color: var(--text-disabled); }
+
+  /* ---- Remaining-by-status chips (status = dot + label + count, no pills) ---- */
+  .statusline { display: flex; flex-wrap: wrap; gap: 6px 20px; padding: 2px 0 8px; }
+  .statusline .item { display: inline-flex; align-items: baseline; gap: 7px; font-size: 12px; }
+  .statusline .item .lbl { color: var(--text-default); }
+  .statusline .item .n { color: var(--text-muted); }
+  .statusline .item .dot { position: relative; top: 1px; }
+
+  /* ---- Metric strip ---- */
+  .metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; }
+  .metric { padding: 2px 16px 2px 0; }
+  .metric + .metric { border-left: 1px solid var(--border-subtle); padding-left: 16px; }
+  .metric .k { font-size: 12px; color: var(--text-muted); }
+  .metric .v { font-size: 20px; font-weight: 600; color: var(--text-strong); margin-top: 3px; line-height: 1.15; }
+  .metric .v .sub { font-size: 12px; font-weight: 400; color: var(--text-muted); }
+
+  /* ---- Feedback meters ---- */
+  .meters { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 28px; }
+  .meter { display: grid; grid-template-columns: 132px 1fr 40px; align-items: center; gap: 10px; padding: 3px 0; }
+  .meter .name { color: var(--text-muted); font-size: 12px; }
+  .meter .track { height: 4px; border-radius: 2px; background: var(--border-subtle); overflow: hidden; }
+  .meter .fill { height: 100%; background: var(--text-muted); border-radius: 2px; }
+  .meter .pct { text-align: right; color: var(--text-default); font-size: 12px; }
+  .meter.inverse .name::after { content: " ↓"; color: var(--text-disabled); }
+
+  /* ---- breakdown line (findings by area) ---- */
+  .breakdown { color: var(--text-muted); font-size: 12px; }
+  .breakdown .pair { white-space: nowrap; }
+  .breakdown .pair + .pair::before { content: "·"; margin: 0 8px; color: var(--text-disabled); }
+  .breakdown .pair .n { color: var(--text-default); }
+
+  /* ---- Per-agent breakdown table (the headline) ---- */
+  .roletable { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .roletable thead th {
+    font-weight: 500; font-size: 11px; color: var(--text-muted); text-align: right;
+    padding: 0 0 6px 14px; white-space: nowrap;
+  }
+  .roletable thead tr.labels th { border-bottom: 1px solid var(--border-subtle); }
+  .roletable thead th.role { text-align: left; padding-left: 0; }
+  .roletable thead th .inv { color: var(--text-disabled); font-weight: 400; }
+  /* group spanning header */
+  .roletable thead th.group { text-align: center; font-size: 10px; color: var(--text-disabled); padding: 0 0 3px; font-weight: 500; }
+  /* divider between self-reported and measured clusters */
+  .roletable .sep { border-left: 1px solid var(--border-subtle); }
+  .roletable tbody td {
+    padding: 7px 0 7px 14px; border-bottom: 1px solid var(--border-subtle);
+    text-align: right; color: var(--text-default); font-variant-numeric: tabular-nums;
+  }
+  .roletable tbody tr:last-child td { border-bottom: 0; }
+  .roletable tbody tr.idle td { color: var(--text-disabled); }
+  .roletable td.role { text-align: left; padding-left: 0; }
+  .roletable td.role .rname { color: var(--text-strong); }
+  .roletable td.role .rrole { color: var(--text-muted); font-size: 11px; margin-left: 7px; }
+  .roletable td.role .idle-tag { color: var(--text-disabled); font-size: 11px; margin-left: 7px; }
+  /* self-reported cells read lighter — they are the agent's own guess, not ground truth */
+  .roletable td.self { color: var(--text-muted); }
+  .roletable td.na { color: var(--text-disabled); }
+  .roletable td .bug { display: inline-flex; align-items: baseline; gap: 6px; justify-content: flex-end; }
+  .roletable td .bug .dot { position: relative; top: -1px; }
+  .glyph {
+    display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 4px;
+    font-size: 10px; font-weight: 600; margin-right: 9px; position: relative; top: 1px;
+  }
+  .footnote { color: var(--text-disabled); font-size: 11px; margin-top: 9px; }
+  .footnote .self-key { color: var(--text-muted); }
+
+  .hidden { display: none !important; }
+
+  /* ---- footer next-step (kept, calmer) ---- */
+  .nextstep {
+    margin-top: 18px; display: grid; grid-template-columns: 7px 1fr; gap: 9px; align-items: baseline;
+    padding-top: 14px; border-top: 1px solid var(--border-subtle); color: var(--text-muted); font-size: 12px;
+  }
+  .nextstep .dot { margin-top: 5px; }
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <span class="label">Run summary — state:</span>
+  <div class="seg" role="group" aria-label="Mockup state">
+    <button data-state="complete" aria-pressed="true">Complete · with issues</button>
+    <button data-state="running" aria-pressed="false">In progress</button>
+    <button data-state="clean" aria-pressed="false">Clean complete</button>
+    <button data-state="empty" aria-pressed="false">Empty</button>
+  </div>
+  <span class="mock-note">Mockup — tokens from index.css, dark theme. Not wired to data.</span>
+</div>
+
+<div class="panel">
+  <div class="panel-header">
+    <div class="crumb">
+      <span class="dot tool" aria-hidden="true"></span>
+      <h1>Run summary</h1>
+    </div>
+    <p class="subtitle" id="goal">Add per-task duration tracking and a feedback rollup to Sprint Engine</p>
+  </div>
+
+  <div class="scroll">
+    <div class="reading" id="report"><!-- injected --></div>
+  </div>
+</div>
+
+<script>
+/* ----------------------------------------------------------------------------
+   Sample run states. Shapes mirror SprintEngineState / SprintEngineTask fields
+   that already exist (status, startedAt/completedAt, feedback.scores,
+   feedback.findings, feedback.issues, notes, needsInput). Mockup data only.
+---------------------------------------------------------------------------- */
+
+const STATUS_TONE = {
+  done: 'good', in_progress: 'accent', review: 'accent', testing: 'accent',
+  product: 'accent', changes_requested: 'warn', needs_input: 'error', todo: 'neutral', ready: 'neutral',
+};
+const STATUS_LABEL = {
+  done: 'Done', in_progress: 'In progress', review: 'In review', testing: 'In testing',
+  product: 'Product check', changes_requested: 'Changes requested', needs_input: 'Needs input',
+  todo: 'To do', ready: 'Ready',
+};
+const SEV_TONE = { critical: 'error', high: 'error', medium: 'warn', low: 'neutral' };
+const SEV_LABEL = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
+
+/* Role identity — glyph initial + the per-role accent used on Kanban cards.
+   Role color is the documented north-star exception: role is load-bearing here. */
+const ROLE = {
+  architect:     { label: 'Architect',     init: 'A', color: '#8a91fc' },
+  product:       { label: 'Product',       init: 'P', color: '#5cc8fc' },
+  developer:     { label: 'Developer',     init: 'D', color: '#30d058' },
+  frontend:      { label: 'Frontend',      init: 'F', color: '#fc9c5c' },
+  tester:        { label: 'Tester',        init: 'T', color: '#5cd0c0' },
+  security:      { label: 'Security',      init: 'S', color: '#fc787c' },
+  code_reviewer: { label: 'Code reviewer', init: 'R', color: '#c89cfc' },
+  spec_reviewer: { label: 'Spec reviewer', init: 'V', color: '#b0b0fc' },
+};
+
+const SCORE_LABELS = [
+  ['directiveClarityPct', 'Directive clarity', false],
+  ['taskClarityPct', 'Task clarity', false],
+  ['acceptanceCriteriaClarityPct', 'Acceptance clarity', false],
+  ['sprintEngineToolEffectivenessPct', 'Tool effectiveness', false],
+  ['promptOptimizationPct', 'Prompt fit', false],
+  ['contextFitPct', 'Context fit', false],
+  ['roleFitPct', 'Role fit', false],
+  ['autonomyPct', 'Autonomy', false],
+  ['confidencePct', 'Confidence', false],
+  ['hallucinationRiskPct', 'Hallucination risk', true],
+];
+
+const STATES = {
+  complete: {
+    phase: { tone: 'warn', label: 'Complete — needs your attention' },
+    goal: 'Add per-task duration tracking and a feedback rollup to Sprint Engine',
+    durationLabel: '3h 42m',
+    avgTaskLabel: '24m',
+    totals: { done: 11, total: 14 },
+    statusCounts: { done: 11, needs_input: 2, changes_requested: 1 },
+    needsInput: [
+      { id: 'SE-07', role: 'developer', reason: 'Which persistence layer should durations write to — folder store or the projection cache?' },
+      { id: 'SE-12', role: 'frontend', reason: 'Confirm the metric strip should drop the “Results” count in favour of run duration.' },
+    ],
+    openQuestions: [
+      { id: 'SE-04', note: 'Left a TODO on the gate-summary aggregation; needs a decision on whether skipped gates count toward pass rate.' },
+    ],
+    remaining: [
+      { id: 'SE-09', title: 'Wire duration column into the task graph view', status: 'changes_requested', role: 'frontend' },
+    ],
+    metrics: { filesTouched: 38, commands: 26, validations: 14, findings: 9, gates: '17 / 19' },
+    findings: [
+      { id: 'SE-03', sev: 'critical', area: 'security', kind: 'Security issue', title: 'Run goal is interpolated into the export filename without sanitisation', status: 'open' },
+      { id: 'SE-06', sev: 'high', area: 'frontend', kind: 'Accessibility issue', title: 'Score meters convey value by width only — no accessible name on the percentage', status: 'open' },
+      { id: 'SE-08', sev: 'high', area: 'backend', kind: 'Reliability issue', title: 'completedAt can be null for done tasks, breaking duration math', status: 'fixed' },
+    ],
+    findingsLower: { medium: 4, low: 2 },
+    findingsByArea: [['frontend', 3], ['backend', 2], ['security', 1], ['testing', 2], ['docs', 1]],
+    issues: [
+      { id: 'SE-06', sev: 'high', category: 'Acceptance Criteria', title: 'AC did not specify the empty-state copy', prompt: 'Require empty/loading/error copy in every UI acceptance criterion.' },
+    ],
+    scores: { directiveClarityPct: 86, taskClarityPct: 78, acceptanceCriteriaClarityPct: 64, sprintEngineToolEffectivenessPct: 81, promptOptimizationPct: 72, contextFitPct: 88, roleFitPct: 91, autonomyPct: 69, confidencePct: 83, hallucinationRiskPct: 18 },
+    scoreTaskCount: 11,
+    agentStats: [
+      { id: 'developer-1', role: 'developer', tasks: 3, confidence: 84, hallucGuess: 15, bugs: 3, bugTone: 'error', regressions: 1, missedReqs: 1, hallucRate: 24, raised: 0 },
+      { id: 'developer-2', role: 'developer', tasks: 2, confidence: 79, hallucGuess: 20, bugs: 1, bugTone: 'warn', regressions: 0, missedReqs: 0, hallucRate: 17, raised: 0 },
+      { id: 'frontend-1', role: 'frontend', tasks: 3, confidence: 84, hallucGuess: 12, bugs: 2, bugTone: 'warn', regressions: 0, missedReqs: 1, hallucRate: 18, raised: 0 },
+      { id: 'architect-1', role: 'architect', tasks: 2, confidence: 90, hallucGuess: 10, bugs: 0, bugTone: null, regressions: 0, missedReqs: 0, hallucRate: 9, raised: 0 },
+      { id: 'code_reviewer-1', role: 'code_reviewer', tasks: 0, confidence: 87, hallucGuess: null, bugs: null, bugTone: null, regressions: null, missedReqs: null, hallucRate: null, raised: 5 },
+      { id: 'tester-1', role: 'tester', tasks: 0, confidence: 89, hallucGuess: null, bugs: null, bugTone: null, regressions: null, missedReqs: null, hallucRate: null, raised: 3 },
+      { id: 'security-1', role: 'security', tasks: 0, confidence: 92, hallucGuess: null, bugs: null, bugTone: null, regressions: null, missedReqs: null, hallucRate: null, raised: 1 },
+      { id: 'frontend-2', role: 'frontend', tasks: 0, idle: true, confidence: null, hallucGuess: null, bugs: null, bugTone: null, regressions: null, missedReqs: null, hallucRate: null, raised: 0 },
+    ],
+  },
+
+  running: {
+    phase: { tone: 'accent', label: 'Running', pulse: true },
+    goal: 'Add per-task duration tracking and a feedback rollup to Sprint Engine',
+    durationLabel: '1h 08m (ongoing)',
+    avgTaskLabel: '21m',
+    totals: { done: 5, total: 14 },
+    statusCounts: { done: 5, in_progress: 3, review: 1, testing: 1, needs_input: 1, todo: 3 },
+    needsInput: [
+      { id: 'SE-07', role: 'developer', reason: 'Which persistence layer should durations write to — folder store or the projection cache?' },
+    ],
+    openQuestions: [],
+    remaining: [
+      { id: 'SE-09', title: 'Wire duration column into the task graph view', status: 'in_progress', role: 'frontend' },
+      { id: 'SE-10', title: 'Aggregate feedback scores in the run summary util', status: 'in_progress', role: 'developer' },
+      { id: 'SE-11', title: 'Quality-gate pass-rate metric', status: 'in_progress', role: 'developer' },
+      { id: 'SE-12', title: 'Validate score meters with a screen reader', status: 'review', role: 'frontend' },
+      { id: 'SE-13', title: 'Backfill durations for historical runs', status: 'testing', role: 'tester' },
+    ],
+    metrics: { filesTouched: 19, commands: 12, validations: 6, findings: 2, gates: '7 / 19' },
+    findings: [
+      { id: 'SE-08', sev: 'high', area: 'backend', kind: 'Reliability issue', title: 'completedAt can be null for done tasks, breaking duration math', status: 'open' },
+    ],
+    findingsLower: { medium: 1, low: 0 },
+    findingsByArea: [['backend', 1], ['frontend', 1]],
+    issues: [],
+    scores: { directiveClarityPct: 84, taskClarityPct: 80, acceptanceCriteriaClarityPct: 70, sprintEngineToolEffectivenessPct: 79, promptOptimizationPct: 74, contextFitPct: 85, roleFitPct: 90, autonomyPct: 72, confidencePct: 81, hallucinationRiskPct: 20 },
+    scoreTaskCount: 5,
+    agentStats: [
+      { id: 'developer-1', role: 'developer', tasks: 2, confidence: 81, hallucGuess: 16, bugs: 1, bugTone: 'warn', regressions: 0, missedReqs: 0, hallucRate: 19, raised: 0 },
+      { id: 'developer-2', role: 'developer', tasks: 1, confidence: 78, hallucGuess: 18, bugs: 0, bugTone: null, regressions: 0, missedReqs: 0, hallucRate: null, raised: 0 },
+      { id: 'frontend-1', role: 'frontend', tasks: 1, confidence: 82, hallucGuess: 14, bugs: 1, bugTone: 'warn', regressions: 0, missedReqs: 1, hallucRate: null, raised: 0 },
+      { id: 'architect-1', role: 'architect', tasks: 1, confidence: 90, hallucGuess: 14, bugs: 0, bugTone: null, regressions: 0, missedReqs: 0, hallucRate: 12, raised: 0 },
+      { id: 'tester-1', role: 'tester', tasks: 0, confidence: 88, hallucGuess: null, bugs: null, bugTone: null, regressions: null, missedReqs: null, hallucRate: null, raised: 2 },
+    ],
+  },
+
+  clean: {
+    phase: { tone: 'good', label: 'Complete' },
+    goal: 'Tighten the guided-brief validation copy and fix the role-glyph alignment',
+    durationLabel: '52m',
+    avgTaskLabel: '11m',
+    totals: { done: 6, total: 6 },
+    statusCounts: { done: 6 },
+    needsInput: [],
+    openQuestions: [],
+    remaining: [],
+    metrics: { filesTouched: 9, commands: 7, validations: 6, findings: 0, gates: '8 / 8' },
+    findings: [],
+    findingsLower: { medium: 0, low: 0 },
+    findingsByArea: [],
+    issues: [],
+    scores: { directiveClarityPct: 94, taskClarityPct: 92, acceptanceCriteriaClarityPct: 90, sprintEngineToolEffectivenessPct: 88, promptOptimizationPct: 86, contextFitPct: 93, roleFitPct: 95, autonomyPct: 89, confidencePct: 92, hallucinationRiskPct: 8 },
+    scoreTaskCount: 6,
+    agentStats: [
+      { id: 'developer-1', role: 'developer', tasks: 3, confidence: 93, hallucGuess: 9, bugs: 0, bugTone: null, regressions: 0, missedReqs: 0, hallucRate: 7, raised: 0 },
+      { id: 'frontend-1', role: 'frontend', tasks: 2, confidence: 92, hallucGuess: 7, bugs: 0, bugTone: null, regressions: 0, missedReqs: 0, hallucRate: 6, raised: 0 },
+      { id: 'architect-1', role: 'architect', tasks: 1, confidence: 95, hallucGuess: 6, bugs: 0, bugTone: null, regressions: 0, missedReqs: 0, hallucRate: 5, raised: 0 },
+      { id: 'code_reviewer-1', role: 'code_reviewer', tasks: 0, confidence: 94, hallucGuess: null, bugs: null, bugTone: null, regressions: null, missedReqs: null, hallucRate: null, raised: 2 },
+    ],
+  },
+
+  empty: {
+    phase: { tone: 'neutral', label: 'No tasks recorded' },
+    goal: 'Untitled Sprint Engine run',
+    empty: true,
+  },
+};
+
+/* ---------- render helpers ---------- */
+const el = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function metricStrip(m) {
+  // Tasks done + duration live in the verdict line; the strip is output-only so
+  // no count appears twice.
+  const cells = [
+    { k: 'Files touched', v: m.metrics.filesTouched },
+    { k: 'Commands', v: m.metrics.commands },
+    { k: 'Validations', v: m.metrics.validations },
+    { k: 'Gates passed', v: m.metrics.gates },
+    { k: 'Findings', v: m.metrics.findings },
+  ];
+  return `<div class="metrics">${cells.map((c) => `
+    <div class="metric"><div class="k">${esc(c.k)}</div><div class="v tnum">${c.v}</div></div>`).join('')}</div>`;
+}
+
+function meters(scores, n) {
+  const rows = SCORE_LABELS.map(([key, label, inverse]) => {
+    const v = scores[key];
+    if (typeof v !== 'number') return '';
+    return `<div class="meter${inverse ? ' inverse' : ''}">
+      <span class="name">${esc(label)}</span>
+      <span class="track"><span class="fill" style="width:${v}%"></span></span>
+      <span class="pct tnum">${v}%</span>
+    </div>`;
+  }).join('');
+  return `<div class="meters">${rows}</div>`;
+}
+
+function agentTable(stats) {
+  // Group by role (implementers, by task volume, first); idle agents sink to the
+  // bottom of their group. Whole roster is shown — idle agents read as "—".
+  const ROLE_ORDER = ['architect', 'product', 'developer', 'frontend', 'tester', 'security', 'code_reviewer', 'spec_reviewer'];
+  const rows = [...stats].sort((a, b) =>
+    (ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role)) || (b.tasks - a.tasks) || (a.idle ? 1 : -1));
+  const pct = (v) => (typeof v === 'number') ? `${v}%` : '<span class="na">—</span>';
+  const cnt = (v) => (typeof v === 'number') ? `${v}` : '<span class="na">—</span>';
+  return `<table class="roletable">
+    <thead>
+      <tr class="groups">
+        <th class="role"></th><th></th>
+        <th class="group sep" colspan="2">Self-reported</th>
+        <th class="group sep" colspan="5">Measured · from reviews</th>
+      </tr>
+      <tr class="labels">
+        <th class="role">Agent</th>
+        <th>Tasks</th>
+        <th class="sep">Confidence</th>
+        <th>Halluc. risk <span class="inv">↓</span></th>
+        <th class="sep">Bugs</th>
+        <th>Regressions</th>
+        <th>Missed reqs</th>
+        <th>Halluc. rate <span class="inv">↓</span></th>
+        <th>Findings raised</th>
+      </tr>
+    </thead>
+    <tbody>${rows.map((r) => {
+      const rl = ROLE[r.role] || { label: r.role, init: '?', color: 'var(--text-muted)' };
+      const bug = (typeof r.bugs === 'number')
+        ? (r.bugs > 0 ? `<span class="bug"><span class="dot ${r.bugTone || 'neutral'}"></span>${r.bugs}</span>` : '0')
+        : '<span class="na">—</span>';
+      const name = r.id.replace(/-(\d+)$/, ' $1');
+      return `<tr${r.idle ? ' class="idle"' : ''}>
+        <td class="role">
+          <span class="glyph" style="color:${rl.color};background:${rl.color}1f">${rl.init}</span>
+          <span class="rname mono">${esc(name)}</span>
+          <span class="rrole">${esc(rl.label)}</span>${r.idle ? '<span class="idle-tag">idle</span>' : ''}
+        </td>
+        <td>${r.tasks || '<span class="na">—</span>'}</td>
+        <td class="self sep">${pct(r.confidence)}</td>
+        <td class="self">${pct(r.hallucGuess)}</td>
+        <td class="sep">${bug}</td>
+        <td>${cnt(r.regressions)}</td>
+        <td>${cnt(r.missedReqs)}</td>
+        <td>${pct(r.hallucRate)}</td>
+        <td>${r.raised > 0 ? r.raised : (r.idle ? '<span class="na">—</span>' : '0')}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>
+  <p class="footnote"><span class="self-key">Self-reported</span> = the agent's own end-of-task scores (its confidence and its own guess at hallucination risk). <strong>Measured</strong> = counts reviewers actually recorded against that agent's work. A high self-confidence next to a high measured bug count flags overconfidence.</p>`;
+}
+
+function renderState(key) {
+  const m = STATES[key];
+  document.getElementById('goal').textContent = m.goal;
+
+  if (m.empty) {
+    return `<div class="verdict"><span class="phase"><span class="dot lg neutral"></span>No tasks recorded</span></div>
+      <p class="empty" style="margin-top:6px">This run has no tasks yet. Configure a roster and dispatch work to populate the summary.</p>`;
+  }
+
+  const hasRemaining = m.needsInput.length || m.openQuestions.length || m.remaining.length;
+  const hasIssues = m.findings.length || m.issues.length;
+
+  // Verdict line
+  let html = `<div class="verdict">
+      <span class="phase"><span class="dot lg ${m.phase.tone}"></span>${esc(m.phase.label)}</span>
+      <span class="crumbs tnum">
+        <span>${m.totals.done} / ${m.totals.total} tasks done</span>
+        ${m.needsInput.length ? `<span>${m.needsInput.length} need input</span>` : ''}
+        ${m.statusCounts.changes_requested ? `<span>${m.statusCounts.changes_requested} changes requested</span>` : ''}
+        <span>ran ${esc(m.durationLabel)}</span>
+      </span>
+    </div>`;
+
+  // ---- Section: what's left (conditional) ----
+  let remainingHtml = '';
+  if (hasRemaining) {
+    remainingHtml += `<section class="section"><h2>What's left <span class="count tnum">${m.needsInput.length + m.openQuestions.length + m.remaining.length}</span></h2>`;
+
+    if (m.needsInput.length) {
+      remainingHtml += `<div class="subhead">Needs your input <span class="n tnum">${m.needsInput.length}</span></div>`;
+      remainingHtml += m.needsInput.map((q) => `
+        <div class="row"><span class="dot error"></span>
+          <span class="id">${esc(q.id)}</span>
+          <span class="body"><span class="title">${esc(q.reason)}</span>
+            <div class="meta"><span class="role">${esc(q.role)}</span></div></span>
+        </div>`).join('');
+    }
+    if (m.openQuestions.length) {
+      remainingHtml += `<div class="subhead">Open questions <span class="n tnum">${m.openQuestions.length}</span></div>`;
+      remainingHtml += m.openQuestions.map((q) => `
+        <div class="row"><span class="dot warn"></span>
+          <span class="id">${esc(q.id)}</span>
+          <span class="body"><span class="title">${esc(q.note)}</span></span>
+        </div>`).join('');
+    }
+    if (m.remaining.length) {
+      remainingHtml += `<div class="subhead">Still open <span class="n tnum">${m.remaining.length}</span></div>`;
+      const remainingStatuses = {};
+      m.remaining.forEach((t) => { remainingStatuses[t.status] = (remainingStatuses[t.status] || 0) + 1; });
+      remainingHtml += `<div class="statusline">${Object.entries(remainingStatuses).map(([s, n]) => `
+        <span class="item"><span class="dot ${STATUS_TONE[s] || 'neutral'}"></span><span class="lbl">${esc(STATUS_LABEL[s] || s)}</span><span class="n tnum">${n}</span></span>`).join('')}</div>`;
+      remainingHtml += m.remaining.map((t) => `
+        <div class="row"><span class="dot ${STATUS_TONE[t.status] || 'neutral'}"></span>
+          <span class="id">${esc(t.id)}</span>
+          <span class="body"><span class="title">${esc(t.title)}</span>
+            <div class="meta"><span class="role">${esc(t.role)}</span></div></span>
+        </div>`).join('');
+    }
+    remainingHtml += `</section>`;
+  }
+
+  // ---- Section: per-agent breakdown (the headline) ----
+  let roleHtml = '';
+  if (m.agentStats && m.agentStats.length) {
+    roleHtml = `<section class="section"><h2>Per-agent breakdown <span class="count tnum">${m.agentStats.length}</span></h2>${agentTable(m.agentStats)}</section>`;
+  }
+
+  // ---- Section: issues during the run ----
+  let issuesHtml = `<section class="section"><h2>Issues during the run <span class="count tnum">${m.metrics.findings + m.issues.length}</span></h2>`;
+  if (hasIssues) {
+    if (m.findings.length) {
+      const sevCounts = { critical: 0, high: 0, medium: m.findingsLower.medium, low: m.findingsLower.low };
+      m.findings.forEach((f) => { sevCounts[f.sev] = (sevCounts[f.sev] || 0) + 1; });
+      issuesHtml += `<div class="statusline">${['critical', 'high', 'medium', 'low'].filter((s) => sevCounts[s]).map((s) => `
+        <span class="item"><span class="dot ${SEV_TONE[s]}"></span><span class="lbl">${SEV_LABEL[s]}</span><span class="n tnum">${sevCounts[s]}</span></span>`).join('')}</div>`;
+      issuesHtml += m.findings.map((f) => `
+        <div class="row"><span class="dot ${SEV_TONE[f.sev]}"></span>
+          <span class="id">${esc(f.id)}</span>
+          <span class="body"><span class="title">${esc(f.title)}</span>
+            <div class="meta">${esc(f.kind)} · ${esc(f.area)}${f.status === 'fixed' ? ' · fixed' : ''}</div></span>
+        </div>`).join('');
+      const lower = m.findingsLower.medium + m.findingsLower.low;
+      if (lower) issuesHtml += `<div class="subhead" style="margin-top:8px">+ ${lower} lower-severity finding${lower === 1 ? '' : 's'} not shown</div>`;
+    }
+    if (m.issues.length) {
+      issuesHtml += `<div class="subhead" style="margin-top:14px">Prompt &amp; process signals <span class="n tnum">${m.issues.length}</span></div>`;
+      issuesHtml += m.issues.map((i) => `
+        <div class="row"><span class="dot ${SEV_TONE[i.sev]}"></span>
+          <span class="id">${esc(i.id)}</span>
+          <span class="body"><span class="title">${esc(i.title)}</span>
+            <div class="meta">${SEV_LABEL[i.sev]} · ${esc(i.category)}${i.prompt ? ` — ${esc(i.prompt)}` : ''}</div></span>
+        </div>`).join('');
+    }
+  } else {
+    issuesHtml += `<p class="empty">No findings or prompt signals were reported this run.</p>`;
+  }
+  issuesHtml += `</section>`;
+
+  // ---- Section: run metrics (output volume — no overlap with verdict) ----
+  let metricsHtml = `<section class="section"><h2>Run metrics</h2>${metricStrip(m)}`;
+  if (m.findingsByArea.length) {
+    metricsHtml += `<div class="subhead" style="margin-top:16px">Findings by area</div>
+      <div class="breakdown">${m.findingsByArea.map(([a, n]) => `<span class="pair">${esc(a)} <span class="n tnum">${n}</span></span>`).join('')}</div>`;
+  }
+  metricsHtml += `</section>`;
+
+  // ---- Section: process health (input/process feedback, all dimensions) ----
+  const feedbackHtml = `<section class="section"><h2>Process health <span class="count tnum">avg across ${m.scoreTaskCount} task${m.scoreTaskCount === 1 ? '' : 's'}</span></h2>${meters(m.scores, m.scoreTaskCount)}</section>`;
+
+  // Assemble: verdict → headline per-role → issues → what's left → metrics → process health
+  html += roleHtml + issuesHtml + remainingHtml + metricsHtml + feedbackHtml;
+  html += `<div class="nextstep"><span class="dot warn"></span><span>Next step: manually test the uncommitted changes in the workspace before committing or reverting.</span></div>`;
+
+  return html;
+}
+
+function select(key) {
+  document.querySelectorAll('.seg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.state === key)));
+  document.getElementById('report').innerHTML = renderState(key);
+}
+document.querySelectorAll('.seg button').forEach((b) => b.addEventListener('click', () => select(b.dataset.state)));
+select('complete');
+</script>
+</body>
+</html>

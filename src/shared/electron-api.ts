@@ -1308,6 +1308,8 @@ export type ElectronApi = {
   /** Trust or untrust an installed third-party module. */
   setThirdPartyModuleTrust: (id: string, trusted: boolean) => Promise<ThirdPartyModuleTrustResult>
   readSprintEngineDispatch: (input: SprintEngineDispatchReadInput) => Promise<SprintEngineMcpReadResult>
+  /** Sanitized per-run + per-agent feedback analysis for the run summary (read-only). */
+  summarizeSprintEngineFeedback: (statePath: string) => Promise<SprintEngineMcpReadResult>
   initializeSwitchboard: (workspaceRoot: string) => Promise<SwitchboardInitApiResult>
   readSwitchboardTasks: (workspaceRoot: string) => Promise<SwitchboardReadResult>
   createSwitchboardTask: (input: SwitchboardCreateTaskInput) => Promise<SwitchboardMutationResult>

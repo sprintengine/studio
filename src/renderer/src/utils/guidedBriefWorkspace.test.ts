@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import {
+  buildGuidedBriefSprintEngineSourceBundle,
   buildGuidedBriefBuildHandoffMarkdown,
   scaffoldGuidedBriefWorkspace,
   snapshotGuidedBriefArtifact,
@@ -110,6 +111,37 @@ const uiHandoff = buildGuidedBriefBuildHandoffMarkdown({
 assert.match(uiHandoff, /Dashboard mockup: `mockups\/\.versions\/mockuphash\.html`/, 'has-UI handoff records mockup snapshot')
 assert.match(uiHandoff, /UI direction: `product\/\.versions\/uihash\.md` \(uihash\)/, 'has-UI handoff records UI direction snapshot')
 assert.match(uiHandoff, /Which accounting system should import first\?/, 'has-UI handoff records open questions')
+
+const bundleArtifactReads: string[] = []
+const sourceBundle = await buildGuidedBriefSprintEngineSourceBundle({
+  workspaceRoot: '/workspace',
+  handoffPath: 'product/build-handoff.md',
+  handoffContent: '# Handoff',
+  productBrief: { title: 'Requirements', hash: 'briefhash', path: 'product/.versions/briefhash.md' },
+  architecturePlan: { title: 'Architecture', hash: 'archhash', path: 'product/.versions/archhash.md' },
+  uiDirection: { title: 'UI direction', hash: 'uihash', path: 'product/.versions/uihash.md' },
+  mockups: [{ title: 'Dashboard mockup', hash: 'mockuphash', path: 'mockups/.versions/mockuphash.html' }],
+  readArtifact: async (_workspaceRoot, path) => {
+    bundleArtifactReads.push(path)
+    return `content:${path}`
+  },
+})
+
+assert.deepEqual(
+  sourceBundle.map((item) => item.kind),
+  ['generic_context', 'product_plan', 'architect_plan', 'design_notes', 'html_mockup'],
+  'source bundle includes manifest, product, architecture, design notes, and mockups',
+)
+assert.deepEqual(
+  bundleArtifactReads,
+  [
+    'product/.versions/briefhash.md',
+    'product/.versions/archhash.md',
+    'product/.versions/uihash.md',
+    'mockups/.versions/mockuphash.html',
+  ],
+  'source bundle reads every accepted artifact snapshot',
+)
 
 assert.throws(
   () => buildGuidedBriefBuildHandoffMarkdown({

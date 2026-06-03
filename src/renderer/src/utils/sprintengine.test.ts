@@ -20,6 +20,7 @@ import {
   getSprintEngineAgentActivityDescending,
   getSprintEngineTaskActivityDescending,
   getSprintEngineTaskBoardColumn,
+  getSprintEngineTaskImplementerTimeline,
   getSprintEngineTaskOwnerLabel,
   getSprintEngineTaskQualityGates,
   getSprintEngineTasksReviewedByAgent,
@@ -1964,11 +1965,185 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
     'done + no owner → role label',
   )
 
+  // Detached owner: review/testing/product all resolve to the last implementer.
+  for (const status of ['review', 'testing', 'product'] as const) {
+    const detached = {
+      ownerAgentId: null,
+      lastImplementedByAgentId: 'developer-1',
+      role: 'developer' as const,
+      status,
+    }
+    assert.equal(
+      getSprintEngineTaskOwnerLabel(detached, rosterById),
+      'Dev One',
+      `detached ${status} task resolves to the last implementer`,
+    )
+  }
+
+  // Reassignment: when a different worker reclaims the rework, the active owner
+  // takes precedence over the prior implementer (worker retires → another picks
+  // up the task and is shown as the owner).
+  const reassigned = {
+    ownerAgentId: 'frontend-2',
+    lastImplementedByAgentId: 'developer-1',
+    role: 'developer' as const,
+    status: 'in_progress' as const,
+  }
+  assert.equal(
+    getSprintEngineTaskOwnerLabel(reassigned, rosterById),
+    'Front Two',
+    'active claim outranks the prior implementer after reassignment',
+  )
+
   const inFlightUnowned = { ownerAgentId: null, role: 'developer' as const, status: 'review' as const }
   assert.equal(
     getSprintEngineTaskOwnerLabel(inFlightUnowned, rosterById),
     'No active worker',
-    'in-flight + no owner → sentinel',
+    'in-flight + never implemented → sentinel',
+  )
+}
+
+// getSprintEngineTaskImplementerTimeline: one row per worker, active first,
+// then by most-recent pass; each worker keeps their own tick count.
+{
+  type TimelineTask = Parameters<typeof getSprintEngineTaskImplementerTimeline>[0]
+  const runtime = [
+    { agentId: 'developer-1', label: 'Dev One', role: 'developer' as const, status: 'running' },
+    { agentId: 'frontend-2', label: 'Front Two', role: 'frontend' as const, status: 'running' },
+  ]
+
+  // Empty: a task nobody has implemented yet.
+  assert.deepEqual(
+    getSprintEngineTaskImplementerTimeline(
+      { comments: [], ownerAgentId: null, lastImplementedByAgentId: null, role: 'developer' } as TimelineTask,
+      runtime,
+    ),
+    [],
+    'no comments and no owner → empty timeline',
+  )
+
+  // Single active worker mid-rework: one row, active, with their own passes.
+  {
+    const single = getSprintEngineTaskImplementerTimeline(
+      {
+        role: 'developer',
+        ownerAgentId: 'developer-1',
+        lastImplementedByAgentId: 'developer-1',
+        comments: [
+          { type: 'implementation_summary', authorAgentId: 'developer-1', createdAt: '2026-05-16T19:50:00Z' },
+          { type: 'review_feedback', authorAgentId: 'code_reviewer-1', createdAt: '2026-05-16T19:52:00Z' },
+        ],
+      } as TimelineTask,
+      runtime,
+    )
+    assert.equal(single.length, 1, 'feedback comments do not create rows')
+    assert.equal(single[0]?.agentId, 'developer-1')
+    assert.equal(single[0]?.passCount, 1, 'counts only implementation comments')
+    assert.equal(single[0]?.isActive, true)
+    assert.equal(single[0]?.runtimeStatus, 'running')
+    assert.equal(single[0]?.label, 'Dev One')
+  }
+
+  // Reassignment: Dev One implemented once, Front Two reclaimed and is active.
+  // Front Two sorts first; each keeps their own tick count.
+  {
+    const reassigned = getSprintEngineTaskImplementerTimeline(
+      {
+        role: 'developer',
+        ownerAgentId: 'frontend-2',
+        lastImplementedByAgentId: 'developer-1',
+        comments: [
+          { type: 'implementation_summary', authorAgentId: 'developer-1', createdAt: '2026-05-16T19:50:00Z' },
+        ],
+      } as TimelineTask,
+      runtime,
+    )
+    assert.equal(reassigned.length, 2)
+    assert.equal(reassigned[0]?.agentId, 'frontend-2', 'active worker sorts first')
+    assert.equal(reassigned[0]?.isActive, true)
+    assert.equal(reassigned[0]?.passCount, 0, 'new owner has no passes yet')
+    assert.equal(reassigned[1]?.agentId, 'developer-1')
+    assert.equal(reassigned[1]?.passCount, 1, 'prior worker keeps their own tick')
+    assert.equal(reassigned[1]?.isActive, false)
+    assert.equal(reassigned[1]?.runtimeStatus, null, 'runtime status only resolved for active row')
+  }
+
+  // Detached (in review): no active owner, ordered by most-recent pass desc.
+  {
+    const detached = getSprintEngineTaskImplementerTimeline(
+      {
+        role: 'developer',
+        ownerAgentId: null,
+        lastImplementedByAgentId: 'frontend-2',
+        comments: [
+          { type: 'implementation_summary', authorAgentId: 'developer-1', createdAt: '2026-05-16T19:50:00Z' },
+          { type: 'implementation_response', authorAgentId: 'frontend-2', createdAt: '2026-05-16T20:10:00Z' },
+        ],
+      } as TimelineTask,
+      runtime,
+    )
+    assert.equal(detached[0]?.agentId, 'frontend-2', 'most recent pass on top')
+    assert.equal(detached.every((entry) => entry.isActive === false), true, 'no active row when detached')
+    assert.equal(detached[0]?.lastActivityAt, '2026-05-16T20:10:00Z')
+  }
+
+  // Author falls back to `actor` when authorAgentId is absent; lastImplementedBy
+  // with no matching comment still surfaces a row.
+  {
+    const fallback = getSprintEngineTaskImplementerTimeline(
+      {
+        role: 'developer',
+        ownerAgentId: null,
+        lastImplementedByAgentId: 'ghost-9',
+        comments: [
+          { type: 'implementation_summary', actor: 'developer-1', createdAt: '2026-05-16T19:50:00Z' },
+        ],
+      } as TimelineTask,
+      runtime,
+    )
+    const ids = fallback.map((entry) => entry.agentId).sort()
+    assert.deepEqual(ids, ['developer-1', 'ghost-9'], 'actor fallback + seeded last implementer')
+    const ghost = fallback.find((entry) => entry.agentId === 'ghost-9')
+    assert.equal(ghost?.label, 'ghost-9', 'unknown agent falls back to its id as label')
+    assert.equal(ghost?.passCount, 0)
+  }
+}
+
+// lastImplementedByAgentId survives projection normalization so a detached
+// in-review task can still resolve its owning worker.
+{
+  const detachedProjection = fakeProjection({
+    tasks: [
+      {
+        id: 'T1',
+        title: 'In review task',
+        description: '',
+        role: 'developer',
+        status: 'review',
+        folderStatus: 'review',
+        stateStatus: 'review',
+        boardColumn: 'review',
+        ownedPaths: [],
+        dependsOn: [],
+        acceptanceCriteria: [],
+        implementationNotes: [],
+        notes: [],
+        comments: [],
+        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+        activity: [],
+        startedAt: '2026-05-16T19:50:00Z',
+        completedAt: null,
+        ownerAgentId: null,
+        lastImplementedByAgentId: 'developer-1',
+      },
+    ],
+  })
+  const detachedState = normalizeSprintEngineProjection(detachedProjection, 'fallback-name')
+  assert.ok(detachedState, 'projection normalizes')
+  assert.equal(
+    detachedState?.tasks[0]?.lastImplementedByAgentId,
+    'developer-1',
+    'detached owner id is preserved through normalization',
   )
 }
 

@@ -1,8 +1,16 @@
 import type {
+  SprintEngineAgentMetrics,
+  SprintEngineRoleId,
+  SprintEngineRuntimeAgent,
+  SprintEngineRuntimeAgentStatus,
+  SprintEngineState,
   SprintEngineTask,
   SprintEngineTaskFeedback,
   SprintEngineTaskFeedbackFinding,
+  SprintEngineTaskFeedbackFindingSeverity,
   SprintEngineTaskFeedbackIssue,
+  SprintEngineTaskFeedbackScores,
+  SprintEngineTaskStatus,
 } from '../types/workspace'
 
 export const feedbackScoreLabels: Array<{ key: keyof SprintEngineTaskFeedback['scores']; label: string }> = [
@@ -257,4 +265,586 @@ function summarizeFindingCounts<T extends string>(
     const count = counts.get(key) ?? 0
     return count > 0 ? [`${labels[key]} ${count}`] : []
   }).join(', ')
+}
+
+// ---------------------------------------------------------------------------
+// Structured run report for the rebuilt run-summary panel. The panel renders
+// this directly; all feedback-derived per-agent numbers come from the analysis
+// payload (single source of truth), while structural data (roster, task counts,
+// statuses, durations) is derived from local state here.
+// ---------------------------------------------------------------------------
+
+export const findingSeverityOrder: SprintEngineTaskFeedbackFindingSeverity[] = [
+  'critical',
+  'high',
+  'medium',
+  'low',
+]
+
+const agentRoleOrder: SprintEngineRoleId[] = [
+  'architect',
+  'product',
+  'developer',
+  'frontend',
+  'tester',
+  'security',
+  'code_reviewer',
+  'spec_reviewer',
+  'performance',
+  'cross_platform',
+]
+
+export type SprintEngineRunFinding = {
+  taskId: string
+  severity: SprintEngineTaskFeedbackFindingSeverity
+  kind: SprintEngineTaskFeedbackFinding['kind']
+  area: SprintEngineTaskFeedbackFinding['area']
+  title: string
+  detail: string
+  recommendation?: string
+  file?: string | null
+  status?: SprintEngineTaskFeedbackFinding['status']
+  fromReview: boolean
+}
+
+export type SprintEngineAgentRow = {
+  agentId: string
+  role: SprintEngineRoleId
+  status: SprintEngineRuntimeAgentStatus | 'idle'
+  tasksDone: number
+  /** Null when the agent has no recorded feedback (renders as "—"). */
+  metrics: SprintEngineAgentMetrics | null
+}
+
+/** Run-wide quality roll-up shown as a summary strip at the top. Robust to
+ *  per-agent attribution drift: these are run totals/averages regardless of
+ *  which agent id a record landed on. */
+export type SprintEngineRunQuality = {
+  confidencePct: number | null
+  hallucinationRiskPct: number | null
+  hallucinationRatePct: number | null
+  bugs: number
+  regressions: number
+  missedReqs: number
+  hasSelfReported: boolean
+  hasMeasured: boolean
+}
+
+export type SprintEngineRunReport = {
+  totalTasks: number
+  doneTasks: number
+  statusCounts: Partial<Record<SprintEngineTaskStatus, number>>
+  runDurationMs: number | null
+  quality: SprintEngineRunQuality
+  needsInput: Array<{ taskId: string; role: SprintEngineRoleId; reason: string }>
+  openQuestions: Array<{ taskId: string; note: string }>
+  remaining: Array<{
+    id: string
+    title: string
+    status: SprintEngineTaskStatus
+    role: SprintEngineRoleId
+  }>
+  findings: SprintEngineRunFinding[]
+  findingSeverityCounts: Record<SprintEngineTaskFeedbackFindingSeverity, number>
+  metrics: {
+    filesTouched: number
+    commands: number
+    validations: number
+    findings: number
+    gatesApproved: number
+    gatesTotal: number
+  }
+  agentRows: SprintEngineAgentRow[]
+}
+
+function parseTimestampMs(value?: string | null): number | null {
+  if (!value) return null
+  const ms = Date.parse(value)
+  return Number.isNaN(ms) ? null : ms
+}
+
+export function computeRunDurationMs(state: SprintEngineState): number | null {
+  const starts: number[] = []
+  const ends: number[] = []
+  const created = parseTimestampMs(state.creation?.createdAt)
+  const updated = parseTimestampMs(state.creation?.updatedAt)
+  if (created !== null) starts.push(created)
+  if (updated !== null) ends.push(updated)
+  for (const task of state.tasks) {
+    const started = parseTimestampMs(task.startedAt)
+    if (started !== null) starts.push(started)
+    const completed = parseTimestampMs(task.completedAt)
+    if (completed !== null) ends.push(completed)
+  }
+  if (starts.length === 0 || ends.length === 0) return null
+  const duration = Math.max(...ends) - Math.min(...starts)
+  return duration > 0 ? duration : null
+}
+
+export type SprintEngineBurnupPoint = { atMs: number; done: number }
+export type SprintEngineBurnup = {
+  points: SprintEngineBurnupPoint[]
+  startMs: number
+  endMs: number
+  total: number
+}
+
+/** Cumulative completed-task series across the run, for the burn-up chart.
+ *  Returns null when there aren't enough real timestamps to plot honestly. */
+export function buildBurnup(state: SprintEngineState): SprintEngineBurnup | null {
+  const tasks = state.tasks ?? []
+  const completions = tasks
+    .map((task) => parseTimestampMs(task.completedAt))
+    .filter((ms): ms is number => ms !== null)
+    .sort((a, b) => a - b)
+  if (completions.length < 2) return null
+
+  const created = parseTimestampMs(state.creation?.createdAt)
+  const starts = tasks
+    .map((task) => parseTimestampMs(task.startedAt))
+    .filter((ms): ms is number => ms !== null)
+  const startMs = Math.min(created ?? completions[0], completions[0], ...(starts.length ? starts : [completions[0]]))
+  const updated = parseTimestampMs(state.creation?.updatedAt)
+  const endMs = Math.max(updated ?? completions[completions.length - 1], completions[completions.length - 1])
+  if (endMs <= startMs) return null
+
+  const points: SprintEngineBurnupPoint[] = [{ atMs: startMs, done: 0 }]
+  completions.forEach((atMs, index) => {
+    points.push({ atMs, done: index + 1 })
+  })
+  if (endMs > completions[completions.length - 1]) {
+    points.push({ atMs: endMs, done: completions.length })
+  }
+  return { points, startMs, endMs, total: completions.length }
+}
+
+/** Cardinal-spline path through normalized points (x,y in viewBox units). Used
+ *  by the burn-up chart for a smooth, low-noise trend line (per Vercel's
+ *  curve-fitting guidance) without pulling in a charting dependency. */
+export function cardinalSplinePath(points: Array<[number, number]>, tension = 0.5): string {
+  if (points.length === 0) return ''
+  if (points.length === 1) return `M ${points[0][0]} ${points[0][1]}`
+  let d = `M ${points[0][0]} ${points[0][1]}`
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i - 1] ?? points[i]
+    const p1 = points[i]
+    const p2 = points[i + 1]
+    const p3 = points[i + 2] ?? points[i + 1]
+    const cp1x = p1[0] + ((p2[0] - p0[0]) / 6) * tension * 2
+    const cp1y = p1[1] + ((p2[1] - p0[1]) / 6) * tension * 2
+    const cp2x = p2[0] - ((p3[0] - p1[0]) / 6) * tension * 2
+    const cp2y = p2[1] - ((p3[1] - p1[1]) / 6) * tension * 2
+    d += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2[0].toFixed(2)} ${p2[1].toFixed(2)}`
+  }
+  return d
+}
+
+export function formatRunDuration(durationMs: number | null): string | null {
+  if (durationMs === null) return null
+  const totalMinutes = Math.round(durationMs / 60000)
+  if (totalMinutes < 1) return '< 1m'
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours === 0) return `${minutes}m`
+  return `${hours}h ${minutes.toString().padStart(2, '0')}m`
+}
+
+function taskImplementerAgentId(task: SprintEngineTask): string | null {
+  return task.lastImplementedByAgentId ?? task.ownerAgentId ?? null
+}
+
+function collectRunFindings(tasks: SprintEngineTask[]): SprintEngineRunFinding[] {
+  const findings: SprintEngineRunFinding[] = []
+  const push = (
+    task: SprintEngineTask,
+    finding: SprintEngineTaskFeedbackFinding,
+    fromReview: boolean
+  ) => {
+    findings.push({
+      taskId: task.id,
+      severity: finding.severity,
+      kind: finding.kind,
+      area: finding.area,
+      title: finding.title,
+      detail: finding.detail,
+      recommendation: finding.recommendation,
+      file: finding.file,
+      status: finding.status,
+      fromReview,
+    })
+  }
+  for (const task of tasks) {
+    for (const finding of task.feedback?.findings ?? []) push(task, finding, false)
+    for (const assessment of task.feedbackAssessments ?? []) {
+      for (const finding of assessment.findings ?? []) push(task, finding, true)
+    }
+  }
+  return findings.sort(
+    (a, b) =>
+      findingSeverityOrder.indexOf(a.severity) - findingSeverityOrder.indexOf(b.severity)
+  )
+}
+
+export function buildAgentRows(
+  agents: Record<string, SprintEngineRuntimeAgent>,
+  tasks: SprintEngineTask[],
+  analysis: Record<string, SprintEngineAgentMetrics> | null
+): SprintEngineAgentRow[] {
+  const doneByAgent = new Map<string, number>()
+  for (const task of tasks) {
+    if (task.status !== 'done') continue
+    const implementer = taskImplementerAgentId(task)
+    if (!implementer) continue
+    doneByAgent.set(implementer, (doneByAgent.get(implementer) ?? 0) + 1)
+  }
+
+  const agentIds = new Set<string>([
+    ...Object.keys(agents ?? {}),
+    ...Object.keys(analysis ?? {}),
+  ])
+
+  const rows: SprintEngineAgentRow[] = [...agentIds].map((agentId) => {
+    const agent = agents?.[agentId]
+    const metrics = analysis?.[agentId] ?? null
+    const role = (agent?.role ?? metrics?.role ?? '') as SprintEngineRoleId
+    return {
+      agentId,
+      role,
+      status: agent?.status ?? 'idle',
+      tasksDone: doneByAgent.get(agentId) ?? 0,
+      metrics,
+    }
+  })
+
+  return rows.sort((a, b) => {
+    const orderA = agentRoleOrder.indexOf(a.role)
+    const orderB = agentRoleOrder.indexOf(b.role)
+    const rankA = orderA === -1 ? agentRoleOrder.length : orderA
+    const rankB = orderB === -1 ? agentRoleOrder.length : orderB
+    if (rankA !== rankB) return rankA - rankB
+    if (b.tasksDone !== a.tasksDone) return b.tasksDone - a.tasksDone
+    return a.agentId.localeCompare(b.agentId)
+  })
+}
+
+function weightedScoreAverage(
+  rows: SprintEngineAgentRow[],
+  scoreKey: string
+): number | null {
+  let weighted = 0
+  let samples = 0
+  for (const row of rows) {
+    const stat = row.metrics?.selfReported.scores[scoreKey]
+    if (stat) {
+      weighted += stat.averagePct * stat.sampleCount
+      samples += stat.sampleCount
+    }
+  }
+  return samples > 0 ? Math.round(weighted / samples) : null
+}
+
+export function buildRunQualitySummary(rows: SprintEngineAgentRow[]): SprintEngineRunQuality {
+  let claims = 0
+  let hallucinated = 0
+  let bugs = 0
+  let regressions = 0
+  let missedReqs = 0
+  let hasMeasured = false
+  let hasSelfReported = false
+
+  for (const row of rows) {
+    if ((row.metrics?.selfReported.sampleCount ?? 0) > 0) hasSelfReported = true
+    const measured = row.metrics?.measured
+    if (!measured || measured.reviewSampleCount === 0) continue
+    hasMeasured = true
+    claims += measured.counts.claimsChecked ?? 0
+    hallucinated += measured.counts.hallucinatedClaims ?? 0
+    regressions += measured.counts.regressionCount ?? 0
+    missedReqs += measured.counts.missedRequirements ?? 0
+    bugs += measured.findingsAgainst?.total ?? 0
+  }
+
+  return {
+    confidencePct: weightedScoreAverage(rows, 'confidence_pct'),
+    hallucinationRiskPct: weightedScoreAverage(rows, 'hallucination_risk_pct'),
+    hallucinationRatePct: claims > 0 ? Math.round((hallucinated / claims) * 100) : null,
+    bugs,
+    regressions,
+    missedReqs,
+    hasSelfReported,
+    hasMeasured,
+  }
+}
+
+export function buildRunReport(
+  state: SprintEngineState,
+  analysis: Record<string, SprintEngineAgentMetrics> | null
+): SprintEngineRunReport {
+  const tasks = state.tasks ?? []
+
+  const statusCounts: Partial<Record<SprintEngineTaskStatus, number>> = {}
+  for (const task of tasks) {
+    statusCounts[task.status] = (statusCounts[task.status] ?? 0) + 1
+  }
+
+  const needsInput = tasks
+    .filter((task) => task.status === 'needs_input')
+    .map((task) => ({
+      taskId: task.id,
+      role: task.role,
+      reason:
+        task.needsInput?.question?.trim() ||
+        task.needsInput?.suggestedResolution?.trim() ||
+        task.notes[task.notes.length - 1]?.trim() ||
+        'Awaiting input to continue.',
+    }))
+
+  const openQuestions = tasks.flatMap((task) =>
+    task.notes
+      .map((note) => note.trim())
+      .filter(Boolean)
+      .map((note) => ({ taskId: task.id, note }))
+  )
+
+  const remaining = tasks
+    .filter((task) => task.status !== 'done')
+    .map((task) => ({
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      role: task.role,
+    }))
+
+  const agentRows = buildAgentRows(state.sprintEngineAgents ?? {}, tasks, analysis)
+
+  const findings = collectRunFindings(tasks)
+  const findingSeverityCounts: Record<SprintEngineTaskFeedbackFindingSeverity, number> = {
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+  }
+  for (const finding of findings) findingSeverityCounts[finding.severity] += 1
+
+  let gatesApproved = 0
+  let gatesTotal = 0
+  for (const task of tasks) {
+    for (const gate of task.qualityGates ?? []) {
+      gatesTotal += 1
+      if (gate.status === 'approved') gatesApproved += 1
+    }
+  }
+
+  const touchedFiles = uniqueStrings(tasks.flatMap((task) => task.evidence.touchedFiles))
+  const commandsRan = uniqueStrings(tasks.flatMap((task) => task.evidence.commandsRan))
+  const validations = tasks.reduce((total, task) => total + task.evidence.results.length, 0)
+
+  return {
+    totalTasks: tasks.length,
+    doneTasks: statusCounts.done ?? 0,
+    statusCounts,
+    runDurationMs: computeRunDurationMs(state),
+    quality: buildRunQualitySummary(agentRows),
+    needsInput,
+    openQuestions,
+    remaining,
+    findings,
+    findingSeverityCounts,
+    metrics: {
+      filesTouched: touchedFiles.length,
+      commands: commandsRan.length,
+      validations,
+      findings: findings.length,
+      gatesApproved,
+      gatesTotal,
+    },
+    agentRows,
+  }
+}
+
+// Process-health meters cover the input/process self-report dimensions only.
+// Agent-performance dims (confidence, autonomy, hallucination risk) are shown
+// per agent in the breakdown table and deliberately excluded here so the same
+// metric never appears in two places at two aggregation levels.
+export const processHealthDimensions: Array<{
+  key: keyof SprintEngineTaskFeedbackScores
+  label: string
+}> = [
+  { key: 'directiveClarityPct', label: 'Directive clarity' },
+  { key: 'taskClarityPct', label: 'Task clarity' },
+  { key: 'acceptanceCriteriaClarityPct', label: 'Acceptance clarity' },
+  { key: 'sprintEngineToolEffectivenessPct', label: 'Tool effectiveness' },
+  { key: 'promptOptimizationPct', label: 'Prompt fit' },
+  { key: 'contextFitPct', label: 'Context fit' },
+  { key: 'roleFitPct', label: 'Role fit' },
+]
+
+export type SprintEngineProcessHealthStat = {
+  key: keyof SprintEngineTaskFeedbackScores
+  label: string
+  averagePct: number
+  sampleCount: number
+}
+
+export function buildProcessHealth(tasks: SprintEngineTask[]): SprintEngineProcessHealthStat[] {
+  return processHealthDimensions.flatMap(({ key, label }) => {
+    const values = tasks.flatMap((task) => {
+      const value = task.feedback?.scores[key]
+      return typeof value === 'number' ? [value] : []
+    })
+    if (values.length === 0) return []
+    const averagePct = Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
+    return [{ key, label, averagePct, sampleCount: values.length }]
+  })
+}
+
+// Human labels for the measured `counts` keys surfaced in the drill-down.
+// `claimsChecked` is intentionally omitted — it is the denominator for the
+// hallucination rate, not a defect to list.
+export const measuredCountLabels: Record<string, string> = {
+  implementationMistakes: 'Implementation mistakes',
+  missedRequirements: 'Missed requirements',
+  regressionCount: 'Regressions',
+  unsafeChanges: 'Unsafe changes',
+  factualErrors: 'Factual errors',
+  testFailuresIntroduced: 'Test failures introduced',
+  accessibilityIssues: 'Accessibility issues',
+  designIssues: 'Design issues',
+  hallucinatedClaims: 'Hallucinated claims',
+}
+
+// Agents are grouped into work-type tables: implementers produce reviewed code,
+// reviewers run gates, planners shape the work. Each surfaces different metrics.
+export type SprintEngineWorkType = 'implementation' | 'review' | 'planning'
+
+const roleWorkType: Record<string, SprintEngineWorkType> = {
+  developer: 'implementation',
+  frontend: 'implementation',
+  performance: 'implementation',
+  cross_platform: 'implementation',
+  code_reviewer: 'review',
+  spec_reviewer: 'review',
+  tester: 'review',
+  security: 'review',
+  architect: 'planning',
+  product: 'planning',
+}
+
+export function agentWorkType(row: SprintEngineAgentRow): SprintEngineWorkType {
+  // A reviewer role that also did review work stays review; an agent with only
+  // reviewer activity (no implementation role) is review too. Otherwise fall
+  // back to the role map, defaulting unknown/custom roles to implementation.
+  return roleWorkType[row.role] ?? (row.metrics?.reviewer ? 'review' : 'implementation')
+}
+
+export function bucketAgentRowsByWorkType(rows: SprintEngineAgentRow[]): Record<
+  SprintEngineWorkType,
+  SprintEngineAgentRow[]
+> {
+  const buckets: Record<SprintEngineWorkType, SprintEngineAgentRow[]> = {
+    implementation: [],
+    review: [],
+    planning: [],
+  }
+  for (const row of rows) buckets[agentWorkType(row)].push(row)
+  return buckets
+}
+
+// The measured issue types surfaced as per-agent columns + the run-wide
+// "issues caught in review" chart. `bugs` is special — it comes from structured
+// findings (findingsAgainst), the rest are reviewer count fields. Ordered to
+// match typical prominence. These are issues reviewers FLAGGED during the run
+// (counts carry no fixed/open status; structured findings do).
+export const measuredIssueTypes: Array<{ key: string; label: string; short: string }> = [
+  { key: 'bugs', label: 'Bugs', short: 'Bugs' },
+  { key: 'missedRequirements', label: 'Missed requirements', short: 'Missed' },
+  { key: 'implementationMistakes', label: 'Implementation mistakes', short: 'Impl.' },
+  { key: 'factualErrors', label: 'Factual errors', short: 'Factual' },
+  { key: 'unsafeChanges', label: 'Unsafe changes', short: 'Unsafe' },
+  { key: 'hallucinatedClaims', label: 'Hallucinations', short: 'Halluc.' },
+  { key: 'regressionCount', label: 'Regressions', short: 'Regr.' },
+  { key: 'testFailuresIntroduced', label: 'Test failures', short: 'Test fail' },
+]
+
+/** A single agent's count for an issue type. Null = no review of this agent's
+ *  work (renders "—"); a number (incl. 0) = reviewed. */
+export function agentIssueCount(
+  metrics: SprintEngineAgentMetrics | null,
+  key: string
+): number | null {
+  if (!metrics || metrics.measured.reviewSampleCount === 0) return null
+  if (key === 'bugs') return metrics.measured.findingsAgainst?.total ?? 0
+  return metrics.measured.counts[key] ?? 0
+}
+
+export type SprintEngineIssueTotal = { key: string; label: string; short: string; total: number }
+
+/** Run-wide totals per issue type, summed across agents (review attribution). */
+export function buildIssueTotals(rows: SprintEngineAgentRow[]): {
+  items: SprintEngineIssueTotal[]
+  total: number
+  hasMeasured: boolean
+} {
+  let hasMeasured = false
+  const sums = new Map<string, number>()
+  for (const row of rows) {
+    const measured = row.metrics?.measured
+    if (!measured || measured.reviewSampleCount === 0) continue
+    hasMeasured = true
+    for (const type of measuredIssueTypes) {
+      const value =
+        type.key === 'bugs'
+          ? measured.findingsAgainst?.total ?? 0
+          : measured.counts[type.key] ?? 0
+      sums.set(type.key, (sums.get(type.key) ?? 0) + value)
+    }
+  }
+  const items = measuredIssueTypes.map((type) => ({ ...type, total: sums.get(type.key) ?? 0 }))
+  return { items, total: items.reduce((sum, item) => sum + item.total, 0), hasMeasured }
+}
+
+export type SprintEngineAgentTaskDetail = {
+  id: string
+  title: string
+  status: SprintEngineTaskStatus
+  reviewCount: number
+  defects: Array<{ key: string; label: string; count: number }>
+  findings: SprintEngineRunFinding[]
+}
+
+/** Per-agent drill-down: the tasks an agent implemented, each with the review
+ *  signals against it. Task list + titles come from local state; per-task
+ *  defect counts come from the analysis; finding prose comes from the local
+ *  projection (feedback / reviewer assessments). */
+export function buildAgentTaskDetail(
+  agentId: string,
+  tasks: SprintEngineTask[],
+  metrics: SprintEngineAgentMetrics | null
+): SprintEngineAgentTaskDetail[] {
+  const findingsByTask = new Map<string, SprintEngineRunFinding[]>()
+  for (const finding of collectRunFindings(tasks)) {
+    const list = findingsByTask.get(finding.taskId)
+    if (list) list.push(finding)
+    else findingsByTask.set(finding.taskId, [finding])
+  }
+  const taskCounts = metrics?.measured.taskCounts ?? {}
+
+  return tasks
+    .filter((task) => taskImplementerAgentId(task) === agentId)
+    .map((task) => {
+      const counts = taskCounts[task.id]?.counts ?? {}
+      const defects = Object.entries(measuredCountLabels).flatMap(([key, label]) => {
+        const count = counts[key] ?? 0
+        return count > 0 ? [{ key, label, count }] : []
+      })
+      return {
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        reviewCount: taskCounts[task.id]?.reviewSampleCount ?? 0,
+        defects,
+        findings: findingsByTask.get(task.id) ?? [],
+      }
+    })
+    .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }))
 }

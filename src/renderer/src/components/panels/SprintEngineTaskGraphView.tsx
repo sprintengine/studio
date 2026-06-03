@@ -669,9 +669,12 @@ export function SprintEngineTaskGraphView({
  }
 
  const task = node.task
- const ownerAgent = task.ownerAgentId ? rosterById[task.ownerAgentId] : undefined
- const ownerRole = ownerAgent?.role ?? (task.ownerAgentId ? task.role : null)
- const ownerLabel = task.ownerAgentId ? ownerAgent?.label ?? task.ownerAgentId : null
+ // Fall back to the worker who last implemented the task so a detached
+ // in-review/testing/product task still names its owner on the graph node.
+ const ownerId = task.ownerAgentId ?? task.lastImplementedByAgentId ?? null
+ const ownerAgent = ownerId ? rosterById[ownerId] : undefined
+ const ownerRole = ownerAgent?.role ?? (ownerId ? task.role : null)
+ const ownerLabel = ownerId ? ownerAgent?.label ?? ownerId : null
  const isFocused = task.id === focusTaskId
  const isSelected = task.id === selectedTaskId
  const boardColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)

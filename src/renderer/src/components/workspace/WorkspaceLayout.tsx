@@ -37,7 +37,7 @@ import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPaylo
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
-import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
+import { NewChatIcon, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import { StatusDot, type Tone } from '../ui'
 import MulticodeSpinner from '../brand/MulticodeSpinner'
 import AgentPanel from '../panels/AgentPanel'
@@ -45,6 +45,84 @@ import AgentPanel from '../panels/AgentPanel'
 interface Props {
   workspaceId: string
   onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
+  onNewChat?: () => void
+  onNewWorkspace?: () => void
+  onCloseWorkspace?: (workspaceId: string) => void
+}
+
+// Count the live tabs in a model. A workspace whose last tab was closed leaves
+// FlexLayout with an empty grid (sometimes empty tabsets), so we look for real
+// TabNodes rather than trusting tabset presence.
+function countOpenTabs(model: Model | null): number {
+  if (!model) return 0
+  let count = 0
+  model.visitNodes((node) => {
+    if (node instanceof TabNode) count += 1
+  })
+  return count
+}
+
+// Replaces the blank FlexLayout grid when a workspace has no tabs left, so a
+// closed-out workspace reads as an intentional state with a way forward
+// (re-engage via New chat / New workspace) and a way out (Close workspace)
+// rather than a dead canvas.
+function EmptyWorkspaceSurface({
+  onNewChat,
+  onNewWorkspace,
+  onClose,
+}: {
+  onNewChat?: () => void
+  onNewWorkspace?: () => void
+  onClose?: () => void
+}) {
+  const hasSecondaryRow = Boolean(onNewWorkspace || onClose)
+  return (
+    <div className="absolute inset-0 z-10 flex items-center justify-center bg-[color:var(--bg-app)]">
+      <div className="flex flex-col items-center gap-4 text-center">
+        <div className="space-y-1">
+          <p className="text-[13px] font-medium text-[color:var(--text-default)]">No agents open</p>
+          <p className="text-[12px] text-[color:var(--text-disabled)]">
+            Nothing is running in this workspace.
+          </p>
+        </div>
+        {onNewChat ? (
+          <button
+            type="button"
+            onClick={onNewChat}
+            className="inline-flex h-[34px] items-center gap-2 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 text-[12px] font-medium text-[color:var(--text-strong)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]"
+          >
+            <NewChatIcon className="icon-xs" />
+            New chat
+          </button>
+        ) : null}
+        {hasSecondaryRow ? (
+          <div className="flex items-center gap-3 text-[12px]">
+            {onNewWorkspace ? (
+              <button
+                type="button"
+                onClick={onNewWorkspace}
+                className="text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)]"
+              >
+                New workspace
+              </button>
+            ) : null}
+            {onNewWorkspace && onClose ? (
+              <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
+            ) : null}
+            {onClose ? (
+              <button
+                type="button"
+                onClick={onClose}
+                className="text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--tone-warn)]"
+              >
+                Close workspace
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
 }
 
 // Dev Tools panels. The canonical `editor` and `content-search` panels are
@@ -203,7 +281,7 @@ function renderTerminalRecencyIndicator(
   )
 }
 
-function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
+function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorkspace, onCloseWorkspace }: Props) {
   const workspace    = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
   const terminalSessions = useTerminalSessions()
   const now = useRelativeNow()
@@ -980,6 +1058,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
     void showTabContextMenu(event, node)
   }, [showTabContextMenu])
 
+  const isEmpty = countOpenTabs(modelRef.current) === 0
+
   return (
     <div className="relative h-full" onMouseDownCapture={handleMouseDownCapture}>
       <Layout
@@ -993,6 +1073,13 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan }: Props) {
           updateLayout(workspaceId, model.toJson())
         }}
       />
+      {isEmpty ? (
+        <EmptyWorkspaceSurface
+          onNewChat={onNewChat}
+          onNewWorkspace={onNewWorkspace}
+          onClose={onCloseWorkspace ? () => onCloseWorkspace(workspaceId) : undefined}
+        />
+      ) : null}
     </div>
   )
 }

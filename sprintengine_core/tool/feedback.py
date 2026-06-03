@@ -355,10 +355,21 @@ def build_feedback_payload(
     parsed = parse_feedback_args(args)
     now = now_iso()
     if gate_context:
+        # Attribute the verdict to the agent who actually implemented the task.
+        # `ownerAgentId` is cleared once a task leaves the worker's hands (done,
+        # review, testing), so falling back to it alone attributed every measured
+        # signal to the bare role name (e.g. "developer" instead of
+        # "developer-1"). `lastImplementedByAgentId` is retained after handoff
+        # precisely so the implementer stays identifiable for review attribution.
         review_target = {
             "task": task,
             "taskId": str(task.get("id") or ""),
-            "agentId": str(task.get("ownerAgentId") or task.get("role") or ""),
+            "agentId": str(
+                task.get("lastImplementedByAgentId")
+                or task.get("ownerAgentId")
+                or task.get("role")
+                or ""
+            ),
             "executionId": str(gate_context.get("attemptId") or ""),
             "isReviewerAssessment": True,
         }

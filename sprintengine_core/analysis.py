@@ -71,6 +71,7 @@ def summarize_feedback_records(
         "privacy": PRIVATE_CONTENT_NOTICE,
         "feedbackRecordCount": len(records),
         "aggregateScoresByRole": aggregate_scores,
+        "aggregateByAgent": _aggregate_by_agent(records),
         "aggregateCountsByRole": _aggregate_counts_by_role(count_totals),
         "benchmarkRates": _benchmark_rates(benchmark_count_totals),
         "difficultyAnalytics": _difficulty_analytics(difficulty_records),
@@ -199,6 +200,191 @@ def _aggregate_scores_by_role(score_values: dict[str, dict[str, list[int]]]) -> 
                 "sampleCount": len(values),
             }
         output[role] = role_scores
+    return output
+
+
+# Snake-case `counts` keys (see FEEDBACK_COUNT_FIELDS) → camelCase payload keys the
+# renderer consumes. Measured defect signals attributed to the implementer agent.
+_MEASURED_COUNT_KEYS = {
+    "claims_checked": "claimsChecked",
+    "hallucinated_claims": "hallucinatedClaims",
+    "factual_errors": "factualErrors",
+    "implementation_mistakes": "implementationMistakes",
+    "missed_requirements": "missedRequirements",
+    "regression_count": "regressionCount",
+    "test_failures_introduced": "testFailuresIntroduced",
+    "unsafe_changes": "unsafeChanges",
+    "accessibility_issues": "accessibilityIssues",
+    "design_issues": "designIssues",
+}
+
+
+def _avg_score_map(dim_values: dict[str, list[int]]) -> dict[str, Any]:
+    output: dict[str, Any] = {}
+    for key, values in sorted(dim_values.items()):
+        if not values:
+            continue
+        output[key] = {
+            "label": SCORE_LABELS.get(key, key),
+            "averagePct": round(sum(values) / len(values), 1),
+            "sampleCount": len(values),
+        }
+    return output
+
+
+def _accumulate_findings(raw_findings: Any, bucket: dict[str, Any]) -> None:
+    if not isinstance(raw_findings, list):
+        return
+    for finding in raw_findings:
+        if not isinstance(finding, dict):
+            continue
+        bucket["total"] += 1
+        bucket["bySeverity"][str(finding.get("severity") or "low")] += 1
+
+
+def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Per-agent metrics keyed by agentId.
+
+    Self-reported scores come from the worker's own ``agent_self_report`` records
+    (keyed by ``agent_id``). Measured signals come from reviewer/gate records and
+    are attributed to the implementer being reviewed (``review_target_agent_id``),
+    never to the reviewer who logged them. ``findingsRaised`` counts findings an
+    agent authored while reviewing. The renderer joins these rows against the full
+    roster and supplies task counts; rows are emitted only for agents with data.
+    """
+
+    self_scores: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
+    self_record_count: dict[str, int] = defaultdict(int)
+    measured_scores: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
+    measured_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    measured_record_count: dict[str, int] = defaultdict(int)
+    findings_against: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {"total": 0, "bySeverity": defaultdict(int)}
+    )
+    findings_raised: dict[str, int] = defaultdict(int)
+    # Reviewer activity, keyed by the reviewing agent (what they did, vs. the
+    # measured signals above which describe the implementer's work).
+    reviews_performed: dict[str, int] = defaultdict(int)
+    tasks_reviewed: dict[str, set[str]] = defaultdict(set)
+    review_verdicts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    # Per-agent, per-task measured detail for the drill-down. Aggregates only
+    # (review count + summed defect counts); finding prose stays in the renderer
+    # projection, so this output remains sanitized.
+    task_reviews: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    task_counts: dict[str, dict[str, dict[str, int]]] = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(int))
+    )
+    roles: dict[str, str] = {}
+
+    for record in records:
+        source = str(record.get("source") or "")
+        agent_id = str(record.get("agent_id") or "").strip()
+        role = str(record.get("role") or "").strip()
+        scores = normalized_scores(record)
+
+        if source == "agent_self_report":
+            if not agent_id:
+                continue
+            roles.setdefault(agent_id, role)
+            self_record_count[agent_id] += 1
+            for key, value in scores.items():
+                self_scores[agent_id][key].append(value)
+            continue
+
+        # Reviewer / gate assessment → measured, attributed to the implementer.
+        target = str(record.get("review_target_agent_id") or "").strip()
+        if target:
+            roles.setdefault(target, role)  # role is the implementer (target task) role
+            measured_record_count[target] += 1
+            for key, value in scores.items():
+                measured_scores[target][key].append(value)
+            raw_counts = record.get("counts")
+            task_id = str(record.get("review_target_task_id") or record.get("task_id") or "").strip()
+            if task_id:
+                task_reviews[target][task_id] += 1
+            if isinstance(raw_counts, dict):
+                for snake, camel in _MEASURED_COUNT_KEYS.items():
+                    value = raw_counts.get(snake)
+                    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                        measured_counts[target][camel] += value
+                        # Per-task detail lists defects only; claims_checked is the
+                        # rate denominator, not an issue, so it stays out of taskCounts.
+                        if task_id and camel != "claimsChecked":
+                            task_counts[target][task_id][camel] += value
+            _accumulate_findings(record.get("findings"), findings_against[target])
+        if agent_id and isinstance(record.get("findings"), list):
+            findings_raised[agent_id] += len(record["findings"])
+
+        # Reviewer-side activity: attribute to the agent who performed the review.
+        reviewer = str(record.get("reviewer_agent_id") or agent_id or "").strip()
+        if reviewer:
+            reviews_performed[reviewer] += 1
+            review_target_task = str(record.get("review_target_task_id") or record.get("task_id") or "").strip()
+            if review_target_task:
+                tasks_reviewed[reviewer].add(review_target_task)
+            verdict = str(record.get("gate_verdict") or "").strip()
+            if verdict:
+                review_verdicts[reviewer][verdict] += 1
+
+    agent_ids = (
+        set(self_record_count)
+        | set(measured_record_count)
+        | set(findings_raised)
+        | set(reviews_performed)
+    )
+    output: dict[str, Any] = {}
+    for agent_id in sorted(agent_ids):
+        counts = dict(measured_counts.get(agent_id, {}))
+        measured: dict[str, Any] = {
+            "reviewSampleCount": measured_record_count.get(agent_id, 0),
+            "scores": _avg_score_map(measured_scores.get(agent_id, {})),
+            "counts": dict(sorted(counts.items())),
+        }
+        claims_checked = counts.get("claimsChecked", 0)
+        if claims_checked > 0:
+            measured["hallucinationRatePct"] = round(
+                (counts.get("hallucinatedClaims", 0) / claims_checked) * 100, 1
+            )
+        against = findings_against.get(agent_id)
+        if against and against["total"] > 0:
+            measured["findingsAgainst"] = {
+                "total": against["total"],
+                "bySeverity": dict(sorted(against["bySeverity"].items())),
+            }
+        per_task_reviews = task_reviews.get(agent_id, {})
+        per_task_counts = task_counts.get(agent_id, {})
+        task_ids = set(per_task_reviews) | set(per_task_counts)
+        if task_ids:
+            measured["taskCounts"] = {
+                task_id: {
+                    "reviewSampleCount": per_task_reviews.get(task_id, 0),
+                    "counts": {
+                        key: value
+                        for key, value in sorted(per_task_counts.get(task_id, {}).items())
+                        if value > 0
+                    },
+                }
+                for task_id in sorted(task_ids)
+            }
+        row: dict[str, Any] = {
+            "role": roles.get(agent_id, ""),
+            "selfReported": {
+                "sampleCount": self_record_count.get(agent_id, 0),
+                "scores": _avg_score_map(self_scores.get(agent_id, {})),
+            },
+            "measured": measured,
+            "findingsRaised": findings_raised.get(agent_id, 0),
+        }
+        if reviews_performed.get(agent_id, 0) > 0:
+            verdicts = review_verdicts.get(agent_id, {})
+            row["reviewer"] = {
+                "reviewsPerformed": reviews_performed[agent_id],
+                "tasksReviewed": len(tasks_reviewed.get(agent_id, set())),
+                "approved": verdicts.get("approved", 0),
+                "changesRequested": verdicts.get("changes_requested", 0),
+                "blocked": verdicts.get("blocked", 0),
+            }
+        output[agent_id] = row
     return output
 
 
