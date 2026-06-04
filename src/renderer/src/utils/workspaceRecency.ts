@@ -42,3 +42,35 @@ export function partitionWorkspacesByRecency(
   }
   return { recent, stale }
 }
+
+// Orders workspaces by activity rather than by manual position. Rows showing a
+// live status dot (working/needs-input/failed — anything not idle) float to the
+// top; the idle rows below them are ordered by how recently each was worked on,
+// most recent first.
+//
+// Live rows keep their incoming (stored) order among themselves on purpose: they
+// carry only the status dot, not the "2 min ago" recency label, and a working
+// agent's `lastTerminalActivityAt` climbs on every output flush — sorting the
+// live tier by it would make concurrently-streaming rows reshuffle constantly.
+// A workspace that just went idle has a fresh last-worked time, so it lands at
+// the top of the idle tier right where the user left off.
+function compareWorkspacesByActivity(
+  a: Workspace,
+  b: Workspace,
+  isLive: (workspace: Workspace) => boolean
+): number {
+  const liveA = isLive(a)
+  const liveB = isLive(b)
+  if (liveA !== liveB) return liveA ? -1 : 1
+  if (liveA && liveB) return 0
+  return workspaceLastWorkedAt(b) - workspaceLastWorkedAt(a)
+}
+
+export function sortWorkspacesByActivity(
+  workspaces: Workspace[],
+  isLive: (workspace: Workspace) => boolean
+): Workspace[] {
+  // Array.prototype.sort is stable, so live rows (and any idle rows that tie on
+  // last-worked time) keep their incoming (stored) order.
+  return [...workspaces].sort((a, b) => compareWorkspacesByActivity(a, b, isLive))
+}

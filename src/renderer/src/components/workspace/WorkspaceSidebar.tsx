@@ -34,7 +34,7 @@ import {
 } from '../../utils/tabDragPayload'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
-import { partitionWorkspacesByRecency } from '../../utils/workspaceRecency'
+import { partitionWorkspacesByRecency, sortWorkspacesByActivity } from '../../utils/workspaceRecency'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { filterWorkspacesBySearchQuery, normalizeWorkspaceSearchQuery } from '../../utils/workspaceSearch'
 
@@ -386,9 +386,23 @@ export default function WorkspaceSidebar({
   )
   const groups = useMemo(() => buildFolderGroups(filteredWorkspaces), [filteredWorkspaces])
 
+  // A workspace is "live" while it shows a status dot — working, failed, or
+  // waiting on input. Live rows sort above idle ones in the activity ordering.
+  const isWorkspaceLive = useCallback(
+    (workspace: Workspace) => (activityByWorkspaceId[workspace.id] ?? 'idle') !== 'idle',
+    [activityByWorkspaceId]
+  )
+
+  // Starred workspaces surface in most-recently-active order: live ones on top,
+  // then the rest by how long ago they were worked on. This supersedes manual
+  // drag position within the Starred section.
   const starredWorkspaces = useMemo(
-    () => filteredWorkspaces.filter((workspace) => isStarred(workspace.highlight)),
-    [filteredWorkspaces]
+    () =>
+      sortWorkspacesByActivity(
+        filteredWorkspaces.filter((workspace) => isStarred(workspace.highlight)),
+        isWorkspaceLive
+      ),
+    [filteredWorkspaces, isWorkspaceLive]
   )
 
   const workspaceById = useMemo(() => {
@@ -1206,9 +1220,17 @@ export default function WorkspaceSidebar({
         ) : null}
         {groups.map((group) => {
           const collapsed = collapsedFolders[group.key] === true
-          const visibleWorkspaces = sidebarCollapsed
-            ? group.workspaces.filter((workspace) => !isStarred(workspace.highlight))
-            : group.workspaces
+          // Each folder's rows are ordered by most-recent activity, same as the
+          // Starred section: live rows first, then by how long ago each was
+          // worked on. The stale-fold below still partitions by the 5-day
+          // threshold; this only sets the order within the recent and folded
+          // groups.
+          const visibleWorkspaces = sortWorkspacesByActivity(
+            sidebarCollapsed
+              ? group.workspaces.filter((workspace) => !isStarred(workspace.highlight))
+              : group.workspaces,
+            isWorkspaceLive
+          )
           if (sidebarCollapsed && visibleWorkspaces.length === 0) return null
           const dropMark =
             dropIndicator?.kind === 'folder' && dropIndicator.targetKey === group.key

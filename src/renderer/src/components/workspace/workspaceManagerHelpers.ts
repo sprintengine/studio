@@ -10,6 +10,7 @@ import {
   getMultiloopTasksForMilestone,
 } from '../../utils/multiloop'
 import { isStarred } from '../../utils/highlight'
+import { sortWorkspacesByActivity } from '../../utils/workspaceRecency'
 import {
   deriveWorkspaceDisplayActivity,
   isLiveTerminal,
@@ -121,17 +122,24 @@ export function getSessionItems(
 
 /**
  * Reproduces the workspace order users see in the left sidebar so the
- * session manager dropdown matches: starred workspaces first (in their
- * stored order), then folder groups in first-occurrence order, with each
- * workspace appearing exactly once.
+ * session manager dropdown matches: starred workspaces first, then folder
+ * groups in first-occurrence order, with each workspace appearing exactly
+ * once. When `isWorkspaceLive` is supplied, both the starred section and each
+ * folder's rows are ordered by most-recent activity (live ones first, then by
+ * last-worked time) to match the sidebar; otherwise stored order is preserved.
  */
-export function buildSidebarWorkspaceOrder(workspaces: Workspace[]): Map<string, number> {
+export function buildSidebarWorkspaceOrder(
+  workspaces: Workspace[],
+  isWorkspaceLive?: (workspace: Workspace) => boolean,
+): Map<string, number> {
   const order = new Map<string, number>()
   let index = 0
 
-  for (const workspace of workspaces) {
-    if (isStarred(workspace.highlight)) order.set(workspace.id, index++)
-  }
+  const starred = workspaces.filter((workspace) => isStarred(workspace.highlight))
+  const orderedStarred = isWorkspaceLive
+    ? sortWorkspacesByActivity(starred, isWorkspaceLive)
+    : starred
+  for (const workspace of orderedStarred) order.set(workspace.id, index++)
 
   const seenFolders: string[] = []
   const folderBuckets = new Map<string, Workspace[]>()
@@ -148,7 +156,11 @@ export function buildSidebarWorkspaceOrder(workspaces: Workspace[]): Map<string,
     folderBuckets.get(key)!.push(workspace)
   }
   for (const key of seenFolders) {
-    for (const workspace of folderBuckets.get(key)!) {
+    const bucket = folderBuckets.get(key)!
+    const orderedBucket = isWorkspaceLive
+      ? sortWorkspacesByActivity(bucket, isWorkspaceLive)
+      : bucket
+    for (const workspace of orderedBucket) {
       order.set(workspace.id, index++)
     }
   }

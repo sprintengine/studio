@@ -244,8 +244,12 @@ export default function WorkspaceManager() {
   const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel
   const sessions = getSessionItems(visibleWorkspaces, terminalSessions)
   const sidebarWorkspaceOrder = useMemo(
-    () => buildSidebarWorkspaceOrder(visibleWorkspaces),
-    [visibleWorkspaces]
+    () =>
+      buildSidebarWorkspaceOrder(
+        visibleWorkspaces,
+        (workspace) => getWorkspaceActivity(workspace, terminalSessions) !== 'idle'
+      ),
+    [visibleWorkspaces, terminalSessions]
   )
   const unreadNotificationCount = notifications.filter((notification) => !notification.read).length
   const settingsOpen = settingsOverlayOpen
