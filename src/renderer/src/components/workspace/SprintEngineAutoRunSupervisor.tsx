@@ -43,6 +43,8 @@ import {
   getSprintEngineAutoRunOccupiedAgentIds,
   getClaimableSprintEngineAutoRunGates,
   getPendingAgentNotificationEvents,
+  getSprintEngineWakeCandidateTasks,
+  findSprintEngineWakeCandidateTaskForAgent,
   isSprintEngineRunBlockedOnExternalInput,
   isSprintEngineAutoPendingSpawnStillRelevant,
   pickNextAutoRuns,
@@ -802,13 +804,7 @@ export async function sendContinuationPromptsToIdleAgents(
 ): Promise<void> {
   if (continuationCapacity.agentIds.size === 0) return
 
-  const readyTasks = sprintEngineState.tasks.filter((task) =>
-    isSprintEngineTaskLaunchable(task, sprintEngineState)
-    || (
-      task.status === 'changes_requested'
-      && getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'changes_requested'
-    )
-  )
+  const readyTasks = getSprintEngineWakeCandidateTasks(sprintEngineState)
   if (readyTasks.length === 0) return
 
   const now = Date.now()
@@ -824,10 +820,11 @@ export async function sendContinuationPromptsToIdleAgents(
     const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
     if (!runtimeAgent) continue
 
-    const task = readyTasks.find((candidate) =>
-      candidate.role === runtimeAgent.role
-      && !reservedWakeCandidateTaskIds.has(candidate.id)
-      && (!candidate.ownerAgentId || candidate.ownerAgentId === agentId || candidate.status === 'changes_requested')
+    const task = findSprintEngineWakeCandidateTaskForAgent(
+      readyTasks,
+      runtimeAgent.role,
+      agentId,
+      reservedWakeCandidateTaskIds
     )
     if (!task) continue
 
@@ -869,6 +866,93 @@ export async function sendContinuationPromptsToIdleAgents(
       sessionId: session.sessionId,
     })
   }
+}
+
+/**
+ * Last-resort re-engagement for a roster agent whose CLI is alive but idle and
+ * has stopped responding to wake-candidate prompts while it still has claimable
+ * role work (e.g. a `changes_requested` task its reviewers handed back). Because
+ * a live terminal makes the agent count as "running", neither `pickNextAutoRuns`
+ * nor `startMissingRosterAgents` will replace it, and the capped continuation
+ * prompts are the only other path — so once that budget is exhausted the run
+ * stalls silently. Here we restart the stalled terminal: killing it lets the
+ * existing exit→respawn path (`startMissingRosterAgents` + open work) bring a
+ * fresh agent that claims the work through `sprintengine.agent.join`.
+ *
+ * Role-agnostic: applies to any role with a claimable wake task (implementer,
+ * frontend, tester rework, …), not just frontend. Quality-gate stalls keep the
+ * CLI-verdict completion route and are out of scope here.
+ */
+export async function escalateStalledLiveIdleAgents(
+  workspace: Workspace,
+  sprintEngineState: SprintEngineState,
+  continuationCapacity: RunningContinuationCapacity,
+  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
+): Promise<'restarted' | 'none'> {
+  if (continuationCapacity.agentIds.size === 0) return 'none'
+  const wakeTasks = getSprintEngineWakeCandidateTasks(sprintEngineState)
+  if (wakeTasks.length === 0) return 'none'
+
+  const now = Date.now()
+  let restarted = false
+  for (const agentId of continuationCapacity.agentIds) {
+    const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
+    if (!runtimeAgent) continue
+    // Only a genuinely idle agent — no claimed task, no active dispatch. If it
+    // had acted on a wake prompt it would already own the task and be excluded
+    // from the continuation capacity set.
+    if (runtimeAgent.status !== 'idle' || runtimeAgent.currentTaskId || runtimeAgent.currentDispatch) continue
+
+    const task = findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, new Set())
+    if (!task) continue
+
+    const key = continuationMessageKey(workspace, task.id, agentId)
+    const previous = sentContinuationMessages.current.get(key)
+    // Escalate only after the wake-candidate budget is exhausted AND the final
+    // prompt has had a full retry interval to land, so we never kill an agent
+    // that is about to wake and claim.
+    if (!previous || (previous.attempts ?? 0) < AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES) continue
+    if (now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
+
+    const session = await findRunningAgentSession(workspace, agentId)
+    if (!session) continue
+
+    await safeTerminalKill(defaultExecutorPorts, session.sessionId)
+    // Reset the wake budget for this task/agent. The fresh terminal that
+    // `startMissingRosterAgents` spawns next tick claims via join on startup;
+    // clearing the counter also guarantees we never kill-loop the replacement
+    // before it has a chance to claim.
+    sentContinuationMessages.current.delete(key)
+    restarted = true
+
+    await defaultExecutorPorts.publishDiagnostic({
+      level: 'warning',
+      source: 'sprintengine',
+      title: 'Restarted a stalled Sprint Engine agent',
+      message: `${runtimeAgent.role} had ready work on ${task.id} but its terminal stayed idle and stopped responding to wake prompts. Restarting it so the work can be claimed.`,
+      details: [
+        `Workspace: ${workspace.name}`,
+        `Agent: ${agentId} (${runtimeAgent.role})`,
+        `Task: ${task.id} - ${task.title}`,
+        `Wake prompts attempted before restart: ${previous.attempts ?? 0}`,
+      ].join('\n'),
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      taskId: task.id,
+      agentId,
+      sessionId: session.sessionId,
+    })
+    logPerfEvent('SprintEngineAutoRun', 'stalled-agent-restarted', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      agentId,
+      role: runtimeAgent.role,
+      taskId: task.id,
+      sessionId: session.sessionId,
+      attempts: previous.attempts ?? 0,
+    })
+  }
+  return restarted ? 'restarted' : 'none'
 }
 
 export async function sendGateContinuationPromptsToAgents(
@@ -2082,6 +2166,15 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     workspace,
     sprintEngineState,
     runningAgentIds,
+    continuationCapacity,
+    sentContinuationMessages
+  )
+  // Re-engage any live-idle agent that exhausted its wake prompts but still has
+  // claimable role work (e.g. a changes_requested task its reviewers handed
+  // back): restart its terminal so the exit→respawn path claims the work.
+  await escalateStalledLiveIdleAgents(
+    workspace,
+    sprintEngineState,
     continuationCapacity,
     sentContinuationMessages
   )

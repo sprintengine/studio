@@ -9,7 +9,8 @@ import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
-import { buildCliRuntimeOptions } from './newWorkspace/cliRuntimeOptions'
+import { resolveAvailableAgentCli, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
+import { subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import { selectModuleEnabled } from '../../modules'
 import {
   deriveWorkspaceLastOutputAt,
@@ -131,6 +132,9 @@ export default function WorkspaceManager() {
   const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
   const setLastSelectedCli = useWorkspaceStore((s) => s.setLastSelectedCli)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
+  const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
+  const pluginCatalogError = useWorkspaceStore((s) => s.pluginCatalogError)
   const lastSelectedSpecialist = useWorkspaceStore(
     (s) => s.appSettings.lastSelectedSpecialist ?? SPECIALIST_ACTIONS[0].id
   )
@@ -259,6 +263,20 @@ export default function WorkspaceManager() {
     return `Chat ${Date.now()}`
   }, [workspaces])
 
+  // Agent CLIs offered across every renderer picker (sidebar New chat, top-bar
+  // spawn menu, New workspace roster). Driven by the installed-plugin catalog
+  // from T2 plus any configured cliRuntimes, so the lists scale with installed
+  // agents instead of a hardcoded list. While the registry is loading or after a
+  // registry error this falls back to the legacy bundled options.
+  const agentCliCatalog = useMemo(
+    () => selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes),
+    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes],
+  )
+  // First available catalog entry used to rescue new spawns whose remembered CLI
+  // (lastSelectedCli / specialist / multiloop default) is no longer installed.
+  const fallbackSpawnCli = (cli: AgentCli): AgentCli =>
+    resolveAvailableAgentCli(cli, agentCliCatalog, agentCliCatalog[0]?.value ?? cli)
+
   const createNewChat = useCallback((folderPath?: string | null, cli?: AgentCli) => {
     if (!SOLO_CHAT_TEMPLATE) {
       publishDiagnosticSync({
@@ -271,11 +289,15 @@ export default function WorkspaceManager() {
     }
     const targetFolderPath = folderPath === undefined ? activeWorkspace?.folderPath ?? null : folderPath
     const chosenCli = cli && cli.trim() ? cli.trim() : null
+    // Plain New chat (no explicit pick) clamps the remembered lastSelectedCli to an
+    // installed catalog entry so a stale value cannot seed a chat with an
+    // uninstalled plugin id; explicit picks come from the catalog already.
+    const templateAgentCli = resolveTemplateAgentCli(chosenCli, lastSelectedCli, agentCliCatalog)
     addWorkspace(SOLO_CHAT_TEMPLATE, {
       name: pickNewChatName(targetFolderPath),
       folderPath: targetFolderPath,
       windowId: workspaceWindowId,
-      templateAgentCli: chosenCli,
+      templateAgentCli,
     })
     // Remember an explicit pick so the next plain New chat repeats it.
     if (chosenCli) setLastSelectedCli(chosenCli)
@@ -288,19 +310,15 @@ export default function WorkspaceManager() {
   }, [
     activeWorkspace?.folderPath,
     addWorkspace,
+    agentCliCatalog,
     closeSettingsOverlay,
+    lastSelectedCli,
     onboardingStep,
     pickNewChatName,
     setLastSelectedCli,
     setOnboardingStep,
     workspaceWindowId,
   ])
-
-  // Agent CLIs offered when picking a type for a New chat. Sourced from the same
-  // plugin-aware catalog the New workspace panel uses (bundled Codex/Claude plus
-  // anything configured in cliRuntimes — opencode, custom/plugin agents), so the
-  // picker scales with installed agents instead of a hardcoded list.
-  const newChatAgentOptions = useMemo(() => buildCliRuntimeOptions(cliRuntimes), [cliRuntimes])
 
   const openNewWorkspacePanelForFolder = useCallback((folderPath: string) => {
     setNewWorkspacePanelInitialState({ folderPath })
@@ -373,6 +391,19 @@ export default function WorkspaceManager() {
       isPrimaryWorkspaceWindow ? 'primary' : 'detached'
     )
   }, [isPrimaryWorkspaceWindow, registerWorkspaceWindow, workspaceWindowId])
+
+  // The plugin catalog loads once at startup (workspaceStore) and on explicit
+  // Settings retry. Re-sync it when this window regains focus / becomes visible
+  // so plugins installed or removed while the user was away show up without an
+  // app reload. Background mode avoids a loading flicker; refreshPluginCatalog
+  // dedups concurrent calls during rapid focus changes.
+  useEffect(
+    () =>
+      subscribePluginCatalogRefreshOnFocus(() => {
+        void useWorkspaceStore.getState().refreshPluginCatalog({ background: true })
+      }),
+    []
+  )
 
   useEffect(() => {
     if (collapsedStaleDetachedWindowsRef.current) return
@@ -1008,7 +1039,9 @@ export default function WorkspaceManager() {
     const newId = `specialist-${specialist.id}-${nanoid(6)}`
     if (!(model.getActiveTabset() ?? firstTabset(model))) return
     const prompt = buildSpecialistSoulStartupPrompt(specialist)
-    const cliForSpawn = normalizeSelectedCli(selectedCli ?? specialistCliDefaults[specialist.id], lastSelectedCli)
+    const cliForSpawn = fallbackSpawnCli(
+      normalizeSelectedCli(selectedCli ?? specialistCliDefaults[specialist.id], lastSelectedCli)
+    )
 
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
@@ -1068,7 +1101,9 @@ export default function WorkspaceManager() {
       workspace: activeWorkspace,
       agentId: newId,
     })
-    const cliForSpawn = normalizeSelectedCli(selectedCli ?? multiloopRoleCliDefaults[soul.role], lastSelectedCli)
+    const cliForSpawn = fallbackSpawnCli(
+      normalizeSelectedCli(selectedCli ?? multiloopRoleCliDefaults[soul.role], lastSelectedCli)
+    )
 
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
@@ -1093,13 +1128,14 @@ export default function WorkspaceManager() {
     if (!model) return
 
     const activeWorkspace = workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
+    const spawnCli = fallbackSpawnCli(cli)
     const tabName = uniqueAgentName(label, activeWorkspace?.agents ?? {})
-    const newId = `agent-${cli}-${nanoid(6)}`
+    const newId = `agent-${spawnCli}-${nanoid(6)}`
     if (!(model.getActiveTabset() ?? firstTabset(model))) return
 
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
-      cli,
+      cli: spawnCli,
       cliPermissionPreset: agentSpawnPermissionPreset,
       kind: 'general',
       specialistId: undefined,
@@ -1302,7 +1338,7 @@ export default function WorkspaceManager() {
         onNewChatInFolder={(folderPath) => createNewChat(folderPath)}
         onNewChatWithAgent={(cli) => createNewChat(undefined, cli)}
         onNewChatInFolderWithAgent={(folderPath, cli) => createNewChat(folderPath, cli)}
-        newChatAgentOptions={newChatAgentOptions}
+        newChatAgentOptions={agentCliCatalog}
         onRevealFolder={handleRevealFolder}
         onSetSidebarCollapsed={setSidebarCollapsed}
       />
@@ -1346,7 +1382,9 @@ export default function WorkspaceManager() {
         agentMenuHighlight={agentMenuHighlight}
         setAgentMenuHighlight={setAgentMenuHighlight}
         chipPopoverForRole={chipPopoverForRole}
-        agentCliOptions={newChatAgentOptions}
+        agentCliOptions={agentCliCatalog}
+        agentCliStatus={pluginCatalogStatus}
+        agentCliError={pluginCatalogError}
         setChipPopoverForRole={setChipPopoverForRole}
         multiloopLaunchMenu={multiloopLaunchMenu}
         selectedSpecialistAction={selectedSpecialistAction}

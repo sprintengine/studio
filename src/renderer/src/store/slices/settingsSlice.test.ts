@@ -142,6 +142,20 @@ store.setSearchExcludes([' dist ', '!coverage', 'dist'])
 assert.deepEqual(useWorkspaceStore.getState().appSettings.searchExcludes, ['dist', 'coverage'])
 store.setLastSelectedCli('codex')
 assert.equal(useWorkspaceStore.getState().appSettings.lastSelectedCli, 'codex')
+
+// setCliRuntime on a plugin-id key (no bundled default) must NOT pin the command
+// to the plugin id when only the WSL flag is toggled; a blank command resolves
+// to the manifest binary at launch (T4 AC3).
+store.setCliRuntime('opencode', { useWsl: true })
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.cliRuntimes.opencode,
+  { command: '', useWsl: true },
+  'plugin-id row defaults to a blank command, not the plugin id',
+)
+// A bundled key keeps its existing command default behavior.
+store.setCliRuntime('codex', { command: 'codex-x' })
+assert.equal(useWorkspaceStore.getState().appSettings.cliRuntimes.codex.command, 'codex-x')
+
 store.setSidebarCollapsed(true)
 assert.equal(useWorkspaceStore.getState().sidebarCollapsed, true)
 

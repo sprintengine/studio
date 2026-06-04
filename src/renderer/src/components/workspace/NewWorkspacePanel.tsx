@@ -58,7 +58,7 @@ import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind } from './newWorkspace/helpers'
 import type { CreationMode, ExistingTeam, GuidedBriefHasUi, SprintEnginePath } from './newWorkspace/types'
 import { CliPermissionPresetRow, PathRadio } from './newWorkspace/WizardControls'
-import { buildCliRuntimeOptions } from './newWorkspace/cliRuntimeOptions'
+import { selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import {
   GuidedBriefScaffoldError,
   GuidedBriefStartBuildError,
@@ -409,9 +409,14 @@ export default function NewWorkspacePanel({
   const [closeConfirmation, setCloseConfirmation] = useState(false)
 
   const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
+  const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
+  // Shared plugin-aware catalog (installed agents + configured runtimes) used by
+  // both the Sprint Engine roster role pickers and the Guided Brief role pickers,
+  // so opencode/custom agents are selectable everywhere new agents are configured.
   const sprintEngineCliOptions = useMemo(
-    () => buildCliRuntimeOptions(appCliRuntimes),
-    [appCliRuntimes],
+    () => selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes),
+    [pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes],
   )
   const sprintEngineModuleEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
@@ -1262,6 +1267,7 @@ export default function NewWorkspacePanel({
             onClose={requestClose}
             onStartBuild={handleGuidedStartBuild}
             cliRuntimes={appCliRuntimes}
+            cliOptions={sprintEngineCliOptions}
             sprintEngineRoleRegistry={seRoleRegistry}
             sprintEngineDisabledRoleIds={sprintEngineDisabledRoleIds}
           />

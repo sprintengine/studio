@@ -14,10 +14,12 @@ import type {
   AgentCli,
   AppNotification,
   MultiloopRole,
+  PluginCatalogStatus,
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
   Workspace,
 } from '../../types/workspace'
+import { resolveAvailableAgentCli } from './newWorkspace/cliRuntimeOptions'
 import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getHighlightSwatch, getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
@@ -56,10 +58,6 @@ const VIEWS_FOR_MODE: Record<string, { label: string; views: ViewItem[] }> = {
   },
 }
 
-export const AGENT_SPAWN_CLI_OPTIONS: Array<{ value: AgentCli; label: string }> = [
-  { value: 'codex', label: 'Codex' },
-  { value: 'claude', label: 'Claude Code' },
-]
 export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
   value: SprintEngineCliPermissionPreset
   label: string
@@ -486,6 +484,10 @@ export type WorkspaceTopBarProps = {
   // Plugin-aware agent CLI catalog (bundled + configured cliRuntimes), shared
   // with the sidebar New chat picker so the lists stay in sync.
   agentCliOptions: Array<{ value: AgentCli; label: string }>
+  // Plugin registry load state, so the spawn menu can tell "still loading" and
+  // "registry error" apart from a genuinely empty catalog.
+  agentCliStatus: PluginCatalogStatus
+  agentCliError: string | null
   agentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   setAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   handleSelectSpecialist: (id: SpecialistActionId, cli: AgentCli) => void
@@ -559,6 +561,8 @@ export default function WorkspaceTopBar({
   setSpecialistCliDefault,
   setMultiloopRoleCliDefault,
   agentCliOptions,
+  agentCliStatus,
+  agentCliError,
   agentSpawnPermissionPreset,
   setAgentSpawnPermissionPreset,
   handleSelectSpecialist,
@@ -857,15 +861,19 @@ export default function WorkspaceTopBar({
 
           {/* top-bar-group: agent-spawn */}
           {workspaceActionsEnabled ? (() => {
-            const triggerCli: AgentCli = multiloopLaunchMenu
-              ? (multiloopRoleCliDefaults[selectedMultiloopRoleDescriptor.role] ?? lastSelectedCli)
-              : (specialistCliDefaults[selectedSpecialistAction.id] ?? lastSelectedCli)
-            const triggerCliOption =
-              AGENT_SPAWN_CLI_OPTIONS.find((option) => option.value === triggerCli)
-              ?? AGENT_SPAWN_CLI_OPTIONS[0]
+            // Constrain a remembered CLI to one that is actually installed. When
+            // the catalog is empty (registry still loading or no agent plugins)
+            // this preserves the passed id rather than throwing on an empty list.
             const resolvePickerCli = (cli: AgentCli): AgentCli =>
-              AGENT_SPAWN_CLI_OPTIONS.find((option) => option.value === cli)?.value
-              ?? AGENT_SPAWN_CLI_OPTIONS[0].value
+              resolveAvailableAgentCli(cli, agentCliOptions, agentCliOptions[0]?.value ?? cli)
+            const triggerCli: AgentCli = resolvePickerCli(
+              multiloopLaunchMenu
+                ? (multiloopRoleCliDefaults[selectedMultiloopRoleDescriptor.role] ?? lastSelectedCli)
+                : (specialistCliDefaults[selectedSpecialistAction.id] ?? lastSelectedCli)
+            )
+            const triggerCliOption =
+              agentCliOptions.find((option) => option.value === triggerCli)
+              ?? { value: triggerCli, label: cliLabelFor(triggerCli) }
             const menuQuery = agentMenuQuery.trim().toLowerCase()
             const filteredSpecialists = menuQuery
               ? SPECIALIST_ACTIONS.filter((action) =>
@@ -889,8 +897,9 @@ export default function WorkspaceTopBar({
             const hasQuickMatches = quickTerminalVisible || quickGeneralVisible
             const hasAnyMatches = hasQuickMatches || visibleItems.length > 0
             const cycleCli = (current: AgentCli): AgentCli => {
-              const index = AGENT_SPAWN_CLI_OPTIONS.findIndex((option) => option.value === current)
-              const next = AGENT_SPAWN_CLI_OPTIONS[(index + 1) % AGENT_SPAWN_CLI_OPTIONS.length]
+              if (agentCliOptions.length === 0) return current
+              const index = agentCliOptions.findIndex((option) => option.value === current)
+              const next = agentCliOptions[(index + 1) % agentCliOptions.length]
               return next?.value ?? current
             }
             const onSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -1033,6 +1042,20 @@ export default function WorkspaceTopBar({
                       aria-label="Filter agents"
                     />
                   </div>
+
+                  {agentCliStatus === 'loading' ? (
+                    <div className="px-3 py-1.5 text-[11px] text-[color:var(--text-disabled)]" role="status">
+                      Loading installed agents…
+                    </div>
+                  ) : agentCliStatus === 'error' ? (
+                    <div className="px-3 py-1.5 text-[11px] text-[color:var(--text-muted)]" role="status">
+                      {agentCliError ?? 'Could not load agent plugins.'} Showing built-in agents.
+                    </div>
+                  ) : agentCliOptions.length === 0 ? (
+                    <div className="px-3 py-1.5 text-[11px] text-[color:var(--text-muted)]" role="status">
+                      No agent plugins installed.
+                    </div>
+                  ) : null}
 
                   {hasQuickMatches ? (
                     <div className="py-1">

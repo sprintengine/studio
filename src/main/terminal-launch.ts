@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
 import { unlink } from 'fs/promises'
 import { join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
-import { buildAgentShellCommand, pluginIdForCli, renderAgentLaunchArgv } from './agent-launch-render'
+import { buildAgentShellCommand, pluginIdForCli, renderAgentLaunchArgv, resolveCliRuntimeSettings } from './agent-launch-render'
 import { withMulticodeCliPath } from './cli-install'
 
 export type ShellLaunchConfig = {
@@ -285,11 +285,12 @@ function getCliRuntimeSettings(
   cli: AgentCli,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
 ): CliRuntimeSettings {
-  const configured = cliRuntimes?.[cli]
-  return {
-    command: configured?.command?.trim() || cli,
-    useWsl: Boolean(configured?.useWsl),
-  }
+  // Delegates to the shared resolver so the launch path applies the same legacy
+  // alias compatibility (claude-code <- claude) the Agents settings row displays:
+  // a claude-code launch honors an existing `claude` command/WSL override until a
+  // direct claude-code override is saved. A blank command stays blank so
+  // renderAgentLaunchArgv falls back to the plugin manifest binary.
+  return resolveCliRuntimeSettings(cli, cliRuntimes)
 }
 
 function getBundledSprintEngineToolPath(): string | null {

@@ -578,7 +578,10 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         const defaults = defaultAppSettings()
         state.appSettings.cliRuntimes ??= defaults.cliRuntimes
-        const fallback = defaults.cliRuntimes[cli] ?? { command: cli, useWsl: false }
+        // Unknown plugin ids default to a blank command so a row the user only
+        // toggles WSL on does not pin the command to the plugin id; a blank
+        // command resolves to the plugin manifest binary at launch.
+        const fallback = defaults.cliRuntimes[cli] ?? { command: '', useWsl: false }
         state.appSettings.cliRuntimes[cli] = {
           ...fallback,
           ...state.appSettings.cliRuntimes[cli],

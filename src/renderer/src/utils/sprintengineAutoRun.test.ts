@@ -129,6 +129,7 @@ async function main(): Promise<void> {
   await testSuperviseRunnerCycleDoesNotRestartUnresolvedNeedsInputOwner()
   await testSuperviseRunnerCycleStartsReviewGateWhenUnrelatedAgentNeedsInput()
   await testSuperviseRunnerCycleDoesNotMutateTaskOrGateState()
+  await testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForChangesRequested()
 }
 
 function testAgentTerminalBackgroundPolicyDoesNotSelectOrCreateTabs(): void {
@@ -2268,6 +2269,147 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
   assert.ok(
     !/sprintengine (join|task|gate|triage|init|handover)/.test(spawns[0].initialPrompt ?? ''),
     'restarted code_reviewer prompt does not embed any sprintengine CLI command'
+  )
+}
+
+async function testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForChangesRequested(): Promise<void> {
+  // Repro for the renderer-cli-plugin-catalog stall (T4 stuck in changes_requested).
+  // The frontend implementer's CLI is still ALIVE but idle — it finished its turn
+  // after submitting its review gate verdict — so getRunningAutoRunAgentIds reports
+  // it in runningAgentIds. Meanwhile reviewers moved the task back to an ownerless
+  // `changes_requested`. Because the agent counts as "running":
+  //   - startMissingRosterAgents skips it (runningAgentIds.has → continue),
+  //   - pickNextAutoRuns excludes it from reusable role agents,
+  // leaving capped wake-candidate prompts as the only re-engagement path. Once that
+  // cap is reached the run is permanently stranded with a green "running" light.
+  //
+  // Desired behaviour: a stalled live-idle agent with claimable role work must be
+  // re-engaged (spawn a replacement runner and/or keep nudging). This asserts that
+  // re-engagement happens; it FAILS against current code, pinning the defect.
+  const spawns: Array<{ agentId?: string; cli?: AgentCli }> = []
+  const writes: Array<{ sessionId: string; text: string }> = []
+  const kills: string[] = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-frontend-live',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'frontend',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'claude',
+      },
+    ],
+    terminalStatus: async () => ({ processAlive: true }),
+    terminalWrite: async (sessionId: string, text: string) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    terminalKill: async (sessionId: string) => {
+      kills.push(sessionId)
+      return { ok: true }
+    },
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    terminalSpawn: async (
+      sessionId: string,
+      _cols: number,
+      _rows: number,
+      _cwd?: string,
+      _resume?: boolean,
+      _statePath?: string,
+      cli?: AgentCli,
+      _initialPrompt?: string,
+      _cliRuntimes?: unknown,
+      _shellOnly?: boolean,
+      metadata?: { agentId?: string },
+    ) => {
+      spawns.push({ agentId: metadata?.agentId, cli })
+      return { ok: true, sessionId }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const reworkTask = task({
+    id: 'T4',
+    title: 'Render installed plugins in Agents settings',
+    role: 'frontend',
+    status: 'changes_requested',
+    boardColumn: 'changes_requested',
+    ownerAgentId: null,
+    dependsOn: [],
+    qualityGates: [],
+  })
+  const sprintEngineState = sprintEngineStateFixture({
+    runner: { cliWatchPolling: 'enabled', pollIntervalSeconds: 10, idleBackoffSeconds: 30, maxBackoffSeconds: 120, stopWhenComplete: true },
+    sprintEngineAgents: {
+      frontend: runtimeAgent('frontend', { status: 'idle', currentTaskId: null }),
+    },
+    tasks: [reworkTask],
+  })
+
+  // Sanity: the engine itself considers this claimable role work, so the stall is a
+  // re-engagement gap, not a readiness problem.
+  assert.equal(
+    roleHasClaimableSprintEngineImplementationWork(sprintEngineState, 'frontend'),
+    true,
+    'ownerless changes_requested T4 is claimable frontend work',
+  )
+
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: {
+      frontend: sprintAgent('frontend', 'Rio', 'claude'),
+    },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+
+  // The live-idle agent has already exhausted the wake-candidate prompt budget,
+  // matching the stranded run after the supervisor gave up.
+  const continuationKey = continuationMessageKey(workspace, 'T4', 'frontend')
+  const sentContinuationMessages = mutableRef(new Map<string, { sentAt: number; attempts?: number }>([
+    [continuationKey, { sentAt: Date.now() - 120_000, attempts: supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES }],
+  ]))
+
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    mcpSettings: emptyMcpSettings,
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages,
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+  })
+
+  // Before the fix: frontend is treated as "running", so no replacement is
+  // spawned and the capped continuation path writes nothing — the task is
+  // stranded. The fix re-engages by restarting (killing) the stalled terminal so
+  // the exit→respawn path claims it next tick.
+  assert.ok(
+    kills.length + spawns.length + writes.length >= 1,
+    `stalled live-idle frontend agent must be re-engaged for ownerless changes_requested work; got kills=${JSON.stringify(kills)} spawns=${JSON.stringify(spawns)} writes=${writes.length}`,
+  )
+  assert.deepEqual(
+    kills,
+    ['session-frontend-live'],
+    'the stalled frontend terminal is restarted so a fresh agent can claim the changes_requested task',
   )
 }
 

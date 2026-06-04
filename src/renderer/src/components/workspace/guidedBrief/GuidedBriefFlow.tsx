@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electron-api'
 import type {
   SprintEngineCliPermissionPreset,
@@ -16,7 +16,6 @@ import {
 import { applyUserDisabledSprintEngineRoleCounts } from '../../../utils/sprintengine'
 import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAutomation'
 import { CloseIconButton, StatusDot, Tabs, Tooltip, WizardProgress, type TabItem } from '../../ui'
-import { buildCliRuntimeOptions } from '../newWorkspace/cliRuntimeOptions'
 import { SprintEngineRosterTable } from '../newWorkspace/SprintEngineRosterTable'
 import { CliPermissionPresetRow, PathRadio } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
@@ -59,6 +58,10 @@ type Props = {
     runOptions: GuidedBriefRunOptions,
   ) => Promise<void>
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
+  // Plugin-aware role CLI picker options, built by the parent from the installed
+  // plugin catalog. `cliRuntimes` above stays for the session hooks, which need
+  // the real launch command / WSL config, not just the selectable list.
+  cliOptions: Array<{ value: AgentCli; label: string }>
   sprintEngineRoleRegistry?: SprintEngineRoleRegistry | null
   sprintEngineDisabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null
 }
@@ -70,11 +73,11 @@ export function GuidedBriefFlow({
   onClose,
   onStartBuild,
   cliRuntimes,
+  cliOptions,
   sprintEngineRoleRegistry = null,
   sprintEngineDisabledRoleIds = null,
 }: Props) {
   const { stage, hasUi, workspaceRoot, workspaceName, acceptedProductBrief, acceptedArchitecturePlan } = runtimeState
-  const cliOptions = useMemo(() => buildCliRuntimeOptions(cliRuntimes), [cliRuntimes])
   const progressOptions = {
     wantsProductDiscussion: runtimeState.wantsProductDiscussion,
     wantsArchitectureDiscussion: runtimeState.wantsArchitectureDiscussion,

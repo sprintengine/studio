@@ -1,7 +1,7 @@
 import { existsSync } from 'fs'
 import { isAbsolute, join, relative, resolve, sep } from 'path'
 
-import type { LoadedPlugin, PluginManifest } from '../shared/plugin-manifest'
+import type { LoadedPlugin, PluginManifest, PluginRegistryListEntry } from '../shared/plugin-manifest'
 import {
   createPluginRegistry,
   defaultUserPluginRoot,
@@ -66,6 +66,10 @@ export function getPluginById(id: string): LoadedPlugin | undefined {
 
 export function getPluginManifest(id: string): PluginManifest | undefined {
   return ensureRegistry().get(id)?.manifest
+}
+
+export function listPluginRegistryEntries(): PluginRegistryListEntry[] {
+  return ensureRegistry().list()
 }
 
 export function getLastPluginRegistryReport(): PluginRegistryLoadReport | null {

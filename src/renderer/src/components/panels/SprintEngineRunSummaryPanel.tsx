@@ -545,6 +545,7 @@ function AgentBreakdownSection({
             rows={planningRows}
             architectDifficulty={architectDifficulty}
             planQuality={planQuality}
+            totalTasks={report.totalTasks}
           />
         ) : null}
 
@@ -728,10 +729,12 @@ function PlanningTable({
   rows,
   architectDifficulty,
   planQuality,
+  totalTasks,
 }: {
   rows: SprintEngineAgentRow[]
   architectDifficulty: SprintEngineArchitectDifficulty | null
   planQuality: ReturnType<typeof buildProcessHealth>
+  totalTasks: number
 }) {
   const qualitySamples = planQuality.length
     ? Math.max(...planQuality.map((stat) => stat.sampleCount))
@@ -802,18 +805,17 @@ function PlanningTable({
 
       {planQuality.length > 0 ? (
         <div className="mt-4">
-          <div className="mb-2 flex items-baseline gap-1.5 text-[12px] text-[color:var(--text-muted)]">
-            Plan &amp; setup quality
+          <div className="mb-1.5 flex items-baseline gap-1.5 text-[12px] text-[color:var(--text-muted)]">
+            Plan quality
             <span className="text-[11px] text-[color:var(--text-disabled)]">
-              rated by the team across {qualitySamples} task{qualitySamples === 1 ? '' : 's'}
+              self-reported on {qualitySamples} of {totalTasks} task{totalTasks === 1 ? '' : 's'}
             </span>
           </div>
-          <div className="grid gap-x-8 gap-y-1.5 md:grid-cols-2">
+          <div className="grid gap-x-10 sm:grid-cols-2">
             {planQuality.map((stat) => (
               <div
                 key={stat.key}
-                className="grid grid-cols-[140px_1fr_auto] items-center gap-2.5 py-0.5"
-                aria-label={`${stat.label}: ${stat.averagePct} percent, rated across ${stat.sampleCount} task${stat.sampleCount === 1 ? '' : 's'}`}
+                className="flex items-baseline justify-between gap-3 border-b border-[color:var(--border-subtle)] py-1.5"
               >
                 <span className="text-[12px] text-[color:var(--text-muted)]">
                   {stat.label}
@@ -821,16 +823,7 @@ function PlanningTable({
                     <ColumnHint label={stat.label} hint={PLAN_QUALITY_HINTS[stat.key]} />
                   ) : null}
                 </span>
-                <span
-                  aria-hidden="true"
-                  className="h-1 overflow-hidden rounded-full bg-[color:var(--border-subtle)]"
-                >
-                  <span
-                    className="block h-full rounded-full bg-[color:var(--text-muted)]"
-                    style={{ width: `${stat.averagePct}%` }}
-                  />
-                </span>
-                <span className="text-right text-[12px] tabular-nums text-[color:var(--text-default)]">
+                <span className="text-[12px] tabular-nums text-[color:var(--text-default)]">
                   {stat.averagePct}%
                 </span>
               </div>

@@ -365,6 +365,33 @@ function isSprintEngineAutoRunImplementationWakeCandidate(
     || (task.status === 'changes_requested' && getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'changes_requested')
 }
 
+/**
+ * Tasks an idle roster agent could wake onto: launchable ready work plus
+ * ownerless/own `changes_requested` rework. Shared by the continuation-prompt
+ * path and the stalled-agent restart path so both agree on what counts as
+ * claimable wake work for a live-idle agent.
+ */
+export function getSprintEngineWakeCandidateTasks(
+  sprintEngineState: SprintEngineState
+): SprintEngineTask[] {
+  return sprintEngineState.tasks.filter((task) =>
+    isSprintEngineAutoRunImplementationWakeCandidate(task, sprintEngineState)
+  )
+}
+
+export function findSprintEngineWakeCandidateTaskForAgent(
+  wakeTasks: SprintEngineTask[],
+  role: SprintEngineRoleId,
+  agentId: string,
+  reservedTaskIds: ReadonlySet<string>
+): SprintEngineTask | undefined {
+  return wakeTasks.find((candidate) =>
+    candidate.role === role
+    && !reservedTaskIds.has(candidate.id)
+    && (!candidate.ownerAgentId || candidate.ownerAgentId === agentId || candidate.status === 'changes_requested')
+  )
+}
+
 export function shouldSkipExitedSprintEngineRosterAgent(
   currentAgent: SprintEngineExitedAgentLike | null | undefined,
   hasOpenWork: boolean

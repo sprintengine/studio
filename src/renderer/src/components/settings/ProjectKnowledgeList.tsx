@@ -1,0 +1,366 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useWorkspaceStore } from '../../store/workspaceStore'
+import { GhostButton, InlineNotice, StatusDot } from '../ui'
+import type { Tone } from '../ui'
+import {
+  listOpenProjectKnowledge,
+  relativePathBetween,
+  type ProjectKnowledgeEntry,
+} from '../../utils/projectKnowledge'
+import { isAbsolutePath } from '../../store/slices/memorySlice'
+
+const ROW_INPUT_CLASS =
+  'h-9 w-full min-w-0 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+
+type RowStatus = MemoryRootStatus | null
+
+function dotTone(status: RowStatus, checking: boolean): Tone {
+  if (checking || !status) return 'neutral'
+  return status.ok ? 'good' : 'warn'
+}
+
+function dotLabel(entry: ProjectKnowledgeEntry, status: RowStatus, checking: boolean): string {
+  if (checking) return `${entry.name}: checking knowledge folder`
+  if (!entry.relativeRoot && !status) return `${entry.name}: no knowledge folder`
+  if (!status) return `${entry.name}: knowledge folder set`
+  return status.ok
+    ? `${entry.name}: knowledge folder ready`
+    : `${entry.name}: knowledge folder unavailable`
+}
+
+function CheckGlyph({ checked, mixed }: { checked: boolean; mixed?: boolean }) {
+  const filled = checked || mixed
+  return (
+    <span
+      aria-hidden="true"
+      className={[
+        'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border',
+        filled
+          ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
+          : 'border-[color:var(--border-strong)] bg-transparent',
+      ].join(' ')}
+    >
+      {mixed ? (
+        <svg width="8" height="8" viewBox="0 0 8 8" focusable="false">
+          <path d="M1.5 4h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+      ) : checked ? (
+        <svg width="8" height="8" viewBox="0 0 8 8" focusable="false">
+          <path
+            d="M1.5 4l1.5 1.5L6.5 2"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ) : null}
+    </span>
+  )
+}
+
+type ProjectKnowledgeListProps = {
+  /** Resolved project root of the active workspace, marked as "current". */
+  activeProjectRoot: string | null
+}
+
+/**
+ * Knowledge Graph settings list. One row per open project (deduped across its
+ * Sprint Engine / Multiloop workspaces); each row sets that project's knowledge
+ * folder. Multi-select + "Point at shared folder…" assigns one real folder to
+ * several projects, storing each project's own relative path to it.
+ */
+export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeListProps) {
+  const workspaces = useWorkspaceStore((s) => s.workspaces)
+  const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots)
+  const setProjectKnowledgeRoot = useWorkspaceStore((s) => s.setProjectKnowledgeRoot)
+
+  const projects = useMemo(
+    () => listOpenProjectKnowledge(workspaces, projectKnowledgeRoots),
+    [workspaces, projectKnowledgeRoots]
+  )
+
+  const activeKey = activeProjectRoot ? activeProjectRoot.toLowerCase() : null
+
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [statuses, setStatuses] = useState<Record<string, RowStatus>>({})
+  const [checking, setChecking] = useState<Record<string, boolean>>({})
+  const [selected, setSelected] = useState<Record<string, boolean>>({})
+  const [bulkMessage, setBulkMessage] = useState<{ tone: 'accent' | 'warn'; text: string } | null>(null)
+  const validatedRef = useRef<Set<string>>(new Set())
+
+  const validate = useCallback(async (key: string, projectRoot: string, value: string) => {
+    const relativeRoot = value.trim()
+    if (!relativeRoot) {
+      setStatuses((s) => ({ ...s, [key]: null }))
+      return
+    }
+    if (isAbsolutePath(relativeRoot)) {
+      setStatuses((s) => ({
+        ...s,
+        [key]: {
+          ok: false,
+          status: 'invalid-relative-path',
+          relativeRoot: null,
+          message: 'Knowledge path must be relative to the project folder.',
+        },
+      }))
+      return
+    }
+    setChecking((c) => ({ ...c, [key]: true }))
+    try {
+      const status = await window.api.memoryResolveRoot({ workspaceRoot: projectRoot, relativeRoot })
+      setStatuses((s) => ({ ...s, [key]: status }))
+    } catch (error) {
+      setStatuses((s) => ({
+        ...s,
+        [key]: {
+          ok: false,
+          status: 'inaccessible',
+          relativeRoot,
+          message: error instanceof Error ? error.message : 'Unable to check knowledge path.',
+        },
+      }))
+    } finally {
+      setChecking((c) => ({ ...c, [key]: false }))
+    }
+  }, [])
+
+  // Seed drafts for newly-appeared projects and validate already-configured ones
+  // once, so each row's status dot reflects the real folder on open.
+  useEffect(() => {
+    setDrafts((prev) => {
+      let changed = false
+      const next = { ...prev }
+      for (const project of projects) {
+        if (!(project.key in next)) {
+          next[project.key] = project.relativeRoot ?? ''
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+    for (const project of projects) {
+      if (project.relativeRoot && !validatedRef.current.has(project.key)) {
+        validatedRef.current.add(project.key)
+        void validate(project.key, project.projectRoot, project.relativeRoot)
+      }
+    }
+  }, [projects, validate])
+
+  const commit = useCallback(
+    (entry: ProjectKnowledgeEntry, value: string) => {
+      const trimmed = value.trim().replace(/\\/g, '/').replace(/\/+$/u, '')
+      setDrafts((d) => ({ ...d, [entry.key]: trimmed }))
+      setProjectKnowledgeRoot(entry.projectRoot, trimmed || null)
+      if (trimmed) void validate(entry.key, entry.projectRoot, trimmed)
+      else setStatuses((s) => ({ ...s, [entry.key]: null }))
+    },
+    [setProjectKnowledgeRoot, validate]
+  )
+
+  const chooseFolder = useCallback(
+    async (entry: ProjectKnowledgeEntry) => {
+      const dir = await window.api.openDir()
+      if (!dir) return
+      const relative = relativePathBetween(entry.projectRoot, dir)
+      if (!relative || relative === '.') {
+        setStatuses((s) => ({
+          ...s,
+          [entry.key]: {
+            ok: false,
+            status: 'invalid-relative-path',
+            relativeRoot: null,
+            message: 'Choose a folder that can be expressed relative to the project folder.',
+          },
+        }))
+        return
+      }
+      setDrafts((d) => ({ ...d, [entry.key]: relative }))
+      setProjectKnowledgeRoot(entry.projectRoot, relative)
+      void validate(entry.key, entry.projectRoot, relative)
+    },
+    [setProjectKnowledgeRoot, validate]
+  )
+
+  const selectedEntries = useMemo(
+    () => projects.filter((project) => selected[project.key]),
+    [projects, selected]
+  )
+  const allSelected = projects.length > 0 && projects.every((project) => selected[project.key])
+  const someSelected = selectedEntries.length > 0
+
+  const toggleAll = useCallback(() => {
+    setSelected(() => {
+      if (allSelected) return {}
+      const next: Record<string, boolean> = {}
+      for (const project of projects) next[project.key] = true
+      return next
+    })
+  }, [allSelected, projects])
+
+  const chooseSharedFolder = useCallback(async () => {
+    if (!selectedEntries.length) return
+    const dir = await window.api.openDir()
+    if (!dir) return
+    let failed = 0
+    for (const entry of selectedEntries) {
+      const relative = relativePathBetween(entry.projectRoot, dir)
+      if (!relative || relative === '.') {
+        failed += 1
+        setStatuses((s) => ({
+          ...s,
+          [entry.key]: {
+            ok: false,
+            status: 'invalid-relative-path',
+            relativeRoot: null,
+            message: `Cannot express ${dir} relative to this project folder.`,
+          },
+        }))
+        continue
+      }
+      setDrafts((d) => ({ ...d, [entry.key]: relative }))
+      setProjectKnowledgeRoot(entry.projectRoot, relative)
+      void validate(entry.key, entry.projectRoot, relative)
+    }
+    const ok = selectedEntries.length - failed
+    setBulkMessage(
+      failed
+        ? {
+            tone: 'warn',
+            text: `Pointed ${ok} of ${selectedEntries.length} project${selectedEntries.length === 1 ? '' : 's'} at ${dir}. ${failed} could not be made relative to its project folder.`,
+          }
+        : {
+            tone: 'accent',
+            text: `Pointed ${ok} project${ok === 1 ? '' : 's'} at ${dir}.`,
+          }
+    )
+  }, [selectedEntries, setProjectKnowledgeRoot, validate])
+
+  if (projects.length === 0) {
+    return (
+      <p className="text-[12px] leading-5 text-[color:var(--text-subtle)]">
+        Open a workspace folder before configuring the Knowledge Graph.
+      </p>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      {projects.length > 1 ? (
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={allSelected ? true : someSelected ? 'mixed' : false}
+            onClick={toggleAll}
+            className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]"
+          >
+            <CheckGlyph checked={allSelected} mixed={someSelected && !allSelected} />
+            Select all
+          </button>
+          {someSelected ? (
+            <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+              <span className="tabular-nums">{selectedEntries.length} selected</span>
+              <GhostButton size="sm" onClick={() => void chooseSharedFolder()}>
+                Point at shared folder…
+              </GhostButton>
+              <GhostButton size="sm" onClick={() => setSelected({})}>
+                Clear
+              </GhostButton>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <ul className="space-y-px">
+        {projects.map((entry) => {
+          const status = statuses[entry.key] ?? null
+          const isChecking = Boolean(checking[entry.key])
+          const isActive = activeKey === entry.key
+          const isSelected = Boolean(selected[entry.key])
+          const error = status && !status.ok ? status.message : null
+          return (
+            <li
+              key={entry.key}
+              className={`-mx-2 rounded-md px-2 ${isActive ? 'bg-[color:var(--accent-primary-soft)]' : ''}`}
+            >
+              <div className="flex items-center gap-3 py-2.5">
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={isSelected}
+                  aria-label={`Select ${entry.name}`}
+                  onClick={() =>
+                    setSelected((prev) => ({ ...prev, [entry.key]: !prev[entry.key] }))
+                  }
+                  className="flex shrink-0 items-center"
+                >
+                  <CheckGlyph checked={isSelected} />
+                </button>
+                <StatusDot
+                  tone={dotTone(status, isChecking)}
+                  label={dotLabel(entry, status, isChecking)}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="truncate text-sm font-medium text-[color:var(--text-strong)]">
+                      {entry.name}
+                    </span>
+                    {isActive ? (
+                      <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">
+                        Current
+                      </span>
+                    ) : null}
+                    {entry.workspaceCount > 1 ? (
+                      <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">
+                        {entry.workspaceCount} workspaces
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="truncate font-mono text-[11px] text-[color:var(--text-subtle)]">
+                    {entry.projectRoot}
+                  </div>
+                </div>
+                <div className="flex w-[320px] shrink-0 items-center gap-2">
+                  <input
+                    value={drafts[entry.key] ?? ''}
+                    aria-label={`Knowledge folder for ${entry.name}`}
+                    onChange={(event) =>
+                      setDrafts((d) => ({ ...d, [entry.key]: event.target.value }))
+                    }
+                    onBlur={(event) => commit(entry, event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') event.currentTarget.blur()
+                    }}
+                    placeholder="../ecosystem-knowledge"
+                    className={ROW_INPUT_CLASS}
+                  />
+                  <GhostButton
+                    size="md"
+                    onClick={() => void chooseFolder(entry)}
+                    className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                  >
+                    Choose
+                  </GhostButton>
+                </div>
+              </div>
+              {error ? (
+                <p className="pb-2 pl-[3.25rem] text-[11px] text-[color:var(--tone-warn)]">{error}</p>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+
+      {bulkMessage ? (
+        bulkMessage.tone === 'warn' ? (
+          <InlineNotice tone="warn">{bulkMessage.text}</InlineNotice>
+        ) : (
+          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">{bulkMessage.text}</p>
+        )
+      ) : null}
+    </div>
+  )
+}

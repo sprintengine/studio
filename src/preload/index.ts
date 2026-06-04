@@ -10,6 +10,7 @@ import { layoutTemplatesApi } from './api/layout-templates'
 import { memoryActivityApi } from './api/memoryActivity'
 import { mcpApi } from './api/mcp'
 import { modulesApi } from './api/modules'
+import { pluginsApi } from './api/plugins'
 import { skillPackApi } from './api/skill-pack'
 import { mobileBridgeApi } from './api/mobile-bridge'
 import { multiloopApi } from './api/multiloop'
@@ -39,6 +40,7 @@ const api = {
   ...memoryActivityApi,
   ...mcpApi,
   ...modulesApi,
+  ...pluginsApi,
   ...skillPackApi,
   ...sprintEngineApi,
   ...switchboardApi,

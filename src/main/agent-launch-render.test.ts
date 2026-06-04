@@ -7,6 +7,7 @@ import {
   pluginIdForCli,
   quotePosixToken,
   renderAgentLaunchArgv,
+  resolveCliRuntimeSettings,
 } from './agent-launch-render'
 import { createPluginRegistry } from './plugin-registry'
 import {
@@ -32,6 +33,8 @@ async function main(): Promise<void> {
     testBuildAgentShellCommandClaude()
     testBuildAgentShellCommandCodex()
     testRenderArgvIncludesBinaryAsFirstElement()
+    testResolveCliRuntimeSettingsLegacyAlias()
+    testClaudeCodeLaunchHonorsLegacyClaudeOverride()
   })
 
   console.log('agent-launch-render tests passed')
@@ -60,6 +63,56 @@ async function usingBundledRegistry(fn: () => Promise<void> | void): Promise<voi
 function testLegacyCliMapping(): void {
   assert.equal(pluginIdForCli('claude'), 'claude-code')
   assert.equal(pluginIdForCli('codex'), 'codex')
+}
+
+function testResolveCliRuntimeSettingsLegacyAlias(): void {
+  // claude-code launch with only a legacy `claude` override honors it.
+  assert.deepEqual(
+    resolveCliRuntimeSettings('claude-code', { claude: { command: '/opt/claude/bin/claude', useWsl: true } }),
+    { command: '/opt/claude/bin/claude', useWsl: true },
+    'claude-code launch falls back to the legacy claude command/WSL override',
+  )
+  // A direct claude-code override wins over the legacy key.
+  assert.deepEqual(
+    resolveCliRuntimeSettings('claude-code', {
+      claude: { command: '/legacy/claude', useWsl: true },
+      'claude-code': { command: '/new/claude', useWsl: false },
+    }),
+    { command: '/new/claude', useWsl: false },
+    'a direct claude-code override takes precedence over the legacy claude key',
+  )
+  // An explicit blank direct command wins (means "use the manifest binary"),
+  // even when a legacy command exists.
+  assert.deepEqual(
+    resolveCliRuntimeSettings('claude-code', {
+      claude: { command: '/legacy/claude', useWsl: true },
+      'claude-code': { command: '', useWsl: false },
+    }),
+    { command: '', useWsl: false },
+    'an explicit blank claude-code command overrides the legacy command (manifest binary at render)',
+  )
+  // Legacy `claude` agents and non-aliased plugins read their own key only.
+  assert.deepEqual(
+    resolveCliRuntimeSettings('claude', { claude: { command: 'claude', useWsl: false } }),
+    { command: 'claude', useWsl: false },
+    'legacy claude cli reads its own key directly',
+  )
+  assert.deepEqual(
+    resolveCliRuntimeSettings('codex', undefined),
+    { command: '', useWsl: false },
+    'no override resolves to a blank command (manifest binary at render)',
+  )
+}
+
+function testClaudeCodeLaunchHonorsLegacyClaudeOverride(): void {
+  // End-to-end at the launcher boundary: a claude-code launch with only a legacy
+  // `claude` command override renders that command as the binary, not the manifest.
+  const cliRuntime = resolveCliRuntimeSettings('claude-code', {
+    claude: { command: '/opt/claude/bin/claude', useWsl: false },
+  })
+  const out = renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 'sid_legacy', cliRuntime })
+  assert.equal(out.binary, '/opt/claude/bin/claude')
+  assert.deepEqual(out.argv, ['/opt/claude/bin/claude', '--session-id', 'sid_legacy'])
 }
 
 function testClaudeRenderDefault(): void {

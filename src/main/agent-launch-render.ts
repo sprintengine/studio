@@ -16,6 +16,33 @@ export function pluginIdForCli(cli: AgentCli): string {
   return LEGACY_CLI_TO_PLUGIN_ID[cli] ?? cli
 }
 
+// Legacy `cliRuntimes` settings keys that predate plugin ids. A `claude-code`
+// launch honors an existing `claude` override (command + WSL) until a direct
+// `claude-code` override is saved, matching the Agents settings row display
+// (renderer cliRuntimeForPlugin). Keep these two in sync.
+const LEGACY_RUNTIME_OVERRIDE_KEY: Record<string, AgentCli> = {
+  'claude-code': 'claude',
+}
+
+// Resolves the effective command/WSL override for a launch. Prefers the cli's
+// own key, then a legacy alias key (claude-code <- claude). An explicit command
+// on the direct key — including a blank one (meaning "use the manifest binary")
+// — wins over a legacy value, so this matches cliRuntimeForPlugin exactly.
+export function resolveCliRuntimeSettings(
+  cli: AgentCli,
+  cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
+): CliRuntimeSettings {
+  const direct = cliRuntimes?.[cli]
+  const legacyKey = LEGACY_RUNTIME_OVERRIDE_KEY[cli]
+  const legacy = legacyKey ? cliRuntimes?.[legacyKey] : undefined
+  const command =
+    (typeof direct?.command === 'string' ? direct.command : undefined)
+    ?? (typeof legacy?.command === 'string' ? legacy.command : undefined)
+    ?? ''
+  const useWsl = direct?.useWsl ?? legacy?.useWsl ?? false
+  return { command: command.trim(), useWsl }
+}
+
 export type AgentLaunchRenderInput = {
   cli: AgentCli
   sessionId: string

@@ -989,22 +989,18 @@ function TaskImplementerRow({
   )
   return (
     <li className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
-      {entry.isActive ? (
-        <button
-          type="button"
-          onClick={() => onOpenAgentTerminal(entry.agentId)}
-          aria-label={`Open ${entry.label} terminal`}
-          className={
-            'interactive -mx-1.5 inline-flex items-center gap-2 rounded px-1.5 py-0.5 ' +
-            'transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ' +
-            FOCUS_RING_CLASS
-          }
-        >
-          {identityCluster}
-        </button>
-      ) : (
-        <span className="inline-flex items-center gap-2">{identityCluster}</span>
-      )}
+      <button
+        type="button"
+        onClick={() => onOpenAgentTerminal(entry.agentId)}
+        aria-label={`Open ${entry.label} terminal`}
+        className={
+          'interactive -mx-1.5 inline-flex items-center gap-2 rounded px-1.5 py-0.5 ' +
+          'transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ' +
+          FOCUS_RING_CLASS
+        }
+      >
+        {identityCluster}
+      </button>
       <ImplementerTicks passCount={entry.passCount} />
       {entry.isActive ? (
         <ActiveImplementerStatus runtimeStatus={entry.runtimeStatus} />

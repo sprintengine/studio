@@ -83,6 +83,10 @@ import {
   defaultWorkspaceMemoryConfig,
 } from './slices/memorySlice'
 import {
+  createPluginsSlice,
+  type PluginsSlice,
+} from './slices/pluginsSlice'
+import {
   normalizeWorkspaceForPartialize,
   preserveNewerSprintEngineAutomationState,
 } from './slices/normalizers'
@@ -120,7 +124,7 @@ import type { WorkspaceRegistryEmptyState } from '../types/workspace'
 
 migrateLegacyWorkspaceStorageKey()
 
-interface WorkspaceStore {
+export interface WorkspaceStore extends PluginsSlice {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
   workspaceWindows: WorkspaceWindowState[]
@@ -501,6 +505,61 @@ function extractSettingsFields(state: Record<string, unknown>): SettingsEnvelope
     appSettings: state.appSettings,
     sidebarCollapsed: state.sidebarCollapsed,
   }
+}
+
+function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof partializeRegistryFields> & SettingsEnvelopeState {
+  // s.workspaceRegistryEmptyState is the explicit intent record set by
+  // workspacesSlice.removeWorkspace when the splice leaves workspaces=[]
+  // and cleared by addWorkspace + importWorkspace. Its presence proves
+  // user intent; its absence with workspaces=[] proves a dangerous
+  // startup-write/wipe attempt.
+  if (s.workspaces.length === 0 && s.workspaceRegistryEmptyState == null) {
+    // Read the on-disk registry directly (not the legacy
+    // nonEmptyPersistedWorkspaceState helper) so we retain the last
+    // persisted registry even though the settings key may also exist.
+    const registry = readWorkspaceRegistryKey()
+    const retainedWorkspaces = Array.isArray(registry.envelope?.state?.workspaces)
+      ? (registry.envelope!.state.workspaces as Workspace[])
+      : []
+    if (retainedWorkspaces.length > 0) {
+      const retainedActiveId = (registry.envelope!.state.activeWorkspaceId as WorkspaceId | null | undefined) ?? null
+      const classification = classifyPersistedWorkspaceState({
+        rawLocalStorage: registry.raw,
+      })
+      console.warn('[workspaceStore] blocked empty workspace snapshot from overwriting persisted workspaces', {
+        retainedWorkspaceCount: retainedWorkspaces.length,
+        retainedActiveWorkspaceId: retainedActiveId,
+        persistedClassification: classification,
+        dangerous: isDangerousEmptyClassification(classification),
+      })
+      return {
+        appSettings: s.appSettings,
+        sidebarCollapsed: s.sidebarCollapsed,
+        workspaces: retainedWorkspaces,
+        activeWorkspaceId: retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
+        workspaceWindows: normalizeWorkspaceWindows(
+          retainedWorkspaces,
+          registry.envelope!.state.workspaceWindows as WorkspaceWindowState[] | undefined,
+          registry.envelope!.state.primaryWorkspaceWindowId as WorkspaceWindowId | undefined,
+          retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
+        ).windows,
+        primaryWorkspaceWindowId:
+          (registry.envelope!.state.primaryWorkspaceWindowId as WorkspaceWindowId | undefined)
+          ?? PRIMARY_WORKSPACE_WINDOW_ID,
+        workspaceRegistryEmptyState: null,
+      }
+    }
+  }
+
+  return {
+    appSettings: s.appSettings,
+    sidebarCollapsed: s.sidebarCollapsed,
+    ...partializeRegistryFields(s),
+  }
+}
+
+export function __workspaceStorePartializeForTests(s: WorkspaceStore): ReturnType<typeof partializeWorkspaceStoreState> {
+  return partializeWorkspaceStoreState(s)
 }
 
 function readWorkspaceRegistryKey(): { raw: string | null; envelope: { state: RegistryEnvelopeState; version: number } | null } {
@@ -980,6 +1039,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       ...createGuidedBriefSlice(set),
       ...createWorktreesSlice(set),
       ...createMemorySlice(set),
+      ...createPluginsSlice(set),
       ...createWorkspacesSlice(set, workspacesSliceDeps),
     })),
     {
@@ -1022,56 +1082,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           appSettings: normalizeAppSettings(state?.appSettings, workspaces),
         }
       },
-      partialize: (s) => {
-        // s.workspaceRegistryEmptyState is the explicit intent record set by
-        // workspacesSlice.removeWorkspace when the splice leaves workspaces=[]
-        // and cleared by addWorkspace + importWorkspace. Its presence proves
-        // user intent; its absence with workspaces=[] proves a dangerous
-        // startup-write/wipe attempt.
-        if (s.workspaces.length === 0 && s.workspaceRegistryEmptyState == null) {
-          // Read the on-disk registry directly (not the legacy
-          // nonEmptyPersistedWorkspaceState helper) so we retain the last
-          // persisted registry even though the settings key may also exist.
-          const registry = readWorkspaceRegistryKey()
-          const retainedWorkspaces = Array.isArray(registry.envelope?.state?.workspaces)
-            ? (registry.envelope!.state.workspaces as Workspace[])
-            : []
-          if (retainedWorkspaces.length > 0) {
-            const retainedActiveId = (registry.envelope!.state.activeWorkspaceId as WorkspaceId | null | undefined) ?? null
-            const classification = classifyPersistedWorkspaceState({
-              rawLocalStorage: registry.raw,
-            })
-            console.warn('[workspaceStore] blocked empty workspace snapshot from overwriting persisted workspaces', {
-              retainedWorkspaceCount: retainedWorkspaces.length,
-              retainedActiveWorkspaceId: retainedActiveId,
-              persistedClassification: classification,
-              dangerous: isDangerousEmptyClassification(classification),
-            })
-            return {
-              appSettings: s.appSettings,
-              sidebarCollapsed: s.sidebarCollapsed,
-              workspaces: retainedWorkspaces,
-              activeWorkspaceId: retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
-              workspaceWindows: normalizeWorkspaceWindows(
-                retainedWorkspaces,
-                registry.envelope!.state.workspaceWindows as WorkspaceWindowState[] | undefined,
-                registry.envelope!.state.primaryWorkspaceWindowId as WorkspaceWindowId | undefined,
-                retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
-              ).windows,
-              primaryWorkspaceWindowId:
-                (registry.envelope!.state.primaryWorkspaceWindowId as WorkspaceWindowId | undefined)
-                ?? PRIMARY_WORKSPACE_WINDOW_ID,
-              workspaceRegistryEmptyState: null,
-            }
-          }
-        }
-
-        return {
-          appSettings: s.appSettings,
-          sidebarCollapsed: s.sidebarCollapsed,
-          ...partializeRegistryFields(s),
-        }
-      },
+      partialize: partializeWorkspaceStoreState,
       // Hydration diagnostic emission moved to attemptBackupRecovery so the
       // single canonical entry reflects the final storageSource and any
       // recovery error. onRehydrateStorage only records sync-rehydrate parse
@@ -1087,6 +1098,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     },
   ),
 )
+
+function scheduleInitialPluginCatalogRefresh(): void {
+  if (typeof window === 'undefined') return
+  if (!window.api || typeof window.api.pluginsList !== 'function') return
+  queueMicrotask(() => {
+    void useWorkspaceStore.getState().refreshPluginCatalog()
+  })
+}
+
+scheduleInitialPluginCatalogRefresh()
 
 // Mirror module enablement to the main process so it can gate module IPC and
 // sidecar spawning at the next launch. The renderer is the source of truth; the

@@ -1,7 +1,17 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import type {
+  AgentCli,
+  CliRuntimeSettings,
+  PluginCatalogEntry,
+  PluginCatalogStatus,
+} from '../../types/workspace'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { MULTICODE_DISABLE_SPRINTENGINE_TERMINALS, MULTICODE_SAFE_MODE } from '../../utils/runtimeFlags'
+import {
+  isAgentCliMissing,
+  selectAgentCliCatalog,
+} from '../workspace/newWorkspace/cliRuntimeOptions'
 import { PrimaryButton } from '../ui'
 import TerminalView from './TerminalView'
 
@@ -12,7 +22,23 @@ interface Props {
   shouldKillTerminalOnUnmount?: (sessionId: string) => boolean
 }
 
-export default function AgentPanel({ workspaceId, agentId, sessionId, shouldKillTerminalOnUnmount }: Props) {
+export function isStoredAgentCliUnavailable(
+  cli: AgentCli | null | undefined,
+  pluginCatalogStatus: PluginCatalogStatus,
+  pluginCatalogEntries: PluginCatalogEntry[],
+  cliRuntimes: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>> | undefined,
+): boolean {
+  if (pluginCatalogStatus !== 'ready') return false
+  const catalog = selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes)
+  return isAgentCliMissing(cli, catalog)
+}
+
+export default function AgentPanel({
+  workspaceId,
+  agentId,
+  sessionId,
+  shouldKillTerminalOnUnmount,
+}: Props) {
   const agent = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
   )
@@ -22,18 +48,39 @@ export default function AgentPanel({ workspaceId, agentId, sessionId, shouldKill
   const sprintEngineRuntimeAgent = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId] ?? null
   )
+  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
+  const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const label = agent?.name ?? agentId
   const isSprintEngineAgent = workspace?.mode === 'sprintengine' && Boolean(sprintEngineRuntimeAgent)
   const sprintEngineTerminalBlocked = MULTICODE_DISABLE_SPRINTENGINE_TERMINALS && isSprintEngineAgent
-  const hasStarted = Boolean(sessionId) || (!sprintEngineTerminalBlocked && (!isSprintEngineAgent || Boolean(agent?.cliStartRequested)))
-  const needsInput = sprintEngineRuntimeAgent?.status === 'needs_input'
   const cli = agent?.cli
+  const agentCliUnavailable = useMemo(
+    () => isStoredAgentCliUnavailable(cli, pluginCatalogStatus, pluginCatalogEntries, cliRuntimes),
+    [cli, pluginCatalogStatus, pluginCatalogEntries, cliRuntimes],
+  )
+  const hasStarted =
+    !agentCliUnavailable
+    && (Boolean(sessionId) || (!sprintEngineTerminalBlocked && (!isSprintEngineAgent || Boolean(agent?.cliStartRequested))))
+  const needsInput = sprintEngineRuntimeAgent?.status === 'needs_input'
   const cliShellTone = needsInput
     ? 'border border-[color:var(--tone-warn)] bg-[color:var(--bg-surface-raised)] ring-1 ring-[color:var(--tone-warn-soft)]'
     : ''
 
   const startAgent = (restart = false) => {
+    if (agentCliUnavailable) {
+      publishDiagnosticSync({
+        level: 'error',
+        source: 'terminal',
+        title: `${label} was not started`,
+        message: `Agent CLI "${cli}" is unavailable. Reinstall or re-enable the plugin before launching this agent.`,
+        workspaceId,
+        workspaceName: workspace?.name,
+        agentId,
+      })
+      return
+    }
     if (!cli) {
       publishDiagnosticSync({
         level: 'error',
@@ -79,10 +126,15 @@ export default function AgentPanel({ workspaceId, agentId, sessionId, shouldKill
                   : 'Sprint Engine agent terminals are disabled for this diagnostic run.'}
               </div>
             ) : null}
+            {agentCliUnavailable ? (
+              <div className="max-w-sm text-[12px] leading-5 text-[color:var(--text-muted)]">
+                Agent CLI "{cli}" is unavailable. Reinstall or re-enable the plugin before launching this agent.
+              </div>
+            ) : null}
             <PrimaryButton
               size="md"
               onClick={() => startAgent(false)}
-              disabled={sprintEngineTerminalBlocked}
+              disabled={sprintEngineTerminalBlocked || agentCliUnavailable}
             >
               {startLabel}
             </PrimaryButton>

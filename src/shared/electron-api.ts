@@ -32,6 +32,7 @@ import type {
 } from './switchboard'
 import type { RoleInstallResult, UserRoleListResult } from './sprintengine/role-manifest'
 import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
+import type { PluginRegistryListEntry } from './plugin-manifest'
 import type {
   ThirdPartyModuleInstallResult,
   ThirdPartyModuleListResult,
@@ -237,6 +238,10 @@ export type BuiltinSkillStatus =
 export type BuiltinSkillInstallResult =
   | { ok: true; status: 'installed' | 'updated'; skill: BuiltinSkill; destinationPath: string }
   | { ok: false; status: 'unknown-skill' | 'missing-workspace' | 'missing-source' | 'modified' | 'local'; skillId: string; message: string }
+
+export type PluginRegistryListResult =
+  | { ok: true; plugins: PluginRegistryListEntry[] }
+  | { ok: false; message: string }
 
 // Runtime CLI identity is a plugin id. Legacy stored values `codex` and
 // `claude` still map to the bundled plugin manifests in the main process.
@@ -1201,6 +1206,7 @@ export type ElectronApi = {
   builtinSkillInstall: (
     input: { workspaceRoot: string | null; skillId: string }
   ) => Promise<BuiltinSkillInstallResult>
+  pluginsList: () => Promise<PluginRegistryListResult>
   logDiagnostic: (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
   openDiagnosticsLogsFolder: () => Promise<{ opened: true; path: string }>
   updateGetState: () => Promise<AppUpdateState>

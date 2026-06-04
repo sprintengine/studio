@@ -1277,6 +1277,11 @@ export type VoiceDictationSettings = {
 // the normalizer) imports directly from appTheme.ts.
 import type { AppearanceSettings } from './appTheme'
 import type { ModuleEnablementOverrides } from '../../../shared/modules/manifest'
+import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
+
+export type PluginCatalogStatus = 'loading' | 'ready' | 'error'
+
+export type PluginCatalogEntry = PluginRegistryListEntry
 
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>

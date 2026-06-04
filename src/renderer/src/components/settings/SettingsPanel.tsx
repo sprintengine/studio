@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { selectModuleEnabled } from '../../modules'
 import type {
-  AgentCli,
   McpCatalogServer,
   McpSettings,
   SprintEngineRoleRegistry,
@@ -15,6 +14,7 @@ import type {
 } from '../../types/workspace'
 import AppThemePicker from './AppThemePicker'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
+import { basename } from '../../utils/paths'
 import {
   buildSprintEngineRoleRegistry,
   getSprintEngineRoleLabel,
@@ -50,6 +50,9 @@ import {
   groupSkillPackCatalog,
 } from './SkillPacksCatalog'
 import { MetaCell, formatNullableDate } from './SettingsAtoms'
+import { ProjectKnowledgeList } from './ProjectKnowledgeList'
+import CliIcon from '../CliIcon'
+import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 import MulticodeMark from '../brand/MulticodeMark'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
 
@@ -179,45 +182,6 @@ function parseSearchExcludeText(value: string): string[] {
     .split(/\r?\n|,/u)
     .map((pattern) => pattern.trim())
     .filter(Boolean)
-}
-
-function isAbsolutePath(value: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('/') || value.startsWith('\\\\')
-}
-
-function normalizePathParts(value: string): { drive: string | null; parts: string[] } {
-  const normalized = value.replace(/\\/g, '/').replace(/\/+$/u, '')
-  const driveMatch = normalized.match(/^([A-Za-z]:)\/(.*)$/)
-  if (driveMatch) {
-    return {
-      drive: driveMatch[1].toLowerCase(),
-      parts: driveMatch[2].split('/').filter(Boolean),
-    }
-  }
-  return {
-    drive: null,
-    parts: normalized.split('/').filter(Boolean),
-  }
-}
-
-function relativePathBetween(fromPath: string, toPath: string): string | null {
-  const from = normalizePathParts(fromPath)
-  const to = normalizePathParts(toPath)
-  if (from.drive !== to.drive) return null
-
-  let common = 0
-  while (
-    common < from.parts.length
-    && common < to.parts.length
-    && from.parts[common].toLowerCase() === to.parts[common].toLowerCase()
-  ) {
-    common += 1
-  }
-
-  return [
-    ...from.parts.slice(common).map(() => '..'),
-    ...to.parts.slice(common),
-  ].join('/') || '.'
 }
 
 const INPUT_CLASS =
@@ -440,12 +404,19 @@ export default function SettingsPanel({
   chrome = 'panel',
   titleId,
 }: Props) {
-  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null
   )
   const dialog = useConfirmDialog()
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
+  const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
+  const pluginCatalogError = useWorkspaceStore((s) => s.pluginCatalogError)
+  const refreshPluginCatalog = useWorkspaceStore((s) => s.refreshPluginCatalog)
+  const installedPluginRows = useMemo(
+    () => orderInstalledPlugins(pluginCatalogEntries),
+    [pluginCatalogEntries],
+  )
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
   const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? EMPTY_SEARCH_EXCLUDES)
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
@@ -478,7 +449,6 @@ export default function SettingsPanel({
   const upsertSkillPack = useWorkspaceStore((s) => s.upsertSkillPack)
   const removeSkillPackFromStore = useWorkspaceStore((s) => s.removeSkillPack)
   const setSearchExcludes = useWorkspaceStore((s) => s.setSearchExcludes)
-  const setProjectKnowledgeRoot = useWorkspaceStore((s) => s.setProjectKnowledgeRoot)
   const setUsageTelemetrySettings = useWorkspaceStore((s) => s.setUsageTelemetrySettings)
   const setSprintEngineRoleEnabled = useWorkspaceStore((s) => s.setSprintEngineRoleEnabled)
   const activeKnowledgeConfig = resolveProjectKnowledgeConfig(
@@ -490,8 +460,6 @@ export default function SettingsPanel({
   const activeSprintEngineRoot = activeWorkspace?.folderPath ?? null
   const isWindows = window.api.platform === 'win32'
   const [searchExcludesDraft, setSearchExcludesDraft] = useState(() => searchExcludes.join('\n'))
-  const [memoryDraft, setMemoryDraft] = useState(() => activeKnowledgeConfig?.relativeRoot ?? '')
-  const [memoryStatus, setMemoryStatus] = useState<MemoryRootStatus | null>(null)
   const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
   const [updateActionPending, setUpdateActionPending] = useState(false)
   const [githubTokenStatus, setGithubTokenStatus] = useState<GitHubTokenUiStatus | null>(null)
@@ -565,25 +533,14 @@ export default function SettingsPanel({
   const autoCheckStartedRef = useRef(false)
   const lastUpdateRequestIdRef = useRef<number | null>(null)
 
-  const commitMemoryDraft = useCallback((value: string) => {
-    if (!activeProjectRoot) return
-    const trimmed = value.trim().replace(/\\/g, '/').replace(/\/+$/u, '')
-    setProjectKnowledgeRoot(activeProjectRoot, trimmed || null)
-  }, [activeProjectRoot, setProjectKnowledgeRoot])
-
   const closeSettings = useCallback(() => {
     setSearchExcludes(parseSearchExcludeText(searchExcludesDraft))
-    commitMemoryDraft(memoryDraft)
     onClose()
-  }, [commitMemoryDraft, memoryDraft, onClose, searchExcludesDraft, setSearchExcludes])
+  }, [onClose, searchExcludesDraft, setSearchExcludes])
 
   useEffect(() => {
     setSearchExcludesDraft(searchExcludes.join('\n'))
   }, [searchExcludes])
-
-  useEffect(() => {
-    setMemoryDraft(activeKnowledgeConfig?.relativeRoot ?? '')
-  }, [activeKnowledgeConfig?.projectRoot, activeKnowledgeConfig?.relativeRoot, activeWorkspace?.id])
 
   useEffect(() => {
     let cancelled = false
@@ -970,65 +927,6 @@ export default function SettingsPanel({
       setGithubTokenPending(false)
     }
   }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    const relativeRoot = memoryDraft.trim()
-    if (!activeWorkspaceId || !relativeRoot) {
-      setMemoryStatus(null)
-      return
-    }
-    if (isAbsolutePath(relativeRoot)) {
-      setMemoryStatus({
-        ok: false,
-        status: 'invalid-relative-path',
-        relativeRoot: null,
-        message: 'Knowledge path must be relative to the project folder.',
-      })
-      return
-    }
-
-    const timer = window.setTimeout(() => {
-      void window.api.memoryResolveRoot({
-        workspaceRoot: activeProjectRoot,
-        relativeRoot,
-      }).then((status) => {
-        if (!cancelled) setMemoryStatus(status)
-      }).catch((error) => {
-        if (!cancelled) {
-          setMemoryStatus({
-            ok: false,
-            status: 'inaccessible',
-            relativeRoot,
-            message: error instanceof Error ? error.message : 'Unable to check knowledge path.',
-          })
-        }
-      })
-    }, 150)
-
-    return () => {
-      cancelled = true
-      window.clearTimeout(timer)
-    }
-  }, [activeProjectRoot, activeWorkspaceId, memoryDraft])
-
-  const chooseMemoryFolder = async () => {
-    if (!activeProjectRoot || !activeWorkspaceId) return
-    const dir = await window.api.openDir()
-    if (!dir) return
-    const relativePath = relativePathBetween(activeProjectRoot, dir)
-    if (!relativePath || relativePath === '.') {
-      setMemoryStatus({
-        ok: false,
-        status: 'invalid-relative-path',
-        relativeRoot: null,
-        message: 'Choose a folder that can be expressed relative to the project folder.',
-      })
-      return
-    }
-    setMemoryDraft(relativePath)
-    setProjectKnowledgeRoot(activeProjectRoot, relativePath)
-  }
 
   const nextUpdateAction: UpdateAction = updateState?.downloaded
     ? 'restart'
@@ -1461,34 +1359,80 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-agents"
           className="space-y-4"
         >
-          {([
-            ['codex', 'Codex command'],
-            ['claude', 'Claude command'],
-          ] as Array<[AgentCli, string]>).map(([cli, label]) => (
-            <div key={cli} className="space-y-2">
-              <Field label={label} htmlFor={`cli-command-${cli}`}>
-                <input
-                  value={cliRuntimes[cli].command}
-                  onChange={(event) => setCliRuntime(cli, { command: event.target.value })}
-                  placeholder={cli}
-                  className={INPUT_CLASS}
-                />
-              </Field>
-
-              {isWindows && (
-                <CompoundSwitchRow
-                  label={`Run ${cli === 'codex' ? 'Codex' : 'Claude'} through WSL`}
-                  checked={cliRuntimes[cli].useWsl}
-                  onChange={(enabled) => setCliRuntime(cli, { useWsl: enabled })}
-                />
-              )}
-            </div>
-          ))}
           <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            Defaults are <span className="font-mono text-[color:var(--text-default)]">codex</span> native and{' '}
-            <span className="font-mono text-[color:var(--text-default)]">claude</span>{isWindows ? ' through WSL' : ''}.
-            Use a full executable path if your CLI is not on PATH.
+            Installed plugins define which agent CLIs are available. These fields only override how each
+            one is invoked — they don't install or create CLIs. Leave a command blank to use the plugin's
+            bundled binary, or enter a full executable path if the CLI is not on PATH.
           </p>
+
+          {pluginCatalogStatus === 'loading' && installedPluginRows.length === 0 ? (
+            <MessageBlock tone="neutral">Loading installed agent plugins…</MessageBlock>
+          ) : pluginCatalogStatus === 'error' ? (
+            <div className="space-y-2">
+              <MessageBlock tone="warn">
+                {pluginCatalogError ?? 'The plugin registry could not be loaded.'}
+              </MessageBlock>
+              <GhostButton
+                onClick={() => void refreshPluginCatalog()}
+                className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              >
+                Retry
+              </GhostButton>
+            </div>
+          ) : installedPluginRows.length === 0 ? (
+            <div className="space-y-2">
+              <MessageBlock tone="neutral">No agent plugins are installed.</MessageBlock>
+              <GhostButton
+                onClick={() => void refreshPluginCatalog()}
+                className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              >
+                Refresh
+              </GhostButton>
+            </div>
+          ) : (
+            installedPluginRows.map((plugin) => {
+              const override = cliRuntimeForPlugin(plugin.id, cliRuntimes)
+              return (
+                <div key={plugin.id} className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <CliIcon cli={plugin.id} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
+                    <span className="text-[13px] font-medium text-[color:var(--text-strong)]">
+                      {plugin.displayName}
+                    </span>
+                    <span className="text-[11px] text-[color:var(--text-muted)]">
+                      {plugin.source === 'bundled' ? 'Built-in' : 'User plugin'}
+                    </span>
+                  </div>
+                  <Field label="Command" htmlFor={`cli-command-${plugin.id}`}>
+                    <input
+                      id={`cli-command-${plugin.id}`}
+                      // Per-plugin accessible name so screen readers don't announce an
+                      // identical "Command" for every row; the visible label stays compact.
+                      aria-label={`${plugin.displayName} command`}
+                      value={override.command}
+                      // Write the full effective pair so editing one field migrates the
+                      // legacy-alias value (claude-code <- claude) onto the plugin-id key
+                      // instead of dropping the other field to a blank default.
+                      onChange={(event) => setCliRuntime(plugin.id, { command: event.target.value, useWsl: override.useWsl })}
+                      placeholder={plugin.binary}
+                      className={INPUT_CLASS}
+                    />
+                  </Field>
+
+                  {isWindows && (
+                    <CompoundSwitchRow
+                      label={`Run ${plugin.displayName} through WSL`}
+                      checked={override.useWsl}
+                      onChange={(enabled) => setCliRuntime(plugin.id, { command: override.command, useWsl: enabled })}
+                    />
+                  )}
+                  <p className="text-[11px] leading-5 text-[color:var(--text-muted)]">
+                    Runs <span className="font-mono text-[color:var(--text-default)]">{plugin.binary}</span> when the command is blank.
+                  </p>
+                </div>
+              )
+            })
+          )}
         </div>
       ) : null}
 
@@ -2125,48 +2069,23 @@ export default function SettingsPanel({
             <div className="min-w-0 text-sm font-semibold text-[color:var(--text-strong)]">
               Markdown knowledge graph
             </div>
-            {activeWorkspace ? (
-              <div className="max-w-[260px] truncate rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--accent-primary)]">
-                {activeWorkspace.name}
+            {activeProjectRoot ? (
+              <div
+                className="max-w-[260px] truncate rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--accent-primary)]"
+                title={activeProjectRoot}
+              >
+                {basename(activeProjectRoot)}
               </div>
             ) : null}
           </div>
 
-          <Field label="Knowledge folder" htmlFor="knowledge-folder-input">
-            <div className="flex gap-2">
-              <input
-                value={memoryDraft}
-                onChange={(event) => setMemoryDraft(event.target.value)}
-                onBlur={(event) => commitMemoryDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.currentTarget.blur()
-                  }
-                }}
-                placeholder="../ecosystem-knowledge"
-                disabled={!activeWorkspace}
-                className={`${INPUT_CLASS} min-w-0 flex-1`}
-              />
-              <GhostButton
-                size="md"
-                onClick={() => void chooseMemoryFolder()}
-                disabled={!activeProjectRoot}
-                className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-              >
-                Choose
-              </GhostButton>
-            </div>
-          </Field>
+          <p className="text-[12px] leading-5 text-[color:var(--text-subtle)]">
+            Each project points at a knowledge folder, relative to its own root.
+            Workspaces under a project (including Sprint Engine runs) inherit it.
+            Select several to point them at one shared folder.
+          </p>
 
-          <MessageBlock tone={memoryStatusTone(memoryStatus)}>
-            {memoryStatus?.ok
-              ? `Ready: ${memoryStatus.relativeRoot}`
-              : memoryStatus
-                ? `${memoryStatus.message} Do not guess another folder.`
-                : activeProjectRoot
-                  ? 'Set a relative path from the project folder. Workspaces under this project inherit the Knowledge Graph.'
-                  : 'Open a workspace folder before configuring the Knowledge Graph.'}
-          </MessageBlock>
+          <ProjectKnowledgeList activeProjectRoot={activeProjectRoot} />
 
           <div className="border-t border-[color:var(--border-subtle)] pt-4">
             <CompoundSwitchRow
@@ -2494,12 +2413,6 @@ function formatGitHubTokenStatus(status: GitHubTokenUiStatus | null): string {
 function githubTokenTone(status: GitHubTokenUiStatus | null): Tone {
   if (status?.configured) return 'accent'
   return 'neutral'
-}
-
-function memoryStatusTone(status: MemoryRootStatus | null): MessageTone {
-  if (!status) return 'neutral'
-  if (status.ok) return 'accent'
-  return 'warn'
 }
 
 function updateMessageTone(status: AppUpdateState['status'] | undefined): MessageTone {

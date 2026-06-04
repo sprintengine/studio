@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type {
   GuidedBriefRuntimeState,
   SprintEngineRoleCounts,
@@ -25,6 +25,7 @@ import {
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
 import { GuidedBriefFlow, type GuidedBriefRunOptions } from './GuidedBriefFlow'
+import { selectAgentCliCatalog } from '../newWorkspace/cliRuntimeOptions'
 import { guidedBriefBuildHandoffRelativePath, guidedBriefSprintEngineGoal } from './handoff'
 import { joinWorkspacePath } from './paths'
 
@@ -50,6 +51,12 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
   const setGuidedBriefState = useWorkspaceStore((s) => s.setGuidedBriefState)
   const authState = useWorkspaceStore((s) => s.authState)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
+  const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
+  const cliOptions = useMemo(
+    () => selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes),
+    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes],
+  )
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
   const workspaceWindowId = useWorkspaceStore((s) =>
     s.workspaceWindows.find((windowState) => windowState.workspaceIds.includes(workspaceId))?.id
@@ -192,6 +199,7 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
       onBackToIdea={() => setViewingIdea(true)}
       onStartBuild={startBuild}
       cliRuntimes={cliRuntimes}
+      cliOptions={cliOptions}
       sprintEngineDisabledRoleIds={sprintEngineDisabledRoleIds}
     />
   )

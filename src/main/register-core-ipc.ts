@@ -14,6 +14,7 @@ import { registerMemoryActivityIpc } from './ipc/memory-activity-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
 import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
 import { registerModuleEnablementIpc } from './ipc/module-enablement-ipc'
+import { registerPluginIpc } from './ipc/plugins-ipc'
 import { registerSkillPackIpc } from './ipc/skill-pack-ipc'
 import { registerSoulsIpc } from './ipc/souls-ipc'
 import { registerSprintEngineRoleRegistryIpc } from './ipc/sprintengine-role-registry-ipc'
@@ -72,6 +73,7 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
   registerGitHubTokenIpc(ipcMain, services.githubTokenStore)
   registerMenuDialogIpc(ipcMain)
   registerModuleEnablementIpc(ipcMain)
+  registerPluginIpc(ipcMain)
   registerSprintEngineRoleRegistryIpc(ipcMain)
   registerLayoutTemplateRegistryIpc(ipcMain)
   registerThirdPartyModuleIpc(ipcMain)
