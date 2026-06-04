@@ -145,9 +145,9 @@ export default function PanelRail({ workspaceId, collapsed, onToggleCollapse }: 
   const buttonSizing = collapsed ? 'h-9 w-full' : 'h-8 w-8'
 
   // The collapse toggle is chrome, not a nav switch: it brightens on hover
-  // like the rail icons but carries no accent stripe. Collapsed it leads the
-  // vertical stack (full-width row); expanded it sits in the rail's trailing
-  // flex cell so it owns its own space and never overlaps the last switch.
+  // like the rail icons but carries no accent stripe. It leads in both
+  // layouts — the full-width top row when collapsed, the leading cell (before
+  // the hairline divider and the nav switches) when expanded.
   const collapseToggle = (
     <Tooltip
       content={collapsed ? `Open sidebar (${shortcutLabel('Ctrl+B')})` : `Collapse sidebar (${shortcutLabel('Ctrl+B')})`}
@@ -246,10 +246,11 @@ export default function PanelRail({ workspaceId, collapsed, onToggleCollapse }: 
         )
   }
 
-  // Expanded: nav switches group at the left (the navigation), the collapse
-  // toggle isolates at the far right (utility chrome) — the standard
-  // activity-bar split, so the toggle never reads as a fifth nav item.
-  // Collapsed: the toggle leads the vertical stack.
+  // Expanded: the collapse toggle leads the row, a hairline divider marks it
+  // off as utility chrome, then the nav switches pack against it — left-aligned
+  // like Linear / T3 Chat, with no trailing void. The divider does the "this
+  // is not a nav switch" job that a far-right gap used to. Collapsed: the
+  // toggle leads the vertical stack, the same reading order.
   return (
     <div
       role="toolbar"
@@ -264,10 +265,18 @@ export default function PanelRail({ workspaceId, collapsed, onToggleCollapse }: 
         </>
       ) : (
         <>
-          <div className="flex items-center gap-4">
-            {workspaceId ? panels.map(renderPanelButton) : null}
-          </div>
-          <div className="ml-auto flex">{collapseToggle}</div>
+          {collapseToggle}
+          {workspaceId ? (
+            <>
+              <span
+                aria-hidden="true"
+                className="mx-1.5 h-5 w-px shrink-0 bg-[color:var(--border-subtle)]"
+              />
+              <div className="flex items-center gap-4">
+                {panels.map(renderPanelButton)}
+              </div>
+            </>
+          ) : null}
         </>
       )}
     </div>

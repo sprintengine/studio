@@ -9,7 +9,9 @@ import {
   normalizeCliPermissionPreset,
   normalizeRecentWorkspaceFolders,
   normalizeSearchExcludes,
+  normalizeSpecialistOrder,
 } from './settingsSlice'
+import { orderSpecialistActions } from '../../specialists/specialistActions'
 
 const workspaceWithMemoryRoot = {
   folderPath: '/Users/example/project',
@@ -211,6 +213,40 @@ assert.equal(
   normalizedWithArchitectFalse.sprintEngineRoleSettings.enabled.developer,
   false,
   'normalization preserves other disabled roles',
+)
+
+// --- Specialist menu ordering --------------------------------------------
+// Normalization keeps only known specialist ids, drops duplicates, and ignores
+// junk so a stale or hand-edited settings file is always safe to load.
+assert.deepEqual(
+  normalizeSpecialistOrder(['developer', 'architect', 'developer', 'not-a-real-id', 42, '']),
+  ['developer', 'architect'],
+  'normalizeSpecialistOrder keeps known unique ids in order',
+)
+assert.deepEqual(normalizeSpecialistOrder(undefined), [], 'missing order normalizes to empty')
+
+// orderSpecialistActions honors the saved order first, then appends any
+// specialists missing from it (e.g. a newly shipped role) without dropping them.
+const reordered = orderSpecialistActions(['developer', 'architect'])
+assert.equal(reordered[0].id, 'developer', 'saved order leads the roster')
+assert.equal(reordered[1].id, 'architect', 'saved order is respected in sequence')
+assert.equal(
+  new Set(reordered.map((action) => action.id)).size,
+  reordered.length,
+  'ordered roster has no duplicates',
+)
+assert.equal(
+  reordered.length,
+  orderSpecialistActions([]).length,
+  'reordering never adds or drops specialists vs the canonical roster',
+)
+
+// The persisted setter normalizes whatever the drag handler hands it.
+store.setSpecialistOrder(['developer', 'developer', 'frontend-design-review', 'bogus' as never])
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.specialistOrder,
+  ['developer', 'frontend-design-review'],
+  'setSpecialistOrder persists a normalized id sequence',
 )
 
 console.log('settingsSlice.test.ts: ok')

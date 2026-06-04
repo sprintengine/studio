@@ -4,7 +4,6 @@ import { Popover, StatusDot, Tooltip } from '../ui'
 import CliIcon from '../CliIcon'
 import {
   MULTILOOP_ROLES,
-  SPECIALIST_ACTIONS,
   getMultiloopRole,
   getSpecialistAction,
   type MultiloopRoleDescriptor,
@@ -481,6 +480,10 @@ export type WorkspaceTopBarProps = {
   multiloopRoleCliDefaults: Partial<Record<MultiloopRole, AgentCli>>
   setSpecialistCliDefault: (id: SpecialistActionId, cli: AgentCli | null) => void
   setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
+  // Specialist roster in the user's persisted display order. Drives the spawn
+  // menu list and is the source the drag-reorder rewrites.
+  specialistActions: SpecialistAction[]
+  setSpecialistOrder: (order: SpecialistActionId[]) => void
   // Plugin-aware agent CLI catalog (bundled + configured cliRuntimes), shared
   // with the sidebar New chat picker so the lists stay in sync.
   agentCliOptions: Array<{ value: AgentCli; label: string }>
@@ -560,6 +563,8 @@ export default function WorkspaceTopBar({
   multiloopRoleCliDefaults,
   setSpecialistCliDefault,
   setMultiloopRoleCliDefault,
+  specialistActions,
+  setSpecialistOrder,
   agentCliOptions,
   agentCliStatus,
   agentCliError,
@@ -587,6 +592,22 @@ export default function WorkspaceTopBar({
   // opencode/custom agents read correctly instead of falling back to "Claude Code".
   const cliLabelFor = (cli: AgentCli): string =>
     agentCliOptions.find((option) => option.value === cli)?.label ?? cli
+  // Drag-to-reorder state for the specialist spawn list. Ephemeral: the dragged
+  // row and the row it is currently hovering, used only to paint the drop target.
+  const [draggingSpecialistId, setDraggingSpecialistId] = React.useState<SpecialistActionId | null>(null)
+  const [dragOverSpecialistId, setDragOverSpecialistId] = React.useState<SpecialistActionId | null>(null)
+  // Commit a drop: move the dragged specialist to the target's position and
+  // persist the full id sequence. No-ops when source/target match or are stale.
+  const reorderSpecialist = (sourceId: SpecialistActionId, targetId: SpecialistActionId): void => {
+    if (sourceId === targetId) return
+    const ids = specialistActions.map((action) => action.id)
+    const from = ids.indexOf(sourceId)
+    const to = ids.indexOf(targetId)
+    if (from === -1 || to === -1) return
+    ids.splice(from, 1)
+    ids.splice(to, 0, sourceId)
+    setSpecialistOrder(ids)
+  }
   return (
       <div
         className="flex h-[48px] shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-3 transition-colors"
@@ -876,12 +897,15 @@ export default function WorkspaceTopBar({
               ?? { value: triggerCli, label: cliLabelFor(triggerCli) }
             const menuQuery = agentMenuQuery.trim().toLowerCase()
             const filteredSpecialists = menuQuery
-              ? SPECIALIST_ACTIONS.filter((action) =>
+              ? specialistActions.filter((action) =>
                   action.label.toLowerCase().includes(menuQuery)
                   || action.shortLabel.toLowerCase().includes(menuQuery)
                   || action.description.toLowerCase().includes(menuQuery)
                 )
-              : SPECIALIST_ACTIONS
+              : specialistActions
+            // Reordering only makes sense against the full, unfiltered roster:
+            // a search-filtered list has gaps that make drop positions ambiguous.
+            const specialistDragEnabled = !menuQuery
             const filteredMultiloop = menuQuery
               ? MULTILOOP_ROLES.filter((soul) =>
                   soul.label.toLowerCase().includes(menuQuery)
@@ -1202,8 +1226,44 @@ export default function WorkspaceTopBar({
                             const popoverOpen =
                               chipPopoverForRole?.kind === 'specialist'
                               && chipPopoverForRole.id === action.id
+                            const dragging = draggingSpecialistId === action.id
+                            const dropTarget =
+                              specialistDragEnabled
+                              && dragOverSpecialistId === action.id
+                              && draggingSpecialistId !== null
+                              && draggingSpecialistId !== action.id
                             return (
-                              <div key={action.id} className="relative">
+                              <div
+                                key={action.id}
+                                className={`relative ${dragging ? 'opacity-40' : ''} ${
+                                  dropTarget ? 'shadow-[inset_0_2px_0_var(--accent-primary)]' : ''
+                                }`}
+                                draggable={specialistDragEnabled}
+                                onDragStart={(event) => {
+                                  setDraggingSpecialistId(action.id)
+                                  event.dataTransfer.effectAllowed = 'move'
+                                  event.dataTransfer.setData('text/plain', action.id)
+                                }}
+                                onDragOver={(event) => {
+                                  if (!specialistDragEnabled || draggingSpecialistId === null) return
+                                  event.preventDefault()
+                                  event.dataTransfer.dropEffect = 'move'
+                                  if (dragOverSpecialistId !== action.id) setDragOverSpecialistId(action.id)
+                                }}
+                                onDragLeave={() => {
+                                  setDragOverSpecialistId((current) => (current === action.id ? null : current))
+                                }}
+                                onDrop={(event) => {
+                                  event.preventDefault()
+                                  if (draggingSpecialistId) reorderSpecialist(draggingSpecialistId, action.id)
+                                  setDraggingSpecialistId(null)
+                                  setDragOverSpecialistId(null)
+                                }}
+                                onDragEnd={() => {
+                                  setDraggingSpecialistId(null)
+                                  setDragOverSpecialistId(null)
+                                }}
+                              >
                                 <button
                                   type="button"
                                   role="menuitemradio"
@@ -1216,6 +1276,8 @@ export default function WorkspaceTopBar({
                                   }}
                                   onMouseEnter={() => setAgentMenuHighlight(index)}
                                   className={`grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pr-2 text-left transition-colors ${
+                                    specialistDragEnabled ? 'cursor-grab active:cursor-grabbing' : ''
+                                  } ${
                                     highlighted
                                       ? 'bg-[color:var(--accent-primary-soft)] pl-[7px] shadow-[inset_3px_0_0_var(--accent-primary)] text-[color:var(--text-strong)]'
                                       : 'pl-2.5 text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.05)]'

@@ -151,6 +151,29 @@ export function getSpecialistAction(id: SpecialistActionId | string | null | und
   return SPECIALIST_ACTIONS.find((action) => action.id === id) ?? SPECIALIST_ACTIONS[0]
 }
 
+/**
+ * Apply a user-defined display order to the specialist roster. IDs in `order`
+ * are honored first (in their saved sequence); any specialist missing from the
+ * order — e.g. a newly shipped role — is appended in canonical order so the
+ * list never loses an entry. Unknown ids in `order` are ignored.
+ */
+export function orderSpecialistActions(order: readonly SpecialistActionId[]): SpecialistAction[] {
+  const byId = new Map(SPECIALIST_ACTIONS.map((action) => [action.id, action]))
+  const seen = new Set<SpecialistActionId>()
+  const ordered: SpecialistAction[] = []
+  for (const id of order) {
+    const action = byId.get(id)
+    if (action && !seen.has(id)) {
+      ordered.push(action)
+      seen.add(id)
+    }
+  }
+  for (const action of SPECIALIST_ACTIONS) {
+    if (!seen.has(action.id)) ordered.push(action)
+  }
+  return ordered
+}
+
 export function getMultiloopRole(role: MultiloopRole | string | null | undefined): MultiloopRoleDescriptor {
   return MULTILOOP_ROLES.find((descriptor) => descriptor.role === role) ?? MULTILOOP_ROLES[0]
 }

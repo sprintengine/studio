@@ -1293,6 +1293,12 @@ export type AppSettings = {
   lastAgentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   specialistCliDefaults: Partial<Record<SpecialistActionId, AgentCli>>
   multiloopRoleCliDefaults: Partial<Record<MultiloopRole, AgentCli>>
+  /**
+   * User-defined display order for the spawn-agent specialist menu. Holds the
+   * specialist ids in the sequence the user dragged them into; ids absent here
+   * fall back to the canonical roster order. Empty means "use canonical order".
+   */
+  specialistOrder: SpecialistActionId[]
   sprintEngineRoleSettings: SprintEngineRoleSettings
   searchExcludes: string[]
   projectKnowledgeRoots: Record<string, string | null>

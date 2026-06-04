@@ -23,6 +23,7 @@ import {
   SPECIALIST_ACTIONS,
   getMultiloopRole,
   getSpecialistAction,
+  orderSpecialistActions,
   buildSpecialistSoulStartupPrompt,
   loadMultiloopPrompt,
 } from '../../specialists/specialistActions'
@@ -80,6 +81,7 @@ const NewWorkspacePanel = React.lazy(() => import('./NewWorkspacePanel'))
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 const EMPTY_SPECIALIST_CLI_DEFAULTS: Partial<Record<SpecialistActionId, AgentCli>> = {}
 const EMPTY_MULTILOOP_ROLE_CLI_DEFAULTS: Partial<Record<MultiloopRole, AgentCli>> = {}
+const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 
 const TERMINAL_SESSION_RECOVERY_POLL_MS = 30_000
@@ -157,6 +159,14 @@ export default function WorkspaceManager() {
   )
   const setSpecialistCliDefault = useWorkspaceStore((s) => s.setSpecialistCliDefault)
   const setMultiloopRoleCliDefault = useWorkspaceStore((s) => s.setMultiloopRoleCliDefault)
+  const specialistOrder = useWorkspaceStore(
+    (s) => s.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER
+  )
+  const setSpecialistOrder = useWorkspaceStore((s) => s.setSpecialistOrder)
+  const orderedSpecialistActions = useMemo(
+    () => orderSpecialistActions(specialistOrder),
+    [specialistOrder]
+  )
   const notifications = useNotificationStore((s) => s.notifications)
   const markNotificationRead = useNotificationStore((s) => s.markRead)
   const markAllNotificationsRead = useNotificationStore((s) => s.markAllRead)
@@ -1395,6 +1405,8 @@ export default function WorkspaceManager() {
         multiloopRoleCliDefaults={multiloopRoleCliDefaults}
         setSpecialistCliDefault={setSpecialistCliDefault}
         setMultiloopRoleCliDefault={setMultiloopRoleCliDefault}
+        specialistActions={orderedSpecialistActions}
+        setSpecialistOrder={setSpecialistOrder}
         agentSpawnPermissionPreset={agentSpawnPermissionPreset}
         setAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
         handleSelectSpecialist={handleSelectSpecialist}

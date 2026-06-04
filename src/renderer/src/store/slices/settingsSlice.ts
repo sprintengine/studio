@@ -24,6 +24,7 @@ import {
   resolveInitialOnboardingStep,
   type OnboardingStep,
 } from '../onboardingState'
+import { SPECIALIST_ACTIONS } from '../../specialists/specialistActions'
 import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
 import { moduleProfile, profileOverrides, type ModuleProfileId } from '../../../../shared/modules/profiles'
@@ -388,6 +389,25 @@ export function normalizeSelectedCli(input: AgentCli | null | undefined, fallbac
   return fallback
 }
 
+// Persisted specialist menu order. Keeps only known ids and drops duplicates;
+// missing ids are resolved against the canonical roster at render time, so an
+// incomplete or stale list is safe to store.
+export function normalizeSpecialistOrder(input: unknown): SpecialistActionId[] {
+  if (!Array.isArray(input)) return []
+  const valid = new Set(SPECIALIST_ACTIONS.map((action) => action.id))
+  const seen = new Set<SpecialistActionId>()
+  const result: SpecialistActionId[] = []
+  for (const entry of input) {
+    if (typeof entry !== 'string') continue
+    const id = entry.trim() as SpecialistActionId
+    if (valid.has(id) && !seen.has(id)) {
+      seen.add(id)
+      result.push(id)
+    }
+  }
+  return result
+}
+
 // Architect is the only role Sprint Engine planning truly requires. It is
 // excluded from user disablement so a stray persisted `architect: false`
 // cannot strand future workspaces without a planner. Settings normalization
@@ -432,6 +452,7 @@ export const defaultAppSettings = (): AppSettings => ({
   lastAgentSpawnPermissionPreset: 'default',
   specialistCliDefaults: {},
   multiloopRoleCliDefaults: {},
+  specialistOrder: [],
   sprintEngineRoleSettings: defaultSprintEngineRoleSettings(),
   searchExcludes: [],
   projectKnowledgeRoots: {},
@@ -461,6 +482,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
     specialistCliDefaults: normalizeCliDefaults(settings?.specialistCliDefaults),
     multiloopRoleCliDefaults: normalizeCliDefaults(settings?.multiloopRoleCliDefaults),
+    specialistOrder: normalizeSpecialistOrder(settings?.specialistOrder),
     sprintEngineRoleSettings: normalizeSprintEngineRoleSettings(settings?.sprintEngineRoleSettings),
     searchExcludes: normalizeSearchExcludes(settings?.searchExcludes),
     projectKnowledgeRoots: normalizeProjectKnowledgeRoots(settings?.projectKnowledgeRoots, workspaces),
@@ -513,6 +535,7 @@ export interface SettingsSliceActions {
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
+  setSpecialistOrder: (order: SpecialistActionId[]) => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   applyModuleProfile: (profileId: ModuleProfileId) => void
@@ -687,6 +710,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         } else {
           state.appSettings.multiloopRoleCliDefaults[role] = cli
         }
+      }),
+
+    setSpecialistOrder: (order) =>
+      set((state) => {
+        state.appSettings.specialistOrder = normalizeSpecialistOrder(order)
       }),
 
     setSprintEngineRoleEnabled: (role, enabled) =>
