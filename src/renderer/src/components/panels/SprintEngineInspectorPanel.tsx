@@ -922,6 +922,16 @@ function findGateAgent(
   return runtimeAgents.find((entry) => entry.role === gate.role) ?? null
 }
 
+// When the reviewer last left this gate: the most recent attempt's completion
+// timestamp. Null while the gate is still open (no completed attempt yet), so
+// the row shows the live status label instead of a stale relative time.
+function latestGateCompletedAt(gate: SprintEngineQualityGate): string | null {
+  return gate.attempts.reduce<string | null>((latest, attempt) => {
+    if (!attempt.completedAt) return latest
+    return !latest || attempt.completedAt > latest ? attempt.completedAt : latest
+  }, null)
+}
+
 // Cap on visible pass ticks per worker so a heavily-reworked task never breaks
 // a row; overflow collapses to a `+N` counter.
 const MAX_VISIBLE_OWNER_PASSES = 6
@@ -968,16 +978,13 @@ function ActiveImplementerStatus({ runtimeStatus }: { runtimeStatus: string | nu
 function TaskImplementerRow({
   entry,
   fallbackRole,
-  isAgentTerminalLive,
   onOpenAgentTerminal,
 }: {
   entry: SprintEngineTaskImplementerEntry
   fallbackRole: SprintEngineRoleId
-  isAgentTerminalLive: (agentId: string) => boolean
   onOpenAgentTerminal: (agentId: string) => void
 }) {
   const role = entry.role ?? fallbackRole
-  const hasLiveTerminal = isAgentTerminalLive(entry.agentId)
   const relativeTime = entry.isActive ? null : formatRelativeTime(entry.lastActivityAt)
   const identityCluster = (
     <>
@@ -1007,9 +1014,6 @@ function TaskImplementerRow({
       ) : relativeTime ? (
         <span className="tabular-nums text-[color:var(--text-disabled)]">{relativeTime}</span>
       ) : null}
-      {hasLiveTerminal ? (
-        <span className="ml-1 text-[10px] text-[color:var(--text-disabled)]">live</span>
-      ) : null}
     </li>
   )
 }
@@ -1020,12 +1024,10 @@ function TaskImplementerRow({
 function TaskImplementerTimeline({
   task,
   runtimeAgents,
-  isAgentTerminalLive,
   onOpenAgentTerminal,
 }: {
   task: SprintEngineTask
   runtimeAgents: RuntimeAgentView[]
-  isAgentTerminalLive: (agentId: string) => boolean
   onOpenAgentTerminal: (agentId: string) => void
 }) {
   const entries = getSprintEngineTaskImplementerTimeline(task, runtimeAgents)
@@ -1045,7 +1047,6 @@ function TaskImplementerTimeline({
           key={entry.agentId}
           entry={entry}
           fallbackRole={task.role}
-          isAgentTerminalLive={isAgentTerminalLive}
           onOpenAgentTerminal={onOpenAgentTerminal}
         />
       ))}
@@ -1079,12 +1080,10 @@ function TaskCallout({
 function TaskQualityGates({
   task,
   runtimeAgents,
-  isAgentTerminalLive,
   onOpenAgentTerminal,
 }: {
   task: SprintEngineTask
   runtimeAgents: RuntimeAgentView[]
-  isAgentTerminalLive: (agentId: string) => boolean
   onOpenAgentTerminal: (agentId: string) => void
 }) {
   const gates = getSprintEngineTaskQualityGates(task)
@@ -1101,7 +1100,8 @@ function TaskQualityGates({
       <ul className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
         {ordered.map((gate) => {
           const agent = findGateAgent(gate, task, runtimeAgents)
-          const agentHasLiveTerminal = agent ? isAgentTerminalLive(agent.agentId) : false
+          const reviewedAt = latestGateCompletedAt(gate)
+          const relativeTime = reviewedAt ? formatRelativeTime(reviewedAt) : null
           const gateIdentity = (
             <span className="inline-flex min-w-0 items-center gap-1.5">
               <RoleAvatar role={gate.role} size="sm" ariaLabel="" />
@@ -1139,8 +1139,10 @@ function TaskQualityGates({
                   <span className="text-[11px] text-[color:var(--text-muted)]">
                     {sprintEngineQualityGateStatusLabels[gate.status]}
                   </span>
-                  {agentHasLiveTerminal ? (
-                    <span className="text-[10px] text-[color:var(--text-disabled)]">live</span>
+                  {relativeTime ? (
+                    <span className="tabular-nums text-[11px] text-[color:var(--text-disabled)]">
+                      {relativeTime}
+                    </span>
                   ) : null}
                   {!gate.required ? (
                     <span className="text-[11px] text-[color:var(--text-disabled)]">optional</span>
@@ -2759,7 +2761,6 @@ export function SprintEngineInspectorPanel({
         onApproveArtifact={onApproveArtifact}
         onRequestArtifactChanges={onRequestArtifactChanges}
         onOpenAgentTerminal={onOpenAgentTerminal}
-        isAgentTerminalLive={isAgentTerminalLive}
       />
     </div>
   )
@@ -2779,7 +2780,6 @@ function SprintEngineTaskBody({
   onApproveArtifact,
   onRequestArtifactChanges,
   onOpenAgentTerminal,
-  isAgentTerminalLive,
 }: {
   selectedTask: SprintEngineTask
   selectedTaskOwnerLabel: string
@@ -2794,7 +2794,6 @@ function SprintEngineTaskBody({
   onApproveArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
   onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
   onOpenAgentTerminal: (agentId: string) => void
-  isAgentTerminalLive: (agentId: string) => boolean
 }) {
   const openIssues = getOpenSprintEngineFeedbackIssues(selectedTask.feedback)
   const openFindings = getOpenSprintEngineFeedbackFindings(selectedTask.feedback)
@@ -2836,7 +2835,6 @@ function SprintEngineTaskBody({
       <TaskImplementerTimeline
         task={selectedTask}
         runtimeAgents={runtimeAgents}
-        isAgentTerminalLive={isAgentTerminalLive}
         onOpenAgentTerminal={onOpenAgentTerminal}
       />
 
@@ -2855,7 +2853,6 @@ function SprintEngineTaskBody({
       <TaskQualityGates
         task={selectedTask}
         runtimeAgents={runtimeAgents}
-        isAgentTerminalLive={isAgentTerminalLive}
         onOpenAgentTerminal={onOpenAgentTerminal}
       />
 
