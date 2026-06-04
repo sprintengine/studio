@@ -3,10 +3,10 @@
 // See docs/2026-05-16-byo-cli-plugin-system.md for the design rationale and
 // docs/2026-05-16-plugin-manifests-worked-examples.md for worked examples.
 //
-// Phase 1 ships the schema, a pure renderer, and a registry that loads
-// bundled and user-installed manifests. Nothing in the running app
-// consumes the registry yet; Phase 2 migrates the existing launch path
-// onto it.
+// The running app consumes the registry for terminal agent launches and the
+// renderer agent CLI catalog. Provider-only conversation plugins are still
+// future work and must not be mixed into the CLI catalog without a manifest
+// discriminator.
 
 export type PluginVariableType = 'string' | 'enum' | 'boolean' | 'number'
 
