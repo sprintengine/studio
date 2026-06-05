@@ -1409,6 +1409,21 @@ export type AppNotification = DiagnosticLogEntry & {
   read: boolean
 }
 
+// Standard workspace agents run through one of two runtimes. `terminal` is the
+// default CLI/PTY path (and the only runtime for Sprint Engine and Multiloop
+// agents). `conversation` is the plugin-driven conversation runtime backed by a
+// provider/model selection. Older persisted agents have no `runtimeKind` and
+// must be treated as `terminal`.
+export type AgentRuntimeKind = 'terminal' | 'conversation'
+
+// Conversation runtime selection for a standard workspace agent. `providerId`
+// and `modelId` reference an installed conversation provider plugin (see
+// `conversation:providers:list`). Absent for terminal agents.
+export type AgentConversationRuntime = {
+  providerId: string
+  modelId: string
+}
+
 export type AgentState = {
   id: AgentId
   name: string
@@ -1416,6 +1431,10 @@ export type AgentState = {
   execution: AgentExecution
   messages: AgentMessage[]
   streamBuffer: string
+  // Runtime routing. Undefined is treated as `terminal` for back-compat; the
+  // conversation runtime additionally requires a valid `conversation` pair.
+  runtimeKind?: AgentRuntimeKind
+  conversation?: AgentConversationRuntime
   cliSessionId?: string
   cliStartRequested?: boolean
   cliRestartNonce?: number

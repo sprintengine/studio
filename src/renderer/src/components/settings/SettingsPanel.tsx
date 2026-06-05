@@ -36,6 +36,7 @@ import { useConfirmDialog } from '../ui/ConfirmDialog'
 import LearnCenter from '../learn/LearnCenter'
 import MobileSettingsTab from './MobileSettingsTab'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
+import { ProviderSettingsTab } from './ProviderSettingsTab'
 import {
   McpBrandIcon,
   McpCatalogTile,
@@ -116,6 +117,7 @@ type SettingsTabId =
   | 'updates'
   | 'github'
   | 'agents'
+  | 'providers'
   | 'roles'
   | 'mcps'
   | 'skill-packs'
@@ -132,6 +134,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
   { id: 'updates', label: 'Updates', description: 'Version and release channel' },
   { id: 'github', label: 'GitHub', description: 'Issue import token' },
   { id: 'agents', label: 'Agents', description: 'CLI runtime commands' },
+  { id: 'providers', label: 'Providers', description: 'Model and harness API keys' },
   { id: 'roles', label: 'Roles', description: 'Sprint Engine role registry' },
   { id: 'mcps', label: 'MCPs', description: 'Agent tool integrations' },
   { id: 'skill-packs', label: 'Skill packs', description: 'Bundled and ecosystem agent skills' },
@@ -150,6 +153,7 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     || value === 'updates'
     || value === 'github'
     || value === 'agents'
+    || value === 'providers'
     || value === 'roles'
     || value === 'mcps'
     || value === 'skill-packs'
@@ -520,6 +524,7 @@ export default function SettingsPanel({
     updates: null,
     github: null,
     agents: null,
+    providers: null,
     roles: null,
     mcps: null,
     'skill-packs': null,
@@ -1435,6 +1440,8 @@ export default function SettingsPanel({
           )}
         </div>
       ) : null}
+
+      {activeSettingsTab === 'providers' ? <ProviderSettingsTab /> : null}
 
       {activeSettingsTab === 'roles' ? (
         <div

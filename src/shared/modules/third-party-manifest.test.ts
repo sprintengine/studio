@@ -5,6 +5,7 @@ import {
   parseThirdPartyModuleManifest,
   validateThirdPartyModuleManifest,
 } from './third-party-manifest'
+import type { ModuleSignature } from './manifest'
 
 const VALID = {
   id: 'my-module',
@@ -65,7 +66,7 @@ function testSignatureShape(): void {
 }
 
 function testCanonicalPayloadExcludesSignatureAndIsStable(): void {
-  const a = canonicalManifestPayload({
+  const signedManifest: Record<string, unknown> & { signature?: ModuleSignature } = {
     id: 'm',
     displayName: 'M',
     version: 1,
@@ -73,16 +74,18 @@ function testCanonicalPayloadExcludesSignatureAndIsStable(): void {
     source: 'third-party',
     permissions: ['network'],
     signature: { algorithm: 'ed25519', publicKey: 'k', signature: 's' },
-  })
+  }
+  const a = canonicalManifestPayload(signedManifest)
   // Same fields, different insertion order, no signature → identical canonical bytes.
-  const b = canonicalManifestPayload({
+  const unsignedManifest: Record<string, unknown> & { signature?: ModuleSignature } = {
     source: 'third-party',
     permissions: ['network'],
     version: 1,
     defaultEnabled: false,
     displayName: 'M',
     id: 'm',
-  })
+  }
+  const b = canonicalManifestPayload(unsignedManifest)
   assert.equal(a, b, 'canonical payload is order-independent and excludes signature')
   assert.equal(a.includes('signature'), false)
 }

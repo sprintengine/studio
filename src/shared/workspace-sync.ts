@@ -452,6 +452,9 @@ function findOrCreateAgent(
       execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
       messages: [],
       streamBuffer: '',
+      // Sync-created agent skeletons exist for terminal launch/session events;
+      // the conversation runtime is opted into explicitly elsewhere.
+      runtimeKind: 'terminal',
     }
   }
   return workspace.agents[agentId]

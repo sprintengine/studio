@@ -174,7 +174,7 @@ export function parseThirdPartyModuleManifest(source: string): ThirdPartyManifes
 // The canonical byte payload a signature covers: the manifest with its own
 // `signature` field removed, serialized with sorted keys so signer and verifier
 // agree byte-for-byte regardless of property order.
-export function canonicalManifestPayload(manifest: CapabilityManifest): string {
+export function canonicalManifestPayload(manifest: { signature?: ModuleSignature }): string {
   const { signature: _signature, ...rest } = manifest
   return canonicalJsonStringify(rest)
 }

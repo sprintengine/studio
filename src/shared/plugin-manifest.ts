@@ -3,10 +3,11 @@
 // See docs/2026-05-16-byo-cli-plugin-system.md for the design rationale and
 // docs/2026-05-16-plugin-manifests-worked-examples.md for worked examples.
 //
-// The running app consumes the registry for terminal agent launches and the
-// renderer agent CLI catalog. Provider-only conversation plugins are still
-// future work and must not be mixed into the CLI catalog without a manifest
-// discriminator.
+// The running app consumes the registry for terminal agent launches, the
+// renderer agent CLI catalog, and provider-only conversation manifests. Provider
+// manifests must never be mixed into the terminal CLI catalog.
+
+import type { ModuleSignature, ModuleTrustStatus } from './modules/manifest'
 
 export type PluginVariableType = 'string' | 'enum' | 'boolean' | 'number'
 
@@ -95,6 +96,7 @@ export type PluginSoulsSpec = {
 }
 
 export type PluginManifest = {
+  kind?: 'cli'
   id: string
   displayName: string
   publisher?: string
@@ -110,6 +112,59 @@ export type PluginManifest = {
   capabilities: PluginCapabilities
   souls?: PluginSoulsSpec
 }
+
+export type ConversationProviderType = 'model-provider' | 'agent-harness'
+
+export type ConversationProviderModel = {
+  id: string
+  displayName?: string
+}
+
+export type ConversationProviderAuth = {
+  type: 'api-key'
+  label: string
+  env?: string
+}
+
+export type ConversationProviderAdapterKind = 'declarative' | 'trusted-executable'
+
+export type ConversationProviderAdapterSpec =
+  | { kind: 'declarative' }
+  | { kind: 'trusted-executable'; entry: string; sha256: string }
+
+export type OpenAiCompatibleProviderConfig = {
+  baseUrl: string
+  chatCompletionsPath?: string
+}
+
+export type ConversationProviderAdapterExecution = 'declarative' | 'executable' | 'blocked'
+
+export type ConversationProviderAdapterTrustStatus = ModuleTrustStatus | 'not_required'
+
+export type ConversationProviderAdapterClassification = {
+  kind: ConversationProviderAdapterKind
+  execution: ConversationProviderAdapterExecution
+  trust: ConversationProviderAdapterTrustStatus
+  entry?: string
+  fingerprint?: string
+  trustError?: string
+}
+
+export type ConversationProviderManifest = {
+  kind: 'provider'
+  id: string
+  displayName: string
+  publisher?: string
+  version: number
+  providerType: ConversationProviderType
+  models: ConversationProviderModel[]
+  auth?: ConversationProviderAuth
+  adapter?: ConversationProviderAdapterSpec
+  openaiCompatible?: OpenAiCompatibleProviderConfig
+  signature?: ModuleSignature
+}
+
+export type PluginManifestFamily = PluginManifest | ConversationProviderManifest
 
 export type PluginRenderContext = {
   binary?: string
@@ -134,7 +189,7 @@ export type PluginManifestValidationIssue = {
 }
 
 export type PluginManifestValidationResult =
-  | { ok: true; manifest: PluginManifest }
+  | { ok: true; manifest: PluginManifestFamily }
   | { ok: false; issues: PluginManifestValidationIssue[] }
 
 export type PluginSource = 'bundled' | 'user'
@@ -146,10 +201,28 @@ export type LoadedPlugin = {
   pluginRoot: string
 }
 
+export type LoadedConversationProvider = {
+  manifest: ConversationProviderManifest
+  source: PluginSource
+  manifestPath: string
+  pluginRoot: string
+  adapter: ConversationProviderAdapterClassification
+}
+
 export type PluginRegistryListEntry = {
   id: string
   displayName: string
   source: PluginSource
   version: number
   binary: string
+}
+
+export type ConversationProviderListEntry = {
+  id: string
+  displayName: string
+  source: PluginSource
+  version: number
+  providerType: ConversationProviderType
+  models: ConversationProviderModel[]
+  adapter: ConversationProviderAdapterClassification
 }

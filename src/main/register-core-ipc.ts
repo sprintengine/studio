@@ -2,6 +2,7 @@ import type { IpcMain } from 'electron'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
 import { registerClipboardIpc } from './ipc/clipboard-ipc'
+import { registerConversationIpc } from './ipc/conversation-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
@@ -74,6 +75,7 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
   registerMenuDialogIpc(ipcMain)
   registerModuleEnablementIpc(ipcMain)
   registerPluginIpc(ipcMain)
+  registerConversationIpc(ipcMain)
   registerSprintEngineRoleRegistryIpc(ipcMain)
   registerLayoutTemplateRegistryIpc(ipcMain)
   registerThirdPartyModuleIpc(ipcMain)

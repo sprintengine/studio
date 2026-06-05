@@ -1,13 +1,21 @@
 import { existsSync } from 'fs'
 import { isAbsolute, join, relative, resolve, sep } from 'path'
 
-import type { LoadedPlugin, PluginManifest, PluginRegistryListEntry } from '../shared/plugin-manifest'
+import type {
+  ConversationProviderListEntry,
+  LoadedConversationProvider,
+  LoadedPlugin,
+  PluginManifest,
+  PluginRegistryListEntry,
+} from '../shared/plugin-manifest'
 import {
   createPluginRegistry,
   defaultUserPluginRoot,
   type PluginRegistry,
+  type PluginRegistryOptions,
   type PluginRegistryLoadReport,
 } from './plugin-registry'
+import { readTrustedModulesSync } from './modules/trust-store'
 
 // Lazy require so this module can be imported in node-only test bundles
 // that never reach the `ensureRegistry()` call. The electron `app` module
@@ -47,13 +55,26 @@ export function resolveBundledPluginRoot(): string {
 function ensureRegistry(): PluginRegistry {
   if (registry) return registry
   const userRoot = defaultUserPluginRoot()
-  registry = createPluginRegistry({
-    bundledRoot: resolveBundledPluginRoot(),
-    userRoot,
-  })
+  registry = createPluginRegistry(
+    createAppPluginRegistryOptions(loadElectron().app.getPath('userData'), resolveBundledPluginRoot(), userRoot)
+  )
   configuredUserRoot = userRoot
   lastReport = registry.loadSync()
   return registry
+}
+
+export function createAppPluginRegistryOptions(
+  userDataDir: string,
+  bundledRoot: string = resolveBundledPluginRoot(),
+  userRoot: string = defaultUserPluginRoot()
+): PluginRegistryOptions {
+  return {
+    bundledRoot,
+    userRoot,
+    providerTrustContext: {
+      trustedModules: readTrustedModulesSync(userDataDir),
+    },
+  }
 }
 
 export function getPluginRegistry(): PluginRegistry {
@@ -70,6 +91,14 @@ export function getPluginManifest(id: string): PluginManifest | undefined {
 
 export function listPluginRegistryEntries(): PluginRegistryListEntry[] {
   return ensureRegistry().list()
+}
+
+export function listConversationProviderRegistryEntries(): ConversationProviderListEntry[] {
+  return ensureRegistry().listConversationProviders()
+}
+
+export function getConversationProviderById(id: string): LoadedConversationProvider | undefined {
+  return ensureRegistry().getConversationProvider(id)
 }
 
 export function getLastPluginRegistryReport(): PluginRegistryLoadReport | null {

@@ -2,10 +2,14 @@ import React, { useMemo } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
   AgentCli,
+  AgentRuntimeKind,
+  AgentState,
   CliRuntimeSettings,
   PluginCatalogEntry,
   PluginCatalogStatus,
+  WorkspaceMode,
 } from '../../types/workspace'
+import { normalizeAgentRuntime } from '../../store/slices/agentsSlice'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { MULTICODE_DISABLE_SPRINTENGINE_TERMINALS, MULTICODE_SAFE_MODE } from '../../utils/runtimeFlags'
 import {
@@ -14,6 +18,7 @@ import {
 } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { PrimaryButton } from '../ui'
 import TerminalView from './TerminalView'
+import AgentChatView from './AgentChatView'
 
 interface Props {
   workspaceId: string
@@ -31,6 +36,22 @@ export function isStoredAgentCliUnavailable(
   if (pluginCatalogStatus !== 'ready') return false
   const catalog = selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes)
   return isAgentCliMissing(cli, catalog)
+}
+
+// Decide which runtime drives the `agent` panel. Sprint Engine and Multiloop
+// agents are always terminal/MCP-owned regardless of any stored selection; only
+// standard workspace agents that opted into a valid conversation runtime route
+// to the conversation UI. Mirrors `normalizeAgentRuntime` for the standard case
+// so a partial/corrupt selection falls back to terminal.
+export function resolveAgentRuntimeKind(
+  agent: Pick<AgentState, 'runtimeKind' | 'conversation' | 'kind'> | null | undefined,
+  context: { isSprintEngineAgent: boolean; workspaceMode: WorkspaceMode | undefined },
+): AgentRuntimeKind {
+  if (!agent) return 'terminal'
+  if (context.isSprintEngineAgent) return 'terminal'
+  if (context.workspaceMode === 'sprintengine' || context.workspaceMode === 'multiloop') return 'terminal'
+  if (agent.kind === 'sprintengine' || agent.kind === 'multiloop') return 'terminal'
+  return normalizeAgentRuntime(agent).runtimeKind
 }
 
 export default function AgentPanel({
@@ -55,10 +76,19 @@ export default function AgentPanel({
   const label = agent?.name ?? agentId
   const isSprintEngineAgent = workspace?.mode === 'sprintengine' && Boolean(sprintEngineRuntimeAgent)
   const sprintEngineTerminalBlocked = MULTICODE_DISABLE_SPRINTENGINE_TERMINALS && isSprintEngineAgent
+  const runtimeKind = resolveAgentRuntimeKind(agent, {
+    isSprintEngineAgent,
+    workspaceMode: workspace?.mode,
+  })
+  const isConversationRuntime = runtimeKind === 'conversation'
   const cli = agent?.cli
   const agentCliUnavailable = useMemo(
-    () => isStoredAgentCliUnavailable(cli, pluginCatalogStatus, pluginCatalogEntries, cliRuntimes),
-    [cli, pluginCatalogStatus, pluginCatalogEntries, cliRuntimes],
+    // Missing-CLI blocking is a terminal-runtime concern only; provider-backed
+    // conversation agents do not launch a CLI and must not inherit it.
+    () =>
+      !isConversationRuntime
+      && isStoredAgentCliUnavailable(cli, pluginCatalogStatus, pluginCatalogEntries, cliRuntimes),
+    [isConversationRuntime, cli, pluginCatalogStatus, pluginCatalogEntries, cliRuntimes],
   )
   const hasStarted =
     !agentCliUnavailable
@@ -106,6 +136,10 @@ export default function AgentPanel({
   }
 
   const startLabel = sprintEngineRuntimeAgent?.role === 'architect' ? 'Spawn Architect' : `Spawn ${label}`
+
+  if (isConversationRuntime) {
+    return <AgentChatView workspaceId={workspaceId} agentId={agentId} />
+  }
 
   return (
     <div className={`flex h-full flex-col bg-[color:var(--bg-surface)] font-mono text-[12px] text-[color:var(--text-default)] ${cliShellTone}`}>

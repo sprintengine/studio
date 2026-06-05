@@ -574,6 +574,7 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
       calls.push('dispatch')
       return { ok: true, data: null }
     },
+    summarizeFeedback: async () => ({ ok: true, data: null }),
   })
 
   await handlers.get('sprintengine:registry:roles:read')?.(null, { workspaceRoot: '/tmp/workspace' })

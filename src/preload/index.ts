@@ -4,6 +4,7 @@ import { appMenuApi } from './api/app-menu'
 import { authApi } from './api/auth'
 import { builtinSkillsApi } from './api/builtinSkills'
 import { clipboardApi } from './api/clipboard'
+import { conversationApi } from './api/conversation'
 import { filesystemApi } from './api/filesystem'
 import { gitApi } from './api/git'
 import { layoutTemplatesApi } from './api/layout-templates'
@@ -41,6 +42,7 @@ const api = {
   ...mcpApi,
   ...modulesApi,
   ...pluginsApi,
+  ...conversationApi,
   ...skillPackApi,
   ...sprintEngineApi,
   ...switchboardApi,

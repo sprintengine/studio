@@ -338,4 +338,63 @@ const refreshedSnapshotState = applyWorkspaceSyncSnapshot(launchUpdate.state, {
 assert.equal(refreshedSnapshotState.lastAppliedWorkspaceSyncSequence, 18)
 assert.equal(refreshedSnapshotState.activeWorkspaceId, 'ws-snapshot')
 
+// Conversation runtime fields survive a workspace sync snapshot round-trip
+// (T5 AC #5) and terminal agents are left untouched.
+const runtimeSnapshotState = applyWorkspaceSyncSnapshot(refreshedSnapshotState, {
+  sequence: 20,
+  state: {
+    workspaces: [
+      {
+        ...workspace('ws-runtime', '/repo/d'),
+        agents: {
+          'conv-agent': {
+            id: 'conv-agent',
+            name: 'Conversation Agent',
+            status: 'idle',
+            execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
+            messages: [],
+            streamBuffer: '',
+            runtimeKind: 'conversation',
+            conversation: { providerId: 'openai-compatible', modelId: 'gpt-4o' },
+          },
+          'term-agent': {
+            id: 'term-agent',
+            name: 'Terminal Agent',
+            status: 'idle',
+            execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
+            messages: [],
+            streamBuffer: '',
+            runtimeKind: 'terminal',
+            cli: 'codex',
+          },
+        },
+      },
+    ],
+    activeWorkspaceId: 'ws-runtime',
+    workspaceWindows: [windowState('primary', ['ws-runtime'], 'ws-runtime')],
+    primaryWorkspaceWindowId: 'primary',
+  },
+})
+const runtimeWs = runtimeSnapshotState.workspaces.find((candidate) => candidate.id === 'ws-runtime')
+assert.equal(
+  runtimeWs?.agents['conv-agent']?.runtimeKind,
+  'conversation',
+  'sync snapshot preserves conversation runtime kind',
+)
+assert.deepEqual(
+  runtimeWs?.agents['conv-agent']?.conversation,
+  { providerId: 'openai-compatible', modelId: 'gpt-4o' },
+  'sync snapshot preserves the provider/model selection',
+)
+assert.equal(
+  runtimeWs?.agents['term-agent']?.runtimeKind,
+  'terminal',
+  'sync snapshot keeps terminal agents terminal',
+)
+assert.equal(
+  runtimeWs?.agents['term-agent']?.conversation,
+  undefined,
+  'terminal agents carry no conversation payload through sync',
+)
+
 console.log('workspace-sync.test.ts: ok')

@@ -16,9 +16,11 @@ import type {
 } from '../workspaceSyncClient'
 import type {
   AgentCli,
+  AgentConversationRuntime,
   AgentExecution,
   AgentId,
   AgentKind,
+  AgentRuntimeKind,
   AgentState,
   EditorState,
   Workspace,
@@ -56,6 +58,8 @@ export const defaultAgent = (id: AgentId, name = id, kind: AgentKind = 'general'
   execution: defaultAgentExecution(),
   messages: [],
   streamBuffer: '',
+  runtimeKind: 'terminal',
+  conversation: undefined,
   cliSessionId: undefined,
   cliStartRequested: false,
   cliRestartNonce: 0,
@@ -80,12 +84,40 @@ export function normalizeAgentCli(agent: Partial<AgentState>, fallback?: AgentCl
   return typeof fallback === 'string' && fallback.trim() ? fallback.trim() : undefined
 }
 
+export function normalizeAgentConversation(
+  input: Partial<AgentConversationRuntime> | null | undefined,
+): AgentConversationRuntime | undefined {
+  const providerId = typeof input?.providerId === 'string' ? input.providerId.trim() : ''
+  const modelId = typeof input?.modelId === 'string' ? input.modelId.trim() : ''
+  if (!providerId || !modelId) return undefined
+  return { providerId, modelId }
+}
+
+// Resolve the persisted runtime selection into a safe pair. Older persisted
+// agents have no `runtimeKind` and stay terminal. A `conversation` kind only
+// holds when a valid provider/model pair is present; a partial or corrupt
+// selection falls back to terminal so an agent is never stranded in a chat
+// runtime with no provider to talk to.
+export function normalizeAgentRuntime(agent: Partial<AgentState>): {
+  runtimeKind: AgentRuntimeKind
+  conversation: AgentConversationRuntime | undefined
+} {
+  const conversation = normalizeAgentConversation(agent.conversation)
+  if (agent.runtimeKind === 'conversation' && conversation) {
+    return { runtimeKind: 'conversation', conversation }
+  }
+  return { runtimeKind: 'terminal', conversation: undefined }
+}
+
 export function normalizeAgentState(agent: AgentState, fallbackCli?: AgentCli): AgentState {
+  const runtime = normalizeAgentRuntime(agent)
   return {
     ...agent,
     cli: normalizeAgentCli(agent, fallbackCli),
     execution: normalizeAgentExecution(agent.execution),
     cliPermissionPreset: normalizeCliPermissionPreset(agent.cliPermissionPreset),
+    runtimeKind: runtime.runtimeKind,
+    conversation: runtime.conversation,
   }
 }
 

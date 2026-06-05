@@ -45,6 +45,7 @@ const CANONICAL_TOP_BAR_GROUPS = new Set([
 // justified — when the surface is rebuilt, remove the entry.
 const ALLOW_LIST = new Map([
   ['AgentPanel.tsx', 'Hosts an agent terminal (TerminalView); chrome is the terminal surround, not a PanelHeader.'],
+  ['AgentChatView.tsx', 'Agent-tab body for conversation agents (sibling of AgentPanel/TerminalView); the FlexLayout tab owns identity, so the surface uses a compact composer + session-status bar, not a PanelHeader.'],
   // Note: LearnCenter lives at src/renderer/src/components/learn/LearnCenter.tsx
   // and falls outside this script's PANELS_DIR scope. Recorded here so future
   // relocations into panels/ inherit the rationale instead of being flagged.

@@ -8,7 +8,9 @@ import {
   createAgentsSlice,
   defaultAgent,
   defaultEditorState,
+  normalizeAgentConversation,
   normalizeAgentExecution,
+  normalizeAgentRuntime,
   normalizeAgentState,
 } from './agentsSlice'
 import { defaultWorkspaceMemoryConfig } from './memorySlice'
@@ -267,5 +269,59 @@ assert.equal(
     ?.agents['store-agent']?.cliSessionId,
   'store-session',
 )
+
+// --- conversation runtime normalization ------------------------------------
+
+// defaultAgent is terminal.
+assert.equal(defaultAgent('a').runtimeKind, 'terminal')
+assert.equal(defaultAgent('a').conversation, undefined)
+
+// A partial/blank conversation selection is rejected (no provider/model).
+assert.equal(normalizeAgentConversation(undefined), undefined)
+assert.equal(normalizeAgentConversation({ providerId: '  ', modelId: 'gpt-4o' }), undefined)
+assert.deepEqual(
+  normalizeAgentConversation({ providerId: ' openai-compatible ', modelId: ' gpt-4o ' }),
+  { providerId: 'openai-compatible', modelId: 'gpt-4o' },
+  'provider/model ids are trimmed',
+)
+
+// Legacy persisted agent (no runtimeKind) normalizes to terminal, never corrupt.
+assert.deepEqual(
+  normalizeAgentRuntime({}),
+  { runtimeKind: 'terminal', conversation: undefined },
+)
+
+// A conversation kind with a valid pair is preserved.
+assert.deepEqual(
+  normalizeAgentRuntime({
+    runtimeKind: 'conversation',
+    conversation: { providerId: 'openai-compatible', modelId: 'gpt-4o' },
+  }),
+  { runtimeKind: 'conversation', conversation: { providerId: 'openai-compatible', modelId: 'gpt-4o' } },
+)
+
+// A conversation kind WITHOUT a valid pair falls back to terminal.
+assert.deepEqual(
+  normalizeAgentRuntime({ runtimeKind: 'conversation', conversation: { providerId: '', modelId: '' } }),
+  { runtimeKind: 'terminal', conversation: undefined },
+)
+
+// normalizeAgentState round-trips the runtime fields and drops a stale
+// conversation payload when the kind is terminal (no corruption on persist).
+const conversationState = normalizeAgentState({
+  ...defaultAgent('conv'),
+  runtimeKind: 'conversation',
+  conversation: { providerId: 'openai-compatible', modelId: 'gpt-4o' },
+})
+assert.equal(conversationState.runtimeKind, 'conversation')
+assert.deepEqual(conversationState.conversation, { providerId: 'openai-compatible', modelId: 'gpt-4o' })
+
+const staleState = normalizeAgentState({
+  ...defaultAgent('stale'),
+  runtimeKind: 'terminal',
+  conversation: { providerId: 'openai-compatible', modelId: 'gpt-4o' },
+})
+assert.equal(staleState.runtimeKind, 'terminal')
+assert.equal(staleState.conversation, undefined, 'terminal agents do not retain a conversation payload')
 
 console.log('agentsSlice.test.ts: ok')

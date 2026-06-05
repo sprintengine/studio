@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import type { AgentState, LayoutTemplate, Workspace } from '../types/workspace'
 import type { WorkspaceBackupPayload } from '../../../shared/electron-api'
 import { defaultAuthState } from './slices/authSlice'
+import { defaultAgent } from './slices/agentsSlice'
+import { normalizeWorkspaceForPartialize } from './slices/normalizers'
 
 type RegistryRecord = {
   state: {
@@ -916,6 +918,56 @@ assert.equal(
   (registryAfterSalvage.state as unknown as { sidebarCollapsed?: unknown }).sidebarCollapsed,
   undefined,
   'legacy sidebarCollapsed salvage does not reintroduce sidebarCollapsed into the registry key',
+)
+
+// ── CASE: runtime-kind round-trip through partialize + storage ───────────────
+// T5 AC #5: conversation runtime fields survive the real persist normalization
+// (normalizeWorkspaceForPartialize -> normalizeAgentState) plus a JSON storage
+// round-trip, and a legacy agent persisted without runtimeKind normalizes to
+// terminal without gaining a conversation payload.
+const runtimeBaseWorkspace = useWorkspaceStore.getState().workspaces[0]
+assert.ok(runtimeBaseWorkspace, 'hydrated store exposes a workspace to seed the runtime round-trip')
+
+// Legacy agent: simulate an older persisted record with no runtime fields.
+const legacyAgentSeed = (() => {
+  const { runtimeKind: _runtimeKind, conversation: _conversation, ...legacy } = defaultAgent('legacy-term-agent')
+  return legacy as AgentState
+})()
+
+const seededRuntimeWorkspace: Workspace = {
+  ...runtimeBaseWorkspace,
+  agents: {
+    'conv-agent': {
+      ...defaultAgent('conv-agent'),
+      runtimeKind: 'conversation',
+      conversation: { providerId: 'openai-compatible', modelId: 'gpt-4o' },
+    },
+    'legacy-term-agent': legacyAgentSeed,
+  },
+}
+
+const partializedRuntime = JSON.parse(
+  JSON.stringify(normalizeWorkspaceForPartialize(seededRuntimeWorkspace)),
+) as Workspace
+assert.equal(
+  partializedRuntime.agents['conv-agent']?.runtimeKind,
+  'conversation',
+  'partialize + storage round-trip preserves the conversation runtime kind',
+)
+assert.deepEqual(
+  partializedRuntime.agents['conv-agent']?.conversation,
+  { providerId: 'openai-compatible', modelId: 'gpt-4o' },
+  'partialize + storage round-trip preserves the provider/model selection',
+)
+assert.equal(
+  partializedRuntime.agents['legacy-term-agent']?.runtimeKind,
+  'terminal',
+  'a legacy agent persisted without runtimeKind normalizes to terminal',
+)
+assert.equal(
+  partializedRuntime.agents['legacy-term-agent']?.conversation,
+  undefined,
+  'terminal agents carry no conversation payload after persist normalization',
 )
 
 console.info = originalInfo

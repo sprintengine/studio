@@ -32,7 +32,21 @@ import type {
 } from './switchboard'
 import type { RoleInstallResult, UserRoleListResult } from './sprintengine/role-manifest'
 import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
-import type { PluginRegistryListEntry } from './plugin-manifest'
+import type { ConversationProviderListEntry, PluginRegistryListEntry } from './plugin-manifest'
+import type {
+  ConversationEvent,
+  ConversationInterruptInput,
+  ConversationListSessionsInput,
+  ConversationListSessionsResult,
+  ConversationProviderTestInput,
+  ConversationProviderTestResult,
+  ConversationRespondToRequestInput,
+  ConversationSendTurnInput,
+  ConversationSessionActionResult,
+  ConversationStartSessionInput,
+  ConversationStartSessionResult,
+  ConversationStopSessionInput,
+} from './conversation-runtime'
 import type {
   ThirdPartyModuleInstallResult,
   ThirdPartyModuleListResult,
@@ -242,6 +256,37 @@ export type BuiltinSkillInstallResult =
 export type PluginRegistryListResult =
   | { ok: true; plugins: PluginRegistryListEntry[] }
   | { ok: false; message: string }
+
+export type ConversationProviderListResult =
+  | { ok: true; providers: ConversationProviderListEntry[] }
+  | { ok: false; message: string }
+
+export type ConversationSecretStatus = {
+  providerId: string
+  configured: boolean
+  source: 'settings' | 'session' | 'environment' | 'none'
+  persistence: 'encrypted' | 'session' | 'environment'
+  encryptionAvailable: boolean
+  label: string
+}
+
+export type ConversationSecretStatusInput = {
+  providerId: string
+}
+
+export type ConversationSecretSetInput = ConversationSecretStatusInput & {
+  value: string
+}
+
+export type ConversationSecretClearInput = ConversationSecretStatusInput
+
+export type ConversationSecretStatusResult =
+  | { ok: true; status: ConversationSecretStatus }
+  | { ok: false; message: string }
+
+export type ConversationSecretSetResult = ConversationSecretStatusResult
+
+export type ConversationSecretClearResult = ConversationSecretStatusResult
 
 // Runtime CLI identity is a plugin id. Legacy stored values `codex` and
 // `claude` still map to the bundled plugin manifests in the main process.
@@ -1207,6 +1252,20 @@ export type ElectronApi = {
     input: { workspaceRoot: string | null; skillId: string }
   ) => Promise<BuiltinSkillInstallResult>
   pluginsList: () => Promise<PluginRegistryListResult>
+  conversationProvidersList: () => Promise<ConversationProviderListResult>
+  conversationProviderTest: (input: ConversationProviderTestInput) => Promise<ConversationProviderTestResult>
+  conversationSecretStatus: (input: ConversationSecretStatusInput) => Promise<ConversationSecretStatusResult>
+  conversationSecretSet: (input: ConversationSecretSetInput) => Promise<ConversationSecretSetResult>
+  conversationSecretClear: (input: ConversationSecretClearInput) => Promise<ConversationSecretClearResult>
+  conversationSessionStart: (input: ConversationStartSessionInput) => Promise<ConversationStartSessionResult>
+  conversationSessionSendTurn: (input: ConversationSendTurnInput) => Promise<ConversationSessionActionResult>
+  conversationSessionInterrupt: (input: ConversationInterruptInput) => Promise<ConversationSessionActionResult>
+  conversationSessionRespondToRequest: (
+    input: ConversationRespondToRequestInput
+  ) => Promise<ConversationSessionActionResult>
+  conversationSessionStop: (input: ConversationStopSessionInput) => Promise<ConversationSessionActionResult>
+  conversationSessionsList: (input?: ConversationListSessionsInput) => Promise<ConversationListSessionsResult>
+  onConversationEvent: (cb: (event: ConversationEvent) => void) => () => void
   logDiagnostic: (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
   openDiagnosticsLogsFolder: () => Promise<{ opened: true; path: string }>
   updateGetState: () => Promise<AppUpdateState>
