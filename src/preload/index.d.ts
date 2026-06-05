@@ -44,6 +44,8 @@ import type {
   GitWorktreeOperationResult as SharedGitWorktreeOperationResult,
   GitWorktreeRemoveInput as SharedGitWorktreeRemoveInput,
   GitWorktreeRepairInput as SharedGitWorktreeRepairInput,
+  AppMenuAcceleratorUpdate as SharedAppMenuAcceleratorUpdate,
+  AppMenuAcceleratorUpdateResult as SharedAppMenuAcceleratorUpdateResult,
   MemoryGraphEdge as SharedMemoryGraphEdge,
   MemoryGraphIndexResult as SharedMemoryGraphIndexResult,
   MemoryGraphNode as SharedMemoryGraphNode,
@@ -177,6 +179,8 @@ declare global {
   type TerminalSpawnMetadata = SharedTerminalSpawnMetadata
   type TerminalSessionSnapshot = SharedTerminalSessionSnapshot
   type TerminalSpawnResult = SharedTerminalSpawnResult
+  type AppMenuAcceleratorUpdate = SharedAppMenuAcceleratorUpdate
+  type AppMenuAcceleratorUpdateResult = SharedAppMenuAcceleratorUpdateResult
   type SpecialistActionId = SharedSpecialistActionId
   type SoulPromptResult = SharedSoulPromptResult
   type MultiloopRole = SharedMultiloopRole

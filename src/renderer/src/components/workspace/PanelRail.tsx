@@ -4,6 +4,10 @@ import { useGitStatus } from '../../hooks/useGitStatus'
 import { selectModuleEnabled } from '../../modules'
 import { jsonModelHasComponent, togglePanelRailComponent } from '../../utils/modelRegistry'
 import type { WorkspaceId } from '../../types/workspace'
+import {
+  getEffectiveKeybindingLabel,
+  platformKeybindingsFromApiPlatform,
+} from '../../commands/effectiveKeybindings'
 
 type PanelKey = 'explorer' | 'editor' | 'git' | 'memory-graph'
 
@@ -13,9 +17,9 @@ const MAX_GIT_BADGE_COUNT = 999
 
 type PanelDescriptor = {
   key: PanelKey
+  commandId?: string
   tabName: string
   label: string
-  shortcut?: string
   // Capability module that gates this button; the rail hides it when the module
   // is disabled. (All current rail panels belong to a module.)
   moduleId: string
@@ -27,10 +31,10 @@ type PanelDescriptor = {
 const PANELS: PanelDescriptor[] = [
   {
     key: 'explorer',
+    commandId: 'panel.files.toggle',
     moduleId: 'dev-tools',
     tabName: 'Files',
     label: 'Files',
-    shortcut: 'Ctrl+Shift+E',
     icon: ({ className }) => (
       <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
         <path
@@ -44,10 +48,10 @@ const PANELS: PanelDescriptor[] = [
   },
   {
     key: 'editor',
+    commandId: 'panel.editor.toggle',
     moduleId: 'dev-tools',
     tabName: 'Editor',
     label: 'Editor',
-    shortcut: 'Ctrl+Shift+O',
     icon: ({ className }) => (
       <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
         <path
@@ -62,10 +66,10 @@ const PANELS: PanelDescriptor[] = [
   },
   {
     key: 'git',
+    commandId: 'panel.git.toggle',
     moduleId: 'git',
     tabName: 'Git',
     label: 'Git',
-    shortcut: 'Ctrl+Shift+G',
     icon: ({ className }) => (
       <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
         <circle cx="4.5" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3" />
@@ -91,11 +95,6 @@ const PANELS: PanelDescriptor[] = [
   },
 ]
 
-function shortcutLabel(shortcut: string): string {
-  if (window.api.platform !== 'darwin') return shortcut
-  return shortcut.replace(/\bCtrl\b/g, 'Cmd').replace(/\bAlt\b/g, 'Option')
-}
-
 type PanelRailProps = {
   // Null while no workspace is active: the rail still renders so the collapse
   // toggle (its trailing chrome) stays reachable; the panel switches hide.
@@ -118,7 +117,11 @@ export default function PanelRail({ workspaceId, collapsed, onToggleCollapse }: 
   // Hide a panel button when its capability module is disabled — driven by each
   // descriptor's moduleId, so a new gated rail panel just sets moduleId.
   const moduleOverrides = useWorkspaceStore((state) => state.appSettings.modules)
+  const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
+  const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
   const panels = PANELS.filter((panel) => selectModuleEnabled(moduleOverrides, panel.moduleId))
+  const shortcutFor = (commandId: string): string | null =>
+    getEffectiveKeybindingLabel(commandId, keybindingSettings, keybindingPlatform)
 
   // Source of truth for the git change count badge on the Git rail icon
   // (consolidated here when the top-bar git button was retired).
@@ -150,7 +153,11 @@ export default function PanelRail({ workspaceId, collapsed, onToggleCollapse }: 
   // the hairline divider and the nav switches) when expanded.
   const collapseToggle = (
     <Tooltip
-      content={collapsed ? `Open sidebar (${shortcutLabel('Ctrl+B')})` : `Collapse sidebar (${shortcutLabel('Ctrl+B')})`}
+      content={
+        shortcutFor('workspace.sidebar.toggle')
+          ? `${collapsed ? 'Open sidebar' : 'Collapse sidebar'} (${shortcutFor('workspace.sidebar.toggle')})`
+          : collapsed ? 'Open sidebar' : 'Collapse sidebar'
+      }
       placement={tooltipPlacement}
     >
       <button
@@ -183,12 +190,13 @@ export default function PanelRail({ workspaceId, collapsed, onToggleCollapse }: 
           ? jsonModelHasComponent(layoutModel, 'editor') || jsonModelHasComponent(layoutModel, 'file-editor')
           : jsonModelHasComponent(layoutModel, panel.key)
         const showGitBadge = panel.key === 'git' && gitHasChanges
-        const baseTooltip = panel.shortcut
-          ? `${panel.label} (${shortcutLabel(panel.shortcut)})`
+        const shortcut = panel.commandId ? shortcutFor(panel.commandId) : null
+        const baseTooltip = shortcut
+          ? `${panel.label} (${shortcut})`
           : panel.label
         const tooltip = showGitBadge
           ? `${panel.label} · ${gitChangeCount} ${gitChangeCount === 1 ? 'change' : 'changes'}${
-              panel.shortcut ? ` (${shortcutLabel(panel.shortcut)})` : ''
+              shortcut ? ` (${shortcut})` : ''
             }`
           : baseTooltip
         const ariaLabel = showGitBadge

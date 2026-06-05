@@ -54,6 +54,10 @@ import { MultiloopSettingsPopover } from './MultiloopBoardPanel/MultiloopSetting
 import { ReassessmentColumn } from './MultiloopBoardPanel/ReassessmentColumn'
 import { StateMessage } from './MultiloopBoardPanel/StateMessage'
 import { getOwnershipLabel, readinessLabel, readinessTone, type LinkedExecutionReadState, type ReadState, type RoleLaunchState } from './MultiloopBoardPanel/helpers'
+import {
+  getEffectiveKeybindingLabel,
+  platformKeybindingsFromApiPlatform,
+} from '../../commands/effectiveKeybindings'
 
 type Props = {
   workspaceId: WorkspaceId
@@ -179,6 +183,11 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
   const setMultiloopCliPermissionPreset = useWorkspaceStore((state) => state.setMultiloopCliPermissionPreset)
   const lastSelectedCli = useWorkspaceStore((state) => state.appSettings.lastSelectedCli)
   const multiloopRoleCliDefaults = useWorkspaceStore((state) => state.appSettings.multiloopRoleCliDefaults)
+  const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
+  const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
+  const shortcutFor = useCallback((commandId: string): string | undefined => (
+    getEffectiveKeybindingLabel(commandId, keybindingSettings, keybindingPlatform) ?? undefined
+  ), [keybindingPlatform, keybindingSettings])
   const [readState, setReadState] = useState<ReadState>({ status: 'idle' })
   const [roleLaunchState, setRoleLaunchState] = useState<RoleLaunchState>({ status: 'idle' })
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null)
@@ -561,7 +570,6 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
   // linked Sprint Engine state) stays fresh. Refs are reassigned synchronously
   // each render with the live closures.
   const commandHandlerRef = useRef<(detail: { id: unknown }) => void>(() => {})
-  const settingsChordHandlerRef = useRef<(event: globalThis.KeyboardEvent) => void>(() => {})
   commandHandlerRef.current = (detail) => {
     if (!detail || typeof detail.id !== 'string') return
     switch (detail.id) {
@@ -577,32 +585,13 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
         break
     }
   }
-  settingsChordHandlerRef.current = (event) => {
-    const target = event.target
-    const isEditable =
-      target instanceof HTMLElement &&
-      (target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.tagName === 'SELECT' ||
-        target.isContentEditable)
-    if (isEditable) return
-    if ((event.metaKey || event.ctrlKey) && event.key === ',' && !event.shiftKey && !event.altKey) {
-      event.preventDefault()
-      setSettingsOpen(true)
-    }
-  }
   useEffect(() => {
     const onCommand = (event: Event) => {
       commandHandlerRef.current((event as CustomEvent).detail)
     }
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      settingsChordHandlerRef.current(event)
-    }
     window.addEventListener('multicode:panel-command', onCommand)
-    window.addEventListener('keydown', onKey)
     return () => {
       window.removeEventListener('multicode:panel-command', onCommand)
-      window.removeEventListener('keydown', onKey)
     }
   }, [])
 
@@ -628,7 +617,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
     overflowItems.push({
       id: 'multiloop.open.settings',
       label: 'Multiloop settings',
-      shortcut: '⌘ ,',
+      shortcut: shortcutFor('multiloop.open.settings'),
       onSelect: () => setSettingsOpen(true),
     })
   }

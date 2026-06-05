@@ -5,8 +5,10 @@ import { useWorkspaceStore } from '../workspaceStore'
 import {
   createSettingsSlice,
   defaultAppSettings,
+  defaultKeybindingSettings,
   normalizeAppSettings,
   normalizeCliPermissionPreset,
+  normalizeKeybindingSettings,
   normalizeRecentWorkspaceFolders,
   normalizeSearchExcludes,
   normalizeSpecialistOrder,
@@ -107,6 +109,59 @@ assert.deepEqual(normalized.learning, {
   completedLessonIds: ['lesson-a'],
   dismissedVersion: undefined,
 })
+assert.deepEqual(normalized.keybindings, defaultKeybindingSettings())
+
+// --- Keybinding settings --------------------------------------------------
+assert.deepEqual(
+  normalizeAppSettings({}, []).keybindings,
+  { overrides: {}, disabled: {} },
+  'missing keybindings migrate to safe empty deltas',
+)
+
+const normalizedKeybindings = normalizeAppSettings(
+  {
+    keybindings: {
+      overrides: {
+        'commandPalette.open': [' CmdOrCtrl + K ', 'Primary+K', 'Ctrl + +', 'Hyper+Nope'],
+        'app.settings.open': ['Primary+,'],
+        'unknown.command': ['Primary+L'],
+        'editor.save': 'Primary+S' as never,
+      },
+      disabled: {
+        'voice.toggle': true,
+        'app.settings.open': false,
+        'unknown.command': true,
+        'terminal.new': 'yes' as never,
+      },
+    },
+  },
+  [],
+)
+assert.deepEqual(
+  normalizedKeybindings.keybindings.overrides,
+  {
+    'commandPalette.open': ['primary+k', 'ctrl++'],
+    'app.settings.open': ['primary+,'],
+  },
+  'normalization keeps valid overrides, collapses duplicates, and drops invalid/unknown entries',
+)
+assert.deepEqual(
+  normalizedKeybindings.keybindings.disabled,
+  { 'voice.toggle': true },
+  'normalization keeps only true disabled flags for known commands',
+)
+
+assert.deepEqual(
+  normalizeKeybindingSettings({
+    overrides: { 'commandPalette.open': ['Primary+K', 'Primary+K', 'Ctrl+K then Ctrl+S then Ctrl+P'] },
+    disabled: { 'commandPalette.open': true },
+  }),
+  {
+    overrides: { 'commandPalette.open': ['primary+k'] },
+    disabled: { 'commandPalette.open': true },
+  },
+  'standalone keybinding normalization rejects duplicates and invalid chords',
+)
 
 assert.equal(normalizeCliPermissionPreset('auto_workspace'), 'auto_workspace')
 assert.equal(normalizeCliPermissionPreset('bypass_all'), 'bypass_all')
@@ -144,6 +199,43 @@ store.setSearchExcludes([' dist ', '!coverage', 'dist'])
 assert.deepEqual(useWorkspaceStore.getState().appSettings.searchExcludes, ['dist', 'coverage'])
 store.setLastSelectedCli('codex')
 assert.equal(useWorkspaceStore.getState().appSettings.lastSelectedCli, 'codex')
+
+store.setCommandKeybindings('commandPalette.open', ['Primary+Shift+P', 'CmdOrCtrl+Shift+P', 'Ctrl + +', 'bad-key'])
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.keybindings.overrides['commandPalette.open'],
+  ['primary+shift+p', 'ctrl++'],
+  'setCommandKeybindings normalizes and deduplicates overrides',
+)
+store.setCommandKeybindingDisabled('commandPalette.open', true)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.keybindings.disabled['commandPalette.open'],
+  true,
+  'setCommandKeybindingDisabled persists true flags',
+)
+store.setCommandKeybindingDisabled('commandPalette.open', false)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.keybindings.disabled['commandPalette.open'],
+  undefined,
+  're-enabling deletes the disabled flag',
+)
+store.setCommandKeybindingDisabled('voice.toggle', true)
+store.resetCommandKeybindings('commandPalette.open')
+assert.equal(
+  useWorkspaceStore.getState().appSettings.keybindings.overrides['commandPalette.open'],
+  undefined,
+  'resetCommandKeybindings removes one command override',
+)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.keybindings.disabled['voice.toggle'],
+  true,
+  'resetCommandKeybindings leaves other command disabled flags alone',
+)
+store.resetAllKeybindings()
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.keybindings,
+  { overrides: {}, disabled: {} },
+  'resetAllKeybindings clears all persisted keybinding deltas',
+)
 
 // setCliRuntime on a plugin-id key (no bundled default) must NOT pin the command
 // to the plugin id when only the WSL flag is toggled; a blank command resolves

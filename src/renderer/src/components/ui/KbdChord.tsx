@@ -7,10 +7,14 @@
 // The caller wires the actual keyboard handler on the control the chord
 // labels (button, menu item, etc.).
 import React from 'react'
+import { keybindingToKbdKeys, type KeybindingPlatform } from '../../commands/keybindings'
 
 type KbdChordProps = {
   /** Ordered keys, e.g. ['Cmd', 'K'] or ['Shift', 'Enter']. */
-  keys: readonly string[]
+  keys?: readonly string[]
+  /** Canonical or user-entered shortcut, e.g. "Primary+K" or "CmdOrCtrl+K". */
+  chord?: string
+  platform?: KeybindingPlatform
   /** Visual separator between keys. Defaults to a thin '+' glyph. */
   separator?: React.ReactNode
   /** Accessible name for the chord, e.g. "Command K". Joined keys when omitted. */
@@ -18,8 +22,10 @@ type KbdChordProps = {
   className?: string
 }
 
-export function KbdChord({ keys, separator, ariaLabel, className }: KbdChordProps) {
-  const label = ariaLabel ?? keys.join(' ')
+export function KbdChord({ keys, chord, platform, separator, ariaLabel, className }: KbdChordProps) {
+  const renderedStrokes = chord ? keybindingToKbdKeys(chord, platform) : []
+  const displayStrokes = renderedStrokes.length > 0 ? renderedStrokes : keys ? [keys] : []
+  const label = ariaLabel ?? displayStrokes.map((stroke) => stroke.join(' ')).join(' then ')
   const sep = separator ?? '+'
   return (
     <span
@@ -27,19 +33,28 @@ export function KbdChord({ keys, separator, ariaLabel, className }: KbdChordProp
       aria-label={label}
       className={['inline-flex items-center gap-1', className ?? ''].join(' ')}
     >
-      {keys.map((key, index) => (
-        <React.Fragment key={`${index}-${key}`}>
-          {index > 0 ? (
-            <span
-              aria-hidden="true"
-              className="font-mono text-[10px] text-[color:var(--text-disabled)]"
-            >
-              {sep}
+      {displayStrokes.map((stroke, strokeIndex) => (
+        <React.Fragment key={`stroke-${strokeIndex}`}>
+          {strokeIndex > 0 ? (
+            <span aria-hidden="true" className="px-0.5 font-mono text-[10px] text-[color:var(--text-disabled)]">
+              then
             </span>
           ) : null}
-          <kbd className="font-mono inline-flex h-4 min-w-[16px] items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-1 text-[10px] text-[color:var(--text-muted)]">
-            {key}
-          </kbd>
+          {stroke.map((key, index) => (
+            <React.Fragment key={`${strokeIndex}-${index}-${key}`}>
+              {index > 0 ? (
+                <span
+                  aria-hidden="true"
+                  className="font-mono text-[10px] text-[color:var(--text-disabled)]"
+                >
+                  {sep}
+                </span>
+              ) : null}
+              <kbd className="font-mono inline-flex h-4 min-w-[16px] items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-1 text-[10px] text-[color:var(--text-muted)]">
+                {key}
+              </kbd>
+            </React.Fragment>
+          ))}
         </React.Fragment>
       ))}
     </span>

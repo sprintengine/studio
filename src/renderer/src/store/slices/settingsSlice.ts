@@ -3,6 +3,7 @@ import type {
   AgentCli,
   AppSettings,
   CliRuntimeSettings,
+  KeybindingSettings,
   LearningSettings,
   McpServerConfig,
   McpSettings,
@@ -29,6 +30,8 @@ import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
 import { moduleProfile, profileOverrides, type ModuleProfileId } from '../../../../shared/modules/profiles'
 import { OPTIONAL_MODULE_IDS } from '../../modules'
+import { COMMAND_REGISTRY, getCommandDefinition, type CommandId } from '../../commands/commandRegistry'
+import { collapseDuplicateKeybindings } from '../../commands/keybindings'
 
 export const MAX_RECENT_WORKSPACE_FOLDERS = 50
 
@@ -340,6 +343,44 @@ export function normalizeSearchExcludes(patterns: unknown): string[] {
   return normalized.slice(0, 100)
 }
 
+export function defaultKeybindingSettings(): KeybindingSettings {
+  return { overrides: {}, disabled: {} }
+}
+
+function isCommandId(value: string): value is CommandId {
+  return Boolean(getCommandDefinition(value))
+}
+
+function normalizeCommandKeybindings(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return collapseDuplicateKeybindings(value.filter((entry): entry is string => typeof entry === 'string'))
+}
+
+export function normalizeKeybindingSettings(value: unknown): KeybindingSettings {
+  if (!value || typeof value !== 'object') return defaultKeybindingSettings()
+  const candidate = value as Partial<KeybindingSettings>
+  const overrides: Record<string, string[]> = {}
+  if (candidate.overrides && typeof candidate.overrides === 'object') {
+    for (const [commandId, rawBindings] of Object.entries(candidate.overrides as Record<string, unknown>)) {
+      const id = commandId.trim()
+      if (!isCommandId(id)) continue
+      const normalized = normalizeCommandKeybindings(rawBindings)
+      if (normalized.length > 0) overrides[id] = normalized
+    }
+  }
+
+  const disabled: Record<string, boolean> = {}
+  if (candidate.disabled && typeof candidate.disabled === 'object') {
+    for (const [commandId, rawDisabled] of Object.entries(candidate.disabled as Record<string, unknown>)) {
+      const id = commandId.trim()
+      if (!isCommandId(id) || rawDisabled !== true) continue
+      disabled[id] = true
+    }
+  }
+
+  return { overrides, disabled }
+}
+
 export function normalizeRecentWorkspaceFolders(
   folders: unknown,
   additionalFolders: unknown = []
@@ -444,6 +485,7 @@ export const defaultAppSettings = (): AppSettings => ({
       useWsl: typeof window !== 'undefined' && window.api?.platform === 'win32',
     },
   },
+  keybindings: defaultKeybindingSettings(),
   mcp: defaultMcpSettings(),
   skillPacks: defaultSkillPackSettings(),
   lastSelectedCli: 'claude',
@@ -474,6 +516,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
       ...defaults.cliRuntimes,
       ...(settings?.cliRuntimes ?? {}),
     },
+    keybindings: normalizeKeybindingSettings(settings?.keybindings),
     mcp: normalizeMcpSettings(settings?.mcp),
     skillPacks: normalizeSkillPackSettings(settings?.skillPacks),
     lastSelectedCli: normalizeSelectedCli(settings?.lastSelectedCli, defaults.lastSelectedCli),
@@ -536,6 +579,10 @@ export interface SettingsSliceActions {
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
   setSpecialistOrder: (order: SpecialistActionId[]) => void
+  setCommandKeybindings: (commandId: CommandId, keybindings: string[]) => void
+  setCommandKeybindingDisabled: (commandId: CommandId, disabled: boolean) => void
+  resetCommandKeybindings: (commandId: CommandId) => void
+  resetAllKeybindings: () => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   applyModuleProfile: (profileId: ModuleProfileId) => void
@@ -715,6 +762,45 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setSpecialistOrder: (order) =>
       set((state) => {
         state.appSettings.specialistOrder = normalizeSpecialistOrder(order)
+      }),
+
+    setCommandKeybindings: (commandId, keybindings) =>
+      set((state) => {
+        if (!COMMAND_REGISTRY.some((command) => command.id === commandId)) return
+        const current = normalizeKeybindingSettings(state.appSettings.keybindings)
+        const normalized = normalizeCommandKeybindings(keybindings)
+        if (normalized.length === 0) {
+          delete current.overrides[commandId]
+        } else {
+          current.overrides[commandId] = normalized
+        }
+        state.appSettings.keybindings = current
+      }),
+
+    setCommandKeybindingDisabled: (commandId, disabled) =>
+      set((state) => {
+        if (!COMMAND_REGISTRY.some((command) => command.id === commandId)) return
+        const current = normalizeKeybindingSettings(state.appSettings.keybindings)
+        if (disabled) {
+          current.disabled[commandId] = true
+        } else {
+          delete current.disabled[commandId]
+        }
+        state.appSettings.keybindings = current
+      }),
+
+    resetCommandKeybindings: (commandId) =>
+      set((state) => {
+        if (!COMMAND_REGISTRY.some((command) => command.id === commandId)) return
+        const current = normalizeKeybindingSettings(state.appSettings.keybindings)
+        delete current.overrides[commandId]
+        delete current.disabled[commandId]
+        state.appSettings.keybindings = current
+      }),
+
+    resetAllKeybindings: () =>
+      set((state) => {
+        state.appSettings.keybindings = defaultKeybindingSettings()
       }),
 
     setSprintEngineRoleEnabled: (role, enabled) =>

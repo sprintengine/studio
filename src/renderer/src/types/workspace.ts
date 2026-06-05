@@ -1283,8 +1283,22 @@ export type PluginCatalogStatus = 'loading' | 'ready' | 'error'
 
 export type PluginCatalogEntry = PluginRegistryListEntry
 
+export type KeybindingSettings = {
+  /**
+   * User-defined command shortcut overrides. Empty or missing arrays mean
+   * "use the command registry defaults"; dispatch must also check `disabled`.
+   */
+  overrides: Record<string, string[]>
+  /**
+   * Persisted command disablement flags. Only `true` values are meaningful;
+   * missing/false means the command remains enabled.
+   */
+  disabled: Record<string, boolean>
+}
+
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
+  keybindings: KeybindingSettings
   mcp: McpSettings
   skillPacks: SkillPackSettings
   lastSelectedCli: AgentCli

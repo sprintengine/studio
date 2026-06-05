@@ -78,6 +78,10 @@ import {
 import { normalizeAgentIdentifier } from '../../utils/agentPrompt'
 import { focusOrAddAgentTab } from '../../utils/modelRegistry'
 import { publishDiagnostic, publishDiagnosticSync } from '../../utils/diagnostics'
+import {
+ getEffectiveKeybindingLabel,
+ platformKeybindingsFromApiPlatform,
+} from '../../commands/effectiveKeybindings'
 import { isEditableTarget } from '../../utils/keyboard'
 import {
  artifactTimestampMs,
@@ -398,6 +402,11 @@ function SprintEngineBoardPanelContent({
  const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
  const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli)
  const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
+ const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
+ const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
+ const shortcutFor = useCallback((commandId: string): string | undefined => (
+ getEffectiveKeybindingLabel(commandId, keybindingSettings, keybindingPlatform) ?? undefined
+ ), [keybindingPlatform, keybindingSettings])
  // Select the stable notifications array and derive the run-activity list +
  // unread count with useMemo. Returning the filtered array straight from the
  // selector hands Zustand v5's useSyncExternalStore a fresh reference every
@@ -1236,7 +1245,7 @@ function SprintEngineBoardPanelContent({
  id: 'refresh',
  label: 'Refresh board',
  onSelect: () => void refreshSprintEngineState(),
- shortcut: '⌘ R',
+ shortcut: shortcutFor('sprintengine.refresh.board'),
  disabled: !folderPath || manualRefreshBusy,
  })
  if (focusAgent && showFocusAgentAction) {
@@ -1291,7 +1300,7 @@ function SprintEngineBoardPanelContent({
  id: 'open-settings',
  label: 'Sprint Engine settings',
  onSelect: () => setSettingsOpen(true),
- shortcut: '⌘ ,',
+ shortcut: shortcutFor('sprintengine.open.settings'),
  })
  return items
  })()
@@ -1331,7 +1340,6 @@ function SprintEngineBoardPanelContent({
  // normal re-renders don't churn global window listeners; the ref is refreshed
  // synchronously each render with the live closures it needs to dispatch.
  const commandHandlerRef = useRef<(detail: { id: unknown }) => void>(() => {})
- const settingsChordHandlerRef = useRef<(event: KeyboardEvent) => void>(() => {})
  commandHandlerRef.current = (detail) => {
  if (!detail || typeof detail.id !== 'string') return
  switch (detail.id) {
@@ -1405,25 +1413,13 @@ function SprintEngineBoardPanelContent({
  break
  }
  }
- settingsChordHandlerRef.current = (event) => {
- if (isEditableTarget(event.target)) return
- if ((event.metaKey || event.ctrlKey) && event.key === ',' && !event.shiftKey && !event.altKey) {
- event.preventDefault()
- setSettingsOpen(true)
- }
- }
  useEffect(() => {
  const onCommand = (event: Event) => {
  commandHandlerRef.current((event as CustomEvent).detail)
  }
- const onKey = (event: KeyboardEvent) => {
- settingsChordHandlerRef.current(event)
- }
  window.addEventListener('multicode:panel-command', onCommand)
- window.addEventListener('keydown', onKey)
  return () => {
  window.removeEventListener('multicode:panel-command', onCommand)
- window.removeEventListener('keydown', onKey)
  }
  }, [])
 

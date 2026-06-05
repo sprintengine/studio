@@ -1,4 +1,14 @@
-import { BrowserWindow, Menu } from 'electron'
+import { BrowserWindow, Menu, type IpcMain } from 'electron'
+import type { AppMenuAcceleratorUpdate, AppMenuAcceleratorUpdateResult } from '../shared/electron-api'
+
+const MENU_ACCELERATOR_COMMAND_IDS = new Set([
+  'app.settings.open',
+  'panel.files.toggle',
+  'panel.editor.toggle',
+  'panel.git.toggle',
+])
+
+const menuAcceleratorOverrides = new Map<string, string | null>()
 
 function sendMenuCommand(win: Electron.BaseWindow | null, command: string): void {
   if (!win || win.isDestroyed()) return
@@ -14,6 +24,39 @@ function zoomFocusedWindowIn(win: Electron.BaseWindow | null): void {
   browserWindow.webContents.setZoomLevel(browserWindow.webContents.getZoomLevel() + 0.5)
 }
 
+function menuAccelerator(commandId: string, fallback: string): string | undefined {
+  if (menuAcceleratorOverrides.has(commandId)) {
+    return menuAcceleratorOverrides.get(commandId) ?? undefined
+  }
+  return fallback
+}
+
+function sanitizeAcceleratorUpdate(input: unknown): AppMenuAcceleratorUpdate | null {
+  if (!input || typeof input !== 'object') return null
+  const record = input as Record<string, unknown>
+  if (typeof record.commandId !== 'string') return null
+  if (!MENU_ACCELERATOR_COMMAND_IDS.has(record.commandId)) return null
+  if (record.accelerator !== null && typeof record.accelerator !== 'string') return null
+  if (typeof record.accelerator === 'string' && record.accelerator.length > 80) return null
+  return {
+    commandId: record.commandId,
+    accelerator: record.accelerator,
+  }
+}
+
+export function registerAppMenuIpc(ipcMain: IpcMain): void {
+  ipcMain.handle('app-menu:update-accelerators', (_event, input: unknown): AppMenuAcceleratorUpdateResult => {
+    if (!Array.isArray(input)) return { ok: true }
+    for (const item of input) {
+      const update = sanitizeAcceleratorUpdate(item)
+      if (!update) continue
+      menuAcceleratorOverrides.set(update.commandId, update.accelerator)
+    }
+    Menu.setApplicationMenu(createAppMenu())
+    return { ok: true }
+  })
+}
+
 export function createAppMenu(): Menu {
   return Menu.buildFromTemplate([
     {
@@ -21,8 +64,8 @@ export function createAppMenu(): Menu {
       submenu: [
         {
           label: 'Settings',
-          accelerator: 'CmdOrCtrl+,',
-          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'show-settings'),
+          accelerator: menuAccelerator('app.settings.open', 'CmdOrCtrl+,'),
+          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'app.settings.open'),
         },
         { type: 'separator' },
         { role: 'close' },
@@ -45,18 +88,18 @@ export function createAppMenu(): Menu {
       submenu: [
         {
           label: 'Toggle File Explorer',
-          accelerator: 'CmdOrCtrl+Shift+E',
-          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'toggle-explorer'),
+          accelerator: menuAccelerator('panel.files.toggle', 'CmdOrCtrl+Shift+E'),
+          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'panel.files.toggle'),
         },
         {
           label: 'Toggle Code Editor',
-          accelerator: 'CmdOrCtrl+Shift+O',
-          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'toggle-editor'),
+          accelerator: menuAccelerator('panel.editor.toggle', 'CmdOrCtrl+Shift+O'),
+          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'panel.editor.toggle'),
         },
         {
           label: 'Toggle Git Panel',
-          accelerator: 'CmdOrCtrl+Shift+G',
-          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'toggle-git'),
+          accelerator: menuAccelerator('panel.git.toggle', 'CmdOrCtrl+Shift+G'),
+          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'panel.git.toggle'),
         },
         { type: 'separator' },
         { role: 'reload' },
@@ -86,7 +129,7 @@ export function createAppMenu(): Menu {
       submenu: [
         {
           label: 'Check For Updates',
-          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'check-for-updates'),
+          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'app.updates.check'),
         },
         {
           label: 'About Multicode',

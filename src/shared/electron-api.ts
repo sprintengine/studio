@@ -1159,6 +1159,11 @@ export type WorkspaceBackupWriteResult = { ok: boolean; message?: string }
 
 export type ModuleEnablementOverrides = Record<string, boolean>
 export type ModuleEnablementWriteResult = { ok: boolean; message?: string }
+export type AppMenuAcceleratorUpdate = {
+  commandId: string
+  accelerator: string | null
+}
+export type AppMenuAcceleratorUpdateResult = { ok: true }
 
 export type ElectronApi = {
   platform: string
@@ -1428,6 +1433,7 @@ export type ElectronApi = {
   onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
   onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void) => () => void
   onAppMenuCommand: (cb: (command: string) => void) => () => void
+  updateAppMenuAccelerators: (updates: AppMenuAcceleratorUpdate[]) => Promise<AppMenuAcceleratorUpdateResult>
   workspaceBackupWrite: (payload: WorkspaceBackupPayload) => Promise<WorkspaceBackupWriteResult>
   workspaceBackupRead: () => Promise<WorkspaceBackupReadResult>
   setModuleEnablement: (overrides: ModuleEnablementOverrides) => Promise<ModuleEnablementWriteResult>

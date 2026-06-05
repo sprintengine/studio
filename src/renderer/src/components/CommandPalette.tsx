@@ -3,11 +3,16 @@ import { LAYOUT_TEMPLATES } from '../layouts/templates'
 import { SPECIALIST_ACTIONS } from '../specialists/specialistActions'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type { SpecialistActionId, Workspace, WorkspaceId, WorkspaceWindowId } from '../types/workspace'
-import { focusOrAddComponentTab, focusOrAddFileTab, revealNavRailComponent } from '../utils/modelRegistry'
+import { focusOrAddComponentTab, focusOrAddFileTab, revealNavRailComponent, togglePanelRailComponent } from '../utils/modelRegistry'
 import {
   buildSprintEngineAgentRosterForState,
   computeSprintEngineFocusAgentAvailability,
 } from '../utils/sprintengine'
+import {
+  getEffectiveKeybindingLabel,
+  getSpecialistCommandId,
+  platformKeybindingsFromApiPlatform,
+} from '../commands/effectiveKeybindings'
 
 interface Command {
   id: string
@@ -50,6 +55,10 @@ export default function CommandPalette({
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const { setActiveWorkspaceForWindow, addWorkspace, setActiveFile } = useWorkspaceStore()
+  const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
+  const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
+  const shortcutFor = (commandId: string): string | undefined =>
+    getEffectiveKeybindingLabel(commandId, keybindingSettings, keybindingPlatform) ?? undefined
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
   const openFiles = activeWorkspace?.editorState?.openFiles ?? []
 
@@ -68,11 +77,9 @@ export default function CommandPalette({
     const workspaceMode = activeWorkspace?.mode
     // Tool-conditional command groups. Only commands that have a mounted panel
     // handler are registered — palette selections must produce a real product
-    // action (state change, dialog open, IPC). Chord display strings are
-    // limited to the one global keybinding actually wired in each panel
-    // (Cmd/Ctrl+, where the panel's Settings popover exists); multi-key chords
-    // remain reachable via the palette's fuzzy search but are not advertised
-    // as direct keybindings because no chord-key dispatcher is shipped yet.
+    // action (state change, dialog open, IPC). Registry-backed commands display
+    // their effective shortcut; disabled shortcuts leave the row visible with
+    // no shortcut hint.
     const switchboardCommands: Command[] = workspaceMode === 'switchboard'
       ? [
           { id: 'switchboard.refresh.board', label: 'Switchboard: Refresh board', run: runPanel('switchboard.refresh.board') },
@@ -120,7 +127,7 @@ export default function CommandPalette({
           { id: 'sprintengine.goto.tasks', label: 'Sprint Engine: Tasks', run: runPanel('sprintengine.goto.tasks') },
           { id: 'sprintengine.goto.graph', label: 'Sprint Engine: Tasks → Graph layout', run: runPanel('sprintengine.goto.graph') },
           { id: 'sprintengine.goto.kanban', label: 'Sprint Engine: Tasks → Kanban layout', run: runPanel('sprintengine.goto.kanban') },
-          { id: 'sprintengine.open.settings', label: 'Sprint Engine: Settings', shortcut: '⌘ ,', run: runPanel('sprintengine.open.settings') },
+          { id: 'sprintengine.open.settings', label: 'Sprint Engine: Settings', shortcut: shortcutFor('sprintengine.open.settings'), run: runPanel('sprintengine.open.settings') },
         ]
       : []
     // Multiloop open-coordinator requires a loaded Multiloop state.
@@ -131,7 +138,38 @@ export default function CommandPalette({
           ...(multiloopState
             ? [{ id: 'multiloop.open.coordinator', label: 'Multiloop: Open coordinator', run: runPanel('multiloop.open.coordinator') }]
             : []),
-          { id: 'multiloop.open.settings', label: 'Multiloop: Settings', shortcut: '⌘ ,', run: runPanel('multiloop.open.settings') },
+          { id: 'multiloop.open.settings', label: 'Multiloop: Settings', shortcut: shortcutFor('multiloop.open.settings'), run: runPanel('multiloop.open.settings') },
+        ]
+      : []
+    const panelToggleCommands: Command[] = activeWorkspace
+      ? [
+          {
+            id: 'panel.files.toggle',
+            label: 'Toggle File Explorer',
+            shortcut: shortcutFor('panel.files.toggle'),
+            run: () => {
+              togglePanelRailComponent(activeWorkspace.id, 'explorer', 'Files')
+              onClose()
+            },
+          },
+          {
+            id: 'panel.editor.toggle',
+            label: 'Toggle Code Editor',
+            shortcut: shortcutFor('panel.editor.toggle'),
+            run: () => {
+              togglePanelRailComponent(activeWorkspace.id, 'editor', 'Editor')
+              onClose()
+            },
+          },
+          {
+            id: 'panel.git.toggle',
+            label: 'Toggle Git Panel',
+            shortcut: shortcutFor('panel.git.toggle'),
+            run: () => {
+              togglePanelRailComponent(activeWorkspace.id, 'git', 'Git')
+              onClose()
+            },
+          },
         ]
       : []
     const navigationCommands: Command[] = []
@@ -181,7 +219,7 @@ export default function CommandPalette({
               id: `spawn-specialist-${action.id}`,
               label: `Spawn: ${action.label}`,
               description: `${action.shortLabel} specialist with the selected CLI`,
-              shortcut: action.shortcut,
+              shortcut: getSpecialistCommandId(action.id) ? shortcutFor(getSpecialistCommandId(action.id)!) : undefined,
               run: () => {
                 onSpawnSpecialist(action.id)
                 onClose()
@@ -208,21 +246,22 @@ export default function CommandPalette({
           ]
         : []),
       ...navigationCommands,
+      ...panelToggleCommands,
       ...switchboardCommands,
       ...watchtowerCommands,
       ...sprintEngineCommands,
       ...multiloopCommands,
       {
-        id: 'new-workspace',
+        id: 'workspace.new',
         label: 'New Workspace...',
-        shortcut: 'Ctrl+T',
+        shortcut: shortcutFor('workspace.new'),
         run: () => {
           onNewWorkspace()
           onClose()
         },
       },
     ]
-  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, onClose, onNewChat, onNewWorkspace, onSpawnSpecialist, workspaceWindowId])
+  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, onClose, onNewChat, onNewWorkspace, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings])
 
   const filtered = query.trim()
     ? commands.filter((command) => {

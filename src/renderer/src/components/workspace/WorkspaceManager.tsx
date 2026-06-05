@@ -71,6 +71,11 @@ import {
 } from './workspaceManagerHelpers'
 import { restoreDetachedWorkspaceWindowsOnStartup } from './workspaceWindowRestore'
 import { LAYOUT_TEMPLATES } from '../../layouts/templates'
+import { RendererCommandDispatcher } from '../../commands/commandDispatcher'
+import { getCommandDefinition, type CommandId } from '../../commands/commandRegistry'
+import { getElectronAccelerator } from '../../commands/effectiveKeybindings'
+import type { CommandScope } from '../../commands/types'
+import { isGlobalShortcutSuppressedTarget } from '../../utils/keyboard'
 
 // Lazy so the (large) new-workspace wizard — and everything it pulls in
 // (GuidedBriefFlow, the markdown renderer) — is code-split out of the eager boot
@@ -88,18 +93,12 @@ const TERMINAL_SESSION_RECOVERY_POLL_MS = 30_000
 const WORKSPACE_LAYOUT_IDLE_UNLOAD_MS = 5 * 60_000
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const SOLO_CHAT_TEMPLATE = LAYOUT_TEMPLATES.find((template) => template.id === 'solo') ?? null
-const SPECIALIST_KEYBOARD_SHORTCUTS: Record<string, SpecialistActionId> = {
-  f: 'frontend-design-review',
-  m: 'performance',
-  p: 'architect',
-}
-const SPECIALIST_KEYBOARD_CODE_SHORTCUTS: Record<string, SpecialistActionId> = {
-  KeyF: 'frontend-design-review',
-  KeyM: 'performance',
-  KeyP: 'architect',
-}
-
-
+const MENU_ACCELERATOR_COMMAND_IDS = [
+  'app.settings.open',
+  'panel.files.toggle',
+  'panel.editor.toggle',
+  'panel.git.toggle',
+] as const
 export default function WorkspaceManager() {
   useAppTheme()
   const dialog = useConfirmDialog()
@@ -162,6 +161,7 @@ export default function WorkspaceManager() {
   const specialistOrder = useWorkspaceStore(
     (s) => s.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER
   )
+  const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
   const setSpecialistOrder = useWorkspaceStore((s) => s.setSpecialistOrder)
   const orderedSpecialistActions = useMemo(
     () => orderSpecialistActions(specialistOrder),
@@ -242,6 +242,28 @@ export default function WorkspaceManager() {
   const workspaceLayoutUnloadTimersRef = useRef<Record<string, number>>({})
   const collapsedStaleDetachedWindowsRef = useRef(false)
   const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel
+  const commandDispatcherRef = useRef(new RendererCommandDispatcher())
+  const disabledCommandIds = useMemo(
+    () => new Set(Object.entries(keybindingSettings?.disabled ?? {})
+      .filter(([, disabled]) => disabled === true)
+      .map(([commandId]) => commandId)),
+    [keybindingSettings?.disabled]
+  )
+  const activeCommandScopes = useMemo((): CommandScope[] => {
+    const scopes: CommandScope[] = ['global']
+    if (!workspaceActionsEnabled) return scopes
+    scopes.push('workspace', 'workspace-navigation')
+    if (activeWorkspace.mode === 'sprintengine' || activeWorkspace.sprintEngineContext) {
+      scopes.push('panel:sprintengine')
+    }
+    if (activeWorkspace.mode === 'multiloop' || activeWorkspace.multiloopContext) {
+      scopes.push('panel:multiloop')
+    }
+    if (activeWorkspace.mode === 'switchboard') {
+      scopes.push('panel:switchboard', 'panel:watchtower')
+    }
+    return scopes
+  }, [activeWorkspace?.mode, activeWorkspace?.sprintEngineContext, activeWorkspace?.multiloopContext, workspaceActionsEnabled])
   const sessions = getSessionItems(visibleWorkspaces, terminalSessions)
   const sidebarWorkspaceOrder = useMemo(
     () =>
@@ -727,166 +749,6 @@ export default function WorkspaceManager() {
     [workspaces, removeWorkspace]
   )
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return
-
-      // Cmd/Ctrl+Shift+1 toggles voice transcription. Handled before the
-      // text-field guard below so it still works while typing in the agent
-      // composer (the whole point of dictation). Keyed off event.code so it's
-      // layout-independent (Shift turns event.key into '!'), which also keeps it
-      // clear of the Cmd/Ctrl+1-9 workspace switches further down.
-      if (
-        voiceDictationEnabled
-        && (event.ctrlKey || event.metaKey)
-        && event.shiftKey
-        && event.code === 'Digit1'
-      ) {
-        event.preventDefault()
-        event.stopPropagation()
-        voiceDictation.toggle()
-        return
-      }
-
-      const target = event.target as HTMLElement | null
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
-        return
-      }
-
-      const ctrl = event.ctrlKey || event.metaKey
-      if (!ctrl) return
-
-      const mac = window.api.platform === 'darwin'
-      const macCycleLayoutTab = mac
-        && event.metaKey
-        && event.shiftKey
-        && (event.code === 'BracketRight' || event.code === 'BracketLeft')
-      if (event.key === 'Tab' || macCycleLayoutTab) {
-        event.preventDefault()
-        event.stopPropagation()
-        const direction = event.key === 'Tab'
-          ? (event.shiftKey ? -1 : 1)
-          : (event.code === 'BracketLeft' ? -1 : 1)
-        if (windowActiveWorkspaceId) cycleActiveLayoutTab(windowActiveWorkspaceId, direction)
-        return
-      }
-
-      const macCycleWorkspace = mac
-        && event.metaKey
-        && event.altKey
-        && !event.shiftKey
-        && (event.code === 'ArrowRight' || event.code === 'ArrowLeft')
-      if (event.code === 'Backquote' || macCycleWorkspace) {
-        event.preventDefault()
-        event.stopPropagation()
-        const nextWorkspaceId = getNextWorkspaceId(
-          visibleWorkspaces,
-          windowActiveWorkspaceId,
-          event.shiftKey || event.code === 'ArrowLeft' ? -1 : 1
-        )
-        if (nextWorkspaceId) {
-          setShowNewWorkspacePanel(false)
-          setActiveWorkspaceForWindow(workspaceWindowId, nextWorkspaceId)
-        }
-        return
-      }
-
-      if (event.code === 'Quote' && event.shiftKey && !event.altKey) {
-        event.preventDefault()
-        event.stopPropagation()
-        addNewTerminal()
-        return
-      }
-
-      const key = event.key.toLowerCase()
-
-      if (event.altKey) {
-        const specialistId = SPECIALIST_KEYBOARD_CODE_SHORTCUTS[event.code] ?? SPECIALIST_KEYBOARD_SHORTCUTS[key]
-        if (specialistId) {
-          event.preventDefault()
-          event.stopPropagation()
-          setLastSelectedSpecialist(specialistId)
-          setSpecialistMenuOpen(false)
-          void addNewSpecialist(specialistId)
-          return
-        }
-      }
-
-      if (key === 't') {
-        event.preventDefault()
-        openNewWorkspacePanel()
-      }
-      if (key === 'b') {
-        event.preventDefault()
-        beginSidebarTransition()
-        setSidebarCollapsed(!sidebarCollapsed)
-        return
-      }
-      if (key === 'w' && event.shiftKey && windowActiveWorkspaceId) {
-        event.preventDefault()
-        closeWorkspaceById(windowActiveWorkspaceId)
-        return
-      }
-      if (key === 'w' && showNewWorkspacePanel) {
-        event.preventDefault()
-        if (visibleWorkspaces.length > 0) setShowNewWorkspacePanel(false)
-      } else if (key === 'w' && windowActiveWorkspaceId) {
-        event.preventDefault()
-        closeActiveLayoutTab(windowActiveWorkspaceId, terminalSessions)
-      }
-
-      const n = parseInt(event.key)
-      if (n >= 1 && n <= 9 && visibleWorkspaces[n - 1]) {
-        event.preventDefault()
-        setShowNewWorkspacePanel(false)
-        setActiveWorkspaceForWindow(workspaceWindowId, visibleWorkspaces[n - 1].id)
-      }
-    }
-
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [
-    visibleWorkspaces,
-    windowActiveWorkspaceId,
-    workspaceWindowId,
-    showNewWorkspacePanel,
-    lastSelectedCli,
-    removeWorkspace,
-    setActiveWorkspaceForWindow,
-    setLastSelectedSpecialist,
-    sidebarCollapsed,
-    setSidebarCollapsed,
-    closeWorkspaceById,
-    terminalSessions,
-    voiceDictationEnabled,
-    voiceDictation,
-  ])
-
-  useEffect(() => {
-    return window.api.onAppMenuCommand((command) => {
-      if (command === 'show-settings') {
-        openSettings(false)
-        return
-      }
-      if (command === 'show-about') {
-        openSettings(false)
-        return
-      }
-      if (command === 'check-for-updates') {
-        openSettings(true)
-        return
-      }
-      if (!windowActiveWorkspaceId) return
-      if (command === 'toggle-explorer') {
-        togglePanelRailComponent(windowActiveWorkspaceId, 'explorer', 'Files')
-      } else if (command === 'toggle-editor') {
-        togglePanelRailComponent(windowActiveWorkspaceId, 'editor', 'Editor')
-      } else if (command === 'toggle-git') {
-        togglePanelRailComponent(windowActiveWorkspaceId, 'git', 'Git')
-      }
-    })
-  }, [openSettings, windowActiveWorkspaceId])
-
   const handleCreate = ({
     template,
     name,
@@ -1167,6 +1029,212 @@ export default function WorkspaceManager() {
     const newId = `terminal-${nanoid(6)}`
     addTerminalTab(windowActiveWorkspaceId, newId, 'Terminal')
   }
+
+  const dispatchPanelCommand = useCallback((id: string) => {
+    window.dispatchEvent(new CustomEvent('multicode:panel-command', { detail: { id } }))
+  }, [])
+
+  const runCommand = useCallback((commandId: CommandId): boolean => {
+    if (commandId === 'app.settings.open') {
+      openSettings(false)
+      return true
+    }
+    if (commandId === 'app.updates.check') {
+      openSettings(true)
+      return true
+    }
+    if (commandId === 'commandPalette.open') {
+      setShowPalette(true)
+      setShowNewWorkspacePanel(false)
+      setSpecialistMenuOpen(false)
+      setSessionsOpen(false)
+      setViewMenuOpen(false)
+      setNotificationsOpen(false)
+      return true
+    }
+    if (commandId === 'workspace.new') {
+      openNewWorkspacePanel()
+      return true
+    }
+    if (commandId === 'workspace.sidebar.toggle') {
+      beginSidebarTransition()
+      setSidebarCollapsed(!sidebarCollapsed)
+      return true
+    }
+    if (commandId === 'workspace.close' && windowActiveWorkspaceId) {
+      closeWorkspaceById(windowActiveWorkspaceId)
+      return true
+    }
+    if (commandId === 'workspace.switch.next' || commandId === 'workspace.switch.previous') {
+      const nextWorkspaceId = getNextWorkspaceId(
+        visibleWorkspaces,
+        windowActiveWorkspaceId,
+        commandId === 'workspace.switch.previous' ? -1 : 1,
+      )
+      if (!nextWorkspaceId) return false
+      setShowNewWorkspacePanel(false)
+      setActiveWorkspaceForWindow(workspaceWindowId, nextWorkspaceId)
+      return true
+    }
+    if (commandId.startsWith('workspace.switch.')) {
+      const workspaceIndex = Number(commandId.slice('workspace.switch.'.length)) - 1
+      const workspace = visibleWorkspaces[workspaceIndex]
+      if (!workspace) return false
+      setShowNewWorkspacePanel(false)
+      setActiveWorkspaceForWindow(workspaceWindowId, workspace.id)
+      return true
+    }
+    if (commandId === 'layout.tab.next' || commandId === 'layout.tab.previous') {
+      if (!windowActiveWorkspaceId) return false
+      return cycleActiveLayoutTab(windowActiveWorkspaceId, commandId === 'layout.tab.previous' ? -1 : 1)
+    }
+    if (commandId === 'layout.tab.close') {
+      if (showNewWorkspacePanel) {
+        if (visibleWorkspaces.length > 0) setShowNewWorkspacePanel(false)
+        return true
+      }
+      if (!windowActiveWorkspaceId) return false
+      return closeActiveLayoutTab(windowActiveWorkspaceId, terminalSessions)
+    }
+    if (commandId === 'panel.files.toggle' && windowActiveWorkspaceId) {
+      togglePanelRailComponent(windowActiveWorkspaceId, 'explorer', 'Files')
+      return true
+    }
+    if (commandId === 'panel.editor.toggle' && windowActiveWorkspaceId) {
+      togglePanelRailComponent(windowActiveWorkspaceId, 'editor', 'Editor')
+      return true
+    }
+    if (commandId === 'panel.git.toggle' && windowActiveWorkspaceId) {
+      togglePanelRailComponent(windowActiveWorkspaceId, 'git', 'Git')
+      return true
+    }
+    if (commandId === 'terminal.new') {
+      addNewTerminal()
+      return true
+    }
+    if (commandId === 'voice.toggle') {
+      if (!voiceDictationEnabled) return false
+      voiceDictation.toggle()
+      return true
+    }
+    if (commandId === 'specialist.spawn.architect') {
+      setLastSelectedSpecialist('architect')
+      setSpecialistMenuOpen(false)
+      void addNewSpecialist('architect')
+      return true
+    }
+    if (commandId === 'specialist.spawn.performance') {
+      setLastSelectedSpecialist('performance')
+      setSpecialistMenuOpen(false)
+      void addNewSpecialist('performance')
+      return true
+    }
+    if (commandId === 'specialist.spawn.frontend-design-review') {
+      setLastSelectedSpecialist('frontend-design-review')
+      setSpecialistMenuOpen(false)
+      void addNewSpecialist('frontend-design-review')
+      return true
+    }
+    if (
+      commandId.startsWith('sprintengine.')
+      || commandId.startsWith('multiloop.')
+      || commandId.startsWith('watchtower.')
+      || commandId.startsWith('switchboard.')
+    ) {
+      dispatchPanelCommand(commandId)
+      return true
+    }
+    return false
+  }, [
+    openSettings,
+    openNewWorkspacePanel,
+    sidebarCollapsed,
+    setSidebarCollapsed,
+    windowActiveWorkspaceId,
+    closeWorkspaceById,
+    visibleWorkspaces,
+    setActiveWorkspaceForWindow,
+    workspaceWindowId,
+    showNewWorkspacePanel,
+    terminalSessions,
+    voiceDictationEnabled,
+    voiceDictation,
+    setLastSelectedSpecialist,
+    addNewSpecialist,
+    dispatchPanelCommand,
+  ])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const platform = window.api.platform === 'darwin'
+        ? 'darwin'
+        : window.api.platform === 'win32'
+          ? 'windows'
+          : 'linux'
+      const result = commandDispatcherRef.current.resolve(event, {
+        activeScopes: activeCommandScopes,
+        disabledCommandIds,
+        keybindingOverrides: keybindingSettings?.overrides,
+        isSuppressedTarget: isGlobalShortcutSuppressedTarget,
+        platform,
+      })
+      if (result.kind === 'unmatched') return
+      if (result.kind === 'pending') {
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
+      if (runCommand(result.commandId)) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+    }
+
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [
+    activeCommandScopes,
+    disabledCommandIds,
+    keybindingSettings?.overrides,
+    runCommand,
+  ])
+
+  useEffect(() => {
+    return window.api.onAppMenuCommand((command) => {
+      const definition = getCommandDefinition(command)
+      if (definition) {
+        runCommand(definition.id as CommandId)
+        return
+      }
+      if (command === 'show-settings') {
+        runCommand('app.settings.open')
+        return
+      }
+      if (command === 'show-about') {
+        openSettings(false)
+        return
+      }
+      if (command === 'check-for-updates') {
+        runCommand('app.updates.check')
+        return
+      }
+      if (command === 'toggle-explorer') {
+        runCommand('panel.files.toggle')
+      } else if (command === 'toggle-editor') {
+        runCommand('panel.editor.toggle')
+      } else if (command === 'toggle-git') {
+        runCommand('panel.git.toggle')
+      }
+    })
+  }, [openSettings, runCommand])
+
+  useEffect(() => {
+    const updates = MENU_ACCELERATOR_COMMAND_IDS.map((commandId) => ({
+      commandId,
+      accelerator: getElectronAccelerator(commandId, keybindingSettings),
+    }))
+    void window.api.updateAppMenuAccelerators(updates).catch(() => {})
+  }, [keybindingSettings])
 
   const handleSelectSpecialist = (specialistId: SpecialistActionId, selectedCli?: AgentCli) => {
     setLastSelectedSpecialist(specialistId)

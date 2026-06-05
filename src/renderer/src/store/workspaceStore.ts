@@ -42,6 +42,7 @@ import type {
   GuidedBriefRuntimeState,
 } from '../types/workspace'
 import type { AppTheme } from '../types/appTheme'
+import type { CommandId } from '../commands/commandRegistry'
 import { createGuidedBriefSlice } from './slices/guidedBriefSlice'
 import { createAuthSlice } from './slices/authSlice'
 import { createSettingsSlice, normalizeAppSettings } from './slices/settingsSlice'
@@ -185,6 +186,10 @@ export interface WorkspaceStore extends PluginsSlice {
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
   setSpecialistOrder: (order: SpecialistActionId[]) => void
+  setCommandKeybindings: (commandId: CommandId, keybindings: string[]) => void
+  setCommandKeybindingDisabled: (commandId: CommandId, disabled: boolean) => void
+  resetCommandKeybindings: (commandId: CommandId) => void
+  resetAllKeybindings: () => void
   setSearchExcludes: (patterns: string[]) => void
   setProjectKnowledgeRoot: (projectRoot: string, relativeRoot: string | null) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void

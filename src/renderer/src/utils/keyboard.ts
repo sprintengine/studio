@@ -16,3 +16,11 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   if (target.isContentEditable) return true
   return false
 }
+
+export function isGlobalShortcutSuppressedTarget(target: EventTarget | null | undefined): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (isEditableTarget(target)) return true
+  if (target.closest('.monaco-editor')) return true
+  if (target.closest('.xterm')) return true
+  return false
+}

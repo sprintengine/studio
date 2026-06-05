@@ -1,5 +1,5 @@
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
-import type { ElectronApi } from '../../shared/electron-api'
+import type { AppMenuAcceleratorUpdate, ElectronApi } from '../../shared/electron-api'
 
 export const appMenuApi = {
   onAppMenuCommand: (cb: (command: string) => void): (() => void) => {
@@ -8,4 +8,6 @@ export const appMenuApi = {
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
-} satisfies Pick<ElectronApi, 'onAppMenuCommand'>
+  updateAppMenuAccelerators: (updates: AppMenuAcceleratorUpdate[]) =>
+    ipcRenderer.invoke('app-menu:update-accelerators', updates),
+} satisfies Pick<ElectronApi, 'onAppMenuCommand' | 'updateAppMenuAccelerators'>

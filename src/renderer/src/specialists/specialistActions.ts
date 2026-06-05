@@ -53,7 +53,6 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Create implementation plans, compare approaches, and shape system design.',
     icon: 'architecture',
     soulRole: 'architect',
-    shortcut: 'Ctrl+Alt+P',
   },
   {
     id: 'product-strategist',
@@ -86,7 +85,6 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Profile runtime behavior, memory use, CPU hot spots, bundle size, latency, and resource leaks.',
     icon: 'performance',
     soulRole: 'performance',
-    shortcut: 'Ctrl+Alt+M',
   },
   {
     id: 'cross-platform',
@@ -103,7 +101,6 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Design and implement polished frontend experiences, UI architecture, accessibility, and responsive behavior.',
     icon: 'design',
     soulRole: 'frontend',
-    shortcut: 'Ctrl+Alt+F',
   },
   {
     id: 'blog-writer',

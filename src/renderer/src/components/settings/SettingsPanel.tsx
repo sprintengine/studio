@@ -34,6 +34,7 @@ import {
 } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import LearnCenter from '../learn/LearnCenter'
+import { KeyboardShortcutsTab } from './KeyboardShortcutsTab'
 import MobileSettingsTab from './MobileSettingsTab'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
@@ -113,6 +114,7 @@ const VOICE_LANGUAGE_ITEMS: SelectItem<string>[] = [
 
 type SettingsTabId =
   | 'appearance'
+  | 'shortcuts'
   | 'modules'
   | 'updates'
   | 'github'
@@ -130,6 +132,7 @@ type SettingsTabId =
 
 const settingsTabs: Array<{ id: SettingsTabId; label: string; description: string }> = [
   { id: 'appearance', label: 'Appearance', description: 'Theme and visual style' },
+  { id: 'shortcuts', label: 'Shortcuts', description: 'Keyboard shortcuts' },
   { id: 'modules', label: 'Modules', description: 'Enable or disable features' },
   { id: 'updates', label: 'Updates', description: 'Version and release channel' },
   { id: 'github', label: 'GitHub', description: 'Issue import token' },
@@ -149,6 +152,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
 function isSettingsTabId(value: unknown): value is SettingsTabId {
   return (
     value === 'appearance'
+    || value === 'shortcuts'
     || value === 'modules'
     || value === 'updates'
     || value === 'github'
@@ -520,6 +524,7 @@ export default function SettingsPanel({
   }, [visibleSettingsTabs, activeSettingsTab])
   const tabRefs = useRef<Record<SettingsTabId, HTMLButtonElement | null>>({
     appearance: null,
+    shortcuts: null,
     modules: null,
     updates: null,
     github: null,
@@ -2120,6 +2125,8 @@ export default function SettingsPanel({
           <LearnCenter onSettingsTab={onOpenSettingsTab} />
         </div>
       ) : null}
+
+      {activeSettingsTab === 'shortcuts' ? <KeyboardShortcutsTab /> : null}
 
       {activeSettingsTab === 'modules' ? <ModulesSettingsTab /> : null}
 

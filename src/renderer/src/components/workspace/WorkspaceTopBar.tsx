@@ -23,6 +23,12 @@ import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getHighlightSwatch, getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
 import { NotificationsPopover } from './topbar/NotificationsPopover'
+import { useWorkspaceStore } from '../../store/workspaceStore'
+import {
+  getEffectiveKeybindingLabel,
+  getSpecialistCommandId,
+  platformKeybindingsFromApiPlatform,
+} from '../../commands/effectiveKeybindings'
 
 export type SessionItem = {
   workspace: Workspace
@@ -78,13 +84,6 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
     title: 'Skip CLI permission prompts. Use only in repos and environments you trust.',
   },
 ]
-
-function shortcutLabel(shortcut: string): string {
-  if (window.api.platform !== 'darwin') return shortcut
-  return shortcut
-    .replace(/\bCtrl\b/g, 'Cmd')
-    .replace(/\bAlt\b/g, 'Option')
-}
 
 function workspaceTabIconClass(mode: Workspace['mode']): string {
   if (mode === 'sprintengine') return 'text-[color:var(--tool-sprintengine)]'
@@ -588,6 +587,14 @@ export default function WorkspaceTopBar({
   logout,
   switchOrganization,
 }: WorkspaceTopBarProps) {
+  const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
+  const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
+  const shortcutFor = React.useCallback((commandId: string): string | null => (
+    getEffectiveKeybindingLabel(commandId, keybindingSettings, keybindingPlatform)
+  ), [keybindingPlatform, keybindingSettings])
+  const withShortcut = React.useCallback((label: string, shortcut: string | null): string => (
+    shortcut ? `${label} (${shortcut})` : label
+  ), [])
   // Resolve a human label for any CLI from the plugin-aware catalog, so pinned
   // opencode/custom agents read correctly instead of falling back to "Claude Code".
   const cliLabelFor = (cli: AgentCli): string =>
@@ -851,10 +858,10 @@ export default function WorkspaceTopBar({
             <Tooltip
               content={
                 voiceRecording
-                  ? `Stop voice transcription (${shortcutLabel('Ctrl+Shift+1')})`
+                  ? withShortcut('Stop voice transcription', shortcutFor('voice.toggle'))
                   : voiceTranscribing
                     ? 'Transcribing…'
-                    : `Start voice transcription (${shortcutLabel('Ctrl+Shift+1')})`
+                    : withShortcut('Start voice transcription', shortcutFor('voice.toggle'))
               }
               placement="bottom"
             >
@@ -991,7 +998,12 @@ export default function WorkspaceTopBar({
                   content={
                     multiloopLaunchMenu
                       ? `Spawn Multiloop ${selectedMultiloopRoleDescriptor.label} with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}`
-                      : `Spawn ${selectedSpecialistAction.label} specialist with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}${selectedSpecialistAction.shortcut ? ` (${shortcutLabel(selectedSpecialistAction.shortcut)})` : ''}`
+                      : withShortcut(
+                          `Spawn ${selectedSpecialistAction.label} specialist with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}`,
+                          getSpecialistCommandId(selectedSpecialistAction.id)
+                            ? shortcutFor(getSpecialistCommandId(selectedSpecialistAction.id)!)
+                            : null,
+                        )
                   }
                 >
                   <button
@@ -1084,7 +1096,7 @@ export default function WorkspaceTopBar({
                   {hasQuickMatches ? (
                     <div className="py-1">
                       {quickTerminalVisible ? (
-                        <Tooltip content={`Open a plain terminal (${shortcutLabel("Ctrl+Shift+'")})`} placement="bottom">
+                        <Tooltip content={withShortcut('Open a plain terminal', shortcutFor('terminal.new'))} placement="bottom">
                           <button
                             type="button"
                             role="menuitem"
@@ -1449,7 +1461,7 @@ export default function WorkspaceTopBar({
             )}
           </div>
 
-          <Tooltip content={`Settings (${shortcutLabel('Ctrl+,')})`} placement="bottom">
+          <Tooltip content={withShortcut('Settings', shortcutFor('app.settings.open'))} placement="bottom">
             <button
               type="button"
               onClick={() => openSettings(false)}
