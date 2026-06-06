@@ -219,6 +219,37 @@ result = availabilityLostMidChord.resolve(
 )
 assert.equal(result.kind, 'unmatched')
 
+// T13: git.worktrees.open must be reachable by a bound shortcut, not only the
+// command palette. A user-configured override resolves to the registry id so the
+// WorkspaceManager.runCommand route added in T13 actually fires instead of
+// silently no-opping (T8 review finding A10).
+const worktreeDispatcher = new RendererCommandDispatcher(500)
+result = worktreeDispatcher.resolve(
+  key({ key: 'w', code: 'KeyW', ctrlKey: true, altKey: true }),
+  {
+    activeScopes: ['global', 'workspace'],
+    platform: 'linux',
+    availability: { activeWorkspace: true },
+    keybindingOverrides: { 'git.worktrees.open': ['Primary+Alt+W'] },
+    now: 4000,
+  },
+)
+assert.equal(result.kind, 'matched')
+assert.equal(result.kind === 'matched' ? result.commandId : null, 'git.worktrees.open')
+
+// Without an active workspace the binding stays unmatched, so the shortcut never
+// fires a silent no-op in a workspace-less window (availability: activeWorkspace).
+result = worktreeDispatcher.resolve(
+  key({ key: 'w', code: 'KeyW', ctrlKey: true, altKey: true }),
+  {
+    activeScopes: ['global', 'workspace'],
+    platform: 'linux',
+    keybindingOverrides: { 'git.worktrees.open': ['Primary+Alt+W'] },
+    now: 4100,
+  },
+)
+assert.equal(result.kind, 'unmatched')
+
 // A still-valid chord completes normally after the revalidation refactor.
 const stillValidChord = new RendererCommandDispatcher(500)
 result = stillValidChord.resolve(

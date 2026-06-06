@@ -232,9 +232,10 @@ export default function CommandPalette({
               },
             },
             {
-              id: 'git-worktrees',
+              id: 'git.worktrees.open',
               label: 'Git: Manage Worktrees',
               description: activeWorkspace.folderPath ?? 'Open the Git panel',
+              shortcut: shortcutFor('git.worktrees.open'),
               run: () => {
                 revealNavRailComponent(activeWorkspace.id, 'git', 'Git')
                 onClose()

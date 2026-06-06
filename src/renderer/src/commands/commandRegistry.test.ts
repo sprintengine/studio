@@ -34,6 +34,28 @@ for (const id of [
   assert.ok(getCommandDefinition(id), `missing expected real command ${id}`)
 }
 
+// Every registry command is user-bindable through the Shortcuts settings tab
+// (KeyboardShortcutsTab.buildShortcutRows maps the whole registry), so each one
+// must declare a concrete dispatch adapter that the keyboard path
+// (RendererCommandDispatcher -> WorkspaceManager.runCommand or the panel-command
+// bridge) can actually route. The 'command-palette' kind is palette-only and has
+// no keybinding route, so a bound shortcut would silently no-op — the
+// git.worktrees.open defect from T8 review finding A10. This guard fails if any
+// future command is added as palette-only while remaining user-bindable.
+const DISPATCHABLE_HANDLER_KINDS = new Set([
+  'workspace-manager',
+  'context-bound',
+  'app-menu',
+  'panel-event',
+])
+for (const command of COMMAND_REGISTRY) {
+  assert.equal(
+    DISPATCHABLE_HANDLER_KINDS.has(command.handlerPath.kind),
+    true,
+    `user-bindable command ${command.id} lacks a concrete dispatch adapter (handlerPath.kind=${command.handlerPath.kind})`,
+  )
+}
+
 assert.equal(getCommandDefinition('quickOpen.open'), undefined)
 assert.equal(getCommandDefinition('git.discardAll'), undefined)
 assert.equal(getCommandDefinition('editor.save'), undefined, 'editor save remains Monaco-owned and is not registry-backed in T3')

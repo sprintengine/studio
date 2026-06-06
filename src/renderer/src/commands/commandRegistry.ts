@@ -149,7 +149,7 @@ export const COMMAND_REGISTRY = [
     category: 'git',
     scopes: ['workspace'],
     availability: ['activeWorkspace'],
-    handlerPath: { kind: 'command-palette', handler: "revealNavRailComponent(activeWorkspace.id, 'git', 'Git')" },
+    handlerPath: { kind: 'workspace-manager', handler: "revealNavRailComponent(windowActiveWorkspaceId, 'git', 'Git')" },
   }),
   // Git refresh/fetch/commit run the Git panel's real handlers via the
   // panel-command bridge, so they are only available while the Git panel is

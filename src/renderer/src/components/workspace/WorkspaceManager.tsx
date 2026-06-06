@@ -42,7 +42,7 @@ import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/ag
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
-import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, togglePanelRailComponent } from '../../utils/modelRegistry'
+import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, revealNavRailComponent, togglePanelRailComponent } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -1304,6 +1304,14 @@ export default function WorkspaceManager() {
     }
     if (commandId === 'panel.git.toggle' && windowActiveWorkspaceId) {
       togglePanelRailComponent(windowActiveWorkspaceId, 'git', 'Git')
+      return true
+    }
+    if (commandId === 'git.worktrees.open' && windowActiveWorkspaceId) {
+      // Worktrees live in the Git panel, so reveal the Git nav switch via the
+      // same route the command palette uses. Sharing the route keeps a bound
+      // shortcut and the palette row on the same surface instead of silently
+      // no-opping (T8 code-review finding A10).
+      revealNavRailComponent(windowActiveWorkspaceId, 'git', 'Git')
       return true
     }
     if (commandId === 'terminal.new') {
