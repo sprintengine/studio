@@ -1,0 +1,31 @@
+{
+  "kind": "provider",
+  "id": "openrouter",
+  "displayName": "OpenRouter",
+  "publisher": "multicode",
+  "version": 1,
+  "providerType": "model-provider",
+  "models": [
+    {
+      "id": "openai/gpt-4o-mini",
+      "displayName": "GPT-4o mini"
+    },
+    {
+      "id": "anthropic/claude-3.5-sonnet",
+      "displayName": "Claude 3.5 Sonnet"
+    }
+  ],
+  "auth": {
+    "type": "api-key",
+    "label": "OpenRouter API key",
+    "env": "OPENROUTER_API_KEY"
+  },
+  "adapter": {
+    "kind": "declarative"
+  },
+  "openaiCompatible": {
+    "baseUrl": "https://openrouter.ai",
+    "chatCompletionsPath": "/api/v1/chat/completions",
+    "modelsPath": "/api/v1/models"
+  }
+}

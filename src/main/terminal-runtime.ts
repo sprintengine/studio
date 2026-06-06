@@ -73,7 +73,12 @@ type TerminalRuntimeOptions = {
       }
     }
   }): Promise<{ ok: true; managedSprintEngineRunId?: string; runTokenEnv?: Record<string, string> } | { ok: false; message: string }>
-  releaseManagedSprintEngineRun?(runId: string): Promise<void> | void
+  releaseManagedSprintEngineRun?(input: {
+    runId: string
+    workspaceRoot: string
+    clients: AgentCli[]
+    cleanupMcpConfig: boolean
+  }): Promise<void> | void
 }
 
 type TerminalIpcHandlers = {
@@ -108,10 +113,12 @@ let terminalDiagnostics = createTerminalDiagnostics({
   enabled: false,
   logMainPerfEvent: () => {},
 })
+let logMainPerfEvent: TerminalRuntimeOptions['logMainPerfEvent'] = () => {}
 let onAgentSessionExit: TerminalRuntimeOptions['onAgentSessionExit']
 let syncMcpConfig: TerminalRuntimeOptions['syncMcpConfig']
 let releaseManagedSprintEngineRun: TerminalRuntimeOptions['releaseManagedSprintEngineRun']
 const sprintEngineMcpRunRefCounts = new Map<string, number>()
+const sprintEngineMcpWorkspaceRefCounts = new Map<string, number>()
 const pendingSprintEngineMcpRunReleases = new Set<Promise<void>>()
 
 export function buildManagedSprintEngineSyncInputForLaunch(
@@ -160,7 +167,9 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   syncMcpConfig = options.syncMcpConfig
   releaseManagedSprintEngineRun = options.releaseManagedSprintEngineRun
   sprintEngineMcpRunRefCounts.clear()
+  sprintEngineMcpWorkspaceRefCounts.clear()
   pendingSprintEngineMcpRunReleases.clear()
+  logMainPerfEvent = options.logMainPerfEvent
   terminalDiagnostics = createTerminalDiagnostics({
     enabled: options.diagnosticsEnabled,
     logMainPerfEvent: options.logMainPerfEvent,
@@ -530,32 +539,81 @@ function retainFailedTerminalSession(input: {
 function releaseSprintEngineMcpRun(session: TerminalSession): void {
   const runId = session.sprintEngineMcpRunId
   if (!runId) return
+  const workspaceRoot = session.cwd
+  const clients = session.cli ? [session.cli] : []
   session.sprintEngineMcpRunId = undefined
-  releaseSprintEngineMcpRunRef(runId)
+  releaseSprintEngineMcpRunRef(runId, {
+    workspaceRoot,
+    clients,
+  })
 }
 
-function retainSprintEngineMcpRunRef(runId: string | undefined): void {
+function retainSprintEngineMcpRunRef(runId: string | undefined, workspaceRoot?: string): void {
   if (!runId) return
   sprintEngineMcpRunRefCounts.set(runId, (sprintEngineMcpRunRefCounts.get(runId) ?? 0) + 1)
+  retainSprintEngineMcpWorkspaceRef(workspaceRoot)
 }
 
-function releaseSprintEngineMcpRunRef(runId: string): void {
+function retainSprintEngineMcpWorkspaceRef(workspaceRoot: string | undefined): void {
+  const key = workspaceRoot?.trim()
+  if (!key) return
+  sprintEngineMcpWorkspaceRefCounts.set(key, (sprintEngineMcpWorkspaceRefCounts.get(key) ?? 0) + 1)
+}
+
+function releaseSprintEngineMcpWorkspaceRef(workspaceRoot: string | undefined): boolean {
+  const key = workspaceRoot?.trim()
+  if (!key) return false
+  const nextCount = (sprintEngineMcpWorkspaceRefCounts.get(key) ?? 0) - 1
+  if (nextCount > 0) {
+    sprintEngineMcpWorkspaceRefCounts.set(key, nextCount)
+    return false
+  }
+  sprintEngineMcpWorkspaceRefCounts.delete(key)
+  return true
+}
+
+function releaseSprintEngineMcpRunRef(runId: string, context?: {
+  workspaceRoot?: string
+  clients?: AgentCli[]
+  cleanupMcpConfig?: boolean
+}): void {
   const nextCount = (sprintEngineMcpRunRefCounts.get(runId) ?? 0) - 1
+  const cleanupMcpConfig = releaseSprintEngineMcpWorkspaceRef(context?.workspaceRoot)
   if (nextCount > 0) {
     sprintEngineMcpRunRefCounts.set(runId, nextCount)
     return
   }
   sprintEngineMcpRunRefCounts.delete(runId)
-  queueSprintEngineMcpRunRelease(runId)
+  queueSprintEngineMcpRunRelease(runId, { ...context, cleanupMcpConfig })
 }
 
-function releaseUnusedSprintEngineMcpRun(runId: string | undefined): void {
+function releaseUnusedSprintEngineMcpRun(runId: string | undefined, context?: {
+  workspaceRoot?: string
+  clients?: AgentCli[]
+  cleanupMcpConfig?: boolean
+}): void {
   if (!runId || (sprintEngineMcpRunRefCounts.get(runId) ?? 0) > 0) return
-  queueSprintEngineMcpRunRelease(runId)
+  const workspaceRoot = context?.workspaceRoot?.trim()
+  const cleanupMcpConfig = workspaceRoot ? (sprintEngineMcpWorkspaceRefCounts.get(workspaceRoot) ?? 0) === 0 : false
+  queueSprintEngineMcpRunRelease(runId, { ...context, cleanupMcpConfig })
 }
 
-function queueSprintEngineMcpRunRelease(runId: string): void {
-  const release = Promise.resolve(releaseManagedSprintEngineRun?.(runId)).catch(() => {})
+function queueSprintEngineMcpRunRelease(runId: string, context?: {
+  workspaceRoot?: string
+  clients?: AgentCli[]
+  cleanupMcpConfig?: boolean
+}): void {
+  const workspaceRoot = context?.workspaceRoot?.trim()
+  const cleanupMcpConfig = Boolean(workspaceRoot && context?.cleanupMcpConfig === true)
+  const clients = cleanupMcpConfig
+    ? ['codex', 'claude'] as AgentCli[]
+    : context?.clients?.length ? context.clients : ['codex', 'claude'] as AgentCli[]
+  const release = Promise.resolve(releaseManagedSprintEngineRun?.({
+    runId,
+    workspaceRoot: workspaceRoot ?? '',
+    clients,
+    cleanupMcpConfig,
+  })).catch(() => {})
   pendingSprintEngineMcpRunReleases.add(release)
   release.finally(() => {
     pendingSprintEngineMcpRunReleases.delete(release)
@@ -965,7 +1023,7 @@ async function spawnMobileAgentTerminal(input: {
     }
     sprintEngineMcpRunId = syncResult.managedSprintEngineRunId
     sprintEngineMcpEnv = syncResult.runTokenEnv
-    retainSprintEngineMcpRunRef(sprintEngineMcpRunId)
+    retainSprintEngineMcpRunRef(sprintEngineMcpRunId, input.cwd)
     sprintEngineMcpRunRetained = Boolean(sprintEngineMcpRunId)
 
     const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath } = getShellLaunchConfig(
@@ -1025,10 +1083,14 @@ async function spawnMobileAgentTerminal(input: {
 
     return { ok: true, sessionId: input.sessionId }
   } catch (error) {
+    const releaseContext = {
+      workspaceRoot: input.cwd,
+      clients: [input.cli],
+    }
     if (sprintEngineMcpRunRetained && sprintEngineMcpRunId) {
-      releaseSprintEngineMcpRunRef(sprintEngineMcpRunId)
+      releaseSprintEngineMcpRunRef(sprintEngineMcpRunId, releaseContext)
     } else {
-      releaseUnusedSprintEngineMcpRun(sprintEngineMcpRunId)
+      releaseUnusedSprintEngineMcpRun(sprintEngineMcpRunId, releaseContext)
     }
     const message = getTerminalErrorMessage(error)
     retainFailedTerminalSession({
@@ -1078,6 +1140,16 @@ async function spawnTerminalFromIpc(
 ): Promise<TerminalSpawnResult> {
     const existingSession = terminals.get(sessionId)
     if (existingSession && !existingSession.isDisposed) {
+      logMainPerfEvent('TerminalRuntime', 'terminal-reattach-existing-session', {
+        sessionId,
+        workspaceId: workspaceId ?? existingSession.workspaceId,
+        agentId: agentId ?? existingSession.agentId,
+        terminalId: terminalId ?? existingSession.terminalId,
+        kind: kind ?? existingSession.kind,
+        processAlive: isTerminalProcessAlive(existingSession),
+        resumeRequested: resume,
+        visible,
+      })
       existingSession.sender = sender
       existingSession.workspaceId = workspaceId ?? existingSession.workspaceId
       existingSession.agentId = agentId ?? existingSession.agentId
@@ -1103,12 +1175,21 @@ async function spawnTerminalFromIpc(
     }
 
     disposeTerminal(sessionId)
+    logMainPerfEvent('TerminalRuntime', 'terminal-spawn-fresh', {
+      sessionId,
+      workspaceId,
+      agentId,
+      terminalId,
+      kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
+      resumeRequested: resume,
+      visible,
+    })
 
     let sprintEngineMcpRunId: string | undefined
     let sprintEngineMcpEnv: Record<string, string> | undefined
     let sprintEngineMcpRunRetained = false
+    const workingDirectory = cwd || process.cwd()
     try {
-      const workingDirectory = cwd || process.cwd()
       if (sprintEngineStatePath && (kind ?? (shellOnly ? 'terminal' : 'agent')) === 'agent') {
         try {
           requireAuthenticatedUser('Sign in to launch Sprint Engine specialist workflows from the app.')
@@ -1217,7 +1298,7 @@ async function spawnTerminalFromIpc(
         }
         sprintEngineMcpRunId = syncResult.managedSprintEngineRunId
         sprintEngineMcpEnv = syncResult.runTokenEnv
-        retainSprintEngineMcpRunRef(sprintEngineMcpRunId)
+        retainSprintEngineMcpRunRef(sprintEngineMcpRunId, workingDirectory)
         sprintEngineMcpRunRetained = Boolean(sprintEngineMcpRunId)
       }
 
@@ -1283,10 +1364,14 @@ async function spawnTerminalFromIpc(
 
       return { ok: true, sessionId } satisfies TerminalSpawnResult
     } catch (error) {
+      const releaseContext = {
+        workspaceRoot: workingDirectory,
+        clients: cli ? [cli] : [],
+      }
       if (sprintEngineMcpRunRetained && sprintEngineMcpRunId) {
-        releaseSprintEngineMcpRunRef(sprintEngineMcpRunId)
+        releaseSprintEngineMcpRunRef(sprintEngineMcpRunId, releaseContext)
       } else {
-        releaseUnusedSprintEngineMcpRun(sprintEngineMcpRunId)
+        releaseUnusedSprintEngineMcpRun(sprintEngineMcpRunId, releaseContext)
       }
       const message = getTerminalErrorMessage(error)
       retainFailedTerminalSession({

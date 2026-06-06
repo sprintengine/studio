@@ -280,6 +280,23 @@ assert.equal(assignedAgent?.cliStartRequested, true)
 assert.equal(assignedAgent?.cliHasLaunched, true)
 assert.equal(assignedAgent?.cliResumeAvailable, true)
 
+const assignClaudeCodeSession = applyWorkspaceSyncEvent(
+  assignSession.state,
+  event<Extract<WorkspaceSyncEvent, { type: 'agent_terminal.session_assigned' }>>({
+    type: 'agent_terminal.session_assigned',
+    sequence: 17,
+    payload: {
+      workspaceId: 'ws-one',
+      agentId: 'agent-claude-code',
+      sessionId: 'session-from-claude-code-event',
+      cli: 'claude-code',
+    },
+  })
+)
+assert.equal(assignClaudeCodeSession.status, 'applied')
+const assignedClaudeCodeAgent = assignClaudeCodeSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents['agent-claude-code']
+assert.equal(assignedClaudeCodeAgent?.cliResumeAvailable, true)
+
 const launchUpdate = applyWorkspaceSyncEvent(
   assignSession.state,
   event<Extract<WorkspaceSyncEvent, { type: 'agent_terminal.launch_state_updated' }>>({

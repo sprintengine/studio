@@ -6,6 +6,7 @@ import type { ConversationEvent } from '../../shared/conversation-runtime'
 import type { LoadedConversationProvider } from '../../shared/plugin-manifest'
 import {
   createOpenAiCompatibleProvider,
+  listOpenAiCompatibleModels,
   testOpenAiCompatibleConnection,
 } from './openai-compatible-provider'
 
@@ -19,6 +20,7 @@ async function main(): Promise<void> {
 
   try {
     await testConnectionStates(baseUrl)
+    await testLiveModelCatalog(baseUrl)
     await testStreamingTurnProducesCanonicalEvents(baseUrl)
     await testStreamingTurnCancellationReportsInterrupted(baseUrl)
   } finally {
@@ -99,6 +101,51 @@ async function testConnectionStates(baseUrl: string): Promise<void> {
     })).status.state,
     'network_error'
   )
+}
+
+async function testLiveModelCatalog(baseUrl: string): Promise<void> {
+  const dynamic = modelsProvider(baseUrl, '/v1/models')
+
+  const ok = await listOpenAiCompatibleModels({
+    providerId: dynamic.manifest.id,
+    getProviderById: () => dynamic,
+    resolveSecret: async () => ({ ok: true, value: 'sk-test' }),
+  })
+  assert.ok(ok.ok, 'live model catalog fetch succeeds')
+  assert.deepEqual(
+    ok.models,
+    [{ id: 'model-a', displayName: 'Model A', contextLength: 262144 }, { id: 'model-b' }],
+    'models parse from { data: [...] }, name → displayName, context_length → contextLength, bad entries dropped',
+  )
+
+  // A provider without modelsPath has no live catalog.
+  const staticOnly = loadedProvider(baseUrl)
+  const noCatalog = await listOpenAiCompatibleModels({
+    providerId: staticOnly.manifest.id,
+    getProviderById: () => staticOnly,
+    resolveSecret: async () => ({ ok: true, value: 'sk-test' }),
+  })
+  assert.equal(noCatalog.ok, false, 'a provider without modelsPath reports no catalog')
+
+  // A failing endpoint surfaces ok:false (renderer falls back to seed models).
+  const failing = modelsProvider(baseUrl, '/missing')
+  const failed = await listOpenAiCompatibleModels({
+    providerId: failing.manifest.id,
+    getProviderById: () => failing,
+    resolveSecret: async () => ({ ok: true, value: 'sk-test' }),
+  })
+  assert.equal(failed.ok, false, 'a non-200 model catalog response fails closed')
+}
+
+function modelsProvider(baseUrl: string, modelsPath: string): LoadedConversationProvider {
+  const provider = loadedProvider(baseUrl)
+  return {
+    ...provider,
+    manifest: {
+      ...provider.manifest,
+      openaiCompatible: { baseUrl, chatCompletionsPath: '/v1/chat/completions', modelsPath },
+    },
+  }
 }
 
 async function testStreamingTurnCancellationReportsInterrupted(baseUrl: string): Promise<void> {
@@ -220,6 +267,20 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
   if (req.headers.authorization !== 'Bearer sk-test') {
     res.writeHead(401, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: { message: 'invalid key' } }))
+    return
+  }
+  if (req.url === '/v1/models') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        data: [
+          { id: 'model-a', name: 'Model A', context_length: 262144 },
+          { id: 'model-b' },
+          { name: 'no id, dropped' },
+          { id: '' },
+        ],
+      }),
+    )
     return
   }
   if (req.url === '/missing') {

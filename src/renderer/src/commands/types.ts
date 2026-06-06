@@ -38,6 +38,11 @@ export type CommandAvailability =
   | 'multiloopWorkspace'
   | 'multiloopStateLoaded'
   | 'switchboardWorkspace'
+  // The Git panel is mounted in the active workspace, so its panel-command
+  // handlers (refresh/fetch/commit) can receive and act on a dispatch.
+  | 'gitPanelActive'
+  // The active workspace has at least one live terminal session to focus/stop.
+  | 'terminalActive'
 
 export type CommandHandlerPath =
   | { kind: 'workspace-manager'; handler: string }

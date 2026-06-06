@@ -604,6 +604,37 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
   }
 
+  // CommandPalette / keyboard dispatcher → panel-command bridge. The command
+  // registry only exposes these ids while this panel is mounted (gitPanelActive
+  // availability), so a dispatch always lands on the real handlers below. A
+  // latest-handler ref keeps the window listener stable across re-renders while
+  // capturing the live commit message / repo closures.
+  const gitCommandHandlerRef = useRef<(detail: { id: unknown; workspaceId?: unknown }) => void>(() => {})
+  gitCommandHandlerRef.current = (detail) => {
+    if (!detail || typeof detail.id !== 'string') return
+    // Targeted dispatch: ignore commands meant for another workspace's Git panel
+    // so a commit/fetch only runs in the workspace the user acted from.
+    if (typeof detail.workspaceId === 'string' && detail.workspaceId !== workspaceId) return
+    switch (detail.id) {
+      case 'git.refresh':
+        void refreshAll()
+        break
+      case 'git.fetch':
+        void handleFetch()
+        break
+      case 'git.commit':
+        void handleCommit()
+        break
+    }
+  }
+  useEffect(() => {
+    const onCommand = (event: Event) => {
+      gitCommandHandlerRef.current((event as CustomEvent).detail)
+    }
+    window.addEventListener('multicode:panel-command', onCommand)
+    return () => window.removeEventListener('multicode:panel-command', onCommand)
+  }, [])
+
   const handleSwitchBranch = async (branchName: string) => {
     if (!repoRoot || !branchName || branchName === branches?.current) return
     const checkedOutElsewhere = scopeOptions.find((scope) =>

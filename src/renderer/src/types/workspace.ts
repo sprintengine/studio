@@ -1302,6 +1302,13 @@ export type AppSettings = {
   mcp: McpSettings
   skillPacks: SkillPackSettings
   lastSelectedCli: AgentCli
+  /**
+   * Last provider/model pair spawned as a conversation agent, so a new
+   * Conversation agent reopens with it. `null` until the user spawns one; a
+   * remembered pair that is no longer installed falls back to the first
+   * available option at spawn time.
+   */
+  lastSelectedConversationModel: AgentConversationRuntime | null
   lastSelectedSpecialist: SpecialistActionId
   lastSelectedMultiloopRole: MultiloopRole
   lastAgentSpawnPermissionPreset: SprintEngineCliPermissionPreset

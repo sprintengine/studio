@@ -44,14 +44,24 @@ assert.equal(result.kind, 'unmatched')
 
 result = dispatcher.resolve(
   key({ key: 'ArrowRight', code: 'ArrowRight', metaKey: true, altKey: true }),
-  { activeScopes: ['global', 'workspace', 'workspace-navigation'], platform: 'darwin', now: 25 },
+  {
+    activeScopes: ['global', 'workspace', 'workspace-navigation'],
+    platform: 'darwin',
+    availability: { activeWorkspace: true },
+    now: 25,
+  },
 )
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'workspace.switch.next')
 
 result = dispatcher.resolve(
   key({ key: ',', code: 'Comma', ctrlKey: true }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', now: 30 },
+  {
+    activeScopes: ['global', 'workspace', 'panel:sprintengine'],
+    platform: 'linux',
+    availability: { activeWorkspace: true, sprintengineWorkspace: true },
+    now: 30,
+  },
 )
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'sprintengine.open.settings')
@@ -95,38 +105,130 @@ assert.equal(result.kind, 'unmatched')
 
 result = dispatcher.resolve(
   key({ key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true }),
-  { activeScopes: ['global'], platform: 'linux', isSuppressedTarget: suppressed, now: 80 },
+  {
+    activeScopes: ['global'],
+    platform: 'linux',
+    availability: { voiceDictationEnabled: true },
+    isSuppressedTarget: suppressed,
+    now: 80,
+  },
 )
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'voice.toggle')
 
+// voice.toggle stays unmatched when dictation is disabled, so the keystroke
+// falls through instead of firing a silent no-op.
+result = dispatcher.resolve(
+  key({ key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true }),
+  { activeScopes: ['global'], platform: 'linux', isSuppressedTarget: suppressed, now: 85 },
+)
+assert.equal(result.kind, 'unmatched')
+
+const sprintEngineChord = { activeWorkspace: true, sprintengineWorkspace: true }
 const chordDispatcher = new RendererCommandDispatcher(500)
 result = chordDispatcher.resolve(
   key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', now: 100 },
+  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 100 },
 )
 assert.equal(result.kind, 'pending')
 result = chordDispatcher.resolve(
   key({ key: 'i', code: 'KeyI' }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', now: 300 },
+  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 300 },
 )
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'sprintengine.goto.inbox')
 
+// G then R now resolves to the roster navigation chord in the Sprint Engine panel.
+result = chordDispatcher.resolve(
+  key({ key: 'g', code: 'KeyG' }),
+  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 320 },
+)
+assert.equal(result.kind, 'pending')
+result = chordDispatcher.resolve(
+  key({ key: 'r', code: 'KeyR' }),
+  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 360 },
+)
+assert.equal(result.kind, 'matched')
+assert.equal(result.kind === 'matched' ? result.commandId : null, 'sprintengine.goto.roster')
+
 const timedOutDispatcher = new RendererCommandDispatcher(100)
 result = timedOutDispatcher.resolve(
   key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', now: 1000 },
+  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 1000 },
 )
 assert.equal(result.kind, 'pending')
 result = timedOutDispatcher.resolve(
   key({ key: 'i', code: 'KeyI' }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', now: 1201 },
+  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 1201 },
 )
 assert.equal(result.kind, 'unmatched')
 
+// The Sprint Engine chord stays inert outside the panel scope even with the
+// availability flags set.
 result = chordDispatcher.resolve(
   key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace'], platform: 'linux', now: 1300 },
+  { activeScopes: ['global', 'workspace'], platform: 'linux', availability: sprintEngineChord, now: 1300 },
 )
 assert.equal(result.kind, 'unmatched')
+
+// Chord revalidation against the live context. A chord started in the Sprint
+// Engine panel must NOT complete after the active scopes change within the
+// timeout — the second stroke re-derives candidates from the current context
+// rather than reusing the set captured on the first stroke.
+const scopeLostMidChord = new RendererCommandDispatcher(500)
+result = scopeLostMidChord.resolve(
+  key({ key: 'g', code: 'KeyG' }),
+  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 2000 },
+)
+assert.equal(result.kind, 'pending')
+result = scopeLostMidChord.resolve(
+  key({ key: 'r', code: 'KeyR' }),
+  { activeScopes: ['global', 'workspace'], platform: 'linux', availability: { activeWorkspace: true }, now: 2100 },
+)
+assert.equal(result.kind, 'unmatched')
+
+// Same protection when the command is disabled between strokes.
+const disabledMidChord = new RendererCommandDispatcher(500)
+result = disabledMidChord.resolve(
+  key({ key: 'g', code: 'KeyG' }),
+  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 2200 },
+)
+assert.equal(result.kind, 'pending')
+result = disabledMidChord.resolve(
+  key({ key: 'r', code: 'KeyR' }),
+  {
+    activeScopes: ['global', 'workspace', 'panel:sprintengine'],
+    platform: 'linux',
+    availability: sprintEngineChord,
+    disabledCommandIds: new Set(['sprintengine.goto.roster']),
+    now: 2300,
+  },
+)
+assert.equal(result.kind, 'unmatched')
+
+// And when availability is lost mid-chord while the scope is still active.
+const availabilityLostMidChord = new RendererCommandDispatcher(500)
+result = availabilityLostMidChord.resolve(
+  key({ key: 'g', code: 'KeyG' }),
+  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 2400 },
+)
+assert.equal(result.kind, 'pending')
+result = availabilityLostMidChord.resolve(
+  key({ key: 'r', code: 'KeyR' }),
+  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: {}, now: 2500 },
+)
+assert.equal(result.kind, 'unmatched')
+
+// A still-valid chord completes normally after the revalidation refactor.
+const stillValidChord = new RendererCommandDispatcher(500)
+result = stillValidChord.resolve(
+  key({ key: 'g', code: 'KeyG' }),
+  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 2600 },
+)
+assert.equal(result.kind, 'pending')
+result = stillValidChord.resolve(
+  key({ key: 'k', code: 'KeyK' }),
+  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 2650 },
+)
+assert.equal(result.kind, 'matched')
+assert.equal(result.kind === 'matched' ? result.commandId : null, 'sprintengine.goto.kanban')

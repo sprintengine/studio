@@ -38,13 +38,13 @@ function testPicksTwoPartNames(): void {
     const name = pickRandomAgentName()
 
     assert.match(name, /^[A-Z][a-z]+ [A-Z][a-z]+$/)
-    assert.equal(name, 'Abe Ames')
+    assert.equal(name, 'Aed Ahern')
   })
 }
 
 function testAvoidsTakenFullNames(): void {
   withRandom(0, () => {
-    assert.equal(pickRandomAgentName(['Abe Ames']), 'Ada Ames')
+    assert.equal(pickRandomAgentName(['Aed Ahern']), 'Aidan Ahern')
   })
 }
 
@@ -54,6 +54,6 @@ function testFallsBackToNumberedNameAfterCombinationPoolIsExhausted(): void {
   )
 
   withRandom(0, () => {
-    assert.equal(pickRandomAgentName(takenNames), 'Abe Ames 2')
+    assert.equal(pickRandomAgentName(takenNames), 'Aed Ahern 2')
   })
 }

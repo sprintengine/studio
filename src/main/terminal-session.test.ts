@@ -8,11 +8,17 @@ import {
   markTerminalFailed,
   markTerminalIdle,
   markTerminalWorking,
+  materializeTerminalReplay,
   recordTerminalInput,
   transitionTerminalActivity,
   type TerminalSession,
 } from './terminal-session'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
+import {
+  TERMINAL_RECENT_HISTORY_WINDOW_MS,
+  TERMINAL_RECENT_REPLAY_BYTES,
+  TERMINAL_STANDARD_REPLAY_BYTES,
+} from '../shared/terminal-history'
 
 void main()
 
@@ -24,6 +30,11 @@ function main(): void {
   assertExitAndFailureClassificationClearTimers()
   assertFailedLaunchSnapshotIsVisible()
   assertActivityTransitionDiagnostics()
+  assertRecentSessionsRetainExtendedReplay()
+  assertColdSessionsCompactToStandardReplay()
+  assertRecentInputKeepsSessionInExtendedReplayTier()
+  assertColdSingleLargeChunkIsTrimmedNotDropped()
+  assertColdSessionNewOutputUsesRecentReplayTier()
 }
 
 function assertSpawnSnapshotStartsWorking(): void {
@@ -165,6 +176,67 @@ function assertActivityTransitionDiagnostics(): void {
       ['session_1', 'working', 'failed', 500, null, 1, 'spawn failed'],
     ]
   )
+}
+
+function assertRecentSessionsRetainExtendedReplay(): void {
+  const session = createSession({ startedAt: Date.now() })
+  const chunk = 'r'.repeat(TERMINAL_STANDARD_REPLAY_BYTES)
+
+  for (let index = 0; index < 5; index += 1) {
+    appendTerminalOutput(session, chunk, Date.now())
+  }
+
+  assert.equal(session.outputBytes, TERMINAL_RECENT_REPLAY_BYTES)
+  assert.equal(getTerminalSnapshot(session).historyTier, 'recent')
+  assert.equal(materializeTerminalReplay(session).length, TERMINAL_RECENT_REPLAY_BYTES)
+}
+
+function assertColdSessionsCompactToStandardReplay(): void {
+  const coldAt = Date.now() - TERMINAL_RECENT_HISTORY_WINDOW_MS - 1_000
+  const session = createSession({ startedAt: coldAt })
+  const chunk = 's'.repeat(TERMINAL_STANDARD_REPLAY_BYTES)
+
+  for (let index = 0; index < 5; index += 1) {
+    appendTerminalOutput(session, chunk, coldAt)
+  }
+
+  const replay = materializeTerminalReplay(session)
+  assert.equal(getTerminalSnapshot(session).historyTier, 'standard')
+  assert.equal(session.outputBytes, TERMINAL_STANDARD_REPLAY_BYTES)
+  assert.equal(replay.length, TERMINAL_STANDARD_REPLAY_BYTES)
+}
+
+function assertRecentInputKeepsSessionInExtendedReplayTier(): void {
+  const coldAt = Date.now() - TERMINAL_RECENT_HISTORY_WINDOW_MS - 1_000
+  const session = createSession({ startedAt: coldAt })
+  recordTerminalInput(session, Date.now())
+
+  appendTerminalOutput(session, 'i'.repeat(TERMINAL_RECENT_REPLAY_BYTES), coldAt)
+
+  assert.equal(getTerminalSnapshot(session).historyTier, 'recent')
+  assert.equal(session.outputBytes, TERMINAL_RECENT_REPLAY_BYTES)
+}
+
+function assertColdSingleLargeChunkIsTrimmedNotDropped(): void {
+  const coldAt = Date.now() - TERMINAL_RECENT_HISTORY_WINDOW_MS - 1_000
+  const session = createSession({ startedAt: coldAt })
+
+  appendTerminalOutput(session, 'x'.repeat(TERMINAL_RECENT_REPLAY_BYTES), coldAt)
+
+  const replay = materializeTerminalReplay(session)
+  assert.equal(replay.length, TERMINAL_STANDARD_REPLAY_BYTES)
+  assert.equal(session.outputBytes, TERMINAL_STANDARD_REPLAY_BYTES)
+  assert.equal(replay, 'x'.repeat(TERMINAL_STANDARD_REPLAY_BYTES))
+}
+
+function assertColdSessionNewOutputUsesRecentReplayTier(): void {
+  const coldAt = Date.now() - TERMINAL_RECENT_HISTORY_WINDOW_MS - 1_000
+  const session = createSession({ startedAt: coldAt })
+
+  appendTerminalOutput(session, 'n'.repeat(TERMINAL_RECENT_REPLAY_BYTES), Date.now())
+
+  assert.equal(getTerminalSnapshot(session).historyTier, 'recent')
+  assert.equal(session.outputBytes, TERMINAL_RECENT_REPLAY_BYTES)
 }
 
 function createSession(input: {

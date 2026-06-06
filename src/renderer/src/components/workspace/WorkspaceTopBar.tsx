@@ -48,6 +48,7 @@ export type SessionItem = {
 export type ChipPopoverForRole =
   | { kind: 'specialist'; id: SpecialistActionId }
   | { kind: 'multiloop'; role: MultiloopRole }
+  | { kind: 'general' }
   | null
 
 type ViewItem = { component: string; name: string }
@@ -127,6 +128,22 @@ function TerminalSessionIcon({ className }: { className?: string }) {
       <rect x="4" y="5.5" width="16" height="13" rx="2.2" stroke="currentColor" strokeWidth="1.7" />
       <path d="M7.25 10L10 12.5L7.25 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M12.5 15H16.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// Neutral chat glyph for conversation-runtime spawn rows. CliIcon is reserved
+// for terminal CLI plugins; a provider-backed agent is a conversation, so it
+// reads as a speech bubble rather than a terminal prompt.
+function ConversationProviderIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M5 5.75h14a1.75 1.75 0 0 1 1.75 1.75v7a1.75 1.75 0 0 1-1.75 1.75H10l-3.75 3v-3H5A1.75 1.75 0 0 1 3.25 15.5v-8A1.75 1.75 0 0 1 5 5.75Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -498,6 +515,14 @@ export type WorkspaceTopBarProps = {
   addNewMultiloopAgent: (cli: AgentCli) => void | Promise<void>
   addNewCliAgent: (cli: AgentCli, label: string) => void
   addNewTerminal: () => void
+  // Sets the CLI used by the General Agent quick row (the remembered default,
+  // shared with the trigger button and New chat). Wired to setLastSelectedCli.
+  setGeneralAgentCli: (cli: AgentCli) => void
+  // Conversation runtime spawn collapses to one entry: the model is picked in
+  // the chat composer, so the menu only needs to know whether a default
+  // provider/model is available and how to open it.
+  conversationSpawnAvailable: boolean
+  onSpawnConversationAgent: () => void
 
   openSettings: (checkForUpdates?: boolean, targetTab?: string | null) => void
   settingsOpen: boolean
@@ -575,6 +600,9 @@ export default function WorkspaceTopBar({
   addNewMultiloopAgent,
   addNewCliAgent,
   addNewTerminal,
+  setGeneralAgentCli,
+  conversationSpawnAvailable,
+  onSpawnConversationAgent,
   openSettings,
   settingsOpen,
   accountOpen,
@@ -615,6 +643,29 @@ export default function WorkspaceTopBar({
     ids.splice(to, 0, sourceId)
     setSpecialistOrder(ids)
   }
+  // The per-row CLI chip popover is absolutely positioned inside the spawn
+  // menu's scroll container, which clips overflow. For rows near the bottom it
+  // would open downward into the clip and extend the scrollbar, so flip it to
+  // open upward when there isn't room below within the scroller (or panel for
+  // the quick rows that sit above the list).
+  const [chipPopoverPlacement, setChipPopoverPlacement] = React.useState<'down' | 'up'>('down')
+  React.useLayoutEffect(() => {
+    if (!chipPopoverForRole) {
+      setChipPopoverPlacement('down')
+      return
+    }
+    const root = specialistMenuRef.current
+    const surface = root?.querySelector<HTMLElement>('[data-chip-popover="true"]')
+    const anchor = surface?.parentElement
+    if (!surface || !anchor) return
+    const bounds =
+      surface.closest<HTMLElement>('[data-spawn-scroll="true"]')
+      ?? surface.closest<HTMLElement>('[data-spawn-panel="true"]')
+    const boundsBottom = bounds ? bounds.getBoundingClientRect().bottom : window.innerHeight
+    const spaceBelow = boundsBottom - anchor.getBoundingClientRect().bottom
+    setChipPopoverPlacement(spaceBelow < surface.offsetHeight + 8 ? 'up' : 'down')
+  }, [chipPopoverForRole, specialistMenuRef, agentCliOptions.length])
+  const chipPopoverPositionClass = chipPopoverPlacement === 'up' ? 'bottom-[32px]' : 'top-[32px]'
   return (
       <div
         className="flex h-[48px] shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-3 transition-colors"
@@ -925,7 +976,12 @@ export default function WorkspaceTopBar({
               : Math.min(agentMenuHighlight, visibleItems.length - 1)
             const quickTerminalVisible = !multiloopLaunchMenu && (!menuQuery || 'terminal'.includes(menuQuery))
             const quickGeneralVisible = !multiloopLaunchMenu && (!menuQuery || 'general agent'.includes(menuQuery))
-            const hasQuickMatches = quickTerminalVisible || quickGeneralVisible
+            // Single conversation-agent quick row (standard workspaces with an
+            // available provider/model). Non-roving like the other quick rows;
+            // the model itself is chosen later in the chat composer.
+            const quickConversationVisible =
+              conversationSpawnAvailable && (!menuQuery || 'conversation agent'.includes(menuQuery))
+            const hasQuickMatches = quickTerminalVisible || quickGeneralVisible || quickConversationVisible
             const hasAnyMatches = hasQuickMatches || visibleItems.length > 0
             const cycleCli = (current: AgentCli): AgentCli => {
               if (agentCliOptions.length === 0) return current
@@ -1059,7 +1115,7 @@ export default function WorkspaceTopBar({
                     </Tooltip>
                   )}
                 >
-                <div className="w-[320px] overflow-hidden">
+                <div data-spawn-panel="true" className="w-[320px] overflow-hidden">
                   <div className="flex items-center gap-2 border-b border-[color:var(--border-subtle)] px-2.5 py-2">
                     <svg className="icon-sm shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
                       <circle cx="9" cy="9" r="5" stroke="currentColor" strokeWidth="1.6" />
@@ -1096,7 +1152,7 @@ export default function WorkspaceTopBar({
                   {hasQuickMatches ? (
                     <div className="py-1">
                       {quickTerminalVisible ? (
-                        <Tooltip content={withShortcut('Open a plain terminal', shortcutFor('terminal.new'))} placement="bottom">
+                        <Tooltip content={withShortcut('Open a plain terminal', shortcutFor('terminal.new'))} placement="bottom" wrapperClassName="block w-full">
                           <button
                             type="button"
                             role="menuitem"
@@ -1112,20 +1168,92 @@ export default function WorkspaceTopBar({
                           </button>
                         </Tooltip>
                       ) : null}
-                      {quickGeneralVisible ? (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            addNewCliAgent(lastSelectedCli, 'General Agent')
-                            setSpecialistMenuOpen(false)
-                          }}
-                          className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[rgba(92,124,255,0.05)] hover:text-[color:var(--text-strong)]"
-                        >
-                          <CliIcon cli={lastSelectedCli} className="h-4 w-4 text-[color:var(--text-muted)]" />
-                          <span className="truncate text-[13px]">General Agent</span>
-                          <span aria-hidden="true" />
-                        </button>
+                      {quickGeneralVisible ? (() => {
+                        const generalCli = resolvePickerCli(lastSelectedCli)
+                        const generalChipOpen = chipPopoverForRole?.kind === 'general'
+                        return (
+                          <div className="relative">
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                addNewCliAgent(generalCli, 'General Agent')
+                                setSpecialistMenuOpen(false)
+                              }}
+                              onContextMenu={(event) => {
+                                event.preventDefault()
+                                setChipPopoverForRole((current) => (current?.kind === 'general' ? null : { kind: 'general' }))
+                              }}
+                              className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[rgba(92,124,255,0.05)] hover:text-[color:var(--text-strong)]"
+                            >
+                              <CliIcon cli={generalCli} className="h-4 w-4 text-[color:var(--text-muted)]" />
+                              <span className="truncate text-[13px]">General Agent</span>
+                              <Tooltip placement="bottom" content={`Agent CLI: ${cliLabelFor(generalCli)} · right-click or click to change`}>
+                                <span
+                                  role="button"
+                                  tabIndex={-1}
+                                  aria-label={`Agent CLI: ${cliLabelFor(generalCli)}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    setChipPopoverForRole((current) => (current?.kind === 'general' ? null : { kind: 'general' }))
+                                  }}
+                                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-disabled)] transition-colors hover:text-[color:var(--text-strong)]"
+                                >
+                                  <CliIcon cli={generalCli} className="icon-sm" />
+                                </span>
+                              </Tooltip>
+                            </button>
+                            {generalChipOpen ? (
+                              // primitive-duplication-allow: nested chip-listbox inside the Popover-managed spawn menu, matching the specialist rows; the outer Popover owns outside-click and focus restoration.
+                              <div
+                                role="listbox"
+                                data-chip-popover="true"
+                                aria-label="Agent CLI for General Agent"
+                                // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
+                                className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
+                              >
+                                {agentCliOptions.map((option) => {
+                                  const isCurrent = option.value === generalCli
+                                  return (
+                                    <button
+                                      key={option.value}
+                                      type="button"
+                                      role="option"
+                                      aria-selected={isCurrent}
+                                      onClick={() => {
+                                        setGeneralAgentCli(option.value)
+                                        setChipPopoverForRole(null)
+                                      }}
+                                      className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
+                                        isCurrent
+                                          ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
+                                          : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
+                                      }`}
+                                    >
+                                      <CliIcon cli={option.value} className="icon-sm" />
+                                      {option.label}
+                                      {isCurrent ? <span className="ml-auto text-[color:var(--accent-primary)]">✓</span> : null}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            ) : null}
+                          </div>
+                        )
+                      })() : null}
+                      {quickConversationVisible ? (
+                        <Tooltip content="Open a chat agent — pick the model in the composer" placement="bottom" wrapperClassName="block w-full">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => onSpawnConversationAgent()}
+                            className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[rgba(92,124,255,0.05)] hover:text-[color:var(--text-strong)]"
+                          >
+                            <ConversationProviderIcon className="h-4 w-4 text-[color:var(--text-muted)]" />
+                            <span className="truncate text-[13px]">Conversation agent</span>
+                            <span aria-hidden="true" />
+                          </button>
+                        </Tooltip>
                       ) : null}
                     </div>
                   ) : null}
@@ -1135,7 +1263,7 @@ export default function WorkspaceTopBar({
                       No matches
                     </div>
                   ) : visibleItems.length === 0 ? null : (
-                    <div className={`max-h-[340px] overflow-y-auto py-1 ${hasQuickMatches ? 'border-t border-[color:var(--border-subtle)]' : ''}`}>
+                    <div data-spawn-scroll="true" className={`max-h-[340px] overflow-y-auto py-1 ${hasQuickMatches ? 'border-t border-[color:var(--border-subtle)]' : ''}`}>
                       {multiloopLaunchMenu
                         ? filteredMultiloop.map((soul, index) => {
                             const highlighted = index === safeHighlight
@@ -1197,11 +1325,12 @@ export default function WorkspaceTopBar({
                                 {popoverOpen ? (
                                   <div
                                     role="listbox"
+                                    data-chip-popover="true"
                                     aria-label={`Agent CLI for ${soul.label}`}
                                     // primitive-duplication-allow: nested chip-listbox inside the Popover-managed specialist menu;
                                     // anchored to a row-local `<div className="relative">` with no separate outside-click handler.
                                     // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                    className="absolute right-2 top-[32px] z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]"
+                                    className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                                   >
                                     {agentCliOptions.map((option) => {
                                       const isCurrent = option.value === boundCli
@@ -1288,7 +1417,7 @@ export default function WorkspaceTopBar({
                                   }}
                                   onMouseEnter={() => setAgentMenuHighlight(index)}
                                   className={`grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pr-2 text-left transition-colors ${
-                                    specialistDragEnabled ? 'cursor-grab active:cursor-grabbing' : ''
+                                    dragging ? 'cursor-grabbing' : ''
                                   } ${
                                     highlighted
                                       ? 'bg-[color:var(--accent-primary-soft)] pl-[7px] shadow-[inset_3px_0_0_var(--accent-primary)] text-[color:var(--text-strong)]'
@@ -1330,11 +1459,12 @@ export default function WorkspaceTopBar({
                                 {popoverOpen ? (
                                   <div
                                     role="listbox"
+                                    data-chip-popover="true"
                                     aria-label={`Agent CLI for ${action.label}`}
                                     // primitive-duplication-allow: nested chip-listbox inside the Popover-managed specialist menu;
                                     // anchored to a row-local `<div className="relative">` with no separate outside-click handler.
                                     // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                    className="absolute right-2 top-[32px] z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]"
+                                    className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                                   >
                                     {agentCliOptions.map((option) => {
                                       const isCurrent = option.value === boundCli

@@ -40,8 +40,9 @@ import type {
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
-import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddTerminalTab, getModel, togglePanelRailComponent } from '../../utils/modelRegistry'
+import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, togglePanelRailComponent } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -69,12 +70,22 @@ import {
   uniqueAgentName,
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
+import {
+  buildConversationSpawnOptions,
+  conversationAgentRuntimePatch,
+  resolveDefaultConversationOption,
+  type ConversationSpawnOption,
+} from './conversationSpawnOptions'
+import { computeRetainedWorkspaceLayoutIds, type WorkspaceLayoutRetentionReason } from './workspaceLayoutRetention'
+import type { ConversationProviderListResult } from '../../../../shared/electron-api'
 import { restoreDetachedWorkspaceWindowsOnStartup } from './workspaceWindowRestore'
 import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { RendererCommandDispatcher } from '../../commands/commandDispatcher'
 import { getCommandDefinition, type CommandId } from '../../commands/commandRegistry'
 import { getElectronAccelerator } from '../../commands/effectiveKeybindings'
+import type { CommandAvailabilityContext } from '../../commands/availability'
 import type { CommandScope } from '../../commands/types'
+import { buildSprintEngineAgentRosterForState, computeSprintEngineFocusAgentAvailability } from '../../utils/sprintengine'
 import { isGlobalShortcutSuppressedTarget } from '../../utils/keyboard'
 
 // Lazy so the (large) new-workspace wizard — and everything it pulls in
@@ -90,7 +101,9 @@ const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 
 const TERMINAL_SESSION_RECOVERY_POLL_MS = 30_000
-const WORKSPACE_LAYOUT_IDLE_UNLOAD_MS = 5 * 60_000
+const WORKSPACE_LAYOUT_IDLE_UNLOAD_MS = 30 * 60_000
+const WORKSPACE_LAYOUT_RETAINED_INACTIVE_LIMIT = 4
+const WORKSPACE_LAYOUT_BUSY_RETAINED_LIMIT = 8
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const SOLO_CHAT_TEMPLATE = LAYOUT_TEMPLATES.find((template) => template.id === 'solo') ?? null
 const MENU_ACCELERATOR_COMMAND_IDS = [
@@ -132,6 +145,8 @@ export default function WorkspaceManager() {
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
   const setLastSelectedCli = useWorkspaceStore((s) => s.setLastSelectedCli)
+  const rememberedConversationModel = useWorkspaceStore((s) => s.appSettings.lastSelectedConversationModel)
+  const setLastSelectedConversationModel = useWorkspaceStore((s) => s.setLastSelectedConversationModel)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
@@ -213,6 +228,11 @@ export default function WorkspaceManager() {
   const [agentMenuHighlight, setAgentMenuHighlight] = useState(0)
   const [chipPopoverForRole, setChipPopoverForRole] = useState<ChipPopoverForRole>(null)
   const agentMenuSearchRef = useRef<HTMLInputElement>(null)
+  // Installed conversation providers, loaded lazily when the spawn menu opens.
+  // Kept separate from `agentCliCatalog`: this is the provider/model catalog for
+  // the conversation runtime, not the terminal CLI plugin catalog. `null` means
+  // "not loaded yet"; an `ok: false` result drives the unavailable row.
+  const [conversationProviderResult, setConversationProviderResult] = useState<ConversationProviderListResult | null>(null)
   const [agentSpawnPermissionPreset, setAgentSpawnPermissionPresetState] = useState<SprintEngineCliPermissionPreset>(
     lastAgentSpawnPermissionPreset
   )
@@ -227,6 +247,7 @@ export default function WorkspaceManager() {
   const [authMessage, setAuthMessage] = useState<string | null>(null)
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionSnapshot[]>([])
   const [mountedWorkspaceIds, setMountedWorkspaceIds] = useState<string[]>([])
+  const [workspaceLayoutRetentionTick, setWorkspaceLayoutRetentionTick] = useState(0)
   const [windowState, setWindowState] = useState<WindowState>({
     isMaximized: false,
     isFullScreen: false,
@@ -239,7 +260,8 @@ export default function WorkspaceManager() {
   const terminalSessionsSignatureRef = useRef('')
   const reportedTerminalLastOutputRef = useRef<Map<string, number>>(new Map())
   const reconciledLaunchFlagsRef = useRef(false)
-  const workspaceLayoutUnloadTimersRef = useRef<Record<string, number>>({})
+  const workspaceLayoutLastFocusedAtRef = useRef<Record<string, number>>({})
+  const workspaceLayoutRetentionReasonsRef = useRef<Record<string, WorkspaceLayoutRetentionReason>>({})
   const collapsedStaleDetachedWindowsRef = useRef(false)
   const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel
   const commandDispatcherRef = useRef(new RendererCommandDispatcher())
@@ -264,6 +286,40 @@ export default function WorkspaceManager() {
     }
     return scopes
   }, [activeWorkspace?.mode, activeWorkspace?.sprintEngineContext, activeWorkspace?.multiloopContext, workspaceActionsEnabled])
+  // Runtime preconditions for registry commands, derived from the same active
+  // scopes the dispatcher uses plus the panels' own availability predicates
+  // (architect on roster, focusable agent, loaded multiloop state). The
+  // dispatcher and the command palette both read this context so keyboard
+  // dispatch and palette rows agree on which commands are actually runnable.
+  // `activeFile` is intentionally omitted: no command declares it yet, and
+  // inventing a value here would be a fake precondition.
+  const commandAvailability = useMemo((): CommandAvailabilityContext => {
+    const context: CommandAvailabilityContext = {}
+    if (workspaceActionsEnabled) context.activeWorkspace = true
+    if (voiceDictationEnabled) context.voiceDictationEnabled = true
+    if (activeCommandScopes.includes('panel:sprintengine')) {
+      context.sprintengineWorkspace = true
+      const sprintEngineState = activeWorkspace?.sprintEngineState ?? null
+      const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
+      if (roster.some((agent) => agent.role === 'architect')) context.sprintengineHasArchitect = true
+      const focusAvailability = computeSprintEngineFocusAgentAvailability(sprintEngineState, activeWorkspace?.agents ?? {})
+      if (focusAvailability.showFocusAgentAction) context.sprintengineFocusAgentVisible = true
+    }
+    if (activeCommandScopes.includes('panel:multiloop')) {
+      context.multiloopWorkspace = true
+      if (activeWorkspace?.multiloopState) context.multiloopStateLoaded = true
+    }
+    if (activeCommandScopes.includes('panel:switchboard')) context.switchboardWorkspace = true
+    if (activeWorkspace?.layoutModel && jsonModelHasComponent(activeWorkspace.layoutModel, 'git')) {
+      context.gitPanelActive = true
+    }
+    if (terminalSessions.some((session) =>
+      session.kind === 'terminal' && session.workspaceId === activeWorkspace?.id && session.terminalId,
+    )) {
+      context.terminalActive = true
+    }
+    return context
+  }, [workspaceActionsEnabled, voiceDictationEnabled, activeCommandScopes, activeWorkspace, terminalSessions])
   const sessions = getSessionItems(visibleWorkspaces, terminalSessions)
   const sidebarWorkspaceOrder = useMemo(
     () =>
@@ -312,6 +368,55 @@ export default function WorkspaceManager() {
   // (lastSelectedCli / specialist / multiloop default) is no longer installed.
   const fallbackSpawnCli = (cli: AgentCli): AgentCli =>
     resolveAvailableAgentCli(cli, agentCliCatalog, agentCliCatalog[0]?.value ?? cli)
+
+  // Conversation spawn is offered only in standard workspaces; Sprint Engine and
+  // Multiloop agents stay terminal/MCP-owned (AgentPanel enforces this too).
+  const conversationSpawnEnabled = activeWorkspace?.mode === 'standard'
+  // Load the conversation provider catalog when the spawn menu opens in a
+  // standard workspace. Defensive: if the IPC is absent the feature is simply
+  // unavailable and no rows render. We refetch on each open so a provider just
+  // configured in Settings shows up without a restart.
+  React.useEffect(() => {
+    if (!specialistMenuOpen || !conversationSpawnEnabled) return
+    if (typeof window.api.conversationProvidersList !== 'function') {
+      setConversationProviderResult(null)
+      return
+    }
+    let cancelled = false
+    void window.api
+      .conversationProvidersList()
+      .then((result) => {
+        if (!cancelled) setConversationProviderResult(result)
+      })
+      .catch(() => {
+        if (!cancelled) setConversationProviderResult(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [specialistMenuOpen, conversationSpawnEnabled])
+  const conversationSpawnOptions = useMemo<ConversationSpawnOption[]>(
+    () => buildConversationSpawnOptions(conversationProviderResult),
+    [conversationProviderResult],
+  )
+  // Providers with a live catalog accept any model id, so a remembered live-only
+  // model is still a valid spawn default for them.
+  const conversationDynamicProviderIds = useMemo(() => {
+    const ids = new Set<string>()
+    if (conversationProviderResult?.ok) {
+      for (const provider of conversationProviderResult.providers) {
+        if (provider.supportsDynamicModels) ids.add(provider.id)
+      }
+    }
+    return ids
+  }, [conversationProviderResult])
+  // Single spawn entry: the model is picked in the chat composer, so the menu
+  // only needs the default pair to open with (remembered → first available).
+  const conversationDefaultOption = useMemo(
+    () => resolveDefaultConversationOption(conversationSpawnOptions, rememberedConversationModel, conversationDynamicProviderIds),
+    [conversationSpawnOptions, rememberedConversationModel, conversationDynamicProviderIds],
+  )
+  const conversationSpawnAvailable = conversationSpawnEnabled && conversationDefaultOption !== null
 
   const createNewChat = useCallback((folderPath?: string | null, cli?: AgentCli) => {
     if (!SOLO_CHAT_TEMPLATE) {
@@ -393,14 +498,6 @@ export default function WorkspaceManager() {
   const setAgentSpawnPermissionPreset = (preset: SprintEngineCliPermissionPreset) => {
     setAgentSpawnPermissionPresetState(preset)
     setLastAgentSpawnPermissionPreset(preset)
-  }
-
-  const clearWorkspaceLayoutUnloadTimer = (workspaceId: string) => {
-    const timer = workspaceLayoutUnloadTimersRef.current[workspaceId]
-    if (timer === undefined) return
-
-    window.clearTimeout(timer)
-    delete workspaceLayoutUnloadTimersRef.current[workspaceId]
   }
 
   useEffect(() => {
@@ -493,51 +590,111 @@ export default function WorkspaceManager() {
   }, [lastAgentSpawnPermissionPreset])
 
   useEffect(() => {
-    const workspaceIds = new Set(visibleWorkspaces.map((workspace) => workspace.id))
+    if (!windowActiveWorkspaceId) return
+    workspaceLayoutLastFocusedAtRef.current[windowActiveWorkspaceId] = Date.now()
+  }, [windowActiveWorkspaceId])
+
+  useEffect(() => {
+    const now = Date.now()
+    const visibleWorkspaceIds = visibleWorkspaces.map((workspace) => workspace.id)
+    const visibleWorkspaceIdSet = new Set(visibleWorkspaceIds)
+    if (windowActiveWorkspaceId && visibleWorkspaceIdSet.has(windowActiveWorkspaceId)) {
+      workspaceLayoutLastFocusedAtRef.current[windowActiveWorkspaceId] = now
+    }
+
+    const busyWorkspaceIds = new Set<string>()
+    for (const workspace of visibleWorkspaces) {
+      if (getWorkspaceActivity(workspace, terminalSessions) !== 'idle') {
+        busyWorkspaceIds.add(workspace.id)
+      }
+    }
+    for (const session of terminalSessions) {
+      if (session.processAlive && typeof session.workspaceId === 'string') {
+        busyWorkspaceIds.add(session.workspaceId)
+      }
+    }
+
+    const retention = computeRetainedWorkspaceLayoutIds({
+      visibleWorkspaceIds,
+      activeWorkspaceId: windowActiveWorkspaceId,
+      mountedWorkspaceIds,
+      busyWorkspaceIds,
+      lastFocusedAtByWorkspaceId: workspaceLayoutLastFocusedAtRef.current,
+      now,
+      idleUnloadMs: WORKSPACE_LAYOUT_IDLE_UNLOAD_MS,
+      inactiveLimit: WORKSPACE_LAYOUT_RETAINED_INACTIVE_LIMIT,
+      busyLimit: WORKSPACE_LAYOUT_BUSY_RETAINED_LIMIT,
+    })
+
+    const nextReasons: Record<string, WorkspaceLayoutRetentionReason> = {}
+    for (const retained of retention.retained) {
+      nextReasons[retained.workspaceId] = retained.reason
+      if (workspaceLayoutRetentionReasonsRef.current[retained.workspaceId] === retained.reason) continue
+      logPerfEvent('WorkspaceManager', 'workspace-layout-retained', {
+        workspaceId: retained.workspaceId,
+        activeWorkspaceId: windowActiveWorkspaceId,
+        reason: retained.reason,
+        busy: retained.busy,
+        mountedCount: retention.retainedWorkspaceIds.length,
+        visibleWorkspaceCount: visibleWorkspaceIds.length,
+        inactiveLimit: WORKSPACE_LAYOUT_RETAINED_INACTIVE_LIMIT,
+        busyLimit: WORKSPACE_LAYOUT_BUSY_RETAINED_LIMIT,
+        idleUnloadMs: WORKSPACE_LAYOUT_IDLE_UNLOAD_MS,
+      })
+    }
+    for (const evicted of retention.evicted) {
+      if (workspaceLayoutRetentionReasonsRef.current[evicted.workspaceId] === undefined) continue
+      logPerfEvent('WorkspaceManager', 'workspace-layout-evicted', {
+        workspaceId: evicted.workspaceId,
+        activeWorkspaceId: windowActiveWorkspaceId,
+        reason: evicted.reason,
+        busy: evicted.busy,
+        mountedCount: retention.retainedWorkspaceIds.length,
+        visibleWorkspaceCount: visibleWorkspaceIds.length,
+        inactiveLimit: WORKSPACE_LAYOUT_RETAINED_INACTIVE_LIMIT,
+        busyLimit: WORKSPACE_LAYOUT_BUSY_RETAINED_LIMIT,
+        idleUnloadMs: WORKSPACE_LAYOUT_IDLE_UNLOAD_MS,
+      })
+    }
+    workspaceLayoutRetentionReasonsRef.current = nextReasons
 
     setMountedWorkspaceIds((current) => {
-      const next = current.filter((workspaceId) => workspaceIds.has(workspaceId))
-      if (windowActiveWorkspaceId && workspaceIds.has(windowActiveWorkspaceId) && !next.includes(windowActiveWorkspaceId)) {
-        next.push(windowActiveWorkspaceId)
-      }
+      const next = retention.retainedWorkspaceIds
       return next.length === current.length && next.every((workspaceId, index) => workspaceId === current[index])
         ? current
         : next
     })
-
-    Object.keys(workspaceLayoutUnloadTimersRef.current).forEach((workspaceId) => {
-      if (!workspaceIds.has(workspaceId) || workspaceId === windowActiveWorkspaceId) {
-        clearWorkspaceLayoutUnloadTimer(workspaceId)
-      }
-    })
-  }, [visibleWorkspaces, windowActiveWorkspaceId])
+  }, [mountedWorkspaceIds, terminalSessions, visibleWorkspaces, windowActiveWorkspaceId, workspaceLayoutRetentionTick])
 
   useEffect(() => {
-    const workspaceIds = new Set(visibleWorkspaces.map((workspace) => workspace.id))
-
-    mountedWorkspaceIds.forEach((workspaceId) => {
-      if (workspaceId === windowActiveWorkspaceId || !workspaceIds.has(workspaceId)) {
-        clearWorkspaceLayoutUnloadTimer(workspaceId)
-        return
+    const now = Date.now()
+    const visibleWorkspaceIds = new Set(visibleWorkspaces.map((workspace) => workspace.id))
+    const busyWorkspaceIds = new Set<string>()
+    for (const workspace of visibleWorkspaces) {
+      if (getWorkspaceActivity(workspace, terminalSessions) !== 'idle') {
+        busyWorkspaceIds.add(workspace.id)
       }
-      if (workspaceLayoutUnloadTimersRef.current[workspaceId] !== undefined) return
+    }
+    for (const session of terminalSessions) {
+      if (session.processAlive && typeof session.workspaceId === 'string') {
+        busyWorkspaceIds.add(session.workspaceId)
+      }
+    }
 
-      workspaceLayoutUnloadTimersRef.current[workspaceId] = window.setTimeout(() => {
-        delete workspaceLayoutUnloadTimersRef.current[workspaceId]
-        setMountedWorkspaceIds((current) => {
-          const state = useWorkspaceStore.getState()
-          const currentWindow = state.workspaceWindows.find((windowState) => windowState.id === workspaceWindowId)
-          if (currentWindow?.activeWorkspaceId === workspaceId) return current
-          return current.filter((id) => id !== workspaceId)
-        })
-      }, WORKSPACE_LAYOUT_IDLE_UNLOAD_MS)
-    })
-  }, [mountedWorkspaceIds, visibleWorkspaces, windowActiveWorkspaceId, workspaceWindowId])
-
-  useEffect(() => () => {
-    Object.values(workspaceLayoutUnloadTimersRef.current).forEach((timer) => window.clearTimeout(timer))
-    workspaceLayoutUnloadTimersRef.current = {}
-  }, [])
+    let nextDeadline = Number.POSITIVE_INFINITY
+    for (const workspaceId of mountedWorkspaceIds) {
+      if (workspaceId === windowActiveWorkspaceId) continue
+      if (!visibleWorkspaceIds.has(workspaceId)) continue
+      if (busyWorkspaceIds.has(workspaceId)) continue
+      const lastFocusedAt = workspaceLayoutLastFocusedAtRef.current[workspaceId] ?? 0
+      nextDeadline = Math.min(nextDeadline, lastFocusedAt + WORKSPACE_LAYOUT_IDLE_UNLOAD_MS)
+    }
+    if (!Number.isFinite(nextDeadline)) return
+    const timeout = window.setTimeout(() => {
+      setWorkspaceLayoutRetentionTick(Date.now())
+    }, Math.max(1_000, nextDeadline - now + 50))
+    return () => window.clearTimeout(timeout)
+  }, [mountedWorkspaceIds, terminalSessions, visibleWorkspaces, windowActiveWorkspaceId, workspaceLayoutRetentionTick])
 
   useEffect(() => {
     const roots = mobileWorkspaceRootKey.split('\n').filter(Boolean)
@@ -1024,14 +1181,55 @@ export default function WorkspaceManager() {
     setSpecialistMenuOpen(false)
   }
 
+  // Spawn a conversation-backed general agent in the active standard workspace.
+  // AgentPanel routes the new tab to AgentChatView based on `runtimeKind` +
+  // `conversation`; no CLI session is created. The model is then switchable in
+  // the chat composer until the first message, so spawning just needs a default
+  // pair. Missing-key/unavailable states are handled downstream by AgentChatView.
+  const addNewConversationAgent = (providerId: string, modelId: string, modelLabel: string) => {
+    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
+    const model = getModel(windowActiveWorkspaceId)
+    if (!model) return
+
+    const activeWorkspace = workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
+    if (!activeWorkspace || activeWorkspace.mode !== 'standard') return
+
+    const tabName = uniqueAgentName(modelLabel || 'Conversation Agent', activeWorkspace.agents)
+    const newId = `conversation-${providerId}-${nanoid(6)}`
+    if (!(model.getActiveTabset() ?? firstTabset(model))) return
+
+    updateAgent(windowActiveWorkspaceId, newId, {
+      name: tabName,
+      ...conversationAgentRuntimePatch(providerId, modelId),
+    })
+    addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
+    setLastSelectedConversationModel({ providerId, modelId })
+    setSpecialistMenuOpen(false)
+  }
+
+  // Single spawn-menu entry: open a conversation agent with the resolved default
+  // model. No-op when no provider/model is available (entry stays hidden).
+  const spawnConversationAgent = () => {
+    if (!conversationDefaultOption) return
+    addNewConversationAgent(
+      conversationDefaultOption.providerId,
+      conversationDefaultOption.modelId,
+      conversationDefaultOption.modelLabel,
+    )
+  }
+
   const addNewTerminal = () => {
     if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const newId = `terminal-${nanoid(6)}`
     addTerminalTab(windowActiveWorkspaceId, newId, 'Terminal')
   }
 
-  const dispatchPanelCommand = useCallback((id: string) => {
-    window.dispatchEvent(new CustomEvent('multicode:panel-command', { detail: { id } }))
+  // Optional workspaceId targets a single workspace's panel. The mode-scoped
+  // panels ignore it, but the Git panel (which can be mounted in several
+  // background workspaces at once) uses it so a destructive command like commit
+  // only runs in the active workspace's repo, never a stale background one.
+  const dispatchPanelCommand = useCallback((id: string, workspaceId?: string) => {
+    window.dispatchEvent(new CustomEvent('multicode:panel-command', { detail: { id, workspaceId } }))
   }, [])
 
   const runCommand = useCallback((commandId: CommandId): boolean => {
@@ -1112,6 +1310,24 @@ export default function WorkspaceManager() {
       addNewTerminal()
       return true
     }
+    if (commandId === 'terminal.focus' && windowActiveWorkspaceId) {
+      const session = terminalSessions.find((item) =>
+        item.kind === 'terminal' && item.workspaceId === windowActiveWorkspaceId && item.terminalId,
+      )
+      if (!session?.terminalId) return false
+      return focusOrAddTerminalTab(windowActiveWorkspaceId, session.terminalId, 'Terminal')
+    }
+    if (commandId === 'terminal.stop' && windowActiveWorkspaceId) {
+      return stopActiveTerminal(windowActiveWorkspaceId, terminalSessions)
+    }
+    if (commandId === 'git.refresh' || commandId === 'git.fetch' || commandId === 'git.commit') {
+      if (!windowActiveWorkspaceId) return false
+      // Routed to the active workspace's mounted Git panel; availability
+      // (gitPanelActive) keeps this reachable only while that panel is open, and
+      // the workspace target prevents firing in a background repo.
+      dispatchPanelCommand(commandId, windowActiveWorkspaceId)
+      return true
+    }
     if (commandId === 'voice.toggle') {
       if (!voiceDictationEnabled) return false
       voiceDictation.toggle()
@@ -1175,6 +1391,7 @@ export default function WorkspaceManager() {
         activeScopes: activeCommandScopes,
         disabledCommandIds,
         keybindingOverrides: keybindingSettings?.overrides,
+        availability: commandAvailability,
         isSuppressedTarget: isGlobalShortcutSuppressedTarget,
         platform,
       })
@@ -1196,6 +1413,7 @@ export default function WorkspaceManager() {
     activeCommandScopes,
     disabledCommandIds,
     keybindingSettings?.overrides,
+    commandAvailability,
     runCommand,
   ])
 
@@ -1487,6 +1705,9 @@ export default function WorkspaceManager() {
         addNewMultiloopAgent={(cli) => addNewMultiloopAgent(lastSelectedMultiloopRole, '', cli)}
         addNewCliAgent={addNewCliAgent}
         addNewTerminal={addNewTerminal}
+        setGeneralAgentCli={setLastSelectedCli}
+        conversationSpawnAvailable={conversationSpawnAvailable}
+        onSpawnConversationAgent={spawnConversationAgent}
         openSettings={openSettings}
         settingsOpen={settingsOpen}
         accountOpen={accountOpen}
@@ -1559,6 +1780,8 @@ export default function WorkspaceManager() {
           workspaceWindowId={workspaceWindowId}
           workspaces={visibleWorkspaces}
           activeWorkspaceId={windowActiveWorkspaceId}
+          activeScopes={activeCommandScopes}
+          commandAvailability={commandAvailability}
         />
       )}
 
@@ -1676,6 +1899,38 @@ function killTerminalForLayoutTab(
       void window.api.terminalKill(sessionId).catch(() => {})
     })
   }
+}
+
+// Stop the process behind a live terminal without closing its tab. The focused
+// terminal tab wins; otherwise the workspace's first live terminal session is
+// stopped. This succeeds whenever the workspace has a live terminal, so it
+// matches the command's `terminalActive` availability exactly (no
+// available-but-no-op gap). Returns false only when no live terminal exists.
+function stopActiveTerminal(
+  workspaceId: string,
+  terminalSessions: TerminalSessionSnapshot[],
+): boolean {
+  const model = getModel(workspaceId)
+  const tabset = model?.getActiveTabset() ?? (model ? firstTabset(model) : null)
+  const selectedNode = tabset?.getChildren()[tabset.getSelected()]
+  if (selectedNode instanceof TabNode && selectedNode.getComponent() === 'terminal') {
+    killTerminalForLayoutTab(workspaceId, selectedNode, terminalSessions)
+    return true
+  }
+  const session = terminalSessions.find((item) =>
+    item.kind === 'terminal' && item.workspaceId === workspaceId && item.terminalId,
+  )
+  if (!session?.terminalId) return false
+  const sessionIds = new Set<string>([`terminal-${session.terminalId}`])
+  terminalSessions
+    .filter((item) =>
+      item.kind === 'terminal' && item.workspaceId === workspaceId && item.terminalId === session.terminalId,
+    )
+    .forEach((item) => sessionIds.add(item.sessionId))
+  sessionIds.forEach((sessionId) => {
+    void window.api.terminalKill(sessionId).catch(() => {})
+  })
+  return true
 }
 
 function closeActiveLayoutTab(

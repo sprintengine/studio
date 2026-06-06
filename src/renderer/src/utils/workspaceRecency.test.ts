@@ -80,19 +80,24 @@ run('pinned workspaces never fold even when stale', () => {
   assert.deepEqual(partition.stale.map((w) => w.id), ['stale'])
 })
 
-run('sortWorkspacesByActivity floats live workspaces above idle ones', () => {
-  const idleRecent = makeWorkspace('idle-recent', { createdAt: NOW - DAY, lastTerminalActivityAt: NOW - 60_000 })
+run('sortWorkspacesByActivity counts live rows as "now", tied with recent idle rows', () => {
+  // A green-dot row no longer floats to the top: it joins the same "just now"
+  // tier as rows worked within the last 30 minutes and keeps its stored order.
+  const idleRecent = makeWorkspace('idle-recent', { createdAt: NOW - 5 * 60_000 })
   const liveStale = makeWorkspace('live-stale', { createdAt: NOW - 30 * DAY })
-  const idleOld = makeWorkspace('idle-old', { createdAt: NOW - 20 * DAY })
+  const idleOld = makeWorkspace('idle-old', { createdAt: NOW - 2 * DAY })
 
   const live = new Set(['live-stale'])
   const sorted = sortWorkspacesByActivity(
     [idleRecent, liveStale, idleOld],
     (w) => live.has(w.id),
+    NOW,
   )
 
-  // Live row leads despite being the oldest by timestamp; idle rows follow by recency.
-  assert.deepEqual(sorted.map((w) => w.id), ['live-stale', 'idle-recent', 'idle-old'])
+  // idle-recent precedes the live row (both "now", stored order); the live row
+  // does not jump ahead despite its stale timestamp. idle-old trails, outside
+  // the window.
+  assert.deepEqual(sorted.map((w) => w.id), ['idle-recent', 'live-stale', 'idle-old'])
 })
 
 run('sortWorkspacesByActivity sorts idle rows by recency but keeps live rows in stored order', () => {
@@ -108,10 +113,37 @@ run('sortWorkspacesByActivity sorts idle rows by recency but keeps live rows in 
   const sorted = sortWorkspacesByActivity(
     [liveSecond, idleA, liveFirst, idleB],
     (w) => live.has(w.id),
+    NOW,
   )
 
-  // Live rows precede idle ones in their original order; idle rows by recency.
+  // Live rows ("now") lead in stored order; the idle rows here are older than
+  // the 30-minute window, so they fall below and order by recency.
   assert.deepEqual(sorted.map((w) => w.id), ['live-second', 'live-first', 'idle-b', 'idle-a'])
+})
+
+run('sortWorkspacesByActivity treats rows worked within 30 minutes as equally recent', () => {
+  // newer/older differ by 10 minutes but both fall inside the 30-minute window,
+  // so they must keep stored order instead of reshuffling; olderStill is past
+  // the window and sorts below both by its real last-worked time.
+  const newer = makeWorkspace('newer', { createdAt: NOW - 2 * 60_000 })
+  const older = makeWorkspace('older', { createdAt: NOW - 12 * 60_000 })
+  const olderStill = makeWorkspace('older-still', { createdAt: NOW - 90 * 60_000 })
+
+  const sorted = sortWorkspacesByActivity([older, newer, olderStill], () => false, NOW)
+
+  // older precedes newer despite being worked on earlier: both tie inside the
+  // window and keep their incoming order. older-still trails, outside the window.
+  assert.deepEqual(sorted.map((w) => w.id), ['older', 'newer', 'older-still'])
+})
+
+run('sortWorkspacesByActivity orders rows past the 30-minute window by recency', () => {
+  const recent = makeWorkspace('recent', { createdAt: NOW - 40 * 60_000 })
+  const oldest = makeWorkspace('oldest', { createdAt: NOW - 5 * DAY })
+  const middle = makeWorkspace('middle', { createdAt: NOW - DAY })
+
+  const sorted = sortWorkspacesByActivity([oldest, recent, middle], () => false, NOW)
+
+  assert.deepEqual(sorted.map((w) => w.id), ['recent', 'middle', 'oldest'])
 })
 
 run('sortWorkspacesByActivity is stable for exact ties and does not mutate input', () => {

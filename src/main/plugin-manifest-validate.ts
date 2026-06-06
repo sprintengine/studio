@@ -213,6 +213,18 @@ function validateOpenAiCompatible(value: unknown, issues: PluginManifestValidati
       })
     }
   }
+  if ('modelsPath' in value && value.modelsPath !== undefined) {
+    if (
+      typeof value.modelsPath !== 'string'
+      || !value.modelsPath.startsWith('/')
+      || value.modelsPath.includes('..')
+    ) {
+      issues.push({
+        path: 'openaiCompatible.modelsPath',
+        message: 'openaiCompatible.modelsPath must be an absolute URL path.',
+      })
+    }
+  }
 }
 
 function validateSignature(value: unknown, issues: PluginManifestValidationIssue[]): void {

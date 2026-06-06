@@ -9,6 +9,7 @@ import { ConversationRuntime } from './conversation-runtime'
 import type { LoadedConversationProvider } from '../shared/plugin-manifest'
 import type { ProviderSecretStore } from './secret-store'
 import type {
+  ConversationMessage,
   ConversationProviderAdapter,
   MockAdapterSessionInput,
   MockAdapterTurnInput,
@@ -21,6 +22,7 @@ async function main(): Promise<void> {
   await testProviderWithAuthRequiresConfiguredSecret()
   await testBlockedExecutableProviderTrustErrorSurfaces()
   await testOpenAiCompatibleRuntimeTurnCompletesThroughLocalEndpoint()
+  await testMultiTurnHistoryAccumulates()
   await testInterruptSuppressesLateAsyncProviderEvents()
   await testStopSessionSuppressesLateAsyncProviderEvents()
 
@@ -401,6 +403,91 @@ function unusedSecretStore(): Pick<ProviderSecretStore, 'getStatus'> & Partial<P
   return {
     getStatus: async () => ({ ok: false, message: 'unused' }),
     resolveSecret: async () => ({ ok: false, message: 'unused' }),
+  }
+}
+
+async function testMultiTurnHistoryAccumulates(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-history-'))
+  const captured: ConversationMessage[][] = []
+  try {
+    let id = 0
+    let now = 1000
+    const runtime = new ConversationRuntime({
+      randomId: () => `${++id}`,
+      now: () => ++now,
+      adapters: [createCapturingProvider(captured)],
+      getProviderById: () => undefined,
+      secretStore: {
+        getStatus: async () => ({
+          ok: true,
+          status: {
+            providerId: 'capture-provider',
+            configured: true,
+            source: 'environment',
+            persistence: 'environment',
+            encryptionAvailable: false,
+            label: 'API key',
+          },
+        }),
+        resolveSecret: async () => ({ ok: true, providerId: 'capture-provider', value: 'x', source: 'environment' }),
+      },
+    })
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'w',
+      agentId: 'a',
+      providerId: 'capture-provider',
+      modelId: 'capture-model',
+    })
+    assert.equal(started.ok, true)
+    if (!started.ok) return
+
+    await runtime.sendTurn({ sessionId: started.session.sessionId, message: 'hello' })
+    await runtime.sendTurn({ sessionId: started.session.sessionId, message: 'and again' })
+
+    assert.deepEqual(
+      captured[0],
+      [{ role: 'user', content: 'hello' }],
+      'the first turn sends just the user message',
+    )
+    assert.deepEqual(
+      captured[1],
+      [
+        { role: 'user', content: 'hello' },
+        { role: 'assistant', content: 'reply to hello' },
+        { role: 'user', content: 'and again' },
+      ],
+      'the second turn carries the prior completed turn as context',
+    )
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+function createCapturingProvider(captured: ConversationMessage[][]): ConversationProviderAdapter {
+  return {
+    id: 'capture-provider',
+    listModels: () => ['capture-model'],
+    startSession(input) {
+      return [runtimeEvent(input, 'session_started'), runtimeEvent(input, 'session_ready')]
+    },
+    sendTurn(input: MockAdapterTurnInput) {
+      captured.push(input.messages ?? [])
+      return [
+        runtimeEvent(input, 'turn_started', { turnId: input.turnId }),
+        runtimeEvent(input, 'content_delta', { turnId: input.turnId, text: `reply to ${input.message}` }),
+        runtimeEvent(input, 'turn_completed', { turnId: input.turnId }),
+      ]
+    },
+    resolveApproval() {
+      return []
+    },
+    interrupt(input) {
+      return [runtimeEvent(input, 'turn_failed', { reason: 'interrupted' })]
+    },
+    stopSession(input) {
+      return [runtimeEvent(input, 'session_closed')]
+    },
   }
 }
 

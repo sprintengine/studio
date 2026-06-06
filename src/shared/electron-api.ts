@@ -32,7 +32,7 @@ import type {
 } from './switchboard'
 import type { RoleInstallResult, UserRoleListResult } from './sprintengine/role-manifest'
 import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
-import type { ConversationProviderListEntry, PluginRegistryListEntry } from './plugin-manifest'
+import type { ConversationProviderListEntry, ConversationProviderModel, PluginRegistryListEntry } from './plugin-manifest'
 import type {
   ConversationEvent,
   ConversationInterruptInput,
@@ -259,6 +259,14 @@ export type PluginRegistryListResult =
 
 export type ConversationProviderListResult =
   | { ok: true; providers: ConversationProviderListEntry[] }
+  | { ok: false; message: string }
+
+export type ConversationProviderModelsInput = {
+  providerId: string
+}
+
+export type ConversationProviderModelsResult =
+  | { ok: true; models: ConversationProviderModel[] }
   | { ok: false; message: string }
 
 export type ConversationSecretStatus = {
@@ -509,6 +517,8 @@ export type TerminalSessionSnapshot = {
   exitedAt: number | null
   outputBufferLength: number
   retainedOutputBytes: number
+  historyTier?: 'standard' | 'recent'
+  replayLimitBytes?: number
 }
 
 export type TerminalSpawnResult =
@@ -1258,6 +1268,7 @@ export type ElectronApi = {
   ) => Promise<BuiltinSkillInstallResult>
   pluginsList: () => Promise<PluginRegistryListResult>
   conversationProvidersList: () => Promise<ConversationProviderListResult>
+  conversationProviderModels: (input: ConversationProviderModelsInput) => Promise<ConversationProviderModelsResult>
   conversationProviderTest: (input: ConversationProviderTestInput) => Promise<ConversationProviderTestResult>
   conversationSecretStatus: (input: ConversationSecretStatusInput) => Promise<ConversationSecretStatusResult>
   conversationSecretSet: (input: ConversationSecretSetInput) => Promise<ConversationSecretSetResult>

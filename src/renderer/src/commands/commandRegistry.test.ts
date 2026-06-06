@@ -24,7 +24,12 @@ for (const id of [
   'watchtower.run.review',
   'switchboard.open.runner',
   'git.worktrees.open',
+  'git.refresh',
+  'git.fetch',
+  'git.commit',
   'terminal.new',
+  'terminal.focus',
+  'terminal.stop',
 ]) {
   assert.ok(getCommandDefinition(id), `missing expected real command ${id}`)
 }

@@ -60,11 +60,11 @@ async function testBundledManifestsLoad(): Promise<void> {
   const ids = registry.list().map((p) => p.id).sort()
   assert.deepEqual(ids, ['claude-code', 'codex', 'generic-shell'])
   assert.equal(
-    registry.listConversationProviders().some((provider) => provider.id === 'openai-compatible-api'),
+    registry.listConversationProviders().some((provider) => provider.id === 'openrouter'),
     true
   )
   assert.equal(
-    registry.list().some((entry) => entry.id === 'openai-compatible-api'),
+    registry.list().some((entry) => entry.id === 'openrouter'),
     false,
     'bundled provider manifests must not appear in the terminal CLI catalog'
   )
@@ -370,6 +370,7 @@ async function testProviderManifestLoadsThroughProviderListOnly(): Promise<void>
         { id: 'gpt-5', displayName: 'GPT-5' },
         { id: 'gpt-5-mini' },
       ],
+      supportsDynamicModels: false,
       adapter: {
         kind: 'declarative',
         execution: 'declarative',
@@ -428,6 +429,40 @@ async function testOpenAiCompatibleProviderConfigValidated(): Promise<void> {
   if (!invalidPath.ok) {
     assert.ok(invalidPath.issues.some((issue) => issue.path === 'openaiCompatible.chatCompletionsPath'))
   }
+
+  const invalidModelsPath = validateManifestSource(
+    JSON.stringify({
+      kind: 'provider',
+      id: 'openrouter',
+      displayName: 'OpenRouter',
+      version: 1,
+      providerType: 'model-provider',
+      models: [{ id: 'demo' }],
+      openaiCompatible: { baseUrl: 'https://openrouter.ai', modelsPath: 'api/v1/models' },
+    })
+  )
+  assert.equal(invalidModelsPath.ok, false)
+  if (!invalidModelsPath.ok) {
+    assert.ok(invalidModelsPath.issues.some((issue) => issue.path === 'openaiCompatible.modelsPath'))
+  }
+
+  const validDynamic = validateManifestSource(
+    JSON.stringify({
+      kind: 'provider',
+      id: 'openrouter',
+      displayName: 'OpenRouter',
+      version: 1,
+      providerType: 'model-provider',
+      models: [{ id: 'openai/gpt-4o-mini', displayName: 'GPT-4o mini' }],
+      auth: { type: 'api-key', label: 'OpenRouter API key', env: 'OPENROUTER_API_KEY' },
+      openaiCompatible: {
+        baseUrl: 'https://openrouter.ai',
+        chatCompletionsPath: '/api/v1/chat/completions',
+        modelsPath: '/api/v1/models',
+      },
+    })
+  )
+  assert.equal(validDynamic.ok, true, 'a valid OpenRouter manifest with modelsPath passes validation')
 }
 
 async function testCliProviderFieldMixingRejected(): Promise<void> {

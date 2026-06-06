@@ -9,6 +9,11 @@ import type {
   TerminalPathStyle,
   TerminalSessionSnapshot,
 } from '../shared/electron-api'
+import {
+  getTerminalHistoryTier,
+  getTerminalReplayLimitBytes,
+  TERMINAL_STANDARD_REPLAY_BYTES,
+} from '../shared/terminal-history'
 
 export type TerminalSize = {
   cols: number
@@ -76,7 +81,6 @@ export type TerminalSession = {
   startupScriptPath?: string
 }
 
-const TERMINAL_REPLAY_BUFFER_LIMIT = 512 * 1024
 const TERMINAL_REPLAY_COMPACT_THRESHOLD = 1024
 
 export const DEFAULT_IDLE_POLICY = {
@@ -200,7 +204,8 @@ export function createFailedTerminalSession(input: FailedTerminalSessionInput): 
 }
 
 export function appendTerminalOutput(session: TerminalSession, data: string, at = Date.now()): void {
-  const chunk = trimTerminalChunkToReplayLimit(data)
+  const replayLimitBytes = getTerminalReplayLimitBytes({ ...session, lastOutputAt: at }, at)
+  const chunk = trimTerminalChunkToReplayLimit(data, replayLimitBytes)
   session.outputChunks.push(chunk.data)
   session.outputChunkBytes.push(chunk.bytes)
   session.outputBytes += chunk.bytes
@@ -208,7 +213,7 @@ export function appendTerminalOutput(session: TerminalSession, data: string, at 
   session.lastOutputAt = at
 
   while (
-    session.outputBytes > TERMINAL_REPLAY_BUFFER_LIMIT
+    session.outputBytes > replayLimitBytes
     && session.outputChunkStart < session.outputChunks.length
   ) {
     const removed = session.outputChunks[session.outputChunkStart]
@@ -229,10 +234,12 @@ export function appendTerminalOutput(session: TerminalSession, data: string, at 
 }
 
 export function materializeTerminalReplay(session: TerminalSession): string {
+  compactTerminalReplayToLimit(session)
   return session.outputChunks.slice(session.outputChunkStart).join('')
 }
 
 export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSnapshot {
+  compactTerminalReplayToLimit(session)
   return {
     sessionId: session.sessionId,
     processAlive: isTerminalProcessAlive(session),
@@ -256,15 +263,53 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     exitedAt: session.exitedAt,
     outputBufferLength: session.outputLength,
     retainedOutputBytes: session.outputBytes,
+    historyTier: getTerminalHistoryTier(session),
+    replayLimitBytes: getTerminalReplayLimitBytes(session),
   }
 }
 
-function trimTerminalChunkToReplayLimit(data: string): { data: string; bytes: number } {
+function compactTerminalReplayToLimit(session: TerminalSession, now = Date.now()): void {
+  const replayLimitBytes = getTerminalReplayLimitBytes(session, now)
+  while (
+    session.outputBytes > replayLimitBytes
+    && session.outputChunks.length - session.outputChunkStart > 1
+  ) {
+    const removed = session.outputChunks[session.outputChunkStart]
+    const removedBytes = session.outputChunkBytes[session.outputChunkStart] ?? 0
+    session.outputChunkStart += 1
+    session.outputBytes -= removedBytes
+    session.outputLength -= removed?.length ?? 0
+  }
+
+  if (
+    session.outputBytes > replayLimitBytes
+    && session.outputChunks.length - session.outputChunkStart === 1
+  ) {
+    const index = session.outputChunkStart
+    const chunk = session.outputChunks[index] ?? ''
+    const trimmed = trimTerminalChunkToReplayLimit(chunk, replayLimitBytes)
+    session.outputChunks[index] = trimmed.data
+    session.outputChunkBytes[index] = trimmed.bytes
+    session.outputBytes = trimmed.bytes
+    session.outputLength = trimmed.data.length
+  }
+
+  if (
+    session.outputChunkStart >= TERMINAL_REPLAY_COMPACT_THRESHOLD
+    && session.outputChunkStart > session.outputChunks.length / 2
+  ) {
+    session.outputChunks.splice(0, session.outputChunkStart)
+    session.outputChunkBytes.splice(0, session.outputChunkStart)
+    session.outputChunkStart = 0
+  }
+}
+
+function trimTerminalChunkToReplayLimit(data: string, replayLimitBytes = TERMINAL_STANDARD_REPLAY_BYTES): { data: string; bytes: number } {
   const bytes = Buffer.byteLength(data)
-  if (bytes <= TERMINAL_REPLAY_BUFFER_LIMIT) return { data, bytes }
+  if (bytes <= replayLimitBytes) return { data, bytes }
 
   const trimmed = Buffer.from(data)
-    .subarray(bytes - TERMINAL_REPLAY_BUFFER_LIMIT)
+    .subarray(bytes - replayLimitBytes)
     .toString('utf8')
 
   return {

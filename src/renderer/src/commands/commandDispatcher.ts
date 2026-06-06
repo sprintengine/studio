@@ -1,3 +1,4 @@
+import { isCommandAvailable, type CommandAvailabilityContext } from './availability'
 import { COMMAND_REGISTRY, type CommandId } from './commandRegistry'
 import { parseKeybinding, type KeybindingPlatform, type KeybindingStroke } from './keybindings'
 import type { CommandDefinition, CommandScope } from './types'
@@ -17,6 +18,11 @@ export type CommandDispatcherContext = {
   activeScopes: readonly CommandScope[]
   disabledCommandIds?: ReadonlySet<string>
   keybindingOverrides?: Readonly<Record<string, readonly string[]>>
+  // Runtime preconditions (architect on roster, multiloop state loaded, voice
+  // dictation enabled, …). A keybinding only matches when its command's
+  // declared availability is satisfied, so the dispatcher refuses commands the
+  // command palette would hide instead of firing a silent no-op.
+  availability?: CommandAvailabilityContext
   isSuppressedTarget?: (target: EventTarget | null | undefined) => boolean
   platform: KeybindingPlatform
   now?: number
@@ -44,7 +50,11 @@ type ActiveBinding = {
 }
 
 type PendingChord = {
-  bindings: readonly ActiveBinding[]
+  // Only the first stroke is retained; the matching chord set is re-derived from
+  // the live context when the second stroke arrives, so a chord cannot complete
+  // a command that has since left scope, been disabled, lost its availability,
+  // or been rebound during the timeout window.
+  firstStroke: StrokeSignature
   startedAt: number
 }
 
@@ -164,6 +174,7 @@ function activeBindings(context: CommandDispatcherContext): ActiveBinding[] {
   COMMAND_REGISTRY.forEach((command, order) => {
     if (context.disabledCommandIds?.has(command.id)) return
     if (!commandIsActive(command, context.activeScopes)) return
+    if (!isCommandAvailable(command, context.availability ?? {})) return
     for (const keybinding of effectiveKeybindings(command, context.keybindingOverrides)) {
       const parsed = parseKeybinding(keybinding)
       if (!parsed.ok) continue
@@ -194,9 +205,17 @@ export class RendererCommandDispatcher {
     const eventStroke = eventSignature(event, context.platform)
 
     if (this.pending && now - this.pending.startedAt <= this.chordTimeoutMs) {
-      const match = this.pending.bindings.find((binding) => signaturesMatch(binding.strokes[1], eventStroke))
+      const firstStroke = this.pending.firstStroke
       this.pending = null
-      if (match && (!targetSuppressed || match.command.allowInEditableTarget === true)) {
+      // Revalidate against the current context: the chord completes only if a
+      // command is still active, enabled, available, and bound to this exact
+      // two-stroke sequence right now — not merely when the chord started.
+      const match = activeBindings(context)
+        .filter((binding) => !targetSuppressed || binding.command.allowInEditableTarget === true)
+        .filter((binding) => binding.strokes.length > 1)
+        .filter((binding) => signaturesMatch(binding.strokes[0], firstStroke))
+        .find((binding) => signaturesMatch(binding.strokes[1], eventStroke))
+      if (match) {
         return { kind: 'matched', commandId: match.command.id as CommandId, command: match.command, preventDefault: true }
       }
     } else {
@@ -209,7 +228,7 @@ export class RendererCommandDispatcher {
 
     const chordCandidates = candidates.filter((binding) => binding.strokes.length > 1)
     if (chordCandidates.length > 0) {
-      this.pending = { bindings: chordCandidates, startedAt: now }
+      this.pending = { firstStroke: eventStroke, startedAt: now }
       return { kind: 'pending', preventDefault: true }
     }
 

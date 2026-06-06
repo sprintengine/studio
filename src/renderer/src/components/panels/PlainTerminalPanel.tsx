@@ -5,13 +5,16 @@ import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createXtermOutputQueue } from '../../utils/xtermOutputQueue'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { deferFitDuringSidebarAnimation } from '../../utils/sidebarTransition'
 import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/terminalDrop'
+import { MONO_FONT_STACK } from '../../utils/fonts'
 import { Toast } from '../ui/Toast'
+import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../shared/terminal-history'
 
 interface Props {
   workspaceId: string
@@ -54,10 +57,10 @@ export default function PlainTerminalPanel({
     const sessionId = sessionIdRef.current
     const term = new Terminal({
       theme: getTerminalTheme(),
-      fontFamily: 'ui-monospace, "Cascadia Code", Consolas, monospace',
+      fontFamily: MONO_FONT_STACK,
       fontSize: 13,
       cursorBlink: true,
-      scrollback: 5000,
+      scrollback: TERMINAL_RECENT_SCROLLBACK_LINES,
     })
     const unbindTerminalTheme = bindTerminalTheme(term)
     const fitAddon = new FitAddon()
@@ -163,6 +166,17 @@ export default function PlainTerminalPanel({
     if (cwdOverride || !(savedFolderPath && !folderReadyPath)) {
       const terminalCwd = cwdOverride ?? folderReadyPath ?? undefined
       const sprintEngineStatePath = cwdOverride ? undefined : folderReadyPath ? sprintEngineContext?.statePath : undefined
+      void window.api.terminalStatus(sessionId).then((status) => {
+        logPerfEvent('PlainTerminalPanel', status.processAlive ? 'terminal-reattach-existing-session' : 'terminal-spawn-fresh', {
+          sessionId,
+          workspaceId,
+          terminalId,
+          kind: 'terminal',
+          processAlive: status.processAlive,
+          resumeRequested: false,
+          willSpawnFresh: !status.processAlive,
+        })
+      }).catch(() => {})
       void window.api.terminalSpawn(
         sessionId,
         term.cols,
@@ -238,6 +252,13 @@ export default function PlainTerminalPanel({
       term.dispose()
       if (killOnUnmount || shouldKillOnUnmount?.(sessionId)) {
         void window.api.terminalKill(sessionId).catch(() => {})
+      } else {
+        logPerfEvent('PlainTerminalPanel', 'terminal-detached-from-renderer', {
+          sessionId,
+          workspaceId,
+          terminalId,
+          kind: 'terminal',
+        })
       }
     }
   }, [cwdOverride, folderReadyPath, killOnUnmount, savedFolderPath, shouldKillOnUnmount, sprintEngineContext?.statePath, terminalId, workspaceId, workspaceName])

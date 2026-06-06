@@ -12,6 +12,8 @@ type RuntimeModule = typeof import('./terminal-runtime')
 type SyncMcpConfig = NonNullable<Parameters<typeof import('./terminal-runtime')['createTerminalRuntime']>[0]['syncMcpConfig']>
 type SyncInput = Parameters<SyncMcpConfig>[0]
 type SyncResult = Awaited<ReturnType<SyncMcpConfig>>
+type ReleaseManagedSprintEngineRun = NonNullable<Parameters<typeof import('./terminal-runtime')['createTerminalRuntime']>[0]['releaseManagedSprintEngineRun']>
+type ReleaseInput = Parameters<ReleaseManagedSprintEngineRun>[0]
 
 type SentEvent = {
   channel: string
@@ -108,7 +110,7 @@ async function main(): Promise<void> {
 async function assertSprintEngineSpawnReleasesUnusedRunWhenPtySpawnFails(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-release-'))
   const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
-  const releasedRuns: string[] = []
+  const releasedRuns: ReleaseInput[] = []
   mockPty.spawnCalls = []
   mockPty.spawnError = new Error('pty spawn failed')
   mockSender.sent = []
@@ -118,8 +120,8 @@ async function assertSprintEngineSpawnReleasesUnusedRunWhenPtySpawnFails(runtime
     requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true, managedSprintEngineRunId: 'registered-run-failed-spawn' }),
-    releaseManagedSprintEngineRun: async (runId) => {
-      releasedRuns.push(runId)
+    releaseManagedSprintEngineRun: async (input) => {
+      releasedRuns.push(input)
     },
   })
 
@@ -138,7 +140,12 @@ async function assertSprintEngineSpawnReleasesUnusedRunWhenPtySpawnFails(runtime
     })
 
     assert.equal(result.ok, false)
-    assert.deepEqual(releasedRuns, ['registered-run-failed-spawn'])
+    assert.deepEqual(releasedRuns, [{
+      runId: 'registered-run-failed-spawn',
+      workspaceRoot,
+      clients: ['codex', 'claude'],
+      cleanupMcpConfig: true,
+    }])
     assert.equal(mockPty.spawnCalls.length, 0)
   } finally {
     mockPty.spawnError = null
@@ -149,7 +156,7 @@ async function assertSprintEngineSpawnReleasesUnusedRunWhenPtySpawnFails(runtime
 async function assertSprintEngineRunCleanupWaitsForLastTerminal(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-shared-run-'))
   const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
-  const releasedRuns: string[] = []
+  const releasedRuns: ReleaseInput[] = []
   mockPty.spawnCalls = []
   mockSender.sent = []
 
@@ -162,8 +169,8 @@ async function assertSprintEngineRunCleanupWaitsForLastTerminal(runtimeModule: R
       managedSprintEngineRunId: 'shared-run-1',
       runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'shared-run-token' },
     }),
-    releaseManagedSprintEngineRun: async (runId) => {
-      releasedRuns.push(runId)
+    releaseManagedSprintEngineRun: async (input) => {
+      releasedRuns.push(input)
     },
   })
 
@@ -187,7 +194,12 @@ async function assertSprintEngineRunCleanupWaitsForLastTerminal(runtimeModule: R
     runtime.ipcHandlers.killTerminal('session_shared_a')
     assert.deepEqual(releasedRuns, [])
     runtime.ipcHandlers.killTerminal('session_shared_b')
-    assert.deepEqual(releasedRuns, ['shared-run-1'])
+    assert.deepEqual(releasedRuns, [{
+      runId: 'shared-run-1',
+      workspaceRoot,
+      clients: ['codex', 'claude'],
+      cleanupMcpConfig: true,
+    }])
   } finally {
     await runtime.shutdown()
   }
@@ -196,7 +208,7 @@ async function assertSprintEngineRunCleanupWaitsForLastTerminal(runtimeModule: R
 async function assertSprintEngineConcurrentSpawnFailureKeepsReservedRun(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-reserved-run-'))
   const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
-  const releasedRuns: string[] = []
+  const releasedRuns: ReleaseInput[] = []
   let secondSpawn: Promise<TerminalSpawnResult> | undefined
   mockPty.spawnCalls = []
   mockPty.spawnError = null
@@ -211,8 +223,8 @@ async function assertSprintEngineConcurrentSpawnFailureKeepsReservedRun(runtimeM
       managedSprintEngineRunId: 'reserved-shared-run',
       runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'reserved-run-token' },
     }),
-    releaseManagedSprintEngineRun: async (runId) => {
-      releasedRuns.push(runId)
+    releaseManagedSprintEngineRun: async (input) => {
+      releasedRuns.push(input)
     },
   })
 
@@ -252,7 +264,12 @@ async function assertSprintEngineConcurrentSpawnFailureKeepsReservedRun(runtimeM
     assert.deepEqual(releasedRuns, [], 'failed concurrent spawn must not release a run reserved by another launch')
 
     runtime.ipcHandlers.killTerminal('session_reserved_success')
-    assert.deepEqual(releasedRuns, ['reserved-shared-run'])
+    assert.deepEqual(releasedRuns, [{
+      runId: 'reserved-shared-run',
+      workspaceRoot,
+      clients: ['codex', 'claude'],
+      cleanupMcpConfig: true,
+    }])
   } finally {
     mockPty.spawnError = null
     mockPty.beforeSpawn = null
@@ -314,7 +331,7 @@ async function assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModul
   const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
   const order: string[] = []
   const syncInputs: SyncInput[] = []
-  const releasedRuns: string[] = []
+  const releasedRuns: ReleaseInput[] = []
   mockPty.spawnCalls = []
   mockSender.sent = []
 
@@ -331,8 +348,8 @@ async function assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModul
         runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'run-token-1' },
       }
     },
-    releaseManagedSprintEngineRun: async (runId) => {
-      releasedRuns.push(runId)
+    releaseManagedSprintEngineRun: async (input) => {
+      releasedRuns.push(input)
     },
   })
 
@@ -369,7 +386,12 @@ async function assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModul
     assert.equal(runtime.ipcHandlers.getTerminalStatus('session_success').processAlive, true)
     assert.deepEqual(releasedRuns, [])
     runtime.ipcHandlers.killTerminal('session_success')
-    assert.deepEqual(releasedRuns, ['registered-run-1'])
+    assert.deepEqual(releasedRuns, [{
+      runId: 'registered-run-1',
+      workspaceRoot,
+      clients: ['codex', 'claude'],
+      cleanupMcpConfig: true,
+    }])
   } finally {
     await runtime.shutdown()
   }

@@ -14,6 +14,7 @@ import {
   subscribeEditorBuffer,
 } from '../../utils/editorBuffers'
 import { removeFileTabsForPath } from '../../utils/modelRegistry'
+import { MONO_FONT_STACK } from '../../utils/fonts'
 import { IconButton, Tooltip } from '../ui'
 
 interface Props {
@@ -512,7 +513,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
               theme="vs-dark"
               options={{
                 fontSize: 13,
-                fontFamily: '"JetBrains Mono", "Cascadia Code", Consolas, ui-monospace, monospace',
+                fontFamily: MONO_FONT_STACK,
                 minimap: { enabled: false },
                 scrollBeyondLastLine: false,
                 renderLineHighlight: 'gutter',

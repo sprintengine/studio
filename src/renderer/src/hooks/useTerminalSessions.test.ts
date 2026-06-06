@@ -22,6 +22,7 @@ async function main(): Promise<void> {
   assertAgentTabRecencyFallbackChain()
   await assertStaleLaunchFlagsClearWithoutLosingRecency()
   await assertClaudeSessionIdentitySurvivesStartupReconciliation()
+  await assertClaudeCodeSessionIdentitySurvivesStartupReconciliation()
 }
 
 function assertProcessAliveHelpersUseLivenessOnly(): void {
@@ -274,6 +275,41 @@ async function assertClaudeSessionIdentitySurvivesStartupReconciliation(): Promi
   assert.equal(agent.cliStartRequested, true)
   assert.equal(agent.cliHasLaunched, true)
   assert.equal(agent.cliSessionId, 'claude_original_session')
+  assert.equal(agent.cliResumeAvailable, true)
+
+  useWorkspaceStore.setState({
+    workspaces: previousState.workspaces,
+    activeWorkspaceId: previousState.activeWorkspaceId,
+  })
+}
+
+async function assertClaudeCodeSessionIdentitySurvivesStartupReconciliation(): Promise<void> {
+  installTestLocalStorage()
+  const { useWorkspaceStore } = await import('../store/workspaceStore')
+  const previousState = useWorkspaceStore.getState()
+  useWorkspaceStore.setState({
+    workspaces: [
+      {
+        id: 'workspace_1',
+        agents: {
+          'developer-claude-code': {
+            cli: 'claude-code',
+            cliStartRequested: true,
+            cliHasLaunched: true,
+            cliSessionId: 'claude_code_original_session',
+            cliResumeAvailable: true,
+          },
+        },
+      },
+    ],
+  } as never)
+
+  useWorkspaceStore.getState().reconcileWorkspaceAgentLaunchFlags([])
+
+  const agent = useWorkspaceStore.getState().workspaces[0].agents['developer-claude-code']
+  assert.equal(agent.cliStartRequested, true)
+  assert.equal(agent.cliHasLaunched, true)
+  assert.equal(agent.cliSessionId, 'claude_code_original_session')
   assert.equal(agent.cliResumeAvailable, true)
 
   useWorkspaceStore.setState({

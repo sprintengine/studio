@@ -1,13 +1,12 @@
 // ProviderSettingsTab — Settings -> Providers. Lists installed conversation
-// provider plugins (model providers and agent harnesses), shows auth status,
-// supports per-provider API key set/clear through the secret IPC, and runs a
-// credential readiness check. This surface is deliberately separate from
-// Settings -> Agents (the installed CLI override table backed by the plugin
-// catalog) so raw model providers never read as launchable terminal CLIs.
+// provider plugins and lets you set or remove each provider's API key. This
+// surface is deliberately separate from Settings -> Agents (the installed CLI
+// override table) so model providers never read as launchable terminal CLIs.
 //
 // Secrets are write-only from the renderer: the saved raw value is never read
-// back, and the password field is cleared after a successful save. Pure state
-// derivation lives in `providerSettings.ts`.
+// back. A configured provider shows a masked placeholder and a Remove control;
+// an unconfigured one shows an input and Save. Pure state derivation lives in
+// `providerSettings.ts`.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -15,21 +14,14 @@ import type {
   ConversationProviderListResult,
   ConversationSecretStatusResult,
 } from '../../../../shared/electron-api'
-import { Field, GhostButton, PrimaryButton, StatusDot } from '../ui'
+import { GhostButton, PrimaryButton } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import {
   type ConversationProviderListEntry,
-  type ProviderReadiness,
   type ProviderSecretView,
   canClearProviderSecret,
-  deriveProviderReadiness,
   deriveProviderSecretView,
   deriveProviderTabState,
-  formatProviderModels,
-  formatProviderSource,
-  formatProviderType,
-  summarizeProviderAdapter,
-  summarizeProviderSecret,
 } from './providerSettings'
 
 const INPUT_CLASS =
@@ -60,7 +52,7 @@ function Note({ tone, children }: { tone: NoteTone; children: React.ReactNode })
 }
 
 type ProviderMessage = { tone: NoteTone; text: string } | undefined
-type PendingKind = 'saving' | 'clearing' | 'checking'
+type PendingKind = 'saving' | 'clearing'
 
 function errText(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback
@@ -75,7 +67,6 @@ export function ProviderSettingsTab() {
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [pending, setPending] = useState<Record<string, PendingKind | undefined>>({})
   const [messages, setMessages] = useState<Record<string, ProviderMessage>>({})
-  const [readiness, setReadiness] = useState<Record<string, ProviderReadiness | undefined>>({})
 
   const tabState = useMemo(
     () => deriveProviderTabState(listResult, ipcAvailable),
@@ -117,9 +108,7 @@ export function ProviderSettingsTab() {
   }, [loadProviders])
 
   const applyStatusResult = useCallback((providerId: string, result: ConversationSecretStatusResult) => {
-    const view = deriveProviderSecretView(result)
-    setSecretViews((current) => ({ ...current, [providerId]: view }))
-    return view
+    setSecretViews((current) => ({ ...current, [providerId]: deriveProviderSecretView(result) }))
   }, [])
 
   const saveKey = useCallback(
@@ -136,8 +125,6 @@ export function ProviderSettingsTab() {
         if (result.ok) {
           applyStatusResult(provider.id, result)
           setDrafts((current) => ({ ...current, [provider.id]: '' }))
-          // Readiness reflected the old key; drop it so a stale verdict can't linger.
-          setReadiness((current) => ({ ...current, [provider.id]: undefined }))
           setMessage(provider.id, { tone: 'accent', text: 'API key saved.' })
         } else {
           setMessage(provider.id, { tone: 'error', text: result.message })
@@ -154,9 +141,9 @@ export function ProviderSettingsTab() {
   const clearKey = useCallback(
     async (provider: ConversationProviderListEntry) => {
       const confirmed = await dialog.confirm({
-        title: `Clear ${provider.displayName} API key?`,
+        title: `Remove ${provider.displayName} API key?`,
         body: 'The stored key is removed from this device. You can add it again at any time.',
-        confirmLabel: 'Clear key',
+        confirmLabel: 'Remove key',
       })
       if (!confirmed) return
       setPending((current) => ({ ...current, [provider.id]: 'clearing' }))
@@ -165,13 +152,12 @@ export function ProviderSettingsTab() {
         const result = await window.api.conversationSecretClear({ providerId: provider.id })
         if (result.ok) {
           applyStatusResult(provider.id, result)
-          setReadiness((current) => ({ ...current, [provider.id]: undefined }))
-          setMessage(provider.id, { tone: 'neutral', text: 'API key cleared.' })
+          setMessage(provider.id, { tone: 'neutral', text: 'API key removed.' })
         } else {
           setMessage(provider.id, { tone: 'error', text: result.message })
         }
       } catch (err) {
-        setMessage(provider.id, { tone: 'error', text: errText(err, 'Could not clear the API key.') })
+        setMessage(provider.id, { tone: 'error', text: errText(err, 'Could not remove the API key.') })
       } finally {
         setPending((current) => ({ ...current, [provider.id]: undefined }))
       }
@@ -179,37 +165,16 @@ export function ProviderSettingsTab() {
     [applyStatusResult, dialog, setMessage]
   )
 
-  const checkKeyStatus = useCallback(
-    async (provider: ConversationProviderListEntry) => {
-      setPending((current) => ({ ...current, [provider.id]: 'checking' }))
-      setMessage(provider.id, undefined)
-      try {
-        const result = await window.api.conversationSecretStatus({ providerId: provider.id })
-        const view = applyStatusResult(provider.id, result)
-        setReadiness((current) => ({ ...current, [provider.id]: deriveProviderReadiness(view) }))
-      } catch (err) {
-        setReadiness((current) => ({
-          ...current,
-          [provider.id]: { tone: 'error', headline: 'Status unavailable', detail: errText(err, 'Provider status check failed.') },
-        }))
-      } finally {
-        setPending((current) => ({ ...current, [provider.id]: undefined }))
-      }
-    },
-    [applyStatusResult, setMessage]
-  )
-
   return (
     <div
       role="tabpanel"
       id="settings-panel-providers"
       aria-labelledby="settings-tab-providers"
-      className="space-y-4"
+      className="space-y-5"
     >
       <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-        Conversation providers are model APIs and agent harnesses used by standard workspace agents.
-        API keys are stored by the app and never shown again after saving. This is separate from the
-        Agents tab, which configures installed terminal CLIs.
+        Add an API key to use a model provider in standard workspace agents. Keys are stored on this
+        device and never shown again after saving.
       </p>
 
       {tabState.kind === 'unavailable' ? <Note tone="neutral">{tabState.message}</Note> : null}
@@ -244,13 +209,11 @@ export function ProviderSettingsTab() {
               draft={drafts[provider.id] ?? ''}
               pending={pending[provider.id]}
               message={messages[provider.id]}
-              readiness={readiness[provider.id]}
               onDraftChange={(value) =>
                 setDrafts((current) => ({ ...current, [provider.id]: value }))
               }
               onSave={() => void saveKey(provider)}
               onClear={() => void clearKey(provider)}
-              onCheckStatus={() => void checkKeyStatus(provider)}
             />
           ))
         : null}
@@ -264,131 +227,99 @@ function ProviderRow({
   draft,
   pending,
   message,
-  readiness,
   onDraftChange,
   onSave,
   onClear,
-  onCheckStatus,
 }: {
   provider: ConversationProviderListEntry
   secretView: ProviderSecretView | undefined
   draft: string
   pending: PendingKind | undefined
   message: ProviderMessage
-  readiness: ProviderReadiness | undefined
   onDraftChange: (value: string) => void
   onSave: () => void
   onClear: () => void
-  onCheckStatus: () => void
 }) {
   const headingId = `provider-${provider.id}-heading`
-  const summary = summarizeProviderSecret(secretView)
-  const adapterSummary = summarizeProviderAdapter(provider)
-  const needsKey = secretView?.kind !== 'none-required'
-  const showInput = needsKey && secretView?.kind !== 'error'
-  const canClear = canClearProviderSecret(secretView)
+  const inputId = `provider-key-${provider.id}`
   const busy = pending !== undefined
+  const configured = secretView?.kind === 'configured'
+  const canClear = canClearProviderSecret(secretView)
 
   return (
     <section
       aria-labelledby={headingId}
-      className="space-y-3 border-t border-[color:var(--border-subtle)] pt-4 first:border-t-0 first:pt-0"
+      className="space-y-2 border-t border-[color:var(--border-subtle)] pt-5 first:border-t-0 first:pt-0"
     >
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <div className="flex min-w-0 items-center gap-2">
-          <span id={headingId} className="text-[13px] font-medium text-[color:var(--text-strong)]">
-            {provider.displayName}
-          </span>
-          <span className="text-[11px] text-[color:var(--text-muted)]">
-            {formatProviderType(provider.providerType)} · {formatProviderSource(provider.source)}
-          </span>
-        </div>
-        {/* One status dot per row: the at-rest summary yields to a fresh
-            readiness verdict (shown below) so the same credential fact is never
-            expressed by two dots that could disagree in tone or wording. */}
-        {readiness ? null : (
-          <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
-            <StatusDot tone={summary.tone} />
-            <span className="text-[color:var(--text-default)]">{summary.label}</span>
-          </span>
-        )}
-      </div>
+      <h3 id={headingId} className="text-[13px] font-medium text-[color:var(--text-strong)]">
+        {provider.displayName}
+      </h3>
 
-      <p className="text-[11px] leading-5 text-[color:var(--text-muted)]">
-        Models: <span className="text-[color:var(--text-default)]">{formatProviderModels(provider.models)}</span>
-      </p>
-
-      <div className="flex items-start gap-1.5 text-[12px] leading-5">
-        <StatusDot tone={adapterSummary.tone} className="mt-1" />
-        <span className="text-[color:var(--text-muted)]">
-          <span className="font-medium text-[color:var(--text-default)]">{adapterSummary.label}</span>
-          {adapterSummary.detail ? `: ${adapterSummary.detail}` : null}
-        </span>
-      </div>
-
-      {secretView?.kind === 'none-required' ? (
+      {secretView?.kind === 'error' ? (
+        <Note tone="error">{secretView.message}</Note>
+      ) : secretView?.kind === 'none-required' ? (
         <Note tone="neutral">This provider authenticates without a stored API key.</Note>
-      ) : null}
-
-      {secretView?.kind === 'error' ? <Note tone="error">{secretView.message}</Note> : null}
-
-      {showInput ? (
-        <Field label="API key" htmlFor={`provider-key-${provider.id}`}>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <input
-              id={`provider-key-${provider.id}`}
-              type="password"
-              value={draft}
-              onChange={(event) => onDraftChange(event.target.value)}
-              placeholder={secretView?.kind === 'configured' ? 'Key saved' : 'Paste API key'}
-              autoComplete="off"
-              aria-label={`${provider.displayName} API key`}
-              disabled={busy}
-              className={`${INPUT_CLASS} min-w-0 flex-1`}
-            />
-            <div className="flex gap-2">
-              <PrimaryButton size="md" onClick={onSave} disabled={busy || !draft.trim()} className="h-9">
-                {pending === 'saving' ? 'Saving…' : 'Save'}
-              </PrimaryButton>
+      ) : configured ? (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <div className={`${INPUT_CLASS} flex items-center tracking-[0.3em] text-[color:var(--text-muted)]`}>
+              <span className="sr-only">{provider.displayName} API key is saved</span>
+              <span aria-hidden="true">••••••••••••</span>
+            </div>
+            {canClear ? (
               <GhostButton
                 size="md"
                 onClick={onClear}
-                disabled={busy || !canClear}
-                className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                disabled={busy}
+                className="h-9 shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
               >
-                {pending === 'clearing' ? 'Clearing…' : 'Clear'}
+                {pending === 'clearing' ? 'Removing…' : 'Remove'}
               </GhostButton>
-            </div>
+            ) : null}
           </div>
-        </Field>
-      ) : null}
+          {!canClear ? (
+            <p className="text-[11px] leading-5 text-[color:var(--text-subtle)]">
+              Set from your environment. Remove it there to change it.
+            </p>
+          ) : secretView.persistence === 'session' ? (
+            <p className="text-[11px] leading-5 text-[color:var(--tone-warn)]">
+              Stored for this session only — clears when the app quits.
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <label htmlFor={inputId} className="sr-only">
+            {provider.displayName} API key
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              id={inputId}
+              type="password"
+              value={draft}
+              onChange={(event) => onDraftChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && draft.trim() && !busy) onSave()
+              }}
+              placeholder="Paste API key"
+              autoComplete="off"
+              disabled={busy}
+              className={`${INPUT_CLASS} min-w-0 flex-1`}
+            />
+            <PrimaryButton
+              size="md"
+              onClick={onSave}
+              disabled={busy || !draft.trim()}
+              className="h-9 shrink-0"
+            >
+              {pending === 'saving' ? 'Saving…' : 'Save'}
+            </PrimaryButton>
+          </div>
+        </div>
+      )}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <GhostButton
-          size="md"
-          onClick={onCheckStatus}
-          disabled={busy}
-          className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-        >
-          {pending === 'checking' ? 'Checking…' : 'Check key status'}
-        </GhostButton>
-        <span className="text-[11px] leading-5 text-[color:var(--text-subtle)]">
-          Re-checks stored credentials. Live endpoint testing ships with the provider runtime.
-        </span>
-      </div>
-
-      <div aria-live="polite" className="space-y-2 empty:hidden">
+      <div aria-live="polite" className="empty:hidden">
         {message ? <Note tone={message.tone}>{message.text}</Note> : null}
-        {readiness ? (
-          <div className="flex items-start gap-1.5 text-[12px] leading-5">
-            <StatusDot tone={readiness.tone} className="mt-1" />
-            <span className="text-[color:var(--text-muted)]">
-              <span className="font-medium text-[color:var(--text-default)]">{readiness.headline}</span>
-              {' — '}
-              {readiness.detail}
-            </span>
-          </div>
-        ) : null}
       </div>
     </section>
   )

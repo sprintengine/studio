@@ -305,6 +305,13 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
   }
 
   useEffect(() => {
+    logPerfEvent('WorkspaceLayout', 'workspace-layout-mounted', { workspaceId })
+    return () => {
+      logPerfEvent('WorkspaceLayout', 'workspace-layout-unmounted', { workspaceId })
+    }
+  }, [workspaceId])
+
+  useEffect(() => {
     if (modelRef.current) registerModel(workspaceId, modelRef.current)
     return () => unregisterModel(workspaceId)
   }, [workspaceId])

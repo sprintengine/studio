@@ -298,6 +298,7 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
         version: p.manifest.version,
         providerType: p.manifest.providerType,
         models: p.manifest.models,
+        supportsDynamicModels: Boolean(p.manifest.openaiCompatible?.modelsPath),
         adapter: p.adapter,
       }))
     },
@@ -524,6 +525,7 @@ export function providerManifestToListEntry(
     version: provider.manifest.version,
     providerType: provider.manifest.providerType,
     models: provider.manifest.models,
+    supportsDynamicModels: Boolean(provider.manifest.openaiCompatible?.modelsPath),
     adapter: provider.adapter,
   }
 }

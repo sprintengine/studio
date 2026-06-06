@@ -23,10 +23,16 @@ export type MockAdapterSessionInput = {
   modelId: string
 }
 
+export type ConversationMessage = { role: 'system' | 'user' | 'assistant'; content: string }
+
 export type MockAdapterTurnInput = MockAdapterSessionInput & {
   turnId: string
   requestId: string
   message: string
+  // Full chat history including the current user turn, in send order. Providers
+  // that support multi-turn context send this; absent for legacy/mock callers,
+  // who fall back to the single `message`.
+  messages?: ConversationMessage[]
   signal?: AbortSignal
 }
 

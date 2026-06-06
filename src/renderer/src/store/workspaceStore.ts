@@ -26,6 +26,7 @@ import type {
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
   AgentCli,
+  AgentConversationRuntime,
   AppSettings,
   UsageTelemetrySettings,
   VoiceDictationSettings,
@@ -180,6 +181,7 @@ export interface WorkspaceStore extends PluginsSlice {
   upsertSkillPack: (pack: SkillPackEntry) => void
   removeSkillPack: (id: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
+  setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   setLastSelectedMultiloopRole: (role: MultiloopRole) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void

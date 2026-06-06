@@ -18,6 +18,7 @@ import { getConversationProviderById } from './plugin-registry-instance'
 import { ProviderSecretStore } from './secret-store'
 import {
   createMockConversationProvider,
+  type ConversationMessage,
   type ConversationProviderAdapter,
   type ConversationProviderEventStream,
 } from './providers/mock-conversation-provider'
@@ -29,6 +30,9 @@ type RuntimeSession = ConversationSessionSummary & {
   pendingRequestId: string | null
   activeTurnAbort: AbortController | null
   canceledTurnIds: Set<string>
+  // Completed turns only, in send order, so each new turn carries prior context.
+  // A failed/interrupted turn is not recorded, so a retry re-sends cleanly.
+  history: ConversationMessage[]
 }
 
 type ConversationRuntimeOptions = {
@@ -104,6 +108,7 @@ export class ConversationRuntime {
       pendingRequestId: null,
       activeTurnAbort: null,
       canceledTurnIds: new Set(),
+      history: [],
     }
     this.sessions.set(sessionId, session)
 
@@ -132,9 +137,11 @@ export class ConversationRuntime {
     session.activeTurnAbort = turnAbort
     session.status = 'active'
     session.updatedAt = this.now()
+    // The model sees prior completed turns plus this message, so it has memory.
+    const messages: ConversationMessage[] = [...session.history, { role: 'user', content: message }]
     const events = await this.emitAll(
       session,
-      adapter.sendTurn({ ...session, turnId, requestId, message, signal: turnAbort.signal }),
+      adapter.sendTurn({ ...session, turnId, requestId, message, messages, signal: turnAbort.signal }),
       { turnId }
     )
     const currentSession = this.sessions.get(input.sessionId)
@@ -146,6 +153,20 @@ export class ConversationRuntime {
     ) {
       this.applyTurnState(currentSession, events, requestId)
       currentSession.activeTurnAbort = null
+      // Record only a cleanly completed turn (no failure) into history, so a
+      // failed turn leaves history untouched and a retry re-sends without
+      // duplicating the user message.
+      const completed =
+        events.some((event) => event.type === 'turn_completed')
+        && !events.some((event) => event.type === 'turn_failed')
+      if (completed) {
+        currentSession.history.push({ role: 'user', content: message })
+        const assistantText = events
+          .filter((event) => event.type === 'content_delta')
+          .map((event) => (typeof event.payload?.text === 'string' ? event.payload.text : ''))
+          .join('')
+        if (assistantText) currentSession.history.push({ role: 'assistant', content: assistantText })
+      }
     }
     return { ok: true, session: this.toSummary(currentSession ?? session) }
   }
@@ -249,8 +270,16 @@ export class ConversationRuntime {
       }
     }
 
-    const models = registryProvider?.manifest.models.map((model) => model.id) ?? adapter?.listModels() ?? []
-    if (!models.includes(input.modelId.trim())) return { ok: false, message: 'Conversation model is invalid.' }
+    // Providers with a live catalog (e.g. OpenRouter) accept any model id from
+    // their `/models` endpoint, which is not in the static seed list — so only
+    // enforce seed membership for static-only providers. A truly invalid model is
+    // surfaced by the provider as a `turn_failed` model error at call time.
+    const supportsDynamicModels = Boolean(registryProvider?.manifest.openaiCompatible?.modelsPath)
+    if (!input.modelId.trim()) return { ok: false, message: 'Conversation model is invalid.' }
+    if (!supportsDynamicModels) {
+      const models = registryProvider?.manifest.models.map((model) => model.id) ?? adapter?.listModels() ?? []
+      if (!models.includes(input.modelId.trim())) return { ok: false, message: 'Conversation model is invalid.' }
+    }
 
     if (registryProvider?.manifest.auth) {
       const secretStatus = await this.secretStore.getStatus(providerId)

@@ -2,6 +2,8 @@ import type { IpcMain } from 'electron'
 
 import type {
   ConversationProviderListResult,
+  ConversationProviderModelsInput,
+  ConversationProviderModelsResult,
   ConversationSecretClearInput,
   ConversationSecretClearResult,
   ConversationSecretSetInput,
@@ -25,11 +27,12 @@ import type {
 } from '../../shared/conversation-runtime'
 import { ConversationRuntime } from '../conversation-runtime'
 import { getConversationProviderById, listConversationProviderRegistryEntries } from '../plugin-registry-instance'
-import { testOpenAiCompatibleConnection } from '../providers/openai-compatible-provider'
+import { listOpenAiCompatibleModels, testOpenAiCompatibleConnection } from '../providers/openai-compatible-provider'
 import { ProviderSecretStore } from '../secret-store'
 
 export type ConversationIpcHandlers = {
   listProviders(): ConversationProviderListResult
+  listProviderModels(input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult>
   testProvider(input: ConversationProviderTestInput): Promise<ConversationProviderTestResult>
   getSecretStatus(input: ConversationSecretStatusInput): Promise<ConversationSecretStatusResult>
   setSecret(input: ConversationSecretSetInput): Promise<ConversationSecretSetResult>
@@ -53,6 +56,13 @@ export function createConversationIpcHandlers(): ConversationIpcHandlers {
       } catch (err) {
         return { ok: false, message: formatError(err) }
       }
+    },
+    listProviderModels(input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult> {
+      return listOpenAiCompatibleModels({
+        providerId: input.providerId,
+        getProviderById: getConversationProviderById,
+        resolveSecret: (providerId) => secretStore.resolveSecret(providerId),
+      })
     },
     getSecretStatus(input: ConversationSecretStatusInput): Promise<ConversationSecretStatusResult> {
       return secretStore.getStatus(input.providerId)
@@ -108,6 +118,16 @@ export function registerConversationIpc(
   ipcMain.handle('conversation:providers:list', async (): Promise<ConversationProviderListResult> => {
     try {
       return handlers.listProviders()
+    } catch (err) {
+      return { ok: false, message: formatError(err) }
+    }
+  })
+
+  ipcMain.handle('conversation:providers:models', async (_, input: unknown): Promise<ConversationProviderModelsResult> => {
+    const parsed = parseProviderInput(input)
+    if (!parsed.ok) return parsed
+    try {
+      return await handlers.listProviderModels(parsed.input)
     } catch (err) {
       return { ok: false, message: formatError(err) }
     }

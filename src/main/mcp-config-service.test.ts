@@ -243,8 +243,28 @@ async function main(): Promise<void> {
 
   const siblingRoot = join(temp, 'sibling-workspace')
   await mkdir(join(siblingRoot, '.multi-code', 'sprintengine', 'managed'), { recursive: true })
+  await mkdir(join(siblingRoot, '.codex'), { recursive: true })
   const managedStatePath = join(siblingRoot, '.multi-code', 'sprintengine', 'managed', 'run.yaml')
   await writeFile(managedStatePath, 'sprintengine:\n  name: managed\n  status: active\n', 'utf-8')
+  await writeFile(
+    join(siblingRoot, '.codex', 'config.toml'),
+    [
+      '[mcp_servers.unmanaged]',
+      'url = "https://example.com/mcp"',
+      'enabled = true',
+      '',
+    ].join('\n'),
+    'utf-8'
+  )
+  await writeFile(
+    join(siblingRoot, '.mcp.json'),
+    JSON.stringify({
+      mcpServers: {
+        unmanaged: { type: 'http', url: 'https://example.com/mcp' },
+      },
+    }, null, 2),
+    'utf-8'
+  )
   const userPluginRoot = join(temp, 'user-plugins')
   const pluginRoot = join(userPluginRoot, 'writer-plugin')
   const soulsRoot = join(pluginRoot, 'sprintengine-souls')
@@ -275,7 +295,22 @@ async function main(): Promise<void> {
     userDataDir: () => join(temp, 'managed-user-data'),
     runtimeRoot: () => process.cwd(),
   })
-  const managedSettings: McpSettings = { syncEnabled: false, servers: {} }
+  const managedSettings: McpSettings = {
+    syncEnabled: true,
+    servers: {
+      'managed-helper': {
+        id: 'managed-helper',
+        name: 'Managed Helper',
+        transport: 'http',
+        url: 'https://helper.example.com/mcp',
+        enabled: true,
+        clients: ['codex', 'claude'],
+        scope: 'workspace',
+        source: 'custom',
+        riskLevel: 'low',
+      },
+    },
+  }
   const managedHttpResult = managedService.sync({
     workspaceRoot: siblingRoot,
     settings: managedSettings,
@@ -291,9 +326,12 @@ async function main(): Promise<void> {
   })
   assert.equal(managedHttpResult.ok, true)
   const managedHttpCodexConfig = await readFile(join(siblingRoot, '.codex', 'config.toml'), 'utf-8')
+  assert.match(managedHttpCodexConfig, /\[mcp_servers\.unmanaged\]/)
+  assert.match(managedHttpCodexConfig, /\[mcp_servers\.managed-helper\]/)
   assert.match(managedHttpCodexConfig, new RegExp(`\\[mcp_servers\\.${MANAGED_SPRINTENGINE_MCP_SERVER_ID}\\]`))
   assert.match(managedHttpCodexConfig, /url = "http:\/\/127\.0\.0\.1:49152\/mcp"/)
   assert.match(managedHttpCodexConfig, new RegExp(`bearer_token_env_var = "${MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR}"`))
+  assert.doesNotMatch(managedHttpCodexConfig, /required = true/)
   assert.doesNotMatch(managedHttpCodexConfig, /Authorization/)
   assert.doesNotMatch(managedHttpCodexConfig, /X-Multicode-Session-Id/)
   assert.doesNotMatch(managedHttpCodexConfig, /env_http_headers/)
@@ -311,11 +349,36 @@ async function main(): Promise<void> {
       Authorization: `Bearer \${${MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR}}`,
     },
   })
+  assert.deepEqual(managedHttpClaudeConfig.mcpServers.unmanaged, {
+    type: 'http',
+    url: 'https://example.com/mcp',
+  })
+  assert.deepEqual(managedHttpClaudeConfig.mcpServers['managed-helper'], {
+    type: 'http',
+    url: 'https://helper.example.com/mcp',
+  })
   const managedHttpClaudeRaw = await readFile(join(siblingRoot, '.mcp.json'), 'utf-8')
   assert.doesNotMatch(managedHttpClaudeRaw, /multicode-sprintengine-mcp/)
   assert.doesNotMatch(managedHttpClaudeRaw, /--state-path/)
   assert.doesNotMatch(managedHttpClaudeRaw, /SPRINTENGINE_STATE_PATH/)
   assert.doesNotMatch(managedHttpClaudeRaw, /session-a/)
+
+  const cleanupResult = managedService.removeManagedSprintEngine({
+    workspaceRoot: siblingRoot,
+    clients: ['codex', 'claude'],
+  })
+  assert.equal(cleanupResult.ok, true)
+  const cleanedCodexConfig = await readFile(join(siblingRoot, '.codex', 'config.toml'), 'utf-8')
+  assert.match(cleanedCodexConfig, /\[mcp_servers\.unmanaged\]/)
+  assert.match(cleanedCodexConfig, /\[mcp_servers\.managed-helper\]/)
+  assert.doesNotMatch(cleanedCodexConfig, new RegExp(MANAGED_SPRINTENGINE_MCP_SERVER_ID))
+  const cleanedClaudeConfig = JSON.parse(await readFile(join(siblingRoot, '.mcp.json'), 'utf-8')) as {
+    mcpServers: Record<string, unknown>
+  }
+  assert.deepEqual(cleanedClaudeConfig.mcpServers, {
+    unmanaged: { type: 'http', url: 'https://example.com/mcp' },
+    'managed-helper': { type: 'http', url: 'https://helper.example.com/mcp' },
+  })
 
   const managedResult = managedService.sync({
     workspaceRoot: siblingRoot,

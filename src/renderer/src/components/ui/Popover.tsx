@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useId, useRef } from 'react'
 
-export type PopoverPlacement = 'bottom-start' | 'bottom-end'
+export type PopoverPlacement = 'bottom-start' | 'bottom-end' | 'top-start' | 'top-end'
 
 type PopoverRenderTriggerArgs = {
   ref: { current: HTMLButtonElement | null }
@@ -31,9 +31,13 @@ type PopoverProps = {
   onOpenAutoFocus?: (surface: HTMLElement) => void
 }
 
+// Includes the off-axis margin so top placements gap above the trigger (mb-1)
+// and bottom placements gap below it (mt-1).
 const PLACEMENT_CLASS: Record<PopoverPlacement, string> = {
-  'bottom-start': 'left-0 top-full',
-  'bottom-end': 'right-0 top-full',
+  'bottom-start': 'left-0 top-full mt-1',
+  'bottom-end': 'right-0 top-full mt-1',
+  'top-start': 'left-0 bottom-full mb-1',
+  'top-end': 'right-0 bottom-full mb-1',
 }
 
 const openPopoverStack: string[] = []
@@ -143,7 +147,7 @@ export function Popover({
           aria-label={ariaLabel}
           className={[
             // design-tokens-allow: canonical popover elevation shared by anchored app-shell surfaces
-            'popover-enter absolute z-30 mt-1 rounded-[7px] border border-[color:var(--border-strong)]',
+            'popover-enter absolute z-30 rounded-[7px] border border-[color:var(--border-strong)]',
             'bg-[color:var(--bg-surface-raised)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]',
             PLACEMENT_CLASS[placement],
             surfaceClassName ?? '',

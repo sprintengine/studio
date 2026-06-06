@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { isStoredAgentCliUnavailable, resolveAgentRuntimeKind } from './AgentPanel'
+import { conversationAgentRuntimePatch } from '../workspace/conversationSpawnOptions'
 import type { AgentState, PluginCatalogEntry } from '../../types/workspace'
 
 const installedPlugins: PluginCatalogEntry[] = [
@@ -71,6 +72,32 @@ assert.equal(
   resolveAgentRuntimeKind(conversationAgent, { isSprintEngineAgent: false, workspaceMode: 'multiloop' }),
   'terminal',
   'Multiloop workspaces stay terminal/MCP-owned',
+)
+
+// End-to-end spawn contract: the exact payload the spawn action writes must
+// route to the conversation runtime in a standard workspace, and must still be
+// forced back to terminal inside Sprint Engine / Multiloop workspaces.
+const spawnedConversationAgent = conversationAgentRuntimePatch('openai-compatible', 'gpt-4o') as Pick<
+  AgentState,
+  'runtimeKind' | 'conversation' | 'kind'
+>
+
+assert.equal(
+  resolveAgentRuntimeKind(spawnedConversationAgent, { isSprintEngineAgent: false, workspaceMode: 'standard' }),
+  'conversation',
+  'a spawned conversation agent routes to AgentChatView in a standard workspace',
+)
+
+assert.equal(
+  resolveAgentRuntimeKind(spawnedConversationAgent, { isSprintEngineAgent: false, workspaceMode: 'sprintengine' }),
+  'terminal',
+  'the same spawned payload stays terminal in a Sprint Engine workspace',
+)
+
+assert.equal(
+  resolveAgentRuntimeKind(spawnedConversationAgent, { isSprintEngineAgent: false, workspaceMode: 'multiloop' }),
+  'terminal',
+  'the same spawned payload stays terminal in a Multiloop workspace',
 )
 
 console.log('AgentPanel.test.ts: ok')

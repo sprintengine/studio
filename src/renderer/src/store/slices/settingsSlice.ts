@@ -9,6 +9,7 @@ import type {
   McpSettings,
   MultiloopRole,
   SprintEngineRoleId,
+  AgentConversationRuntime,
   SprintEngineRoleSettings,
   SkillPackEntry,
   SkillPackHarness,
@@ -430,6 +431,19 @@ export function normalizeSelectedCli(input: AgentCli | null | undefined, fallbac
   return fallback
 }
 
+// Persisted last-used conversation provider/model. Keeps only a well-formed
+// non-empty pair; anything else (legacy absence, partial blob) resets to null so
+// spawn falls back to the first available option.
+export function normalizeConversationModel(
+  input: AgentConversationRuntime | null | undefined,
+): AgentConversationRuntime | null {
+  if (!input || typeof input !== 'object') return null
+  const providerId = typeof input.providerId === 'string' ? input.providerId.trim() : ''
+  const modelId = typeof input.modelId === 'string' ? input.modelId.trim() : ''
+  if (!providerId || !modelId) return null
+  return { providerId, modelId }
+}
+
 // Persisted specialist menu order. Keeps only known ids and drops duplicates;
 // missing ids are resolved against the canonical roster at render time, so an
 // incomplete or stale list is safe to store.
@@ -489,6 +503,7 @@ export const defaultAppSettings = (): AppSettings => ({
   mcp: defaultMcpSettings(),
   skillPacks: defaultSkillPackSettings(),
   lastSelectedCli: 'claude',
+  lastSelectedConversationModel: null,
   lastSelectedSpecialist: 'architect',
   lastSelectedMultiloopRole: 'coordinator',
   lastAgentSpawnPermissionPreset: 'default',
@@ -520,6 +535,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     mcp: normalizeMcpSettings(settings?.mcp),
     skillPacks: normalizeSkillPackSettings(settings?.skillPacks),
     lastSelectedCli: normalizeSelectedCli(settings?.lastSelectedCli, defaults.lastSelectedCli),
+    lastSelectedConversationModel: normalizeConversationModel(settings?.lastSelectedConversationModel),
     lastSelectedSpecialist: settings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
     lastSelectedMultiloopRole: settings?.lastSelectedMultiloopRole ?? defaults.lastSelectedMultiloopRole,
     lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
@@ -573,6 +589,7 @@ export interface SettingsSliceActions {
   upsertSkillPack: (pack: SkillPackEntry) => void
   removeSkillPack: (id: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
+  setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   setLastSelectedMultiloopRole: (role: MultiloopRole) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
@@ -722,6 +739,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setLastSelectedCli: (cli) =>
       set((state) => {
         state.appSettings.lastSelectedCli = cli
+      }),
+
+    setLastSelectedConversationModel: (selection) =>
+      set((state) => {
+        state.appSettings.lastSelectedConversationModel = normalizeConversationModel(selection)
       }),
 
     setLastSelectedSpecialist: (specialistId) =>

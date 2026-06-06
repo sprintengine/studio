@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
 
 /* Shared UI tokens — shared by Switchboard, Watchtower, Sprint Engine, and
@@ -34,6 +34,15 @@
   --bg-hover: #18181c;
   --bg-active: #1c2024;
   --bg-selected: #24242c;
+  /* Agent conversation panel canvas. Anchored to --bg-app — the same darkest ink
+     the terminal content area sits on — so the chat reads as a working surface
+     like the terminal, with the composer (--bg-surface) and the user's message
+     bubbles (--bg-hover) reading as raised chrome above it. Declared once here and
+     resolved against each theme's own --bg-app through the cascade, so every theme
+     inherits the right dark canvas without a per-theme override; a theme that
+     wants a lighter centerpiece can still set its own --agent-surface in its
+     block. */
+  --agent-surface: var(--bg-app);
   /* Hover target for inverted high-contrast buttons (bg = --text-strong). On
      dark the button is near-white so hover intensifies toward pure white; the
      light theme flips this to near-black (see below) so the button's light
@@ -665,16 +674,19 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Canonical app monospace. Mirrored for JS/canvas surfaces (xterm, Monaco) by
+   MONO_FONT_STACK in src/renderer/src/utils/fonts.ts — keep the two in sync. */
 code,
 kbd,
 pre,
 samp,
 .font-mono {
   font-family:
-    "JetBrains Mono",
+    "Geist Mono",
     ui-monospace,
     SFMono-Regular,
     "SF Mono",
+    "Cascadia Code",
     Menlo,
     Consolas,
     monospace;

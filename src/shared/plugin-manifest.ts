@@ -118,6 +118,9 @@ export type ConversationProviderType = 'model-provider' | 'agent-harness'
 export type ConversationProviderModel = {
   id: string
   displayName?: string
+  // Max context window in tokens, when the provider reports it (e.g. OpenRouter's
+  // `context_length`). Drives the composer's context-usage meter.
+  contextLength?: number
 }
 
 export type ConversationProviderAuth = {
@@ -135,6 +138,11 @@ export type ConversationProviderAdapterSpec =
 export type OpenAiCompatibleProviderConfig = {
   baseUrl: string
   chatCompletionsPath?: string
+  // Absolute path to an OpenAI-shaped models endpoint (`{ data: [{ id, name? }] }`).
+  // When set, the provider supports a live model catalog (e.g. OpenRouter's
+  // `/api/v1/models`) and the manifest `models` list is only a seed/fallback used
+  // for the spawn default and connection test.
+  modelsPath?: string
 }
 
 export type ConversationProviderAdapterExecution = 'declarative' | 'executable' | 'blocked'
@@ -224,5 +232,9 @@ export type ConversationProviderListEntry = {
   version: number
   providerType: ConversationProviderType
   models: ConversationProviderModel[]
+  // True when the provider exposes a live models endpoint (`modelsPath`); the
+  // renderer then treats `models` as a seed and trusts the live catalog instead
+  // of blocking on static membership.
+  supportsDynamicModels: boolean
   adapter: ConversationProviderAdapterClassification
 }

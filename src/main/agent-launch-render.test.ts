@@ -23,6 +23,7 @@ async function main(): Promise<void> {
     testClaudeRenderDefault()
     testClaudeRenderWithBypass()
     testClaudeRenderResume()
+    testClaudeCodeRenderResume()
     testClaudeRenderWithRuntimeBinaryOverride()
     testCodexRenderDefault()
     testCodexRenderWithAutoWorkspace()
@@ -144,6 +145,15 @@ function testClaudeRenderWithBypass(): void {
 function testClaudeRenderResume(): void {
   const out = renderAgentLaunchArgv({
     cli: 'claude',
+    sessionId: 'sid_42',
+    resume: true,
+  })
+  assert.deepEqual(out.argv, ['claude', '--resume', 'sid_42'])
+}
+
+function testClaudeCodeRenderResume(): void {
+  const out = renderAgentLaunchArgv({
+    cli: 'claude-code',
     sessionId: 'sid_42',
     resume: true,
   })

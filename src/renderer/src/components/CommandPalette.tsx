@@ -5,14 +5,12 @@ import { useWorkspaceStore } from '../store/workspaceStore'
 import type { SpecialistActionId, Workspace, WorkspaceId, WorkspaceWindowId } from '../types/workspace'
 import { focusOrAddComponentTab, focusOrAddFileTab, revealNavRailComponent, togglePanelRailComponent } from '../utils/modelRegistry'
 import {
-  buildSprintEngineAgentRosterForState,
-  computeSprintEngineFocusAgentAvailability,
-} from '../utils/sprintengine'
-import {
   getEffectiveKeybindingLabel,
   getSpecialistCommandId,
   platformKeybindingsFromApiPlatform,
 } from '../commands/effectiveKeybindings'
+import { isCommandIdEnabled, type CommandAvailabilityContext } from '../commands/availability'
+import type { CommandScope } from '../commands/types'
 
 interface Command {
   id: string
@@ -40,6 +38,11 @@ interface Props {
   workspaceWindowId: WorkspaceWindowId
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
+  // The active command scopes and runtime availability that the keyboard
+  // dispatcher uses, supplied by WorkspaceManager so the palette offers a panel
+  // command only when the shortcut path would also run it.
+  activeScopes: readonly CommandScope[]
+  commandAvailability: CommandAvailabilityContext
 }
 
 export default function CommandPalette({
@@ -50,6 +53,8 @@ export default function CommandPalette({
   workspaceWindowId,
   workspaces,
   activeWorkspaceId,
+  activeScopes,
+  commandAvailability,
 }: Props) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
@@ -74,18 +79,18 @@ export default function CommandPalette({
       dispatchPanelCommand(id)
       onClose()
     }
-    const workspaceMode = activeWorkspace?.mode
-    // Tool-conditional command groups. Only commands that have a mounted panel
-    // handler are registered — palette selections must produce a real product
-    // action (state change, dialog open, IPC). Registry-backed commands display
-    // their effective shortcut; disabled shortcuts leave the row visible with
-    // no shortcut hint.
-    const switchboardCommands: Command[] = workspaceMode === 'switchboard'
-      ? [
-          { id: 'switchboard.refresh.board', label: 'Switchboard: Refresh board', run: runPanel('switchboard.refresh.board') },
-          { id: 'switchboard.open.runner', label: 'Switchboard: Open runner', run: runPanel('switchboard.open.runner') },
-        ]
-      : []
+    // A panel command is offered only when its scope is active and its runtime
+    // preconditions are met — the exact predicate the keyboard dispatcher
+    // applies. Rows that fail are dropped rather than left to silently no-op, so
+    // the palette and the shortcut path always agree on availability. The panel
+    // that owns the command still performs the final precondition check and
+    // surfaces a real diagnostic if state changed between open and run.
+    const panelCommandEnabled = (id: string): boolean =>
+      isCommandIdEnabled(id, activeScopes, commandAvailability)
+    const switchboardCommands: Command[] = [
+      { id: 'switchboard.refresh.board', label: 'Switchboard: Refresh board', run: runPanel('switchboard.refresh.board') },
+      { id: 'switchboard.open.runner', label: 'Switchboard: Open runner', run: runPanel('switchboard.open.runner') },
+    ].filter((command) => panelCommandEnabled(command.id))
     const watchtowerCommands: Command[] = [
       { id: 'watchtower.run.review', label: 'Watchtower: Run review', run: runPanel('watchtower.run.review') },
       { id: 'watchtower.triage.inbox', label: 'Watchtower: Triage inbox', run: runPanel('watchtower.triage.inbox') },
@@ -93,54 +98,46 @@ export default function CommandPalette({
       { id: 'watchtower.import.github', label: 'Watchtower: Import from GitHub', run: runPanel('watchtower.import.github') },
       { id: 'watchtower.import.jira', label: 'Watchtower: Import from Jira', run: runPanel('watchtower.import.jira') },
       { id: 'watchtower.refresh.board', label: 'Watchtower: Refresh', run: runPanel('watchtower.refresh.board') },
-    ]
-    // Preconditioned Sprint Engine commands. verify-progress requires an
-    // architect agent on the roster; focus-agent uses the same effective
-    // predicate the panel applies (roster-derived runtime, localExited
-    // override, role-task-launch supersession). Commands whose precondition is
-    // not met are omitted from the palette so a selection cannot silently
-    // no-op and the palette agrees with the panel overflow.
-    const sprintEngineState = activeWorkspace?.sprintEngineState ?? null
-    const sprintEngineRoster = buildSprintEngineAgentRosterForState(sprintEngineState)
-    const sprintEngineHasArchitect = sprintEngineRoster.some((agent) => agent.role === 'architect')
-    const focusAgentAvailability = computeSprintEngineFocusAgentAvailability(
-      sprintEngineState,
-      activeWorkspace?.agents ?? {},
-    )
-    const sprintEngineFocusAgentVisible = focusAgentAvailability.showFocusAgentAction
-    const sprintEngineCommands: Command[] = workspaceMode === 'sprintengine'
-      ? [
-          { id: 'sprintengine.open.automation-settings', label: 'Sprint Engine: Automation settings', run: runPanel('sprintengine.open.automation-settings') },
-          ...(sprintEngineHasArchitect
-            ? [{ id: 'sprintengine.verify.progress', label: 'Sprint Engine: Verify progress', run: runPanel('sprintengine.verify.progress') }]
-            : []),
-          { id: 'sprintengine.add.role', label: 'Sprint Engine: More roles', run: runPanel('sprintengine.add.role') },
-          { id: 'sprintengine.request.plan-reviews', label: 'Sprint Engine: Request plan reviews', run: runPanel('sprintengine.request.plan-reviews') },
-          { id: 'sprintengine.address.feedback', label: 'Sprint Engine: Address feedback', run: runPanel('sprintengine.address.feedback') },
-          { id: 'sprintengine.read.plan', label: 'Sprint Engine: Read plan', run: runPanel('sprintengine.read.plan') },
-          ...(sprintEngineFocusAgentVisible
-            ? [{ id: 'sprintengine.focus.agent', label: 'Sprint Engine: Focus active agent', run: runPanel('sprintengine.focus.agent') }]
-            : []),
-          { id: 'sprintengine.refresh.board', label: 'Sprint Engine: Refresh board', run: runPanel('sprintengine.refresh.board') },
-          { id: 'sprintengine.goto.inbox', label: 'Sprint Engine: Inbox', run: runPanel('sprintengine.goto.inbox') },
-          { id: 'sprintengine.goto.roster', label: 'Sprint Engine: Roster', run: runPanel('sprintengine.goto.roster') },
-          { id: 'sprintengine.goto.tasks', label: 'Sprint Engine: Tasks', run: runPanel('sprintengine.goto.tasks') },
-          { id: 'sprintengine.goto.graph', label: 'Sprint Engine: Tasks → Graph layout', run: runPanel('sprintengine.goto.graph') },
-          { id: 'sprintengine.goto.kanban', label: 'Sprint Engine: Tasks → Kanban layout', run: runPanel('sprintengine.goto.kanban') },
-          { id: 'sprintengine.open.settings', label: 'Sprint Engine: Settings', shortcut: shortcutFor('sprintengine.open.settings'), run: runPanel('sprintengine.open.settings') },
-        ]
-      : []
-    // Multiloop open-coordinator requires a loaded Multiloop state.
-    const multiloopState = activeWorkspace?.multiloopState ?? null
-    const multiloopCommands: Command[] = workspaceMode === 'multiloop'
-      ? [
-          { id: 'multiloop.toggle.auto-run', label: 'Multiloop: Toggle auto-run', run: runPanel('multiloop.toggle.auto-run') },
-          ...(multiloopState
-            ? [{ id: 'multiloop.open.coordinator', label: 'Multiloop: Open coordinator', run: runPanel('multiloop.open.coordinator') }]
-            : []),
-          { id: 'multiloop.open.settings', label: 'Multiloop: Settings', shortcut: shortcutFor('multiloop.open.settings'), run: runPanel('multiloop.open.settings') },
-        ]
-      : []
+    ].filter((command) => panelCommandEnabled(command.id))
+    // verify-progress requires an architect on the roster and focus-agent
+    // requires a focusable running/waiting agent; both come through the shared
+    // availability context, so a row only appears when the shortcut would run.
+    const sprintEngineCommands: Command[] = [
+      { id: 'sprintengine.open.automation-settings', label: 'Sprint Engine: Automation settings', run: runPanel('sprintengine.open.automation-settings') },
+      { id: 'sprintengine.verify.progress', label: 'Sprint Engine: Verify progress', run: runPanel('sprintengine.verify.progress') },
+      { id: 'sprintengine.add.role', label: 'Sprint Engine: More roles', run: runPanel('sprintengine.add.role') },
+      { id: 'sprintengine.request.plan-reviews', label: 'Sprint Engine: Request plan reviews', run: runPanel('sprintengine.request.plan-reviews') },
+      { id: 'sprintengine.address.feedback', label: 'Sprint Engine: Address feedback', run: runPanel('sprintengine.address.feedback') },
+      { id: 'sprintengine.read.plan', label: 'Sprint Engine: Read plan', run: runPanel('sprintengine.read.plan') },
+      { id: 'sprintengine.focus.agent', label: 'Sprint Engine: Focus active agent', run: runPanel('sprintengine.focus.agent') },
+      { id: 'sprintengine.refresh.board', label: 'Sprint Engine: Refresh board', run: runPanel('sprintengine.refresh.board') },
+      { id: 'sprintengine.goto.inbox', label: 'Sprint Engine: Inbox', shortcut: shortcutFor('sprintengine.goto.inbox'), run: runPanel('sprintengine.goto.inbox') },
+      { id: 'sprintengine.goto.roster', label: 'Sprint Engine: Roster', shortcut: shortcutFor('sprintengine.goto.roster'), run: runPanel('sprintengine.goto.roster') },
+      { id: 'sprintengine.goto.tasks', label: 'Sprint Engine: Tasks', shortcut: shortcutFor('sprintengine.goto.tasks'), run: runPanel('sprintengine.goto.tasks') },
+      { id: 'sprintengine.goto.graph', label: 'Sprint Engine: Tasks → Graph layout', shortcut: shortcutFor('sprintengine.goto.graph'), run: runPanel('sprintengine.goto.graph') },
+      { id: 'sprintengine.goto.kanban', label: 'Sprint Engine: Tasks → Kanban layout', shortcut: shortcutFor('sprintengine.goto.kanban'), run: runPanel('sprintengine.goto.kanban') },
+      { id: 'sprintengine.open.settings', label: 'Sprint Engine: Settings', shortcut: shortcutFor('sprintengine.open.settings'), run: runPanel('sprintengine.open.settings') },
+    ].filter((command) => panelCommandEnabled(command.id))
+    // open-coordinator requires a loaded Multiloop state, carried by the shared
+    // availability context.
+    const multiloopCommands: Command[] = [
+      { id: 'multiloop.toggle.auto-run', label: 'Multiloop: Toggle auto-run', run: runPanel('multiloop.toggle.auto-run') },
+      { id: 'multiloop.open.coordinator', label: 'Multiloop: Open coordinator', run: runPanel('multiloop.open.coordinator') },
+      { id: 'multiloop.open.settings', label: 'Multiloop: Settings', shortcut: shortcutFor('multiloop.open.settings'), run: runPanel('multiloop.open.settings') },
+    ].filter((command) => panelCommandEnabled(command.id))
+    // Git refresh/fetch/commit run the Git panel's real handlers; the shared
+    // availability context (gitPanelActive) keeps them listed only while the Git
+    // panel is open, so a selection cannot land on an unmounted handler. They are
+    // targeted at the active workspace so commit never fires in a background repo.
+    const runGitPanel = (id: string) => () => {
+      window.dispatchEvent(new CustomEvent('multicode:panel-command', { detail: { id, workspaceId: activeWorkspaceId } }))
+      onClose()
+    }
+    const gitCommands: Command[] = [
+      { id: 'git.refresh', label: 'Git: Refresh status', shortcut: shortcutFor('git.refresh'), run: runGitPanel('git.refresh') },
+      { id: 'git.fetch', label: 'Git: Fetch remotes', shortcut: shortcutFor('git.fetch'), run: runGitPanel('git.fetch') },
+      { id: 'git.commit', label: 'Git: Commit staged changes', shortcut: shortcutFor('git.commit'), run: runGitPanel('git.commit') },
+    ].filter((command) => panelCommandEnabled(command.id))
     const panelToggleCommands: Command[] = activeWorkspace
       ? [
           {
@@ -247,6 +244,7 @@ export default function CommandPalette({
         : []),
       ...navigationCommands,
       ...panelToggleCommands,
+      ...gitCommands,
       ...switchboardCommands,
       ...watchtowerCommands,
       ...sprintEngineCommands,
@@ -261,7 +259,7 @@ export default function CommandPalette({
         },
       },
     ]
-  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, onClose, onNewChat, onNewWorkspace, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings])
+  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, onClose, onNewChat, onNewWorkspace, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability])
 
   const filtered = query.trim()
     ? commands.filter((command) => {

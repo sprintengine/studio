@@ -143,7 +143,7 @@ function createFakeStore(windows: WorkspaceWindowState[], activeWorkspaceId: Wor
         cli,
         cliStartRequested: true,
         cliHasLaunched: true,
-        cliResumeAvailable: cli === 'codex' || cli === 'claude',
+        cliResumeAvailable: cli === 'codex' || cli === 'claude' || cli === 'claude-code',
       } as AgentState
     },
     applyTerminalLaunchState({ workspaceId, agentId, ...update }: AgentTerminalLaunchStateApply): void {

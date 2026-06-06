@@ -35,6 +35,7 @@ export type McpConfigService = {
   listCatalog(): McpCatalogResult
   previewSync(input: McpSyncInput): McpSyncPreview
   sync(input: McpSyncInput): McpSyncResult
+  removeManagedSprintEngine(input: McpManagedSprintEngineRemoveInput): McpSyncResult
 }
 
 export type McpConfigServiceOptions = {
@@ -53,7 +54,13 @@ export function createMcpConfigService(options: McpConfigServiceOptions = {}): M
     listCatalog,
     previewSync: (input) => syncMcpConfig({ ...input, write: false }, { lookupPlugin, homeDir, userDataDir, runtimeRoot }),
     sync: (input) => syncMcpConfig({ ...input, write: true }, { lookupPlugin, homeDir, userDataDir, runtimeRoot }),
+    removeManagedSprintEngine: (input) => removeManagedSprintEngineConfig(input, { lookupPlugin, homeDir, userDataDir, runtimeRoot }),
   }
+}
+
+export type McpManagedSprintEngineRemoveInput = {
+  workspaceRoot: string
+  clients?: McpClientTarget[]
 }
 
 type SyncContext = {
@@ -177,6 +184,36 @@ function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult
     return { ok: false, message: syncBlocking.message, issues }
   }
 
+  return { ok: true, targets, issues }
+}
+
+function removeManagedSprintEngineConfig(input: McpManagedSprintEngineRemoveInput, context: SyncContext): McpSyncResult {
+  const clients = normalizeClients(input.clients)
+  const issues: McpValidationIssue[] = []
+  if (!input.workspaceRoot || !existsSync(input.workspaceRoot)) {
+    return { ok: false, message: 'Workspace root does not exist.', issues }
+  }
+
+  const targets: McpSyncTarget[] = []
+  for (const client of clients) {
+    const pluginId = pluginIdForCli(client)
+    const plugin = context.lookupPlugin(pluginId)
+    if (!plugin?.manifest.mcpConfig || plugin.manifest.capabilities.mcpServers !== true) continue
+    const formatTargets = syncForFormat({
+      client,
+      plugin: plugin.manifest,
+      workspaceRoot: input.workspaceRoot,
+      servers: [],
+      knownServerIds: [MANAGED_SPRINTENGINE_MCP_SERVER_ID],
+      write: true,
+      context,
+    })
+    targets.push(...formatTargets.targets)
+    issues.push(...formatTargets.issues)
+  }
+
+  const blocking = issues.find((issue) => issue.level === 'error')
+  if (blocking) return { ok: false, message: blocking.message, issues }
   return { ok: true, targets, issues }
 }
 
@@ -475,16 +512,20 @@ function syncForFormat(input: SyncForFormatInput): {
 }
 
 function syncCodex(input: SyncForFormatInput): McpSyncTarget {
-  const { plugin, servers, workspaceRoot, write, context, client } = input
+  const { plugin, servers, knownServerIds, workspaceRoot, write, context, client } = input
   const scope: McpScope = servers.some((server) => server.scope === 'user') ? 'user' : 'workspace'
   const resolved = resolveMcpTargetPath(plugin.mcpConfig!, scope, workspaceRoot, context.homeDir)
   if (!resolved) {
     return { client, path: '', serverIds: servers.map((server) => server.id) }
   }
-  if (write) {
+  if (write && (servers.length > 0 || knownServerIds.length > 0)) {
     const previous = existsSync(resolved) ? readFileSync(resolved, 'utf8') : ''
     mkdirSync(dirname(resolved), { recursive: true })
-    writeFileSync(resolved, replaceManagedBlock(previous, renderCodexManagedBlock(servers)), 'utf8')
+    writeFileSync(
+      resolved,
+      servers.length ? replaceManagedBlock(previous, renderCodexManagedBlock(servers)) : removeCodexManagedServers(previous, knownServerIds),
+      'utf8'
+    )
   }
   return { client, path: resolved, serverIds: servers.map((server) => server.id) }
 }
@@ -548,7 +589,49 @@ function syncClaude(input: SyncForFormatInput): {
 function replaceManagedBlock(previous: string, block: string): string {
   const pattern = new RegExp(`${escapeRegExp(MANAGED_START)}[\\s\\S]*?${escapeRegExp(MANAGED_END)}\\n?`, 'm')
   const trimmed = previous.replace(pattern, '').trimEnd()
+  if (!block) return trimmed ? `${trimmed}\n` : ''
   return `${trimmed}${trimmed ? '\n\n' : ''}${block}\n`
+}
+
+function removeCodexManagedServers(previous: string, serverIds: string[]): string {
+  const ids = new Set(serverIds)
+  if (ids.size === 0) return previous
+  const pattern = new RegExp(`${escapeRegExp(MANAGED_START)}[\\s\\S]*?${escapeRegExp(MANAGED_END)}\\n?`, 'm')
+  const match = previous.match(pattern)
+  if (!match) return previous
+
+  const block = match[0].replace(/\n?$/, '')
+  const lines = block.split(/\r?\n/)
+  const inner = lines.slice(1, -1)
+  const preamble: string[] = []
+  const sections: Array<{ id: string, lines: string[] }> = []
+  let current: { id: string, lines: string[] } | null = null
+
+  for (const line of inner) {
+    const section = line.match(/^\[mcp_servers\.([a-z0-9_-]+)\]$/)
+    if (section) {
+      current = { id: section[1]!, lines: [line] }
+      sections.push(current)
+      continue
+    }
+    if (current) {
+      current.lines.push(line)
+    } else {
+      preamble.push(line)
+    }
+  }
+
+  const remaining = sections.filter((section) => !ids.has(section.id))
+  if (remaining.length === 0) return replaceManagedBlock(previous, '')
+
+  while (preamble.length > 0 && preamble[preamble.length - 1] === '') preamble.pop()
+  const nextBlock = [
+    MANAGED_START,
+    ...preamble,
+    ...remaining.flatMap((section) => ['', ...section.lines]),
+    MANAGED_END,
+  ].join('\n')
+  return replaceManagedBlock(previous, nextBlock)
 }
 
 function renderCodexManagedBlock(servers: McpServerConfig[]): string {
@@ -576,7 +659,7 @@ function renderCodexServer(server: McpServerConfig): string[] {
     if (headers && Object.keys(headers).length) lines.push(`http_headers = { ${Object.entries(headers).map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`).join(', ')} }`)
   }
   lines.push(`enabled = ${server.enabled ? 'true' : 'false'}`)
-  if (server.required) lines.push('required = true')
+  if (server.required && server.id !== MANAGED_SPRINTENGINE_MCP_SERVER_ID) lines.push('required = true')
   return ['', ...lines]
 }
 

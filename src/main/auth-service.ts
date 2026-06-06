@@ -1,6 +1,7 @@
 import { app, BrowserWindow, safeStorage, shell } from 'electron'
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 import { createHash, randomBytes } from 'crypto'
+import { createServer, type Server } from 'http'
 import { dirname, join } from 'path'
 import type {
   EntitlementSnapshot,
@@ -16,7 +17,10 @@ import { getErrorMessage } from './error-message'
 
 const MULTIAUTH_BASE_URL = (process.env['MULTIAUTH_BASE_URL'] || 'http://localhost:3000').replace(/\/+$/u, '')
 const MULTICODE_CLIENT_ID = 'multicode-desktop' as const
-const MULTICODE_REDIRECT_URI = 'multicode://auth/callback' as const
+const MULTICODE_LOOPBACK_HOST = '127.0.0.1' as const
+const MULTICODE_LOOPBACK_PORT = 43110
+const MULTICODE_REDIRECT_URI = `http://${MULTICODE_LOOPBACK_HOST}:${MULTICODE_LOOPBACK_PORT}/callback` as const
+const MULTICODE_LEGACY_REDIRECT_URI = 'multicode://auth/callback' as const
 const MULTICODE_PRODUCT = 'multicode' as const
 const ENTITLEMENT_GRACE_MS = 72 * 60 * 60 * 1000
 const AUTH_PREFLIGHT_TIMEOUT_MS = 3000
@@ -35,7 +39,7 @@ type TokenSet = {
 
 type DesktopExchangeRequest = {
   clientId: typeof MULTICODE_CLIENT_ID
-  redirectUri: typeof MULTICODE_REDIRECT_URI
+  redirectUri: typeof MULTICODE_REDIRECT_URI | typeof MULTICODE_LEGACY_REDIRECT_URI
   code: string
   codeVerifier: string
 }
@@ -57,6 +61,10 @@ type PendingDesktopLogin = {
   codeVerifier: string
   organizationId: string | null
   createdAt: number
+}
+
+type DesktopCallbackServer = {
+  close(): Promise<void>
 }
 
 class MulticodeMultiauthClient {
@@ -241,6 +249,7 @@ export class MulticodeAuthBridge {
   private readonly client = new MulticodeMultiauthClient(this.refreshTokenStore)
   private state: MulticodeAuthState = signedOutAuthState('Checking account.')
   private pendingLogin: PendingDesktopLogin | null = null
+  private callbackServer: DesktopCallbackServer | null = null
   private cachedEntitlements: CachedEntitlements | null = null
 
   async initialize(): Promise<MulticodeAuthState> {
@@ -280,6 +289,7 @@ export class MulticodeAuthBridge {
 
   async login(organizationId?: string | null): Promise<{ state: string; authorizationUrl: string }> {
     await this.preflightAuthServer()
+    await this.closeCallbackServer()
 
     const state = randomBase64Url(24)
     const nonce = randomBase64Url(24)
@@ -302,6 +312,15 @@ export class MulticodeAuthBridge {
       search.set('organization_id', selectedOrganizationId)
     }
 
+    try {
+      this.callbackServer = await startDesktopCallbackServer(async (callbackUrl) => {
+        await this.handleCallback(callbackUrl)
+      })
+    } catch (error) {
+      const message = getErrorMessage(error)
+      this.setState({ ...this.state, status: 'error', message })
+      throw new Error(message)
+    }
     this.pendingLogin = {
       state,
       nonce,
@@ -314,6 +333,7 @@ export class MulticodeAuthBridge {
       await shell.openExternal(authorizationUrl)
     } catch (error) {
       this.pendingLogin = null
+      await this.closeCallbackServer()
       const message = `Could not open Multiauth sign-in: ${getErrorMessage(error)}`
       this.setState({ ...this.state, status: 'error', message })
       console.error('[auth] login-open-failed', { authorizationUrl, message })
@@ -328,7 +348,7 @@ export class MulticodeAuthBridge {
 
   async handleCallback(callbackUrl: string): Promise<MulticodeAuthState> {
     const url = new URL(callbackUrl)
-    if (url.protocol !== 'multicode:' || url.hostname !== 'auth' || url.pathname !== '/callback') {
+    if (!isSupportedAuthCallbackUrl(url)) {
       throw new Error('Unsupported Multiauth callback URL.')
     }
 
@@ -346,11 +366,14 @@ export class MulticodeAuthBridge {
 
     await this.client.exchangeDesktopCode({
       clientId: MULTICODE_CLIENT_ID,
-      redirectUri: MULTICODE_REDIRECT_URI,
+      redirectUri: url.protocol === 'multicode:' ? MULTICODE_LEGACY_REDIRECT_URI : MULTICODE_REDIRECT_URI,
       code,
       codeVerifier: pending.codeVerifier,
     })
     this.pendingLogin = null
+    if (url.protocol === 'multicode:') {
+      await this.closeCallbackServer()
+    }
     if (pending.organizationId) {
       await this.client.selectOrganization(pending.organizationId)
     }
@@ -361,6 +384,7 @@ export class MulticodeAuthBridge {
   async logout(): Promise<{ loggedOut: true }> {
     const result = await this.client.logout()
     this.pendingLogin = null
+    await this.closeCallbackServer()
     this.cachedEntitlements = null
     await unlink(this.cachePath).catch(() => {})
     this.setState(signedOutAuthState(null))
@@ -579,6 +603,12 @@ export class MulticodeAuthBridge {
     }
   }
 
+  private async closeCallbackServer(): Promise<void> {
+    const server = this.callbackServer
+    this.callbackServer = null
+    await server?.close()
+  }
+
   private async readSessionFromEntitlements(entitlements: EntitlementSnapshot): Promise<ElectronRendererAuthState> {
     if (this.state.authenticated && this.state.selectedOrganization?.id === entitlements.organizationId) {
       return {
@@ -637,6 +667,80 @@ export class MulticodeAuthBridge {
       }
     }
   }
+}
+
+async function startDesktopCallbackServer(onCallback: (callbackUrl: string) => Promise<void>): Promise<DesktopCallbackServer> {
+  let closed = false
+  const server = createServer((request, response) => {
+    void (async () => {
+      const callbackUrl = new URL(request.url ?? '/', MULTICODE_REDIRECT_URI)
+
+      if (request.method !== 'GET' || callbackUrl.pathname !== '/callback') {
+        response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
+        response.end('Not found.')
+        return
+      }
+
+      try {
+        await onCallback(callbackUrl.toString())
+        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+        response.end(callbackSuccessHtml())
+      } catch (error) {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.webContents.send('auth:callback-error', getErrorMessage(error))
+          }
+        }
+        response.writeHead(400, { 'content-type': 'text/html; charset=utf-8' })
+        response.end(callbackErrorHtml(getErrorMessage(error)))
+      } finally {
+        void closeServer(server)
+      }
+    })()
+  })
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(MULTICODE_LOOPBACK_PORT, MULTICODE_LOOPBACK_HOST, () => {
+      server.off('error', reject)
+      resolve()
+    })
+  }).catch((error) => {
+    throw new Error(`Could not start Multicode auth callback listener on ${MULTICODE_REDIRECT_URI}: ${getErrorMessage(error)}`)
+  })
+
+  return {
+    async close(): Promise<void> {
+      if (closed) return
+      closed = true
+      await closeServer(server)
+    },
+  }
+}
+
+async function closeServer(server: Server): Promise<void> {
+  if (!server.listening) return
+  await new Promise<void>((resolve) => server.close(() => resolve()))
+}
+
+function isSupportedAuthCallbackUrl(url: URL): boolean {
+  return (url.protocol === 'http:' && url.hostname === MULTICODE_LOOPBACK_HOST && url.port === String(MULTICODE_LOOPBACK_PORT) && url.pathname === '/callback')
+    || (url.protocol === 'multicode:' && url.hostname === 'auth' && url.pathname === '/callback')
+}
+
+function callbackSuccessHtml(): string {
+  return '<!doctype html><meta charset="utf-8"><title>Multicode sign-in complete</title><body style="font:14px system-ui,sans-serif;background:#101012;color:#f4f4f5;padding:32px">Sign-in is complete. You can return to Multicode.</body>'
+}
+
+function callbackErrorHtml(message: string): string {
+  const escaped = message.replace(/[&<>"']/gu, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char] ?? char))
+  return `<!doctype html><meta charset="utf-8"><title>Multicode sign-in failed</title><body style="font:14px system-ui,sans-serif;background:#101012;color:#f4f4f5;padding:32px">Sign-in failed: ${escaped}</body>`
 }
 
 function signedOutAuthState(message: string | null): MulticodeAuthState {
@@ -760,7 +864,7 @@ function readMultiauthErrorMessage(payload: unknown): string {
 }
 
 export async function parseAuthCallbackFromArgv(auth: MulticodeAuthBridge, argv: string[]): Promise<void> {
-  const callbackUrl = argv.find((arg) => /^multicode:\/\/auth\/callback/i.test(arg))
+  const callbackUrl = argv.find((arg) => /^multicode:\/\/auth\/callback/i.test(arg) || /^http:\/\/127\.0\.0\.1:43110\/callback/i.test(arg))
   if (!callbackUrl) return
 
   try {

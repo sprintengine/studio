@@ -230,9 +230,11 @@ function inactiveHighlightClass(workspace: Workspace): string {
   return `border-l-[3px] ${swatch.border}`
 }
 
+// Working rows carry no status dot: a busy agent reads as "now" in the recency
+// column (see renderWorkspaceRow) rather than a green dot, so the dot is reserved
+// for the two states that actually want attention — needs-input and failed.
 function activityTone(activity: Activity): { tone: Tone; pulse: boolean } | null {
   if (activity === 'needs-input') return { tone: 'warn', pulse: true }
-  if (activity === 'working') return { tone: 'good', pulse: true }
   if (activity === 'failed') return { tone: 'error', pulse: false }
   return null
 }
@@ -736,6 +738,9 @@ export default function WorkspaceSidebar({
       && !!recency
       && !recency.hasRunning
       && typeof recency.lastFinishedAt === 'number'
+    // A working row has no dot anymore; it reads as "now" in the recency column,
+    // the same idiom as a workspace whose terminal last spoke under a minute ago.
+    const showWorkingNow = !sidebarCollapsed && activity === 'working'
     const folderMissing = workspace.folderMissing === true
     const starred = isStarred(workspace.highlight)
     const highlighted = hasHighlightOverride(workspace.highlight)
@@ -877,7 +882,14 @@ export default function WorkspaceSidebar({
             <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end">
               <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0">
                 {tone ? <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} /> : null}
-                {showRecencyText ? (
+                {showWorkingNow ? (
+                  <span
+                    className="text-[10px] tabular-nums text-[color:var(--text-subtle)]"
+                    aria-label="Agents working now"
+                  >
+                    now
+                  </span>
+                ) : showRecencyText ? (
                   <span
                     className="text-[10px] tabular-nums text-[color:var(--text-subtle)]"
                     title={`Last terminal output ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)} (${new Date(recency!.lastFinishedAt!).toLocaleString()})`}

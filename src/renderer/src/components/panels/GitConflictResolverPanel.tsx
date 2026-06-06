@@ -6,6 +6,7 @@ import {
   parseGitConflictBlocks,
   replaceGitConflictBlock,
 } from '../../utils/gitConflictMarkers'
+import { MONO_FONT_STACK } from '../../utils/fonts'
 import { Section } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
@@ -224,7 +225,7 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
               theme="vs-dark"
               options={{
                 fontSize: 13,
-                fontFamily: '"JetBrains Mono", "Cascadia Code", Consolas, ui-monospace, monospace',
+                fontFamily: MONO_FONT_STACK,
                 minimap: { enabled: false },
                 scrollBeyondLastLine: false,
                 automaticLayout: true,
@@ -264,7 +265,7 @@ function ConflictReadOnlyPane({
           options={{
             readOnly: true,
             fontSize: 12,
-            fontFamily: '"JetBrains Mono", "Cascadia Code", Consolas, ui-monospace, monospace',
+            fontFamily: MONO_FONT_STACK,
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
             automaticLayout: true,

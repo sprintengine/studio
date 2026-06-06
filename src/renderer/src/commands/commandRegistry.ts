@@ -151,6 +151,36 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'command-palette', handler: "revealNavRailComponent(activeWorkspace.id, 'git', 'Git')" },
   }),
+  // Git refresh/fetch/commit run the Git panel's real handlers via the
+  // panel-command bridge, so they are only available while the Git panel is
+  // mounted in the active workspace. No default keybindings: refresh is safe but
+  // unbound by default, and commit/fetch are stateful — users can bind them in
+  // the Shortcuts settings (commit is destructive-adjacent, so it ships unbound
+  // per the plan's no-risky-default rule).
+  command({
+    id: 'git.refresh',
+    title: 'Git: Refresh Status',
+    category: 'git',
+    scopes: ['workspace'],
+    availability: ['activeWorkspace', 'gitPanelActive'],
+    handlerPath: { kind: 'panel-event', eventId: 'git.refresh' },
+  }),
+  command({
+    id: 'git.fetch',
+    title: 'Git: Fetch Remotes',
+    category: 'git',
+    scopes: ['workspace'],
+    availability: ['activeWorkspace', 'gitPanelActive'],
+    handlerPath: { kind: 'panel-event', eventId: 'git.fetch' },
+  }),
+  command({
+    id: 'git.commit',
+    title: 'Git: Commit Staged Changes',
+    category: 'git',
+    scopes: ['workspace'],
+    availability: ['activeWorkspace', 'gitPanelActive'],
+    handlerPath: { kind: 'panel-event', eventId: 'git.commit' },
+  }),
   command({
     id: 'terminal.new',
     title: 'Open Plain Terminal',
@@ -159,6 +189,25 @@ export const COMMAND_REGISTRY = [
     defaultKeybindings: ["Primary+Shift+'"],
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'workspace-manager', handler: 'addNewTerminal()' },
+  }),
+  // Focus/stop act on the active workspace's live terminal, so they require a
+  // terminal session to exist. Unbound by default: focus is benign but bindable,
+  // and stop kills a session (destructive) so it ships without a default key.
+  command({
+    id: 'terminal.focus',
+    title: 'Focus Terminal',
+    category: 'terminal',
+    scopes: ['workspace'],
+    availability: ['activeWorkspace', 'terminalActive'],
+    handlerPath: { kind: 'workspace-manager', handler: 'focusActiveTerminal()' },
+  }),
+  command({
+    id: 'terminal.stop',
+    title: 'Stop Active Terminal',
+    category: 'terminal',
+    scopes: ['workspace'],
+    availability: ['activeWorkspace', 'terminalActive'],
+    handlerPath: { kind: 'workspace-manager', handler: 'stopActiveTerminal()' },
   }),
   command({
     id: 'voice.toggle',
@@ -276,6 +325,7 @@ export const COMMAND_REGISTRY = [
     title: 'Sprint Engine: Roster',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
+    defaultKeybindings: ['G then R'],
     availability: ['sprintengineWorkspace'],
     handlerPath: { kind: 'panel-event', eventId: 'sprintengine.goto.roster' },
   }),
@@ -284,6 +334,7 @@ export const COMMAND_REGISTRY = [
     title: 'Sprint Engine: Tasks',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
+    defaultKeybindings: ['G then T'],
     availability: ['sprintengineWorkspace'],
     handlerPath: { kind: 'panel-event', eventId: 'sprintengine.goto.tasks' },
   }),
@@ -292,6 +343,7 @@ export const COMMAND_REGISTRY = [
     title: 'Sprint Engine: Tasks Graph Layout',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
+    defaultKeybindings: ['G then G'],
     availability: ['sprintengineWorkspace'],
     handlerPath: { kind: 'panel-event', eventId: 'sprintengine.goto.graph' },
   }),
@@ -300,6 +352,7 @@ export const COMMAND_REGISTRY = [
     title: 'Sprint Engine: Tasks Kanban Layout',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
+    defaultKeybindings: ['G then K'],
     availability: ['sprintengineWorkspace'],
     handlerPath: { kind: 'panel-event', eventId: 'sprintengine.goto.kanban' },
   }),

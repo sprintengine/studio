@@ -10,19 +10,22 @@ import { buildSpecialistSoulStartupPrompt, getSpecialistAction } from '../../spe
 import { buildSprintEngineAgentRosterForState, buildSprintEngineRosterCommandArgs, getSprintEngineRoleLabel } from '../../utils/sprintengine'
 import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { deferFitDuringSidebarAnimation } from '../../utils/sidebarTransition'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createXtermOutputQueue } from '../../utils/xtermOutputQueue'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/terminalDrop'
+import { MONO_FONT_STACK } from '../../utils/fonts'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { resolveAgentCliPermissionPreset } from '../../utils/agentCliPermissions'
-import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
+import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { deriveSprintEngineAutomationDesiredMode } from '../../utils/sprintengineAutomationLifecycle'
 import type { McpSettings } from '../../types/workspace'
 import { Toast } from '../ui/Toast'
 import { workspaceSyncClient } from '../../store/workspaceSyncClient'
+import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../shared/terminal-history'
 
 interface Props {
   workspaceId: string
@@ -221,6 +224,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const container = containerRef.current
     if (!container) return
     if (savedFolderPath && !folderReadyPath) return
+    if (!agent) return
     if (!cli) {
       publishDiagnosticSync({
         level: 'error',
@@ -240,6 +244,21 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     }
 
     if (!agent?.cliSessionId && !attachedSessionId) {
+      // [switch-regression] If this fires on a workspace switch, the agent's
+      // cliSessionId was cleared while the PTY was still alive — relaunching with
+      // a fresh id makes the main runtime dispose the old (live) session.
+      logPerfEvent('TerminalView', 'terminal-spawn-fresh-after-switch-risk', {
+        workspaceId,
+        agentId,
+        cli,
+        reason: 'missing-cli-session-id',
+      })
+      console.warn('[switch-regression] regenerating cliSessionId', {
+        workspaceId,
+        agentId,
+        agentName: agent?.name,
+        cli,
+      })
       updateAgent(workspaceId, agentId, {
         cliSessionId: crypto.randomUUID(),
         cliHasLaunched: false,
@@ -254,10 +273,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const shouldResumeCodexConversation = !isSprintEngineAgent && cli === 'codex' && Boolean(agent?.cliResumeAvailable)
     const term = new Terminal({
       theme: getTerminalTheme(),
-      fontFamily: 'ui-monospace, "Cascadia Code", Consolas, monospace',
+      fontFamily: MONO_FONT_STACK,
       fontSize: 13,
       cursorBlink: true,
-      scrollback: 5000,
+      scrollback: TERMINAL_RECENT_SCROLLBACK_LINES,
     })
     const unbindTerminalTheme = bindTerminalTheme(term)
     const fitAddon = new FitAddon()
@@ -414,8 +433,50 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       if (savedFolderPath && !folderReadyPath) return
 
       const resumeExistingPty = shouldResume && terminalStatus.processAlive
-      const shouldResumeClaudeConversation = cli === 'claude' && shouldResume
+      const shouldResumeClaudeConversation = agentCliUsesStableSessionIdForResume(cli) && shouldResume
       const shouldResumeCli = resumeExistingPty || shouldResumeClaudeConversation || shouldResumeCodexConversation
+      logPerfEvent('TerminalView', shouldResumeCli ? 'terminal-reattach-existing-session' : 'terminal-spawn-fresh', {
+        sessionId,
+        workspaceId,
+        agentId,
+        kind: 'agent',
+        processAlive: terminalStatus.processAlive,
+        resumeRequested: shouldResume,
+        attachedSessionId,
+        cliHasLaunched: agent?.cliHasLaunched,
+        willSpawnFresh: !shouldResumeCli,
+      })
+      if (!shouldResumeCli && shouldResume) {
+        logPerfEvent('TerminalView', 'terminal-spawn-fresh-after-switch-risk', {
+          sessionId,
+          workspaceId,
+          agentId,
+          kind: 'agent',
+          processAlive: terminalStatus.processAlive,
+          resumeRequested: shouldResume,
+          attachedSessionId,
+          cliHasLaunched: agent?.cliHasLaunched,
+          willSpawnFresh: true,
+        })
+      }
+      // [switch-regression] One line per launch. A fresh spawn on a workspace
+      // switch shows shouldResumeCli=false: inspect cliHasLaunched / processAlive
+      // to see which precondition was lost.
+      console.warn('[switch-regression] launchTerminal', {
+        workspaceId,
+        agentId,
+        agentName: agent?.name,
+        cli,
+        sessionId,
+        attachedSessionId,
+        cliHasLaunched: agent?.cliHasLaunched,
+        cliResumeAvailable: agent?.cliResumeAvailable,
+        shouldResume,
+        processAlive: terminalStatus.processAlive,
+        resumeExistingPty,
+        shouldResumeCli,
+        willSpawnFresh: !shouldResumeCli,
+      })
       const promptAlreadySentForActiveSession = Boolean(shouldResumeCli && agent?.cliOnboardingPromptSent)
       await ensureSpecialistStartupPrompt(promptAlreadySentForActiveSession)
       if (disposed) return
@@ -570,6 +631,12 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       if (shouldKillOnUnmount?.(sessionId)) {
         void window.api.terminalKill(sessionId).catch(() => {})
       } else {
+        logPerfEvent('TerminalView', 'terminal-detached-from-renderer', {
+          sessionId,
+          workspaceId,
+          agentId,
+          kind: 'agent',
+        })
         void window.api.terminalSetVisible(sessionId, false).catch(() => {})
       }
       window.clearTimeout(settleTimer)

@@ -49,6 +49,15 @@ assert.deepEqual(buildCliRuntimeOptions(undefined), [
 ])
 assert.deepEqual(buildAgentCliCatalog([]), [], 'loaded empty registry does not invent fallback entries')
 
+assert.deepEqual(
+  buildAgentCliCatalog([
+    { id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude' },
+    { id: 'generic-shell', displayName: 'Generic Shell', source: 'bundled', version: 1, binary: 'sh' },
+  ]),
+  [{ value: 'claude-code', label: 'Claude Code', source: 'bundled' }],
+  'generic-shell is hidden from the agent CLI picker catalog',
+)
+
 const catalog = buildAgentCliCatalog(plugins)
 assert.equal(pluginRegistryIdForCli('claude'), 'claude-code')
 assert.equal(pluginRegistryIdForCli('aider'), 'aider')

@@ -6,6 +6,7 @@ import { bindTerminalClipboardHandlers } from '../../../utils/terminalClipboard'
 import { bindTerminalTheme, getTerminalTheme } from '../../../utils/terminalTheme'
 import { createXtermOutputQueue } from '../../../utils/xtermOutputQueue'
 import { deferFitDuringSidebarAnimation } from '../../../utils/sidebarTransition'
+import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../../shared/terminal-history'
 
 type Props = {
   sessionId: string
@@ -25,7 +26,7 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
       fontFamily: 'ui-monospace, "Cascadia Code", Consolas, monospace',
       fontSize: 13,
       cursorBlink: true,
-      scrollback: 5000,
+      scrollback: TERMINAL_RECENT_SCROLLBACK_LINES,
     })
     const disposeTheme = bindTerminalTheme(terminal)
     const fitAddon = new FitAddon()

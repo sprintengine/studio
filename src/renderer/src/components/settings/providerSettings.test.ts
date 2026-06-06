@@ -8,25 +8,20 @@ import type {
 import type { ConversationProviderListEntry } from '../../../../shared/plugin-manifest'
 import {
   canClearProviderSecret,
-  deriveProviderReadiness,
   deriveProviderSecretView,
   deriveProviderTabState,
-  formatProviderModels,
-  formatProviderSource,
-  formatProviderType,
   orderProviders,
-  summarizeProviderAdapter,
-  summarizeProviderSecret,
 } from './providerSettings'
 
 function provider(overrides: Partial<ConversationProviderListEntry> = {}): ConversationProviderListEntry {
   return {
-    id: 'openai-compatible',
-    displayName: 'OpenAI-compatible',
+    id: 'openrouter',
+    displayName: 'OpenRouter',
     source: 'bundled',
     version: 1,
     providerType: 'model-provider',
-    models: [{ id: 'gpt-4o', displayName: 'GPT-4o' }],
+    models: [{ id: 'openai/gpt-4o-mini', displayName: 'GPT-4o mini' }],
+    supportsDynamicModels: true,
     adapter: { kind: 'declarative', execution: 'declarative', trust: 'not_required' },
     ...overrides,
   }
@@ -34,12 +29,12 @@ function provider(overrides: Partial<ConversationProviderListEntry> = {}): Conve
 
 function status(overrides: Partial<ConversationSecretStatus> = {}): ConversationSecretStatus {
   return {
-    providerId: 'openai-compatible',
+    providerId: 'openrouter',
     configured: true,
     source: 'settings',
     persistence: 'encrypted',
     encryptionAvailable: true,
-    label: 'API key',
+    label: 'OpenRouter API key',
     ...overrides,
   }
 }
@@ -75,40 +70,6 @@ const readyState = deriveProviderTabState(
 )
 assert.equal(readyState.kind, 'ready', 'one provider yields the ready state')
 
-assert.deepEqual(
-  summarizeProviderAdapter(provider()),
-  { tone: 'neutral', label: 'Declarative provider' },
-  'declarative providers are not reported as executable'
-)
-assert.deepEqual(
-  summarizeProviderAdapter(
-    provider({
-      adapter: { kind: 'trusted-executable', execution: 'executable', trust: 'trusted', entry: 'dist/provider.js' },
-    })
-  ),
-  { tone: 'good', label: 'Trusted adapter' },
-  'trusted executable adapters report executable readiness'
-)
-assert.deepEqual(
-  summarizeProviderAdapter(
-    provider({
-      adapter: {
-        kind: 'trusted-executable',
-        execution: 'blocked',
-        trust: 'unsigned',
-        entry: 'dist/provider.js',
-        trustError: 'Unsigned executable provider adapters cannot run in production mode.',
-      },
-    })
-  ),
-  {
-    tone: 'error',
-    label: 'Adapter blocked',
-    detail: 'Unsigned executable provider adapters cannot run in production mode.',
-  },
-  'blocked executable adapters surface the trust error'
-)
-
 // --- ordering: bundled first, then alphabetical ---------------------------
 
 const ordered = orderProviders([
@@ -138,7 +99,7 @@ assert.deepEqual(
 
 assert.deepEqual(
   deriveProviderSecretView({ ok: true, status: status({ configured: false, source: 'none' }) }),
-  { kind: 'missing', label: 'API key', encryptionAvailable: true },
+  { kind: 'missing', label: 'OpenRouter API key', encryptionAvailable: true },
   'unconfigured auth provider is the missing-key view'
 )
 
@@ -147,52 +108,6 @@ const configuredView = deriveProviderSecretView({
   status: status(),
 } satisfies ConversationSecretStatusResult)
 assert.equal(configuredView.kind, 'configured', 'configured key yields the configured view')
-
-// --- status summary (dot tone + text, never color-only) -------------------
-
-assert.deepEqual(summarizeProviderSecret(undefined), { tone: 'neutral', label: 'Checking key status' })
-assert.deepEqual(summarizeProviderSecret({ kind: 'none-required' }), {
-  tone: 'neutral',
-  label: 'No API key required',
-})
-assert.deepEqual(
-  summarizeProviderSecret({ kind: 'missing', label: 'API key', encryptionAvailable: true }),
-  { tone: 'warn', label: 'API key needed' }
-)
-assert.deepEqual(
-  summarizeProviderSecret(deriveProviderSecretView({ ok: true, status: status({ source: 'environment' }) })),
-  { tone: 'good', label: 'Using environment key' }
-)
-assert.deepEqual(
-  summarizeProviderSecret(
-    deriveProviderSecretView({
-      ok: true,
-      status: status({ source: 'session', persistence: 'session', encryptionAvailable: false }),
-    })
-  ),
-  { tone: 'warn', label: 'Session-only key' }
-)
-
-// --- readiness verdict: honest, never a fake "connected" ------------------
-
-assert.equal(
-  deriveProviderReadiness({ kind: 'missing', label: 'API key', encryptionAvailable: true }).tone,
-  'error',
-  'missing key blocks readiness'
-)
-const sessionReadiness = deriveProviderReadiness(
-  deriveProviderSecretView({
-    ok: true,
-    status: status({ source: 'session', persistence: 'session', encryptionAvailable: false }),
-  })
-)
-assert.equal(sessionReadiness.tone, 'warn', 'session-only key is a readiness warning, not a hard pass')
-assert.match(sessionReadiness.detail, /clears when Multicode quits/)
-
-const encryptedReadiness = deriveProviderReadiness(deriveProviderSecretView({ ok: true, status: status() }))
-assert.equal(encryptedReadiness.tone, 'good')
-assert.equal(encryptedReadiness.headline, 'Credentials ready')
-assert.doesNotMatch(encryptedReadiness.detail, /connected/i, 'readiness copy never claims a live connection')
 
 // --- clearability ----------------------------------------------------------
 
@@ -204,19 +119,5 @@ assert.equal(
 )
 assert.equal(canClearProviderSecret({ kind: 'none-required' }), false)
 assert.equal(canClearProviderSecret({ kind: 'missing', label: 'API key', encryptionAvailable: true }), false)
-
-// --- formatting ------------------------------------------------------------
-
-assert.equal(formatProviderType('agent-harness'), 'Agent harness')
-assert.equal(formatProviderType('model-provider'), 'Model provider')
-assert.equal(formatProviderSource('bundled'), 'Built-in')
-assert.equal(formatProviderSource('user'), 'User provider')
-assert.equal(formatProviderModels([]), 'No models declared')
-assert.equal(formatProviderModels([{ id: 'gpt-4o', displayName: 'GPT-4o' }]), 'GPT-4o')
-assert.equal(
-  formatProviderModels([{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }]),
-  'a, b +2 more',
-  'model lists collapse to first two plus a remainder count'
-)
 
 console.log('providerSettings.test.ts passed')

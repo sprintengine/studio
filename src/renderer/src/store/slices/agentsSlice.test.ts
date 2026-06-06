@@ -176,6 +176,14 @@ carrier.workspaces[0].agents['claude-agent'] = {
   cliSessionId: 'stable-claude',
   cliResumeAvailable: false,
 }
+carrier.workspaces[0].agents['claude-code-agent'] = {
+  ...defaultAgent('claude-code-agent'),
+  cli: 'claude-code',
+  cliStartRequested: false,
+  cliHasLaunched: true,
+  cliSessionId: 'stable-claude-code',
+  cliResumeAvailable: false,
+}
 carrier.workspaces[0].agents['sprintengine-agent'] = {
   ...defaultAgent('sprintengine-agent'),
   cli: 'codex',
@@ -201,6 +209,9 @@ assert.equal(carrier.workspaces[0].agents['codex-agent'].cliResumeAvailable, tru
 assert.equal(carrier.workspaces[0].agents['claude-agent'].cliStartRequested, true)
 assert.equal(carrier.workspaces[0].agents['claude-agent'].cliResumeAvailable, true)
 assert.equal(carrier.workspaces[0].agents['claude-agent'].cliSessionId, 'stable-claude')
+assert.equal(carrier.workspaces[0].agents['claude-code-agent'].cliStartRequested, true)
+assert.equal(carrier.workspaces[0].agents['claude-code-agent'].cliResumeAvailable, true)
+assert.equal(carrier.workspaces[0].agents['claude-code-agent'].cliSessionId, 'stable-claude-code')
 assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliStartRequested, false)
 assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliHasLaunched, false)
 assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliSessionId, undefined)

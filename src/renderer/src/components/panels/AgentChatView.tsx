@@ -17,8 +17,11 @@ import type {
   ConversationEvent,
   ConversationSessionStatus,
 } from '../../../../shared/conversation-runtime'
+import type { ConversationProviderListEntry, ConversationProviderModel } from '../../../../shared/plugin-manifest'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { GhostButton, PrimaryButton, StatusDot, type Tone } from '../ui'
+import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { renderMarkdown } from '../../utils/markdown'
+import { GhostButton, Popover, PrimaryButton, StatusDot, Tooltip, type Tone } from '../ui'
 
 // ── Pure projection ─────────────────────────────────────────────────────────
 
@@ -289,23 +292,23 @@ type Props = {
   agentId: string
 }
 
-const SESSION_TONE: Record<ConversationSessionStatus | 'idle', Tone> = {
-  idle: 'neutral',
-  starting: 'accent',
-  ready: 'good',
-  active: 'accent',
-  awaiting_approval: 'warn',
-  stopped: 'neutral',
-  failed: 'error',
-}
-
+// The bordered/rounded surface and focus ring live on the composer container;
+// the textarea itself is transparent and borderless so the field reads as one
+// piece with the footer control row beneath it.
 const COMPOSER_CLASS =
-  'min-h-[40px] w-full resize-none rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+  'min-h-[40px] w-full resize-none rounded-t-lg bg-transparent px-3 pb-1 pt-2.5 text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] disabled:opacity-45'
 
 type PendingAction = 'starting' | 'sending' | 'stopping' | null
 
 export function stopDisabledForPending(pending: PendingAction): boolean {
   return pending === 'stopping'
+}
+
+// The model is editable only until the conversation starts: the runtime binds a
+// session to one provider/model, so once the user has sent a turn (or a session
+// exists) the in-composer picker locks.
+export function isConversationModelLocked(userTurnCount: number, sessionId: string | null): boolean {
+  return userTurnCount > 0 || sessionId !== null
 }
 
 type ApprovalStatus = 'pending' | 'approved' | 'denied' | 'cancelled'
@@ -327,11 +330,18 @@ const APPROVAL_LABEL: Record<ApprovalStatus, string> = {
 export default function AgentChatView({ workspaceId, agentId }: Props) {
   const agent = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId])
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId) ?? null)
+  const updateAgent = useWorkspaceStore((s) => s.updateAgent)
+  const setLastSelectedConversationModel = useWorkspaceStore((s) => s.setLastSelectedConversationModel)
   const conversation = agent?.conversation
   const label = agent?.name ?? agentId
   const workspaceRoot = workspace?.folderPath ?? null
 
   const [readiness, setReadiness] = useState<ChatReadiness>({ kind: 'loading' })
+  const [providers, setProviders] = useState<ConversationProviderListEntry[]>([])
+  // Live model catalog for the current provider (e.g. OpenRouter's full list),
+  // fetched lazily; empty until loaded, then preferred over the manifest seed.
+  const [liveModels, setLiveModels] = useState<ConversationProviderModel[]>([])
+  const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [events, setEvents] = useState<ConversationEvent[]>([])
   const [userTurns, setUserTurns] = useState<UserTurn[]>([])
@@ -361,12 +371,15 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
           setReadiness({ kind: 'error', message: list.message })
           return
         }
+        setProviders(list.providers)
         const provider = list.providers.find((entry) => entry.id === conversation.providerId)
         if (!provider) {
           setReadiness({ kind: 'provider-unavailable', providerId: conversation.providerId })
           return
         }
-        if (!provider.models.some((model) => model.id === conversation.modelId)) {
+        // Providers with a live catalog accept models not in the static seed, so
+        // membership is only enforced for static-only providers.
+        if (!provider.supportsDynamicModels && !provider.models.some((model) => model.id === conversation.modelId)) {
           setReadiness({ kind: 'model-unavailable', providerId: conversation.providerId, modelId: conversation.modelId })
           return
         }
@@ -388,15 +401,41 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     }
   }, [conversation, workspaceRoot])
 
-  // Subscribe to canonical events for this agent's session.
+  // Subscribe to canonical events for this agent's session. Every event carries a
+  // unique id, so we dedupe on it: a window holds one broadcast subscription per
+  // open chat tab (and dev StrictMode double-invokes effects), which would
+  // otherwise deliver — and append — each streamed token more than once, tripling
+  // the text. Deduping on id makes the transcript immune to duplicate delivery.
+  const seenEventIdsRef = useRef<Set<string>>(new Set())
   useEffect(() => {
     if (typeof window.api.onConversationEvent !== 'function') return
     const unsubscribe = window.api.onConversationEvent((event) => {
       if (event.workspaceId !== workspaceId || event.agentId !== agentId) return
+      if (seenEventIdsRef.current.has(event.id)) return
+      seenEventIdsRef.current.add(event.id)
       setEvents((current) => [...current, event])
     })
     return unsubscribe
   }, [workspaceId, agentId])
+
+  // Fetch the provider's live model catalog (keyed on provider, not model, so a
+  // model switch within the same provider does not refetch). Failures are silent
+  // — the picker falls back to the manifest seed models.
+  useEffect(() => {
+    const providerId = conversation?.providerId
+    if (!providerId || typeof window.api.conversationProviderModels !== 'function') return
+    let cancelled = false
+    setLiveModels([])
+    void window.api
+      .conversationProviderModels({ providerId })
+      .then((result) => {
+        if (!cancelled && result.ok) setLiveModels(result.models)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [conversation?.providerId])
 
   const projection = useMemo(() => projectConversation(events, userTurns), [events, userTurns])
 
@@ -405,6 +444,57 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     const node = listRef.current
     if (node) node.scrollTop = node.scrollHeight
   }, [projection.entries.length, projection.activeTurn])
+
+  // Surface turn failures (streamed via `turn_failed`) to the app Notifications
+  // panel, deduped on the message so a single failure is logged once.
+  const lastNotifiedErrorRef = useRef<string | null>(null)
+  useEffect(() => {
+    const message = projection.lastError
+    // Clear on recovery so an identical error on a later turn notifies again.
+    if (!message) {
+      lastNotifiedErrorRef.current = null
+      return
+    }
+    if (message === lastNotifiedErrorRef.current) return
+    lastNotifiedErrorRef.current = message
+    publishDiagnosticSync({
+      level: 'error',
+      source: 'workspace',
+      title: `${label} turn failed`,
+      message,
+      workspaceId,
+      workspaceName: workspace?.name,
+      agentId,
+    })
+  }, [projection.lastError, label, workspaceId, workspace?.name, agentId])
+
+  // Surface session/send action errors (start failure, missing key, IPC error)
+  // the same way — these never reach the event stream.
+  const lastNotifiedActionErrorRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!actionError || actionError === lastNotifiedActionErrorRef.current) return
+    lastNotifiedActionErrorRef.current = actionError
+    publishDiagnosticSync({
+      level: 'error',
+      source: 'workspace',
+      title: `${label} could not start`,
+      message: actionError,
+      workspaceId,
+      workspaceName: workspace?.name,
+      agentId,
+    })
+  }, [actionError, label, workspaceId, workspace?.name, agentId])
+
+  // Self-heal an ugly tab name: spawn may have named the tab with the raw model
+  // id (a remembered live-only model has no nice label until the catalog loads).
+  // Once live models arrive, rename to the model's display name.
+  useEffect(() => {
+    if (!conversation) return
+    const displayName = liveModels.find((model) => model.id === conversation.modelId)?.displayName
+    if (displayName && agent?.name === conversation.modelId && displayName !== conversation.modelId) {
+      updateAgent(workspaceId, agentId, { name: displayName })
+    }
+  }, [liveModels, conversation, agent?.name, updateAgent, workspaceId, agentId])
 
   const ensureSession = useCallback(async (): Promise<string | null> => {
     if (sessionId) return sessionId
@@ -484,7 +574,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
 
   if (!conversation) {
     return (
-      <ChatShell label={label} sessionStatus="idle">
+      <ChatShell>
         <ChatNotice tone="error">This agent has no conversation provider selected.</ChatNotice>
       </ChatShell>
     )
@@ -492,11 +582,34 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
 
   const ready = readiness.kind === 'ready'
   const composerDisabled = !ready || projection.activeTurn || pending !== null
-  const sessionStatus = projection.sessionStatus
   const showRetry = projection.lastError !== null && !projection.activeTurn
 
+  // The runtime binds a session to one provider/model, so the model is editable
+  // only until the conversation starts: once a turn is sent or a session exists,
+  // the pill is read-only and the user opens a new agent to change model.
+  const modelLocked = isConversationModelLocked(userTurns.length, sessionId)
+  // Picker groups: one per provider, using the live catalog for the current
+  // provider when it has loaded, else that provider's manifest seed models.
+  const modelGroups = providers.map((entry) => ({
+    providerId: entry.id,
+    providerLabel: entry.displayName,
+    models: entry.id === conversation.providerId && liveModels.length > 0 ? liveModels : entry.models,
+  }))
+  const currentModel = modelGroups
+    .find((group) => group.providerId === conversation.providerId)
+    ?.models.find((model) => model.id === conversation.modelId)
+  const currentModelLabel = currentModel?.displayName ?? conversation.modelId
+  const contextLength = currentModel?.contextLength
+  const usedTokens = projection.usage ? projection.usage.inputTokens + projection.usage.outputTokens : 0
+  const selectModel = (providerId: string, modelId: string) => {
+    setModelMenuOpen(false)
+    if (modelLocked || (providerId === conversation.providerId && modelId === conversation.modelId)) return
+    updateAgent(workspaceId, agentId, { conversation: { providerId, modelId } })
+    setLastSelectedConversationModel({ providerId, modelId })
+  }
+
   return (
-    <ChatShell label={label} sessionStatus={sessionStatus} model={conversation.modelId}>
+    <ChatShell>
       {!ready ? (
         <ChatNotice tone={readiness.kind === 'loading' ? 'neutral' : 'warn'}>{readinessLabel(readiness)}</ChatNotice>
       ) : null}
@@ -506,7 +619,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         role="log"
         aria-label={`${label} conversation`}
         aria-live="polite"
-        className="flex-1 space-y-3 overflow-y-auto px-3 py-3"
+        className="flex-1 space-y-4 overflow-y-auto px-3 py-3"
       >
         {projection.entries.length === 0 ? (
           <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
@@ -519,14 +632,46 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         )}
       </div>
 
-      <div className="border-t border-[color:var(--border-subtle)] px-3 py-2">
-        {actionError ? <ChatNotice tone="error">{actionError}</ChatNotice> : null}
-        {projection.usage ? (
-          <p className="mb-2 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
-            Tokens — in {projection.usage.inputTokens}, out {projection.usage.outputTokens}
-          </p>
+      <div className="px-3 pb-3 pt-1">
+        {/*
+         * A turn failure already states its reason in the transcript (and the
+         * Notifications panel), so here we only restate text for action errors
+         * that never reach the transcript (start/send/IPC). A failed turn just
+         * gets a Retry — no third copy of the same message.
+         */}
+        {actionError ? (
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <span className="min-w-0 truncate text-[12px] leading-5 text-[color:var(--tone-error)]">{actionError}</span>
+            {showRetry ? (
+              <GhostButton
+                size="sm"
+                onClick={retry}
+                disabled={composerDisabled}
+                className="shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
+              >
+                Retry
+              </GhostButton>
+            ) : null}
+          </div>
+        ) : showRetry ? (
+          <div className="mb-2 flex justify-end">
+            <GhostButton
+              size="sm"
+              onClick={retry}
+              disabled={composerDisabled}
+              className="shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
+            >
+              Retry
+            </GhostButton>
+          </div>
         ) : null}
-        <div className="flex items-end gap-2">
+
+        {/*
+         * Composer: a single rounded field that holds the textarea and a footer
+         * control row (model pill + send), so the input reads as one surface.
+         * The model lives here — picked before the first message, then locked.
+         */}
+        <div className="rounded-lg border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] transition-colors focus-within:border-[color:var(--accent-primary)]">
           <label htmlFor={`chat-composer-${agentId}`} className="sr-only">
             Message {label}
           </label>
@@ -545,34 +690,42 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
             disabled={composerDisabled}
             className={COMPOSER_CLASS}
           />
-          {projection.activeTurn ? (
-            <GhostButton
-              size="md"
-              onClick={() => void interrupt()}
-              disabled={stopDisabledForPending(pending)}
-              className="h-10 shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
-            >
-              {pending === 'stopping' ? 'Stopping…' : 'Stop'}
-            </GhostButton>
-          ) : showRetry ? (
-            <GhostButton
-              size="md"
-              onClick={retry}
-              disabled={composerDisabled}
-              className="h-10 shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
-            >
-              Retry
-            </GhostButton>
-          ) : (
-            <PrimaryButton
-              size="md"
-              onClick={() => void sendTurn(draft)}
-              disabled={composerDisabled || !draft.trim()}
-              className="h-10 shrink-0"
-            >
-              {pending === 'starting' || pending === 'sending' ? 'Sending…' : 'Send'}
-            </PrimaryButton>
-          )}
+          <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
+            <div className="flex min-w-0 items-center gap-1">
+              <ModelPickerPill
+                label={currentModelLabel}
+                locked={modelLocked}
+                open={modelMenuOpen}
+                onOpenChange={setModelMenuOpen}
+                groups={modelGroups}
+                selectedProviderId={conversation.providerId}
+                selectedModelId={conversation.modelId}
+                onSelect={selectModel}
+              />
+              {contextLength ? (
+                <ContextMeter used={usedTokens} total={contextLength} />
+              ) : null}
+            </div>
+            {projection.activeTurn ? (
+              <ComposerActionButton
+                tone="neutral"
+                ariaLabel={pending === 'stopping' ? 'Stopping' : 'Stop responding'}
+                onClick={() => void interrupt()}
+                disabled={stopDisabledForPending(pending)}
+              >
+                <StopGlyph className="icon-sm" />
+              </ComposerActionButton>
+            ) : (
+              <ComposerActionButton
+                tone="accent"
+                ariaLabel={pending === 'starting' || pending === 'sending' ? 'Sending' : 'Send message'}
+                onClick={() => void sendTurn(draft)}
+                disabled={composerDisabled || !draft.trim()}
+              >
+                <SendArrowGlyph className="icon-sm" />
+              </ComposerActionButton>
+            )}
+          </div>
         </div>
       </div>
     </ChatShell>
@@ -592,49 +745,253 @@ function entryKey(entry: TranscriptEntry): string {
   }
 }
 
-function ChatShell({
-  label,
-  sessionStatus,
-  model,
-  children,
-}: {
-  label: string
-  sessionStatus: ConversationSessionStatus | 'idle'
-  model?: string
-  children: React.ReactNode
-}) {
+// The chat panel is header-less by design: the tab already names the agent, and
+// model/session state live in the composer footer (shared layout). Repeating the name
+// or model in a header is the duplication we're avoiding.
+function ChatShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-full flex-col bg-[color:var(--bg-surface)] text-[12px] text-[color:var(--text-default)]">
-      <div className="flex items-center justify-between gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2">
-        <span className="truncate text-[13px] font-medium text-[color:var(--text-strong)]">{label}</span>
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
-          {model ? <span className="font-mono text-[color:var(--text-default)]">{model}</span> : null}
-          <StatusDot tone={SESSION_TONE[sessionStatus]} pulse={sessionStatus === 'active'} />
-          <span>{formatSessionStatus(sessionStatus)}</span>
-        </span>
-      </div>
+    <div className="flex h-full flex-col bg-[color:var(--agent-surface)] text-[12px] text-[color:var(--text-default)]">
       {children}
     </div>
   )
 }
 
-function formatSessionStatus(status: ConversationSessionStatus | 'idle'): string {
-  switch (status) {
-    case 'idle':
-      return 'Not started'
-    case 'starting':
-      return 'Starting'
-    case 'ready':
-      return 'Ready'
-    case 'active':
-      return 'Responding'
-    case 'awaiting_approval':
-      return 'Awaiting approval'
-    case 'stopped':
-      return 'Stopped'
-    case 'failed':
-      return 'Failed'
+// Compact context-window meter: a ring that fills as the conversation consumes
+// the model's context, plus "used / total" in tokens. Shown only when the
+// provider reports a context length (e.g. OpenRouter's `context_length`).
+function ContextMeter({ used, total }: { used: number; total: number }) {
+  const fraction = Math.max(0, Math.min(1, total > 0 ? used / total : 0))
+  const radius = 6
+  const circumference = 2 * Math.PI * radius
+  const nearFull = fraction >= 0.9
+  return (
+    <Tooltip content={`Context used: ${used.toLocaleString()} / ${total.toLocaleString()} tokens`} placement="top">
+      <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] tabular-nums text-[color:var(--text-muted)]">
+        <svg className="icon-sm -rotate-90" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="8" cy="8" r={radius} fill="none" stroke="var(--border-strong)" strokeWidth="2" />
+          <circle
+            cx="8"
+            cy="8"
+            r={radius}
+            fill="none"
+            stroke={nearFull ? 'var(--tone-warn)' : 'var(--accent-primary)'}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={circumference * (1 - fraction)}
+          />
+        </svg>
+        {formatTokens(total)}
+      </span>
+    </Tooltip>
+  )
+}
+
+function formatTokens(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`
+  if (value >= 1_000) return `${Math.round(value / 1_000)}k`
+  return String(value)
+}
+
+// The in-composer model selector. Before the conversation starts it is a pill
+// that opens a grouped provider → model menu; once locked it renders as static
+// muted text (the session is bound to its model).
+type ModelGroup = { providerId: string; providerLabel: string; models: ConversationProviderModel[] }
+
+function ModelPickerPill({
+  label,
+  locked,
+  open,
+  onOpenChange,
+  groups,
+  selectedProviderId,
+  selectedModelId,
+  onSelect,
+}: {
+  label: string
+  locked: boolean
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  groups: ModelGroup[]
+  selectedProviderId: string
+  selectedModelId: string
+  onSelect: (providerId: string, modelId: string) => void
+}) {
+  const [query, setQuery] = useState('')
+  if (locked) {
+    return (
+      <Tooltip content="Model is fixed once the conversation starts" placement="top">
+        <span className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] text-[color:var(--text-muted)]">
+          <ChatGlyph className="icon-sm text-[color:var(--text-subtle)]" />
+          <span className="max-w-[200px] truncate">{label}</span>
+        </span>
+      </Tooltip>
+    )
   }
+  const normalized = query.trim().toLowerCase()
+  const filtered = groups
+    .map((group) => ({
+      ...group,
+      models: normalized
+        ? group.models.filter(
+            (model) =>
+              model.id.toLowerCase().includes(normalized)
+              || (model.displayName?.toLowerCase().includes(normalized) ?? false),
+          )
+        : group.models,
+    }))
+    .filter((group) => group.models.length > 0)
+  const totalModels = groups.reduce((sum, group) => sum + group.models.length, 0)
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (next) setQuery('')
+        onOpenChange(next)
+      }}
+      ariaLabel="Select model"
+      popupRole="menu"
+      placement="top-start"
+      renderTrigger={({ ref, triggerProps, togglePopover }) => (
+        <button
+          ref={ref}
+          type="button"
+          onClick={togglePopover}
+          className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          {...triggerProps}
+        >
+          <ChatGlyph className="icon-sm text-[color:var(--text-muted)]" />
+          <span className="max-w-[200px] truncate">{label}</span>
+          <ChevronGlyph className="icon-xs text-[color:var(--text-disabled)]" />
+        </button>
+      )}
+    >
+      <div className="flex max-h-[360px] w-[280px] flex-col overflow-hidden">
+        {totalModels > 8 ? (
+          <div className="border-b border-[color:var(--border-subtle)] p-1">
+            <input
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              placeholder="Search models…"
+              aria-label="Search models"
+              className="w-full bg-transparent px-2 py-1 text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] focus:outline-none"
+            />
+          </div>
+        ) : null}
+        <div className="min-h-0 flex-1 overflow-y-auto p-1">
+          {totalModels === 0 ? (
+            <div className="px-2.5 py-2 text-[12px] text-[color:var(--text-muted)]" role="status">
+              No models available
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="px-2.5 py-2 text-[12px] text-[color:var(--text-muted)]" role="status">
+              No models match “{query.trim()}”
+            </div>
+          ) : (
+            filtered.map((group) => (
+              <div key={group.providerId} className="py-0.5">
+                {groups.length > 1 ? (
+                  <div className="px-2.5 pb-0.5 pt-1 text-[11px] font-medium text-[color:var(--text-muted)]">
+                    {group.providerLabel}
+                  </div>
+                ) : null}
+                {group.models.map((model) => {
+                  const isCurrent = group.providerId === selectedProviderId && model.id === selectedModelId
+                  return (
+                    <button
+                      key={`${group.providerId}:${model.id}`}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={isCurrent}
+                      onClick={() => onSelect(group.providerId, model.id)}
+                      className={`flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-[13px] transition-colors ${
+                        isCurrent
+                          ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                          : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                      }`}
+                    >
+                      <span className="min-w-0 flex-1 truncate">{model.displayName ?? model.id}</span>
+                      {isCurrent ? <span className="text-[color:var(--accent-primary)]">✓</span> : null}
+                    </button>
+                  )
+                })}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </Popover>
+  )
+}
+
+// Circular composer action: accent-filled send, or a neutral stop while a turn
+// streams. Flat fill only — no gradient/shadow — per the app-shell button rules.
+function ComposerActionButton({
+  tone,
+  ariaLabel,
+  onClick,
+  disabled,
+  children,
+}: {
+  tone: 'accent' | 'neutral'
+  ariaLabel: string
+  onClick: () => void
+  disabled?: boolean
+  children: React.ReactNode
+}) {
+  const toneClass =
+    tone === 'accent'
+      ? 'bg-[color:var(--accent-primary)] text-[color:var(--bg-app)] hover:bg-[color:var(--accent-primary-hover)] disabled:hover:bg-[color:var(--accent-primary)]'
+      : 'border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] disabled:hover:bg-[color:var(--bg-surface)]'
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-default disabled:opacity-40 ${toneClass}`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function SendArrowGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M10 15.5V5M10 5L5.75 9.25M10 5l4.25 4.25" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function StopGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <rect x="6" y="6" width="8" height="8" rx="1.6" fill="currentColor" />
+    </svg>
+  )
+}
+
+function ChatGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M5 5.75h14a1.75 1.75 0 0 1 1.75 1.75v7a1.75 1.75 0 0 1-1.75 1.75H10l-3.75 3v-3H5A1.75 1.75 0 0 1 3.25 15.5v-8A1.75 1.75 0 0 1 5 5.75Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function ChevronGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
 }
 
 const NOTICE_TONE: Record<'neutral' | 'warn' | 'error', { border: string; text: string }> = {
@@ -658,30 +1015,37 @@ function TranscriptRow({
   busy: boolean
 }) {
   if (entry.kind === 'user') {
+    // User turns read as a right-aligned speech bubble; the agent's replies are
+    // plain left-aligned text (no bubble), so the two voices are unmistakable.
     return (
-      <div className="flex flex-col gap-0.5">
-        <span className="text-[11px] text-[color:var(--text-subtle)]">You</span>
-        <p className="whitespace-pre-wrap text-sm text-[color:var(--text-strong)]">{entry.text}</p>
+      <div className="flex justify-end">
+        <div className="max-w-[80%] rounded-lg bg-[color:var(--bg-hover)] px-3 py-2">
+          <p className="whitespace-pre-wrap text-sm text-[color:var(--text-strong)]">{entry.text}</p>
+        </div>
       </div>
     )
   }
 
   if (entry.kind === 'assistant') {
-    const statusTone: Tone =
-      entry.status === 'failed' ? 'error' : entry.status === 'interrupted' ? 'warn' : entry.status === 'complete' ? 'good' : 'accent'
     return (
-      <div className="flex flex-col gap-0.5">
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-subtle)]">
-          <StatusDot tone={statusTone} pulse={entry.status === 'streaming'} />
-          Assistant
-          {entry.status === 'streaming' ? ' · responding' : null}
-          {entry.status === 'interrupted' ? ' · interrupted' : null}
-          {entry.status === 'failed' ? ` · failed${entry.failureReason ? ` (${entry.failureReason})` : ''}` : null}
-        </span>
+      <div className="flex flex-col gap-1">
+        {/* Agent replies are markdown — render through the shared renderer so
+            headings, lists, tables, code, and emphasis display, not raw `**`. */}
         {entry.text ? (
-          <p className="whitespace-pre-wrap text-sm text-[color:var(--text-default)]">{entry.text}</p>
+          renderMarkdown(entry.text)
         ) : entry.status === 'streaming' ? (
-          <p className="text-sm text-[color:var(--text-muted)]">…</p>
+          // No dot — the word already says it; a reduced-motion-safe pulse carries
+          // the "alive" signal, and the composer Stop button confirms the state.
+          <span className="text-sm text-[color:var(--text-muted)] motion-safe:animate-pulse">Responding…</span>
+        ) : null}
+        {entry.status === 'failed' || entry.status === 'interrupted' ? (
+          <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-subtle)]">
+            {/* Dot only for an error; an interrupt is a benign stop, not a fault. */}
+            {entry.status === 'failed' ? <StatusDot tone="error" label="Failed" /> : null}
+            {entry.status === 'interrupted'
+              ? 'Interrupted'
+              : `Failed${entry.failureReason ? ` · ${entry.failureReason}` : ''}`}
+          </span>
         ) : null}
       </div>
     )
@@ -691,7 +1055,8 @@ function TranscriptRow({
     return (
       <div className="rounded-md border border-[color:var(--border-subtle)] px-3 py-2">
         <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
-          <StatusDot tone={entry.status === 'done' ? 'good' : 'accent'} pulse={entry.status === 'running'} />
+          {/* Dot only while running; a finished tool row carries no status dot. */}
+          {entry.status === 'running' ? <StatusDot tone="accent" pulse label="Running" /> : null}
           Tool · <span className="font-mono text-[color:var(--text-default)]">{entry.name}</span>
           {entry.status === 'running' ? ' · running' : ' · done'}
         </span>
@@ -703,10 +1068,13 @@ function TranscriptRow({
   }
 
   // approval
+  // Dot only for the states that demand attention — pending (needs input) and
+  // denied (error). Approved/cancelled are resolved rows and carry no dot.
+  const approvalNeedsDot = entry.status === 'pending' || entry.status === 'denied'
   return (
     <div className="rounded-md border border-[color:var(--border-default)] px-3 py-2">
       <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
-        <StatusDot tone={APPROVAL_TONE[entry.status]} />
+        {approvalNeedsDot ? <StatusDot tone={APPROVAL_TONE[entry.status]} label={APPROVAL_LABEL[entry.status]} /> : null}
         {APPROVAL_LABEL[entry.status]}
       </span>
       <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-default)]">{entry.summary}</p>

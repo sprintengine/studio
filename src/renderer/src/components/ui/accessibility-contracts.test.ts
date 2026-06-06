@@ -69,7 +69,10 @@ expectIncludes(popover, 'isTopmostPopover(popoverId)', 'Popover only lets the to
 expectIncludes(popover, "window.addEventListener('mousedown'", 'Popover closes on outside pointer down')
 expectIncludes(popover, 'triggerRef.current?.focus()', 'Popover restores focus to the trigger on Escape close')
 expectIncludes(popover, 'PLACEMENT_CLASS[placement]', 'Popover owns anchored placement classes')
-expectIncludes(popover, 'popover-enter absolute z-30 mt-1 rounded-[7px]', 'Popover uses the canonical popover shell')
+// The off-axis gap (mt-1 / mb-1) now lives in PLACEMENT_CLASS so top placements
+// can open above the trigger; the base shell no longer hard-codes the margin.
+expectIncludes(popover, 'popover-enter absolute z-30 rounded-[7px]', 'Popover uses the canonical popover shell')
+expectIncludes(popover, "'top-start': 'left-0 bottom-full mb-1'", 'Popover supports top placement opening above the trigger')
 
 expectIncludes(overflowMenu, 'aria-haspopup="menu"', 'Overflow menu trigger exposes menu semantics')
 expectIncludes(overflowMenu, "aria-expanded={triggerProps['aria-expanded']}", 'Overflow menu trigger reports expanded state')

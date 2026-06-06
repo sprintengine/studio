@@ -3,7 +3,7 @@ import type {
   ConversationProviderTestResult,
   ConversationProviderTestState,
 } from '../../shared/conversation-runtime'
-import type { LoadedConversationProvider } from '../../shared/plugin-manifest'
+import type { ConversationProviderModel, LoadedConversationProvider } from '../../shared/plugin-manifest'
 import type {
   ConversationProviderAdapter,
   MockAdapterSessionInput,
@@ -95,7 +95,10 @@ export async function testOpenAiCompatibleConnection(
         stream: false,
       }),
     })
-    if (!response.ok) return testFailure(input.providerId, mapHttpFailure(response.status), httpFailureMessage(response.status))
+    if (!response.ok) {
+      const detail = await readProviderErrorDetail(response)
+      return testFailure(input.providerId, mapHttpFailure(response.status), httpFailureMessage(response.status, detail))
+    }
     let payload: unknown
     try {
       payload = await response.json()
@@ -151,14 +154,17 @@ async function* streamTurn(
       headers: buildHeaders(secret.value),
       signal: input.signal,
       body: JSON.stringify({
+        // Send the full conversation history when the runtime provides it, so the
+        // model actually has memory across turns; fall back to the single message.
         model: input.modelId,
-        messages: [{ role: 'user', content: input.message }],
+        messages: input.messages?.length ? input.messages : [{ role: 'user', content: input.message }],
         stream: true,
         stream_options: { include_usage: true },
       }),
     })
     if (!response.ok) {
-      yield failure(input, mapHttpTurnFailure(response.status), httpFailureMessage(response.status))
+      const detail = await readProviderErrorDetail(response)
+      yield failure(input, mapHttpTurnFailure(response.status), httpFailureMessage(response.status, detail))
       return
     }
     if (!response.body) {
@@ -259,11 +265,85 @@ function resolveEndpoint(provider: LoadedConversationProvider): { ok: true; url:
   }
 }
 
+// OpenRouter uses these for its app-attribution rankings; other OpenAI-compatible
+// endpoints ignore unknown headers, so they are safe to send unconditionally.
+const ATTRIBUTION_HEADERS: Record<string, string> = {
+  'HTTP-Referer': 'https://multicode.app',
+  'X-Title': 'Multicode',
+}
+
 function buildHeaders(apiKey: string): Record<string, string> {
   return {
     Authorization: `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
+    ...ATTRIBUTION_HEADERS,
   }
+}
+
+// Fetch a provider's live model catalog from its OpenAI-shaped models endpoint
+// (`modelsPath`). Used for providers like OpenRouter whose real value is a large,
+// frequently-changing catalog. The API key is included when configured but is not
+// required (OpenRouter's models endpoint is public); any failure returns ok:false
+// so the renderer can fall back to the manifest's seed models.
+export async function listOpenAiCompatibleModels(input: {
+  providerId: string
+  getProviderById: (providerId: string) => LoadedConversationProvider | undefined
+  resolveSecret: ProviderSecretResolver
+  fetch?: typeof fetch
+}): Promise<{ ok: true; models: ConversationProviderModel[] } | { ok: false; message: string }> {
+  const provider = input.getProviderById(input.providerId)
+  if (!provider) return { ok: false, message: 'Conversation provider is not installed.' }
+  const config = provider.manifest.openaiCompatible
+  if (!config?.modelsPath) return { ok: false, message: 'Provider does not expose a model catalog.' }
+
+  let url: string
+  try {
+    url = new URL(config.modelsPath, new URL(config.baseUrl)).toString()
+  } catch {
+    return { ok: false, message: 'Provider models endpoint URL is invalid.' }
+  }
+
+  const secret = await input.resolveSecret(input.providerId)
+  const headers: Record<string, string> = { Accept: 'application/json', ...ATTRIBUTION_HEADERS }
+  if (secret.ok) headers.Authorization = `Bearer ${secret.value}`
+
+  try {
+    const response = await (input.fetch ?? fetch)(url, { method: 'GET', headers })
+    if (!response.ok) return { ok: false, message: `Model catalog request failed (${response.status}).` }
+    let payload: unknown
+    try {
+      payload = await response.json()
+    } catch {
+      return { ok: false, message: 'Provider returned a malformed model catalog.' }
+    }
+    const models = parseModelsPayload(payload)
+    if (!models) return { ok: false, message: 'Provider returned a malformed model catalog.' }
+    return { ok: true, models }
+  } catch {
+    return { ok: false, message: 'Model catalog endpoint could not be reached.' }
+  }
+}
+
+// Parse an OpenAI-shaped `{ data: [{ id, name? }] }` models response into our
+// model descriptors, dropping any entry without a usable string id.
+function parseModelsPayload(payload: unknown): ConversationProviderModel[] | null {
+  if (!payload || typeof payload !== 'object') return null
+  const data = (payload as { data?: unknown }).data
+  if (!Array.isArray(data)) return null
+  const models: ConversationProviderModel[] = []
+  for (const item of data) {
+    if (!item || typeof item !== 'object') continue
+    const id = (item as { id?: unknown }).id
+    if (typeof id !== 'string' || !id.trim()) continue
+    const name = (item as { name?: unknown }).name
+    const contextLength = numberOrUndefined((item as { context_length?: unknown }).context_length)
+    models.push({
+      id: id.trim(),
+      ...(typeof name === 'string' && name.trim() ? { displayName: name.trim() } : {}),
+      ...(contextLength && contextLength > 0 ? { contextLength } : {}),
+    })
+  }
+  return models
 }
 
 function mapHttpFailure(status: number): Exclude<ConversationProviderTestState, 'missing_key' | 'reachable' | 'network_error' | 'malformed_response' | 'model_error'> {
@@ -279,11 +359,39 @@ function mapHttpTurnFailure(status: number): ChatCompletionErrorKind {
   return 'invalid_endpoint'
 }
 
-function httpFailureMessage(status: number): string {
-  if (status === 401 || status === 403) return 'Provider rejected the API key.'
-  if (status === 429) return 'Provider rate limit was reached.'
-  if (status === 400) return 'Provider rejected the selected model or request.'
-  return 'Provider endpoint did not accept the chat-completions request.'
+function httpFailureMessage(status: number, detail?: string): string {
+  const base =
+    status === 401 || status === 403
+      ? 'Provider rejected the API key.'
+      : status === 429
+        ? 'Provider rate limit was reached.'
+        : status === 400
+          ? 'Provider rejected the selected model or request.'
+          : 'Provider endpoint did not accept the chat-completions request.'
+  // Include the provider's own error text (e.g. OpenRouter "No endpoints found
+  // for <model>") so an opaque status becomes actionable.
+  return detail ? `${base} (${status}: ${detail})` : `${base} (${status})`
+}
+
+// Read a failed provider response body and pull out its human error message.
+// OpenAI/OpenRouter return `{ error: { message } }`; fall back to a trimmed raw
+// body. Never throws — diagnostics are best-effort.
+async function readProviderErrorDetail(response: Response): Promise<string | undefined> {
+  try {
+    const text = await response.text()
+    if (!text.trim()) return undefined
+    try {
+      const json = JSON.parse(text) as { error?: { message?: unknown }; message?: unknown }
+      const message = (typeof json.error?.message === 'string' && json.error.message)
+        || (typeof json.message === 'string' && json.message)
+      if (message && message.trim()) return message.trim().slice(0, 300)
+    } catch {
+      // Not JSON — fall through to the raw snippet.
+    }
+    return text.trim().slice(0, 300)
+  } catch {
+    return undefined
+  }
 }
 
 function extractUsage(value: unknown): { inputTokens?: number; outputTokens?: number; totalTokens?: number } | null {

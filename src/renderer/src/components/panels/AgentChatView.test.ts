@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 
 import type { ConversationEvent, ConversationEventType } from '../../../../shared/conversation-runtime'
-import { projectConversation, readinessLabel, stopDisabledForPending, type TranscriptEntry } from './AgentChatView'
+import {
+  isConversationModelLocked,
+  projectConversation,
+  readinessLabel,
+  stopDisabledForPending,
+  type TranscriptEntry,
+} from './AgentChatView'
 
 let seq = 0
 function ev(type: ConversationEventType, payload?: Record<string, unknown>): ConversationEvent {
@@ -171,5 +177,11 @@ assert.equal(stopDisabledForPending('sending'), false, 'unresolved send does not
 assert.equal(stopDisabledForPending('starting'), false)
 assert.equal(stopDisabledForPending('stopping'), true)
 assert.equal(stopDisabledForPending(null), false)
+
+// --- Model picker locks once the conversation has started ------------------
+
+assert.equal(isConversationModelLocked(0, null), false, 'model is editable before the first turn with no session')
+assert.equal(isConversationModelLocked(1, null), true, 'model locks after the first user turn')
+assert.equal(isConversationModelLocked(0, 'session-1'), true, 'model locks once a session exists')
 
 console.log('AgentChatView.test.ts: ok')

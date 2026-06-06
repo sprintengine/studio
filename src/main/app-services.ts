@@ -55,7 +55,15 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     logMainPerfEvent,
     onAgentSessionExit: (input) => input.workspaceRoot ? recordSwitchboardSessionExit(input) : undefined,
     syncMcpConfig: (input) => syncManagedSprintEngineMcpConfig(input, { mcpConfigService, sprintEngineMcpHub }),
-    releaseManagedSprintEngineRun: (runId) => sprintEngineMcpHub.unregisterRun(runId),
+    releaseManagedSprintEngineRun: async (input) => {
+      await sprintEngineMcpHub.unregisterRun(input.runId)
+      if (input.cleanupMcpConfig) {
+        mcpConfigService.removeManagedSprintEngine({
+          workspaceRoot: input.workspaceRoot,
+          clients: input.clients,
+        })
+      }
+    },
   })
   const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
   const builtinSkillManager = createBuiltinSkillManager()
