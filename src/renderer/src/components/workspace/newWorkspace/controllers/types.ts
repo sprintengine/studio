@@ -2,6 +2,7 @@ import type {
   AgentCli,
   AgentId,
   GuidedBriefHasUi,
+  GuidedBriefPreset,
   GuidedBriefRuntimeState,
   LayoutTemplate,
   MultiloopAutoState,
@@ -148,6 +149,10 @@ export type GuidedBriefScaffoldInput = {
   workspaceName: string
   idea: string
   hasUi: GuidedBriefHasUi | null
+  // Absent is treated as `full-brief`. `frontend-design` forces the design-only
+  // path (UI implied, product/architecture skipped, start on the designer stage)
+  // regardless of the discussion flags passed alongside it.
+  preset?: GuidedBriefPreset
   wantsProduct: boolean
   wantsArchitecture: boolean
   wantsFrontend: boolean

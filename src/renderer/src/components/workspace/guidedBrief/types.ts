@@ -1,5 +1,6 @@
 import type {
   GuidedBriefHasUi,
+  GuidedBriefPreset,
   GuidedBriefStage,
   GuidedBriefAcceptedArtifact,
   GuidedBriefRuntimeState,
@@ -7,6 +8,7 @@ import type {
 
 export type {
   GuidedBriefHasUi,
+  GuidedBriefPreset,
   GuidedBriefStage,
   GuidedBriefAcceptedArtifact,
   GuidedBriefRuntimeState,

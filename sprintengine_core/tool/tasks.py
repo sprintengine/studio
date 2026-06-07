@@ -490,6 +490,8 @@ def canonical_quality_gate_id(value: str) -> str:
         "frontend_review": "frontend_review",
         "code_review": "code_reviewer",
         "code_reviewer": "code_reviewer",
+        "nuclear_review": "nuclear_reviewer",
+        "nuclear_reviewer": "nuclear_reviewer",
         "spec_review": "spec_reviewer",
         "spec_reviewer": "spec_reviewer",
         "validation": "tester",

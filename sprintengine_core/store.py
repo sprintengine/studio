@@ -70,6 +70,12 @@ DEFAULT_QUALITY_POLICY = {
             "required": True,
             "focus": "correctness, integration risk, maintainability, regressions, and evidence quality",
         },
+        "nuclear_reviewer": {
+            "phase": "review",
+            "role": "nuclear_reviewer",
+            "required": True,
+            "focus": "structural maintainability, abstraction quality, large-file risk, special-case sprawl, and codebase design decay",
+        },
         "spec_reviewer": {
             "phase": "review",
             "role": "spec_reviewer",
@@ -178,6 +184,20 @@ def normalize_quality_policy(raw: Any) -> dict[str, Any]:
             "role": role,
             "required": _bool_value(override.get("required"), bool(defaults["required"])),
             "focus": str(override.get("focus") or defaults["focus"]).strip(),
+        }
+    for key, override in raw_gates.items():
+        gate_id = str(key or "").strip().replace("-", "_")
+        if not gate_id or gate_id in normalized["gates"] or not isinstance(override, dict):
+            continue
+        phase = str(override.get("phase") or "").strip()
+        role = str(override.get("role") or gate_id).strip()
+        if phase not in GATE_PHASES or not role:
+            continue
+        normalized["gates"][gate_id] = {
+            "phase": phase,
+            "role": role,
+            "required": _bool_value(override.get("required"), True),
+            "focus": str(override.get("focus") or "").strip(),
         }
     return normalized
 
@@ -320,7 +340,9 @@ def derive_default_quality_gates(task: dict[str, Any], state: dict[str, Any], po
             "attempts": [],
         })
 
-    for gate_id in ("code_reviewer", "spec_reviewer", "tester", "product"):
+    for gate_id, spec in gate_specs.items():
+        if gate_id == "architect":
+            continue
         spec = gate_specs.get(gate_id)
         if not isinstance(spec, dict):
             continue
@@ -371,12 +393,12 @@ def normalize_task_quality_gates(task: dict[str, Any], state: dict[str, Any], po
 
 
 def normalize_quality_fields(state: dict[str, Any], run: dict[str, Any] | None = None) -> dict[str, Any]:
-    source_policy = None
-    if isinstance(run, dict):
+    sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
+    source_policy = sprintengine.get("qualityPolicy") if isinstance(sprintengine.get("qualityPolicy"), dict) else None
+    if not isinstance(source_policy, dict) and isinstance(run, dict):
         source_policy = run.get("qualityPolicy")
     if not isinstance(source_policy, dict):
-        sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
-        source_policy = sprintengine.get("qualityPolicy") if isinstance(sprintengine.get("qualityPolicy"), dict) else {}
+        source_policy = {}
     policy = normalize_quality_policy(source_policy)
     state.setdefault("sprintengine", {})["qualityPolicy"] = policy
     for task in state.get("tasks", []) or []:

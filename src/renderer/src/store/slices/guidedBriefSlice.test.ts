@@ -89,6 +89,8 @@ assert.equal(normalized.activeMockupPath, 'mockups/main.html')
 assert.equal(normalized.strategistSessionId, 'strategist-session')
 assert.equal(normalized.architectSessionId, 'architect-session')
 assert.equal(normalized.designerSessionId, 'designer-session')
+assert.equal(normalized.preset, 'full-brief', 'missing preset defaults to full-brief')
+assert.equal(normalized.activeDesignArtifactPath, null, 'missing activeDesignArtifactPath defaults to null')
 
 const defaultAutomation = normalizeGuidedBriefState({
   workspaceRoot: '/repo',
@@ -99,6 +101,32 @@ const defaultAutomation = normalizeGuidedBriefState({
 assert.ok(defaultAutomation)
 assert.equal(defaultAutomation.buildStartRunner, false)
 assert.equal(defaultAutomation.buildAutoApproveArtifacts, false)
+assert.equal(defaultAutomation.preset, 'full-brief', 'legacy state without preset normalizes to full-brief')
+assert.equal(defaultAutomation.activeDesignArtifactPath, null)
+
+// Multicode Design preset round-trips, and the selected design artifact path is
+// preserved. An unknown preset value falls back to full-brief.
+const designPreset = normalizeGuidedBriefState({
+  workspaceRoot: '/repo/design',
+  workspaceName: 'Design studio',
+  idea: 'A calm onboarding flow',
+  hasUi: 'yes',
+  preset: 'frontend-design',
+  activeDesignArtifactPath: 'mockups/app.html',
+})
+assert.ok(designPreset, 'frontend-design preset input should normalize')
+assert.equal(designPreset.preset, 'frontend-design')
+assert.equal(designPreset.activeDesignArtifactPath, 'mockups/app.html')
+
+const bogusPreset = normalizeGuidedBriefState({
+  workspaceRoot: '/repo/bogus',
+  workspaceName: 'Bogus preset',
+  idea: 'idea',
+  hasUi: 'no',
+  preset: 'nonsense' as unknown as GuidedBriefRuntimeState['preset'],
+})
+assert.ok(bogusPreset)
+assert.equal(bogusPreset.preset, 'full-brief', 'unknown preset values fall back to full-brief')
 
 const carrier = {
   workspaces: [

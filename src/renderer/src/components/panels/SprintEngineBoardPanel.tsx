@@ -1423,18 +1423,55 @@ function SprintEngineBoardPanelContent({
  }
  }, [])
 
- // Hero strip: the run's identity (status dot + name + done/total) and the
- // single overflow menu that hosts settings, the runner, plan actions, and
- // verify-progress. Replaces the generic panel header entirely — the panel
- // title and total count were both redundant with the tab strip and per-tab
- // content; the focus-agent primary button moved into the overflow menu.
+ const tasksLayoutToggle = effectiveView === 'tasks' && !fixedTasksLayout ? (
+ <div
+ role="group"
+ aria-label="Tasks layout"
+ className="inline-flex shrink-0 items-center gap-0.5 rounded border border-[color:var(--border-default)] bg-[color:var(--bg-app)] p-0.5"
+ >
+ {(['graph', 'kanban'] as SprintEngineTasksLayout[]).map((layout) => {
+ const active = effectiveTasksLayout === layout
+ const label = layout === 'graph' ? 'Graph' : 'Kanban'
+ return (
+ <button
+ key={layout}
+ type="button"
+ aria-pressed={active}
+ onClick={() => setActiveTasksLayout(layout)}
+ className={`interactive rounded px-2 py-0.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
+ active
+ ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
+ : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]'
+ }`}
+ >
+ {label}
+ </button>
+ )
+ })}
+ </div>
+ ) : null
+
+ // Unified board chrome: the app shell already names the workspace immediately
+ // above this panel, so this row only carries view navigation, task layout,
+ // compact run state, and the shared overflow/settings menu.
  const runHero = (
- <header className="relative shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2.5">
- <div className="flex items-center gap-2">
+ <header className="relative shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
+ <div className="flex min-h-10 items-center justify-between gap-2 pr-3">
+ {!fixedView ? (
+ <Tabs<SprintEngineView>
+ ariaLabel="Sprint Engine view"
+ items={chromeTabItems}
+ value={effectiveView}
+ onChange={activateView}
+ idPrefix="sprintengine-view"
+ className="px-3"
+ borderless
+ />
+ ) : (
+ <span className="sr-only">{sprintEngineState.name}</span>
+ )}
+ <div className="flex min-w-0 shrink-0 items-center gap-2">
  <StatusDot tone={runPhaseTone} label={`Run phase: ${runPhase}`} />
- <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
- {sprintEngineState.name}
- </h2>
   <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">
   {doneCount}/{totalTasks}
   </span>
@@ -1448,6 +1485,7 @@ function SprintEngineBoardPanelContent({
   />
   <span className="truncate">{sprintEngineAutomationRuntimeLabels[automationRuntimeState]}</span>
   </span>
+ {tasksLayoutToggle}
   <Popover
  open={settingsOpen}
  onOpenChange={setSettingsOpen}
@@ -1470,6 +1508,7 @@ function SprintEngineBoardPanelContent({
  onClose={() => setSettingsOpen(false)}
  />
  </Popover>
+ </div>
  </div>
  <div
  className="pointer-events-none absolute inset-x-0 bottom-[-1px] h-[2px]"
@@ -1532,47 +1571,6 @@ function SprintEngineBoardPanelContent({
  return (
  <div className="relative flex h-full flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-strong)]">
  {runHero}
-
- {!fixedView ? (
- <div className="shrink-0 flex items-center justify-between gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] pr-3">
- <Tabs<SprintEngineView>
- ariaLabel="Sprint Engine view"
- items={chromeTabItems}
- value={effectiveView}
- onChange={activateView}
- idPrefix="sprintengine-view"
- className="px-3"
- borderless
- />
- {effectiveView === 'tasks' && !fixedTasksLayout ? (
- <div
- role="group"
- aria-label="Tasks layout"
- className="inline-flex shrink-0 items-center gap-0.5 rounded border border-[color:var(--border-default)] bg-[color:var(--bg-app)] p-0.5"
- >
- {(['graph', 'kanban'] as SprintEngineTasksLayout[]).map((layout) => {
- const active = effectiveTasksLayout === layout
- const label = layout === 'graph' ? 'Graph' : 'Kanban'
- return (
- <button
- key={layout}
- type="button"
- aria-pressed={active}
- onClick={() => setActiveTasksLayout(layout)}
- className={`interactive rounded px-2 py-0.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
- active
- ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
- : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]'
- }`}
- >
- {label}
- </button>
- )
- })}
- </div>
- ) : null}
- </div>
- ) : null}
 
  <div className="sr-only" role="status" aria-live="polite">
  {syncState.message}

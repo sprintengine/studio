@@ -1533,7 +1533,7 @@ function ExplorerTree({
         title={searchDiagnosticsTitle}
         onKeyDown={(event) => void handleKeyDown(event)}
         onContextMenu={(event) => void showContextMenu(event)}
-        className="flex flex-col gap-px rounded-md px-1 py-1.5 outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
+        className="flex min-h-full flex-col gap-px rounded-md px-1 py-1.5 outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
       >
         {activeRows.map(({ entry, depth }) => {
           const isSelected = selectedPaths.has(entry.path)

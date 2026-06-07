@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from helpers import REPO_ROOT, create_team, get_task, read_state, task, write_workspace_role
+from helpers import REPO_ROOT, create_team, create_workspace_team, get_task, read_state, task, write_state, write_workspace_role
 
 MCP_USER_ID_ENV = "SPRINTENGINE_MCP_USER_ID"
 MCP_USER_AUTHORIZED_ENV = "SPRINTENGINE_MCP_USER_AUTHORIZED"
@@ -154,6 +154,102 @@ def test_mcp_backend_join_watch_preserves_cli_directive_shape(tmp_path) -> None:
     assert "sprintengine task next --role developer --id developer-a" in payload["prompt"]
     rows = audit_rows(fixture.team_dir)
     assert [row["operation_name"] for row in rows] == ["sprintengine.join"]
+
+
+def test_plan_add_task_adds_rostered_nuclear_reviewer_gate(tmp_path) -> None:
+    fixture = create_team(tmp_path, "cli-nuclear-review-gate", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "developer-1": {"id": "developer-1", "role": "developer", "status": "idle"},
+        "nuclear-reviewer-1": {"id": "nuclear-reviewer-1", "role": "nuclear_reviewer", "status": "idle"},
+    }
+    write_state(fixture.state_path, state)
+
+    payload = fixture.cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Implement routed work",
+        "--role",
+        "developer",
+        "--path",
+        "sprintengine_core/tool/prompts.py",
+        "--acceptance",
+        "Implementation publishes through real Sprint Engine paths.",
+    )
+
+    gates = payload["task"]["qualityGates"]
+    assert [gate["role"] for gate in gates] == ["nuclear_reviewer"]
+    assert gates[0]["id"] == "nuclear_reviewer"
+    assert "structural maintainability" in gates[0]["focus"]
+
+
+def test_custom_quality_policy_gate_uses_workspace_role(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    write_workspace_role(workspace, "marketer")
+    fixture = create_workspace_team(tmp_path, "workspace", "cli-custom-review-gate", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["sprintengine"]["qualityPolicy"] = {
+        "enabled": True,
+        "rosterDriven": True,
+        "gates": {
+            "launch_review": {
+                "phase": "review",
+                "role": "marketer",
+                "required": True,
+                "focus": "launch messaging and adoption risk",
+            },
+        },
+    }
+    state["agents"] = {
+        "developer-1": {"id": "developer-1", "role": "developer", "status": "idle"},
+        "marketer-1": {"id": "marketer-1", "role": "marketer", "status": "idle"},
+    }
+    write_state(fixture.state_path, state)
+
+    payload = fixture.cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Implement launch surface",
+        "--role",
+        "developer",
+        "--path",
+        "src/renderer/src/App.tsx",
+        "--acceptance",
+        "Launch surface renders from real app state.",
+    )
+
+    gates = payload["task"]["qualityGates"]
+    assert any(gate["id"] == "launch_review" and gate["role"] == "marketer" for gate in gates)
+
+
+def test_nuclear_reviewer_gate_claim_gets_gate_feedback_prompt(tmp_path) -> None:
+    task_record = task("T1", "Review structural risk", "developer", status="review")
+    task_record["lastImplementedByAgentId"] = "developer-1"
+    task_record["qualityGates"] = [
+        {
+            "id": "nuclear_reviewer",
+            "phase": "review",
+            "role": "nuclear_reviewer",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": False,
+            "focus": "structural maintainability and abstraction quality",
+            "attempts": [],
+        }
+    ]
+    fixture = create_team(tmp_path, "cli-nuclear-review-claim", [task_record])
+
+    payload = fixture.cli.run("task", "gate", "next", "--role", "nuclear_reviewer", "--id", "nuclear-reviewer-1")
+
+    assert payload["ok"] is True
+    assert payload["claimed"] is True
+    assert payload["gate"]["role"] == "nuclear_reviewer"
+    assert "# Sprint Engine Gate Feedback" in payload["prompt"]
+    assert "claimsChecked" in payload["prompt"]
 
 
 def test_registry_inspection_commands_work_from_repo_root() -> None:

@@ -399,12 +399,16 @@ with `path`, `reason`, and optional `risk`.
   creating dead queues.
 - `lifecyclePhases`: normally `review`, `testing`, and `product`.
 - `gates`: default gate definitions keyed by gate id. Each definition includes
-  `phase`, `role`, `required`, and `focus`.
+  `phase`, `role`, `required`, and `focus`. Bundled defaults include
+  `code_reviewer`, `nuclear_reviewer`, `spec_reviewer`, `tester`, and
+  product/architect gates; custom configured gate ids are preserved when they
+  name a valid phase and role.
 
 Task `qualityGates` entries normalize to:
 
-- `id`: stable gate id such as `code_reviewer`, `spec_reviewer`, `tester`, or
-  `architect_review`.
+- `id`: stable gate id such as `code_reviewer`, `nuclear_reviewer`,
+  `spec_reviewer`, `tester`, `architect_review`, or a custom registry-backed
+  gate id.
 - `phase`: `review`, `testing`, or `product`.
 - `role`: reviewer/tester/product role that can claim the gate.
 - `status`: `pending`, `in_progress`, `approved`, `changes_requested`,

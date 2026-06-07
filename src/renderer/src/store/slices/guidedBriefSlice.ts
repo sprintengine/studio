@@ -1,5 +1,6 @@
 import type { IJsonModel } from 'flexlayout-react'
 import type {
+  GuidedBriefPreset,
   GuidedBriefRuntimeState,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
@@ -191,6 +192,11 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
   )
     ? candidate.stage
     : 'strategist-working'
+  // Legacy guided-brief states predate the preset model; missing/unknown values
+  // normalize to `full-brief` so existing workspaces load unchanged.
+  const preset: GuidedBriefPreset = candidate.preset === 'frontend-design'
+    ? 'frontend-design'
+    : 'full-brief'
   const wantsProductDiscussion = typeof candidate.wantsProductDiscussion === 'boolean'
     ? candidate.wantsProductDiscussion
     : true
@@ -217,6 +223,7 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
     workspaceName: candidate.workspaceName,
     idea: candidate.idea,
     hasUi: candidate.hasUi,
+    preset,
     wantsProductDiscussion,
     wantsArchitectureDiscussion,
     wantsFrontendDiscussion,
@@ -244,6 +251,8 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
         .filter((artifact): artifact is GuidedBriefRuntimeState['acceptedMockups'][number] => artifact != null)
       : [],
     activeMockupPath: typeof candidate.activeMockupPath === 'string' ? candidate.activeMockupPath : null,
+    activeDesignArtifactPath:
+      typeof candidate.activeDesignArtifactPath === 'string' ? candidate.activeDesignArtifactPath : null,
     strategistSessionId:
       typeof candidate.strategistSessionId === 'string' && candidate.strategistSessionId.trim()
         ? candidate.strategistSessionId

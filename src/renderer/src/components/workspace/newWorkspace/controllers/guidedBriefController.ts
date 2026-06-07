@@ -51,10 +51,22 @@ export async function runGuidedBriefScaffold(
 ): Promise<GuidedBriefScaffoldResult> {
   if (!input.folderPath) throw new GuidedBriefScaffoldError('missing-folder')
   if (!input.idea.trim()) throw new GuidedBriefScaffoldError('missing-idea')
-  if (input.hasUi == null) throw new GuidedBriefScaffoldError('missing-has-ui')
+
+  const preset: GuidedBriefRuntimeState['preset'] = input.preset === 'frontend-design'
+    ? 'frontend-design'
+    : 'full-brief'
+  const isDesignPreset = preset === 'frontend-design'
+
+  // Multicode Design is a design-only studio: UI is implied, the product and
+  // architecture discussions are off, and the frontend discussion is always on.
+  // These are forced here so the preset stays authoritative regardless of which
+  // discussion flags the caller passed.
+  const hasUi = isDesignPreset ? 'yes' : input.hasUi
+  if (hasUi == null) throw new GuidedBriefScaffoldError('missing-has-ui')
 
   const folderPath = input.folderPath
-  const hasUi = input.hasUi
+  const wantsProduct = isDesignPreset ? false : input.wantsProduct
+  const wantsArchitecture = isDesignPreset ? false : input.wantsArchitecture
 
   try {
     await scaffoldGuidedBriefWorkspace({
@@ -77,10 +89,12 @@ export async function runGuidedBriefScaffold(
     throw new GuidedBriefScaffoldError('unknown')
   }
 
-  const wantsFrontendDiscussion = hasUi === 'yes' && input.wantsFrontend
-  const initialStage: GuidedBriefRuntimeState['stage'] = input.wantsProduct
+  const wantsFrontendDiscussion = isDesignPreset
+    ? true
+    : hasUi === 'yes' && input.wantsFrontend
+  const initialStage: GuidedBriefRuntimeState['stage'] = wantsProduct
     ? 'strategist-working'
-    : input.wantsArchitecture
+    : wantsArchitecture
       ? 'architect-working'
       : wantsFrontendDiscussion
         ? 'designer-working'
@@ -111,8 +125,9 @@ export async function runGuidedBriefScaffold(
     workspaceName: workspaceLabel,
     idea: input.idea,
     hasUi,
-    wantsProductDiscussion: input.wantsProduct,
-    wantsArchitectureDiscussion: input.wantsArchitecture,
+    preset,
+    wantsProductDiscussion: wantsProduct,
+    wantsArchitectureDiscussion: wantsArchitecture,
     wantsFrontendDiscussion,
     guidedRoleCliDefaults: input.guidedRoleCliDefaults,
     buildRoleCounts: input.buildRoleCounts,
@@ -126,6 +141,7 @@ export async function runGuidedBriefScaffold(
     acceptedUiDirection: null,
     acceptedMockups: [],
     activeMockupPath: null,
+    activeDesignArtifactPath: null,
     strategistSessionId: null,
     architectSessionId: null,
     designerSessionId: null,

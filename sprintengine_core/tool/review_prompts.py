@@ -8,6 +8,7 @@ from sprintengine_core.tool.artifacts import artifacts_for_task, project_relativ
 from sprintengine_core.tool.comments import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import project_relative_path, workspace_root_for_state_path
 from sprintengine_core.tool.plans import plan_path_for_state, plan_prompt_path
+from sprintengine_core.tool.prompts import load_sprintengine_runtime_skill
 from sprintengine_core.tool.shell import get_run_vcs
 from sprintengine_core.tool.tasks import ensure_evidence
 from sprintengine_core.tool.state import gate_attempts
@@ -212,6 +213,8 @@ def build_gate_review_prompt(
             for record in prior_attempts
         ]),
         *role_specific_lines,
+        "",
+        load_sprintengine_runtime_skill("sprintengine_gate_feedback"),
         "",
         benchmark_feedback_prompt_block(),
         "",

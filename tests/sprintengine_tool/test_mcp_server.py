@@ -834,7 +834,7 @@ def test_mcp_agent_join_returns_prompt_registry_run_and_dispatch_context(tmp_pat
     ]
 
 
-def test_mcp_agent_join_injects_role_specific_runtime_skills(tmp_path) -> None:
+def test_mcp_agent_join_injects_role_specific_runtime_skills_without_gate_context(tmp_path) -> None:
     fixture = create_team(tmp_path, "mcp-agent-join-runtime-skills", [task("T1", "Plan work", "architect")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path, REPO_ROOT])
 
@@ -866,8 +866,7 @@ def test_mcp_agent_join_injects_role_specific_runtime_skills(tmp_path) -> None:
     assert "# Sprint Engine Gate Feedback" not in architect["result"]["prompt"]
     assert reviewer["ok"] is True
     assert "# Sprint Engine Workflow" in reviewer["result"]["prompt"]
-    assert "# Sprint Engine Gate Feedback" in reviewer["result"]["prompt"]
-    assert "reviewedDifficultyPct" in reviewer["result"]["prompt"]
+    assert "# Sprint Engine Gate Feedback" not in reviewer["result"]["prompt"]
     assert "# Sprint Engine Architect Workflow" not in reviewer["result"]["prompt"]
 
 

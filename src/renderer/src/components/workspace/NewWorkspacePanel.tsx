@@ -30,7 +30,7 @@ import type {
 } from '../../types/workspace'
 import { GuidedBriefFlow } from './guidedBrief/GuidedBriefFlow'
 import { GuidedBriefCloseConfirmation } from './guidedBrief/GuidedBriefCloseConfirmation'
-import { isMidStageGuidedRuntime, type GuidedBriefRuntimeState } from './guidedBrief/types'
+import { isMidStageGuidedRuntime, type GuidedBriefPreset, type GuidedBriefRuntimeState } from './guidedBrief/types'
 import {
   guidedBriefBuildHandoffRelativePath,
   guidedBriefPlanningDecisionNotes,
@@ -396,6 +396,7 @@ export default function NewWorkspacePanel({
   const [mlError, setMlError] = useState<string | null>(null)
 
   const [guidedIdea, setGuidedIdea] = useState('')
+  const [guidedPreset, setGuidedPreset] = useState<GuidedBriefPreset>('full-brief')
   const [guidedHasUi, setGuidedHasUi] = useState<GuidedBriefHasUi | null>(null)
   const [guidedWantsProduct, setGuidedWantsProduct] = useState(true)
   const [guidedWantsArchitecture, setGuidedWantsArchitecture] = useState(false)
@@ -908,6 +909,25 @@ export default function NewWorkspacePanel({
     setGuidedRoleCliDefaults((current) => ({ ...current, [role]: cli }))
   }
 
+  // Multicode Design forces the design-only path: a screen is implied, the
+  // product and architecture discussions are off, and the frontend discussion
+  // is on. Switching back to the full brief restores the standard defaults and
+  // re-asks the has-UI question.
+  const handleChangeGuidedPreset = (next: GuidedBriefPreset) => {
+    setGuidedPreset(next)
+    setGuidedError(null)
+    if (next === 'frontend-design') {
+      setGuidedHasUi('yes')
+      setGuidedWantsProduct(false)
+      setGuidedWantsArchitecture(false)
+      setGuidedWantsFrontend(true)
+    } else {
+      setGuidedWantsProduct(true)
+      setGuidedWantsArchitecture(false)
+      setGuidedWantsFrontend(guidedHasUi !== 'no')
+    }
+  }
+
   const sprintEngineConfig = useMemo<SprintEngineMockConfig>(
     () => ({
       name: seTeamName.trim() || 'Sprint Engine Team',
@@ -945,6 +965,7 @@ export default function NewWorkspacePanel({
             workspaceName: name,
             idea: guidedIdea,
             hasUi: guidedHasUi,
+            preset: guidedPreset,
             wantsProduct: guidedWantsProduct,
             wantsArchitecture: guidedWantsArchitecture,
             wantsFrontend: guidedWantsFrontend,
@@ -1494,6 +1515,8 @@ export default function NewWorkspacePanel({
           {step === 'guided-idea' ? (
             <GuidedIdeaStep
               idea={guidedIdea}
+              preset={guidedPreset}
+              onChangePreset={handleChangeGuidedPreset}
               hasUi={guidedHasUi}
               onChangeIdea={(value) => {
                 setGuidedIdea(value)
@@ -2123,6 +2146,8 @@ function MultiloopGoalStep({
 
 function GuidedIdeaStep({
   idea,
+  preset,
+  onChangePreset,
   hasUi,
   onChangeIdea,
   onChangeHasUi,
@@ -2138,6 +2163,8 @@ function GuidedIdeaStep({
   error,
 }: {
   idea: string
+  preset: GuidedBriefPreset
+  onChangePreset: (value: GuidedBriefPreset) => void
   hasUi: GuidedBriefHasUi | null
   onChangeIdea: (value: string) => void
   onChangeHasUi: (value: GuidedBriefHasUi) => void
@@ -2152,14 +2179,37 @@ function GuidedIdeaStep({
   folderPath: string | null
   error: string | null
 }) {
+  const isDesignPreset = preset === 'frontend-design'
   return (
     <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-2">
+        <FieldLabel>What are we making?</FieldLabel>
+        <div role="radiogroup" aria-label="Guided brief preset" className="grid grid-cols-2 gap-2.5">
+          <GuidedChoiceCard
+            active={!isDesignPreset}
+            title="Full guided brief"
+            body="Strategy, architecture, and design before the build."
+            onSelect={() => onChangePreset('full-brief')}
+          />
+          <GuidedChoiceCard
+            active={isDesignPreset}
+            title="Multicode Design"
+            body="A design-only studio that goes straight to UI direction and mockups."
+            onSelect={() => onChangePreset('frontend-design')}
+          />
+        </div>
+      </div>
+
       <label className="flex flex-col gap-2">
-        <FieldLabel>Rough idea</FieldLabel>
+        <FieldLabel>{isDesignPreset ? 'Design goal' : 'Rough idea'}</FieldLabel>
         <textarea
           value={idea}
           onChange={(event) => onChangeIdea(event.target.value)}
-          placeholder="A shift-trading app where café staff can swap shifts without texting the manager."
+          placeholder={
+            isDesignPreset
+              ? 'A calm onboarding flow for a café shift-trading app: sign in, see this week’s shifts, request a swap.'
+              : 'A shift-trading app where café staff can swap shifts without texting the manager.'
+          }
           autoFocus
           className="
             min-h-[140px] w-full resize-none rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3
@@ -2169,57 +2219,80 @@ function GuidedIdeaStep({
           "
         />
         <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Plain English. Spelling doesn’t matter.
+          {isDesignPreset
+            ? 'Describe the screen or flow, the target user, and any brand constraints.'
+            : 'Plain English. Spelling doesn’t matter.'}
         </span>
       </label>
 
-      <div className="flex flex-col gap-2">
-        <FieldLabel>Will people use it on a screen?</FieldLabel>
-        <div role="radiogroup" aria-label="App surface" className="grid grid-cols-2 gap-2.5">
-          <GuidedHasUiChoice
-            active={hasUi === 'yes'}
-            title="Yes, it has a UI"
-            body="App, dashboard, mobile screen, internal tool."
-            onSelect={() => onChangeHasUi('yes')}
-          />
-          <GuidedHasUiChoice
-            active={hasUi === 'no'}
-            title="No, script or service"
-            body="CLI, API, automation — runs in the background."
-            onSelect={() => onChangeHasUi('no')}
-          />
+      {isDesignPreset ? null : (
+        <div className="flex flex-col gap-2">
+          <FieldLabel>Will people use it on a screen?</FieldLabel>
+          <div role="radiogroup" aria-label="App surface" className="grid grid-cols-2 gap-2.5">
+            <GuidedChoiceCard
+              active={hasUi === 'yes'}
+              title="Yes, it has a UI"
+              body="App, dashboard, mobile screen, internal tool."
+              onSelect={() => onChangeHasUi('yes')}
+            />
+            <GuidedChoiceCard
+              active={hasUi === 'no'}
+              title="No, script or service"
+              body="CLI, API, automation — runs in the background."
+              onSelect={() => onChangeHasUi('no')}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="flex flex-col gap-2">
         <FieldLabel>Guided discussions</FieldLabel>
         <div className="flex flex-col gap-2">
-          <GuidedRoleToggle
-            checked={wantsProductDiscussion}
-            title="Product strategist"
-            body="Sharpens the product brief before planning."
-            cli={roleCliDefaults.product}
-            onChangeCli={(cli) => onSetRoleCli('product', cli)}
-            onChange={onChangeWantsProductDiscussion}
-          />
-          <GuidedRoleToggle
-            checked={wantsArchitectureDiscussion}
-            title="Architect"
-            body="Interviews through architecture decisions and writes architecture/plan.md."
-            cli={roleCliDefaults.architect}
-            onChangeCli={(cli) => onSetRoleCli('architect', cli)}
-            onChange={onChangeWantsArchitectureDiscussion}
-          />
-          <GuidedRoleToggle
-            checked={hasUi === 'yes' && wantsFrontendDiscussion}
-            disabled={hasUi !== 'yes'}
-            title="Frontend engineer"
-            body={hasUi === 'yes' ? 'Designs UI direction and reviewable mockups.' : 'Available only for visual apps.'}
-            cli={roleCliDefaults.frontend}
-            onChangeCli={(cli) => onSetRoleCli('frontend', cli)}
-            onChange={onChangeWantsFrontendDiscussion}
-          />
+          {isDesignPreset ? (
+            <GuidedRoleToggle
+              checked
+              locked
+              title="Frontend engineer"
+              body="Designs UI direction and reviewable mockups."
+              cli={roleCliDefaults.frontend}
+              onChangeCli={(cli) => onSetRoleCli('frontend', cli)}
+              onChange={onChangeWantsFrontendDiscussion}
+            />
+          ) : (
+            <>
+              <GuidedRoleToggle
+                checked={wantsProductDiscussion}
+                title="Product strategist"
+                body="Sharpens the product brief before planning."
+                cli={roleCliDefaults.product}
+                onChangeCli={(cli) => onSetRoleCli('product', cli)}
+                onChange={onChangeWantsProductDiscussion}
+              />
+              <GuidedRoleToggle
+                checked={wantsArchitectureDiscussion}
+                title="Architect"
+                body="Interviews through architecture decisions and writes architecture/plan.md."
+                cli={roleCliDefaults.architect}
+                onChangeCli={(cli) => onSetRoleCli('architect', cli)}
+                onChange={onChangeWantsArchitectureDiscussion}
+              />
+              <GuidedRoleToggle
+                checked={hasUi === 'yes' && wantsFrontendDiscussion}
+                disabled={hasUi !== 'yes'}
+                title="Frontend engineer"
+                body={hasUi === 'yes' ? 'Designs UI direction and reviewable mockups.' : 'Available only for visual apps.'}
+                cli={roleCliDefaults.frontend}
+                onChangeCli={(cli) => onSetRoleCli('frontend', cli)}
+                onChange={onChangeWantsFrontendDiscussion}
+              />
+            </>
+          )}
         </div>
+        {isDesignPreset ? (
+          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+            Multicode Design skips the product and architecture discussions and starts on the design studio.
+          </p>
+        ) : null}
       </div>
 
       {folderPath ? (
@@ -2242,6 +2315,7 @@ function GuidedIdeaStep({
 function GuidedRoleToggle({
   checked,
   disabled = false,
+  locked = false,
   title,
   body,
   cli,
@@ -2250,12 +2324,17 @@ function GuidedRoleToggle({
 }: {
   checked: boolean
   disabled?: boolean
+  // `locked` pins the discussion on (checkbox checked, not toggleable) while
+  // keeping the CLI selector usable. Used by the Multicode Design preset, which
+  // always runs the frontend designer but still lets the user pick its CLI.
+  locked?: boolean
   title: string
   body: string
   cli: AgentCli
   onChange: (value: boolean) => void
   onChangeCli: (cli: AgentCli) => void
 }) {
+  const effectiveChecked = locked || checked
   return (
     <div
       className={`flex items-start justify-between gap-3 rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] px-3 py-2.5 ${
@@ -2275,13 +2354,13 @@ function GuidedRoleToggle({
           ]}
           value={cli}
           onChange={onChangeCli}
-          disabled={disabled || !checked}
+          disabled={disabled || !effectiveChecked}
           className="w-[140px]"
         />
         <input
           type="checkbox"
-          checked={checked}
-          disabled={disabled}
+          checked={effectiveChecked}
+          disabled={disabled || locked}
           onChange={(event) => onChange(event.currentTarget.checked)}
           className="h-4 w-4 shrink-0 accent-[color:var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[color:var(--accent-primary)] disabled:cursor-not-allowed"
         />
@@ -2290,7 +2369,7 @@ function GuidedRoleToggle({
   )
 }
 
-function GuidedHasUiChoice({
+function GuidedChoiceCard({
   active,
   title,
   body,

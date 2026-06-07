@@ -253,17 +253,34 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
     if (showPreview) return
 
     const handleFocusRequest = (event: Event) => {
-      const detail = (event as CustomEvent<{ workspaceId?: string }>).detail
+      const detail = (event as CustomEvent<{
+        workspaceId?: string
+        filePath?: string
+        line?: number
+        column?: number
+      }>).detail
       if (detail?.workspaceId !== workspaceId) return
+      if (detail.filePath && detail.filePath !== activeFilePath) return
 
       window.requestAnimationFrame(() => {
-        editorRef.current?.focus()
+        const editor = editorRef.current
+        if (!editor) return
+        if (detail.line && Number.isSafeInteger(detail.line) && detail.line > 0) {
+          editor.setPosition({
+            lineNumber: detail.line,
+            column: detail.column && Number.isSafeInteger(detail.column) && detail.column > 0
+              ? detail.column
+              : 1,
+          })
+          editor.revealLineInCenter(detail.line)
+        }
+        editor.focus()
       })
     }
 
     window.addEventListener(EDITOR_FOCUS_EVENT, handleFocusRequest)
     return () => window.removeEventListener(EDITOR_FOCUS_EVENT, handleFocusRequest)
-  }, [showPreview, workspaceId])
+  }, [activeFilePath, showPreview, workspaceId])
 
   const showEditorContextMenu = async (event: React.MouseEvent<HTMLDivElement>) => {
     if (showPreview || !editorRef.current) return

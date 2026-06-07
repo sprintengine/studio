@@ -17,7 +17,7 @@ Coordinate through the Sprint Engine MCP tools. If the managed Sprint Engine MCP
 - Add a post-code-review final review scheduling task before treating the sprintengine as complete.
 - Iterate on the board during user review by editing, deleting, and relinking tasks via `sprintengine.plan.update_task`, `sprintengine.plan.delete_task`, `sprintengine.plan.add_dependency`, and `sprintengine.plan.remove_dependency`.
 - Treat product, code review, performance, tester, and security recommended tasks as input; only the architect changes the task graph.
-- Keep implementation code review tasks review-only. Code reviewers inspect implementation quality and produce evidence, findings, or `code_review` artifacts; frontend and developer roles own source fixes.
+- Keep implementation review tasks review-only. Reviewers inspect completed work and produce evidence, findings, or review artifacts; frontend and developer roles own source fixes.
 - When specialist plan review feedback exists, address it via `sprintengine.plan.address_reviews` with `{ actor: "architect" }`.
 - Tell the user to review the plan in the app and manually spawn the specialists they want to run.
 - Stop — do not do any implementation work.
@@ -80,7 +80,7 @@ Each `sprintengine.plan.add_task` call must include:
 
 - `title`: a concise title
 - `description`: a concrete self-contained task brief
-- `role`: one of `architect`, `developer`, `frontend`, `tester`, `security`, `product`, `code_reviewer`, `spec_reviewer`, `performance`
+- `role`: a configured Sprint Engine role id from the active roster/role registry. Use the canonical snake_case id returned by registry/tooling, not an invented label.
 - `acceptance`: array of repeatable verifiable conditions
 - `dependsOn`: array of repeatable task ids that must be done first
 - `path`: array of files or directories this task will touch
@@ -131,14 +131,14 @@ Before adding or updating a task, copy the relevant implementation detail from `
 - `acceptance`: externally verifiable outcomes. Avoid vague criteria like "works correctly".
 - `note`: repeatable low-level details such as functions to update, state transitions, API contracts, edge cases, and rollback notes.
 
-For `code_reviewer` tasks:
+For review-only tasks:
 
 - Make the task review-only.
-- Require a concrete review evidence trail: direct task log evidence for small reviews, or a `code_review` artifact for formal reviews and final gates.
+- Require a concrete review evidence trail: direct task log evidence for small reviews, or the appropriate review artifact for formal reviews and final gates.
 - Acceptance should require findings with severity, impact, recommended fix, owner role, and verification steps; if there are no findings, require an explicit approval verdict and residual-risk note.
-- Do not ask code reviewers to edit source or tests. If fixes are needed, the architect converts findings into new `frontend` or `developer` tasks.
+- Do not ask reviewers to edit source or tests. If fixes are needed, the architect converts findings into new `frontend` or `developer` tasks.
 
-Use `spec_reviewer` when the work is to compare completed implementation against approved requirements, acceptance criteria, task comments, tests, and evidence. Use `code_reviewer` when the work is implementation quality, maintainability, AI-slop patterns, architectural fit, and localized code-risk review.
+Use `spec_reviewer` when the work is to compare completed implementation against approved requirements, acceptance criteria, task comments, tests, and evidence. Use `code_reviewer` when the work is implementation quality, correctness, integration risk, AI-slop patterns, and localized code-risk review. Use `nuclear_reviewer` when the desired review bar is stricter structural maintainability: large-file risk, tangled branches, weak abstractions, cast-heavy boundaries, special-case sprawl, and design decay.
 
 Do not create thin task cards that only contain a title and broad acceptance criteria. If the plan has already figured out the details, put those details directly into the task card.
 

@@ -291,8 +291,51 @@ async function testGuidedBriefScaffoldHappyPath(): Promise<void> {
   assert.equal(runtimeState.stage, 'handoff', 'no-discussion path lands directly on handoff stage')
   assert.equal(runtimeState.workspaceRoot, '/workspace')
   assert.equal(runtimeState.hasUi, 'no')
+  assert.equal(runtimeState.preset, 'full-brief', 'omitted preset defaults to full-brief')
+  assert.equal(runtimeState.activeDesignArtifactPath, null)
   assert.ok(fs.files.has('/workspace/product/idea-seed.md'), 'idea seed is written by scaffold')
   assert.ok(fs.files.has('/workspace/product/build-handoff.md'), 'build handoff is written for the skipped path')
+}
+
+async function testGuidedBriefDesignPresetScaffold(): Promise<void> {
+  const fs = createMemoryFilesystem()
+  const ports: GuidedBriefScaffoldPorts = {
+    filesystem: fs,
+  }
+
+  // The frontend-design preset forces the design-only path: UI is implied even
+  // when hasUi is null, the product/architecture discussion flags are ignored,
+  // the frontend discussion is on, and the scaffold starts on designer-working
+  // without writing a premature build handoff.
+  const { runtimeState } = await runGuidedBriefScaffold(
+    {
+      folderPath: '/design',
+      workspaceName: 'Studio',
+      idea: 'A focused onboarding screen.',
+      hasUi: null,
+      preset: 'frontend-design',
+      wantsProduct: true,
+      wantsArchitecture: true,
+      wantsFrontend: false,
+      guidedRoleCliDefaults: { product: 'claude', architect: 'claude', frontend: 'claude' },
+      buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+      buildRoleCliDefaults: { architect: 'claude', product: 'claude', frontend: 'claude', developer: 'claude', code_reviewer: 'claude', spec_reviewer: 'claude', performance: 'claude', cross_platform: 'claude', tester: 'claude', security: 'claude' },
+      buildCliPermissionPreset: 'default',
+      buildStartRunner: false,
+      buildAutoApproveArtifacts: false,
+    },
+    ports,
+  )
+
+  assert.equal(runtimeState.preset, 'frontend-design')
+  assert.equal(runtimeState.hasUi, 'yes', 'design preset forces hasUi to yes')
+  assert.equal(runtimeState.stage, 'designer-working', 'design preset starts on the designer stage')
+  assert.equal(runtimeState.wantsProductDiscussion, false, 'design preset disables the product discussion')
+  assert.equal(runtimeState.wantsArchitectureDiscussion, false, 'design preset disables the architecture discussion')
+  assert.equal(runtimeState.wantsFrontendDiscussion, true, 'design preset enables the frontend discussion')
+  assert.equal(runtimeState.activeDesignArtifactPath, null)
+  assert.ok(fs.files.has('/design/product/idea-seed.md'), 'idea seed is written by scaffold')
+  assert.ok(!fs.files.has('/design/product/build-handoff.md'), 'design preset does not write a premature handoff')
 }
 
 async function testGuidedBriefStartBuildValidation(): Promise<void> {
@@ -481,6 +524,7 @@ async function main(): Promise<void> {
   await testSprintEnginePlanSourcedValidation()
   await testGuidedBriefScaffoldValidation()
   await testGuidedBriefScaffoldHappyPath()
+  await testGuidedBriefDesignPresetScaffold()
   await testGuidedBriefStartBuildValidation()
   await testGuidedBriefStartBuildHandoffPath()
   console.log('newWorkspace controllers.test.ts: ok')

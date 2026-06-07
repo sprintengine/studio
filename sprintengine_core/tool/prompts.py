@@ -10,7 +10,6 @@ from sprintengine_core.role_registry import SoulRenderError, discover_role_regis
 
 SPRINTENGINE_SKILLS_DIR = REPO_ROOT / "resources" / "sprintengine" / "skills"
 SPRINTENGINE_IMPLEMENTATION_ROLES = {"blog_writer", "coordinator", "creative", "developer", "devops", "frontend", "presentation", "product"}
-SPRINTENGINE_GATE_ROLES = {"code_reviewer", "performance", "product", "security", "spec_reviewer", "tester"}
 
 
 def load_soul_prompt(role: str) -> Optional[str]:
@@ -27,13 +26,13 @@ def load_sprintengine_runtime_skill(skill_id: str) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
-def sprintengine_runtime_skill_ids(role: str) -> list[str]:
+def sprintengine_runtime_skill_ids(role: str, *, include_gate_feedback: bool = False) -> list[str]:
     skill_ids = ["sprintengine_workflow"]
     if role == "architect":
         skill_ids.append("sprintengine_architect_workflow")
     if role in SPRINTENGINE_IMPLEMENTATION_ROLES:
         skill_ids.append("sprintengine_publish_feedback")
-    if role in SPRINTENGINE_GATE_ROLES:
+    if include_gate_feedback:
         skill_ids.append("sprintengine_gate_feedback")
     return skill_ids
 
@@ -73,10 +72,13 @@ def generic_role_swarm_prompt(role: str) -> str:
     ])
 
 
-def load_sprintengine_coordination_prompt(role: str) -> str:
+def load_sprintengine_coordination_prompt(role: str, *, include_gate_feedback: bool = False) -> str:
     path = PROMPTS_DIR / f"{role}.md"
     role_prompt = path.read_text(encoding="utf-8").strip() if path.exists() else generic_role_swarm_prompt(role)
-    runtime_skills = [load_sprintengine_runtime_skill(skill_id) for skill_id in sprintengine_runtime_skill_ids(role)]
+    runtime_skills = [
+        load_sprintengine_runtime_skill(skill_id)
+        for skill_id in sprintengine_runtime_skill_ids(role, include_gate_feedback=include_gate_feedback)
+    ]
     return "\n\n---\n\n".join([
         *runtime_skills,
         role_prompt,
@@ -195,10 +197,10 @@ def compose_prompt(
     ])
 
 
-def load_prompt(role: str) -> str:
+def load_prompt(role: str, *, include_gate_feedback: bool = False) -> str:
     return compose_prompt(
         "# SprintEngine Coordination Rules",
-        load_sprintengine_coordination_prompt(role),
+        load_sprintengine_coordination_prompt(role, include_gate_feedback=include_gate_feedback),
         load_soul_prompt(role),
         (
             "Use the Soul prompt above for role personality, judgment, and quality bar. "

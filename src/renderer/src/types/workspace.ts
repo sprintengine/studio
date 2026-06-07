@@ -1348,6 +1348,14 @@ export type AppSettings = {
 
 export type GuidedBriefHasUi = 'yes' | 'no'
 
+// Guided Brief ships two presets. `full-brief` is the classic strategist →
+// architect → designer → handoff flow. `frontend-design` is surfaced to users
+// as "Multicode Design": a design-only studio that forces the UI path, skips
+// the product and architecture discussions, and starts on the designer stage.
+// It stays inside the `guided-brief` workspace mode rather than becoming its own
+// `WorkspaceMode`.
+export type GuidedBriefPreset = 'full-brief' | 'frontend-design'
+
 export type GuidedBriefRoleCliDefaults = {
   product: AgentCli
   architect: AgentCli
@@ -1375,6 +1383,9 @@ export type GuidedBriefRuntimeState = {
   workspaceName: string
   idea: string
   hasUi: GuidedBriefHasUi
+  // Which Guided Brief preset this runtime was created from. Absent on legacy
+  // states; normalization defaults it to `full-brief`.
+  preset?: GuidedBriefPreset
   wantsProductDiscussion: boolean
   wantsArchitectureDiscussion: boolean
   wantsFrontendDiscussion: boolean
@@ -1390,6 +1401,10 @@ export type GuidedBriefRuntimeState = {
   acceptedUiDirection: GuidedBriefAcceptedArtifact | null
   acceptedMockups: GuidedBriefAcceptedArtifact[]
   activeMockupPath: string | null
+  // Path of the design artifact currently selected in the Multicode Design
+  // studio preview, relative to the workspace root. Absent on legacy states;
+  // normalization defaults it to `null`.
+  activeDesignArtifactPath?: string | null
   // Persisted so the renderer reattaches to the same PTY across HMR / refresh
   // instead of spawning a fresh strategist, architect, or designer.
   strategistSessionId: string | null

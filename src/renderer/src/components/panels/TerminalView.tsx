@@ -13,11 +13,13 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { deferFitDuringSidebarAnimation } from '../../utils/sidebarTransition'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
+import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/terminalDrop'
 import { MONO_FONT_STACK, waitForMonoFontReady } from '../../utils/fonts'
+import { isImageFile } from '../../utils/files'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { resolveAgentCliPermissionPreset } from '../../utils/agentCliPermissions'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
@@ -26,6 +28,7 @@ import type { McpSettings } from '../../types/workspace'
 import { Toast } from '../ui/Toast'
 import { workspaceSyncClient } from '../../store/workspaceSyncClient'
 import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../shared/terminal-history'
+import { focusOrAddFileTab } from '../../utils/modelRegistry'
 
 interface Props {
   workspaceId: string
@@ -129,6 +132,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   })
   const [isFileDragOver, setIsFileDragOver] = useState(false)
   const [dropError, setDropError] = useState<string | null>(null)
+  const [fileLinkError, setFileLinkError] = useState<string | null>(null)
   const agent = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
   )
@@ -181,6 +185,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
   const cli = agent?.cli
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
+  const openFile = useWorkspaceStore((s) => s.openFile)
   const startupPrompt = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
     const currentAgent = workspace?.agents[agentId]
@@ -318,6 +323,36 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     term.open(container)
     fitTerminal()
     focusTerminal()
+
+    const linkExecutionRoot = resolveAgentExecutionRoot(
+      agent?.execution,
+      storedExecutionWorktreePath,
+      folderReadyPath
+    )
+    const fileLinkDisposable = term.registerLinkProvider(createTerminalFileLinkProvider({
+      terminal: term,
+      workspaceRoot: folderReadyPath ?? savedFolderPath,
+      executionRoot: linkExecutionRoot.cwd,
+      pathExists: (path) => window.api.pathExists(path),
+      openFile: async ({ resolvedPath, name, line, column }) => {
+        const content = isImageFile(resolvedPath) ? '' : await window.api.readfile(resolvedPath)
+        openFile(workspaceId, resolvedPath, name, content)
+        focusOrAddFileTab(workspaceId, resolvedPath, name)
+        const dispatchFocus = () => {
+          window.dispatchEvent(new CustomEvent('multicode:focus-editor', {
+            detail: {
+              workspaceId,
+              filePath: resolvedPath,
+              line,
+              column,
+            },
+          }))
+        }
+        window.setTimeout(dispatchFocus, 0)
+        window.setTimeout(dispatchFocus, 80)
+      },
+      onOpenError: setFileLinkError,
+    }))
 
     let disposed = false
     void waitForMonoFontReady().then(() => {
@@ -667,6 +702,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       disposeError()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
+      fileLinkDisposable.dispose()
       terminalDiagnostics.dispose()
       replayGate.dispose()
       outputQueue.dispose()
@@ -703,6 +739,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     mcpSettings,
     storedExecutionWorktreePath,
     updateAgent,
+    openFile,
     shouldKillOnUnmount,
   ])
 
@@ -763,6 +800,16 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
             title="File drop failed"
             description={dropError}
             onDismiss={() => setDropError(null)}
+          />
+        </div>
+      ) : null}
+      {fileLinkError ? (
+        <div className="absolute right-3 top-3 z-20 max-w-[360px]">
+          <Toast
+            tone="error"
+            title="File link failed"
+            description={fileLinkError}
+            onDismiss={() => setFileLinkError(null)}
           />
         </div>
       ) : null}
