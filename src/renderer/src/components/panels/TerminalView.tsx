@@ -13,11 +13,11 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { deferFitDuringSidebarAnimation } from '../../utils/sidebarTransition'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
-import { createXtermOutputQueue } from '../../utils/xtermOutputQueue'
+import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/terminalDrop'
-import { MONO_FONT_STACK } from '../../utils/fonts'
+import { MONO_FONT_STACK, waitForMonoFontReady } from '../../utils/fonts'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { resolveAgentCliPermissionPreset } from '../../utils/agentCliPermissions'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
@@ -320,6 +320,11 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     focusTerminal()
 
     let disposed = false
+    void waitForMonoFontReady().then(() => {
+      if (disposed) return
+      fitTerminal()
+      term.refresh(0, Math.max(0, term.rows - 1))
+    })
     let reportedTerminalFailure = false
     let terminalLaunchDetails = [
       `Session: ${sessionId}`,
@@ -329,9 +334,16 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const outputQueue = createXtermOutputQueue(term, {
       recordWrite: terminalDiagnostics.recordOutputWrite,
     })
+    const replayGate = createXtermReplayGate(term, outputQueue, {
+      container,
+      recordWrite: terminalDiagnostics.recordOutputWrite,
+    })
 
     const disposeData = window.api.onTerminalData(sessionId, (data) => {
-      outputQueue.enqueue(data)
+      replayGate.handleLiveData(data)
+    })
+    const disposeReplay = window.api.onTerminalReplay(sessionId, (data) => {
+      replayGate.handleReplay(data)
     })
 
     const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
@@ -524,6 +536,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
             displayName: agent?.name ?? agentId,
           }
 
+      replayGate.beginReplayWait()
       const spawnResult = await window.api.terminalSpawn(
         sessionId,
         term.cols,
@@ -559,6 +572,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         message: error instanceof Error ? error.message : 'Failed to start terminal.',
         exitCode: 1,
       }))
+      replayGate.finishReplayWait()
       if (disposed) return
       if (!spawnResult.ok) {
         const currentSessionId = useWorkspaceStore
@@ -648,11 +662,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       container.removeEventListener('focus', focusTerminal)
       disposeClipboardHandlers()
       disposeData()
+      disposeReplay()
       disposeExit()
       disposeError()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
       terminalDiagnostics.dispose()
+      replayGate.dispose()
       outputQueue.dispose()
       unbindTerminalTheme()
       term.dispose()
@@ -735,7 +751,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={(event) => void handleDrop(event)}
-      className="absolute inset-0 overflow-hidden px-2 pb-2 cursor-text"
+      className="terminal-focus-ring absolute inset-0 overflow-hidden p-2 cursor-text"
     >
       {isFileDragOver ? (
         <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]" />

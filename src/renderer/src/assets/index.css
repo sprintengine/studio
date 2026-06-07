@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
 
 /* Shared UI tokens — shared by Switchboard, Watchtower, Sprint Engine, and
@@ -682,7 +682,7 @@ pre,
 samp,
 .font-mono {
   font-family:
-    "Geist Mono",
+    "JetBrains Mono",
     ui-monospace,
     SFMono-Regular,
     "SF Mono",
@@ -998,6 +998,40 @@ samp,
 
 .status-dot-pulse {
   animation: status-dot-pulse 1800ms cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Conversation-agent thinking indicator. The motion is intentionally tiny:
+ * enough to prove the model is alive, not enough to become ambient decoration. */
+@keyframes thinking-dot-wave {
+  0%, 80%, 100% {
+    opacity: 0.45;
+    transform: translateY(0);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .thinking-dot-wave {
+    animation: thinking-dot-wave 900ms var(--motion-ease) infinite;
+  }
+
+  .conversation-row-enter {
+    animation: conversation-row-enter var(--motion-normal) var(--motion-ease) both;
+  }
+}
+
+@keyframes conversation-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes logo-rise {
@@ -1368,6 +1402,27 @@ samp,
   background: var(--bg-surface-raised);
   background-image: none !important;
   border-bottom-color: var(--border-strong);
+}
+
+/* Focus ring for the terminal you're currently using. Driven by :focus-within
+   so only the container holding xterm's focused textarea lights up — in a split,
+   one terminal at a time. Drawn as an inset ::after overlay (not an edge-flush
+   box-shadow) so it clears FlexLayout's rounded corners and top border, which
+   otherwise clip a ring painted at the panel edge. pointer-events:none keeps it
+   decorative; it sits inside the panel padding so it never overlaps the
+   terminal's first row. */
+.terminal-focus-ring::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 1px solid var(--accent-primary);
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.terminal-focus-ring:focus-within::after {
+  opacity: 1;
 }
 
 .flexlayout__splitter {

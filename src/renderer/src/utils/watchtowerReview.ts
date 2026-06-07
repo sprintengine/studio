@@ -56,6 +56,7 @@ export const WATCHTOWER_REVIEW_SPECIALIST_FOCUS: Record<SpecialistActionId, Watc
   'frontend-design-review': ['frontend_design', 'accessibility', 'brand_alignment', 'cross_platform'],
   'blog-writer': ['documentation', 'brand_alignment'],
   'code-review': ['code_review', 'ai_slop', 'architecture_quality', 'documentation'],
+  'nuclear-review': ['code_review', 'architecture_quality', 'ai_slop'],
   'spec-review': ['spec_review', 'qa_testing', 'documentation'],
 }
 
@@ -167,6 +168,8 @@ export function defaultSectorsForSpecialist(specialistId: SpecialistActionId): W
       return ['documentation', 'brand_alignment']
     case 'code-review':
       return ['code_review', 'ai_slop']
+    case 'nuclear-review':
+      return ['code_review', 'architecture_quality', 'ai_slop']
     case 'spec-review':
       return ['spec_review']
   }

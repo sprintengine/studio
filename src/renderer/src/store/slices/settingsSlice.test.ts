@@ -13,7 +13,11 @@ import {
   normalizeSearchExcludes,
   normalizeSpecialistOrder,
 } from './settingsSlice'
-import { orderSpecialistActions } from '../../specialists/specialistActions'
+import {
+  buildSpecialistSoulStartupPrompt,
+  getSpecialistAction,
+  orderSpecialistActions,
+} from '../../specialists/specialistActions'
 
 const workspaceWithMemoryRoot = {
   folderPath: '/Users/example/project',
@@ -332,6 +336,24 @@ assert.equal(
   orderSpecialistActions([]).length,
   'reordering never adds or drops specialists vs the canonical roster',
 )
+assert.ok(
+  orderSpecialistActions([]).some((action) => action.id === 'nuclear-review'),
+  'Nuclear Reviewer appears in the canonical specialist roster',
+)
+{
+  const codeReviewPrompt = buildSpecialistSoulStartupPrompt(getSpecialistAction('code-review'))
+  const specReviewPrompt = buildSpecialistSoulStartupPrompt(getSpecialistAction('spec-review'))
+  const nuclearReviewPrompt = buildSpecialistSoulStartupPrompt(getSpecialistAction('nuclear-review'))
+  assert.equal(codeReviewPrompt.includes('souls get code_reviewer'), true)
+  assert.equal(specReviewPrompt.includes('souls get spec_reviewer'), true)
+  assert.equal(nuclearReviewPrompt.includes('souls get nuclear_reviewer'), true)
+  assert.equal(nuclearReviewPrompt.includes('git diff'), false, 'manual Nuclear Reviewer launch does not auto-review diffs')
+  assert.equal(
+    nuclearReviewPrompt.replace('souls get nuclear_reviewer', 'souls get code_reviewer'),
+    codeReviewPrompt,
+    'Nuclear Reviewer startup prompt matches AI Slop reviewer aside from the Soul role',
+  )
+}
 
 // The persisted setter normalizes whatever the drag handler hands it.
 store.setSpecialistOrder(['developer', 'developer', 'frontend-design-review', 'bogus' as never])

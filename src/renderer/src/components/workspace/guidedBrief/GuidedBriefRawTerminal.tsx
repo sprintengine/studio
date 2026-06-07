@@ -4,8 +4,9 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { bindTerminalClipboardHandlers } from '../../../utils/terminalClipboard'
 import { bindTerminalTheme, getTerminalTheme } from '../../../utils/terminalTheme'
-import { createXtermOutputQueue } from '../../../utils/xtermOutputQueue'
+import { createXtermOutputQueue, createXtermReplayGate } from '../../../utils/xtermOutputQueue'
 import { deferFitDuringSidebarAnimation } from '../../../utils/sidebarTransition'
+import { MONO_FONT_STACK, waitForMonoFontReady } from '../../../utils/fonts'
 import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../../shared/terminal-history'
 
 type Props = {
@@ -23,7 +24,7 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
 
     const terminal = new Terminal({
       theme: getTerminalTheme(),
-      fontFamily: 'ui-monospace, "Cascadia Code", Consolas, monospace',
+      fontFamily: MONO_FONT_STACK,
       fontSize: 13,
       cursorBlink: true,
       scrollback: TERMINAL_RECENT_SCROLLBACK_LINES,
@@ -42,7 +43,10 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
     }
 
     const outputQueue = createXtermOutputQueue(terminal, { recordWrite: () => {} })
-    const disposeData = window.api.onTerminalData(sessionId, (data) => outputQueue.enqueue(data))
+    const replayGate = createXtermReplayGate(terminal, outputQueue, { container })
+    replayGate.beginReplayWait()
+    const disposeData = window.api.onTerminalData(sessionId, (data) => replayGate.handleLiveData(data))
+    const disposeReplay = window.api.onTerminalReplay(sessionId, (data) => replayGate.handleReplay(data))
     const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
       terminal.write(`\r\n\x1b[31m[Terminal exited with code ${code}]\x1b[0m\r\n`)
     })
@@ -59,6 +63,12 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
     resizeObserver.observe(container)
     fitTerminal()
     focusTerminal()
+    let disposed = false
+    void waitForMonoFontReady().then(() => {
+      if (disposed) return
+      fitTerminal()
+      terminal.refresh(0, Math.max(0, terminal.rows - 1))
+    })
     container.addEventListener('mousedown', focusTerminal)
     container.addEventListener('mouseup', focusTerminal)
     container.addEventListener('click', focusTerminal)
@@ -71,11 +81,13 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
       recordKeydown: () => {},
     })
     const settleTimer = window.setTimeout(() => {
+      replayGate.finishReplayWait()
       fitTerminal()
       focusTerminal()
     }, 50)
 
     return () => {
+      disposed = true
       window.clearTimeout(settleTimer)
       resizeObserver.disconnect()
       fitScheduler.dispose()
@@ -86,10 +98,12 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
       disposeClipboardHandlers()
       disposeTheme()
       disposeData()
+      disposeReplay()
       disposeExit()
       disposeError()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
+      replayGate.dispose()
       outputQueue.dispose()
       terminal.dispose()
     }

@@ -1165,7 +1165,7 @@ async function spawnTerminalFromIpc(
       }
       const replay = materializeTerminalReplay(existingSession)
       if (replay) {
-        sendTerminalEvent(sender, `terminal:data:${sessionId}`, replay)
+        sendTerminalEvent(sender, `terminal:replay:${sessionId}`, replay)
       }
       if (existingSession.hasExited) {
         sendTerminalEvent(sender, `terminal:exit:${sessionId}`, existingSession.exitCode ?? 0)

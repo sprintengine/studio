@@ -121,6 +121,7 @@ export const sprintEngineRoleLabels: Record<SprintEngineRole, string> = {
   tester: 'Tester',
   security: 'Security Specialist',
   code_reviewer: 'Code Reviewer',
+  nuclear_reviewer: 'Nuclear Reviewer',
   spec_reviewer: 'Spec Reviewer',
   performance: 'Performance Engineer',
   cross_platform: 'Cross-platform Specialist',
@@ -189,6 +190,7 @@ export const sprintEngineRoleAccent: Record<SprintEngineRole, string> = {
   tester: '#3dff8f',
   security: '#ff6b6b',
   code_reviewer: '#f59e0b',
+  nuclear_reviewer: '#fb7185',
   spec_reviewer: '#22c55e',
   performance: '#a78bfa',
   cross_platform: '#14b8a6',
@@ -217,6 +219,7 @@ const SOUL_ROLE_TO_SPRINT_ENGINE_ROLE: Record<string, SprintEngineRole> = {
   tester: 'tester',
   security: 'security',
   code_reviewer: 'code_reviewer',
+  nuclear_reviewer: 'nuclear_reviewer',
   spec_reviewer: 'spec_reviewer',
   performance: 'performance',
   cross_platform: 'cross_platform',
@@ -255,6 +258,7 @@ export const sprintEngineRoleOrder: SprintEngineRole[] = [
   'frontend',
   'developer',
   'code_reviewer',
+  'nuclear_reviewer',
   'spec_reviewer',
   'performance',
   'cross_platform',
@@ -609,6 +613,7 @@ function isSprintEngineRole(value: unknown): value is SprintEngineRole {
     || value === 'tester'
     || value === 'security'
     || value === 'code_reviewer'
+    || value === 'nuclear_reviewer'
     || value === 'spec_reviewer'
     || value === 'performance'
     || value === 'cross_platform'
@@ -682,6 +687,7 @@ export type SprintEngineRoleGlyphKind =
   | 'tester'
   | 'security'
   | 'code_reviewer'
+  | 'nuclear_reviewer'
   | 'spec_reviewer'
   | 'performance'
   | 'cross_platform'
@@ -1443,6 +1449,7 @@ export function createDefaultSprintEngineRoleCounts(): SprintEngineRoleCounts {
     tester: 0,
     security: 0,
     code_reviewer: 0,
+    nuclear_reviewer: 0,
     spec_reviewer: 0,
     performance: 0,
     cross_platform: 0,
@@ -1458,6 +1465,7 @@ export function createDefaultSprintEngineSkills(): SprintEngineSkillMap {
     tester: ['Regression checks', 'Acceptance review', 'Validation'],
     security: ['Threat modeling', 'Security review', 'Hardening', 'Abuse-case analysis'],
     code_reviewer: ['Code review', 'Regression risk', 'Maintainability', 'Evidence quality'],
+    nuclear_reviewer: ['Structural review', 'Large-file risk', 'Abstraction quality', 'Spaghetti-growth checks'],
     spec_reviewer: ['Spec conformance', 'Acceptance coverage', 'Behavioral gaps', 'Test evidence'],
     performance: ['Latency review', 'Memory and CPU analysis', 'Bundle/runtime cost', 'Measurement quality'],
     cross_platform: ['OS compatibility', 'Browser/device coverage', 'Path and shell portability', 'Packaging checks'],
@@ -1607,6 +1615,7 @@ const SPRINT_ENGINE_FOCUS_WORKER_ROLES: SprintEngineRole[] = [
   'frontend',
   'product',
   'code_reviewer',
+  'nuclear_reviewer',
   'spec_reviewer',
   'performance',
   'cross_platform',

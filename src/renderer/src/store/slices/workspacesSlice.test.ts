@@ -5,7 +5,7 @@ import { createGuidedBriefTemplate } from '../../layouts/templates'
 import { getEditorBuffer } from '../../utils/editorBuffers'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { useWorkspaceStore } from '../workspaceStore'
-import { normalizeWorkspaceMode, workspaceFolderKey } from './workspacesSlice'
+import { applySoloChatSeed, normalizeWorkspaceMode, workspaceFolderKey } from './workspacesSlice'
 
 const standardTemplate: LayoutTemplate = {
   id: 'standard-test',
@@ -504,5 +504,90 @@ assert.equal(
   'repo-a-3',
   'a creation into this renderer window is focused as global active',
 )
+
+// --- Open-in-new-chat seeding (addWorkspace `seedAgent`) ---------------------
+
+type SeededTab = { component?: unknown; name?: unknown; config?: Record<string, unknown> }
+const firstTab = (ws: Workspace | undefined): SeededTab | undefined => {
+  let found: SeededTab | undefined
+  const visit = (node: { component?: unknown; children?: unknown[] } | undefined) => {
+    if (!node || found) return
+    if (node.component === 'agent' || node.component === 'terminal') {
+      found = node as SeededTab
+      return
+    }
+    ;(node.children as Array<typeof node> | undefined)?.forEach(visit)
+  }
+  visit(ws?.layoutModel.layout as never)
+  return found
+}
+
+// Specialist seed: the lone agent record is initialized as a specialist and the
+// lone layout tab is renamed, all at creation time.
+const specialistChatId = useWorkspaceStore.getState().addWorkspace(soloDevTemplate, {
+  folderPath: '/Users/example/seed',
+  templateAgentCli: 'codex',
+  seedAgent: {
+    tabName: 'Ada',
+    agentPatch: {
+      name: 'Ada',
+      cli: 'codex',
+      kind: 'specialist',
+      specialistId: 'architect',
+      cliStartupPrompt: 'SOUL_PROMPT',
+    },
+  },
+})
+state = useWorkspaceStore.getState()
+const specialistChat = state.workspaces.find((workspace) => workspace.id === specialistChatId)
+assert.equal(specialistChat?.agents['agent-1']?.kind, 'specialist')
+assert.equal(specialistChat?.agents['agent-1']?.specialistId, 'architect')
+assert.equal(specialistChat?.agents['agent-1']?.cli, 'codex')
+assert.equal(specialistChat?.agents['agent-1']?.name, 'Ada')
+assert.equal(specialistChat?.agents['agent-1']?.cliStartupPrompt, 'SOUL_PROMPT')
+assert.equal(firstTab(specialistChat)?.component, 'agent')
+assert.equal(firstTab(specialistChat)?.name, 'Ada')
+
+// Conversation seed: runtime patch lands on the lone agent record.
+const conversationChatId = useWorkspaceStore.getState().addWorkspace(soloDevTemplate, {
+  folderPath: '/Users/example/seed',
+  seedAgent: {
+    tabName: 'GPT-5',
+    agentPatch: { name: 'GPT-5', runtimeKind: 'conversation', conversation: { providerId: 'openai', modelId: 'gpt-5' } },
+  },
+})
+state = useWorkspaceStore.getState()
+const conversationChat = state.workspaces.find((workspace) => workspace.id === conversationChatId)
+assert.equal(conversationChat?.agents['agent-1']?.runtimeKind, 'conversation')
+assert.deepEqual(conversationChat?.agents['agent-1']?.conversation, { providerId: 'openai', modelId: 'gpt-5' })
+assert.equal(firstTab(conversationChat)?.name, 'GPT-5')
+
+// Terminal seed: the lone agent tab is swapped for a terminal tab and no agent
+// record is created.
+const terminalChatId = useWorkspaceStore.getState().addWorkspace(soloDevTemplate, {
+  folderPath: '/Users/example/seed',
+  seedAgent: { terminal: { terminalId: 'terminal-seed-1' }, tabName: 'Terminal' },
+})
+state = useWorkspaceStore.getState()
+const terminalChat = state.workspaces.find((workspace) => workspace.id === terminalChatId)
+assert.deepEqual(terminalChat?.agents, {})
+const terminalTab = firstTab(terminalChat)
+assert.equal(terminalTab?.component, 'terminal')
+assert.equal(terminalTab?.name, 'Terminal')
+assert.deepEqual(terminalTab?.config, { terminalId: 'terminal-seed-1' })
+
+// applySoloChatSeed is pure: it clones, never mutating the source template.
+const seedSource = {
+  global: {},
+  borders: [],
+  layout: { type: 'row', children: [{ type: 'tabset', children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'agent-1' } }] }] },
+} as never
+const renamed = applySoloChatSeed(seedSource, { tabName: 'Renamed' })
+assert.notEqual(renamed, seedSource)
+assert.equal(firstTab({ layoutModel: renamed } as never)?.name, 'Renamed')
+assert.equal(firstTab({ layoutModel: seedSource } as never)?.name, 'Agent')
+const swapped = applySoloChatSeed(seedSource, { terminal: { terminalId: 't-9' }, tabName: 'Terminal' })
+assert.equal(firstTab({ layoutModel: swapped } as never)?.component, 'terminal')
+assert.equal(firstTab({ layoutModel: seedSource } as never)?.component, 'agent')
 
 console.log('workspacesSlice.test.ts: ok')

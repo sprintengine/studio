@@ -49,7 +49,29 @@ export type ChipPopoverForRole =
   | { kind: 'specialist'; id: SpecialistActionId }
   | { kind: 'multiloop'; role: MultiloopRole }
   | { kind: 'general' }
+  | { kind: 'terminal' }
+  | { kind: 'conversation' }
   | null
+
+// Top item of a spawn row's right-click menu: opens that row's agent in a fresh
+// workspace instead of the active one. Shared by every spawn row so the affordance
+// reads identically; rows with a CLI list render it above a divider.
+function OpenInNewChatItem({ onSelect }: { onSelect: () => void }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onSelect}
+      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]"
+    >
+      <svg className="icon-sm shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <rect x="3" y="3" width="14" height="14" rx="3" stroke="currentColor" strokeWidth="1.6" />
+        <path d="M10 7v6M7 10h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+      Open in New Chat
+    </button>
+  )
+}
 
 type ViewItem = { component: string; name: string }
 // Sprint Engine intentionally has no entry: Inbox / Roster / Tasks render as
@@ -523,6 +545,13 @@ export type WorkspaceTopBarProps = {
   // provider/model is available and how to open it.
   conversationSpawnAvailable: boolean
   onSpawnConversationAgent: () => void
+  // Open-in-new-chat: spawn the row's agent in a fresh workspace (inheriting the
+  // current folder) instead of the active one. Surfaced as the top item of each
+  // row's right-click menu.
+  onOpenTerminalInNewChat: () => void
+  onOpenGeneralInNewChat: (cli: AgentCli) => void
+  onOpenConversationInNewChat: () => void
+  onOpenSpecialistInNewChat: (id: SpecialistActionId, cli: AgentCli) => void
 
   openSettings: (checkForUpdates?: boolean, targetTab?: string | null) => void
   settingsOpen: boolean
@@ -603,6 +632,10 @@ export default function WorkspaceTopBar({
   setGeneralAgentCli,
   conversationSpawnAvailable,
   onSpawnConversationAgent,
+  onOpenTerminalInNewChat,
+  onOpenGeneralInNewChat,
+  onOpenConversationInNewChat,
+  onOpenSpecialistInNewChat,
   openSettings,
   settingsOpen,
   accountOpen,
@@ -1151,23 +1184,49 @@ export default function WorkspaceTopBar({
 
                   {hasQuickMatches ? (
                     <div className="py-1">
-                      {quickTerminalVisible ? (
-                        <Tooltip content={withShortcut('Open a plain terminal', shortcutFor('terminal.new'))} placement="bottom" wrapperClassName="block w-full">
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              addNewTerminal()
-                              setSpecialistMenuOpen(false)
-                            }}
-                            className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[rgba(92,124,255,0.05)] hover:text-[color:var(--text-strong)]"
-                          >
-                            <TerminalSessionIcon className="h-4 w-4 text-[color:var(--text-muted)]" />
-                            <span className="truncate text-[13px]">Terminal</span>
-                            <span aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                      ) : null}
+                      {quickTerminalVisible ? (() => {
+                        const terminalChipOpen = chipPopoverForRole?.kind === 'terminal'
+                        return (
+                          <div className="relative">
+                            <Tooltip content={withShortcut('Open a plain terminal · right-click for more', shortcutFor('terminal.new'))} placement="bottom" wrapperClassName="block w-full">
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  addNewTerminal()
+                                  setSpecialistMenuOpen(false)
+                                }}
+                                onContextMenu={(event) => {
+                                  event.preventDefault()
+                                  setChipPopoverForRole((current) => (current?.kind === 'terminal' ? null : { kind: 'terminal' }))
+                                }}
+                                className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[rgba(92,124,255,0.05)] hover:text-[color:var(--text-strong)]"
+                              >
+                                <TerminalSessionIcon className="h-4 w-4 text-[color:var(--text-muted)]" />
+                                <span className="truncate text-[13px]">Terminal</span>
+                                <span aria-hidden="true" />
+                              </button>
+                            </Tooltip>
+                            {terminalChipOpen ? (
+                              // primitive-duplication-allow: nested chip menu inside the Popover-managed spawn menu, matching the General Agent row; the outer Popover owns outside-click and focus restoration.
+                              <div
+                                role="menu"
+                                data-chip-popover="true"
+                                aria-label="Terminal actions"
+                                // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
+                                className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
+                              >
+                                <OpenInNewChatItem
+                                  onSelect={() => {
+                                    onOpenTerminalInNewChat()
+                                    setChipPopoverForRole(null)
+                                  }}
+                                />
+                              </div>
+                            ) : null}
+                          </div>
+                        )
+                      })() : null}
                       {quickGeneralVisible ? (() => {
                         const generalCli = resolvePickerCli(lastSelectedCli)
                         const generalChipOpen = chipPopoverForRole?.kind === 'general'
@@ -1204,57 +1263,92 @@ export default function WorkspaceTopBar({
                               </Tooltip>
                             </button>
                             {generalChipOpen ? (
-                              // primitive-duplication-allow: nested chip-listbox inside the Popover-managed spawn menu, matching the specialist rows; the outer Popover owns outside-click and focus restoration.
+                              // primitive-duplication-allow: nested chip menu inside the Popover-managed spawn menu, matching the specialist rows; the outer Popover owns outside-click and focus restoration.
                               <div
-                                role="listbox"
+                                role="menu"
                                 data-chip-popover="true"
-                                aria-label="Agent CLI for General Agent"
+                                aria-label="General Agent actions"
                                 // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
                                 className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                               >
-                                {agentCliOptions.map((option) => {
-                                  const isCurrent = option.value === generalCli
-                                  return (
-                                    <button
-                                      key={option.value}
-                                      type="button"
-                                      role="option"
-                                      aria-selected={isCurrent}
-                                      onClick={() => {
-                                        setGeneralAgentCli(option.value)
-                                        setChipPopoverForRole(null)
-                                      }}
-                                      className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
-                                        isCurrent
-                                          ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
-                                          : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
-                                      }`}
-                                    >
-                                      <CliIcon cli={option.value} className="icon-sm" />
-                                      {option.label}
-                                      {isCurrent ? <span className="ml-auto text-[color:var(--accent-primary)]">✓</span> : null}
-                                    </button>
-                                  )
-                                })}
+                                <OpenInNewChatItem
+                                  onSelect={() => {
+                                    onOpenGeneralInNewChat(generalCli)
+                                    setChipPopoverForRole(null)
+                                  }}
+                                />
+                                <div className="my-1 h-px bg-[color:var(--border-subtle)]" role="separator" />
+                                <div role="listbox" aria-label="Agent CLI for General Agent">
+                                  {agentCliOptions.map((option) => {
+                                    const isCurrent = option.value === generalCli
+                                    return (
+                                      <button
+                                        key={option.value}
+                                        type="button"
+                                        role="option"
+                                        aria-selected={isCurrent}
+                                        onClick={() => {
+                                          setGeneralAgentCli(option.value)
+                                          setChipPopoverForRole(null)
+                                        }}
+                                        className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
+                                          isCurrent
+                                            ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
+                                            : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
+                                        }`}
+                                      >
+                                        <CliIcon cli={option.value} className="icon-sm" />
+                                        {option.label}
+                                        {isCurrent ? <span className="ml-auto text-[color:var(--accent-primary)]">✓</span> : null}
+                                      </button>
+                                    )
+                                  })}
+                                </div>
                               </div>
                             ) : null}
                           </div>
                         )
                       })() : null}
-                      {quickConversationVisible ? (
-                        <Tooltip content="Open a chat agent — pick the model in the composer" placement="bottom" wrapperClassName="block w-full">
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => onSpawnConversationAgent()}
-                            className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[rgba(92,124,255,0.05)] hover:text-[color:var(--text-strong)]"
-                          >
-                            <ConversationProviderIcon className="h-4 w-4 text-[color:var(--text-muted)]" />
-                            <span className="truncate text-[13px]">Conversation agent</span>
-                            <span aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                      ) : null}
+                      {quickConversationVisible ? (() => {
+                        const conversationChipOpen = chipPopoverForRole?.kind === 'conversation'
+                        return (
+                          <div className="relative">
+                            <Tooltip content="Open a chat agent — pick the model in the composer · right-click for more" placement="bottom" wrapperClassName="block w-full">
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => onSpawnConversationAgent()}
+                                onContextMenu={(event) => {
+                                  event.preventDefault()
+                                  setChipPopoverForRole((current) => (current?.kind === 'conversation' ? null : { kind: 'conversation' }))
+                                }}
+                                className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[rgba(92,124,255,0.05)] hover:text-[color:var(--text-strong)]"
+                              >
+                                <ConversationProviderIcon className="h-4 w-4 text-[color:var(--text-muted)]" />
+                                <span className="truncate text-[13px]">Conversation agent</span>
+                                <span aria-hidden="true" />
+                              </button>
+                            </Tooltip>
+                            {conversationChipOpen ? (
+                              // primitive-duplication-allow: nested chip menu inside the Popover-managed spawn menu, matching the General Agent row; the outer Popover owns outside-click and focus restoration.
+                              <div
+                                role="menu"
+                                data-chip-popover="true"
+                                aria-label="Conversation agent actions"
+                                // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
+                                className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
+                              >
+                                <OpenInNewChatItem
+                                  onSelect={() => {
+                                    onOpenConversationInNewChat()
+                                    setChipPopoverForRole(null)
+                                  }}
+                                />
+                              </div>
+                            ) : null}
+                          </div>
+                        )
+                      })() : null}
                     </div>
                   ) : null}
 
@@ -1458,38 +1552,47 @@ export default function WorkspaceTopBar({
                                 </button>
                                 {popoverOpen ? (
                                   <div
-                                    role="listbox"
+                                    role="menu"
                                     data-chip-popover="true"
-                                    aria-label={`Agent CLI for ${action.label}`}
-                                    // primitive-duplication-allow: nested chip-listbox inside the Popover-managed specialist menu;
+                                    aria-label={`${action.label} actions`}
+                                    // primitive-duplication-allow: nested chip menu inside the Popover-managed specialist menu;
                                     // anchored to a row-local `<div className="relative">` with no separate outside-click handler.
                                     // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
                                     className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                                   >
-                                    {agentCliOptions.map((option) => {
-                                      const isCurrent = option.value === boundCli
-                                      return (
-                                        <button
-                                          key={option.value}
-                                          type="button"
-                                          role="option"
-                                          aria-selected={isCurrent}
-                                          onClick={() => {
-                                            setSpecialistCliDefault(action.id, option.value)
-                                            setChipPopoverForRole(null)
-                                          }}
-                                          className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
-                                            isCurrent
-                                              ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
-                                              : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
-                                          }`}
-                                        >
-                                          <CliIcon cli={option.value} className="icon-sm" />
-                                          {option.label}
-                                          {isCurrent ? <span className="ml-auto text-[color:var(--accent-primary)]">✓</span> : null}
-                                        </button>
-                                      )
-                                    })}
+                                    <OpenInNewChatItem
+                                      onSelect={() => {
+                                        onOpenSpecialistInNewChat(action.id, boundCli)
+                                        setChipPopoverForRole(null)
+                                      }}
+                                    />
+                                    <div className="my-1 h-px bg-[color:var(--border-subtle)]" role="separator" />
+                                    <div role="listbox" aria-label={`Agent CLI for ${action.label}`}>
+                                      {agentCliOptions.map((option) => {
+                                        const isCurrent = option.value === boundCli
+                                        return (
+                                          <button
+                                            key={option.value}
+                                            type="button"
+                                            role="option"
+                                            aria-selected={isCurrent}
+                                            onClick={() => {
+                                              setSpecialistCliDefault(action.id, option.value)
+                                              setChipPopoverForRole(null)
+                                            }}
+                                            className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
+                                              isCurrent
+                                                ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
+                                                : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
+                                            }`}
+                                          >
+                                            <CliIcon cli={option.value} className="icon-sm" />
+                                            {option.label}
+                                            {isCurrent ? <span className="ml-auto text-[color:var(--accent-primary)]">✓</span> : null}
+                                          </button>
+                                        )
+                                      })}
+                                    </div>
                                   </div>
                                 ) : null}
                               </div>

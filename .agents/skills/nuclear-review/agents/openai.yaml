@@ -1,0 +1,4 @@
+interface:
+  display_name: "Nuclear Review"
+  short_description: "Strict maintainability and structure reviews"
+  default_prompt: "Use $nuclear-review to perform a strict maintainability review of the current diff."

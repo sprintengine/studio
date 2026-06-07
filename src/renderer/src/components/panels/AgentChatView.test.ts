@@ -2,10 +2,13 @@ import assert from 'node:assert/strict'
 
 import type { ConversationEvent, ConversationEventType } from '../../../../shared/conversation-runtime'
 import {
+  activeConversationStage,
+  deriveConversationTimelineRows,
   isConversationModelLocked,
   projectConversation,
   readinessLabel,
   stopDisabledForPending,
+  type ConversationTimelineRow,
   type TranscriptEntry,
 } from './AgentChatView'
 
@@ -29,6 +32,12 @@ function assistant(entries: TranscriptEntry[], turnId: string) {
   const found = entries.find((e) => e.kind === 'assistant' && e.turnId === turnId)
   assert.ok(found && found.kind === 'assistant', `assistant entry for ${turnId}`)
   return found as Extract<TranscriptEntry, { kind: 'assistant' }>
+}
+
+function row<T extends ConversationTimelineRow['kind']>(rows: ConversationTimelineRow[], kind: T) {
+  const found = rows.find((entry) => entry.kind === kind)
+  assert.ok(found, `timeline row for ${kind}`)
+  return found as Extract<ConversationTimelineRow, { kind: T }>
 }
 
 // --- empty / idle ----------------------------------------------------------
@@ -57,9 +66,17 @@ assert.equal(streaming.activeTurn, true, 'turn without completion is active')
 const streamingAssistant = assistant(streaming.entries, T1)
 assert.equal(streamingAssistant.text, 'Hello world', 'content deltas accumulate in order')
 assert.equal(streamingAssistant.status, 'streaming')
+assert.equal(activeConversationStage(streaming.entries, streaming.activeTurn), 'responding')
 // user turn renders before its assistant turn
 assert.equal(streaming.entries[0]?.kind, 'user')
 assert.equal(streaming.entries[1]?.kind, 'assistant')
+const streamingRows = deriveConversationTimelineRows(streaming.entries, streaming.activeTurn)
+assert.equal(streamingRows.filter((entry) => entry.kind === 'working').length, 1, 'streaming has one live state row')
+
+const thinkingOnly = projectConversation([ev('turn_started', { turnId: T1 })])
+assert.equal(activeConversationStage(thinkingOnly.entries, thinkingOnly.activeTurn), 'thinking')
+const thinkingRows = deriveConversationTimelineRows(thinkingOnly.entries, thinkingOnly.activeTurn)
+assert.equal(row(thinkingRows, 'working').label, 'Working')
 
 // --- approval requested -> approved -> usage -> completed ------------------
 
@@ -89,8 +106,12 @@ const pendingApproval = projectConversation([
   ev('approval_requested', { turnId: T1, requestId: 'r1', summary: 'Need approval' }),
 ])
 assert.equal(pendingApproval.awaitingApproval, true)
+assert.equal(activeConversationStage(pendingApproval.entries, pendingApproval.activeTurn), 'approval')
 const pendingEntry = pendingApproval.entries.find((e) => e.kind === 'approval')
 assert.ok(pendingEntry && pendingEntry.kind === 'approval' && pendingEntry.status === 'pending')
+const pendingApprovalRows = deriveConversationTimelineRows(pendingApproval.entries, pendingApproval.activeTurn)
+assert.equal(pendingApprovalRows.some((entry) => entry.kind === 'approval'), false, 'pending approval is owned by the composer dock')
+assert.equal(pendingApprovalRows.some((entry) => entry.kind === 'working'), false, 'pending approval suppresses duplicate working row')
 
 // --- denied approval fails the turn (mock contract) -----------------------
 
@@ -149,7 +170,9 @@ assert.equal(mockApproval.status, 'cancelled', 'the unresolved approval is cance
 const withTool = projectConversation([
   ev('turn_started', { turnId: T1 }),
   ev('tool_started', { turnId: T1, callId: 'c1', name: 'search' }),
+  ev('tool_started', { turnId: T1, callId: 'c2', name: 'read_file' }),
   ev('tool_output', { turnId: T1, callId: 'c1', output: 'result rows' }),
+  ev('tool_output', { turnId: T1, callId: 'c2', output: 'file body' }),
   ev('turn_completed', { turnId: T1 }),
 ])
 const toolEntry = withTool.entries.find((e) => e.kind === 'tool')
@@ -157,6 +180,29 @@ assert.ok(toolEntry && toolEntry.kind === 'tool')
 assert.equal(toolEntry.name, 'search')
 assert.equal(toolEntry.status, 'done')
 assert.equal(toolEntry.output, 'result rows')
+const toolRows = deriveConversationTimelineRows(withTool.entries, withTool.activeTurn)
+const activity = row(toolRows, 'activity')
+assert.equal(activity.tools.length, 2, 'consecutive tool calls are grouped into one activity row')
+assert.equal(toolRows.some((entry) => entry.kind === 'assistant'), false, 'tool-only completed turn does not render an empty assistant row')
+
+const runningTool = projectConversation([
+  ev('turn_started', { turnId: T1 }),
+  ev('tool_started', { turnId: T1, callId: 'c1', name: 'search' }),
+])
+assert.equal(activeConversationStage(runningTool.entries, runningTool.activeTurn), 'tool')
+assert.equal(row(deriveConversationTimelineRows(runningTool.entries, runningTool.activeTurn), 'working').label, 'Running search')
+
+// --- reasoning is activity, not assistant prose ----------------------------
+
+const withReasoning = projectConversation([
+  ev('turn_started', { turnId: T1 }),
+  ev('reasoning_delta', { turnId: T1, text: 'Checking repo docs.' }),
+  ev('content_delta', { turnId: T1, text: 'Found the brand guide.' }),
+  ev('turn_completed', { turnId: T1 }),
+])
+const reasoningRows = deriveConversationTimelineRows(withReasoning.entries, withReasoning.activeTurn)
+assert.equal(row(reasoningRows, 'activity').reasoning, 'Checking repo docs.')
+assert.equal(row(reasoningRows, 'assistant').entry.text, 'Found the brand guide.')
 
 // --- session closed --------------------------------------------------------
 

@@ -41,7 +41,7 @@ export type LayoutTemplate = {
 // defined under workspace / user / plugin layers. Those fields use
 // `SprintEngineRoleId` below so unknown configured ids round-trip through
 // normalization without being coerced or dropped.
-export type SprintEngineRole = 'architect' | 'product' | 'developer' | 'frontend' | 'tester' | 'security' | 'code_reviewer' | 'spec_reviewer' | 'performance' | 'cross_platform'
+export type SprintEngineRole = 'architect' | 'product' | 'developer' | 'frontend' | 'tester' | 'security' | 'code_reviewer' | 'nuclear_reviewer' | 'spec_reviewer' | 'performance' | 'cross_platform'
 
 // Registry-keyed role identifier. Any non-empty string the role registry
 // emitted (bundled, workspace, user, or plugin layer). UI/runtime surfaces
@@ -1068,6 +1068,7 @@ export type SpecialistActionId =
   | 'security-review'
   | 'frontend-design-review'
   | 'code-review'
+  | 'nuclear-review'
   | 'spec-review'
 
 export type CliRuntimeSettings = {

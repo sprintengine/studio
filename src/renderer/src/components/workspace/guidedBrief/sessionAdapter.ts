@@ -58,6 +58,7 @@ export type GuidedBriefTerminalApi = {
     metadata?: TerminalSpawnMetadata,
   ) => Promise<TerminalSpawnResult>
   terminalKill: (sessionId: string) => Promise<void>
+  onTerminalReplay: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalData: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalExit: (sessionId: string, cb: (code: number) => void) => () => void
   onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
@@ -253,7 +254,7 @@ export async function startGuidedBriefSpecialistSession(
     }
   }
 
-  disposers.push(options.terminalApi.onTerminalData(sessionId, (chunk) => {
+  const handleOutput = (chunk: string) => {
     outputBuffer = `${outputBuffer}${chunk}`.slice(-marker.length - 4096)
     options.onOutput?.({ stream: 'stdout', chunk, at: Date.now() })
     if (!markerEmitted && containsGuidedBriefMarker(outputBuffer, marker)) {
@@ -261,7 +262,10 @@ export async function startGuidedBriefSpecialistSession(
       options.onLifecycle?.('ready')
       options.onMarker?.(marker)
     }
-  }))
+  }
+
+  disposers.push(options.terminalApi.onTerminalReplay(sessionId, handleOutput))
+  disposers.push(options.terminalApi.onTerminalData(sessionId, handleOutput))
   disposers.push(options.terminalApi.onTerminalExit(sessionId, () => {
     options.onLifecycle?.(markerEmitted ? 'ready' : 'exited')
   }))

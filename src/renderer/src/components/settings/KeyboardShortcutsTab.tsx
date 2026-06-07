@@ -25,7 +25,16 @@ import {
   type KeybindingPlatform,
 } from '../../commands'
 import type { KeybindingSettings } from '../../types/workspace'
-import { GhostButton, InboxSearchInput, KbdChord, Section, StatusDot, Switch, Tooltip } from '../ui'
+import { SettingsSectionTitle } from './SettingsAtoms'
+import {
+  FOCUS_RING_CLASS,
+  GhostButton,
+  IconButton,
+  InboxSearchInput,
+  KbdChord,
+  StatusDot,
+  Tooltip,
+} from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
 // --- View model (pure, exported for tests) ---------------------------------
@@ -265,9 +274,15 @@ export function KeyboardShortcutsTab() {
           No commands match “{query.trim()}”.
         </p>
       ) : (
-        <div className="-mx-3">
-          {groups.map((group) => (
-            <Section key={group.category} title={group.label} count={group.rows.length} inset={false}>
+        <div className="flex flex-col">
+          {groups.map((group, index) => (
+            <section
+              key={group.category}
+              className={index > 0 ? 'mt-4 border-t border-[color:var(--border-subtle)] pt-4' : ''}
+            >
+              <SettingsSectionTitle count={group.rows.length} className="mb-1.5">
+                {group.label}
+              </SettingsSectionTitle>
               <ul className="flex flex-col">
                 {group.rows.map((row) => (
                   <ShortcutRowView
@@ -279,7 +294,10 @@ export function KeyboardShortcutsTab() {
                     onStartRecording={() => setRecordingId(row.id)}
                     onCancelRecording={() => setRecordingId((current) => (current === row.id ? null : current))}
                     onCapture={(chord) => handleCapture(row.id, chord)}
-                    onToggleDisabled={(next) => setCommandKeybindingDisabled(row.id, next)}
+                    onRemove={() => {
+                      setCommandKeybindingDisabled(row.id, true)
+                      setRecordingId((current) => (current === row.id ? null : current))
+                    }}
                     onReset={() => {
                       resetCommandKeybindings(row.id)
                       setRecordingId((current) => (current === row.id ? null : current))
@@ -287,7 +305,7 @@ export function KeyboardShortcutsTab() {
                   />
                 ))}
               </ul>
-            </Section>
+            </section>
           ))}
         </div>
       )}
@@ -303,7 +321,7 @@ function ShortcutRowView({
   onStartRecording,
   onCancelRecording,
   onCapture,
-  onToggleDisabled,
+  onRemove,
   onReset,
 }: {
   row: ShortcutRow
@@ -313,49 +331,32 @@ function ShortcutRowView({
   onStartRecording: () => void
   onCancelRecording: () => void
   onCapture: (chord: string) => void
-  onToggleDisabled: (next: boolean) => void
+  onRemove: () => void
   onReset: () => void
 }) {
   const tone = conflictTone(conflicts)
   const message = conflictMessage(conflicts)
-  const defaultDiffers =
-    row.defaults.join(' ') !== row.effective.join(' ') && row.defaults.length > 0
+  const hasBinding = row.effective.length > 0
+  const defaultRendered = row.defaults.map((chord) => renderKeybinding(chord, platform)).join(' or ')
 
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-[color:var(--border-subtle)] py-2.5 last:border-b-0">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-[13px] font-medium text-[color:var(--text-strong)]">{row.title}</span>
-          {tone && message ? (
-            <span className="inline-flex items-center gap-1.5">
-              <StatusDot tone={tone} label={message} />
-              <span
-                className={`text-[11px] ${tone === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--tone-warn)]'}`}
-              >
-                {message}
-              </span>
+    <li className="group flex items-center gap-3 py-1.5">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <span className="truncate text-[13px] text-[color:var(--text-strong)]">{row.title}</span>
+        {tone && message ? (
+          <span className="inline-flex shrink-0 items-center gap-1.5">
+            <StatusDot tone={tone} label={message} />
+            <span
+              className={`whitespace-nowrap text-[11px] ${tone === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--tone-warn)]'}`}
+            >
+              {message}
             </span>
-          ) : null}
-        </div>
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[color:var(--text-muted)]">
-          {row.disabled ? (
-            <span className="text-[color:var(--text-subtle)]">Shortcut disabled</span>
-          ) : row.effective.length > 0 ? (
-            <ChordList chords={row.effective} platform={platform} />
-          ) : (
-            <span className="text-[color:var(--text-subtle)]">No shortcut</span>
-          )}
-          {defaultDiffers ? (
-            <span className="inline-flex items-center gap-1.5 text-[color:var(--text-subtle)]">
-              <span>Default</span>
-              <ChordList chords={row.defaults} platform={platform} muted />
-            </span>
-          ) : null}
-        </div>
+          </span>
+        ) : null}
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">
-        <ShortcutRecorder
+        <KeybindingCell
           row={row}
           platform={platform}
           recording={recording}
@@ -363,47 +364,44 @@ function ShortcutRowView({
           onCancelRecording={onCancelRecording}
           onCapture={onCapture}
         />
-        <Tooltip content={row.disabled ? 'Enable shortcut' : 'Disable shortcut'}>
-          <Switch
-            checked={!row.disabled}
-            onChange={(next) => onToggleDisabled(!next)}
-            ariaLabel={row.disabled ? `Enable the ${row.title} shortcut` : `Disable the ${row.title} shortcut`}
-          />
-        </Tooltip>
-        {row.customized ? (
-          <GhostButton onClick={onReset} aria-label={`Reset the ${row.title} shortcut to default`}>
-            Reset
-          </GhostButton>
-        ) : (
-          <span aria-hidden="true" className="inline-block h-7 w-[44px]" />
-        )}
+        <span className="flex w-[52px] items-center justify-end gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          {row.customized ? (
+            <Tooltip content={defaultRendered ? `Reset to ${defaultRendered}` : 'Reset to default'}>
+              <IconButton onClick={onReset} aria-label={`Reset the ${row.title} shortcut to default`}>
+                <ResetIcon />
+              </IconButton>
+            </Tooltip>
+          ) : null}
+          {hasBinding ? (
+            <Tooltip content="Remove shortcut">
+              <IconButton onClick={onRemove} aria-label={`Remove the ${row.title} shortcut`}>
+                <RemoveIcon />
+              </IconButton>
+            </Tooltip>
+          ) : null}
+        </span>
       </div>
     </li>
   )
 }
 
-function ChordList({
-  chords,
-  platform,
-  muted,
-}: {
-  chords: readonly string[]
-  platform: KeybindingPlatform
-  muted?: boolean
-}) {
+function ChordList({ chords, platform }: { chords: readonly string[]; platform: KeybindingPlatform }) {
   return (
-    <span className="inline-flex flex-wrap items-center gap-1.5">
+    <span className="inline-flex flex-wrap items-center justify-end gap-1.5">
       {chords.map((chord, index) => (
         <React.Fragment key={chord}>
-          {index > 0 ? <span className="text-[color:var(--text-subtle)]">or</span> : null}
-          <KbdChord chord={chord} platform={platform} className={muted ? 'opacity-70' : undefined} />
+          {index > 0 ? <span className="text-[11px] text-[color:var(--text-subtle)]">or</span> : null}
+          <KbdChord chord={chord} platform={platform} />
         </React.Fragment>
       ))}
     </span>
   )
 }
 
-function ShortcutRecorder({
+// The keybinding cell is the edit affordance: click to record, Escape to cancel.
+// At rest it shows the effective chord(s), or a muted "Add shortcut" prompt when
+// the command has none (default removed or never bound).
+function KeybindingCell({
   row,
   platform,
   recording,
@@ -419,8 +417,7 @@ function ShortcutRecorder({
   onCapture: (chord: string) => void
 }) {
   const liveId = useRef(`shortcut-recorder-${row.id}`).current
-  const hasBinding = row.effective.length > 0 && !row.disabled
-  const restLabel = hasBinding ? 'Change' : 'Record'
+  const hasBinding = row.effective.length > 0
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -453,24 +450,70 @@ function ShortcutRecorder({
         aria-label={
           recording
             ? `Recording a shortcut for ${row.title}. Press a key combination, or Escape to cancel.`
-            : `${restLabel} the ${row.title} shortcut`
+            : hasBinding
+              ? `Change the ${row.title} shortcut`
+              : `Add a shortcut for ${row.title}`
         }
         onClick={() => (recording ? onCancelRecording() : onStartRecording())}
         onKeyDown={handleKeyDown}
         onBlur={() => recording && onCancelRecording()}
         className={[
-          'interactive inline-flex h-7 min-w-[68px] items-center justify-center rounded-[5px] px-2 text-[12px] font-medium',
-          'focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]',
+          'interactive inline-flex h-7 min-w-[72px] items-center justify-end gap-1.5 rounded-[5px] px-2',
+          FOCUS_RING_CLASS,
           recording
-            ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
-            : 'bg-transparent text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
+            ? 'bg-[color:var(--accent-primary-soft)]'
+            : 'bg-transparent hover:bg-[color:var(--bg-hover)]',
         ].join(' ')}
       >
-        {recording ? 'Press keys…' : restLabel}
+        {recording ? (
+          <span className="text-[12px] font-medium text-[color:var(--accent-primary)]">Press keys…</span>
+        ) : hasBinding ? (
+          <ChordList chords={row.effective} platform={platform} />
+        ) : (
+          <span className="text-[12px] text-[color:var(--text-subtle)] group-hover:text-[color:var(--text-muted)]">
+            Add shortcut
+          </span>
+        )}
       </button>
       <span id={liveId} role="status" aria-live="polite" className="sr-only">
         {recording ? `Recording a shortcut for ${row.title}. Press Escape to cancel.` : ''}
       </span>
     </>
+  )
+}
+
+function ResetIcon() {
+  return (
+    <svg
+      className="icon-sm"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+    </svg>
+  )
+}
+
+function RemoveIcon() {
+  return (
+    <svg
+      className="icon-sm"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="m5.6 5.6 12.8 12.8" />
+    </svg>
   )
 }

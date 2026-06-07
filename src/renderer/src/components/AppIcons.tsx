@@ -81,6 +81,10 @@ export function SpecialistActionIcon({ icon, className }: IconProps & { icon: Sp
       return <FrontendIcon className={className} />
     case 'review':
       return <ReviewIcon className={className} />
+    case 'spaghetti':
+      return <SpaghettiIcon className={className} />
+    case 'nuclear':
+      return <NuclearExplosionIcon className={className} />
     case 'shield':
       return <SecurityIcon className={className} />
     case 'test':
@@ -125,7 +129,9 @@ export function SprintEngineRoleIcon({
     case 'security':
       return <SecurityIcon className={className} />
     case 'code_reviewer':
-      return <ReviewIcon className={className} />
+      return <SpaghettiIcon className={className} />
+    case 'nuclear_reviewer':
+      return <NuclearExplosionIcon className={className} />
     case 'spec_reviewer':
       return <ReviewIcon className={className} />
     case 'performance':
@@ -468,6 +474,31 @@ function ReviewIcon({ className }: IconProps) {
       <path d="M7 4.75H17V19.25H7V4.75Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
       <path d="M9.5 8.75H14.5M9.5 16H14.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
       <path d="M9.5 12.2L11 13.7L14.5 10.2" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function SpaghettiIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 14.7C7.4 13.1 9.4 13.1 10.75 14.7C12.1 16.3 14.15 16.3 15.55 14.7C16.95 13.1 18.35 13.1 19.35 14.4" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M5.6 11.25C7.35 9.75 9.05 9.75 10.75 11.25C12.45 12.75 14.15 12.75 15.85 11.25C17.3 9.98 18.45 10.08 19.4 11.05" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M7.1 17.2C8.6 18.55 10.3 18.55 11.9 17.2C13.5 15.85 15.25 15.85 16.9 17.2" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <circle cx="8.2" cy="8.25" r="1.35" stroke="currentColor" strokeWidth={iconStroke} />
+      <circle cx="14.6" cy="7.45" r="1.2" stroke="currentColor" strokeWidth={iconStroke} />
+      <circle cx="17.8" cy="8.85" r="0.95" fill="currentColor" />
+    </svg>
+  )
+}
+
+function NuclearExplosionIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 5.2V3.6M8.4 6.45L7.25 5.25M15.6 6.45L16.75 5.25M6.85 9.9H5.25M17.15 9.9H18.75" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M8 11.2C8.35 8.65 10.05 6.95 12 6.95C13.95 6.95 15.65 8.65 16 11.2" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M8.25 19.2H15.75M9.3 16.35H14.7M10.3 13.55H13.7" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M11.1 11.1C10.45 12.4 10 14.4 9.85 19.2M12.9 11.1C13.55 12.4 14 14.4 14.15 19.2" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M8.65 11.65C6.95 12.15 6.05 13.2 6.05 14.55C6.05 16.15 7.35 17 9.3 16.35M15.35 11.65C17.05 12.15 17.95 13.2 17.95 14.55C17.95 16.15 16.65 17 14.7 16.35" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
     </svg>
   )
 }

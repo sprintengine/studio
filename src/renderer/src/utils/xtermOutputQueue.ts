@@ -10,6 +10,13 @@ type TerminalOutputQueueOptions = {
   recordWrite: (data: string, elapsedMs: number) => void
 }
 
+type XtermOutputQueue = ReturnType<typeof createXtermOutputQueue>
+
+type XtermReplayGateOptions = {
+  container?: HTMLElement
+  recordWrite?: (data: string, elapsedMs: number) => void
+}
+
 export function createXtermOutputQueue(
   term: Terminal,
   { recordWrite }: TerminalOutputQueueOptions
@@ -120,6 +127,79 @@ export function createXtermOutputQueue(
       disposed = true
       queue.length = 0
       queuedChars = 0
+    },
+  }
+}
+
+export function createXtermReplayGate(
+  term: Terminal,
+  outputQueue: XtermOutputQueue,
+  { container, recordWrite }: XtermReplayGateOptions = {}
+) {
+  const liveBuffer: string[] = []
+  let disposed = false
+  let awaitingReplay = false
+  let replaying = false
+  let previousVisibility: string | null = null
+
+  const hide = () => {
+    if (!container || previousVisibility !== null) return
+    previousVisibility = container.style.visibility
+    container.style.visibility = 'hidden'
+  }
+
+  const reveal = () => {
+    if (!container || previousVisibility === null) return
+    container.style.visibility = previousVisibility
+    previousVisibility = null
+  }
+
+  const flushLiveBuffer = () => {
+    if (awaitingReplay || replaying) return
+    while (liveBuffer.length > 0) {
+      const next = liveBuffer.shift()
+      if (next) outputQueue.enqueue(next)
+    }
+  }
+
+  return {
+    beginReplayWait: () => {
+      if (disposed) return
+      awaitingReplay = true
+      hide()
+    },
+    finishReplayWait: () => {
+      if (disposed || replaying) return
+      awaitingReplay = false
+      reveal()
+      flushLiveBuffer()
+    },
+    handleReplay: (data: string) => {
+      if (disposed || !data) return
+      awaitingReplay = false
+      replaying = true
+      hide()
+      const writeStartedAt = performance.now()
+      term.write(data, () => {
+        recordWrite?.(data, performance.now() - writeStartedAt)
+        term.scrollToBottom()
+        replaying = false
+        reveal()
+        flushLiveBuffer()
+      })
+    },
+    handleLiveData: (data: string) => {
+      if (disposed || !data) return
+      if (awaitingReplay || replaying) {
+        liveBuffer.push(data)
+        return
+      }
+      outputQueue.enqueue(data)
+    },
+    dispose: () => {
+      disposed = true
+      liveBuffer.length = 0
+      reveal()
     },
   }
 }

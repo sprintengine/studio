@@ -13,7 +13,9 @@ function createTerminalApi(): GuidedBriefTerminalApi & {
   killed: string[]
   dataHandlerCount: () => number
   emitData: (sessionId: string, chunk: string) => void
+  emitReplay: (sessionId: string, chunk: string) => void
 } {
+  const replayHandlers = new Map<string, (chunk: string) => void>()
   const dataHandlers = new Map<string, (chunk: string) => void>()
   const exitHandlers = new Map<string, (code: number) => void>()
   const errorHandlers = new Map<string, (message: string) => void>()
@@ -27,12 +29,19 @@ function createTerminalApi(): GuidedBriefTerminalApi & {
     emitData(sessionId, chunk) {
       dataHandlers.get(sessionId)?.(chunk)
     },
+    emitReplay(sessionId, chunk) {
+      replayHandlers.get(sessionId)?.(chunk)
+    },
     async terminalSpawn(sessionId, _cols, _rows, cwd, _resume, _statePath, _cli, initialPrompt, _cliRuntimes, _shellOnly, metadata) {
       spawned.push({ sessionId, prompt: initialPrompt, cwd, metadata })
       return { ok: true, sessionId }
     },
     async terminalKill(sessionId) {
       killed.push(sessionId)
+    },
+    onTerminalReplay(sessionId, cb) {
+      replayHandlers.set(sessionId, cb)
+      return () => replayHandlers.delete(sessionId)
     },
     onTerminalData(sessionId, cb) {
       dataHandlers.set(sessionId, cb)

@@ -18,6 +18,7 @@ for (const id of [
   'commandPalette.open',
   'panel.files.toggle',
   'specialist.spawn.architect',
+  'specialist.spawn.nuclear-review',
   'voice.toggle',
   'sprintengine.refresh.board',
   'multiloop.open.settings',

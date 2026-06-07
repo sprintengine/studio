@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import type { Terminal } from '@xterm/xterm'
 import { TERMINAL_RECENT_REPLAY_BYTES } from '../../../shared/terminal-history'
-import { createXtermOutputQueue } from './xtermOutputQueue'
+import { createXtermOutputQueue, createXtermReplayGate } from './xtermOutputQueue'
 
 void main()
 
@@ -9,6 +9,7 @@ function main(): void {
   installAnimationFrame()
   assertRecentReplaySizedPayloadIsNotTrimmed()
   assertOversizedPayloadIsStillThrottled()
+  assertReplayGateHidesReplayAndFlushesBufferedLiveOutput()
 }
 
 function assertRecentReplaySizedPayloadIsNotTrimmed(): void {
@@ -43,7 +44,30 @@ function createTerminal(writes: string[]): Terminal {
       writes.push(data)
       callback?.()
     },
+    scrollToBottom: () => {
+      writes.push('[scroll-bottom]')
+    },
   } as unknown as Terminal
+}
+
+function assertReplayGateHidesReplayAndFlushesBufferedLiveOutput(): void {
+  const writes: string[] = []
+  const container = { style: { visibility: '' } } as HTMLElement
+  const queue = createXtermOutputQueue(createTerminal(writes), { recordWrite: () => {} })
+  const gate = createXtermReplayGate(createTerminal(writes), queue, { container })
+
+  gate.beginReplayWait()
+  assert.equal(container.style.visibility, 'hidden')
+
+  gate.handleLiveData('live-before-replay')
+  assert.deepEqual(writes, [])
+
+  gate.handleReplay('retained-output')
+  assert.equal(container.style.visibility, '')
+  assert.deepEqual(writes, ['retained-output', '[scroll-bottom]', 'live-before-replay'])
+
+  gate.dispose()
+  queue.dispose()
 }
 
 function installAnimationFrame(): void {

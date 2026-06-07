@@ -34,6 +34,8 @@ export type TranscriptEntry =
       reasoning: string
       status: 'streaming' | 'complete' | 'failed' | 'interrupted'
       failureReason?: string
+      startedAt?: number
+      completedAt?: number
     }
   | { kind: 'tool'; id: string; turnId: string; name: string; status: 'running' | 'done'; output?: string }
   | {
@@ -75,6 +77,8 @@ type TurnAccumulator = {
   reasoning: string
   status: 'streaming' | 'complete' | 'failed' | 'interrupted'
   failureReason?: string
+  startedAt?: number
+  completedAt?: number
   tools: Map<string, { id: string; name: string; status: 'running' | 'done'; output?: string }>
   approvals: string[]
 }
@@ -127,7 +131,11 @@ export function projectConversation(
     const turnId = readString(event.payload, 'turnId')
     switch (event.type) {
       case 'turn_started': {
-        if (turnId) ensureTurn(turnId).status = 'streaming'
+        if (turnId) {
+          const turn = ensureTurn(turnId)
+          turn.status = 'streaming'
+          turn.startedAt = turn.startedAt ?? event.createdAt
+        }
         break
       }
       case 'content_delta': {
@@ -191,7 +199,11 @@ export function projectConversation(
         break
       }
       case 'turn_completed': {
-        if (turnId) ensureTurn(turnId).status = 'complete'
+        if (turnId) {
+          const turn = ensureTurn(turnId)
+          turn.status = 'complete'
+          turn.completedAt = event.createdAt
+        }
         break
       }
       case 'turn_failed': {
@@ -205,6 +217,7 @@ export function projectConversation(
           const turn = ensureTurn(targetTurnId)
           turn.status = interrupted ? 'interrupted' : 'failed'
           turn.failureReason = reason
+          turn.completedAt = event.createdAt
           // A resolved turn can't keep a pending approval blocking the composer.
           for (const requestId of turn.approvals) {
             const approval = approvals.get(requestId)
@@ -241,6 +254,8 @@ export function projectConversation(
       reasoning: turn.reasoning,
       status: turn.status,
       failureReason: turn.failureReason,
+      startedAt: turn.startedAt,
+      completedAt: turn.completedAt,
     })
     for (const tool of turn.tools.values()) {
       entries.push({ kind: 'tool', id: tool.id, turnId: turn.turnId, name: tool.name, status: tool.status, output: tool.output })
@@ -257,6 +272,123 @@ export function projectConversation(
   }
 
   return { sessionStatus, activeTurn, awaitingApproval, entries, usage, lastError }
+}
+
+export function activeConversationStage(entries: TranscriptEntry[], activeTurn: boolean): 'idle' | 'thinking' | 'tool' | 'approval' | 'responding' {
+  const latestPendingApproval = [...entries].reverse().find((entry) => entry.kind === 'approval' && entry.status === 'pending')
+  if (latestPendingApproval) return 'approval'
+  const latestRunningTool = [...entries].reverse().find((entry) => entry.kind === 'tool' && entry.status === 'running')
+  if (latestRunningTool) return 'tool'
+  if (!activeTurn) return 'idle'
+  const latestAssistant = [...entries].reverse().find((entry) => entry.kind === 'assistant')
+  if (latestAssistant?.kind === 'assistant' && latestAssistant.text.trim().length > 0) return 'responding'
+  return 'thinking'
+}
+
+export type ConversationTimelineRow =
+  | { kind: 'user'; id: string; entry: Extract<TranscriptEntry, { kind: 'user' }> }
+  | { kind: 'assistant'; id: string; entry: Extract<TranscriptEntry, { kind: 'assistant' }> }
+  | {
+      kind: 'activity'
+      id: string
+      turnId: string
+      reasoning: string
+      reasoningStatus: Extract<TranscriptEntry, { kind: 'assistant' }>['status']
+      tools: Extract<TranscriptEntry, { kind: 'tool' }>[]
+    }
+  | { kind: 'approval'; id: string; entry: Extract<TranscriptEntry, { kind: 'approval' }> }
+  | {
+      kind: 'working'
+      id: string
+      stage: ReturnType<typeof activeConversationStage>
+      label: string
+      startedAt?: number
+    }
+
+const MAX_VISIBLE_TOOL_ROWS = 4
+
+export function deriveConversationTimelineRows(
+  entries: TranscriptEntry[],
+  activeTurn: boolean,
+): ConversationTimelineRow[] {
+  const rows: ConversationTimelineRow[] = []
+  const stage = activeConversationStage(entries, activeTurn)
+  const latestAssistant = [...entries].reverse().find(
+    (entry): entry is Extract<TranscriptEntry, { kind: 'assistant' }> => entry.kind === 'assistant',
+  )
+  const pendingApproval = [...entries].reverse().find(
+    (entry): entry is Extract<TranscriptEntry, { kind: 'approval' }> => entry.kind === 'approval' && entry.status === 'pending',
+  )
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index]
+    if (!entry) continue
+    if (entry.kind === 'user') {
+      rows.push({ kind: 'user', id: `user:${entry.id}`, entry })
+      continue
+    }
+    if (entry.kind === 'assistant') {
+      const tools: Extract<TranscriptEntry, { kind: 'tool' }>[] = []
+      let cursor = index + 1
+      while (cursor < entries.length) {
+        const next = entries[cursor]
+        if (!next || next.kind !== 'tool' || next.turnId !== entry.turnId) break
+        tools.push(next)
+        cursor += 1
+      }
+      if (entry.reasoning.trim() || tools.length > 0) {
+        rows.push({
+          kind: 'activity',
+          id: `activity:${entry.turnId}`,
+          turnId: entry.turnId,
+          reasoning: entry.reasoning,
+          reasoningStatus: entry.status,
+          tools,
+        })
+      }
+      if (entry.text.trim() || entry.status === 'failed' || entry.status === 'interrupted') {
+        rows.push({ kind: 'assistant', id: `assistant:${entry.turnId}`, entry })
+      }
+      index = cursor - 1
+      continue
+    }
+    if (entry.kind === 'tool') {
+      rows.push({
+        kind: 'activity',
+        id: `activity:${entry.turnId}:${entry.id}`,
+        turnId: entry.turnId,
+        reasoning: '',
+        reasoningStatus: entry.status === 'running' ? 'streaming' : 'complete',
+        tools: [entry],
+      })
+      continue
+    }
+    if (entry.kind === 'approval') {
+      if (entry.status === 'pending') continue
+      rows.push({ kind: 'approval', id: `approval:${entry.requestId}`, entry })
+    }
+  }
+
+  if (stage !== 'idle' && !pendingApproval) {
+    const runningTool = [...entries].reverse().find(
+      (entry): entry is Extract<TranscriptEntry, { kind: 'tool' }> => entry.kind === 'tool' && entry.status === 'running',
+    )
+    const label =
+      stage === 'tool' && runningTool
+        ? `Running ${runningTool.name}`
+        : stage === 'responding'
+          ? 'Streaming response'
+          : 'Working'
+    rows.push({
+      kind: 'working',
+      id: 'working-indicator-row',
+      stage,
+      label,
+      startedAt: latestAssistant?.startedAt,
+    })
+  }
+
+  return rows
 }
 
 // ── Readiness gating ────────────────────────────────────────────────────────
@@ -438,12 +570,16 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   }, [conversation?.providerId])
 
   const projection = useMemo(() => projectConversation(events, userTurns), [events, userTurns])
+  const timelineRows = useMemo(
+    () => deriveConversationTimelineRows(projection.entries, projection.activeTurn),
+    [projection.entries, projection.activeTurn],
+  )
 
   // Keep the newest message in view without jumping focus.
   useEffect(() => {
     const node = listRef.current
     if (node) node.scrollTop = node.scrollHeight
-  }, [projection.entries.length, projection.activeTurn])
+  }, [timelineRows.length, projection.activeTurn])
 
   // Surface turn failures (streamed via `turn_failed`) to the app Notifications
   // panel, deduped on the message so a single failure is logged once.
@@ -621,18 +757,24 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         aria-live="polite"
         className="flex-1 space-y-4 overflow-y-auto px-3 py-3"
       >
-        {projection.entries.length === 0 ? (
+        {timelineRows.length === 0 ? (
           <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
             {ready ? 'No messages yet. Send a prompt to start the conversation.' : 'Conversation is unavailable until the provider is ready.'}
           </p>
         ) : (
-          projection.entries.map((entry) => (
-            <TranscriptRow key={entryKey(entry)} entry={entry} onApprove={resolveApproval} busy={pending !== null} />
+          timelineRows.map((row) => (
+            <TimelineRow key={row.id} row={row} />
           ))
         )}
       </div>
 
       <div className="px-3 pb-3 pt-1">
+        <ConversationPendingDock
+          entries={projection.entries}
+          onApprove={resolveApproval}
+          busy={pending !== null}
+        />
+
         {/*
          * A turn failure already states its reason in the transcript (and the
          * Notifications panel), so here we only restate text for action errors
@@ -730,19 +872,6 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
       </div>
     </ChatShell>
   )
-}
-
-function entryKey(entry: TranscriptEntry): string {
-  switch (entry.kind) {
-    case 'user':
-      return `user:${entry.id}`
-    case 'assistant':
-      return `assistant:${entry.turnId}`
-    case 'tool':
-      return `tool:${entry.id}`
-    case 'approval':
-      return `approval:${entry.requestId}`
-  }
 }
 
 // The chat panel is header-less by design: the tab already names the agent, and
@@ -1005,94 +1134,289 @@ function ChatNotice({ tone, children }: { tone: 'neutral' | 'warn' | 'error'; ch
   return <div className={`mx-3 my-2 border-l-2 pl-3 text-[12px] leading-5 ${style.border} ${style.text}`}>{children}</div>
 }
 
-function TranscriptRow({
-  entry,
+function ConversationPendingDock({
+  entries,
   onApprove,
   busy,
 }: {
-  entry: TranscriptEntry
+  entries: TranscriptEntry[]
   onApprove: (requestId: string, approved: boolean) => void
   busy: boolean
 }) {
-  if (entry.kind === 'user') {
-    // User turns read as a right-aligned speech bubble; the agent's replies are
-    // plain left-aligned text (no bubble), so the two voices are unmistakable.
+  const pendingApproval = [...entries].reverse().find(
+    (entry): entry is Extract<TranscriptEntry, { kind: 'approval' }> => entry.kind === 'approval' && entry.status === 'pending',
+  )
+  if (pendingApproval) {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[80%] rounded-lg bg-[color:var(--bg-hover)] px-3 py-2">
-          <p className="whitespace-pre-wrap text-sm text-[color:var(--text-strong)]">{entry.text}</p>
+      <div className="mb-2 rounded-lg border border-[color:var(--tone-warn-soft)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[color:var(--tone-warn)]">
+              <StatusDot tone="warn" pulse label="Question pending" />
+              Question from agent
+            </span>
+            <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-default)]">{pendingApproval.summary}</p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <PrimaryButton size="sm" onClick={() => onApprove(pendingApproval.requestId, true)} disabled={busy}>
+              Approve
+            </PrimaryButton>
+            <GhostButton
+              size="sm"
+              onClick={() => onApprove(pendingApproval.requestId, false)}
+              disabled={busy}
+              className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
+            >
+              Deny
+            </GhostButton>
+          </div>
         </div>
       </div>
     )
   }
 
-  if (entry.kind === 'assistant') {
-    return (
-      <div className="flex flex-col gap-1">
-        {/* Agent replies are markdown — render through the shared renderer so
-            headings, lists, tables, code, and emphasis display, not raw `**`. */}
-        {entry.text ? (
-          renderMarkdown(entry.text)
-        ) : entry.status === 'streaming' ? (
-          // No dot — the word already says it; a reduced-motion-safe pulse carries
-          // the "alive" signal, and the composer Stop button confirms the state.
-          <span className="text-sm text-[color:var(--text-muted)] motion-safe:animate-pulse">Responding…</span>
-        ) : null}
-        {entry.status === 'failed' || entry.status === 'interrupted' ? (
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-subtle)]">
-            {/* Dot only for an error; an interrupt is a benign stop, not a fault. */}
-            {entry.status === 'failed' ? <StatusDot tone="error" label="Failed" /> : null}
-            {entry.status === 'interrupted'
-              ? 'Interrupted'
-              : `Failed${entry.failureReason ? ` · ${entry.failureReason}` : ''}`}
-          </span>
-        ) : null}
-      </div>
-    )
-  }
+  return null
+}
 
-  if (entry.kind === 'tool') {
-    return (
-      <div className="rounded-md border border-[color:var(--border-subtle)] px-3 py-2">
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
-          {/* Dot only while running; a finished tool row carries no status dot. */}
-          {entry.status === 'running' ? <StatusDot tone="accent" pulse label="Running" /> : null}
-          Tool · <span className="font-mono text-[color:var(--text-default)]">{entry.name}</span>
-          {entry.status === 'running' ? ' · running' : ' · done'}
-        </span>
-        {entry.output ? (
-          <pre className="mt-1 whitespace-pre-wrap font-mono text-[11px] text-[color:var(--text-default)]">{entry.output}</pre>
-        ) : null}
-      </div>
-    )
-  }
-
-  // approval
-  // Dot only for the states that demand attention — pending (needs input) and
-  // denied (error). Approved/cancelled are resolved rows and carry no dot.
-  const approvalNeedsDot = entry.status === 'pending' || entry.status === 'denied'
+function ThinkingDots() {
   return (
-    <div className="rounded-md border border-[color:var(--border-default)] px-3 py-2">
+    <span className="inline-flex items-center gap-[3px]" aria-hidden="true">
+      <span className="thinking-dot-wave h-1 w-1 rounded-full bg-[color:var(--accent-primary)]" />
+      <span className="thinking-dot-wave h-1 w-1 rounded-full bg-[color:var(--accent-primary)] [animation-delay:120ms]" />
+      <span className="thinking-dot-wave h-1 w-1 rounded-full bg-[color:var(--accent-primary)] [animation-delay:240ms]" />
+    </span>
+  )
+}
+
+function TimelineRow({ row }: { row: ConversationTimelineRow }) {
+  return (
+    <div className="conversation-row-enter" data-conversation-row-kind={row.kind}>
+      {row.kind === 'user' ? <UserTimelineRow entry={row.entry} /> : null}
+      {row.kind === 'assistant' ? <AssistantTimelineRow entry={row.entry} /> : null}
+      {row.kind === 'activity' ? <ActivityTimelineRow row={row} /> : null}
+      {row.kind === 'approval' ? <ApprovalHistoryRow entry={row.entry} /> : null}
+      {row.kind === 'working' ? <WorkingTimelineRow row={row} /> : null}
+    </div>
+  )
+}
+
+function UserTimelineRow({ entry }: { entry: Extract<TranscriptEntry, { kind: 'user' }> }) {
+  return (
+    <div className="flex justify-end">
+      <div className="max-w-[80%] rounded-lg bg-[color:var(--bg-hover)] px-3 py-2">
+        <p className="whitespace-pre-wrap text-sm text-[color:var(--text-strong)]">{entry.text}</p>
+      </div>
+    </div>
+  )
+}
+
+function AssistantTimelineRow({ entry }: { entry: Extract<TranscriptEntry, { kind: 'assistant' }> }) {
+  return (
+    <div className="group/assistant flex flex-col gap-1 px-1 py-0.5">
+      {entry.text ? renderMarkdown(entry.text) : null}
+      <AssistantStatusMeta entry={entry} />
+    </div>
+  )
+}
+
+function AssistantStatusMeta({ entry }: { entry: Extract<TranscriptEntry, { kind: 'assistant' }> }) {
+  if (entry.status === 'complete' && entry.completedAt && entry.startedAt) {
+    return (
+      <span className="text-[11px] text-[color:var(--text-subtle)]">
+        Completed in {formatElapsedMs(entry.completedAt - entry.startedAt)}
+      </span>
+    )
+  }
+  if (entry.status === 'failed' || entry.status === 'interrupted') {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-subtle)]">
+        {entry.status === 'failed' ? <StatusDot tone="error" label="Failed" /> : null}
+        {entry.status === 'interrupted'
+          ? 'Interrupted'
+          : `Failed${entry.failureReason ? ` · ${entry.failureReason}` : ''}`}
+      </span>
+    )
+  }
+  return null
+}
+
+function ActivityTimelineRow({ row }: { row: Extract<ConversationTimelineRow, { kind: 'activity' }> }) {
+  const [showAll, setShowAll] = useState(false)
+  const visibleTools = showAll ? row.tools : row.tools.slice(0, MAX_VISIBLE_TOOL_ROWS)
+  const hiddenCount = row.tools.length - visibleTools.length
+  if (!row.reasoning.trim() && row.tools.length === 0) return null
+  return (
+    <div className="rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-2.5 py-2">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
+          {row.reasoningStatus === 'streaming' ? <ThinkingDots /> : null}
+          {row.reasoning.trim() && row.tools.length > 0
+            ? 'Thinking and tool calls'
+            : row.reasoning.trim()
+              ? 'Thinking'
+              : `Tool calls (${row.tools.length})`}
+        </span>
+        {hiddenCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowAll(true)}
+            className="shrink-0 text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
+          >
+            Show {hiddenCount} more
+          </button>
+        ) : showAll && row.tools.length > MAX_VISIBLE_TOOL_ROWS ? (
+          <button
+            type="button"
+            onClick={() => setShowAll(false)}
+            className="shrink-0 text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
+          >
+            Show less
+          </button>
+        ) : null}
+      </div>
+      {row.reasoning.trim() ? <ReasoningBlock text={row.reasoning} status={row.reasoningStatus} /> : null}
+      {visibleTools.length > 0 ? (
+        <div className="mt-1 space-y-1">
+          {visibleTools.map((tool) => <ToolCallRow key={tool.id} tool={tool} />)}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function ReasoningBlock({
+  text,
+  status,
+}: {
+  text: string
+  status: Extract<TranscriptEntry, { kind: 'assistant' }>['status']
+}) {
+  const [expanded, setExpanded] = useState(status === 'streaming')
+  const canCollapse = status !== 'streaming' && (text.length > 280 || text.split('\n').length > 4)
+  const visible = canCollapse && !expanded ? `${text.slice(0, 280).trimEnd()}...` : text
+  return (
+    <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-2.5 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
+          {status === 'streaming' ? <ThinkingDots /> : null}
+          Reasoning
+        </span>
+        {canCollapse ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
+          >
+            {expanded ? 'Show less' : 'Show reasoning'}
+          </button>
+        ) : null}
+      </div>
+      <p className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-[color:var(--text-default)]">{visible}</p>
+    </div>
+  )
+}
+
+function ToolCallRow({ tool }: { tool: Extract<TranscriptEntry, { kind: 'tool' }> }) {
+  const [outputExpanded, setOutputExpanded] = useState(false)
+  const hasOutput = Boolean(tool.output?.trim())
+  const output = tool.output ?? ''
+  const shouldCollapseOutput = output.length > 320 || output.split('\n').length > 6
+  const visibleOutput = shouldCollapseOutput && !outputExpanded ? `${output.slice(0, 320).trimEnd()}...` : output
+  const running = tool.status === 'running'
+  return (
+    <div className={`rounded-md border px-2.5 py-2 ${
+      running
+        ? 'border-[color:var(--accent-primary-soft-strong)] bg-[color:var(--accent-primary-soft)]'
+        : 'border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)]'
+    }`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className={`inline-flex min-w-0 items-center gap-1.5 text-[11px] ${running ? 'text-[color:var(--accent-primary)]' : 'text-[color:var(--text-muted)]'}`}>
+          {running ? <StatusDot tone="accent" pulse label="Running" /> : null}
+          <ToolGlyph className="icon-xs" />
+          <span>Tool call</span>
+          <span aria-hidden="true">·</span>
+          <span className="truncate font-mono text-[color:var(--text-default)]">{tool.name}</span>
+        </span>
+        <span className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">{running ? 'running' : 'done'}</span>
+      </div>
+      {hasOutput ? (
+        <div className="mt-1">
+          {shouldCollapseOutput ? (
+            <button
+              type="button"
+              onClick={() => setOutputExpanded((value) => !value)}
+              className="mb-1 text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
+            >
+              {outputExpanded ? 'Hide output' : 'Show output'}
+            </button>
+          ) : null}
+          {(outputExpanded || !shouldCollapseOutput) ? (
+            <pre className="max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-5 text-[color:var(--text-default)]">{visibleOutput}</pre>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function ApprovalHistoryRow({ entry }: { entry: Extract<TranscriptEntry, { kind: 'approval' }> }) {
+  const approvalNeedsDot = entry.status === 'denied'
+  return (
+    <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2">
       <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
         {approvalNeedsDot ? <StatusDot tone={APPROVAL_TONE[entry.status]} label={APPROVAL_LABEL[entry.status]} /> : null}
         {APPROVAL_LABEL[entry.status]}
       </span>
       <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-default)]">{entry.summary}</p>
-      {entry.status === 'pending' ? (
-        <div className="mt-2 flex gap-2">
-          <PrimaryButton size="sm" onClick={() => onApprove(entry.requestId, true)} disabled={busy}>
-            Approve
-          </PrimaryButton>
-          <GhostButton
-            size="sm"
-            onClick={() => onApprove(entry.requestId, false)}
-            disabled={busy}
-            className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
-          >
-            Deny
-          </GhostButton>
-        </div>
-      ) : null}
     </div>
+  )
+}
+
+function WorkingTimelineRow({ row }: { row: Extract<ConversationTimelineRow, { kind: 'working' }> }) {
+  return (
+    <div className="pl-1.5">
+      <div className="inline-flex items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
+        <ThinkingDots />
+        <span>{row.label}</span>
+        {row.startedAt ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <LiveElapsed startedAt={row.startedAt} />
+          </>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function LiveElapsed({ startedAt }: { startedAt: number }) {
+  const textRef = useRef<HTMLSpanElement | null>(null)
+  const initial = formatElapsedMs(Date.now() - startedAt)
+  useEffect(() => {
+    const update = () => {
+      if (textRef.current) textRef.current.textContent = formatElapsedMs(Date.now() - startedAt)
+    }
+    update()
+    const id = window.setInterval(update, 1000)
+    return () => window.clearInterval(id)
+  }, [startedAt])
+  return <span ref={textRef}>{initial}</span>
+}
+
+function formatElapsedMs(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = seconds % 60
+  return `${minutes}m ${remainingSeconds}s`
+}
+
+function ToolGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M7.2 13.2 4.8 15.6a1.8 1.8 0 0 1-2.5-2.5l2.4-2.4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <path d="m12.8 6.8 2.4-2.4a1.8 1.8 0 0 1 2.5 2.5l-2.4 2.4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <path d="M6.8 6.8h6.4v6.4H6.8z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+    </svg>
   )
 }

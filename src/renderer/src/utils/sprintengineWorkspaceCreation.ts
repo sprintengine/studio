@@ -25,6 +25,7 @@ const planSourcedSprintEngineRoleCounts: SprintEngineRoleCounts = {
   developer: 0,
   frontend: 0,
   code_reviewer: 0,
+  nuclear_reviewer: 0,
   spec_reviewer: 0,
   performance: 0,
   tester: 0,

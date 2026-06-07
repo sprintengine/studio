@@ -1,0 +1,35 @@
+{
+  "id": "nuclear_reviewer",
+  "label": "Nuclear Reviewer",
+  "aliases": [
+    "nuclear-review",
+    "nuclear-reviewer"
+  ],
+  "summary": "Runs a strict maintainability review for structure, abstraction, large-file, and spaghetti-growth risks.",
+  "soul": [
+    {
+      "skill": "nuclear_reviewer"
+    },
+    {
+      "skill": "project_relative_paths"
+    },
+    {
+      "skill": "production_reality_gate"
+    },
+    {
+      "skill": "fallback_discipline"
+    },
+    {
+      "skill": "evidence_quality_assessment"
+    },
+    {
+      "skill": "post_change_self_review"
+    },
+    {
+      "skill": "collaboration_norms"
+    },
+    {
+      "skill": "workspace_knowledge"
+    }
+  ]
+}

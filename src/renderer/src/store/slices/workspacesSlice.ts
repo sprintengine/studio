@@ -153,6 +153,12 @@ export interface WorkspacesSliceActions {
       guidedBriefState?: import('../../types/workspace').GuidedBriefRuntimeState | null
       mode?: Workspace['mode']
       windowId?: WorkspaceWindowId | null
+      // Open-in-new-chat seed for the single-agent "solo chat" template. The UI
+      // builds a data-only descriptor so this slice never imports specialist or
+      // prompt helpers. `agentPatch` is merged onto the lone template agent
+      // record, `tabName` renames the lone layout tab, and `terminal` swaps that
+      // tab for a terminal tab (and seeds no agent record).
+      seedAgent?: SoloChatSeed | null
     }
   ) => WorkspaceId
   removeWorkspace: (id: WorkspaceId) => void
@@ -324,6 +330,46 @@ type LayoutAgentTabNode = {
     agentId?: unknown
   }
   children?: LayoutAgentTabNode[]
+}
+
+// Data-only descriptor for opening a specific agent in a fresh "solo chat"
+// workspace (see addWorkspace `seedAgent`). Built by the spawn-menu UI so this
+// slice stays free of specialist/prompt/runtime imports.
+export type SoloChatSeed = {
+  agentPatch?: Partial<AgentState>
+  tabName?: string
+  terminal?: { terminalId: string }
+}
+
+// Transform the single-agent solo-chat layout for a seed: rename the lone agent
+// tab, or swap it for a terminal tab. Pure — clones the template layout so the
+// shared template constant is never mutated. Only the solo template (exactly one
+// agent tab) is ever passed here.
+export function applySoloChatSeed(layout: IJsonModel, seed: SoloChatSeed): IJsonModel {
+  const next = structuredClone(layout)
+  let done = false
+  const visit = (node: LayoutAgentTabNode | undefined) => {
+    if (!node || done) return
+    if (node.component === 'agent') {
+      const target = node as { component?: unknown; name?: unknown; config?: Record<string, unknown> }
+      if (seed.terminal) {
+        target.component = 'terminal'
+        target.name = seed.tabName ?? 'Terminal'
+        target.config = { terminalId: seed.terminal.terminalId }
+        done = true
+        return
+      }
+      if (seed.tabName) {
+        target.name = seed.tabName
+        done = true
+        return
+      }
+    }
+    node.children?.forEach(visit)
+  }
+  visit(next.layout as LayoutAgentTabNode)
+  next.borders?.forEach((border) => visit(border as LayoutAgentTabNode))
+  return next
 }
 
 function collectTemplateAgentTabs(template: LayoutTemplate): Array<{ id: AgentId; name?: string }> {
@@ -800,13 +846,17 @@ export function createWorkspacesSlice(
                 : requireSprintEngineRoleCli(sprintEngineRoleCliDefaults, agent.role),
             }
           })
+        } else if (options?.seedAgent?.terminal) {
+          // Terminal seed: the lone agent tab is swapped for a terminal tab in
+          // the layout below, so no agent record is created for it.
         } else {
           const templateAgentCli =
             typeof options?.templateAgentCli === 'string' && options.templateAgentCli.trim()
               ? options.templateAgentCli.trim()
               : state.appSettings.lastSelectedCli
-          collectTemplateAgentTabs(template).forEach((agent) => {
-            agents[agent.id] = {
+          const agentPatch = options?.seedAgent?.agentPatch
+          collectTemplateAgentTabs(template).forEach((agent, index) => {
+            const base = {
               ...deps.defaultAgent(
                 agent.id,
                 agent.name ?? deps.pickWorkspaceAgentName(agents),
@@ -814,8 +864,21 @@ export function createWorkspacesSlice(
               ),
               cli: templateAgentCli,
             }
+            // The solo-chat template has a single agent tab; merge the seed patch
+            // onto it so an Open-in-new-chat agent (specialist/conversation) is
+            // initialized at creation time, race-free before first render.
+            agents[agent.id] = index === 0 && agentPatch ? { ...base, ...agentPatch } : base
           })
         }
+        // Standard/dev templates: normalize nav-only tabsets to strip-less so a
+        // user-saved template predating the nav-switch model never seeds a
+        // redundant tab strip on Files / Git / Knowledge Graph. When a seed
+        // renames the lone tab or swaps it for a terminal, apply that transform.
+        const baseStandardLayout = deps.hideNavRailTabStrip(template.layout) ?? template.layout
+        const standardLayout =
+          options?.seedAgent && (options.seedAgent.tabName || options.seedAgent.terminal)
+            ? applySoloChatSeed(baseStandardLayout, options.seedAgent)
+            : baseStandardLayout
         const newWorkspace: Workspace = {
           id,
           name: workspaceName,
@@ -847,10 +910,7 @@ export function createWorkspacesSlice(
               ? guidedBriefLayoutModel()
             : sprintEngineState
             ? deps.sprintEngineTabsLayoutModel(sprintEngineState, agents, { includeAgentTabs: false })
-            // Standard/dev templates: normalize nav-only tabsets to strip-less
-            // so a user-saved template predating the nav-switch model never
-            // seeds a redundant tab strip on Files / Git / Knowledge Graph.
-            : deps.hideNavRailTabStrip(template.layout) ?? template.layout,
+            : standardLayout,
           agents,
           worktreeState: deps.defaultWorkspaceWorktreeState(),
           memory: deps.defaultWorkspaceMemoryConfig(),

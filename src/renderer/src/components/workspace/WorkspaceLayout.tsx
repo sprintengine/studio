@@ -158,6 +158,7 @@ const SPRINTENGINE_ROLES: SprintEngineRole[] = [
   'tester',
   'security',
   'code_reviewer',
+  'nuclear_reviewer',
   'spec_reviewer',
   'performance',
   'cross_platform',

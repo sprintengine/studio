@@ -16,6 +16,7 @@ import type {
 } from '../../../../shared/electron-api'
 import { GhostButton, PrimaryButton } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
+import { SettingsSectionTitle } from './SettingsAtoms'
 import {
   type ConversationProviderListEntry,
   type ProviderSecretView,
@@ -251,9 +252,7 @@ function ProviderRow({
       aria-labelledby={headingId}
       className="space-y-2 border-t border-[color:var(--border-subtle)] pt-5 first:border-t-0 first:pt-0"
     >
-      <h3 id={headingId} className="text-[13px] font-medium text-[color:var(--text-strong)]">
-        {provider.displayName}
-      </h3>
+      <SettingsSectionTitle id={headingId}>{provider.displayName}</SettingsSectionTitle>
 
       {secretView?.kind === 'error' ? (
         <Note tone="error">{secretView.message}</Note>

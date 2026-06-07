@@ -3,6 +3,43 @@ import { Switch } from '../ui'
 
 export type MetaTone = 'positive' | 'muted'
 
+/**
+ * Canonical settings section heading. One typographic treatment for every
+ * section header across the Settings tabs: 14px semibold, sentence case,
+ * flush-left, with an optional muted count next to the title and a trailing
+ * action slot. Rendered as an h4 so it nests under each tab's h3 page title.
+ *
+ * Use this for in-tab section headers; do not hand-roll heading typography in a
+ * settings tab — that is what drifted the sizes (12–14px) out of sync.
+ */
+export function SettingsSectionTitle({
+  children,
+  count,
+  action,
+  id,
+  className,
+}: {
+  children: React.ReactNode
+  count?: number
+  action?: React.ReactNode
+  id?: string
+  className?: string
+}) {
+  return (
+    <div className={`flex items-center justify-between gap-3 ${className ?? ''}`}>
+      <div className="flex min-w-0 items-baseline gap-2">
+        <h4 id={id} className="text-sm font-semibold text-[color:var(--text-strong)]">
+          {children}
+        </h4>
+        {count !== undefined ? (
+          <span className="tabular-nums text-[12px] text-[color:var(--text-muted)]">{count}</span>
+        ) : null}
+      </div>
+      {action ? <div className="shrink-0">{action}</div> : null}
+    </div>
+  )
+}
+
 export function SettingToggle({
   label,
   description,

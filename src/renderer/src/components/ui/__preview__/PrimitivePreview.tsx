@@ -79,6 +79,7 @@ const ROLE_GLYPHS: SprintEngineRole[] = [
   'frontend',
   'developer',
   'code_reviewer',
+  'nuclear_reviewer',
   'spec_reviewer',
   'cross_platform',
   'tester',

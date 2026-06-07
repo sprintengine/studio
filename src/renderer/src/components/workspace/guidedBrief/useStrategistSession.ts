@@ -104,6 +104,7 @@ export function useStrategistSession({
         terminalApi: {
           terminalSpawn: window.api.terminalSpawn,
           terminalKill: window.api.terminalKill,
+          onTerminalReplay: window.api.onTerminalReplay,
           onTerminalData: window.api.onTerminalData,
           onTerminalExit: window.api.onTerminalExit,
           onTerminalError: window.api.onTerminalError,

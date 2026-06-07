@@ -41,6 +41,12 @@ export const terminalApi = {
   terminalList: (): Promise<TerminalSessionSnapshot[]> => ipcRenderer.invoke('terminal:list'),
   terminalSetVisible: (sessionId: string, visible: boolean) => ipcRenderer.invoke('terminal:set-visible', { sessionId, visible }),
   terminalKill: (sessionId: string) => ipcRenderer.invoke('terminal:kill', sessionId),
+  onTerminalReplay: (sessionId: string, cb: (data: string) => void): (() => void) => {
+    const ch = `terminal:replay:${sessionId}`
+    const handler = (_: IpcRendererEvent, data: string) => cb(data)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
   onTerminalData: (sessionId: string, cb: (data: string) => void): (() => void) => {
     const ch = `terminal:data:${sessionId}`
     const handler = (_: IpcRendererEvent, data: string) => cb(data)
@@ -75,6 +81,7 @@ export const terminalApi = {
   | 'terminalList'
   | 'terminalSetVisible'
   | 'terminalKill'
+  | 'onTerminalReplay'
   | 'onTerminalData'
   | 'onTerminalExit'
   | 'onTerminalError'

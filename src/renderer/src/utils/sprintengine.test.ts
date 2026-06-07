@@ -1289,7 +1289,7 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
 {
   assert.deepEqual(
     [...BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES],
-    ['architect', 'product', 'frontend', 'developer', 'code_reviewer', 'spec_reviewer', 'performance', 'cross_platform', 'tester', 'security'],
+    ['architect', 'product', 'frontend', 'developer', 'code_reviewer', 'nuclear_reviewer', 'spec_reviewer', 'performance', 'cross_platform', 'tester', 'security'],
     'bundled addable roles match historical board list',
   )
 }

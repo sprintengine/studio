@@ -8,6 +8,7 @@ import SettingsOverlay from '../settings/SettingsOverlay'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import { resolveAvailableAgentCli, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
@@ -418,7 +419,18 @@ export default function WorkspaceManager() {
   )
   const conversationSpawnAvailable = conversationSpawnEnabled && conversationDefaultOption !== null
 
-  const createNewChat = useCallback((folderPath?: string | null, cli?: AgentCli) => {
+  // Create a fresh single-agent "solo chat" workspace. `folderPath === undefined`
+  // inherits the active workspace's folder (the plain New chat default); an
+  // explicit value (sidebar) targets that folder. `seedAgent` opens a specific
+  // agent (terminal/specialist/conversation) in the new workspace, seeded at
+  // creation so it is race-free before first render. Shared by createNewChat and
+  // the Open-in-new-chat handlers.
+  const createSoloChatWorkspace = useCallback((opts: {
+    folderPath?: string | null
+    templateAgentCli?: AgentCli | null
+    seedAgent?: SoloChatSeed
+    name?: string
+  }) => {
     if (!SOLO_CHAT_TEMPLATE) {
       publishDiagnosticSync({
         level: 'error',
@@ -428,20 +440,14 @@ export default function WorkspaceManager() {
       })
       return
     }
-    const targetFolderPath = folderPath === undefined ? activeWorkspace?.folderPath ?? null : folderPath
-    const chosenCli = cli && cli.trim() ? cli.trim() : null
-    // Plain New chat (no explicit pick) clamps the remembered lastSelectedCli to an
-    // installed catalog entry so a stale value cannot seed a chat with an
-    // uninstalled plugin id; explicit picks come from the catalog already.
-    const templateAgentCli = resolveTemplateAgentCli(chosenCli, lastSelectedCli, agentCliCatalog)
+    const targetFolderPath = opts.folderPath === undefined ? activeWorkspace?.folderPath ?? null : opts.folderPath
     addWorkspace(SOLO_CHAT_TEMPLATE, {
-      name: pickNewChatName(targetFolderPath),
+      name: opts.name ?? pickNewChatName(targetFolderPath),
       folderPath: targetFolderPath,
       windowId: workspaceWindowId,
-      templateAgentCli,
+      templateAgentCli: opts.templateAgentCli,
+      seedAgent: opts.seedAgent,
     })
-    // Remember an explicit pick so the next plain New chat repeats it.
-    if (chosenCli) setLastSelectedCli(chosenCli)
     setShowNewWorkspacePanel(false)
     setNewWorkspacePanelInitialState(null)
     closeSettingsOverlay()
@@ -451,15 +457,23 @@ export default function WorkspaceManager() {
   }, [
     activeWorkspace?.folderPath,
     addWorkspace,
-    agentCliCatalog,
     closeSettingsOverlay,
-    lastSelectedCli,
     onboardingStep,
     pickNewChatName,
-    setLastSelectedCli,
     setOnboardingStep,
     workspaceWindowId,
   ])
+
+  const createNewChat = useCallback((folderPath?: string | null, cli?: AgentCli) => {
+    const chosenCli = cli && cli.trim() ? cli.trim() : null
+    // Plain New chat (no explicit pick) clamps the remembered lastSelectedCli to an
+    // installed catalog entry so a stale value cannot seed a chat with an
+    // uninstalled plugin id; explicit picks come from the catalog already.
+    const templateAgentCli = resolveTemplateAgentCli(chosenCli, lastSelectedCli, agentCliCatalog)
+    createSoloChatWorkspace({ folderPath, templateAgentCli })
+    // Remember an explicit pick so the next plain New chat repeats it.
+    if (chosenCli) setLastSelectedCli(chosenCli)
+  }, [agentCliCatalog, createSoloChatWorkspace, lastSelectedCli, setLastSelectedCli])
 
   const openNewWorkspacePanelForFolder = useCallback((folderPath: string) => {
     setNewWorkspacePanelInitialState({ folderPath })
@@ -1224,6 +1238,58 @@ export default function WorkspaceManager() {
     addTerminalTab(windowActiveWorkspaceId, newId, 'Terminal')
   }
 
+  // Open-in-new-chat: spawn the chosen agent in a fresh solo-chat workspace
+  // (inheriting the current folder) instead of the active workspace. Each mirrors
+  // its in-workspace spawn counterpart, but seeds the agent at creation time via
+  // createSoloChatWorkspace so it lands race-free before the new model mounts.
+  const openGeneralInNewChat = (cli?: AgentCli) => createNewChat(undefined, cli)
+
+  const openSpecialistInNewChat = (specialistId: SpecialistActionId, selectedCli?: AgentCli) => {
+    setLastSelectedSpecialist(specialistId)
+    const specialist = getSpecialistAction(specialistId)
+    const tabName = pickRandomAgentName([])
+    const prompt = buildSpecialistSoulStartupPrompt(specialist)
+    const cliForSpawn = fallbackSpawnCli(
+      normalizeSelectedCli(selectedCli ?? specialistCliDefaults[specialist.id], lastSelectedCli)
+    )
+    createSoloChatWorkspace({
+      templateAgentCli: cliForSpawn,
+      seedAgent: {
+        tabName,
+        agentPatch: {
+          name: tabName,
+          cli: cliForSpawn,
+          cliPermissionPreset: agentSpawnPermissionPreset,
+          kind: 'specialist',
+          specialistId: specialist.id,
+          cliStartupPrompt: prependAgentIdentifier(prompt, tabName, specialist.shortLabel),
+          cliOnboardingPromptSent: false,
+          cliHasLaunched: false,
+          cliResumeAvailable: false,
+        },
+      },
+    })
+  }
+
+  const openConversationInNewChat = () => {
+    const option = conversationDefaultOption
+    if (!option) return
+    const tabName = option.modelLabel || 'Conversation Agent'
+    createSoloChatWorkspace({
+      seedAgent: {
+        tabName,
+        agentPatch: { name: tabName, ...conversationAgentRuntimePatch(option.providerId, option.modelId) },
+      },
+    })
+    setLastSelectedConversationModel({ providerId: option.providerId, modelId: option.modelId })
+  }
+
+  const openTerminalInNewChat = () => {
+    createSoloChatWorkspace({
+      seedAgent: { terminal: { terminalId: `terminal-${nanoid(6)}` }, tabName: 'Terminal' },
+    })
+  }
+
   // Optional workspaceId targets a single workspace's panel. The mode-scoped
   // panels ignore it, but the Git panel (which can be mounted in several
   // background workspaces at once) uses it so a destructive command like commit
@@ -1357,6 +1423,12 @@ export default function WorkspaceManager() {
       setLastSelectedSpecialist('frontend-design-review')
       setSpecialistMenuOpen(false)
       void addNewSpecialist('frontend-design-review')
+      return true
+    }
+    if (commandId === 'specialist.spawn.nuclear-review') {
+      setLastSelectedSpecialist('nuclear-review')
+      setSpecialistMenuOpen(false)
+      void addNewSpecialist('nuclear-review')
       return true
     }
     if (
@@ -1716,6 +1788,10 @@ export default function WorkspaceManager() {
         setGeneralAgentCli={setLastSelectedCli}
         conversationSpawnAvailable={conversationSpawnAvailable}
         onSpawnConversationAgent={spawnConversationAgent}
+        onOpenTerminalInNewChat={openTerminalInNewChat}
+        onOpenGeneralInNewChat={openGeneralInNewChat}
+        onOpenConversationInNewChat={openConversationInNewChat}
+        onOpenSpecialistInNewChat={openSpecialistInNewChat}
         openSettings={openSettings}
         settingsOpen={settingsOpen}
         accountOpen={accountOpen}

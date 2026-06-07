@@ -771,7 +771,7 @@ function SprintEngineBoardPanelContent({
  // Bundled worker roles ship dedicated role-task launch buttons. Custom
  // registry roles do not yet, so they always defer to the generic focus
  // agent action below.
- const workerRoles: SprintEngineRole[] = ['developer', 'frontend', 'product', 'code_reviewer', 'spec_reviewer', 'performance', 'cross_platform', 'tester', 'security']
+ const workerRoles: SprintEngineRole[] = ['developer', 'frontend', 'product', 'code_reviewer', 'nuclear_reviewer', 'spec_reviewer', 'performance', 'cross_platform', 'tester', 'security']
  const roleTaskLaunches = workerRoles.flatMap((role) => {
  const activeTask = sprintEngineState.tasks.find((task) =>
  task.role === role && (task.status === 'in_progress' || task.status === 'needs_input' || task.status === 'changes_requested')

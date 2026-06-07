@@ -537,6 +537,7 @@ export type SpecialistActionId =
   | 'security-review'
   | 'frontend-design-review'
   | 'code-review'
+  | 'nuclear-review'
   | 'spec-review'
 
 export type SoulPromptResult =
@@ -1439,6 +1440,7 @@ export type ElectronApi = {
   terminalList: () => Promise<TerminalSessionSnapshot[]>
   terminalSetVisible: (sessionId: string, visible: boolean) => Promise<void>
   terminalKill: (sessionId: string) => Promise<void>
+  onTerminalReplay: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalData: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalExit: (sessionId: string, cb: (code: number) => void) => () => void
   onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void

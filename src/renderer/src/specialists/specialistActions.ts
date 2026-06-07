@@ -7,6 +7,8 @@ export type SpecialistIcon =
   | 'code'
   | 'design'
   | 'review'
+  | 'spaghetti'
+  | 'nuclear'
   | 'shield'
   | 'test'
   | 'infra'
@@ -131,8 +133,16 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     label: 'AI Slop Code Reviewer',
     shortLabel: 'AI Slop Reviewer',
     description: 'Review implementation quality, generic AI-code patterns, fake affordances, design decay, and shallow abstractions.',
-    icon: 'review',
+    icon: 'spaghetti',
     soulRole: 'code_reviewer',
+  },
+  {
+    id: 'nuclear-review',
+    label: 'Nuclear Reviewer',
+    shortLabel: 'Nuclear Reviewer',
+    description: 'Run a strict maintainability review using the Nuclear Review skill for structure, abstraction, large-file, and spaghetti-growth risks.',
+    icon: 'nuclear',
+    soulRole: 'nuclear_reviewer',
   },
   {
     id: 'spec-review',

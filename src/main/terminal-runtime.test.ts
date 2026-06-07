@@ -26,6 +26,7 @@ type MockPtyProcess = {
   kill(): void
   onData(callback: (data: string) => void): { dispose(): void }
   onExit(callback: (event: { exitCode: number, signal?: number }) => void): { dispose(): void }
+  emitData(data: string): void
   writes: string[]
   killed: boolean
 }
@@ -102,8 +103,66 @@ async function main(): Promise<void> {
     await assertSprintEngineRunCleanupWaitsForLastTerminal(runtimeModule)
     await assertSprintEngineConcurrentSpawnFailureKeepsReservedRun(runtimeModule)
     await assertSprintEngineSpawnDerivesFallbackAgentIdBeforeMcpSync(runtimeModule)
+    await assertTerminalReattachUsesReplayChannel(runtimeModule)
   } finally {
     moduleWithLoad._load = originalLoad
+  }
+}
+
+async function assertTerminalReattachUsesReplayChannel(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-replay-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+
+  try {
+    const firstSpawn = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_replay',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      kind: 'terminal',
+      shellOnly: true,
+    })
+    assert.equal(firstSpawn.ok, true, JSON.stringify(firstSpawn))
+    assert.equal(mockPty.spawnCalls.length, 1)
+
+    mockPty.spawnCalls[0]?.process.emitData('retained terminal output\r\n')
+    await delay(20)
+    assert.equal(
+      mockSender.sent.some((event) => event.channel === 'terminal:data:session_replay'),
+      true,
+      'initial live output should still use terminal:data'
+    )
+
+    mockSender.sent = []
+    const reattach = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_replay',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      resume: true,
+      kind: 'terminal',
+      shellOnly: true,
+    })
+
+    assert.equal(reattach.ok, true, JSON.stringify(reattach))
+    assert.deepEqual(
+      mockSender.sent.filter((event) => event.channel === 'terminal:replay:session_replay'),
+      [{ channel: 'terminal:replay:session_replay', payload: 'retained terminal output\r\n' }]
+    )
+    assert.equal(
+      mockSender.sent.some((event) => event.channel === 'terminal:data:session_replay'),
+      false,
+      'reattached retained output must not be delivered as live terminal data'
+    )
+  } finally {
+    await runtime.shutdown()
   }
 }
 
@@ -510,6 +569,8 @@ function createMockWebContents(): { isDestroyed(): boolean, send(channel: string
 }
 
 function createMockPtyProcess(): MockPtyProcess {
+  const dataCallbacks = new Set<(data: string) => void>()
+  const exitCallbacks = new Set<(event: { exitCode: number, signal?: number }) => void>()
   return {
     writes: [],
     killed: false,
@@ -520,9 +581,22 @@ function createMockPtyProcess(): MockPtyProcess {
     kill(): void {
       this.killed = true
     },
-    onData: () => ({ dispose: () => undefined }),
-    onExit: () => ({ dispose: () => undefined }),
+    onData(callback) {
+      dataCallbacks.add(callback)
+      return { dispose: () => dataCallbacks.delete(callback) }
+    },
+    onExit(callback) {
+      exitCallbacks.add(callback)
+      return { dispose: () => exitCallbacks.delete(callback) }
+    },
+    emitData(data: string): void {
+      for (const callback of dataCallbacks) callback(data)
+    },
   }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 main().catch((error) => {

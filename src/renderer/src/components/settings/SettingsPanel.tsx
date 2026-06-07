@@ -51,7 +51,7 @@ import {
   SkillPackTile,
   groupSkillPackCatalog,
 } from './SkillPacksCatalog'
-import { MetaCell, formatNullableDate } from './SettingsAtoms'
+import { MetaCell, SettingsSectionTitle, formatNullableDate } from './SettingsAtoms'
 import { ProjectKnowledgeList } from './ProjectKnowledgeList'
 import CliIcon from '../CliIcon'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
@@ -1239,7 +1239,7 @@ export default function SettingsPanel({
           className="space-y-4"
         >
           <div className="space-y-2">
-            <div className="text-[13px] font-semibold text-[color:var(--text-strong)]">Theme</div>
+            <SettingsSectionTitle>Theme</SettingsSectionTitle>
             <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
               Theme applies across every Multicode workspace and panel. Every theme is anti-temporal-dither baseline (channel values are multiples of 4) so surfaces don&apos;t flicker on 6-bit-FRC panels. &lsquo;Match system&rsquo; follows your operating system&apos;s light or dark preference.
             </p>
@@ -1666,16 +1666,7 @@ export default function SettingsPanel({
           className="space-y-5"
         >
           <section className="space-y-2">
-            <div className="flex items-baseline justify-between gap-3">
-              <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">
-                Active
-              </h4>
-              {activeMcpServers.length ? (
-                <span className="tabular-nums text-[11px] font-medium text-[color:var(--text-subtle)]">
-                  {activeMcpServers.length} active
-                </span>
-              ) : null}
-            </div>
+            <SettingsSectionTitle count={activeMcpServers.length}>Active</SettingsSectionTitle>
             {activeMcpServers.length === 0 ? (
               <MessageBlock tone="neutral">
                 Nothing selected yet. Click a tile in the catalog below to add it.
@@ -1715,16 +1706,7 @@ export default function SettingsPanel({
 
           <div className="flex gap-4 border-t border-[color:var(--border-subtle)] pt-4">
             <section className="min-w-0 flex-1 space-y-4">
-              <div className="flex items-baseline justify-between gap-3">
-                <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">
-                  Bundled catalog
-                </h4>
-                {mcpCatalog.length ? (
-                  <span className="tabular-nums text-[11px] font-medium text-[color:var(--text-subtle)]">
-                    {mcpCatalog.length} servers
-                  </span>
-                ) : null}
-              </div>
+              <SettingsSectionTitle count={mcpCatalog.length}>Bundled catalog</SettingsSectionTitle>
               <div className="space-y-5">
                 {groupedMcpCatalog.map(([category, servers]) => (
                   <div key={category} className="space-y-2">
@@ -1760,7 +1742,7 @@ export default function SettingsPanel({
           </div>
 
           <details className="group space-y-3 border-t border-[color:var(--border-subtle)] pt-4 [&[open]]:space-y-3">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[12px] font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] focus:outline-none focus-visible:underline">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-[color:var(--text-strong)] focus:outline-none focus-visible:underline">
               <span>Custom MCP</span>
               <span aria-hidden className="text-[10px] font-medium text-[color:var(--text-subtle)] transition-transform group-open:rotate-180">▾</span>
             </summary>
@@ -1863,14 +1845,7 @@ export default function SettingsPanel({
           </p>
 
           <section className="space-y-2 border-t border-[color:var(--border-subtle)] pt-4">
-            <div className="flex items-baseline justify-between gap-3">
-              <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Bundled</h4>
-              {builtinSkills.length ? (
-                <span className="tabular-nums text-[11px] font-medium text-[color:var(--text-subtle)]">
-                  {builtinSkills.length} skills
-                </span>
-              ) : null}
-            </div>
+            <SettingsSectionTitle count={builtinSkills.length}>Bundled</SettingsSectionTitle>
             <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
               First-party workflow skills, installed into <code className="font-mono">.agents/skills</code>.
               Workspace Knowledge reads and updates the graph configured in the Knowledge graph tab.
@@ -1919,14 +1894,7 @@ export default function SettingsPanel({
           </section>
 
           <section className="space-y-2 border-t border-[color:var(--border-subtle)] pt-4">
-            <div className="flex items-baseline justify-between gap-3">
-              <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Installed</h4>
-              {installedSkillPacks.length ? (
-                <span className="tabular-nums text-[11px] font-medium text-[color:var(--text-subtle)]">
-                  {installedSkillPacks.length} installed
-                </span>
-              ) : null}
-            </div>
+            <SettingsSectionTitle count={installedSkillPacks.length}>Installed</SettingsSectionTitle>
             {installedSkillPacks.length === 0 ? (
               <MessageBlock tone="neutral">
                 Nothing installed yet. Pick a pack from the catalog below.
@@ -1976,16 +1944,7 @@ export default function SettingsPanel({
 
           <div className="flex gap-4 border-t border-[color:var(--border-subtle)] pt-4">
             <section className="min-w-0 flex-1 space-y-4">
-              <div className="flex items-baseline justify-between gap-3">
-                <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">
-                  Ecosystem catalog
-                </h4>
-                {skillPackCatalog.length ? (
-                  <span className="tabular-nums text-[11px] font-medium text-[color:var(--text-subtle)]">
-                    {skillPackCatalog.length} packs
-                  </span>
-                ) : null}
-              </div>
+              <SettingsSectionTitle count={skillPackCatalog.length}>Ecosystem catalog</SettingsSectionTitle>
               <div className="space-y-5">
                 {groupedSkillPackCatalog.map(([category, packs]) => (
                   <div key={category} className="space-y-2">

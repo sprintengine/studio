@@ -7,12 +7,12 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
-import { createXtermOutputQueue } from '../../utils/xtermOutputQueue'
+import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { deferFitDuringSidebarAnimation } from '../../utils/sidebarTransition'
 import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/terminalDrop'
-import { MONO_FONT_STACK } from '../../utils/fonts'
+import { MONO_FONT_STACK, waitForMonoFontReady } from '../../utils/fonts'
 import { Toast } from '../ui/Toast'
 import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../shared/terminal-history'
 
@@ -95,13 +95,26 @@ export default function PlainTerminalPanel({
     term.open(container)
     fitTerminal()
     focusTerminal()
+    let disposed = false
+    void waitForMonoFontReady().then(() => {
+      if (disposed) return
+      fitTerminal()
+      term.refresh(0, Math.max(0, term.rows - 1))
+    })
     let reportedTerminalFailure = false
     const outputQueue = createXtermOutputQueue(term, {
       recordWrite: terminalDiagnostics.recordOutputWrite,
     })
+    const replayGate = createXtermReplayGate(term, outputQueue, {
+      container,
+      recordWrite: terminalDiagnostics.recordOutputWrite,
+    })
 
     const disposeData = window.api.onTerminalData(sessionId, (data) => {
-      outputQueue.enqueue(data)
+      replayGate.handleLiveData(data)
+    })
+    const disposeReplay = window.api.onTerminalReplay(sessionId, (data) => {
+      replayGate.handleReplay(data)
     })
 
     const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
@@ -177,6 +190,7 @@ export default function PlainTerminalPanel({
           willSpawnFresh: !status.processAlive,
         })
       }).catch(() => {})
+      replayGate.beginReplayWait()
       void window.api.terminalSpawn(
         sessionId,
         term.cols,
@@ -194,6 +208,7 @@ export default function PlainTerminalPanel({
           terminalId,
         }
       ).then((spawnResult) => {
+        replayGate.finishReplayWait()
         if (spawnResult.ok) return
         if (!reportedTerminalFailure) {
           reportedTerminalFailure = true
@@ -213,6 +228,7 @@ export default function PlainTerminalPanel({
           })
         }
       }).catch((error) => {
+        replayGate.finishReplayWait()
         if (reportedTerminalFailure) return
         reportedTerminalFailure = true
         publishDiagnosticSync({
@@ -233,6 +249,7 @@ export default function PlainTerminalPanel({
     }, 50)
 
     return () => {
+      disposed = true
       window.clearTimeout(settleTimer)
       resizeObserver.disconnect()
       fitScheduler.dispose()
@@ -242,11 +259,13 @@ export default function PlainTerminalPanel({
       container.removeEventListener('focus', focusTerminal)
       disposeClipboardHandlers()
       disposeData()
+      disposeReplay()
       disposeExit()
       disposeError()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
       terminalDiagnostics.dispose()
+      replayGate.dispose()
       outputQueue.dispose()
       unbindTerminalTheme()
       term.dispose()
@@ -302,7 +321,7 @@ export default function PlainTerminalPanel({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={(event) => void handleDrop(event)}
-        className="absolute inset-0 cursor-text overflow-hidden px-2 pb-2"
+        className="terminal-focus-ring absolute inset-0 cursor-text overflow-hidden p-2"
       >
         {isFileDragOver ? (
           <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]" />

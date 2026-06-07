@@ -119,6 +119,7 @@ const SPECIALIST_OPTIONS: ReadonlyArray<SelectOption<SpecialistActionId>> = [
   { value: 'security-review', label: 'Security review' },
   { value: 'frontend-design-review', label: 'Frontend / design review' },
   { value: 'code-review', label: 'Code review' },
+  { value: 'nuclear-review', label: 'Nuclear Reviewer' },
   { value: 'spec-review', label: 'Spec review' },
 ]
 

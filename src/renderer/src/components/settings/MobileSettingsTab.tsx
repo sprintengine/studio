@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useId, useState } from 'react'
-import { Field, Section, StatusDot, type Tone } from '../ui'
-import { MetaCell, SettingToggle, formatNullableDate } from './SettingsAtoms'
+import { Field, StatusDot, type Tone } from '../ui'
+import { MetaCell, SettingsSectionTitle, SettingToggle, formatNullableDate } from './SettingsAtoms'
 
 type MobileControlCommandType =
   | 'snapshot.request'
@@ -319,7 +319,8 @@ export default function MobileSettingsTab() {
         {action.message || statusMessage(state)}
       </div>
 
-      <Section title="Companion" level={3} inset={false}>
+      <section>
+        <SettingsSectionTitle className="mb-1.5">Companion</SettingsSectionTitle>
         <SettingToggle
           label="Enable mobile companion"
           description="Connect this desktop to the relay so paired phones can request snapshots, send follow-ups, and control Sprint Engine."
@@ -327,9 +328,10 @@ export default function MobileSettingsTab() {
           onChange={(next) => void toggleEnabled(next)}
           disabled={busy}
         />
-      </Section>
+      </section>
 
-      <Section title="Relay" level={3} inset={false}>
+      <section>
+        <SettingsSectionTitle className="mb-1.5">Relay</SettingsSectionTitle>
         <Field
           label="Relay URL"
           htmlFor={relayUrlId}
@@ -362,23 +364,24 @@ export default function MobileSettingsTab() {
             </div>
           </div>
         </Field>
-      </Section>
+      </section>
 
-      <Section
-        title="Pairing code"
-        level={3}
-        inset={false}
-        action={
-          <button
-            type="button"
-            onClick={() => void requestPairingCode()}
-            disabled={!enabled || busy}
-            className="h-9 rounded-md bg-[color:var(--accent-primary)] px-3 text-sm font-semibold text-[color:var(--text-on-accent)] transition-colors hover:bg-[color:var(--accent-primary-hover)] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[color:var(--accent-primary)]"
-          >
-            Generate code
-          </button>
-        }
-      >
+      <section>
+        <SettingsSectionTitle
+          className="mb-1.5"
+          action={
+            <button
+              type="button"
+              onClick={() => void requestPairingCode()}
+              disabled={!enabled || busy}
+              className="h-9 rounded-md bg-[color:var(--accent-primary)] px-3 text-sm font-semibold text-[color:var(--text-on-accent)] transition-colors hover:bg-[color:var(--accent-primary-hover)] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[color:var(--accent-primary)]"
+            >
+              Generate code
+            </button>
+          }
+        >
+          Pairing code
+        </SettingsSectionTitle>
         <p className="text-[12px] leading-5 text-[color:var(--text-disabled)]">
           Generate a single-use code, then enter it on a phone running the Multicode mobile app.
         </p>
@@ -400,14 +403,12 @@ export default function MobileSettingsTab() {
             </div>
           </div>
         ) : null}
-      </Section>
+      </section>
 
-      <Section
-        title="Paired phones"
-        level={3}
-        inset={false}
-        count={activeDevices.length}
-      >
+      <section>
+        <SettingsSectionTitle className="mb-1.5" count={activeDevices.length}>
+          Paired phones
+        </SettingsSectionTitle>
         {activeDevices.length > 0 ? (
           <div className="divide-y divide-[color:var(--bg-selected)]">
             {activeDevices.map((device) => (
@@ -441,23 +442,22 @@ export default function MobileSettingsTab() {
             No phones paired yet. Generate a pairing code, then enter it in the mobile app to link a device.
           </p>
         )}
-      </Section>
+      </section>
 
-      <Section title="Relay state" level={3} inset={false}>
+      <section>
+        <SettingsSectionTitle className="mb-1.5">Relay state</SettingsSectionTitle>
         <div className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
           <MetaCell label="Relay status" value={relayStatusLabel(state?.relayStatus)} tone={relayStatusTone(state?.relayStatus)} />
           <MetaCell label="Session" value={state?.desktopRelaySessionId ? 'Ready' : 'Not ready'} tone={state?.desktopRelaySessionId ? 'positive' : 'muted'} />
           <MetaCell label="Last presence" value={formatNullableDate(state?.lastPresenceAt)} />
           <MetaCell label="Token expires" value={formatNullableDate(state?.relayTokenExpiresAt)} />
         </div>
-      </Section>
+      </section>
 
-      <Section
-        title="Recent mobile messages"
-        level={3}
-        inset={false}
-        count={recentCommands.length}
-      >
+      <section>
+        <SettingsSectionTitle className="mb-1.5" count={recentCommands.length}>
+          Recent mobile messages
+        </SettingsSectionTitle>
         {recentCommands.length > 0 ? (
           <div className="divide-y divide-[color:var(--bg-selected)]">
             {recentCommands.map((event) => (
@@ -483,22 +483,23 @@ export default function MobileSettingsTab() {
             No mobile messages yet.
           </p>
         )}
-      </Section>
+      </section>
 
-      <Section
-        title="Diagnostics"
-        level={3}
-        inset={false}
-        action={
-          <button
-            type="button"
-            onClick={() => void refreshDiagnostics()}
-            className="rounded-md px-2.5 py-1 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
-          >
-            {showDiagnostics ? 'Refresh' : 'Show'}
-          </button>
-        }
-      >
+      <section>
+        <SettingsSectionTitle
+          className="mb-1.5"
+          action={
+            <button
+              type="button"
+              onClick={() => void refreshDiagnostics()}
+              className="rounded-md px-2.5 py-1 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+            >
+              {showDiagnostics ? 'Refresh' : 'Show'}
+            </button>
+          }
+        >
+          Diagnostics
+        </SettingsSectionTitle>
         {visibleDiagnostics.length > 0 ? (
           <div className="space-y-3">
             {visibleDiagnostics.map((entry) => (
@@ -523,7 +524,7 @@ export default function MobileSettingsTab() {
             No diagnostics recorded.
           </p>
         )}
-      </Section>
+      </section>
     </div>
   )
 }
