@@ -21,6 +21,10 @@ import type {
   WorkspaceWindowId,
   WorkspaceMode,
 } from '../../../../types/workspace'
+import type {
+  PlanSourcedSprintEngineWorkspaceArgs,
+  PlanSourcedSprintEngineWorkspaceResult,
+} from '../../../../utils/sprintengineWorkspaceCreation'
 
 export type OnCreateArgs = {
   template: LayoutTemplate
@@ -194,6 +198,9 @@ export type GuidedBriefStartBuildPorts = {
   pathExists: PathExists
   readArchitecturePlan: (workspaceRoot: string, path: string) => Promise<string>
   readBuildHandoff: (workspaceRoot: string, relativePath: string) => Promise<string>
+  createPlanSourcedSprintEngineWorkspace?: (
+    args: PlanSourcedSprintEngineWorkspaceArgs
+  ) => Promise<PlanSourcedSprintEngineWorkspaceResult>
 }
 
 export type SprintEngineRoleLikeId = SprintEngineRoleId

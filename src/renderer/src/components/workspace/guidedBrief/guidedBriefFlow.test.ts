@@ -14,6 +14,23 @@ import {
   stepCounterLabel,
   type GuidedBriefRuntimeState,
 } from './types'
+import {
+  applyDesignArtifactSelection,
+  buildDesignArtifactIndex,
+  classifyMockupFile,
+  collectDesignArtifacts,
+  findDesignArtifact,
+  isHtmlDesignArtifact,
+  previewKindForArtifact,
+  type DesignArtifactEntry,
+  type DesignArtifactFsPort,
+  type DesignArtifactKind,
+} from './designArtifacts'
+import {
+  browserOpenFailureMessage,
+  htmlArtifactFrameSandbox,
+} from './MockupPreviewPane'
+import { nextDesignerStageForReadiness } from './useDesignerSession'
 
 const guidedDefaults = {
   guidedRoleCliDefaults: {
@@ -265,3 +282,232 @@ const skippedAfterBrief = guidedBriefSkipToHandoffState({
 })
 assert.equal(skippedAfterBrief.wantsProductDiscussion, true, 'accepted product brief remains required and available')
 assert.equal(skippedAfterBrief.wantsFrontendDiscussion, false, 'missing frontend artifacts are still treated as skipped')
+
+// --- Design artifact index (T2) -------------------------------------------
+
+// Classification is by extension and case-insensitive; unsupported types are ignored.
+assert.equal(classifyMockupFile('app.html'), 'page')
+assert.equal(classifyMockupFile('INDEX.HTM'), 'page')
+assert.equal(classifyMockupFile('styles.css'), 'stylesheet')
+assert.equal(classifyMockupFile('panel.js'), 'script')
+assert.equal(classifyMockupFile('data.json'), 'script')
+assert.equal(classifyMockupFile('logo.svg'), 'image')
+assert.equal(classifyMockupFile('photo.JPEG'), 'image')
+assert.equal(classifyMockupFile('notes.txt'), null, 'unsupported extensions are ignored')
+assert.equal(classifyMockupFile('Makefile'), null, 'extensionless files are ignored')
+
+// buildDesignArtifactIndex groups by canonical order and sorts by relative path.
+const sampleEntries: DesignArtifactEntry[] = [
+  { name: 'b.html', relativePath: 'mockups/b.html', absolutePath: '/ws/mockups/b.html', kind: 'page', typeLabel: 'HTML' },
+  { name: 'a.html', relativePath: 'mockups/a.html', absolutePath: '/ws/mockups/a.html', kind: 'page', typeLabel: 'HTML' },
+  { name: 'styles.css', relativePath: 'mockups/styles.css', absolutePath: '/ws/mockups/styles.css', kind: 'stylesheet', typeLabel: 'CSS' },
+]
+const sampleIndex = buildDesignArtifactIndex(sampleEntries)
+assert.deepEqual(sampleIndex.groups.map((group) => group.id), ['pages', 'stylesheets'], 'only non-empty groups appear, in canonical order')
+assert.deepEqual(
+  sampleIndex.groups[0].entries.map((entry) => entry.relativePath),
+  ['mockups/a.html', 'mockups/b.html'],
+  'entries within a group are sorted by relative path',
+)
+assert.equal(sampleIndex.count, 3)
+assert.deepEqual(
+  sampleIndex.entries.map((entry) => entry.relativePath),
+  ['mockups/a.html', 'mockups/b.html', 'mockups/styles.css'],
+  'flat entries follow group order then path order',
+)
+
+assert.equal(buildDesignArtifactIndex([]).count, 0, 'an empty input yields an empty index')
+assert.deepEqual(buildDesignArtifactIndex([]).groups, [], 'an empty index exposes no groups')
+
+assert.equal(isHtmlDesignArtifact(sampleEntries[0]), true)
+assert.equal(isHtmlDesignArtifact(sampleEntries[2]), false)
+assert.equal(findDesignArtifact(sampleIndex, 'mockups/a.html')?.name, 'a.html')
+assert.equal(findDesignArtifact(sampleIndex, 'mockups/missing.html'), null)
+assert.equal(findDesignArtifact(sampleIndex, null), null)
+
+// Selection persistence (the product integration path in GuidedBriefFlow uses
+// this exact helper via onChange/setGuidedBriefState). Selecting an HTML page
+// writes activeDesignArtifactPath and mirrors activeMockupPath; selecting a
+// non-page writes only activeDesignArtifactPath and leaves activeMockupPath.
+const baseSelectionState = { activeDesignArtifactPath: null as string | null, activeMockupPath: 'mockups/old.html' as string | null }
+const htmlSelection = applyDesignArtifactSelection(baseSelectionState, sampleEntries[0])
+assert.equal(htmlSelection.activeDesignArtifactPath, 'mockups/b.html', 'html selection writes activeDesignArtifactPath')
+assert.equal(htmlSelection.activeMockupPath, 'mockups/b.html', 'html selection mirrors activeMockupPath')
+const cssSelection = applyDesignArtifactSelection(baseSelectionState, sampleEntries[2])
+assert.equal(cssSelection.activeDesignArtifactPath, 'mockups/styles.css', 'non-page selection writes activeDesignArtifactPath')
+assert.equal(cssSelection.activeMockupPath, 'mockups/old.html', 'non-page selection leaves activeMockupPath untouched')
+assert.equal(baseSelectionState.activeDesignArtifactPath, null, 'selection does not mutate the input state')
+
+// Preview kind dispatch (T3) — drives DesignArtifactPreviewPane.
+function previewEntry(relativePath: string, kind: DesignArtifactKind): DesignArtifactEntry {
+  const name = relativePath.split('/').at(-1) ?? relativePath
+  return { name, relativePath, absolutePath: `/ws/${relativePath}`, kind, typeLabel: 'X' }
+}
+assert.equal(previewKindForArtifact(previewEntry('mockups/app.html', 'page')), 'html')
+assert.equal(previewKindForArtifact(previewEntry('mockups/app.htm', 'page')), 'html')
+assert.equal(previewKindForArtifact(previewEntry('product/ui-direction.md', 'notes')), 'markdown', 'notes always render as markdown')
+assert.equal(previewKindForArtifact(previewEntry('.guided-brief/inspiration/spec.md', 'inspiration')), 'markdown', 'markdown inspiration renders as markdown')
+assert.equal(previewKindForArtifact(previewEntry('mockups/logo.svg', 'image')), 'image')
+assert.equal(previewKindForArtifact(previewEntry('.guided-brief/inspiration/ref.png', 'inspiration')), 'image', 'image inspiration renders as image')
+assert.equal(previewKindForArtifact(previewEntry('mockups/styles.css', 'stylesheet')), 'source')
+assert.equal(previewKindForArtifact(previewEntry('mockups/data.json', 'script')), 'source')
+assert.equal(previewKindForArtifact(previewEntry('mockups/panel.js', 'script')), 'source')
+assert.equal(previewKindForArtifact(previewEntry('.guided-brief/inspiration/notes.txt', 'inspiration')), 'source', 'text inspiration renders as source')
+assert.equal(previewKindForArtifact(previewEntry('.guided-brief/inspiration/clip.mp4', 'inspiration')), 'unsupported', 'unknown types are unsupported')
+
+// Designer readiness transition (T11 race fix). nextDesignerStageForReadiness is
+// the functional patch the GuidedBriefFlow effect passes to onChange. It must
+// advance only the stage and preserve fields set by concurrent effects, which is
+// exactly what the old stale whole-runtime spread clobbered (stranding the
+// workspace in designer-working).
+const designerWorkingState: GuidedBriefRuntimeState = {
+  ...guidedDefaults,
+  workspaceRoot: '/design',
+  workspaceName: 'Studio',
+  idea: 'Onboarding flow',
+  hasUi: 'yes',
+  preset: 'frontend-design',
+  wantsProductDiscussion: false,
+  wantsArchitectureDiscussion: false,
+  wantsFrontendDiscussion: true,
+  stage: 'designer-working',
+  acceptedProductBrief: null,
+  acceptedArchitecturePlan: null,
+  acceptedUiDirection: null,
+  acceptedMockups: [],
+  activeMockupPath: null,
+  activeDesignArtifactPath: null,
+  strategistSessionId: null,
+  architectSessionId: null,
+  designerSessionId: null,
+}
+
+assert.equal(
+  nextDesignerStageForReadiness(designerWorkingState, false).stage,
+  'designer-working',
+  'no readiness signal leaves the stage unchanged',
+)
+
+// Simulate the batched commit as sequential functional updaters merging onto the
+// latest committed state: session id assigned, active mockup selected, then
+// readiness flips. All three concurrent changes must survive.
+let mergedDesignerState = designerWorkingState
+mergedDesignerState = { ...mergedDesignerState, designerSessionId: 'designer-1' }
+mergedDesignerState = { ...mergedDesignerState, activeMockupPath: 'mockups/app.html' }
+mergedDesignerState = nextDesignerStageForReadiness(mergedDesignerState, true)
+assert.equal(mergedDesignerState.stage, 'designer-ready', 'readiness advances the designer stage')
+assert.equal(
+  mergedDesignerState.designerSessionId,
+  'designer-1',
+  'readiness patch preserves the concurrently-assigned designer session id',
+)
+assert.equal(
+  mergedDesignerState.activeMockupPath,
+  'mockups/app.html',
+  'readiness patch preserves the concurrently-selected active mockup',
+)
+assert.equal(
+  nextDesignerStageForReadiness({ ...mergedDesignerState, stage: 'handoff' }, true).stage,
+  'handoff',
+  'readiness only advances from designer-working, never regresses a later stage',
+)
+
+// HTML preview sandboxing (T12): scripts are off by default and the interactive
+// toggle must not combine allow-scripts with same-origin privileges.
+assert.equal(htmlArtifactFrameSandbox(false), '', 'scripts-off preview keeps every sandbox restriction enabled')
+assert.equal(htmlArtifactFrameSandbox(true), 'allow-scripts', 'interactive preview grants scripts only')
+assert.equal(
+  htmlArtifactFrameSandbox(true).includes('allow-same-origin'),
+  false,
+  'interactive preview never grants same-origin privileges to generated HTML',
+)
+
+assert.match(
+  browserOpenFailureMessage('mockups/app.html', 'missing'),
+  /missing on disk/,
+  'browser-open missing-file errors are distinguishable',
+)
+assert.match(
+  browserOpenFailureMessage('mockups/app.html', 'handler', new Error('No handler for file URL')),
+  /No handler for file URL/,
+  'browser-open platform handler failures include the thrown detail',
+)
+
+async function testCollectDesignArtifacts(): Promise<void> {
+  // In-memory filesystem mirroring how collectDesignArtifacts walks the tree:
+  // readdir(dir) returns its entries (missing dirs → []), and pathExists is
+  // only queried for product/ui-direction.md.
+  const dirs: Record<string, { name: string; isDir: boolean }[]> = {
+    '/ws/mockups': [
+      { name: 'app.html', isDir: false },
+      { name: 'styles.css', isDir: false },
+      { name: 'data.json', isDir: false },
+      { name: 'logo.svg', isDir: false },
+      { name: 'notes.txt', isDir: false }, // unsupported → ignored
+      { name: '.hidden.html', isDir: false }, // dotfile → skipped
+      { name: 'dashboard', isDir: true },
+    ],
+    '/ws/mockups/dashboard': [
+      { name: 'index.html', isDir: false },
+      { name: 'panel.js', isDir: false },
+    ],
+    '/ws/.guided-brief/inspiration': [
+      { name: 'ref.png', isDir: false },
+      { name: 'moodboard', isDir: true },
+    ],
+    '/ws/.guided-brief/inspiration/moodboard': [{ name: 'shot.jpg', isDir: false }],
+  }
+  const existingFiles = new Set(['/ws/product/ui-direction.md'])
+  const ports: DesignArtifactFsPort = {
+    readdir: async (path) => dirs[path] ?? [],
+    pathExists: async (path) => existingFiles.has(path),
+  }
+
+  const index = await collectDesignArtifacts('/ws', ports)
+
+  assert.deepEqual(
+    index.groups.map((group) => group.id),
+    ['pages', 'stylesheets', 'scripts', 'assets', 'notes', 'inspiration'],
+    'all populated groups appear in canonical order',
+  )
+  assert.equal(index.count, 9, 'unsupported and dotfiles are excluded from the count')
+  assert.deepEqual(
+    index.groups.find((group) => group.id === 'pages')?.entries.map((entry) => entry.relativePath),
+    ['mockups/app.html', 'mockups/dashboard/index.html'],
+    'pages include nested html via recursion, sorted by path',
+  )
+  assert.deepEqual(
+    index.groups.find((group) => group.id === 'scripts')?.entries.map((entry) => entry.relativePath),
+    ['mockups/dashboard/panel.js', 'mockups/data.json'],
+    'js and json land in scripts, sorted by path',
+  )
+  assert.deepEqual(
+    index.groups.find((group) => group.id === 'notes')?.entries.map((entry) => entry.relativePath),
+    ['product/ui-direction.md'],
+    'ui-direction.md appears as a note when present',
+  )
+  assert.deepEqual(
+    index.groups.find((group) => group.id === 'inspiration')?.entries.map((entry) => entry.relativePath),
+    ['.guided-brief/inspiration/moodboard/shot.jpg', '.guided-brief/inspiration/ref.png'],
+    'inspiration includes any file type, recursively, sorted by path',
+  )
+  assert.equal(
+    findDesignArtifact(index, 'product/ui-direction.md')?.typeLabel,
+    'Markdown',
+    'notes carry a Markdown type label',
+  )
+
+  // Empty workspace → empty, not a fabricated success.
+  const emptyIndex = await collectDesignArtifacts('/empty', {
+    readdir: async () => [],
+    pathExists: async () => false,
+  })
+  assert.equal(emptyIndex.count, 0, 'no files on disk yields an empty index')
+
+  console.log('designArtifacts: ok')
+}
+
+void testCollectDesignArtifacts().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})

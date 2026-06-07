@@ -143,6 +143,32 @@ assert.deepEqual(
   'source bundle reads every accepted artifact snapshot',
 )
 
+const designOnlyBundleArtifactReads: string[] = []
+const designOnlySourceBundle = await buildGuidedBriefSprintEngineSourceBundle({
+  workspaceRoot: '/workspace',
+  handoffPath: 'product/build-handoff.md',
+  handoffContent: '# Handoff',
+  productBrief: null,
+  architecturePlan: null,
+  uiDirection: { title: 'UI direction', hash: 'uihash', path: 'product/.versions/uihash.md' },
+  mockups: [{ title: 'Dashboard mockup', hash: 'mockuphash', path: 'mockups/.versions/mockuphash.html' }],
+  readArtifact: async (_workspaceRoot, path) => {
+    designOnlyBundleArtifactReads.push(path)
+    return `content:${path}`
+  },
+})
+
+assert.deepEqual(
+  designOnlySourceBundle.map((item) => item.kind),
+  ['product_plan', 'design_notes', 'html_mockup'],
+  'frontend-design source bundle includes handoff, design notes, and mockup without product or architecture snapshots',
+)
+assert.deepEqual(
+  designOnlyBundleArtifactReads,
+  ['product/.versions/uihash.md', 'mockups/.versions/mockuphash.html'],
+  'frontend-design source bundle reads only accepted design artifacts when product and architecture are skipped',
+)
+
 assert.throws(
   () => buildGuidedBriefBuildHandoffMarkdown({
     idea: 'Create a dashboard for invoice trends.',

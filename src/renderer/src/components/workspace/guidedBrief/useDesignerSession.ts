@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electron-api'
+import type { GuidedBriefRuntimeState } from '../../../types/workspace'
 import {
   createGuidedBriefSessionId,
   startGuidedBriefSpecialistSession,
@@ -7,11 +8,42 @@ import {
   type GuidedBriefSpecialistSession,
 } from './sessionAdapter'
 import { joinWorkspacePath } from './paths'
+import {
+  EMPTY_DESIGN_ARTIFACT_INDEX,
+  INSPIRATION_DIRECTORY_NAME,
+  MOCKUPS_DIRECTORY_NAME,
+  UI_DIRECTION_RELATIVE_PATH,
+  collectDesignArtifacts,
+  type DesignArtifactEntry,
+  type DesignArtifactIndex,
+  type DesignArtifactsStatus,
+} from './designArtifacts'
 
 export type DesignerMockupFile = {
   name: string
   absolutePath: string
   relativePath: string
+}
+
+/**
+ * Designer working → ready transition, as a pure functional patch. It only
+ * advances the stage and leaves every other field untouched, so it can be passed
+ * to `onChange` as a functional updater and merge onto the latest committed
+ * runtime state. That is what prevents the designer-readiness race: when mockups
+ * appear, the stage-flip, active-mockup, and session-id effects all fire in the
+ * same React commit; spreading a stale whole-runtime snapshot made the later
+ * value-update clobber the stage flip and strand the workspace in
+ * `designer-working`. Returning a narrow patch (or `prev` unchanged) keeps the
+ * concurrent updates intact.
+ */
+export function nextDesignerStageForReadiness(
+  prev: GuidedBriefRuntimeState,
+  isReady: boolean,
+): GuidedBriefRuntimeState {
+  if (prev.stage === 'designer-working' && isReady) {
+    return { ...prev, stage: 'designer-ready' }
+  }
+  return prev
 }
 
 export type DesignerSessionReadiness = {
@@ -50,11 +82,11 @@ export type UseDesignerSessionResult = {
   uiDirectionPath: string
   mockupsDirectoryPath: string
   mockups: DesignerMockupFile[]
+  /** Full design-artifact index (pages, stylesheets, scripts, assets, notes, inspiration). */
+  designArtifacts: DesignArtifactIndex
+  designArtifactsStatus: DesignArtifactsStatus
 }
 
-const UI_DIRECTION_RELATIVE_PATH = 'product/ui-direction.md'
-const MOCKUPS_DIRECTORY_NAME = 'mockups'
-const INSPIRATION_DIRECTORY_NAME = '.guided-brief/inspiration'
 const PRIMARY_MOCKUP_RELATIVE_PATH = 'mockups/app.html'
 const POLL_INTERVAL_MS = 2500
 
@@ -62,37 +94,12 @@ function hasContent(value: string): boolean {
   return value.trim().length > 0
 }
 
-// Walk mockups/ for .html files. Agents occasionally write to subfolders
-// (e.g. mockups/dashboard/index.html) and a top-level scan would miss those —
-// leaving designer-ready stuck because mockupsAvailable never flips. The
-// recursion is shallow-bounded so a runaway tree can't lock the renderer.
-async function collectMockupHtmlFiles(
-  absoluteRoot: string,
-  relativeRoot: string,
-  depth: number,
-): Promise<DesignerMockupFile[]> {
-  if (depth > 4) return []
-  const entries = await window.api.readdir(absoluteRoot).catch(() => [])
-  const results: DesignerMockupFile[] = []
-  for (const entry of entries) {
-    if (entry.name.startsWith('.')) continue
-    if (entry.isDir) {
-      const nested = await collectMockupHtmlFiles(
-        joinWorkspacePath(absoluteRoot, entry.name),
-        `${relativeRoot}/${entry.name}`,
-        depth + 1,
-      )
-      results.push(...nested)
-      continue
-    }
-    if (!/\.html?$/i.test(entry.name)) continue
-    results.push({
-      name: entry.name,
-      absolutePath: joinWorkspacePath(absoluteRoot, entry.name),
-      relativePath: `${relativeRoot}/${entry.name}`,
-    })
+function toDesignerMockupFile(entry: DesignArtifactEntry): DesignerMockupFile {
+  return {
+    name: entry.name,
+    absolutePath: entry.absolutePath,
+    relativePath: entry.relativePath,
   }
-  return results
 }
 
 export function useDesignerSession({
@@ -109,6 +116,11 @@ export function useDesignerSession({
   const [error, setError] = useState<string | null>(null)
   const [markerReceived, setMarkerReceived] = useState(false)
   const [mockups, setMockups] = useState<DesignerMockupFile[]>([])
+  const [designArtifacts, setDesignArtifacts] = useState<DesignArtifactIndex>(
+    EMPTY_DESIGN_ARTIFACT_INDEX,
+  )
+  const [designArtifactsStatus, setDesignArtifactsStatus] =
+    useState<DesignArtifactsStatus>('loading')
   const [uiDirectionReady, setUiDirectionReady] = useState(false)
   const [session, setSession] = useState<GuidedBriefSpecialistSession | null>(null)
 
@@ -203,48 +215,70 @@ export function useDesignerSession({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled])
 
-  // Watch the mockups directory for real .html files. Recursive so nested
-  // designer outputs (e.g. mockups/dashboard/index.html) still flip readiness.
+  // Build the real design-artifact index from disk and keep it fresh. The HTML
+  // pages drive the existing designer readiness (mockupsAvailable); the broader
+  // index (stylesheets, scripts, assets, notes, inspiration) is for studio
+  // browsing and selection. Watch all three source roots — the mockups tree,
+  // product/ (for ui-direction.md), and the inspiration tree — plus a poll
+  // fallback because macOS fs.watch can miss create events on a directory that
+  // was empty when the watcher started.
   useEffect(() => {
     if (!enabled) return
     let cancelled = false
-    let stopWatch: (() => Promise<void>) | null = null
+    const stopWatchers: Array<() => Promise<void>> = []
 
     const refresh = async () => {
       try {
-        const htmlFiles = await collectMockupHtmlFiles(
-          mockupsDirectoryPath,
-          MOCKUPS_DIRECTORY_NAME,
-          0,
-        )
+        const rootExists = await window.api.pathExists(workspaceRoot)
         if (cancelled) return
-        htmlFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath))
-        setMockups(htmlFiles)
+        if (!rootExists) {
+          setDesignArtifacts(EMPTY_DESIGN_ARTIFACT_INDEX)
+          setMockups([])
+          setDesignArtifactsStatus('unavailable')
+          return
+        }
+        const index = await collectDesignArtifacts(workspaceRoot, {
+          readdir: window.api.readdir,
+          pathExists: window.api.pathExists,
+        })
+        if (cancelled) return
+        setDesignArtifacts(index)
+        const pages = index.groups.find((group) => group.id === 'pages')?.entries ?? []
+        setMockups(pages.map(toDesignerMockupFile))
+        setDesignArtifactsStatus('ready')
       } catch {
-        if (!cancelled) setMockups([])
+        if (!cancelled) {
+          setDesignArtifacts(EMPTY_DESIGN_ARTIFACT_INDEX)
+          setMockups([])
+          setDesignArtifactsStatus('unavailable')
+        }
       }
     }
 
-    void refresh()
-    void window.api
-      .watchPath(mockupsDirectoryPath, () => {
-        void refresh()
-      })
-      .then((stop) => {
-        if (cancelled) {
-          void stop()
-          return
-        }
-        stopWatch = stop
-      })
-      .catch(() => {
-        // The mockups directory may not exist yet; the poll below will keep
-        // checking until it does.
-      })
+    const watchDirectories = [
+      mockupsDirectoryPath,
+      joinWorkspacePath(workspaceRoot, 'product'),
+      joinWorkspacePath(workspaceRoot, INSPIRATION_DIRECTORY_NAME),
+    ]
 
-    // macOS fs.watch (fsevents) can miss "create" events for files added to a
-    // directory that was empty when the watcher started. Poll as a fallback so
-    // the designer-ready transition is not stuck on a missed event.
+    void refresh()
+    for (const directory of watchDirectories) {
+      void window.api
+        .watchPath(directory, () => {
+          void refresh()
+        })
+        .then((stop) => {
+          if (cancelled) {
+            void stop()
+            return
+          }
+          stopWatchers.push(stop)
+        })
+        .catch(() => {
+          // A source directory may not exist yet; the poll keeps checking.
+        })
+    }
+
     const pollHandle = setInterval(() => {
       void refresh()
     }, POLL_INTERVAL_MS)
@@ -252,9 +286,9 @@ export function useDesignerSession({
     return () => {
       cancelled = true
       clearInterval(pollHandle)
-      if (stopWatch) void stopWatch()
+      for (const stop of stopWatchers) void stop()
     }
-  }, [enabled, mockupsDirectoryPath])
+  }, [enabled, workspaceRoot, mockupsDirectoryPath])
 
   // Watch product/ui-direction.md for non-empty content.
   useEffect(() => {
@@ -321,5 +355,7 @@ export function useDesignerSession({
     uiDirectionPath: uiDirectionAbsolutePath,
     mockupsDirectoryPath,
     mockups,
+    designArtifacts,
+    designArtifactsStatus,
   }
 }

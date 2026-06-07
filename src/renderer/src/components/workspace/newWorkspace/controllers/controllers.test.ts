@@ -516,6 +516,99 @@ async function testGuidedBriefStartBuildHandoffPath(): Promise<void> {
   assert.match(writtenHandoff ?? '', /## Suggested Sprint Engine Goal/, 'handoff body contains the goal section')
 }
 
+async function testGuidedBriefStartBuildDesignPresetHandoff(): Promise<void> {
+  const fs = createMemoryFilesystem()
+  const artifactReads: string[] = []
+  let sourceBundleKinds: string[] = []
+  let sourceBundlePaths: string[] = []
+  let handoffContent = ''
+
+  const runtimeState: GuidedBriefRuntimeState = {
+    workspaceRoot: '/design',
+    workspaceName: 'Studio',
+    idea: 'A focused onboarding screen.',
+    hasUi: 'yes',
+    preset: 'frontend-design',
+    wantsProductDiscussion: false,
+    wantsArchitectureDiscussion: false,
+    wantsFrontendDiscussion: true,
+    guidedRoleCliDefaults: { product: 'claude', architect: 'claude', frontend: 'claude' },
+    buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+    buildRoleCliDefaults: { architect: 'claude', product: 'claude', frontend: 'claude', developer: 'claude', code_reviewer: 'claude', spec_reviewer: 'claude', performance: 'claude', cross_platform: 'claude', tester: 'claude', security: 'claude' },
+    buildCliPermissionPreset: 'default',
+    buildStartRunner: false,
+    buildAutoApproveArtifacts: false,
+    stage: 'handoff',
+    acceptedProductBrief: null,
+    acceptedArchitecturePlan: null,
+    acceptedUiDirection: { kind: 'product', title: 'UI direction', hash: 'u', path: 'product/.versions/u.md' },
+    acceptedMockups: [{ kind: 'mockup', title: 'Onboarding mockup', hash: 'm', path: 'mockups/.versions/m.html' }],
+    activeMockupPath: 'mockups/.versions/m.html',
+    activeDesignArtifactPath: 'mockups/.versions/m.html',
+    strategistSessionId: null,
+    architectSessionId: null,
+    designerSessionId: null,
+  }
+
+  const ports: GuidedBriefStartBuildPorts = {
+    filesystem: fs,
+    pathExists: async () => false,
+    readArchitecturePlan: async (_workspaceRoot, path) => {
+      artifactReads.push(path)
+      return `# Artifact\n\n${path}\n`
+    },
+    readBuildHandoff: async (workspaceRoot, path) => fs.files.get(`${workspaceRoot}/${path}`) ?? '',
+    createPlanSourcedSprintEngineWorkspace: async (args) => {
+      sourceBundleKinds = args.sourceBundle?.map((item) => item.kind) ?? []
+      sourceBundlePaths = args.sourceBundle?.map((item) => item.sourceRelativePath) ?? []
+      handoffContent = args.sourceContent
+      return {
+        workspaceId: 'workspace-id',
+        sprintEngineContext: {
+          teamName: 'Studio Build',
+          teamSlug: 'studio-build',
+          teamDirectoryPath: '/design/.multi-code/sprintengine/studio-build',
+          statePath: '/design/.multi-code/sprintengine/studio-build/run.yaml',
+        },
+        architectAgentId: 'architect-1',
+      }
+    },
+  }
+
+  await runGuidedBriefStartBuild(
+    {
+      runtimeState,
+      runOptions: { startRunner: false, autoApproveArtifacts: false, roleCounts: runtimeState.buildRoleCounts, roleCliDefaults: runtimeState.buildRoleCliDefaults, cliPermissionPreset: 'default' },
+      finalRoleCounts: runtimeState.buildRoleCounts,
+      rosterSummary: ['frontend: 1', 'developer: 1'],
+      planningDecisions: ['Application includes a visual UI.'],
+      planningValidationNotes: ['Validate against accepted design artifacts.'],
+      buildHandoffRelativePath: 'product/build-handoff.md',
+    },
+    ports,
+  )
+
+  assert.ok(fs.files.has('/design/product/build-handoff.md'), 'design preset start-build writes the real handoff file')
+  assert.match(handoffContent, /Product brief: not requested/, 'design preset handoff records skipped product discussion')
+  assert.match(handoffContent, /UI direction: `product\/\.versions\/u\.md` \(u\)/, 'design preset handoff records accepted UI direction')
+  assert.match(handoffContent, /Onboarding mockup: `mockups\/\.versions\/m\.html` \(m\)/, 'design preset handoff records accepted mockup')
+  assert.deepEqual(
+    sourceBundleKinds,
+    ['product_plan', 'design_notes', 'html_mockup'],
+    'design preset source bundle contains handoff, design notes, and html mockup only',
+  )
+  assert.deepEqual(
+    sourceBundlePaths,
+    ['product/build-handoff.md', 'product/.versions/u.md', 'mockups/.versions/m.html'],
+    'design preset source bundle keeps workspace-relative paths',
+  )
+  assert.deepEqual(
+    artifactReads,
+    ['product/.versions/u.md', 'mockups/.versions/m.html'],
+    'design preset start-build does not require product or architecture snapshots',
+  )
+}
+
 async function main(): Promise<void> {
   testBuildStandardCreation()
   testBuildSwitchboardCreation()
@@ -527,6 +620,7 @@ async function main(): Promise<void> {
   await testGuidedBriefDesignPresetScaffold()
   await testGuidedBriefStartBuildValidation()
   await testGuidedBriefStartBuildHandoffPath()
+  await testGuidedBriefStartBuildDesignPresetHandoff()
   console.log('newWorkspace controllers.test.ts: ok')
 }
 

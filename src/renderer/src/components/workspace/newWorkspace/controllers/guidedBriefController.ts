@@ -200,7 +200,8 @@ export async function runGuidedBriefStartBuild(
   const goal = guidedBriefSprintEngineGoal(sourceContent, runtimeState.hasUi)
 
   try {
-    await createPlanSourcedSprintEngineWorkspace({
+    const createWorkspace = ports.createPlanSourcedSprintEngineWorkspace ?? createPlanSourcedSprintEngineWorkspace
+    await createWorkspace({
       rootPath: runtimeState.workspaceRoot,
       teamName: `${runtimeState.workspaceName} Build`,
       goal,

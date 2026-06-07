@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electron-api'
 import type {
   SprintEngineCliPermissionPreset,
@@ -20,9 +20,22 @@ import { SprintEngineRosterTable } from '../newWorkspace/SprintEngineRosterTable
 import { CliPermissionPresetRow, PathRadio } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
 import { MockupPreviewPane } from './MockupPreviewPane'
+import { DesignFilesPane } from './DesignFilesPane'
+import { DesignArtifactPreviewPane } from './DesignArtifactPreviewPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
+import {
+  applyDesignArtifactSelection,
+  findDesignArtifact,
+  type DesignArtifactEntry,
+  type DesignArtifactIndex,
+  type DesignArtifactsStatus,
+} from './designArtifacts'
 import { useArchitectSession } from './useArchitectSession'
-import { useDesignerSession, type DesignerMockupFile } from './useDesignerSession'
+import {
+  useDesignerSession,
+  nextDesignerStageForReadiness,
+  type DesignerMockupFile,
+} from './useDesignerSession'
 import { useStrategistSession } from './useStrategistSession'
 import { joinWorkspacePath } from './paths'
 import {
@@ -78,6 +91,26 @@ export function GuidedBriefFlow({
   sprintEngineDisabledRoleIds = null,
 }: Props) {
   const { stage, hasUi, workspaceRoot, workspaceName, acceptedProductBrief, acceptedArchitecturePlan } = runtimeState
+
+  // Designer-readiness race fix (T11). `onChange` is value-only and, in the
+  // post-creation runtime, persists through the workspace store — so a functional
+  // updater at the prop boundary is not an option. Instead, accumulate concurrent
+  // patches through a ref: each effect-driven update merges onto the latest
+  // patched state and advances the ref synchronously, so when the stage-flip,
+  // active-mockup, and session-id effects fire in the same React commit the final
+  // onChange carries all of them instead of clobbering each other with a stale
+  // whole-runtime spread (which left the workspace stuck in `designer-working`).
+  const runtimeStateRef = useRef(runtimeState)
+  runtimeStateRef.current = runtimeState
+  const updateRuntimeState = (
+    updater: (prev: GuidedBriefRuntimeState) => GuidedBriefRuntimeState,
+  ) => {
+    const next = updater(runtimeStateRef.current)
+    if (next === runtimeStateRef.current) return
+    runtimeStateRef.current = next
+    onChange(next)
+  }
+
   const progressOptions = {
     wantsProductDiscussion: runtimeState.wantsProductDiscussion,
     wantsArchitectureDiscussion: runtimeState.wantsArchitectureDiscussion,
@@ -96,8 +129,9 @@ export function GuidedBriefFlow({
     enabled: inStrategistStage,
     sessionId: runtimeState.strategistSessionId,
     onAssignSessionId: (id) => {
-      if (runtimeState.strategistSessionId === id) return
-      onChange({ ...runtimeState, strategistSessionId: id })
+      updateRuntimeState((prev) =>
+        prev.strategistSessionId === id ? prev : { ...prev, strategistSessionId: id },
+      )
     },
   })
 
@@ -110,8 +144,9 @@ export function GuidedBriefFlow({
     enabled: inArchitectStage,
     sessionId: runtimeState.architectSessionId,
     onAssignSessionId: (id) => {
-      if (runtimeState.architectSessionId === id) return
-      onChange({ ...runtimeState, architectSessionId: id })
+      updateRuntimeState((prev) =>
+        prev.architectSessionId === id ? prev : { ...prev, architectSessionId: id },
+      )
     },
   })
 
@@ -131,22 +166,35 @@ export function GuidedBriefFlow({
       inDesignerStage,
     sessionId: runtimeState.designerSessionId,
     onAssignSessionId: (id) => {
-      if (runtimeState.designerSessionId === id) return
-      onChange({ ...runtimeState, designerSessionId: id })
+      updateRuntimeState((prev) =>
+        prev.designerSessionId === id ? prev : { ...prev, designerSessionId: id },
+      )
     },
   })
+
+  // Stage and selection effects below use functional `onChange` updaters rather
+  // than spreading the closure's `runtimeState`. When several of these fire in
+  // one React commit (e.g. mockups appear → readiness flips, the active mockup
+  // is selected, and the designer session id is assigned at once), a stale
+  // whole-runtime spread made the later value-update clobber the others and
+  // strand the workspace in `designer-working`. Each updater re-checks against
+  // the latest `prev` and returns a narrow patch (or `prev` unchanged).
 
   // Strategist working → ready as soon as a real signal arrives.
   useEffect(() => {
     if (stage === 'strategist-working' && strategist.readiness.isReady) {
-      onChange({ ...runtimeState, stage: 'strategist-ready' })
+      updateRuntimeState((prev) =>
+        prev.stage === 'strategist-working' ? { ...prev, stage: 'strategist-ready' } : prev,
+      )
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, strategist.readiness.isReady])
 
   useEffect(() => {
     if (stage === 'architect-working' && architect.readiness.isReady) {
-      onChange({ ...runtimeState, stage: 'architect-ready' })
+      updateRuntimeState((prev) =>
+        prev.stage === 'architect-working' ? { ...prev, stage: 'architect-ready' } : prev,
+      )
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, architect.readiness.isReady])
@@ -155,7 +203,7 @@ export function GuidedBriefFlow({
   // files). Real file presence is the contractual gate; marker alone is a hint.
   useEffect(() => {
     if (stage === 'designer-working' && designer.readiness.isReady) {
-      onChange({ ...runtimeState, stage: 'designer-ready' })
+      updateRuntimeState((prev) => nextDesignerStageForReadiness(prev, true))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, designer.readiness.isReady])
@@ -164,13 +212,13 @@ export function GuidedBriefFlow({
   // preview pane has a stable selection across re-renders.
   useEffect(() => {
     if (!designer.mockups.length) return
-    if (
-      runtimeState.activeMockupPath &&
-      designer.mockups.some((m) => m.relativePath === runtimeState.activeMockupPath)
-    ) {
-      return
-    }
-    onChange({ ...runtimeState, activeMockupPath: designer.mockups[0].relativePath })
+    const available = new Set(designer.mockups.map((m) => m.relativePath))
+    const firstMockupPath = designer.mockups[0].relativePath
+    updateRuntimeState((prev) =>
+      prev.activeMockupPath && available.has(prev.activeMockupPath)
+        ? prev
+        : { ...prev, activeMockupPath: firstMockupPath },
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [designer.mockups])
 
@@ -186,6 +234,16 @@ export function GuidedBriefFlow({
       ? 'run_agents'
       : 'manual'
   const effectiveAutoApprove = automationMode === 'run_agents_and_approve_artifacts'
+
+  // Multicode Design (frontend-design preset) surfaces the real design-file
+  // index. Selecting a file persists its relative path to the runtime state via
+  // the existing onChange path; HTML pages mirror to activeMockupPath so the
+  // existing mockup preview stays in sync. The full three-pane studio shell is
+  // T4's scope — this is the minimal wiring that makes selection real.
+  const isDesignPreset = runtimeState.preset === 'frontend-design'
+  const handleSelectDesignArtifact = (entry: DesignArtifactEntry) => {
+    updateRuntimeState((prev) => applyDesignArtifactSelection(prev, entry))
+  }
 
   const acceptStrategistBrief = async () => {
     if (!strategist.readiness.fileReady) return
@@ -508,6 +566,18 @@ export function GuidedBriefFlow({
             isLive={architect.status === 'running' || architect.status === 'ready'}
             architecturePlanPath={architect.architecturePlanPath}
             architectureDirectoryPath={joinWorkspacePath(workspaceRoot, 'architecture')}
+          />
+        ) : inDesignerStage && isDesignPreset ? (
+          <DesignStudioBody
+            session={designer.session}
+            starting={designer.status === 'starting' || designer.status === 'idle'}
+            errorMessage={designer.error}
+            isLive={designer.status === 'running' || designer.status === 'ready'}
+            mockupCount={designer.mockups.length}
+            designArtifacts={designer.designArtifacts}
+            designArtifactsStatus={designer.designArtifactsStatus}
+            activeDesignArtifactPath={runtimeState.activeDesignArtifactPath ?? null}
+            onSelectDesignArtifact={handleSelectDesignArtifact}
           />
         ) : inDesignerStage ? (
           <DesignerBody
@@ -917,6 +987,66 @@ function DesignerBody({
           productDirectoryPath={productDirectoryPath}
         />
       ) : null}
+    </div>
+  )
+}
+
+// Multicode Design studio: Activity (live designer terminal), Design Files (real
+// on-disk index), and Preview (selected artifact) shown concurrently. Three
+// columns at desktop widths; on narrow widths the same panes stack and the
+// container scrolls, so the terminal stays mounted, live, and input-capable
+// alongside files and preview at every width. Selection state and persistence
+// are owned by the parent (T2 wiring); this is the full studio composition (T4).
+function DesignStudioBody({
+  session,
+  starting,
+  errorMessage,
+  isLive,
+  mockupCount,
+  designArtifacts,
+  designArtifactsStatus,
+  activeDesignArtifactPath,
+  onSelectDesignArtifact,
+}: {
+  session: ReturnType<typeof useDesignerSession>['session']
+  starting: boolean
+  errorMessage: string | null
+  isLive: boolean
+  mockupCount: number
+  designArtifacts: DesignArtifactIndex
+  designArtifactsStatus: DesignArtifactsStatus
+  activeDesignArtifactPath: string | null
+  onSelectDesignArtifact: (entry: DesignArtifactEntry) => void
+}) {
+  const selectedEntry = findDesignArtifact(designArtifacts, activeDesignArtifactPath)
+
+  return (
+    <div className="grid h-full min-h-0 grid-cols-1 gap-4 overflow-y-auto px-6 py-6 lg:grid-cols-[minmax(0,320px)_minmax(0,340px)_minmax(0,1fr)] lg:overflow-hidden">
+      <div className="flex min-h-[260px] min-w-0 flex-col lg:min-h-0">
+        <ConversationPane
+          session={session}
+          starting={starting}
+          errorMessage={errorMessage}
+          specialistName="Frontend Designer"
+          specialistSubline={
+            mockupCount > 0
+              ? `${mockupCount} screen${mockupCount === 1 ? '' : 's'} on disk · ask for changes anytime`
+              : 'Describe the screens you want — files and preview update as they’re written'
+          }
+          isLive={isLive}
+        />
+      </div>
+      <div className="flex min-h-[260px] min-w-0 flex-col lg:min-h-0">
+        <DesignFilesPane
+          index={designArtifacts}
+          status={designArtifactsStatus}
+          selectedPath={activeDesignArtifactPath}
+          onSelect={onSelectDesignArtifact}
+        />
+      </div>
+      <div className="flex min-h-[320px] min-w-0 flex-col lg:min-h-0">
+        <DesignArtifactPreviewPane entry={selectedEntry} />
+      </div>
     </div>
   )
 }
