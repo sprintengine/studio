@@ -321,7 +321,7 @@ export default function PlainTerminalPanel({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={(event) => void handleDrop(event)}
-        className="terminal-focus-ring absolute inset-0 cursor-text overflow-hidden p-2"
+        className="terminal-focus-ring absolute inset-0 cursor-text overflow-hidden p-2 pb-4"
       >
         {isFileDragOver ? (
           <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]" />

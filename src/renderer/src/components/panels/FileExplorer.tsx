@@ -6,6 +6,7 @@ import { getGitStatusAppearance } from '../../utils/gitStatusAppearance'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { isImageFile } from '../../utils/files'
+import { fileExplorerSelectionFromVerticalRange, fileExplorerSelectionRange } from '../../utils/fileExplorerSelection'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { setFileDropData } from '../../utils/terminalDrop'
 import { IconButton } from '../ui/Buttons'
@@ -630,6 +631,13 @@ function ExplorerTree({
   const lastManualRefreshRef = useRef(refreshToken)
   const lastCreateRequestTokenRef = useRef(0)
   const selectionAnchorPathRef = useRef<string | null>(null)
+  const activeRowsRef = useRef<TreeRow[]>([])
+  const dragSelectionRef = useRef<
+    | { kind: 'row'; anchorPath: string; active: boolean }
+    | { kind: 'background'; startY: number; active: boolean }
+    | null
+  >(null)
+  const completedDragSelectionRef = useRef(false)
 
   const visibleRows = useMemo(
     () => flattenTree(rootEntries, 0, expandedPaths, childrenByPath),
@@ -667,6 +675,54 @@ function ExplorerTree({
   useEffect(() => {
     latestGitStatusRef.current = gitStatus
   }, [gitStatus])
+
+  useEffect(() => {
+    activeRowsRef.current = activeRows
+  }, [activeRows])
+
+  useEffect(() => {
+    const updateBackgroundDragSelection = (clientY: number) => {
+      const dragSelection = dragSelectionRef.current
+      if (!dragSelection || dragSelection.kind !== 'background') return
+
+      const rangePaths = fileExplorerSelectionFromVerticalRange(
+        activeRowsRef.current
+          .map((row) => {
+            const node = rowRefs.current[row.entry.path]
+            if (!node) return null
+            const rect = node.getBoundingClientRect()
+            return { path: row.entry.path, top: rect.top, bottom: rect.bottom }
+          })
+          .filter((row): row is { path: string; top: number; bottom: number } => Boolean(row)),
+        dragSelection.startY,
+        clientY
+      )
+
+      completedDragSelectionRef.current = rangePaths.length > 0
+      setSelectedPath(rangePaths.at(-1) ?? null)
+      setSelectedPaths(new Set(rangePaths))
+    }
+
+    const handleMouseMove = (event: MouseEvent) => {
+      updateBackgroundDragSelection(event.clientY)
+    }
+
+    const handleMouseUp = () => {
+      if (dragSelectionRef.current) {
+        dragSelectionRef.current = null
+        window.setTimeout(() => {
+          completedDragSelectionRef.current = false
+        }, 0)
+      }
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [])
 
   const renamingPath = renameDraft?.entry.path ?? null
 
@@ -724,18 +780,52 @@ function ExplorerTree({
   }
 
   const selectEntryRange = (anchorPath: string, targetPath: string) => {
-    const anchorIndex = activeRows.findIndex((row) => row.entry.path === anchorPath)
-    const targetIndex = activeRows.findIndex((row) => row.entry.path === targetPath)
+    const rangePaths = fileExplorerSelectionRange(
+      activeRowsRef.current.map((row) => row.entry.path),
+      anchorPath,
+      targetPath
+    )
 
-    if (anchorIndex === -1 || targetIndex === -1) {
-      setSelectedPaths(new Set([targetPath]))
+    if (!rangePaths.length) {
       return
     }
 
-    const [start, end] = anchorIndex < targetIndex
-      ? [anchorIndex, targetIndex]
-      : [targetIndex, anchorIndex]
-    setSelectedPaths(new Set(activeRows.slice(start, end + 1).map((row) => row.entry.path)))
+    setSelectedPaths(new Set(rangePaths))
+  }
+
+  const beginDragSelection = (entry: Entry, event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return
+
+    event.preventDefault()
+    dragSelectionRef.current = { kind: 'row', anchorPath: entry.path, active: true }
+    completedDragSelectionRef.current = false
+    selectOnlyEntry(entry)
+    focusTree()
+  }
+
+  const beginBackgroundDragSelection = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return
+    if (event.target instanceof Element && event.target.closest('[data-file-explorer-row="true"]')) return
+
+    event.preventDefault()
+    dragSelectionRef.current = { kind: 'background', startY: event.clientY, active: true }
+    completedDragSelectionRef.current = false
+    selectionAnchorPathRef.current = null
+    setSelectedPath(null)
+    setSelectedPaths(new Set())
+    focusTree()
+  }
+
+  const extendDragSelection = (entry: Entry, event: React.MouseEvent<HTMLDivElement>) => {
+    const dragSelection = dragSelectionRef.current
+    if (!dragSelection?.active || dragSelection.kind !== 'row' || event.buttons !== 1) return
+
+    event.preventDefault()
+    if (entry.path !== dragSelection.anchorPath) {
+      completedDragSelectionRef.current = true
+    }
+    setSelectedPath(entry.path)
+    selectEntryRange(dragSelection.anchorPath, entry.path)
   }
 
   const selectEntry = (entry: Entry, event?: React.MouseEvent<HTMLDivElement>) => {
@@ -1080,6 +1170,11 @@ function ExplorerTree({
   }
 
   const handleDragStart = (event: React.DragEvent<HTMLDivElement>, entry: Entry) => {
+    if (dragSelectionRef.current?.active) {
+      event.preventDefault()
+      return
+    }
+
     if (entry.gitDeleted) {
       event.preventDefault()
       return
@@ -1533,6 +1628,7 @@ function ExplorerTree({
         title={searchDiagnosticsTitle}
         onKeyDown={(event) => void handleKeyDown(event)}
         onContextMenu={(event) => void showContextMenu(event)}
+        onMouseDown={beginBackgroundDragSelection}
         className="flex min-h-full flex-col gap-px rounded-md px-1 py-1.5 outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
       >
         {activeRows.map(({ entry, depth }) => {
@@ -1551,12 +1647,25 @@ function ExplorerTree({
                 rowRefs.current[entry.path] = node
               }}
               role="treeitem"
+              data-file-explorer-row="true"
               aria-selected={isSelected}
               aria-expanded={entry.isDir ? isExpanded : undefined}
               draggable={!entry.gitDeleted && !isRenaming}
               onDragStart={(event) => handleDragStart(event, entry)}
+              onMouseDown={(event) => {
+                if (isRenaming) return
+                beginDragSelection(entry, event)
+              }}
+              onMouseEnter={(event) => {
+                if (isRenaming) return
+                extendDragSelection(entry, event)
+              }}
               onClick={(event) => {
                 if (isRenaming) return
+                if (completedDragSelectionRef.current) {
+                  event.preventDefault()
+                  return
+                }
                 selectEntry(entry, event)
                 focusTree()
               }}

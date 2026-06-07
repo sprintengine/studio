@@ -1,11 +1,16 @@
 {
-  "id": "developer",
-  "label": "Developer",
-  "aliases": [],
-  "summary": "Implements reliable backend and core software changes.",
+  "id": "ui_ux_reviewer",
+  "label": "UI/UX Reviewer",
+  "aliases": [
+    "ui-ux-review",
+    "frontend-ui-review",
+    "frontend-ux-review",
+    "brand-ui-review"
+  ],
+  "summary": "Reviews frontend UX, UI consistency, brand alignment, responsive behavior, and visual polish.",
   "soul": [
     {
-      "skill": "developer"
+      "skill": "ui_ux_reviewer"
     },
     {
       "skill": "project_relative_paths"

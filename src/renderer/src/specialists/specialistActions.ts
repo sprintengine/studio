@@ -6,6 +6,7 @@ export type SpecialistIcon =
   | 'architecture'
   | 'code'
   | 'design'
+  | 'design_review'
   | 'review'
   | 'spaghetti'
   | 'nuclear'
@@ -103,6 +104,14 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Design and implement polished frontend experiences, UI architecture, accessibility, and responsive behavior.',
     icon: 'design',
     soulRole: 'frontend',
+  },
+  {
+    id: 'ui-ux-review',
+    label: 'UI/UX Reviewer',
+    shortLabel: 'UI/UX Reviewer',
+    description: 'Review rendered UX/UI quality, brand alignment, responsive behavior, consistency across screens, and visual artifacts.',
+    icon: 'design_review',
+    soulRole: 'ui_ux_reviewer',
   },
   {
     id: 'blog-writer',
@@ -215,6 +224,8 @@ export function buildSpecialistSoulStartupPrompt(action: SpecialistAction): stri
     '```',
     '',
     'Treat the returned text as your role, judgment, and quality bar.',
+    '',
+    'After loading the Soul, do not begin role-specific work yet. Briefly acknowledge that you are ready in this role, then wait for the user to give you a task or question.',
     '',
     'If the `souls` command is unavailable, stop and report that the Souls CLI is unavailable instead of guessing the role prompt.',
   ].join('\n')

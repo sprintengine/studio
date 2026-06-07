@@ -78,6 +78,7 @@ export function SpecialistActionIcon({ icon, className }: IconProps & { icon: Sp
     case 'code':
       return <CodeIcon className={className} />
     case 'design':
+    case 'design_review':
       return <FrontendIcon className={className} />
     case 'review':
       return <ReviewIcon className={className} />
@@ -123,6 +124,7 @@ export function SprintEngineRoleIcon({
     case 'developer':
       return <CodeIcon className={className} />
     case 'frontend':
+    case 'ui_ux_reviewer':
       return <FrontendIcon className={className} />
     case 'tester':
       return <TestIcon className={className} />

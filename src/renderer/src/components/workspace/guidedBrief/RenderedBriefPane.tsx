@@ -9,6 +9,7 @@ type Props = {
   unavailableTitle?: string
   missingReason?: string
   emptyReason?: string
+  copyPathLabel?: string
 }
 
 type LoadState =
@@ -29,8 +30,10 @@ export function RenderedBriefPane({
   unavailableTitle = 'Brief not available',
   missingReason = 'product/requirements.md has not been written yet.',
   emptyReason = 'product/requirements.md is empty.',
+  copyPathLabel,
 }: Props) {
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -92,6 +95,17 @@ export function RenderedBriefPane({
   }, [briefPath, watchDirectoryPath, missingReason, emptyReason])
 
   const relativePath = relativeFromWorkspace(briefPath, watchDirectoryPath.replace(/[\\/]+product$/, ''))
+  const pathToCopy = copyPathLabel ?? relativePath
+
+  const copyPath = async () => {
+    try {
+      await window.api.clipboardWriteText(pathToCopy)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1400)
+    } catch {
+      // Clipboard failures are non-critical; leave the label unchanged.
+    }
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -113,6 +127,19 @@ export function RenderedBriefPane({
             )}
           </span>
         </div>
+        {state.kind === 'ready' ? (
+          <button
+            type="button"
+            onClick={() => void copyPath()}
+            className="
+              inline-flex h-6 shrink-0 items-center rounded-sm px-1.5 text-[11px] text-[color:var(--text-muted)]
+              transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+            "
+          >
+            {copied ? 'Copied' : 'Copy path'}
+          </button>
+        ) : null}
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-5 py-5">

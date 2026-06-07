@@ -3,10 +3,8 @@ import { basename, joinWorkspacePath } from './paths'
 // Deterministic, path-based index of the real design artifacts a Multicode
 // Design (frontend-design preset) workspace produces on disk. The index is
 // built only from files that actually exist — there are no sample or
-// placeholder rows. Modified time is intentionally omitted: the renderer
-// filesystem contract (`window.api.readdir`) exposes only name + isDir, and the
-// task scope explicitly avoids overloading `readfile` or adding a metadata IPC
-// for v1. A narrow stat contract can add it later.
+// placeholder rows. Modified time comes from the narrow read-only stat IPC; when
+// metadata is unavailable, the file still appears without a timestamp.
 
 export type DesignArtifactKind =
   | 'page'
@@ -34,6 +32,10 @@ export type DesignArtifactEntry = {
   kind: DesignArtifactKind
   /** Short human label for the row, e.g. `HTML`, `CSS`, `Markdown`. */
   typeLabel: string
+  /** ISO modified time from the filesystem, when available. */
+  modifiedAt?: string | null
+  /** Millisecond modified time for sorting/future display, when available. */
+  modifiedAtMs?: number | null
 }
 
 export type DesignArtifactGroup = {
@@ -57,6 +59,7 @@ export type DesignArtifactsStatus = 'loading' | 'ready' | 'unavailable'
 export type DesignArtifactFsPort = {
   readdir: (path: string) => Promise<{ name: string; isDir: boolean }[]>
   pathExists: (path: string) => Promise<boolean>
+  statPath?: (path: string) => Promise<{ modifiedAt: string; modifiedAtMs: number }>
 }
 
 export const EMPTY_DESIGN_ARTIFACT_INDEX: DesignArtifactIndex = {
@@ -116,6 +119,19 @@ function typeLabelFor(name: string, kind: DesignArtifactKind): string {
   if (kind === 'notes') return 'Markdown'
   const ext = extensionOf(name)
   return ext ? ext.toUpperCase() : 'File'
+}
+
+async function metadataFor(
+  absolutePath: string,
+  ports: DesignArtifactFsPort,
+): Promise<Pick<DesignArtifactEntry, 'modifiedAt' | 'modifiedAtMs'>> {
+  if (!ports.statPath) return {}
+  try {
+    const stats = await ports.statPath(absolutePath)
+    return { modifiedAt: stats.modifiedAt, modifiedAtMs: stats.modifiedAtMs }
+  } catch {
+    return {}
+  }
 }
 
 // How a selected artifact should be previewed. Drives DesignArtifactPreviewPane:
@@ -223,7 +239,12 @@ export async function collectDesignArtifacts(
   for (const file of mockupFiles) {
     const kind = classifyMockupFile(file.name)
     if (!kind) continue
-    entries.push({ ...file, kind, typeLabel: typeLabelFor(file.name, kind) })
+    entries.push({
+      ...file,
+      kind,
+      typeLabel: typeLabelFor(file.name, kind),
+      ...(await metadataFor(file.absolutePath, ports)),
+    })
   }
 
   const uiDirectionAbsolutePath = joinWorkspacePath(workspaceRoot, UI_DIRECTION_RELATIVE_PATH)
@@ -235,6 +256,7 @@ export async function collectDesignArtifacts(
       absolutePath: uiDirectionAbsolutePath,
       kind: 'notes',
       typeLabel: typeLabelFor(UI_DIRECTION_RELATIVE_PATH, 'notes'),
+      ...(await metadataFor(uiDirectionAbsolutePath, ports)),
     })
   }
 
@@ -245,7 +267,12 @@ export async function collectDesignArtifacts(
     0,
   )
   for (const file of inspirationFiles) {
-    entries.push({ ...file, kind: 'inspiration', typeLabel: typeLabelFor(file.name, 'inspiration') })
+    entries.push({
+      ...file,
+      kind: 'inspiration',
+      typeLabel: typeLabelFor(file.name, 'inspiration'),
+      ...(await metadataFor(file.absolutePath, ports)),
+    })
   }
 
   return buildDesignArtifactIndex(entries)

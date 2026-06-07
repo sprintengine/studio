@@ -88,7 +88,7 @@ assert.deepEqual(state.appSettings.recentWorkspaceFolders, [
   '/Users/example/other',
   '/Users/example/project',
 ])
-assert.equal(state.workspaces.find((workspace) => workspace.id === soloDevId)?.agents['agent-1']?.cli, 'claude')
+assert.equal(state.workspaces.find((workspace) => workspace.id === soloDevId)?.agents['agent-1']?.cli, 'claude-code')
 assert.equal(state.workspaces.find((workspace) => workspace.id === soloDevId)?.agents['agent-1']?.name, 'Agent')
 
 state.reorderWorkspaces([secondId, 'missing', firstId, soloDevId])
@@ -241,9 +241,9 @@ const guidedBriefState: GuidedBriefRuntimeState = {
   wantsProductDiscussion: true,
   wantsArchitectureDiscussion: true,
   wantsFrontendDiscussion: true,
-  guidedRoleCliDefaults: { product: 'codex', architect: 'codex', frontend: 'claude' },
+  guidedRoleCliDefaults: { product: 'codex', architect: 'codex', frontend: 'claude-code' },
   buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 1, security: 0 },
-  buildRoleCliDefaults: { architect: 'codex', product: 'codex', frontend: 'claude', developer: 'codex', code_reviewer: 'codex', spec_reviewer: 'codex', performance: 'codex', cross_platform: 'codex', tester: 'codex', security: 'codex' },
+  buildRoleCliDefaults: { architect: 'codex', product: 'codex', frontend: 'claude-code', developer: 'codex', code_reviewer: 'codex', spec_reviewer: 'codex', performance: 'codex', cross_platform: 'codex', tester: 'codex', security: 'codex' },
   buildCliPermissionPreset: 'default',
   buildStartRunner: false,
   buildAutoApproveArtifacts: false,
@@ -281,19 +281,19 @@ const sprintEngineId = useWorkspaceStore.getState().addWorkspace(standardTemplat
   folderPath: '/Users/example/runtime-choice',
   sprintEngineState,
   sprintEngineRoleCliDefaults: {
-    architect: 'claude',
-    developer: 'claude',
+    architect: 'claude-code',
+    developer: 'claude-code',
   },
   sprintEngineAgentCliOverrides: {
     'developer-1': 'codex',
-    'developer-2': 'claude',
+    'developer-2': 'claude-code',
   },
 })
 state = useWorkspaceStore.getState()
 const sprintEngineWorkspace = state.workspaces.find((workspace) => workspace.id === sprintEngineId)
-assert.equal(sprintEngineWorkspace?.agents.architect?.cli, 'claude')
+assert.equal(sprintEngineWorkspace?.agents.architect?.cli, 'claude-code')
 assert.equal(sprintEngineWorkspace?.agents['developer-1']?.cli, 'codex')
-assert.equal(sprintEngineWorkspace?.agents['developer-2']?.cli, 'claude')
+assert.equal(sprintEngineWorkspace?.agents['developer-2']?.cli, 'claude-code')
 
 // A second workspace in the same folder inserts directly above the first
 // (top of that folder's block), not at the global head and not at the tail.

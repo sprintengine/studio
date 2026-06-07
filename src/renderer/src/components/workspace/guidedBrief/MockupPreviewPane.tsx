@@ -64,6 +64,7 @@ export function HtmlArtifactFrame({
   const [allowScripts, setAllowScripts] = useState(false)
   const [frameState, setFrameState] = useState<FrameState>({ kind: 'loading' })
   const [browserOpenState, setBrowserOpenState] = useState<BrowserOpenState>({ kind: 'idle' })
+  const [copiedPath, setCopiedPath] = useState(false)
   const [reloadNonce, setReloadNonce] = useState(0)
 
   // Reset scripts to off whenever the previewed file changes — the safe default
@@ -71,6 +72,7 @@ export function HtmlArtifactFrame({
   useEffect(() => {
     setAllowScripts(false)
     setBrowserOpenState({ kind: 'idle' })
+    setCopiedPath(false)
   }, [absolutePath])
 
   useEffect(() => {
@@ -145,6 +147,16 @@ export function HtmlArtifactFrame({
     }
   }
 
+  const onCopyPath = async () => {
+    try {
+      await window.api.clipboardWriteText(relativePath)
+      setCopiedPath(true)
+      window.setTimeout(() => setCopiedPath(false), 1400)
+    } catch {
+      // Clipboard failures are non-critical; leave the label unchanged.
+    }
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-3 py-2">
@@ -162,6 +174,17 @@ export function HtmlArtifactFrame({
             "
           >
             Reload
+          </button>
+          <button
+            type="button"
+            onClick={() => void onCopyPath()}
+            className="
+              inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] text-[color:var(--text-muted)]
+              transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+            "
+          >
+            {copiedPath ? 'Copied' : 'Copy path'}
           </button>
           <button
             type="button"

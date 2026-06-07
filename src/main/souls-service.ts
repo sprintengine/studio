@@ -12,6 +12,7 @@ const specialistSoulRoles: Record<SpecialistActionId, string> = {
   'cross-platform': 'cross_platform',
   'blog-writer': 'blog_writer',
   'frontend-design-review': 'frontend',
+  'ui-ux-review': 'ui_ux_reviewer',
   'qa-test': 'tester',
   'security-review': 'security',
   'code-review': 'code_reviewer',

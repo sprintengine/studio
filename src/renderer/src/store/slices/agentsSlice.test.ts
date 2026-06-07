@@ -91,7 +91,7 @@ assert.equal(
     ...defaultAgent('agent-normalize-fallback'),
     cli: undefined,
   }, 'claude').cli,
-  'claude',
+  'claude-code',
 )
 assert.equal(
   normalizeAgentState({

@@ -1,5 +1,7 @@
+import React from 'react'
+
 import CliIcon from '../../CliIcon'
-import { InboxRow, Select, type SelectItem } from '../../ui'
+import { InboxRow, Popover, Tooltip } from '../../ui'
 import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
   getSprintEngineWizardRoleSummary,
@@ -39,7 +41,7 @@ export function SprintEngineRosterTable({
   onSetCli,
 }: RosterTableProps) {
   const roles = listSprintEngineAddableRoles(registry, disabledRoleIds)
-  const fallbackCli = cliOptions[0]?.value ?? 'claude'
+  const fallbackCli = cliOptions[0]?.value ?? 'claude-code'
   return (
     <div className="divide-y divide-[color:var(--border-default)] rounded-md border border-[color:var(--border-default)]">
       {roles.map((role) => {
@@ -87,7 +89,7 @@ export function SprintEngineRosterTable({
             key={role}
             tone={isAdded ? 'accent' : 'neutral'}
             title={label}
-            supporting={isAdded ? summary : undefined}
+            supporting={summary}
             trailing={trailing}
           />
         )
@@ -162,24 +164,95 @@ function CliPicker({
   cliOptions: SprintEngineCliOption[]
   onChange: (role: SprintEngineRoleId, cli: AgentCli) => void
 }) {
+  return (
+    <AgentCliPicker
+      ariaLabel={`${label} CLI`}
+      value={value}
+      disabled={disabled}
+      cliOptions={cliOptions}
+      onChange={(cli) => onChange(role, cli)}
+    />
+  )
+}
+
+export function AgentCliPicker({
+  ariaLabel,
+  value,
+  disabled,
+  cliOptions,
+  onChange,
+}: {
+  ariaLabel: string
+  value: AgentCli
+  disabled: boolean
+  cliOptions: SprintEngineCliOption[]
+  onChange: (cli: AgentCli) => void
+}) {
+  const [open, setOpen] = React.useState(false)
   const options = cliOptions.some((option) => option.value === value)
     ? cliOptions
     : [{ value, label: value }, ...cliOptions]
-  const items: SelectItem<AgentCli>[] = options.map((option) => ({
-    value: option.value,
-    label: option.label,
-  }))
+  const selected = options.find((option) => option.value === value) ?? options[0]
+  if (!selected) return null
   return (
-    <div className="flex items-center gap-2">
-      <CliIcon cli={value} className="h-3.5 w-3.5 shrink-0 text-[color:var(--text-muted)]" />
-      <Select<AgentCli>
-        ariaLabel={`${label} CLI`}
-        items={items}
-        value={value}
-        onChange={(next) => onChange(role, next)}
-        disabled={disabled}
-        className="w-[140px]"
-      />
-    </div>
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      ariaLabel={ariaLabel}
+      popupRole="listbox"
+      placement="bottom-end"
+      className="shrink-0"
+      surfaceClassName="w-[180px] p-1"
+      renderTrigger={({ ref, triggerProps, togglePopover }) => (
+        <Tooltip content={`Agent CLI: ${selected.label}`} wrapperClassName="inline-flex">
+          <button
+            ref={ref}
+            type="button"
+            aria-label={`${ariaLabel}: ${selected.label}`}
+            disabled={disabled}
+            onClick={togglePopover}
+            className="
+              interactive inline-flex h-7 min-w-[140px] items-center justify-between gap-2 rounded-md border border-[color:var(--color-5)]
+              bg-[color:var(--bg-surface-raised)] px-2 text-left text-[12px] text-[color:var(--text-default)] transition-colors
+              hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+              disabled:cursor-not-allowed disabled:opacity-45
+            "
+            {...triggerProps}
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <CliIcon cli={selected.value} className="h-3.5 w-3.5 shrink-0 text-[color:var(--text-muted)]" />
+              <span className="truncate">{selected.label}</span>
+            </span>
+            <span aria-hidden="true" className="shrink-0 text-[10px] text-[color:var(--text-disabled)]">▾</span>
+          </button>
+        </Tooltip>
+      )}
+    >
+      {options.map((option) => {
+        const isCurrent = option.value === selected.value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="option"
+            aria-selected={isCurrent}
+            onClick={() => {
+              onChange(option.value)
+              setOpen(false)
+            }}
+            className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
+              isCurrent
+                ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
+                : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
+            }`}
+          >
+            <CliIcon cli={option.value} className="icon-sm shrink-0" />
+            <span className="min-w-0 flex-1 truncate">{option.label}</span>
+            {isCurrent ? <span className="ml-auto text-[color:var(--accent-primary)]">✓</span> : null}
+          </button>
+        )
+      })}
+    </Popover>
   )
 }

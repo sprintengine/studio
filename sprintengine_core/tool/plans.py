@@ -19,6 +19,7 @@ PLAN_REVIEW_FOCUS = {
     "product": "scope fit, user value, prioritization, adoption risk, and missing requirements",
     "developer": "implementation sequence, integration risk, data flow, backend/API impact, and owned paths",
     "frontend": "interaction design, UI architecture, accessibility, responsive behavior, and user workflow",
+    "ui_ux_reviewer": "rendered frontend UX/UI quality, brand alignment, panel consistency, responsive behavior, visual artifacts, and current mockup fidelity",
     "tester": "test strategy, acceptance criteria, regression coverage, edge cases, and release confidence",
     "security": "trust boundaries, command safety, secrets, permissions, abuse cases, and hardening",
     "code_reviewer": "code correctness, integration risk, maintainability, regressions, and evidence quality",

@@ -38,14 +38,14 @@ assert.deepEqual(
   }),
   [
     { value: 'codex', label: 'Codex' },
-    { value: 'claude', label: 'Claude' },
+    { value: 'claude-code', label: 'Claude Code' },
     { value: 'opencode', label: 'Opencode' },
   ],
-  'missing registry data falls back to legacy Codex/Claude plus configured overrides',
+  'missing registry data falls back to canonical bundled plugins plus configured overrides',
 )
 assert.deepEqual(buildCliRuntimeOptions(undefined), [
   { value: 'codex', label: 'Codex' },
-  { value: 'claude', label: 'Claude' },
+  { value: 'claude-code', label: 'Claude Code' },
 ])
 assert.deepEqual(buildAgentCliCatalog([]), [], 'loaded empty registry does not invent fallback entries')
 
@@ -64,7 +64,7 @@ assert.equal(pluginRegistryIdForCli('aider'), 'aider')
 assert.equal(isAgentCliAvailable('claude', catalog), true, 'legacy Claude is available through claude-code')
 assert.equal(isAgentCliAvailable('opencode', catalog), true)
 assert.equal(isAgentCliAvailable('aider', catalog), false)
-assert.equal(resolveAvailableAgentCli('claude', catalog), 'claude')
+assert.equal(resolveAvailableAgentCli('claude', catalog), 'claude-code')
 assert.equal(resolveAvailableAgentCli('missing-cli', catalog, 'codex'), 'codex')
 assert.equal(resolveAvailableAgentCli('missing-cli', catalog, 'aider'), 'codex')
 assert.equal(isAgentCliMissing('claude', catalog), false)
@@ -80,18 +80,18 @@ assert.deepEqual(
   selectAgentCliCatalog('loading', plugins, { opencode: { command: 'opencode', useWsl: false } }),
   [
     { value: 'codex', label: 'Codex' },
-    { value: 'claude', label: 'Claude' },
+    { value: 'claude-code', label: 'Claude Code' },
     { value: 'opencode', label: 'Opencode' },
   ],
-  'loading status ignores registry entries and falls back to legacy + configured runtimes',
+  'loading status ignores registry entries and falls back to canonical bundled plugins + configured runtimes',
 )
 assert.deepEqual(
   selectAgentCliCatalog('error', plugins),
   [
     { value: 'codex', label: 'Codex' },
-    { value: 'claude', label: 'Claude' },
+    { value: 'claude-code', label: 'Claude Code' },
   ],
-  'registry error falls back to legacy bundled options',
+  'registry error falls back to canonical bundled plugin options',
 )
 assert.deepEqual(
   selectAgentCliCatalog('ready', []),
@@ -150,8 +150,8 @@ assert.equal(
 )
 assert.equal(
   resolveTemplateAgentCli(undefined, 'claude', catalog),
-  'claude',
-  'a still-installed legacy lastSelectedCli (claude -> claude-code) is preserved',
+  'claude-code',
+  'a legacy lastSelectedCli is canonicalized to claude-code',
 )
 assert.equal(
   resolveTemplateAgentCli(null, 'aider', []),

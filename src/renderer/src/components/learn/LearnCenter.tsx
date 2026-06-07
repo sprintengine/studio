@@ -22,9 +22,13 @@ const CATEGORY_FILTERS: ReadonlyArray<TabItem<CategoryFilter>> = [
   { id: 'all', label: 'All' },
   { id: 'workspace', label: LEARNING_CATEGORY_LABELS.workspace },
   { id: 'agents', label: LEARNING_CATEGORY_LABELS.agents },
+  { id: 'guided-brief', label: LEARNING_CATEGORY_LABELS['guided-brief'] },
   { id: 'sprintengine', label: LEARNING_CATEGORY_LABELS.sprintengine },
   { id: 'switchboard', label: LEARNING_CATEGORY_LABELS.switchboard },
+  { id: 'git', label: LEARNING_CATEGORY_LABELS.git },
   { id: 'knowledge', label: LEARNING_CATEGORY_LABELS.knowledge },
+  { id: 'settings', label: LEARNING_CATEGORY_LABELS.settings },
+  { id: 'mobile', label: LEARNING_CATEGORY_LABELS.mobile },
   { id: 'local-safety', label: LEARNING_CATEGORY_LABELS['local-safety'] },
 ]
 
@@ -128,6 +132,7 @@ export default function LearnCenter({ onSettingsTab }: LearnCenterProps) {
         value={category}
         onChange={setCategory}
         idPrefix="learn-center-category"
+        className="flex-wrap gap-y-1"
       />
 
       <div className="text-[12px] text-[color:var(--text-muted)] tabular-nums">

@@ -84,8 +84,9 @@ const normalized = normalizeAppSettings(
 )
 
 assert.equal(normalized.cliRuntimes.codex.command, 'codex-next')
-assert.equal(normalized.cliRuntimes.claude.command, defaultAppSettings().cliRuntimes.claude.command)
-assert.equal(normalized.lastSelectedCli, 'claude')
+assert.equal(normalized.cliRuntimes['claude-code'].command, defaultAppSettings().cliRuntimes['claude-code'].command)
+assert.equal(normalized.cliRuntimes.claude, undefined)
+assert.equal(normalized.lastSelectedCli, 'claude-code')
 assert.equal(normalized.mcp.syncEnabled, true)
 assert.deepEqual(Object.keys(normalized.mcp.servers), ['valid-server'])
 assert.deepEqual(normalized.mcp.servers['valid-server'].args, ['package'])
@@ -347,6 +348,11 @@ assert.ok(
   assert.equal(codeReviewPrompt.includes('souls get code_reviewer'), true)
   assert.equal(specReviewPrompt.includes('souls get spec_reviewer'), true)
   assert.equal(nuclearReviewPrompt.includes('souls get nuclear_reviewer'), true)
+  assert.equal(
+    nuclearReviewPrompt.includes('wait for the user to give you a task or question'),
+    true,
+    'manual specialist launch waits for an explicit user task after loading the Soul',
+  )
   assert.equal(nuclearReviewPrompt.includes('git diff'), false, 'manual Nuclear Reviewer launch does not auto-review diffs')
   assert.equal(
     nuclearReviewPrompt.replace('souls get nuclear_reviewer', 'souls get code_reviewer'),

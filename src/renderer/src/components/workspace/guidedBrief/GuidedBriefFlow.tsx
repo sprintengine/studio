@@ -222,6 +222,26 @@ export function GuidedBriefFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [designer.mockups])
 
+  // Multicode Design should open on a useful artifact as soon as files exist.
+  // Prefer the first HTML page, then any available artifact, and repair the
+  // selection if the previously selected file is deleted.
+  useEffect(() => {
+    if (runtimeState.preset !== 'frontend-design') return
+    const entries = designer.designArtifacts.entries
+    if (!entries.length) return
+    updateRuntimeState((prev) => {
+      if (
+        prev.activeDesignArtifactPath &&
+        entries.some((entry) => entry.relativePath === prev.activeDesignArtifactPath)
+      ) {
+        return prev
+      }
+      const nextEntry = entries.find((entry) => entry.kind === 'page') ?? entries[0]
+      return applyDesignArtifactSelection(prev, nextEntry)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runtimeState.preset, designer.designArtifacts])
+
   const [accepting, setAccepting] = useState(false)
   const [acceptError, setAcceptError] = useState<string | null>(null)
   const [startingBuild, setStartingBuild] = useState(false)
@@ -532,7 +552,7 @@ export function GuidedBriefFlow({
             {workspaceName}
           </h2>
           <span className="text-[12px] text-[color:var(--text-muted)]">
-            · Guided brief{hasUi === 'no' ? ' · no UI' : ''}
+            · {isDesignPreset ? 'Multicode Design' : `Guided brief${hasUi === 'no' ? ' · no UI' : ''}`}
           </span>
         </div>
         <WizardProgress total={progress.total} active={progress.active} done={progress.done} />
@@ -1137,7 +1157,7 @@ function HandoffBody({
       ...runtimeState,
       buildRoleCliDefaults: {
         ...runtimeState.buildRoleCliDefaults,
-        [role]: runtimeState.buildRoleCliDefaults[role] ?? 'claude',
+        [role]: runtimeState.buildRoleCliDefaults[role] ?? 'claude-code',
       },
       buildRoleCounts: {
         ...runtimeState.buildRoleCounts,
@@ -1179,96 +1199,99 @@ function HandoffBody({
   }, [handoffPath])
 
   return (
-    <div className="flex h-full items-start justify-center overflow-auto px-6 py-6">
-      <div className="flex w-full max-w-[760px] flex-col gap-4 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-5">
-        <div className="flex flex-col gap-1">
-          <span className="text-[13px] font-semibold text-[color:var(--text-strong)]">
-            Ready to start the Sprint Engine build
-          </span>
-          <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            The generated handoff will become the plan source for the new Sprint Engine team.
-          </span>
-        </div>
-        <div className="flex flex-col gap-2">
-          {checklist.map((item) => (
-            <div
-              key={`${item.label}:${item.path}`}
-              className="flex min-w-0 items-start justify-between gap-3 rounded-md border border-[color:var(--bg-surface-raised)] px-3 py-2"
-            >
-              <div className="flex min-w-0 flex-col gap-1">
-                <span className="text-[12px] font-medium text-[color:var(--text-default)]">{item.label}</span>
-                <span className="truncate font-mono text-[11px] text-[color:var(--text-muted)]">{item.path}</span>
-              </div>
-              {item.hash ? (
-                <span className="shrink-0 font-mono text-[11px] text-[color:var(--text-subtle)]">
-                  {item.hash.slice(0, 10)}
-                </span>
-              ) : null}
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-[900px] flex-col gap-7 px-8 pt-10 pb-14">
+        <header className="flex flex-col gap-1.5">
+          <h3 className="text-[22px] font-semibold leading-7 tracking-tight text-[color:var(--text-strong)]">
+            Ready to build
+          </h3>
+          <p className="text-[13px] leading-5 text-[color:var(--text-muted)]">
+            The generated handoff becomes the plan source for the new Sprint Engine team.
+          </p>
+        </header>
+
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-2">
+            <span className="text-[12px] font-medium text-[color:var(--text-default)]">Build handoff</span>
+            <div className="flex flex-col gap-2">
+              {checklist.map((item) => (
+                <div
+                  key={`${item.label}:${item.path}`}
+                  className="flex min-w-0 items-start justify-between gap-3 rounded-md border border-[color:var(--border-default)] px-3 py-2"
+                >
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <span className="text-[12px] font-medium text-[color:var(--text-default)]">{item.label}</span>
+                    <span className="truncate font-mono text-[11px] text-[color:var(--text-muted)]">{item.path}</span>
+                  </div>
+                  {item.hash ? (
+                    <span className="shrink-0 font-mono text-[11px] text-[color:var(--text-subtle)]">
+                      {item.hash.slice(0, 10)}
+                    </span>
+                  ) : null}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        <div className="flex flex-col gap-2 border-t border-[color:var(--bg-surface-raised)] pt-4">
-          <div className="flex items-baseline justify-between">
-            <span className="text-[12px] font-medium text-[color:var(--text-default)]">
-              Build roster
-            </span>
-            <span className="text-[11px] tabular-nums text-[color:var(--text-muted)]">
-              {totalAgents} specialist{totalAgents === 1 ? '' : 's'}
-            </span>
           </div>
-          <SprintEngineRosterTable
-            roleCounts={visibleRoleCounts}
-            roleCliDefaults={runtimeState.buildRoleCliDefaults}
-            cliOptions={cliOptions}
-            registry={sprintEngineRoleRegistry}
-            disabledRoleIds={sprintEngineDisabledRoleIds}
-            countDisabled={false}
-            cliDisabled={false}
-            onSetCount={setBuildRoleCount}
-            onSetCli={setBuildRoleCli}
-          />
-        </div>
-        <div className="flex flex-col gap-2 border-t border-[color:var(--bg-surface-raised)] pt-4">
-          <span className="text-[12px] font-medium text-[color:var(--text-default)]">
-            Run settings
-          </span>
-          <div className="overflow-hidden rounded-md border border-[color:var(--border-default)]">
-            <CliPermissionPresetRow
-              preset={runtimeState.buildCliPermissionPreset}
-              onChange={(preset) => onChange({ ...runtimeState, buildCliPermissionPreset: preset })}
+
+          <div className="flex flex-col gap-2">
+            <div className="flex items-baseline justify-between">
+              <span className="text-[12px] font-medium text-[color:var(--text-default)]">Roster</span>
+              <span className="text-[11px] tabular-nums text-[color:var(--text-muted)]">
+                {totalAgents} specialist{totalAgents === 1 ? '' : 's'}
+              </span>
+            </div>
+            <SprintEngineRosterTable
+              roleCounts={visibleRoleCounts}
+              roleCliDefaults={runtimeState.buildRoleCliDefaults}
+              cliOptions={cliOptions}
+              registry={sprintEngineRoleRegistry}
+              disabledRoleIds={sprintEngineDisabledRoleIds}
+              countDisabled={false}
+              cliDisabled={false}
+              onSetCount={setBuildRoleCount}
+              onSetCli={setBuildRoleCli}
             />
-            <div className="flex flex-col gap-2 border-t border-[color:var(--border-default)] px-3.5 py-3">
-              <div>
-                <span className="block text-[12px] font-medium text-[color:var(--text-default)]">
-                  Automation
-                </span>
-                <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
-                  How Sprint Engine should continue after this workspace opens.
-                </span>
-              </div>
-              <div className="grid gap-2" role="radiogroup" aria-label="Sprint Engine automation mode">
-                {sprintEngineAutomationModeOptions.map((option) => (
-                  <PathRadio
-                    key={option.value}
-                    checked={automationMode === option.value}
-                    label={option.label}
-                    hint={option.hint}
-                    onSelect={() => setAutomationMode(option.value)}
-                  />
-                ))}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-[12px] font-medium text-[color:var(--text-default)]">Run settings</span>
+            <div className="overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
+              <CliPermissionPresetRow
+                preset={runtimeState.buildCliPermissionPreset}
+                onChange={(preset) => onChange({ ...runtimeState, buildCliPermissionPreset: preset })}
+              />
+              <div className="flex flex-col gap-2 border-t border-[color:var(--border-default)] px-3.5 py-3">
+                <div>
+                  <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Automation</span>
+                  <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
+                    How Sprint Engine should continue after this workspace opens.
+                  </span>
+                </div>
+                <div className="grid gap-2" role="radiogroup" aria-label="Sprint Engine automation mode">
+                  {sprintEngineAutomationModeOptions.map((option) => (
+                    <PathRadio
+                      key={option.value}
+                      checked={automationMode === option.value}
+                      label={option.label}
+                      hint={option.hint}
+                      onSelect={() => setAutomationMode(option.value)}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           </div>
+
+          {handoffStatus === 'missing' ? (
+            <span className="text-[12px] text-[color:var(--tone-error)]">
+              Could not read {guidedBriefBuildHandoffRelativePath()}.
+            </span>
+          ) : (
+            <span className="text-[12px] text-[color:var(--text-subtle)]">
+              {handoffStatus === 'loading' ? 'Reading build handoff…' : 'Build handoff is ready.'}
+            </span>
+          )}
         </div>
-        {handoffStatus === 'missing' ? (
-          <span className="text-[12px] text-[color:var(--tone-error)]">
-            Could not read {guidedBriefBuildHandoffRelativePath()}.
-          </span>
-        ) : (
-          <span className="text-[12px] text-[color:var(--text-subtle)]">
-            {handoffStatus === 'loading' ? 'Reading build handoff…' : 'Build handoff is ready.'}
-          </span>
-        )}
       </div>
     </div>
   )

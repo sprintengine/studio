@@ -461,6 +461,10 @@ async function testCollectDesignArtifacts(): Promise<void> {
   const ports: DesignArtifactFsPort = {
     readdir: async (path) => dirs[path] ?? [],
     pathExists: async (path) => existingFiles.has(path),
+    statPath: async (path) => ({
+      modifiedAt: path.endsWith('app.html') ? '2026-06-07T09:30:00.000Z' : '2026-06-07T10:00:00.000Z',
+      modifiedAtMs: path.endsWith('app.html') ? 1780824600000 : 1780826400000,
+    }),
   }
 
   const index = await collectDesignArtifacts('/ws', ports)
@@ -495,6 +499,11 @@ async function testCollectDesignArtifacts(): Promise<void> {
     findDesignArtifact(index, 'product/ui-direction.md')?.typeLabel,
     'Markdown',
     'notes carry a Markdown type label',
+  )
+  assert.equal(
+    findDesignArtifact(index, 'mockups/app.html')?.modifiedAt,
+    '2026-06-07T09:30:00.000Z',
+    'design artifact rows carry filesystem modified time when available',
   )
 
   // Empty workspace → empty, not a fabricated success.

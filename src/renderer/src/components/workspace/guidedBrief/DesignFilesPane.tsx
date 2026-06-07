@@ -49,6 +49,18 @@ function CenteredState({
   )
 }
 
+function formatModifiedTime(value: string | null | undefined): string | null {
+  if (!value) return null
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) return null
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(timestamp))
+}
+
 export function DesignFilesPane({ index, status, selectedPath, onSelect }: Props) {
   const entries = index.entries
   const selectedIndex = entries.findIndex((entry) => entry.relativePath === selectedPath)
@@ -163,6 +175,7 @@ export function DesignFilesPane({ index, status, selectedPath, onSelect }: Props
                     flatIndex += 1
                     const rowIndex = flatIndex
                     const isSelected = entry.relativePath === selectedPath
+                    const modifiedTime = formatModifiedTime(entry.modifiedAt)
                     return (
                       <div
                         key={entry.relativePath}
@@ -199,8 +212,15 @@ export function DesignFilesPane({ index, status, selectedPath, onSelect }: Props
                             {entry.relativePath}
                           </span>
                         </span>
-                        <span className="shrink-0 font-mono text-[10px] text-[color:var(--text-muted)]">
-                          {entry.typeLabel}
+                        <span className="flex shrink-0 flex-col items-end gap-0.5">
+                          <span className="font-mono text-[10px] text-[color:var(--text-muted)]">
+                            {entry.typeLabel}
+                          </span>
+                          {modifiedTime ? (
+                            <span className="font-mono text-[10px] text-[color:var(--text-subtle)]">
+                              {modifiedTime}
+                            </span>
+                          ) : null}
                         </span>
                       </div>
                     )

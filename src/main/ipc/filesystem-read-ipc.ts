@@ -1,5 +1,5 @@
 import type { IpcMain } from 'electron'
-import type { WorkspaceFolderCheckResult } from '../../shared/electron-api'
+import type { FileSystemStat, WorkspaceFolderCheckResult } from '../../shared/electron-api'
 
 export type FileSystemDirectoryEntry = {
   name: string
@@ -11,6 +11,7 @@ type FilesystemReadIpcDependencies = {
   readTextFile(filePath: string): Promise<string>
   readImageDataUrl(filePath: string): Promise<string>
   pathExists(targetPath: string): Promise<boolean>
+  statPath(targetPath: string): Promise<FileSystemStat>
   checkWorkspaceFolder(targetPath: string): Promise<WorkspaceFolderCheckResult>
   showItemInFolder(targetPath: string): Promise<void>
   openHtmlFileInBrowser(targetPath: string): Promise<void>
@@ -31,6 +32,10 @@ export function registerFilesystemReadIpc(ipcMain: IpcMain, deps: FilesystemRead
 
   ipcMain.handle('fs:path-exists', async (_, targetPath: string): Promise<boolean> => {
     return deps.pathExists(targetPath)
+  })
+
+  ipcMain.handle('fs:stat', async (_, targetPath: string): Promise<FileSystemStat> => {
+    return deps.statPath(targetPath)
   })
 
   ipcMain.handle('fs:check-workspace-folder', async (_, targetPath: string): Promise<WorkspaceFolderCheckResult> => {

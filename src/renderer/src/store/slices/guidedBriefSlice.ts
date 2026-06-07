@@ -63,6 +63,7 @@ export const defaultGuidedBriefBuildRoleCounts = (
   architect: 1,
   product: 1,
   frontend: hasUi === 'yes' ? 1 : 0,
+  ui_ux_reviewer: 0,
   developer: 1,
   code_reviewer: 1,
   spec_reviewer: 1,
@@ -76,15 +77,16 @@ export const defaultGuidedBriefBuildRoleCounts = (
 // extractions in T18/T19. Logic is identical to workspaceStore.ts; the
 // duplication will be removed when those slices land.
 const defaultSprintEngineRoleCliDefaultsForGuidedBrief = (): Required<SprintEngineRoleCliDefaults> => ({
-  architect: 'claude',
-  product: 'claude',
-  frontend: 'claude',
-  developer: 'claude',
-  code_reviewer: 'claude',
-  spec_reviewer: 'claude',
-  performance: 'claude',
-  tester: 'claude',
-  security: 'claude',
+  architect: 'claude-code',
+  product: 'claude-code',
+  frontend: 'claude-code',
+  ui_ux_reviewer: 'claude-code',
+  developer: 'claude-code',
+  code_reviewer: 'claude-code',
+  spec_reviewer: 'claude-code',
+  performance: 'claude-code',
+  tester: 'claude-code',
+  security: 'claude-code',
 })
 
 function clampGuidedBriefRoleCount(role: SprintEngineRoleId, raw: number): number {
@@ -139,7 +141,8 @@ function normalizeRoleCliDefaultsForGuidedBrief(
       if (!isValidGuidedBriefRoleId(role)) continue
       const value = (input as Record<SprintEngineRoleId, unknown>)[role]
       if (typeof value === 'string' && value.trim()) {
-        next[role] = value.trim()
+        const cli = value.trim()
+        next[role] = cli === 'claude' ? 'claude-code' : cli
       }
     }
   }
@@ -228,9 +231,9 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
     wantsArchitectureDiscussion,
     wantsFrontendDiscussion,
     guidedRoleCliDefaults: {
-      product: roleCliDefaults.product ?? 'claude',
-      architect: roleCliDefaults.architect ?? 'claude',
-      frontend: roleCliDefaults.frontend ?? 'claude',
+      product: roleCliDefaults.product ?? 'claude-code',
+      architect: roleCliDefaults.architect ?? 'claude-code',
+      frontend: roleCliDefaults.frontend ?? 'claude-code',
     },
     buildRoleCounts,
     buildRoleCliDefaults,

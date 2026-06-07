@@ -30,6 +30,7 @@ LEGACY_SOULS: tuple[Soul, ...] = (
     Soul("developer", "Developer", path=PROMPTS_DIR / "developer.md"),
     Soul("devops", "DevOps", ("devops-infra",), PROMPTS_DIR / "devops.md"),
     Soul("frontend", "Frontend", ("frontend-design-review",), PROMPTS_DIR / "frontend.md"),
+    Soul("ui_ux_reviewer", "UI/UX Reviewer", ("ui-ux-review", "frontend-ui-review", "frontend-ux-review", "brand-ui-review"), PROMPTS_DIR / "ui_ux_reviewer.md"),
     Soul("blog_writer", "Blog Writer", ("blog-writer", "content-writer", "blogger"), PROMPTS_DIR / "blog_writer.md"),
     Soul("tester", "Tester", ("qa-test",), PROMPTS_DIR / "tester.md"),
     Soul("security", "Security", ("security-review",), PROMPTS_DIR / "security.md"),

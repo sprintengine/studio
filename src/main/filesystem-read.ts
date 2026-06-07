@@ -56,6 +56,16 @@ export function createFilesystemReadHandlers() {
       const content = await readFile(filePath)
       return `data:${mimeType};base64,${content.toString('base64')}`
     },
+    async statPath(targetPath: string) {
+      const targetStats = await stat(targetPath)
+      return {
+        isFile: targetStats.isFile(),
+        isDirectory: targetStats.isDirectory(),
+        sizeBytes: targetStats.size,
+        modifiedAt: targetStats.mtime.toISOString(),
+        modifiedAtMs: targetStats.mtimeMs,
+      }
+    },
     pathExists,
     checkWorkspaceFolder,
     async showItemInFolder(targetPath: string) {

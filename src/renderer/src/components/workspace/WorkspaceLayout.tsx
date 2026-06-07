@@ -155,6 +155,7 @@ const SPRINTENGINE_ROLES: SprintEngineRole[] = [
   'product',
   'developer',
   'frontend',
+  'ui_ux_reviewer',
   'tester',
   'security',
   'code_reviewer',

@@ -91,7 +91,7 @@ roles, not by this bundled list.
 When the desktop app spawns a standalone specialist agent, it resolves the selected specialist action to a canonical Soul role and injects a lightweight bootstrap prompt:
 
 ```text
-Run `souls get <role>` now and treat the returned text as your role, judgment, and quality bar.
+Run `souls get <role>` now, treat the returned text as your role, judgment, and quality bar, then wait for the user's task or question.
 ```
 
 The terminal bootstrap exposes a `souls` command where the app can resolve the packaged Souls resources. If the command is unavailable, the agent should stop and report that the Souls CLI is unavailable rather than guessing the role prompt.

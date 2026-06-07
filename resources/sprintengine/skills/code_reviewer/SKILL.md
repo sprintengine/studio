@@ -217,7 +217,7 @@ Lead with findings, ordered by severity. Summaries come after the issues unless 
 For CRITICAL and HIGH findings:
 
 - Be specific about the failure mode or exploit path.
-- Ask for input only when the right fix depends on product, compliance, migration, or rollout constraints.
+- Ask for input when the right fix depends on product, compliance, migration, or rollout constraints.
 - Do not pause after every finding by default.
 
 For MEDIUM and LOW findings:

@@ -31,9 +31,6 @@
       "skill": "post_change_self_review"
     },
     {
-      "skill": "collaboration_norms"
-    },
-    {
       "skill": "workspace_knowledge"
     }
   ]

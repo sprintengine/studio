@@ -78,15 +78,15 @@ export const defaultMultiloopAutoState = (): MultiloopAutoState => ({
 })
 
 const defaultSprintEngineRoleCliDefaults = (): Required<SprintEngineRoleCliDefaults> => ({
-  architect: 'claude',
-  product: 'claude',
-  frontend: 'claude',
-  developer: 'claude',
-  code_reviewer: 'claude',
-  spec_reviewer: 'claude',
-  performance: 'claude',
-  tester: 'claude',
-  security: 'claude',
+  architect: 'claude-code',
+  product: 'claude-code',
+  frontend: 'claude-code',
+  developer: 'claude-code',
+  code_reviewer: 'claude-code',
+  spec_reviewer: 'claude-code',
+  performance: 'claude-code',
+  tester: 'claude-code',
+  security: 'claude-code',
 })
 
 export function normalizeSprintEngineRoleCliDefaults(
@@ -100,7 +100,8 @@ export function normalizeSprintEngineRoleCliDefaults(
     : Object.entries(defaults)
   for (const [role, value] of entries) {
     if (typeof value === 'string' && value.trim()) {
-      next[role] = value.trim()
+      const cli = value.trim()
+      next[role] = cli === 'claude' ? 'claude-code' : cli
     }
   }
 
@@ -325,8 +326,8 @@ export function reconcileSprintEngineAgents(
         ? pickWorkspaceAgentName({ ...currentAgents, ...nextAgents })
         : current?.name ?? agent.label
       const nextAgent = current
-        ? normalizeAgentState({ ...current, name: nextName, kind: 'sprintengine' as const }, 'claude')
-        : { ...defaultAgent(agent.id, nextName, 'sprintengine'), cli: 'claude' as const }
+        ? normalizeAgentState({ ...current, name: nextName, kind: 'sprintengine' as const }, 'claude-code')
+        : { ...defaultAgent(agent.id, nextName, 'sprintengine'), cli: 'claude-code' as const }
       nextAgents[agent.id] = nextAgent
       return [agent.id, nextAgent]
     })
@@ -342,7 +343,7 @@ export function reconcileSprintEngineAgents(
       agent.kind === 'sprintengine'
       && !rosterAgents[id]
       && Boolean(agent.cliStartRequested || agent.cliHasLaunched || agent.cliSessionId)
-    ).map(([id, agent]) => [id, normalizeAgentState(agent, 'claude')])
+    ).map(([id, agent]) => [id, normalizeAgentState(agent, 'claude-code')])
   )
 
   return {

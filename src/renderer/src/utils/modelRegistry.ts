@@ -386,6 +386,56 @@ function firstTerminalLikeTabset(model: Model): TabSetNode | null {
   return found
 }
 
+function firstEditorSurfaceTabset(model: Model): TabSetNode | null {
+  const activeTabset = model.getActiveTabset()
+  if (activeTabset) {
+    const hasEditorSurface = activeTabset.getChildren().some((child) =>
+      child instanceof TabNode
+      && (child.getComponent() === 'file-editor' || child.getComponent() === 'editor')
+    )
+    if (hasEditorSurface) return activeTabset
+  }
+
+  let targetTabset: TabSetNode | null = null
+  model.visitNodes((node) => {
+    if (targetTabset || !(node instanceof TabSetNode)) return
+    const hasEditorSurface = node.getChildren().some((child) =>
+      child instanceof TabNode
+      && (child.getComponent() === 'file-editor' || child.getComponent() === 'editor')
+    )
+    if (hasEditorSurface) targetTabset = node
+  })
+  return targetTabset
+}
+
+function addEditorSurfaceNode(
+  model: Model,
+  tabJson: Record<string, unknown>
+): boolean {
+  const editorTabset = firstEditorSurfaceTabset(model)
+  if (editorTabset) {
+    model.doAction(Actions.addNode(tabJson, editorTabset.getId(), DockLocation.CENTER, -1, true))
+    return true
+  }
+
+  const navTabset = findNavRailTabset(model)
+  if (navTabset) {
+    model.doAction(Actions.addNode(tabJson, navTabset.getId(), DockLocation.RIGHT, -1, true))
+    return true
+  }
+
+  const terminalHost = firstTerminalLikeTabset(model)
+  if (terminalHost) {
+    model.doAction(Actions.addNode(tabJson, terminalHost.getId(), DockLocation.LEFT, -1, true))
+    return true
+  }
+
+  const target = model.getActiveTabset() ?? firstTabset(model)
+  if (!target) return false
+  model.doAction(Actions.addNode(tabJson, target.getId(), DockLocation.CENTER, -1, true))
+  return true
+}
+
 function modelHasSprintEngineBoard(model: Model): boolean {
   let found = false
   model.visitNodes((node) => {
@@ -577,55 +627,14 @@ export function focusOrAddFileTab(
     return true
   }
 
-  let targetTabset: TabSetNode | null = null
-  let explorerParent: TabSetNode | null = null
-  let firstTabset: TabSetNode | null = null
-
-  const activeTabset = model.getActiveTabset()
-  if (activeTabset) {
-    const hasEditorSurface = activeTabset.getChildren().some((child) =>
-      child instanceof TabNode
-      && (child.getComponent() === 'file-editor' || child.getComponent() === 'editor')
-    )
-    if (hasEditorSurface) targetTabset = activeTabset
-  }
-
-  model.visitNodes((node) => {
-    if (!firstTabset && node instanceof TabSetNode) firstTabset = node
-
-    if (node instanceof TabNode && node.getComponent() === 'explorer') {
-      const parent = node.getParent()
-      if (!explorerParent && parent instanceof TabSetNode) explorerParent = parent
-    }
-
-    if (targetTabset || !(node instanceof TabSetNode)) return
-    const hasEditorSurface = node.getChildren().some((child) =>
-      child instanceof TabNode
-      && (child.getComponent() === 'file-editor' || child.getComponent() === 'editor')
-    )
-    if (hasEditorSurface) targetTabset = node
+  return addEditorSurfaceNode(model, {
+    type: 'tab',
+    id: fileTabId(filePath),
+    name,
+    component: 'file-editor',
+    enableClose: true,
+    config: { filePath },
   })
-
-  const finalTarget = targetTabset ?? explorerParent ?? activeTabset ?? firstTabset
-  if (!finalTarget) return false
-
-  model.doAction(
-    Actions.addNode(
-      {
-        type: 'tab',
-        id: fileTabId(filePath),
-        name,
-        component: 'file-editor',
-        enableClose: true,
-        config: { filePath },
-      },
-      finalTarget.getId(),
-      targetTabset ? DockLocation.CENTER : DockLocation.RIGHT,
-      -1,
-      true
-    )
-  )
-  return true
 }
 
 function gitConflictTabId(repoRoot: string, filePath: string): string {
@@ -886,22 +895,9 @@ function toggleEditorRailComponent(
   if (!model) return false
 
   // No editor surface at all. Sit the document area between the nav pane (left)
-  // and terminals (right) by docking to the RIGHT of the nav pane; without a
-  // nav pane, center it in the active/first tabset.
-  const navTabset = findNavRailTabset(model)
-  if (navTabset) {
-    model.doAction(
-      Actions.addNode({ type: 'tab', name, component }, navTabset.getId(), DockLocation.RIGHT, -1, true)
-    )
-    return true
-  }
-
-  const target = model.getActiveTabset() ?? firstTabset(model)
-  if (!target) return false
-  model.doAction(
-    Actions.addNode({ type: 'tab', name, component }, target.getId(), DockLocation.CENTER, -1, true)
-  )
-  return true
+  // and terminals/agents (right) instead of stacking into the currently active
+  // terminal tabset.
+  return addEditorSurfaceNode(model, { type: 'tab', name, component })
 }
 
 export function focusOrAddComponentTab(

@@ -36,6 +36,7 @@ def test_souls_list_includes_canonical_roles() -> None:
         "developer",
         "devops",
         "frontend",
+        "ui_ux_reviewer",
         "blog_writer",
         "tester",
         "security",
@@ -96,13 +97,14 @@ def test_rendered_soul_includes_shared_sections_once() -> None:
         "# Production Reality Gate",
         "# Post-Change Self-Review",
         "# Evidence Quality Assessment",
-        "# Collaboration Norms",
     ]:
         assert rendered.count(heading) == 1
 
+    assert "# Collaboration Norms" not in rendered
     assert "# Sprint Engine Workflow" not in rendered
     assert "Do not treat `MVP`, `first pass`, `local`, or `works in UI` as permission" in rendered
-    assert "Respect role boundaries" in rendered
+    assert "Ask only when a wrong assumption" not in rendered
+    assert "Respect role boundaries" not in rendered
     assert "Completion claims must be backed by commands" in rendered
     assert "run `sprintengine join --role <role> --id <agent-id> --watch`" not in rendered
 

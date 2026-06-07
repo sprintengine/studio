@@ -36,11 +36,26 @@ function PreviewHeader({
   relativePath,
   typeLabel,
   onReload,
+  onCopyPath,
 }: {
   relativePath: string
   typeLabel: string
   onReload?: () => void
+  onCopyPath?: () => Promise<void>
 }) {
+  const [copied, setCopied] = useState(false)
+
+  const copyPath = async () => {
+    if (!onCopyPath) return
+    try {
+      await onCopyPath()
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1400)
+    } catch {
+      // Clipboard failures are non-critical; leave the label unchanged.
+    }
+  }
+
   return (
     <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-3 py-2">
       <span className="truncate font-mono text-[11px] text-[color:var(--text-muted)]">
@@ -61,9 +76,26 @@ function PreviewHeader({
             Reload
           </button>
         ) : null}
+        {onCopyPath ? (
+          <button
+            type="button"
+            onClick={() => void copyPath()}
+            className="
+              inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] text-[color:var(--text-muted)]
+              transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+            "
+          >
+            {copied ? 'Copied' : 'Copy path'}
+          </button>
+        ) : null}
       </span>
     </div>
   )
+}
+
+async function copyRelativePath(relativePath: string): Promise<void> {
+  await window.api.clipboardWriteText(relativePath)
 }
 
 type ImageState =
@@ -133,6 +165,7 @@ function ImageArtifactView({ entry }: { entry: DesignArtifactEntry }) {
         relativePath={entry.relativePath}
         typeLabel={entry.typeLabel}
         onReload={() => setReloadNonce((nonce) => nonce + 1)}
+        onCopyPath={() => copyRelativePath(entry.relativePath)}
       />
       <div className="relative min-h-0 flex-1 overflow-auto bg-[color:var(--bg-app)] p-4">
         {state.kind === 'ready' ? (
@@ -221,6 +254,7 @@ function SourceArtifactView({ entry }: { entry: DesignArtifactEntry }) {
         relativePath={entry.relativePath}
         typeLabel={entry.typeLabel}
         onReload={() => setReloadNonce((nonce) => nonce + 1)}
+        onCopyPath={() => copyRelativePath(entry.relativePath)}
       />
       <div className="min-h-0 flex-1 overflow-auto bg-[color:var(--bg-app)]">
         {state.kind === 'ready' ? (
@@ -282,6 +316,7 @@ export function DesignArtifactPreviewPane({ entry }: Props) {
         unavailableTitle="Notes unavailable"
         missingReason={`${entry.relativePath} is missing on disk.`}
         emptyReason={`${entry.relativePath} is empty.`}
+        copyPathLabel={entry.relativePath}
       />
     )
   }
@@ -296,7 +331,11 @@ export function DesignArtifactPreviewPane({ entry }: Props) {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
-      <PreviewHeader relativePath={entry.relativePath} typeLabel={entry.typeLabel} />
+      <PreviewHeader
+        relativePath={entry.relativePath}
+        typeLabel={entry.typeLabel}
+        onCopyPath={() => copyRelativePath(entry.relativePath)}
+      />
       <CenteredState
         title="Preview not supported"
         body={

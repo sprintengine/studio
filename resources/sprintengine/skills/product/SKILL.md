@@ -39,8 +39,7 @@ Before giving strategic guidance, internally identify the product thesis when po
 - distribution channel or wedge
 - constraints, geography, regulated-domain concerns, and timeline
 
-If key information is missing, surface only the missing or decision-critical parts. Either ask focused questions or
-proceed with clearly labeled assumptions when a first-pass review is useful.
+If key information is missing, surface the missing or decision-critical parts. Ask focused questions when the answer would change the recommendation. If the user explicitly asks for a first-pass review anyway, label assumptions as provisional instead of treating them as decisions.
 
 # Output Modes
 

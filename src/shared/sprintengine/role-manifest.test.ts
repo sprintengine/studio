@@ -6,13 +6,13 @@ function testValidMinimal(): void {
   const result = validateRoleManifest({
     id: 'code_reviewer',
     label: 'Code reviewer',
-    soul: [{ skill: 'code_reviewer' }, { skill: 'collaboration_norms' }],
+    soul: [{ skill: 'code_reviewer' }, { skill: 'project_relative_paths' }],
   })
   assert.equal(result.ok, true)
   if (result.ok) {
     assert.equal(result.manifest.id, 'code_reviewer')
     assert.equal(result.manifest.summary, undefined)
-    assert.deepEqual(result.manifest.soul, [{ skill: 'code_reviewer' }, { skill: 'collaboration_norms' }])
+    assert.deepEqual(result.manifest.soul, [{ skill: 'code_reviewer' }, { skill: 'project_relative_paths' }])
   }
 }
 

@@ -49,6 +49,7 @@ import { createAuthSlice } from './slices/authSlice'
 import { createSettingsSlice, normalizeAppSettings } from './slices/settingsSlice'
 import {
   createWorkspacesSlice,
+  type SoloChatSeed,
   type WorkspacesSliceDependencies,
 } from './slices/workspacesSlice'
 import {
@@ -219,6 +220,7 @@ export interface WorkspaceStore extends PluginsSlice {
       sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
       sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
       templateAgentCli?: AgentCli | null
+      seedAgent?: SoloChatSeed | null
       sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
       multiloopAutoState?: Partial<MultiloopAutoState> | null
       guidedBriefState?: GuidedBriefRuntimeState | null

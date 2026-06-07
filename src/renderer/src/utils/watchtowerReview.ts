@@ -54,6 +54,7 @@ export const WATCHTOWER_REVIEW_SPECIALIST_FOCUS: Record<SpecialistActionId, Watc
   'qa-test': ['qa_testing', 'cross_platform', 'accessibility', 'documentation'],
   'security-review': ['security'],
   'frontend-design-review': ['frontend_design', 'accessibility', 'brand_alignment', 'cross_platform'],
+  'ui-ux-review': ['frontend_design', 'brand_alignment', 'accessibility', 'cross_platform'],
   'blog-writer': ['documentation', 'brand_alignment'],
   'code-review': ['code_review', 'ai_slop', 'architecture_quality', 'documentation'],
   'nuclear-review': ['code_review', 'architecture_quality', 'ai_slop'],
@@ -77,7 +78,7 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
     label: 'UI & Brand Alignment',
     description: 'Focused sweep of panels, modals, UI states, copy, and visual treatment against the knowledge-graph brand guidance.',
     agents: {
-      'frontend-design-review': ['frontend_design', 'brand_alignment', 'accessibility', 'cross_platform'],
+      'ui-ux-review': ['frontend_design', 'brand_alignment', 'accessibility', 'cross_platform'],
       'product-strategist': ['brand_alignment', 'product_strategy'],
       'code-review': ['ai_slop'],
     },
@@ -164,6 +165,8 @@ export function defaultSectorsForSpecialist(specialistId: SpecialistActionId): W
       return ['security']
     case 'frontend-design-review':
       return ['frontend_design', 'accessibility', 'brand_alignment']
+    case 'ui-ux-review':
+      return ['frontend_design', 'brand_alignment', 'accessibility']
     case 'blog-writer':
       return ['documentation', 'brand_alignment']
     case 'code-review':

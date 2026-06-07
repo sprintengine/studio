@@ -124,6 +124,36 @@ function navTabsets(model: Model): TabsetJson[] {
   const editorTabset = tabsets(model).find((tabset) => componentsOf(tabset).includes('editor'))
   assert.ok(editorTabset)
   assert.equal(editorTabset.enableTabStrip, undefined)
+  assert.deepEqual(tabsets(model).map(componentsOf), [['editor'], ['agent']])
+  unregisterModel(WS)
+}
+
+// Opening a real file while a terminal/agent tabset is active creates a
+// document tabset to its left instead of stacking the editor into the terminal
+// strip.
+{
+  const model = freshModel()
+  registerModel(WS, model)
+  assert.equal(focusOrAddFileTab(WS, '/tmp/app.ts', 'app.ts'), true)
+  const orderedTabsets = tabsets(model)
+  assert.deepEqual(orderedTabsets.map(componentsOf), [['file-editor'], ['agent']])
+  const fileTab = allTabs(model).find((tab) => tab.component === 'file-editor')
+  assert.ok(fileTab)
+  assert.equal(fileTab.enableClose, true)
+  unregisterModel(WS)
+}
+
+// With the nav rail open, file tabs land to its right and still to the left of
+// terminals/agents: Files/Git/Knowledge -> Editor -> terminals/agents.
+{
+  const model = freshModel()
+  registerModel(WS, model)
+  revealNavRailComponent(WS, 'explorer', 'Files')
+  assert.equal(focusOrAddFileTab(WS, '/tmp/app.ts', 'app.ts'), true)
+  assert.deepEqual(tabsets(model).map(componentsOf), [['explorer'], ['file-editor'], ['agent']])
+  const nav = navTabsets(model)
+  assert.equal(nav.length, 1)
+  assert.equal(nav[0].enableTabStrip, false)
   unregisterModel(WS)
 }
 

@@ -1882,7 +1882,7 @@ function RunnerSettingsFields({
               ariaLabel="Runner CLI"
               items={[
                 { value: 'codex', label: 'Codex' },
-                { value: 'claude', label: 'Claude' },
+                { value: 'claude', label: 'Claude Code' },
               ]}
               value={draft.cli}
               disabled={!canEdit}

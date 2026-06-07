@@ -15,6 +15,7 @@ void main()
 async function main(): Promise<void> {
   await assertTextReadLimits()
   await assertImageReadLimits()
+  await assertFileStats()
   await assertMemoryPreviewImageLimit()
   assertBinarySniffing()
 }
@@ -62,6 +63,24 @@ async function assertImageReadLimits(): Promise<void> {
       () => handlers.readImageDataUrl(largeImagePath),
       /too large/u
     )
+  } finally {
+    rmSync(root, { force: true, recursive: true })
+  }
+}
+
+async function assertFileStats(): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), 'multicode-fs-stat-'))
+  const handlers = createFilesystemReadHandlers()
+
+  try {
+    const targetPath = join(root, 'mockup.html')
+    writeFileSync(targetPath, '<main>hello</main>', 'utf8')
+    const stats = await handlers.statPath(targetPath)
+    assert.equal(stats.isFile, true)
+    assert.equal(stats.isDirectory, false)
+    assert.equal(stats.sizeBytes, '<main>hello</main>'.length)
+    assert.match(stats.modifiedAt, /^\d{4}-\d{2}-\d{2}T/u)
+    assert.equal(Number.isFinite(stats.modifiedAtMs), true)
   } finally {
     rmSync(root, { force: true, recursive: true })
   }

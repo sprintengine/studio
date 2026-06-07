@@ -26,6 +26,7 @@ export const filesystemApi = {
   readfile: (path: string) => ipcRenderer.invoke('fs:readfile', path),
   readImageDataUrl: (path: string) => ipcRenderer.invoke('fs:read-image-data-url', path),
   pathExists: (path: string) => ipcRenderer.invoke('fs:path-exists', path),
+  statPath: (path: string) => ipcRenderer.invoke('fs:stat', path),
   getPathForFile: (file: unknown): string => {
     try {
       return webUtils.getPathForFile(file as File)
@@ -89,6 +90,7 @@ export const filesystemApi = {
   | 'readfile'
   | 'readImageDataUrl'
   | 'pathExists'
+  | 'statPath'
   | 'getPathForFile'
   | 'checkWorkspaceFolder'
   | 'memoryResolveRoot'

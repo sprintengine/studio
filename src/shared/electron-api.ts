@@ -85,6 +85,14 @@ export interface FileWatchEvent {
   path: string | null
 }
 
+export type FileSystemStat = {
+  isFile: boolean
+  isDirectory: boolean
+  sizeBytes: number
+  modifiedAt: string
+  modifiedAtMs: number
+}
+
 export type FileSearchEntry = {
   name: string
   path: string
@@ -536,6 +544,7 @@ export type SpecialistActionId =
   | 'qa-test'
   | 'security-review'
   | 'frontend-design-review'
+  | 'ui-ux-review'
   | 'code-review'
   | 'nuclear-review'
   | 'spec-review'
@@ -1226,6 +1235,7 @@ export type ElectronApi = {
   readfile: (path: string) => Promise<string>
   readImageDataUrl: (path: string) => Promise<string>
   pathExists: (path: string) => Promise<boolean>
+  statPath: (path: string) => Promise<FileSystemStat>
   getPathForFile: (file: unknown) => string
   checkWorkspaceFolder: (path: string) => Promise<WorkspaceFolderCheckResult>
   memoryResolveRoot: (input: { workspaceRoot: string | null; relativeRoot: string | null }) => Promise<MemoryRootStatus>

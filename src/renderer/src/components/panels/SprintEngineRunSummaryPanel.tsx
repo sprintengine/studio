@@ -61,7 +61,7 @@ const EMPTY_AGENTS: Record<string, never> = {}
 
 // Human label for a CLI runtime id (the run records which CLI each agent ran on).
 function cliLabel(cli: string): string {
-  if (cli === 'claude') return 'Claude'
+  if (cli === 'claude') return 'Claude Code'
   if (cli === 'codex') return 'Codex'
   return (
     cli

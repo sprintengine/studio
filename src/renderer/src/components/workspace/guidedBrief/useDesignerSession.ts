@@ -240,6 +240,7 @@ export function useDesignerSession({
         const index = await collectDesignArtifacts(workspaceRoot, {
           readdir: window.api.readdir,
           pathExists: window.api.pathExists,
+          statPath: window.api.statPath,
         })
         if (cancelled) return
         setDesignArtifacts(index)

@@ -72,6 +72,7 @@ const bundledSprintEngineRoleLabels: Record<string, string> = {
   product: 'Product Strategist',
   developer: 'Developer',
   frontend: 'Frontend Engineer',
+  ui_ux_reviewer: 'UI/UX Reviewer',
   tester: 'Tester',
   security: 'Security Specialist',
   code_reviewer: 'Code Reviewer',

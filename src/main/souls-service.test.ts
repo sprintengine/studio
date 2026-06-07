@@ -30,6 +30,9 @@ async function testKnownSpecialistRendersFromRegistry(): Promise<void> {
   assert.equal(typeof result.prompt, 'string')
   assert.ok(result.prompt.length > 200, 'rendered prompt should not be trivially short')
   assert.match(result.path, /resources\/sprintengine\/roles\/architect\.json$/)
+  assert.doesNotMatch(result.prompt, /# Collaboration Norms/, 'standalone Souls should not include retired collaboration_norms')
+  assert.doesNotMatch(result.prompt, /Ask only when a wrong assumption/, 'standalone Souls should not carry ask-vs-act policy')
+  assert.match(result.prompt, /collaborative discovery/, 'architect Soul should encourage collaborative discovery')
   // Registry render adds composed skill content; legacy file path must not appear in evidence.
   assert.doesNotMatch(result.path, /souls\/prompts\/architect\.md$/)
 }

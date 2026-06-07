@@ -52,7 +52,7 @@ import { CloseIconButton, Field, GhostButton, Select, WizardProgress } from '../
 import { CreateFolderField } from './newWorkspace/CreateFolderField'
 import { ModeCard } from './newWorkspace/ModeCard'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
-import { SprintEngineRosterTable } from './newWorkspace/SprintEngineRosterTable'
+import { AgentCliPicker, SprintEngineRosterTable } from './newWorkspace/SprintEngineRosterTable'
 import { useFolderHints, useFolderScan } from './newWorkspace/useNewWorkspaceFolder'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind } from './newWorkspace/helpers'
@@ -166,6 +166,7 @@ const initialSprintEngineRoleCounts: SprintEngineRoleCounts = {
   architect: 1,
   product: 1,
   frontend: 0,
+  ui_ux_reviewer: 0,
   developer: 0,
   code_reviewer: 0,
   spec_reviewer: 0,
@@ -176,22 +177,24 @@ const initialSprintEngineRoleCounts: SprintEngineRoleCounts = {
 }
 
 const initialSprintEngineRoleCliDefaults: Required<SprintEngineRoleCliDefaults> = {
-  architect: 'claude',
-  product: 'claude',
-  frontend: 'claude',
-  developer: 'claude',
-  code_reviewer: 'claude',
-  spec_reviewer: 'claude',
-  performance: 'claude',
-  cross_platform: 'claude',
-  tester: 'claude',
-  security: 'claude',
+  architect: 'claude-code',
+  product: 'claude-code',
+  frontend: 'claude-code',
+  ui_ux_reviewer: 'claude-code',
+  developer: 'claude-code',
+  code_reviewer: 'claude-code',
+  spec_reviewer: 'claude-code',
+  performance: 'claude-code',
+  cross_platform: 'claude-code',
+  tester: 'claude-code',
+  security: 'claude-code',
 }
 
 const guidedBriefSprintEngineRoleCounts: SprintEngineRoleCounts = {
   architect: 1,
   product: 1,
   frontend: 1,
+  ui_ux_reviewer: 0,
   developer: 1,
   code_reviewer: 1,
   spec_reviewer: 1,
@@ -265,9 +268,9 @@ function cliSelectionForExistingSprintEngineTeam(
 }
 
 const initialGuidedBriefRoleCliDefaults: GuidedBriefRoleCliDefaults = {
-  product: initialSprintEngineRoleCliDefaults.product ?? 'claude',
-  architect: initialSprintEngineRoleCliDefaults.architect ?? 'claude',
-  frontend: initialSprintEngineRoleCliDefaults.frontend ?? 'claude',
+  product: initialSprintEngineRoleCliDefaults.product ?? 'claude-code',
+  architect: initialSprintEngineRoleCliDefaults.architect ?? 'claude-code',
+  frontend: initialSprintEngineRoleCliDefaults.frontend ?? 'claude-code',
 }
 
 export type NewWorkspacePanelInitialState = {
@@ -880,7 +883,7 @@ export default function NewWorkspacePanel({
     setSeAgentCliOverrides({})
     setSeRoleCliDefaults((current) => ({
       ...current,
-      [role]: current[role] ?? 'claude',
+      [role]: current[role] ?? 'claude-code',
     }))
     setSeRoleCounts((current) => ({
       ...current,
@@ -1532,6 +1535,7 @@ export default function NewWorkspacePanel({
               wantsArchitectureDiscussion={guidedWantsArchitecture}
               wantsFrontendDiscussion={guidedWantsFrontend}
               roleCliDefaults={guidedRoleCliDefaults}
+              cliOptions={sprintEngineCliOptions}
               onChangeWantsProductDiscussion={setGuidedWantsProduct}
               onChangeWantsArchitectureDiscussion={setGuidedWantsArchitecture}
               onChangeWantsFrontendDiscussion={setGuidedWantsFrontend}
@@ -2155,6 +2159,7 @@ function GuidedIdeaStep({
   wantsArchitectureDiscussion,
   wantsFrontendDiscussion,
   roleCliDefaults,
+  cliOptions,
   onChangeWantsProductDiscussion,
   onChangeWantsArchitectureDiscussion,
   onChangeWantsFrontendDiscussion,
@@ -2172,6 +2177,7 @@ function GuidedIdeaStep({
   wantsArchitectureDiscussion: boolean
   wantsFrontendDiscussion: boolean
   roleCliDefaults: GuidedBriefRoleCliDefaults
+  cliOptions: Array<{ value: AgentCli; label: string }>
   onChangeWantsProductDiscussion: (value: boolean) => void
   onChangeWantsArchitectureDiscussion: (value: boolean) => void
   onChangeWantsFrontendDiscussion: (value: boolean) => void
@@ -2255,6 +2261,7 @@ function GuidedIdeaStep({
               title="Frontend engineer"
               body="Designs UI direction and reviewable mockups."
               cli={roleCliDefaults.frontend}
+              cliOptions={cliOptions}
               onChangeCli={(cli) => onSetRoleCli('frontend', cli)}
               onChange={onChangeWantsFrontendDiscussion}
             />
@@ -2265,6 +2272,7 @@ function GuidedIdeaStep({
                 title="Product strategist"
                 body="Sharpens the product brief before planning."
                 cli={roleCliDefaults.product}
+                cliOptions={cliOptions}
                 onChangeCli={(cli) => onSetRoleCli('product', cli)}
                 onChange={onChangeWantsProductDiscussion}
               />
@@ -2273,6 +2281,7 @@ function GuidedIdeaStep({
                 title="Architect"
                 body="Interviews through architecture decisions and writes architecture/plan.md."
                 cli={roleCliDefaults.architect}
+                cliOptions={cliOptions}
                 onChangeCli={(cli) => onSetRoleCli('architect', cli)}
                 onChange={onChangeWantsArchitectureDiscussion}
               />
@@ -2282,6 +2291,7 @@ function GuidedIdeaStep({
                 title="Frontend engineer"
                 body={hasUi === 'yes' ? 'Designs UI direction and reviewable mockups.' : 'Available only for visual apps.'}
                 cli={roleCliDefaults.frontend}
+                cliOptions={cliOptions}
                 onChangeCli={(cli) => onSetRoleCli('frontend', cli)}
                 onChange={onChangeWantsFrontendDiscussion}
               />
@@ -2319,6 +2329,7 @@ function GuidedRoleToggle({
   title,
   body,
   cli,
+  cliOptions,
   onChange,
   onChangeCli,
 }: {
@@ -2331,6 +2342,7 @@ function GuidedRoleToggle({
   title: string
   body: string
   cli: AgentCli
+  cliOptions: Array<{ value: AgentCli; label: string }>
   onChange: (value: boolean) => void
   onChangeCli: (cli: AgentCli) => void
 }) {
@@ -2346,16 +2358,12 @@ function GuidedRoleToggle({
         <span className="mt-0.5 block text-[12px] leading-4 text-[color:var(--text-muted)]">{body}</span>
       </span>
       <span className="flex shrink-0 items-center gap-2">
-        <Select<AgentCli>
+        <AgentCliPicker
           ariaLabel={`${title} CLI`}
-          items={[
-            { value: 'codex', label: 'Codex' },
-            { value: 'claude', label: 'Claude' },
-          ]}
           value={cli}
           onChange={onChangeCli}
           disabled={disabled || !effectiveChecked}
-          className="w-[140px]"
+          cliOptions={cliOptions}
         />
         <input
           type="checkbox"

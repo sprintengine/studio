@@ -16,7 +16,7 @@ const CLAUDE_CODE_PLUGIN_ID = 'claude-code'
 
 function labelForCliRuntime(cli: AgentCli): string {
   if (cli === 'codex') return 'Codex'
-  if (cli === 'claude') return 'Claude'
+  if (cli === 'claude' || cli === 'claude-code') return 'Claude Code'
   return cli
     .split(/[-_\s]+/u)
     .filter(Boolean)
@@ -29,11 +29,13 @@ function legacyCliRuntimeOptions(
 ): AgentCliCatalogOption[] {
   const seen = new Set<AgentCli>()
   const orderedIds: AgentCli[] = []
-  for (const id of ['codex', 'claude', ...Object.keys(cliRuntimes ?? {})]) {
+  for (const id of ['codex', CLAUDE_CODE_PLUGIN_ID, ...Object.keys(cliRuntimes ?? {})]) {
     const trimmed = id.trim()
-    if (!trimmed || seen.has(trimmed)) continue
-    seen.add(trimmed)
-    orderedIds.push(trimmed)
+    const canonical = pluginRegistryIdForCli(trimmed)
+    if (!canonical || seen.has(canonical)) continue
+    if (trimmed === LEGACY_CLAUDE_CLI) continue
+    seen.add(canonical)
+    orderedIds.push(canonical)
   }
   return orderedIds.map((value) => ({ value, label: labelForCliRuntime(value) }))
 }
@@ -101,9 +103,9 @@ export function isAgentCliAvailable(
 export function resolveAvailableAgentCli(
   cli: AgentCli | null | undefined,
   catalog: AgentCliCatalogOption[],
-  fallback: AgentCli = LEGACY_CLAUDE_CLI,
+  fallback: AgentCli = CLAUDE_CODE_PLUGIN_ID,
 ): AgentCli {
-  if (cli && isAgentCliAvailable(cli, catalog)) return cli
+  if (cli && isAgentCliAvailable(cli, catalog)) return pluginRegistryIdForCli(cli)
   if (isAgentCliAvailable(fallback, catalog)) return fallback
   return catalog[0]?.value ?? fallback
 }
@@ -126,7 +128,7 @@ export function resolveTemplateAgentCli(
   catalog: AgentCliCatalogOption[],
 ): AgentCli {
   const explicit = explicitCli?.trim()
-  if (explicit) return explicit
+  if (explicit) return pluginRegistryIdForCli(explicit)
   return resolveAvailableAgentCli(lastSelectedCli, catalog, catalog[0]?.value ?? lastSelectedCli)
 }
 

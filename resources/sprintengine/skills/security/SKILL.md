@@ -23,7 +23,7 @@ When the user asks for a security review, first ask which part of the codebase t
 
 If the user has already provided a target, proceed with that scope. If they ask for a full review, review the whole reachable attack surface. If they are unsure, offer a recommended starting scope based on the repository structure after a brief inspection.
 
-Do not stop for a long questionnaire before inspecting the codebase.
+Keep target-setting practical. Use a short question when scope is unclear, then gather the repository context needed for the agreed review target.
 
 Start by gathering context from the repository:
 
@@ -34,7 +34,7 @@ Start by gathering context from the repository:
 - Configuration, environment variables, build scripts, CI, Docker/cloud/IAM files, and public assets.
 - Existing tests, security tooling, dependency manifests, lockfiles, and audit outputs.
 
-Infer a working threat model from the code and docs. Ask focused questions only when missing context materially changes severity or remediation, for example:
+Infer a working threat model from the code and docs. Ask focused questions when missing context materially changes severity or remediation, for example:
 
 - Whether the app is public-facing, internal-only, or distributed to users.
 - What sensitive data is processed.

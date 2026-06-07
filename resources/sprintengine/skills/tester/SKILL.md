@@ -24,7 +24,7 @@ Use the lightest mode that fits the request.
 - **Release readiness**: run release checks, review evidence and gaps, give a release recommendation.
 - **Quality strategy**: design broader test architecture only when explicitly asked.
 
-Escalate depth when you find high blast radius, missing acceptance criteria, flaky infrastructure, data/privacy exposure, fragile integrations, or production release risk. For routine execution, proceed with conservative assumptions and state them.
+Escalate depth when you find high blast radius, missing acceptance criteria, flaky infrastructure, data/privacy exposure, fragile integrations, or production release risk. For routine execution, keep assumptions explicit and ask for missing scope or release decisions when they affect confidence.
 
 # Multicode Defaults
 
@@ -86,7 +86,7 @@ Avoid:
 
 # When To Ask
 
-Ask only when the answer cannot be discovered from the repo and materially changes test scope, release confidence, or user safety. Useful questions include:
+Ask when the answer cannot be discovered from the repo and materially changes test scope, release confidence, or user safety. Useful questions include:
 
 - Which user journeys or platforms are release-blocking?
 - What risk tolerance, performance target, or accessibility level applies?

@@ -420,15 +420,38 @@ export function normalizeCliDefaults<K extends string>(
   const result: Partial<Record<K, AgentCli>> = {}
   for (const [key, value] of Object.entries(input)) {
     if (typeof value === 'string' && value.trim()) {
-      result[key as K] = value.trim()
+      const cli = value.trim()
+      result[key as K] = cli === 'claude' ? 'claude-code' : cli
     }
   }
   return result
 }
 
-export function normalizeSelectedCli(input: AgentCli | null | undefined, fallback: AgentCli = 'claude'): AgentCli {
-  if (typeof input === 'string' && input.trim()) return input.trim()
+export function normalizeSelectedCli(input: AgentCli | null | undefined, fallback: AgentCli = 'claude-code'): AgentCli {
+  if (typeof input === 'string' && input.trim()) {
+    const cli = input.trim()
+    return cli === 'claude' ? 'claude-code' : cli
+  }
   return fallback
+}
+
+function normalizeCliRuntimes(
+  cliRuntimes: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>> | undefined,
+  defaults: AppSettings,
+): AppSettings['cliRuntimes'] {
+  const legacyClaude = cliRuntimes?.claude
+  const canonicalClaude = cliRuntimes?.['claude-code']
+  const result: AppSettings['cliRuntimes'] = {
+    ...defaults.cliRuntimes,
+    ...(cliRuntimes ?? {}),
+    'claude-code': {
+      ...defaults.cliRuntimes['claude-code'],
+      ...(legacyClaude ?? {}),
+      ...(canonicalClaude ?? {}),
+    },
+  }
+  delete result.claude
+  return result
 }
 
 // Persisted last-used conversation provider/model. Keeps only a well-formed
@@ -494,7 +517,7 @@ export function normalizeSprintEngineRoleSettings(value: unknown): SprintEngineR
 export const defaultAppSettings = (): AppSettings => ({
   cliRuntimes: {
     codex: { command: 'codex', useWsl: false },
-    claude: {
+    'claude-code': {
       command: 'claude',
       useWsl: typeof window !== 'undefined' && window.api?.platform === 'win32',
     },
@@ -502,7 +525,7 @@ export const defaultAppSettings = (): AppSettings => ({
   keybindings: defaultKeybindingSettings(),
   mcp: defaultMcpSettings(),
   skillPacks: defaultSkillPackSettings(),
-  lastSelectedCli: 'claude',
+  lastSelectedCli: 'claude-code',
   lastSelectedConversationModel: null,
   lastSelectedSpecialist: 'architect',
   lastSelectedMultiloopRole: 'coordinator',
@@ -527,10 +550,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
   const defaults = defaultAppSettings()
   return {
     ...defaults,
-    cliRuntimes: {
-      ...defaults.cliRuntimes,
-      ...(settings?.cliRuntimes ?? {}),
-    },
+    cliRuntimes: normalizeCliRuntimes(settings?.cliRuntimes, defaults),
     keybindings: normalizeKeybindingSettings(settings?.keybindings),
     mcp: normalizeMcpSettings(settings?.mcp),
     skillPacks: normalizeSkillPackSettings(settings?.skillPacks),

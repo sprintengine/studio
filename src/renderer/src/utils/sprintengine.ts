@@ -118,6 +118,7 @@ export const sprintEngineRoleLabels: Record<SprintEngineRole, string> = {
   product: 'Product Strategist',
   developer: 'Developer',
   frontend: 'Frontend Engineer',
+  ui_ux_reviewer: 'UI/UX Reviewer',
   tester: 'Tester',
   security: 'Security Specialist',
   code_reviewer: 'Code Reviewer',
@@ -187,6 +188,7 @@ export const sprintEngineRoleAccent: Record<SprintEngineRole, string> = {
   product: '#e879a7',
   developer: '#c7ccd4',
   frontend: '#39d7ff',
+  ui_ux_reviewer: '#8bdbca',
   tester: '#3dff8f',
   security: '#ff6b6b',
   code_reviewer: '#f59e0b',
@@ -216,6 +218,7 @@ const SOUL_ROLE_TO_SPRINT_ENGINE_ROLE: Record<string, SprintEngineRole> = {
   product: 'product',
   developer: 'developer',
   frontend: 'frontend',
+  ui_ux_reviewer: 'ui_ux_reviewer',
   tester: 'tester',
   security: 'security',
   code_reviewer: 'code_reviewer',
@@ -256,6 +259,7 @@ export const sprintEngineRoleOrder: SprintEngineRole[] = [
   'architect',
   'product',
   'frontend',
+  'ui_ux_reviewer',
   'developer',
   'code_reviewer',
   'nuclear_reviewer',
@@ -610,6 +614,7 @@ function isSprintEngineRole(value: unknown): value is SprintEngineRole {
     || value === 'product'
     || value === 'developer'
     || value === 'frontend'
+    || value === 'ui_ux_reviewer'
     || value === 'tester'
     || value === 'security'
     || value === 'code_reviewer'
@@ -684,6 +689,7 @@ export type SprintEngineRoleGlyphKind =
   | 'product'
   | 'developer'
   | 'frontend'
+  | 'ui_ux_reviewer'
   | 'tester'
   | 'security'
   | 'code_reviewer'
@@ -1446,6 +1452,7 @@ export function createDefaultSprintEngineRoleCounts(): SprintEngineRoleCounts {
     product: 1,
     developer: 1,
     frontend: 0,
+    ui_ux_reviewer: 0,
     tester: 0,
     security: 0,
     code_reviewer: 0,
@@ -1462,6 +1469,7 @@ export function createDefaultSprintEngineSkills(): SprintEngineSkillMap {
     product: ['Market research', 'Competitor analysis', 'Audience fit', 'Product positioning'],
     developer: ['Implementation', 'Refactoring', 'Integration work', 'Testing'],
     frontend: ['Interface design', 'Interaction design', 'Responsive layouts', 'UI implementation'],
+    ui_ux_reviewer: ['UI/UX review', 'Brand alignment', 'Responsive QA', 'Visual artifact checks'],
     tester: ['Regression checks', 'Acceptance review', 'Validation'],
     security: ['Threat modeling', 'Security review', 'Hardening', 'Abuse-case analysis'],
     code_reviewer: ['Code review', 'Regression risk', 'Maintainability', 'Evidence quality'],
@@ -1613,6 +1621,7 @@ export function buildSprintEngineAgentRosterForState(
 const SPRINT_ENGINE_FOCUS_WORKER_ROLES: SprintEngineRole[] = [
   'developer',
   'frontend',
+  'ui_ux_reviewer',
   'product',
   'code_reviewer',
   'nuclear_reviewer',

@@ -1826,7 +1826,7 @@ export default function SettingsPanel({
 
           <MessageBlock tone={mcpMessage ? 'accent' : 'neutral'}>
             {mcpMessage || (activeProjectRoot
-              ? 'Changes apply automatically across Claude, Codex, and other terminal agents. Existing terminals keep their current config until relaunched.'
+              ? 'Changes apply automatically across Claude Code, Codex, and other terminal agents. Existing terminals keep their current config until relaunched.'
               : 'Open a workspace folder to sync MCPs to terminal agents.')}
           </MessageBlock>
         </div>

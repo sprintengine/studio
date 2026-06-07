@@ -788,7 +788,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={(event) => void handleDrop(event)}
-      className="terminal-focus-ring absolute inset-0 overflow-hidden p-2 cursor-text"
+      className="terminal-focus-ring absolute inset-0 overflow-hidden p-2 pb-4 cursor-text"
     >
       {isFileDragOver ? (
         <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]" />

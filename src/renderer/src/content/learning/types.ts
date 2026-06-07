@@ -1,9 +1,13 @@
 export type LearningCategory =
   | 'workspace'
   | 'agents'
+  | 'guided-brief'
   | 'sprintengine'
   | 'switchboard'
+  | 'git'
   | 'knowledge'
+  | 'settings'
+  | 'mobile'
   | 'local-safety'
 
 export type LearningDifficulty = 'basic' | 'intermediate' | 'advanced'
@@ -48,8 +52,12 @@ export type LearningItem = {
 export const LEARNING_CATEGORY_LABELS: Record<LearningCategory, string> = {
   workspace: 'Workspaces',
   agents: 'Agents',
+  'guided-brief': 'Guided Brief',
   sprintengine: 'Sprint Engine',
   switchboard: 'Switchboard',
+  git: 'Git',
   knowledge: 'Knowledge Graph',
+  settings: 'Settings',
+  mobile: 'Mobile',
   'local-safety': 'Local safety',
 }

@@ -108,7 +108,7 @@ import { useSprintEngineBoardTerminalActions } from './sprintEngineBoard/useSpri
 
 const cliOptions: Array<{ value: AgentCli; label: string; description: string }> = [
  { value: 'codex', label: 'Codex', description: 'OpenAI Codex CLI' },
- { value: 'claude', label: 'Claude', description: 'Claude Code CLI' },
+ { value: 'claude-code', label: 'Claude Code', description: 'Claude Code CLI' },
 ]
 const sprintEngineCliPermissionOptions: Array<{
  value: SprintEngineCliPermissionPreset

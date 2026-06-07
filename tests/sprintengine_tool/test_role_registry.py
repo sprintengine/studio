@@ -31,8 +31,10 @@ def test_discovers_production_bundled_role_manifest_and_referenced_skill() -> No
 
     role = discovery.get_role("qa-test")
     skills = discovery.referenced_skills("tester")
+    ui_ux_reviewer = discovery.get_role("ui-ux-review")
 
     assert role.id == "tester"
+    assert ui_ux_reviewer.id == "ui_ux_reviewer"
     assert discovery.role_entry("tester").source.layer.name == "bundled"
     assert [skill.id for skill in skills][:2] == ["tester", "project_relative_paths"]
     assert "production_reality_gate" in [skill.id for skill in skills]

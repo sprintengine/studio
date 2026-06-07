@@ -383,13 +383,15 @@ export function migratePersistedWorkspaceState(
             ?? existing.cliCommands?.codex
             ?? defaults.cliRuntimes.codex.command,
         },
-        claude: {
-          ...defaults.cliRuntimes.claude,
+        'claude-code': {
+          ...defaults.cliRuntimes['claude-code'],
           ...(existing.cliRuntimes?.claude ?? {}),
+          ...(existing.cliRuntimes?.['claude-code'] ?? {}),
           command:
-            existing.cliRuntimes?.claude?.command
+            existing.cliRuntimes?.['claude-code']?.command
+            ?? existing.cliRuntimes?.claude?.command
             ?? existing.cliCommands?.claude
-            ?? defaults.cliRuntimes.claude.command,
+            ?? defaults.cliRuntimes['claude-code'].command,
         },
       },
       lastSelectedCli: defaults.lastSelectedCli,
@@ -404,6 +406,11 @@ export function migratePersistedWorkspaceState(
       cliRuntimes: {
         ...defaults.cliRuntimes,
         ...(current.appSettings?.cliRuntimes ?? {}),
+        'claude-code': {
+          ...defaults.cliRuntimes['claude-code'],
+          ...(current.appSettings?.cliRuntimes?.claude ?? {}),
+          ...(current.appSettings?.cliRuntimes?.['claude-code'] ?? {}),
+        },
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
     }
@@ -733,7 +740,7 @@ export function migratePersistedWorkspaceState(
   if (version < 46) {
     const fallbackCli = normalizeAgentCli(
       { cli: migrationState.appSettings?.lastSelectedCli },
-      'claude',
+      'claude-code',
     )
     mapMigrationWorkspaces(migrationState, (ws) => ({
       ...ws,
