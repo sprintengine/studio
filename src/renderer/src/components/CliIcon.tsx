@@ -1,9 +1,9 @@
 import type { AgentCli } from '../types/workspace'
 
-export type CliIconKind = 'claude' | 'codex' | 'terminal'
+export type CliIconKind = 'claude-code' | 'codex' | 'terminal'
 
 export function resolveCliIconKind(cli: AgentCli): CliIconKind {
-  if (cli === 'claude' || cli === 'claude-code') return 'claude'
+  if (cli === 'claude-code') return 'claude-code'
   if (cli === 'codex') return 'codex'
   return 'terminal'
 }
@@ -11,7 +11,7 @@ export function resolveCliIconKind(cli: AgentCli): CliIconKind {
 export default function CliIcon({ cli, className }: { cli: AgentCli; className?: string }) {
   const iconKind = resolveCliIconKind(cli)
 
-  if (iconKind === 'claude') {
+  if (iconKind === 'claude-code') {
     return (
       <svg
         className={className}

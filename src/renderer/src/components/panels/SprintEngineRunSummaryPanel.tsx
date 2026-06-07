@@ -19,7 +19,7 @@ import {
   buildIssueTotals,
   buildProcessHealth,
   buildRunReport,
-  compareCliIssueRates,
+  compareCliDeliveryScores,
   feedbackFindingAreaLabels,
   feedbackFindingKindLabels,
   findingSeverityOrder,
@@ -61,7 +61,7 @@ const EMPTY_AGENTS: Record<string, never> = {}
 
 // Human label for a CLI runtime id (the run records which CLI each agent ran on).
 function cliLabel(cli: string): string {
-  if (cli === 'claude') return 'Claude Code'
+  if (cli === 'claude-code') return 'Claude Code'
   if (cli === 'codex') return 'Codex'
   return (
     cli
@@ -1348,35 +1348,35 @@ function RunMetricsSection({ report }: { report: SprintEngineRunReport }) {
   )
 }
 
-// A glanceable headline: implementation agents grouped by role, each showing the
-// CLI it ran on and the share of its tasks that hit issues in review. When two
-// CLIs differ enough, a one-line takeaway calls out which produced more issues.
+// A glanceable headline: implementation agents grouped by role, each showing a
+// weighted Delivery score, the normalized issue load, and the top issue mix.
+// When two CLIs differ enough, a one-line takeaway calls out the score gap.
 function AgentTypeSummarySection({ summary }: { summary: SprintEngineAgentTypeSummary }) {
   if (summary.roles.length === 0) return null
-  const comparison = compareCliIssueRates(summary.clis)
+  const comparison = compareCliDeliveryScores(summary.clis)
   return (
     <SectionDivider>
-      <Section title="By agent type" count={summary.roles.length} level={3}>
+      <Section title="Delivery Score" count={summary.roles.length} level={3}>
         <div className="mb-3 flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
           {comparison ? (
             <span>
-              <CliInline cli={comparison.worse.key} /> agents hit implementation issues on{' '}
+              <CliInline cli={comparison.better.key} /> agents scored{' '}
               <span className="tabular-nums text-[color:var(--text-default)]">
-                {comparison.worse.issuePct}%
+                {comparison.better.deliveryScore}
               </span>{' '}
-              of tasks, vs <CliInline cli={comparison.better.key} />
+              on delivery, vs <CliInline cli={comparison.worse.key} />
               {"'s "}
               <span className="tabular-nums text-[color:var(--text-default)]">
-                {comparison.better.issuePct}%
+                {comparison.worse.deliveryScore}
               </span>
               .
             </span>
           ) : (
-            <span>The implementation issues each role hit during review.</span>
+            <span>Delivery score compares weighted review issues per completed task.</span>
           )}
           <ColumnHint
-            label="implementation issues"
-            hint="Bugs, missed requirements, implementation mistakes, unsafe changes, regressions, and test failures reviewers flagged in the agent's work. Factual errors and hallucinations are tracked separately."
+            label="Delivery score"
+            hint="A 0-100 headline score derived from weighted implementation issues per completed task. Unsafe changes, regressions, missed requirements, implementation mistakes, bugs, and introduced test failures count more heavily than raw task coverage."
           />
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3 md:grid-cols-4">
@@ -1402,6 +1402,9 @@ function CliInline({ cli }: { cli: string }) {
 function TypeStatCell({ stat }: { stat: SprintEngineTypeStat }) {
   const issues = `${stat.totalIssues} issue${stat.totalIssues === 1 ? '' : 's'}`
   const tasks = `${stat.tasksDone} task${stat.tasksDone === 1 ? '' : 's'}`
+  const mix = stat.topIssueMix.length
+    ? stat.topIssueMix.map((item) => `${item.count} ${item.label}`).join(', ')
+    : 'No issues flagged'
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
@@ -1422,11 +1425,14 @@ function TypeStatCell({ stat }: { stat: SprintEngineTypeStat }) {
         ) : null}
       </div>
       <div className="mt-1.5 text-[20px] font-semibold tabular-nums text-[color:var(--text-strong)]">
-        {stat.issuePct === null ? '—' : `${stat.issuePct}%`}
+        {stat.deliveryScore === null ? '—' : stat.deliveryScore}
       </div>
-      <div className="text-[11px] text-[color:var(--text-muted)]">of tasks had issues</div>
+      <div className="text-[11px] text-[color:var(--text-muted)]">Delivery score</div>
       <div className="mt-0.5 text-[11px] tabular-nums text-[color:var(--text-disabled)]">
-        {issues} · {tasks}
+        {stat.issueLoadPerTask === null ? '—' : `${stat.issueLoadPerTask} load/task`} · {issues} · {tasks}
+      </div>
+      <div className="mt-0.5 truncate text-[11px] text-[color:var(--text-disabled)]" title={mix}>
+        {mix}
       </div>
     </div>
   )

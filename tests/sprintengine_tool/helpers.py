@@ -164,7 +164,14 @@ def create_workspace_team(tmp_path: Path, workspace_name: str, name: str, tasks:
     return SwarmTeamFixture(team_dir=team_dir, state_path=state_path, cli=SwarmCli(state_path, cwd=workspace))
 
 
-def write_workspace_role(workspace: Path, role_id: str, *, aliases: list[str] | None = None, label: str | None = None) -> None:
+def write_workspace_role(
+    workspace: Path,
+    role_id: str,
+    *,
+    aliases: list[str] | None = None,
+    label: str | None = None,
+    capabilities: list[dict[str, Any]] | None = None,
+) -> None:
     root = workspace / ".sprintengine"
     roles_dir = root / "roles"
     skill_dir = root / "skills" / role_id
@@ -176,6 +183,8 @@ def write_workspace_role(workspace: Path, role_id: str, *, aliases: list[str] | 
         "aliases": aliases or [],
         "soul": [{"skill": role_id}],
     }
+    if capabilities is not None:
+        payload["capabilities"] = capabilities
     (roles_dir / f"{role_id}.json").write_text(json.dumps(payload), encoding="utf-8")
     (skill_dir / "SKILL.md").write_text(f"# {role_id}\n\nTemporary test role.", encoding="utf-8")
 

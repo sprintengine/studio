@@ -25,6 +25,7 @@ import type {
   PlanSourcedSprintEngineWorkspaceArgs,
   PlanSourcedSprintEngineWorkspaceResult,
 } from '../../../../utils/sprintengineWorkspaceCreation'
+import type { SprintEngineArtifactCommandResult, SprintEngineStateInitializeInput } from '../../../../../../shared/electron-api'
 
 export type OnCreateArgs = {
   template: LayoutTemplate
@@ -146,6 +147,15 @@ export type SprintEnginePlanSourcedInput = {
 
 export type SprintEnginePlanSourcedPorts = {
   pathExists: PathExists
+  initializeSprintEngineState?: (
+    input: SprintEngineStateInitializeInput
+  ) => Promise<SprintEngineArtifactCommandResult>
+  recordBacklogExecutionLink?: (input: {
+    workspaceRoot: string
+    sourceRelativePath: string
+    teamSlug: string
+    statePath: string
+  }) => Promise<void>
 }
 
 export type GuidedBriefScaffoldInput = {

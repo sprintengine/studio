@@ -357,7 +357,7 @@ assert.ok(
   assert.equal(
     nuclearReviewPrompt.replace('souls get nuclear_reviewer', 'souls get code_reviewer'),
     codeReviewPrompt,
-    'Nuclear Reviewer startup prompt matches AI Slop reviewer aside from the Soul role',
+    'Nuclear Reviewer startup prompt matches Slop Cop aside from the Soul role',
   )
 }
 

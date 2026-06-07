@@ -51,7 +51,7 @@ import { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
 import SprintEngineAutoRunSupervisor from './SprintEngineAutoRunSupervisor'
 import MultiloopAutoRunSupervisor from './MultiloopAutoRunSupervisor'
 import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
-import SprintEngineStateSynchronizer from './SprintEngineStateSynchronizer'
+import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
@@ -1674,16 +1674,17 @@ export default function WorkspaceManager() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-strong)]">
+      {sprintEngineEnabled && !MULTICODE_DISABLE_SPRINTENGINE_SYNC ? (
+        <SprintEngineProjectionSupervisor
+          activeWorkspaceId={windowActiveWorkspaceId}
+          workspaceIds={workspaces.map((workspace) => workspace.id)}
+        />
+      ) : null}
       {sprintEngineEnabled && ownsGlobalSupervisors ? <SprintEngineAutoRunSupervisor /> : null}
       {multiloopEnabled && ownsGlobalSupervisors ? <MultiloopAutoRunSupervisor /> : null}
       {multiloopEnabled && visibleWorkspaces.map((workspace) => (
         workspace.id === windowActiveWorkspaceId && (workspace.mode === 'multiloop' || workspace.multiloopContext)
           ? <MultiloopStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
-          : null
-      ))}
-      {sprintEngineEnabled && !MULTICODE_DISABLE_SPRINTENGINE_SYNC && visibleWorkspaces.map((workspace) => (
-        workspace.id === windowActiveWorkspaceId && (workspace.mode === 'sprintengine' || workspace.sprintEngineContext)
-          ? <SprintEngineStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
           : null
       ))}
 

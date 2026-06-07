@@ -143,7 +143,7 @@ function createFakeStore(windows: WorkspaceWindowState[], activeWorkspaceId: Wor
         cli,
         cliStartRequested: true,
         cliHasLaunched: true,
-        cliResumeAvailable: cli === 'codex' || cli === 'claude' || cli === 'claude-code',
+        cliResumeAvailable: cli === 'codex' || cli === 'claude-code',
       } as AgentState
     },
     applyTerminalLaunchState({ workspaceId, agentId, ...update }: AgentTerminalLaunchStateApply): void {
@@ -788,7 +788,7 @@ async function terminalMetadataEventsRespectWorkspaceOwnership(): Promise<void> 
   assert.equal(storeA.agent('wsA1', 'agent-one')?.cliSessionId, 'session-a')
   assert.equal(storeB.agent('wsA1', 'agent-one')?.cliSessionId, 'session-a')
 
-  await clientB.dispatchAssignTerminalSession('wsA1', 'agent-one', 'session-from-wrong-window', 'claude')
+  await clientB.dispatchAssignTerminalSession('wsA1', 'agent-one', 'session-from-wrong-window', 'claude-code')
   await clientB.dispatchUpdateTerminalLaunchState('wsA1', 'agent-one', {
     cliSessionId: null,
     cliStartRequested: false,

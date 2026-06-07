@@ -2,6 +2,7 @@ import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../sha
 import { resolveModuleEnablement } from '../../../shared/modules/resolve'
 import { MODULE_PROFILES, profileEnables, type ModuleProfileId } from '../../../shared/modules/profiles'
 import { agentRuntimeRendererModule } from './agent-runtime-module'
+import { backlogRendererModule } from './backlog-module'
 import { devToolsRendererModule } from './dev-tools-module'
 import { gitRendererModule } from './git-module'
 import { memoryRendererModule } from './memory-module'
@@ -17,6 +18,7 @@ import { createRendererHost, type RendererModule } from './renderer-host'
 // hardcoded factory switch / panel rail.
 export const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   agentRuntimeRendererModule,
+  backlogRendererModule,
   devToolsRendererModule,
   memoryRendererModule,
   gitRendererModule,

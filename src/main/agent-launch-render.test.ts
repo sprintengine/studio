@@ -19,23 +19,21 @@ const BUNDLED_ROOT = join(process.cwd(), 'resources', 'plugins')
 
 async function main(): Promise<void> {
   await usingBundledRegistry(async () => {
-    testLegacyCliMapping()
-    testClaudeRenderDefault()
-    testClaudeRenderWithBypass()
-    testClaudeRenderResume()
+    testPluginCliMapping()
+    testClaudeCodeRenderDefault()
+    testClaudeCodeRenderWithBypass()
     testClaudeCodeRenderResume()
-    testClaudeRenderWithRuntimeBinaryOverride()
+    testClaudeCodeRenderWithRuntimeBinaryOverride()
     testCodexRenderDefault()
     testCodexRenderWithAutoWorkspace()
     testCodexRenderResume()
     testQuoteTokenLeavesSafeStringsBare()
     testQuoteTokenWrapsSpecialChars()
     testArgvToPosixShellCommand()
-    testBuildAgentShellCommandClaude()
+    testBuildAgentShellCommandClaudeCode()
     testBuildAgentShellCommandCodex()
     testRenderArgvIncludesBinaryAsFirstElement()
-    testResolveCliRuntimeSettingsLegacyAlias()
-    testClaudeCodeLaunchHonorsLegacyClaudeOverride()
+    testResolveCliRuntimeSettings()
   })
 
   console.log('agent-launch-render tests passed')
@@ -61,42 +59,23 @@ async function usingBundledRegistry(fn: () => Promise<void> | void): Promise<voi
   }
 }
 
-function testLegacyCliMapping(): void {
-  assert.equal(pluginIdForCli('claude'), 'claude-code')
+function testPluginCliMapping(): void {
+  assert.equal(pluginIdForCli('claude-code'), 'claude-code')
   assert.equal(pluginIdForCli('codex'), 'codex')
 }
 
-function testResolveCliRuntimeSettingsLegacyAlias(): void {
-  // claude-code launch with only a legacy `claude` override honors it.
+function testResolveCliRuntimeSettings(): void {
   assert.deepEqual(
-    resolveCliRuntimeSettings('claude-code', { claude: { command: '/opt/claude/bin/claude', useWsl: true } }),
+    resolveCliRuntimeSettings('claude-code', { 'claude-code': { command: '/opt/claude/bin/claude', useWsl: true } }),
     { command: '/opt/claude/bin/claude', useWsl: true },
-    'claude-code launch falls back to the legacy claude command/WSL override',
+    'claude-code launch reads its plugin-id command/WSL override',
   )
-  // A direct claude-code override wins over the legacy key.
   assert.deepEqual(
     resolveCliRuntimeSettings('claude-code', {
-      claude: { command: '/legacy/claude', useWsl: true },
-      'claude-code': { command: '/new/claude', useWsl: false },
-    }),
-    { command: '/new/claude', useWsl: false },
-    'a direct claude-code override takes precedence over the legacy claude key',
-  )
-  // An explicit blank direct command wins (means "use the manifest binary"),
-  // even when a legacy command exists.
-  assert.deepEqual(
-    resolveCliRuntimeSettings('claude-code', {
-      claude: { command: '/legacy/claude', useWsl: true },
       'claude-code': { command: '', useWsl: false },
     }),
     { command: '', useWsl: false },
-    'an explicit blank claude-code command overrides the legacy command (manifest binary at render)',
-  )
-  // Legacy `claude` agents and non-aliased plugins read their own key only.
-  assert.deepEqual(
-    resolveCliRuntimeSettings('claude', { claude: { command: 'claude', useWsl: false } }),
-    { command: 'claude', useWsl: false },
-    'legacy claude cli reads its own key directly',
+    'a blank claude-code command means manifest binary at render',
   )
   assert.deepEqual(
     resolveCliRuntimeSettings('codex', undefined),
@@ -105,29 +84,18 @@ function testResolveCliRuntimeSettingsLegacyAlias(): void {
   )
 }
 
-function testClaudeCodeLaunchHonorsLegacyClaudeOverride(): void {
-  // End-to-end at the launcher boundary: a claude-code launch with only a legacy
-  // `claude` command override renders that command as the binary, not the manifest.
-  const cliRuntime = resolveCliRuntimeSettings('claude-code', {
-    claude: { command: '/opt/claude/bin/claude', useWsl: false },
-  })
-  const out = renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 'sid_legacy', cliRuntime })
-  assert.equal(out.binary, '/opt/claude/bin/claude')
-  assert.deepEqual(out.argv, ['/opt/claude/bin/claude', '--session-id', 'sid_legacy'])
-}
-
-function testClaudeRenderDefault(): void {
+function testClaudeCodeRenderDefault(): void {
   const out = renderAgentLaunchArgv({
-    cli: 'claude',
+    cli: 'claude-code',
     sessionId: 'sid_demo',
   })
   assert.deepEqual(out.argv, ['claude', '--session-id', 'sid_demo'])
   assert.equal(out.binary, 'claude')
 }
 
-function testClaudeRenderWithBypass(): void {
+function testClaudeCodeRenderWithBypass(): void {
   const out = renderAgentLaunchArgv({
-    cli: 'claude',
+    cli: 'claude-code',
     sessionId: 'sid_42',
     initialPrompt: 'build the auth flow',
     cliPermissionPreset: 'bypass_all',
@@ -142,15 +110,6 @@ function testClaudeRenderWithBypass(): void {
   ])
 }
 
-function testClaudeRenderResume(): void {
-  const out = renderAgentLaunchArgv({
-    cli: 'claude',
-    sessionId: 'sid_42',
-    resume: true,
-  })
-  assert.deepEqual(out.argv, ['claude', '--resume', 'sid_42'])
-}
-
 function testClaudeCodeRenderResume(): void {
   const out = renderAgentLaunchArgv({
     cli: 'claude-code',
@@ -160,9 +119,9 @@ function testClaudeCodeRenderResume(): void {
   assert.deepEqual(out.argv, ['claude', '--resume', 'sid_42'])
 }
 
-function testClaudeRenderWithRuntimeBinaryOverride(): void {
+function testClaudeCodeRenderWithRuntimeBinaryOverride(): void {
   const out = renderAgentLaunchArgv({
-    cli: 'claude',
+    cli: 'claude-code',
     sessionId: 'sid_5',
     cliRuntime: { command: '/opt/claude/bin/claude', useWsl: false },
   })
@@ -233,26 +192,26 @@ function testArgvToPosixShellCommand(): void {
   )
 }
 
-function testBuildAgentShellCommandClaude(): void {
+function testBuildAgentShellCommandClaudeCode(): void {
   const out = buildAgentShellCommand({
-    cli: 'claude',
+    cli: 'claude-code',
     sessionId: 'sid_42',
     initialPrompt: 'hello there',
     cliPermissionPreset: 'bypass_all',
   })
   assert.equal(
     out,
-    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude command in Multicode Settings.'; else claude --permission-mode bypassPermissions --session-id sid_42 'hello there'; fi`
+    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Multicode Settings.'; else claude --permission-mode bypassPermissions --session-id sid_42 'hello there'; fi`
   )
 
   const resumeOut = buildAgentShellCommand({
-    cli: 'claude',
+    cli: 'claude-code',
     sessionId: 'sid_42',
     resume: true,
   })
   assert.equal(
     resumeOut,
-    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude command in Multicode Settings.'; else claude --resume sid_42; fi`
+    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Multicode Settings.'; else claude --resume sid_42; fi`
   )
 }
 
@@ -262,7 +221,7 @@ function testRenderArgvIncludesBinaryAsFirstElement(): void {
   // the argv shape that would break Windows-native launches for Claude and
   // any future plugin.
   const claude = renderAgentLaunchArgv({
-    cli: 'claude',
+    cli: 'claude-code',
     sessionId: 'sid_win',
     initialPrompt: 'do it',
     cliPermissionPreset: 'auto_workspace',
@@ -277,7 +236,7 @@ function testRenderArgvIncludesBinaryAsFirstElement(): void {
   ])
 
   const claudeOverride = renderAgentLaunchArgv({
-    cli: 'claude',
+    cli: 'claude-code',
     sessionId: 'sid_win',
     cliRuntime: { command: 'C:/tools/claude.exe', useWsl: false },
   })

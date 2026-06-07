@@ -7,6 +7,18 @@
     "platform-compatibility"
   ],
   "summary": "Reviews applications for operating system, browser, device, filesystem, shell, packaging, and runtime compatibility risks.",
+  "capabilities": [
+    {
+      "kind": "review",
+      "phase": "review",
+      "reviews": [
+        "cross_platform",
+        "compatibility",
+        "packaging"
+      ],
+      "defaultFocus": "operating system, browser, device, filesystem, shell, packaging, and runtime compatibility risks"
+    }
+  ],
   "soul": [
     {
       "skill": "cross_platform"

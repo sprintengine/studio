@@ -41,7 +41,7 @@ export type LayoutTemplate = {
 // defined under workspace / user / plugin layers. Those fields use
 // `SprintEngineRoleId` below so unknown configured ids round-trip through
 // normalization without being coerced or dropped.
-export type SprintEngineRole = 'architect' | 'product' | 'developer' | 'frontend' | 'ui_ux_reviewer' | 'tester' | 'security' | 'code_reviewer' | 'nuclear_reviewer' | 'spec_reviewer' | 'performance' | 'cross_platform'
+export type SprintEngineRole = 'architect' | 'product' | 'developer' | 'frontend' | 'ui_ux_reviewer' | 'tester' | 'security' | 'code_reviewer' | 'nuclear_reviewer' | 'spec_reviewer' | 'performance' | 'production_readiness_reviewer' | 'cross_platform'
 
 // Registry-keyed role identifier. Any non-empty string the role registry
 // emitted (bundled, workspace, user, or plugin layer). UI/runtime surfaces
@@ -211,6 +211,7 @@ export type SprintEngineArtifactKind =
   | 'code_review'
   | 'spec_review'
   | 'performance_review'
+  | 'production_readiness_review'
   | 'cross_platform_review'
   | 'validation_report'
 
@@ -717,6 +718,7 @@ export type WatchtowerReviewSectorId =
   | 'ai_slop'
   | 'architecture_quality'
   | 'frontend_design'
+  | 'production_readiness'
   | 'cross_platform'
   | 'brand_alignment'
   | 'security'
@@ -1033,8 +1035,7 @@ export type AgentMessage = {
 
 export type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete'
 // Runtime CLI identity is a plugin id. Bundled choices include `codex` and
-// `claude-code`; old stored `claude` values are handled as compatibility
-// aliases at launch and picker normalization boundaries.
+// `claude-code`.
 export type AgentCli = string
 export type SprintEngineRoleCliDefaults = Partial<Record<SprintEngineRoleId, AgentCli>>
 
@@ -1062,6 +1063,7 @@ export type SpecialistActionId =
   | 'developer'
   | 'devops-infra'
   | 'performance'
+  | 'production-readiness-review'
   | 'cross-platform'
   | 'blog-writer'
   | 'qa-test'

@@ -89,6 +89,7 @@ const validTaskRoles = new Set<SprintEngineTaskMutationRole>([
   'code_reviewer',
   'spec_reviewer',
   'performance',
+  'production_readiness_reviewer',
 ])
 
 type ValidSprintEngineStatePath = {
@@ -125,6 +126,7 @@ const autoApprovableArtifactKinds = new Set([
   'code_review',
   'spec_review',
   'performance_review',
+  'production_readiness_review',
   'cross_platform_review',
   'validation_report',
 ])

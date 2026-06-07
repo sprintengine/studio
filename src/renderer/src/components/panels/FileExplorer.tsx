@@ -407,7 +407,9 @@ function sourceBundleRelativePath(rootPath: string, entry: Entry): string | null
   const relativePath = workspaceRelativePath(rootPath, entry.path)
   if (!relativePath) return null
 
-  return relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
+  const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
+  if (!normalized.startsWith('backlog/')) return null
+  return normalized
 }
 
 function isHtmlFile(entry: Entry): boolean {
@@ -416,6 +418,10 @@ function isHtmlFile(entry: Entry): boolean {
 
 function isSourceBundleFile(rootPath: string, entry: Entry): boolean {
   return Boolean(sourceBundleRelativePath(rootPath, entry))
+}
+
+function isPotentialSourceBundleFile(entry: Entry): boolean {
+  return !entry.isDir && !entry.gitDeleted && /\.(md|html?)$/i.test(entry.name)
 }
 
 function titleCasePlanName(value: string): string {
@@ -1212,6 +1218,12 @@ function ExplorerTree({
       && contextSelection.every((selectedEntry) => isSourceBundleFile(rootPath, selectedEntry))
       && (contextSelection.length > 1 || (isSingleSelection && entry && isHtmlFile(entry)))
     )
+    const hasSourceBundleOutsideBacklog = Boolean(
+      canUsePathCommands
+      && (contextSelection.length > 1 || (isSingleSelection && entry && isHtmlFile(entry)))
+      && contextSelection.some(isPotentialSourceBundleFile)
+      && contextSelection.some((selectedEntry) => isPotentialSourceBundleFile(selectedEntry) && !isSourceBundleFile(rootPath, selectedEntry))
+    )
     const deleteLabel = contextSelection.length > 1
       ? canDeletePath
         ? `Delete ${contextSelection.length} Items`
@@ -1235,6 +1247,11 @@ function ExplorerTree({
         }]
         : []),
       ...(canStartFuturePlanBundle ? [{ id: 'create-source-bundle-sprintengine', label: `Start Sprint Engine From ${contextSelection.length === 1 ? 'Source' : `${contextSelection.length} Sources`}...` }] : []),
+      ...(hasSourceBundleOutsideBacklog ? [{
+        id: 'source-bundle-backlog-only',
+        label: 'Source bundles must be under backlog/',
+        enabled: false,
+      }] : []),
       ...(isSingleSelection && entry?.isDir && !isSearching && canUsePathCommands
         ? [{ id: expandedPaths[entry.path] ? 'collapse' : 'expand', label: expandedPaths[entry.path] ? 'Collapse' : 'Expand' }]
         : []),

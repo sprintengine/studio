@@ -5,6 +5,18 @@
     "security-review"
   ],
   "summary": "Reviews systems for security, privacy, and abuse risks.",
+  "capabilities": [
+    {
+      "kind": "review",
+      "phase": "review",
+      "reviews": [
+        "security",
+        "privacy",
+        "abuse_risk"
+      ],
+      "defaultFocus": "security, privacy, permission, and abuse-risk review"
+    }
+  ],
   "soul": [
     {
       "skill": "security"

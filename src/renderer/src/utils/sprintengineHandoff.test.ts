@@ -69,9 +69,66 @@ function testPlanFileHandoffBundleIssuesOneHandoverCallWithSourceBundle(): void 
   )
 }
 
+function testBacklogHandoffUsesBacklogPathsAndKeepsManagedMcpInvariants(): void {
+  const prompt = buildPlanFileSprintEngineHandoffPrompt({
+    teamSlug: 'checkout-flow',
+    goal: 'Checkout Flow',
+    sourcePath: 'backlog/checkout-flow.md',
+    sourceContent: '# Checkout Flow\nShip it.',
+    sourcePlanKind: 'product_plan',
+    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+    autoRunRequested: true,
+  })
+
+  assert.ok(prompt.includes('saved source plan'), 'single-source copy is Backlog/source-plan oriented')
+  assert.ok(prompt.includes('"handoverPath": "backlog/checkout-flow.md"'), 'handover path uses backlog relative path')
+  assert.ok(!prompt.includes('future plan'), 'active runtime copy no longer says future plan')
+  assert.ok(!prompt.includes('future-plans/'), 'backlog handoff does not rewrite to legacy future-plans paths')
+  assert.ok(!prompt.includes('.multi-code/sprintengine/checkout-flow/run.yaml'), 'backlog handoff does not expose the run state path')
+  assert.ok(!prompt.includes('statePath'), 'backlog handoff does not expose statePath')
+  assert.ok(!prompt.includes('workspaceRoot'), 'backlog handoff does not expose workspaceRoot')
+  assert.ok(!CLI_INSTRUCTION_PATTERN.test(prompt), 'backlog handoff does not instruct the agent to run sprintengine CLI commands')
+  assert.ok(prompt.includes('Multicode app owns runner policy'), 'runner policy remains app-owned')
+}
+
+function testBacklogBundleUsesRelativeBundlePaths(): void {
+  const prompt = buildPlanFileSprintEngineHandoffPrompt({
+    teamSlug: 'checkout-flow',
+    goal: 'Checkout Flow',
+    sourcePath: 'backlog/product.md',
+    sourceContent: 'unused fallback',
+    sourcePlanKind: 'product_plan',
+    sourceBundle: [
+      {
+        kind: 'html_mockup',
+        sourcePath: '/repo/backlog/mockup.html',
+        sourceRelativePath: 'backlog/mockup.html',
+        sourceContent: '<h1>Checkout</h1>',
+      },
+      {
+        kind: 'product_plan',
+        sourcePath: '/repo/backlog/product.md',
+        sourceRelativePath: 'backlog/product.md',
+        sourceContent: '# Checkout Flow',
+      },
+    ],
+    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+  })
+
+  assert.ok(prompt.includes('"handoverPath": "backlog/product.md"'), 'bundle manifest uses selected backlog source')
+  assert.ok(prompt.includes('"sourcePath": "backlog/mockup.html"'), 'bundle uses backlog-relative mockup source path')
+  assert.ok(prompt.includes('"sourcePath": "backlog/product.md"'), 'bundle uses backlog-relative product source path')
+  assert.ok(!prompt.includes('/repo/backlog'), 'bundle handoff does not expose absolute selected source paths')
+  assert.ok(!prompt.includes('statePath'), 'bundle handoff prompt does not expose statePath')
+  assert.ok(!prompt.includes('workspaceRoot'), 'bundle handoff prompt does not expose workspaceRoot')
+  assert.ok(!CLI_INSTRUCTION_PATTERN.test(prompt), 'bundle handoff does not instruct the agent to run any sprintengine CLI command')
+}
+
 function main(): void {
   testPlanFileHandoffIsMcpNative()
   testPlanFileHandoffBundleIssuesOneHandoverCallWithSourceBundle()
+  testBacklogHandoffUsesBacklogPathsAndKeepsManagedMcpInvariants()
+  testBacklogBundleUsesRelativeBundlePaths()
   console.log('sprintengineHandoff.test.ts: ok')
 }
 

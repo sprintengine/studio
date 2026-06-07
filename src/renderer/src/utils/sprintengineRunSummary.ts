@@ -723,6 +723,8 @@ const roleWorkType: Record<string, SprintEngineWorkType> = {
   frontend: 'implementation',
   performance: 'implementation',
   cross_platform: 'implementation',
+  production_readiness_reviewer: 'review',
+  ui_ux_reviewer: 'review',
   code_reviewer: 'review',
   nuclear_reviewer: 'review',
   spec_reviewer: 'review',
@@ -752,10 +754,10 @@ export function bucketAgentRowsByWorkType(rows: SprintEngineAgentRow[]): Record<
   return buckets
 }
 
-// Implementation defects that reflect code quality — the "issues" the by-type
-// summary headlines. `bugs` come from structured findings; the rest are reviewer
-// count fields. Factual errors / hallucinations are claim-quality rather than
-// implementation defects, so they're deliberately excluded here.
+// Implementation defects that reflect code quality. `bugs` come from structured
+// findings; the rest are reviewer count fields. Factual errors / hallucinations
+// are claim-quality rather than implementation defects, so they're deliberately
+// excluded from the Delivery score headline.
 const IMPLEMENTATION_ISSUE_KEYS = [
   'bugs',
   'missedRequirements',
@@ -764,10 +766,33 @@ const IMPLEMENTATION_ISSUE_KEYS = [
   'regressionCount',
   'testFailuresIntroduced',
 ] as const
-// Per-task review detail (`taskCounts`) never carries `bugs` — those are findings,
-// tracked per-agent rather than per-task — so the "did this task have an issue?"
-// check uses the count-based subset.
-const PER_TASK_ISSUE_KEYS = IMPLEMENTATION_ISSUE_KEYS.filter((key) => key !== 'bugs')
+
+const DELIVERY_SCORE_LOAD_SCALE = 4
+
+const IMPLEMENTATION_ISSUE_WEIGHTS: Record<typeof IMPLEMENTATION_ISSUE_KEYS[number], number> = {
+  bugs: 3,
+  missedRequirements: 5,
+  implementationMistakes: 4,
+  unsafeChanges: 8,
+  regressionCount: 6,
+  testFailuresIntroduced: 4,
+}
+
+const BUG_SEVERITY_WEIGHTS: Record<SprintEngineTaskFeedbackFindingSeverity, number> = {
+  critical: 8,
+  high: 5,
+  medium: 3,
+  low: 1,
+}
+
+const IMPLEMENTATION_ISSUE_SHORT_LABELS: Record<typeof IMPLEMENTATION_ISSUE_KEYS[number], string> = {
+  bugs: 'bugs',
+  missedRequirements: 'missed reqs',
+  implementationMistakes: 'impl. mistakes',
+  unsafeChanges: 'unsafe',
+  regressionCount: 'regressions',
+  testFailuresIntroduced: 'test failures',
+}
 
 // One row of the by-type summary. `key` is a role id (role groups) or a CLI id
 // (CLI groups); `clis` lists the distinct CLIs the group's agents ran on.
@@ -777,11 +802,10 @@ export type SprintEngineTypeStat = {
   agentCount: number
   tasksDone: number
   totalIssues: number
-  tasksWithIssues: number
-  /** % of done tasks with a reviewer-flagged implementation issue; null when no
-   *  tasks were done (renders "—" rather than a misleading 0%). */
-  issuePct: number | null
-  issuesPerTask: number | null
+  weightedIssuePoints: number
+  issueLoadPerTask: number | null
+  deliveryScore: number | null
+  topIssueMix: Array<{ key: string; label: string; count: number }>
 }
 
 export type SprintEngineAgentTypeSummary = {
@@ -798,7 +822,8 @@ function typeStat(
 ): SprintEngineTypeStat {
   let tasksDone = 0
   let totalIssues = 0
-  let tasksWithIssues = 0
+  let weightedIssuePoints = 0
+  const issueMix = new Map<typeof IMPLEMENTATION_ISSUE_KEYS[number], number>()
   const clis = new Set<string>()
   for (const row of group) {
     tasksDone += row.tasksDone
@@ -806,24 +831,52 @@ function typeStat(
     if (cli) clis.add(cli)
     const metrics = row.metrics
     if (!metrics) continue
+    const bugCount = agentIssueCount(metrics, 'bugs') ?? 0
+    totalIssues += bugCount
+    issueMix.set('bugs', (issueMix.get('bugs') ?? 0) + bugCount)
+    const bySeverity = metrics.measured.findingsAgainst?.bySeverity ?? {}
+    const weightedBugs = findingSeverityOrder.reduce(
+      (sum, severity) => sum + ((bySeverity[severity] ?? 0) * BUG_SEVERITY_WEIGHTS[severity]),
+      0,
+    )
+    const severityBucketedBugs = findingSeverityOrder.reduce(
+      (sum, severity) => sum + (bySeverity[severity] ?? 0),
+      0,
+    )
+    const unbucketedBugs = Math.max(0, bugCount - severityBucketedBugs)
+    weightedIssuePoints += weightedBugs + unbucketedBugs * IMPLEMENTATION_ISSUE_WEIGHTS.bugs
     for (const issueKey of IMPLEMENTATION_ISSUE_KEYS) {
-      totalIssues += agentIssueCount(metrics, issueKey) ?? 0
-    }
-    for (const task of Object.values(metrics.measured.taskCounts ?? {})) {
-      if (PER_TASK_ISSUE_KEYS.some((issueKey) => (task.counts[issueKey] ?? 0) > 0)) {
-        tasksWithIssues += 1
-      }
+      if (issueKey === 'bugs') continue
+      const count = agentIssueCount(metrics, issueKey) ?? 0
+      totalIssues += count
+      weightedIssuePoints += count * IMPLEMENTATION_ISSUE_WEIGHTS[issueKey]
+      issueMix.set(issueKey, (issueMix.get(issueKey) ?? 0) + count)
     }
   }
+  const issueLoadPerTask = tasksDone > 0 ? Math.round((weightedIssuePoints / tasksDone) * 10) / 10 : null
+  const deliveryScore =
+    issueLoadPerTask === null
+      ? null
+      : Math.max(0, Math.min(100, Math.round(100 / (1 + issueLoadPerTask / DELIVERY_SCORE_LOAD_SCALE))))
+  const topIssueMix = IMPLEMENTATION_ISSUE_KEYS
+    .map((key) => ({
+      key,
+      label: IMPLEMENTATION_ISSUE_SHORT_LABELS[key],
+      count: issueMix.get(key) ?? 0,
+    }))
+    .filter((item) => item.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3)
   return {
     key,
     clis: [...clis],
     agentCount: group.length,
     tasksDone,
     totalIssues,
-    tasksWithIssues,
-    issuePct: tasksDone > 0 ? Math.round((tasksWithIssues / tasksDone) * 100) : null,
-    issuesPerTask: tasksDone > 0 ? Math.round((totalIssues / tasksDone) * 10) / 10 : null,
+    weightedIssuePoints,
+    issueLoadPerTask,
+    deliveryScore,
+    topIssueMix,
   }
 }
 
@@ -861,18 +914,19 @@ export function buildAgentTypeSummary(
   }
 }
 
-// The two CLIs with the highest and lowest issue rate, when the gap is wide enough
-// to be worth calling out. Drives the one-line takeaway under the by-type panel.
-export function compareCliIssueRates(
+// The two CLIs with the highest and lowest Delivery score, when the gap is wide
+// enough to be worth calling out. Drives the one-line takeaway under the by-type
+// panel.
+export function compareCliDeliveryScores(
   clis: SprintEngineTypeStat[],
 ): { worse: SprintEngineTypeStat; better: SprintEngineTypeStat } | null {
   const ranked = clis
-    .filter((cli) => cli.tasksDone > 0 && cli.issuePct !== null)
-    .sort((a, b) => (b.issuePct ?? 0) - (a.issuePct ?? 0))
+    .filter((cli) => cli.tasksDone > 0 && cli.deliveryScore !== null)
+    .sort((a, b) => (a.deliveryScore ?? 100) - (b.deliveryScore ?? 100))
   if (ranked.length < 2) return null
   const worse = ranked[0]
   const better = ranked[ranked.length - 1]
-  if ((worse.issuePct ?? 0) - (better.issuePct ?? 0) < 10) return null
+  if ((better.deliveryScore ?? 0) - (worse.deliveryScore ?? 0) < 10) return null
   return { worse, better }
 }
 

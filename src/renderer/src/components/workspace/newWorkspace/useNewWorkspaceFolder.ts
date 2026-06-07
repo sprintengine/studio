@@ -69,9 +69,10 @@ async function scanExistingTeams(folderPath: string): Promise<ExistingTeam[]> {
   return teams
 }
 
-async function scanSourceFiles(folderPath: string): Promise<MarkdownPlanOption[]> {
+export async function scanSourceFiles(folderPath: string): Promise<MarkdownPlanOption[]> {
   const options: MarkdownPlanOption[] = []
-  const queue = [folderPath]
+  const backlogPath = joinPath(folderPath, 'backlog')
+  const queue = [backlogPath]
 
   while (queue.length > 0 && options.length < MAX_PLAN_FILES) {
     const dir = queue.shift()
@@ -87,7 +88,9 @@ async function scanSourceFiles(folderPath: string): Promise<MarkdownPlanOption[]
 
       if (!/\.(md|html?)$/i.test(entry.name)) continue
       const relativePath = workspaceRelativePath(folderPath, entryPath)
-      if (relativePath) options.push({ path: entryPath, relativePath })
+      if (relativePath?.replace(/\\/g, '/').startsWith('backlog/')) {
+        options.push({ path: entryPath, relativePath })
+      }
       if (options.length >= MAX_PLAN_FILES) break
     }
   }

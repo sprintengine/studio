@@ -96,6 +96,8 @@ export function SpecialistActionIcon({ icon, className }: IconProps & { icon: Sp
       return <ProductIcon className={className} />
     case 'performance':
       return <PerformanceIcon className={className} />
+    case 'production_readiness':
+      return <ProductionReadinessIcon className={className} />
     case 'cross_platform':
       return <ReviewIcon className={className} />
     case 'writing':
@@ -138,6 +140,8 @@ export function SprintEngineRoleIcon({
       return <ReviewIcon className={className} />
     case 'performance':
       return <PerformanceIcon className={className} />
+    case 'production_readiness_reviewer':
+      return <ProductionReadinessIcon className={className} />
     case 'cross_platform':
       return <ReviewIcon className={className} />
     case 'unknown':
@@ -496,11 +500,11 @@ function SpaghettiIcon({ className }: IconProps) {
 function NuclearExplosionIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 5.2V3.6M8.4 6.45L7.25 5.25M15.6 6.45L16.75 5.25M6.85 9.9H5.25M17.15 9.9H18.75" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M8 11.2C8.35 8.65 10.05 6.95 12 6.95C13.95 6.95 15.65 8.65 16 11.2" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M8.25 19.2H15.75M9.3 16.35H14.7M10.3 13.55H13.7" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M11.1 11.1C10.45 12.4 10 14.4 9.85 19.2M12.9 11.1C13.55 12.4 14 14.4 14.15 19.2" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M8.65 11.65C6.95 12.15 6.05 13.2 6.05 14.55C6.05 16.15 7.35 17 9.3 16.35M15.35 11.65C17.05 12.15 17.95 13.2 17.95 14.55C17.95 16.15 16.65 17 14.7 16.35" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M12 4.25V2.95M8.4 5.45L7.55 4.45M15.6 5.45L16.45 4.45M6.8 8.2H5.45M17.2 8.2H18.55" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M7.1 11.25C5.95 10.75 5.35 9.85 5.55 8.85C5.78 7.65 6.95 6.95 8.25 7.25C8.9 5.75 10.25 4.95 12 4.95C13.75 4.95 15.1 5.75 15.75 7.25C17.05 6.95 18.22 7.65 18.45 8.85C18.65 9.85 18.05 10.75 16.9 11.25" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8.15 11.55C9.45 12.45 10.05 13.35 10.05 14.65V18.95M15.85 11.55C14.55 12.45 13.95 13.35 13.95 14.65V18.95" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M10.05 14.4H13.95M9.25 18.95H14.75" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M6.25 20.25C8.2 19.25 15.8 19.25 17.75 20.25M4.25 17.45C6.1 16.6 8.3 16.5 10.05 17.05M19.75 17.45C17.9 16.6 15.7 16.5 13.95 17.05" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
     </svg>
   )
 }
@@ -552,6 +556,17 @@ function PerformanceIcon({ className }: IconProps) {
       <path d="M12 15.25L15.2 12.05" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       <circle cx="12" cy="15.5" r="1.35" stroke="currentColor" strokeWidth={iconStroke} />
       <path d="M7 19.25H17" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function ProductionReadinessIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M11.25 3.85L17.35 6.1V10.6C17.35 14.1 15.18 17.28 11.25 18.75C7.32 17.28 5.15 14.1 5.15 10.6V6.1L11.25 3.85Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+      <path d="M8.35 11.55L10.3 13.5L14.25 9.55" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M16.1 17.6L18.75 14.95L21.4 17.6M18.75 15.2V20.15" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M15.7 20.15H21.8" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
     </svg>
   )
 }

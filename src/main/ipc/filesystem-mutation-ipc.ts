@@ -26,6 +26,23 @@ function normalizeNewWorkspaceFolderName(rawName: string): string {
   return name
 }
 
+function normalizeRenamedFileSystemEntryName(rawName: string): string {
+  if (/[. ]$/u.test(rawName)) {
+    throw new Error('File and folder names cannot end with a period or space.')
+  }
+  const name = rawName.trim()
+  if (!name || name === '.' || name === '..' || /[/\\]/.test(name)) {
+    throw new Error('Enter a valid file or folder name.')
+  }
+  if (/[\u0000-\u001f<>:"|?*]/u.test(name)) {
+    throw new Error('File and folder names cannot contain control characters or <>:"|?*.')
+  }
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu.test(name)) {
+    throw new Error('That file or folder name is reserved by Windows.')
+  }
+  return name
+}
+
 export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: FilesystemMutationIpcDependencies): void {
   ipcMain.handle('fs:writefile', async (_, filePath: string, content: string): Promise<void> => {
     await deps.assertNotDirectSprintEngineStateMutation(filePath)
@@ -67,10 +84,7 @@ export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: Filesystem
   })
 
   ipcMain.handle('fs:rename', async (_, sourcePath: string, nextName: string): Promise<string> => {
-    const normalizedName = nextName.trim()
-    if (!normalizedName || normalizedName === '.' || normalizedName === '..' || /[/\\]/.test(normalizedName)) {
-      throw new Error('Enter a valid file or folder name.')
-    }
+    const normalizedName = normalizeRenamedFileSystemEntryName(nextName)
 
     const targetPath = join(dirname(sourcePath), normalizedName)
     if (targetPath === sourcePath) return targetPath

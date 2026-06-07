@@ -6,6 +6,18 @@
     "code-reviewer"
   ],
   "summary": "Reviews implementation correctness, maintainability, and evidence.",
+  "capabilities": [
+    {
+      "kind": "review",
+      "phase": "review",
+      "reviews": [
+        "implementation",
+        "code_quality",
+        "evidence"
+      ],
+      "defaultFocus": "correctness, integration risk, maintainability, regressions, and evidence quality"
+    }
+  ],
   "soul": [
     {
       "skill": "code_reviewer"

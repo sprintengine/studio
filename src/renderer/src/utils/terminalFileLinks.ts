@@ -1,4 +1,4 @@
-import type { ILink, ILinkProvider, Terminal } from '@xterm/xterm'
+import type { IBufferLine, ILink, ILinkProvider, Terminal } from '@xterm/xterm'
 import { basename, isAbsoluteFilePath, joinFilePath, pathSeparatorFor } from './paths'
 
 export type TerminalFileReference = {
@@ -14,6 +14,7 @@ export type TerminalFileReference = {
 export type TerminalFileLinkSegment = {
   y: number
   startIndex: number
+  startColumn: number
   text: string
 }
 
@@ -162,7 +163,7 @@ function positionForOffset(
     const segmentEnd = segment.startIndex + segment.text.length
     if (offset >= segment.startIndex && offset < segmentEnd) {
       return {
-        x: offset - segment.startIndex + 1,
+        x: offset - segment.startIndex + segment.startColumn,
         y: segment.y,
       }
     }
@@ -170,7 +171,21 @@ function positionForOffset(
   return null
 }
 
-function readWrappedLogicalLine(
+const HANGING_CONTINUATION_PATTERN = /^(\s+)(\S+)/u
+const PATH_SEPARATOR_PATTERN = /[\\/]/u
+
+function lineReachesRightEdge(line: IBufferLine, cols: number): boolean {
+  const cell = line.getCell(cols - 1)
+  if (!cell) return false
+  return cell.getChars().trim() !== ''
+}
+
+function trailingTokenHasSeparator(lineText: string): boolean {
+  const trailingToken = lineText.trimEnd().split(/\s+/u).at(-1) ?? ''
+  return PATH_SEPARATOR_PATTERN.test(trailingToken)
+}
+
+export function readWrappedLogicalLine(
   terminal: Terminal,
   bufferLineNumber: number
 ): { text: string; segments: TerminalFileLinkSegment[] } | null {
@@ -200,12 +215,61 @@ function readWrappedLogicalLine(
     segments.push({
       y,
       startIndex: text.length,
+      startColumn: 1,
       text: segmentText,
     })
     text += segmentText
   }
 
+  for (const continuation of readHangingWrapContinuations(terminal, endY, segments.at(-1)?.text ?? '')) {
+    segments.push({ ...continuation, startIndex: text.length })
+    text += continuation.text
+  }
+
   return { text, segments }
+}
+
+// Programs that render their own layout (agent CLIs, markdown formatters) will
+// word-wrap a long path token onto an indented continuation line and emit a
+// hard newline — so the rows are separate, non-wrapped buffer lines that the
+// soft-wrap reader above never joins. Yield the continuation tokens only when
+// the bottom line fills the terminal width and ends in a path-like token, then
+// follow each hanging-indent continuation. Gating on the right edge keeps
+// wrapped prose and unrelated indented lines from being merged into one link.
+function readHangingWrapContinuations(
+  terminal: Terminal,
+  endY: number,
+  bottomText: string
+): Array<Omit<TerminalFileLinkSegment, 'startIndex'>> {
+  const buffer = terminal.buffer.active
+  const cols = terminal.cols
+  let bottomLine = buffer.getLine(endY - 1)
+  if (!bottomLine || !lineReachesRightEdge(bottomLine, cols) || !trailingTokenHasSeparator(bottomText)) {
+    return []
+  }
+
+  const continuations: Array<Omit<TerminalFileLinkSegment, 'startIndex'>> = []
+  let bottomY = endY
+  while (bottomLine && lineReachesRightEdge(bottomLine, cols)) {
+    const nextLine = buffer.getLine(bottomY)
+    if (!nextLine || nextLine.isWrapped) break
+    const nextText = nextLine.translateToString(true)
+    const continuation = HANGING_CONTINUATION_PATTERN.exec(nextText)
+    if (!continuation) break
+
+    const indent = continuation[1] ?? ''
+    const token = continuation[2] ?? ''
+    continuations.push({ y: bottomY + 1, startColumn: indent.length + 1, text: token })
+    bottomY += 1
+    bottomLine = nextLine
+
+    // Stop chaining once the path token completes before the line's edge: if
+    // anything follows it, this line filled the width with trailing prose, not
+    // with a token that wrapped again.
+    if (nextText.slice(indent.length + token.length).trim() !== '') break
+  }
+
+  return continuations
 }
 
 export function createTerminalFileLinkProvider({

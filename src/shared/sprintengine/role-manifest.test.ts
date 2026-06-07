@@ -22,10 +22,28 @@ function testValidFull(): void {
     label: 'Auditor',
     summary: 'Audits the change.',
     aliases: ['audit', 'sec-audit'],
+    capabilities: [
+      {
+        kind: 'review',
+        phase: 'review',
+        reviews: ['implementation', 'security'],
+        defaultFocus: 'Implementation and security review.',
+      },
+    ],
     soul: [{ skill: 'auditor' }],
   })
   assert.equal(result.ok, true)
-  if (result.ok) assert.deepEqual(result.manifest.aliases, ['audit', 'sec-audit'])
+  if (result.ok) {
+    assert.deepEqual(result.manifest.aliases, ['audit', 'sec-audit'])
+    assert.deepEqual(result.manifest.capabilities, [
+      {
+        kind: 'review',
+        phase: 'review',
+        reviews: ['implementation', 'security'],
+        defaultFocus: 'Implementation and security review.',
+      },
+    ])
+  }
 }
 
 function testRejectsNonObject(): void {
@@ -65,6 +83,17 @@ function testRejectsBadAlias(): void {
   if (!result.ok) assert.ok(result.issues.some((issue) => issue.path.startsWith('aliases[')))
 }
 
+function testRejectsBadCapability(): void {
+  const result = validateRoleManifest({
+    id: 'role',
+    label: 'Role',
+    capabilities: [{ kind: 'review', required: true }],
+    soul: [{ skill: 'x' }],
+  })
+  assert.equal(result.ok, false)
+  if (!result.ok) assert.ok(result.issues.some((issue) => issue.path === 'capabilities[0].required'))
+}
+
 function testParseInvalidJson(): void {
   const result = parseRoleManifest('{ not json')
   assert.equal(result.ok, false)
@@ -84,6 +113,7 @@ testRejectsEmptyLabel()
 testRejectsEmptySoul()
 testRejectsBadSoulEntry()
 testRejectsBadAlias()
+testRejectsBadCapability()
 testParseInvalidJson()
 testParseValid()
 console.log('role-manifest tests passed')

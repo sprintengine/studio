@@ -189,7 +189,7 @@ const v56SprintEngineLaunchState = {
           id: 'architect',
           name: 'Architect',
           kind: 'sprintengine',
-          cli: 'claude',
+          cli: 'claude-code',
           cliStartRequested: true,
           cliHasLaunched: true,
           cliSessionId: 'stale-architect-session',

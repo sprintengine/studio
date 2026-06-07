@@ -45,19 +45,18 @@ import {
   getUserDisabledSprintEngineRoleIds,
   sprintEngineRoleOrder,
 } from '../../utils/sprintengine'
-import { sprintEngineAutomationModeOptions } from '../../utils/sprintengineAutomation'
 import MulticodeMark from '../brand/MulticodeMark'
 import MulticodeWordmark from '../brand/MulticodeWordmark'
 import { CloseIconButton, Field, GhostButton, Select, WizardProgress } from '../ui'
 import { CreateFolderField } from './newWorkspace/CreateFolderField'
 import { ModeCard } from './newWorkspace/ModeCard'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
-import { AgentCliPicker, SprintEngineRosterTable } from './newWorkspace/SprintEngineRosterTable'
+import { AgentCliPicker } from './newWorkspace/SprintEngineRosterTable'
 import { useFolderHints, useFolderScan } from './newWorkspace/useNewWorkspaceFolder'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
-import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind } from './newWorkspace/helpers'
+import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind, workspaceRelativePath } from './newWorkspace/helpers'
 import type { CreationMode, ExistingTeam, GuidedBriefHasUi, SprintEnginePath } from './newWorkspace/types'
-import { CliPermissionPresetRow, PathRadio } from './newWorkspace/WizardControls'
+import { CliPermissionPresetRow, PathRadio, RosterAndRunSettings } from './newWorkspace/WizardControls'
 import { selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import {
   GuidedBriefScaffoldError,
@@ -73,6 +72,11 @@ import {
   runMultiloopCreation,
   runSprintEnginePlanSourcedCreation,
 } from './newWorkspace/controllers'
+import {
+  addBacklogObjectLinkForPath,
+  loadBacklogObjectStore,
+  saveBacklogObjectStore,
+} from '../../utils/backlogObjects'
 
 const MODES: CreationMode[] = ['standard', 'switchboard', 'sprintengine', 'multiloop', 'guided-brief']
 
@@ -171,6 +175,7 @@ const initialSprintEngineRoleCounts: SprintEngineRoleCounts = {
   code_reviewer: 0,
   spec_reviewer: 0,
   performance: 0,
+  production_readiness_reviewer: 0,
   cross_platform: 0,
   tester: 0,
   security: 0,
@@ -185,6 +190,7 @@ const initialSprintEngineRoleCliDefaults: Required<SprintEngineRoleCliDefaults> 
   code_reviewer: 'claude-code',
   spec_reviewer: 'claude-code',
   performance: 'claude-code',
+  production_readiness_reviewer: 'claude-code',
   cross_platform: 'claude-code',
   tester: 'claude-code',
   security: 'claude-code',
@@ -199,6 +205,7 @@ const guidedBriefSprintEngineRoleCounts: SprintEngineRoleCounts = {
   code_reviewer: 1,
   spec_reviewer: 1,
   performance: 0,
+  production_readiness_reviewer: 0,
   cross_platform: 0,
   tester: 1,
   security: 0,
@@ -358,6 +365,7 @@ export default function NewWorkspacePanel({
 
   const [sePath, setSePath] = useState<SprintEnginePath>(initialFuturePlan ? 'plan' : 'new')
   const [sePlanPath, setSePlanPath] = useState(initialFuturePlan?.sourcePath ?? '')
+  const [sePlanRelativePath, setSePlanRelativePath] = useState(initialFuturePlan?.sourceRelativePath ?? '')
   const [sePlanContent, setSePlanContent] = useState<string | null>(
     initialFuturePlan?.sourceContent ?? null,
   )
@@ -558,6 +566,16 @@ export default function NewWorkspacePanel({
   const folderScan = useFolderScan(folderPath)
   const totalAgents = countSprintEngineAgents(visibleSprintEngineRoleCounts)
   const isSprintEngine = mode === 'sprintengine'
+  const sprintEnginePlanOptions = useMemo(() => {
+    if (
+      !sePlanPath
+      || !sePlanRelativePath
+      || folderScan.result.plans.some((candidate) => candidate.path === sePlanPath)
+    ) {
+      return folderScan.result.plans
+    }
+    return [{ path: sePlanPath, relativePath: sePlanRelativePath }, ...folderScan.result.plans]
+  }, [folderScan.result.plans, sePlanPath, sePlanRelativePath])
 
   const [step, setStep] = useState<StepId>(initialFuturePlan ? 'sprintengine-team' : 'workspace')
   const [direction, setDirection] = useState<'forward' | 'backward'>('forward')
@@ -595,6 +613,7 @@ export default function NewWorkspacePanel({
     if (!initialFuturePlan) return
     setSePath('plan')
     setSePlanPath(initialFuturePlan.sourcePath)
+    setSePlanRelativePath(initialFuturePlan.sourceRelativePath)
     setSePlanContent(initialFuturePlan.sourceContent ?? null)
     setSeSourcePlanKind(initialFuturePlan.sourcePlanKind ?? 'unknown')
     setSeSourceBundle(initialFuturePlan.sourceBundle ?? null)
@@ -798,6 +817,7 @@ export default function NewWorkspacePanel({
     setSeExistingTeam(null)
     setSeAgentCliOverrides({})
     setSePlanPath('')
+    setSePlanRelativePath('')
     setSePlanContent(null)
     setSeSourcePlanKind('unknown')
     setSeSourceBundle(null)
@@ -841,13 +861,15 @@ export default function NewWorkspacePanel({
     setSePlanPath(sourcePath)
     setSePlanError(null)
     if (!sourcePath) {
+      setSePlanRelativePath('')
       setSePlanContent(null)
       setSeSourcePlanKind('unknown')
       setSeSourceBundle(null)
       return
     }
-    const option = folderScan.result.plans.find((candidate) => candidate.path === sourcePath)
+    const option = sprintEnginePlanOptions.find((candidate) => candidate.path === sourcePath)
     if (!option) {
+      setSePlanRelativePath('')
       setSePlanContent(null)
       setSePlanError('Selected source file is not available.')
       return
@@ -857,6 +879,7 @@ export default function NewWorkspacePanel({
       const fallbackName = planBasename(option.path)
       const goal = markdownTitle(content) ?? toTitleName(fallbackName)
       const isHtmlSource = /\.html?$/i.test(option.relativePath)
+      setSePlanRelativePath(option.relativePath)
       setSePlanContent(content)
       setSeSourcePlanKind(isHtmlSource ? 'unknown' : inferSourcePlanKind(option.relativePath, content))
       setSeSourceBundle(isHtmlSource
@@ -1084,7 +1107,7 @@ export default function NewWorkspacePanel({
         const bundlePrimary = seSourceBundle?.[0] ?? null
         const option = bundlePrimary
           ? { path: bundlePrimary.sourcePath, relativePath: bundlePrimary.sourceRelativePath }
-          : folderScan.result.plans.find((candidate) => candidate.path === sePlanPath)
+          : sprintEnginePlanOptions.find((candidate) => candidate.path === sePlanPath)
         if (!option) {
           setSePlanError('Selected plan is no longer available. Pick it again on the previous step.')
           return
@@ -1121,7 +1144,34 @@ export default function NewWorkspacePanel({
               cliPermissionPreset,
               workspaceWindowId,
             },
-            { pathExists: window.api.pathExists },
+            {
+              pathExists: window.api.pathExists,
+              initializeSprintEngineState: window.api.initializeSprintEngineState,
+              recordBacklogExecutionLink: async ({ workspaceRoot, sourceRelativePath, teamSlug, statePath }) => {
+                const store = await loadBacklogObjectStore(workspaceRoot, window.api)
+                await saveBacklogObjectStore(
+                  workspaceRoot,
+                  window.api,
+                  addBacklogObjectLinkForPath(
+                    store,
+                    sourceRelativePath,
+                    {
+                      id: `sprint-engine:${teamSlug}`,
+                      moduleId: 'sprint-engine',
+                      type: 'execution',
+                      label: 'Sprint Engine run',
+                      target: {
+                        kind: 'sprintengine.run',
+                        id: teamSlug,
+                        path: workspaceRelativePath(workspaceRoot, statePath) ?? statePath,
+                      },
+                      status: 'active',
+                    },
+                    'in_progress',
+                  ),
+                )
+              },
+            },
           )
           triggerSelectedSkillPackInstalls(folderPath)
           persistLastPermissionPreset()
@@ -1321,7 +1371,7 @@ export default function NewWorkspacePanel({
       <main ref={stepBodyRef} className="relative min-h-0 flex-1 overflow-y-auto">
         <div
           key={step}
-          className={`mx-auto flex w-full max-w-[520px] flex-col gap-7 px-6 pt-10 pb-14 ${stepAnimationClass}`}
+          className={`mx-auto flex w-full ${step === 'sprintengine-roster' ? 'max-w-[880px]' : 'max-w-[520px]'} flex-col gap-7 px-6 pt-10 pb-14 ${stepAnimationClass}`}
         >
           {stepIndex > 0 ? (
             <button
@@ -1455,7 +1505,7 @@ export default function NewWorkspacePanel({
               folderPath={folderPath}
               isScanning={folderScan.isScanning}
               existingTeams={folderScan.result.teams}
-              planOptions={folderScan.result.plans}
+              planOptions={sprintEnginePlanOptions}
               path={sePath}
               onChangePath={(p) => {
                 setSePath(p)
@@ -1463,6 +1513,7 @@ export default function NewWorkspacePanel({
                 setSeAgentCliOverrides({})
                 if (p !== 'plan') {
                   setSePlanPath('')
+                  setSePlanRelativePath('')
                   setSePlanContent(null)
                   setSeSourcePlanKind('unknown')
                   setSeSourceBundle(null)
@@ -1489,6 +1540,7 @@ export default function NewWorkspacePanel({
               }}
               onClearSourceBundle={() => {
                 setSePlanPath('')
+                setSePlanRelativePath('')
                 setSePlanContent(null)
                 setSeSourcePlanKind('unknown')
                 setSeSourceBundle(null)
@@ -2794,56 +2846,23 @@ function SprintEngineRosterStep(props: {
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-2">
-        <div className="flex items-baseline justify-between">
-          <FieldLabel>Roster</FieldLabel>
-          <span className="text-[11px] tabular-nums text-[color:var(--text-muted)]">
-            {registryStatus === 'loading'
-              ? 'Loading roles'
-              : `${totalAgents} specialist${totalAgents === 1 ? '' : 's'}`}
-          </span>
-        </div>
-        <SprintEngineRosterTable
-          roleCounts={roleCounts}
-          roleCliDefaults={roleCliDefaults}
-          cliOptions={cliOptions}
-          registry={registry}
-          disabledRoleIds={disabledRoleIds}
-          countDisabled={rosterDisabled}
-          cliDisabled={false}
-          onSetCount={onSetRoleCount}
-          onSetCli={onSetRoleCli}
-        />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <FieldLabel>Run settings</FieldLabel>
-        <div className="overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
-          <CliPermissionPresetRow
-            preset={cliPermissionPreset}
-            onChange={onChangeCliPermissionPreset}
-          />
-          <div className="flex flex-col gap-2 border-t border-[color:var(--border-default)] px-3.5 py-3">
-            <div>
-              <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Automation</span>
-              <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
-                How Sprint Engine should continue after this workspace opens.
-              </span>
-            </div>
-            <div className="grid gap-2" role="radiogroup" aria-label="Sprint Engine automation mode">
-              {sprintEngineAutomationModeOptions.map((option) => (
-                <PathRadio
-                  key={option.value}
-                  checked={automationMode === option.value}
-                  label={option.label}
-                  hint={option.hint}
-                  onSelect={() => onChangeAutomationMode(option.value)}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
+      <RosterAndRunSettings
+        roleCounts={roleCounts}
+        roleCliDefaults={roleCliDefaults}
+        cliOptions={cliOptions}
+        registry={registry}
+        disabledRoleIds={disabledRoleIds}
+        countDisabled={rosterDisabled}
+        cliDisabled={false}
+        onSetCount={onSetRoleCount}
+        onSetCli={onSetRoleCli}
+        totalAgents={totalAgents}
+        rosterCountLabel={registryStatus === 'loading' ? 'Loading roles' : undefined}
+        automationMode={automationMode}
+        onChangeAutomationMode={onChangeAutomationMode}
+        cliPermissionPreset={cliPermissionPreset}
+        onChangeCliPermissionPreset={onChangeCliPermissionPreset}
+      />
     </div>
   )
 }

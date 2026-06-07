@@ -125,6 +125,7 @@ export const sprintEngineRoleLabels: Record<SprintEngineRole, string> = {
   nuclear_reviewer: 'Nuclear Reviewer',
   spec_reviewer: 'Spec Reviewer',
   performance: 'Performance Engineer',
+  production_readiness_reviewer: 'Production Readiness Reviewer',
   cross_platform: 'Cross-platform Specialist',
 }
 
@@ -195,6 +196,7 @@ export const sprintEngineRoleAccent: Record<SprintEngineRole, string> = {
   nuclear_reviewer: '#fb7185',
   spec_reviewer: '#22c55e',
   performance: '#a78bfa',
+  production_readiness_reviewer: '#38bdf8',
   cross_platform: '#14b8a6',
 }
 
@@ -225,6 +227,7 @@ const SOUL_ROLE_TO_SPRINT_ENGINE_ROLE: Record<string, SprintEngineRole> = {
   nuclear_reviewer: 'nuclear_reviewer',
   spec_reviewer: 'spec_reviewer',
   performance: 'performance',
+  production_readiness_reviewer: 'production_readiness_reviewer',
   cross_platform: 'cross_platform',
 }
 
@@ -243,6 +246,7 @@ export const sprintEngineArtifactKindLabels: Record<SprintEngineArtifactKind, st
   code_review: 'Code Review',
   spec_review: 'Spec Review',
   performance_review: 'Performance Review',
+  production_readiness_review: 'Production Readiness Review',
   cross_platform_review: 'Cross-platform Review',
   validation_report: 'Validation Report',
 }
@@ -265,6 +269,7 @@ export const sprintEngineRoleOrder: SprintEngineRole[] = [
   'nuclear_reviewer',
   'spec_reviewer',
   'performance',
+  'production_readiness_reviewer',
   'cross_platform',
   'tester',
   'security',
@@ -353,6 +358,7 @@ const sprintEngineArtifactKinds: readonly SprintEngineArtifactKind[] = [
   'code_review',
   'spec_review',
   'performance_review',
+  'production_readiness_review',
   'cross_platform_review',
   'validation_report',
 ]
@@ -479,6 +485,7 @@ const reviewGateArtifactKinds = new Set<SprintEngineArtifactKind>([
   'code_review',
   'spec_review',
   'performance_review',
+  'production_readiness_review',
   'cross_platform_review',
   'validation_report',
 ])
@@ -621,6 +628,7 @@ function isSprintEngineRole(value: unknown): value is SprintEngineRole {
     || value === 'nuclear_reviewer'
     || value === 'spec_reviewer'
     || value === 'performance'
+    || value === 'production_readiness_reviewer'
     || value === 'cross_platform'
   )
 }
@@ -696,6 +704,7 @@ export type SprintEngineRoleGlyphKind =
   | 'nuclear_reviewer'
   | 'spec_reviewer'
   | 'performance'
+  | 'production_readiness_reviewer'
   | 'cross_platform'
   | 'unknown'
 
@@ -1476,6 +1485,7 @@ export function createDefaultSprintEngineSkills(): SprintEngineSkillMap {
     nuclear_reviewer: ['Structural review', 'Large-file risk', 'Abstraction quality', 'Spaghetti-growth checks'],
     spec_reviewer: ['Spec conformance', 'Acceptance coverage', 'Behavioral gaps', 'Test evidence'],
     performance: ['Latency review', 'Memory and CPU analysis', 'Bundle/runtime cost', 'Measurement quality'],
+    production_readiness_reviewer: ['Release readiness', 'Deployment config', 'Data safety', 'Rollback and observability'],
     cross_platform: ['OS compatibility', 'Browser/device coverage', 'Path and shell portability', 'Packaging checks'],
   }
 }
@@ -1796,6 +1806,28 @@ export function getSprintEngineTaskBoardColumn(
   if (!dependenciesDone) return 'todo'
   if (task.dispatch?.mode === 'manual' && task.dispatch.status !== 'ready') return 'todo'
   return 'ready'
+}
+
+export function orderSprintEngineBoardColumnTasks(
+  column: SprintEngineTaskBoardColumn,
+  tasks: SprintEngineTask[]
+): SprintEngineTask[] {
+  if (column !== 'done') return tasks
+
+  return tasks
+    .map((task, index) => ({ task, index }))
+    .sort((a, b) => {
+      const aCompletedAt = Date.parse(a.task.completedAt ?? '')
+      const bCompletedAt = Date.parse(b.task.completedAt ?? '')
+      const aHasCompletedAt = Number.isFinite(aCompletedAt)
+      const bHasCompletedAt = Number.isFinite(bCompletedAt)
+      if (aHasCompletedAt && bHasCompletedAt && aCompletedAt !== bCompletedAt) {
+        return bCompletedAt - aCompletedAt
+      }
+      if (aHasCompletedAt !== bHasCompletedAt) return aHasCompletedAt ? -1 : 1
+      return a.index - b.index
+    })
+    .map(({ task }) => task)
 }
 
 export function getSprintEngineTaskSourceType(task: Pick<SprintEngineTask, 'source'>): SprintEngineTaskSourceType {

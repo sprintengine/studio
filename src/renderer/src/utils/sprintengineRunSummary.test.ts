@@ -9,7 +9,7 @@ import {
   buildProcessHealth,
   buildRunQualitySummary,
   buildRunReport,
-  compareCliIssueRates,
+  compareCliDeliveryScores,
   computeRunDurationMs,
   formatRunDuration,
   type SprintEngineAgentRow,
@@ -483,13 +483,15 @@ function testAgentTypeSummaryGroupsByRoleAndCli(): void {
     }),
     // Reviewer + planner rows must be excluded from an implementation headline.
     { agentId: 'code_reviewer-1', role: 'code_reviewer', status: 'done', tasksDone: 2, metrics: null },
+    { agentId: 'ui_ux_reviewer-1', role: 'ui_ux_reviewer', status: 'done', tasksDone: 1, metrics: null },
     { agentId: 'architect-1', role: 'architect', status: 'done', tasksDone: 2, metrics: null },
   ]
   const cliByAgent = {
     'developer-1': 'codex',
     'developer-2': 'codex',
-    'frontend-1': 'claude',
-    'code_reviewer-1': 'claude',
+    'frontend-1': 'claude-code',
+    'code_reviewer-1': 'claude-code',
+    'ui_ux_reviewer-1': 'claude-code',
     'architect-1': 'codex',
   }
 
@@ -501,50 +503,58 @@ function testAgentTypeSummaryGroupsByRoleAndCli(): void {
   const dev = summary.roles[0]
   assert.equal(dev.agentCount, 2)
   assert.equal(dev.tasksDone, 4)
-  assert.equal(dev.tasksWithIssues, 2, 'T1 + T2 had count issues; T3/T4 only claimsChecked')
-  assert.equal(dev.issuePct, 50, '2 of 4 done tasks had issues')
   assert.equal(dev.totalIssues, 4, '1 bug (finding) + 1 mistake + 2 missed reqs')
+  assert.equal(dev.weightedIssuePoints, 19)
+  assert.equal(dev.issueLoadPerTask, 4.8)
+  assert.equal(dev.deliveryScore, 45)
+  assert.deepEqual(dev.topIssueMix.map((item) => [item.key, item.count]), [
+    ['missedRequirements', 2],
+    ['bugs', 1],
+    ['implementationMistakes', 1],
+  ])
   assert.deepEqual(dev.clis, ['codex'])
 
   const fe = summary.roles[1]
-  assert.equal(fe.issuePct, 0, 'frontend reviewed but clean')
   assert.equal(fe.totalIssues, 0)
-  assert.deepEqual(fe.clis, ['claude'])
+  assert.equal(fe.issueLoadPerTask, 0)
+  assert.equal(fe.deliveryScore, 100)
+  assert.deepEqual(fe.clis, ['claude-code'])
 
-  // CLI grouping spans roles: codex = the two developers, claude = frontend only.
+  // CLI grouping spans roles: codex = the two developers, claude-code = frontend only.
   const byCli = Object.fromEntries(summary.clis.map((c) => [c.key, c]))
   assert.equal(byCli.codex.tasksDone, 4)
-  assert.equal(byCli.codex.issuePct, 50)
-  assert.equal(byCli.claude.issuePct, 0)
+  assert.equal(byCli.codex.deliveryScore, 45)
+  assert.equal(byCli['claude-code'].deliveryScore, 100)
 }
 
-function testCompareCliIssueRates(): void {
-  const stat = (key: string, issuePct: number | null, tasksDone = 4): SprintEngineTypeStat => ({
+function testCompareCliDeliveryScores(): void {
+  const stat = (key: string, deliveryScore: number | null, tasksDone = 4): SprintEngineTypeStat => ({
     key,
     clis: [key],
     agentCount: 1,
     tasksDone,
     totalIssues: 0,
-    tasksWithIssues: 0,
-    issuePct,
-    issuesPerTask: 0,
+    weightedIssuePoints: 0,
+    issueLoadPerTask: 0,
+    deliveryScore,
+    topIssueMix: [],
   })
 
-  const wide = compareCliIssueRates([stat('claude', 10), stat('codex', 60)])
+  const wide = compareCliDeliveryScores([stat('claude-code', 90), stat('codex', 45)])
   assert.ok(wide)
   assert.equal(wide!.worse.key, 'codex')
-  assert.equal(wide!.better.key, 'claude')
+  assert.equal(wide!.better.key, 'claude-code')
 
   // A single CLI, or a gap under 10 points, isn't worth a takeaway.
-  assert.equal(compareCliIssueRates([stat('codex', 60)]), null)
-  assert.equal(compareCliIssueRates([stat('claude', 52), stat('codex', 58)]), null)
+  assert.equal(compareCliDeliveryScores([stat('codex', 60)]), null)
+  assert.equal(compareCliDeliveryScores([stat('claude-code', 52), stat('codex', 58)]), null)
   // Zero-task CLIs are ignored.
-  assert.equal(compareCliIssueRates([stat('claude', null, 0), stat('codex', 40)]), null)
+  assert.equal(compareCliDeliveryScores([stat('claude-code', null, 0), stat('codex', 40)]), null)
 }
 
 function main(): void {
   testAgentTypeSummaryGroupsByRoleAndCli()
-  testCompareCliIssueRates()
+  testCompareCliDeliveryScores()
   testIssueTotalsAndPerAgentCounts()
   testBuildBurnupBuildsCumulativeSeries()
   testBuildAgentTaskDetailJoinsTasksCountsAndFindings()

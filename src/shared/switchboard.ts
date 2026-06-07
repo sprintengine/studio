@@ -433,7 +433,7 @@ export type SwitchboardAgentSpawnDescriptor = {
   cwd: string
   env?: Record<string, string>
   prompt?: string
-  cli?: 'codex' | 'claude'
+  cli?: 'codex' | 'claude-code'
   // Phase 3 (BYO-CLI billing fix): when present, the runtime injects the
   // prompt via the named mode instead of always using stdin-pipe with EOF.
   injection?: SwitchboardAgentInjectionSpec
@@ -448,7 +448,7 @@ export type SwitchboardRunnerStartInput = {
   workspaceId?: string
   queues?: SwitchboardRunnerQueue[]
   maxConcurrency?: number
-  cli?: 'codex' | 'claude'
+  cli?: 'codex' | 'claude-code'
   provider?: SwitchboardExecutionProviderKind
   mcpSettings?: McpSettings
 }
@@ -502,7 +502,7 @@ export type SwitchboardRunnerState = {
   running: boolean
   paused: boolean
   provider: SwitchboardExecutionProviderKind
-  cli: 'codex' | 'claude'
+  cli: 'codex' | 'claude-code'
   maxConcurrency: number
   queues: SwitchboardRunnerQueue[]
   activeExecutions: SwitchboardRunnerExecution[]

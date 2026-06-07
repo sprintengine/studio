@@ -18,6 +18,7 @@ const specialistSoulRoles: Record<SpecialistActionId, string> = {
   'code-review': 'code_reviewer',
   'nuclear-review': 'nuclear_reviewer',
   'spec-review': 'spec_reviewer',
+  'production-readiness-review': 'production_readiness_reviewer',
 }
 
 type SoulsCliResult =

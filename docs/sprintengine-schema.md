@@ -95,6 +95,16 @@ Role manifest `soul` arrays contain ordered skill entries only:
 `{ "skill": "<id>" }`. Inline text entries such as `{ "text": "..." }` are
 not part of the current schema and are rejected by registry validation.
 
+Role manifests may include optional declarative `capabilities`. Capabilities
+describe what a role can do; they do not make any review globally required.
+Current production support recognizes `kind: "review"` with optional `phase`
+(`review`, `testing`, or `product`), `reviews` tags, and `defaultFocus`.
+Architect planning remains the authority for whether a capability becomes a
+task quality gate. For example, `sprintengine plan add-task --require-gate
+creative_director` can create a task-specific gate for a custom role whose
+manifest declares a review capability, while a custom role without that
+capability is not silently treated as a gate.
+
 Prompt composition is layered:
 
 1. Registry-rendered Soul from a role manifest and its ordered skill entries.
@@ -539,7 +549,8 @@ Artifact records include:
 - `id`
 - `kind`: `architect_plan`, `product_strategy`, `requirements`,
   `html_mockup`, `design_notes`, `branding`, `security_review`, `code_review`,
-  `spec_review`, `performance_review`, `cross_platform_review`, or
+  `spec_review`, `performance_review`, `production_readiness_review`,
+  `cross_platform_review`, or
   `validation_report`
 - `title`
 - `path`

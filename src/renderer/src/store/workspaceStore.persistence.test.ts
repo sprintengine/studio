@@ -817,9 +817,9 @@ stored['multicode-workspaces'] = 'unreadable garbage {{{'
 const legacyBackupAppSettings = {
   cliRuntimes: {
     codex: { command: 'codex' },
-    claude: { command: 'claude' },
+    'claude-code': { command: 'claude' },
   },
-  lastSelectedCli: 'claude',
+  lastSelectedCli: 'claude-code',
   lastSelectedSpecialist: 'architect',
   lastSelectedMultiloopRole: 'coordinator',
   lastAgentSpawnPermissionPreset: 'default',

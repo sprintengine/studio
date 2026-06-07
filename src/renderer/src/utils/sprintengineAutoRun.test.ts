@@ -1156,7 +1156,7 @@ async function testDeliverNotificationSpawnsAgentWhenMissingTerminal(): Promise<
     workspace,
     state,
     new Set<string>(),
-    { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    { codex: { command: 'codex', useWsl: false }, 'claude-code': { command: 'claude', useWsl: false } },
     emptyMcpSettings,
     mutableRef(new Set<string>()),
     sent
@@ -1225,7 +1225,7 @@ async function testDeliverNotificationLeavesPendingWhenSupervisorDisabledAndNoTe
     workspace,
     state,
     new Set<string>(),
-    { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    { codex: { command: 'codex', useWsl: false }, 'claude-code': { command: 'claude', useWsl: false } },
     emptyMcpSettings,
     mutableRef(new Set<string>()),
     sent
@@ -2038,7 +2038,7 @@ async function testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt(): P
       taskId: 'T4',
       gateId: 'code_reviewer',
     },
-    { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    { codex: { command: 'codex', useWsl: false }, 'claude-code': { command: 'claude', useWsl: false } },
     emptyMcpSettings,
     mutableRef(new Set<string>()),
   )
@@ -2152,7 +2152,7 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
     sprintEngineState: initialState,
     autoState: workspace.sprintEngineAutoState,
     superviseStartedAt: 0,
-    cliRuntimes: { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    cliRuntimes: { codex: { command: 'codex', useWsl: false }, 'claude-code': { command: 'claude', useWsl: false } },
     mcpSettings: emptyMcpSettings,
     inFlightSpawns: mutableRef(new Set<string>()),
     sentContinuationMessages: mutableRef(new Map()),
@@ -2168,7 +2168,7 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
     `newly replenished roster member is spawned in the same supervise cycle; spawned ${JSON.stringify(spawns)}`
   )
   assert.ok(!spawns.some((spawn) => spawn.agentId === 'developer-1'), 'retired roster member is not respawned')
-  assert.equal(replacementSpawn.cli, 'claude')
+  assert.equal(replacementSpawn.cli, 'claude-code')
   assert.ok(replacementSpawn.initialPrompt?.includes('sprintengine.agent.join'), 'replacement spawn names the MCP join tool')
   assert.ok(
     replacementSpawn.initialPrompt?.includes('"role": "developer"') && replacementSpawn.initialPrompt?.includes('"agentId": "developer-2"'),
@@ -2251,7 +2251,7 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
     sprintEngineState,
     autoState: workspace.sprintEngineAutoState,
     superviseStartedAt: 0,
-    cliRuntimes: { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    cliRuntimes: { codex: { command: 'codex', useWsl: false }, 'claude-code': { command: 'claude', useWsl: false } },
     mcpSettings: emptyMcpSettings,
     inFlightSpawns: mutableRef(new Set<string>()),
     sentContinuationMessages: mutableRef(new Map()),
@@ -2299,7 +2299,7 @@ async function testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForChangesRe
         agentId: 'frontend',
         sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
         executionMode: 'current_workspace',
-        cli: 'claude',
+        cli: 'claude-code',
       },
     ],
     terminalStatus: async () => ({ processAlive: true }),
@@ -2362,7 +2362,7 @@ async function testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForChangesRe
   const workspace = workspaceFixture({
     sprintEngineState,
     agents: {
-      frontend: sprintAgent('frontend', 'Rio', 'claude'),
+      frontend: sprintAgent('frontend', 'Rio', 'claude-code'),
     },
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
@@ -2388,7 +2388,7 @@ async function testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForChangesRe
     sprintEngineState,
     autoState: workspace.sprintEngineAutoState,
     superviseStartedAt: 0,
-    cliRuntimes: { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    cliRuntimes: { codex: { command: 'codex', useWsl: false }, 'claude-code': { command: 'claude', useWsl: false } },
     mcpSettings: emptyMcpSettings,
     inFlightSpawns: mutableRef(new Set<string>()),
     sentContinuationMessages,
@@ -2484,7 +2484,7 @@ async function testSuperviseRunnerCycleDoesNotRestartUnresolvedNeedsInputOwner()
     sprintEngineState,
     autoState: workspace.sprintEngineAutoState,
     superviseStartedAt: 0,
-    cliRuntimes: { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    cliRuntimes: { codex: { command: 'codex', useWsl: false }, 'claude-code': { command: 'claude', useWsl: false } },
     mcpSettings: emptyMcpSettings,
     inFlightSpawns: mutableRef(new Set<string>()),
     sentContinuationMessages: mutableRef(new Map()),
@@ -2588,7 +2588,7 @@ async function testSuperviseRunnerCycleStartsReviewGateWhenUnrelatedAgentNeedsIn
     sprintEngineState,
     autoState: workspace.sprintEngineAutoState,
     superviseStartedAt: 0,
-    cliRuntimes: { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    cliRuntimes: { codex: { command: 'codex', useWsl: false }, 'claude-code': { command: 'claude', useWsl: false } },
     mcpSettings: emptyMcpSettings,
     inFlightSpawns: mutableRef(new Set<string>()),
     sentContinuationMessages: mutableRef(new Map()),
@@ -2682,7 +2682,7 @@ async function testSuperviseRunnerCycleDoesNotMutateTaskOrGateState(): Promise<v
     sprintEngineState: state,
     autoState: workspace.sprintEngineAutoState,
     superviseStartedAt: 0,
-    cliRuntimes: { codex: { command: 'codex', useWsl: false }, claude: { command: 'claude', useWsl: false } },
+    cliRuntimes: { codex: { command: 'codex', useWsl: false }, 'claude-code': { command: 'claude', useWsl: false } },
     mcpSettings: emptyMcpSettings,
     inFlightSpawns: mutableRef(new Set<string>()),
     sentContinuationMessages: mutableRef(new Map()),

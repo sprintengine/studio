@@ -68,6 +68,7 @@ export const defaultGuidedBriefBuildRoleCounts = (
   code_reviewer: 1,
   spec_reviewer: 1,
   performance: 0,
+  production_readiness_reviewer: 0,
   tester: 1,
   security: 0,
 })
@@ -85,6 +86,7 @@ const defaultSprintEngineRoleCliDefaultsForGuidedBrief = (): Required<SprintEngi
   code_reviewer: 'claude-code',
   spec_reviewer: 'claude-code',
   performance: 'claude-code',
+  production_readiness_reviewer: 'claude-code',
   tester: 'claude-code',
   security: 'claude-code',
 })
@@ -141,8 +143,7 @@ function normalizeRoleCliDefaultsForGuidedBrief(
       if (!isValidGuidedBriefRoleId(role)) continue
       const value = (input as Record<SprintEngineRoleId, unknown>)[role]
       if (typeof value === 'string' && value.trim()) {
-        const cli = value.trim()
-        next[role] = cli === 'claude' ? 'claude-code' : cli
+        next[role] = value.trim()
       }
     }
   }

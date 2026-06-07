@@ -49,6 +49,7 @@ VALID_ARTIFACT_KINDS = {
     "code_review",
     "spec_review",
     "performance_review",
+    "production_readiness_review",
     "cross_platform_review",
     "validation_report",
 }

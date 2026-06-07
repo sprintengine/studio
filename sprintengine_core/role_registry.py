@@ -13,6 +13,7 @@ REGISTRY_DIRNAME = ".sprintengine"
 BUNDLED_REGISTRY_ROOT = Path(__file__).resolve().parents[1] / "resources" / "sprintengine"
 SUPPORTED_TEMPLATE_VARIABLES = frozenset({"role", "role_label", "workspace_root", "run_id"})
 TEMPLATE_PATTERN = re.compile(r"{{\s*([^{}]+?)\s*}}")
+CAPABILITY_TAG_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 
 
 def normalize_role_id(value: str) -> str:
@@ -62,6 +63,14 @@ class SoulSkillEntry:
 
 
 @dataclass(frozen=True)
+class RoleCapability:
+    kind: str
+    phase: str | None = None
+    reviews: tuple[str, ...] = ()
+    default_focus: str | None = None
+
+
+@dataclass(frozen=True)
 class RoleManifest:
     id: str
     label: str
@@ -69,6 +78,7 @@ class RoleManifest:
     summary: str | None
     icon: str | None
     soul: tuple[SoulSkillEntry, ...]
+    capabilities: tuple[RoleCapability, ...] = ()
 
     @property
     def normalized_id(self) -> str:
@@ -402,6 +412,21 @@ def _load_role_manifest(path: Path, layer: SourceLayer, warnings: list[RegistryW
     if icon is not None and not isinstance(icon, str):
         warnings.append(_role_warning("invalid_role_manifest", "Role icon must be a string when present.", path, layer, role_id))
         return None
+    capabilities = raw.get("capabilities", [])
+    if capabilities is None:
+        capabilities = []
+    parsed_capabilities = _parse_role_capabilities(capabilities)
+    if parsed_capabilities is None:
+        warnings.append(
+            _role_warning(
+                "invalid_role_manifest",
+                "Role capabilities must be a list of capability objects.",
+                path,
+                layer,
+                role_id,
+            )
+        )
+        return None
 
     return RoleManifest(
         id=normalize_role_id(role_id),
@@ -410,7 +435,48 @@ def _load_role_manifest(path: Path, layer: SourceLayer, warnings: list[RegistryW
         summary=summary.strip() if isinstance(summary, str) and summary.strip() else None,
         icon=icon.strip() if isinstance(icon, str) and icon.strip() else None,
         soul=tuple(soul_entries),
+        capabilities=tuple(parsed_capabilities),
     )
+
+
+def _parse_role_capabilities(raw: Any) -> list[RoleCapability] | None:
+    if not isinstance(raw, list):
+        return None
+    parsed: list[RoleCapability] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            return None
+        kind = entry.get("kind")
+        if kind != "review":
+            return None
+        allowed_keys = {"kind", "phase", "reviews", "defaultFocus"}
+        if any(key not in allowed_keys for key in entry):
+            return None
+        phase = entry.get("phase", "review")
+        if not isinstance(phase, str) or phase.strip() not in {"review", "testing", "product"}:
+            return None
+        reviews = entry.get("reviews", [])
+        if reviews is None:
+            reviews = []
+        if not isinstance(reviews, list):
+            return None
+        normalized_reviews: list[str] = []
+        for review in reviews:
+            if not isinstance(review, str) or CAPABILITY_TAG_PATTERN.fullmatch(review) is None:
+                return None
+            normalized_reviews.append(review)
+        default_focus = entry.get("defaultFocus")
+        if default_focus is not None and not isinstance(default_focus, str):
+            return None
+        parsed.append(
+            RoleCapability(
+                kind="review",
+                phase=phase.strip(),
+                reviews=tuple(normalized_reviews),
+                default_focus=default_focus.strip() if isinstance(default_focus, str) and default_focus.strip() else None,
+            )
+        )
+    return parsed
 
 
 def _load_skill_document(

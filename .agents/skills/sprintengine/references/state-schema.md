@@ -164,6 +164,7 @@ When feedback is supplied, the tool also appends a normalized record to `.multi-
   - `code_review`
   - `spec_review`
   - `performance_review`
+  - `production_readiness_review`
   - `validation_report`
 - `title`
 - `path`
@@ -214,6 +215,7 @@ When feedback is supplied, the tool also appends a normalized record to `.multi-
 - Product final acceptance review tasks should be scheduled when the work is product-facing, changes user-visible behavior, changes requirements interpretation, or when code review/validation raises acceptance uncertainty.
 - Security review tasks should be scheduled when work touches auth, permissions, IPC, command execution, filesystem boundaries, network/relay surfaces, secrets/tokens, HTML rendering, sandboxing, dependency risk, or when code review raises a security-adjacent concern.
 - Performance review tasks should be scheduled only after relevant code review evidence exists and should run when the work touches startup, hot paths, rendering scale, polling, filesystem/search/git traversal, command loops, memory growth, bundle/runtime resource usage, or when code review/validation raises a performance concern. They produce direct review evidence or `performance_review` artifacts with measured evidence where practical, clearly labeled hypotheses where not, findings, and recommended follow-up tasks.
+- Production readiness review tasks should be scheduled for release gates or deployment-oriented reviews where the product must be assessed against real integrations, production configuration, database migrations, observability, rollback, scalability, and user setup. They produce direct review evidence or `production_readiness_review` artifacts with a score, GO / CONDITIONAL GO / NO-GO / BLOCKED verdict, blocking findings, setup requirements, and remediation tasks.
 - Workers should not rewrite the plan or change other workers' task cards.
 - Review artifact lifecycle mutations must go through `sprintengine artifact` commands.
 - `sprintengine init` creates or reuses a product intake approval task and artifact, plus a blocked architect plan approval task and `architect_plan` artifact for the active team's `plan.md`.

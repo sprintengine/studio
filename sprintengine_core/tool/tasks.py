@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from sprintengine_core import store as folder_store
+from sprintengine_core.role_registry import RoleManifest, discover_role_registry
 from sprintengine_core.diff_evidence import capture_task_diff_evidence
 from sprintengine_core.tool.comments import *  # noqa: F403,F401
 from sprintengine_core.tool.common import unique_strings
@@ -503,12 +504,20 @@ def canonical_quality_gate_id(value: str) -> str:
         "security": "security",
         "performance_review": "performance",
         "performance": "performance",
+        "production_readiness_review": "production_readiness_reviewer",
+        "production_readiness": "production_readiness_reviewer",
+        "production_readiness_reviewer": "production_readiness_reviewer",
         "cross_platform_review": "cross_platform",
         "cross_platform": "cross_platform",
     }
     return aliases.get(normalized, normalized)
 
-def quality_gate_spec_for_id(gate_id: str, policy: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def quality_gate_spec_for_id(
+    gate_id: str,
+    policy: Dict[str, Any],
+    *,
+    workspace_root: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
     canonical = canonical_quality_gate_id(gate_id)
     gate_specs = policy.get("gates") if isinstance(policy.get("gates"), dict) else {}
     if canonical == "architect_review":
@@ -525,13 +534,37 @@ def quality_gate_spec_for_id(gate_id: str, policy: Dict[str, Any]) -> Optional[D
     spec = gate_specs.get(canonical)
     if isinstance(spec, dict):
         return {"id": canonical, **spec}
-    return None
+    registry = discover_role_registry(workspace_root=workspace_root)
+    try:
+        role_entry = registry.role_entry(canonical)
+    except KeyError:
+        return None
+    role = role_entry.value
+    if not isinstance(role, RoleManifest):
+        return None
+    review_capability = next((capability for capability in role.capabilities if capability.kind == "review"), None)
+    if review_capability is None:
+        return None
+    return {
+        "id": canonical,
+        "phase": review_capability.phase or "review",
+        "role": role.normalized_id,
+        "required": True,
+        "focus": review_capability.default_focus or role.summary or f"{role.label} review",
+    }
 
-def build_quality_gate_from_spec(gate_id: str, spec: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+def build_quality_gate_from_spec(
+    gate_id: str,
+    spec: Dict[str, Any],
+    state: Dict[str, Any],
+    *,
+    workspace_root: Optional[Path] = None,
+) -> Dict[str, Any]:
     role = str(spec.get("role") or "").strip()
     if not role:
         raise SystemExit(f"Quality gate {gate_id!r} has no role.")
-    role = require_configured_role(role, context=f"Quality gate {gate_id!r}")
+    registry = discover_role_registry(workspace_root=workspace_root)
+    role = require_configured_role(role, context=f"Quality gate {gate_id!r}", discovery=registry)
     if roster_is_configured(state) and role not in roster_roles(state):
         raise SystemExit(f"Quality gate {gate_id!r} requires role {role!r}, which is not in this Sprint Engine roster.")
     phase = str(spec.get("phase") or "").strip()
@@ -566,14 +599,15 @@ def apply_quality_gate_cli_overrides(task: Dict[str, Any], state: Dict[str, Any]
         gates = [gate for gate in gates if canonical_quality_gate_id(str(gate.get("id") or "")) not in skip_ids]
 
     existing_ids = {canonical_quality_gate_id(str(gate.get("id") or "")) for gate in gates}
+    workspace_root = workspace_root_for_state_path(args.state) if getattr(args, "state", None) else None
     for required_id in getattr(args, "require_gate", None) or []:
         canonical = canonical_quality_gate_id(required_id)
         if canonical in existing_ids:
             continue
-        spec = quality_gate_spec_for_id(canonical, policy)
+        spec = quality_gate_spec_for_id(canonical, policy, workspace_root=workspace_root)
         if spec is None:
             raise SystemExit(f"Unknown quality gate {required_id!r}.")
-        gates.append(build_quality_gate_from_spec(canonical, spec, state))
+        gates.append(build_quality_gate_from_spec(canonical, spec, state, workspace_root=workspace_root))
         existing_ids.add(canonical)
 
     task["qualityGates"] = gates

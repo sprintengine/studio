@@ -26,14 +26,14 @@ export const MODULE_PROFILES: ModuleProfile[] = [
   {
     id: 'minimal',
     name: 'Minimal IDE',
-    summary: 'Agent terminals, the editor, and git. The lightest setup.',
-    enabled: ['dev-tools', 'git'],
+    summary: 'Agent terminals, backlog, the editor, and git. The lightest setup.',
+    enabled: ['backlog', 'dev-tools', 'git'],
   },
   {
     id: 'solo',
     name: 'Solo dev',
     summary: 'Editor, git, Sprint Engine, and the knowledge graph for working a project on your own.',
-    enabled: ['dev-tools', 'git', 'sprint-engine', 'memory-graph'],
+    enabled: ['backlog', 'dev-tools', 'git', 'sprint-engine', 'memory-graph'],
   },
   {
     id: 'everything',

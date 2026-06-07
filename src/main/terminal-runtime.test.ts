@@ -202,7 +202,7 @@ async function assertSprintEngineSpawnReleasesUnusedRunWhenPtySpawnFails(runtime
     assert.deepEqual(releasedRuns, [{
       runId: 'registered-run-failed-spawn',
       workspaceRoot,
-      clients: ['codex', 'claude'],
+      clients: ['codex', 'claude-code'],
       cleanupMcpConfig: true,
     }])
     assert.equal(mockPty.spawnCalls.length, 0)
@@ -256,7 +256,7 @@ async function assertSprintEngineRunCleanupWaitsForLastTerminal(runtimeModule: R
     assert.deepEqual(releasedRuns, [{
       runId: 'shared-run-1',
       workspaceRoot,
-      clients: ['codex', 'claude'],
+      clients: ['codex', 'claude-code'],
       cleanupMcpConfig: true,
     }])
   } finally {
@@ -326,7 +326,7 @@ async function assertSprintEngineConcurrentSpawnFailureKeepsReservedRun(runtimeM
     assert.deepEqual(releasedRuns, [{
       runId: 'reserved-shared-run',
       workspaceRoot,
-      clients: ['codex', 'claude'],
+      clients: ['codex', 'claude-code'],
       cleanupMcpConfig: true,
     }])
   } finally {
@@ -448,7 +448,7 @@ async function assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModul
     assert.deepEqual(releasedRuns, [{
       runId: 'registered-run-1',
       workspaceRoot,
-      clients: ['codex', 'claude'],
+      clients: ['codex', 'claude-code'],
       cleanupMcpConfig: true,
     }])
   } finally {

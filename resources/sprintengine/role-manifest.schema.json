@@ -29,6 +29,38 @@
         "pattern": "^[a-z][a-z0-9_-]{0,62}$"
       }
     },
+    "capabilities": {
+      "type": "array",
+      "description": "Declarative role capabilities. Capabilities describe what the role can do; they do not make gates globally required.",
+      "items": {
+        "type": "object",
+        "required": ["kind"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["review"]
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["review", "testing", "product"],
+            "description": "Quality-gate phase this role can serve when the architect requires it. Defaults to review."
+          },
+          "reviews": {
+            "type": "array",
+            "description": "Optional capability tags this role is suited to review.",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,62}$"
+            }
+          },
+          "defaultFocus": {
+            "type": "string",
+            "description": "Default gate focus text used when the architect requires this role as a gate."
+          }
+        }
+      }
+    },
     "soul": {
       "type": "array",
       "description": "Ordered skill references composing the role's prompt.",

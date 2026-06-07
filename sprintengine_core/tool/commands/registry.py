@@ -108,6 +108,15 @@ def _role_manifest_payload(role: RoleManifest) -> dict[str, Any]:
         "summary": role.summary,
         "icon": role.icon,
         "soul": [{"skill": entry.skill} for entry in role.soul],
+        "capabilities": [
+            {
+                "kind": capability.kind,
+                **({"phase": capability.phase} if capability.phase else {}),
+                **({"reviews": list(capability.reviews)} if capability.reviews else {}),
+                **({"defaultFocus": capability.default_focus} if capability.default_focus else {}),
+            }
+            for capability in role.capabilities
+        ],
     }
 
 

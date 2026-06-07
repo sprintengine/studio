@@ -606,8 +606,8 @@ function queueSprintEngineMcpRunRelease(runId: string, context?: {
   const workspaceRoot = context?.workspaceRoot?.trim()
   const cleanupMcpConfig = Boolean(workspaceRoot && context?.cleanupMcpConfig === true)
   const clients = cleanupMcpConfig
-    ? ['codex', 'claude'] as AgentCli[]
-    : context?.clients?.length ? context.clients : ['codex', 'claude'] as AgentCli[]
+    ? ['codex', 'claude-code'] as AgentCli[]
+    : context?.clients?.length ? context.clients : ['codex', 'claude-code'] as AgentCli[]
   const release = Promise.resolve(releaseManagedSprintEngineRun?.({
     runId,
     workspaceRoot: workspaceRoot ?? '',

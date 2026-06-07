@@ -15,7 +15,7 @@ const guidedBriefInput = {
   wantsArchitectureDiscussion: true,
   wantsFrontendDiscussion: true,
   guidedRoleCliDefaults: {
-    product: 'claude',
+    product: 'claude-code',
     architect: 'codex',
     frontend: 'my-custom-cli',
   },
@@ -27,13 +27,13 @@ const guidedBriefInput = {
     tester: -1,
   },
   buildRoleCliDefaults: {
-    architect: 'claude',
+    architect: 'claude-code',
     product: 'codex',
-    frontend: 'claude',
-    developer: 'claude',
+    frontend: 'claude-code',
+    developer: 'claude-code',
     code_reviewer: 'codex',
-    spec_reviewer: 'claude',
-    tester: 'claude',
+    spec_reviewer: 'claude-code',
+    tester: 'claude-code',
     security: 'my-custom-cli',
   },
   buildCliPermissionPreset: 'auto_workspace',
@@ -174,9 +174,9 @@ const customRoleGuidedBrief: Partial<GuidedBriefRuntimeState> = {
   buildRoleCliDefaults: {
     architect: 'codex',
     product: 'codex',
-    marketer: 'claude',
+    marketer: 'claude-code',
     growth_engineer: 'my-custom-cli',
-    '': 'claude',
+    '': 'claude-code',
   } as unknown as GuidedBriefRuntimeState['buildRoleCliDefaults'],
 }
 const customRoleNormalized = normalizeGuidedBriefState(customRoleGuidedBrief)
@@ -186,6 +186,6 @@ assert.equal(customRoleNormalized.buildRoleCounts.marketer, 2, 'registry-keyed m
 assert.equal(customRoleNormalized.buildRoleCounts.growth_engineer, 1, 'registry-keyed growth_engineer count is preserved')
 assert.equal(customRoleNormalized.buildRoleCounts[''], undefined, 'blank role id is dropped')
 assert.equal(customRoleNormalized.buildRoleCounts['   '], undefined, 'whitespace-only role id is dropped')
-assert.equal(customRoleNormalized.buildRoleCliDefaults.marketer, 'claude-code', 'legacy Claude CLI defaults are canonicalized')
+assert.equal(customRoleNormalized.buildRoleCliDefaults.marketer, 'claude-code', 'Claude Code CLI defaults are preserved')
 assert.equal(customRoleNormalized.buildRoleCliDefaults.growth_engineer, 'my-custom-cli', 'custom CLI ids are preserved')
 assert.equal(customRoleNormalized.buildRoleCliDefaults[''], undefined, 'blank CLI default key is dropped')

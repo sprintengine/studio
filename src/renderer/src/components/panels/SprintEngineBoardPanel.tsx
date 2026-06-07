@@ -57,7 +57,6 @@ import {
  getSprintEngineTaskOwnerLabel,
  getSprintEngineRoleAccent,
  getUserDisabledSprintEngineRoleIds,
- normalizeSprintEngineProjection,
  getSprintEngineRoleLabel,
  sprintEngineTaskStateLabel,
 } from '../../utils/sprintengine'
@@ -71,6 +70,8 @@ import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineS
 import {
  publishSprintEngineAutomationModeNotification,
 } from '../../utils/sprintengineNotifications'
+import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
+import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { findFirstUncoveredSprintEngineRole } from '../../utils/sprintengineRoleOptions'
 import {
  buildSprintEngineRosterRevisionPrompt,
@@ -553,11 +554,6 @@ function SprintEngineBoardPanelContent({
  pendingRosterMemberSpawnInFlightRef.current.clear()
  }, [sprintEngineContext?.statePath])
 
- const resolveReadableSprintEngineStatePath = async (): Promise<string | null> => {
- if (!folderPath) return null
- return sprintEngineContext?.statePath ?? null
- }
-
  const sprintEngineTasks = sprintEngineState?.tasks ?? []
  const {
  roster,
@@ -600,7 +596,9 @@ function SprintEngineBoardPanelContent({
  if (!savedFolderPath) {
  setSyncState({
  status: 'idle',
- message: 'Choose a workspace folder to watch agent-managed Sprint Engine state.',
+ message: MULTICODE_DISABLE_SPRINTENGINE_SYNC
+ ? 'Auto-sync off (debug). Choose a workspace folder, then refresh the board.'
+ : 'Choose a workspace folder to watch agent-managed Sprint Engine state.',
  })
  return
  }
@@ -609,7 +607,7 @@ function SprintEngineBoardPanelContent({
  status: folderMissing ? 'error' : 'idle',
  message: folderMissing
  ? `Saved workspace folder is missing: ${savedFolderPath}`
- : 'Checking workspace folder before watching Sprint Engine state.',
+ : 'Checking workspace folder before reading Sprint Engine state.',
  })
  return
  }
@@ -617,6 +615,17 @@ function SprintEngineBoardPanelContent({
  setSyncState({
  status: 'idle',
  message: 'Waiting for agent-managed state.',
+ })
+ return
+ }
+
+ // Debug escape: projection polling is disabled, so the board is not watching
+ // live agent-managed state. It only updates on manual refresh or agent
+ // mutations, and the operator signal must say so rather than claim "live".
+ if (MULTICODE_DISABLE_SPRINTENGINE_SYNC) {
+ setSyncState({
+ status: 'idle',
+ message: 'Auto-sync off (debug). Refresh board to read the latest projection.',
  })
  return
  }
@@ -771,7 +780,7 @@ function SprintEngineBoardPanelContent({
  // Bundled worker roles ship dedicated role-task launch buttons. Custom
  // registry roles do not yet, so they always defer to the generic focus
  // agent action below.
- const workerRoles: SprintEngineRole[] = ['developer', 'frontend', 'product', 'code_reviewer', 'nuclear_reviewer', 'spec_reviewer', 'performance', 'cross_platform', 'tester', 'security']
+ const workerRoles: SprintEngineRole[] = ['developer', 'frontend', 'product', 'code_reviewer', 'nuclear_reviewer', 'spec_reviewer', 'performance', 'production_readiness_reviewer', 'cross_platform', 'tester', 'security']
  const roleTaskLaunches = workerRoles.flatMap((role) => {
  const activeTask = sprintEngineState.tasks.find((task) =>
  task.role === role && (task.status === 'in_progress' || task.status === 'needs_input' || task.status === 'changes_requested')
@@ -811,13 +820,16 @@ function SprintEngineBoardPanelContent({
  setManualRefreshBusy(true)
  setSyncState({ status: 'syncing', message: 'Refreshing Sprint Engine state...' })
  try {
- const stateFilePath = await resolveReadableSprintEngineStatePath()
- if (!stateFilePath) throw new Error('No workspace folder is ready.')
- const projection = await window.api.readSprintEngineProjection(stateFilePath)
- if (!projection.ok) throw new Error(projection.message)
- const parsed = normalizeSprintEngineProjection(projection.data, sprintEngineContext?.teamName)
- if (!parsed) throw new Error('Sprint Engine projection was malformed.')
- setSprintEngineState(workspaceId, parsed)
+ const result = await refreshSprintEngineWorkspaceProjection({
+ workspace,
+ signatures: new Map(),
+ cause: 'manual',
+ force: true,
+ })
+ if (result.status === 'skipped') throw new Error('No workspace folder is ready.')
+ if (result.status === 'error') throw new Error(result.message)
+ const parsed = result.state
+ if (!parsed) throw new Error('Sprint Engine projection was unavailable.')
  setSyncState({
  status: 'live',
  message: `Refreshed ${parsed.tasks.length} tasks from projection.json`,
@@ -1471,19 +1483,21 @@ function SprintEngineBoardPanelContent({
  <span className="sr-only">{sprintEngineState.name}</span>
  )}
  <div className="flex min-w-0 shrink-0 items-center gap-2">
+ {runPhaseTone === 'neutral' ? null : (
  <StatusDot tone={runPhaseTone} label={`Run phase: ${runPhase}`} />
+ )}
   <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">
   {doneCount}/{totalTasks}
   </span>
   <span
-  className="hidden max-w-[180px] shrink-0 items-center gap-1.5 truncate text-[11px] text-[color:var(--text-muted)] sm:inline-flex"
+  className="flex max-w-[180px] shrink-0 items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]"
   title={automationRuntimeReason ?? sprintEngineAutomationRuntimeLabels[automationRuntimeState]}
   >
   <StatusDot
   tone={sprintEngineAutomationRuntimeTones[automationRuntimeState]}
   label={`Automation status: ${sprintEngineAutomationRuntimeLabels[automationRuntimeState]}`}
   />
-  <span className="truncate">{sprintEngineAutomationRuntimeLabels[automationRuntimeState]}</span>
+  <span className="hidden truncate sm:inline">{sprintEngineAutomationRuntimeLabels[automationRuntimeState]}</span>
   </span>
  {tasksLayoutToggle}
   <Popover
@@ -1553,6 +1567,47 @@ function SprintEngineBoardPanelContent({
  </div>
  ) : null
 
+ // Visible freshness signal for the manual refresh lifecycle and the debug
+ // auto-sync escape. The sr-only region above is the single screen-reader
+ // channel, so this banner is decorative (`aria-hidden`) to avoid a duplicate
+ // announcement. It stays quiet during the normal live/idle steady state.
+ const boardFreshnessBanner = (() => {
+ const isSyncing = syncState.status === 'syncing'
+ const isError = syncState.status === 'error'
+ if (!isSyncing && !isError && !MULTICODE_DISABLE_SPRINTENGINE_SYNC) return null
+ const tone: Tone = isError ? 'error' : isSyncing ? 'accent' : 'warn'
+ const heading = isError ? 'Refresh failed' : isSyncing ? 'Refreshing board' : 'Auto-sync off · debug'
+ const detail = isError
+ ? syncState.message
+ : isSyncing
+ ? null
+ : 'Board updates only on manual refresh or agent actions.'
+ return (
+ <div
+ aria-hidden="true"
+ className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5"
+ >
+ <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+ <span className="inline-flex items-center gap-1.5">
+ <StatusDot tone={tone} pulse={isSyncing} />
+ <span className="text-[11px] text-[color:var(--text-muted)]">{heading}</span>
+ </span>
+ {detail ? (
+ <span
+ className={
+ isError
+ ? 'text-[color:var(--tone-error)] [overflow-wrap:anywhere]'
+ : 'text-[color:var(--text-muted)]'
+ }
+ >
+ {detail}
+ </span>
+ ) : null}
+ </div>
+ </div>
+ )
+ })()
+
  const runCompleteBanner = allTasksDone ? (
  <Section
  title="Run complete"
@@ -1576,6 +1631,7 @@ function SprintEngineBoardPanelContent({
  {syncState.message}
  </div>
 
+ {boardFreshnessBanner}
  {projectionBanner}
  {runCompleteBanner}
  {folderStatusBanner}

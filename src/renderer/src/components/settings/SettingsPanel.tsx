@@ -827,7 +827,7 @@ export default function SettingsPanel({
       envVarNames: parseEnvNames(customMcpEnv),
       enabled: true,
       required: false,
-      clients: ['codex', 'claude'],
+      clients: ['codex', 'claude-code'],
       scope: 'workspace',
       source: 'custom',
       riskLevel: customMcpTransport === 'stdio' ? 'local-command' : 'network',
@@ -1420,9 +1420,6 @@ export default function SettingsPanel({
                       // identical "Command" for every row; the visible label stays compact.
                       aria-label={`${plugin.displayName} command`}
                       value={override.command}
-                      // Write the full effective pair so editing one field migrates the
-                      // legacy-alias value (claude-code <- claude) onto the plugin-id key
-                      // instead of dropping the other field to a blank default.
                       onChange={(event) => setCliRuntime(plugin.id, { command: event.target.value, useWsl: override.useWsl })}
                       placeholder={plugin.binary}
                       className={INPUT_CLASS}

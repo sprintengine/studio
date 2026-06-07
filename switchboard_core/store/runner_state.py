@@ -64,7 +64,7 @@ def normalize_runner_state(workspace: Path, payload: Any) -> dict[str, Any]:
     state["paused"] = payload.get("paused") is not False
     state["workspaceRoot"] = str(Path(payload.get("workspaceRoot") or workspace).expanduser().resolve())
     state["provider"] = payload.get("provider") if payload.get("provider") in RUNNER_PROVIDERS else "electron-session"
-    state["cli"] = payload.get("cli") if payload.get("cli") in {"codex", "claude"} else "codex"
+    state["cli"] = payload.get("cli") if payload.get("cli") in {"codex", "claude-code"} else "codex"
     state["queues"] = normalize_runner_queues(payload.get("queues") if isinstance(payload.get("queues"), list) else None)
     state["maxConcurrency"] = normalize_runner_concurrency(payload.get("maxConcurrency"))
     state["activeExecutions"] = normalize_runner_executions(payload.get("activeExecutions"))
@@ -172,7 +172,7 @@ def runner_start(
     with locked_runner(workspace):
         if provider not in RUNNER_PROVIDERS:
             raise SwitchboardError(f"Invalid runner provider: {provider}")
-        if cli not in {"codex", "claude"}:
+        if cli not in {"codex", "claude-code"}:
             raise SwitchboardError(f"Invalid runner cli: {cli}")
         state = read_runner_state(workspace)
         state.update(

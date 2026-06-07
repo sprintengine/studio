@@ -74,7 +74,7 @@ function allTabs(model: Model): TabJson[] {
 }
 
 function navTabsets(model: Model): TabsetJson[] {
-  const nav = new Set(['explorer', 'git', 'memory-graph'])
+  const nav = new Set(['explorer', 'git', 'backlog', 'memory-graph'])
   return tabsets(model).filter((tabset) => componentsOf(tabset).some((c) => nav.has(c)))
 }
 
@@ -110,6 +110,41 @@ function navTabsets(model: Model): TabsetJson[] {
   registerModel(WS, model)
   togglePanelRailComponent(WS, 'memory-graph', 'Knowledge Graph')
   assert.equal(navTabsets(model).length, 1)
+  togglePanelRailComponent(WS, 'memory-graph', 'Knowledge Graph')
+  assert.equal(navTabsets(model).length, 0)
+  unregisterModel(WS)
+}
+
+// Backlog is a strip-less nav switch: first toggle docks the shared LEFT pane
+// with the strip hidden, exactly like Files / Git / Knowledge Graph.
+{
+  const model = freshModel()
+  registerModel(WS, model)
+  togglePanelRailComponent(WS, 'backlog', 'Backlog')
+  const nav = navTabsets(model)
+  assert.equal(nav.length, 1)
+  assert.deepEqual(componentsOf(nav[0]), ['backlog'])
+  assert.equal(nav[0].enableTabStrip, false)
+  unregisterModel(WS)
+}
+
+// Backlog is exclusive with the other nav switches: opening Backlog over Git
+// swaps it in (single-select), and clicking Backlog again closes the pane.
+{
+  const model = freshModel()
+  registerModel(WS, model)
+  togglePanelRailComponent(WS, 'git', 'Git')
+  togglePanelRailComponent(WS, 'backlog', 'Backlog')
+  let nav = navTabsets(model)
+  assert.equal(nav.length, 1)
+  assert.deepEqual(componentsOf(nav[0]), ['backlog'])
+  assert.equal(nav[0].enableTabStrip, false)
+  // Swapping back to Knowledge Graph keeps the pane single-select.
+  togglePanelRailComponent(WS, 'memory-graph', 'Knowledge Graph')
+  nav = navTabsets(model)
+  assert.equal(nav.length, 1)
+  assert.deepEqual(componentsOf(nav[0]), ['memory-graph'])
+  // Closing the open switch collapses the nav pane.
   togglePanelRailComponent(WS, 'memory-graph', 'Knowledge Graph')
   assert.equal(navTabsets(model).length, 0)
   unregisterModel(WS)

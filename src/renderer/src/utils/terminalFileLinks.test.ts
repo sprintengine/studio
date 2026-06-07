@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
+import type { Terminal } from '@xterm/xterm'
 import {
   findTerminalFileReferences,
   rangeForTerminalFileReference,
+  readWrappedLogicalLine,
   resolveTerminalFileReferencePath,
 } from './terminalFileLinks'
 
@@ -47,8 +49,8 @@ assert.equal(resolveTerminalFileReferencePath('~/notes.md', roots), null)
 const wrappedFirstSegment = 'Failure in src/renderer/src/components/panels/'
 const wrappedSecondSegment = 'TerminalView.tsx:274:7'
 const wrappedSegments = [
-  { y: 10, startIndex: 0, text: wrappedFirstSegment },
-  { y: 11, startIndex: wrappedFirstSegment.length, text: wrappedSecondSegment },
+  { y: 10, startIndex: 0, startColumn: 1, text: wrappedFirstSegment },
+  { y: 11, startIndex: wrappedFirstSegment.length, startColumn: 1, text: wrappedSecondSegment },
 ]
 const wrappedReferences = findTerminalFileReferences(
   wrappedSegments.map((segment) => segment.text).join(''),
@@ -63,3 +65,83 @@ assert.deepEqual(
     end: { x: wrappedSecondSegment.length, y: 11 },
   }
 )
+
+// Producer hard-wrap stitching: an agent CLI word-wraps a long path token onto
+// an indented continuation line, emitting separate non-wrapped buffer lines.
+type MockLine = { text: string; isWrapped: boolean }
+
+function makeTerminal(cols: number, lines: MockLine[]): Terminal {
+  const padded = lines.map((line) => ({
+    isWrapped: line.isWrapped,
+    raw: line.text.length >= cols ? line.text.slice(0, cols) : line.text.padEnd(cols, ' '),
+  }))
+  const buffer = {
+    active: {
+      getLine(index: number) {
+        const line = padded[index]
+        if (!line) return undefined
+        return {
+          isWrapped: line.isWrapped,
+          translateToString(trimRight?: boolean, startColumn = 0, endColumn = cols) {
+            const slice = line.raw.slice(startColumn, endColumn)
+            return trimRight ? slice.replace(/\s+$/u, '') : slice
+          },
+          getCell(x: number) {
+            if (x < 0 || x >= line.raw.length) return undefined
+            const char = line.raw[x] ?? ''
+            return { getChars: () => char }
+          },
+        }
+      },
+    },
+  }
+  return { cols, buffer } as unknown as Terminal
+}
+
+const hangingPathHead = '    future-plans/2026-06-07-sprintengine-targeted-review-gate-'
+const hangingTerminal = makeTerminal(hangingPathHead.length, [
+  { text: hangingPathHead, isWrapped: false },
+  { text: '    rechecks.md', isWrapped: false },
+])
+const hangingLogical = readWrappedLogicalLine(hangingTerminal, 1)
+assert.ok(hangingLogical)
+assert.equal(
+  hangingLogical.text,
+  '    future-plans/2026-06-07-sprintengine-targeted-review-gate-rechecks.md'
+)
+const hangingRefs = findTerminalFileReferences(hangingLogical.text, roots)
+assert.equal(hangingRefs.length, 1)
+assert.equal(
+  hangingRefs[0]?.text,
+  'future-plans/2026-06-07-sprintengine-targeted-review-gate-rechecks.md'
+)
+assert.equal(
+  hangingRefs[0]?.resolvedPath,
+  '/repo/packages/app/future-plans/2026-06-07-sprintengine-targeted-review-gate-rechecks.md'
+)
+const hangingRange = rangeForTerminalFileReference(hangingRefs[0]!, hangingLogical.segments)
+assert.deepEqual(hangingRange, { start: { x: 5, y: 1 }, end: { x: 15, y: 2 } })
+
+// Wrapped prose must not be stitched: the bottom line fills the width but its
+// trailing token has no path separator.
+const proseHead = 'The plan covers the gate reset path and the proposed'
+const proseTerminal = makeTerminal(proseHead.length, [
+  { text: proseHead, isWrapped: false },
+  { text: '    publish-id/gate-retention model', isWrapped: false },
+])
+const proseLogical = readWrappedLogicalLine(proseTerminal, 1)
+assert.ok(proseLogical)
+assert.equal(proseLogical.segments.length, 1)
+assert.equal(proseLogical.text, proseHead)
+
+// A path that ends before the right edge is complete; an unrelated indented
+// line below it must not be merged in.
+const completeHead = 'See src/a/b.json'
+const completeTerminal = makeTerminal(40, [
+  { text: completeHead, isWrapped: false },
+  { text: '    src/c/d.json also', isWrapped: false },
+])
+const completeLogical = readWrappedLogicalLine(completeTerminal, 1)
+assert.ok(completeLogical)
+assert.equal(completeLogical.segments.length, 1)
+assert.equal(completeLogical.text, completeHead)

@@ -645,7 +645,7 @@ Watchtower agents should create findings directly in the inbox:
     runner_start_cmd = runner_subcommands.add_parser("start", help="Enable and start the persistent runner.")
     runner_start_cmd.add_argument("--workspace", required=True)
     runner_start_cmd.add_argument("--provider", choices=("electron-session",), default="electron-session")
-    runner_start_cmd.add_argument("--cli", choices=("codex", "claude"), default="codex")
+    runner_start_cmd.add_argument("--cli", choices=("codex", "claude-code"), default="codex")
     runner_start_cmd.add_argument("--queue", action="append", choices=CLAIMABLE_STATUSES)
     runner_start_cmd.add_argument("--max-concurrency", type=int, default=1)
     runner_start_cmd.set_defaults(func=cmd_runner_start)

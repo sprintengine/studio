@@ -8,7 +8,15 @@ import pytest
 from sprintengine_core.role_registry import RoleSkillRegistry, SoulRenderError, discover_role_registry
 
 
-def write_role(root: Path, role_id: str, *, label: str | None = None, aliases: list[str] | None = None, soul: list[dict] | None = None) -> None:
+def write_role(
+    root: Path,
+    role_id: str,
+    *,
+    label: str | None = None,
+    aliases: list[str] | None = None,
+    soul: list[dict] | None = None,
+    capabilities: list[dict] | None = None,
+) -> None:
     roles_dir = root / "roles"
     roles_dir.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -17,6 +25,8 @@ def write_role(root: Path, role_id: str, *, label: str | None = None, aliases: l
         "aliases": aliases or [],
         "soul": soul or [{"skill": role_id}],
     }
+    if capabilities is not None:
+        payload["capabilities"] = capabilities
     (roles_dir / f"{role_id}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
@@ -32,9 +42,11 @@ def test_discovers_production_bundled_role_manifest_and_referenced_skill() -> No
     role = discovery.get_role("qa-test")
     skills = discovery.referenced_skills("tester")
     ui_ux_reviewer = discovery.get_role("ui-ux-review")
+    production_readiness = discovery.get_role("production-readiness-review")
 
     assert role.id == "tester"
     assert ui_ux_reviewer.id == "ui_ux_reviewer"
+    assert production_readiness.id == "production_readiness_reviewer"
     assert discovery.role_entry("tester").source.layer.name == "bundled"
     assert [skill.id for skill in skills][:2] == ["tester", "project_relative_paths"]
     assert "production_reality_gate" in [skill.id for skill in skills]
@@ -166,6 +178,70 @@ def test_temporary_marketer_role_loads_from_workspace_without_user_home_mutation
     assert discovery.role_entry("marketer").source.path == root / "roles" / "marketer.json"
     assert [skill.id for skill in discovery.referenced_skills("marketer")] == ["campaign_strategy"]
     assert not user.exists()
+
+
+def test_role_capabilities_are_optional_and_exposed(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    root = workspace / ".sprintengine"
+    write_role(
+        root,
+        "creative_director",
+        capabilities=[
+            {
+                "kind": "review",
+                "phase": "review",
+                "reviews": ["brand", "marketing_material"],
+                "defaultFocus": "brand consistency and campaign readiness",
+            }
+        ],
+    )
+    write_skill(root, "creative_director")
+
+    discovery = RoleSkillRegistry(
+        workspace_root=workspace,
+        user_root=tmp_path / "user",
+        bundled_root=tmp_path / "bundled",
+    ).discover()
+    role = discovery.get_role("creative_director")
+
+    assert len(role.capabilities) == 1
+    capability = role.capabilities[0]
+    assert capability.kind == "review"
+    assert capability.phase == "review"
+    assert capability.reviews == ("brand", "marketing_material")
+    assert capability.default_focus == "brand consistency and campaign readiness"
+
+
+def test_invalid_role_capabilities_reject_manifest(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    root = workspace / ".sprintengine"
+    write_role(root, "bad_capability", capabilities=[{"kind": "implement", "required": True}])
+    write_skill(root, "bad_capability")
+
+    discovery = RoleSkillRegistry(
+        workspace_root=workspace,
+        user_root=tmp_path / "user",
+        bundled_root=tmp_path / "bundled",
+    ).discover()
+
+    assert "bad_capability" not in discovery.roles
+    assert any(warning.code == "invalid_role_manifest" for warning in discovery.warnings)
+
+
+def test_role_capability_reviews_match_schema_id_pattern(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    root = workspace / ".sprintengine"
+    write_role(root, "bad_review_tag", capabilities=[{"kind": "review", "reviews": ["Bad Tag"]}])
+    write_skill(root, "bad_review_tag")
+
+    discovery = RoleSkillRegistry(
+        workspace_root=workspace,
+        user_root=tmp_path / "user",
+        bundled_root=tmp_path / "bundled",
+    ).discover()
+
+    assert "bad_review_tag" not in discovery.roles
+    assert any(warning.code == "invalid_role_manifest" for warning in discovery.warnings)
 
 
 def test_rendered_soul_strips_frontmatter_and_preserves_ordered_skill_bodies(tmp_path: Path) -> None:

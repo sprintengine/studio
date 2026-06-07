@@ -4,42 +4,21 @@ import type { LoadedPlugin, PluginRenderContext } from '../shared/plugin-manifes
 import { getPluginById } from './plugin-registry-instance'
 import { renderPluginLaunch, renderPluginResume } from './plugin-render'
 
-// Maps the legacy `AgentCli` identifiers stored in settings to the plugin
-// ids in `resources/plugins/`. As Phase 4 lands and `AgentCli` becomes a
-// free-form plugin id, this lookup becomes a no-op and can be inlined.
-const LEGACY_CLI_TO_PLUGIN_ID: Record<string, string> = {
-  claude: 'claude-code',
-  codex: 'codex',
-}
-
 export function pluginIdForCli(cli: AgentCli): string {
-  return LEGACY_CLI_TO_PLUGIN_ID[cli] ?? cli
+  return cli
 }
 
-// Legacy `cliRuntimes` settings keys that predate plugin ids. A `claude-code`
-// launch honors an existing `claude` override (command + WSL) until a direct
-// `claude-code` override is saved, matching the Agents settings row display
-// (renderer cliRuntimeForPlugin). Keep these two in sync.
-const LEGACY_RUNTIME_OVERRIDE_KEY: Record<string, AgentCli> = {
-  'claude-code': 'claude',
-}
-
-// Resolves the effective command/WSL override for a launch. Prefers the cli's
-// own key, then a legacy alias key (claude-code <- claude). An explicit command
-// on the direct key — including a blank one (meaning "use the manifest binary")
-// — wins over a legacy value, so this matches cliRuntimeForPlugin exactly.
+// Resolves the effective command/WSL override for a launch. Uses the plugin-id
+// key only; a blank command means "use the manifest binary".
 export function resolveCliRuntimeSettings(
   cli: AgentCli,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
 ): CliRuntimeSettings {
   const direct = cliRuntimes?.[cli]
-  const legacyKey = LEGACY_RUNTIME_OVERRIDE_KEY[cli]
-  const legacy = legacyKey ? cliRuntimes?.[legacyKey] : undefined
   const command =
     (typeof direct?.command === 'string' ? direct.command : undefined)
-    ?? (typeof legacy?.command === 'string' ? legacy.command : undefined)
     ?? ''
-  const useWsl = direct?.useWsl ?? legacy?.useWsl ?? false
+  const useWsl = direct?.useWsl ?? false
   return { command: command.trim(), useWsl }
 }
 

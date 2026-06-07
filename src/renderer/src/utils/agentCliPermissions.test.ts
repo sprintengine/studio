@@ -9,7 +9,7 @@ const baseAgent = (id: string, overrides: Partial<AgentState> = {}): AgentState 
   execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
   messages: [],
   streamBuffer: '',
-  cli: 'claude',
+  cli: 'claude-code',
   kind: 'general',
   ...overrides,
 })

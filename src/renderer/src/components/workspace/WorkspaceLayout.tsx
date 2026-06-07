@@ -162,6 +162,7 @@ const SPRINTENGINE_ROLES: SprintEngineRole[] = [
   'nuclear_reviewer',
   'spec_reviewer',
   'performance',
+  'production_readiness_reviewer',
   'cross_platform',
 ]
 
@@ -549,7 +550,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
           if (!Panel) return EMPTY_SURFACE
           const moduleId = host.getPanelModule(component!)
           if (moduleId && !selectModuleEnabled(moduleOverrides, moduleId)) return EMPTY_SURFACE
-          return timedPanel(component!, <Panel workspaceId={workspaceId} />)
+          return timedPanel(component!, <Panel workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />)
         }
       }
     },

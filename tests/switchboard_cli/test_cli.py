@@ -160,7 +160,7 @@ class SwitchboardCliTests(unittest.TestCase):
         claude = self.fake_cli_on_path("claude")
 
         with patch.dict(os.environ, {"PATH": str(self.workspace)}, clear=True):
-            command = runner_command_for({"cli": "claude"})
+            command = runner_command_for({"cli": "claude-code"})
 
         # The capability-check shape no longer includes `--print`. The full
         # spawn argv (with --session-id and the positional prompt) is built
@@ -177,7 +177,7 @@ class SwitchboardCliTests(unittest.TestCase):
         claude = self.fake_cli_on_path("claude")
         with patch.dict(os.environ, {"PATH": str(self.workspace)}, clear=True):
             materialized = materialize_runner_command(
-                {"cli": "claude"},
+                {"cli": "claude-code"},
                 execution_id="exec_abc",
                 prompt="do the work",
             )
@@ -1529,7 +1529,7 @@ class SwitchboardCliTests(unittest.TestCase):
                     "--provider",
                     "electron-session",
                     "--cli",
-                    "claude",
+                    "claude-code",
                     "--queue",
                     "ready",
                     "--max-concurrency",
@@ -1541,7 +1541,7 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertTrue(started["enabled"])
         self.assertFalse(started["paused"])
         self.assertEqual(started["provider"], "electron-session")
-        self.assertEqual(started["cli"], "claude")
+        self.assertEqual(started["cli"], "claude-code")
         self.assertEqual(started["queues"], ["ready"])
         state_path = self.workspace / ".multi-code" / "switchboard" / "runner" / "state.json"
         events_path = self.workspace / ".multi-code" / "switchboard" / "runner" / "events.jsonl"

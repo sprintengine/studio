@@ -81,10 +81,10 @@ export const defaultEditorState = (): EditorState => ({
 
 export function normalizeAgentCli(agent: Partial<AgentState>, fallback?: AgentCli): AgentCli | undefined {
   const cli = typeof agent.cli === 'string' ? agent.cli.trim() : ''
-  if (cli) return cli === 'claude' ? 'claude-code' : cli
+  if (cli) return cli
   const fallbackCli = typeof fallback === 'string' ? fallback.trim() : ''
   if (!fallbackCli) return undefined
-  return fallbackCli === 'claude' ? 'claude-code' : fallbackCli
+  return fallbackCli
 }
 
 export function normalizeAgentConversation(

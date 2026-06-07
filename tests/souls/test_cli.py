@@ -43,6 +43,7 @@ def test_souls_list_includes_canonical_roles() -> None:
         "code_reviewer",
         "spec_reviewer",
         "performance",
+        "production_readiness_reviewer",
         "presentation",
     }.issubset(roles)
     assert "registry_probe" not in roles
@@ -50,6 +51,13 @@ def test_souls_list_includes_canonical_roles() -> None:
     by_role = {soul["role"]: soul for soul in payload["souls"]}
     assert by_role["blog_writer"]["aliases"] == ["blog-writer", "content-writer", "blogger"]
     assert by_role["presentation"]["aliases"] == ["presenter", "deck-writer", "slide-author", "slides"]
+    assert by_role["production_readiness_reviewer"]["aliases"] == [
+        "production-readiness",
+        "production-ready",
+        "production-readiness-review",
+        "release-readiness",
+        "launch-readiness",
+    ]
     assert by_role["tester"]["path"].endswith("resources/sprintengine/roles/tester.json")
     assert "souls/prompts" not in by_role["tester"]["path"]
 

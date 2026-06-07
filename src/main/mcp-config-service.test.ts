@@ -98,7 +98,7 @@ async function main(): Promise<void> {
         command: 'npx',
         args: ['-y', '@upstash/context7-mcp'],
         enabled: false,
-        clients: ['claude'],
+        clients: ['claude-code'],
         scope: 'workspace',
         source: 'bundled',
         riskLevel: 'network',
@@ -109,7 +109,7 @@ async function main(): Promise<void> {
         transport: 'http',
         url: 'https://mcp.sentry.dev/mcp',
         enabled: true,
-        clients: ['claude'],
+        clients: ['claude-code'],
         scope: 'workspace',
         source: 'bundled',
         riskLevel: 'network',
@@ -117,7 +117,7 @@ async function main(): Promise<void> {
     },
   }
 
-  const claudeResult = service.sync({ workspaceRoot, settings: claudeSettings, clients: ['claude'] })
+  const claudeResult = service.sync({ workspaceRoot, settings: claudeSettings, clients: ['claude-code'] })
   assert.equal(claudeResult.ok, true)
   const claudeConfig = JSON.parse(await readFile(claudePath, 'utf-8')) as {
     mcpServers: Record<string, unknown>
@@ -304,7 +304,7 @@ async function main(): Promise<void> {
         transport: 'http',
         url: 'https://helper.example.com/mcp',
         enabled: true,
-        clients: ['codex', 'claude'],
+        clients: ['codex', 'claude-code'],
         scope: 'workspace',
         source: 'custom',
         riskLevel: 'low',
@@ -314,7 +314,7 @@ async function main(): Promise<void> {
   const managedHttpResult = managedService.sync({
     workspaceRoot: siblingRoot,
     settings: managedSettings,
-    clients: ['codex', 'claude'],
+    clients: ['codex', 'claude-code'],
     managedSprintEngine: {
       ...buildManagedSprintEngineSyncInputForLaunch(managedStatePath, siblingRoot),
       actorId: 'workspace-user',
@@ -365,7 +365,7 @@ async function main(): Promise<void> {
 
   const cleanupResult = managedService.removeManagedSprintEngine({
     workspaceRoot: siblingRoot,
-    clients: ['codex', 'claude'],
+    clients: ['codex', 'claude-code'],
   })
   assert.equal(cleanupResult.ok, true)
   const cleanedCodexConfig = await readFile(join(siblingRoot, '.codex', 'config.toml'), 'utf-8')
@@ -383,7 +383,7 @@ async function main(): Promise<void> {
   const managedResult = managedService.sync({
     workspaceRoot: siblingRoot,
     settings: managedSettings,
-    clients: ['codex', 'claude'],
+    clients: ['codex', 'claude-code'],
     managedSprintEngine: {
       ...buildManagedSprintEngineSyncInputForLaunch(managedStatePath, siblingRoot),
       actorId: 'workspace-user',

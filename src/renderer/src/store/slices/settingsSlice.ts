@@ -420,8 +420,7 @@ export function normalizeCliDefaults<K extends string>(
   const result: Partial<Record<K, AgentCli>> = {}
   for (const [key, value] of Object.entries(input)) {
     if (typeof value === 'string' && value.trim()) {
-      const cli = value.trim()
-      result[key as K] = cli === 'claude' ? 'claude-code' : cli
+      result[key as K] = value.trim()
     }
   }
   return result
@@ -429,8 +428,7 @@ export function normalizeCliDefaults<K extends string>(
 
 export function normalizeSelectedCli(input: AgentCli | null | undefined, fallback: AgentCli = 'claude-code'): AgentCli {
   if (typeof input === 'string' && input.trim()) {
-    const cli = input.trim()
-    return cli === 'claude' ? 'claude-code' : cli
+    return input.trim()
   }
   return fallback
 }
@@ -439,14 +437,12 @@ function normalizeCliRuntimes(
   cliRuntimes: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>> | undefined,
   defaults: AppSettings,
 ): AppSettings['cliRuntimes'] {
-  const legacyClaude = cliRuntimes?.claude
   const canonicalClaude = cliRuntimes?.['claude-code']
   const result: AppSettings['cliRuntimes'] = {
     ...defaults.cliRuntimes,
     ...(cliRuntimes ?? {}),
     'claude-code': {
       ...defaults.cliRuntimes['claude-code'],
-      ...(legacyClaude ?? {}),
       ...(canonicalClaude ?? {}),
     },
   }

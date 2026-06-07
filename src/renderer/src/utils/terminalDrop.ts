@@ -1,4 +1,5 @@
 export const MULTICODE_FILE_DROP_MIME = 'application/x-multicode-file-drop'
+export const MULTICODE_COMMIT_DROP_MIME = 'application/x-multicode-commit-drop'
 
 export type FileDropPayload = {
   version: 1
@@ -28,6 +29,38 @@ export function setFileDropData(
 export function hasFileDropData(dataTransfer: DataTransfer): boolean {
   const types = Array.from(dataTransfer.types)
   return types.includes(MULTICODE_FILE_DROP_MIME) || types.includes('Files')
+}
+
+export function setCommitDropData(dataTransfer: DataTransfer, hash: string): void {
+  dataTransfer.effectAllowed = 'copy'
+  dataTransfer.setData(MULTICODE_COMMIT_DROP_MIME, hash)
+  dataTransfer.setData('text/plain', hash)
+}
+
+export function hasCommitDropData(dataTransfer: DataTransfer): boolean {
+  return Array.from(dataTransfer.types).includes(MULTICODE_COMMIT_DROP_MIME)
+}
+
+export async function pasteDroppedCommitIntoTerminal(input: {
+  dataTransfer: DataTransfer
+  sessionId: string
+}): Promise<TerminalDropResult> {
+  const hash = parseCommitDropHash(input.dataTransfer)
+  if (!hash) return { ok: false, message: 'No commit hash was dropped.' }
+
+  const sessions = await window.api.terminalList()
+  const session = sessions.find(
+    (candidate) => candidate.sessionId === input.sessionId && candidate.processAlive
+  )
+  if (!session) return { ok: false, message: 'Terminal session is no longer running.' }
+
+  await window.api.terminalWrite(input.sessionId, bracketedPaste(hash))
+  return { ok: true, text: hash }
+}
+
+function parseCommitDropHash(dataTransfer: DataTransfer): string | null {
+  const raw = dataTransfer.getData(MULTICODE_COMMIT_DROP_MIME).trim()
+  return /^[0-9a-fA-F]{4,64}$/.test(raw) ? raw : null
 }
 
 export async function pasteDroppedFilesIntoTerminal(input: {

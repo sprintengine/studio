@@ -33,6 +33,7 @@ import {
   isSprintEngineRoleId,
   isSprintEngineTaskLaunchable,
   normalizeSprintEngineProjection,
+  orderSprintEngineBoardColumnTasks,
   orderSprintEngineRosterRoles,
   resolveSprintEngineArtifactEditorPath,
   sprintEngineNeutralRoleAccent,
@@ -367,6 +368,23 @@ assert.equal(changesRequestedTask.status, 'changes_requested')
 assert.equal(getSprintEngineTaskBoardColumn(readyTask, state!.tasks), 'ready')
 assert.equal(getSprintEngineTaskBoardColumn(changesRequestedTask, state!.tasks), 'changes_requested')
 assert.equal(getSprintEngineTaskBoardColumn(doneTask, state!.tasks), 'done')
+assert.deepEqual(
+  orderSprintEngineBoardColumnTasks('done', [
+    { ...doneTask, id: 'OLD', completedAt: '2026-05-16T19:50:00Z' },
+    { ...doneTask, id: 'MISSING', completedAt: null },
+    { ...doneTask, id: 'NEW', completedAt: '2026-05-16T20:05:00Z' },
+    { ...doneTask, id: 'SAME_A', completedAt: '2026-05-16T20:05:00Z' },
+    { ...doneTask, id: 'INVALID', completedAt: 'not-a-date' },
+  ]).map((task) => task.id),
+  ['NEW', 'SAME_A', 'OLD', 'MISSING', 'INVALID'],
+)
+assert.deepEqual(
+  orderSprintEngineBoardColumnTasks('ready', [
+    { ...readyTask, id: 'SECOND', completedAt: '2026-05-16T20:05:00Z' },
+    { ...readyTask, id: 'FIRST', completedAt: '2026-05-16T19:50:00Z' },
+  ]).map((task) => task.id),
+  ['SECOND', 'FIRST'],
+)
 assert.equal(isSprintEngineTaskLaunchable(readyTask, state!), true)
 assert.equal(isSprintEngineTaskLaunchable(changesRequestedTask, state!), true)
 assert.equal(isSprintEngineTaskLaunchable(doneTask, state!), false)
@@ -1289,7 +1307,7 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
 {
   assert.deepEqual(
     [...BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES],
-    ['architect', 'product', 'frontend', 'ui_ux_reviewer', 'developer', 'code_reviewer', 'nuclear_reviewer', 'spec_reviewer', 'performance', 'cross_platform', 'tester', 'security'],
+    ['architect', 'product', 'frontend', 'ui_ux_reviewer', 'developer', 'code_reviewer', 'nuclear_reviewer', 'spec_reviewer', 'performance', 'production_readiness_reviewer', 'cross_platform', 'tester', 'security'],
     'bundled addable roles match historical board list',
   )
 }

@@ -218,7 +218,7 @@ function removeManagedSprintEngineConfig(input: McpManagedSprintEngineRemoveInpu
 }
 
 function normalizeClients(value: McpClientTarget[] | undefined): McpClientTarget[] {
-  const clients = (value ?? ['codex', 'claude'])
+  const clients = (value ?? ['codex', 'claude-code'])
     .map((client) => sanitizeId(client))
     .filter(Boolean)
   return Array.from(new Set(clients))

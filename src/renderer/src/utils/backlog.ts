@@ -1,0 +1,353 @@
+import type { FileSystemStat } from '../../../shared/electron-api'
+import type { SprintEngineSourcePlanKind } from '../types/workspace'
+import {
+  inferSourcePlanKind,
+  joinPath,
+  markdownTitle,
+  planBasename,
+  shouldScanDirectory,
+  toTitleName,
+  workspaceRelativePath,
+} from '../components/workspace/newWorkspace/helpers'
+
+export type BacklogItemKind = SprintEngineSourcePlanKind | 'html_mockup'
+export type BacklogItemStatus = 'idea' | 'needs_structure' | 'ready' | 'in_progress' | 'completed' | 'archived'
+export type BacklogScanState = 'missing-folder' | 'empty-folder' | 'ready' | 'partial' | 'error'
+
+export type BacklogItemLinkStatus = 'active' | 'completed' | 'failed' | 'unknown'
+
+export type BacklogItemLink = {
+  id: string
+  moduleId: string
+  type: 'execution' | 'issue' | 'review' | 'artifact' | 'external'
+  label: string
+  target: {
+    kind: string
+    id: string
+    path?: string
+    url?: string
+  }
+  status?: BacklogItemLinkStatus
+  updatedAt?: string
+}
+
+export type BacklogItemObjectMetadata = {
+  objectId: string
+  metadata: Record<string, unknown>
+  links: BacklogItemLink[]
+  updatedAt?: string
+}
+
+export type BacklogItem = {
+  id: string
+  objectId: string
+  path: string
+  relativePath: string
+  title: string
+  kind: BacklogItemKind
+  status: BacklogItemStatus
+  metadata: Record<string, unknown>
+  links: BacklogItemLink[]
+  objectUpdatedAt?: string
+  excerpt: string
+  modifiedAt: number
+  size: number
+  sourceContent: string
+}
+
+export type BacklogScanError = {
+  relativePath: string
+  message: string
+}
+
+export type BacklogScanResult =
+  | { state: 'missing-folder'; items: []; errors: [] }
+  | { state: 'empty-folder'; items: []; errors: [] }
+  | { state: 'ready'; items: BacklogItem[]; errors: [] }
+  | { state: 'partial'; items: BacklogItem[]; errors: BacklogScanError[] }
+  | { state: 'error'; items: BacklogItem[]; errors: BacklogScanError[] }
+
+export type BacklogFilesystemAdapter = {
+  pathExists(path: string): Promise<boolean>
+  readdir(path: string): Promise<Array<{ name: string; isDir: boolean }>>
+  readfile(path: string): Promise<string>
+  statPath(path: string): Promise<FileSystemStat>
+}
+
+type ParsedBacklogFrontmatter = {
+  body: string
+  data: Record<string, string>
+}
+
+const BACKLOG_FOLDER = 'backlog'
+const ARCHIVED_PREFIX = 'backlog/archived/'
+const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/
+const SOURCE_EXTENSION_RE = /\.(md|html?)$/i
+const HTML_EXTENSION_RE = /\.html?$/i
+const VALID_KIND = new Set<BacklogItemKind>(['product_plan', 'architect_plan', 'html_mockup', 'unknown'])
+const VALID_STATUS = new Set<BacklogItemStatus>(['idea', 'needs_structure', 'ready', 'in_progress', 'completed', 'archived'])
+
+export function backlogRootPath(workspaceRoot: string): string {
+  return joinPath(workspaceRoot, BACKLOG_FOLDER)
+}
+
+export async function scanBacklog(
+  workspaceRoot: string,
+  fs: BacklogFilesystemAdapter,
+): Promise<BacklogScanResult> {
+  const rootPath = backlogRootPath(workspaceRoot)
+  const exists = await fs.pathExists(rootPath)
+  if (!exists) return { state: 'missing-folder', items: [], errors: [] }
+
+  const files: string[] = []
+  const errors: BacklogScanError[] = []
+
+  try {
+    await collectBacklogSourceFiles(rootPath, fs, files)
+  } catch (error) {
+    return {
+      state: 'error',
+      items: [],
+      errors: [{ relativePath: 'backlog/', message: errorMessage(error) }],
+    }
+  }
+
+  const items: BacklogItem[] = []
+  for (const filePath of files.sort(comparePaths)) {
+    const relativePath = workspaceRelativePath(workspaceRoot, filePath)
+    if (!relativePath || !isBacklogRelativePath(relativePath)) continue
+
+    try {
+      const [sourceContent, stats] = await Promise.all([fs.readfile(filePath), fs.statPath(filePath)])
+      if (!stats.isFile) continue
+      items.push(createBacklogItem({
+        path: filePath,
+        relativePath,
+        sourceContent,
+        stats,
+      }))
+    } catch (error) {
+      errors.push({ relativePath: normalizeRelativePath(relativePath), message: errorMessage(error) })
+    }
+  }
+
+  if (items.length === 0 && errors.length === 0) return { state: 'empty-folder', items: [], errors: [] }
+  if (errors.length === 0) return { state: 'ready', items, errors: [] }
+  if (items.length > 0) return { state: 'partial', items, errors }
+  return { state: 'error', items, errors }
+}
+
+async function collectBacklogSourceFiles(
+  directoryPath: string,
+  fs: Pick<BacklogFilesystemAdapter, 'readdir'>,
+  files: string[],
+): Promise<void> {
+  const entries = await fs.readdir(directoryPath)
+  for (const entry of entries) {
+    const entryPath = joinPath(directoryPath, entry.name)
+    if (entry.isDir) {
+      if (shouldScanDirectory(entry.name)) await collectBacklogSourceFiles(entryPath, fs, files)
+      continue
+    }
+    if (isBacklogSourceFile(entry.name)) files.push(entryPath)
+  }
+}
+
+export function createBacklogItem(input: {
+  path: string
+  relativePath: string
+  sourceContent: string
+  stats: Pick<FileSystemStat, 'modifiedAtMs' | 'sizeBytes'>
+  object?: BacklogItemObjectMetadata
+}): BacklogItem {
+  const relativePath = normalizeRelativePath(input.relativePath)
+  const { body, data } = parseBacklogFrontmatter(input.sourceContent)
+  const frontmatterKind = parseBacklogKind(frontmatterValue(data, 'kind', 'planKind', 'plan_kind', 'sourcePlanKind', 'source_plan_kind'))
+  const inferredKind = inferBacklogKind(relativePath, body)
+  const archived = isArchivedBacklogPath(relativePath)
+  const frontmatterStatus = parseBacklogStatus(frontmatterValue(data, 'status'))
+
+  return {
+    id: relativePath,
+    objectId: input.object?.objectId ?? stableBacklogObjectId(relativePath),
+    path: input.path,
+    relativePath,
+    title: inferBacklogTitle(relativePath, body),
+    kind: frontmatterKind ?? inferredKind,
+    status: archived ? 'archived' : frontmatterStatus ?? defaultBacklogStatus(frontmatterKind ?? inferredKind),
+    metadata: input.object?.metadata ?? {},
+    links: input.object?.links ?? [],
+    objectUpdatedAt: input.object?.updatedAt,
+    excerpt: backlogExcerpt(body),
+    modifiedAt: input.stats.modifiedAtMs,
+    size: input.stats.sizeBytes,
+    sourceContent: input.sourceContent,
+  }
+}
+
+export function inferBacklogKind(relativePath: string, content: string): BacklogItemKind {
+  if (HTML_EXTENSION_RE.test(relativePath)) return 'html_mockup'
+  return inferSourcePlanKind(relativePath, content)
+}
+
+export function inferBacklogTitle(relativePath: string, content: string): string {
+  const mdTitle = markdownTitle(content)
+  if (mdTitle) return mdTitle
+
+  const htmlTitle = htmlDocumentTitle(content) ?? htmlHeadingTitle(content)
+  if (htmlTitle) return htmlTitle
+
+  return toTitleName(planBasename(relativePath).replace(/\.html?$/i, ''))
+}
+
+export function backlogExcerpt(content: string, maxLength = 180): string {
+  const text = content
+    .replace(FRONTMATTER_RE, '')
+    .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^#{1,6}\s+/, '').trim())
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`
+}
+
+export function isBacklogSourceFile(pathValue: string): boolean {
+  return SOURCE_EXTENSION_RE.test(pathValue)
+}
+
+export function isBacklogRelativePath(pathValue: string): boolean {
+  const normalized = normalizeRelativePath(pathValue)
+  return normalized === 'backlog' || normalized.startsWith('backlog/')
+}
+
+export function normalizeRelativePath(pathValue: string): string {
+  return pathValue.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/')
+}
+
+export function stableBacklogObjectId(relativePath: string): string {
+  const normalized = normalizeRelativePath(relativePath).toLowerCase()
+  let hash = 2166136261
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash ^= normalized.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return `backlog_${(hash >>> 0).toString(36)}`
+}
+
+export function nextArchiveRelativePath(
+  sourceRelativePath: string,
+  existingRelativePaths: Iterable<string>,
+): string {
+  const normalizedExisting = new Set(Array.from(existingRelativePaths, (pathValue) => normalizeRelativePath(pathValue).toLowerCase()))
+  const sourceName = normalizeRelativePath(sourceRelativePath).split('/').filter(Boolean).at(-1) ?? 'untitled.md'
+  const dotIndex = sourceName.lastIndexOf('.')
+  const stem = dotIndex > 0 ? sourceName.slice(0, dotIndex) : sourceName
+  const extension = dotIndex > 0 ? sourceName.slice(dotIndex) : ''
+
+  let candidate = `${ARCHIVED_PREFIX}${sourceName}`
+  let index = 2
+  while (normalizedExisting.has(candidate.toLowerCase())) {
+    candidate = `${ARCHIVED_PREFIX}${stem}-${index}${extension}`
+    index += 1
+  }
+  return candidate
+}
+
+function parseBacklogFrontmatter(content: string): ParsedBacklogFrontmatter {
+  const match = FRONTMATTER_RE.exec(content)
+  if (!match) return { body: content, data: {} }
+
+  const data: Record<string, string> = {}
+  let currentSection: string | null = null
+  for (const rawLine of match[1].split(/\r?\n/)) {
+    const trimmed = rawLine.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+
+    const section = /^([A-Za-z0-9_-]+)\s*:\s*$/.exec(rawLine)
+    if (section) {
+      currentSection = section[1].toLowerCase()
+      continue
+    }
+
+    const kv = /^(\s*)([A-Za-z0-9_-]+)\s*:\s*(.+)$/.exec(rawLine)
+    if (!kv) continue
+    const indent = kv[1].length
+    const key = kv[2].toLowerCase()
+    const value = stripYamlQuotes(kv[3])
+    if (indent > 0 && currentSection) {
+      data[`${currentSection}.${key}`] = value
+    } else {
+      currentSection = null
+      data[key] = value
+    }
+  }
+  return { body: content.slice(match[0].length), data }
+}
+
+function frontmatterValue(data: Record<string, string>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const normalized = key.toLowerCase()
+    const flat = data[normalized]
+    if (flat) return flat
+    const nested = data[`backlog.${normalized}`]
+    if (nested) return nested
+  }
+  return undefined
+}
+
+function parseBacklogKind(value: string | undefined): BacklogItemKind | null {
+  if (!value) return null
+  return VALID_KIND.has(value as BacklogItemKind) ? (value as BacklogItemKind) : null
+}
+
+function parseBacklogStatus(value: string | undefined): BacklogItemStatus | null {
+  if (!value) return null
+  return VALID_STATUS.has(value as BacklogItemStatus) ? (value as BacklogItemStatus) : null
+}
+
+function defaultBacklogStatus(kind: BacklogItemKind): BacklogItemStatus {
+  return kind === 'unknown' ? 'needs_structure' : 'ready'
+}
+
+function isArchivedBacklogPath(relativePath: string): boolean {
+  return normalizeRelativePath(relativePath).toLowerCase().startsWith(ARCHIVED_PREFIX)
+}
+
+function htmlDocumentTitle(content: string): string | null {
+  const match = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(content)
+  return cleanHtmlTitle(match?.[1])
+}
+
+function htmlHeadingTitle(content: string): string | null {
+  const match = /<h1\b[^>]*>([\s\S]*?)<\/h1>/i.exec(content)
+  return cleanHtmlTitle(match?.[1])
+}
+
+function cleanHtmlTitle(value: string | undefined): string | null {
+  const cleaned = (value ?? '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+  return cleaned || null
+}
+
+function stripYamlQuotes(value: string): string {
+  const trimmed = value.trim()
+  if (trimmed.length >= 2) {
+    const first = trimmed[0]
+    const last = trimmed[trimmed.length - 1]
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) return trimmed.slice(1, -1)
+  }
+  return trimmed
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function comparePaths(a: string, b: string): number {
+  return normalizeRelativePath(a).localeCompare(normalizeRelativePath(b))
+}

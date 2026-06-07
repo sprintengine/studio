@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react'
 import type { GitGraphCommit, GitGraphSnapshot } from '../../../../shared/electron-api'
 import { computeGitGraphLayout, type GitGraphLine } from '../../utils/gitGraphLayout'
 import { GhostButton, InlineNotice, OverflowMenu, StatusDot, Tooltip, type OverflowMenuItem, type Tone } from '../ui'
+import { setCommitDropData } from '../../utils/terminalDrop'
 
 export type GitGraphState =
   | { status: 'loading' }
@@ -185,6 +186,8 @@ function GitGraphCommitRow({
 
   return (
     <div
+      draggable
+      onDragStart={(event) => setCommitDropData(event.dataTransfer, commit.hash)}
       className={`group flex items-stretch transition-colors ${
         active ? 'bg-[color:var(--bg-hover)]' : 'hover:bg-[color:var(--bg-hover)]'
       }`}
@@ -229,11 +232,11 @@ function GitGraphCommitRow({
               {commit.subject}
             </span>
           </span>
-          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] tabular-nums text-[color:var(--text-disabled)]">
-            <span className="font-mono text-[color:var(--text-muted)]">{commit.shortHash}</span>
-            <span aria-hidden="true">·</span>
-            <span>{commit.date}</span>
-            <span aria-hidden="true">·</span>
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-[10px] tabular-nums text-[color:var(--text-disabled)]">
+            <span className="shrink-0 font-mono text-[color:var(--text-muted)]">{commit.shortHash}</span>
+            <span aria-hidden="true" className="shrink-0">·</span>
+            <span className="shrink-0 whitespace-nowrap">{commit.date}</span>
+            <span aria-hidden="true" className="shrink-0">·</span>
             <span className="min-w-0 truncate">{commit.author}</span>
           </span>
         </span>

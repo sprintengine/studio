@@ -106,7 +106,7 @@ assert.deepEqual(normalizedMultiloopAuto.pendingSpawns, [
   { role: 'coordinator', agentId: 'coordinator-1', taskId: null, startedAt: 1 },
   { role: 'not-a-role', agentId: 'bad-agent', taskId: 'bad' },
 ])
-assert.equal(normalizeSprintEngineRoleCliDefaults({ tester: 'claude' }).tester, 'claude-code')
+assert.equal(normalizeSprintEngineRoleCliDefaults({ tester: 'claude-code' }).tester, 'claude-code')
 assert.equal(normalizeSprintEngineRoleCliDefaults({ tester: 'bad' as never }).tester, 'bad')
 
 const sprintState = createInitialSprintEngineState({

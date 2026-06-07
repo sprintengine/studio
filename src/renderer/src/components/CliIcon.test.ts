@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { resolveCliIconKind } from './CliIcon'
 
 assert.equal(resolveCliIconKind('codex'), 'codex')
-assert.equal(resolveCliIconKind('claude'), 'claude')
-assert.equal(resolveCliIconKind('claude-code'), 'claude')
+assert.equal(resolveCliIconKind('claude'), 'terminal')
+assert.equal(resolveCliIconKind('claude-code'), 'claude-code')
 assert.equal(resolveCliIconKind('generic-shell'), 'terminal')
 assert.equal(resolveCliIconKind('opencode'), 'terminal')
 

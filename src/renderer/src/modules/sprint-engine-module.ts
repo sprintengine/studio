@@ -1,6 +1,9 @@
 import React from 'react'
 
 import type { RendererModule } from './renderer-host'
+import { basename } from '../utils/paths'
+import { slugifySprintEngineName } from '../utils/sprintengineStateFile'
+import { markdownTitle } from '../components/workspace/newWorkspace/helpers'
 
 // Lazy so the Sprint Engine board bundle only loads when the panel is actually
 // rendered — never, when the module is disabled.
@@ -37,5 +40,32 @@ export const sprintEngineRendererModule: RendererModule = {
   },
   registerRenderer(host) {
     host.registerPanel('sprintengine', SprintEngineBoardPanel)
+    host.registerBacklogItemAction({
+      id: 'sprint-engine.start-from-backlog',
+      label: 'Start Sprint Engine',
+      category: 'execute',
+      order: 10,
+      isVisible: ({ item }) => item.status !== 'archived',
+      getState: ({ startSourcePlan }) => startSourcePlan ? 'enabled' : 'disabled',
+      async run(context) {
+        if (!context.startSourcePlan) return
+        const sourceContent = await context.readSource()
+        const baseName = basename(context.item.relativePath).replace(/\.(md|html?)$/i, '')
+        const teamName = slugifySprintEngineName(baseName)
+        context.startSourcePlan({
+          folderPath: context.workspaceRoot,
+          sourcePath: context.item.path,
+          sourceRelativePath: context.item.relativePath,
+          sourceContent,
+          sourcePlanKind: sourcePlanKindForBacklogItem(context.item.kind),
+          teamName,
+          goal: markdownTitle(sourceContent) ?? context.item.title,
+        })
+      },
+    })
   },
+}
+
+function sourcePlanKindForBacklogItem(kind: string): 'product_plan' | 'architect_plan' | 'unknown' {
+  return kind === 'product_plan' || kind === 'architect_plan' ? kind : 'unknown'
 }

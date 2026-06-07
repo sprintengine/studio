@@ -304,8 +304,8 @@ export type ConversationSecretSetResult = ConversationSecretStatusResult
 
 export type ConversationSecretClearResult = ConversationSecretStatusResult
 
-// Runtime CLI identity is a plugin id. Legacy stored values `codex` and
-// `claude` still map to the bundled plugin manifests in the main process.
+// Runtime CLI identity is a plugin id. Bundled choices include `codex` and
+// `claude-code`.
 export type AgentCli = string
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
 export type SprintEngineCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
@@ -539,6 +539,7 @@ export type SpecialistActionId =
   | 'developer'
   | 'devops-infra'
   | 'performance'
+  | 'production-readiness-review'
   | 'cross-platform'
   | 'blog-writer'
   | 'qa-test'
@@ -887,6 +888,7 @@ export type SprintEngineTaskMutationRole =
   | 'code_reviewer'
   | 'spec_reviewer'
   | 'performance'
+  | 'production_readiness_reviewer'
   | 'cross_platform'
 
 export type SprintEngineTaskUpdateInput = {

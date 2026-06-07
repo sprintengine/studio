@@ -90,7 +90,7 @@ assert.equal(
   normalizeAgentState({
     ...defaultAgent('agent-normalize-fallback'),
     cli: undefined,
-  }, 'claude').cli,
+  }, 'claude-code').cli,
   'claude-code',
 )
 assert.equal(
@@ -170,7 +170,7 @@ carrier.workspaces[0].agents['codex-agent'] = {
 }
 carrier.workspaces[0].agents['claude-agent'] = {
   ...defaultAgent('claude-agent'),
-  cli: 'claude',
+  cli: 'claude-code',
   cliStartRequested: false,
   cliHasLaunched: true,
   cliSessionId: 'stable-claude',

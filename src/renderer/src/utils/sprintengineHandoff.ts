@@ -75,7 +75,7 @@ export function buildPlanFileSprintEngineHandoffPrompt({
     : [{ kind: sourcePlanKind, sourcePath, sourceContent }]
   const contentLines = bundle.reduce((sum, item) => sum + item.sourceContent.trim().split(/\r?\n/).length, 0)
   const sourceSummary = hasExplicitSourceBundle
-    ? bundle.map((item) => `- ${item.kind}: \`${item.sourcePath}\``).join('\n')
+    ? bundle.map((item) => `- ${item.kind}: \`${item.sourceRelativePath ?? item.sourcePath}\``).join('\n')
     : `Source path: \`${sourcePath}\``
 
   const handoverCalls = hasExplicitSourceBundle
@@ -119,7 +119,7 @@ export function buildPlanFileSprintEngineHandoffPrompt({
   return [
     hasExplicitSourceBundle
       ? 'Create a Sprint Engine workspace from this saved source bundle through the managed Sprint Engine MCP server.'
-      : 'Create a Sprint Engine workspace from this saved future plan through the managed Sprint Engine MCP server.',
+      : 'Create a Sprint Engine workspace from this saved source plan through the managed Sprint Engine MCP server.',
     `Team name: \`${teamSlug}\``,
     `Goal: ${goal}`,
     sourceSummary,

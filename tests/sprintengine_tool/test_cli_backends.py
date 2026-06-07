@@ -226,6 +226,84 @@ def test_custom_quality_policy_gate_uses_workspace_role(tmp_path) -> None:
     assert any(gate["id"] == "launch_review" and gate["role"] == "marketer" for gate in gates)
 
 
+def test_custom_review_capability_role_can_be_required_as_gate(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    write_workspace_role(
+        workspace,
+        "creative_director",
+        capabilities=[
+            {
+                "kind": "review",
+                "phase": "review",
+                "reviews": ["brand", "marketing_material"],
+                "defaultFocus": "brand consistency and campaign readiness",
+            }
+        ],
+    )
+    fixture = create_workspace_team(tmp_path, "workspace", "cli-capability-review-gate", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "developer-1": {"id": "developer-1", "role": "developer", "status": "idle"},
+        "creative-director-1": {"id": "creative-director-1", "role": "creative_director", "status": "idle"},
+    }
+    write_state(fixture.state_path, state)
+
+    payload = fixture.cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Implement campaign page",
+        "--role",
+        "developer",
+        "--path",
+        "src/renderer/src/campaign.tsx",
+        "--require-gate",
+        "creative_director",
+    )
+
+    assert payload["task"]["qualityGates"] == [
+        {
+            "allowSelfReview": True,
+            "attempts": [],
+            "focus": "brand consistency and campaign readiness",
+            "id": "creative_director",
+            "phase": "review",
+            "required": True,
+            "role": "creative_director",
+            "status": "pending",
+        }
+    ]
+
+
+def test_custom_role_without_review_capability_is_not_a_gate(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    write_workspace_role(workspace, "marketer")
+    fixture = create_workspace_team(tmp_path, "workspace", "cli-custom-role-not-gate", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "developer-1": {"id": "developer-1", "role": "developer", "status": "idle"},
+        "marketer-1": {"id": "marketer-1", "role": "marketer", "status": "idle"},
+    }
+    write_state(fixture.state_path, state)
+
+    rejected = fixture.cli.run_failure(
+        "plan",
+        "add-task",
+        "--title",
+        "Implement campaign page",
+        "--role",
+        "developer",
+        "--path",
+        "src/renderer/src/campaign.tsx",
+        "--require-gate",
+        "marketer",
+    )
+
+    assert "Unknown quality gate 'marketer'" in rejected.stderr
+
+
 def test_nuclear_reviewer_gate_claim_gets_gate_feedback_prompt(tmp_path) -> None:
     task_record = task("T1", "Review structural risk", "developer", status="review")
     task_record["lastImplementedByAgentId"] = "developer-1"

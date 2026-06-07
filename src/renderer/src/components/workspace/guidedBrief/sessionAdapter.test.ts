@@ -128,7 +128,7 @@ const generatedIdResult = await startGuidedBriefSpecialistSession(
   {
     kind: 'strategist',
     workspaceRoot: '/workspace',
-    cli: 'claude',
+    cli: 'claude-code',
   },
   {
     terminalApi: generatedIdApi,
@@ -152,7 +152,7 @@ const result = await startGuidedBriefSpecialistSession(
     kind: 'strategist',
     workspaceRoot: '/workspace',
     sessionId: 'guided-brief-test',
-    cli: 'claude',
+    cli: 'claude-code',
   },
   {
     terminalApi: api,
@@ -192,7 +192,7 @@ const architectResult = await startGuidedBriefSpecialistSession(
     workspaceRoot: '/workspace',
     acceptedBriefSnapshotPath: 'product/.versions/brief.md',
     sessionId: 'persisted-architect-id',
-    cli: 'claude',
+    cli: 'claude-code',
   },
   { terminalApi: architectApi },
 )

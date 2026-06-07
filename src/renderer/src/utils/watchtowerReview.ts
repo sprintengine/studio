@@ -31,6 +31,7 @@ export const WATCHTOWER_REVIEW_SECTORS: WatchtowerReviewSector[] = [
   { id: 'ai_slop', label: 'AI Slop', reportFile: 'ai-slop.md', description: 'Generic boilerplate, fake affordances, hallucinated APIs, dead UI, and shallow abstractions.' },
   { id: 'architecture_quality', label: 'Architecture', reportFile: 'architecture-quality.md', description: 'Boundaries, state ownership, data flow, dependency direction, and migration safety.' },
   { id: 'frontend_design', label: 'Frontend Design', reportFile: 'frontend-design.md', description: 'Layout, hierarchy, interaction states, responsiveness, and visual polish.' },
+  { id: 'production_readiness', label: 'Production Readiness', reportFile: 'production-readiness.md', description: 'Release blockers, deployment configuration, real integrations, data safety, observability, rollback, scale, and user setup.' },
   { id: 'cross_platform', label: 'Cross Platform', reportFile: 'cross-platform.md', description: 'Windows, macOS, Linux, shell, path, packaging, and WSL assumptions.' },
   { id: 'brand_alignment', label: 'Brand Alignment', reportFile: 'brand-alignment.md', description: 'Knowledge-graph brand guidance, UI surfaces, modals, panels, product naming, copy, palette discipline, and consistency with adjacent product surfaces.' },
   { id: 'security', label: 'Security', reportFile: 'security.md', description: 'Trust boundaries, command execution, filesystem access, IPC, auth, secrets, and unsafe defaults.' },
@@ -50,6 +51,7 @@ export const WATCHTOWER_REVIEW_SPECIALIST_FOCUS: Record<SpecialistActionId, Watc
   developer: ['code_review', 'architecture_quality', 'performance', 'documentation'],
   'devops-infra': ['infrastructure', 'cross_platform', 'performance', 'documentation'],
   performance: ['performance', 'cross_platform'],
+  'production-readiness-review': ['production_readiness', 'infrastructure', 'security', 'performance', 'qa_testing'],
   'cross-platform': ['cross_platform', 'qa_testing', 'infrastructure', 'accessibility'],
   'qa-test': ['qa_testing', 'cross_platform', 'accessibility', 'documentation'],
   'security-review': ['security'],
@@ -71,6 +73,7 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
       'code-review': ['ai_slop'],
       'qa-test': ['qa_testing'],
       performance: ['performance'],
+      'production-readiness-review': ['production_readiness'],
     },
   },
   {
@@ -116,6 +119,7 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
       'qa-test': ['qa_testing', 'cross_platform'],
       'security-review': ['security'],
       performance: ['performance'],
+      'production-readiness-review': ['production_readiness', 'infrastructure', 'security', 'performance'],
       'spec-review': ['spec_review'],
       'code-review': ['code_review', 'ai_slop', 'architecture_quality'],
       'devops-infra': ['infrastructure'],
@@ -157,6 +161,8 @@ export function defaultSectorsForSpecialist(specialistId: SpecialistActionId): W
       return ['infrastructure', 'cross_platform']
     case 'performance':
       return ['performance']
+    case 'production-readiness-review':
+      return ['production_readiness', 'infrastructure', 'security', 'performance']
     case 'cross-platform':
       return ['cross_platform']
     case 'qa-test':

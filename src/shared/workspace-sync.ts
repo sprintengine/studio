@@ -434,7 +434,7 @@ function updateAgentTerminalLaunchState(
 }
 
 function agentCliSupportsConversationResume(cli: AgentCli | undefined): boolean {
-  return cli === 'codex' || cli === 'claude' || cli === 'claude-code'
+  return cli === 'codex' || cli === 'claude-code'
 }
 
 function findOrCreateAgent(

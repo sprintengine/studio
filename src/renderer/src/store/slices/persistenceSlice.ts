@@ -385,12 +385,9 @@ export function migratePersistedWorkspaceState(
         },
         'claude-code': {
           ...defaults.cliRuntimes['claude-code'],
-          ...(existing.cliRuntimes?.claude ?? {}),
           ...(existing.cliRuntimes?.['claude-code'] ?? {}),
           command:
             existing.cliRuntimes?.['claude-code']?.command
-            ?? existing.cliRuntimes?.claude?.command
-            ?? existing.cliCommands?.claude
             ?? defaults.cliRuntimes['claude-code'].command,
         },
       },
@@ -408,7 +405,6 @@ export function migratePersistedWorkspaceState(
         ...(current.appSettings?.cliRuntimes ?? {}),
         'claude-code': {
           ...defaults.cliRuntimes['claude-code'],
-          ...(current.appSettings?.cliRuntimes?.claude ?? {}),
           ...(current.appSettings?.cliRuntimes?.['claude-code'] ?? {}),
         },
       },

@@ -15,6 +15,7 @@ export type SpecialistIcon =
   | 'infra'
   | 'product'
   | 'performance'
+  | 'production_readiness'
   | 'cross_platform'
   | 'writing'
 
@@ -90,6 +91,14 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     soulRole: 'performance',
   },
   {
+    id: 'production-readiness-review',
+    label: 'Production Readiness Reviewer',
+    shortLabel: 'Production Ready',
+    description: 'Review release readiness across deployment, real integrations, data, observability, rollback, scale, and user setup.',
+    icon: 'production_readiness',
+    soulRole: 'production_readiness_reviewer',
+  },
+  {
     id: 'cross-platform',
     label: 'Cross-platform Specialist',
     shortLabel: 'Compatibility',
@@ -139,8 +148,8 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
   },
   {
     id: 'code-review',
-    label: 'AI Slop Code Reviewer',
-    shortLabel: 'AI Slop Reviewer',
+    label: 'Slop Cop',
+    shortLabel: 'Slop Cop',
     description: 'Review implementation quality, generic AI-code patterns, fake affordances, design decay, and shallow abstractions.',
     icon: 'spaghetti',
     soulRole: 'code_reviewer',

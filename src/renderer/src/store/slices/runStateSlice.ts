@@ -85,6 +85,7 @@ const defaultSprintEngineRoleCliDefaults = (): Required<SprintEngineRoleCliDefau
   code_reviewer: 'claude-code',
   spec_reviewer: 'claude-code',
   performance: 'claude-code',
+  production_readiness_reviewer: 'claude-code',
   tester: 'claude-code',
   security: 'claude-code',
 })
@@ -100,8 +101,7 @@ export function normalizeSprintEngineRoleCliDefaults(
     : Object.entries(defaults)
   for (const [role, value] of entries) {
     if (typeof value === 'string' && value.trim()) {
-      const cli = value.trim()
-      next[role] = cli === 'claude' ? 'claude-code' : cli
+      next[role] = value.trim()
     }
   }
 

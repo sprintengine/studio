@@ -86,6 +86,7 @@ const ROLE_GLYPHS: SprintEngineRole[] = [
   'tester',
   'security',
   'performance',
+  'production_readiness_reviewer',
 ]
 
 const KBD_CHORDS: { keys: readonly string[]; ariaLabel: string; supporting: string }[] = [

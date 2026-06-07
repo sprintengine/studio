@@ -10,6 +10,7 @@ import type {
   WorkspaceId,
   WorkspaceWindowId,
 } from '../types/workspace'
+import type { SprintEngineArtifactCommandResult, SprintEngineStateInitializeInput } from '../../../shared/electron-api'
 import {
   buildSprintEngineAgentRosterForState,
   buildSprintEngineRosterCommandArgs,
@@ -28,6 +29,7 @@ const planSourcedSprintEngineRoleCounts: SprintEngineRoleCounts = {
   nuclear_reviewer: 0,
   spec_reviewer: 0,
   performance: 0,
+  production_readiness_reviewer: 0,
   tester: 0,
   security: 0,
 }
@@ -45,6 +47,9 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
   workspaceWindowId?: WorkspaceWindowId | null
   pathExists?: (path: string) => boolean | Promise<boolean>
+  initializeSprintEngineState?: (
+    input: SprintEngineStateInitializeInput
+  ) => Promise<SprintEngineArtifactCommandResult>
 }
 
 export type PlanSourcedSprintEngineWorkspaceResult = {
@@ -98,6 +103,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   sprintEngineAutoState,
   workspaceWindowId,
   pathExists,
+  initializeSprintEngineState,
 }: PlanSourcedSprintEngineWorkspaceArgs): Promise<PlanSourcedSprintEngineWorkspaceResult> {
   const trimmedRoot = rootPath.trim()
   const trimmedTeamName = teamName.trim()
@@ -121,6 +127,21 @@ export async function createPlanSourcedSprintEngineWorkspace({
   })
   const architect = buildSprintEngineAgentRosterForState(sprintEngineState).find((agent) => agent.role === 'architect')
   if (!architect) throw new PlanSourcedSprintEngineWorkspaceError('missing-architect')
+
+  if (initializeSprintEngineState) {
+    const initResult = await initializeSprintEngineState({
+      statePath: sprintEngineContext.statePath,
+      name: sprintEngineState.name,
+      goal: sprintEngineState.goal,
+      agents: sprintEngineState.sprintEngineAgents,
+      tasks: sprintEngineState.tasks,
+      events: sprintEngineState.events,
+      artifacts: sprintEngineState.artifacts,
+    })
+    if (!initResult.ok) {
+      throw new Error(initResult.message || 'Could not initialize Sprint Engine run state.')
+    }
+  }
 
   const template = createSprintEngineTemplate({
     name: sprintEngineState.name,

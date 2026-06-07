@@ -119,7 +119,7 @@ export async function runSprintEnginePlanSourcedCreation(
   }
 
   try {
-    await createPlanSourcedSprintEngineWorkspace({
+    const result = await createPlanSourcedSprintEngineWorkspace({
       rootPath: input.folderPath,
       teamName: input.teamName,
       goal: input.goal,
@@ -136,7 +136,16 @@ export async function runSprintEnginePlanSourcedCreation(
         maxConcurrentAgents: Math.max(1, input.totalAgents),
       },
       pathExists: ports.pathExists,
+      initializeSprintEngineState: ports.initializeSprintEngineState,
     })
+    if (ports.recordBacklogExecutionLink && optionRelativePath.startsWith('backlog/')) {
+      await ports.recordBacklogExecutionLink({
+        workspaceRoot: input.folderPath,
+        sourceRelativePath: optionRelativePath,
+        teamSlug: result.sprintEngineContext.teamSlug,
+        statePath: result.sprintEngineContext.statePath,
+      })
+    }
   } catch (error) {
     if (error instanceof PlanSourcedSprintEngineWorkspaceError && error.code === 'team-exists') {
       throw new SprintEnginePlanSourcedError('team-exists')

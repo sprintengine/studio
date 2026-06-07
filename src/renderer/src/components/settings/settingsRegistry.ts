@@ -95,7 +95,7 @@ export type SettingDescriptor = {
 }
 
 const CLI_OPTIONS: ReadonlyArray<SelectOption<AgentCli>> = [
-  { value: 'claude', label: 'Claude Code' },
+  { value: 'claude-code', label: 'Claude Code' },
   { value: 'codex', label: 'Codex' },
 ]
 
@@ -113,6 +113,7 @@ const SPECIALIST_OPTIONS: ReadonlyArray<SelectOption<SpecialistActionId>> = [
   { value: 'developer', label: 'Developer' },
   { value: 'devops-infra', label: 'DevOps / infrastructure' },
   { value: 'performance', label: 'Performance' },
+  { value: 'production-readiness-review', label: 'Production readiness' },
   { value: 'cross-platform', label: 'Cross-platform compatibility' },
   { value: 'blog-writer', label: 'Blog writer' },
   { value: 'qa-test', label: 'QA / test' },

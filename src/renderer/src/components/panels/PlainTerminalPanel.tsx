@@ -11,7 +11,12 @@ import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xterm
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { deferFitDuringSidebarAnimation } from '../../utils/sidebarTransition'
 import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
-import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/terminalDrop'
+import {
+  hasCommitDropData,
+  hasFileDropData,
+  pasteDroppedCommitIntoTerminal,
+  pasteDroppedFilesIntoTerminal,
+} from '../../utils/terminalDrop'
 import { MONO_FONT_STACK, waitForMonoFontReady } from '../../utils/fonts'
 import { Toast } from '../ui/Toast'
 import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../shared/terminal-history'
@@ -284,7 +289,7 @@ export default function PlainTerminalPanel({
 
   const folderBlocked = Boolean(!cwdOverride && savedFolderPath && !folderReadyPath)
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
-    if (!hasFileDropData(event.dataTransfer)) return
+    if (!hasFileDropData(event.dataTransfer) && !hasCommitDropData(event.dataTransfer)) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
     setIsFileDragOver(true)
@@ -297,9 +302,22 @@ export default function PlainTerminalPanel({
   }
 
   const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
-    if (!hasFileDropData(event.dataTransfer)) return
+    const isCommitDrop = hasCommitDropData(event.dataTransfer)
+    if (!hasFileDropData(event.dataTransfer) && !isCommitDrop) return
     event.preventDefault()
     setIsFileDragOver(false)
+
+    if (isCommitDrop) {
+      const commitResult = await pasteDroppedCommitIntoTerminal({
+        dataTransfer: event.dataTransfer,
+        sessionId: sessionIdRef.current,
+      }).catch((error): { ok: false; message: string } => ({
+        ok: false,
+        message: error instanceof Error ? error.message : 'Could not drop the commit into the terminal.',
+      }))
+      if (!commitResult.ok) setDropError(commitResult.message)
+      return
+    }
 
     const result = await pasteDroppedFilesIntoTerminal({
       dataTransfer: event.dataTransfer,

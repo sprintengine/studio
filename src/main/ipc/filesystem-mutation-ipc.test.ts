@@ -43,9 +43,11 @@ async function main(): Promise<void> {
     const writeBinaryFile = ipcMain.handlers.get('fs:write-binary-file')
     const copyInto = ipcMain.handlers.get('fs:copy-into')
     const createWorkspaceFolder = ipcMain.handlers.get('fs:create-workspace-folder')
+    const renamePath = ipcMain.handlers.get('fs:rename')
     assert.ok(writeBinaryFile, 'binary write handler should be registered')
     assert.ok(copyInto, 'basename-preserving copy handler should be registered')
     assert.ok(createWorkspaceFolder, 'workspace folder creation handler should be registered')
+    assert.ok(renamePath, 'rename handler should be registered')
 
     const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x00])
     const targetPath = join(tempRoot, 'attachment.png')
@@ -118,6 +120,31 @@ async function main(): Promise<void> {
       /already exists/,
       'workspace folder creation rejects collisions',
     )
+
+    const renameSource = join(tempRoot, 'plan.md')
+    await writeFile(renameSource, '# Plan\n', 'utf-8')
+    const guardCountBeforeInvalidRename = guardCalls.length
+    await assert.rejects(
+      () => renamePath(null, renameSource, 'CON.md'),
+      /reserved by Windows/,
+      'rename rejects Windows reserved names',
+    )
+    await assert.rejects(
+      () => renamePath(null, renameSource, 'bad:name.md'),
+      /cannot contain control characters/,
+      'rename rejects Windows-invalid filename characters',
+    )
+    await assert.rejects(
+      () => renamePath(null, renameSource, 'trailing-space.md '),
+      /cannot end with a period or space/,
+      'rename rejects trailing spaces before filesystem mutation',
+    )
+    assert.equal(
+      guardCalls.length,
+      guardCountBeforeInvalidRename,
+      'invalid rename names are rejected before guard or filesystem mutation',
+    )
+    assert.equal(await readFile(renameSource, 'utf-8'), '# Plan\n', 'invalid rename attempts leave source file in place')
   } finally {
     await rm(tempRoot, { force: true, recursive: true })
   }

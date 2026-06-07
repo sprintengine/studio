@@ -70,6 +70,10 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
+import {
+  refreshSprintEngineWorkspaceProjection,
+  sprintEngineProjectionSignature,
+} from '../../utils/sprintengineProjectionRefresh'
 import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
 import {
   deriveSprintEngineAutomationDesiredMode,
@@ -204,51 +208,20 @@ async function refreshAutoWorkspaceState(
   lastContentByWorkspace: MutableRefObject<Map<string, string>>,
   options: { force?: boolean } = {}
 ): Promise<SprintEngineState | null> {
-  if (!workspace.folderPath || !workspace.sprintEngineState || !workspace.sprintEngineContext) {
-    return null
-  }
-
-  const stateFilePath = workspace.sprintEngineContext.statePath
-
-  try {
-    const startedAt = performance.now()
-    const projectionResult = await defaultExecutorPorts.readSprintEngineProjection(stateFilePath)
-    if (!projectionResult.ok) {
-      throw new Error(projectionResult.message)
-    }
-    const signature = JSON.stringify(projectionResult.data)
-    if (!options.force && lastContentByWorkspace.current.get(workspace.id) === signature) {
-      logPerfEvent('SprintEngineAutoRun', 'refresh-state', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        changed: false,
-        elapsedMs: Math.round(performance.now() - startedAt),
-      })
-      return workspace.sprintEngineState
-    }
-
-    lastContentByWorkspace.current.set(workspace.id, signature)
-    const parsedState = normalizeSprintEngineProjection(projectionResult.data, workspace.sprintEngineContext.teamSlug)
-    if (!parsedState) throw new Error('Sprint Engine projection was malformed.')
-    useWorkspaceStore.getState().setSprintEngineState(workspace.id, parsedState)
-    logPerfEvent('SprintEngineAutoRun', 'refresh-state', {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      changed: true,
-      elapsedMs: Math.round(performance.now() - startedAt),
-      taskCount: parsedState.tasks.length,
-      artifactCount: parsedState.artifacts.length,
-    })
-    return parsedState
-  } catch (error) {
-    logPerfEvent('SprintEngineAutoRun', 'refresh-state-error', {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      message: error instanceof Error ? error.message : String(error),
-    })
-    // Auto Mode can be enabled before the agent-managed state file exists.
-    return null
-  }
+  const result = await refreshSprintEngineWorkspaceProjection({
+    workspace,
+    signatures: lastContentByWorkspace.current,
+    cause: 'auto-run',
+    force: options.force,
+    ports: {
+      readSprintEngineProjection: defaultExecutorPorts.readSprintEngineProjection,
+      setSprintEngineState: defaultExecutorPorts.setSprintEngineState,
+    },
+  })
+  if (result.status === 'changed') return result.state
+  if (result.status === 'unchanged') return result.state
+  // Auto Mode can be enabled before the agent-managed state file exists.
+  return null
 }
 
 // Note: `ensureDurableAutoMode` was removed. It bridged local autoState into the
@@ -390,7 +363,7 @@ function applyAutoApprovalProjectionContent(
     useWorkspaceStore.getState().setSprintEngineState(workspace.id, parsedState)
     // Keep the projection-watcher signature in sync so the disk reader does not
     // immediately re-apply the same state on its next tick.
-    lastContentByWorkspace.current.set(workspace.id, JSON.stringify(projection))
+    lastContentByWorkspace.current.set(workspace.id, sprintEngineProjectionSignature(projection))
     return parsedState
   } catch {
     return null
@@ -2402,11 +2375,6 @@ export default function SprintEngineAutoRunSupervisor() {
             keepDoneAgentTerminals: getSprintEngineAutoState(workspace).keepDoneAgentTerminals,
           })),
         })
-
-        for (const workspace of autoWorkspaces) {
-          if (disposed) return
-          await refreshAutoWorkspaceState(workspace, lastContentByWorkspace)
-        }
 
         const eligibleWorkspaceIds = new Set(autoWorkspaces.map((workspace) => workspace.id))
         const refreshedState = useWorkspaceStore.getState()

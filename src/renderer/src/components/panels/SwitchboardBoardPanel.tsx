@@ -1593,14 +1593,14 @@ type RunnerSettings = {
   queues: SwitchboardRunnerQueue[]
   maxConcurrency: number
   provider: SwitchboardExecutionProviderKind
-  cli: 'codex' | 'claude'
+  cli: 'codex' | 'claude-code'
 }
 
 const DEFAULT_RUNNER_SETTINGS: RunnerSettings = {
   queues: ['ready'],
   maxConcurrency: 2,
   provider: 'electron-session',
-  cli: 'claude',
+  cli: 'claude-code',
 }
 
 function settingsFromState(state: SwitchboardRunnerState | null): RunnerSettings {
@@ -1878,11 +1878,11 @@ function RunnerSettingsFields({
         <label className="block">
           <span className="text-[11px] text-[color:var(--text-muted)]">CLI</span>
           <div className="mt-1">
-            <Select<'codex' | 'claude'>
+            <Select<'codex' | 'claude-code'>
               ariaLabel="Runner CLI"
               items={[
                 { value: 'codex', label: 'Codex' },
-                { value: 'claude', label: 'Claude Code' },
+                { value: 'claude-code', label: 'Claude Code' },
               ]}
               value={draft.cli}
               disabled={!canEdit}

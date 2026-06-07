@@ -19,6 +19,7 @@
 // from the actual bundled renderer module manifests.
 export const BUNDLED_MODULE_IDS: readonly string[] = [
   'agent-runtime',
+  'backlog',
   'dev-tools',
   'git',
   'memory-graph',

@@ -149,7 +149,8 @@ def runner_command_for(state: dict[str, Any]) -> list[str] | None:
     if override and override.strip():
         return shlex.split(override)
     cli = str(state.get("cli") or "codex")
-    resolved = shutil.which(cli)
+    command_name = "claude" if cli == "claude-code" else cli
+    resolved = shutil.which(command_name)
     if not resolved:
         return None
     if cli == "codex":
@@ -158,7 +159,7 @@ def runner_command_for(state: dict[str, Any]) -> list[str] | None:
         # the Claude switch addresses; the migration to interactive +
         # send-after-ready can land in a follow-up.
         return [resolved, "exec", "--dangerously-bypass-approvals-and-sandbox", "-"]
-    if cli == "claude":
+    if cli == "claude-code":
         # Claude now drives an interactive session with the prompt passed as
         # a positional argument and a printed sentinel for completion. This
         # routes the agent through the user's Claude subscription rather
@@ -185,10 +186,11 @@ def materialize_runner_command(
             "completion": {"mode": "process-exit"},
         }
     cli = str(state.get("cli") or "codex")
-    resolved = shutil.which(cli)
+    command_name = "claude" if cli == "claude-code" else cli
+    resolved = shutil.which(command_name)
     if not resolved:
         return None
-    if cli == "claude":
+    if cli == "claude-code":
         return {
             "command": [
                 resolved,
@@ -237,4 +239,3 @@ def validate_runner_capability(workspace: Path, state: dict[str, Any]) -> list[s
     except OSError as exc:
         errors.append(f"execution root is not writable: {exc}")
     return errors
-

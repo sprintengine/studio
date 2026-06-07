@@ -59,15 +59,15 @@ assert.deepEqual(
 )
 
 const catalog = buildAgentCliCatalog(plugins)
-assert.equal(pluginRegistryIdForCli('claude'), 'claude-code')
+assert.equal(pluginRegistryIdForCli('claude-code'), 'claude-code')
 assert.equal(pluginRegistryIdForCli('aider'), 'aider')
-assert.equal(isAgentCliAvailable('claude', catalog), true, 'legacy Claude is available through claude-code')
+assert.equal(isAgentCliAvailable('claude', catalog), false, 'legacy Claude CLI id is not available')
 assert.equal(isAgentCliAvailable('opencode', catalog), true)
 assert.equal(isAgentCliAvailable('aider', catalog), false)
 assert.equal(resolveAvailableAgentCli('claude', catalog), 'claude-code')
 assert.equal(resolveAvailableAgentCli('missing-cli', catalog, 'codex'), 'codex')
 assert.equal(resolveAvailableAgentCli('missing-cli', catalog, 'aider'), 'codex')
-assert.equal(isAgentCliMissing('claude', catalog), false)
+assert.equal(isAgentCliMissing('claude', catalog), true)
 assert.equal(isAgentCliMissing('aider', catalog), true)
 
 // selectAgentCliCatalog: status gates whether registry entries are trusted.
@@ -112,24 +112,18 @@ assert.equal(
   'row entries keep the manifest binary for the blank-override placeholder',
 )
 
-// cliRuntimeForPlugin: merge direct + legacy alias overrides.
+// cliRuntimeForPlugin: direct plugin-id overrides only.
 assert.deepEqual(
   cliRuntimeForPlugin('codex', { codex: { command: 'codex-next', useWsl: true } }),
   { command: 'codex-next', useWsl: true },
   'direct plugin-id override is used as-is',
 )
 assert.deepEqual(
-  cliRuntimeForPlugin('claude-code', { claude: { command: '/opt/claude', useWsl: true } }),
-  { command: '/opt/claude', useWsl: true },
-  'claude-code row falls back to the legacy claude override key',
-)
-assert.deepEqual(
   cliRuntimeForPlugin('claude-code', {
-    claude: { command: '/legacy/claude', useWsl: true },
     'claude-code': { command: '', useWsl: false },
   }),
   { command: '', useWsl: false },
-  'an explicit blank command on the plugin-id key overrides the legacy value (blank = manifest binary)',
+  'an explicit blank command on the plugin-id key means manifest binary',
 )
 assert.deepEqual(
   cliRuntimeForPlugin('opencode', undefined),
@@ -149,9 +143,9 @@ assert.equal(
   'a stale lastSelectedCli (uninstalled) falls back to the first available catalog entry',
 )
 assert.equal(
-  resolveTemplateAgentCli(undefined, 'claude', catalog),
+  resolveTemplateAgentCli(undefined, 'claude-code', catalog),
   'claude-code',
-  'a legacy lastSelectedCli is canonicalized to claude-code',
+  'a canonical lastSelectedCli is preserved',
 )
 assert.equal(
   resolveTemplateAgentCli(null, 'aider', []),

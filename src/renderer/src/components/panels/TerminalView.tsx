@@ -17,7 +17,12 @@ import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
-import { hasFileDropData, pasteDroppedFilesIntoTerminal } from '../../utils/terminalDrop'
+import {
+  hasCommitDropData,
+  hasFileDropData,
+  pasteDroppedCommitIntoTerminal,
+  pasteDroppedFilesIntoTerminal,
+} from '../../utils/terminalDrop'
 import { MONO_FONT_STACK, waitForMonoFontReady } from '../../utils/fonts'
 import { isImageFile } from '../../utils/files'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
@@ -745,7 +750,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
 
   const folderBlocked = Boolean(savedFolderPath && !folderReadyPath)
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
-    if (!hasFileDropData(event.dataTransfer)) return
+    if (!hasFileDropData(event.dataTransfer) && !hasCommitDropData(event.dataTransfer)) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
     setIsFileDragOver(true)
@@ -758,14 +763,31 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   }
 
   const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
-    if (!hasFileDropData(event.dataTransfer)) return
+    const isCommitDrop = hasCommitDropData(event.dataTransfer)
+    if (!hasFileDropData(event.dataTransfer) && !isCommitDrop) return
     event.preventDefault()
     setIsFileDragOver(false)
     focusTerminalRef.current()
 
     const sessionId = attachedSessionId ?? agent?.cliSessionId
     if (!sessionId) {
-      setDropError('Start this agent terminal before dropping files into it.')
+      setDropError(
+        isCommitDrop
+          ? 'Start this agent terminal before dropping a commit into it.'
+          : 'Start this agent terminal before dropping files into it.'
+      )
+      return
+    }
+
+    if (isCommitDrop) {
+      const commitResult = await pasteDroppedCommitIntoTerminal({
+        dataTransfer: event.dataTransfer,
+        sessionId,
+      }).catch((error): { ok: false; message: string } => ({
+        ok: false,
+        message: error instanceof Error ? error.message : 'Could not drop the commit into the terminal.',
+      }))
+      if (!commitResult.ok) setDropError(commitResult.message)
       return
     }
 

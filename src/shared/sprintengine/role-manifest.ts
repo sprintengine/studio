@@ -12,12 +12,20 @@
 
 export type RoleSoulEntry = { skill: string }
 
+export type RoleCapability = {
+  kind: 'review'
+  phase?: 'review' | 'testing' | 'product'
+  reviews?: string[]
+  defaultFocus?: string
+}
+
 export type RoleManifest = {
   id: string
   label: string
   summary?: string
   aliases?: string[]
   soul: RoleSoulEntry[]
+  capabilities?: RoleCapability[]
 }
 
 export type RoleManifestValidationIssue = { path: string; message: string }
@@ -30,6 +38,8 @@ export type RoleManifestValidationResult =
 // (code-reviewer). Bounded length so a manifest can't carry pathological keys.
 const ID_PATTERN = /^[a-z][a-z0-9_]{0,62}$/
 const ALIAS_PATTERN = /^[a-z][a-z0-9_-]{0,62}$/
+const REVIEW_TARGET_PATTERN = /^[a-z][a-z0-9_]{0,62}$/
+const PHASES = ['review', 'testing', 'product'] as const
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -85,6 +95,48 @@ export function validateRoleManifest(value: unknown): RoleManifestValidationResu
     })
   }
 
+  if ('capabilities' in value && value.capabilities !== undefined) {
+    if (!Array.isArray(value.capabilities)) {
+      issues.push({ path: 'capabilities', message: 'capabilities must be an array of capability objects.' })
+    } else {
+      value.capabilities.forEach((capability, index) => {
+        if (!isObject(capability)) {
+          issues.push({ path: `capabilities[${index}]`, message: 'capability must be an object.' })
+          return
+        }
+        const keys = Object.keys(capability)
+        const allowedKeys = new Set(['kind', 'phase', 'reviews', 'defaultFocus'])
+        const unsupported = keys.find((key) => !allowedKeys.has(key))
+        if (unsupported) {
+          issues.push({ path: `capabilities[${index}].${unsupported}`, message: 'unsupported capability field.' })
+        }
+        if (capability.kind !== 'review') {
+          issues.push({ path: `capabilities[${index}].kind`, message: 'capability kind must be "review".' })
+        }
+        if ('phase' in capability && capability.phase !== undefined && !PHASES.includes(capability.phase as typeof PHASES[number])) {
+          issues.push({ path: `capabilities[${index}].phase`, message: 'phase must be review, testing, or product.' })
+        }
+        if ('reviews' in capability && capability.reviews !== undefined) {
+          if (!Array.isArray(capability.reviews)) {
+            issues.push({ path: `capabilities[${index}].reviews`, message: 'reviews must be an array of ids.' })
+          } else {
+            capability.reviews.forEach((review, reviewIndex) => {
+              if (typeof review !== 'string' || !REVIEW_TARGET_PATTERN.test(review)) {
+                issues.push({
+                  path: `capabilities[${index}].reviews[${reviewIndex}]`,
+                  message: 'review target must be lowercase snake_case, 1-63 chars.',
+                })
+              }
+            })
+          }
+        }
+        if ('defaultFocus' in capability && capability.defaultFocus !== undefined && typeof capability.defaultFocus !== 'string') {
+          issues.push({ path: `capabilities[${index}].defaultFocus`, message: 'defaultFocus must be a string.' })
+        }
+      })
+    }
+  }
+
   if (issues.length > 0) return { ok: false, issues }
 
   const manifest: RoleManifest = {
@@ -94,6 +146,16 @@ export function validateRoleManifest(value: unknown): RoleManifestValidationResu
   }
   if (typeof value.summary === 'string') manifest.summary = value.summary
   if (Array.isArray(value.aliases)) manifest.aliases = value.aliases as string[]
+  if (Array.isArray(value.capabilities)) {
+    manifest.capabilities = value.capabilities.map((capability) => {
+      const record = capability as Record<string, unknown>
+      const normalized: RoleCapability = { kind: 'review' }
+      if (typeof record.phase === 'string') normalized.phase = record.phase as RoleCapability['phase']
+      if (Array.isArray(record.reviews)) normalized.reviews = record.reviews as string[]
+      if (typeof record.defaultFocus === 'string') normalized.defaultFocus = record.defaultFocus
+      return normalized
+    })
+  }
   return { ok: true, manifest }
 }
 

@@ -285,11 +285,8 @@ function getCliRuntimeSettings(
   cli: AgentCli,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
 ): CliRuntimeSettings {
-  // Delegates to the shared resolver so the launch path applies the same legacy
-  // alias compatibility (claude-code <- claude) the Agents settings row displays:
-  // a claude-code launch honors an existing `claude` command/WSL override until a
-  // direct claude-code override is saved. A blank command stays blank so
-  // renderAgentLaunchArgv falls back to the plugin manifest binary.
+  // Delegates to the shared resolver so blank commands fall back to the plugin
+  // manifest binary at render time.
   return resolveCliRuntimeSettings(cli, cliRuntimes)
 }
 

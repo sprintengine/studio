@@ -11,12 +11,11 @@ export type AgentCliCatalogOption = {
   source?: PluginCatalogEntry['source']
 }
 
-const LEGACY_CLAUDE_CLI = 'claude'
 const CLAUDE_CODE_PLUGIN_ID = 'claude-code'
 
 function labelForCliRuntime(cli: AgentCli): string {
   if (cli === 'codex') return 'Codex'
-  if (cli === 'claude' || cli === 'claude-code') return 'Claude Code'
+  if (cli === 'claude-code') return 'Claude Code'
   return cli
     .split(/[-_\s]+/u)
     .filter(Boolean)
@@ -33,7 +32,6 @@ function legacyCliRuntimeOptions(
     const trimmed = id.trim()
     const canonical = pluginRegistryIdForCli(trimmed)
     if (!canonical || seen.has(canonical)) continue
-    if (trimmed === LEGACY_CLAUDE_CLI) continue
     seen.add(canonical)
     orderedIds.push(canonical)
   }
@@ -41,16 +39,7 @@ function legacyCliRuntimeOptions(
 }
 
 export function pluginRegistryIdForCli(cli: AgentCli): AgentCli {
-  return cli === LEGACY_CLAUDE_CLI ? CLAUDE_CODE_PLUGIN_ID : cli
-}
-
-// Legacy `cliRuntimes` settings keys that predate plugin ids. Claude's plugin id
-// is `claude-code`, but invocation overrides saved before the plugin migration
-// live under the legacy `claude` key. The Agents settings tab reads them so an
-// existing override keeps showing on the `claude-code` row instead of silently
-// looking unset.
-const LEGACY_OVERRIDE_KEY_BY_PLUGIN_ID: Record<string, AgentCli> = {
-  [CLAUDE_CODE_PLUGIN_ID]: LEGACY_CLAUDE_CLI,
+  return cli
 }
 
 // Bundled entries first, then user entries, deduped by id — the row order for
@@ -73,22 +62,17 @@ export function orderInstalledPlugins(
   return ordered
 }
 
-// Effective invocation override shown on a plugin's settings row. Prefers the
-// plugin-id key, then a legacy alias key (claude-code <- claude). An explicit
-// empty command on the plugin-id key wins over a legacy value, because a blank
-// command deliberately means "use the manifest binary" at launch.
+// Effective invocation override shown on a plugin's settings row. Uses the
+// plugin-id key only; a blank command means "use the manifest binary" at launch.
 export function cliRuntimeForPlugin(
   pluginId: AgentCli,
   cliRuntimes: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>> | undefined,
 ): { command: string; useWsl: boolean } {
   const direct = cliRuntimes?.[pluginId]
-  const legacyKey = LEGACY_OVERRIDE_KEY_BY_PLUGIN_ID[pluginId]
-  const legacy = legacyKey ? cliRuntimes?.[legacyKey] : undefined
   const command =
     (typeof direct?.command === 'string' ? direct.command : undefined)
-    ?? (typeof legacy?.command === 'string' ? legacy.command : undefined)
     ?? ''
-  const useWsl = direct?.useWsl ?? legacy?.useWsl ?? false
+  const useWsl = direct?.useWsl ?? false
   return { command, useWsl }
 }
 

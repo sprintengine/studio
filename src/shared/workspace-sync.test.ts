@@ -268,14 +268,14 @@ const assignSession = applyWorkspaceSyncEvent(
       workspaceId: 'ws-one',
       agentId: 'agent-one',
       sessionId: 'session-from-event',
-      cli: 'claude',
+      cli: 'claude-code',
     },
   })
 )
 assert.equal(assignSession.status, 'applied')
 const assignedAgent = assignSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents['agent-one']
 assert.equal(assignedAgent?.cliSessionId, 'session-from-event')
-assert.equal(assignedAgent?.cli, 'claude')
+assert.equal(assignedAgent?.cli, 'claude-code')
 assert.equal(assignedAgent?.cliStartRequested, true)
 assert.equal(assignedAgent?.cliHasLaunched, true)
 assert.equal(assignedAgent?.cliResumeAvailable, true)

@@ -7,6 +7,7 @@ import {
   getSprintEngineTaskBoardColumn,
   getSprintEngineVisibleBoardColumns,
   isSprintEngineTaskLaunchable,
+  orderSprintEngineBoardColumnTasks,
   type SprintEngineAgentRosterItem,
 } from '../../../utils/sprintengine'
 import {
@@ -139,8 +140,11 @@ export function useSprintEngineBoardModel(input: SprintEngineBoardModelInput): S
     if (!sprintEngineState) return []
     return getSprintEngineVisibleBoardColumns(sprintEngineState).map((column) => ({
       ...column,
-      cards: sprintEngineState.tasks.filter(
-        (task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === column.key,
+      cards: orderSprintEngineBoardColumnTasks(
+        column.key,
+        sprintEngineState.tasks.filter(
+          (task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === column.key,
+        ),
       ),
     }))
   }, [sprintEngineState])

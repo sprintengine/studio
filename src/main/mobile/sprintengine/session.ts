@@ -78,6 +78,7 @@ const bundledSprintEngineRoleLabels: Record<string, string> = {
   code_reviewer: 'Code Reviewer',
   spec_reviewer: 'Spec Reviewer',
   performance: 'Performance Engineer',
+  production_readiness_reviewer: 'Production Readiness Reviewer',
 }
 
 function mobileSprintEngineRoleLabel(role: string): string {

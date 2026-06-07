@@ -14,10 +14,8 @@ import {
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
 import { applyUserDisabledSprintEngineRoleCounts } from '../../../utils/sprintengine'
-import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAutomation'
 import { CloseIconButton, StatusDot, Tabs, Tooltip, WizardProgress, type TabItem } from '../../ui'
-import { SprintEngineRosterTable } from '../newWorkspace/SprintEngineRosterTable'
-import { CliPermissionPresetRow, PathRadio } from '../newWorkspace/WizardControls'
+import { RosterAndRunSettings } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
 import { MockupPreviewPane } from './MockupPreviewPane'
 import { DesignFilesPane } from './DesignFilesPane'
@@ -1233,54 +1231,22 @@ function HandoffBody({
             </div>
           </div>
 
-          <div className="flex flex-col gap-2">
-            <div className="flex items-baseline justify-between">
-              <span className="text-[12px] font-medium text-[color:var(--text-default)]">Roster</span>
-              <span className="text-[11px] tabular-nums text-[color:var(--text-muted)]">
-                {totalAgents} specialist{totalAgents === 1 ? '' : 's'}
-              </span>
-            </div>
-            <SprintEngineRosterTable
-              roleCounts={visibleRoleCounts}
-              roleCliDefaults={runtimeState.buildRoleCliDefaults}
-              cliOptions={cliOptions}
-              registry={sprintEngineRoleRegistry}
-              disabledRoleIds={sprintEngineDisabledRoleIds}
-              countDisabled={false}
-              cliDisabled={false}
-              onSetCount={setBuildRoleCount}
-              onSetCli={setBuildRoleCli}
-            />
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <span className="text-[12px] font-medium text-[color:var(--text-default)]">Run settings</span>
-            <div className="overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
-              <CliPermissionPresetRow
-                preset={runtimeState.buildCliPermissionPreset}
-                onChange={(preset) => onChange({ ...runtimeState, buildCliPermissionPreset: preset })}
-              />
-              <div className="flex flex-col gap-2 border-t border-[color:var(--border-default)] px-3.5 py-3">
-                <div>
-                  <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Automation</span>
-                  <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
-                    How Sprint Engine should continue after this workspace opens.
-                  </span>
-                </div>
-                <div className="grid gap-2" role="radiogroup" aria-label="Sprint Engine automation mode">
-                  {sprintEngineAutomationModeOptions.map((option) => (
-                    <PathRadio
-                      key={option.value}
-                      checked={automationMode === option.value}
-                      label={option.label}
-                      hint={option.hint}
-                      onSelect={() => setAutomationMode(option.value)}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
+          <RosterAndRunSettings
+            roleCounts={visibleRoleCounts}
+            roleCliDefaults={runtimeState.buildRoleCliDefaults}
+            cliOptions={cliOptions}
+            registry={sprintEngineRoleRegistry}
+            disabledRoleIds={sprintEngineDisabledRoleIds}
+            countDisabled={false}
+            cliDisabled={false}
+            onSetCount={setBuildRoleCount}
+            onSetCli={setBuildRoleCli}
+            totalAgents={totalAgents}
+            automationMode={automationMode}
+            onChangeAutomationMode={setAutomationMode}
+            cliPermissionPreset={runtimeState.buildCliPermissionPreset}
+            onChangeCliPermissionPreset={(preset) => onChange({ ...runtimeState, buildCliPermissionPreset: preset })}
+          />
 
           {handoffStatus === 'missing' ? (
             <span className="text-[12px] text-[color:var(--tone-error)]">

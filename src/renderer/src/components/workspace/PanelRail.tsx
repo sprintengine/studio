@@ -9,7 +9,7 @@ import {
   platformKeybindingsFromApiPlatform,
 } from '../../commands/effectiveKeybindings'
 
-type PanelKey = 'explorer' | 'editor' | 'git' | 'memory-graph'
+type PanelKey = 'explorer' | 'editor' | 'git' | 'backlog' | 'memory-graph'
 
 // 999 is the visible ceiling: it occupies the same three glyph slots as a
 // "99+" cap would, so we just clamp the number and skip the suffix.
@@ -76,6 +76,20 @@ const PANELS: PanelDescriptor[] = [
         <circle cx="4.5" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3" />
         <circle cx="11.5" cy="8" r="1.5" stroke="currentColor" strokeWidth="1.3" />
         <path d="M4.5 5.5v5M6 12c2.5 0 4-1.5 4-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    key: 'backlog',
+    moduleId: 'backlog',
+    tabName: 'Backlog',
+    label: 'Backlog',
+    icon: ({ className }) => (
+      <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+        <path d="M6 4.5h7M6 8h7M6 11.5h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+        <circle cx="3" cy="4.5" r="1" fill="currentColor" />
+        <circle cx="3" cy="8" r="1" fill="currentColor" />
+        <circle cx="3" cy="11.5" r="1" fill="currentColor" />
       </svg>
     ),
   },

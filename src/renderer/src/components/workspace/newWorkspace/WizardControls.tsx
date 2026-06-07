@@ -4,8 +4,18 @@
 // no closure ties to the wizard reducer.
 
 import React from 'react'
-import type { SprintEngineCliPermissionPreset } from '../../../types/workspace'
-import { Select } from '../../ui'
+import type {
+  AgentCli,
+  SprintEngineAutomationMode,
+  SprintEngineCliPermissionPreset,
+  SprintEngineRoleCliDefaults,
+  SprintEngineRoleCounts,
+  SprintEngineRoleId,
+  SprintEngineRoleRegistry,
+} from '../../../types/workspace'
+import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAutomation'
+import { Field, Select } from '../../ui'
+import { SprintEngineRosterTable, type SprintEngineCliOption } from './SprintEngineRosterTable'
 
 export const cliPermissionOptions: Array<{
   value: SprintEngineCliPermissionPreset
@@ -111,5 +121,99 @@ export function PathRadio({
         <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">{hint}</span>
       </span>
     </button>
+  )
+}
+
+// The roster + run-settings surface shared by the Sprint Engine wizard step and
+// the Guided Brief build handoff. Both let the user size the specialist roster,
+// pick each role's default CLI, and set how the run continues after the
+// workspace opens — keeping one component means the two entry points cannot
+// drift in layout, copy, or width.
+export function RosterAndRunSettings({
+  roleCounts,
+  roleCliDefaults,
+  cliOptions,
+  registry,
+  disabledRoleIds,
+  countDisabled,
+  cliDisabled,
+  onSetCount,
+  onSetCli,
+  totalAgents,
+  rosterCountLabel,
+  automationMode,
+  onChangeAutomationMode,
+  cliPermissionPreset,
+  onChangeCliPermissionPreset,
+}: {
+  roleCounts: SprintEngineRoleCounts
+  roleCliDefaults: Required<SprintEngineRoleCliDefaults>
+  cliOptions: SprintEngineCliOption[]
+  registry?: SprintEngineRoleRegistry | null
+  disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null
+  countDisabled: boolean
+  cliDisabled: boolean
+  onSetCount: (role: SprintEngineRoleId, count: number) => void
+  onSetCli: (role: SprintEngineRoleId, cli: AgentCli) => void
+  totalAgents: number
+  // Lets the Sprint Engine step show "Loading roles" while the registry resolves;
+  // omit to show the plain specialist count.
+  rosterCountLabel?: string
+  automationMode: SprintEngineAutomationMode
+  onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
+  cliPermissionPreset: SprintEngineCliPermissionPreset
+  onChangeCliPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
+}) {
+  return (
+    <>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-baseline justify-between">
+          <Field.Label>Roster</Field.Label>
+          <span className="text-[11px] tabular-nums text-[color:var(--text-muted)]">
+            {rosterCountLabel ?? `${totalAgents} specialist${totalAgents === 1 ? '' : 's'}`}
+          </span>
+        </div>
+        <SprintEngineRosterTable
+          roleCounts={roleCounts}
+          roleCliDefaults={roleCliDefaults}
+          cliOptions={cliOptions}
+          registry={registry}
+          disabledRoleIds={disabledRoleIds}
+          countDisabled={countDisabled}
+          cliDisabled={cliDisabled}
+          onSetCount={onSetCount}
+          onSetCli={onSetCli}
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Field.Label>Run settings</Field.Label>
+        <div className="overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
+          <CliPermissionPresetRow
+            preset={cliPermissionPreset}
+            onChange={onChangeCliPermissionPreset}
+          />
+          <div className="flex flex-col gap-2 border-t border-[color:var(--border-default)] px-3.5 py-3">
+            <div>
+              <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Automation</span>
+              <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
+                How Sprint Engine should continue after this workspace opens.
+              </span>
+            </div>
+            <div className="grid gap-2" role="radiogroup" aria-label="Sprint Engine automation mode">
+              {sprintEngineAutomationModeOptions.map((option) => (
+                <PathRadio
+                  key={option.value}
+                  checked={automationMode === option.value}
+                  label={option.label}
+                  hint={option.hint}
+                  onSelect={() => onChangeAutomationMode(option.value)}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
   )
 }

@@ -97,7 +97,7 @@ function testBuildSprintEngineExistingTeamCreation(): void {
   const args = buildSprintEngineExistingTeamCreation({
     folderPath: '/project',
     existingTeam: team,
-    roleCliDefaults: { architect: 'claude', product: 'claude', frontend: 'claude', developer: 'claude', code_reviewer: 'claude', spec_reviewer: 'claude', performance: 'claude', cross_platform: 'claude', tester: 'claude', security: 'claude' },
+    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
     agentCliOverrides: {},
     startRunner: true,
     autoApproveArtifacts: false,
@@ -120,7 +120,7 @@ function testBuildSprintEngineNewTeamCreation(): void {
     roleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
     visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
     totalAgents: 2,
-    roleCliDefaults: { architect: 'claude', product: 'claude', frontend: 'claude', developer: 'claude', code_reviewer: 'claude', spec_reviewer: 'claude', performance: 'claude', cross_platform: 'claude', tester: 'claude', security: 'claude' },
+    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
     startRunner: false,
     autoApproveArtifacts: false,
     cliPermissionPreset: 'default',
@@ -139,7 +139,7 @@ function testBuildSprintEngineNewTeamCreation(): void {
     roleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
     visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
     totalAgents: 2,
-    roleCliDefaults: { architect: 'claude', product: 'claude', frontend: 'claude', developer: 'claude', code_reviewer: 'claude', spec_reviewer: 'claude', performance: 'claude', cross_platform: 'claude', tester: 'claude', security: 'claude' },
+    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
     startRunner: false,
     autoApproveArtifacts: false,
     cliPermissionPreset: 'default',
@@ -159,7 +159,7 @@ async function testSprintEnginePlanSourcedValidation(): Promise<void> {
     sourceBundle: null,
     visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
     totalAgents: 2,
-    roleCliDefaults: { architect: 'claude', product: 'claude', frontend: 'claude', developer: 'claude', code_reviewer: 'claude', spec_reviewer: 'claude', performance: 'claude', cross_platform: 'claude', tester: 'claude', security: 'claude' } as const,
+    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' } as const,
     startRunner: false,
     autoApproveArtifacts: false,
     cliPermissionPreset: 'default' as const,
@@ -228,6 +228,60 @@ async function testSprintEnginePlanSourcedValidation(): Promise<void> {
   )
 }
 
+async function testSprintEnginePlanSourcedInitializesAndLinksBacklog(): Promise<void> {
+  const events: string[] = []
+  const links: Array<{ workspaceRoot: string; sourceRelativePath: string; teamSlug: string; statePath: string }> = []
+  await runSprintEnginePlanSourcedCreation(
+    {
+      folderPath: '/p',
+      teamName: 'Backlog Run',
+      goal: 'Ship the backlog work',
+      sourcePlanPath: '/p/backlog/plan.md',
+      sourcePlanRelativePath: 'backlog/plan.md',
+      sourcePlanContent: '# Plan',
+      sourcePlanKind: 'architect_plan',
+      sourceBundle: null,
+      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      totalAgents: 2,
+      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      startRunner: false,
+      autoApproveArtifacts: false,
+      cliPermissionPreset: 'default',
+    },
+    {
+      pathExists: async (path) => path === '/p/backlog/plan.md',
+      initializeSprintEngineState: async (input) => {
+        events.push(`init:${input.statePath}`)
+        assert.equal(input.name, 'Backlog Run')
+        assert.equal(input.goal, 'Ship the backlog work')
+        assert.ok(input.agents.architect, 'initialization receives the roster agents')
+        return { ok: true, data: {} }
+      },
+      recordBacklogExecutionLink: async (input) => {
+        events.push(`link:${input.statePath}`)
+        links.push(input)
+      },
+    },
+  )
+
+  assert.deepEqual(
+    events,
+    [
+      'init:/p/.multi-code/sprintengine/backlog-run/run.yaml',
+      'link:/p/.multi-code/sprintengine/backlog-run/run.yaml',
+    ],
+    'Backlog link is recorded after real Sprint Engine state initialization',
+  )
+  assert.deepEqual(links, [
+    {
+      workspaceRoot: '/p',
+      sourceRelativePath: 'backlog/plan.md',
+      teamSlug: 'backlog-run',
+      statePath: '/p/.multi-code/sprintengine/backlog-run/run.yaml',
+    },
+  ])
+}
+
 async function testGuidedBriefScaffoldValidation(): Promise<void> {
   const ports: GuidedBriefScaffoldPorts = {
     filesystem: createMemoryFilesystem(),
@@ -235,7 +289,7 @@ async function testGuidedBriefScaffoldValidation(): Promise<void> {
 
   await assert.rejects(
     () => runGuidedBriefScaffold(
-      { folderPath: null, workspaceName: '', idea: 'idea', hasUi: 'no', wantsProduct: true, wantsArchitecture: false, wantsFrontend: false, guidedRoleCliDefaults: { product: 'claude', architect: 'claude', frontend: 'claude' }, buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 }, buildRoleCliDefaults: { architect: 'claude', product: 'claude', frontend: 'claude', developer: 'claude', code_reviewer: 'claude', spec_reviewer: 'claude', performance: 'claude', cross_platform: 'claude', tester: 'claude', security: 'claude' }, buildCliPermissionPreset: 'default', buildStartRunner: false, buildAutoApproveArtifacts: false },
+      { folderPath: null, workspaceName: '', idea: 'idea', hasUi: 'no', wantsProduct: true, wantsArchitecture: false, wantsFrontend: false, guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' }, buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 }, buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' }, buildCliPermissionPreset: 'default', buildStartRunner: false, buildAutoApproveArtifacts: false },
       ports,
     ),
     (error) => error instanceof GuidedBriefScaffoldError && error.code === 'missing-folder',
@@ -244,7 +298,7 @@ async function testGuidedBriefScaffoldValidation(): Promise<void> {
 
   await assert.rejects(
     () => runGuidedBriefScaffold(
-      { folderPath: '/p', workspaceName: '', idea: '', hasUi: 'no', wantsProduct: true, wantsArchitecture: false, wantsFrontend: false, guidedRoleCliDefaults: { product: 'claude', architect: 'claude', frontend: 'claude' }, buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 }, buildRoleCliDefaults: { architect: 'claude', product: 'claude', frontend: 'claude', developer: 'claude', code_reviewer: 'claude', spec_reviewer: 'claude', performance: 'claude', cross_platform: 'claude', tester: 'claude', security: 'claude' }, buildCliPermissionPreset: 'default', buildStartRunner: false, buildAutoApproveArtifacts: false },
+      { folderPath: '/p', workspaceName: '', idea: '', hasUi: 'no', wantsProduct: true, wantsArchitecture: false, wantsFrontend: false, guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' }, buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 }, buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' }, buildCliPermissionPreset: 'default', buildStartRunner: false, buildAutoApproveArtifacts: false },
       ports,
     ),
     (error) => error instanceof GuidedBriefScaffoldError && error.code === 'missing-idea',
@@ -253,7 +307,7 @@ async function testGuidedBriefScaffoldValidation(): Promise<void> {
 
   await assert.rejects(
     () => runGuidedBriefScaffold(
-      { folderPath: '/p', workspaceName: '', idea: 'idea', hasUi: null, wantsProduct: true, wantsArchitecture: false, wantsFrontend: false, guidedRoleCliDefaults: { product: 'claude', architect: 'claude', frontend: 'claude' }, buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 }, buildRoleCliDefaults: { architect: 'claude', product: 'claude', frontend: 'claude', developer: 'claude', code_reviewer: 'claude', spec_reviewer: 'claude', performance: 'claude', cross_platform: 'claude', tester: 'claude', security: 'claude' }, buildCliPermissionPreset: 'default', buildStartRunner: false, buildAutoApproveArtifacts: false },
+      { folderPath: '/p', workspaceName: '', idea: 'idea', hasUi: null, wantsProduct: true, wantsArchitecture: false, wantsFrontend: false, guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' }, buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 }, buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' }, buildCliPermissionPreset: 'default', buildStartRunner: false, buildAutoApproveArtifacts: false },
       ports,
     ),
     (error) => error instanceof GuidedBriefScaffoldError && error.code === 'missing-has-ui',
@@ -278,9 +332,9 @@ async function testGuidedBriefScaffoldHappyPath(): Promise<void> {
       wantsProduct: false,
       wantsArchitecture: false,
       wantsFrontend: false,
-      guidedRoleCliDefaults: { product: 'claude', architect: 'claude', frontend: 'claude' },
+      guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
       buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
-      buildRoleCliDefaults: { architect: 'claude', product: 'claude', frontend: 'claude', developer: 'claude', code_reviewer: 'claude', spec_reviewer: 'claude', performance: 'claude', cross_platform: 'claude', tester: 'claude', security: 'claude' },
+      buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
       buildCliPermissionPreset: 'default',
       buildStartRunner: false,
       buildAutoApproveArtifacts: false,
@@ -317,9 +371,9 @@ async function testGuidedBriefDesignPresetScaffold(): Promise<void> {
       wantsProduct: true,
       wantsArchitecture: true,
       wantsFrontend: false,
-      guidedRoleCliDefaults: { product: 'claude', architect: 'claude', frontend: 'claude' },
+      guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
       buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
-      buildRoleCliDefaults: { architect: 'claude', product: 'claude', frontend: 'claude', developer: 'claude', code_reviewer: 'claude', spec_reviewer: 'claude', performance: 'claude', cross_platform: 'claude', tester: 'claude', security: 'claude' },
+      buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
       buildCliPermissionPreset: 'default',
       buildStartRunner: false,
       buildAutoApproveArtifacts: false,
@@ -347,9 +401,9 @@ async function testGuidedBriefStartBuildValidation(): Promise<void> {
     wantsProductDiscussion: true,
     wantsArchitectureDiscussion: true,
     wantsFrontendDiscussion: true,
-    guidedRoleCliDefaults: { product: 'claude', architect: 'claude', frontend: 'claude' },
+    guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
     buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
-    buildRoleCliDefaults: { architect: 'claude', product: 'claude', frontend: 'claude', developer: 'claude', code_reviewer: 'claude', spec_reviewer: 'claude', performance: 'claude', cross_platform: 'claude', tester: 'claude', security: 'claude' },
+    buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
     buildCliPermissionPreset: 'default',
     buildStartRunner: false,
     buildAutoApproveArtifacts: false,
@@ -466,9 +520,9 @@ async function testGuidedBriefStartBuildHandoffPath(): Promise<void> {
     wantsProductDiscussion: true,
     wantsArchitectureDiscussion: true,
     wantsFrontendDiscussion: true,
-    guidedRoleCliDefaults: { product: 'claude', architect: 'claude', frontend: 'claude' },
+    guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
     buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
-    buildRoleCliDefaults: { architect: 'claude', product: 'claude', frontend: 'claude', developer: 'claude', code_reviewer: 'claude', spec_reviewer: 'claude', performance: 'claude', cross_platform: 'claude', tester: 'claude', security: 'claude' },
+    buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
     buildCliPermissionPreset: 'default',
     buildStartRunner: false,
     buildAutoApproveArtifacts: false,
@@ -532,9 +586,9 @@ async function testGuidedBriefStartBuildDesignPresetHandoff(): Promise<void> {
     wantsProductDiscussion: false,
     wantsArchitectureDiscussion: false,
     wantsFrontendDiscussion: true,
-    guidedRoleCliDefaults: { product: 'claude', architect: 'claude', frontend: 'claude' },
+    guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
     buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
-    buildRoleCliDefaults: { architect: 'claude', product: 'claude', frontend: 'claude', developer: 'claude', code_reviewer: 'claude', spec_reviewer: 'claude', performance: 'claude', cross_platform: 'claude', tester: 'claude', security: 'claude' },
+    buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
     buildCliPermissionPreset: 'default',
     buildStartRunner: false,
     buildAutoApproveArtifacts: false,
@@ -615,6 +669,7 @@ async function main(): Promise<void> {
   testBuildSprintEngineExistingTeamCreation()
   testBuildSprintEngineNewTeamCreation()
   await testSprintEnginePlanSourcedValidation()
+  await testSprintEnginePlanSourcedInitializesAndLinksBacklog()
   await testGuidedBriefScaffoldValidation()
   await testGuidedBriefScaffoldHappyPath()
   await testGuidedBriefDesignPresetScaffold()

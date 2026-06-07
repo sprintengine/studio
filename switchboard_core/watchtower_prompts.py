@@ -39,7 +39,7 @@ SPECIALIST_SHORT_LABELS = {
     "frontend-design-review": "Frontend Designer",
     "qa-test": "QA Specialist",
     "security-review": "Security Specialist",
-    "code-review": "AI Slop Reviewer",
+    "code-review": "Slop Cop",
     "spec-review": "Spec Reviewer",
 }
 

@@ -258,7 +258,7 @@ async function assertClaudeSessionIdentitySurvivesStartupReconciliation(): Promi
         id: 'workspace_1',
         agents: {
           'developer-claude': {
-            cli: 'claude',
+            cli: 'claude-code',
             cliStartRequested: true,
             cliHasLaunched: true,
             cliSessionId: 'claude_original_session',

@@ -1,0 +1,53 @@
+{
+  "id": "production_readiness_reviewer",
+  "label": "Production Readiness Reviewer",
+  "aliases": [
+    "production-readiness",
+    "production-ready",
+    "production-readiness-review",
+    "release-readiness",
+    "launch-readiness"
+  ],
+  "summary": "Reviews whether a product is ready to release to production with real integrations, deployment, data, observability, rollback, scale, and user setup accounted for.",
+  "capabilities": [
+    {
+      "kind": "review",
+      "phase": "review",
+      "reviews": [
+        "production_readiness",
+        "release_readiness",
+        "deployment",
+        "operational_readiness",
+        "real_integrations",
+        "database_migrations",
+        "observability",
+        "rollback",
+        "scalability"
+      ],
+      "defaultFocus": "go/no-go production readiness across real integrations, deployment configuration, data safety, observability, rollback, scalability, and user setup"
+    }
+  ],
+  "soul": [
+    {
+      "skill": "production_readiness_reviewer"
+    },
+    {
+      "skill": "project_relative_paths"
+    },
+    {
+      "skill": "production_reality_gate"
+    },
+    {
+      "skill": "fallback_discipline"
+    },
+    {
+      "skill": "evidence_quality_assessment"
+    },
+    {
+      "skill": "post_change_self_review"
+    },
+    {
+      "skill": "workspace_knowledge"
+    }
+  ]
+}
