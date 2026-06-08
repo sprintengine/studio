@@ -31,7 +31,9 @@ export type TerminalFileLinkProviderOptions = {
   executionRoot?: string | null
   pathExists: (path: string) => Promise<boolean>
   openFile: (input: TerminalFileLinkOpenInput) => Promise<void> | void
-  onOpenError?: (message: string) => void
+  /** Reports a failed open, anchored to the click that triggered it so the UI
+   *  can surface the error next to the pointer. */
+  onOpenError?: (message: string, anchor: { x: number; y: number }) => void
 }
 
 const FILE_REFERENCE_PATTERN =
@@ -305,12 +307,13 @@ export function createTerminalFileLinkProvider({
             pointerCursor: true,
             underline: true,
           },
-          activate: () => {
+          activate: (event) => {
+            const anchor = { x: event.clientX, y: event.clientY }
             void (async () => {
               try {
                 const exists = await pathExists(reference.resolvedPath)
                 if (!exists) {
-                  onOpenError?.(`File does not exist: ${reference.resolvedPath}`)
+                  onOpenError?.(`File does not exist: ${reference.resolvedPath}`, anchor)
                   return
                 }
                 await openFile({
@@ -320,7 +323,10 @@ export function createTerminalFileLinkProvider({
                   column: reference.column,
                 })
               } catch (error) {
-                onOpenError?.(error instanceof Error ? error.message : 'Could not open terminal file link.')
+                onOpenError?.(
+                  error instanceof Error ? error.message : 'Could not open terminal file link.',
+                  anchor,
+                )
               }
             })()
           },

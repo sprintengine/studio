@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import type { FileSystemStat } from '../../../shared/electron-api'
 import {
   backlogExcerpt,
+  backlogPreviewMarkdown,
   createBacklogItem,
   inferBacklogKind,
   nextArchiveRelativePath,
@@ -127,7 +128,8 @@ run('frontmatter overrides kind and status when values are valid', () => {
   assert.equal(item.kind, 'architect_plan')
   assert.equal(item.status, 'idea')
   assert.equal(item.title, 'Build Plan')
-  assert.equal(item.excerpt, 'Build Plan Body.')
+  // Excerpt drops the leading title so the row's supporting line starts at body.
+  assert.equal(item.excerpt, 'Body.')
 })
 
 run('nested backlog frontmatter metadata overrides kind and status', () => {
@@ -227,6 +229,26 @@ run('excerpt strips frontmatter and HTML noise', () => {
     backlogExcerpt('---\nstatus: ready\n---\n<style>x</style><h1>Title</h1>\n<p>Useful text</p>'),
     'Title Useful text',
   )
+})
+
+run('preview markdown drops frontmatter and the leading title H1', () => {
+  assert.equal(
+    backlogPreviewMarkdown('---\nstatus: ready\n---\n# Realtime presence\n\n## Goal\nShip it.'),
+    '## Goal\nShip it.',
+  )
+  // A non-title leading heading (H2+) and body content are preserved.
+  assert.equal(backlogPreviewMarkdown('## Goal\nShip it.'), '## Goal\nShip it.')
+  // Title-only files render an empty body so the preview can show its own label.
+  assert.equal(backlogPreviewMarkdown('# Just a title\n'), '')
+})
+
+run('excerpt drops a leading title and its trailing punctuation', () => {
+  assert.equal(
+    backlogExcerpt('# Realtime presence\n\nGoal: ship presence indicators.', 'Realtime presence'),
+    'Goal: ship presence indicators.',
+  )
+  // No leading-title match leaves the flattened text untouched.
+  assert.equal(backlogExcerpt('Body only.', 'Realtime presence'), 'Body only.')
 })
 
 async function main(): Promise<void> {

@@ -8,7 +8,7 @@ import React, {
 } from 'react'
 import { createPortal } from 'react-dom'
 
-type TooltipChildProps = {
+export type TooltipChildProps = {
   'aria-describedby'?: string
   onMouseEnter?: (event: React.MouseEvent) => void
   onMouseLeave?: (event: React.MouseEvent) => void

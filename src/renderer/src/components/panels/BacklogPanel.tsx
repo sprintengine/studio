@@ -13,6 +13,7 @@ import {
   Tooltip,
   useConfirmDialog,
   type SelectItem,
+  type TooltipChildProps,
 } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
@@ -20,7 +21,9 @@ import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import { renderMarkdown } from '../../utils/markdown'
 import { basename } from '../../utils/paths'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
+import { setFileDropData } from '../../utils/terminalDrop'
 import {
+  backlogPreviewMarkdown,
   backlogRootPath,
   nextArchiveRelativePath,
   normalizeRelativePath,
@@ -549,6 +552,27 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       }))
   }, [backlogActionContext, moduleOverrides, runAction, selected])
 
+  // Hand a plan to an agent by dragging its row onto an agent terminal: emit the
+  // same file-drop payload the Files tree uses, so TerminalView pastes the plan's
+  // workspace-relative path into the live CLI session and the agent reads the
+  // file. No backlog-specific drop path — the terminal side already owns it.
+  const handleRowDragStart = useCallback(
+    (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => {
+      if (!folderPath) {
+        event.preventDefault()
+        return
+      }
+      setSelectedId(item.id)
+      setFileDropData(event.dataTransfer, {
+        version: 1,
+        workspaceId,
+        rootPath: folderPath,
+        files: [{ path: item.path, name: basename(item.relativePath), isDir: false }],
+      })
+    },
+    [folderPath, workspaceId],
+  )
+
   const listPane = (
     <BacklogList
       items={filtered}
@@ -556,6 +580,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       now={now}
       onSelect={handleSelectRow}
       onKeyDown={handleListKeyDown}
+      onItemDragStart={folderPath ? handleRowDragStart : undefined}
       emptyHint={listEmptyHint(scan, items.length, filtered.length, loading)}
     />
   )
@@ -679,6 +704,7 @@ function BacklogList({
   now,
   onSelect,
   onKeyDown,
+  onItemDragStart,
   emptyHint,
 }: {
   items: BacklogItem[]
@@ -686,6 +712,7 @@ function BacklogList({
   now: number
   onSelect: (id: string) => void
   onKeyDown: (event: React.KeyboardEvent<HTMLUListElement>) => void
+  onItemDragStart?: (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => void
   emptyHint: string | null
 }): JSX.Element {
   const listRef = useRef<HTMLUListElement | null>(null)
@@ -728,6 +755,8 @@ function BacklogList({
             id={`backlog-opt-${index}`}
             role="option"
             aria-selected={active}
+            draggable={Boolean(onItemDragStart)}
+            onDragStart={onItemDragStart ? (event) => onItemDragStart(event, item) : undefined}
             onClick={() => onSelect(item.id)}
             title={item.relativePath}
             className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors ${
@@ -737,23 +766,22 @@ function BacklogList({
             } ${archived ? 'opacity-70' : ''}`}
           >
             <div className="flex items-center gap-2">
-              <ReadinessGlyph status={item.status} />
+              <Tooltip content={READINESS_LABEL[item.status]} placement="top">
+                <ReadinessGlyph status={item.status} label={READINESS_LABEL[item.status]} />
+              </Tooltip>
               <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
                 {item.title}
               </span>
-              <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">{KIND_LABEL[item.kind]}</span>
-              <span className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">{READINESS_LABEL[item.status]}</span>
             </div>
-            <div className="mt-0.5 flex items-center gap-1.5 pl-[22px] text-[11px] text-[color:var(--text-subtle)]">
-              <span className="min-w-0 truncate font-mono tabular-nums">{item.relativePath}</span>
-              <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
-              <span className="shrink-0 tabular-nums">{formatRelativeMsAgo(item.modifiedAt, now) || 'unknown'}</span>
+            {/* Supporting line: real excerpt (title already stripped) on the left,
+                modified-time on the right. Path lives in the tooltip + detail
+                pane, so the slug no longer echoes the title on every row. */}
+            <div className="mt-0.5 flex items-center gap-2 pl-[22px] text-[11px]">
+              <span className="min-w-0 flex-1 truncate text-[color:var(--text-disabled)]">{item.excerpt}</span>
+              <span className="shrink-0 tabular-nums text-[color:var(--text-subtle)]">
+                {formatRelativeMsAgo(item.modifiedAt, now) || 'unknown'}
+              </span>
             </div>
-            {item.excerpt ? (
-              <div className="mt-0.5 truncate pl-[22px] text-[11px] text-[color:var(--text-disabled)]">
-                {item.excerpt}
-              </div>
-            ) : null}
           </li>
         )
       })}
@@ -861,8 +889,12 @@ function BacklogDetail({
             <ReadinessGlyph status={selected.status} />
             {READINESS_LABEL[selected.status]}
           </span>
-          <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
-          <span>{KIND_LABEL[selected.kind]}</span>
+          {selected.kind !== 'unknown' ? (
+            <>
+              <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
+              <span>{KIND_LABEL[selected.kind]}</span>
+            </>
+          ) : null}
           <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
           <span className="font-mono tabular-nums" title={selected.relativePath}>{selected.relativePath}</span>
           <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
@@ -972,7 +1004,14 @@ function BacklogPreviewBody({ item }: { item: BacklogItem }): JSX.Element {
   const renderAsMarkdown = isMarkdown && item.sourceContent.length <= MARKDOWN_PREVIEW_MAX_CHARS
 
   if (renderAsMarkdown) {
-    return <div className="markdown-body">{renderMarkdown(item.sourceContent)}</div>
+    // Strip frontmatter + the leading title H1 so the body doesn't restate the
+    // header title at display size or render raw YAML (parity with the row's
+    // title-stripped excerpt).
+    const body = backlogPreviewMarkdown(item.sourceContent)
+    if (!body) {
+      return <p className="text-[12px] text-[color:var(--text-disabled)]">No description beyond the title yet.</p>
+    }
+    return <div className="markdown-body">{renderMarkdown(body)}</div>
   }
   // HTML/mockup and oversized markdown render as preformatted source — never
   // inject arbitrary HTML into the renderer (design §5 / renderer-safety rule).
@@ -1077,34 +1116,74 @@ function listEmptyHint(
 
 // ---- glyphs (house pattern: 16-box, currentColor strokes, decorative) ------
 
-function ReadinessGlyph({ status }: { status: BacklogItemStatus }): JSX.Element {
-  // Decorative: the adjacent text label carries the readiness for screen
-  // readers, so status is never color- or glyph-only.
+// Status is shown icon-only on rows (Linear's status-icon model): when `label`
+// is supplied the glyph carries it as its accessible name (role="img") so the
+// status is never color- or glyph-only, and the row wraps it in a Tooltip for
+// sighted hover discoverability. Without `label` it stays decorative — used in
+// the detail header where the status word sits visibly beside it. Extra props
+// (the Tooltip's hover/focus handlers + aria-describedby) forward onto the svg.
+// Shapes take their meaning from Linear's status icons (backlog → dashed ring,
+// triage → ring + alert, todo → ring, in-progress → pie, done → check) in the
+// house 16-box stroke pattern; color reinforces shape, never carries it alone.
+function ReadinessGlyph({
+  status,
+  label,
+  ...rest
+}: { status: BacklogItemStatus; label?: string } & Partial<TooltipChildProps>): JSX.Element {
   const tone =
-    status === 'ready' || status === 'completed'
+    status === 'completed' || status === 'ready'
       ? 'text-[color:var(--tone-good)]'
+      : status === 'needs_structure'
+        ? 'text-[color:var(--tone-warn)]'
       : status === 'in_progress'
         ? 'text-[color:var(--accent-primary)]'
       : status === 'archived'
         ? 'text-[color:var(--text-disabled)]'
-        : 'text-[color:var(--text-muted)]'
+        : 'text-[color:var(--text-subtle)]'
+
+  const a11y = label ? ({ role: 'img', 'aria-label': label } as const) : ({ 'aria-hidden': true } as const)
+
+  // Done: a filled disc with a cut-out check. The check is drawn in --bg-app so
+  // it reads as a knockout against the green disc in every theme (near-black on
+  // bright green in dark, near-white on deep green in light).
+  const shapes =
+    status === 'completed' ? (
+      <>
+        <circle cx="8" cy="8" r="5.25" fill="currentColor" />
+        <path
+          d="M5.5 8.2l1.7 1.7 3.4-3.9"
+          className="[stroke:var(--bg-app)]"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </>
+    ) : (
+      <>
+        <circle
+          cx="8"
+          cy="8"
+          r="5"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeDasharray={status === 'idea' ? '2.2 2.2' : undefined}
+        />
+        {status === 'in_progress' ? <path d="M8 4.8a3.2 3.2 0 0 1 0 6.4z" fill="currentColor" /> : null}
+        {status === 'needs_structure' ? (
+          <>
+            <path d="M8 5.2v3.1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            <circle cx="8" cy="10.7" r="0.85" fill="currentColor" />
+          </>
+        ) : null}
+        {status === 'archived' ? (
+          <path d="M4.7 11.3l6.6-6.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        ) : null}
+      </>
+    )
+
   return (
-    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={`icon-sm shrink-0 ${tone}`}>
-      <circle
-        cx="8"
-        cy="8"
-        r="5"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeDasharray={status === 'needs_structure' ? '2.4 2' : undefined}
-      />
-      {status === 'ready' || status === 'completed' ? <circle cx="8" cy="8" r="2.2" fill="currentColor" /> : null}
-      {status === 'in_progress' ? (
-        <path d="M8 4.75v3.5l2.25 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-      ) : null}
-      {status === 'archived' ? (
-        <path d="M4.5 11.5l7-7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      ) : null}
+    <svg viewBox="0 0 16 16" fill="none" {...a11y} {...rest} className={`icon-sm shrink-0 ${tone}`}>
+      {shapes}
     </svg>
   )
 }

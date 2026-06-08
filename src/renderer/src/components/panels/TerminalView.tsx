@@ -30,7 +30,7 @@ import { resolveAgentCliPermissionPreset } from '../../utils/agentCliPermissions
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { deriveSprintEngineAutomationDesiredMode } from '../../utils/sprintengineAutomationLifecycle'
 import type { McpSettings } from '../../types/workspace'
-import { Toast } from '../ui/Toast'
+import { CursorErrorPopover } from '../ui/CursorErrorPopover'
 import { workspaceSyncClient } from '../../store/workspaceSyncClient'
 import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../shared/terminal-history'
 import { focusOrAddFileTab } from '../../utils/modelRegistry'
@@ -136,8 +136,11 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     containerRef.current?.focus()
   })
   const [isFileDragOver, setIsFileDragOver] = useState(false)
-  const [dropError, setDropError] = useState<string | null>(null)
-  const [fileLinkError, setFileLinkError] = useState<string | null>(null)
+  // A failed file-link click or file drop, anchored to the pointer that raised
+  // it so the error surfaces next to the cursor instead of a corner toast.
+  const [clickError, setClickError] = useState<{ message: string; x: number; y: number } | null>(
+    null,
+  )
   const agent = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
   )
@@ -356,7 +359,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         window.setTimeout(dispatchFocus, 0)
         window.setTimeout(dispatchFocus, 80)
       },
-      onOpenError: setFileLinkError,
+      onOpenError: (message, anchor) => setClickError({ message, x: anchor.x, y: anchor.y }),
     }))
 
     let disposed = false
@@ -769,9 +772,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     setIsFileDragOver(false)
     focusTerminalRef.current()
 
+    const dropAnchor = { x: event.clientX, y: event.clientY }
+    const showDropError = (message: string) =>
+      setClickError({ message, x: dropAnchor.x, y: dropAnchor.y })
+
     const sessionId = attachedSessionId ?? agent?.cliSessionId
     if (!sessionId) {
-      setDropError(
+      showDropError(
         isCommitDrop
           ? 'Start this agent terminal before dropping a commit into it.'
           : 'Start this agent terminal before dropping files into it.'
@@ -787,7 +794,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         ok: false,
         message: error instanceof Error ? error.message : 'Could not drop the commit into the terminal.',
       }))
-      if (!commitResult.ok) setDropError(commitResult.message)
+      if (!commitResult.ok) showDropError(commitResult.message)
       return
     }
 
@@ -800,7 +807,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       message: error instanceof Error ? error.message : 'Could not drop the file into the terminal.',
     }))
 
-    if (!result.ok) setDropError(result.message)
+    if (!result.ok) showDropError(result.message)
   }
 
   return (
@@ -815,25 +822,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       {isFileDragOver ? (
         <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]" />
       ) : null}
-      {dropError ? (
-        <div className="absolute right-3 top-3 z-20 max-w-[360px]">
-          <Toast
-            tone="error"
-            title="File drop failed"
-            description={dropError}
-            onDismiss={() => setDropError(null)}
-          />
-        </div>
-      ) : null}
-      {fileLinkError ? (
-        <div className="absolute right-3 top-3 z-20 max-w-[360px]">
-          <Toast
-            tone="error"
-            title="File link failed"
-            description={fileLinkError}
-            onDismiss={() => setFileLinkError(null)}
-          />
-        </div>
+      {clickError ? (
+        <CursorErrorPopover
+          key={`${clickError.x},${clickError.y},${clickError.message}`}
+          message={clickError.message}
+          anchor={{ x: clickError.x, y: clickError.y }}
+          onDismiss={() => setClickError(null)}
+        />
       ) : null}
       {folderBlocked ? (
         <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[color:var(--text-muted)]">

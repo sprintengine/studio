@@ -18,7 +18,7 @@ import {
   pasteDroppedFilesIntoTerminal,
 } from '../../utils/terminalDrop'
 import { MONO_FONT_STACK, waitForMonoFontReady } from '../../utils/fonts'
-import { Toast } from '../ui/Toast'
+import { CursorErrorPopover } from '../ui/CursorErrorPopover'
 import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../shared/terminal-history'
 
 interface Props {
@@ -39,7 +39,9 @@ export default function PlainTerminalPanel({
   const containerRef = useRef<HTMLDivElement>(null)
   const sessionIdRef = useRef(`terminal-${terminalId}`)
   const [isFileDragOver, setIsFileDragOver] = useState(false)
-  const [dropError, setDropError] = useState<string | null>(null)
+  // A failed file drop, anchored to the pointer that raised it so the error
+  // surfaces next to the cursor instead of a corner toast.
+  const [dropError, setDropError] = useState<{ message: string; x: number; y: number } | null>(null)
   const {
     folderPath: savedFolderPath,
     folderReadyPath,
@@ -307,6 +309,10 @@ export default function PlainTerminalPanel({
     event.preventDefault()
     setIsFileDragOver(false)
 
+    const dropAnchor = { x: event.clientX, y: event.clientY }
+    const showDropError = (message: string) =>
+      setDropError({ message, x: dropAnchor.x, y: dropAnchor.y })
+
     if (isCommitDrop) {
       const commitResult = await pasteDroppedCommitIntoTerminal({
         dataTransfer: event.dataTransfer,
@@ -315,7 +321,7 @@ export default function PlainTerminalPanel({
         ok: false,
         message: error instanceof Error ? error.message : 'Could not drop the commit into the terminal.',
       }))
-      if (!commitResult.ok) setDropError(commitResult.message)
+      if (!commitResult.ok) showDropError(commitResult.message)
       return
     }
 
@@ -328,7 +334,7 @@ export default function PlainTerminalPanel({
       message: error instanceof Error ? error.message : 'Could not drop the file into the terminal.',
     }))
 
-    if (!result.ok) setDropError(result.message)
+    if (!result.ok) showDropError(result.message)
   }
 
   return (
@@ -345,14 +351,12 @@ export default function PlainTerminalPanel({
           <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]" />
         ) : null}
         {dropError ? (
-          <div className="absolute right-3 top-3 z-20 max-w-[360px]">
-            <Toast
-              tone="error"
-              title="File drop failed"
-              description={dropError}
-              onDismiss={() => setDropError(null)}
-            />
-          </div>
+          <CursorErrorPopover
+            key={`${dropError.x},${dropError.y},${dropError.message}`}
+            message={dropError.message}
+            anchor={{ x: dropError.x, y: dropError.y }}
+            onDismiss={() => setDropError(null)}
+          />
         ) : null}
         {folderBlocked ? (
           <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[color:var(--text-muted)]">

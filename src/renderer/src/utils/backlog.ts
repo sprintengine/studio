@@ -166,19 +166,20 @@ export function createBacklogItem(input: {
   const inferredKind = inferBacklogKind(relativePath, body)
   const archived = isArchivedBacklogPath(relativePath)
   const frontmatterStatus = parseBacklogStatus(frontmatterValue(data, 'status'))
+  const title = inferBacklogTitle(relativePath, body)
 
   return {
     id: relativePath,
     objectId: input.object?.objectId ?? stableBacklogObjectId(relativePath),
     path: input.path,
     relativePath,
-    title: inferBacklogTitle(relativePath, body),
+    title,
     kind: frontmatterKind ?? inferredKind,
     status: archived ? 'archived' : frontmatterStatus ?? defaultBacklogStatus(frontmatterKind ?? inferredKind),
     metadata: input.object?.metadata ?? {},
     links: input.object?.links ?? [],
     objectUpdatedAt: input.object?.updatedAt,
-    excerpt: backlogExcerpt(body),
+    excerpt: backlogExcerpt(body, title),
     modifiedAt: input.stats.modifiedAtMs,
     size: input.stats.sizeBytes,
     sourceContent: input.sourceContent,
@@ -200,8 +201,8 @@ export function inferBacklogTitle(relativePath: string, content: string): string
   return toTitleName(planBasename(relativePath).replace(/\.html?$/i, ''))
 }
 
-export function backlogExcerpt(content: string, maxLength = 180): string {
-  const text = content
+export function backlogExcerpt(content: string, leadingTitle = '', maxLength = 180): string {
+  const flattened = content
     .replace(FRONTMATTER_RE, '')
     .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
@@ -213,8 +214,34 @@ export function backlogExcerpt(content: string, maxLength = 180): string {
     .replace(/\s+/g, ' ')
     .trim()
 
+  // Drop a leading copy of the title so the row's supporting line starts at real
+  // body content instead of echoing the title already shown directly above it.
+  const text = stripLeadingTitle(flattened, leadingTitle)
+
   if (text.length <= maxLength) return text
   return `${text.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`
+}
+
+function stripLeadingTitle(text: string, title: string): string {
+  const needle = title.trim()
+  if (!needle || !text.toLowerCase().startsWith(needle.toLowerCase())) return text
+  return text.slice(needle.length).replace(/^[\s:.,;–—-]+/, '').trim()
+}
+
+// Markdown for the detail preview: drop the frontmatter block and a single
+// leading H1 (the derived title, already shown in the detail header) so the
+// preview reads as a document body instead of restating the title at display
+// size and rendering raw YAML. Non-title leading headings (H2+) and all body
+// content are preserved. Returns '' when the file is only a title.
+export function backlogPreviewMarkdown(sourceContent: string): string {
+  const lines = sourceContent.replace(FRONTMATTER_RE, '').split(/\r?\n/)
+  let start = 0
+  while (start < lines.length && lines[start].trim() === '') start += 1
+  if (start < lines.length && /^#(?!#)\s+\S/.test(lines[start].trim())) {
+    start += 1
+    while (start < lines.length && lines[start].trim() === '') start += 1
+  }
+  return lines.slice(start).join('\n').trimEnd()
 }
 
 export function isBacklogSourceFile(pathValue: string): boolean {
