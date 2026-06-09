@@ -821,89 +821,13 @@ export default function WorkspaceManager() {
     }
   }, [])
 
-  useEffect(() => {
-    if (!specialistMenuOpen) return
-
-    const onPointerDown = (event: PointerEvent) => {
-      if (!specialistMenuRef.current?.contains(event.target as Node)) {
-        setSpecialistMenuOpen(false)
-      }
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSpecialistMenuOpen(false)
-    }
-
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [specialistMenuOpen])
-
-  useEffect(() => {
-    if (!sessionsOpen) return
-
-    const onPointerDown = (event: PointerEvent) => {
-      if (!sessionsRef.current?.contains(event.target as Node)) {
-        setSessionsOpen(false)
-      }
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSessionsOpen(false)
-    }
-
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [sessionsOpen])
-
-  useEffect(() => {
-    if (!viewMenuOpen) return
-
-    const onPointerDown = (event: PointerEvent) => {
-      if (!viewMenuRef.current?.contains(event.target as Node)) {
-        setViewMenuOpen(false)
-      }
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setViewMenuOpen(false)
-    }
-
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [viewMenuOpen])
-
-  useEffect(() => {
-    if (!notificationsOpen) return
-
-    const onPointerDown = (event: PointerEvent) => {
-      if (!notificationsRef.current?.contains(event.target as Node)) {
-        setNotificationsOpen(false)
-      }
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setNotificationsOpen(false)
-    }
-
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [notificationsOpen])
+  // Outside-click and Escape for the top-bar menus (spawn/specialist, sessions,
+  // view, notifications, account) are owned by the Popover primitive: its surface
+  // is portaled to <body>, so a manual `menuRef.contains(target)` guard here would
+  // read every click inside the portaled surface as "outside" and close the menu
+  // before the row's click lands — which silently broke specialist spawning. Each
+  // Popover's onOpenChange already drives these open-states, so no handler is
+  // needed (mirrors the account menu, which never had one).
 
   useEffect(() => {
     setSpecialistMenuOpen(false)
@@ -1644,9 +1568,11 @@ export default function WorkspaceManager() {
     })
   }
 
-  const stopSession = (item: SessionItem) => {
+  // Kill one session's process and reset its derived agent/automation state, but
+  // leave the terminalSessions list to the caller so a batch stop can prune in a
+  // single update instead of one render per session.
+  const killSessionItem = (item: SessionItem) => {
     void window.api.terminalKill(item.sessionId).catch(() => {})
-    setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))
     if (item.workspace.mode === 'sprintengine') {
       applySprintEngineAutomationStopReason(item.workspace.id, 'agent_terminal_closed', {
         ...(item.agentId ? { agentId: item.agentId } : {}),
@@ -1659,6 +1585,28 @@ export default function WorkspaceManager() {
         cliOnboardingPromptSent: false,
       })
     }
+  }
+
+  const stopSession = (item: SessionItem) => {
+    killSessionItem(item)
+    setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))
+  }
+
+  const stopWorkspaceSessions = async (workspace: Workspace, items: SessionItem[]) => {
+    if (items.length === 0) return
+    const confirmed = await dialog.confirm({
+      title:
+        items.length === 1
+          ? `Stop the session in ${workspace.name}?`
+          : `Stop all ${items.length} sessions in ${workspace.name}?`,
+      body: 'Running terminals and agent CLIs in this workspace will be stopped.',
+      confirmLabel: 'Stop all',
+      tone: 'danger',
+    })
+    if (!confirmed) return
+    for (const item of items) killSessionItem(item)
+    const stoppedIds = new Set(items.map((item) => item.sessionId))
+    setTerminalSessions((sessions) => sessions.filter((session) => !stoppedIds.has(session.sessionId)))
   }
 
   const handleShowMenubarMenu = async (
@@ -1741,6 +1689,7 @@ export default function WorkspaceManager() {
         setSessionsOpen={setSessionsOpen}
         openSession={openSession}
         stopSession={stopSession}
+        stopWorkspaceSessions={stopWorkspaceSessions}
         viewMenuOpen={viewMenuOpen}
         setViewMenuOpen={setViewMenuOpen}
         viewMenuTick={viewMenuTick}

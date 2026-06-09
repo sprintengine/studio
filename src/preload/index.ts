@@ -2,6 +2,7 @@ import { contextBridge } from 'electron'
 import type { ElectronApi } from '../shared/electron-api'
 import { appMenuApi } from './api/app-menu'
 import { authApi } from './api/auth'
+import { backlogApi } from './api/backlog'
 import { builtinSkillsApi } from './api/builtinSkills'
 import { clipboardApi } from './api/clipboard'
 import { conversationApi } from './api/conversation'
@@ -31,6 +32,7 @@ const api = {
   isDiagnosticsEnabled: process.env.MULTICODE_DIAGNOSTICS === '1',
   ...windowApi,
   ...authApi,
+  ...backlogApi,
   ...builtinSkillsApi,
   ...clipboardApi,
   ...mobileBridgeApi,

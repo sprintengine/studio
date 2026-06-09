@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { LAYOUT_TEMPLATES, createGuidedBriefTemplate, createMultiloopTemplate } from '../../layouts/templates'
 import { userLayoutTemplateToTemplate } from '../../layouts/userTemplates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -22,6 +22,7 @@ import type {
   SprintEngineSourceBundleKind,
   SprintEngineSourcePlanKind,
   SprintEngineState,
+  SprintEngineSavedRoster,
   SprintEngineWorkspaceContext,
   WorkspaceMode,
   Workspace,
@@ -53,6 +54,10 @@ import { ModeCard } from './newWorkspace/ModeCard'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
 import { AgentCliPicker } from './newWorkspace/SprintEngineRosterTable'
 import { useFolderHints, useFolderScan } from './newWorkspace/useNewWorkspaceFolder'
+import { useBacklogScan } from './newWorkspace/useBacklogScan'
+import { BacklogRowContent } from '../backlog/BacklogRow'
+import { useRelativeNow } from '../../hooks/useRelativeNow'
+import type { BacklogItem, BacklogScanResult } from '../../utils/backlog'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind, workspaceRelativePath } from './newWorkspace/helpers'
 import type { CreationMode, ExistingTeam, GuidedBriefHasUi, SprintEnginePath } from './newWorkspace/types'
@@ -73,10 +78,10 @@ import {
   runSprintEnginePlanSourcedCreation,
 } from './newWorkspace/controllers'
 import {
-  addBacklogObjectLinkForPath,
-  loadBacklogObjectStore,
-  saveBacklogObjectStore,
-} from '../../utils/backlogObjects'
+  getSprintEngineAccessState,
+  requireFreshSprintEngineAccess,
+  type PremiumFeatureAccessState,
+} from '../../utils/premiumAccess'
 
 const MODES: CreationMode[] = ['standard', 'switchboard', 'sprintengine', 'multiloop', 'guided-brief']
 
@@ -126,7 +131,7 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
   },
   'sprintengine-team': {
     title: 'Plan the team',
-    subtitle: 'Pick a starting point and describe the objective.',
+    subtitle: 'Pick a starting point and configure the team.',
   },
   'sprintengine-roster': {
     title: 'Pick specialists',
@@ -194,6 +199,25 @@ const initialSprintEngineRoleCliDefaults: Required<SprintEngineRoleCliDefaults> 
   cross_platform: 'claude-code',
   tester: 'claude-code',
   security: 'claude-code',
+}
+
+function cloneSprintEngineRoleCounts(roleCounts: SprintEngineRoleCounts): SprintEngineRoleCounts {
+  return { ...roleCounts }
+}
+
+function sprintEngineRoleCountsFromSavedRoster(savedRoster: SprintEngineSavedRoster | null | undefined): SprintEngineRoleCounts {
+  return savedRoster?.roleCounts
+    ? cloneSprintEngineRoleCounts(savedRoster.roleCounts)
+    : cloneSprintEngineRoleCounts(initialSprintEngineRoleCounts)
+}
+
+function sprintEngineRoleCliDefaultsFromSavedRoster(
+  savedRoster: SprintEngineSavedRoster | null | undefined,
+): Required<SprintEngineRoleCliDefaults> {
+  return {
+    ...initialSprintEngineRoleCliDefaults,
+    ...(savedRoster?.roleCliDefaults ?? {}),
+  }
 }
 
 const guidedBriefSprintEngineRoleCounts: SprintEngineRoleCounts = {
@@ -313,6 +337,7 @@ export default function NewWorkspacePanel({
   initialState = null,
 }: Props) {
   const authState = useWorkspaceStore((s) => s.authState)
+  const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
   const storedRecentFolders = useWorkspaceStore(
     (s) => s.appSettings.recentWorkspaceFolders ?? [],
@@ -324,6 +349,9 @@ export default function NewWorkspacePanel({
   const setLastAgentSpawnPermissionPreset = useWorkspaceStore(
     (s) => s.setLastAgentSpawnPermissionPreset,
   )
+  const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
+  const setSprintEngineSavedRoster = useWorkspaceStore((s) => s.setSprintEngineSavedRoster)
+  const savedSprintEngineRoster = sprintEngineRoleSettings.savedRoster ?? null
 
   const initialFuturePlan = initialState?.futurePlanSource ?? null
   const initialMode: CreationMode =
@@ -364,6 +392,15 @@ export default function NewWorkspacePanel({
   }, [loadUserLayoutTemplates])
 
   const [sePath, setSePath] = useState<SprintEnginePath>(initialFuturePlan ? 'plan' : 'new')
+  // Within the 'plan' source path: false = pick from the backlog list (default);
+  // true = a hand-picked file outside the backlog. A pre-seeded future plan that
+  // did not come from backlog/ opens straight into the file view.
+  const [seSourceFromFile, setSeSourceFromFile] = useState<boolean>(
+    Boolean(
+      initialFuturePlan
+      && !/^backlog\//i.test((initialFuturePlan.sourceRelativePath ?? '').replace(/\\/g, '/')),
+    ),
+  )
   const [sePlanPath, setSePlanPath] = useState(initialFuturePlan?.sourcePath ?? '')
   const [sePlanRelativePath, setSePlanRelativePath] = useState(initialFuturePlan?.sourceRelativePath ?? '')
   const [sePlanContent, setSePlanContent] = useState<string | null>(
@@ -378,12 +415,13 @@ export default function NewWorkspacePanel({
   const [seTeamNameTouched, setSeTeamNameTouched] = useState(Boolean(initialFuturePlan))
   const [seGoal, setSeGoal] = useState(initialFuturePlan?.goal ?? '')
   const [seRoleCounts, setSeRoleCounts] = useState<SprintEngineRoleCounts>(
-    initialSprintEngineRoleCounts,
+    () => sprintEngineRoleCountsFromSavedRoster(savedSprintEngineRoster),
   )
   const [seRoleCliDefaults, setSeRoleCliDefaults] = useState<Required<SprintEngineRoleCliDefaults>>(
-    initialSprintEngineRoleCliDefaults,
+    () => sprintEngineRoleCliDefaultsFromSavedRoster(savedSprintEngineRoster),
   )
   const [seAgentCliOverrides, setSeAgentCliOverrides] = useState<Record<AgentId, AgentCli>>({})
+  const [seSaveRosterPreference, setSeSaveRosterPreference] = useState(false)
   const [seRoleRegistry, setSeRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
   const [seRoleRegistryStatus, setSeRoleRegistryStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
   const [seStartRunner, setSeStartRunner] = useState(false)
@@ -431,7 +469,6 @@ export default function NewWorkspacePanel({
     [pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes],
   )
   const sprintEngineModuleEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
-  const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
   const sprintEngineDisabledRoleIds = useMemo(
     () => getUserDisabledSprintEngineRoleIds(sprintEngineRoleSettings),
     [sprintEngineRoleSettings],
@@ -563,19 +600,22 @@ export default function NewWorkspacePanel({
 
   const [isCreating, setIsCreating] = useState(false)
 
-  const folderScan = useFolderScan(folderPath)
-  const totalAgents = countSprintEngineAgents(visibleSprintEngineRoleCounts)
-  const isSprintEngine = mode === 'sprintengine'
-  const sprintEnginePlanOptions = useMemo(() => {
-    if (
-      !sePlanPath
-      || !sePlanRelativePath
-      || folderScan.result.plans.some((candidate) => candidate.path === sePlanPath)
-    ) {
-      return folderScan.result.plans
+  useEffect(() => {
+    let cancelled = false
+    void window.api.authGetState()
+      .then((state) => {
+        if (!cancelled) setAuthState(state)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
     }
-    return [{ path: sePlanPath, relativePath: sePlanRelativePath }, ...folderScan.result.plans]
-  }, [folderScan.result.plans, sePlanPath, sePlanRelativePath])
+  }, [setAuthState])
+
+  const isSprintEngine = mode === 'sprintengine'
+  const folderScan = useFolderScan(folderPath)
+  const backlogScan = useBacklogScan(isSprintEngine ? folderPath : null)
+  const totalAgents = countSprintEngineAgents(visibleSprintEngineRoleCounts)
 
   const [step, setStep] = useState<StepId>(initialFuturePlan ? 'sprintengine-team' : 'workspace')
   const [direction, setDirection] = useState<'forward' | 'backward'>('forward')
@@ -658,9 +698,9 @@ export default function NewWorkspacePanel({
       setSeExistingTeam(null)
       setSeAgentCliOverrides({})
     }
-    if (sePath === 'plan' && !folderScan.isScanning && folderScan.result.plans.length === 0 && !sePlanPath) {
-      setSePath('new')
-    }
+    // The 'plan' (backlog) path stays selectable even with an empty backlog —
+    // the step shows an empty state that offers a new team or a hand-picked file
+    // rather than bouncing the user back to 'new'.
   }, [isSprintEngine, sePath, folderScan.result, folderScan.isScanning, sePlanPath])
 
   // When mode changes, ensure the current step exists in the new mode's step list.
@@ -748,10 +788,13 @@ export default function NewWorkspacePanel({
   const multiloopGoalReady = mlGoal.trim().length > 0
   const sePlanReady =
     sePath !== 'plan' || (sePlanPath !== '' && sePlanContent != null && !sePlanError)
-  const seObjectiveComplete =
-    seExistingTeam != null || (seTeamName.trim().length > 0 && seGoal.trim().length > 0)
+  const seTeamDetailsReady =
+    seExistingTeam != null
+    || (sePath === 'plan'
+      ? seTeamName.trim().length > 0
+      : seTeamName.trim().length > 0 && seGoal.trim().length > 0)
   const sprintEngineTeamReady =
-    sprintEngineAccess.allowed && sePlanReady && seObjectiveComplete
+    sprintEngineAccess.allowed && sePlanReady && seTeamDetailsReady
   const sprintEngineRosterReady =
     sprintEngineAccess.allowed && (seExistingTeam != null || totalAgents > 0)
   const guidedIdeaReady = guidedIdea.trim().length > 0 && guidedHasUi != null
@@ -775,7 +818,7 @@ export default function NewWorkspacePanel({
     sePath,
     sePlanReady,
     seExistingTeam,
-    seObjectiveComplete,
+    seTeamDetailsReady,
     totalAgents,
     guidedIdea,
     guidedHasUi,
@@ -821,6 +864,7 @@ export default function NewWorkspacePanel({
     setSePlanContent(null)
     setSeSourcePlanKind('unknown')
     setSeSourceBundle(null)
+    setSeSourceFromFile(false)
     setSePlanError(null)
     setMlError(null)
     if (!nameTouched) setName(folderName || 'workspace')
@@ -853,51 +897,90 @@ export default function NewWorkspacePanel({
     setSeTeamName(team.displayName)
     setSeGoal(team.state.goal)
     setSeRoleCounts(team.state.roleCounts)
-    setSeRoleCliDefaults(cliSelection.roleDefaults)
-    setSeAgentCliOverrides(cliSelection.agentOverrides)
+    if (savedSprintEngineRoster) {
+      setSeRoleCliDefaults({
+        ...cliSelection.roleDefaults,
+        ...savedSprintEngineRoster.roleCliDefaults,
+      })
+      setSeAgentCliOverrides({})
+    } else {
+      setSeRoleCliDefaults(cliSelection.roleDefaults)
+      setSeAgentCliOverrides(cliSelection.agentOverrides)
+    }
   }
 
-  const handleSelectPlan = async (sourcePath: string) => {
-    setSePlanPath(sourcePath)
+  // Shared application of a chosen source (backlog item or hand-picked file)
+  // into the plan-sourced creation state. Backlog items pass their already
+  // derived title and loaded content; the file picker passes freshly read
+  // content. `fromFile` switches the step between the backlog list and the
+  // hand-picked-file view.
+  const applyPlanSource = (input: {
+    path: string
+    relativePath: string
+    content: string
+    title?: string
+    fromFile: boolean
+  }) => {
+    const fallbackName = planBasename(input.relativePath)
+    const goal = input.title?.trim() || markdownTitle(input.content) || toTitleName(fallbackName)
+    const isHtmlSource = /\.html?$/i.test(input.relativePath)
+    setSePlanPath(input.path)
+    setSePlanRelativePath(input.relativePath)
+    setSePlanContent(input.content)
     setSePlanError(null)
-    if (!sourcePath) {
-      setSePlanRelativePath('')
-      setSePlanContent(null)
-      setSeSourcePlanKind('unknown')
-      setSeSourceBundle(null)
-      return
-    }
-    const option = sprintEnginePlanOptions.find((candidate) => candidate.path === sourcePath)
-    if (!option) {
-      setSePlanRelativePath('')
-      setSePlanContent(null)
-      setSePlanError('Selected source file is not available.')
-      return
-    }
+    setSeSourcePlanKind(isHtmlSource ? 'unknown' : inferSourcePlanKind(input.relativePath, input.content))
+    setSeSourceBundle(isHtmlSource
+      ? [{
+        kind: 'html_mockup',
+        sourcePath: input.path,
+        sourceRelativePath: input.relativePath,
+        sourceContent: input.content,
+      }]
+      : null)
+    if (!seTeamNameTouched) setSeTeamName(slugifySprintEngineName(fallbackName))
+    setSeGoal(goal)
+    setSeExistingTeam(null)
+    setSeAgentCliOverrides({})
+    setSeSourceFromFile(input.fromFile)
+  }
+
+  const handleSelectBacklogItem = (item: BacklogItem) => {
+    applyPlanSource({
+      path: item.path,
+      relativePath: item.relativePath,
+      content: item.sourceContent,
+      title: item.title,
+      fromFile: false,
+    })
+  }
+
+  const handlePickSourceFile = async () => {
+    if (!folderPath) return
+    const picked = await window.api.openFile({
+      title: 'Choose a source file',
+      defaultPath: folderPath,
+      filters: [{ name: 'Plans & mockups', extensions: ['md', 'markdown', 'html', 'htm'] }],
+    })
+    if (!picked) return
     try {
-      const content = await window.api.readfile(option.path)
-      const fallbackName = planBasename(option.path)
-      const goal = markdownTitle(content) ?? toTitleName(fallbackName)
-      const isHtmlSource = /\.html?$/i.test(option.relativePath)
-      setSePlanRelativePath(option.relativePath)
-      setSePlanContent(content)
-      setSeSourcePlanKind(isHtmlSource ? 'unknown' : inferSourcePlanKind(option.relativePath, content))
-      setSeSourceBundle(isHtmlSource
-        ? [{
-          kind: 'html_mockup',
-          sourcePath: option.path,
-          sourceRelativePath: option.relativePath,
-          sourceContent: content,
-        }]
-        : null)
-      if (!seTeamNameTouched) setSeTeamName(slugifySprintEngineName(fallbackName))
-      setSeGoal(goal)
-      setSeExistingTeam(null)
-      setSeAgentCliOverrides({})
+      const content = await window.api.readfile(picked)
+      const relativePath = workspaceRelativePath(folderPath, picked) ?? planBasename(picked)
+      applyPlanSource({ path: picked, relativePath, content, fromFile: true })
     } catch {
-      setSePlanContent(null)
-      setSePlanError('Could not read the selected markdown file.')
+      setSePlanError('Could not read the selected file.')
     }
+  }
+
+  // Return from the hand-picked-file view to the backlog list, dropping the
+  // file selection so the step doesn't carry a stale source into creation.
+  const handleBackToBacklog = () => {
+    setSeSourceFromFile(false)
+    setSePlanPath('')
+    setSePlanRelativePath('')
+    setSePlanContent(null)
+    setSeSourcePlanKind('unknown')
+    setSeSourceBundle(null)
+    setSePlanError(null)
   }
 
   const setRoleCount = (role: SprintEngineRoleId, count: number) => {
@@ -965,6 +1048,14 @@ export default function NewWorkspacePanel({
 
   const persistLastPermissionPreset = () => {
     setLastAgentSpawnPermissionPreset(cliPermissionPreset)
+  }
+
+  const persistSprintEngineRosterPreference = () => {
+    if (!seSaveRosterPreference) return
+    setSprintEngineSavedRoster({
+      roleCounts: cloneSprintEngineRoleCounts(visibleSprintEngineRoleCounts),
+      roleCliDefaults: { ...seRoleCliDefaults },
+    })
   }
 
   const handleCreate = async () => {
@@ -1083,6 +1174,13 @@ export default function NewWorkspacePanel({
     }
 
     if (mode === 'sprintengine') {
+      try {
+        await requireFreshSprintEngineAccess(window.api, setAuthState)
+      } catch (error) {
+        setSePlanError(error instanceof Error ? error.message : 'Sprint Engine access could not be verified.')
+        return
+      }
+
       if (seExistingTeam) {
         const args = buildSprintEngineExistingTeamCreation({
           folderPath,
@@ -1096,6 +1194,7 @@ export default function NewWorkspacePanel({
         triggerSelectedSkillPackInstalls(folderPath)
         onCreate(args)
         persistLastPermissionPreset()
+        persistSprintEngineRosterPreference()
         return
       }
 
@@ -1107,7 +1206,9 @@ export default function NewWorkspacePanel({
         const bundlePrimary = seSourceBundle?.[0] ?? null
         const option = bundlePrimary
           ? { path: bundlePrimary.sourcePath, relativePath: bundlePrimary.sourceRelativePath }
-          : sprintEnginePlanOptions.find((candidate) => candidate.path === sePlanPath)
+          : sePlanPath
+            ? { path: sePlanPath, relativePath: sePlanRelativePath }
+            : null
         if (!option) {
           setSePlanError('Selected plan is no longer available. Pick it again on the previous step.')
           return
@@ -1118,10 +1219,6 @@ export default function NewWorkspacePanel({
         }
         if (!seTeamName.trim()) {
           setSePlanError('Add a team name on the previous step.')
-          return
-        }
-        if (!seGoal.trim()) {
-          setSePlanError('Add an objective on the previous step.')
           return
         }
         setIsCreating(true)
@@ -1148,33 +1245,30 @@ export default function NewWorkspacePanel({
               pathExists: window.api.pathExists,
               initializeSprintEngineState: window.api.initializeSprintEngineState,
               recordBacklogExecutionLink: async ({ workspaceRoot, sourceRelativePath, teamSlug, statePath }) => {
-                const store = await loadBacklogObjectStore(workspaceRoot, window.api)
-                await saveBacklogObjectStore(
+                const result = await window.api.addOrUpdateBacklogLink({
                   workspaceRoot,
-                  window.api,
-                  addBacklogObjectLinkForPath(
-                    store,
-                    sourceRelativePath,
-                    {
-                      id: `sprint-engine:${teamSlug}`,
-                      moduleId: 'sprint-engine',
-                      type: 'execution',
-                      label: 'Sprint Engine run',
-                      target: {
-                        kind: 'sprintengine.run',
-                        id: teamSlug,
-                        path: workspaceRelativePath(workspaceRoot, statePath) ?? statePath,
-                      },
-                      status: 'active',
+                  relativePath: sourceRelativePath,
+                  link: {
+                    id: `sprint-engine:${teamSlug}`,
+                    moduleId: 'sprint-engine',
+                    type: 'execution',
+                    label: 'Sprint Engine run',
+                    target: {
+                      kind: 'sprintengine.run',
+                      id: teamSlug,
+                      path: workspaceRelativePath(workspaceRoot, statePath) ?? statePath,
                     },
-                    'in_progress',
-                  ),
-                )
+                    status: 'active',
+                  },
+                  status: 'in_progress',
+                })
+                if (!result.ok) throw new Error(result.message)
               },
             },
           )
           triggerSelectedSkillPackInstalls(folderPath)
           persistLastPermissionPreset()
+          persistSprintEngineRosterPreference()
           onClose()
         } catch (error) {
           if (error instanceof SprintEnginePlanSourcedError) {
@@ -1205,6 +1299,7 @@ export default function NewWorkspacePanel({
       triggerSelectedSkillPackInstalls(folderPath)
       onCreate(args)
       persistLastPermissionPreset()
+      persistSprintEngineRosterPreference()
       return
     }
 
@@ -1245,6 +1340,11 @@ export default function NewWorkspacePanel({
   }
 
   const startLogin = async () => {
+    const currentState = await window.api.authGetState().catch(() => null)
+    if (currentState?.authenticated) {
+      setAuthState(currentState)
+      return
+    }
     await window.api.authLogin(authState.selectedOrganization?.id ?? null)
   }
 
@@ -1264,9 +1364,11 @@ export default function NewWorkspacePanel({
       cliPermissionPreset: runtimeState.buildCliPermissionPreset,
     },
   ) => {
-    if (!sprintEngineAccess.allowed) {
-      await startLogin()
-      throw new Error('Sign in to use Sprint Engine mode.')
+    try {
+      await requireFreshSprintEngineAccess(window.api, setAuthState)
+    } catch (error) {
+      if (!authState.authenticated) await startLogin()
+      throw new Error(error instanceof Error ? error.message : 'Sprint Engine access could not be verified.')
     }
     const finalRoleCounts = applyUserDisabledSprintEngineRoleCounts(
       runOptions.roleCounts,
@@ -1505,7 +1607,12 @@ export default function NewWorkspacePanel({
               folderPath={folderPath}
               isScanning={folderScan.isScanning}
               existingTeams={folderScan.result.teams}
-              planOptions={sprintEnginePlanOptions}
+              backlogScan={backlogScan.result}
+              backlogScanning={backlogScan.isScanning}
+              sourceFromFile={seSourceFromFile}
+              onSelectBacklogItem={handleSelectBacklogItem}
+              onChooseFile={() => void handlePickSourceFile()}
+              onBackToBacklog={handleBackToBacklog}
               path={sePath}
               onChangePath={(p) => {
                 setSePath(p)
@@ -1517,11 +1624,12 @@ export default function NewWorkspacePanel({
                   setSePlanContent(null)
                   setSeSourcePlanKind('unknown')
                   setSeSourceBundle(null)
+                  setSeSourceFromFile(false)
                 }
                 setSePlanError(null)
               }}
               planPath={sePlanPath}
-              onSelectPlan={(p) => void handleSelectPlan(p)}
+              planRelativePath={sePlanRelativePath}
               sourcePlanKind={seSourcePlanKind}
               onChangeSourcePlanKind={setSeSourcePlanKind}
               sourceBundle={seSourceBundle}
@@ -1537,14 +1645,6 @@ export default function NewWorkspacePanel({
                 ) {
                   setSeSourcePlanKind(kind)
                 }
-              }}
-              onClearSourceBundle={() => {
-                setSePlanPath('')
-                setSePlanRelativePath('')
-                setSePlanContent(null)
-                setSeSourcePlanKind('unknown')
-                setSeSourceBundle(null)
-                setSePlanError(null)
               }}
               planError={sePlanError}
               existingTeamSlug={seExistingTeam?.slug ?? ''}
@@ -1618,6 +1718,8 @@ export default function NewWorkspacePanel({
               hasExistingTeam={seExistingTeam != null}
               existingTeamName={seExistingTeam?.displayName ?? null}
               createError={sePlanError}
+              saveRoster={seSaveRosterPreference}
+              onChangeSaveRoster={setSeSaveRosterPreference}
             />
           ) : null}
 
@@ -2466,35 +2568,11 @@ function GuidedChoiceCard({
   )
 }
 
-type SprintEngineAccessState = {
-  allowed: boolean
-  title: string
-  body: string
-  action: 'login'
-}
-
-function getSprintEngineAccessState(authState: MulticodeAuthState): SprintEngineAccessState {
-  if (!authState.authenticated) {
-    return {
-      allowed: false,
-      title: 'Sprint Engine is locked while signed out.',
-      body: 'Sign in to create or supervise local Sprint Engine specialist workflows.',
-      action: 'login',
-    }
-  }
-  return {
-    allowed: true,
-    title: 'Sprint Engine is available.',
-    body: 'This signed-in Multicode session can create local Sprint Engine workflows.',
-    action: 'login',
-  }
-}
-
 function SprintEngineAccessNotice({
   access,
   onSignIn,
 }: {
-  access: SprintEngineAccessState
+  access: PremiumFeatureAccessState
   onSignIn: () => void
 }) {
   return (
@@ -2520,22 +2598,115 @@ function SprintEngineAccessNotice({
   )
 }
 
+function BacklogPickerNote({ children, tone }: { children: ReactNode; tone?: 'error' }): JSX.Element {
+  return (
+    <div
+      className={`
+        rounded-md border border-dashed border-[color:var(--border-default)] px-3 py-4
+        text-center text-[12px] leading-5
+        ${tone === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-subtle)]'}
+      `}
+    >
+      {children}
+    </div>
+  )
+}
+
+// Backlog as a first-class Sprint Engine source: the same scanBacklog() items the
+// Backlog panel shows, rendered with the shared BacklogRowContent so the two
+// surfaces can't drift. Each state (scanning, no folder, empty, unreadable,
+// ready) has its own copy — a failed scan never reads as an empty backlog.
+function BacklogSourcePicker({
+  scan,
+  scanning,
+  selectedPath,
+  onSelect,
+}: {
+  scan: BacklogScanResult
+  scanning: boolean
+  selectedPath: string
+  onSelect: (item: BacklogItem) => void
+}): JSX.Element {
+  const now = useRelativeNow()
+  if (scanning && scan.items.length === 0) {
+    return <BacklogPickerNote>Scanning the backlog…</BacklogPickerNote>
+  }
+  if (scan.state === 'missing-folder') {
+    return <BacklogPickerNote>No backlog/ folder in this project yet. Start a new team, or choose a file.</BacklogPickerNote>
+  }
+  if (scan.state === 'error') {
+    const detail = scan.errors[0]
+    return (
+      <BacklogPickerNote tone="error">
+        {detail ? `Couldn’t read the backlog: ${detail.message}` : 'Couldn’t read the backlog.'}
+      </BacklogPickerNote>
+    )
+  }
+  if (scan.items.length === 0) {
+    return <BacklogPickerNote>Backlog is empty. Start a new team, or choose a file.</BacklogPickerNote>
+  }
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="max-h-[280px] overflow-y-auto rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
+        {scan.items.map((item) => {
+          const selected = item.path === selectedPath
+          return (
+            <button
+              key={item.id}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => onSelect(item)}
+              className={`
+                block w-full cursor-pointer border-b border-l-[3px] border-[color:var(--border-subtle)]
+                px-3 py-2 text-left transition-colors last:border-b-0
+                focus:outline-none focus-visible:ring-2 focus-visible:ring-inset
+                focus-visible:ring-[color:var(--accent-primary)]
+                ${
+                  selected
+                    ? 'border-l-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] pl-[9px]'
+                    : 'border-l-transparent hover:bg-[color:var(--bg-hover)]'
+                }
+              `}
+            >
+              <BacklogRowContent item={item} now={now} />
+              {item.status === 'in_progress' ? (
+                <div className="mt-1 truncate pl-[22px] text-[11px] leading-4 text-[color:var(--text-subtle)]">
+                  Already in progress
+                </div>
+              ) : null}
+            </button>
+          )
+        })}
+      </div>
+      {scan.state === 'partial' && scan.errors.length > 0 ? (
+        <div className="text-[11px] leading-4 text-[color:var(--text-subtle)]">
+          {scan.errors.length} item{scan.errors.length === 1 ? '' : 's'} couldn’t be read.
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function SprintEngineTeamStep(props: {
-  access: SprintEngineAccessState
+  access: PremiumFeatureAccessState
   onSignIn: () => void
   folderPath: string | null
   isScanning: boolean
   existingTeams: ExistingTeam[]
-  planOptions: Array<{ path: string; relativePath: string }>
+  backlogScan: BacklogScanResult
+  backlogScanning: boolean
+  sourceFromFile: boolean
+  onSelectBacklogItem: (item: BacklogItem) => void
+  onChooseFile: () => void
+  onBackToBacklog: () => void
   path: SprintEnginePath
   onChangePath: (path: SprintEnginePath) => void
   planPath: string
-  onSelectPlan: (sourcePath: string) => void
+  planRelativePath: string
   sourcePlanKind: SprintEngineSourcePlanKind
   onChangeSourcePlanKind: (kind: SprintEngineSourcePlanKind) => void
   sourceBundle: SprintEngineSourceBundleItem[] | null
   onChangeSourceBundleKind: (index: number, kind: SprintEngineSourceBundleKind) => void
-  onClearSourceBundle: () => void
   planError: string | null
   existingTeamSlug: string
   onSelectExistingTeam: (slug: string) => void
@@ -2550,16 +2721,20 @@ function SprintEngineTeamStep(props: {
     folderPath,
     isScanning,
     existingTeams,
-    planOptions,
+    backlogScan,
+    backlogScanning,
+    sourceFromFile,
+    onSelectBacklogItem,
+    onChooseFile,
+    onBackToBacklog,
     path,
     onChangePath,
     planPath,
-    onSelectPlan,
+    planRelativePath,
     sourcePlanKind,
     onChangeSourcePlanKind,
     sourceBundle,
     onChangeSourceBundleKind,
-    onClearSourceBundle,
     planError,
     existingTeamSlug,
     onSelectExistingTeam,
@@ -2578,7 +2753,8 @@ function SprintEngineTeamStep(props: {
     return <SprintEngineAccessNotice access={access} onSignIn={onSignIn} />
   }
 
-  const planAvailable = planOptions.length > 0
+  const backlogItems = backlogScan.items
+  const backlogCount = backlogItems.length
   const teamAvailable = existingTeams.length > 0
   const planKindLabel = SOURCE_PLAN_KIND_LABELS[sourcePlanKind]
   const hasSourceBundle = Boolean(sourceBundle?.length)
@@ -2613,16 +2789,16 @@ function SprintEngineTeamStep(props: {
         />
         <PathRadio
           checked={path === 'plan'}
-          disabled={!planAvailable && !planPath}
-          label="Source from files"
+          disabled={!folderPath}
+          label="Start from backlog"
           hint={
-            isScanning
-              ? 'Scanning the folder for source files…'
-              : planAvailable
-                ? `${planOptions.length} source file${planOptions.length === 1 ? '' : 's'} available.`
-                : !folderPath
-                  ? 'Pick a folder to detect source files.'
-                  : 'No source files found.'
+            backlogScanning
+              ? 'Scanning the backlog…'
+              : !folderPath
+                ? 'Pick a folder to detect backlog items.'
+                : backlogCount > 0
+                  ? `${backlogCount} backlog item${backlogCount === 1 ? '' : 's'} in backlog/.`
+                  : 'No backlog items yet — or choose a file.'
           }
           onSelect={() => onChangePath('plan')}
         />
@@ -2644,73 +2820,24 @@ function SprintEngineTeamStep(props: {
       ) : null}
 
       {path === 'plan' ? (
-        <div className="flex flex-col gap-3">
-          {!hasSourceBundle ? (
-            <div className="flex flex-col gap-2">
+        sourceFromFile ? (
+          // ---- Hand-picked file: a deliberate one-off outside the backlog. ----
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-3">
               <FieldLabel>Source file</FieldLabel>
-              <Select<string>
-                ariaLabel="Source file"
-                items={planOptions.map((plan) => ({ value: plan.path, label: plan.relativePath }))}
-                value={planPath || null}
-                onChange={onSelectPlan}
-                disabled={!folderPath || isScanning}
-                placeholder="Select a source file…"
-                className="w-full"
-              />
+              <button
+                type="button"
+                onClick={onBackToBacklog}
+                className="
+                  rounded-sm text-[12px] leading-5 text-[color:var(--text-muted)] underline-offset-2
+                  hover:text-[color:var(--text-default)] hover:underline focus:outline-none
+                  focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                "
+              >
+                Back to backlog
+              </button>
             </div>
-          ) : null}
-          {planPath && !hasSourceBundle ? (
-            planTypeEditing ? (
-              <div className="flex flex-col gap-2">
-                <FieldLabel>Plan type</FieldLabel>
-                <Select<SprintEngineSourcePlanKind>
-                  ariaLabel="Plan type"
-                  items={SOURCE_PLAN_KIND_OPTIONS}
-                  value={sourcePlanKind}
-                  onChange={(value) => {
-                    onChangeSourcePlanKind(value)
-                    setPlanTypeEditing(false)
-                  }}
-                  className="w-full"
-                />
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
-                <span>Plan type</span>
-                <span aria-hidden="true">·</span>
-                <span className="text-[color:var(--text-default)]">{planKindLabel}</span>
-                <span aria-hidden="true">·</span>
-                <button
-                  type="button"
-                  onClick={() => setPlanTypeEditing(true)}
-                  aria-label="Change plan type"
-                  className="
-                    rounded-sm text-[color:var(--text-default)] underline-offset-2
-                    hover:underline focus:outline-none focus-visible:ring-2
-                    focus-visible:ring-[color:var(--accent-primary)]
-                  "
-                >
-                  Change
-                </button>
-              </div>
-            )
-          ) : null}
-          {hasSourceBundle ? (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between gap-3">
-                <FieldLabel>Source bundle</FieldLabel>
-                <button
-                  type="button"
-                  onClick={onClearSourceBundle}
-                  className="
-                    rounded-sm text-[12px] leading-5 text-[color:var(--text-muted)] underline-offset-2
-                    hover:text-[color:var(--text-default)] hover:underline focus:outline-none
-                    focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-                  "
-                >
-                  Clear sources
-                </button>
-              </div>
+            {hasSourceBundle ? (
               <div className="rounded-md border border-[color:var(--border-default)]">
                 {sourceBundle?.map((item, index) => {
                   const label = SOURCE_BUNDLE_KIND_LABELS[item.kind] ?? item.kind.replace(/_/g, ' ')
@@ -2741,9 +2868,88 @@ function SprintEngineTeamStep(props: {
                   )
                 })}
               </div>
+            ) : (
+              <div className="flex items-center gap-3 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
+                <span className="min-w-0 flex-1 truncate font-mono text-[11px] leading-5 text-[color:var(--text-default)]">
+                  {planRelativePath || planBasename(planPath)}
+                </span>
+                <button
+                  type="button"
+                  onClick={onChooseFile}
+                  className="
+                    shrink-0 rounded-sm text-[12px] leading-5 text-[color:var(--text-muted)] underline-offset-2
+                    hover:text-[color:var(--text-default)] hover:underline focus:outline-none
+                    focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                  "
+                >
+                  Change
+                </button>
+              </div>
+            )}
+            {/* A hand-picked file's kind is genuinely inferred, so the override
+                survives here (a backlog item already knows its kind). */}
+            {planPath && !hasSourceBundle ? (
+              planTypeEditing ? (
+                <div className="flex flex-col gap-2">
+                  <FieldLabel>Plan type</FieldLabel>
+                  <Select<SprintEngineSourcePlanKind>
+                    ariaLabel="Plan type"
+                    items={SOURCE_PLAN_KIND_OPTIONS}
+                    value={sourcePlanKind}
+                    onChange={(value) => {
+                      onChangeSourcePlanKind(value)
+                      setPlanTypeEditing(false)
+                    }}
+                    className="w-full"
+                  />
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                  <span>Plan type</span>
+                  <span aria-hidden="true">·</span>
+                  <span className="text-[color:var(--text-default)]">{planKindLabel}</span>
+                  <span aria-hidden="true">·</span>
+                  <button
+                    type="button"
+                    onClick={() => setPlanTypeEditing(true)}
+                    aria-label="Change plan type"
+                    className="
+                      rounded-sm text-[color:var(--text-default)] underline-offset-2
+                      hover:underline focus:outline-none focus-visible:ring-2
+                      focus-visible:ring-[color:var(--accent-primary)]
+                    "
+                  >
+                    Change
+                  </button>
+                </div>
+              )
+            ) : null}
+          </div>
+        ) : (
+          // ---- Backlog list: the first-class source. ----
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <FieldLabel>Backlog item</FieldLabel>
+              <button
+                type="button"
+                onClick={onChooseFile}
+                className="
+                  rounded-sm text-[12px] leading-5 text-[color:var(--text-muted)] underline-offset-2
+                  hover:text-[color:var(--text-default)] hover:underline focus:outline-none
+                  focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                "
+              >
+                Choose a file instead…
+              </button>
             </div>
-          ) : null}
-        </div>
+            <BacklogSourcePicker
+              scan={backlogScan}
+              scanning={backlogScanning}
+              selectedPath={planPath}
+              onSelect={onSelectBacklogItem}
+            />
+          </div>
+        )
       ) : null}
 
       {planError ? (
@@ -2752,41 +2958,45 @@ function SprintEngineTeamStep(props: {
         </div>
       ) : null}
 
-      <label className="flex flex-col gap-2">
-        <FieldLabel>Team name</FieldLabel>
-        <input
-          value={teamName}
-          onChange={(event) => onChangeTeamName(event.target.value)}
-          placeholder="Interface Team"
-          className="
-            block h-11 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5
-            text-[14px] font-medium text-[color:var(--text-strong)] outline-none transition-colors
-            placeholder:text-[color:var(--text-disabled)]
-            hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
-          "
-        />
-      </label>
+      {path !== 'existing' ? (
+        <label className="flex flex-col gap-2">
+          <FieldLabel>Team name</FieldLabel>
+          <input
+            value={teamName}
+            onChange={(event) => onChangeTeamName(event.target.value)}
+            placeholder="Interface Team"
+            className="
+              block h-11 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5
+              text-[14px] font-medium text-[color:var(--text-strong)] outline-none transition-colors
+              placeholder:text-[color:var(--text-disabled)]
+              hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
+            "
+          />
+        </label>
+      ) : null}
 
-      <label className="flex flex-col gap-2">
-        <FieldLabel>Objective</FieldLabel>
-        <textarea
-          value={goal}
-          onChange={(event) => onChangeGoal(event.target.value)}
-          placeholder="What outcome should this team deliver?"
-          className="
-            min-h-[120px] w-full resize-none rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3
-            text-[14px] leading-6 text-[color:var(--text-strong)] outline-none transition-colors
-            placeholder:text-[color:var(--text-disabled)]
-            hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
-          "
-        />
-      </label>
+      {path === 'new' ? (
+        <label className="flex flex-col gap-2">
+          <FieldLabel>Objective</FieldLabel>
+          <textarea
+            value={goal}
+            onChange={(event) => onChangeGoal(event.target.value)}
+            placeholder="What outcome should this team deliver?"
+            className="
+              min-h-[120px] w-full resize-none rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3
+              text-[14px] leading-6 text-[color:var(--text-strong)] outline-none transition-colors
+              placeholder:text-[color:var(--text-disabled)]
+              hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
+            "
+          />
+        </label>
+      ) : null}
     </div>
   )
 }
 
 function SprintEngineRosterStep(props: {
-  access: SprintEngineAccessState
+  access: PremiumFeatureAccessState
   onSignIn: () => void
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
@@ -2805,6 +3015,8 @@ function SprintEngineRosterStep(props: {
   hasExistingTeam: boolean
   existingTeamName: string | null
   createError: string | null
+  saveRoster: boolean
+  onChangeSaveRoster: (save: boolean) => void
 }) {
   const {
     access,
@@ -2826,6 +3038,8 @@ function SprintEngineRosterStep(props: {
     hasExistingTeam,
     existingTeamName,
     createError,
+    saveRoster,
+    onChangeSaveRoster,
   } = props
 
   if (!access.allowed) {
@@ -2858,6 +3072,8 @@ function SprintEngineRosterStep(props: {
         onSetCli={onSetRoleCli}
         totalAgents={totalAgents}
         rosterCountLabel={registryStatus === 'loading' ? 'Loading roles' : undefined}
+        saveRoster={saveRoster}
+        onChangeSaveRoster={onChangeSaveRoster}
         automationMode={automationMode}
         onChangeAutomationMode={onChangeAutomationMode}
         cliPermissionPreset={cliPermissionPreset}
@@ -2877,8 +3093,6 @@ function planSourcedErrorMessage(error: SprintEnginePlanSourcedError): string {
       return 'Plan content was not loaded. Re-select the plan on the previous step.'
     case 'missing-team-name':
       return 'Add a team name on the previous step.'
-    case 'missing-goal':
-      return 'Add an objective on the previous step.'
     case 'plan-not-on-disk':
       return 'Selected source file is not available.'
     case 'team-exists':
@@ -2978,11 +3192,11 @@ function getStepBlockingMessage(args: {
   folderPath: string | null
   name: string
   mlGoal: string
-  sprintEngineAccess: SprintEngineAccessState
+  sprintEngineAccess: PremiumFeatureAccessState
   sePath: SprintEnginePath
   sePlanReady: boolean
   seExistingTeam: ExistingTeam | null
-  seObjectiveComplete: boolean
+  seTeamDetailsReady: boolean
   totalAgents: number
   guidedIdea: string
   guidedHasUi: GuidedBriefHasUi | null
@@ -2997,7 +3211,7 @@ function getStepBlockingMessage(args: {
     sePath,
     sePlanReady,
     seExistingTeam,
-    seObjectiveComplete,
+    seTeamDetailsReady,
     totalAgents,
     guidedIdea,
     guidedHasUi,
@@ -3022,9 +3236,11 @@ function getStepBlockingMessage(args: {
       return 'Ready to create the loop.'
     case 'sprintengine-team':
       if (!sprintEngineAccess.allowed) return 'Sign in to use Sprint Engine mode.'
-      if (sePath === 'plan' && !sePlanReady) return 'Select a markdown plan.'
+      if (sePath === 'plan' && !sePlanReady) return 'Select a backlog item or source file.'
       if (seExistingTeam) return 'Existing team loaded — continue.'
-      if (!seObjectiveComplete) return 'Add a team name and an objective.'
+      if (!seTeamDetailsReady) {
+        return sePath === 'plan' ? 'Add a team name.' : 'Add a team name and an objective.'
+      }
       return 'Continue to the roster.'
     case 'sprintengine-roster':
       if (!sprintEngineAccess.allowed) return 'Sign in to use Sprint Engine mode.'

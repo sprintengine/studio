@@ -27,6 +27,17 @@ PLAN_REVIEW_FOCUS = {
     "performance": "latency, CPU, memory, bundle/runtime resource use, measurement quality, and likely bottlenecks",
 }
 
+SOURCE_KIND_LABELS = {
+    "product_plan": "Product plan",
+    "architect_plan": "Implementation plan",
+    "html_mockup": "HTML mockup",
+    "design_notes": "Design notes",
+    "generic_context": "Context",
+    "unknown": "Source context",
+}
+
+SOURCE_CONTEXT_HEADING = "Incoming source context for this run:"
+
 def plan_path_artifact_value(state_path: Path) -> str:
     return normalize_artifact_path(state_path, "plan.md")["path"]
 
@@ -110,6 +121,58 @@ def source_bundle_reference_notes(state: Dict[str, Any]) -> List[str]:
             notes.append(f"Review source context `{path}` before creating affected task cards.")
     return notes
 
+def source_context_reference_lines(state: Dict[str, Any]) -> List[str]:
+    lines: List[str] = []
+    source = state.get("source")
+    if isinstance(source, dict):
+        source_path = str(source.get("originalPath") or source.get("path") or "").strip()
+        snapshot_path = str(source.get("path") or "").strip()
+        plan_kind = str(source.get("planKind") or "unknown").strip()
+        label = SOURCE_KIND_LABELS.get(plan_kind, "Root handoff")
+        if source_path:
+            line = f"- Root handoff ({label}): read `{source_path}`."
+            if snapshot_path and snapshot_path != source_path:
+                line += f" Sprint Engine snapshot: `{snapshot_path}`."
+            lines.append(line)
+
+    for item in source_bundle_items(state):
+        kind = str(item.get("kind") or "unknown").strip()
+        label = SOURCE_KIND_LABELS.get(kind, kind.replace("_", " ").title())
+        source_path = str(item.get("originalPath") or item.get("path") or "").strip()
+        snapshot_path = str(item.get("path") or "").strip()
+        if not source_path:
+            continue
+        line = f"- {label}: read `{source_path}`."
+        if snapshot_path and snapshot_path != source_path:
+            line += f" Sprint Engine snapshot: `{snapshot_path}`."
+        lines.append(line)
+
+    return unique_strings(lines)
+
+def source_context_description_block(state: Dict[str, Any]) -> Optional[str]:
+    lines = source_context_reference_lines(state)
+    if not lines:
+        return None
+    return "\n".join([
+        SOURCE_CONTEXT_HEADING,
+        *lines,
+        "Use these explicit source paths; do not infer the backlog item, mockup, or plan source from the team slug.",
+    ])
+
+def apply_source_context_to_task(task: Dict[str, Any], state: Dict[str, Any]) -> None:
+    block = source_context_description_block(state)
+    if not block:
+        return
+    description = str(task.get("description") or "").rstrip()
+    if SOURCE_CONTEXT_HEADING in description:
+        description = description.split(f"\n\n{SOURCE_CONTEXT_HEADING}", 1)[0].rstrip()
+    task["description"] = f"{description}\n\n{block}" if description else block
+    notes = [
+        "Read the explicit incoming source context paths in the task description before producing this artifact.",
+        "Do not derive the backlog item, source plan, mockup, or context folder from the Sprint Engine team slug.",
+    ]
+    add_unique_values(task, "implementationNotes", notes)
+
 def find_architect_plan_gate(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
     plan_path_value = plan_path_artifact_value(state_path)
     plan_task = None
@@ -139,6 +202,7 @@ def ensure_product_intake_gate(state: Dict[str, Any], state_path: Path, actor: s
     handover_note = product_intake_handover_note(state_path)
     product_task = None
     product_artifact = None
+    created_product_task = False
 
     for artifact in state.setdefault("artifacts", []):
         if not isinstance(artifact, dict):
@@ -189,6 +253,7 @@ def ensure_product_intake_gate(state: Dict[str, Any], state_path: Path, actor: s
             "completedAt": None,
         })
         state.setdefault("tasks", []).append(product_task)
+        created_product_task = True
         append_event(state, "task_added", actor, f"{actor} added {product_task['id']}: {product_task['title']}.")
     elif product_task.get("status") == "in_progress":
         product_task["ownerAgentId"] = product_task.get("ownerAgentId") or actor
@@ -197,6 +262,13 @@ def ensure_product_intake_gate(state: Dict[str, Any], state_path: Path, actor: s
 
     if handover_note and product_task.get("status") != "done":
         add_unique_values(product_task, "implementationNotes", [handover_note])
+
+    should_refresh_source_context = (
+        created_product_task
+        or SOURCE_CONTEXT_HEADING in str(product_task.get("description") or "")
+    )
+    if product_task.get("status") != "done" and should_refresh_source_context:
+        apply_source_context_to_task(product_task, state)
 
     if product_task.get("status") in ACTIVE_TASK_STATUSES:
         set_agent_active(ensure_agent(state, actor, "product"), product_task)
@@ -249,6 +321,7 @@ def ensure_plan_approval_gate(
     existing_gate = find_architect_plan_gate(state, state_path)
     plan_task = existing_gate["task"]
     plan_artifact = existing_gate["artifact"]
+    created_plan_task = False
 
     if plan_task is None:
         preferred_id = "T1" if depends_on else "T0"
@@ -276,6 +349,7 @@ def ensure_plan_approval_gate(
             "completedAt": None,
         })
         state.setdefault("tasks", []).append(plan_task)
+        created_plan_task = True
         append_event(state, "task_added", actor, f"{actor} added {plan_task['id']}: {plan_task['title']}.")
     elif plan_task.get("status") != "done":
         if depends_on and depends_on not in plan_task.get("dependsOn", []):
@@ -285,6 +359,13 @@ def ensure_plan_approval_gate(
             plan_task["ownerAgentId"] = plan_task.get("ownerAgentId") or actor
             plan_task["startedAt"] = plan_task.get("startedAt") or now_iso()
         plan_task["completedAt"] = None
+
+    should_refresh_source_context = (
+        created_plan_task
+        or SOURCE_CONTEXT_HEADING in str(plan_task.get("description") or "")
+    )
+    if plan_task.get("status") != "done" and should_refresh_source_context:
+        apply_source_context_to_task(plan_task, state)
 
     if plan_task.get("status") in ACTIVE_TASK_STATUSES:
         set_agent_active(ensure_agent(state, actor, "architect"), plan_task)

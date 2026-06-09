@@ -1039,8 +1039,14 @@ export type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete
 export type AgentCli = string
 export type SprintEngineRoleCliDefaults = Partial<Record<SprintEngineRoleId, AgentCli>>
 
+export type SprintEngineSavedRoster = {
+  roleCounts: SprintEngineRoleCounts
+  roleCliDefaults: SprintEngineRoleCliDefaults
+}
+
 export type SprintEngineRoleSettings = {
   enabled: Record<SprintEngineRoleId, boolean>
+  savedRoster?: SprintEngineSavedRoster | null
 }
 export type MultiloopRole =
   | 'coordinator'
@@ -1518,6 +1524,10 @@ export type EditorState = {
   activeFilePath: string | null
 }
 
+export type WorkspaceFileExplorerState = {
+  expandedPaths: string[]
+}
+
 export type Workspace = {
   id: WorkspaceId
   name: string
@@ -1532,6 +1542,7 @@ export type Workspace = {
   worktreeState: WorkspaceWorktreeState
   memory: WorkspaceMemoryConfig
   editorState: EditorState
+  fileExplorerState?: WorkspaceFileExplorerState
   sprintEngineState: SprintEngineState | null
   multiloopState?: MultiloopState | null
   sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults

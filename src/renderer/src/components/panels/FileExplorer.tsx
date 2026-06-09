@@ -17,6 +17,7 @@ import { inferSourcePlanKind } from '../workspace/newWorkspace/helpers'
 import type { FuturePlanWorkspaceSource, SprintEngineSourceBundleItem, SprintEngineSourcePlanKind } from '../../types/workspace'
 
 const EMPTY_SEARCH_EXCLUDES: string[] = []
+const EMPTY_EXPANDED_PATHS: string[] = []
 
 type Entry = {
   name: string
@@ -522,6 +523,21 @@ function remapExpandedPaths(
   )
 }
 
+function expandedPathRecordFromList(paths: string[], rootPath: string): Record<string, boolean> {
+  const candidatePaths = new Set(paths.filter((path) => isPathOrChild(path, rootPath)))
+  return Object.fromEntries(
+    Array.from(candidatePaths)
+      .filter((path) => parentDirectoriesForPath(rootPath, path).every((parentPath) => candidatePaths.has(parentPath)))
+      .map((path) => [path, true])
+  )
+}
+
+function expandedPathListFromRecord(expandedPaths: Record<string, boolean>): string[] {
+  return Object.entries(expandedPaths)
+    .filter(([, expanded]) => expanded)
+    .map(([path]) => path)
+}
+
 async function searchFiles(
   rootPath: string,
   query: string,
@@ -612,11 +628,20 @@ function ExplorerTree({
   const openFile = useWorkspaceStore((s) => s.openFile)
   const remapOpenFiles = useWorkspaceStore((s) => s.remapOpenFiles)
   const removeOpenFilesForPath = useWorkspaceStore((s) => s.removeOpenFilesForPath)
+  const setFileExplorerExpandedPaths = useWorkspaceStore((s) => s.setFileExplorerExpandedPaths)
   const dialog = useConfirmDialog()
+  const readPersistedExpandedPaths = useCallback(() => (
+    useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)?.fileExplorerState?.expandedPaths
+    ?? EMPTY_EXPANDED_PATHS
+  ), [workspaceId])
+  const initialExpandedPaths = useMemo(
+    () => expandedPathRecordFromList(readPersistedExpandedPaths(), rootPath),
+    [readPersistedExpandedPaths, rootPath]
+  )
 
   const [rootEntries, setRootEntries] = useState<Entry[]>([])
   const [childrenByPath, setChildrenByPath] = useState<Record<string, Entry[]>>({})
-  const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({})
+  const [expandedPaths, setExpandedPathsState] = useState<Record<string, boolean>>(() => initialExpandedPaths)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set())
   const [clipboard, setClipboard] = useState<ExplorerClipboard | null>(null)
@@ -630,7 +655,7 @@ function ExplorerTree({
   const searchTimeoutRef = useRef<number | null>(null)
   const searchRequestSeqRef = useRef(0)
   const committingRenameRef = useRef(false)
-  const latestExpandedPathsRef = useRef<Record<string, boolean>>({})
+  const latestExpandedPathsRef = useRef<Record<string, boolean>>(initialExpandedPaths)
   const latestSearchQueryRef = useRef('')
   const latestSearchExcludesRef = useRef(searchExcludes)
   const latestGitStatusRef = useRef<GitStatusSnapshot | null>(gitStatus)
@@ -665,10 +690,6 @@ function ExplorerTree({
   const searchDiagnosticsTitle = import.meta.env.DEV && searchDiagnostics
     ? `Search used ${searchDiagnostics.engine} in ${searchDiagnostics.elapsedMs} ms (${searchDiagnostics.resultCount}${searchDiagnostics.truncated ? '+' : ''} results)`
     : undefined
-
-  useEffect(() => {
-    latestExpandedPathsRef.current = expandedPaths
-  }, [expandedPaths])
 
   useEffect(() => {
     latestSearchQueryRef.current = query
@@ -731,6 +752,19 @@ function ExplorerTree({
   }, [])
 
   const renamingPath = renameDraft?.entry.path ?? null
+
+  const commitExpandedPaths = useCallback((next: Record<string, boolean>) => {
+    latestExpandedPathsRef.current = next
+    setExpandedPathsState(next)
+    setFileExplorerExpandedPaths(workspaceId, expandedPathListFromRecord(next))
+  }, [setFileExplorerExpandedPaths, workspaceId])
+
+  const setExpandedPaths = useCallback((
+    update: Record<string, boolean> | ((current: Record<string, boolean>) => Record<string, boolean>)
+  ) => {
+    const current = latestExpandedPathsRef.current
+    commitExpandedPaths(typeof update === 'function' ? update(current) : update)
+  }, [commitExpandedPaths])
 
   const showError = useCallback((error: unknown, fallback?: string) => {
     setErrorToast(error instanceof Error ? error.message : fallback ?? String(error))
@@ -920,10 +954,19 @@ function ExplorerTree({
 
   const toggleDirectory = async (entry: Entry) => {
     if (!entry.isDir) return
-    if (!expandedPaths[entry.path]) {
+    const isExpanded = latestExpandedPathsRef.current[entry.path] === true
+    if (!isExpanded) {
       await ensureDirectoryLoaded(entry.path)
     }
-    setExpandedPaths((current) => ({ ...current, [entry.path]: !current[entry.path] }))
+    setExpandedPaths((current) => {
+      if (!isExpanded) {
+        return { ...current, [entry.path]: true }
+      }
+
+      return Object.fromEntries(
+        Object.entries(current).filter(([path]) => !isPathOrChild(path, entry.path))
+      )
+    })
   }
 
   const activateEntry = async (entry: Entry) => {
@@ -1320,17 +1363,47 @@ function ExplorerTree({
   }
 
   useEffect(() => {
+    let cancelled = false
+    const restoredExpandedPaths = expandedPathRecordFromList(readPersistedExpandedPaths(), rootPath)
     setLoading(true)
     setRootEntries([])
     setChildrenByPath({})
-    setExpandedPaths({})
+    latestExpandedPathsRef.current = restoredExpandedPaths
+    setExpandedPathsState(restoredExpandedPaths)
     setSelectedPath(null)
     setSelectedPaths(new Set())
     selectionAnchorPathRef.current = null
 
     const startedAt = performance.now()
-    loadDirectory(rootPath)
-      .then((entries) => {
+    const loadInitialTree = async () => {
+      const entries = await loadDirectory(rootPath)
+      if (cancelled) return
+
+      const expandedDirectories = Object.keys(restoredExpandedPaths).filter((dirPath) => dirPath !== rootPath)
+      const existingExpandedPaths = { ...restoredExpandedPaths }
+      let loadedDirectoryCount = 1
+
+      await Promise.all(expandedDirectories.map(async (dirPath) => {
+        try {
+          await loadDirectory(dirPath)
+          loadedDirectoryCount += 1
+        } catch {
+          delete existingExpandedPaths[dirPath]
+        }
+      }))
+      if (cancelled) return
+
+      if (Object.keys(existingExpandedPaths).length !== Object.keys(restoredExpandedPaths).length) {
+        commitExpandedPaths(existingExpandedPaths)
+      }
+
+      return { entries, expandedDirectoryCount: expandedDirectories.length, loadedDirectoryCount }
+    }
+
+    loadInitialTree()
+      .then((result) => {
+        if (!result || cancelled) return
+        const { entries, expandedDirectoryCount, loadedDirectoryCount } = result
         const firstPath = entries[0]?.path ?? null
         setSelectedPath(firstPath)
         setSelectedPaths(firstPath ? new Set([firstPath]) : new Set())
@@ -1339,13 +1412,18 @@ function ExplorerTree({
           cause: 'initial',
           rootPath,
           elapsedMs: Math.round(performance.now() - startedAt),
-          expandedDirectoryCount: 0,
-          loadedDirectoryCount: 1,
+          expandedDirectoryCount,
+          loadedDirectoryCount,
           isSearching: false,
         })
       })
-      .finally(() => setLoading(false))
-  }, [loadDirectory, rootPath])
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [commitExpandedPaths, loadDirectory, readPersistedExpandedPaths, rootPath])
 
   useEffect(() => {
     if (refreshToken === lastManualRefreshRef.current) return

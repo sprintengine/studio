@@ -28,6 +28,7 @@ import { GuidedBriefFlow, type GuidedBriefRunOptions } from './GuidedBriefFlow'
 import { selectAgentCliCatalog } from '../newWorkspace/cliRuntimeOptions'
 import { guidedBriefBuildHandoffRelativePath, guidedBriefSprintEngineGoal } from './handoff'
 import { joinWorkspacePath } from './paths'
+import { requireFreshSprintEngineAccess } from '../../../utils/premiumAccess'
 
 type Props = {
   workspaceId: string
@@ -50,6 +51,7 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((candidate) => candidate.id === workspaceId) ?? null)
   const setGuidedBriefState = useWorkspaceStore((s) => s.setGuidedBriefState)
   const authState = useWorkspaceStore((s) => s.authState)
+  const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
@@ -71,9 +73,11 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
     state: GuidedBriefRuntimeState,
     runOptions: GuidedBriefRunOptions,
   ) => {
-    if (!authState.authenticated) {
-      await window.api.authLogin(authState.selectedOrganization?.id ?? null)
-      throw new Error('Sign in to use Sprint Engine mode.')
+    try {
+      await requireFreshSprintEngineAccess(window.api, setAuthState)
+    } catch (error) {
+      if (!authState.authenticated) await window.api.authLogin(authState.selectedOrganization?.id ?? null)
+      throw new Error(error instanceof Error ? error.message : 'Sprint Engine access could not be verified.')
     }
     if (state.wantsProductDiscussion && !state.acceptedProductBrief) {
       throw new Error('Accept the product brief before starting the build.')

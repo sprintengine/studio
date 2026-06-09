@@ -1,0 +1,159 @@
+import { LifecycleGlyph, Tooltip, type LifecycleState } from '../ui'
+import type {
+  BacklogCriticality,
+  BacklogDifficulty,
+  BacklogItem,
+  BacklogItemStatus,
+} from '../../utils/backlog'
+import {
+  CRITICALITY_LABEL,
+  DIFFICULTY_LABEL,
+  DIFFICULTY_WORD,
+} from '../../utils/backlogTriage'
+import { formatRelativeMsAgo } from '../../utils/relativeTime'
+
+// Backlog readiness → the shared lifecycle vocabulary. These are calm early
+// states, not blockers — none maps to the warn "needs input" glyph (that's for a
+// task genuinely awaiting a human). Idea reads as a dashed ring, "needs
+// structure" as a plain to-do ring.
+export function backlogStatusToLifecycle(status: BacklogItemStatus): LifecycleState {
+  switch (status) {
+    case 'idea':
+      return 'idea'
+    case 'ready':
+      return 'ready'
+    case 'in_progress':
+      return 'in_progress'
+    case 'completed':
+      return 'done'
+    case 'archived':
+      return 'archived'
+  }
+}
+
+// Backlog-specific readiness words for the glyph tooltip — accurate to the
+// item's status, independent of the (coarser) lifecycle shape it maps to.
+export const BACKLOG_STATUS_LABEL: Record<BacklogItemStatus, string> = {
+  idea: 'Idea',
+  ready: 'Ready',
+  in_progress: 'In progress',
+  completed: 'Completed',
+  archived: 'Archived',
+}
+
+// Canonical backlog row interior, shared by the Backlog panel list and the
+// new-workspace Sprint Engine source picker so the two surfaces can't drift.
+// The selectable wrapper (listbox option, drag, click target) stays with each
+// consumer; only the visual content lives here.
+//
+// Primary line: a leading readiness glyph is the row's status marker, then the
+// title, then the triage column (size + criticality) the eye can scan straight
+// down. Supporting line: the real excerpt (title already stripped), or the path
+// when a capture has no body yet, with how long ago it was touched on the right.
+export function BacklogRowContent({ item, now }: { item: BacklogItem; now: number }): JSX.Element {
+  const lifecycle = backlogStatusToLifecycle(item.status)
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <Tooltip content={BACKLOG_STATUS_LABEL[item.status]} placement="top">
+          <LifecycleGlyph state={lifecycle} />
+        </Tooltip>
+        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
+          {item.title}
+        </span>
+        <DifficultyIndicator difficulty={item.difficulty} />
+        <CriticalityIndicator criticality={item.criticality} />
+      </div>
+      <div className="mt-0.5 flex items-center gap-2 pl-[22px] text-[11px]">
+        <span className="min-w-0 flex-1 truncate text-[color:var(--text-disabled)]">
+          {item.excerpt || item.relativePath}
+        </span>
+        <span className="shrink-0 tabular-nums text-[color:var(--text-subtle)]">
+          {formatRelativeMsAgo(item.modifiedAt, now) || 'unknown'}
+        </span>
+      </div>
+    </>
+  )
+}
+
+// Size reads as the t-shirt token itself (XS/S/M/L/XL) — text is the signal, so
+// it never depends on color. Right-aligned, fixed-width, tabular so the column
+// scans straight down; unestimated is a calm dash, never a warning.
+export function DifficultyIndicator({ difficulty }: { difficulty?: BacklogDifficulty }): JSX.Element {
+  return (
+    <span
+      role="img"
+      aria-label={difficulty ? `Size ${DIFFICULTY_WORD[difficulty]}` : 'Size unestimated'}
+      className={`w-[2.25ch] shrink-0 text-right font-mono text-[11px] tabular-nums ${
+        difficulty ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-disabled)]'
+      }`}
+    >
+      {difficulty ? DIFFICULTY_LABEL[difficulty] : '–'}
+    </span>
+  )
+}
+
+// Criticality pairs a shape-coded glyph (ascending bars / urgent mark — level by
+// shape, never color alone) with the level word, satisfying the text+glyph rule
+// while staying compact. Unset renders a calm dash, not an alert.
+export function CriticalityIndicator({ criticality }: { criticality?: BacklogCriticality }): JSX.Element {
+  if (!criticality) {
+    return (
+      <span
+        role="img"
+        aria-label="No priority set"
+        className="w-[5.5rem] shrink-0 text-right text-[11px] text-[color:var(--text-disabled)]"
+      >
+        –
+      </span>
+    )
+  }
+  const urgent = criticality === 'high' || criticality === 'critical'
+  return (
+    <span
+      className={`inline-flex w-[5.5rem] shrink-0 items-center justify-end gap-1 text-[11px] ${
+        urgent ? 'font-medium text-[color:var(--text-default)]' : 'text-[color:var(--text-subtle)]'
+      }`}
+    >
+      <CriticalityGlyph criticality={criticality} />
+      {CRITICALITY_LABEL[criticality]}
+    </span>
+  )
+}
+
+// Decorative (the adjacent word carries the accessible name). Low/Normal/High
+// are 1/2/3 filled ascending bars; Critical is a distinct filled mark so it
+// never collides with High on bar count alone.
+function CriticalityGlyph({ criticality }: { criticality: BacklogCriticality }): JSX.Element {
+  if (criticality === 'critical') {
+    return (
+      <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
+        <rect x="3.5" y="3.5" width="9" height="9" rx="2" fill="currentColor" />
+        <path d="M8 5.5v3.2" className="[stroke:var(--bg-app)]" strokeWidth="1.5" strokeLinecap="round" />
+        <circle cx="8" cy="11" r="0.85" className="[fill:var(--bg-app)]" />
+      </svg>
+    )
+  }
+  const filled = criticality === 'high' ? 3 : criticality === 'normal' ? 2 : 1
+  const bars = [
+    { x: 3, height: 4 },
+    { x: 6.6, height: 7 },
+    { x: 10.2, height: 10 },
+  ]
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
+      {bars.map((bar, index) => (
+        <rect
+          key={bar.x}
+          x={bar.x}
+          y={13 - bar.height}
+          width="2.6"
+          height={bar.height}
+          rx="0.8"
+          fill="currentColor"
+          className={index < filled ? '' : 'opacity-30'}
+        />
+      ))}
+    </svg>
+  )
+}

@@ -663,6 +663,41 @@ def test_product_plan_handover_seeds_reviewable_product_requirements(tmp_path) -
     assert payload["productArtifact"]["status"] == "draft"
     assert payload["planTask"]["dependsOn"] == [payload["productTask"]["id"]]
     assert payload["planTask"]["status"] == "todo"
+    assert "Incoming source context for this run:" in payload["productTask"]["description"]
+    assert "Incoming source context for this run:" in payload["planTask"]["description"]
+    assert "handover.md" in payload["planTask"]["description"]
+    assert any("Do not derive the backlog item" in item for item in payload["planTask"]["implementationNotes"])
+
+
+def test_backlog_handover_initial_architect_task_names_selected_backlog_item(tmp_path) -> None:
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "backlog-item" / "run.yaml"
+    backlog_path = tmp_path / "backlog" / "checkout-flow.md"
+    backlog_path.parent.mkdir(parents=True)
+    backlog_path.write_text("# Checkout Flow\n\nFix the provider status link.\n", encoding="utf-8")
+
+    cli = SwarmCli(state_path)
+    cli.run(
+        "handover",
+        "--name",
+        "Backlog Item",
+        "--goal",
+        "Plan from backlog",
+        "--handover",
+        str(backlog_path),
+        "--source-plan-kind",
+        "unknown",
+        "--agent",
+        "architect:architect",
+    )
+    payload = cli.run("init", "--goal", "Plan from backlog", "--agent", "architect:architect")
+
+    description = payload["planTask"]["description"]
+    assert "Incoming source context for this run:" in description
+    assert "Root handoff" in description
+    assert "backlog/checkout-flow.md" in description
+    assert "Use these explicit source paths" in description
+    assert "do not infer the backlog item" in description
+    assert any("explicit incoming source context" in item for item in payload["planTask"]["implementationNotes"])
 
 
 def test_source_bundle_handover_seeds_product_and_architect_sources(tmp_path) -> None:
@@ -701,6 +736,11 @@ def test_source_bundle_handover_seeds_product_and_architect_sources(tmp_path) ->
     assert any("current-codebase index" in item for item in payload["planTask"]["acceptanceCriteria"])
     assert any("index the current codebase" in item for item in payload["planTask"]["implementationNotes"])
     assert "Architect plan artifact is marked ready for user approval after review." in payload["planTask"]["acceptanceCriteria"]
+    assert "Incoming source context for this run:" in payload["productTask"]["description"]
+    assert "Product plan:" in payload["productTask"]["description"]
+    assert "Implementation plan:" in payload["planTask"]["description"]
+    assert "HTML mockup:" in payload["planTask"]["description"]
+    assert "future-plans/mockup.html" in payload["planTask"]["description"]
     assert [artifact for artifact in state["artifacts"] if artifact["taskId"] == ""] == []
     assert any("mockup.html" in note and "implementationNotes" in note for note in payload["productTask"]["implementationNotes"])
     assert any("mockup.html" in note and "implementationNotes" in note for note in payload["planTask"]["implementationNotes"])
@@ -728,6 +768,8 @@ def test_html_only_source_bundle_routes_mockup_context_to_review_tasks(tmp_path)
     assert [item["kind"] for item in state["sourceBundle"]] == ["html_mockup"]
     assert payload["productTask"]["title"] == "Define product requirements"
     assert payload["planTask"]["dependsOn"] == [payload["productTask"]["id"]]
+    assert "HTML mockup:" in payload["productTask"]["description"]
+    assert "future-plans/mockup.html" in payload["planTask"]["description"]
     assert any("mockup.html" in note and "implementationNotes" in note for note in payload["productTask"]["implementationNotes"])
     assert any("mockup.html" in note and "implementationNotes" in note for note in payload["planTask"]["implementationNotes"])
 
@@ -752,6 +794,9 @@ def test_html_source_can_be_classified_as_architect_plan(tmp_path) -> None:
 
     assert payload["productTask"] is None
     assert payload["planTask"]["title"] == "Review imported implementation plan and create task graph"
+    assert "Incoming source context for this run:" in payload["planTask"]["description"]
+    assert "Implementation plan:" in payload["planTask"]["description"]
+    assert "future-plans/implementation.html" in payload["planTask"]["description"]
     assert any("current-codebase index" in item for item in payload["planTask"]["acceptanceCriteria"])
     assert any("index the current codebase" in item for item in payload["planTask"]["implementationNotes"])
     assert "Architect plan artifact is marked ready for user approval after review." in payload["planTask"]["acceptanceCriteria"]

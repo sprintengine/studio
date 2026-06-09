@@ -201,19 +201,10 @@ async function testSprintEnginePlanSourcedValidation(): Promise<void> {
   await assert.rejects(
     () => runSprintEnginePlanSourcedCreation(
       { ...baseInput, folderPath: '/p', goal: '   ' },
-      { pathExists: async () => true },
-    ),
-    (error) => error instanceof SprintEnginePlanSourcedError && error.code === 'missing-goal',
-    'missing goal',
-  )
-
-  await assert.rejects(
-    () => runSprintEnginePlanSourcedCreation(
-      { ...baseInput, folderPath: '/p' },
       { pathExists: async () => false },
     ),
     (error) => error instanceof SprintEnginePlanSourcedError && error.code === 'plan-not-on-disk',
-    'plan not on disk',
+    'empty goal is allowed and validation continues to the real source-file check',
   )
 
   // team-exists: the team statePath exists. pathExists(option.path) → true (source file)

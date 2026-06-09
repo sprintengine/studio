@@ -44,13 +44,13 @@ import {
   normalizeSearchExcludes,
   normalizeUsageTelemetrySettings,
 } from './settingsSlice'
-import { normalizeWorkspaceMode } from './workspacesSlice'
+import { normalizeWorkspaceFileExplorerState, normalizeWorkspaceMode } from './workspacesSlice'
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
 import { clearSprintEngineAgentLaunchState, mapMigrationWorkspaces } from './normalizers'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 58
+export const WORKSPACE_STORE_VERSION = 59
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -787,6 +787,12 @@ export function migratePersistedWorkspaceState(
     // removed Sprint Engine automation boolean mirrors. Run before older
     // automation normalization steps so pre-v53 snapshots do not lose intent.
     mapMigrationWorkspaces(migrationState, repairSprintEngineAutomationLifecycleState)
+  }
+  if (version < 59) {
+    mapMigrationWorkspaces(migrationState, (ws) => ({
+      ...ws,
+      fileExplorerState: normalizeWorkspaceFileExplorerState(ws.fileExplorerState),
+    }))
   }
   if (version < 51) {
     mapMigrationWorkspaces(migrationState, (ws) => {

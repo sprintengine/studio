@@ -1,10 +1,16 @@
 import {
+  type BacklogCriticality,
+  type BacklogDifficulty,
   type BacklogItem,
   type BacklogItemLink,
   type BacklogItemObjectMetadata,
   type BacklogItemStatus,
+  type BacklogType,
   type BacklogScanResult,
   createBacklogItem,
+  isBacklogCriticality,
+  isBacklogDifficulty,
+  isBacklogType,
   normalizeRelativePath,
   stableBacklogObjectId,
 } from './backlog'
@@ -17,6 +23,9 @@ export type BacklogObjectRecord = {
     relativePath: string
   }
   status?: BacklogItemStatus
+  type?: BacklogType
+  difficulty?: BacklogDifficulty
+  criticality?: BacklogCriticality
   metadata?: Record<string, unknown>
   links?: BacklogItemLink[]
   createdAt?: string
@@ -81,6 +90,9 @@ export function hydrateBacklogScanResult(
       objectId: record.id,
       metadata: record.metadata ?? {},
       links: record.links ?? [],
+      type: record.type,
+      difficulty: record.difficulty,
+      criticality: record.criticality,
       updatedAt: record.updatedAt,
     }
     return {
@@ -112,6 +124,9 @@ export function ensureBacklogObjectRecords(
       id: stableBacklogObjectId(item.relativePath),
       source: { type: 'file', relativePath: item.relativePath },
       status: item.status,
+      type: item.type,
+      difficulty: item.difficulty,
+      criticality: item.criticality,
       metadata: {},
       links: [],
       createdAt: now,
@@ -133,6 +148,38 @@ export function updateBacklogObjectStatus(
     status,
     updatedAt: now,
   }), now)
+}
+
+// Sets or clears the item type on a backlog object. Passing null clears the
+// durable override so source/frontmatter inference can surface again on scan.
+export function updateBacklogObjectType(
+  store: BacklogObjectStore,
+  item: BacklogItem,
+  type: BacklogType | null,
+  now = new Date().toISOString(),
+): BacklogObjectStore {
+  return upsertBacklogObjectRecord(store, item, (record) => ({
+    ...record,
+    type: type ?? undefined,
+    updatedAt: now,
+  }), now)
+}
+
+// Sets or clears the triage metadata (size / priority) on a backlog object.
+// Passing `null` for an axis clears it back to unestimated; omitting an axis
+// leaves it untouched, so the Size and Priority editors can update one at a time.
+export function updateBacklogObjectTriage(
+  store: BacklogObjectStore,
+  item: BacklogItem,
+  triage: { difficulty?: BacklogDifficulty | null; criticality?: BacklogCriticality | null },
+  now = new Date().toISOString(),
+): BacklogObjectStore {
+  return upsertBacklogObjectRecord(store, item, (record) => {
+    const next: BacklogObjectRecord = { ...record, updatedAt: now }
+    if ('difficulty' in triage) next.difficulty = triage.difficulty ?? undefined
+    if ('criticality' in triage) next.criticality = triage.criticality ?? undefined
+    return next
+  }, now)
 }
 
 export function addBacklogObjectLink(
@@ -273,6 +320,9 @@ function normalizeBacklogObjectRecord(value: unknown): BacklogObjectRecord | nul
     id?: unknown
     source?: { type?: unknown; relativePath?: unknown }
     status?: unknown
+    type?: unknown
+    difficulty?: unknown
+    criticality?: unknown
     metadata?: unknown
     links?: unknown
     createdAt?: unknown
@@ -288,6 +338,9 @@ function normalizeBacklogObjectRecord(value: unknown): BacklogObjectRecord | nul
     id,
     source: { type: 'file', relativePath },
     status: isBacklogObjectStatus(raw.status) ? raw.status : undefined,
+    type: isBacklogType(raw.type) ? raw.type : undefined,
+    difficulty: isBacklogDifficulty(raw.difficulty) ? raw.difficulty : undefined,
+    criticality: isBacklogCriticality(raw.criticality) ? raw.criticality : undefined,
     metadata: isPlainRecord(raw.metadata) ? raw.metadata : {},
     links: Array.isArray(raw.links) ? raw.links.filter(isBacklogItemLink) : [],
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : undefined,
@@ -297,7 +350,6 @@ function normalizeBacklogObjectRecord(value: unknown): BacklogObjectRecord | nul
 
 function isBacklogObjectStatus(value: unknown): value is BacklogItemStatus {
   return value === 'idea'
-    || value === 'needs_structure'
     || value === 'ready'
     || value === 'in_progress'
     || value === 'completed'

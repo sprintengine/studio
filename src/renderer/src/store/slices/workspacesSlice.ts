@@ -49,6 +49,7 @@ import type {
   SprintEngineRoleCliDefaults,
   SprintEngineWorkspaceContext,
   Workspace,
+  WorkspaceFileExplorerState,
   WorkspaceHighlight,
   WorkspaceId,
   WorkspaceWindowId,
@@ -97,6 +98,20 @@ export function normalizeWorkspaceMode(
     return input
   }
   return 'standard'
+}
+
+export function defaultWorkspaceFileExplorerState(): WorkspaceFileExplorerState {
+  return { expandedPaths: [] }
+}
+
+export function normalizeWorkspaceFileExplorerState(input: unknown): WorkspaceFileExplorerState {
+  const rawExpandedPaths = input && typeof input === 'object'
+    ? (input as Partial<WorkspaceFileExplorerState>).expandedPaths
+    : null
+  const expandedPaths = Array.isArray(rawExpandedPaths)
+    ? Array.from(new Set(rawExpandedPaths.filter((path): path is string => typeof path === 'string' && path.trim().length > 0)))
+    : []
+  return { expandedPaths }
 }
 
 export interface WorkspacesSliceState {
@@ -166,6 +181,7 @@ export interface WorkspacesSliceActions {
   setActiveWorkspace: (id: WorkspaceId) => void
   setFolderPath: (id: WorkspaceId, folderPath: string | null) => void
   setFolderMissing: (id: WorkspaceId, folderMissing: boolean) => void
+  setFileExplorerExpandedPaths: (id: WorkspaceId, expandedPaths: string[]) => void
   importWorkspace: (ws: Workspace) => void
   moveAgentToWorkspace: (
     sourceWorkspaceId: WorkspaceId,
@@ -915,6 +931,7 @@ export function createWorkspacesSlice(
           worktreeState: deps.defaultWorkspaceWorktreeState(),
           memory: deps.defaultWorkspaceMemoryConfig(),
           editorState: deps.defaultEditorState(),
+          fileExplorerState: defaultWorkspaceFileExplorerState(),
           sprintEngineState,
           multiloopState,
           guidedBriefState,
@@ -1004,8 +1021,12 @@ export function createWorkspacesSlice(
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
         if (ws) {
+          const folderChanged = ws.folderPath !== folderPath
           ws.folderPath = folderPath
           ws.folderMissing = false
+          if (folderChanged) {
+            ws.fileExplorerState = defaultWorkspaceFileExplorerState()
+          }
           if (folderPath) {
             state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
               [folderPath],
@@ -1029,6 +1050,13 @@ export function createWorkspacesSlice(
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
         if (ws) ws.folderMissing = folderMissing
+      }),
+
+    setFileExplorerExpandedPaths: (id, expandedPaths) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        ws.fileExplorerState = normalizeWorkspaceFileExplorerState({ expandedPaths })
       }),
 
     importWorkspace: (ws) =>
@@ -1062,6 +1090,7 @@ export function createWorkspacesSlice(
           agents,
           worktreeState: deps.normalizeWorkspaceWorktreeState(ws.worktreeState),
           editorState: ws.editorState ?? deps.defaultEditorState(),
+          fileExplorerState: normalizeWorkspaceFileExplorerState(ws.fileExplorerState),
           sprintEngineState,
           sprintEngineContext: deps.normalizeSprintEngineWorkspaceContext(ws.sprintEngineContext, ws.folderPath, sprintEngineState),
           multiloopState,

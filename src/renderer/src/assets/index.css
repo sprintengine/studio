@@ -1026,6 +1026,27 @@ samp,
   animation: status-dot-pulse 1800ms cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* Lifecycle spinner — the one "working right now" motion, shared by the
+ * LifecycleGlyph in-progress state and the standalone Spinner primitive. A
+ * single continuous rotation; reduced-motion freezes it to its at-rest arc.
+ * Use only for genuinely live items, never as ambient decoration. */
+@keyframes lifecycle-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.lifecycle-spin {
+  transform-origin: 50% 50%;
+  animation: lifecycle-spin 900ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lifecycle-spin {
+    animation: none;
+  }
+}
+
 /* Conversation-agent thinking indicator. The motion is intentionally tiny:
  * enough to prove the model is alive, not enough to become ambient decoration. */
 @keyframes thinking-dot-wave {

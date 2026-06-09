@@ -18,6 +18,7 @@ from sprintengine_core.tool.plans import (
     ensure_plan_approval_gate,
     ensure_product_intake_gate,
     find_architect_plan_gate,
+    apply_source_context_to_task,
     handover_path_for_state,
     import_source_to_team_file,
     parse_source_bundle_arg,
@@ -295,6 +296,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                     "Preserve existing product-requirements.md edits on repeated init runs.",
                     *source_bundle_reference_notes(state),
                 ]
+                apply_source_context_to_task(product_task, state)
             refresh_artifact_fingerprint(product_gate["artifact"], state_path)
         plan_gate = ensure_plan_approval_gate(
             state,
@@ -338,6 +340,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                     "Review and update only stale or missing parts; do not rewrite valid plan content just because it was imported.",
                     *source_bundle_reference_notes(state),
                 ]
+                apply_source_context_to_task(plan_task, state)
             refresh_artifact_fingerprint(plan_gate["artifact"], state_path)
         recompute_phase(state)
         return {

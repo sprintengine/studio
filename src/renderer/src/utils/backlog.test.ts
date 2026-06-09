@@ -154,7 +154,91 @@ run('invalid frontmatter falls back to default inference', () => {
   })
 
   assert.equal(item.kind, 'unknown')
-  assert.equal(item.status, 'needs_structure')
+  // A rough, unknown-kind capture defaults to a calm "idea", never the
+  // "needs_structure" warning that used to flag every rough note as a defect.
+  assert.equal(item.status, 'idea')
+})
+
+run('an unknown-kind capture is never flagged needs_structure by default', () => {
+  const item = createBacklogItem({
+    path: '/repo/backlog/rough-note.md',
+    relativePath: 'backlog/rough-note.md',
+    sourceContent: 'just a rough idea, no headings, no frontmatter',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+
+  assert.equal(item.kind, 'unknown')
+  assert.equal(item.status, 'idea')
+  // Triage stays unestimated until an architect sizes/prioritizes it.
+  assert.equal(item.difficulty, undefined)
+  assert.equal(item.criticality, undefined)
+})
+
+run('triage metadata is surfaced from the backlog object record', () => {
+  const item = createBacklogItem({
+    path: '/repo/backlog/checkout.md',
+    relativePath: 'backlog/checkout.md',
+    sourceContent: '# Checkout',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+    object: { objectId: 'obj_1', metadata: {}, links: [], type: 'feature', difficulty: 'm', criticality: 'high' },
+  })
+
+  assert.equal(item.type, 'feature')
+  assert.equal(item.difficulty, 'm')
+  assert.equal(item.criticality, 'high')
+})
+
+run('frontmatter seeds backlog type and triage metadata when no object value exists', () => {
+  const item = createBacklogItem({
+    path: '/repo/backlog/bug.md',
+    relativePath: 'backlog/bug.md',
+    sourceContent: '---\ntype: bug\ndifficulty: s\ncriticality: critical\n---\n# Crash on launch',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+
+  assert.equal(item.type, 'bug')
+  assert.equal(item.difficulty, 's')
+  assert.equal(item.criticality, 'critical')
+})
+
+run('nested backlog frontmatter seeds metadata and aliases size/priority', () => {
+  const item = createBacklogItem({
+    path: '/repo/backlog/feature.md',
+    relativePath: 'backlog/feature.md',
+    sourceContent: '---\nbacklog:\n  type: feature\n  size: l\n  priority: high\n---\n# Offline mode',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+
+  assert.equal(item.type, 'feature')
+  assert.equal(item.difficulty, 'l')
+  assert.equal(item.criticality, 'high')
+})
+
+run('object store metadata overrides frontmatter seeds', () => {
+  const item = createBacklogItem({
+    path: '/repo/backlog/override.md',
+    relativePath: 'backlog/override.md',
+    sourceContent: '---\ntype: bug\ndifficulty: xl\ncriticality: critical\n---\n# Checkout copy',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+    object: { objectId: 'obj_1', metadata: {}, links: [], type: 'feature', difficulty: 'xs', criticality: 'low' },
+  })
+
+  assert.equal(item.type, 'feature')
+  assert.equal(item.difficulty, 'xs')
+  assert.equal(item.criticality, 'low')
+})
+
+run('invalid frontmatter triage values are ignored without warnings', () => {
+  const item = createBacklogItem({
+    path: '/repo/backlog/bad-metadata.md',
+    relativePath: 'backlog/bad-metadata.md',
+    sourceContent: '---\ntype: epic\ndifficulty: huge\ncriticality: emergency\n---\n# Notes',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+
+  assert.equal(item.type, undefined)
+  assert.equal(item.difficulty, undefined)
+  assert.equal(item.criticality, undefined)
 })
 
 run('archived paths are always marked archived', () => {
@@ -222,6 +306,7 @@ run('HTML kind and title inference handles mockup files', () => {
   })
   assert.equal(item.title, 'Checkout Mockup')
   assert.equal(item.kind, 'html_mockup')
+  assert.equal(item.type, 'mockup')
 })
 
 run('excerpt strips frontmatter and HTML noise', () => {

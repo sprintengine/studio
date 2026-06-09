@@ -10,7 +10,10 @@ import type {
   MultiloopRole,
   SprintEngineRoleId,
   AgentConversationRuntime,
+  SprintEngineRoleCliDefaults,
+  SprintEngineRoleCounts,
   SprintEngineRoleSettings,
+  SprintEngineSavedRoster,
   SkillPackEntry,
   SkillPackHarness,
   SkillPackSettings,
@@ -507,7 +510,34 @@ function normalizeRoleEnabledRecord(value: unknown): Record<SprintEngineRoleId, 
 export function normalizeSprintEngineRoleSettings(value: unknown): SprintEngineRoleSettings {
   if (!value || typeof value !== 'object') return defaultSprintEngineRoleSettings()
   const candidate = value as Partial<SprintEngineRoleSettings>
-  return { enabled: normalizeRoleEnabledRecord(candidate.enabled) }
+  return {
+    enabled: normalizeRoleEnabledRecord(candidate.enabled),
+    savedRoster: normalizeSprintEngineSavedRoster(candidate.savedRoster),
+  }
+}
+
+function normalizeSprintEngineSavedRoster(value: unknown): SprintEngineSavedRoster | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Partial<SprintEngineSavedRoster>
+  return {
+    roleCounts: normalizeSavedSprintEngineRoleCounts(candidate.roleCounts),
+    roleCliDefaults: normalizeCliDefaults(candidate.roleCliDefaults) as SprintEngineRoleCliDefaults,
+  }
+}
+
+function normalizeSavedSprintEngineRoleCounts(value: unknown): SprintEngineRoleCounts {
+  const result: SprintEngineRoleCounts = { architect: 1 }
+  if (value && typeof value === 'object') {
+    for (const [role, rawCount] of Object.entries(value as Record<string, unknown>)) {
+      const id = role.trim()
+      if (!id) continue
+      const count = Math.floor(Number(rawCount))
+      if (!Number.isFinite(count)) continue
+      result[id] = Math.max(id === PROTECTED_SPRINT_ENGINE_ROLE_ID ? 1 : 0, Math.min(10, count))
+    }
+  }
+  result[PROTECTED_SPRINT_ENGINE_ROLE_ID] = Math.max(1, result[PROTECTED_SPRINT_ENGINE_ROLE_ID] ?? 1)
+  return result
 }
 
 export const defaultAppSettings = (): AppSettings => ({
@@ -617,6 +647,7 @@ export interface SettingsSliceActions {
   resetCommandKeybindings: (commandId: CommandId) => void
   resetAllKeybindings: () => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
+  setSprintEngineSavedRoster: (roster: SprintEngineSavedRoster | null) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   applyModuleProfile: (profileId: ModuleProfileId) => void
   setModulesChosen: (chosen: boolean) => void
@@ -848,10 +879,20 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         if (id === PROTECTED_SPRINT_ENGINE_ROLE_ID && enabled === false) return
         const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
         state.appSettings.sprintEngineRoleSettings = {
+          ...current,
           enabled: {
             ...current.enabled,
             [id]: enabled,
           },
+        }
+      }),
+
+    setSprintEngineSavedRoster: (roster) =>
+      set((state) => {
+        const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
+        state.appSettings.sprintEngineRoleSettings = {
+          ...current,
+          savedRoster: roster ? normalizeSprintEngineSavedRoster(roster) : null,
         }
       }),
 

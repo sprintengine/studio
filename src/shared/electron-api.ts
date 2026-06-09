@@ -1187,6 +1187,107 @@ export type AppMenuAcceleratorUpdate = {
 }
 export type AppMenuAcceleratorUpdateResult = { ok: true }
 
+export type BacklogItemStatusPayload = 'idea' | 'ready' | 'in_progress' | 'completed' | 'archived'
+export type BacklogTypePayload = 'feature' | 'bug' | 'mockup'
+export type BacklogDifficultyPayload = 'xs' | 's' | 'm' | 'l' | 'xl'
+export type BacklogCriticalityPayload = 'low' | 'normal' | 'high' | 'critical'
+
+export type BacklogItemLinkPayload = {
+  id: string
+  moduleId: string
+  type: 'execution' | 'issue' | 'review' | 'artifact' | 'external' | string
+  label: string
+  target: {
+    kind: string
+    id: string
+    path?: string
+    url?: string
+  }
+  status?: 'active' | 'completed' | 'failed' | 'unknown' | string
+  updatedAt?: string
+}
+
+export type BacklogObjectRecordPayload = {
+  id: string
+  source: {
+    type: 'file'
+    relativePath: string
+  }
+  status?: BacklogItemStatusPayload
+  type?: BacklogTypePayload
+  difficulty?: BacklogDifficultyPayload
+  criticality?: BacklogCriticalityPayload
+  metadata?: Record<string, unknown>
+  links?: BacklogItemLinkPayload[]
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type BacklogObjectStorePayload = {
+  schemaVersion: 1
+  items: BacklogObjectRecordPayload[]
+}
+
+export type BacklogItemRecordInput = {
+  relativePath: string
+  status?: BacklogItemStatusPayload
+  type?: BacklogTypePayload
+  difficulty?: BacklogDifficultyPayload
+  criticality?: BacklogCriticalityPayload
+}
+
+export type BacklogReadResult =
+  | { ok: true; store: BacklogObjectStorePayload }
+  | { ok: false; message: string }
+
+export type BacklogMutationResult =
+  | { ok: true; store: BacklogObjectStorePayload }
+  | { ok: false; message: string }
+
+export type BacklogStatusInput = {
+  workspaceRoot: string
+  relativePath: string
+  status: BacklogItemStatusPayload
+}
+
+export type BacklogTypeInput = {
+  workspaceRoot: string
+  relativePath: string
+  type: BacklogTypePayload | null
+}
+
+export type BacklogTriageInput = {
+  workspaceRoot: string
+  relativePath: string
+  difficulty?: BacklogDifficultyPayload | null
+  criticality?: BacklogCriticalityPayload | null
+}
+
+export type BacklogAddOrUpdateLinkInput = {
+  workspaceRoot: string
+  relativePath: string
+  link: BacklogItemLinkPayload
+  status?: BacklogItemStatusPayload
+}
+
+export type BacklogModuleMetadataInput = {
+  workspaceRoot: string
+  relativePath: string
+  moduleId: string
+  value: unknown
+}
+
+export type BacklogMoveSourceInput = {
+  workspaceRoot: string
+  relativePath: string
+  nextRelativePath: string
+}
+
+export type BacklogRemoveRecordInput = {
+  workspaceRoot: string
+  relativePath: string
+}
+
 export type ElectronApi = {
   platform: string
   isDevelopment: boolean
@@ -1462,4 +1563,13 @@ export type ElectronApi = {
   workspaceBackupWrite: (payload: WorkspaceBackupPayload) => Promise<WorkspaceBackupWriteResult>
   workspaceBackupRead: () => Promise<WorkspaceBackupReadResult>
   setModuleEnablement: (overrides: ModuleEnablementOverrides) => Promise<ModuleEnablementWriteResult>
+  readBacklogObjectStore: (workspaceRoot: string) => Promise<BacklogReadResult>
+  ensureBacklogObjectRecords: (workspaceRoot: string, items: BacklogItemRecordInput[]) => Promise<BacklogReadResult>
+  updateBacklogStatus: (input: BacklogStatusInput) => Promise<BacklogMutationResult>
+  updateBacklogType: (input: BacklogTypeInput) => Promise<BacklogMutationResult>
+  updateBacklogTriage: (input: BacklogTriageInput) => Promise<BacklogMutationResult>
+  addOrUpdateBacklogLink: (input: BacklogAddOrUpdateLinkInput) => Promise<BacklogMutationResult>
+  updateBacklogModuleMetadata: (input: BacklogModuleMetadataInput) => Promise<BacklogMutationResult>
+  moveBacklogObjectSource: (input: BacklogMoveSourceInput) => Promise<BacklogMutationResult>
+  removeBacklogObjectRecord: (input: BacklogRemoveRecordInput) => Promise<BacklogMutationResult>
 }

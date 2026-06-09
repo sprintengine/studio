@@ -863,7 +863,7 @@ export default function WorkspaceSidebar({
                     <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" />
                   </svg>
                 ) : null}
-                <span className="min-w-0 truncate">{workspace.name}</span>
+                <span className="min-w-0 truncate" title={workspace.name}>{workspace.name}</span>
               </span>
             )}
 

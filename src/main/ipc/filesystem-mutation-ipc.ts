@@ -134,7 +134,6 @@ export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: Filesystem
   })
 
   ipcMain.handle('fs:delete', async (_, targetPath: string): Promise<void> => {
-    await deps.assertNotDirectSprintEngineStateMutation(targetPath)
     await deps.trashItem(targetPath)
   })
 }

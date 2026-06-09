@@ -119,12 +119,40 @@ const v0State = {
   ],
 }
 const migrated = migratePersistedWorkspaceState(v0State, 0) as {
-  workspaces: Array<{ folderPath: unknown; editorState: unknown; mode: unknown }>
+  workspaces: Array<{ folderPath: unknown; editorState: unknown; fileExplorerState: unknown; mode: unknown }>
 }
 assert.equal(migrated.workspaces.length, 1)
 assert.equal(migrated.workspaces[0].folderPath, null)
 assert.ok(migrated.workspaces[0].editorState, 'v1 migration backfills editorState')
+assert.deepEqual(
+  migrated.workspaces[0].fileExplorerState,
+  { expandedPaths: [] },
+  'migration backfills empty File Explorer expansion state',
+)
 assert.equal(migrated.workspaces[0].mode, 'standard')
+
+const v58ExplorerState = {
+  workspaces: [
+    {
+      id: 'ws-explorer',
+      name: 'Explorer',
+      mode: 'standard',
+      folderPath: '/repo',
+      agents: {},
+      fileExplorerState: {
+        expandedPaths: ['/repo/src', '/repo/src', '', 42],
+      },
+    },
+  ],
+}
+const migratedExplorerState = migratePersistedWorkspaceState(v58ExplorerState, 58) as {
+  workspaces: Array<{ fileExplorerState: { expandedPaths: string[] } }>
+}
+assert.deepEqual(
+  migratedExplorerState.workspaces[0].fileExplorerState,
+  { expandedPaths: ['/repo/src'] },
+  'migration normalizes persisted File Explorer expansion paths',
+)
 
 const v52AutoRunState = {
   workspaces: [

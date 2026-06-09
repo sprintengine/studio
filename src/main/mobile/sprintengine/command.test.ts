@@ -775,21 +775,28 @@ async function assertFilesystemMutationHandlersProtectSprintEngineStateAliases()
   await mkdir(copyDestination)
   if (hasStateSymlink) {
     await assertRejectsSprintEngineStateMutation(() => handlers.copy(stateSymlinkPath, copyDestination))
-    await assertRejectsSprintEngineStateMutation(() => handlers.delete(stateSymlinkPath))
   }
   await assertRejectsSprintEngineStateMutation(() => handlers.rename(teamDirectory, 'team-renamed'))
   await assertRejectsSprintEngineStateMutation(() => handlers.copy(teamDirectory, copyDestination))
-  await assertRejectsSprintEngineStateMutation(() => handlers.delete(teamDirectory))
   await assertRejectsSprintEngineStateMutation(() => handlers.rename(sprintEngineDirectory, 'sprintengine-renamed'))
   await assertRejectsSprintEngineStateMutation(() => handlers.copy(sprintEngineDirectory, copyDestination))
-  await assertRejectsSprintEngineStateMutation(() => handlers.delete(sprintEngineDirectory))
   if (hasTeamSymlink) {
     await assertRejectsSprintEngineStateMutation(() => handlers.rename(teamSymlinkPath, 'team-link-renamed'))
     await assertRejectsSprintEngineStateMutation(() => handlers.copy(teamSymlinkPath, copyDestination))
-    await assertRejectsSprintEngineStateMutation(() => handlers.delete(teamSymlinkPath))
   }
 
   assert.equal(await readFile(statePath, 'utf8'), 'canonical Sprint Engine run\n')
+
+  if (hasStateSymlink) {
+    await handlers.delete(stateSymlinkPath)
+    await assert.rejects(() => access(stateSymlinkPath))
+  }
+  if (hasTeamSymlink) {
+    await handlers.delete(teamSymlinkPath)
+    await assert.rejects(() => access(teamSymlinkPath))
+  }
+  await handlers.delete(sprintEngineDirectory)
+  await assert.rejects(() => access(sprintEngineDirectory))
 
   const safeDirectory = join(workspaceRoot, 'safe')
   const safeCopyDestination = join(workspaceRoot, 'safe-copy')

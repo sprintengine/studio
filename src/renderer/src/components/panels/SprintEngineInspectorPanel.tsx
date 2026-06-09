@@ -57,7 +57,6 @@ import {
   sprintEngineArtifactStatusLabels,
   sprintEngineQualityGatePhaseLabels,
   sprintEngineQualityGateStatusLabels,
-  sprintEngineTaskBoardColumns,
   sprintEngineTaskCommentTypeLabels,
   sprintEngineTaskStateLabel,
   type SprintEngineAgentReviewedTask,
@@ -74,8 +73,11 @@ import {
   GhostButton,
   IconButton,
   InboxRow,
+  LIFECYCLE_LABEL,
+  LifecycleGlyph,
   PrimaryButton,
   RoleAvatar,
+  Spinner,
   StatusDot,
   TabPanel,
   Tabs,
@@ -96,84 +98,11 @@ import {
   getMobileArtifactDecision,
   runtimeStatusTone,
   sprintEngineInboxRowSupporting,
-  sprintEngineInboxRowTone,
+  sprintEngineInboxRowLifecycle,
   type ArtifactActionState,
   type RuntimeAgentView,
   type SprintEngineInspectorSelection,
 } from './sprintEngineInspector'
-
-export function SprintEngineTaskStatusIcon({
-  column,
-  className,
-}: {
-  column: SprintEngineTaskBoardColumn
-  className?: string
-}) {
-  const label = sprintEngineTaskBoardColumns.find((item) => item.key === column)?.label ?? column
-
-  if (column === 'done') {
-    return (
-      <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
-        <title>{label}</title>
-        <circle cx="12" cy="12" r="6.4" fill="var(--tone-good)" />
-        <path
-          d="M9.25 12L11.25 14L14.75 10.25"
-          stroke="var(--tone-good-soft)"
-          strokeWidth="1.9"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    )
-  }
-
-  if (column === 'needs_input') {
-    return (
-      <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
-        <title>{label}</title>
-        <circle cx="12" cy="12" r="6.4" stroke="var(--tone-warn)" strokeWidth="1.7" strokeDasharray="2 1.6" />
-        <path d="M12 7.6V12.4" stroke="var(--tone-warn)" strokeWidth="1.7" strokeLinecap="round" />
-        <circle cx="12" cy="15.4" r="0.95" fill="var(--tone-warn)" />
-      </svg>
-    )
-  }
-
-  if (column === 'ready') {
-    return (
-      <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
-        <title>{label}</title>
-        <circle cx="12" cy="12" r="6.4" stroke="var(--tone-good)" strokeWidth="1.7" />
-        <circle cx="12" cy="12" r="2" fill="var(--tone-good)" />
-      </svg>
-    )
-  }
-
-  if (column === 'in_progress') {
-    const radius = 5.4
-    const cx = 12
-    const cy = 12
-    const sweep = 0.5
-    const angle = sweep * 2 * Math.PI
-    const endX = cx + radius * Math.sin(angle)
-    const endY = cy - radius * Math.cos(angle)
-    const wedgePath = `M ${cx} ${cy} L ${cx} ${cy - radius} A ${radius} ${radius} 0 0 1 ${endX.toFixed(2)} ${endY.toFixed(2)} Z`
-
-    return (
-      <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
-        <title>{label}</title>
-        <circle cx={cx} cy={cy} r="6.4" stroke="var(--tone-warn)" strokeWidth="1.7" />
-        <path d={wedgePath} fill="var(--tone-warn)" opacity="0.85" />
-      </svg>
-    )
-  }
-
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" role="img" aria-label={label}>
-      <title>{label}</title>
-      <circle cx="12" cy="12" r="6.4" stroke="currentColor" strokeWidth="1.7" />
-    </svg>
-  )
-}
 
 function boardColumnTone(column: SprintEngineTaskBoardColumn | null): Tone {
   switch (column) {
@@ -222,7 +151,7 @@ function qualityGateStatusTone(status: SprintEngineQualityGate['status']): Tone 
     case 'approved':
       return 'good'
     case 'in_progress':
-      return 'warn'
+      return 'accent'
     case 'changes_requested':
     case 'blocked':
       return 'warn'
@@ -257,17 +186,6 @@ function CompletedCheckGlyph({ className, label }: GlyphProps) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </svg>
-  )
-}
-
-// Shared dashed-circle glyph: the "in review / in progress" state for both an
-// in-flight gate attempt and a worker actively implementing a task.
-function InProgressGlyph({ className, label }: GlyphProps) {
-  return (
-    <svg className={className} viewBox="0 0 12 12" fill="none" {...glyphA11yProps(label)}>
-      {label ? <title>{label}</title> : null}
-      <circle cx="6" cy="6" r="3.5" stroke="currentColor" strokeWidth="1.3" strokeDasharray="1.5 1.4" />
     </svg>
   )
 }
@@ -331,7 +249,10 @@ function GateAttemptGlyph({
     )
   }
 
-  return <InProgressGlyph className={className} label="in review" />
+  // In-flight: the reviewer is working right now → the shared live spinner, the
+  // same in_progress mark the board columns use. Accent (not the muted historical
+  // tone) so the live attempt reads against the settled ones in the trail.
+  return <Spinner size={12} label="in review" />
 }
 
 function gateAttemptToneClass(attempt: SprintEngineQualityGateAttempt): string {
@@ -502,7 +423,7 @@ export function SprintEngineInboxRow({
   onSelect: () => void
   id?: string
 }) {
-  const tone = sprintEngineInboxRowTone(artifact)
+  const lifecycle = sprintEngineInboxRowLifecycle(artifact)
   const timestamp = artifact.createdAt ?? artifact.updatedAt
   const relativeTimestamp = timestamp ? formatRelativeTime(timestamp) : '—'
   const title = (
@@ -516,13 +437,13 @@ export function SprintEngineInboxRow({
   return (
     <InboxRow
       id={id}
-      tone={tone}
+      leading={<LifecycleGlyph state={lifecycle} live={false} />}
       title={title}
       supporting={sprintEngineInboxRowSupporting(artifact, task)}
       trailing={relativeTimestamp}
       selected={selected}
       onSelect={onSelect}
-      ariaLabel={`${artifact.id} ${artifact.title}`}
+      ariaLabel={`${artifact.id} ${artifact.title}, ${LIFECYCLE_LABEL[lifecycle]}`}
     />
   )
 }
@@ -585,7 +506,7 @@ function SprintEngineArtifactInspector({
   onToggleExpand: () => void
 }) {
   const isSourceHandoff = artifact.id === SOURCE_HANDOFF_ARTIFACT_ID
-  const tone = sprintEngineInboxRowTone(artifact)
+  const lifecycle = sprintEngineInboxRowLifecycle(artifact)
   const statusLabel = isSourceHandoff ? 'Source' : sprintEngineArtifactStatusLabels[artifact.status]
   const timestamp = artifact.createdAt ?? artifact.updatedAt
   const relativeTimestamp = timestamp ? formatRelativeTime(timestamp) : 'No timestamp'
@@ -602,7 +523,7 @@ function SprintEngineArtifactInspector({
     term: 'Status',
     description: (
       <span className="inline-flex items-center gap-2">
-        <StatusDot tone={tone} />
+        <LifecycleGlyph state={lifecycle} live={false} />
         <span>{statusLabel}</span>
       </span>
     ),
@@ -657,7 +578,7 @@ function SprintEngineArtifactInspector({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
-              <StatusDot tone={tone} />
+              <LifecycleGlyph state={lifecycle} live={false} />
               <span>{statusLabel}</span>
               <span>·</span>
               <span className="font-mono text-[color:var(--text-muted)]">{artifact.id}</span>
@@ -969,7 +890,7 @@ function ActiveImplementerStatus({ runtimeStatus }: { runtimeStatus: string | nu
   }
   return (
     <span className="inline-flex items-center gap-1 text-[color:var(--text-muted)]">
-      <InProgressGlyph className="icon-xs" />
+      <Spinner size={12} />
       <span>in progress</span>
     </span>
   )

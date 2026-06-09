@@ -1,4 +1,4 @@
-import { BoardLane, TaskCard, Tooltip, type Tone } from '../../ui'
+import { BoardLane, LifecycleGlyph, TaskCard, Tooltip, type Tone } from '../../ui'
 import { SprintEngineRoleIcon } from '../../AppIcons'
 import type { SprintEngineState, SprintEngineTaskBoardColumn } from '../../../types/workspace'
 import {
@@ -6,6 +6,7 @@ import {
   getSprintEngineRoleAccent,
   getSprintEngineRoleLabel,
   getSprintEngineTaskBoardColumn,
+  taskBoardColumnToLifecycle,
 } from '../../../utils/sprintengine'
 
 export type SprintEngineTasksKanbanColumn = {
@@ -49,6 +50,10 @@ export function SprintEngineTasksKanbanView({
             <BoardLane
               key={column.key}
               label={column.label}
+              // The lane header carries the column's lifecycle glyph once, so the
+              // cards below stay clean. Header glyphs never animate — the live
+              // spinner belongs to the actively-running card, not the column.
+              glyph={<LifecycleGlyph state={taskBoardColumnToLifecycle(column.key)} live={false} />}
               count={column.cards.length}
               flipKey={column.cards.map((card) => card.id).join(',')}
             >
@@ -69,13 +74,15 @@ export function SprintEngineTasksKanbanView({
                         : 'neutral'
                 const taskSelected = selectedTaskId === task.id
                 const justMoved = recentlyMovedTaskIds.has(task.id)
-                const isLive = task.status === 'in_progress'
+                // The lane header already states the column's status (its
+                // lifecycle glyph), so the card carries no leading mark — it would
+                // just repeat the column and eat horizontal space.
                 return (
                   <TaskCard
                     key={task.id}
                     variant="card"
                     tone={cardTone}
-                    pulse={isLive}
+                    leading={null}
                     identifier={task.id}
                     title={task.title}
                     selected={taskSelected}

@@ -25,7 +25,7 @@ import {
   type SprintEngineAgentRosterItem,
 } from '../../utils/sprintengine'
 import { formatTimestamp } from '../../utils/time'
-import type { Tone } from '../ui'
+import type { LifecycleState, Tone } from '../ui'
 
 export { formatTimestamp }
 
@@ -253,23 +253,24 @@ export function artifactStatusTone(status: SprintEngineArtifact['status']): stri
   }
 }
 
-// Inbox status idiom: one dot, five tones, in line with the brand rules
-// (aesthetic-north-star §4, primitives StatusDot contract). The tinted pill is
-// kept for the inspector's task detail (artifactStatusTone above) but the inbox
-// row resolves status to a Tone here.
-export function sprintEngineInboxRowTone(artifact: SprintEngineArtifact): Tone {
-  if (artifact.id === SOURCE_HANDOFF_ARTIFACT_ID) return 'accent'
+// Inbox status idiom: the shared shape-coded LifecycleGlyph (see
+// knowledge/brand/glyph-system.md), so artifact review stage reads by shape and
+// matches the board columns — not a colour-only dot. The tinted pill
+// (artifactStatusTone above) is kept for other surfaces; the inbox row + detail
+// resolve status to a LifecycleState here.
+export function sprintEngineInboxRowLifecycle(artifact: SprintEngineArtifact): LifecycleState {
+  if (artifact.id === SOURCE_HANDOFF_ARTIFACT_ID) return 'ready'
   switch (artifact.status) {
     case 'approved':
-      return 'good'
+      return 'done'
     case 'ready_for_review':
-      return 'warn'
+      return 'review'
     case 'changes_requested':
-      return 'error'
+      return 'changes_requested'
     case 'superseded':
-      return 'neutral'
-    default:
-      return 'accent'
+      return 'archived'
+    case 'draft':
+      return 'in_progress'
   }
 }
 

@@ -27,6 +27,9 @@ interface RosterTableProps {
   cliDisabled: boolean
   onSetCount: (role: SprintEngineRoleId, count: number) => void
   onSetCli: (role: SprintEngineRoleId, cli: AgentCli) => void
+  /** Optional trailing row rendered inside the roster border, hairline-divided
+   *  below the role rows (e.g. the "save as default" affordance). */
+  footer?: React.ReactNode
 }
 
 export function SprintEngineRosterTable({
@@ -39,6 +42,7 @@ export function SprintEngineRosterTable({
   cliDisabled,
   onSetCount,
   onSetCli,
+  footer,
 }: RosterTableProps) {
   const roles = listSprintEngineAddableRoles(registry, disabledRoleIds)
   const fallbackCli = cliOptions[0]?.value ?? 'claude-code'
@@ -94,6 +98,7 @@ export function SprintEngineRosterTable({
           />
         )
       })}
+      {footer}
     </div>
   )
 }

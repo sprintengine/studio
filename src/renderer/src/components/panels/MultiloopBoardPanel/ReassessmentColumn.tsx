@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from 'react'
-import { DefinitionList, IconButton, InboxRow, Section, StatusDot, type DefinitionItem } from '../../ui'
+import { DefinitionList, IconButton, InboxRow, LifecycleGlyph, Section, StatusDot, type DefinitionItem } from '../../ui'
 import type { MultiloopArtifact, MultiloopDecision, MultiloopMilestone, MultiloopTask } from '../../../types/workspace'
-import { formatDate, isModernVerdict, taskStatusLabels, taskStatusTone, verdictTitle, verdictTone } from './helpers'
+import { formatDate, isModernVerdict, taskStatusLabels, taskStatusLifecycle, verdictTitle, verdictTone } from './helpers'
 
 // ===========================================================================
 // REASSESSMENT COLUMN — loop-closing context: verdicts, recommendation,
@@ -95,7 +95,13 @@ export function ReassessmentColumn({
               {evidenceTasks.map((task) => (
                 <InboxRow
                   key={task.id}
-                  tone={taskStatusTone[task.status]}
+                  leading={
+                    <LifecycleGlyph
+                      state={taskStatusLifecycle[task.status]}
+                      live={false}
+                      label={taskStatusLabels[task.status]}
+                    />
+                  }
                   title={task.title || task.id}
                   supporting={task.evidence.summary || task.evidence.results[0] || undefined}
                   trailing={<span>{formatDate(task.updatedAt ?? task.completedAt ?? task.startedAt ?? task.createdAt)}</span>}
@@ -154,7 +160,7 @@ function SelectedTaskCard({ task, onClear }: { task: MultiloopTask; onClear: () 
       term: 'Status',
       description: (
         <span className="inline-flex items-center gap-1.5">
-          <StatusDot tone={taskStatusTone[task.status]} />
+          <LifecycleGlyph state={taskStatusLifecycle[task.status]} live={false} />
           <span>{taskStatusLabels[task.status]}</span>
         </span>
       ),

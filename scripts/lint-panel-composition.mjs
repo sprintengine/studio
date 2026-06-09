@@ -44,6 +44,7 @@ const CANONICAL_TOP_BAR_GROUPS = new Set([
 // Files exempt from the rule with reasons. Keep this list small and
 // justified — when the surface is rebuilt, remove the entry.
 const ALLOW_LIST = new Map([
+  ['BacklogCreateDialog.tsx', 'Modal-based "New backlog item" capture dialog (mirrors WatchtowerPanel/CreateInboxDialog); chrome is owned by Modal + ModalHeader, not a PanelHeader. It is a dialog rendered by BacklogPanel, not an operational panel.'],
   ['AgentPanel.tsx', 'Hosts an agent terminal (TerminalView); chrome is the terminal surround, not a PanelHeader.'],
   ['AgentChatView.tsx', 'Agent-tab body for conversation agents (sibling of AgentPanel/TerminalView); the FlexLayout tab owns identity, so the surface uses a compact composer + session-status bar, not a PanelHeader.'],
   // Note: LearnCenter lives at src/renderer/src/components/learn/LearnCenter.tsx

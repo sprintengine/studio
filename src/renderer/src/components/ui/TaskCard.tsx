@@ -33,6 +33,11 @@ export type TaskCardProps = {
   tone: Tone
   /** Streaming pulse on the dot — use only for live-running indicators. */
   pulse?: boolean
+  /** Leading status mark. `undefined` keeps the default 6px StatusDot (tone +
+   *  pulse). Pass a node (e.g. a LifecycleGlyph) to replace it, or `null` to
+   *  render no leading mark — used on kanban cards where the column already
+   *  states the status. */
+  leading?: React.ReactNode
   identifier: React.ReactNode
   title: React.ReactNode
   /** Trailing slot (priority icon, role glyph). Display-only — must not host
@@ -58,6 +63,7 @@ export type TaskCardProps = {
 export function TaskCard({
   tone,
   pulse,
+  leading,
   identifier,
   title,
   trailing,
@@ -124,7 +130,11 @@ export function TaskCard({
       }
       className={className}
     >
-      <StatusDot tone={tone} pulse={pulse} className={isCard ? 'mt-1' : 'mt-[5px]'} />
+      {leading === undefined ? (
+        <StatusDot tone={tone} pulse={pulse} className={isCard ? 'mt-1' : 'mt-[5px]'} />
+      ) : leading ? (
+        <span className={`shrink-0 ${isCard ? 'mt-0.5' : 'mt-[2px]'}`}>{leading}</span>
+      ) : null}
       <div className="min-w-0 flex-1">
         {isCard ? (
           <>

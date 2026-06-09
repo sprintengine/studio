@@ -312,6 +312,44 @@ assert.equal(
   'normalization preserves other disabled roles',
 )
 
+store.setSprintEngineSavedRoster({
+  roleCounts: { architect: 1, developer: 2, tester: 1 },
+  roleCliDefaults: { architect: 'codex', developer: 'claude-code', tester: 'opencode' },
+})
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.savedRoster?.roleCounts,
+  { architect: 1, developer: 2, tester: 1 },
+  'saved Sprint Engine roster counts persist when explicitly saved',
+)
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.savedRoster?.roleCliDefaults,
+  { architect: 'codex', developer: 'claude-code', tester: 'opencode' },
+  'saved Sprint Engine role CLI defaults persist when explicitly saved',
+)
+
+const normalizedSavedRoster = normalizeAppSettings(
+  {
+    sprintEngineRoleSettings: {
+      enabled: {},
+      savedRoster: {
+        roleCounts: { architect: 0, frontend: 3, tester: -4, developer: 'bad' as never },
+        roleCliDefaults: { architect: ' codex ', frontend: '', tester: 'opencode' },
+      },
+    },
+  },
+  [],
+)
+assert.deepEqual(
+  normalizedSavedRoster.sprintEngineRoleSettings.savedRoster?.roleCounts,
+  { architect: 1, frontend: 3, tester: 0 },
+  'saved roster normalization clamps counts and keeps architect present',
+)
+assert.deepEqual(
+  normalizedSavedRoster.sprintEngineRoleSettings.savedRoster?.roleCliDefaults,
+  { architect: 'codex', tester: 'opencode' },
+  'saved roster normalization trims CLI defaults and drops blank values',
+)
+
 // --- Specialist menu ordering --------------------------------------------
 // Normalization keeps only known specialist ids, drops duplicates, and ignores
 // junk so a stale or hand-edited settings file is always safe to load.

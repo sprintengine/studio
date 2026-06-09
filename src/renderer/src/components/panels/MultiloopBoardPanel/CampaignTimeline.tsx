@@ -1,7 +1,7 @@
 import { Fragment, forwardRef, useRef, type KeyboardEvent } from 'react'
-import { StatusDot, type Tone } from '../../ui'
+import { LifecycleGlyph } from '../../ui'
 import type { MultiloopMilestone, MultiloopMilestoneStatus } from '../../../types/workspace'
-import { milestoneStatusLabels, milestoneStatusTone } from './helpers'
+import { milestoneStatusLabels, milestoneStatusLifecycle } from './helpers'
 
 // ===========================================================================
 // CAMPAIGN TIMELINE — horizontal milestone stations on a hairline rail.
@@ -103,7 +103,6 @@ function TimelineStationImpl(
   { milestone, index, isSelected, isActive, onSelect, onKeyDown }: TimelineStationProps,
   ref: React.ForwardedRef<HTMLButtonElement>
 ) {
-  const tone: Tone = milestoneStatusTone[milestone.status]
   const containerClass = isSelected
     ? 'bg-[color:var(--accent-primary-soft)] border-l-2 border-[color:var(--accent-primary)]'
     : 'border-l-2 border-transparent hover:bg-[color:var(--bg-hover)]'
@@ -118,7 +117,11 @@ function TimelineStationImpl(
       aria-current={isActive ? 'step' : undefined}
       className={`group flex w-full items-start gap-2 px-2 py-1.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${containerClass}`}
     >
-      <StatusDot tone={tone} pulse={isActive} className="mt-1" />
+      <LifecycleGlyph
+        state={milestoneStatusLifecycle[milestone.status]}
+        live={isActive}
+        className="mt-0.5"
+      />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
           <span className="tabular-nums">M{index + 1}</span>

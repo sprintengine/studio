@@ -48,7 +48,11 @@ export function Modal({ open, onClose, labelledBy, width = 560, children, contai
 
   return (
     <div
-      className={`${contained ? 'absolute' : 'fixed'} inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay-backdrop)] p-6 backdrop-blur-[2px]`}
+      // No backdrop-blur: a full-window backdrop-filter repaints the whole
+      // surface on every hover/compositing frame (visible lag on the dialog's
+      // own buttons). The translucent scrim carries the dim; blur is decorative
+      // and not part of the app vocabulary.
+      className={`${contained ? 'absolute' : 'fixed'} inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay-backdrop)] p-6`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}

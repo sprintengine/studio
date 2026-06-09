@@ -25,6 +25,7 @@ import type {
   MultiloopWorkspaceContext,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
+  SprintEngineSavedRoster,
   AgentCli,
   AgentConversationRuntime,
   AppSettings,
@@ -198,6 +199,7 @@ export interface WorkspaceStore extends PluginsSlice {
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
+  setSprintEngineSavedRoster: (roster: SprintEngineSavedRoster | null) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   applyModuleProfile: (profileId: ModuleProfileId) => void
   setModulesChosen: (chosen: boolean) => void
@@ -239,6 +241,7 @@ export interface WorkspaceStore extends PluginsSlice {
     multiloopContext: MultiloopWorkspaceContext | null
   ) => void
   setFolderMissing: (id: WorkspaceId, folderMissing: boolean) => void
+  setFileExplorerExpandedPaths: (id: WorkspaceId, expandedPaths: string[]) => void
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
   applyAgentTerminalSessionEvent: (apply: AgentTerminalSessionApply) => void
   applyAgentTerminalLaunchStateEvent: (apply: AgentTerminalLaunchStateApply) => void

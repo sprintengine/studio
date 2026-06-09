@@ -1,7 +1,7 @@
-import { InboxRow, PrimaryButton, Section } from '../../ui'
+import { InboxRow, LifecycleGlyph, PrimaryButton, Section } from '../../ui'
 import type { MultiloopBlocker, MultiloopTask } from '../../../types/workspace'
 import type { MultiloopExecutionReadiness } from '../../../utils/multiloop'
-import { hasEvidence, readinessLabel, TASK_GROUPS, taskStatusTone } from './helpers'
+import { hasEvidence, readinessLabel, TASK_GROUPS, taskStatusLifecycle } from './helpers'
 
 // ===========================================================================
 // TASK BOARD — grouped by status using InboxRow primitives.
@@ -82,7 +82,7 @@ export function TaskBoard({
                 return (
                   <InboxRow
                     key={task.id}
-                    tone={taskStatusTone[task.status]}
+                    leading={<LifecycleGlyph state={taskStatusLifecycle[task.status]} live={false} />}
                     title={task.title || task.id}
                     supporting={supporting}
                     trailing={<span className="font-mono">{task.id}</span>}

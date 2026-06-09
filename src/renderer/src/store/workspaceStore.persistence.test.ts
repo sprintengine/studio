@@ -936,6 +936,7 @@ const legacyAgentSeed = (() => {
 
 const seededRuntimeWorkspace: Workspace = {
   ...runtimeBaseWorkspace,
+  fileExplorerState: { expandedPaths: ['/Users/example/project/src', '/Users/example/project/docs'] },
   agents: {
     'conv-agent': {
       ...defaultAgent('conv-agent'),
@@ -968,6 +969,11 @@ assert.equal(
   partializedRuntime.agents['legacy-term-agent']?.conversation,
   undefined,
   'terminal agents carry no conversation payload after persist normalization',
+)
+assert.deepEqual(
+  partializedRuntime.fileExplorerState,
+  { expandedPaths: ['/Users/example/project/src', '/Users/example/project/docs'] },
+  'partialize + storage round-trip preserves File Explorer expanded folders without file contents',
 )
 
 console.info = originalInfo

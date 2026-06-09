@@ -1,4 +1,4 @@
-import type { Tone } from '../../ui'
+import type { LifecycleState, Tone } from '../../ui'
 import type {
   MultiloopMilestone,
   MultiloopMilestoneReviewVerdict,
@@ -52,11 +52,16 @@ export const milestoneStatusLabels: Record<MultiloopMilestoneStatus, string> = {
   planned: 'Planned',
 }
 
-export const milestoneStatusTone: Record<MultiloopMilestoneStatus, Tone> = {
-  accepted: 'good',
-  active: 'accent',
-  blocked: 'warn',
-  planned: 'neutral',
+// Milestone/task status → the shared shape-coded lifecycle vocabulary (see
+// knowledge/brand/glyph-system.md), so status reads by shape and matches the
+// board columns. `blocked` has no distinct lifecycle shape; it shares the
+// `needs_input` warn mark ("stuck, needs attention") — the text label
+// disambiguates.
+export const milestoneStatusLifecycle: Record<MultiloopMilestoneStatus, LifecycleState> = {
+  accepted: 'done',
+  active: 'in_progress',
+  blocked: 'needs_input',
+  planned: 'todo',
 }
 
 export const taskStatusLabels: Record<MultiloopTaskStatus, string> = {
@@ -68,13 +73,13 @@ export const taskStatusLabels: Record<MultiloopTaskStatus, string> = {
   todo: 'Todo',
 }
 
-export const taskStatusTone: Record<MultiloopTaskStatus, Tone> = {
-  blocked: 'warn',
-  done: 'good',
-  in_progress: 'accent',
-  needs_input: 'warn',
-  ready: 'good',
-  todo: 'neutral',
+export const taskStatusLifecycle: Record<MultiloopTaskStatus, LifecycleState> = {
+  blocked: 'needs_input',
+  done: 'done',
+  in_progress: 'in_progress',
+  needs_input: 'needs_input',
+  ready: 'ready',
+  todo: 'todo',
 }
 
 export const verdictTone: Record<MultiloopMilestoneReviewVerdict['verdict'], Tone> = {

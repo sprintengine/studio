@@ -83,6 +83,11 @@ assert.deepEqual(
   [soloDevId, secondId, firstId],
 )
 assert.equal(state.workspaces.find((workspace) => workspace.id === firstId)?.name, 'First Workspace')
+assert.deepEqual(
+  state.workspaces.find((workspace) => workspace.id === firstId)?.fileExplorerState,
+  { expandedPaths: [] },
+  'new workspaces start with empty File Explorer expansion state',
+)
 assert.deepEqual(state.appSettings.recentWorkspaceFolders, [
   '/Users/example/solo-dev',
   '/Users/example/other',
@@ -124,6 +129,13 @@ assert.equal(useWorkspaceStore.getState().activeWorkspaceId, firstId)
 state = useWorkspaceStore.getState()
 assert.equal(state.workspaceWindows.length, 1)
 assert.deepEqual(state.workspaceWindows[0]?.workspaceIds, [secondId, firstId, soloDevId])
+
+useWorkspaceStore.getState().setFileExplorerExpandedPaths(firstId, ['/Users/example/project/src', '/Users/example/project/src', ''])
+assert.deepEqual(
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.fileExplorerState,
+  { expandedPaths: ['/Users/example/project/src'] },
+  'File Explorer expansion paths are normalized and stored per workspace',
+)
 
 useWorkspaceStore.getState().registerWorkspaceWindow('detached-test', 'detached')
 useWorkspaceStore.getState().moveWorkspaceToWindow(firstId, 'detached-test', state.primaryWorkspaceWindowId)
@@ -179,6 +191,11 @@ assert.equal(
 useWorkspaceStore.getState().setFolderPath(firstId, '/Users/example/renamed')
 state = useWorkspaceStore.getState()
 assert.equal(state.workspaces.find((workspace) => workspace.id === firstId)?.folderPath, '/Users/example/renamed')
+assert.deepEqual(
+  state.workspaces.find((workspace) => workspace.id === firstId)?.fileExplorerState,
+  { expandedPaths: [] },
+  'changing the workspace folder clears stale File Explorer expansion state',
+)
 assert.deepEqual(state.appSettings.recentWorkspaceFolders.slice(0, 2), [
   '/Users/example/renamed',
   '/Users/example/solo-dev',

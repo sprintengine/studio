@@ -1796,7 +1796,7 @@ function SprintEngineBoardPanelContent({
  popupRole="listbox"
  placement="bottom-start"
  className="block w-full"
- surfaceClassName="left-0 right-0 w-full p-1"
+ surfaceClassName="min-w-[var(--popover-trigger-width)] p-1"
  renderTrigger={({ ref, triggerProps, togglePopover }) => (
  <button
  ref={ref}
@@ -1970,7 +1970,7 @@ function SprintEngineBoardPanelContent({
  popupRole="listbox"
  placement="bottom-start"
  className="block w-full"
- surfaceClassName="left-0 right-0 w-full p-1"
+ surfaceClassName="min-w-[var(--popover-trigger-width)] p-1"
  renderTrigger={({ ref, triggerProps, togglePopover }) => (
  <button
  ref={ref}

@@ -63,7 +63,6 @@ export class PlanSourcedSprintEngineWorkspaceError extends Error {
     public readonly code:
       | 'missing-root'
       | 'missing-team'
-      | 'missing-goal'
       | 'missing-source'
       | 'team-exists'
       | 'missing-architect'
@@ -107,12 +106,11 @@ export async function createPlanSourcedSprintEngineWorkspace({
 }: PlanSourcedSprintEngineWorkspaceArgs): Promise<PlanSourcedSprintEngineWorkspaceResult> {
   const trimmedRoot = rootPath.trim()
   const trimmedTeamName = teamName.trim()
-  const trimmedGoal = goal.trim()
   const trimmedSourcePath = sourcePath.trim()
+  const trimmedGoal = goal.trim() || derivePlanSourcedGoal(sourceContent, trimmedSourcePath)
 
   if (!trimmedRoot) throw new PlanSourcedSprintEngineWorkspaceError('missing-root')
   if (!trimmedTeamName) throw new PlanSourcedSprintEngineWorkspaceError('missing-team')
-  if (!trimmedGoal) throw new PlanSourcedSprintEngineWorkspaceError('missing-goal')
   if (!trimmedSourcePath) throw new PlanSourcedSprintEngineWorkspaceError('missing-source')
 
   const sprintEngineContext = buildPlanSourcedSprintEngineWorkspaceContext(trimmedRoot, trimmedTeamName)
@@ -180,4 +178,17 @@ export async function createPlanSourcedSprintEngineWorkspace({
     sprintEngineContext,
     architectAgentId: architect.id,
   }
+}
+
+function derivePlanSourcedGoal(sourceContent: string, sourcePath: string): string {
+  const heading = sourceContent
+    .split(/\r?\n/u)
+    .map((line) => line.match(/^#{1,3}\s+(.+?)\s*$/u)?.[1]?.trim())
+    .find((title): title is string => Boolean(title))
+  if (heading) return heading
+
+  const filename = sourcePath.replace(/\\/g, '/').split('/').pop() ?? ''
+  const stem = filename.replace(/\.[^.]+$/u, '').trim()
+  const normalized = stem.replace(/[-_]+/gu, ' ').replace(/\s+/gu, ' ').trim()
+  return normalized || 'Sprint Engine handoff'
 }

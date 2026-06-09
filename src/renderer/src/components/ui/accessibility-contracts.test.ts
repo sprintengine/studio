@@ -68,11 +68,16 @@ expectIncludes(popover, 'openPopoverStack', 'Popover tracks nested open surfaces
 expectIncludes(popover, 'isTopmostPopover(popoverId)', 'Popover only lets the topmost open surface handle Escape')
 expectIncludes(popover, "window.addEventListener('mousedown'", 'Popover closes on outside pointer down')
 expectIncludes(popover, 'triggerRef.current?.focus()', 'Popover restores focus to the trigger on Escape close')
-expectIncludes(popover, 'PLACEMENT_CLASS[placement]', 'Popover owns anchored placement classes')
-// The off-axis gap (mt-1 / mb-1) now lives in PLACEMENT_CLASS so top placements
-// can open above the trigger; the base shell no longer hard-codes the margin.
-expectIncludes(popover, 'popover-enter absolute z-30 rounded-[7px]', 'Popover uses the canonical popover shell')
-expectIncludes(popover, "'top-start': 'left-0 bottom-full mb-1'", 'Popover supports top placement opening above the trigger')
+// The surface is portaled to <body> and positioned with fixed coordinates so an
+// ancestor's overflow can never clip the menu; placement is computed from the
+// trigger rect rather than anchored with absolute classes.
+expectIncludes(popover, 'createPortal(', 'Popover portals its surface out of clipping ancestors')
+expectIncludes(popover, 'document.body,', 'Popover mounts the surface on document.body')
+expectIncludes(popover, "position: 'fixed'", 'Popover anchors the surface with fixed coordinates')
+expectIncludes(popover, 'computeSurfacePosition(', 'Popover computes placement from the trigger rect')
+expectIncludes(popover, 'popover-enter z-50 rounded-[7px]', 'Popover uses the canonical popover shell')
+expectIncludes(popover, "window.addEventListener('scroll', reposition, true)", 'Popover tracks its trigger on scroll')
+expectIncludes(popover, "wantsBottom && surfaceHeight + SURFACE_GAP > spaceBelow", 'Popover flips above the trigger when space is tight')
 
 expectIncludes(overflowMenu, 'aria-haspopup="menu"', 'Overflow menu trigger exposes menu semantics')
 expectIncludes(overflowMenu, "aria-expanded={triggerProps['aria-expanded']}", 'Overflow menu trigger reports expanded state')

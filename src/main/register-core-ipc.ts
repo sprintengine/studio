@@ -1,6 +1,7 @@
 import type { IpcMain } from 'electron'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerAppMenuIpc } from './app-menu'
+import { registerBacklogIpc } from './ipc/backlog-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
 import { registerClipboardIpc } from './ipc/clipboard-ipc'
 import { registerConversationIpc } from './ipc/conversation-ipc'
@@ -68,6 +69,7 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
     readMultiloopPrompt,
   })
   registerFilesystemMutationIpc(ipcMain, createFilesystemMutationHandlers())
+  registerBacklogIpc(ipcMain)
   registerGitIpc(ipcMain, {
     enabled: diagnosticsEnabled,
     logMainPerfEvent: services.logMainPerfEvent,

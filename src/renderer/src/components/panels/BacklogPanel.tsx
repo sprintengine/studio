@@ -5,6 +5,7 @@ import {
   IconButton,
   InboxSearchInput,
   InlineNotice,
+  LifecycleGlyph,
   OverflowMenu,
   PanelHeader,
   PrimaryButton,
@@ -13,7 +14,6 @@ import {
   Tooltip,
   useConfirmDialog,
   type SelectItem,
-  type TooltipChildProps,
 } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
@@ -28,38 +28,45 @@ import {
   nextArchiveRelativePath,
   normalizeRelativePath,
   scanBacklog,
+  stableBacklogObjectId,
+  type BacklogCriticality,
+  type BacklogDifficulty,
   type BacklogFilesystemAdapter,
   type BacklogItem,
-  type BacklogItemKind,
   type BacklogItemStatus,
   type BacklogScanResult,
 } from '../../utils/backlog'
 import {
-  addBacklogObjectLink,
-  ensureBacklogObjectRecords,
   hydrateBacklogScanResult,
-  loadBacklogObjectStore,
-  moveBacklogObjectSource,
-  removeBacklogObjectRecord,
-  saveBacklogObjectStore,
-  updateBacklogObjectMetadata,
-  updateBacklogObjectStatus,
 } from '../../utils/backlogObjects'
+import {
+  CRITICALITY_LABEL,
+  DIFFICULTY_WORD,
+  compareBacklogItems,
+  matchesBacklogView,
+  type BacklogSort,
+  type BacklogView,
+} from '../../utils/backlogTriage'
+import { BacklogCreateDialog, type BacklogDraft } from './BacklogCreateDialog'
+import { BacklogRowContent, BACKLOG_STATUS_LABEL, backlogStatusToLifecycle } from '../backlog/BacklogRow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { BacklogItemAction, BacklogItemActionContext, WorkspacePanelProps } from '../../modules/renderer-host'
 
-// Backlog panel (T4): read / search / filter / preview surface for plan files
+// Backlog panel: capture / browse / triage / start surface for the lightweight
+// items (rough ideas, notes, feature sketches, imported markdown, mockups)
 // under the workspace `backlog/` folder. File mutations stay on existing
-// filesystem IPC, while Sprint Engine starts route through the existing New
-// Workspace plan-source flow.
+// filesystem IPC; triage metadata (size / priority) is owned in the backlog
+// object store (items.json), never markdown frontmatter; Sprint Engine starts
+// route through the existing New Workspace plan-source flow with rough content.
 //
-// Follows knowledge/brand/aesthetic-north-star.md + panel-design-system.md and
-// the approved T1 design notes: stripless nav-pane sibling of Files/Git/KG,
-// one accent, hairline structure, earned-dot rule (readiness is a plan-file
-// property rendered as glyph+text, never the runtime live-dot vocabulary).
+// Follows knowledge/brand/aesthetic-north-star.md + panel-design-system.md:
+// stripless nav-pane sibling of Files/Git/KG, one accent, hairline structure.
+// Triage reads as Shared meta — a t-shirt size token and a shape-coded
+// priority glyph+word — not as a per-row status dot. Unestimated is a calm
+// neutral, never a "needs structure" warning.
 
-type KindFilter = 'all' | BacklogItemKind
-type StatusFilter = 'all' | BacklogItemStatus
+type DifficultyChoice = BacklogDifficulty | 'unset'
+type CriticalityChoice = BacklogCriticality | 'unset'
 
 type BacklogActions = {
   createFolder: () => void
@@ -69,41 +76,67 @@ type BacklogActions = {
   rename: (item: BacklogItem) => void
   archive: (item: BacklogItem) => void
   remove: (item: BacklogItem) => void
+  setDifficulty: (item: BacklogItem, value: DifficultyChoice) => void
+  setCriticality: (item: BacklogItem, value: CriticalityChoice) => void
 }
 
-const KIND_LABEL: Record<BacklogItemKind, string> = {
-  product_plan: 'Product plan',
-  architect_plan: 'Architect plan',
-  html_mockup: 'HTML mockup',
-  unknown: 'Unknown',
-}
-
-const READINESS_LABEL: Record<BacklogItemStatus, string> = {
-  idea: 'Idea',
-  needs_structure: 'Needs structure',
-  ready: 'Ready',
+// Only states past capture earn a visible lifecycle word in the detail; rough
+// pre-work states (idea / ready / the legacy needs_structure) read as plain
+// "open" with no marker, so an unestimated note never looks like a defect.
+const LIFECYCLE_LABEL: Partial<Record<BacklogItemStatus, string>> = {
   in_progress: 'In progress',
   completed: 'Completed',
   archived: 'Archived',
 }
 
-const KIND_FILTER_ITEMS: SelectItem<KindFilter>[] = [
-  { value: 'all', label: 'All kinds' },
-  { value: 'product_plan', label: KIND_LABEL.product_plan },
-  { value: 'architect_plan', label: KIND_LABEL.architect_plan },
-  { value: 'html_mockup', label: KIND_LABEL.html_mockup },
-  { value: 'unknown', label: KIND_LABEL.unknown },
+// Lenses double as filters: the named views express the difficulty/criticality
+// ranges a single-value dropdown can't (XS/S, L/XL), and Archived is reached
+// here rather than via a separate status control.
+const VIEW_ITEMS: SelectItem<BacklogView>[] = [
+  { value: 'all', label: 'All items' },
+  { value: 'quick_wins', label: 'Quick wins' },
+  { value: 'strategic_bets', label: 'Strategic bets' },
+  { value: 'defer', label: 'Defer candidates' },
+  { value: 'unestimated', label: 'Unestimated' },
+  { value: 'archived', label: 'Archived' },
 ]
 
-const STATUS_FILTER_ITEMS: SelectItem<StatusFilter>[] = [
-  { value: 'all', label: 'All status' },
-  { value: 'idea', label: READINESS_LABEL.idea },
-  { value: 'needs_structure', label: READINESS_LABEL.needs_structure },
-  { value: 'ready', label: READINESS_LABEL.ready },
-  { value: 'in_progress', label: READINESS_LABEL.in_progress },
-  { value: 'completed', label: READINESS_LABEL.completed },
-  { value: 'archived', label: READINESS_LABEL.archived },
+const SORT_ITEMS: SelectItem<BacklogSort>[] = [
+  { value: 'recent', label: 'Recently updated' },
+  { value: 'priority', label: 'Priority' },
+  { value: 'largest', label: 'Largest first' },
+  { value: 'smallest', label: 'Smallest first' },
 ]
+
+// Detail-pane + create editors. Type leads with the concrete kinds (most items
+// have one); "Untyped" is the calm cleared state. Size/priority list their
+// cleared state first so clearing is one click away.
+const DIFFICULTY_EDIT_ITEMS: SelectItem<DifficultyChoice>[] = [
+  { value: 'unset', label: 'Unestimated' },
+  { value: 'xs', label: `XS · ${DIFFICULTY_WORD.xs.toLowerCase()}` },
+  { value: 's', label: `S · ${DIFFICULTY_WORD.s.toLowerCase()}` },
+  { value: 'm', label: `M · ${DIFFICULTY_WORD.m.toLowerCase()}` },
+  { value: 'l', label: `L · ${DIFFICULTY_WORD.l.toLowerCase()}` },
+  { value: 'xl', label: `XL · ${DIFFICULTY_WORD.xl.toLowerCase()}` },
+]
+
+const CRITICALITY_EDIT_ITEMS: SelectItem<CriticalityChoice>[] = [
+  { value: 'unset', label: 'No priority' },
+  { value: 'low', label: CRITICALITY_LABEL.low },
+  { value: 'normal', label: CRITICALITY_LABEL.normal },
+  { value: 'high', label: CRITICALITY_LABEL.high },
+  { value: 'critical', label: CRITICALITY_LABEL.critical },
+]
+
+// Scope word shown next to the header count when a lens narrows the list, so a
+// bare number never reads as the whole backlog.
+const VIEW_SCOPE_LABEL: Partial<Record<BacklogView, string>> = {
+  quick_wins: 'quick wins',
+  strategic_bets: 'strategic bets',
+  defer: 'defer candidates',
+  unestimated: 'unestimated',
+  archived: 'archived',
+}
 
 // Below this content width the list + detail two-pane split would be cramped,
 // so the panel collapses to a single column (list, then a full-pane detail with
@@ -136,10 +169,13 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   const [loading, setLoading] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [kindFilter, setKindFilter] = useState<KindFilter>('all')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [view, setView] = useState<BacklogView>('all')
+  const [sort, setSort] = useState<BacklogSort>('recent')
   // Single-column (narrow) mode: which face is showing.
   const [showDetailInSingle, setShowDetailInSingle] = useState(false)
+  // The structured "New item" capture dialog (title, description, type, size,
+  // priority). The dialog owns its own busy/error state around submitCreate.
+  const [creating, setCreating] = useState(false)
   // Visible, actionable error from a file action (create/rename/archive/delete/
   // open/reveal). Cleared at the start of each action.
   const [actionError, setActionError] = useState<string | null>(null)
@@ -164,17 +200,13 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     try {
       const scanned = await scanBacklog(folderPath, adapter)
       let metadataError: string | null = null
-      const store = await loadBacklogObjectStore(folderPath, window.api).catch((error) => {
+      const ensured = await window.api.ensureBacklogObjectRecords(folderPath, scanned.items.map(backlogRecordInput)).catch((error) => {
         metadataError = error instanceof Error ? error.message : String(error)
         return null
       })
       let result = scanned
-      if (store) {
-        const withRecords = ensureBacklogObjectRecords(store, scanned.items)
-        if (withRecords.changed) {
-          await saveBacklogObjectStore(folderPath, window.api, withRecords.store)
-        }
-        result = hydrateBacklogScanResult(scanned, withRecords.store)
+      if (ensured?.ok) {
+        result = hydrateBacklogScanResult(scanned, ensured.store)
       } else if (metadataError) {
         const errors = [
           ...scanned.errors,
@@ -209,21 +241,18 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase()
-    return items.filter((item) => {
-      // Archived is opt-in: hidden unless explicitly selected, so a stale
-      // archived plan never reads as an active idea/ready item.
-      if (statusFilter === 'archived') {
-        if (item.status !== 'archived') return false
-      } else if (item.status === 'archived') {
-        return false
-      } else if (statusFilter !== 'all' && item.status !== statusFilter) {
-        return false
-      }
-      if (kindFilter !== 'all' && item.kind !== kindFilter) return false
-      if (query && !matchesQuery(item, query)) return false
-      return true
-    })
-  }, [items, search, kindFilter, statusFilter])
+    return items
+      .filter((item) => {
+        // The view lens owns archived visibility (its own option) and the
+        // difficulty/criticality triage ranges; search narrows within it.
+        if (!matchesBacklogView(item, view)) return false
+        if (query && !matchesQuery(item, query)) return false
+        return true
+      })
+      // Stable sort keeps scanBacklog's deterministic path order as the tiebreak
+      // when two items share the sorted key.
+      .sort((a, b) => compareBacklogItems(a, b, sort))
+  }, [items, search, view, sort])
 
   // Keep selection valid across rescans/filters; select-by-id is preserved when
   // the item survives, otherwise selection clears.
@@ -322,31 +351,49 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [folderPath, runAction, runScan],
   )
 
-  const createPlan = useCallback(
-    () =>
-      runAction(async () => {
-        if (!folderPath) return
-        const title = (
-          await dialog.prompt({
-            title: 'New plan',
-            inputLabel: 'Plan title',
-            placeholder: 'e.g. Realtime presence',
-            confirmLabel: 'Create',
-            required: true,
-          })
-        )?.trim()
-        if (!title) return
-        const fileName = uniquePlanFileName(
-          `${todayPrefix()}-${slugify(title)}`,
-          new Set((scan?.items ?? []).map((item) => item.relativePath.toLowerCase())),
-        )
-        // ensureDir is idempotent; it also covers a missing backlog/ folder.
-        const backlogDir = await window.api.ensureDir(folderPath, 'backlog')
-        const newPath = await window.api.createFile(backlogDir, fileName)
-        await window.api.writefile(newPath, `# ${title}\n`)
-        await refreshAndSelect(normalizeRelativePath(`backlog/${fileName}`))
-      }),
-    [dialog, folderPath, refreshAndSelect, runAction, scan],
+  // Opening the capture dialog is the create entry point; the actual file +
+  // metadata write happens on submit so a cancelled draft never touches disk.
+  const openCreate = useCallback(() => {
+    if (!folderPath) return
+    setActionError(null)
+    setCreating(true)
+  }, [folderPath])
+
+  // Throws on failure so the dialog can show the reason in-context (and keep the
+  // draft) rather than routing it to the panel notice hidden behind the modal.
+  const submitCreate = useCallback(
+    async (draft: BacklogDraft) => {
+      const title = draft.title.trim()
+      if (!folderPath || !title) return
+      const fileName = uniquePlanFileName(
+        `${todayPrefix()}-${slugify(title)}`,
+        new Set((scan?.items ?? []).map((item) => item.relativePath.toLowerCase())),
+      )
+      // ensureDir is idempotent; it also covers a missing backlog/ folder.
+      const backlogDir = await window.api.ensureDir(folderPath, 'backlog')
+      const newPath = await window.api.createFile(backlogDir, fileName)
+      const description = draft.description.trim()
+      await window.api.writefile(newPath, description ? `# ${title}\n\n${description}\n` : `# ${title}\n`)
+      // Persist triage + type to the object store keyed by the new path. The
+      // upsert creates the record, so this is the real metadata source — no
+      // markdown frontmatter and no disconnected UI state.
+      const relativePath = normalizeRelativePath(`backlog/${fileName}`)
+      const itemRef = {
+        relativePath,
+        objectId: stableBacklogObjectId(relativePath),
+        status: 'idea',
+      } as BacklogItem
+      const triage = await window.api.updateBacklogTriage({
+        workspaceRoot: folderPath,
+        relativePath: itemRef.relativePath,
+        difficulty: draft.difficulty === 'unset' ? null : draft.difficulty,
+        criticality: draft.criticality === 'unset' ? null : draft.criticality,
+      })
+      assertBacklogMutation(triage)
+      await refreshAndSelect(relativePath)
+      setCreating(false)
+    },
+    [folderPath, refreshAndSelect, scan],
   )
 
   const openInEditor = useCallback(
@@ -375,7 +422,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         const current = basename(item.relativePath)
         const next = (
           await dialog.prompt({
-            title: 'Rename plan',
+            title: 'Rename item',
             inputLabel: 'File name',
             initialValue: current,
             confirmLabel: 'Rename',
@@ -392,8 +439,12 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         }
         const dir = item.relativePath.slice(0, item.relativePath.lastIndexOf('/') + 1)
         const nextRelativePath = normalizeRelativePath(`${dir}${next}`)
-        const store = await loadBacklogObjectStore(folderPath, window.api)
-        await saveBacklogObjectStore(folderPath, window.api, moveBacklogObjectSource(store, item, nextRelativePath))
+        const moved = await window.api.moveBacklogObjectSource({
+          workspaceRoot: folderPath,
+          relativePath: item.relativePath,
+          nextRelativePath,
+        })
+        assertBacklogMutation(moved)
         await refreshAndSelect(nextRelativePath)
       }),
     [dialog, folderPath, refreshAndSelect, remapOpenFiles, runAction, workspaceId],
@@ -434,8 +485,12 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           remapOpenFiles(workspaceId, item.path, newPath)
           remapFileTabsForPath(workspaceId, item.path, newPath)
         }
-        const store = await loadBacklogObjectStore(folderPath, window.api)
-        await saveBacklogObjectStore(folderPath, window.api, moveBacklogObjectSource(store, item, archivedRel))
+        const moved = await window.api.moveBacklogObjectSource({
+          workspaceRoot: folderPath,
+          relativePath: item.relativePath,
+          nextRelativePath: archivedRel,
+        })
+        assertBacklogMutation(moved)
         await refreshAndSelect(normalizeRelativePath(archivedRel))
       }),
     [folderPath, refreshAndSelect, remapOpenFiles, runAction, scan, workspaceId],
@@ -445,7 +500,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     (item: BacklogItem) =>
       runAction(async () => {
         const confirmed = await dialog.confirm({
-          title: 'Delete plan?',
+          title: 'Delete item?',
           body: `“${item.title}” will be moved to the trash. This affects the file only — no Sprint Engine state changes.`,
           confirmLabel: 'Delete',
           tone: 'danger',
@@ -459,14 +514,35 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           removeFileTabsForPath(workspaceId, item.path)
         }
         if (folderPath) {
-          const store = await loadBacklogObjectStore(folderPath, window.api)
-          await saveBacklogObjectStore(folderPath, window.api, removeBacklogObjectRecord(store, item))
+          const removed = await window.api.removeBacklogObjectRecord({
+            workspaceRoot: folderPath,
+            relativePath: item.relativePath,
+          })
+          assertBacklogMutation(removed)
         }
         await runScan()
         setSelectedId(null)
         setShowDetailInSingle(false)
       }),
     [dialog, folderPath, removeOpenFilesForPath, runAction, runScan, workspaceId],
+  )
+
+  // Triage edits persist to the backlog object store (items.json) and re-scan,
+  // so size/priority are real owned metadata — never markdown frontmatter and
+  // never disconnected UI state.
+  const setItemTriage = useCallback(
+    (item: BacklogItem, triage: { difficulty?: BacklogDifficulty | null; criticality?: BacklogCriticality | null }) =>
+      runAction(async () => {
+        if (!folderPath) return
+        const updated = await window.api.updateBacklogTriage({
+          workspaceRoot: folderPath,
+          relativePath: item.relativePath,
+          ...triage,
+        })
+        assertBacklogMutation(updated)
+        await runScan()
+      }),
+    [folderPath, runAction, runScan],
   )
 
   const refreshButton = (
@@ -478,22 +554,24 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   )
 
   const newPlanButton = (
-    <GhostButton onClick={() => void createPlan()} disabled={!folderPath} aria-label="New backlog plan">
+    <GhostButton onClick={openCreate} disabled={!folderPath} aria-label="New backlog item">
       <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
         <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
-      New plan
+      New item
     </GhostButton>
   )
 
   const actions: BacklogActions = {
     createFolder: () => void createBacklogFolder(),
-    createPlan: () => void createPlan(),
+    createPlan: openCreate,
     openInEditor: (item) => void openInEditor(item),
     revealInFiles: (item) => void revealInFiles(item),
     rename: (item) => void renameItem(item),
     archive: (item) => void archiveItem(item),
     remove: (item) => void deleteItem(item),
+    setDifficulty: (item, value) => setItemTriage(item, { difficulty: value === 'unset' ? null : value }),
+    setCriticality: (item, value) => setItemTriage(item, { criticality: value === 'unset' ? null : value }),
   }
 
   // Partial scan: some files read but others failed. Surface the failures so a
@@ -504,8 +582,11 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // non-archived backlog (archived is opt-in); when a filter narrows the set —
   // especially the Archived view — label the scope so a bare number never reads
   // as the whole backlog (T16 AC3).
-  const isFilteredView = search.trim() !== '' || kindFilter !== 'all' || statusFilter !== 'all'
-  const headerScopeLabel = statusFilter === 'archived' ? 'archived' : isFilteredView ? 'filtered' : undefined
+  const headerScopeLabel = view !== 'all'
+    ? VIEW_SCOPE_LABEL[view]
+    : search.trim() !== ''
+      ? 'filtered'
+      : undefined
 
   const backlogActionContext = useCallback(
     (item: BacklogItem): BacklogItemActionContext | null => {
@@ -516,18 +597,31 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         item,
         readSource: () => window.api.readfile(item.path),
         updateStatus: async (status) => {
-          const store = await loadBacklogObjectStore(folderPath, window.api)
-          await saveBacklogObjectStore(folderPath, window.api, updateBacklogObjectStatus(store, item, status))
+          const updated = await window.api.updateBacklogStatus({
+            workspaceRoot: folderPath,
+            relativePath: item.relativePath,
+            status,
+          })
+          assertBacklogMutation(updated)
           await runScan()
         },
         addLink: async (link) => {
-          const store = await loadBacklogObjectStore(folderPath, window.api)
-          await saveBacklogObjectStore(folderPath, window.api, addBacklogObjectLink(store, item, link))
+          const updated = await window.api.addOrUpdateBacklogLink({
+            workspaceRoot: folderPath,
+            relativePath: item.relativePath,
+            link,
+          })
+          assertBacklogMutation(updated)
           await runScan()
         },
         updateModuleMetadata: async (moduleId, value) => {
-          const store = await loadBacklogObjectStore(folderPath, window.api)
-          await saveBacklogObjectStore(folderPath, window.api, updateBacklogObjectMetadata(store, item, moduleId, value))
+          const updated = await window.api.updateBacklogModuleMetadata({
+            workspaceRoot: folderPath,
+            relativePath: item.relativePath,
+            moduleId,
+            value,
+          })
+          assertBacklogMutation(updated)
           await runScan()
         },
         startSourcePlan: onStartFuturePlan,
@@ -577,11 +671,11 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     <BacklogList
       items={filtered}
       selectedId={selectedId}
-      now={now}
       onSelect={handleSelectRow}
       onKeyDown={handleListKeyDown}
       onItemDragStart={folderPath ? handleRowDragStart : undefined}
       emptyHint={listEmptyHint(scan, items.length, filtered.length, loading)}
+      now={now}
     />
   )
 
@@ -628,23 +722,23 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           <InboxSearchInput
             value={search}
             onChange={setSearch}
-            ariaLabel="Search backlog plans"
-            placeholder="Search plans…"
+            ariaLabel="Search backlog items"
+            placeholder="Search items…"
             clearAriaLabel="Clear backlog search"
           />
         </div>
         <Select
-          ariaLabel="Filter by kind"
-          items={KIND_FILTER_ITEMS}
-          value={kindFilter}
-          onChange={setKindFilter}
+          ariaLabel="Triage view"
+          items={VIEW_ITEMS}
+          value={view}
+          onChange={setView}
           className="shrink-0"
         />
         <Select
-          ariaLabel="Filter by status"
-          items={STATUS_FILTER_ITEMS}
-          value={statusFilter}
-          onChange={setStatusFilter}
+          ariaLabel="Sort items"
+          items={SORT_ITEMS}
+          value={sort}
+          onChange={setSort}
           className="shrink-0"
         />
       </div>
@@ -671,7 +765,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       {partialErrors ? (
         <div className="shrink-0 px-3 py-2">
           <InlineNotice tone="warn">
-            {partialErrors.length} {partialErrors.length === 1 ? 'plan' : 'plans'} couldn’t be read and {partialErrors.length === 1 ? 'is' : 'are'} not listed
+            {partialErrors.length} {partialErrors.length === 1 ? 'item' : 'items'} couldn’t be read and {partialErrors.length === 1 ? 'is' : 'are'} not listed
             {': '}
             <span className="font-mono text-[12px] tabular-nums">
               {partialErrors.map((error) => error.relativePath).join(', ')}
@@ -692,6 +786,15 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           {showDetailInSingle && selected ? detailPane : listPane}
         </div>
       )}
+
+      {creating ? (
+        <BacklogCreateDialog
+          difficultyItems={DIFFICULTY_EDIT_ITEMS}
+          criticalityItems={CRITICALITY_EDIT_ITEMS}
+          onClose={() => setCreating(false)}
+          onCreate={submitCreate}
+        />
+      ) : null}
     </section>
   )
 }
@@ -701,19 +804,19 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
 function BacklogList({
   items,
   selectedId,
-  now,
   onSelect,
   onKeyDown,
   onItemDragStart,
   emptyHint,
+  now,
 }: {
   items: BacklogItem[]
   selectedId: string | null
-  now: number
   onSelect: (id: string) => void
   onKeyDown: (event: React.KeyboardEvent<HTMLUListElement>) => void
   onItemDragStart?: (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => void
   emptyHint: string | null
+  now: number
 }): JSX.Element {
   const listRef = useRef<HTMLUListElement | null>(null)
 
@@ -738,7 +841,7 @@ function BacklogList({
     <ul
       ref={listRef}
       role="listbox"
-      aria-label="Backlog plans"
+      aria-label="Backlog items"
       tabIndex={0}
       onKeyDown={onKeyDown}
       // Active-descendant so screen readers announce the active plan as j/k/arrow
@@ -765,23 +868,7 @@ function BacklogList({
                 : 'border-l-transparent hover:bg-[color:var(--bg-hover)]'
             } ${archived ? 'opacity-70' : ''}`}
           >
-            <div className="flex items-center gap-2">
-              <Tooltip content={READINESS_LABEL[item.status]} placement="top">
-                <ReadinessGlyph status={item.status} label={READINESS_LABEL[item.status]} />
-              </Tooltip>
-              <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
-                {item.title}
-              </span>
-            </div>
-            {/* Supporting line: real excerpt (title already stripped) on the left,
-                modified-time on the right. Path lives in the tooltip + detail
-                pane, so the slug no longer echoes the title on every row. */}
-            <div className="mt-0.5 flex items-center gap-2 pl-[22px] text-[11px]">
-              <span className="min-w-0 flex-1 truncate text-[color:var(--text-disabled)]">{item.excerpt}</span>
-              <span className="shrink-0 tabular-nums text-[color:var(--text-subtle)]">
-                {formatRelativeMsAgo(item.modifiedAt, now) || 'unknown'}
-              </span>
-            </div>
+            <BacklogRowContent item={item} now={now} />
           </li>
         )
       })}
@@ -818,7 +905,7 @@ function BacklogDetail({
     return (
       <DetailState
         heading="No workspace folder"
-        body="Backlog reads candidate plans from a project's backlog/ folder. Open a project folder to use it."
+        body="Backlog reads captured items from a project's backlog/ folder. Open a project folder to use it."
       />
     )
   }
@@ -829,7 +916,7 @@ function BacklogDetail({
     return (
       <DetailState
         heading="No backlog folder"
-        body="This workspace has no backlog/ folder yet. Create one to start collecting candidate plans."
+        body="This workspace has no backlog/ folder yet. Create one to start capturing items."
         cta={
           <PrimaryButton onClick={actions.createFolder}>Create backlog folder</PrimaryButton>
         }
@@ -856,52 +943,61 @@ function BacklogDetail({
     return (
       <DetailState
         heading="Backlog is empty"
-        body="No plans found under backlog/. Create a new plan or drop a Markdown or HTML file in to get started."
-        cta={<PrimaryButton onClick={actions.createPlan}>Create first plan</PrimaryButton>}
+        body="Nothing under backlog/ yet. Capture a rough idea, note, or feature, or drop a Markdown or HTML file in to get started."
+        cta={<PrimaryButton onClick={actions.createPlan}>Capture first item</PrimaryButton>}
       />
     )
   }
   if (!selected) {
-    return <DetailState body="Select a plan to preview." />
+    return <DetailState body="Select an item to preview." />
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="shrink-0 border-b border-[color:var(--border-default)] px-4 py-3">
-        {showBack ? (
-          <button
-            type="button"
-            onClick={onBack}
-            aria-label="Back to list"
-            className="interactive mb-2 inline-flex h-6 items-center gap-1 rounded px-1.5 text-[12px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-          >
-            <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-              <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Back
-          </button>
-        ) : null}
-        <h3 className="truncate text-[14px] font-semibold text-[color:var(--text-strong)]" title={selected.title}>
-          {selected.title}
-        </h3>
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[color:var(--text-muted)]">
-          <span className="inline-flex items-center gap-1">
-            <ReadinessGlyph status={selected.status} />
-            {READINESS_LABEL[selected.status]}
+        {/* Back row: the timestamp sits top-right at the same level, so the
+            title below gets its full width instead of stacking meta lines. */}
+        <div className="flex h-6 items-center justify-between gap-2">
+          {showBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label="Back to list"
+              className="interactive -ml-1.5 inline-flex h-6 items-center gap-1 rounded px-1.5 text-[12px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            >
+              <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Back
+            </button>
+          ) : (
+            <span />
+          )}
+          <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]">
+            {formatRelativeMsAgo(selected.modifiedAt, now) || 'unknown'}
           </span>
-          {selected.kind !== 'unknown' ? (
+        </div>
+        <div className="mt-2 flex min-w-0 items-center gap-2">
+          <Tooltip content={BACKLOG_STATUS_LABEL[selected.status]} placement="top">
+            <LifecycleGlyph state={backlogStatusToLifecycle(selected.status)} />
+          </Tooltip>
+          <h3 className="truncate text-[14px] font-semibold text-[color:var(--text-strong)]" title={selected.title}>
+            {selected.title}
+          </h3>
+        </div>
+        <div className="mt-1 flex items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
+          {LIFECYCLE_LABEL[selected.status] ? (
             <>
+              <span>{LIFECYCLE_LABEL[selected.status]}</span>
               <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
-              <span>{KIND_LABEL[selected.kind]}</span>
             </>
           ) : null}
-          <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
-          <span className="font-mono tabular-nums" title={selected.relativePath}>{selected.relativePath}</span>
-          <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
-          <span className="tabular-nums">{formatRelativeMsAgo(selected.modifiedAt, now) || 'unknown'}</span>
+          <span className="min-w-0 truncate font-mono tabular-nums" title={selected.relativePath}>
+            {selected.relativePath}
+          </span>
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
           {externalActions.map(({ action, disabled, run }, index) => {
             const Button = index === 0 ? PrimaryButton : GhostButton
             return (
@@ -917,7 +1013,7 @@ function BacklogDetail({
           <GhostButton onClick={() => actions.openInEditor(selected)}>Open in editor</GhostButton>
           <GhostButton onClick={() => actions.revealInFiles(selected)}>Reveal in Files</GhostButton>
           <OverflowMenu
-            ariaLabel="Plan actions"
+            ariaLabel="Item actions"
             items={[
               { id: 'rename', label: 'Rename…', onSelect: () => actions.rename(selected) },
               ...(selected.status === 'archived'
@@ -949,7 +1045,7 @@ function BacklogDetail({
         </Section>
       ) : null}
 
-      <BacklogStructure content={selected.sourceContent} />
+      <BacklogTriage item={selected} actions={actions} />
 
       <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
         <BacklogPreviewBody item={selected} />
@@ -978,21 +1074,27 @@ function DetailState({
   )
 }
 
-// Readiness rationale: presence of the canonical plan sections, shown as a
-// glyph+text checklist (design §5.3). Heading detection only — never executes
-// or injects the source.
-function BacklogStructure({ content }: { content: string }): JSX.Element | null {
-  const checks = useMemo(() => deriveStructure(content), [content])
-  if (checks.length === 0) return null
+// Triage editor: type + size + priority are lightweight owned metadata.
+// Selecting "Untyped" / "Unestimated" / "No priority" clears the axis back to
+// neutral. These persist to the backlog object store, not markdown frontmatter.
+function BacklogTriage({ item, actions }: { item: BacklogItem; actions: BacklogActions }): JSX.Element {
   return (
-    <Section title="Structure" level={4} inset className="shrink-0 border-b border-[color:var(--border-subtle)] pb-2">
-      <div className="flex flex-wrap gap-x-4 gap-y-1 px-3 text-[11px] text-[color:var(--text-muted)]">
-        {checks.map((check) => (
-          <span key={check.label} className="inline-flex items-center gap-1">
-            <StructureGlyph present={check.present} />
-            {check.label}
-          </span>
-        ))}
+    <Section title="Triage" level={4} inset className="shrink-0 border-b border-[color:var(--border-subtle)] pb-3">
+      <div className="grid grid-cols-[3.5rem_minmax(0,16rem)] items-center gap-x-3 gap-y-2 px-3">
+        <span className="text-[11px] text-[color:var(--text-muted)]">Size</span>
+        <Select
+          ariaLabel="Set size"
+          items={DIFFICULTY_EDIT_ITEMS}
+          value={item.difficulty ?? 'unset'}
+          onChange={(value) => actions.setDifficulty(item, value)}
+        />
+        <span className="text-[11px] text-[color:var(--text-muted)]">Priority</span>
+        <Select
+          ariaLabel="Set priority"
+          items={CRITICALITY_EDIT_ITEMS}
+          value={item.criticality ?? 'unset'}
+          onChange={(value) => actions.setCriticality(item, value)}
+        />
       </div>
     </Section>
   )
@@ -1065,33 +1167,24 @@ function uniquePlanFileName(baseName: string, existingRelativeLower: Set<string>
   return candidate
 }
 
+function backlogRecordInput(item: BacklogItem) {
+  return {
+    relativePath: item.relativePath,
+    status: item.status,
+    type: item.type,
+    difficulty: item.difficulty,
+    criticality: item.criticality,
+  }
+}
+
+function assertBacklogMutation(result: { ok: boolean; message?: string }): void {
+  if (!result.ok) throw new Error(result.message || 'Unable to update Backlog metadata.')
+}
+
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   const tag = target.tagName
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
-}
-
-type StructureCheck = { label: string; present: boolean }
-
-const STRUCTURE_SECTIONS: Array<{ label: string; pattern: RegExp }> = [
-  { label: 'Goal', pattern: /goal|overview|objective|summary/i },
-  { label: 'Tasks', pattern: /task|implementation|architecture|plan|approach/i },
-  { label: 'Verification', pattern: /verif|test|validation|acceptance/i },
-  { label: 'Risks', pattern: /risk|open question|tradeoff|concern/i },
-]
-
-// Inspects markdown headings only; returns no checks for non-markdown/HTML so
-// the section hides rather than reporting misleading absences.
-function deriveStructure(content: string): StructureCheck[] {
-  const headings = content
-    .split(/\r?\n/)
-    .filter((line) => /^#{1,6}\s+/.test(line))
-    .map((line) => line.replace(/^#{1,6}\s+/, '').trim())
-  if (headings.length === 0) return []
-  return STRUCTURE_SECTIONS.map((section) => ({
-    label: section.label,
-    present: headings.some((heading) => section.pattern.test(heading)),
-  }))
 }
 
 function listEmptyHint(
@@ -1110,98 +1203,13 @@ function listEmptyHint(
       : 'Couldn’t read the backlog folder.'
   }
   if (totalItems === 0) return 'Backlog is empty.'
-  if (filteredCount === 0) return 'No plans match the current search and filters.'
+  if (filteredCount === 0) return 'No items match the current view and search.'
   return null
 }
 
-// ---- glyphs (house pattern: 16-box, currentColor strokes, decorative) ------
-
-// Status is shown icon-only on rows (Linear's status-icon model): when `label`
-// is supplied the glyph carries it as its accessible name (role="img") so the
-// status is never color- or glyph-only, and the row wraps it in a Tooltip for
-// sighted hover discoverability. Without `label` it stays decorative — used in
-// the detail header where the status word sits visibly beside it. Extra props
-// (the Tooltip's hover/focus handlers + aria-describedby) forward onto the svg.
-// Shapes take their meaning from Linear's status icons (backlog → dashed ring,
-// triage → ring + alert, todo → ring, in-progress → pie, done → check) in the
-// house 16-box stroke pattern; color reinforces shape, never carries it alone.
-function ReadinessGlyph({
-  status,
-  label,
-  ...rest
-}: { status: BacklogItemStatus; label?: string } & Partial<TooltipChildProps>): JSX.Element {
-  const tone =
-    status === 'completed' || status === 'ready'
-      ? 'text-[color:var(--tone-good)]'
-      : status === 'needs_structure'
-        ? 'text-[color:var(--tone-warn)]'
-      : status === 'in_progress'
-        ? 'text-[color:var(--accent-primary)]'
-      : status === 'archived'
-        ? 'text-[color:var(--text-disabled)]'
-        : 'text-[color:var(--text-subtle)]'
-
-  const a11y = label ? ({ role: 'img', 'aria-label': label } as const) : ({ 'aria-hidden': true } as const)
-
-  // Done: a filled disc with a cut-out check. The check is drawn in --bg-app so
-  // it reads as a knockout against the green disc in every theme (near-black on
-  // bright green in dark, near-white on deep green in light).
-  const shapes =
-    status === 'completed' ? (
-      <>
-        <circle cx="8" cy="8" r="5.25" fill="currentColor" />
-        <path
-          d="M5.5 8.2l1.7 1.7 3.4-3.9"
-          className="[stroke:var(--bg-app)]"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </>
-    ) : (
-      <>
-        <circle
-          cx="8"
-          cy="8"
-          r="5"
-          stroke="currentColor"
-          strokeWidth="1.4"
-          strokeDasharray={status === 'idea' ? '2.2 2.2' : undefined}
-        />
-        {status === 'in_progress' ? <path d="M8 4.8a3.2 3.2 0 0 1 0 6.4z" fill="currentColor" /> : null}
-        {status === 'needs_structure' ? (
-          <>
-            <path d="M8 5.2v3.1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-            <circle cx="8" cy="10.7" r="0.85" fill="currentColor" />
-          </>
-        ) : null}
-        {status === 'archived' ? (
-          <path d="M4.7 11.3l6.6-6.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-        ) : null}
-      </>
-    )
-
-  return (
-    <svg viewBox="0 0 16 16" fill="none" {...a11y} {...rest} className={`icon-sm shrink-0 ${tone}`}>
-      {shapes}
-    </svg>
-  )
-}
-
-function StructureGlyph({ present }: { present: boolean }): JSX.Element {
-  if (present) {
-    return (
-      <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--tone-good)]" aria-hidden="true">
-        <path d="M3.5 8.5l3 3 6-6.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    )
-  }
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-disabled)]" aria-hidden="true">
-      <path d="M4 8h8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  )
-}
+// The backlog row interior and its type / size / criticality glyphs live in the
+// shared ../backlog/BacklogRow module so this panel list and the new-workspace
+// Sprint Engine source picker render the same row and can't drift.
 
 function RefreshGlyph(): JSX.Element {
   return (

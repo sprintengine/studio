@@ -3,11 +3,13 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
   CloseIconButton,
   FOCUS_RING_CLASS,
+  LifecycleGlyph,
   PanelHeader,
   RoleGlyph,
   Section,
   StatusDot,
   Tooltip,
+  type LifecycleState,
   type Tone,
 } from '../ui'
 import {
@@ -83,15 +85,18 @@ const STATUS_LABEL: Record<SprintEngineTaskStatus, string> = {
   done: 'Done',
 }
 
-const STATUS_TONE: Record<SprintEngineTaskStatus, Tone> = {
-  todo: 'neutral',
-  in_progress: 'accent',
-  changes_requested: 'warn',
-  review: 'accent',
-  testing: 'accent',
-  product: 'accent',
-  needs_input: 'error',
-  done: 'good',
+// Task status → the shared shape-coded lifecycle vocabulary, so the summary's
+// status marks read by shape and match the board columns (the values are a
+// subset of LifecycleState, but the explicit map guards against divergence).
+const STATUS_LIFECYCLE: Record<SprintEngineTaskStatus, LifecycleState> = {
+  todo: 'todo',
+  in_progress: 'in_progress',
+  changes_requested: 'changes_requested',
+  review: 'review',
+  testing: 'testing',
+  product: 'product',
+  needs_input: 'needs_input',
+  done: 'done',
 }
 
 const SEVERITY_TONE: Record<SprintEngineTaskFeedbackFindingSeverity, Tone> = {
@@ -976,7 +981,7 @@ function AgentDetailRow({
         <ul className="space-y-3">
           {detail.map((task) => (
             <li key={task.id} className="grid grid-cols-[auto_minmax(0,1fr)] gap-2.5">
-              <StatusDot tone={STATUS_TONE[task.status]} className="translate-y-[6px]" />
+              <LifecycleGlyph state={STATUS_LIFECYCLE[task.status]} live={false} className="self-start translate-y-[2px]" />
               <div className="min-w-0">
                 <div className="flex flex-wrap items-baseline gap-2">
                   {onOpenTask ? (
@@ -1194,8 +1199,8 @@ function WhatsLeftSection({
             <SubHead label="Still open" count={report.remaining.length} />
             <div className="flex flex-wrap gap-x-5 gap-y-1.5 pb-2 pt-0.5">
               {(Object.keys(remainingStatusCounts) as SprintEngineTaskStatus[]).map((status) => (
-                <span key={status} className="inline-flex items-baseline gap-1.5 text-[12px]">
-                  <StatusDot tone={STATUS_TONE[status]} className="translate-y-px" />
+                <span key={status} className="inline-flex items-center gap-1.5 text-[12px]">
+                  <LifecycleGlyph state={STATUS_LIFECYCLE[status]} live={false} />
                   <span className="text-[color:var(--text-default)]">{STATUS_LABEL[status]}</span>
                   <span className="tabular-nums text-[color:var(--text-muted)]">
                     {remainingStatusCounts[status]}
@@ -1207,7 +1212,14 @@ function WhatsLeftSection({
               {report.remaining.map((task) => (
                 <LeftRow
                   key={task.id}
-                  tone={STATUS_TONE[task.status]}
+                  leading={
+                    <LifecycleGlyph
+                      state={STATUS_LIFECYCLE[task.status]}
+                      live={false}
+                      label={STATUS_LABEL[task.status]}
+                      className="self-start translate-y-px"
+                    />
+                  }
                   id={task.id}
                   title={task.title}
                   meta={getSprintEngineRoleLabel(task.role)}
@@ -1232,18 +1244,22 @@ function SubHead({ label, count }: { label: string; count: number }) {
 
 function LeftRow({
   tone,
+  leading,
   id,
   title,
   meta,
 }: {
-  tone: Tone
+  /** Dot tone for an error/attention marker. Ignored when `leading` is set. */
+  tone?: Tone
+  /** Leading slot — a LifecycleGlyph for rows whose marker is a worklist stage. */
+  leading?: React.ReactNode
   id: string
   title: string
   meta?: string
 }) {
   return (
     <li className="grid grid-cols-[auto_auto_minmax(0,1fr)] items-baseline gap-2 border-t border-[color:var(--border-subtle)] py-1.5 first:border-t-0">
-      <StatusDot tone={tone} className="translate-y-[5px]" />
+      {leading ?? <StatusDot tone={tone ?? 'neutral'} className="translate-y-[5px]" />}
       <span className="font-mono text-[11px] text-[color:var(--text-muted)]">{id}</span>
       <span className="min-w-0">
         <span className="text-[13px] text-[color:var(--text-default)] [overflow-wrap:anywhere]">

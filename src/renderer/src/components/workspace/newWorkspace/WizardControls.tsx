@@ -141,6 +141,8 @@ export function RosterAndRunSettings({
   onSetCli,
   totalAgents,
   rosterCountLabel,
+  saveRoster,
+  onChangeSaveRoster,
   automationMode,
   onChangeAutomationMode,
   cliPermissionPreset,
@@ -159,6 +161,11 @@ export function RosterAndRunSettings({
   // Lets the Sprint Engine step show "Loading roles" while the registry resolves;
   // omit to show the plain specialist count.
   rosterCountLabel?: string
+  // When the handler is provided, a "save as default" affordance is hung off the
+  // bottom of the roster. Omitted by the Guided Brief handoff, which has no
+  // saved-roster preference to set.
+  saveRoster?: boolean
+  onChangeSaveRoster?: (save: boolean) => void
   automationMode: SprintEngineAutomationMode
   onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
   cliPermissionPreset: SprintEngineCliPermissionPreset
@@ -183,6 +190,11 @@ export function RosterAndRunSettings({
           cliDisabled={cliDisabled}
           onSetCount={onSetCount}
           onSetCli={onSetCli}
+          footer={
+            onChangeSaveRoster ? (
+              <SaveRosterDefaultRow checked={saveRoster ?? false} onChange={onChangeSaveRoster} />
+            ) : null
+          }
         />
       </div>
 
@@ -215,5 +227,28 @@ export function RosterAndRunSettings({
         </div>
       </div>
     </>
+  )
+}
+
+// Quiet "make this the default" affordance that hangs off the bottom of the
+// roster, hairline-divided below the role rows. It deliberately reads as a
+// trailing action on the list it persists — not as a separate card above it.
+function SaveRosterDefaultRow({
+  checked,
+  onChange,
+}: {
+  checked: boolean
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <label className="flex cursor-pointer items-center gap-2.5 border-l-2 border-transparent px-3 py-2.5 text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)]">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="h-3.5 w-3.5 shrink-0 accent-[color:var(--accent-primary)]"
+      />
+      Save as the default roster for new workspaces
+    </label>
   )
 }

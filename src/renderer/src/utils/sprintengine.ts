@@ -64,6 +64,34 @@ import type {
   SprintEngineNeedsInputKind,
   SprintEngineNeedsInputReason,
 } from '../types/workspace'
+import type { LifecycleState } from '../components/ui/LifecycleGlyph'
+
+// Sprint Engine board column → the shared lifecycle vocabulary. The pipeline
+// reads as a filling gauge: in_progress ¼ → review ½ → testing ¾ → product ⅞ →
+// done. changes_requested gets its own back-arrow glyph, distinct from a task
+// merely awaiting input.
+export function taskBoardColumnToLifecycle(column: SprintEngineTaskBoardColumn): LifecycleState {
+  switch (column) {
+    case 'todo':
+      return 'todo'
+    case 'ready':
+      return 'ready'
+    case 'changes_requested':
+      return 'changes_requested'
+    case 'in_progress':
+      return 'in_progress'
+    case 'review':
+      return 'review'
+    case 'testing':
+      return 'testing'
+    case 'product':
+      return 'product'
+    case 'needs_input':
+      return 'needs_input'
+    case 'done':
+      return 'done'
+  }
+}
 
 export type SprintEngineAgentRosterItem = {
   id: AgentId

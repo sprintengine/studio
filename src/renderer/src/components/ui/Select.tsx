@@ -196,7 +196,7 @@ export function Select<V extends string = string>({
       popupRole="listbox"
       className={className}
       surfaceAs="ul"
-      surfaceClassName="max-h-[240px] min-w-full overflow-y-auto py-1"
+      surfaceClassName="max-h-[240px] min-w-[var(--popover-trigger-width)] overflow-y-auto py-1"
       onOpenAutoFocus={(surface) => {
         listboxRef.current = surface
       }}

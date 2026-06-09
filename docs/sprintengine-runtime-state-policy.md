@@ -22,4 +22,7 @@ live `run.yaml`, task folders, artifact folders, `events.jsonl`,
 fixtures unless a test or documentation path explicitly owns that snapshot.
 
 Runtime mutation still belongs behind Sprint Engine tooling and the managed MCP
-server. Agents must not hand-edit run-store files.
+server. Agents must not hand-edit run-store files. Manual cleanup is different:
+the app's generic file-manager delete action may remove
+`.multi-code/sprintengine/<team>/` folders when an operator wants to clear local
+runtime state.

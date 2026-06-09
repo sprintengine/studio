@@ -24,7 +24,6 @@ export class SprintEnginePlanSourcedError extends Error {
     | 'missing-plan-option'
     | 'missing-plan-content'
     | 'missing-team-name'
-    | 'missing-goal'
     | 'plan-not-on-disk'
     | 'team-exists'
     | 'unknown'
@@ -112,7 +111,6 @@ export async function runSprintEnginePlanSourcedCreation(
   if (!optionPath || !optionRelativePath) throw new SprintEnginePlanSourcedError('missing-plan-option')
   if (input.sourcePlanContent == null) throw new SprintEnginePlanSourcedError('missing-plan-content')
   if (!input.teamName.trim()) throw new SprintEnginePlanSourcedError('missing-team-name')
-  if (!input.goal.trim()) throw new SprintEnginePlanSourcedError('missing-goal')
 
   if (!(await ports.pathExists(optionPath))) {
     throw new SprintEnginePlanSourcedError('plan-not-on-disk')

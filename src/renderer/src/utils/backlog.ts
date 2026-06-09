@@ -11,8 +11,16 @@ import {
 } from '../components/workspace/newWorkspace/helpers'
 
 export type BacklogItemKind = SprintEngineSourcePlanKind | 'html_mockup'
-export type BacklogItemStatus = 'idea' | 'needs_structure' | 'ready' | 'in_progress' | 'completed' | 'archived'
+export type BacklogItemStatus = 'idea' | 'ready' | 'in_progress' | 'completed' | 'archived'
 export type BacklogScanState = 'missing-folder' | 'empty-folder' | 'ready' | 'partial' | 'error'
+
+// Lightweight triage metadata, owned by the backlog object store (items.json),
+// never required from markdown frontmatter. All fields are optional: a rough
+// capture can stay untyped/unestimated until an architect sizes and prioritizes
+// it, which is a calm neutral state, not a defect.
+export type BacklogType = 'feature' | 'bug' | 'mockup'
+export type BacklogDifficulty = 'xs' | 's' | 'm' | 'l' | 'xl'
+export type BacklogCriticality = 'low' | 'normal' | 'high' | 'critical'
 
 export type BacklogItemLinkStatus = 'active' | 'completed' | 'failed' | 'unknown'
 
@@ -35,6 +43,9 @@ export type BacklogItemObjectMetadata = {
   objectId: string
   metadata: Record<string, unknown>
   links: BacklogItemLink[]
+  type?: BacklogType
+  difficulty?: BacklogDifficulty
+  criticality?: BacklogCriticality
   updatedAt?: string
 }
 
@@ -46,6 +57,9 @@ export type BacklogItem = {
   title: string
   kind: BacklogItemKind
   status: BacklogItemStatus
+  type?: BacklogType
+  difficulty?: BacklogDifficulty
+  criticality?: BacklogCriticality
   metadata: Record<string, unknown>
   links: BacklogItemLink[]
   objectUpdatedAt?: string
@@ -85,7 +99,22 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/
 const SOURCE_EXTENSION_RE = /\.(md|html?)$/i
 const HTML_EXTENSION_RE = /\.html?$/i
 const VALID_KIND = new Set<BacklogItemKind>(['product_plan', 'architect_plan', 'html_mockup', 'unknown'])
-const VALID_STATUS = new Set<BacklogItemStatus>(['idea', 'needs_structure', 'ready', 'in_progress', 'completed', 'archived'])
+const VALID_STATUS = new Set<BacklogItemStatus>(['idea', 'ready', 'in_progress', 'completed', 'archived'])
+const VALID_TYPE = new Set<BacklogType>(['feature', 'bug', 'mockup'])
+const VALID_DIFFICULTY = new Set<BacklogDifficulty>(['xs', 's', 'm', 'l', 'xl'])
+const VALID_CRITICALITY = new Set<BacklogCriticality>(['low', 'normal', 'high', 'critical'])
+
+export function isBacklogType(value: unknown): value is BacklogType {
+  return typeof value === 'string' && VALID_TYPE.has(value as BacklogType)
+}
+
+export function isBacklogDifficulty(value: unknown): value is BacklogDifficulty {
+  return typeof value === 'string' && VALID_DIFFICULTY.has(value as BacklogDifficulty)
+}
+
+export function isBacklogCriticality(value: unknown): value is BacklogCriticality {
+  return typeof value === 'string' && VALID_CRITICALITY.has(value as BacklogCriticality)
+}
 
 export function backlogRootPath(workspaceRoot: string): string {
   return joinPath(workspaceRoot, BACKLOG_FOLDER)
@@ -166,6 +195,9 @@ export function createBacklogItem(input: {
   const inferredKind = inferBacklogKind(relativePath, body)
   const archived = isArchivedBacklogPath(relativePath)
   const frontmatterStatus = parseBacklogStatus(frontmatterValue(data, 'status'))
+  const frontmatterType = parseBacklogType(frontmatterValue(data, 'type', 'itemType', 'item_type', 'backlogType', 'backlog_type'))
+  const frontmatterDifficulty = parseBacklogDifficulty(frontmatterValue(data, 'difficulty', 'size'))
+  const frontmatterCriticality = parseBacklogCriticality(frontmatterValue(data, 'criticality', 'priority'))
   const title = inferBacklogTitle(relativePath, body)
 
   return {
@@ -175,7 +207,10 @@ export function createBacklogItem(input: {
     relativePath,
     title,
     kind: frontmatterKind ?? inferredKind,
-    status: archived ? 'archived' : frontmatterStatus ?? defaultBacklogStatus(frontmatterKind ?? inferredKind),
+    status: archived ? 'archived' : frontmatterStatus ?? defaultBacklogStatus(),
+    type: input.object?.type ?? frontmatterType ?? defaultBacklogType(frontmatterKind ?? inferredKind),
+    difficulty: input.object?.difficulty ?? frontmatterDifficulty,
+    criticality: input.object?.criticality ?? frontmatterCriticality,
     metadata: input.object?.metadata ?? {},
     links: input.object?.links ?? [],
     objectUpdatedAt: input.object?.updatedAt,
@@ -335,11 +370,37 @@ function parseBacklogKind(value: string | undefined): BacklogItemKind | null {
 
 function parseBacklogStatus(value: string | undefined): BacklogItemStatus | null {
   if (!value) return null
+  // Migrate the retired `needs_structure` status to `idea` (both are rough,
+  // pre-work captures) so older frontmatter / object records keep loading.
+  if (value === 'needs_structure') return 'idea'
   return VALID_STATUS.has(value as BacklogItemStatus) ? (value as BacklogItemStatus) : null
 }
 
-function defaultBacklogStatus(kind: BacklogItemKind): BacklogItemStatus {
-  return kind === 'unknown' ? 'needs_structure' : 'ready'
+function parseBacklogType(value: string | undefined): BacklogType | undefined {
+  if (!value) return undefined
+  return isBacklogType(value) ? value : undefined
+}
+
+function parseBacklogDifficulty(value: string | undefined): BacklogDifficulty | undefined {
+  if (!value) return undefined
+  return isBacklogDifficulty(value) ? value : undefined
+}
+
+function parseBacklogCriticality(value: string | undefined): BacklogCriticality | undefined {
+  if (!value) return undefined
+  return isBacklogCriticality(value) ? value : undefined
+}
+
+// Rough captures default to a calm "idea", regardless of whether a plan kind
+// could be inferred. Unknown structure is not a defect — the architect / Sprint
+// Engine start flow turns rough input into a structured plan later, so the
+// backlog never flags an unestimated note as "needs structure" on its own.
+function defaultBacklogStatus(): BacklogItemStatus {
+  return 'idea'
+}
+
+function defaultBacklogType(kind: BacklogItemKind): BacklogType | undefined {
+  return kind === 'html_mockup' ? 'mockup' : undefined
 }
 
 function isArchivedBacklogPath(relativePath: string): boolean {

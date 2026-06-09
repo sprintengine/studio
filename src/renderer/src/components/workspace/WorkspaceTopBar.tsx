@@ -237,11 +237,13 @@ function SessionsPopover({
   workspaceOrder,
   onOpen,
   onStop,
+  onStopWorkspace,
 }: {
   items: SessionItem[]
   workspaceOrder: Map<string, number>
   onOpen: (item: SessionItem) => void | Promise<void>
   onStop: (item: SessionItem) => void
+  onStopWorkspace: (workspace: Workspace, items: SessionItem[]) => void | Promise<void>
 }) {
   const groups = items
     .reduce<Array<{ workspace: Workspace; items: SessionItem[] }>>((acc, item) => {
@@ -304,6 +306,17 @@ function SessionsPopover({
                     >
                       <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" />
                     </svg>
+                  ) : null}
+                  {group.items.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => void onStopWorkspace(group.workspace, group.items)}
+                      className="ml-auto flex h-6 shrink-0 items-center gap-1 rounded border border-transparent px-1.5 text-[11px] font-medium text-[color:var(--text-subtle)] transition-colors hover:border-[color:var(--tone-error-soft)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]"
+                      aria-label={`Stop all ${group.items.length} sessions in ${group.workspace.name}`}
+                    >
+                      <StopIcon className="icon-xs" />
+                      Stop all
+                    </button>
                   ) : null}
                 </div>
                 <div className="space-y-1">
@@ -478,6 +491,7 @@ export type WorkspaceTopBarProps = {
   setSessionsOpen: React.Dispatch<React.SetStateAction<boolean>>
   openSession: (item: SessionItem) => void | Promise<void>
   stopSession: (item: SessionItem) => void
+  stopWorkspaceSessions: (workspace: Workspace, items: SessionItem[]) => void | Promise<void>
 
   viewMenuOpen: boolean
   setViewMenuOpen: React.Dispatch<React.SetStateAction<boolean>>
@@ -584,6 +598,7 @@ export default function WorkspaceTopBar({
   setSessionsOpen,
   openSession,
   stopSession,
+  stopWorkspaceSessions,
   viewMenuOpen,
   setViewMenuOpen,
   viewMenuTick,
@@ -800,6 +815,7 @@ export default function WorkspaceTopBar({
                   workspaceOrder={sidebarWorkspaceOrder}
                   onOpen={openSession}
                   onStop={stopSession}
+                  onStopWorkspace={stopWorkspaceSessions}
                 />
               </Popover>
             </div>

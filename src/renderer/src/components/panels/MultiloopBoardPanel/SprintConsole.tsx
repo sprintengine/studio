@@ -1,7 +1,7 @@
-import { DefinitionList, GhostButton, PrimaryButton, Section, StatusDot, type DefinitionItem } from '../../ui'
+import { DefinitionList, GhostButton, LifecycleGlyph, PrimaryButton, Section, StatusDot, type DefinitionItem } from '../../ui'
 import type { MultiloopMilestone, SprintEngineState } from '../../../types/workspace'
 import type { MultiloopExecutionReadiness } from '../../../utils/multiloop'
-import { formatCount, ListBlock, milestoneStatusLabels, milestoneStatusTone, readinessLabel, readinessTone, toProjectRelativePath, type LinkedExecutionReadState } from './helpers'
+import { formatCount, ListBlock, milestoneStatusLabels, milestoneStatusLifecycle, readinessLabel, readinessTone, toProjectRelativePath, type LinkedExecutionReadState } from './helpers'
 
 // ===========================================================================
 // SPRINT CONSOLE — selected milestone summary + execution source strip.
@@ -52,7 +52,7 @@ export function SprintConsole({
       term: 'Status',
       description: (
         <span className="inline-flex items-center gap-1.5">
-          <StatusDot tone={milestoneStatusTone[milestone.status]} />
+          <LifecycleGlyph state={milestoneStatusLifecycle[milestone.status]} live={false} />
           <span>{milestoneStatusLabels[milestone.status]}</span>
         </span>
       ),
