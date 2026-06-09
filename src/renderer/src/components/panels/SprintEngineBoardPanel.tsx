@@ -58,7 +58,6 @@ import {
  getSprintEngineRoleAccent,
  getUserDisabledSprintEngineRoleIds,
  getSprintEngineRoleLabel,
- sprintEngineTaskStateLabel,
 } from '../../utils/sprintengine'
 import {
  deriveSprintEngineAutomationMode,
@@ -916,9 +915,6 @@ function SprintEngineBoardPanelContent({
  const selectedTaskBoardColumn = selectedTask
  ? getSprintEngineTaskBoardColumn(selectedTask, sprintEngineState.tasks)
  : null
- const selectedTaskStatusLabel = selectedTask
- ? selectedTaskBoardColumn === 'ready' ? 'Ready' : sprintEngineTaskStateLabel[selectedTask.status]
- : ''
  const selectedTaskOwnerLabel = selectedTask ? getSprintEngineTaskOwnerLabel(selectedTask, rosterById) : ''
  const selectedTaskNeedsInputNote = selectedTask?.status === 'needs_input'
  ? 'Worker is waiting for input.'
@@ -985,7 +981,6 @@ function SprintEngineBoardPanelContent({
  agents={agents}
  tasksById={tasksById}
  selectedTaskBoardColumn={selectedTaskBoardColumn}
- selectedTaskStatusLabel={selectedTaskStatusLabel}
  selectedTaskOwnerLabel={selectedTaskOwnerLabel}
  selectedTaskNeedsInputNote={selectedTaskNeedsInputNote}
  selectedTaskArtifacts={selectedTaskArtifacts}

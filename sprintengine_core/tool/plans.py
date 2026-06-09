@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from sprintengine_core.tool.artifacts import *  # noqa: F403,F401
-from sprintengine_core.tool.common import unique_strings
+from sprintengine_core.tool.common import path_is_relative_to, unique_strings
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import MULTICODE_DIR_NAME, SPRINTENGINE_DIR_NAME, now_iso
 from sprintengine_core.tool.prompts import compose_prompt, load_soul_prompt
@@ -121,12 +121,37 @@ def source_bundle_reference_notes(state: Dict[str, Any]) -> List[str]:
             notes.append(f"Review source context `{path}` before creating affected task cards.")
     return notes
 
-def source_context_reference_lines(state: Dict[str, Any]) -> List[str]:
+def workspace_root_for_state_path(state_path: Path) -> Path:
+    team_dir = state_path.parent.resolve()
+    if (
+        team_dir.parent.name == SPRINTENGINE_DIR_NAME
+        and team_dir.parent.parent.name == MULTICODE_DIR_NAME
+    ):
+        return team_dir.parent.parent.parent.resolve()
+    return team_dir
+
+def source_context_display_path(state_path: Path, value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    path = Path(raw)
+    if not path.is_absolute():
+        return raw.replace("\\", "/")
+    workspace_root = workspace_root_for_state_path(state_path)
+    resolved = path.resolve()
+    if path_is_relative_to(resolved, workspace_root):
+        return resolved.relative_to(workspace_root).as_posix()
+    return ""
+
+def source_context_reference_lines(state: Dict[str, Any], state_path: Path) -> List[str]:
     lines: List[str] = []
     source = state.get("source")
     if isinstance(source, dict):
-        source_path = str(source.get("originalPath") or source.get("path") or "").strip()
-        snapshot_path = str(source.get("path") or "").strip()
+        source_path = (
+            source_context_display_path(state_path, source.get("originalPath"))
+            or source_context_display_path(state_path, source.get("path"))
+        )
+        snapshot_path = source_context_display_path(state_path, source.get("path"))
         plan_kind = str(source.get("planKind") or "unknown").strip()
         label = SOURCE_KIND_LABELS.get(plan_kind, "Root handoff")
         if source_path:
@@ -138,8 +163,11 @@ def source_context_reference_lines(state: Dict[str, Any]) -> List[str]:
     for item in source_bundle_items(state):
         kind = str(item.get("kind") or "unknown").strip()
         label = SOURCE_KIND_LABELS.get(kind, kind.replace("_", " ").title())
-        source_path = str(item.get("originalPath") or item.get("path") or "").strip()
-        snapshot_path = str(item.get("path") or "").strip()
+        source_path = (
+            source_context_display_path(state_path, item.get("originalPath"))
+            or source_context_display_path(state_path, item.get("path"))
+        )
+        snapshot_path = source_context_display_path(state_path, item.get("path"))
         if not source_path:
             continue
         line = f"- {label}: read `{source_path}`."
@@ -149,8 +177,8 @@ def source_context_reference_lines(state: Dict[str, Any]) -> List[str]:
 
     return unique_strings(lines)
 
-def source_context_description_block(state: Dict[str, Any]) -> Optional[str]:
-    lines = source_context_reference_lines(state)
+def source_context_description_block(state: Dict[str, Any], state_path: Path) -> Optional[str]:
+    lines = source_context_reference_lines(state, state_path)
     if not lines:
         return None
     return "\n".join([
@@ -159,8 +187,8 @@ def source_context_description_block(state: Dict[str, Any]) -> Optional[str]:
         "Use these explicit source paths; do not infer the backlog item, mockup, or plan source from the team slug.",
     ])
 
-def apply_source_context_to_task(task: Dict[str, Any], state: Dict[str, Any]) -> None:
-    block = source_context_description_block(state)
+def apply_source_context_to_task(task: Dict[str, Any], state: Dict[str, Any], state_path: Path) -> None:
+    block = source_context_description_block(state, state_path)
     if not block:
         return
     description = str(task.get("description") or "").rstrip()
@@ -268,7 +296,7 @@ def ensure_product_intake_gate(state: Dict[str, Any], state_path: Path, actor: s
         or SOURCE_CONTEXT_HEADING in str(product_task.get("description") or "")
     )
     if product_task.get("status") != "done" and should_refresh_source_context:
-        apply_source_context_to_task(product_task, state)
+        apply_source_context_to_task(product_task, state, state_path)
 
     if product_task.get("status") in ACTIVE_TASK_STATUSES:
         set_agent_active(ensure_agent(state, actor, "product"), product_task)
@@ -365,7 +393,7 @@ def ensure_plan_approval_gate(
         or SOURCE_CONTEXT_HEADING in str(plan_task.get("description") or "")
     )
     if plan_task.get("status") != "done" and should_refresh_source_context:
-        apply_source_context_to_task(plan_task, state)
+        apply_source_context_to_task(plan_task, state, state_path)
 
     if plan_task.get("status") in ACTIVE_TASK_STATUSES:
         set_agent_active(ensure_agent(state, actor, "architect"), plan_task)

@@ -3,7 +3,7 @@ import type { ComponentType, LazyExoticComponent } from 'react'
 import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import { resolveModuleEnablement } from '../../../shared/modules/resolve'
 import type { FuturePlanWorkspaceSource } from '../types/workspace'
-import type { BacklogItem, BacklogItemLink, BacklogItemStatus } from '../utils/backlog'
+import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLink } from '../utils/backlog'
 
 // Renderer-side host kernel. Mirrors the main-process MainHost: capability
 // modules register their contributions (panels for now) into shared registries
@@ -53,9 +53,24 @@ export type RegisteredBacklogItemAction = BacklogItemAction & {
   moduleId: string
 }
 
+export type BacklogLinkProviderInput = {
+  workspaceId: string
+  workspaceRoot: string
+  item: BacklogItem
+  link: BacklogItemLink
+}
+
+export type BacklogLinkProvider = {
+  moduleId: string
+  targetKinds: string[]
+  resolveLinkStatus(input: BacklogLinkProviderInput): Promise<BacklogResolvedLink>
+  openLink?(input: BacklogLinkProviderInput): Promise<void | boolean>
+}
+
 export type RendererHost = {
   registerPanel(componentId: string, component: WorkspacePanelComponent): void
   registerBacklogItemAction(action: BacklogItemAction): void
+  registerBacklogLinkProvider(provider: BacklogLinkProvider): void
 }
 
 // The kernel owns the registries and is consumed by the factory/rail. Modules
@@ -69,12 +84,14 @@ export type RendererKernel = {
   /** The capability module that registered the panel, for enablement gating. */
   getPanelModule(componentId: string): string | undefined
   getBacklogItemActions(): RegisteredBacklogItemAction[]
+  getBacklogLinkProviders(moduleEnabled?: (moduleId: string) => boolean): BacklogLinkProvider[]
 }
 
 export function createRendererHost(): RendererKernel {
   const panels = new Map<string, WorkspacePanelComponent>()
   const panelModules = new Map<string, string>()
   const backlogItemActions = new Map<string, RegisteredBacklogItemAction>()
+  const backlogLinkProviders = new Map<string, BacklogLinkProvider>()
   return {
     hostFor(moduleId) {
       return {
@@ -91,6 +108,27 @@ export function createRendererHost(): RendererKernel {
           }
           backlogItemActions.set(action.id, { ...action, moduleId })
         },
+        registerBacklogLinkProvider(provider) {
+          if (provider.moduleId !== moduleId) {
+            throw new Error(`Backlog link provider "${provider.moduleId}" must be registered by its owning module "${moduleId}".`)
+          }
+          if (provider.targetKinds.length === 0) {
+            throw new Error(`Backlog link provider "${provider.moduleId}" must own at least one target kind.`)
+          }
+          const uniqueTargetKinds = new Set(provider.targetKinds)
+          if (uniqueTargetKinds.size !== provider.targetKinds.length) {
+            throw new Error(`Backlog link provider "${provider.moduleId}" declares duplicate target kinds.`)
+          }
+          for (const targetKind of provider.targetKinds) {
+            const owner = backlogLinkProviders.get(targetKind)
+            if (owner) {
+              throw new Error(`Backlog link target kind "${targetKind}" is already owned by module "${owner.moduleId}".`)
+            }
+          }
+          for (const targetKind of provider.targetKinds) {
+            backlogLinkProviders.set(targetKind, provider)
+          }
+        },
       }
     },
     getPanel(componentId) {
@@ -103,6 +141,17 @@ export function createRendererHost(): RendererKernel {
       return [...backlogItemActions.values()].sort((a, b) => {
         const order = (a.order ?? 100) - (b.order ?? 100)
         return order === 0 ? a.label.localeCompare(b.label) : order
+      })
+    },
+    getBacklogLinkProviders(moduleEnabled) {
+      const providers = new Set<BacklogLinkProvider>()
+      for (const provider of backlogLinkProviders.values()) {
+        if (moduleEnabled && !moduleEnabled(provider.moduleId)) continue
+        providers.add(provider)
+      }
+      return [...providers].sort((a, b) => {
+        const moduleOrder = a.moduleId.localeCompare(b.moduleId)
+        return moduleOrder === 0 ? a.targetKinds.join('\0').localeCompare(b.targetKinds.join('\0')) : moduleOrder
       })
     },
   }

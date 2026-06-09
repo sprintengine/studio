@@ -59,6 +59,7 @@ import {
   sprintEngineQualityGateStatusLabels,
   sprintEngineTaskCommentTypeLabels,
   sprintEngineTaskStateLabel,
+  taskBoardColumnToLifecycle,
   type SprintEngineAgentReviewedTask,
   type SprintEngineAgentActivityEntry,
   type SprintEngineAgentWorkedOnTask,
@@ -78,12 +79,10 @@ import {
   PrimaryButton,
   RoleAvatar,
   Spinner,
-  StatusDot,
   TabPanel,
   Tabs,
   type DefinitionItem,
   type TabItem,
-  type Tone,
 } from '../ui'
 import {
   SOURCE_HANDOFF_ARTIFACT_ID,
@@ -96,27 +95,12 @@ import {
   formatTaskSyncStatusLabel,
   formatTimestamp,
   getMobileArtifactDecision,
-  runtimeStatusTone,
   sprintEngineInboxRowSupporting,
   sprintEngineInboxRowLifecycle,
   type ArtifactActionState,
   type RuntimeAgentView,
   type SprintEngineInspectorSelection,
 } from './sprintEngineInspector'
-
-function boardColumnTone(column: SprintEngineTaskBoardColumn | null): Tone {
-  switch (column) {
-    case 'done':
-      return 'good'
-    case 'in_progress':
-    case 'needs_input':
-      return 'warn'
-    case 'ready':
-      return 'accent'
-    default:
-      return 'neutral'
-  }
-}
 
 function SectionList({
   title,
@@ -144,22 +128,6 @@ function SectionList({
       )}
     </div>
   )
-}
-
-function qualityGateStatusTone(status: SprintEngineQualityGate['status']): Tone {
-  switch (status) {
-    case 'approved':
-      return 'good'
-    case 'in_progress':
-      return 'accent'
-    case 'changes_requested':
-    case 'blocked':
-      return 'warn'
-    case 'skipped':
-      return 'neutral'
-    default:
-      return 'neutral'
-  }
 }
 
 // Shared check glyph: an approved gate attempt and a completed implementation
@@ -249,10 +217,33 @@ function GateAttemptGlyph({
     )
   }
 
-  // In-flight: the reviewer is working right now → the shared live spinner, the
-  // same in_progress mark the board columns use. Accent (not the muted historical
-  // tone) so the live attempt reads against the settled ones in the trail.
+  // In-flight (open attempt, no verdict yet): the live Spinner — the reviewer is
+  // working right now. This is the only "working" mark on the gate row (the row
+  // no longer carries a leading dot or a status word), so it's the single motion.
   return <Spinner size={12} label="in review" />
+}
+
+// Status glyph for a gate with no attempts yet, so a pending/just-started gate
+// still reads by shape now that the row carries no leading dot or status word.
+function GateStatusGlyph({ status }: { status: SprintEngineQualityGate['status'] }) {
+  if (status === 'in_progress') {
+    return <Spinner size={12} label="in progress" />
+  }
+  if (status === 'skipped') {
+    return (
+      <svg className="icon-xs text-[color:var(--text-disabled)]" viewBox="0 0 12 12" fill="none" role="img" aria-label="skipped">
+        <title>skipped</title>
+        <path d="M3 9 9 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  // pending / awaiting (and any not-yet-started state): a muted hollow ring.
+  return (
+    <svg className="icon-xs text-[color:var(--text-disabled)]" viewBox="0 0 12 12" fill="none" role="img" aria-label="pending">
+      <title>pending</title>
+      <circle cx="6" cy="6" r="3.5" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  )
 }
 
 function gateAttemptToneClass(attempt: SprintEngineQualityGateAttempt): string {
@@ -1030,11 +1021,11 @@ function TaskQualityGates({
             </span>
           )
           return (
-            <li
-              key={`${gate.phase}:${gate.id}`}
-              className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 py-2"
-            >
-              <StatusDot tone={qualityGateStatusTone(gate.status)} />
+            <li key={`${gate.phase}:${gate.id}`} className="py-2">
+              {/* No leading dot and no status word: the reviewer leads with their
+                  avatar, and the gate state reads by glyph — the verdict trail
+                  (check / chevron / slash), a live Spinner while reviewing, or a
+                  pending ring before it starts. */}
               <div className="min-w-0">
                 <div className="flex items-baseline gap-2">
                   {agent ? (
@@ -1056,10 +1047,11 @@ function TaskQualityGates({
                       {gateIdentity}
                     </span>
                   )}
-                  <GateAttemptTrail attempts={gate.attempts} />
-                  <span className="text-[11px] text-[color:var(--text-muted)]">
-                    {sprintEngineQualityGateStatusLabels[gate.status]}
-                  </span>
+                  {gate.attempts.length > 0 ? (
+                    <GateAttemptTrail attempts={gate.attempts} />
+                  ) : (
+                    <GateStatusGlyph status={gate.status} />
+                  )}
                   {relativeTime ? (
                     <span className="tabular-nums text-[11px] text-[color:var(--text-disabled)]">
                       {relativeTime}
@@ -1220,59 +1212,172 @@ function TaskGateBlockedCallout({
   )
 }
 
+// A needs_input task whose whole job is "review artifact X" gets the review
+// promoted to the top with the real actions inline — not a Question/Issue/
+// Suggested-resolution restatement of "this is a review". The Open/Approve/
+// Request-changes controls reuse the same handlers as the artifact list (which
+// is otherwise buried under the body's "More" disclosure). Any other ask keeps
+// its question — that's real signal — minus the boilerplate scaffolding.
+function TaskReviewPrompt({
+  artifact,
+  action,
+  reportedBy,
+  reportedAt,
+  onOpenArtifact,
+  onApproveArtifact,
+  onRequestArtifactChanges,
+}: {
+  artifact: SprintEngineArtifact
+  action: ArtifactActionState | undefined
+  reportedBy: string | null
+  reportedAt: string | null
+  onOpenArtifact: (artifact: SprintEngineArtifact) => void
+  onApproveArtifact: (artifact: SprintEngineArtifact) => void
+  onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
+}) {
+  const pending = action?.status === 'pending'
+  const readyForReview = artifact.status === 'ready_for_review'
+  const canOpenArtifact = Boolean(artifact.path.trim())
+  const kindLabel = sprintEngineArtifactKindLabels[artifact.kind] ?? artifact.kind
+  const reviewer = reportedBy ?? artifact.createdBy
+  const relative = reportedAt
+    ? formatRelativeTime(reportedAt)
+    : artifact.createdAt
+      ? formatRelativeTime(artifact.createdAt)
+      : null
+
+  return (
+    <div className="border-l border-[color:var(--tone-warn)] pl-3.5">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[color:var(--tone-warn)]">
+        <LifecycleGlyph state="needs_input" className="-translate-y-px" />
+        {readyForReview ? 'Ready for your review' : 'Awaiting review'}
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[13px] text-[color:var(--text-strong)]">
+        <span className="font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">{artifact.id}</span>
+        <span>{kindLabel}</span>
+        {canOpenArtifact ? (
+          <span className="font-mono text-[11px] text-[color:var(--text-subtle)] [overflow-wrap:anywhere]">
+            {artifact.path}
+          </span>
+        ) : null}
+      </div>
+      {reviewer ? (
+        <div className="mt-1 text-[11.5px] text-[color:var(--text-muted)]">
+          <span className="font-mono">{reviewer}</span>
+          {relative ? <span> · {relative}</span> : null}
+        </div>
+      ) : null}
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {readyForReview ? (
+          <PrimaryButton onClick={() => onApproveArtifact(artifact)} disabled={pending}>
+            {pending && action?.kind === 'approve' ? 'Approving…' : 'Approve'}
+          </PrimaryButton>
+        ) : null}
+        {canOpenArtifact ? (
+          <GhostButton onClick={() => onOpenArtifact(artifact)} disabled={pending}>
+            {pending && action?.kind === 'open' ? 'Opening…' : 'Open plan'}
+          </GhostButton>
+        ) : null}
+        {readyForReview ? (
+          <GhostButton onClick={() => onRequestArtifactChanges(artifact)} disabled={pending}>
+            {pending && action?.kind === 'requestChanges' ? 'Requesting changes…' : 'Request changes'}
+          </GhostButton>
+        ) : null}
+      </div>
+      {action && action.status !== 'pending' ? (
+        <div
+          className={`mt-2 text-[12px] leading-5 ${
+            action.status === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--tone-good)]'
+          }`}
+        >
+          {action.message}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function TaskNeedsInputCallout({
   task,
   fallbackNote,
   runtimeAgents,
+  artifacts,
+  artifactActions,
+  onOpenArtifact,
+  onApproveArtifact,
+  onRequestArtifactChanges,
 }: {
   task: SprintEngineTask
   fallbackNote: string | null
   runtimeAgents: RuntimeAgentView[]
+  artifacts: SprintEngineArtifact[]
+  artifactActions: Record<string, ArtifactActionState>
+  onOpenArtifact: (artifact: SprintEngineArtifact) => void
+  onApproveArtifact: (artifact: SprintEngineArtifact) => void
+  onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
 }) {
   if (task.status !== 'needs_input') return null
 
   const needsInput = task.needsInput
-  const kindLabel = formatNeedsInputValue(needsInput?.kind)
+  const reportedBy = needsInput?.reportedBy?.trim() || null
+  const reportedAt = needsInput?.reportedAt?.trim() || null
+  const isArtifactReview = needsInput?.reason === 'artifact_review'
+
+  // Review-gated ask with a resolvable artifact → promote the review itself.
+  const reviewArtifact =
+    isArtifactReview && needsInput?.artifactId
+      ? artifacts.find((entry) => entry.id === needsInput.artifactId) ?? null
+      : null
+
+  if (reviewArtifact) {
+    return (
+      <TaskReviewPrompt
+        artifact={reviewArtifact}
+        action={artifactActions[reviewArtifact.id]}
+        reportedBy={reportedBy}
+        reportedAt={reportedAt}
+        onOpenArtifact={onOpenArtifact}
+        onApproveArtifact={onApproveArtifact}
+        onRequestArtifactChanges={onRequestArtifactChanges}
+      />
+    )
+  }
+
+  // Review flagged but the artifact isn't attached yet — say so explicitly
+  // rather than render dead buttons or pretend it's a free-text question.
+  if (isArtifactReview) {
+    return (
+      <TaskCallout tone="warn" label="Needs input — Artifact review">
+        An artifact is awaiting review but isn’t attached to this task yet. Check the activity feed
+        below for the latest submission.
+      </TaskCallout>
+    )
+  }
+
+  // Every other ask: the question is the signal. Keep it; drop the redundant
+  // Issue + Suggested-resolution restatement that machine-generated needs_input
+  // entries carry.
   const reasonLabel = formatNeedsInputValue(needsInput?.reason)
+  const kindLabel = formatNeedsInputValue(needsInput?.kind)
+  const calloutLabel = reasonLabel
+    ? `Needs input — ${reasonLabel}`
+    : kindLabel
+      ? `Needs input: ${kindLabel}`
+      : 'Needs input'
   const question = needsInput?.question?.trim()
-  const suggestedResolution = needsInput?.suggestedResolution?.trim()
-  const reportedBy = needsInput?.reportedBy?.trim()
-  const reportedAt = needsInput?.reportedAt?.trim()
   const fallback = fallbackNote?.trim() || 'Worker is waiting for input.'
   const reporterRole = reportedBy ? resolveNeedsInputReporterRole(task, reportedBy, runtimeAgents) : null
   const reportedAtLabel = reportedAt ? formatTimestamp(reportedAt) : null
 
   return (
-    <TaskCallout tone="warn" label={kindLabel ? `Needs input: ${kindLabel}` : 'Needs input'}>
+    <TaskCallout tone="warn" label={calloutLabel}>
       <div className="space-y-2">
+        <div>{question || fallback}</div>
         {reportedBy ? (
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-[color:var(--text-strong)]">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-[color:var(--text-muted)]">
             {reporterRole ? <RoleAvatar role={reporterRole} size="sm" ariaLabel="" /> : null}
-            <span className="font-mono">{reportedBy}</span>
-            <span className="text-[color:var(--text-muted)]">needs input</span>
-            {reportedAtLabel ? (
-              <span className="text-[11px] text-[color:var(--text-disabled)]">· {reportedAtLabel}</span>
-            ) : null}
-          </div>
-        ) : null}
-        {question ? (
-          <div>
-            <div className="text-[11px] font-semibold uppercase text-[color:var(--text-muted)]">Question</div>
-            <div>{question}</div>
-          </div>
-        ) : (
-          <div>{fallback}</div>
-        )}
-        {reasonLabel ? (
-          <div>
-            <div className="text-[11px] font-semibold uppercase text-[color:var(--text-muted)]">Issue</div>
-            <div>{reasonLabel}</div>
-          </div>
-        ) : null}
-        {suggestedResolution ? (
-          <div>
-            <div className="text-[11px] font-semibold uppercase text-[color:var(--text-muted)]">Suggested resolution</div>
-            <div>{suggestedResolution}</div>
+            <span className="font-mono text-[color:var(--text-default)]">{reportedBy}</span>
+            {reportedAtLabel ? <span>· {reportedAtLabel}</span> : null}
           </div>
         ) : null}
       </div>
@@ -1378,23 +1483,6 @@ const ACTIVITY_TYPE_TO_FILTER: Record<SprintEngineTaskActivityType, Exclude<Acti
   needs_input: 'comments',
   artifact: 'reviews',
   system: 'status',
-}
-
-function activityEntryTone(entry: SprintEngineTaskActivityEntry): Tone {
-  if (entry.type === 'needs_input') return 'warn'
-  if (entry.type === 'feedback') return 'accent'
-  if (entry.type === 'artifact') {
-    if (entry.artifactStatus === 'approved') return 'good'
-    if (entry.artifactStatus === 'changes_requested') return 'error'
-    if (entry.artifactStatus === 'ready_for_review') return 'warn'
-    return 'accent'
-  }
-  if (entry.type === 'status_change') {
-    if (entry.status === 'done') return 'good'
-    if (entry.status === 'needs_input') return 'warn'
-    return 'neutral'
-  }
-  return 'neutral'
 }
 
 // Boilerplate "{actor} did X on {task}" messages duplicate the verb chip and
@@ -1873,7 +1961,6 @@ function TaskActivityFeed({
           {groups.map((group) => {
             const entry = group.primary
             const count = group.members.length
-            const tone = activityEntryTone(entry)
             const absolute = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : undefined
             const relative = entry.timestamp ? formatRelativeTime(entry.timestamp) : '—'
             const showMessage = activityMessageIsVisible(entry)
@@ -1908,11 +1995,8 @@ function TaskActivityFeed({
             return (
               <li
                 key={group.key}
-                className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-2 py-2.5 text-[12px] leading-5 text-[color:var(--text-default)]"
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-2 py-2.5 text-[12px] leading-5 text-[color:var(--text-default)]"
               >
-                <span className="mt-[0.35rem]">
-                  <StatusDot tone={tone} />
-                </span>
                 <div className="min-w-0">
                   {hasDetail ? (
                     <button
@@ -2184,7 +2268,6 @@ function AgentActivityFeed({
       ) : (
         <ol className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
           {filtered.map(({ entry, taskId, taskTitle }) => {
-            const tone = activityEntryTone(entry)
             const key = `${taskId}:${entry.id}`
             const absolute = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : undefined
             const relative = entry.timestamp ? formatRelativeTime(entry.timestamp) : '—'
@@ -2193,11 +2276,8 @@ function AgentActivityFeed({
             return (
               <li
                 key={key}
-                className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-2 py-2.5 text-[12px] leading-5 text-[color:var(--text-default)]"
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-2 py-2.5 text-[12px] leading-5 text-[color:var(--text-default)]"
               >
-                <span className="mt-[0.35rem]">
-                  <StatusDot tone={tone} />
-                </span>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[color:var(--text-muted)]">
                     <button
@@ -2457,7 +2537,6 @@ export function SprintEngineInspectorPanel({
   agents,
   tasksById,
   selectedTaskBoardColumn,
-  selectedTaskStatusLabel,
   selectedTaskOwnerLabel,
   selectedTaskNeedsInputNote,
   selectedTaskArtifacts,
@@ -2482,7 +2561,6 @@ export function SprintEngineInspectorPanel({
   agents: Record<string, AgentState>
   tasksById: Record<string, SprintEngineTask>
   selectedTaskBoardColumn: SprintEngineTaskBoardColumn | null
-  selectedTaskStatusLabel: string
   selectedTaskOwnerLabel: string
   selectedTaskNeedsInputNote: string | null
   selectedTaskArtifacts: SprintEngineArtifact[]
@@ -2541,6 +2619,7 @@ export function SprintEngineInspectorPanel({
     const displayName = localAgent?.name?.trim() || agent.label
     const runtime = runtimeAgents.find((entry) => entry.agentId === agent.id) ?? null
     const hasLiveTerminal = isAgentTerminalLive(agent.id)
+    const runtimeStatus = runtime?.status ?? (hasLiveTerminal ? 'running' : 'idle')
     const currentTask = runtime?.currentTaskId
       ? sprintEngineState.tasks.find((task) => task.id === runtime.currentTaskId) ?? null
       : null
@@ -2557,8 +2636,8 @@ export function SprintEngineInspectorPanel({
                 <span>{getSprintEngineRoleLabel(agent.role)}</span>
                 <span>·</span>
                 <span className="flex items-center gap-1.5">
-                  <StatusDot tone={runtimeStatusTone(runtime?.status ?? (hasLiveTerminal ? 'running' : 'idle'))} />
-                  {runtime?.status ?? (hasLiveTerminal ? 'running' : 'idle')}
+                  {runtimeStatus === 'running' ? <Spinner size={12} /> : null}
+                  {runtimeStatus}
                 </span>
               </div>
               <h3 className="mt-2 truncate text-[18px] font-semibold leading-7 text-[color:var(--text-strong)]">
@@ -2639,7 +2718,11 @@ export function SprintEngineInspectorPanel({
 
   // Task mode (default branch).
   const selectedTask = selection.task
-  const tone = boardColumnTone(selectedTaskBoardColumn)
+  // One status vocabulary across the app: the shape-coded LifecycleGlyph (also
+  // on Kanban cards and Backlog), not the 6px StatusDot. `live` is reserved for
+  // states that are genuinely moving — a running worker or an unanswered ask.
+  const lifecycle = taskBoardColumnToLifecycle(selectedTaskBoardColumn ?? selectedTask.status)
+  const lifecycleLive = lifecycle === 'in_progress' || lifecycle === 'needs_input'
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -2647,8 +2730,8 @@ export function SprintEngineInspectorPanel({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
-              <StatusDot tone={tone} />
-              <span>{selectedTaskStatusLabel}</span>
+              <LifecycleGlyph state={lifecycle} live={lifecycleLive} />
+              <span>{LIFECYCLE_LABEL[lifecycle]}</span>
               <span>·</span>
               <span className="font-mono tabular-nums text-[color:var(--text-muted)]">
                 {selectedTask.id}
@@ -2765,6 +2848,11 @@ function SprintEngineTaskBody({
         task={selectedTask}
         fallbackNote={selectedTaskNeedsInputNote}
         runtimeAgents={runtimeAgents}
+        artifacts={selectedTaskArtifacts}
+        artifactActions={artifactActions}
+        onOpenArtifact={(artifact) => void onOpenArtifact(artifact)}
+        onApproveArtifact={(artifact) => void onApproveArtifact(artifact)}
+        onRequestArtifactChanges={onRequestArtifactChanges}
       />
 
       {selectedTaskArtifactBlockers.length > 0 ? (

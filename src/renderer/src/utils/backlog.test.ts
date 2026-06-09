@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { FileSystemStat } from '../../../shared/electron-api'
 import {
   backlogExcerpt,
@@ -334,6 +336,71 @@ run('excerpt drops a leading title and its trailing punctuation', () => {
   )
   // No leading-title match leaves the flattened text untouched.
   assert.equal(backlogExcerpt('Body only.', 'Realtime presence'), 'Body only.')
+})
+
+// Structural guarantees for the Backlog provider-backed link surface (T4). These
+// are source-level contracts in the spirit of ui/accessibility-contracts.test.ts:
+// they keep the rendered links interactive, keyboard-accessible, status-labeled,
+// failure-surfacing, and de-duplicated against the primary action without a DOM.
+// The link state machine + renderer live in a focused BacklogLinksSection
+// component; the Backlog panel only decides which link the primary action owns.
+const backlogPanelSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/panels/BacklogPanel.tsx'),
+  'utf8',
+)
+const linksSectionSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/backlog/BacklogLinksSection.tsx'),
+  'utf8',
+)
+
+run('the link state machine and renderer are extracted out of BacklogPanel', () => {
+  assert.ok(!backlogPanelSource.includes('function BacklogLinkControl'), 'the link renderer no longer lives in the panel')
+  assert.ok(!backlogPanelSource.includes('syncBacklogItemLinks('), 'the resolution state machine no longer lives in the panel')
+  assert.match(backlogPanelSource, /<BacklogLinksSection/, 'the panel composes the focused link section')
+  assert.match(linksSectionSource, /export function BacklogLinksSection/, 'the focused section exists under components/backlog')
+})
+
+run('openable Backlog links render as a focusable button, not an inert span', () => {
+  assert.match(linksSectionSource, /<button/, 'an openable link is a real button')
+  assert.match(linksSectionSource, /onClick=\{\(\) => onOpen\(link\)\}/, 'the button opens the link through the provider')
+  // The pre-T4 inert link pill carried a native title and no interactivity.
+  assert.ok(!linksSectionSource.includes('title={link.target.path'), 'inert title-only link pill is gone')
+})
+
+run('unknown or unavailable Backlog links render as a focusable, non-actionable note', () => {
+  assert.match(linksSectionSource, /role="note"/, 'unavailable link is informational, not a button')
+  assert.match(linksSectionSource, /tabIndex=\{0\}/, 'unavailable link is keyboard-focusable so its reason is reachable')
+  assert.match(linksSectionSource, /model\.canOpen \?/, 'render branches on whether the link can open')
+})
+
+run('every Backlog link shows a visible status word and a Tooltip detail', () => {
+  assert.match(linksSectionSource, /\{model\.statusText\}/, 'status word is rendered as visible text, not color alone')
+  assert.match(linksSectionSource, /<Tooltip content=\{model\.detail\}/, 'target/reason detail uses the Tooltip primitive')
+})
+
+run('Backlog link resolve/open failures surface inline instead of being swallowed', () => {
+  assert.match(linksSectionSource, /linkError \?/, 'link errors gate an inline notice')
+  assert.match(linksSectionSource, /<InlineNotice tone="warn">\{linkError\}/, 'link errors render as an inline warning')
+})
+
+run('Backlog scan/refresh resolves visible links and persists status through the service', () => {
+  assert.match(linksSectionSource, /syncBacklogItemLinks\(/, 'the section resolves provider-backed links')
+  assert.match(
+    linksSectionSource,
+    /persistLink: \(args\) => window\.api\.addOrUpdateBacklogLink\(args\)/,
+    'resolved status persists through the Backlog service',
+  )
+})
+
+run('the primary Sprint Engine run link is the Open action, not a duplicate Links-list button', () => {
+  // The panel only de-dups the primary run link when the primary Open action is
+  // actually present: an enabled provider owns it and the item is not archived.
+  assert.match(backlogPanelSource, /const primaryRunLink = sprintEngineRunLinkForItem\(selected\)/, 'the primary run link is identified')
+  assert.match(backlogPanelSource, /selected\.status !== 'archived'/, 'archived items keep the run link visible (no Open action)')
+  assert.match(backlogPanelSource, /providerForBacklogLink\(linkProviders, primaryRunLink\)/, 'de-dup only applies when an enabled provider represents the link')
+  assert.match(backlogPanelSource, /excludeLinkId=\{primaryRunLinkId\}/, 'the panel hands the primary link to the section to exclude')
+  // The section excludes exactly the link the caller promoted to a primary action.
+  assert.match(linksSectionSource, /\.filter\(\(link\) => link\.id !== excludeLinkId\)/, 'the section excludes the promoted primary link')
 })
 
 async function main(): Promise<void> {

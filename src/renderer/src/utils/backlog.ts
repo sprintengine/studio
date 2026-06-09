@@ -39,6 +39,12 @@ export type BacklogItemLink = {
   updatedAt?: string
 }
 
+export type BacklogResolvedLink = BacklogItemLink & {
+  status: BacklogItemLinkStatus
+  unavailableReason?: string
+  canOpen?: boolean
+}
+
 export type BacklogItemObjectMetadata = {
   objectId: string
   metadata: Record<string, unknown>

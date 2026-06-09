@@ -1195,7 +1195,7 @@ export type BacklogCriticalityPayload = 'low' | 'normal' | 'high' | 'critical'
 export type BacklogItemLinkPayload = {
   id: string
   moduleId: string
-  type: 'execution' | 'issue' | 'review' | 'artifact' | 'external' | string
+  type: 'execution' | 'issue' | 'review' | 'artifact' | 'external'
   label: string
   target: {
     kind: string
@@ -1203,7 +1203,7 @@ export type BacklogItemLinkPayload = {
     path?: string
     url?: string
   }
-  status?: 'active' | 'completed' | 'failed' | 'unknown' | string
+  status?: 'active' | 'completed' | 'failed' | 'unknown'
   updatedAt?: string
 }
 

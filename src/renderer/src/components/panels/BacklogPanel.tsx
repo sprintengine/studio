@@ -39,6 +39,9 @@ import {
 import {
   hydrateBacklogScanResult,
 } from '../../utils/backlogObjects'
+import { providerForBacklogLink } from '../../utils/backlogLinks'
+import { sprintEngineRunLinkForItem } from '../../utils/sprintengineBacklogLinks'
+import { BacklogLinksSection } from '../backlog/BacklogLinksSection'
 import {
   CRITICALITY_LABEL,
   DIFFICULTY_WORD,
@@ -50,7 +53,7 @@ import {
 import { BacklogCreateDialog, type BacklogDraft } from './BacklogCreateDialog'
 import { BacklogRowContent, BACKLOG_STATUS_LABEL, backlogStatusToLifecycle } from '../backlog/BacklogRow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
-import type { BacklogItemAction, BacklogItemActionContext, WorkspacePanelProps } from '../../modules/renderer-host'
+import type { BacklogItemAction, BacklogItemActionContext, BacklogLinkProvider, WorkspacePanelProps } from '../../modules/renderer-host'
 
 // Backlog panel: capture / browse / triage / start surface for the lightweight
 // items (rough ideas, notes, feature sketches, imported markdown, mockups)
@@ -207,6 +210,14 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       let result = scanned
       if (ensured?.ok) {
         result = hydrateBacklogScanResult(scanned, ensured.store)
+      } else if (ensured && !ensured.ok) {
+        const errors = [
+          ...scanned.errors,
+          { relativePath: '.multi-code/backlog/items.json', message: ensured.message },
+        ]
+        result = scanned.items.length > 0
+          ? { state: 'partial', items: scanned.items, errors }
+          : { state: 'error', items: [], errors }
       } else if (metadataError) {
         const errors = [
           ...scanned.errors,
@@ -646,6 +657,13 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       }))
   }, [backlogActionContext, moduleOverrides, runAction, selected])
 
+  // Enabled Backlog link providers, so the detail pane can resolve and open a
+  // selected item's links. Disabled modules drop out, matching the action list.
+  const linkProviders = useMemo(
+    () => getRendererHost().getBacklogLinkProviders((moduleId) => selectModuleEnabled(moduleOverrides, moduleId)),
+    [moduleOverrides],
+  )
+
   // Hand a plan to an agent by dragging its row onto an agent terminal: emit the
   // same file-drop payload the Files tree uses, so TerminalView pastes the plan's
   // workspace-relative path into the live CLI session and the agent reads the
@@ -688,6 +706,8 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       now={now}
       hasItems={items.length > 0}
       externalActions={externalActions}
+      workspaceId={workspaceId}
+      linkProviders={linkProviders}
       showBack={!isSplit}
       onBack={() => setShowDetailInSingle(false)}
       actions={actions}
@@ -886,6 +906,8 @@ function BacklogDetail({
   now,
   hasItems,
   externalActions,
+  workspaceId,
+  linkProviders,
   showBack,
   onBack,
   actions,
@@ -897,6 +919,8 @@ function BacklogDetail({
   now: number
   hasItems: boolean
   externalActions: Array<{ action: BacklogItemAction; disabled: boolean; run: () => void }>
+  workspaceId: string
+  linkProviders: ReadonlyArray<BacklogLinkProvider>
   showBack: boolean
   onBack: () => void
   actions: BacklogActions
@@ -951,6 +975,21 @@ function BacklogDetail({
   if (!selected) {
     return <DetailState body="Select an item to preview." />
   }
+
+  // The first sprintengine.run execution link is the primary Open Sprint Engine
+  // target (its action lives in the header), so it is kept out of the secondary
+  // Links list — one existing run reads as one Open action, not a link
+  // collection. Only de-dup when that primary action is actually present: it and
+  // the provider share module enablement, and the action hides for archived
+  // items, so absent an enabled provider or on an archived item the run link
+  // stays visible as safe unavailable metadata instead of disappearing.
+  const primaryRunLink = sprintEngineRunLinkForItem(selected)
+  const primaryRunLinkId =
+    primaryRunLink
+    && selected.status !== 'archived'
+    && providerForBacklogLink(linkProviders, primaryRunLink)
+      ? primaryRunLink.id
+      : null
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -1026,24 +1065,13 @@ function BacklogDetail({
         </div>
       </header>
 
-      {selected.links.length > 0 ? (
-        <Section title="Links" level={4} inset className="shrink-0 border-b border-[color:var(--border-subtle)] pb-2">
-          <div className="flex flex-wrap gap-2 px-3 text-[11px] text-[color:var(--text-muted)]">
-            {selected.links.map((link) => (
-              <span
-                key={link.id}
-                className="inline-flex max-w-full items-center gap-1 rounded-[var(--radius-sm)] border border-[color:var(--border-subtle)] px-1.5 py-0.5"
-                title={link.target.path ?? link.target.url ?? link.target.id}
-              >
-                <span className="truncate text-[color:var(--text-default)]">{link.label}</span>
-                {link.status ? (
-                  <span className="shrink-0 text-[color:var(--text-subtle)]">· {link.status}</span>
-                ) : null}
-              </span>
-            ))}
-          </div>
-        </Section>
-      ) : null}
+      <BacklogLinksSection
+        item={selected}
+        workspaceId={workspaceId}
+        workspaceRoot={folderPath}
+        providers={linkProviders}
+        excludeLinkId={primaryRunLinkId}
+      />
 
       <BacklogTriage item={selected} actions={actions} />
 

@@ -4,12 +4,35 @@ import type { RendererModule } from './renderer-host'
 import { basename } from '../utils/paths'
 import { slugifySprintEngineName } from '../utils/sprintengineStateFile'
 import { markdownTitle } from '../components/workspace/newWorkspace/helpers'
+import {
+  hasSprintEngineRunLink,
+  openSprintEngineBacklogLink,
+  resolveSprintEngineBacklogLink,
+  sprintEngineRunLinkForItem,
+  SPRINT_ENGINE_MODULE_ID,
+  SPRINT_ENGINE_RUN_TARGET_KIND,
+} from '../utils/sprintengineBacklogLinks'
+import type { SprintEngineBacklogLinkOpenPorts } from '../utils/sprintengineBacklogLinks'
 
 // Lazy so the Sprint Engine board bundle only loads when the panel is actually
 // rendered — never, when the module is disabled.
 const SprintEngineBoardPanel = React.lazy(
   () => import('../components/panels/SprintEngineBoardPanel')
 )
+
+async function sprintEngineBacklogOpenPorts(): Promise<SprintEngineBacklogLinkOpenPorts> {
+  const [{ useWorkspaceStore }, { publishDiagnostic }] = await Promise.all([
+    import('../store/workspaceStore'),
+    import('../utils/diagnostics'),
+  ])
+  const store = useWorkspaceStore.getState()
+  return {
+    workspaces: store.workspaces,
+    setActiveWorkspace: store.setActiveWorkspace,
+    openRunSummaryOverlay: store.openRunSummaryOverlay,
+    publishDiagnostic,
+  }
+}
 
 // Sprint Engine renderer module. Matches the main-side `sprint-engine` module id
 // so the single enablement override gates both processes consistently.
@@ -40,12 +63,24 @@ export const sprintEngineRendererModule: RendererModule = {
   },
   registerRenderer(host) {
     host.registerPanel('sprintengine', SprintEngineBoardPanel)
+    host.registerBacklogLinkProvider({
+      moduleId: SPRINT_ENGINE_MODULE_ID,
+      targetKinds: [SPRINT_ENGINE_RUN_TARGET_KIND],
+      resolveLinkStatus: (input) => resolveSprintEngineBacklogLink({
+        ...input,
+        readSprintEngineProjection: window.api.readSprintEngineProjection,
+      }),
+      openLink: async (input) => openSprintEngineBacklogLink({
+        ...input,
+        ports: await sprintEngineBacklogOpenPorts(),
+      }),
+    })
     host.registerBacklogItemAction({
       id: 'sprint-engine.start-from-backlog',
       label: 'Start Sprint Engine',
       category: 'execute',
       order: 10,
-      isVisible: ({ item }) => item.status !== 'archived',
+      isVisible: ({ item }) => item.status !== 'archived' && !hasSprintEngineRunLink(item),
       getState: ({ startSourcePlan }) => startSourcePlan ? 'enabled' : 'disabled',
       async run(context) {
         if (!context.startSourcePlan) return
@@ -60,6 +95,22 @@ export const sprintEngineRendererModule: RendererModule = {
           sourcePlanKind: sourcePlanKindForBacklogItem(context.item.kind),
           teamName,
           goal: markdownTitle(sourceContent) ?? context.item.title,
+        })
+      },
+    })
+    host.registerBacklogItemAction({
+      id: 'sprint-engine.open-linked-run',
+      label: 'Open Sprint Engine',
+      category: 'execute',
+      order: 10,
+      isVisible: ({ item }) => item.status !== 'archived' && hasSprintEngineRunLink(item),
+      async run(context) {
+        const link = sprintEngineRunLinkForItem(context.item)
+        if (!link) return
+        await openSprintEngineBacklogLink({
+          ...context,
+          link,
+          ports: await sprintEngineBacklogOpenPorts(),
         })
       },
     })

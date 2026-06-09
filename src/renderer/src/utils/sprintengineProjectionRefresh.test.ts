@@ -1,4 +1,10 @@
 import assert from 'node:assert/strict'
+import type {
+  BacklogItemLinkPayload,
+  BacklogMutationResult,
+  BacklogObjectStorePayload,
+  BacklogReadResult,
+} from '../../../shared/electron-api'
 import type { SprintEngineState, Workspace } from '../types/workspace'
 import {
   refreshSprintEngineWorkspaceProjection,
@@ -81,6 +87,16 @@ function portsFor(input: {
   ok?: boolean
   message?: string
   applied: SprintEngineState[]
+  backlogStore?: BacklogObjectStorePayload
+  backlogReadResult?: BacklogReadResult
+  backlogMutations?: Array<{
+    workspaceRoot: string
+    relativePath: string
+    link: BacklogItemLinkPayload
+    status?: 'completed'
+  }>
+  backlogMutationResult?: BacklogMutationResult
+  diagnostics?: string[]
 }): SprintEngineProjectionRefreshPorts {
   return {
     readSprintEngineProjection: async () => input.ok === false
@@ -88,6 +104,17 @@ function portsFor(input: {
       : { ok: true, data: input.data ?? projection('in_progress') },
     setSprintEngineState: (_workspaceId, state) => {
       if (state) input.applied.push(state)
+    },
+    readBacklogObjectStore: async () => input.backlogReadResult ?? {
+      ok: true,
+      store: input.backlogStore ?? { schemaVersion: 1, items: [] },
+    },
+    addOrUpdateBacklogLink: async (args) => {
+      input.backlogMutations?.push(args)
+      return input.backlogMutationResult ?? { ok: true, store: input.backlogStore ?? { schemaVersion: 1, items: [] } }
+    },
+    publishDiagnostic: (diagnostic) => {
+      input.diagnostics?.push(diagnostic.message)
     },
     now: () => 1000,
   }
@@ -158,15 +185,17 @@ async function testForcedRefreshUpdatesSignature(): Promise<void> {
 
 async function testReadError(): Promise<void> {
   const applied: SprintEngineState[] = []
+  const diagnostics: string[] = []
   const result = await refreshSprintEngineWorkspaceProjection({
     workspace: workspace(),
     signatures: new Map(),
     cause: 'supervisor',
-    ports: portsFor({ ok: false, message: 'boom', applied }),
+    ports: portsFor({ ok: false, message: 'boom', applied, diagnostics }),
   })
 
   assert.deepEqual(result, { status: 'error', message: 'boom' })
   assert.equal(applied.length, 0)
+  assert.deepEqual(diagnostics, ['boom'])
 }
 
 async function testMissingContextSkip(): Promise<void> {
@@ -180,11 +209,148 @@ async function testMissingContextSkip(): Promise<void> {
   assert.deepEqual(result, { status: 'skipped', reason: 'missing-context' })
 }
 
+async function testCompletedProjectionRefreshesMatchingBacklogLink(): Promise<void> {
+  const applied: SprintEngineState[] = []
+  const backlogMutations: Array<{
+    workspaceRoot: string
+    relativePath: string
+    link: BacklogItemLinkPayload
+    status?: 'completed'
+  }> = []
+  const result = await refreshSprintEngineWorkspaceProjection({
+    workspace: workspace(),
+    signatures: new Map(),
+    cause: 'supervisor',
+    ports: portsFor({
+      data: projection('done'),
+      applied,
+      backlogMutations,
+      backlogStore: {
+        schemaVersion: 1,
+        items: [{
+          id: 'backlog_refresh',
+          source: { type: 'file', relativePath: 'backlog/refresh.md' },
+          status: 'in_progress',
+          metadata: {},
+          links: [{
+            id: 'sprint-engine:unified-refresh',
+            moduleId: 'sprint-engine',
+            type: 'execution',
+            label: 'Sprint Engine run',
+            target: {
+              kind: 'sprintengine.run',
+              id: 'unified-refresh',
+              path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+            },
+            status: 'active',
+          }],
+        }, {
+          id: 'other',
+          source: { type: 'file', relativePath: 'backlog/other.md' },
+          status: 'in_progress',
+          metadata: {},
+          links: [{
+            id: 'sprint-engine:other',
+            moduleId: 'sprint-engine',
+            type: 'execution',
+            label: 'Sprint Engine run',
+            target: {
+              kind: 'sprintengine.run',
+              id: 'other',
+              path: '.multi-code/sprintengine/other/run.yaml',
+            },
+            status: 'active',
+          }],
+        }],
+      },
+    }),
+  })
+
+  assert.equal(result.status, 'changed')
+  assert.equal(backlogMutations.length, 1)
+  assert.equal(backlogMutations[0].workspaceRoot, '/tmp/workspace')
+  assert.equal(backlogMutations[0].relativePath, 'backlog/refresh.md')
+  assert.equal(backlogMutations[0].status, 'completed')
+  assert.equal(backlogMutations[0].link.status, 'completed')
+}
+
+async function testNonterminalProjectionDoesNotCompleteBacklogLink(): Promise<void> {
+  const applied: SprintEngineState[] = []
+  const backlogMutations: Array<{
+    workspaceRoot: string
+    relativePath: string
+    link: BacklogItemLinkPayload
+    status?: 'completed'
+  }> = []
+  await refreshSprintEngineWorkspaceProjection({
+    workspace: workspace(),
+    signatures: new Map(),
+    cause: 'supervisor',
+    ports: portsFor({
+      data: projection('in_progress'),
+      applied,
+      backlogMutations,
+      backlogStore: {
+        schemaVersion: 1,
+        items: [{
+          id: 'backlog_refresh',
+          source: { type: 'file', relativePath: 'backlog/refresh.md' },
+          status: 'in_progress',
+          metadata: {},
+          links: [{
+            id: 'sprint-engine:unified-refresh',
+            moduleId: 'sprint-engine',
+            type: 'execution',
+            label: 'Sprint Engine run',
+            target: {
+              kind: 'sprintengine.run',
+              id: 'unified-refresh',
+              path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+            },
+            status: 'active',
+          }],
+        }],
+      },
+    }),
+  })
+
+  assert.equal(backlogMutations.length, 0, 'nonterminal projections do not mark Backlog items completed')
+}
+
+async function testBacklogRefreshFailureWarnsAndLeavesItemUnchanged(): Promise<void> {
+  const applied: SprintEngineState[] = []
+  const diagnostics: string[] = []
+  const backlogMutations: Array<{
+    workspaceRoot: string
+    relativePath: string
+    link: BacklogItemLinkPayload
+    status?: 'completed'
+  }> = []
+  await refreshSprintEngineWorkspaceProjection({
+    workspace: workspace(),
+    signatures: new Map(),
+    cause: 'supervisor',
+    ports: portsFor({
+      data: projection('done'),
+      applied,
+      diagnostics,
+      backlogMutations,
+      backlogReadResult: { ok: false, message: 'Backlog metadata unreadable' },
+    }),
+  })
+
+  assert.deepEqual(diagnostics, ['Backlog metadata unreadable'])
+  assert.equal(backlogMutations.length, 0)
+}
+
 await testChangedRefresh()
 await testColdStateRefreshWithContext()
 await testUnchangedDedupe()
 await testForcedRefreshUpdatesSignature()
 await testReadError()
 await testMissingContextSkip()
+await testCompletedProjectionRefreshesMatchingBacklogLink()
+await testNonterminalProjectionDoesNotCompleteBacklogLink()
+await testBacklogRefreshFailureWarnsAndLeavesItemUnchanged()
 
 console.log('sprintengine projection refresh tests passed')

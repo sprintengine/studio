@@ -1847,6 +1847,7 @@ def test_handover_resolves_project_relative_bundle_paths_against_http_workspace_
     assert "product/.versions/plan.md" in plan_description
     assert "product/.versions/ui.md" in plan_description
     assert "mockups/.versions/app.html" in plan_description
+    assert str(workspace) not in plan_description
 
 
 def test_http_run_tokens_route_to_distinct_registered_state_paths(tmp_path) -> None:

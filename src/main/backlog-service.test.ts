@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -60,6 +60,57 @@ async function main(): Promise<void> {
     }
     assert.equal(persisted.items[0]?.source.relativePath, 'backlog/checkout.md')
 
+    const beforeAbsoluteItem = await readFile(join(tempRoot, '.multi-code', 'backlog', 'items.json'), 'utf-8')
+    const rejectedAbsoluteItem = await updateBacklogStatus({
+      workspaceRoot: tempRoot,
+      relativePath: '/backlog/absolute.md',
+      status: 'completed',
+    })
+    assert.equal(rejectedAbsoluteItem.ok, false)
+    assert.match(rejectedAbsoluteItem.ok ? '' : rejectedAbsoluteItem.message, /relative paths under backlog/)
+    assert.equal(
+      await readFile(join(tempRoot, '.multi-code', 'backlog', 'items.json'), 'utf-8'),
+      beforeAbsoluteItem,
+      'absolute backlog item paths must not mutate an existing sidecar',
+    )
+
+    const absoluteFreshRoot = await mkdtemp(join(tmpdir(), 'multicode-backlog-absolute-'))
+    try {
+      const rejectedFreshAbsoluteItem = await updateBacklogStatus({
+        workspaceRoot: absoluteFreshRoot,
+        relativePath: '/backlog/fresh.md',
+        status: 'completed',
+      })
+      assert.equal(rejectedFreshAbsoluteItem.ok, false)
+      await assert.rejects(
+        () => stat(join(absoluteFreshRoot, '.multi-code', 'backlog', 'items.json')),
+        /ENOENT/,
+        'absolute backlog item paths must not create a missing sidecar',
+      )
+    } finally {
+      await rm(absoluteFreshRoot, { force: true, recursive: true })
+    }
+
+    const beforeAbsoluteLink = await readFile(join(tempRoot, '.multi-code', 'backlog', 'items.json'), 'utf-8')
+    const rejectedAbsoluteLink = await addOrUpdateBacklogLink({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/checkout.md',
+      link: {
+        id: 'absolute-target',
+        moduleId: 'test',
+        type: 'external',
+        label: 'Absolute target',
+        target: { kind: 'file', id: 'absolute-target', path: '/tmp/outside' },
+      },
+    })
+    assert.equal(rejectedAbsoluteLink.ok, false)
+    assert.match(rejectedAbsoluteLink.ok ? '' : rejectedAbsoluteLink.message, /project-relative/)
+    assert.equal(
+      await readFile(join(tempRoot, '.multi-code', 'backlog', 'items.json'), 'utf-8'),
+      beforeAbsoluteLink,
+      'absolute link target paths must not mutate the sidecar',
+    )
+
     const rejectedTraversal = await updateBacklogStatus({
       workspaceRoot: tempRoot,
       relativePath: 'backlog/../outside.md',
@@ -90,9 +141,11 @@ async function main(): Promise<void> {
     assert.match(corrupt.ok ? '' : corrupt.message, /parse Backlog metadata/)
 
     const writeFailureRoot = await mkdtemp(join(tmpdir(), 'multicode-backlog-write-failure-'))
+    const writeFailureStorePath = join(writeFailureRoot, '.multi-code', 'backlog', 'items.json')
     try {
-      await mkdir(join(writeFailureRoot, '.multi-code'), { recursive: true })
-      await writeFile(join(writeFailureRoot, '.multi-code', 'backlog'), 'not a directory', 'utf-8')
+      await mkdir(join(writeFailureRoot, '.multi-code', 'backlog'), { recursive: true })
+      await writeFile(writeFailureStorePath, '{"schemaVersion":1,"items":[]}', 'utf-8')
+      await chmod(writeFailureStorePath, 0o444)
       const writeFailure = await updateBacklogStatus({
         workspaceRoot: writeFailureRoot,
         relativePath: 'backlog/write.md',
@@ -101,6 +154,7 @@ async function main(): Promise<void> {
       assert.equal(writeFailure.ok, false)
       assert.match(writeFailure.ok ? '' : writeFailure.message, /write Backlog metadata/)
     } finally {
+      await chmod(writeFailureStorePath, 0o644).catch(() => {})
       await rm(writeFailureRoot, { force: true, recursive: true })
     }
 

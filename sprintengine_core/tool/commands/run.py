@@ -296,7 +296,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                     "Preserve existing product-requirements.md edits on repeated init runs.",
                     *source_bundle_reference_notes(state),
                 ]
-                apply_source_context_to_task(product_task, state)
+                apply_source_context_to_task(product_task, state, state_path)
             refresh_artifact_fingerprint(product_gate["artifact"], state_path)
         plan_gate = ensure_plan_approval_gate(
             state,
@@ -340,7 +340,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                     "Review and update only stale or missing parts; do not rewrite valid plan content just because it was imported.",
                     *source_bundle_reference_notes(state),
                 ]
-                apply_source_context_to_task(plan_task, state)
+                apply_source_context_to_task(plan_task, state, state_path)
             refresh_artifact_fingerprint(plan_gate["artifact"], state_path)
         recompute_phase(state)
         return {

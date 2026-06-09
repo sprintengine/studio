@@ -273,6 +273,44 @@ async function testSprintEnginePlanSourcedInitializesAndLinksBacklog(): Promise<
   ])
 }
 
+async function testSprintEnginePlanSourcedSkipsNonBacklogLink(): Promise<void> {
+  const events: string[] = []
+  await runSprintEnginePlanSourcedCreation(
+    {
+      folderPath: '/p',
+      teamName: 'Docs Run',
+      goal: 'Ship the docs work',
+      sourcePlanPath: '/p/docs/plan.md',
+      sourcePlanRelativePath: 'docs/plan.md',
+      sourcePlanContent: '# Plan',
+      sourcePlanKind: 'architect_plan',
+      sourceBundle: null,
+      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      totalAgents: 2,
+      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      startRunner: false,
+      autoApproveArtifacts: false,
+      cliPermissionPreset: 'default',
+    },
+    {
+      pathExists: async (path) => path === '/p/docs/plan.md',
+      initializeSprintEngineState: async (input) => {
+        events.push(`init:${input.statePath}`)
+        return { ok: true, data: {} }
+      },
+      recordBacklogExecutionLink: async () => {
+        events.push('link:unexpected')
+      },
+    },
+  )
+
+  assert.deepEqual(
+    events,
+    ['init:/p/.multi-code/sprintengine/docs-run/run.yaml'],
+    'non-backlog plan sources initialize the run without recording a Backlog execution link',
+  )
+}
+
 async function testGuidedBriefScaffoldValidation(): Promise<void> {
   const ports: GuidedBriefScaffoldPorts = {
     filesystem: createMemoryFilesystem(),
@@ -661,6 +699,7 @@ async function main(): Promise<void> {
   testBuildSprintEngineNewTeamCreation()
   await testSprintEnginePlanSourcedValidation()
   await testSprintEnginePlanSourcedInitializesAndLinksBacklog()
+  await testSprintEnginePlanSourcedSkipsNonBacklogLink()
   await testGuidedBriefScaffoldValidation()
   await testGuidedBriefScaffoldHappyPath()
   await testGuidedBriefDesignPresetScaffold()

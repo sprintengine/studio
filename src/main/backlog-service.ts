@@ -111,6 +111,9 @@ export async function addOrUpdateBacklogLink(input: BacklogAddOrUpdateLinkInput)
   const link = normalizeBacklogLink(input.link)
   if (!link) return { ok: false, message: 'Enter a valid Backlog item link.' }
   if (link.target.path) {
+    if (isAbsolutePathInput(link.target.path)) {
+      return { ok: false, message: 'Backlog link target paths must stay project-relative.' }
+    }
     const normalizedTargetPath = normalizeRelativePath(link.target.path)
     if (isUnsafeRelativePath(normalizedTargetPath)) {
       return { ok: false, message: 'Backlog link target paths must stay project-relative.' }
@@ -256,6 +259,9 @@ async function saveStore(workspace: ValidWorkspace, store: BacklogObjectStore): 
 }
 
 function validateBacklogRelativePath(value: string): string {
+  if (isAbsolutePathInput(value)) {
+    throw new Error('Backlog item paths must be relative paths under backlog/.')
+  }
   const normalized = normalizeRelativePath(value)
   if (!normalized.startsWith(BACKLOG_PREFIX) || isUnsafeRelativePath(normalized)) {
     throw new Error('Backlog item paths must be relative paths under backlog/.')
@@ -276,8 +282,12 @@ function normalizeRecord(value: unknown): BacklogObjectRecord | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as BacklogObjectRecord
   if (!raw.source || typeof raw.source.relativePath !== 'string') return null
-  const relativePath = normalizeRelativePath(raw.source.relativePath)
-  if (!relativePath.startsWith(BACKLOG_PREFIX) || isUnsafeRelativePath(relativePath)) return null
+  let relativePath: string
+  try {
+    relativePath = validateBacklogRelativePath(raw.source.relativePath)
+  } catch {
+    return null
+  }
   const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : stableBacklogObjectId(relativePath)
   return {
     id,
@@ -338,6 +348,13 @@ function normalizeRelativePath(path: string): string {
 
 function isUnsafeRelativePath(path: string): boolean {
   return path === '..' || path.startsWith('../') || path.includes('/../') || isAbsolute(path)
+}
+
+function isAbsolutePathInput(path: string): boolean {
+  return isAbsolute(path)
+    || path.startsWith('/')
+    || path.startsWith('\\')
+    || /^[A-Za-z]:[\\/]/.test(path)
 }
 
 function isPathInside(root: string, target: string): boolean {

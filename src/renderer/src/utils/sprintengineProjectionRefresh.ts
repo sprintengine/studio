@@ -1,7 +1,16 @@
 import { useWorkspaceStore } from '../store/workspaceStore'
+import type {
+  BacklogItemLinkPayload,
+  BacklogMutationResult,
+  BacklogReadResult,
+  SprintEngineProjectionReadResult,
+} from '../../../shared/electron-api'
+import type { DiagnosticLogInput } from '../types/workspace'
 import type { SprintEngineState, Workspace, WorkspaceId } from '../types/workspace'
+import { publishDiagnostic } from './diagnostics'
 import { logPerfEvent } from './perfDiagnostics'
 import { normalizeSprintEngineProjection } from './sprintengine'
+import { sprintEngineStatePathForBacklogLink } from './sprintengineBacklogLinks'
 
 export type SprintEngineProjectionRefreshCause = 'supervisor' | 'auto-run' | 'manual' | 'mutation'
 
@@ -14,6 +23,14 @@ export type SprintEngineProjectionRefreshResult =
 export type SprintEngineProjectionRefreshPorts = {
   readSprintEngineProjection(statePath: string): Promise<SprintEngineProjectionReadResult>
   setSprintEngineState(workspaceId: WorkspaceId, state: SprintEngineState | null): void
+  readBacklogObjectStore?(workspaceRoot: string): Promise<BacklogReadResult>
+  addOrUpdateBacklogLink?(input: {
+    workspaceRoot: string
+    relativePath: string
+    link: BacklogItemLinkPayload
+    status?: 'completed'
+  }): Promise<BacklogMutationResult>
+  publishDiagnostic?(input: DiagnosticLogInput): Promise<unknown> | unknown
   now?(): number
 }
 
@@ -26,6 +43,9 @@ function defaultSprintEngineProjectionRefreshPorts(): SprintEngineProjectionRefr
     readSprintEngineProjection: (statePath) => window.api.readSprintEngineProjection(statePath),
     setSprintEngineState: (workspaceId, state) =>
       useWorkspaceStore.getState().setSprintEngineState(workspaceId, state),
+    readBacklogObjectStore: (workspaceRoot) => window.api.readBacklogObjectStore(workspaceRoot),
+    addOrUpdateBacklogLink: (input) => window.api.addOrUpdateBacklogLink(input),
+    publishDiagnostic: (input) => publishDiagnostic(input),
   }
 }
 
@@ -68,6 +88,11 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
 
     signatures.set(workspace.id, signature)
     ports.setSprintEngineState(workspace.id, parsedState)
+    await refreshBacklogSprintEngineRunLinks({
+      workspace,
+      state: parsedState,
+      ports,
+    })
     logPerfEvent('SprintEngineProjection', 'refresh', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -81,6 +106,14 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
     return { status: 'changed', state: parsedState }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    await ports.publishDiagnostic?.({
+      level: 'warning',
+      source: 'sprintengine',
+      title: 'Sprint Engine projection refresh failed',
+      message,
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+    })
     logPerfEvent('SprintEngineProjection', 'refresh-error', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -89,5 +122,64 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
       elapsedMs: Math.round((ports.now?.() ?? performance.now()) - startedAt),
     })
     return { status: 'error', message }
+  }
+}
+
+function normalizedPathKey(path: string): string {
+  return path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
+}
+
+function isCompletedSprintEngineRun(state: SprintEngineState): boolean {
+  return state.tasks.length > 0 && state.tasks.every((task) => task.status === 'done')
+}
+
+async function refreshBacklogSprintEngineRunLinks(input: {
+  workspace: Workspace
+  state: SprintEngineState
+  ports: SprintEngineProjectionRefreshPorts
+}): Promise<void> {
+  const { workspace, state, ports } = input
+  if (!isCompletedSprintEngineRun(state)) return
+  if (!workspace.folderPath || !workspace.sprintEngineContext?.statePath) return
+  if (!ports.readBacklogObjectStore || !ports.addOrUpdateBacklogLink) return
+
+  const storeResult = await ports.readBacklogObjectStore(workspace.folderPath)
+  if (!storeResult.ok) {
+    await ports.publishDiagnostic?.({
+      level: 'warning',
+      source: 'sprintengine',
+      title: 'Backlog link refresh failed',
+      message: storeResult.message,
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+    })
+    return
+  }
+
+  const targetStatePathKey = normalizedPathKey(workspace.sprintEngineContext.statePath)
+  for (const record of storeResult.store.items) {
+    for (const link of record.links ?? []) {
+      if (link.type !== 'execution') continue
+      const linkStatePath = sprintEngineStatePathForBacklogLink(workspace.folderPath, link)
+      if (!linkStatePath || normalizedPathKey(linkStatePath) !== targetStatePathKey) continue
+      if (link.status === 'completed' && record.status === 'completed') continue
+
+      const result = await ports.addOrUpdateBacklogLink({
+        workspaceRoot: workspace.folderPath,
+        relativePath: record.source.relativePath,
+        link: { ...link, status: 'completed' },
+        status: record.status === 'archived' ? undefined : 'completed',
+      })
+      if (!result.ok) {
+        await ports.publishDiagnostic?.({
+          level: 'warning',
+          source: 'sprintengine',
+          title: 'Backlog link refresh failed',
+          message: result.message,
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+        })
+      }
+    }
   }
 }

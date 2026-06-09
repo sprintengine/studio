@@ -695,6 +695,7 @@ def test_backlog_handover_initial_architect_task_names_selected_backlog_item(tmp
     assert "Incoming source context for this run:" in description
     assert "Root handoff" in description
     assert "backlog/checkout-flow.md" in description
+    assert str(tmp_path) not in description
     assert "Use these explicit source paths" in description
     assert "do not infer the backlog item" in description
     assert any("explicit incoming source context" in item for item in payload["planTask"]["implementationNotes"])
@@ -741,6 +742,7 @@ def test_source_bundle_handover_seeds_product_and_architect_sources(tmp_path) ->
     assert "Implementation plan:" in payload["planTask"]["description"]
     assert "HTML mockup:" in payload["planTask"]["description"]
     assert "future-plans/mockup.html" in payload["planTask"]["description"]
+    assert str(tmp_path) not in payload["planTask"]["description"]
     assert [artifact for artifact in state["artifacts"] if artifact["taskId"] == ""] == []
     assert any("mockup.html" in note and "implementationNotes" in note for note in payload["productTask"]["implementationNotes"])
     assert any("mockup.html" in note and "implementationNotes" in note for note in payload["planTask"]["implementationNotes"])
@@ -770,6 +772,7 @@ def test_html_only_source_bundle_routes_mockup_context_to_review_tasks(tmp_path)
     assert payload["planTask"]["dependsOn"] == [payload["productTask"]["id"]]
     assert "HTML mockup:" in payload["productTask"]["description"]
     assert "future-plans/mockup.html" in payload["planTask"]["description"]
+    assert str(tmp_path) not in payload["planTask"]["description"]
     assert any("mockup.html" in note and "implementationNotes" in note for note in payload["productTask"]["implementationNotes"])
     assert any("mockup.html" in note and "implementationNotes" in note for note in payload["planTask"]["implementationNotes"])
 
@@ -797,6 +800,7 @@ def test_html_source_can_be_classified_as_architect_plan(tmp_path) -> None:
     assert "Incoming source context for this run:" in payload["planTask"]["description"]
     assert "Implementation plan:" in payload["planTask"]["description"]
     assert "future-plans/implementation.html" in payload["planTask"]["description"]
+    assert str(tmp_path) not in payload["planTask"]["description"]
     assert any("current-codebase index" in item for item in payload["planTask"]["acceptanceCriteria"])
     assert any("index the current codebase" in item for item in payload["planTask"]["implementationNotes"])
     assert "Architect plan artifact is marked ready for user approval after review." in payload["planTask"]["acceptanceCriteria"]

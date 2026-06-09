@@ -1,5 +1,5 @@
 import React from 'react'
-import { RoleAvatar, SidePane, StatusDot, Tooltip } from '../../ui'
+import { RoleAvatar, SidePane, Spinner, Tooltip } from '../../ui'
 import type {
   AgentState,
   SprintEngineRole,
@@ -7,7 +7,7 @@ import type {
 } from '../../../types/workspace'
 import type { SprintEngineAgentRosterItem } from '../../../utils/sprintengine'
 import type { SprintEngineAddMemberOption } from '../../../utils/sprintengineRoleOptions'
-import { runtimeStatusTone, type RuntimeAgentView } from '../sprintEngineInspector'
+import type { RuntimeAgentView } from '../sprintEngineInspector'
 import { SprintEngineEmptyDetail } from './SprintEngineEmptyDetail'
 
 // Roster tab: agent list + detail. Mirrors the Inbox shape — roster on the
@@ -88,7 +88,7 @@ export function SprintEngineRosterView({
                           </span>
                           <span className="flex min-w-0 items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
                             <span className="flex shrink-0 items-center gap-1.5">
-                              <StatusDot tone={runtimeStatusTone(statusKey)} />
+                              {statusKey === 'running' ? <Spinner size={12} /> : null}
                               <span className="capitalize">{statusKey}</span>
                             </span>
                             {currentTask ? (
