@@ -4,7 +4,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 
 import { manifestFingerprint, type ModuleTrustContext } from './module-signature'
-import { discoverUserModules, installModuleFolder } from './user-module-registry'
+import { discoverUserModules, discoverUserModulesSync, installModuleFolder } from './user-module-registry'
 
 const EMPTY_TRUST: ModuleTrustContext = { trustedModules: new Map() }
 
@@ -52,6 +52,11 @@ async function testInstallThenDiscover(): Promise<void> {
     assert.equal(listed.modules[0].trust.status, 'unsigned')
     assert.equal(listed.modules[0].manifest.source, 'third-party')
     assert.equal(listed.rejected.length, 0)
+
+    const syncListed = discoverUserModulesSync(root, EMPTY_TRUST)
+    assert.deepEqual(syncListed.modules.map((m) => m.manifest.id), ['demo'])
+    assert.equal(syncListed.modules[0].trust.status, 'unsigned')
+    assert.equal(syncListed.rejected.length, 0)
   })
 }
 

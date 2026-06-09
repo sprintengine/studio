@@ -3,6 +3,7 @@ import type {
   CreateWorkspaceWindowInput,
   CreateWorkspaceWindowResult,
   ElectronApi,
+  OpenExternalResult,
   WindowPlacement,
   WindowState,
 } from '../../shared/electron-api'
@@ -17,6 +18,8 @@ export const windowApi = {
   createWorkspaceWindow: (input: CreateWorkspaceWindowInput): Promise<CreateWorkspaceWindowResult> =>
     ipcRenderer.invoke('window:create-workspace-window', input),
   confirmWindowClose: (): Promise<void> => ipcRenderer.invoke('window:confirm-close'),
+  openExternal: (url: string): Promise<OpenExternalResult> =>
+    ipcRenderer.invoke('window:open-external', url),
   onWindowStateChanged: (cb: (state: WindowState) => void): (() => void) => {
     const ch = 'window:state-changed'
     const handler = (_: IpcRendererEvent, state: WindowState) => cb(state)
@@ -45,6 +48,7 @@ export const windowApi = {
   | 'getWorkspaceWindowId'
   | 'createWorkspaceWindow'
   | 'confirmWindowClose'
+  | 'openExternal'
   | 'onWindowStateChanged'
   | 'onWindowPlacementChanged'
   | 'onWindowCloseRequested'

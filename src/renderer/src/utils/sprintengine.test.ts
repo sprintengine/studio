@@ -37,7 +37,9 @@ import {
   orderSprintEngineRosterRoles,
   resolveSprintEngineArtifactEditorPath,
   sprintEngineNeutralRoleAccent,
+  deriveSprintEngineRunGlyph,
   sprintEngineRoleOrder,
+  sprintEngineRunAwaitsHumanInput,
 } from './sprintengine'
 import { taskGraphEdgeStyle, taskGraphEndEdgeStyle } from '../components/panels/sprintEngineTaskGraph'
 import {
@@ -217,6 +219,63 @@ const externalNeedsInputState = normalizeSprintEngineProjection(fakeProjection({
 assert.equal(externalNeedsInputState?.tasks[0]?.needsInput?.kind, 'external_validation')
 assert.equal(externalNeedsInputState?.tasks[0]?.needsInput?.reason, 'A real device or supported simulator is required.')
 assert.equal(externalNeedsInputState?.tasks[0]?.needsInput?.question, 'Can a tester verify native calendar side effects?')
+
+// sprintEngineRunAwaitsHumanInput: external_validation/user needs_input awaits a
+// human (drives the Backlog needs-input glyph); architect-routed does not.
+assert.equal(sprintEngineRunAwaitsHumanInput(externalNeedsInputState!), true)
+assert.equal(
+  sprintEngineRunAwaitsHumanInput({
+    tasks: externalNeedsInputState!.tasks.map((task) => ({
+      ...task,
+      needsInput: task.needsInput ? { ...task.needsInput, kind: 'architect' } : undefined,
+    })),
+  }),
+  false,
+)
+assert.equal(
+  sprintEngineRunAwaitsHumanInput({
+    tasks: externalNeedsInputState!.tasks.map((task) => ({ ...task, status: 'done', needsInput: undefined })),
+  }),
+  false,
+)
+
+// deriveSprintEngineRunGlyph: the run-level rollup shared by the Backlog and
+// the workspace sidebar. Human-routed needs_input outranks a running runner;
+// runtime states map to the lifecycle vocabulary; an idle/missing runner
+// yields null so each surface keeps its own fallback.
+const runningAutoState = { desiredMode: 'run_agents' as const, runtimeState: 'running' as const }
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({ sprintEngineState: externalNeedsInputState, autoState: runningAutoState }),
+  { state: 'needs_input', live: false, label: 'Needs input' },
+)
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [] }, autoState: runningAutoState }),
+  { state: 'in_progress', live: true, label: 'Running' },
+)
+assert.equal(
+  deriveSprintEngineRunGlyph({
+    sprintEngineState: { tasks: [] },
+    autoState: { desiredMode: 'manual', runtimeState: 'idle' },
+  }),
+  null,
+)
+assert.equal(deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [] }, autoState: null }), null)
+assert.equal(
+  deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [] }, autoState: { desiredMode: 'run_agents', runtimeState: 'blocked' } })?.state,
+  'needs_input',
+)
+assert.equal(
+  deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [] }, autoState: { desiredMode: 'run_agents', runtimeState: 'failed' } })?.state,
+  'failed',
+)
+assert.equal(
+  deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [] }, autoState: { desiredMode: 'run_agents', runtimeState: 'paused' } })?.state,
+  'paused',
+)
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({ sprintEngineState: null, autoState: { desiredMode: 'run_agents', runtimeState: 'complete' } }),
+  { state: 'done', live: false, label: 'Completed' },
+)
 
 const dispatchState = normalizeSprintEngineProjection(fakeProjection({
   roster: {

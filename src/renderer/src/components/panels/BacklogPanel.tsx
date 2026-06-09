@@ -40,7 +40,11 @@ import {
   hydrateBacklogScanResult,
 } from '../../utils/backlogObjects'
 import { providerForBacklogLink } from '../../utils/backlogLinks'
-import { sprintEngineRunLinkForItem } from '../../utils/sprintengineBacklogLinks'
+import {
+  matchWorkspaceForBacklogRunLink,
+  sprintEngineRunLinkForItem,
+} from '../../utils/sprintengineBacklogLinks'
+import { deriveSprintEngineRunGlyph } from '../../utils/sprintengine'
 import { BacklogLinksSection } from '../backlog/BacklogLinksSection'
 import {
   CRITICALITY_LABEL,
@@ -51,7 +55,12 @@ import {
   type BacklogView,
 } from '../../utils/backlogTriage'
 import { BacklogCreateDialog, type BacklogDraft } from './BacklogCreateDialog'
-import { BacklogRowContent, BACKLOG_STATUS_LABEL, backlogStatusToLifecycle } from '../backlog/BacklogRow'
+import {
+  BacklogRowContent,
+  BACKLOG_STATUS_LABEL,
+  backlogStatusToLifecycle,
+  type BacklogRunGlyph,
+} from '../backlog/BacklogRow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { BacklogItemAction, BacklogItemActionContext, BacklogLinkProvider, WorkspacePanelProps } from '../../modules/renderer-host'
 
@@ -151,6 +160,10 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   const folderPath = useWorkspaceStore(
     (state) => state.workspaces.find((workspace) => workspace.id === workspaceId)?.folderPath ?? null,
   )
+  // The full workspace list (stable ref from the store) so a Backlog row linked
+  // to a Sprint Engine run can read that run's live AutoRun state and show the
+  // real runner status instead of a coarse, always-spinning `in_progress`.
+  const workspaces = useWorkspaceStore((state) => state.workspaces)
   const openFile = useWorkspaceStore((state) => state.openFile)
   const remapOpenFiles = useWorkspaceStore((state) => state.remapOpenFiles)
   const removeOpenFilesForPath = useWorkspaceStore((state) => state.removeOpenFilesForPath)
@@ -264,6 +277,31 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       // when two items share the sorted key.
       .sort((a, b) => compareBacklogItems(a, b, sort))
   }, [items, search, view, sort])
+
+  // Live run glyph per visible item, for items linked to an observable Sprint
+  // Engine run. The rollup (`deriveSprintEngineRunGlyph`) is shared with the
+  // workspace sidebar: a human-routed needs_input wins over everything, then
+  // the AutoRun runtime. A null rollup (idle/manual runner, or workspace not
+  // observable here) keeps the item's own status rendering — an in-progress
+  // item spins by default.
+  // Derived with useMemo (not inside the Zustand selector) so it never returns a
+  // fresh map from the store snapshot.
+  const runGlyphById = useMemo(() => {
+    const map = new Map<string, BacklogRunGlyph>()
+    if (!folderPath) return map
+    for (const item of filtered) {
+      const link = sprintEngineRunLinkForItem(item)
+      if (!link) continue
+      const workspace = matchWorkspaceForBacklogRunLink(workspaces, folderPath, link)
+      if (!workspace) continue
+      const liveGlyph = deriveSprintEngineRunGlyph({
+        sprintEngineState: workspace.sprintEngineState,
+        autoState: workspace.sprintEngineAutoState,
+      })
+      if (liveGlyph) map.set(item.id, liveGlyph)
+    }
+    return map
+  }, [filtered, workspaces, folderPath])
 
   // Keep selection valid across rescans/filters; select-by-id is preserved when
   // the item survives, otherwise selection clears.
@@ -694,6 +732,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       onItemDragStart={folderPath ? handleRowDragStart : undefined}
       emptyHint={listEmptyHint(scan, items.length, filtered.length, loading)}
       now={now}
+      runGlyphById={runGlyphById}
     />
   )
 
@@ -703,6 +742,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       loading={loading}
       folderPath={folderPath}
       selected={selected}
+      selectedRunGlyph={selected ? runGlyphById.get(selected.id) : undefined}
       now={now}
       hasItems={items.length > 0}
       externalActions={externalActions}
@@ -829,6 +869,7 @@ function BacklogList({
   onItemDragStart,
   emptyHint,
   now,
+  runGlyphById,
 }: {
   items: BacklogItem[]
   selectedId: string | null
@@ -837,6 +878,7 @@ function BacklogList({
   onItemDragStart?: (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => void
   emptyHint: string | null
   now: number
+  runGlyphById?: ReadonlyMap<string, BacklogRunGlyph>
 }): JSX.Element {
   const listRef = useRef<HTMLUListElement | null>(null)
 
@@ -888,7 +930,7 @@ function BacklogList({
                 : 'border-l-transparent hover:bg-[color:var(--bg-hover)]'
             } ${archived ? 'opacity-70' : ''}`}
           >
-            <BacklogRowContent item={item} now={now} />
+            <BacklogRowContent item={item} now={now} runGlyph={runGlyphById?.get(item.id)} />
           </li>
         )
       })}
@@ -903,6 +945,7 @@ function BacklogDetail({
   loading,
   folderPath,
   selected,
+  selectedRunGlyph,
   now,
   hasItems,
   externalActions,
@@ -916,6 +959,7 @@ function BacklogDetail({
   loading: boolean
   folderPath: string | null
   selected: BacklogItem | null
+  selectedRunGlyph?: BacklogRunGlyph
   now: number
   hasItems: boolean
   externalActions: Array<{ action: BacklogItemAction; disabled: boolean; run: () => void }>
@@ -1017,17 +1061,20 @@ function BacklogDetail({
           </span>
         </div>
         <div className="mt-2 flex min-w-0 items-center gap-2">
-          <Tooltip content={BACKLOG_STATUS_LABEL[selected.status]} placement="top">
-            <LifecycleGlyph state={backlogStatusToLifecycle(selected.status)} />
+          <Tooltip content={selectedRunGlyph?.label ?? BACKLOG_STATUS_LABEL[selected.status]} placement="top">
+            <LifecycleGlyph
+              state={selectedRunGlyph?.state ?? backlogStatusToLifecycle(selected.status)}
+              live={selectedRunGlyph?.live ?? true}
+            />
           </Tooltip>
           <h3 className="truncate text-[14px] font-semibold text-[color:var(--text-strong)]" title={selected.title}>
             {selected.title}
           </h3>
         </div>
         <div className="mt-1 flex items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
-          {LIFECYCLE_LABEL[selected.status] ? (
+          {(selectedRunGlyph?.label ?? LIFECYCLE_LABEL[selected.status]) ? (
             <>
-              <span>{LIFECYCLE_LABEL[selected.status]}</span>
+              <span>{selectedRunGlyph?.label ?? LIFECYCLE_LABEL[selected.status]}</span>
               <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
             </>
           ) : null}

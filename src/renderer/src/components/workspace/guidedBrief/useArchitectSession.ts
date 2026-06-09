@@ -26,6 +26,7 @@ export type UseArchitectSessionInput = {
   workspaceRoot: string
   acceptedBriefSnapshotPath: string | null
   cli: AgentCli
+  cliModel?: string
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
   enabled: boolean
   sessionId: string | null
@@ -52,6 +53,7 @@ export function useArchitectSession({
   workspaceRoot,
   acceptedBriefSnapshotPath,
   cli,
+  cliModel,
   cliRuntimes,
   enabled,
   sessionId,
@@ -91,6 +93,7 @@ export function useArchitectSession({
         acceptedBriefSnapshotPath,
         sessionId: resolvedSessionId,
         cli,
+        cliModel,
         ideaSeedPath: IDEA_SEED_RELATIVE_PATH,
         architecturePlanPath: ARCHITECTURE_PLAN_RELATIVE_PATH,
       },

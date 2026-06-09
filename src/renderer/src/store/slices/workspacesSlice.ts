@@ -851,15 +851,19 @@ export function createWorkspacesSlice(
           }
           buildSprintEngineAgentRosterForState(sprintEngineState).forEach((agent) => {
             const overrideCli = options?.sprintEngineAgentCliOverrides?.[agent.id]
+            const rosterCli = typeof overrideCli === 'string' && overrideCli.trim()
+              ? overrideCli.trim()
+              : requireSprintEngineRoleCli(sprintEngineRoleCliDefaults, agent.role)
             agents[agent.id] = {
               ...deps.defaultAgent(
                 agent.id,
                 deps.pickWorkspaceAgentName(agents),
                 'sprintengine'
               ),
-              cli: typeof overrideCli === 'string' && overrideCli.trim()
-                ? overrideCli.trim()
-                : requireSprintEngineRoleCli(sprintEngineRoleCliDefaults, agent.role),
+              cli: rosterCli,
+              // Roster members inherit the remembered per-CLI model; per-member
+              // model picking happens later in the spawn/recovery dialogs.
+              cliModel: state.appSettings.cliModelDefaults?.[rosterCli]?.trim() || undefined,
             }
           })
         } else if (options?.seedAgent?.terminal) {
@@ -871,6 +875,7 @@ export function createWorkspacesSlice(
               ? options.templateAgentCli.trim()
               : state.appSettings.lastSelectedCli
           const agentPatch = options?.seedAgent?.agentPatch
+          const templateAgentCliModel = state.appSettings.cliModelDefaults?.[templateAgentCli]?.trim() || undefined
           collectTemplateAgentTabs(template).forEach((agent, index) => {
             const base = {
               ...deps.defaultAgent(
@@ -879,6 +884,7 @@ export function createWorkspacesSlice(
                 'general'
               ),
               cli: templateAgentCli,
+              cliModel: templateAgentCliModel,
             }
             // The solo-chat template has a single agent tab; merge the seed patch
             // onto it so an Open-in-new-chat agent (specialist/conversation) is

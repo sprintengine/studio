@@ -54,8 +54,8 @@ export type ModuleSignature = {
 }
 
 // Code entry points for a third-party module's bundles (relative to the module
-// root). The v1 loader imports these in-process for trusted modules (like a
-// bundled module's registerMain); wiring is a later Phase 7 increment.
+// root). The main loader imports `entry.main` in-process only for trusted
+// modules, using the same MainHost registration contract as bundled modules.
 export type ModuleEntry = {
   main?: string
   preload?: string
@@ -84,7 +84,7 @@ export type CapabilityManifest = {
   source?: ModuleSource
   /** Capability scopes a third-party module requests (shown at install/trust). */
   permissions?: string[]
-  /** Code entry points (third-party); in-process loading is a later increment. */
+  /** Code entry points (third-party); trusted `entry.main` loads in the main process. */
   entry?: ModuleEntry
   /** Detached signature over the manifest, if the module is signed. */
   signature?: ModuleSignature
@@ -95,11 +95,27 @@ export type CapabilityManifest = {
 // (awaiting approval), 'invalid' (tampered signature; blocked).
 export type ModuleTrustStatus = 'trusted' | 'signed' | 'unsigned' | 'invalid'
 
+export type ThirdPartyModuleLaunchStatus =
+  | 'trusted_executable'
+  | 'trusted_manifest_only'
+  | 'blocked_unsigned'
+  | 'blocked_signed'
+  | 'blocked_invalid'
+  | 'launch_error'
+
+export type ThirdPartyModuleLaunchView = {
+  status: ThirdPartyModuleLaunchStatus
+  hasMainEntry: boolean
+  expectedToLoad: boolean
+  message?: string
+}
+
 // What the renderer shows for one installed third-party module.
 export type ThirdPartyModuleView = {
   manifest: CapabilityManifest
   trust: ModuleTrustStatus
   fingerprint?: string
+  launch: ThirdPartyModuleLaunchView
 }
 
 export type ModuleManifestIssue = { path: string; message: string }

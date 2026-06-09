@@ -687,6 +687,10 @@ export type SprintEngineAutoState = {
   reasonTaskId?: string
   reasonAgentId?: string
   changedAt?: number
+  /** When the user last had the workspace active while its run was complete.
+   *  The sidebar shows the done glyph only for completions newer than this —
+   *  completion is news once, then the row reverts to recency text. */
+  completionSeenAt?: number
   keepDoneAgentTerminals: boolean
   cliPermissionPreset: SprintEngineCliPermissionPreset
   maxConcurrentAgents: number
@@ -1083,6 +1087,9 @@ export type SpecialistActionId =
 export type CliRuntimeSettings = {
   command: string
   useWsl: boolean
+  // User-added model ids for this CLI, merged with the plugin manifest's seed
+  // options in pickers. Mirrors the shared electron-api type.
+  models?: string[]
 }
 
 export type McpClientTarget = AgentCli
@@ -1306,6 +1313,13 @@ export type KeybindingSettings = {
   disabled: Record<string, boolean>
 }
 
+// A model choice scoped to the CLI it was made for. Model ids are only
+// meaningful per-CLI; pairing them prevents cross-CLI leakage.
+export type AgentCliModelSelection = {
+  cli: AgentCli
+  model: string
+}
+
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
   keybindings: KeybindingSettings
@@ -1324,6 +1338,20 @@ export type AppSettings = {
   lastAgentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   specialistCliDefaults: Partial<Record<SpecialistActionId, AgentCli>>
   multiloopRoleCliDefaults: Partial<Record<MultiloopRole, AgentCli>>
+  /**
+   * Remembered model id per agent CLI ("whenever I use Codex, use X").
+   * Absent means the CLI's own default model — no flag is passed at launch.
+   */
+  cliModelDefaults: Partial<Record<AgentCli, string>>
+  /**
+   * Per-specialist model override, stored with the CLI it was picked for so a
+   * later CLI switch cannot leak a stale model across CLIs. Honored only when
+   * the row's effective CLI matches; otherwise resolution falls back to
+   * `cliModelDefaults[cli]`, then the CLI default.
+   */
+  specialistModelDefaults: Partial<Record<SpecialistActionId, AgentCliModelSelection>>
+  /** Per-Multiloop-role model override; same matching rules as specialists. */
+  multiloopRoleModelDefaults: Partial<Record<MultiloopRole, AgentCliModelSelection>>
   /**
    * User-defined display order for the spawn-agent specialist menu. Holds the
    * specialist ids in the sequence the user dragged them into; ids absent here
@@ -1490,6 +1518,10 @@ export type AgentState = {
   cliLastExitCode?: number | null
   cliLastExitedAt?: number | null
   cli?: AgentCli
+  // Model id passed at CLI launch when the plugin declares modelSelection.
+  // Undefined means the CLI's own default; persisted so relaunch/resume and
+  // Sprint Engine auto-run keep the model the agent was created with.
+  cliModel?: string
   cliPermissionPreset?: SprintEngineCliPermissionPreset
   cliStartupPrompt?: string
   kind?: AgentKind

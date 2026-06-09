@@ -29,6 +29,7 @@ export type AgentLaunchRenderInput = {
   initialPrompt?: string
   cliRuntime?: CliRuntimeSettings
   cliPermissionPreset?: SprintEngineCliPermissionPreset
+  cliModel?: string
 }
 
 export type RenderedAgentLaunch = {
@@ -55,6 +56,7 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
     sessionId: input.sessionId,
     prompt: input.initialPrompt,
     permissionPreset: input.cliPermissionPreset ?? 'default',
+    model: input.cliModel,
   }
 
   const rendered = input.resume

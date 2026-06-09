@@ -4,6 +4,7 @@ import { selectModuleEnabled } from '../../modules'
 import type {
   McpCatalogServer,
   McpSettings,
+  PluginCatalogEntry,
   SprintEngineRoleRegistry,
   SprintEngineRoleRegistryMetadata,
   SprintEngineRoleRegistryWarning,
@@ -80,6 +81,8 @@ type UpdateAction = 'check' | 'download' | 'restart'
 type GitHubTokenUiStatus = Awaited<ReturnType<typeof window.api.getGitHubTokenStatus>>
 
 const EMPTY_SEARCH_EXCLUDES: string[] = []
+const EMPTY_CLI_MODEL_DEFAULTS: Partial<Record<string, string>> = {}
+const EMPTY_USER_MODELS: string[] = []
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
 const EMPTY_SKILL_PACK_SETTINGS: SkillPackSettings = { installed: {} }
@@ -248,6 +251,99 @@ function StatusTag({
       <StatusDot tone={tone} label={label} />
       <span className="font-medium text-[color:var(--text-default)]">{label}</span>
     </span>
+  )
+}
+
+// Per-plugin model configuration: a default model for new launches plus the
+// user-extended model id list. Rendered only when the plugin declares
+// modelSelection — without declared launch args a model could not be passed.
+// Terminal CLIs expose no live model catalog, so the user list is how new
+// models are adopted between plugin updates.
+function PluginModelSettings({
+  pluginId,
+  displayName,
+  modelSelection,
+  userModels,
+  defaultModel,
+  onDefaultModelChange,
+  onUserModelsChange,
+}: {
+  pluginId: string
+  displayName: string
+  modelSelection: NonNullable<PluginCatalogEntry['modelSelection']>
+  userModels: string[]
+  defaultModel: string
+  onDefaultModelChange: (model: string | null) => void
+  onUserModelsChange: (models: string[]) => void
+}) {
+  const [draftModel, setDraftModel] = useState('')
+  const seedIds = new Set(modelSelection.options.map((option) => option.id))
+  const mergedOptions = [
+    ...modelSelection.options,
+    ...userModels.filter((id) => !seedIds.has(id)).map((id) => ({ id, label: undefined })),
+  ]
+  const defaultIsKnown = !defaultModel || mergedOptions.some((option) => option.id === defaultModel)
+  const addDraftModel = (): void => {
+    const model = draftModel.trim()
+    if (!model) return
+    if (!userModels.includes(model)) onUserModelsChange([...userModels, model])
+    setDraftModel('')
+  }
+  return (
+    <>
+      <Field label="Default model" htmlFor={`cli-model-${pluginId}`}>
+        <select
+          id={`cli-model-${pluginId}`}
+          aria-label={`${displayName} default model`}
+          value={defaultModel}
+          onChange={(event) => onDefaultModelChange(event.target.value || null)}
+          className={INPUT_CLASS}
+        >
+          <option value="">CLI default</option>
+          {mergedOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label ?? option.id}
+            </option>
+          ))}
+          {/* A persisted default that is no longer in the catalog still launches
+              with that id; show it instead of silently snapping to another model. */}
+          {defaultIsKnown ? null : <option value={defaultModel}>{defaultModel}</option>}
+        </select>
+      </Field>
+      {modelSelection.allowCustomId ? (
+        <div className="space-y-1">
+          {userModels.map((model) => (
+            <div key={model} className="group -mx-1 flex h-8 items-center gap-2 rounded px-1">
+              <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-[color:var(--text-default)]">
+                {model}
+              </span>
+              <button
+                type="button"
+                onClick={() => onUserModelsChange(userModels.filter((id) => id !== model))}
+                className="invisible rounded px-1.5 py-0.5 text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] focus-visible:visible group-focus-within:visible group-hover:visible"
+              >
+                Remove
+                <span className="sr-only"> {model} from {displayName} models</span>
+              </button>
+            </div>
+          ))}
+          <input
+            type="text"
+            value={draftModel}
+            aria-label={`Add a model id for ${displayName}`}
+            placeholder="Add model id and press Enter"
+            onChange={(event) => setDraftModel(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                addDraftModel()
+              }
+            }}
+            className={INPUT_CLASS}
+          />
+        </div>
+      ) : null}
+    </>
   )
 }
 
@@ -448,6 +544,8 @@ export default function SettingsPanel({
   const appearanceTheme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
   const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
+  const cliModelDefaults = useWorkspaceStore((s) => s.appSettings.cliModelDefaults ?? EMPTY_CLI_MODEL_DEFAULTS)
+  const setCliModelDefault = useWorkspaceStore((s) => s.setCliModelDefault)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
   const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
   const skillPackSettings = useWorkspaceStore(
@@ -1433,6 +1531,17 @@ export default function SettingsPanel({
                       onChange={(enabled) => setCliRuntime(plugin.id, { command: override.command, useWsl: enabled })}
                     />
                   )}
+                  {plugin.modelSelection ? (
+                    <PluginModelSettings
+                      pluginId={plugin.id}
+                      displayName={plugin.displayName}
+                      modelSelection={plugin.modelSelection}
+                      userModels={cliRuntimes?.[plugin.id]?.models ?? EMPTY_USER_MODELS}
+                      defaultModel={cliModelDefaults[plugin.id] ?? ''}
+                      onDefaultModelChange={(model) => setCliModelDefault(plugin.id, model)}
+                      onUserModelsChange={(models) => setCliRuntime(plugin.id, { models })}
+                    />
+                  ) : null}
                   <p className="text-[11px] leading-5 text-[color:var(--text-muted)]">
                     Runs <span className="font-mono text-[color:var(--text-default)]">{plugin.binary}</span> when the command is blank.
                   </p>

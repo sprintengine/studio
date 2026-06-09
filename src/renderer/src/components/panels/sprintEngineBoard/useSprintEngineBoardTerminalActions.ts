@@ -20,11 +20,14 @@ import {
 type SpawnDialogState = {
   agentId: string
   cli: AgentCli
+  // Model id passed at CLI launch; undefined means the CLI's own default.
+  model?: string
   name: string
 }
 
 type RecoveryDialogState = {
   cli: AgentCli
+  model?: string
 }
 
 type StartAgentTerminalOptions = {
@@ -32,6 +35,9 @@ type StartAgentTerminalOptions = {
   freshSession?: boolean
   agentName?: string
   execution?: AgentExecution
+  // string sets the launch model, null clears it back to the CLI default,
+  // undefined preserves whatever the agent already has.
+  cliModel?: string | null
 }
 
 export type SprintEngineBoardTerminalActionsInput = {
@@ -47,6 +53,7 @@ export type SprintEngineBoardTerminalActionsInput = {
   folderStatusMessage: string | null
   folderCheckedPath: string | null
   lastSelectedCli: AgentCli
+  cliModelDefaults: Partial<Record<AgentCli, string>>
   spawnDialog: SpawnDialogState | null
   recoveryDialog: RecoveryDialogState | null
   spawnDialogHasLiveTerminal: boolean
@@ -100,6 +107,7 @@ export function useSprintEngineBoardTerminalActions(
     folderStatusMessage,
     folderCheckedPath,
     lastSelectedCli,
+    cliModelDefaults,
     spawnDialog,
     recoveryDialog,
     spawnDialogHasLiveTerminal,
@@ -169,6 +177,7 @@ export function useSprintEngineBoardTerminalActions(
       cliLastExitCode: undefined,
       cliLastExitedAt: undefined,
       cli: selectedCli,
+      ...(options?.cliModel !== undefined ? { cliModel: options.cliModel ?? undefined } : {}),
       cliStartupPrompt: startupPrompt,
       kind: 'sprintengine',
     })
@@ -255,9 +264,11 @@ export function useSprintEngineBoardTerminalActions(
     const savedName = agentState?.name && agentState.name !== defaultName ? agentState.name : ''
     setSelectedAgentId(agentId)
     setCliPickerOpen(false)
+    const dialogCli = agentState?.cli ?? defaultCli
     setSpawnDialog({
       agentId,
-      cli: agentState?.cli ?? defaultCli,
+      cli: dialogCli,
+      model: agentState?.cliModel ?? cliModelDefaults[dialogCli],
       name: savedName,
     })
   }
@@ -270,6 +281,7 @@ export function useSprintEngineBoardTerminalActions(
     const started = await startAgentTerminalWhenReady(spawnDialog.agentId, label, spawnDialog.cli, {
       agentName,
       freshSession: !spawnDialogHasLiveTerminal,
+      cliModel: spawnDialog.model ?? null,
     })
     if (!started) return
     setCliPickerOpen(false)
@@ -278,7 +290,7 @@ export function useSprintEngineBoardTerminalActions(
 
   const openRecoveryDialog: SprintEngineBoardTerminalActions['openRecoveryDialog'] = () => {
     setCliPickerOpen(false)
-    setRecoveryDialog({ cli: 'codex' })
+    setRecoveryDialog({ cli: 'codex', model: cliModelDefaults.codex })
   }
 
   const confirmRecoveryAudit: SprintEngineBoardTerminalActions['confirmRecoveryAudit'] = async () => {
@@ -290,6 +302,7 @@ export function useSprintEngineBoardTerminalActions(
       freshSession: true,
       agentName: getCustomAgentName(architectAgentId, fallbackLabel),
       startupPrompt: buildSprintEngineRecoveryAuditPrompt(),
+      cliModel: recoveryDialog.model ?? null,
     })
     if (!started) return
     setSelectedAgentId(architectAgentId)

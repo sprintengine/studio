@@ -18,10 +18,19 @@
       "args": ["--dangerously-bypass-approvals-and-sandbox"]
     }
   },
+  "modelSelection": {
+    "args": ["--model", "{{model}}"],
+    "options": [
+      { "id": "gpt-5-codex", "label": "GPT-5 Codex" },
+      { "id": "gpt-5", "label": "GPT-5" }
+    ],
+    "allowCustomId": true
+  },
   "launch": {
     "argv": [
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
+      { "spreadIf": "modelArgs" },
       { "valueIf": "prompt", "value": "{{prompt}}" }
     ]
   },
@@ -30,7 +39,8 @@
     "argv": [
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
-      "resume"
+      "resume",
+      { "spreadIf": "modelArgs" }
     ]
   },
   "promptInjection": {

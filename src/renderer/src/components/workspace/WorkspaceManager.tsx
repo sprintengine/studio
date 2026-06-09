@@ -10,7 +10,7 @@ import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
-import { resolveAvailableAgentCli, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
+import { resolveAvailableAgentCli, resolveCliModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import { selectModuleEnabled } from '../../modules'
 import {
@@ -30,6 +30,7 @@ import {
 } from '../../specialists/specialistActions'
 import type {
   AgentCli,
+  AgentCliModelSelection,
   FuturePlanWorkspaceSource,
   LayoutTemplate,
   MultiloopRole,
@@ -71,6 +72,13 @@ import {
   uniqueAgentName,
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
+import { isSprintEngineCompletionUnseen } from '../../utils/workspaceRunGlyph'
+import {
+  EMPTY_WORKSPACE_NAVIGATION_HISTORY,
+  recordWorkspaceVisit,
+  stepWorkspaceHistory,
+  type WorkspaceNavigationHistory,
+} from '../../utils/workspaceNavigationHistory'
 import {
   buildConversationSpawnOptions,
   conversationAgentRuntimePatch,
@@ -98,6 +106,9 @@ const NewWorkspacePanel = React.lazy(() => import('./NewWorkspacePanel'))
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 const EMPTY_SPECIALIST_CLI_DEFAULTS: Partial<Record<SpecialistActionId, AgentCli>> = {}
 const EMPTY_MULTILOOP_ROLE_CLI_DEFAULTS: Partial<Record<MultiloopRole, AgentCli>> = {}
+const EMPTY_CLI_MODEL_DEFAULTS: Partial<Record<AgentCli, string>> = {}
+const EMPTY_SPECIALIST_MODEL_DEFAULTS: Partial<Record<SpecialistActionId, AgentCliModelSelection>> = {}
+const EMPTY_MULTILOOP_ROLE_MODEL_DEFAULTS: Partial<Record<MultiloopRole, AgentCliModelSelection>> = {}
 const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 
@@ -141,6 +152,7 @@ export default function WorkspaceManager() {
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
+  const markSprintEngineRunCompletionSeen = useWorkspaceStore((s) => s.markSprintEngineRunCompletionSeen)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
@@ -174,6 +186,18 @@ export default function WorkspaceManager() {
   )
   const setSpecialistCliDefault = useWorkspaceStore((s) => s.setSpecialistCliDefault)
   const setMultiloopRoleCliDefault = useWorkspaceStore((s) => s.setMultiloopRoleCliDefault)
+  const cliModelDefaults = useWorkspaceStore(
+    (s) => s.appSettings.cliModelDefaults ?? EMPTY_CLI_MODEL_DEFAULTS
+  )
+  const specialistModelDefaults = useWorkspaceStore(
+    (s) => s.appSettings.specialistModelDefaults ?? EMPTY_SPECIALIST_MODEL_DEFAULTS
+  )
+  const multiloopRoleModelDefaults = useWorkspaceStore(
+    (s) => s.appSettings.multiloopRoleModelDefaults ?? EMPTY_MULTILOOP_ROLE_MODEL_DEFAULTS
+  )
+  const setCliModelDefault = useWorkspaceStore((s) => s.setCliModelDefault)
+  const setSpecialistModelDefault = useWorkspaceStore((s) => s.setSpecialistModelDefault)
+  const setMultiloopRoleModelDefault = useWorkspaceStore((s) => s.setMultiloopRoleModelDefault)
   const specialistOrder = useWorkspaceStore(
     (s) => s.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER
   )
@@ -266,6 +290,11 @@ export default function WorkspaceManager() {
   const collapsedStaleDetachedWindowsRef = useRef(false)
   const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel
   const commandDispatcherRef = useRef(new RendererCommandDispatcher())
+  // Per-window visit history backing mouse back/forward workspace navigation.
+  // Transient shell state: a ref (not store state) because navigation must not
+  // re-render anything on its own, and per-renderer because each BrowserWindow
+  // tracks only its own activations.
+  const workspaceNavigationHistoryRef = useRef<WorkspaceNavigationHistory>(EMPTY_WORKSPACE_NAVIGATION_HISTORY)
   const disabledCommandIds = useMemo(
     () => new Set(Object.entries(keybindingSettings?.disabled ?? {})
       .filter(([, disabled]) => disabled === true)
@@ -991,6 +1020,17 @@ export default function WorkspaceManager() {
     return map
   }, [workspaces, terminalSessions])
 
+  // Completion is news once: while the user has a Sprint Engine workspace
+  // active and its run is complete, record the acknowledgement so the
+  // sidebar's done glyph reverts to recency text. Settles after one write —
+  // the seen mark flips isSprintEngineCompletionUnseen to false.
+  useEffect(() => {
+    if (!windowActiveWorkspaceId) return
+    const workspace = workspaces.find((candidate) => candidate.id === windowActiveWorkspaceId)
+    if (!workspace || !isSprintEngineCompletionUnseen(workspace)) return
+    markSprintEngineRunCompletionSeen(workspace.id)
+  }, [windowActiveWorkspaceId, workspaces, markSprintEngineRunCompletionSeen])
+
 
   const addNewSpecialist = async (
     specialistId: SpecialistActionId = lastSelectedSpecialist,
@@ -1017,6 +1057,7 @@ export default function WorkspaceManager() {
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: cliForSpawn,
+      cliModel: resolveCliModel(cliForSpawn, specialistModelDefaults[specialist.id], cliModelDefaults),
       cliPermissionPreset: agentSpawnPermissionPreset,
       kind: 'specialist',
       specialistId: specialist.id,
@@ -1079,6 +1120,7 @@ export default function WorkspaceManager() {
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: cliForSpawn,
+      cliModel: resolveCliModel(cliForSpawn, multiloopRoleModelDefaults[soul.role], cliModelDefaults),
       cliPermissionPreset: agentSpawnPermissionPreset,
       kind: 'multiloop',
       specialistId: undefined,
@@ -1107,6 +1149,7 @@ export default function WorkspaceManager() {
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: spawnCli,
+      cliModel: resolveCliModel(spawnCli, undefined, cliModelDefaults),
       cliPermissionPreset: agentSpawnPermissionPreset,
       kind: 'general',
       specialistId: undefined,
@@ -1183,6 +1226,7 @@ export default function WorkspaceManager() {
         agentPatch: {
           name: tabName,
           cli: cliForSpawn,
+          cliModel: resolveCliModel(cliForSpawn, specialistModelDefaults[specialist.id], cliModelDefaults),
           cliPermissionPreset: agentSpawnPermissionPreset,
           kind: 'specialist',
           specialistId: specialist.id,
@@ -1251,6 +1295,22 @@ export default function WorkspaceManager() {
     }
     if (commandId === 'workspace.close' && windowActiveWorkspaceId) {
       closeWorkspaceById(windowActiveWorkspaceId)
+      return true
+    }
+    if (commandId === 'workspace.history.back' || commandId === 'workspace.history.forward') {
+      // History semantics (the workspace I was just in), not sidebar order —
+      // sidebar-order cycling stays on workspace.switch.next/previous. Entries
+      // pointing at closed workspaces, workspaces routed to another window, or
+      // the already-active workspace are skipped.
+      const step = stepWorkspaceHistory(
+        workspaceNavigationHistoryRef.current,
+        commandId === 'workspace.history.back' ? -1 : 1,
+        (workspaceId) => workspaceId !== windowActiveWorkspaceId && visibleWorkspaceIdSet.has(workspaceId),
+      )
+      if (!step) return false
+      workspaceNavigationHistoryRef.current = step.history
+      setShowNewWorkspacePanel(false)
+      setActiveWorkspaceForWindow(workspaceWindowId, step.workspaceId)
       return true
     }
     if (commandId === 'workspace.switch.next' || commandId === 'workspace.switch.previous') {
@@ -1373,6 +1433,7 @@ export default function WorkspaceManager() {
     windowActiveWorkspaceId,
     closeWorkspaceById,
     visibleWorkspaces,
+    visibleWorkspaceIdSet,
     setActiveWorkspaceForWindow,
     workspaceWindowId,
     showNewWorkspacePanel,
@@ -1420,6 +1481,37 @@ export default function WorkspaceManager() {
     commandAvailability,
     runCommand,
   ])
+
+  // Record every activation of this window's active workspace, whatever caused
+  // it (sidebar click, palette, switch commands, sync events). Back/forward
+  // navigation moves the history cursor onto the visited id before activating,
+  // so recordWorkspaceVisit sees it already at the cursor and does not push.
+  useEffect(() => {
+    if (!windowActiveWorkspaceId) return
+    workspaceNavigationHistoryRef.current = recordWorkspaceVisit(
+      workspaceNavigationHistoryRef.current,
+      windowActiveWorkspaceId,
+    )
+  }, [windowActiveWorkspaceId])
+
+  useEffect(() => {
+    const onMouseUp = (event: MouseEvent) => {
+      // Chromium reports the mouse back button as 3 and forward as 4.
+      if (event.button !== 3 && event.button !== 4) return
+      const commandId = event.button === 3 ? 'workspace.history.back' : 'workspace.history.forward'
+      // A command disabled through the Shortcuts tab opts the buttons out
+      // entirely; the untouched event then reaches whatever surface wants it.
+      if (disabledCommandIds.has(commandId)) return
+      // Swallow the buttons app-wide (even when history cannot move) so they
+      // never reach xterm mouse reporting or Chromium's own session-history
+      // navigation — in this shell they mean workspace navigation, full stop.
+      event.preventDefault()
+      event.stopPropagation()
+      runCommand(commandId)
+    }
+    window.addEventListener('mouseup', onMouseUp, true)
+    return () => window.removeEventListener('mouseup', onMouseUp, true)
+  }, [runCommand, disabledCommandIds])
 
   useEffect(() => {
     return window.api.onAppMenuCommand((command) => {
@@ -1722,6 +1814,12 @@ export default function WorkspaceManager() {
         selectedAgentPermissionOption={selectedAgentPermissionOption}
         lastSelectedCli={lastSelectedCli}
         specialistCliDefaults={specialistCliDefaults}
+        cliModelDefaults={cliModelDefaults}
+        specialistModelDefaults={specialistModelDefaults}
+        multiloopRoleModelDefaults={multiloopRoleModelDefaults}
+        setCliModelDefault={setCliModelDefault}
+        setSpecialistModelDefault={setSpecialistModelDefault}
+        setMultiloopRoleModelDefault={setMultiloopRoleModelDefault}
         multiloopRoleCliDefaults={multiloopRoleCliDefaults}
         setSpecialistCliDefault={setSpecialistCliDefault}
         setMultiloopRoleCliDefault={setMultiloopRoleCliDefault}

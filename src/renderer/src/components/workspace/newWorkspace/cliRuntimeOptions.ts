@@ -1,14 +1,20 @@
 import type {
   AgentCli,
+  AgentCliModelSelection,
   CliRuntimeSettings,
   PluginCatalogEntry,
   PluginCatalogStatus,
 } from '../../../types/workspace'
+import type { PluginModelCatalog, PluginModelOption } from '../../../../../shared/plugin-manifest'
 
 export type AgentCliCatalogOption = {
   value: AgentCli
   label: string
   source?: PluginCatalogEntry['source']
+  // Model choices for this CLI: the plugin manifest's seed options merged with
+  // the user-added ids from `cliRuntimes[id].models`. Absent when the plugin
+  // declares no modelSelection — such CLIs show no model UI at all.
+  modelSelection?: PluginModelCatalog
 }
 
 const CLAUDE_CODE_PLUGIN_ID = 'claude-code'
@@ -139,13 +145,48 @@ export function buildAgentCliCatalog(
     const id = plugin.id.trim()
     if (!id || seen.has(id) || AGENT_PICKER_HIDDEN_CLI_IDS.has(id)) continue
     seen.add(id)
+    const modelSelection = mergeModelCatalog(plugin.modelSelection, cliRuntimes?.[id]?.models)
     options.push({
       value: id,
       label: plugin.displayName,
       source: plugin.source,
+      ...(modelSelection ? { modelSelection } : {}),
     })
   }
   return options
+}
+
+// Merge a plugin's seed model options with the user-added ids for that CLI.
+// User additions only apply when the plugin declares modelSelection — without
+// declared args the launch path could not pass the model anyway.
+function mergeModelCatalog(
+  declared: PluginModelCatalog | undefined,
+  userModels: string[] | undefined,
+): PluginModelCatalog | undefined {
+  if (!declared) return undefined
+  const seen = new Set(declared.options.map((option) => option.id))
+  const merged: PluginModelOption[] = [...declared.options]
+  for (const entry of userModels ?? []) {
+    const id = entry.trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    merged.push({ id })
+  }
+  return { options: merged, allowCustomId: declared.allowCustomId }
+}
+
+// Effective model for a launch surface: the surface's own override (only when
+// it was picked for this CLI), else the remembered per-CLI default, else
+// undefined — meaning the CLI's own default model, no flag passed.
+export function resolveCliModel(
+  cli: AgentCli,
+  override: AgentCliModelSelection | null | undefined,
+  cliModelDefaults: Partial<Record<AgentCli, string>> | null | undefined,
+): string | undefined {
+  const overrideModel = override && override.cli === cli ? override.model.trim() : ''
+  if (overrideModel) return overrideModel
+  const fallback = cliModelDefaults?.[cli]?.trim()
+  return fallback || undefined
 }
 
 export function buildCliRuntimeOptions(

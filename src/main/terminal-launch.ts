@@ -483,6 +483,7 @@ function buildWslShellScript(
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings,
   cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
+  cliModel?: string,
   memoryRootPath?: string,
   memoryRelativeRoot?: string,
   managedMcpEnv?: Record<string, string>
@@ -492,7 +493,7 @@ function buildWslShellScript(
     buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
     buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv),
-    buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset),
+    buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset, cliModel),
     'exec bash -li',
   ].join('; ')
 }
@@ -506,6 +507,7 @@ export function getShellLaunchConfig(
   initialPrompt?: string,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
   cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
+  cliModel?: string,
   memoryRootPath?: string,
   memoryRelativeRoot?: string,
   managedMcpEnv?: Record<string, string>
@@ -534,7 +536,8 @@ export function getShellLaunchConfig(
         windowsCwd,
         shellInitialPrompt,
         cliRuntime,
-        cliPermissionPreset
+        cliPermissionPreset,
+        cliModel
       )
     )
 
@@ -561,6 +564,7 @@ export function getShellLaunchConfig(
         initialPrompt,
         cliRuntime,
         cliPermissionPreset,
+        cliModel,
         memoryRootPath,
         memoryRelativeRoot,
         managedMcpEnv
@@ -583,7 +587,7 @@ export function getShellLaunchConfig(
   const shellName = shellPath.split(/[\\/]/).at(-1)
   const launchCommand = [
     buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv),
-    buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset),
+    buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset, cliModel),
     buildInteractiveShellExec(shellPath, shellName),
   ].join('; ')
   const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', launchCommand)
@@ -667,7 +671,8 @@ function buildNativeAgentLaunchPowerShellScript(
   cwd: string,
   initialPrompt: string | undefined,
   cliRuntime: CliRuntimeSettings,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default'
+  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
+  cliModel?: string
 ): string {
   // Codex keeps its legacy Windows path because of two plugin-specific
   // behaviours that do not generalise: a `-C cwd` flag the Windows codex CLI
@@ -682,7 +687,8 @@ function buildNativeAgentLaunchPowerShellScript(
       cwd,
       initialPrompt,
       cliRuntime,
-      cliPermissionPreset
+      cliPermissionPreset,
+      cliModel
     )
   }
 
@@ -693,6 +699,7 @@ function buildNativeAgentLaunchPowerShellScript(
     initialPrompt,
     cliRuntime,
     cliPermissionPreset,
+    cliModel,
   })
   // argv[0] is the binary; the remainder are the arguments PowerShell needs
   // to base64-encode for round-trip safety through nested quoting layers.
@@ -712,14 +719,19 @@ function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   cwd: string,
   initialPrompt: string | undefined,
   cliRuntime: CliRuntimeSettings,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default'
+  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
+  cliModel?: string
 ): string {
   void sessionId
   const permissionArgs = getCliPermissionArgs('codex', cliPermissionPreset)
   const command = cliRuntime.command || 'codex'
   const promptArg = nativeWindowsCodexPromptArg(initialPrompt)
+  // The model flag is hardcoded like the rest of this acknowledged-legacy
+  // codex-specific path; the manifest-rendered paths read modelSelection.args.
+  const model = cliModel?.trim()
   const args = [
     ...permissionArgs,
+    ...(model ? ['--model', model] : []),
     ...(resume ? ['resume'] : []),
     '-C',
     cwd,
@@ -751,7 +763,8 @@ function buildAgentLaunchCommand(
   resume = false,
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default'
+  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
+  cliModel?: string
 ): string {
   return buildAgentShellCommand({
     cli,
@@ -760,5 +773,6 @@ function buildAgentLaunchCommand(
     initialPrompt,
     cliRuntime,
     cliPermissionPreset,
+    cliModel,
   })
 }

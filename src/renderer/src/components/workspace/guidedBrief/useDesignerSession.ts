@@ -66,6 +66,7 @@ export type UseDesignerSessionInput = {
   acceptedBriefSnapshotPath?: string
   acceptedArchitecturePlanPath?: string | null
   cli: AgentCli
+  cliModel?: string
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
   enabled: boolean
   // Persisted PTY id (survives renderer HMR / reload). When provided, the main
@@ -107,6 +108,7 @@ export function useDesignerSession({
   acceptedBriefSnapshotPath,
   acceptedArchitecturePlanPath,
   cli,
+  cliModel,
   cliRuntimes,
   enabled,
   sessionId,
@@ -159,6 +161,7 @@ export function useDesignerSession({
         acceptedArchitecturePlanPath,
         sessionId: resolvedSessionId,
         cli,
+        cliModel,
         inspirationDirectoryPath: INSPIRATION_DIRECTORY_NAME,
         uiDirectionPath: UI_DIRECTION_RELATIVE_PATH,
         mockupPath: PRIMARY_MOCKUP_RELATIVE_PATH,

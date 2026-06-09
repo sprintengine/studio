@@ -900,28 +900,91 @@ samp,
   animation: toast-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/* Pointer-anchored error box (CursorErrorPopover). Fades up into place on mount
- * and animates its height as it expands. Both treatments are dropped under the
- * reduced-motion rule below so the box just snaps to its state. */
+/* Pointer-anchored error box (CursorErrorPopover). A calm member of the
+ * --tone-error family — an opaque raised surface lightly tinted toward the
+ * error tone, one tone-error hairline, and a caret tying the box to the click.
+ * Every color resolves from --tone-error / --bg-surface-raised through the
+ * cascade, so the box tracks light, dark, and the themed variants with no
+ * per-theme code. The box scales up from the caret on mount and animates its
+ * height as it expands; both treatments drop under reduced-motion below. */
 @keyframes cursor-error-enter {
   from {
     opacity: 0;
-    transform: translateY(2px);
+    transform: scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: scale(1);
   }
 }
 
+/* The outer wrapper carries positioning, the enter animation, and the caret —
+ * it stays overflow-visible so the caret can hang past the surface edge. */
 .cursor-error-popover {
+  /* Shared by the surface, the caret, and the seam-cover so they can never
+   * drift apart across themes. */
+  --cursor-error-fill: color-mix(in oklab, var(--bg-surface-raised) 88%, var(--tone-error));
   animation: cursor-error-enter 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* The inner surface holds the tinted fill, the hairline, and the max-height
+ * clamp that collapses the box to one line; it clips its own content only. */
+.cursor-error-surface {
+  background-color: var(--cursor-error-fill);
+  border-color: var(--tone-error);
   transition: max-height 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* A 1px-calibrated triangle built from a rotated square so both the fill and
+ * the two outer hairlines continue cleanly off the box edge. The seam-cover
+ * masks the 1px join where the square meets the box border. */
+.cursor-error-caret {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  pointer-events: none;
+}
+.cursor-error-caret::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: var(--cursor-error-fill);
+  border: 1px solid var(--tone-error);
+  transform: rotate(45deg);
+}
+/* Box sits above the click: caret hangs below it, pointing down. */
+.cursor-error-caret--down {
+  bottom: -5px;
+}
+.cursor-error-caret--down::before {
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+/* Box sits below the click: caret sits above it, pointing up. */
+.cursor-error-caret--up {
+  top: -5px;
+}
+.cursor-error-caret--up::before {
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+.cursor-error-seam {
+  position: absolute;
+  height: 1px;
+  width: 11px;
+  background-color: var(--cursor-error-fill);
+  pointer-events: none;
+}
+.cursor-error-seam--down {
+  bottom: 0;
+}
+.cursor-error-seam--up {
+  top: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .cursor-error-popover {
     animation: none;
+  }
+  .cursor-error-surface {
     transition: none;
   }
 }

@@ -69,6 +69,7 @@ export type GuidedBriefStrategistSessionInput = {
   workspaceRoot: string
   sessionId?: string
   cli?: AgentCli
+  cliModel?: string
   cols?: number
   rows?: number
   ideaSeedPath?: string
@@ -82,6 +83,7 @@ export type GuidedBriefDesignerSessionInput = {
   acceptedArchitecturePlanPath?: string | null
   sessionId?: string
   cli?: AgentCli
+  cliModel?: string
   cols?: number
   rows?: number
   inspirationDirectoryPath?: string
@@ -95,6 +97,7 @@ export type GuidedBriefArchitectSessionInput = {
   acceptedBriefSnapshotPath?: string | null
   sessionId?: string
   cli?: AgentCli
+  cliModel?: string
   cols?: number
   rows?: number
   ideaSeedPath?: string
@@ -298,6 +301,7 @@ export async function startGuidedBriefSpecialistSession(
       kind: 'agent',
       agentId: `guided-brief-${input.kind}`,
       ...(input.kind === 'designer' ? { cliPermissionPreset: 'bypass_all' as const } : {}),
+      ...(input.cliModel ? { cliModel: input.cliModel } : {}),
       visible: true,
     },
   ).catch((error): TerminalSpawnResult => ({

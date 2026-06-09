@@ -33,7 +33,7 @@ export function ModulesSettingsTab() {
 
       <ModuleToggleList overrides={overrides} onToggle={setModuleEnabled} />
 
-      <ThirdPartyModuleList />
+      <ThirdPartyModuleList overrides={overrides} onSetEnabled={setModuleEnabled} />
     </div>
   )
 }

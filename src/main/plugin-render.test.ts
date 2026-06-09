@@ -40,6 +40,9 @@ async function main(): Promise<void> {
   testClaudeManifestProducesExpectedArgv()
   testCodexManifestProducesExpectedArgv()
   testFilesSpreadEmpty()
+  testModelArgsSpread()
+  testModelIgnoredWithoutModelSelection()
+  testModelArgsOnResume()
 
   console.log('plugin-render tests passed')
 }
@@ -252,6 +255,53 @@ function testFilesSpreadEmpty(): void {
 
   const withoutFiles = renderPluginLaunch(manifest, {})
   assert.deepEqual(withoutFiles.argv, ['test'])
+}
+
+function testModelArgsSpread(): void {
+  const manifest = baseManifest({
+    modelSelection: {
+      args: ['--model', '{{model}}'],
+      options: [{ id: 'opus', label: 'Opus' }],
+      allowCustomId: true,
+    },
+    launch: {
+      argv: ['{{binary}}', { spreadIf: 'permissionArgs' }, { spreadIf: 'modelArgs' }, '--session-id', '{{sessionId}}'],
+    },
+  })
+
+  const withModel = renderPluginLaunch(manifest, { sessionId: 'exec_1', model: 'opus' })
+  assert.deepEqual(withModel.argv, ['test', '--model', 'opus', '--session-id', 'exec_1'])
+
+  // No model selected → no flag, the CLI's own default wins.
+  const withoutModel = renderPluginLaunch(manifest, { sessionId: 'exec_2' })
+  assert.deepEqual(withoutModel.argv, ['test', '--session-id', 'exec_2'])
+
+  // Whitespace-only model ids are treated as unset.
+  const blankModel = renderPluginLaunch(manifest, { sessionId: 'exec_3', model: '  ' })
+  assert.deepEqual(blankModel.argv, ['test', '--session-id', 'exec_3'])
+}
+
+function testModelIgnoredWithoutModelSelection(): void {
+  // A stale persisted model id against a plugin that declares no
+  // modelSelection must never leak into argv.
+  const manifest = baseManifest({
+    launch: { argv: ['{{binary}}', { spreadIf: 'modelArgs' }, '--session-id', '{{sessionId}}'] },
+  })
+  const out = renderPluginLaunch(manifest, { sessionId: 'exec_1', model: 'opus' })
+  assert.deepEqual(out.argv, ['test', '--session-id', 'exec_1'])
+}
+
+function testModelArgsOnResume(): void {
+  const manifest = baseManifest({
+    modelSelection: { args: ['-m', '{{model}}'] },
+    launch: { argv: ['{{binary}}'] },
+    resume: {
+      supported: true,
+      argv: ['{{binary}}', 'resume', { spreadIf: 'modelArgs' }],
+    },
+  })
+  const resumed = renderPluginResume(manifest, { model: 'gpt-5-codex' })
+  assert.deepEqual(resumed?.argv, ['test', 'resume', '-m', 'gpt-5-codex'])
 }
 
 main().catch((err) => {

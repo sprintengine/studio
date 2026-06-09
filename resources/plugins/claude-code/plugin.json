@@ -18,10 +18,20 @@
       "args": ["--permission-mode", "bypassPermissions"]
     }
   },
+  "modelSelection": {
+    "args": ["--model", "{{model}}"],
+    "options": [
+      { "id": "opus", "label": "Opus" },
+      { "id": "sonnet", "label": "Sonnet" },
+      { "id": "haiku", "label": "Haiku" }
+    ],
+    "allowCustomId": true
+  },
   "launch": {
     "argv": [
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
+      { "spreadIf": "modelArgs" },
       "--session-id",
       "{{sessionId}}",
       { "valueIf": "prompt", "value": "{{prompt}}" }
@@ -32,6 +42,7 @@
     "argv": [
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
+      { "spreadIf": "modelArgs" },
       "--resume",
       "{{sessionId}}",
       { "valueIf": "prompt", "value": "{{prompt}}" }

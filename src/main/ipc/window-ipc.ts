@@ -1,4 +1,5 @@
-import { BrowserWindow, screen, type IpcMain, type IpcMainInvokeEvent } from 'electron'
+import { BrowserWindow, screen, shell, type IpcMain, type IpcMainInvokeEvent } from 'electron'
+import { safeExternalUrl } from './external-url'
 
 type WindowState = {
   isMaximized: boolean
@@ -111,6 +112,17 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
   ipcMain.handle('window:confirm-close', (event) => {
     const win = getRequestWindow(event)
     if (win) options.confirmWindowClose(win)
+  })
+
+  ipcMain.handle('window:open-external', async (_event, url: unknown) => {
+    const safe = safeExternalUrl(url)
+    if (!safe.ok) return safe
+    try {
+      await shell.openExternal(safe.url)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Could not open link.' }
+    }
   })
 
   ipcMain.handle('window:create-workspace-window', (_event, input: {

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
@@ -362,6 +363,15 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       onOpenError: (message, anchor) => setClickError({ message, x: anchor.x, y: anchor.y }),
     }))
 
+    const webLinksAddon = new WebLinksAddon((event, uri) => {
+      const anchor = { x: event.clientX, y: event.clientY }
+      void (async () => {
+        const result = await window.api.openExternal(uri)
+        if (!result.ok) setClickError({ message: result.message, x: anchor.x, y: anchor.y })
+      })()
+    })
+    term.loadAddon(webLinksAddon)
+
     let disposed = false
     void waitForMonoFontReady().then(() => {
       if (disposed) return
@@ -371,7 +381,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     let reportedTerminalFailure = false
     let terminalLaunchDetails = [
       `Session: ${sessionId}`,
-      `CLI: ${cli}`,
+      `CLI: ${cli}${agent?.cliModel ? ` · ${agent.cliModel}` : ''}`,
       `Workspace path: ${folderReadyPath ?? savedFolderPath ?? 'default app path'}`,
     ].join('\n')
     const outputQueue = createXtermOutputQueue(term, {
@@ -544,7 +554,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       )
       terminalLaunchDetails = [
         `Session: ${sessionId}`,
-        `CLI: ${cli}`,
+        `CLI: ${cli}${agent?.cliModel ? ` · ${agent.cliModel}` : ''}`,
         cliPermissionPreset ? `CLI permissions: ${cliPermissionPreset}` : null,
         `Workspace path: ${folderReadyPath ?? savedFolderPath ?? 'default app path'}`,
         executionRoot.worktreePath ? `Worktree path: ${executionRoot.worktreePath}` : null,
@@ -599,6 +609,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           worktreeId: executionRoot.worktreeId,
           worktreePath: executionRoot.worktreePath,
           cliPermissionPreset,
+          cliModel: agent?.cliModel,
           memoryRootPath: memoryContext.rootPath,
           memoryRelativeRoot: memoryContext.relativeRoot,
           mcpSettings,
@@ -711,6 +722,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
       fileLinkDisposable.dispose()
+      webLinksAddon.dispose()
       terminalDiagnostics.dispose()
       replayGate.dispose()
       outputQueue.dispose()

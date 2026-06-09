@@ -69,6 +69,22 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: 'getNextWorkspaceId(..., -1) -> setActiveWorkspaceForWindow(workspaceWindowId, previousWorkspaceId)' },
   }),
+  command({
+    id: 'workspace.history.back',
+    title: 'Go Back (Recent Workspace)',
+    category: 'workspace',
+    scopes: ['workspace-navigation'],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: 'stepWorkspaceHistory(..., -1) -> setActiveWorkspaceForWindow(workspaceWindowId, visitedWorkspaceId)' },
+  }),
+  command({
+    id: 'workspace.history.forward',
+    title: 'Go Forward (Recent Workspace)',
+    category: 'workspace',
+    scopes: ['workspace-navigation'],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: 'stepWorkspaceHistory(..., 1) -> setActiveWorkspaceForWindow(workspaceWindowId, visitedWorkspaceId)' },
+  }),
   ...Array.from({ length: 9 }, (_, index) => {
     const workspaceNumber = index + 1
     return command({

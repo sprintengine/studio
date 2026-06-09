@@ -1,6 +1,7 @@
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
 import type {
   AgentCli,
+  AgentCliModelSelection,
   AppSettings,
   CliRuntimeSettings,
   KeybindingSettings,
@@ -429,6 +430,39 @@ export function normalizeCliDefaults<K extends string>(
   return result
 }
 
+// Remembered model id per CLI. Keeps non-empty trimmed entries only; an
+// absent entry means "the CLI's own default model".
+export function normalizeCliModelDefaults(
+  input: Partial<Record<AgentCli, string>> | null | undefined
+): Partial<Record<AgentCli, string>> {
+  if (!input || typeof input !== 'object') return {}
+  const result: Partial<Record<AgentCli, string>> = {}
+  for (const [key, value] of Object.entries(input)) {
+    const cli = key.trim()
+    const model = typeof value === 'string' ? value.trim() : ''
+    if (cli && model) result[cli] = model
+  }
+  return result
+}
+
+// Per-surface (specialist / Multiloop role) model overrides. Keeps only
+// well-formed { cli, model } pairs; a partial blob drops back to "no override"
+// so resolution falls through to cliModelDefaults.
+export function normalizeCliModelSelections<K extends string>(
+  input: Partial<Record<K, AgentCliModelSelection>> | null | undefined
+): Partial<Record<K, AgentCliModelSelection>> {
+  if (!input || typeof input !== 'object') return {}
+  const result: Partial<Record<K, AgentCliModelSelection>> = {}
+  for (const [key, value] of Object.entries(input)) {
+    if (!value || typeof value !== 'object') continue
+    const selection = value as Partial<AgentCliModelSelection>
+    const cli = typeof selection.cli === 'string' ? selection.cli.trim() : ''
+    const model = typeof selection.model === 'string' ? selection.model.trim() : ''
+    if (cli && model) result[key as K] = { cli, model }
+  }
+  return result
+}
+
 export function normalizeSelectedCli(input: AgentCli | null | undefined, fallback: AgentCli = 'claude-code'): AgentCli {
   if (typeof input === 'string' && input.trim()) {
     return input.trim()
@@ -441,7 +475,7 @@ function normalizeCliRuntimes(
   defaults: AppSettings,
 ): AppSettings['cliRuntimes'] {
   const canonicalClaude = cliRuntimes?.['claude-code']
-  const result: AppSettings['cliRuntimes'] = {
+  const merged: AppSettings['cliRuntimes'] = {
     ...defaults.cliRuntimes,
     ...(cliRuntimes ?? {}),
     'claude-code': {
@@ -449,8 +483,35 @@ function normalizeCliRuntimes(
       ...(canonicalClaude ?? {}),
     },
   }
-  delete result.claude
+  delete merged.claude
+  // Rebuild entries rather than mutating them: the spread above shares object
+  // references with the caller's persisted settings, which may be frozen.
+  const result: AppSettings['cliRuntimes'] = {}
+  for (const [id, runtime] of Object.entries(merged)) {
+    const models = normalizeUserModelList(runtime.models)
+    if (models) {
+      result[id] = { ...runtime, models }
+    } else {
+      const { models: _dropped, ...rest } = runtime
+      result[id] = rest
+    }
+  }
   return result
+}
+
+// User-added model ids for one CLI: trimmed, non-empty, deduped.
+export function normalizeUserModelList(input: unknown): string[] | undefined {
+  if (!Array.isArray(input)) return undefined
+  const seen = new Set<string>()
+  const models: string[] = []
+  for (const entry of input) {
+    if (typeof entry !== 'string') continue
+    const model = entry.trim()
+    if (!model || seen.has(model)) continue
+    seen.add(model)
+    models.push(model)
+  }
+  return models.length > 0 ? models : undefined
 }
 
 // Persisted last-used conversation provider/model. Keeps only a well-formed
@@ -558,6 +619,9 @@ export const defaultAppSettings = (): AppSettings => ({
   lastAgentSpawnPermissionPreset: 'default',
   specialistCliDefaults: {},
   multiloopRoleCliDefaults: {},
+  cliModelDefaults: {},
+  specialistModelDefaults: {},
+  multiloopRoleModelDefaults: {},
   specialistOrder: [],
   sprintEngineRoleSettings: defaultSprintEngineRoleSettings(),
   searchExcludes: [],
@@ -587,6 +651,9 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
     specialistCliDefaults: normalizeCliDefaults(settings?.specialistCliDefaults),
     multiloopRoleCliDefaults: normalizeCliDefaults(settings?.multiloopRoleCliDefaults),
+    cliModelDefaults: normalizeCliModelDefaults(settings?.cliModelDefaults),
+    specialistModelDefaults: normalizeCliModelSelections(settings?.specialistModelDefaults),
+    multiloopRoleModelDefaults: normalizeCliModelSelections(settings?.multiloopRoleModelDefaults),
     specialistOrder: normalizeSpecialistOrder(settings?.specialistOrder),
     sprintEngineRoleSettings: normalizeSprintEngineRoleSettings(settings?.sprintEngineRoleSettings),
     searchExcludes: normalizeSearchExcludes(settings?.searchExcludes),
@@ -641,6 +708,10 @@ export interface SettingsSliceActions {
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
+  /** Remember the model to use for a CLI; null clears back to the CLI default. */
+  setCliModelDefault: (cli: AgentCli, model: string | null) => void
+  setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void
+  setMultiloopRoleModelDefault: (role: MultiloopRole, selection: AgentCliModelSelection | null) => void
   setSpecialistOrder: (order: SpecialistActionId[]) => void
   setCommandKeybindings: (commandId: CommandId, keybindings: string[]) => void
   setCommandKeybindingDisabled: (commandId: CommandId, disabled: boolean) => void
@@ -825,6 +896,39 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
           delete state.appSettings.multiloopRoleCliDefaults[role]
         } else {
           state.appSettings.multiloopRoleCliDefaults[role] = cli
+        }
+      }),
+
+    setCliModelDefault: (cli, model) =>
+      set((state) => {
+        state.appSettings.cliModelDefaults ??= {}
+        const trimmed = model?.trim()
+        if (!trimmed) {
+          delete state.appSettings.cliModelDefaults[cli]
+        } else {
+          state.appSettings.cliModelDefaults[cli] = trimmed
+        }
+      }),
+
+    setSpecialistModelDefault: (specialistId, selection) =>
+      set((state) => {
+        state.appSettings.specialistModelDefaults ??= {}
+        const model = selection?.model.trim()
+        if (!selection || !model) {
+          delete state.appSettings.specialistModelDefaults[specialistId]
+        } else {
+          state.appSettings.specialistModelDefaults[specialistId] = { cli: selection.cli, model }
+        }
+      }),
+
+    setMultiloopRoleModelDefault: (role, selection) =>
+      set((state) => {
+        state.appSettings.multiloopRoleModelDefaults ??= {}
+        const model = selection?.model.trim()
+        if (!selection || !model) {
+          delete state.appSettings.multiloopRoleModelDefaults[role]
+        } else {
+          state.appSettings.multiloopRoleModelDefaults[role] = { cli: selection.cli, model }
         }
       }),
 

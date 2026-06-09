@@ -62,6 +62,27 @@ export function hasSprintEngineRunLink(item: Pick<BacklogItem, 'links'>): boolea
   return Boolean(sprintEngineRunLinkForItem(item))
 }
 
+// The open workspace whose live Sprint Engine run backs this Backlog run link,
+// matched by run.yaml state path (same correspondence `openSprintEngineBacklogLink`
+// uses). Returns null when no open workspace is mounted on that run — in which
+// case the run's live running/paused state simply is not observable here.
+export function matchWorkspaceForBacklogRunLink(
+  workspaces: ReadonlyArray<Workspace>,
+  workspaceRoot: string,
+  link: BacklogItemLink,
+): Workspace | null {
+  const statePath = sprintEngineStatePathForBacklogLink(workspaceRoot, link)
+  if (!statePath) return null
+  const targetKey = pathKey(statePath)
+  return (
+    workspaces.find(
+      (workspace) =>
+        workspace.sprintEngineContext?.statePath
+        && pathKey(workspace.sprintEngineContext.statePath) === targetKey,
+    ) ?? null
+  )
+}
+
 export function sprintEngineStatePathForBacklogLink(
   workspaceRoot: string,
   link: BacklogItemLink,

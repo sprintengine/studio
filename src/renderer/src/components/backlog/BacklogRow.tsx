@@ -5,6 +5,7 @@ import type {
   BacklogItem,
   BacklogItemStatus,
 } from '../../utils/backlog'
+import type { SprintEngineRunGlyph } from '../../utils/sprintengine'
 import {
   CRITICALITY_LABEL,
   DIFFICULTY_LABEL,
@@ -41,6 +42,15 @@ export const BACKLOG_STATUS_LABEL: Record<BacklogItemStatus, string> = {
   archived: 'Archived',
 }
 
+// A live-run override for the readiness glyph: when a Backlog item is linked to
+// a Sprint Engine run we can observe, the row's glyph reflects the *runner*'s
+// real state (running / paused / blocked / failed / complete) instead of the
+// item's coarse `in_progress` status. The rollup itself is shared with the
+// workspace sidebar (`deriveSprintEngineRunGlyph`) so the two surfaces can't
+// drift. The panel owns resolving it (it has the workspace store); the row
+// just renders what it is handed.
+export type BacklogRunGlyph = SprintEngineRunGlyph
+
 // Canonical backlog row interior, shared by the Backlog panel list and the
 // new-workspace Sprint Engine source picker so the two surfaces can't drift.
 // The selectable wrapper (listbox option, drag, click target) stays with each
@@ -50,13 +60,27 @@ export const BACKLOG_STATUS_LABEL: Record<BacklogItemStatus, string> = {
 // title, then the triage column (size + criticality) the eye can scan straight
 // down. Supporting line: the real excerpt (title already stripped), or the path
 // when a capture has no body yet, with how long ago it was touched on the right.
-export function BacklogRowContent({ item, now }: { item: BacklogItem; now: number }): JSX.Element {
-  const lifecycle = backlogStatusToLifecycle(item.status)
+export function BacklogRowContent({
+  item,
+  now,
+  runGlyph,
+}: {
+  item: BacklogItem
+  now: number
+  /** Live Sprint Engine run state, when this item is linked to an observable
+   *  run. Overrides the item-status glyph so the row reflects the runner. */
+  runGlyph?: BacklogRunGlyph
+}): JSX.Element {
+  const lifecycle = runGlyph?.state ?? backlogStatusToLifecycle(item.status)
+  const statusLabel = runGlyph?.label ?? BACKLOG_STATUS_LABEL[item.status]
+  // Default true keeps the standalone in_progress item spinning; a run override
+  // earns the spinner only when the runner is genuinely running.
+  const live = runGlyph?.live ?? true
   return (
     <>
       <div className="flex items-center gap-2">
-        <Tooltip content={BACKLOG_STATUS_LABEL[item.status]} placement="top">
-          <LifecycleGlyph state={lifecycle} />
+        <Tooltip content={statusLabel} placement="top">
+          <LifecycleGlyph state={lifecycle} live={live} />
         </Tooltip>
         <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
           {item.title}

@@ -506,12 +506,25 @@ function formatError(err: unknown): string {
 }
 
 export function manifestToListEntry(plugin: LoadedPlugin): PluginRegistryListEntry {
+  const modelSelection = plugin.manifest.modelSelection
   return {
     id: plugin.manifest.id,
     displayName: plugin.manifest.displayName,
     source: plugin.source,
     version: plugin.manifest.version,
     binary: plugin.manifest.binary,
+    // Renderer pickers need the choices, not the arg templates.
+    ...(modelSelection
+      ? {
+          modelSelection: {
+            options: (modelSelection.options ?? []).map((option) => ({
+              id: option.id,
+              ...(option.label ? { label: option.label } : {}),
+            })),
+            allowCustomId: modelSelection.allowCustomId ?? false,
+          },
+        }
+      : {}),
   }
 }
 

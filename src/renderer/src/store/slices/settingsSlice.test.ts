@@ -7,6 +7,8 @@ import {
   defaultAppSettings,
   defaultKeybindingSettings,
   normalizeAppSettings,
+  normalizeCliModelDefaults,
+  normalizeCliModelSelections,
   normalizeCliPermissionPreset,
   normalizeKeybindingSettings,
   normalizeRecentWorkspaceFolders,
@@ -171,6 +173,38 @@ assert.deepEqual(
 assert.equal(normalizeCliPermissionPreset('auto_workspace'), 'auto_workspace')
 assert.equal(normalizeCliPermissionPreset('bypass_all'), 'bypass_all')
 assert.equal(normalizeCliPermissionPreset('bad' as never), 'default')
+
+// CLI model defaults: trimmed, empty entries dropped, per-surface overrides
+// keep only well-formed { cli, model } pairs.
+assert.deepEqual(
+  normalizeCliModelDefaults({ codex: ' gpt-5-codex ', 'claude-code': '  ', opencode: 'x' }),
+  { codex: 'gpt-5-codex', opencode: 'x' },
+)
+assert.deepEqual(normalizeCliModelDefaults(null), {})
+assert.deepEqual(
+  normalizeCliModelSelections({
+    architect: { cli: 'claude-code', model: ' opus ' },
+    developer: { cli: '', model: 'opus' },
+    tester: { cli: 'codex' } as never,
+  }),
+  { architect: { cli: 'claude-code', model: 'opus' } },
+)
+const modelNormalized = normalizeAppSettings(
+  {
+    cliRuntimes: {
+      codex: { command: 'codex', useWsl: false, models: [' gpt-5-codex ', '', 'gpt-5-codex', 'o4-mini'] },
+    },
+    cliModelDefaults: { codex: 'gpt-5-codex' },
+    specialistModelDefaults: { architect: { cli: 'claude-code', model: 'opus' } },
+    multiloopRoleModelDefaults: { coordinator: { cli: 'codex', model: '' } as never },
+  },
+  [],
+)
+assert.deepEqual(modelNormalized.cliRuntimes.codex.models, ['gpt-5-codex', 'o4-mini'])
+assert.equal(modelNormalized.cliRuntimes['claude-code'].models, undefined)
+assert.deepEqual(modelNormalized.cliModelDefaults, { codex: 'gpt-5-codex' })
+assert.deepEqual(modelNormalized.specialistModelDefaults, { architect: { cli: 'claude-code', model: 'opus' } })
+assert.deepEqual(modelNormalized.multiloopRoleModelDefaults, {})
 assert.deepEqual(normalizeSearchExcludes(['!build', 'build', 'src\\gen']), ['build', 'src/gen'])
 assert.deepEqual(
   normalizeRecentWorkspaceFolders(['/A', '/a/', '/B'], ['/C', '/b']),
@@ -204,6 +238,25 @@ store.setSearchExcludes([' dist ', '!coverage', 'dist'])
 assert.deepEqual(useWorkspaceStore.getState().appSettings.searchExcludes, ['dist', 'coverage'])
 store.setLastSelectedCli('codex')
 assert.equal(useWorkspaceStore.getState().appSettings.lastSelectedCli, 'codex')
+
+store.setCliModelDefault('codex', ' gpt-5-codex ')
+assert.deepEqual(useWorkspaceStore.getState().appSettings.cliModelDefaults, { codex: 'gpt-5-codex' })
+store.setCliModelDefault('codex', null)
+assert.deepEqual(useWorkspaceStore.getState().appSettings.cliModelDefaults, {})
+store.setSpecialistModelDefault('architect', { cli: 'claude-code', model: 'opus' })
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.specialistModelDefaults,
+  { architect: { cli: 'claude-code', model: 'opus' } },
+)
+store.setSpecialistModelDefault('architect', null)
+assert.deepEqual(useWorkspaceStore.getState().appSettings.specialistModelDefaults, {})
+store.setMultiloopRoleModelDefault('coordinator', { cli: 'codex', model: 'gpt-5-codex' })
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.multiloopRoleModelDefaults,
+  { coordinator: { cli: 'codex', model: 'gpt-5-codex' } },
+)
+store.setMultiloopRoleModelDefault('coordinator', null)
+assert.deepEqual(useWorkspaceStore.getState().appSettings.multiloopRoleModelDefaults, {})
 
 store.setCommandKeybindings('commandPalette.open', ['Primary+Shift+P', 'CmdOrCtrl+Shift+P', 'Ctrl + +', 'bad-key'])
 assert.deepEqual(

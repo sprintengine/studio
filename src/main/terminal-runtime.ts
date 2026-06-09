@@ -1037,6 +1037,7 @@ async function spawnMobileAgentTerminal(input: {
       'auto_workspace',
       undefined,
       undefined,
+      undefined,
       sprintEngineMcpEnv
     )
     const initialSize = getTerminalSize(120, 30)
@@ -1131,6 +1132,7 @@ async function spawnTerminalFromIpc(
     worktreeId,
     worktreePath,
     cliPermissionPreset = 'default',
+    cliModel,
     memoryRootPath,
     memoryRelativeRoot,
     agentSession,
@@ -1313,6 +1315,7 @@ async function spawnTerminalFromIpc(
           initialPrompt,
           cliRuntimes,
           cliPermissionPreset,
+          cliModel,
           memoryRootPath,
           memoryRelativeRoot,
           sprintEngineMcpEnv

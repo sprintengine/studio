@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { NewChatIcon, WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
-import { InboxSearchInput, StatusDot, Tooltip, type Tone } from '../ui'
+import { InboxSearchInput, LifecycleGlyph, StatusDot, Tooltip, type Tone } from '../ui'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import PanelRail from './PanelRail'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -34,6 +34,7 @@ import {
 } from '../../utils/tabDragPayload'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
+import { deriveWorkspaceRunGlyph } from '../../utils/workspaceRunGlyph'
 import { partitionWorkspacesByRecency, sortWorkspacesByActivity } from '../../utils/workspaceRecency'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { filterWorkspacesBySearchQuery, normalizeWorkspaceSearchQuery } from '../../utils/workspaceSearch'
@@ -732,15 +733,38 @@ export default function WorkspaceSidebar({
     const activity = activityByWorkspaceId[workspace.id] ?? 'idle'
     const tone = activityTone(activity)
     const recency = terminalRecencyByWorkspaceId[workspace.id]
+    // Sprint Engine rows carry the run's lifecycle glyph in the status slot
+    // instead of the dot + recency idiom: the run state (spinner / needs input
+    // / paused / failed / done-once) is the signal a sprint workspace wants.
+    // Recency still drives ordering and survives in the glyph's tooltip.
+    const runGlyph = deriveWorkspaceRunGlyph(workspace, activity)
+    const runGlyphRecencyAgo =
+      runGlyph && typeof recency?.lastFinishedAt === 'number'
+        ? formatRelativeMsAgo(recency.lastFinishedAt, now)
+        : null
+    const runGlyphLabel = runGlyph
+      ? `${runGlyph.label}${runGlyphRecencyAgo ? ` · last terminal output ${runGlyphRecencyAgo}` : ''}`
+      : null
     const showRecencyText =
       !sidebarCollapsed
+      && !runGlyph
       && activity === 'idle'
       && !!recency
       && !recency.hasRunning
       && typeof recency.lastFinishedAt === 'number'
     // A working row has no dot anymore; it reads as "now" in the recency column,
     // the same idiom as a workspace whose terminal last spoke under a minute ago.
-    const showWorkingNow = !sidebarCollapsed && activity === 'working'
+    const showWorkingNow = !sidebarCollapsed && !runGlyph && activity === 'working'
+    // Collapsed rows keep the corner-dot idiom (a 16px glyph doesn't fit as an
+    // overlay on the 20px icon); it derives from the same rollup so the two
+    // presentations agree. Only the attention states earn the corner dot.
+    const collapsedDot = runGlyph
+      ? runGlyph.state === 'needs_input'
+        ? { tone: 'warn' as Tone, pulse: true }
+        : runGlyph.state === 'failed'
+          ? { tone: 'error' as Tone, pulse: false }
+          : null
+      : tone
     const folderMissing = workspace.folderMissing === true
     const starred = isStarred(workspace.highlight)
     const highlighted = hasHighlightOverride(workspace.highlight)
@@ -881,7 +905,12 @@ export default function WorkspaceSidebar({
 
             <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end">
               <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0">
-                {tone ? <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} /> : null}
+                {runGlyph && runGlyphLabel ? (
+                  <Tooltip content={runGlyphLabel}>
+                    <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
+                  </Tooltip>
+                ) : null}
+                {!runGlyph && tone ? <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} /> : null}
                 {showWorkingNow ? (
                   <span
                     className="text-[10px] tabular-nums text-[color:var(--text-subtle)]"
@@ -941,9 +970,9 @@ export default function WorkspaceSidebar({
           </>
         )}
 
-        {sidebarCollapsed && tone ? (
+        {sidebarCollapsed && collapsedDot ? (
           <span className="absolute right-1 top-1">
-            <StatusDot tone={tone.tone} pulse={tone.pulse} />
+            <StatusDot tone={collapsedDot.tone} pulse={collapsedDot.pulse} />
           </span>
         ) : null}
 

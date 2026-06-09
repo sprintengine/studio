@@ -36,6 +36,7 @@ import {
 import { normalizeCliPermissionPreset } from './settingsSlice'
 import type {
   AgentId,
+  AppSettings,
   MultiloopAutoPendingSpawn,
   MultiloopAutoState,
   MultiloopRole,
@@ -193,6 +194,9 @@ export function normalizeSprintEngineAutoState(
     reasonAgentId: typeof input?.reasonAgentId === 'string' ? input.reasonAgentId : undefined,
     changedAt: typeof input?.changedAt === 'number' && Number.isFinite(input.changedAt)
       ? input.changedAt
+      : undefined,
+    completionSeenAt: typeof input?.completionSeenAt === 'number' && Number.isFinite(input.completionSeenAt)
+      ? input.completionSeenAt
       : undefined,
     keepDoneAgentTerminals: Boolean(input?.keepDoneAgentTerminals),
     cliPermissionPreset,
@@ -393,6 +397,7 @@ export interface RunStateSliceActions {
     pendingSpawns: SprintEngineAutoPendingSpawn[]
   ) => void
   markSprintEngineAgentNotificationDelivered: (workspaceId: WorkspaceId, eventKey: string) => void
+  markSprintEngineRunCompletionSeen: (workspaceId: WorkspaceId, seenAt?: number) => void
   setMultiloopAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
   setMultiloopCliPermissionPreset: (
     workspaceId: WorkspaceId,
@@ -411,7 +416,9 @@ export interface RunStateSliceActions {
 
 export type RunStateSlice = RunStateSliceState & RunStateSliceActions
 
-type RunStateSliceCarrier = { workspaces: Workspace[] }
+// `appSettings` is optional so unit fixtures can pass a minimal carrier; the
+// real store mutator always provides it.
+type RunStateSliceCarrier = { workspaces: Workspace[]; appSettings?: AppSettings }
 type RunStateSliceSet = (mutator: (state: RunStateSliceCarrier) => void) => void
 
 function sprintEngineAutomationEventReason(event: SprintEngineAutomationEvent): string | null {
@@ -592,6 +599,18 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         }
       }),
 
+    markSprintEngineRunCompletionSeen: (workspaceId, seenAt = Date.now()) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === workspaceId)
+        if (!ws) return
+        const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
+        if (typeof current.completionSeenAt === 'number' && current.completionSeenAt >= seenAt) return
+        ws.sprintEngineAutoState = {
+          ...current,
+          completionSeenAt: seenAt,
+        }
+      }),
+
     setMultiloopAutoEnabled: (workspaceId, enabled) =>
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
@@ -660,9 +679,13 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         const agentRoleLabel = rosterAgent?.label ?? agentId
         const agentLabel = pickWorkspaceAgentName(ws.agents)
         const roleCliDefaults = normalizeSprintEngineRoleCliDefaults(ws.sprintEngineRoleCliDefaults)
+        const memberCli = requireSprintEngineRoleCli(roleCliDefaults, role)
         ws.agents[agentId] = {
           ...defaultAgent(agentId, agentLabel, 'sprintengine'),
-          cli: requireSprintEngineRoleCli(roleCliDefaults, role),
+          cli: memberCli,
+          // New members inherit the remembered per-CLI model, matching roster
+          // creation at workspace setup; the spawn dialog can override it.
+          cliModel: state.appSettings?.cliModelDefaults?.[memberCli]?.trim() || undefined,
         }
         ws.agents = reconcileSprintEngineAgents(ws.agents, ws.sprintEngineState)
         ws.sprintEngineState.events.push({

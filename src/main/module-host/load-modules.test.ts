@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { IpcMain } from 'electron'
 
+import type { CapabilityManifest } from '../../shared/modules/manifest'
+import { planThirdPartyMainModules } from '../modules/third-party-main-loader'
+import type { InstalledModule } from '../modules/user-module-registry'
 import { loadMainModules, type CapabilityModule } from './load-modules'
 import { createServiceToken } from './main-host'
 
@@ -23,6 +29,12 @@ async function main(): Promise<void> {
   testDuplicateChannelIsReportedNotFatal()
   testLifecycleAndSidecarsCollected()
   await testRunStartupAndShutdownInvokeHooks()
+  await testTrustedThirdPartyMainRegistersThroughHost()
+  await testUntrustedAndInvalidThirdPartyMainNeverImports()
+  await testThirdPartyPathSafetyAndBadEntriesAreLaunchErrors()
+  testRejectedThirdPartyManifestIsLaunchError()
+  await testTrustedThirdPartyRegistrationThrowIsIsolated()
+  await testThirdPartyIneligibleDependencyCascades()
 
   console.log('module-host tests passed')
 }
@@ -66,6 +78,7 @@ function testDisabledModuleNeverRegisters(): void {
 
   assert.equal(registered, false, 'disabled module must not register')
   assert.deepEqual(report.loaded, [])
+  assert.deepEqual(report.manifestOnly, [])
   assert.deepEqual(report.disabled, ['off'])
 }
 
@@ -205,6 +218,212 @@ async function testRunStartupAndShutdownInvokeHooks(): Promise<void> {
   // Startup ran; shutdown ran in reverse registration order and isolated the
   // throwing hook so the later-registered hook still ran.
   assert.deepEqual(order, ['start', 'stop'])
+}
+
+async function testTrustedThirdPartyMainRegistersThroughHost(): Promise<void> {
+  const moduleRoot = await createThirdPartyModuleRoot('trusted')
+  await writeFile(
+    join(moduleRoot, 'main.cjs'),
+    "exports.registerMain = (host) => host.registerIpc('trusted:ping', () => 'pong')\n"
+  )
+  const planned = planThirdPartyMainModules({
+    modules: [installedThirdPartyModule({ id: 'trusted', moduleRoot, trust: 'trusted', main: 'main.cjs' })],
+    rejected: [],
+  })
+
+  const { ipcMain, handled } = createFakeIpcMain()
+  const { report } = loadMainModules({ ipcMain, modules: planned.modules, ineligible: planned.ineligible })
+
+  assert.deepEqual(report.loaded, ['trusted'])
+  assert.deepEqual(report.manifestOnly, [])
+  assert.deepEqual(report.errors, [])
+  assert.deepEqual(handled, ['trusted:ping'])
+}
+
+async function testUntrustedAndInvalidThirdPartyMainNeverImports(): Promise<void> {
+  const unsignedRoot = await createThirdPartyModuleRoot('unsigned')
+  const signedRoot = await createThirdPartyModuleRoot('signed')
+  const invalidRoot = await createThirdPartyModuleRoot('invalid')
+  await Promise.all(
+    [unsignedRoot, signedRoot, invalidRoot].map((moduleRoot) =>
+      writeFile(join(moduleRoot, 'main.cjs'), "throw new Error('entry must not import')\n")
+    )
+  )
+  const planned = planThirdPartyMainModules({
+    modules: [
+      installedThirdPartyModule({ id: 'unsigned', moduleRoot: unsignedRoot, trust: 'unsigned', main: 'main.cjs' }),
+      installedThirdPartyModule({ id: 'signed', moduleRoot: signedRoot, trust: 'signed', main: 'main.cjs' }),
+      installedThirdPartyModule({ id: 'invalid', moduleRoot: invalidRoot, trust: 'invalid', main: 'main.cjs' }),
+    ],
+    rejected: [],
+  })
+
+  const { ipcMain } = createFakeIpcMain()
+  const { report } = loadMainModules({ ipcMain, modules: planned.modules, ineligible: planned.ineligible })
+
+  assert.deepEqual(report.loaded, [])
+  assert.deepEqual(report.manifestOnly, [])
+  assert.deepEqual(
+    report.errors.map((error) => ({ id: error.id, message: error.message })),
+    [
+      { id: 'invalid', message: 'Module "invalid" has an invalid signature and will not load.' },
+      { id: 'signed', message: 'Module "signed" is not trusted yet; trust it in Settings → Modules to enable.' },
+      { id: 'unsigned', message: 'Module "unsigned" is not trusted yet; trust it in Settings → Modules to enable.' },
+    ]
+  )
+}
+
+async function testThirdPartyPathSafetyAndBadEntriesAreLaunchErrors(): Promise<void> {
+  const missingEntryRoot = await createThirdPartyModuleRoot('manifest-only')
+  const escapedRoot = await createThirdPartyModuleRoot('escaped')
+  const badExportRoot = await createThirdPartyModuleRoot('bad-export')
+  const importFailureRoot = await createThirdPartyModuleRoot('import-failure')
+  await writeFile(join(badExportRoot, 'main.cjs'), 'exports.registerMain = 42\n')
+  const good: CapabilityModule = {
+    manifest: { id: 'good', displayName: 'Good', version: 1, defaultEnabled: true },
+    registerMain: (host) => host.registerIpc('good:ping', () => 'pong'),
+  }
+  const planned = planThirdPartyMainModules({
+    modules: [
+      installedThirdPartyModule({ id: 'manifest-only', moduleRoot: missingEntryRoot, trust: 'trusted' }),
+      installedThirdPartyModule({ id: 'escaped', moduleRoot: escapedRoot, trust: 'trusted', main: '../outside.cjs' }),
+      installedThirdPartyModule({ id: 'bad-export', moduleRoot: badExportRoot, trust: 'trusted', main: 'main.cjs' }),
+      installedThirdPartyModule({
+        id: 'import-failure',
+        moduleRoot: importFailureRoot,
+        trust: 'trusted',
+        main: 'missing.cjs',
+      }),
+    ],
+    rejected: [],
+  })
+
+  const { ipcMain, handled } = createFakeIpcMain()
+  const { report } = loadMainModules({
+    ipcMain,
+    modules: [...planned.modules, good],
+    ineligible: planned.ineligible,
+  })
+
+  assert.deepEqual(report.loaded, ['good'])
+  assert.deepEqual(report.manifestOnly, ['manifest-only'])
+  assert.deepEqual(handled, ['good:ping'])
+  assert.equal(report.errors.length, 3)
+  assert.equal(report.errors.find((error) => error.id === 'escaped')?.message, 'entry.main must resolve inside the module root.')
+  assert.equal(
+    report.errors.find((error) => error.id === 'bad-export')?.message,
+    'entry.main must export a callable registerMain(host).'
+  )
+  assert.match(report.errors.find((error) => error.id === 'import-failure')?.message ?? '', /Cannot find module/)
+}
+
+function testRejectedThirdPartyManifestIsLaunchError(): void {
+  const planned = planThirdPartyMainModules({
+    modules: [],
+    rejected: [
+      {
+        path: 'broken/manifest.json',
+        issues: [{ path: 'entry.main', message: 'must be a safe relative path inside the module.' }],
+      },
+    ],
+  })
+
+  const { ipcMain } = createFakeIpcMain()
+  const { report } = loadMainModules({
+    ipcMain,
+    modules: planned.modules,
+    launchErrors: planned.launchErrors,
+  })
+
+  assert.deepEqual(report.loaded, [])
+  assert.deepEqual(report.manifestOnly, [])
+  assert.deepEqual(report.errors, [
+    {
+      id: 'broken/manifest.json',
+      message: 'entry.main: must be a safe relative path inside the module.',
+    },
+  ])
+}
+
+async function testTrustedThirdPartyRegistrationThrowIsIsolated(): Promise<void> {
+  const badRoot = await createThirdPartyModuleRoot('bad')
+  await writeFile(join(badRoot, 'main.cjs'), "exports.registerMain = () => { throw new Error('boom') }\n")
+  const good: CapabilityModule = {
+    manifest: { id: 'good', displayName: 'Good', version: 1, defaultEnabled: true },
+    registerMain: (host) => host.registerIpc('good:ping', () => 'pong'),
+  }
+  const planned = planThirdPartyMainModules({
+    modules: [installedThirdPartyModule({ id: 'bad', moduleRoot: badRoot, trust: 'trusted', main: 'main.cjs' })],
+    rejected: [],
+  })
+
+  const { ipcMain, handled } = createFakeIpcMain()
+  const { report } = loadMainModules({ ipcMain, modules: [...planned.modules, good] })
+
+  assert.deepEqual(report.loaded, ['good'])
+  assert.deepEqual(handled, ['good:ping'])
+  assert.equal(report.errors.length, 1)
+  assert.equal(report.errors[0].id, 'bad')
+  assert.equal(report.errors[0].message, 'boom')
+}
+
+async function testThirdPartyIneligibleDependencyCascades(): Promise<void> {
+  const dependencyRoot = await createThirdPartyModuleRoot('dependency')
+  const dependentRoot = await createThirdPartyModuleRoot('dependent')
+  await writeFile(join(dependencyRoot, 'main.cjs'), "throw new Error('dependency must not import')\n")
+  await writeFile(join(dependentRoot, 'main.cjs'), "exports.registerMain = () => undefined\n")
+  const planned = planThirdPartyMainModules({
+    modules: [
+      installedThirdPartyModule({ id: 'dependency', moduleRoot: dependencyRoot, trust: 'unsigned', main: 'main.cjs' }),
+      installedThirdPartyModule({
+        id: 'dependent',
+        moduleRoot: dependentRoot,
+        trust: 'trusted',
+        main: 'main.cjs',
+        dependsOn: ['dependency'],
+      }),
+    ],
+    rejected: [],
+  })
+
+  const { ipcMain } = createFakeIpcMain()
+  const { report } = loadMainModules({ ipcMain, modules: planned.modules, ineligible: planned.ineligible })
+
+  assert.deepEqual(report.loaded, [])
+  assert.deepEqual(
+    report.errors.map((error) => ({ id: error.id, message: error.message })),
+    [
+      { id: 'dependency', message: 'Module "dependency" is not trusted yet; trust it in Settings → Modules to enable.' },
+      { id: 'dependent', message: 'Module "dependent" requires "dependency", which is not enabled.' },
+    ]
+  )
+}
+
+async function createThirdPartyModuleRoot(id: string): Promise<string> {
+  return mkdtemp(join(tmpdir(), `mc-third-party-${id}-`))
+}
+
+function installedThirdPartyModule(options: {
+  id: string
+  moduleRoot: string
+  trust: InstalledModule['trust']['status']
+  main?: string
+  dependsOn?: string[]
+}): InstalledModule {
+  const manifest: CapabilityManifest = {
+    id: options.id,
+    displayName: options.id,
+    version: 1,
+    defaultEnabled: true,
+    source: 'third-party',
+  }
+  if (options.main) manifest.entry = { main: options.main }
+  if (options.dependsOn) manifest.dependsOn = options.dependsOn
+  return {
+    manifest,
+    moduleRoot: options.moduleRoot,
+    trust: { status: options.trust },
+  }
 }
 
 void main()

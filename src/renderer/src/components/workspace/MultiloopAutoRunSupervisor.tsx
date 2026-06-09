@@ -420,6 +420,7 @@ async function spawnMultiloopAutoRunCandidate(
         agentId: candidate.agentId,
         ...(candidate.kind === 'sprintengine-task' && linkedStatePath ? { sprintEngineStatePath: linkedStatePath } : {}),
         cliPermissionPreset: workspace.multiloopAutoState.cliPermissionPreset,
+        cliModel: currentAgent?.cliModel,
         memoryRootPath: memoryStatus?.ok ? memoryStatus.rootPath : undefined,
         memoryRelativeRoot: memoryRelativeRoot ?? undefined,
         mcpSettings,

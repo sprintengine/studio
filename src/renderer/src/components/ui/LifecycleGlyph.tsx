@@ -11,6 +11,7 @@ export type LifecycleState =
   | 'idea'
   | 'ready'
   | 'in_progress'
+  | 'paused'
   | 'review'
   | 'testing'
   | 'product'
@@ -25,6 +26,7 @@ export const LIFECYCLE_LABEL: Record<LifecycleState, string> = {
   idea: 'Idea',
   ready: 'Ready',
   in_progress: 'In progress',
+  paused: 'Paused',
   review: 'In review',
   testing: 'In testing',
   product: 'Product gate',
@@ -40,6 +42,9 @@ const TONE: Record<LifecycleState, string> = {
   idea: 'text-[color:var(--text-disabled)]',
   ready: 'text-[color:var(--accent-primary)]',
   in_progress: 'text-[color:var(--accent-primary)]',
+  // Paused is a held run, not a live one: neutral ink, never the accent that
+  // signals "happening right now".
+  paused: 'text-[color:var(--text-subtle)]',
   review: 'text-[color:var(--accent-primary)]',
   testing: 'text-[color:var(--accent-primary)]',
   product: 'text-[color:var(--accent-primary)]',
@@ -123,6 +128,12 @@ export function LifecycleGlyph({
           <>
             <path d="M8 5.3v3.1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             <circle cx="8" cy="10.7" r="0.9" fill="currentColor" />
+          </>
+        ) : null}
+        {state === 'paused' ? (
+          <>
+            <path d="M6.5 5.9v4.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            <path d="M9.5 5.9v4.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </>
         ) : null}
         {state === 'archived' ? (

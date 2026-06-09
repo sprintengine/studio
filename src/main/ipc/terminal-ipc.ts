@@ -30,6 +30,7 @@ export type TerminalSpawnPayload = {
   worktreeId?: string
   worktreePath?: string
   cliPermissionPreset?: SprintEngineCliPermissionPreset
+  cliModel?: string
   memoryRootPath?: string
   memoryRelativeRoot?: string
   agentSession?: AgentSessionMetadata

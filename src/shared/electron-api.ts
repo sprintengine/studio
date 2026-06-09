@@ -313,6 +313,10 @@ export type SprintEngineCliPermissionPreset = 'default' | 'auto_workspace' | 'by
 export type CliRuntimeSettings = {
   command: string
   useWsl: boolean
+  // User-added model ids for this CLI, shown in pickers alongside the plugin
+  // manifest's seed options. Terminal CLIs expose no live model catalog, so
+  // this list is how users keep pace with new models.
+  models?: string[]
 }
 
 export type McpClientTarget = AgentCli
@@ -489,6 +493,9 @@ export type TerminalSpawnMetadata = {
   worktreeId?: string
   worktreePath?: string
   cliPermissionPreset?: SprintEngineCliPermissionPreset
+  // Model id passed to the agent CLI when its plugin declares modelSelection;
+  // undefined means the CLI's own default model.
+  cliModel?: string
   memoryRootPath?: string
   memoryRelativeRoot?: string
   agentSession?: AgentSessionMetadata
@@ -795,6 +802,10 @@ export type CreateWorkspaceWindowInput = {
 
 export type CreateWorkspaceWindowResult =
   | { ok: true; windowId: string }
+  | { ok: false; message: string }
+
+export type OpenExternalResult =
+  | { ok: true }
   | { ok: false; message: string }
 
 export type AppUpdateStatus =
@@ -1300,6 +1311,7 @@ export type ElectronApi = {
   getWorkspaceWindowId: () => Promise<string>
   createWorkspaceWindow: (input: CreateWorkspaceWindowInput) => Promise<CreateWorkspaceWindowResult>
   confirmWindowClose: () => Promise<void>
+  openExternal: (url: string) => Promise<OpenExternalResult>
   onWindowStateChanged: (cb: (state: WindowState) => void) => () => void
   onWindowPlacementChanged: (cb: (placement: WindowPlacement) => void) => () => void
   onWindowCloseRequested: (cb: () => void) => () => void
@@ -1496,7 +1508,7 @@ export type ElectronApi = {
   installUserLayoutTemplateFolder: (srcDir: string) => Promise<LayoutTemplateInstallResult>
   /** List the layout templates installed in the user-global registry. */
   listUserLayoutTemplates: () => Promise<UserLayoutTemplateListResult>
-  /** List installed third-party capability modules with their trust + permissions. */
+  /** List installed third-party capability modules with trust, permissions, and launch readiness. */
   listThirdPartyModules: () => Promise<ThirdPartyModuleListResult>
   /** Install a third-party capability module from a folder (validated, not executed). */
   installThirdPartyModuleFolder: (srcDir: string) => Promise<ThirdPartyModuleInstallResult>

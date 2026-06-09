@@ -21,6 +21,7 @@ export type MainModuleLoadError = {
 
 export type MainModuleLoadReport = {
   loaded: string[]
+  manifestOnly: string[]
   disabled: string[]
   errors: MainModuleLoadError[]
   sidecars: ReadonlyArray<SidecarSpec>
@@ -51,8 +52,10 @@ export function loadMainModules(options: {
    * its `registerMain` never runs. Bundled modules never appear here.
    */
   ineligible?: Record<string, ModuleResolutionErrorCode>
+  /** Pre-resolution launch errors from module discovery/validation. */
+  launchErrors?: MainModuleLoadError[]
 }): LoadMainModulesResult {
-  const { ipcMain, modules, overrides = {}, provideServices, ineligible } = options
+  const { ipcMain, modules, overrides = {}, provideServices, ineligible, launchErrors = [] } = options
   const byId = new Map(modules.map((module) => [module.manifest.id, module]))
   const resolution = resolveModuleEnablement(
     modules.map((module) => module.manifest),
@@ -63,16 +66,23 @@ export function loadMainModules(options: {
   const kernel = createMainKernel(ipcMain)
   provideServices?.(kernel.hostFor('@host'))
   const loaded: string[] = []
-  const errors: MainModuleLoadError[] = resolution.errors.map((error) => ({
-    id: error.id,
-    message: error.message,
-  }))
+  const manifestOnly: string[] = []
+  const errors: MainModuleLoadError[] = launchErrors.concat(
+    resolution.errors.map((error) => ({
+      id: error.id,
+      message: error.message,
+    }))
+  )
 
   for (const id of resolution.order) {
     const module = byId.get(id)
     if (!module) continue
+    if (!module.registerMain) {
+      manifestOnly.push(id)
+      continue
+    }
     try {
-      module.registerMain?.(kernel.hostFor(id))
+      module.registerMain(kernel.hostFor(id))
       loaded.push(id)
     } catch (err) {
       errors.push({ id, message: err instanceof Error ? err.message : String(err) })
@@ -80,7 +90,7 @@ export function loadMainModules(options: {
   }
 
   return {
-    report: { loaded, disabled: resolution.disabled, errors, sidecars: kernel.sidecars() },
+    report: { loaded, manifestOnly, disabled: resolution.disabled, errors, sidecars: kernel.sidecars() },
     kernel,
   }
 }

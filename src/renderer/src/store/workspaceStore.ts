@@ -27,6 +27,7 @@ import type {
   SprintEngineRoleCliDefaults,
   SprintEngineSavedRoster,
   AgentCli,
+  AgentCliModelSelection,
   AgentConversationRuntime,
   AppSettings,
   UsageTelemetrySettings,
@@ -189,6 +190,9 @@ export interface WorkspaceStore extends PluginsSlice {
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
+  setCliModelDefault: (cli: AgentCli, model: string | null) => void
+  setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void
+  setMultiloopRoleModelDefault: (role: MultiloopRole, selection: AgentCliModelSelection | null) => void
   setSpecialistOrder: (order: SpecialistActionId[]) => void
   setCommandKeybindings: (commandId: CommandId, keybindings: string[]) => void
   setCommandKeybindingDisabled: (commandId: CommandId, disabled: boolean) => void
@@ -286,6 +290,7 @@ export interface WorkspaceStore extends PluginsSlice {
     pendingSpawns: SprintEngineAutoPendingSpawn[]
   ) => void
   markSprintEngineAgentNotificationDelivered: (workspaceId: WorkspaceId, eventKey: string) => void
+  markSprintEngineRunCompletionSeen: (workspaceId: WorkspaceId, seenAt?: number) => void
   setMultiloopAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
   setMultiloopCliPermissionPreset: (
     workspaceId: WorkspaceId,

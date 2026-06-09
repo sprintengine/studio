@@ -1464,6 +1464,7 @@ export async function spawnAutoRunCandidate(
       agentId: nextRun.agentId,
       executionMode,
       cliPermissionPreset: getSprintEngineAutoState(workspace).cliPermissionPreset,
+      cliModel: currentAgent?.cliModel,
       memoryRootPath: memoryStatus?.ok ? memoryStatus.rootPath : undefined,
       memoryRelativeRoot: memoryRelativeRoot ?? undefined,
       mcpSettings,

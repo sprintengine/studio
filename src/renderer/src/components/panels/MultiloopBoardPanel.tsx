@@ -19,6 +19,7 @@ import {
 } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
+  AgentCliModelSelection,
   MultiloopArtifact,
   MultiloopMilestone,
   MultiloopState,
@@ -28,7 +29,11 @@ import type {
   SprintEngineState,
   WorkspaceId,
 } from '../../types/workspace'
+import { resolveCliModel } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
+
+const EMPTY_MULTILOOP_ROLE_MODEL_DEFAULTS: Partial<Record<MultiloopRole, AgentCliModelSelection>> = {}
+const EMPTY_CLI_MODEL_DEFAULTS: Partial<Record<AgentCli, string>> = {}
 import { focusOrAddAgentTab } from '../../utils/modelRegistry'
 import {
   buildMultiloopLaunchContextLines,
@@ -183,6 +188,8 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
   const setMultiloopCliPermissionPreset = useWorkspaceStore((state) => state.setMultiloopCliPermissionPreset)
   const lastSelectedCli = useWorkspaceStore((state) => state.appSettings.lastSelectedCli)
   const multiloopRoleCliDefaults = useWorkspaceStore((state) => state.appSettings.multiloopRoleCliDefaults)
+  const multiloopRoleModelDefaults = useWorkspaceStore((state) => state.appSettings.multiloopRoleModelDefaults ?? EMPTY_MULTILOOP_ROLE_MODEL_DEFAULTS)
+  const cliModelDefaults = useWorkspaceStore((state) => state.appSettings.cliModelDefaults ?? EMPTY_CLI_MODEL_DEFAULTS)
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
   const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
   const shortcutFor = useCallback((commandId: string): string | undefined => (
@@ -230,6 +237,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
 
     const soul = getMultiloopRole(role)
     const selectedCli: AgentCli = multiloopRoleCliDefaults[role] ?? lastSelectedCli
+    const selectedCliModel = resolveCliModel(selectedCli, multiloopRoleModelDefaults[role], cliModelDefaults)
     setRoleLaunchState({ status: 'loading', role })
     try {
       const currentMilestone = getActiveMultiloopMilestone(multiloopState)
@@ -263,6 +271,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
         updateAgent(workspaceId, agentId, {
           name: tabName,
           cli: existingAgent?.cli ?? selectedCli,
+          cliModel: existingAgent?.cliModel ?? selectedCliModel,
           cliPermissionPreset: existingAgent?.cliPermissionPreset ?? 'default',
           kind: 'sprintengine',
           specialistId: undefined,
@@ -307,6 +316,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
       updateAgent(workspaceId, agentId, {
         name: tabName,
         cli: existingAgent?.cli ?? selectedCli,
+        cliModel: existingAgent?.cliModel ?? selectedCliModel,
         cliPermissionPreset: existingAgent?.cliPermissionPreset ?? 'default',
         kind: 'multiloop',
         specialistId: undefined,

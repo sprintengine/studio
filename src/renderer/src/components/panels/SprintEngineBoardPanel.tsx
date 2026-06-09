@@ -47,6 +47,8 @@ import type {
 } from '../../types/workspace'
 import { SprintEngineRoleIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
+import { selectAgentCliCatalog } from '../workspace/newWorkspace/cliRuntimeOptions'
+import type { PluginModelCatalog } from '../../../../shared/plugin-manifest'
 import {
  bracketedTerminalPaste,
  buildSprintEngineRoleRegistry,
@@ -106,10 +108,6 @@ import { useSprintEngineBoardTerminalActions } from './sprintEngineBoard/useSpri
 
 
 
-const cliOptions: Array<{ value: AgentCli; label: string; description: string }> = [
- { value: 'codex', label: 'Codex', description: 'OpenAI Codex CLI' },
- { value: 'claude-code', label: 'Claude Code', description: 'Claude Code CLI' },
-]
 const sprintEngineCliPermissionOptions: Array<{
  value: SprintEngineCliPermissionPreset
  label: string
@@ -155,14 +153,144 @@ type PendingRosterMemberSpawn = {
 
 type SprintEngineTasksLayout = 'graph' | 'kanban'
 
+const EMPTY_CLI_MODEL_DEFAULTS: Partial<Record<AgentCli, string>> = {}
+
+// Model field for the spawn/recovery dialogs. Rendered only when the selected
+// CLI's plugin declares modelSelection; "Default" means the CLI's own default
+// (no flag passed at launch).
+function SprintEngineModelField({
+ cliOption,
+ model,
+ onChange,
+}: {
+ cliOption: { label: string; modelSelection?: PluginModelCatalog } | undefined
+ model: string | undefined
+ onChange: (model: string | undefined) => void
+}) {
+ const [open, setOpen] = useState(false)
+ const [customModel, setCustomModel] = useState('')
+ const catalog = cliOption?.modelSelection
+ if (!cliOption || !catalog) return null
+ const knownLabel = model ? catalog.options.find((option) => option.id === model)?.label : undefined
+ const currentLabel = model ? knownLabel ?? model : 'Default'
+ return (
+ <div>
+ <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">
+ Model
+ </div>
+ <Popover
+ open={open}
+ onOpenChange={(next) => {
+ setOpen(next)
+ if (!next) setCustomModel('')
+ }}
+ ariaLabel={`Model options for ${cliOption.label}`}
+ popupRole="listbox"
+ placement="bottom-start"
+ className="block w-full"
+ surfaceClassName="min-w-[var(--popover-trigger-width)] p-1"
+ renderTrigger={({ ref, triggerProps, togglePopover }) => (
+ <button
+ ref={ref}
+ type="button"
+ onClick={togglePopover}
+ className="flex h-10 w-full items-center gap-3 rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-left text-sm text-[color:var(--text-strong)] outline-none interactive transition-colors hover:bg-[color:var(--bg-hover)] focus:ring-1 focus:ring-[color:var(--border-strong)]"
+ {...triggerProps}
+ >
+ <span className={`min-w-0 flex-1 truncate ${model && !knownLabel ? 'font-mono text-[13px]' : ''}`}>
+ {currentLabel}
+ </span>
+ <svg
+ className={`icon-md shrink-0 text-[color:var(--text-disabled)] transition-transform ${open ? 'rotate-180' : ''}`}
+ viewBox="0 0 20 20"
+ fill="none"
+ aria-hidden="true"
+ >
+ <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+ </svg>
+ </button>
+ )}
+ >
+ {[
+ { id: undefined as string | undefined, label: 'Default' },
+ ...catalog.options.map((option) => ({ id: option.id as string | undefined, label: option.label ?? option.id })),
+ ].map((option) => {
+ const selected = option.id === model
+ return (
+ <button
+ key={option.id ?? '__default__'}
+ type="button"
+ role="option"
+ aria-selected={selected}
+ onClick={() => {
+ onChange(option.id)
+ setOpen(false)
+ }}
+ className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm interactive transition-colors ${
+ selected
+ ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+ : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+ }`}
+ >
+ <span className="min-w-0 flex-1 truncate">{option.label}</span>
+ {selected ? (
+ <svg className="icon-md shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+ <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+ </svg>
+ ) : null}
+ </button>
+ )
+ })}
+ {model && !catalog.options.some((option) => option.id === model) ? (
+ <button
+ type="button"
+ role="option"
+ aria-selected
+ onClick={() => setOpen(false)}
+ className="flex w-full items-center gap-3 rounded-md bg-[color:var(--bg-hover)] px-3 py-2 text-left font-mono text-[13px] text-[color:var(--text-strong)]"
+ >
+ <span className="min-w-0 flex-1 truncate">{model}</span>
+ <svg className="icon-md shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+ <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+ </svg>
+ </button>
+ ) : null}
+ {catalog.allowCustomId ? (
+ <input
+ type="text"
+ value={customModel}
+ placeholder="Custom model id"
+ aria-label={`Custom model id for ${cliOption.label}`}
+ onChange={(event) => setCustomModel(event.target.value)}
+ onKeyDown={(event) => {
+ event.stopPropagation()
+ if (event.key === 'Enter') {
+ const next = customModel.trim()
+ if (next) {
+ onChange(next)
+ setOpen(false)
+ }
+ }
+ }}
+ className="mt-1 w-full rounded-md border border-[color:var(--border-subtle)] bg-transparent px-3 py-2 font-mono text-[13px] text-[color:var(--text-default)] placeholder:font-sans placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] focus:outline-none"
+ />
+ ) : null}
+ </Popover>
+ </div>
+ )
+}
+
 type SpawnDialogState = {
  agentId: string
  cli: AgentCli
+ // Model id passed at CLI launch; undefined means the CLI's own default.
+ model?: string
  name: string
 }
 
 type RecoveryDialogState = {
  cli: AgentCli
+ model?: string
 }
 
 const sprintEngineAutomationRuntimeLabels: Record<SprintEngineAutomationRuntimeState, string> = {
@@ -401,6 +529,10 @@ function SprintEngineBoardPanelContent({
  const openFile = useWorkspaceStore((s) => s.openFile)
  const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
  const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli)
+ const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+ const cliModelDefaults = useWorkspaceStore((s) => s.appSettings.cliModelDefaults ?? EMPTY_CLI_MODEL_DEFAULTS)
+ const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
+ const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
  const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
  const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
  const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
@@ -805,6 +937,15 @@ function SprintEngineBoardPanelContent({
  ? normalizeAgentIdentifier(spawnDialog.name) || spawnDialogDefaultName
  : spawnDialogDefaultName
  const spawnDialogHasLiveTerminal = spawnDialog ? isAgentTerminalLive(spawnDialog.agentId) : false
+ // Installed agent CLI catalog (bundled + user plugins), replacing the old
+ // hardcoded Codex/Claude pair so user-installed CLIs are spawnable here too.
+ const cliOptions = useMemo(() => {
+   const catalog = selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes)
+   return catalog.map((option) => ({
+     ...option,
+     description: option.source === 'user' ? 'User-installed agent CLI' : 'Agent CLI plugin',
+   }))
+ }, [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes])
  const selectedCliOption = cliOptions.find((option) => option.value === spawnDialog?.cli) ?? cliOptions[0]
  const selectedRecoveryCliOption =
  cliOptions.find((option) => option.value === recoveryDialog?.cli) ?? cliOptions[0]
@@ -1197,6 +1338,7 @@ function SprintEngineBoardPanelContent({
  folderStatusMessage,
  folderCheckedPath,
  lastSelectedCli,
+ cliModelDefaults,
  spawnDialog,
  recoveryDialog,
  spawnDialogHasLiveTerminal,
@@ -1833,7 +1975,7 @@ function SprintEngineBoardPanelContent({
  aria-selected={selected}
  onClick={() => {
  setRecoveryDialog((current) =>
- current ? { ...current, cli: option.value } : current
+ current ? { ...current, cli: option.value, model: cliModelDefaults[option.value] } : current
  )
  setCliPickerOpen(false)
  }}
@@ -1868,6 +2010,14 @@ function SprintEngineBoardPanelContent({
  })}
  </Popover>
  </div>
+
+ <SprintEngineModelField
+ cliOption={selectedRecoveryCliOption}
+ model={recoveryDialog.model}
+ onChange={(model) => {
+ setRecoveryDialog((current) => (current ? { ...current, model } : current))
+ }}
+ />
 
  <p className="border-l border-[color:var(--border-strong)] pl-3 text-sm leading-6 text-[color:var(--text-muted)]">
  The Architect runs the audit in a terminal and writes updates to the watched state file.
@@ -2007,7 +2157,7 @@ function SprintEngineBoardPanelContent({
  aria-selected={selected}
  onClick={() => {
  setSpawnDialog((current) =>
- current ? { ...current, cli: option.value } : current
+ current ? { ...current, cli: option.value, model: cliModelDefaults[option.value] } : current
  )
  setCliPickerOpen(false)
  }}
@@ -2042,6 +2192,14 @@ function SprintEngineBoardPanelContent({
  })}
  </Popover>
  </div>
+
+ <SprintEngineModelField
+ cliOption={selectedCliOption}
+ model={spawnDialog.model}
+ onChange={(model) => {
+ setSpawnDialog((current) => (current ? { ...current, model } : current))
+ }}
+ />
 
  <p className="border-l border-[color:var(--border-strong)] pl-3 text-sm leading-6 text-[color:var(--text-muted)]">
  {cliOptions.find((option) => option.value === spawnDialog.cli)?.description}

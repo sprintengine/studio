@@ -67,6 +67,7 @@ export const defaultAgent = (id: AgentId, name = id, kind: AgentKind = 'general'
   cliOnboardingPromptSent: false,
   cliResumeAvailable: false,
   cli: undefined,
+  cliModel: undefined,
   cliPermissionPreset: 'default',
   cliStartupPrompt: undefined,
   kind,
@@ -85,6 +86,13 @@ export function normalizeAgentCli(agent: Partial<AgentState>, fallback?: AgentCl
   const fallbackCli = typeof fallback === 'string' ? fallback.trim() : ''
   if (!fallbackCli) return undefined
   return fallbackCli
+}
+
+// A model id is only meaningful as free text the CLI will interpret; trim and
+// drop empties so a cleared selection reads as "use the CLI default".
+export function normalizeAgentCliModel(value: unknown): string | undefined {
+  const model = typeof value === 'string' ? value.trim() : ''
+  return model || undefined
 }
 
 export function normalizeAgentConversation(
@@ -117,6 +125,7 @@ export function normalizeAgentState(agent: AgentState, fallbackCli?: AgentCli): 
   return {
     ...agent,
     cli: normalizeAgentCli(agent, fallbackCli),
+    cliModel: normalizeAgentCliModel(agent.cliModel),
     execution: normalizeAgentExecution(agent.execution),
     cliPermissionPreset: normalizeCliPermissionPreset(agent.cliPermissionPreset),
     runtimeKind: runtime.runtimeKind,

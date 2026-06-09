@@ -11,6 +11,7 @@ import {
 } from '../../specialists/specialistActions'
 import type {
   AgentCli,
+  AgentCliModelSelection,
   AppNotification,
   MultiloopRole,
   PluginCatalogStatus,
@@ -18,7 +19,7 @@ import type {
   SprintEngineCliPermissionPreset,
   Workspace,
 } from '../../types/workspace'
-import { resolveAvailableAgentCli } from './newWorkspace/cliRuntimeOptions'
+import { resolveAvailableAgentCli, resolveCliModel, type AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
 import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getHighlightSwatch, getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
@@ -70,6 +71,159 @@ function OpenInNewChatItem({ onSelect }: { onSelect: () => void }) {
       </svg>
       Open in New Chat
     </button>
+  )
+}
+
+// CLI listbox shared by the spawn-row chip popovers (General Agent, specialist
+// rows, Multiloop roles). Each CLI row selects that CLI as-is; rows whose
+// plugin declares modelSelection get a trailing disclosure that expands an
+// indented model list — "Default" (the CLI's own default, no flag passed),
+// the merged seed + user-added options, and a free-text id when the plugin
+// allows custom ids. Picking a model selects the CLI and the model together.
+function CliModelListbox({
+  ariaLabel,
+  options,
+  currentCli,
+  effectiveModelFor,
+  onSelectCli,
+  onSelectModel,
+}: {
+  ariaLabel: string
+  options: AgentCliCatalogOption[]
+  currentCli: AgentCli
+  effectiveModelFor: (cli: AgentCli) => string | undefined
+  onSelectCli: (cli: AgentCli) => void
+  onSelectModel: (cli: AgentCli, model: string | null) => void
+}) {
+  const [expandedCli, setExpandedCli] = React.useState<AgentCli | null>(null)
+  const [customModel, setCustomModel] = React.useState('')
+  return (
+    <div role="listbox" aria-label={ariaLabel}>
+      {options.map((option) => {
+        const isCurrent = option.value === currentCli
+        const models = option.modelSelection
+        const expanded = expandedCli === option.value
+        const effectiveModel = effectiveModelFor(option.value)
+        return (
+          <React.Fragment key={option.value}>
+            <div className="relative">
+              <button
+                type="button"
+                role="option"
+                aria-selected={isCurrent}
+                onClick={() => onSelectCli(option.value)}
+                className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
+                  models ? 'pr-7' : ''
+                } ${
+                  isCurrent
+                    ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
+                    : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
+                }`}
+              >
+                <CliIcon cli={option.value} className="icon-sm" />
+                {option.label}
+                {isCurrent ? <span className="ml-auto text-[color:var(--accent-primary)]">✓</span> : null}
+              </button>
+              {models ? (
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-label={`Models for ${option.label}`}
+                  onClick={() => {
+                    setCustomModel('')
+                    setExpandedCli((current) => (current === option.value ? null : option.value))
+                  }}
+                  className="absolute right-1 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-[color:var(--text-disabled)] transition-colors hover:text-[color:var(--text-strong)]"
+                >
+                  <svg className={`icon-xs transition-transform ${expanded ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              ) : null}
+            </div>
+            {expanded && models ? (
+              <div
+                role="listbox"
+                aria-label={`Model for ${option.label}`}
+                // Bounded: the chip popover measured its flip placement before
+                // this section expanded, so long model lists scroll instead of
+                // growing past the spawn menu's clip.
+                className="my-0.5 ml-3.5 max-h-[168px] overflow-y-auto border-l border-[color:var(--border-subtle)] pl-1"
+              >
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={!effectiveModel}
+                  onClick={() => onSelectModel(option.value, null)}
+                  className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[12px] transition-colors ${
+                    !effectiveModel
+                      ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
+                      : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
+                  }`}
+                >
+                  Default
+                  {!effectiveModel ? <span className="ml-auto text-[color:var(--accent-primary)]">✓</span> : null}
+                </button>
+                {models.options.map((model) => {
+                  const isModelCurrent = model.id === effectiveModel
+                  return (
+                    <button
+                      key={model.id}
+                      type="button"
+                      role="option"
+                      aria-selected={isModelCurrent}
+                      onClick={() => onSelectModel(option.value, model.id)}
+                      className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[12px] transition-colors ${
+                        model.label ? '' : 'font-mono text-[11px]'
+                      } ${
+                        isModelCurrent
+                          ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
+                          : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
+                      }`}
+                    >
+                      <span className="min-w-0 flex-1 truncate">{model.label ?? model.id}</span>
+                      {isModelCurrent ? <span className="text-[color:var(--accent-primary)]">✓</span> : null}
+                    </button>
+                  )
+                })}
+                {/* A persisted model no longer in the catalog still launches with
+                    that id; surface it as the checked entry instead of hiding it. */}
+                {effectiveModel && !models.options.some((model) => model.id === effectiveModel) ? (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected
+                    onClick={() => onSelectModel(option.value, effectiveModel)}
+                    className="flex w-full items-center gap-2 rounded bg-[color:var(--accent-primary-soft-strong)] px-2 py-1 text-left font-mono text-[11px] text-[color:var(--text-strong)]"
+                  >
+                    <span className="min-w-0 flex-1 truncate">{effectiveModel}</span>
+                    <span className="text-[color:var(--accent-primary)]">✓</span>
+                  </button>
+                ) : null}
+                {models.allowCustomId ? (
+                  <input
+                    type="text"
+                    value={customModel}
+                    placeholder="Custom model id"
+                    aria-label={`Custom model id for ${option.label}`}
+                    onChange={(event) => setCustomModel(event.target.value)}
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => {
+                      event.stopPropagation()
+                      if (event.key === 'Enter') {
+                        const model = customModel.trim()
+                        if (model) onSelectModel(option.value, model)
+                      }
+                    }}
+                    className="mt-0.5 w-full rounded border border-[color:var(--border-subtle)] bg-transparent px-2 py-1 font-mono text-[11px] text-[color:var(--text-default)] placeholder:font-sans placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] focus:outline-none"
+                  />
+                ) : null}
+              </div>
+            ) : null}
+          </React.Fragment>
+        )
+      })}
+    </div>
   )
 }
 
@@ -532,13 +686,23 @@ export type WorkspaceTopBarProps = {
   multiloopRoleCliDefaults: Partial<Record<MultiloopRole, AgentCli>>
   setSpecialistCliDefault: (id: SpecialistActionId, cli: AgentCli | null) => void
   setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
+  // Model selection mirrors the CLI selection idiom: a remembered per-CLI
+  // default plus optional per-row overrides scoped to the CLI they were picked
+  // for. Absent everywhere means "the CLI's own default model".
+  cliModelDefaults: Partial<Record<AgentCli, string>>
+  specialistModelDefaults: Partial<Record<SpecialistActionId, AgentCliModelSelection>>
+  multiloopRoleModelDefaults: Partial<Record<MultiloopRole, AgentCliModelSelection>>
+  setCliModelDefault: (cli: AgentCli, model: string | null) => void
+  setSpecialistModelDefault: (id: SpecialistActionId, selection: AgentCliModelSelection | null) => void
+  setMultiloopRoleModelDefault: (role: MultiloopRole, selection: AgentCliModelSelection | null) => void
   // Specialist roster in the user's persisted display order. Drives the spawn
   // menu list and is the source the drag-reorder rewrites.
   specialistActions: SpecialistAction[]
   setSpecialistOrder: (order: SpecialistActionId[]) => void
   // Plugin-aware agent CLI catalog (bundled + configured cliRuntimes), shared
-  // with the sidebar New chat picker so the lists stay in sync.
-  agentCliOptions: Array<{ value: AgentCli; label: string }>
+  // with the sidebar New chat picker so the lists stay in sync. Entries carry
+  // the plugin's merged model catalog when it declares modelSelection.
+  agentCliOptions: AgentCliCatalogOption[]
   // Plugin registry load state, so the spawn menu can tell "still loading" and
   // "registry error" apart from a genuinely empty catalog.
   agentCliStatus: PluginCatalogStatus
@@ -631,6 +795,12 @@ export default function WorkspaceTopBar({
   multiloopRoleCliDefaults,
   setSpecialistCliDefault,
   setMultiloopRoleCliDefault,
+  cliModelDefaults,
+  specialistModelDefaults,
+  multiloopRoleModelDefaults,
+  setCliModelDefault,
+  setSpecialistModelDefault,
+  setMultiloopRoleModelDefault,
   specialistActions,
   setSpecialistOrder,
   agentCliOptions,
@@ -675,6 +845,15 @@ export default function WorkspaceTopBar({
   // opencode/custom agents read correctly instead of falling back to "Claude Code".
   const cliLabelFor = (cli: AgentCli): string =>
     agentCliOptions.find((option) => option.value === cli)?.label ?? cli
+  // "Claude Code · Opus" for tooltips: the model's friendly label when the
+  // catalog knows it, the raw id otherwise, nothing when the CLI default runs.
+  const cliWithModelLabel = (cli: AgentCli, model: string | undefined): string => {
+    const cliLabel = cliLabelFor(cli)
+    if (!model) return cliLabel
+    const option = agentCliOptions.find((entry) => entry.value === cli)
+    const modelLabel = option?.modelSelection?.options.find((entry) => entry.id === model)?.label ?? model
+    return `${cliLabel} · ${modelLabel}`
+  }
   // Drag-to-reorder state for the specialist spawn list. Ephemeral: the dragged
   // row and the row it is currently hovering, used only to paint the drop target.
   const [draggingSpecialistId, setDraggingSpecialistId] = React.useState<SpecialistActionId | null>(null)
@@ -1263,11 +1442,11 @@ export default function WorkspaceTopBar({
                             >
                               <CliIcon cli={generalCli} className="h-4 w-4 text-[color:var(--text-muted)]" />
                               <span className="truncate text-[13px]">General Agent</span>
-                              <Tooltip placement="bottom" content={`Agent CLI: ${cliLabelFor(generalCli)} · right-click or click to change`}>
+                              <Tooltip placement="bottom" content={`Agent CLI: ${cliWithModelLabel(generalCli, resolveCliModel(generalCli, undefined, cliModelDefaults))} · right-click or click to change`}>
                                 <span
                                   role="button"
                                   tabIndex={-1}
-                                  aria-label={`Agent CLI: ${cliLabelFor(generalCli)}`}
+                                  aria-label={`Agent CLI: ${cliWithModelLabel(generalCli, resolveCliModel(generalCli, undefined, cliModelDefaults))}`}
                                   onClick={(event) => {
                                     event.stopPropagation()
                                     setChipPopoverForRole((current) => (current?.kind === 'general' ? null : { kind: 'general' }))
@@ -1285,7 +1464,7 @@ export default function WorkspaceTopBar({
                                 data-chip-popover="true"
                                 aria-label="General Agent actions"
                                 // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
+                                className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                               >
                                 <OpenInNewChatItem
                                   onSelect={() => {
@@ -1294,32 +1473,21 @@ export default function WorkspaceTopBar({
                                   }}
                                 />
                                 <div className="my-1 h-px bg-[color:var(--border-subtle)]" role="separator" />
-                                <div role="listbox" aria-label="Agent CLI for General Agent">
-                                  {agentCliOptions.map((option) => {
-                                    const isCurrent = option.value === generalCli
-                                    return (
-                                      <button
-                                        key={option.value}
-                                        type="button"
-                                        role="option"
-                                        aria-selected={isCurrent}
-                                        onClick={() => {
-                                          setGeneralAgentCli(option.value)
-                                          setChipPopoverForRole(null)
-                                        }}
-                                        className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
-                                          isCurrent
-                                            ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
-                                            : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
-                                        }`}
-                                      >
-                                        <CliIcon cli={option.value} className="icon-sm" />
-                                        {option.label}
-                                        {isCurrent ? <span className="ml-auto text-[color:var(--accent-primary)]">✓</span> : null}
-                                      </button>
-                                    )
-                                  })}
-                                </div>
+                                <CliModelListbox
+                                  ariaLabel="Agent CLI for General Agent"
+                                  options={agentCliOptions}
+                                  currentCli={generalCli}
+                                  effectiveModelFor={(cli) => resolveCliModel(cli, undefined, cliModelDefaults)}
+                                  onSelectCli={(cli) => {
+                                    setGeneralAgentCli(cli)
+                                    setChipPopoverForRole(null)
+                                  }}
+                                  onSelectModel={(cli, model) => {
+                                    setGeneralAgentCli(cli)
+                                    setCliModelDefault(cli, model)
+                                    setChipPopoverForRole(null)
+                                  }}
+                                />
                               </div>
                             ) : null}
                           </div>
@@ -1378,6 +1546,7 @@ export default function WorkspaceTopBar({
                         ? filteredMultiloop.map((soul, index) => {
                             const highlighted = index === safeHighlight
                             const boundCli = resolvePickerCli(multiloopRoleCliDefaults[soul.role] ?? lastSelectedCli)
+                            const boundModel = resolveCliModel(boundCli, multiloopRoleModelDefaults[soul.role], cliModelDefaults)
                             const popoverOpen =
                               chipPopoverForRole?.kind === 'multiloop'
                               && chipPopoverForRole.role === soul.role
@@ -1407,12 +1576,12 @@ export default function WorkspaceTopBar({
                                   <span className="truncate text-[13px]">{soul.label}</span>
                                   <Tooltip
                                     placement="bottom"
-                                    content={`Agent CLI: ${cliLabelFor(boundCli)} · click to change`}
+                                    content={`Agent CLI: ${cliWithModelLabel(boundCli, boundModel)} · click to change`}
                                   >
                                     <span
                                       role="button"
                                       tabIndex={-1}
-                                      aria-label={`Agent CLI: ${cliLabelFor(boundCli)}`}
+                                      aria-label={`Agent CLI: ${cliWithModelLabel(boundCli, boundModel)}`}
                                       onClick={(event) => {
                                         event.stopPropagation()
                                         setAgentMenuHighlight(index)
@@ -1434,38 +1603,28 @@ export default function WorkspaceTopBar({
                                 </button>
                                 {popoverOpen ? (
                                   <div
-                                    role="listbox"
                                     data-chip-popover="true"
-                                    aria-label={`Agent CLI for ${soul.label}`}
                                     // primitive-duplication-allow: nested chip-listbox inside the Popover-managed specialist menu;
                                     // anchored to a row-local `<div className="relative">` with no separate outside-click handler.
                                     // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                    className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
+                                    className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                                   >
-                                    {agentCliOptions.map((option) => {
-                                      const isCurrent = option.value === boundCli
-                                      return (
-                                        <button
-                                          key={option.value}
-                                          type="button"
-                                          role="option"
-                                          aria-selected={isCurrent}
-                                          onClick={() => {
-                                            setMultiloopRoleCliDefault(soul.role, option.value)
-                                            setChipPopoverForRole(null)
-                                          }}
-                                          className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
-                                            isCurrent
-                                              ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
-                                              : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
-                                          }`}
-                                        >
-                                          <CliIcon cli={option.value} className="icon-sm" />
-                                          {option.label}
-                                          {isCurrent ? <span className="ml-auto text-[color:var(--accent-primary)]">✓</span> : null}
-                                        </button>
-                                      )
-                                    })}
+                                    <CliModelListbox
+                                      ariaLabel={`Agent CLI for ${soul.label}`}
+                                      options={agentCliOptions}
+                                      currentCli={boundCli}
+                                      effectiveModelFor={(cli) =>
+                                        resolveCliModel(cli, multiloopRoleModelDefaults[soul.role], cliModelDefaults)}
+                                      onSelectCli={(cli) => {
+                                        setMultiloopRoleCliDefault(soul.role, cli)
+                                        setChipPopoverForRole(null)
+                                      }}
+                                      onSelectModel={(cli, model) => {
+                                        setMultiloopRoleCliDefault(soul.role, cli)
+                                        setMultiloopRoleModelDefault(soul.role, model ? { cli, model } : null)
+                                        setChipPopoverForRole(null)
+                                      }}
+                                    />
                                   </div>
                                 ) : null}
                               </div>
@@ -1474,6 +1633,7 @@ export default function WorkspaceTopBar({
                         : filteredSpecialists.map((action, index) => {
                             const highlighted = index === safeHighlight
                             const boundCli = resolvePickerCli(specialistCliDefaults[action.id] ?? lastSelectedCli)
+                            const boundModel = resolveCliModel(boundCli, specialistModelDefaults[action.id], cliModelDefaults)
                             const popoverOpen =
                               chipPopoverForRole?.kind === 'specialist'
                               && chipPopoverForRole.id === action.id
@@ -1541,12 +1701,12 @@ export default function WorkspaceTopBar({
                                   <span className="truncate text-[13px]">{action.shortLabel}</span>
                                   <Tooltip
                                     placement="bottom"
-                                    content={`Agent CLI: ${cliLabelFor(boundCli)} · click to change`}
+                                    content={`Agent CLI: ${cliWithModelLabel(boundCli, boundModel)} · click to change`}
                                   >
                                     <span
                                       role="button"
                                       tabIndex={-1}
-                                      aria-label={`Agent CLI: ${cliLabelFor(boundCli)}`}
+                                      aria-label={`Agent CLI: ${cliWithModelLabel(boundCli, boundModel)}`}
                                       onClick={(event) => {
                                         event.stopPropagation()
                                         setAgentMenuHighlight(index)
@@ -1574,7 +1734,7 @@ export default function WorkspaceTopBar({
                                     // primitive-duplication-allow: nested chip menu inside the Popover-managed specialist menu;
                                     // anchored to a row-local `<div className="relative">` with no separate outside-click handler.
                                     // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                    className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
+                                    className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                                   >
                                     <OpenInNewChatItem
                                       onSelect={() => {
@@ -1583,32 +1743,22 @@ export default function WorkspaceTopBar({
                                       }}
                                     />
                                     <div className="my-1 h-px bg-[color:var(--border-subtle)]" role="separator" />
-                                    <div role="listbox" aria-label={`Agent CLI for ${action.label}`}>
-                                      {agentCliOptions.map((option) => {
-                                        const isCurrent = option.value === boundCli
-                                        return (
-                                          <button
-                                            key={option.value}
-                                            type="button"
-                                            role="option"
-                                            aria-selected={isCurrent}
-                                            onClick={() => {
-                                              setSpecialistCliDefault(action.id, option.value)
-                                              setChipPopoverForRole(null)
-                                            }}
-                                            className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
-                                              isCurrent
-                                                ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
-                                                : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
-                                            }`}
-                                          >
-                                            <CliIcon cli={option.value} className="icon-sm" />
-                                            {option.label}
-                                            {isCurrent ? <span className="ml-auto text-[color:var(--accent-primary)]">✓</span> : null}
-                                          </button>
-                                        )
-                                      })}
-                                    </div>
+                                    <CliModelListbox
+                                      ariaLabel={`Agent CLI for ${action.label}`}
+                                      options={agentCliOptions}
+                                      currentCli={boundCli}
+                                      effectiveModelFor={(cli) =>
+                                        resolveCliModel(cli, specialistModelDefaults[action.id], cliModelDefaults)}
+                                      onSelectCli={(cli) => {
+                                        setSpecialistCliDefault(action.id, cli)
+                                        setChipPopoverForRole(null)
+                                      }}
+                                      onSelectModel={(cli, model) => {
+                                        setSpecialistCliDefault(action.id, cli)
+                                        setSpecialistModelDefault(action.id, model ? { cli, model } : null)
+                                        setChipPopoverForRole(null)
+                                      }}
+                                    />
                                   </div>
                                 ) : null}
                               </div>

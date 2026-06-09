@@ -74,6 +74,23 @@ function buildVariableScope(
     scope.set('permissionArgs', [])
   }
 
+  // `modelArgs` mirrors `permissionArgs`: a spreadable token list manifests
+  // opt into via { spreadIf: "modelArgs" }. Rendered only when a model was
+  // selected AND the manifest declares how to pass it; otherwise empty, so the
+  // CLI's own default model wins and plugins without modelSelection are
+  // unaffected by stale persisted model ids.
+  const model = context.model?.trim()
+  const modelArgTemplates = manifest.modelSelection?.args
+  if (model && modelArgTemplates && modelArgTemplates.length > 0) {
+    scope.set('model', model)
+    scope.set(
+      'modelArgs',
+      modelArgTemplates.map((template) => substituteString(template, scope))
+    )
+  } else {
+    scope.set('modelArgs', [])
+  }
+
   return scope
 }
 

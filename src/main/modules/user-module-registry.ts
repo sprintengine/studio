@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from 'fs'
 import { cp, mkdir, readdir, readFile } from 'fs/promises'
 import { homedir } from 'os'
 import { basename, join } from 'path'
@@ -9,8 +10,8 @@ import { classifyModuleTrust, type ModuleTrust, type ModuleTrustContext } from '
 // Discovery + install for third-party capability modules under
 // ~/.multicode/modules/<id>/manifest.json. Mirrors the BYO-CLI plugin-registry
 // pattern. This layer validates, classifies trust, and installs — it does NOT
-// execute module code (in-process loading of trusted modules is a later Phase 7
-// increment).
+// execute module code; trusted `entry.main` loading is wired separately through
+// third-party-main-loader.
 
 export function defaultUserModuleRoot(): string {
   return join(homedir(), '.multicode', 'modules')
@@ -44,25 +45,21 @@ async function readDirSafe(dir: string): Promise<import('fs').Dirent[]> {
   }
 }
 
+function readDirSafeSync(dir: string): import('fs').Dirent[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+}
+
 // Validate the manifest.json in a module folder and confirm its declared id
 // matches the folder name and isn't a reserved bundled id.
-async function loadManifestFromDir(
-  moduleRoot: string,
+function validateInstalledManifestSource(
+  source: string,
+  manifestPath: string,
   expectedId: string
-): Promise<{ ok: true; manifest: CapabilityManifest } | { ok: false; rejection: ModuleRejection }> {
-  const manifestPath = join(moduleRoot, 'manifest.json')
-  let source: string
-  try {
-    source = await readFile(manifestPath, 'utf8')
-  } catch (error) {
-    return {
-      ok: false,
-      rejection: {
-        path: manifestPath,
-        issues: [{ path: '', message: error instanceof Error ? error.message : 'manifest.json not found' }],
-      },
-    }
-  }
+): { ok: true; manifest: CapabilityManifest } | { ok: false; rejection: ModuleRejection } {
   const result = parseThirdPartyModuleManifest(source)
   if (!result.ok) return { ok: false, rejection: { path: manifestPath, issues: result.issues } }
 
@@ -89,6 +86,46 @@ async function loadManifestFromDir(
   return { ok: true, manifest: result.manifest }
 }
 
+async function loadManifestFromDir(
+  moduleRoot: string,
+  expectedId: string
+): Promise<{ ok: true; manifest: CapabilityManifest } | { ok: false; rejection: ModuleRejection }> {
+  const manifestPath = join(moduleRoot, 'manifest.json')
+  let source: string
+  try {
+    source = await readFile(manifestPath, 'utf8')
+  } catch (error) {
+    return {
+      ok: false,
+      rejection: {
+        path: manifestPath,
+        issues: [{ path: '', message: error instanceof Error ? error.message : 'manifest.json not found' }],
+      },
+    }
+  }
+  return validateInstalledManifestSource(source, manifestPath, expectedId)
+}
+
+function loadManifestFromDirSync(
+  moduleRoot: string,
+  expectedId: string
+): { ok: true; manifest: CapabilityManifest } | { ok: false; rejection: ModuleRejection } {
+  const manifestPath = join(moduleRoot, 'manifest.json')
+  let source: string
+  try {
+    source = readFileSync(manifestPath, 'utf8')
+  } catch (error) {
+    return {
+      ok: false,
+      rejection: {
+        path: manifestPath,
+        issues: [{ path: '', message: error instanceof Error ? error.message : 'manifest.json not found' }],
+      },
+    }
+  }
+  return validateInstalledManifestSource(source, manifestPath, expectedId)
+}
+
 // Enumerate installed third-party modules, validating + trust-classifying each.
 export async function discoverUserModules(root: string, ctx: ModuleTrustContext): Promise<UserModuleListResult> {
   const modules: InstalledModule[] = []
@@ -98,6 +135,25 @@ export async function discoverUserModules(root: string, ctx: ModuleTrustContext)
     if (!entry.isDirectory()) continue
     const moduleRoot = join(root, entry.name)
     const loaded = await loadManifestFromDir(moduleRoot, entry.name)
+    if (!loaded.ok) {
+      rejected.push(loaded.rejection)
+      continue
+    }
+    modules.push({ manifest: loaded.manifest, moduleRoot, trust: classifyModuleTrust(loaded.manifest, ctx) })
+  }
+
+  modules.sort((a, b) => a.manifest.id.localeCompare(b.manifest.id))
+  return { modules, rejected }
+}
+
+export function discoverUserModulesSync(root: string, ctx: ModuleTrustContext): UserModuleListResult {
+  const modules: InstalledModule[] = []
+  const rejected: ModuleRejection[] = []
+
+  for (const entry of readDirSafeSync(root)) {
+    if (!entry.isDirectory()) continue
+    const moduleRoot = join(root, entry.name)
+    const loaded = loadManifestFromDirSync(moduleRoot, entry.name)
     if (!loaded.ok) {
       rejected.push(loaded.rejection)
       continue

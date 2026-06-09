@@ -63,7 +63,13 @@ import type {
   SprintEngineTaskStatus,
   SprintEngineNeedsInputKind,
   SprintEngineNeedsInputReason,
+  SprintEngineAutoState,
+  SprintEngineAutomationRuntimeState,
 } from '../types/workspace'
+import {
+  deriveSprintEngineAutomationDesiredMode,
+  normalizeSprintEngineAutomationRuntimeState,
+} from './sprintengineAutomationLifecycle'
 import type { LifecycleState } from '../components/ui/LifecycleGlyph'
 
 // Sprint Engine board column → the shared lifecycle vocabulary. The pipeline
@@ -91,6 +97,60 @@ export function taskBoardColumnToLifecycle(column: SprintEngineTaskBoardColumn):
     case 'done':
       return 'done'
   }
+}
+
+// True when at least one incomplete task is waiting on a *human* — a needs_input
+// task whose kind is `user` or `external_validation` (the same human/external
+// kinds `isSprintEngineRunBlockedOnExternalInput` keys off). Architect/owner-
+// routed needs_input is excluded: the architect resolves those automatically, so
+// they are not the user's action. Used to surface the needs-input glyph on the
+// Backlog even while other tasks in the run keep progressing.
+export function sprintEngineRunAwaitsHumanInput(
+  sprintEngineState: Pick<SprintEngineState, 'tasks'>,
+): boolean {
+  return sprintEngineState.tasks.some(
+    (task) =>
+      task.status === 'needs_input'
+      && (task.needsInput?.kind === 'user' || task.needsInput?.kind === 'external_validation'),
+  )
+}
+
+// Run-level lifecycle rollup shared by every surface that renders a Sprint
+// Engine run as one LifecycleGlyph (Backlog rows, the workspace sidebar).
+// `live` gates the spinner — only a genuinely running runner earns the one
+// animated glyph.
+export type SprintEngineRunGlyph = { state: LifecycleState; live: boolean; label: string }
+
+// Live AutoRun runtime → glyph. `idle` is intentionally absent: an idle runner
+// carries no live signal, so callers fall back to their own default rendering
+// (item status on the Backlog, recency text in the sidebar).
+const AUTOMATION_RUN_GLYPH: Partial<Record<SprintEngineAutomationRuntimeState, SprintEngineRunGlyph>> = {
+  running: { state: 'in_progress', live: true, label: 'Running' },
+  paused: { state: 'paused', live: false, label: 'Paused' },
+  blocked: { state: 'needs_input', live: false, label: 'Blocked — needs input' },
+  failed: { state: 'failed', live: false, label: 'Failed' },
+  complete: { state: 'done', live: false, label: 'Completed' },
+}
+
+// One run, one glyph. Priority:
+//   1. A task awaiting the *human* (needs_input, kind user/external_validation)
+//      wins over everything — it's the actionable signal even while other
+//      tasks keep running, so the spinner would otherwise hide it.
+//   2. Otherwise the AutoRun runtime state. `idle` (and a missing autoState)
+//      yields null so each surface keeps its own fallback.
+export function deriveSprintEngineRunGlyph(input: {
+  sprintEngineState: Pick<SprintEngineState, 'tasks'> | null | undefined
+  autoState: Partial<SprintEngineAutoState> | null | undefined
+}): SprintEngineRunGlyph | null {
+  if (input.sprintEngineState && sprintEngineRunAwaitsHumanInput(input.sprintEngineState)) {
+    return { state: 'needs_input', live: false, label: 'Needs input' }
+  }
+  if (!input.autoState) return null
+  const runtimeState = normalizeSprintEngineAutomationRuntimeState(
+    input.autoState.runtimeState,
+    deriveSprintEngineAutomationDesiredMode(input.autoState),
+  )
+  return AUTOMATION_RUN_GLYPH[runtimeState] ?? null
 }
 
 export type SprintEngineAgentRosterItem = {

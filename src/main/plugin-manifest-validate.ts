@@ -40,6 +40,7 @@ const CLI_ONLY_FIELDS = [
   'mcpConfig',
   'capabilities',
   'souls',
+  'modelSelection',
 ] as const
 const PROVIDER_ONLY_FIELDS = ['providerType', 'models', 'auth', 'adapter', 'openaiCompatible', 'signature'] as const
 
@@ -87,6 +88,9 @@ export function validateManifestStructure(value: unknown): PluginManifestValidat
   }
   if ('souls' in value && value.souls !== undefined) {
     validateSouls(value.souls, issues)
+  }
+  if ('modelSelection' in value && value.modelSelection !== undefined) {
+    validateModelSelection(value.modelSelection, issues)
   }
 
   if (issues.length > 0) {
@@ -587,6 +591,51 @@ function validateVariables(value: unknown, issues: PluginManifestValidationIssue
         }
       }
     }
+  }
+}
+
+function validateModelSelection(value: unknown, issues: PluginManifestValidationIssue[]): void {
+  if (!isObject(value)) {
+    issues.push({ path: 'modelSelection', message: 'modelSelection must be an object when present.' })
+    return
+  }
+  if (!Array.isArray(value.args) || value.args.length === 0) {
+    issues.push({
+      path: 'modelSelection.args',
+      message: 'modelSelection.args must be a non-empty array of string templates.',
+    })
+  } else {
+    for (const [index, arg] of value.args.entries()) {
+      if (typeof arg !== 'string') {
+        issues.push({
+          path: `modelSelection.args[${index}]`,
+          message: 'modelSelection args must be strings.',
+        })
+      }
+    }
+  }
+  if ('options' in value && value.options !== undefined) {
+    if (!Array.isArray(value.options)) {
+      issues.push({ path: 'modelSelection.options', message: 'modelSelection.options must be an array.' })
+    } else {
+      for (const [index, option] of value.options.entries()) {
+        const path = `modelSelection.options[${index}]`
+        if (!isObject(option)) {
+          issues.push({ path, message: 'Model option must be an object.' })
+          continue
+        }
+        requireString(option, 'id', issues, undefined, path)
+        if ('label' in option && option.label !== undefined) {
+          requireString(option, 'label', issues, undefined, path)
+        }
+      }
+    }
+  }
+  if ('allowCustomId' in value && typeof value.allowCustomId !== 'boolean') {
+    issues.push({
+      path: 'modelSelection.allowCustomId',
+      message: 'modelSelection.allowCustomId must be a boolean when present.',
+    })
   }
 }
 

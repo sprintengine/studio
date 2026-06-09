@@ -95,6 +95,25 @@ export type PluginSoulsSpec = {
   directory: string
 }
 
+export type PluginModelOption = {
+  id: string
+  label?: string
+}
+
+// Declares that a CLI supports model selection and how the chosen model id is
+// passed on its command line. `args` are substituted templates (e.g.
+// ["--model", "{{model}}"]) exposed to launch/resume argv as the `modelArgs`
+// spread; they are only rendered when a model is actually selected, so an
+// unset model never overrides the CLI's own default. `options` is a seed list
+// — terminal CLIs expose no live model catalog, so users can extend it from
+// Settings. Named `modelSelection` (not `models`) because `models` is the
+// provider-manifest model array with a different shape.
+export type PluginModelSelectionSpec = {
+  args: string[]
+  options?: PluginModelOption[]
+  allowCustomId?: boolean
+}
+
 export type PluginManifest = {
   kind?: 'cli'
   id: string
@@ -111,6 +130,7 @@ export type PluginManifest = {
   mcpConfig?: PluginMcpConfigSpec
   capabilities: PluginCapabilities
   souls?: PluginSoulsSpec
+  modelSelection?: PluginModelSelectionSpec
 }
 
 export type ConversationProviderType = 'model-provider' | 'agent-harness'
@@ -181,6 +201,7 @@ export type PluginRenderContext = {
   cwd?: string
   workspaceRoot?: string
   permissionPreset?: string
+  model?: string
   variables?: Record<string, string | number | boolean | string[] | undefined>
   files?: string[]
 }
@@ -217,12 +238,20 @@ export type LoadedConversationProvider = {
   adapter: ConversationProviderAdapterClassification
 }
 
+// Renderer-facing model-selection metadata. `args` stays main-process-only;
+// pickers need the choices and whether free-text ids are allowed.
+export type PluginModelCatalog = {
+  options: PluginModelOption[]
+  allowCustomId: boolean
+}
+
 export type PluginRegistryListEntry = {
   id: string
   displayName: string
   source: PluginSource
   version: number
   binary: string
+  modelSelection?: PluginModelCatalog
 }
 
 export type ConversationProviderListEntry = {

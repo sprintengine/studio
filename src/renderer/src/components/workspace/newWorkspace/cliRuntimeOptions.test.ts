@@ -9,6 +9,7 @@ import {
   orderInstalledPlugins,
   pluginRegistryIdForCli,
   resolveAvailableAgentCli,
+  resolveCliModel,
   resolveTemplateAgentCli,
   selectAgentCliCatalog,
 } from './cliRuntimeOptions'
@@ -152,5 +153,54 @@ assert.equal(
   'aider',
   'an empty catalog returns lastSelectedCli unchanged instead of throwing',
 )
+
+// Model catalog merging: manifest seeds first, then user-added ids deduped;
+// plugins without modelSelection never grow model UI from user runtimes.
+const modelPlugins: PluginCatalogEntry[] = [
+  {
+    id: 'claude-code',
+    displayName: 'Claude Code',
+    source: 'bundled',
+    version: 1,
+    binary: 'claude',
+    modelSelection: {
+      options: [{ id: 'opus', label: 'Opus' }, { id: 'sonnet', label: 'Sonnet' }],
+      allowCustomId: true,
+    },
+  },
+  { id: 'opencode', displayName: 'OpenCode', source: 'user', version: 1, binary: 'opencode' },
+]
+const modelCatalog = buildAgentCliCatalog(modelPlugins, {
+  'claude-code': { command: '', useWsl: false, models: [' opus ', 'haiku', 'haiku'] },
+  opencode: { command: '', useWsl: false, models: ['some/model'] },
+})
+assert.deepEqual(
+  modelCatalog.find((option) => option.value === 'claude-code')?.modelSelection,
+  {
+    options: [{ id: 'opus', label: 'Opus' }, { id: 'sonnet', label: 'Sonnet' }, { id: 'haiku' }],
+    allowCustomId: true,
+  },
+  'user-added model ids merge after manifest seeds, trimmed and deduped',
+)
+assert.equal(
+  modelCatalog.find((option) => option.value === 'opencode')?.modelSelection,
+  undefined,
+  'user models without a declared modelSelection never surface model UI',
+)
+
+// resolveCliModel: per-surface override wins only for its own CLI, then the
+// remembered per-CLI default, else undefined (CLI default, no flag).
+assert.equal(
+  resolveCliModel('claude-code', { cli: 'claude-code', model: 'opus' }, { 'claude-code': 'sonnet' }),
+  'opus',
+  'a matching per-surface override wins',
+)
+assert.equal(
+  resolveCliModel('codex', { cli: 'claude-code', model: 'opus' }, { codex: 'gpt-5-codex' }),
+  'gpt-5-codex',
+  'an override for a different CLI is ignored in favor of the per-CLI default',
+)
+assert.equal(resolveCliModel('codex', undefined, {}), undefined, 'no selection means the CLI default')
+assert.equal(resolveCliModel('codex', null, { codex: '  ' }), undefined, 'blank defaults are treated as unset')
 
 console.log('cliRuntimeOptions.test.ts: ok')

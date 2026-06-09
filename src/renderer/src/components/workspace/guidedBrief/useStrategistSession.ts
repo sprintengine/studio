@@ -25,6 +25,7 @@ export type StrategistSessionStatus =
 export type UseStrategistSessionInput = {
   workspaceRoot: string
   cli: AgentCli
+  cliModel?: string
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
   enabled?: boolean
   // Persisted PTY id (survives renderer HMR / reload). When provided, the main
@@ -51,6 +52,7 @@ function hasContent(value: string): boolean {
 export function useStrategistSession({
   workspaceRoot,
   cli,
+  cliModel,
   cliRuntimes,
   enabled = true,
   sessionId,
@@ -97,6 +99,7 @@ export function useStrategistSession({
         workspaceRoot,
         sessionId: resolvedSessionId,
         cli,
+        cliModel,
         ideaSeedPath: IDEA_SEED_RELATIVE_PATH,
         requirementsPath: REQUIREMENTS_RELATIVE_PATH,
       },

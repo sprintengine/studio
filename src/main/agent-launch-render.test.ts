@@ -27,6 +27,8 @@ async function main(): Promise<void> {
     testCodexRenderDefault()
     testCodexRenderWithAutoWorkspace()
     testCodexRenderResume()
+    testClaudeCodeRenderWithModel()
+    testCodexRenderWithModel()
     testQuoteTokenLeavesSafeStringsBare()
     testQuoteTokenWrapsSpecialChars()
     testArgvToPosixShellCommand()
@@ -127,6 +129,53 @@ function testClaudeCodeRenderWithRuntimeBinaryOverride(): void {
   })
   assert.deepEqual(out.argv, ['/opt/claude/bin/claude', '--session-id', 'sid_5'])
   assert.equal(out.binary, '/opt/claude/bin/claude')
+}
+
+function testClaudeCodeRenderWithModel(): void {
+  const out = renderAgentLaunchArgv({
+    cli: 'claude-code',
+    sessionId: 'sid_m1',
+    cliModel: 'opus',
+    cliPermissionPreset: 'bypass_all',
+  })
+  assert.deepEqual(out.argv, [
+    'claude',
+    '--permission-mode',
+    'bypassPermissions',
+    '--model',
+    'opus',
+    '--session-id',
+    'sid_m1',
+  ])
+
+  const resumed = renderAgentLaunchArgv({
+    cli: 'claude-code',
+    sessionId: 'sid_m1',
+    resume: true,
+    cliModel: 'opus',
+  })
+  assert.deepEqual(resumed.argv, ['claude', '--model', 'opus', '--resume', 'sid_m1'])
+}
+
+function testCodexRenderWithModel(): void {
+  const out = renderAgentLaunchArgv({
+    cli: 'codex',
+    sessionId: 'sid_m2',
+    cliModel: 'gpt-5-codex',
+  })
+  assert.deepEqual(out.argv, ['codex', '--model', 'gpt-5-codex'])
+
+  const resumed = renderAgentLaunchArgv({
+    cli: 'codex',
+    sessionId: 'sid_m2',
+    resume: true,
+    cliModel: 'gpt-5-codex',
+  })
+  assert.deepEqual(resumed.argv, ['codex', 'resume', '--model', 'gpt-5-codex'])
+
+  // No model selected → manifest renders no model flag at all.
+  const noModel = renderAgentLaunchArgv({ cli: 'codex', sessionId: 'sid_m3' })
+  assert.deepEqual(noModel.argv, ['codex'])
 }
 
 function testCodexRenderDefault(): void {

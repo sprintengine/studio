@@ -6,6 +6,9 @@ import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
 import { createAgentRuntimeModule } from './modules/agent-runtime-module'
 import { BUNDLED_MAIN_MODULES } from './modules'
+import { readTrustedModulesSync } from './modules/trust-store'
+import { planThirdPartyMainModules, recordThirdPartyMainLaunchReport } from './modules/third-party-main-loader'
+import { defaultUserModuleRoot, discoverUserModulesSync } from './modules/user-module-registry'
 import { registerCoreIpc } from './register-core-ipc'
 import { registerWorkflowIpc } from './register-workflow-ipc'
 
@@ -26,19 +29,34 @@ registerWorkflowIpc(ipcMain, services)
 // `dependsOn: ['agent-runtime']`. See
 // future-plans/2026-05-28-feature-level-pluggable-architecture.md.
 const moduleOverrides = readModuleEnablementOverrides()
+const thirdPartyMainLoad = planThirdPartyMainModules(
+  discoverUserModulesSync(defaultUserModuleRoot(), {
+    trustedModules: readTrustedModulesSync(app.getPath('userData')),
+  })
+)
 const moduleLoad = loadMainModules({
   ipcMain,
-  modules: [createAgentRuntimeModule(services), ...BUNDLED_MAIN_MODULES],
+  modules: [createAgentRuntimeModule(services), ...BUNDLED_MAIN_MODULES, ...thirdPartyMainLoad.modules],
   overrides: moduleOverrides,
+  ineligible: thirdPartyMainLoad.ineligible,
+  launchErrors: thirdPartyMainLoad.launchErrors,
 })
+recordThirdPartyMainLaunchReport(
+  thirdPartyMainLoad.modules.map((module) => module.manifest.id),
+  moduleLoad.report
+)
 if (MULTICODE_DIAGNOSTICS) {
   console.info(
     '[modules] loaded:', moduleLoad.report.loaded,
+    'manifest-only:', moduleLoad.report.manifestOnly,
     'disabled:', moduleLoad.report.disabled,
     'sidecars:', moduleLoad.report.sidecars.map((s) => s.id)
   )
   if (moduleLoad.report.errors.length > 0) {
     console.warn('[modules] load errors:', moduleLoad.report.errors)
+  }
+  if (thirdPartyMainLoad.diagnostics.rejected.length > 0) {
+    console.warn('[modules] rejected third-party modules:', thirdPartyMainLoad.diagnostics.rejected)
   }
 }
 
