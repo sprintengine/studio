@@ -16,7 +16,7 @@ export type WorkspaceActivityKind = 'needs-input' | 'working' | 'failed' | 'idle
 
 export type WorkspaceRunGlyphProviderInput = Pick<
   Workspace,
-  'mode' | 'sprintEngineState' | 'sprintEngineContext' | 'sprintEngineAutoState'
+  'mode' | 'sprintEngineState' | 'sprintEngineContext' | 'sprintEngineAutoState' | 'sprintEngineCompletionSeenAt'
 >
 
 function isModuleEnabledForRunGlyph(moduleId: string): boolean {
@@ -30,23 +30,18 @@ function runGlyphProviderForWorkspace(workspace: WorkspaceRunGlyphProviderInput)
   }) ?? null
 }
 
-/** True when the run is complete and the user has not yet seen the completion.
- *  Drives both the sidebar done glyph and the acknowledgement effect that
- *  marks it seen once the workspace becomes active. */
-export function isSprintEngineCompletionUnseen(workspace: WorkspaceRunGlyphProviderInput): boolean {
-  return runGlyphProviderForWorkspace(workspace)?.isRunCompletionUnseen?.(workspace) ?? false
-}
-
 // The sidebar row's one status slot. Priority mirrors the attention order the
 // dot system had, upgraded to the lifecycle vocabulary:
 //   1. An agent terminal waiting on input (the old pulsing warn dot) — always
 //      the actionable signal, even while the runner reports `running`.
 //   2. The run rollup (human-routed needs_input, runner runtime states).
-//      `done` is gated by the seen-rule so finished runs don't wear a
-//      permanent check.
-//   3. A manually-driven run whose tasks all finished → same gated `done`.
-//   4. Terminal activity: busy terminals spin, a failed terminal reads as
-//      failed — one idiom, no `now` text on provider-owned rows.
+//   3. Terminal activity: busy terminals spin, a failed terminal reads as
+//      failed — one idiom, no `now` text on provider-owned rows. This
+//      outranks a finished run: new activity reads as live again.
+//   4. A newly completed run — runner `complete` or a manually-driven run
+//      whose tasks all finished — wears `done` until the user views the
+//      workspace after completion. Recency survives in the tooltip and becomes
+//      the row fallback after acknowledgement.
 // Null means "no run signal": the caller falls back to recency text.
 export function deriveWorkspaceRunGlyph(
   workspace: WorkspaceRunGlyphProviderInput,

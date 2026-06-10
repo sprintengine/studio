@@ -1198,7 +1198,7 @@ export type AppMenuAcceleratorUpdate = {
 }
 export type AppMenuAcceleratorUpdateResult = { ok: true }
 
-export type BacklogItemStatusPayload = 'idea' | 'ready' | 'in_progress' | 'completed' | 'archived'
+export type BacklogItemStatusPayload = 'idea' | 'ready' | 'in_progress' | 'needs_input' | 'completed' | 'archived'
 export type BacklogTypePayload = 'feature' | 'bug' | 'mockup'
 export type BacklogDifficultyPayload = 'xs' | 's' | 'm' | 'l' | 'xl'
 export type BacklogCriticalityPayload = 'low' | 'normal' | 'high' | 'critical'

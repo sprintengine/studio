@@ -5,14 +5,14 @@ import type {
   BacklogObjectStorePayload,
   BacklogReadResult,
 } from '../../../shared/electron-api'
-import type { SprintEngineState, Workspace } from '../types/workspace'
+import type { SprintEngineAutomationEvent, SprintEngineState, Workspace } from '../types/workspace'
 import {
   refreshSprintEngineWorkspaceProjection,
   sprintEngineProjectionSignature,
   type SprintEngineProjectionRefreshPorts,
 } from './sprintengineProjectionRefresh'
 
-function projection(taskStatus: string, updatedAt = '2026-06-07T15:00:00Z'): unknown {
+function projection(taskStatus: string, updatedAt = '2026-06-07T15:00:00Z', runStatus = 'executing'): unknown {
   return {
     ok: true,
     projectionVersion: 1,
@@ -23,7 +23,7 @@ function projection(taskStatus: string, updatedAt = '2026-06-07T15:00:00Z'): unk
       id: 'unified-refresh',
       name: 'Unified Refresh',
       goal: 'Keep board and auto-run state together',
-      status: 'executing',
+      status: runStatus,
       rosterConfigured: true,
       updatedAt,
     },
@@ -97,6 +97,7 @@ function portsFor(input: {
   }>
   backlogMutationResult?: BacklogMutationResult
   diagnostics?: string[]
+  automationEvents?: SprintEngineAutomationEvent[]
 }): SprintEngineProjectionRefreshPorts {
   return {
     readSprintEngineProjection: async () => input.ok === false
@@ -104,6 +105,9 @@ function portsFor(input: {
       : { ok: true, data: input.data ?? projection('in_progress') },
     setSprintEngineState: (_workspaceId, state) => {
       if (state) input.applied.push(state)
+    },
+    applySprintEngineAutomationEvent: (_workspaceId, event) => {
+      input.automationEvents?.push(event)
     },
     readBacklogObjectStore: async () => input.backlogReadResult ?? {
       ok: true,
@@ -211,6 +215,7 @@ async function testMissingContextSkip(): Promise<void> {
 
 async function testCompletedProjectionRefreshesMatchingBacklogLink(): Promise<void> {
   const applied: SprintEngineState[] = []
+  const automationEvents: SprintEngineAutomationEvent[] = []
   const backlogMutations: Array<{
     workspaceRoot: string
     relativePath: string
@@ -222,8 +227,9 @@ async function testCompletedProjectionRefreshesMatchingBacklogLink(): Promise<vo
     signatures: new Map(),
     cause: 'supervisor',
     ports: portsFor({
-      data: projection('done'),
+      data: projection('done', '2026-06-07T15:00:00Z', 'complete'),
       applied,
+      automationEvents,
       backlogMutations,
       backlogStore: {
         schemaVersion: 1,
@@ -267,6 +273,7 @@ async function testCompletedProjectionRefreshesMatchingBacklogLink(): Promise<vo
   })
 
   assert.equal(result.status, 'changed')
+  assert.deepEqual(automationEvents, [{ type: 'runner_complete', message: 'All tasks are complete.' }])
   assert.equal(backlogMutations.length, 1)
   assert.equal(backlogMutations[0].workspaceRoot, '/tmp/workspace')
   assert.equal(backlogMutations[0].relativePath, 'backlog/refresh.md')

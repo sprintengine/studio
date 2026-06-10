@@ -352,6 +352,7 @@ function isBacklogObjectStatus(value: unknown): value is BacklogItemStatus {
   return value === 'idea'
     || value === 'ready'
     || value === 'in_progress'
+    || value === 'needs_input'
     || value === 'completed'
     || value === 'archived'
 }

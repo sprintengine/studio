@@ -285,6 +285,42 @@ function normalizeBounds(
   }
 }
 
+function parseSprintEngineTaskCompletedAt(value: string | null | undefined): number | null {
+  if (!value) return null
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function sprintEngineWorkspaceCompletionAt(workspace: Workspace): number | null {
+  if (
+    workspace.sprintEngineAutoState?.runtimeState === 'complete'
+    && typeof workspace.sprintEngineAutoState.changedAt === 'number'
+    && Number.isFinite(workspace.sprintEngineAutoState.changedAt)
+  ) {
+    return workspace.sprintEngineAutoState.changedAt
+  }
+
+  const tasks = workspace.sprintEngineState?.tasks ?? []
+  if (tasks.length === 0 || tasks.some((task) => task.status !== 'done')) return null
+  const completedAt = tasks
+    .map((task) => parseSprintEngineTaskCompletedAt(task.completedAt))
+    .filter((value): value is number => typeof value === 'number')
+  return completedAt.length > 0 ? Math.max(...completedAt) : 1
+}
+
+function markSprintEngineCompletionSeen(workspace: Workspace, seenAt: number): void {
+  const completionAt = sprintEngineWorkspaceCompletionAt(workspace)
+  if (completionAt === null) return
+  if (
+    typeof workspace.sprintEngineCompletionSeenAt === 'number'
+    && Number.isFinite(workspace.sprintEngineCompletionSeenAt)
+    && workspace.sprintEngineCompletionSeenAt >= completionAt
+  ) {
+    return
+  }
+  workspace.sprintEngineCompletionSeenAt = Math.max(seenAt, completionAt)
+}
+
 function normalizeWindowAssignments(state: WorkspacesSliceCarrier): void {
   const workspaceOrder = new Map(state.workspaces.map((workspace, index) => [workspace.id, index] as const))
   const validWorkspaceIds = new Set(workspaceOrder.keys())
@@ -571,6 +607,8 @@ export function createWorkspacesSlice(
         windowState.activeWorkspaceId = workspaceId
         windowState.lastFocusedAt = Date.now()
         state.activeWorkspaceId = workspaceId
+        const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId)
+        if (workspace) markSprintEngineCompletionSeen(workspace, windowState.lastFocusedAt)
       })
       // Local state is the functional path (storage-event sync still mirrors it
       // to other windows as rollback). When the active selection actually
@@ -1009,10 +1047,13 @@ export function createWorkspacesSlice(
       set((state) => {
         state.activeWorkspaceId = id
         const windowState = findWorkspaceWindow(state, id)
+        const seenAt = Date.now()
         if (windowState) {
           windowState.activeWorkspaceId = id
-          windowState.lastFocusedAt = Date.now()
+          windowState.lastFocusedAt = seenAt
         }
+        const workspace = state.workspaces.find((candidate) => candidate.id === id)
+        if (workspace) markSprintEngineCompletionSeen(workspace, seenAt)
       }),
 
     setFolderPath: (id, folderPath) =>

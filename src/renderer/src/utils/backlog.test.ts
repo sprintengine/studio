@@ -134,6 +134,17 @@ run('frontmatter overrides kind and status when values are valid', () => {
   assert.equal(item.excerpt, 'Body.')
 })
 
+run('needs_input is a valid lifecycle status for an agent awaiting the user', () => {
+  const item = createBacklogItem({
+    path: '/repo/backlog/blocked.md',
+    relativePath: 'backlog/blocked.md',
+    sourceContent: '---\nstatus: needs_input\n---\n# Blocked Work\nBody.',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+
+  assert.equal(item.status, 'needs_input')
+})
+
 run('nested backlog frontmatter metadata overrides kind and status', () => {
   const item = createBacklogItem({
     path: '/repo/backlog/nested.md',

@@ -13,6 +13,9 @@
 // work exactly once, when the animation lands. It is a plain module-level flag
 // with imperative subscribers — consumers read it inside their existing
 // ResizeObserver callbacks, so nothing here triggers a React re-render.
+// Terminal panels consume the flag through createTerminalFitScheduler in
+// terminalFitScheduler.ts, which also gates on container visibility and
+// interactive window resizes.
 
 type Listener = (animating: boolean) => void
 
@@ -66,36 +69,4 @@ export function beginSidebarTransition(): void {
     endTimer = null
     setAnimating(false)
   }, SIDEBAR_TRANSITION_MS + HOLD_BUFFER_MS)
-}
-
-/**
- * Wraps an xterm fit callback so it never runs mid sidebar collapse/expand.
- * While the sidebar animates, a requested fit is deferred; a single trailing
- * fit fires once the animation ends. When not animating it behaves like the
- * previous `requestAnimationFrame(fit)` debounce.
- *
- * Returns a `requestFit` to call from the ResizeObserver, and a `dispose` that
- * must run on teardown to drop the subscription.
- */
-export function deferFitDuringSidebarAnimation(fit: () => void): {
-  requestFit: () => void
-  dispose: () => void
-} {
-  let pending = false
-  const unsubscribe = onSidebarAnimating((stillAnimating) => {
-    if (!stillAnimating && pending) {
-      pending = false
-      requestAnimationFrame(fit)
-    }
-  })
-  return {
-    requestFit: () => {
-      if (isSidebarAnimating()) {
-        pending = true
-        return
-      }
-      requestAnimationFrame(fit)
-    },
-    dispose: unsubscribe,
-  }
 }

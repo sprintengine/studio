@@ -26,6 +26,23 @@ async function main(): Promise<void> {
     assert.equal(statusUpdated.ok, true)
     assert.equal(statusUpdated.ok ? statusUpdated.store.items[0]?.status : null, 'in_progress')
 
+    // An agent blocked on a human decision parks the item as needs_input — the
+    // lifecycle signal the Backlog panel surfaces with the warn glyph.
+    const awaitingInput = await updateBacklogStatus({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/checkout.md',
+      status: 'needs_input',
+    })
+    assert.equal(awaitingInput.ok, true)
+    assert.equal(awaitingInput.ok ? awaitingInput.store.items[0]?.status : null, 'needs_input')
+
+    const resumed = await updateBacklogStatus({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/checkout.md',
+      status: 'in_progress',
+    })
+    assert.equal(resumed.ok, true)
+
     const metadataUpdated = await updateBacklogModuleMetadata({
       workspaceRoot: tempRoot,
       relativePath: 'backlog/checkout.md',

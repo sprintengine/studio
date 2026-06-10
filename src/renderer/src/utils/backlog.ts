@@ -11,7 +11,7 @@ import {
 } from '../components/workspace/newWorkspace/helpers'
 
 export type BacklogItemKind = SprintEngineSourcePlanKind | 'html_mockup'
-export type BacklogItemStatus = 'idea' | 'ready' | 'in_progress' | 'completed' | 'archived'
+export type BacklogItemStatus = 'idea' | 'ready' | 'in_progress' | 'needs_input' | 'completed' | 'archived'
 export type BacklogScanState = 'missing-folder' | 'empty-folder' | 'ready' | 'partial' | 'error'
 
 // Lightweight triage metadata, owned by the backlog object store (items.json),
@@ -105,7 +105,7 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/
 const SOURCE_EXTENSION_RE = /\.(md|html?)$/i
 const HTML_EXTENSION_RE = /\.html?$/i
 const VALID_KIND = new Set<BacklogItemKind>(['product_plan', 'architect_plan', 'html_mockup', 'unknown'])
-const VALID_STATUS = new Set<BacklogItemStatus>(['idea', 'ready', 'in_progress', 'completed', 'archived'])
+const VALID_STATUS = new Set<BacklogItemStatus>(['idea', 'ready', 'in_progress', 'needs_input', 'completed', 'archived'])
 const VALID_TYPE = new Set<BacklogType>(['feature', 'bug', 'mockup'])
 const VALID_DIFFICULTY = new Set<BacklogDifficulty>(['xs', 's', 'm', 'l', 'xl'])
 const VALID_CRITICALITY = new Set<BacklogCriticality>(['low', 'normal', 'high', 'critical'])

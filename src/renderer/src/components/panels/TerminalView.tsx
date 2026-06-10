@@ -12,7 +12,7 @@ import { buildSprintEngineAgentRosterForState, buildSprintEngineRosterCommandArg
 import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { deferFitDuringSidebarAnimation } from '../../utils/sidebarTransition'
+import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
@@ -461,7 +461,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       void window.api.terminalResize(sessionId, cols, rows)
     })
 
-    const fitScheduler = deferFitDuringSidebarAnimation(fitTerminal)
+    const fitScheduler = createTerminalFitScheduler(fitTerminal, container)
     const resizeObserver = new ResizeObserver(() => {
       fitScheduler.requestFit()
     })

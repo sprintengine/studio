@@ -195,9 +195,6 @@ export function normalizeSprintEngineAutoState(
     changedAt: typeof input?.changedAt === 'number' && Number.isFinite(input.changedAt)
       ? input.changedAt
       : undefined,
-    completionSeenAt: typeof input?.completionSeenAt === 'number' && Number.isFinite(input.completionSeenAt)
-      ? input.completionSeenAt
-      : undefined,
     keepDoneAgentTerminals: Boolean(input?.keepDoneAgentTerminals),
     cliPermissionPreset,
     maxConcurrentAgents,
@@ -397,7 +394,6 @@ export interface RunStateSliceActions {
     pendingSpawns: SprintEngineAutoPendingSpawn[]
   ) => void
   markSprintEngineAgentNotificationDelivered: (workspaceId: WorkspaceId, eventKey: string) => void
-  markSprintEngineRunCompletionSeen: (workspaceId: WorkspaceId, seenAt?: number) => void
   setMultiloopAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
   setMultiloopCliPermissionPreset: (
     workspaceId: WorkspaceId,
@@ -596,18 +592,6 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
             ...current.deliveredAgentNotificationEventKeys,
             trimmedEventKey,
           ],
-        }
-      }),
-
-    markSprintEngineRunCompletionSeen: (workspaceId, seenAt = Date.now()) =>
-      set((state) => {
-        const ws = state.workspaces.find((w) => w.id === workspaceId)
-        if (!ws) return
-        const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-        if (typeof current.completionSeenAt === 'number' && current.completionSeenAt >= seenAt) return
-        ws.sprintEngineAutoState = {
-          ...current,
-          completionSeenAt: seenAt,
         }
       }),
 

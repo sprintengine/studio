@@ -98,6 +98,7 @@ type BacklogActions = {
 // "open" with no marker, so an unestimated note never looks like a defect.
 const LIFECYCLE_LABEL: Partial<Record<BacklogItemStatus, string>> = {
   in_progress: 'In progress',
+  needs_input: 'Needs input',
   completed: 'Completed',
   archived: 'Archived',
 }

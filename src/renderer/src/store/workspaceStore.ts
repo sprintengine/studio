@@ -290,7 +290,6 @@ export interface WorkspaceStore extends PluginsSlice {
     pendingSpawns: SprintEngineAutoPendingSpawn[]
   ) => void
   markSprintEngineAgentNotificationDelivered: (workspaceId: WorkspaceId, eventKey: string) => void
-  markSprintEngineRunCompletionSeen: (workspaceId: WorkspaceId, seenAt?: number) => void
   setMultiloopAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
   setMultiloopCliPermissionPreset: (
     workspaceId: WorkspaceId,

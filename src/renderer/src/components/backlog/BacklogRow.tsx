@@ -13,10 +13,10 @@ import {
 } from '../../utils/backlogTriage'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 
-// Backlog readiness → the shared lifecycle vocabulary. These are calm early
-// states, not blockers — none maps to the warn "needs input" glyph (that's for a
-// task genuinely awaiting a human). Idea reads as a dashed ring, "needs
-// structure" as a plain to-do ring.
+// Backlog readiness → the shared lifecycle vocabulary. The pre-work states
+// (idea / ready) are calm, not blockers; only `needs_input` — an agent working
+// the item is genuinely awaiting a human — earns the warn glyph. Idea reads as
+// a dashed ring, "needs structure" as a plain to-do ring.
 export function backlogStatusToLifecycle(status: BacklogItemStatus): LifecycleState {
   switch (status) {
     case 'idea':
@@ -25,6 +25,8 @@ export function backlogStatusToLifecycle(status: BacklogItemStatus): LifecycleSt
       return 'ready'
     case 'in_progress':
       return 'in_progress'
+    case 'needs_input':
+      return 'needs_input'
     case 'completed':
       return 'done'
     case 'archived':
@@ -38,6 +40,7 @@ export const BACKLOG_STATUS_LABEL: Record<BacklogItemStatus, string> = {
   idea: 'Idea',
   ready: 'Ready',
   in_progress: 'In progress',
+  needs_input: 'Needs input',
   completed: 'Completed',
   archived: 'Archived',
 }

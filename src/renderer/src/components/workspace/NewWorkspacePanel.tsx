@@ -2675,9 +2675,9 @@ function BacklogSourcePicker({
               `}
             >
               <BacklogRowContent item={item} now={now} />
-              {item.status === 'in_progress' ? (
+              {item.status === 'in_progress' || item.status === 'needs_input' ? (
                 <div className="mt-1 truncate pl-[22px] text-[11px] leading-4 text-[color:var(--text-subtle)]">
-                  Already in progress
+                  {item.status === 'needs_input' ? 'In progress — awaiting input' : 'Already in progress'}
                 </div>
               ) : null}
             </button>

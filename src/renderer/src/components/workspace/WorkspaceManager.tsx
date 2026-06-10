@@ -54,6 +54,7 @@ import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor
 import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
+import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
 import { AppTitleBar } from './AppTitleBar'
 import WorkspaceTopBar, {
   AGENT_SPAWN_PERMISSION_OPTIONS,
@@ -70,7 +71,6 @@ import {
   uniqueAgentName,
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
-import { acknowledgeActiveSprintEngineCompletion } from './workspaceCompletionAcknowledgement'
 import {
   EMPTY_WORKSPACE_NAVIGATION_HISTORY,
   recordWorkspaceVisit,
@@ -152,7 +152,6 @@ export default function WorkspaceManager() {
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
-  const markSprintEngineRunCompletionSeen = useWorkspaceStore((s) => s.markSprintEngineRunCompletionSeen)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
@@ -642,6 +641,9 @@ export default function WorkspaceManager() {
   useEffect(() => {
     if (!windowActiveWorkspaceId) return
     workspaceLayoutLastFocusedAtRef.current[windowActiveWorkspaceId] = Date.now()
+    // The newly active layer just flipped from visibility:hidden; terminals
+    // parked behind it run their deferred fit now (terminalFitScheduler.ts).
+    window.dispatchEvent(new Event(WORKSPACE_LAYER_REVEAL_EVENT))
   }, [windowActiveWorkspaceId])
 
   useEffect(() => {
@@ -1026,18 +1028,6 @@ export default function WorkspaceManager() {
     }
     return map
   }, [workspaces, terminalSessions])
-
-  // Completion is news once: while the user has a Sprint Engine workspace
-  // active and its run is complete, record the acknowledgement so the
-  // sidebar's done glyph reverts to recency text. Settles after one write —
-  // the seen mark flips isSprintEngineCompletionUnseen to false.
-  useEffect(() => {
-    acknowledgeActiveSprintEngineCompletion({
-      activeWorkspaceId: windowActiveWorkspaceId,
-      workspaces,
-      markSprintEngineRunCompletionSeen,
-    })
-  }, [windowActiveWorkspaceId, workspaces, markSprintEngineRunCompletionSeen])
 
 
   const addNewSpecialist = async (

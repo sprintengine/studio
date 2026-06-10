@@ -17,7 +17,8 @@ Backlog metadata is lightweight triage:
 - `type`: `feature`, `bug`, or `mockup`.
 - `difficulty`: t-shirt size `xs`, `s`, `m`, `l`, or `xl`.
 - `criticality`: `low`, `normal`, `high`, or `critical`.
-- `status`: `idea`, `ready`, `in_progress`, `completed`, or `archived`.
+- `status`: `idea`, `ready`, `in_progress`, `needs_input`, `completed`, or
+  `archived`.
 
 Set metadata when the current context supports a grounded estimate. Leave an
 axis unset instead of guessing. Difficulty is normally architect-owned.
@@ -54,6 +55,26 @@ durable lifecycle metadata.
    format `backlog_${(hash >>> 0).toString(36)}`.
 5. Do not edit markdown frontmatter just to change status. The object store is
    the source of truth for Backlog lifecycle once present.
-6. When the work is genuinely complete, set the Backlog item `status` to
-   `completed`. If you cannot complete it, leave it `in_progress` and clearly
-   report the blocker or remaining work.
+
+### Lifecycle Updates Are Mandatory
+
+The Backlog panel reads `status` to show the user what every item is doing, so
+keeping it current is part of the work, not optional bookkeeping. Whenever the
+real state of your work changes, update the item's `status` and `updatedAt` in
+the same step:
+
+- **Starting**: set `in_progress` before role-specific work begins (step 2
+  above).
+- **Blocked on the user**: set `needs_input` the moment you stop to wait for a
+  decision, missing information, clarification, an external credential or
+  resource, or any other help only a human can provide. State the specific
+  question or blocker in your reply at the same time — a `needs_input` status
+  with no stated question is incomplete.
+- **Resuming**: set `in_progress` again once the user has answered and you go
+  back to work.
+- **Finished**: set `completed` only when the work is genuinely complete and
+  verified. Do not mark `completed` for partial work.
+- **Stopping incomplete**: if you stop for any reason other than waiting on the
+  user (out of scope, failed approach, handing off), leave the item
+  `in_progress` and clearly report the remaining work — never let it silently
+  look finished or abandoned.

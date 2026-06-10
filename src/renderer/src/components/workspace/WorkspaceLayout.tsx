@@ -38,6 +38,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
 import { NewChatIcon, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
+import { panelTabAccentClass } from './panelTabAccent'
 import { StatusDot, type Tone } from '../ui'
 import MulticodeSpinner from '../brand/MulticodeSpinner'
 import AgentPanel from '../panels/AgentPanel'
@@ -942,13 +943,9 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
           const isWatchtower = componentId === 'watchtower-panel'
           // Degrade the panel-tab accent + icon to generic when the switchboard
           // module is disabled, matching the workspace tab/row contract (AC4).
-          const switchboardEnabled = selectModuleEnabled(moduleOverrides, 'switchboard')
-          const accentClass = switchboardEnabled
-            ? (isWatchtower ? 'text-[color:var(--tool-watchtower)]' : 'text-[color:var(--tool-switchboard)]')
-            : 'text-[color:var(--text-muted)]'
           renderValues.leading = (
             <span
-              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${accentClass}`}
+              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${panelTabAccentClass(isWatchtower ? 'watchtower' : 'switchboard', moduleOverrides)}`}
               title={isWatchtower ? 'Watchtower panel' : 'Switchboard panel'}
               aria-label={isWatchtower ? 'Watchtower panel' : 'Switchboard panel'}
             >
@@ -956,12 +953,9 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
             </span>
           )
         } else if (componentId?.startsWith('sprintengine')) {
-          const sprintEngineEnabled = selectModuleEnabled(moduleOverrides, 'sprint-engine')
           renderValues.leading = (
             <span
-              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${
-                sprintEngineEnabled ? 'text-[color:var(--tool-sprintengine)]' : 'text-[color:var(--text-muted)]'
-              }`}
+              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${panelTabAccentClass('sprintengine', moduleOverrides)}`}
               title='Sprint Engine panel'
               aria-label='Sprint Engine panel'
             >
@@ -1019,7 +1013,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
             title={`${multiloopRole} Multiloop agent`}
             aria-label={`${multiloopRole} Multiloop agent`}
           >
-            <WorkspaceTypeIcon mode="multiloop" className="h-3.5 w-3.5" />
+            <WorkspaceTypeIcon mode="multiloop" moduleOverrides={moduleOverrides} className="h-3.5 w-3.5" />
           </span>
         )
       } else {

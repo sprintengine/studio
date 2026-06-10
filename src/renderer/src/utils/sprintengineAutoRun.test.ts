@@ -18,18 +18,16 @@ import {
   continuationMessageKey,
   describeSprintEngineExternalInputAutoRunBlock,
   getActiveSprintEngineAutoRunGateClaims,
-  agentHasOpenSprintEngineGateWork,
-  agentOwnsOpenSprintEngineImplementationWork,
   getArchitectActionableNeedsInputTasks,
   getAutoApprovalIntentArtifacts,
   getClaimableSprintEngineAutoRunGates,
   getPendingAgentNotificationEvents,
   getSprintEngineAutoRunOccupiedAgentIds,
+  getSprintEngineWakeCandidateTasks,
   isSprintEngineAutoPendingSpawnStillRelevant,
   isSprintEngineRunBlockedOnExternalInput,
   pickNextAutoRuns,
-  roleHasClaimableSprintEngineImplementationWork,
-  shouldSkipExitedSprintEngineRosterAgent,
+  pickSprintEngineBootstrapCandidate,
   sprintEngineDispatchDeliveryKey,
   sprintEngineAutoRunWorkKey,
   type AutoRunCandidate,
@@ -82,10 +80,11 @@ async function main(): Promise<void> {
   testRunBlockedOnExternalInputKeepsAutoRunWithReadyApproval()
   testGetAutoApprovalIntentArtifactsRespectsEligibility()
   testGetPendingAgentNotificationEventsFiltersDeliveredAndSent()
-  testAgentOwnsOpenSprintEngineImplementationWorkIgnoresOwnerlessRework()
-  testAgentHasOpenSprintEngineGateWorkDetectsPendingAndActiveGates()
-  testRoleHasClaimableSprintEngineImplementationWorkDetectsReadyRoleWork()
-  testShouldSkipExitedSprintEngineRosterAgentAllowsOwnedReworkRestart()
+  testBootstrapSpawnsArchitectForFreshRunWithoutTasks()
+  testBootstrapDeliversUndeliveredArchitectStartupPromptEvenWithTasks()
+  testBootstrapDoesNothingOncePlanTasksExist()
+  testBootstrapSkipsRunningInFlightAndRetiredArchitect()
+  testBootstrapStallsInsteadOfSpawningWithoutArchitectOrAfterPrePlanExit()
   testGetSprintEngineAutoRunOccupiedAgentIdsIgnoresChangesRequestedOwners()
   testGetSprintEngineAutoRunOccupiedAgentIdsDoesNotCountDeadNeedsInputOwner()
   testPickNextAutoRunsSelectsReadyTaskForIdleRoleAgent()
@@ -126,6 +125,7 @@ async function main(): Promise<void> {
   await testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt()
   await testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity()
   await testSuperviseRunnerCycleRestartsExitedRoleForReadyTask()
+  await testSuperviseRunnerCycleBootstrapsOnlyArchitectForFreshRun()
   await testSuperviseRunnerCycleDoesNotRestartUnresolvedNeedsInputOwner()
   await testSuperviseRunnerCycleStartsReviewGateWhenUnrelatedAgentNeedsInput()
   await testSuperviseRunnerCycleDoesNotMutateTaskOrGateState()
@@ -2082,7 +2082,19 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
       'developer-1': { role: 'developer', status: 'retired', currentTaskId: null },
       'developer-2': { role: 'developer', status: 'idle', currentTaskId: null },
     },
-    tasks: [],
+    // Replenished capacity only spawns for claimable work: the lazy-spawn
+    // contract routes the replacement through pickNextAutoRuns, so the run
+    // must have a ready developer task for the same-cycle spawn to happen.
+    tasks: [{
+      id: 'T-ready',
+      title: 'Ready developer task',
+      role: 'developer',
+      status: 'ready',
+      folderStatus: 'ready',
+      dependsOn: [],
+      qualityGates: [],
+      activity: [],
+    }],
     artifacts: [],
     activity: [],
   }
@@ -2129,6 +2141,7 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
     sprintEngineAgents: {
       'developer-1': runtimeAgent('developer', { status: 'retired' }),
     },
+    tasks: [task({ id: 'T-ready', title: 'Ready developer task', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null })],
   })
   const workspace = workspaceFixture({
     sprintEngineState: initialState,
@@ -2272,13 +2285,103 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
   )
 }
 
+async function testSuperviseRunnerCycleBootstrapsOnlyArchitectForFreshRun(): Promise<void> {
+  // The lazy-spawn headline: a fresh automation run with a full roster and no
+  // tasks must spawn exactly one terminal — the architect carrying its stored
+  // handoff prompt — never a roster-wide spawn burst.
+  const spawns: Array<{ agentId?: string; cli?: AgentCli; initialPrompt?: string }> = []
+  installTestWindow({
+    terminalList: async () => [],
+    terminalStatus: async () => ({ processAlive: false }),
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    terminalSpawn: async (
+      sessionId: string,
+      _cols: number,
+      _rows: number,
+      _cwd?: string,
+      _resume?: boolean,
+      _statePath?: string,
+      cli?: AgentCli,
+      initialPrompt?: string,
+      _cliRuntimes?: unknown,
+      _shellOnly?: boolean,
+      metadata?: { agentId?: string },
+    ) => {
+      spawns.push({ agentId: metadata?.agentId, cli, initialPrompt })
+      return { ok: true, sessionId }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const sprintEngineState = sprintEngineStateFixture({
+    runner: { cliWatchPolling: 'enabled', pollIntervalSeconds: 10, idleBackoffSeconds: 30, maxBackoffSeconds: 120, stopWhenComplete: true },
+    sprintEngineAgents: {
+      architect: runtimeAgent('architect'),
+      product: runtimeAgent('product'),
+      developer: runtimeAgent('developer'),
+      frontend: runtimeAgent('frontend'),
+      code_reviewer: runtimeAgent('code_reviewer'),
+      tester: runtimeAgent('tester'),
+    },
+    tasks: [],
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: {
+      architect: { ...sprintAgent('architect', 'Ari'), cliStartupPrompt: 'Plan handoff for the team', cliOnboardingPromptSent: false },
+      product: sprintAgent('product', 'Pia'),
+      developer: sprintAgent('developer', 'Devin'),
+      frontend: sprintAgent('frontend', 'Rio'),
+      code_reviewer: sprintAgent('code_reviewer', 'Shawn'),
+      tester: sprintAgent('tester', 'Tess'),
+    },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 6,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: { codex: { command: 'codex', useWsl: false }, 'claude-code': { command: 'claude', useWsl: false } },
+    mcpSettings: emptyMcpSettings,
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages: mutableRef(new Map()),
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+  })
+
+  assert.equal(
+    spawns.length,
+    1,
+    `fresh run spawns exactly one terminal (the architect), not the roster; spawned ${JSON.stringify(spawns.map((spawn) => spawn.agentId))}`
+  )
+  assert.equal(spawns[0].agentId, 'architect')
+  assert.ok(
+    spawns[0].initialPrompt?.includes('Plan handoff for the team'),
+    'bootstrap delivers the stored architect handoff prompt'
+  )
+}
+
 async function testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForChangesRequested(): Promise<void> {
   // Repro for the renderer-cli-plugin-catalog stall (T4 stuck in changes_requested).
   // The frontend implementer's CLI is still ALIVE but idle — it finished its turn
   // after submitting its review gate verdict — so getRunningAutoRunAgentIds reports
   // it in runningAgentIds. Meanwhile reviewers moved the task back to an ownerless
   // `changes_requested`. Because the agent counts as "running":
-  //   - startMissingRosterAgents skips it (runningAgentIds.has → continue),
   //   - pickNextAutoRuns excludes it from reusable role agents,
   // leaving capped wake-candidate prompts as the only re-engagement path. Once that
   // cap is reached the run is permanently stranded with a green "running" light.
@@ -2353,9 +2456,8 @@ async function testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForChangesRe
 
   // Sanity: the engine itself considers this claimable role work, so the stall is a
   // re-engagement gap, not a readiness problem.
-  assert.equal(
-    roleHasClaimableSprintEngineImplementationWork(sprintEngineState, 'frontend'),
-    true,
+  assert.ok(
+    getSprintEngineWakeCandidateTasks(sprintEngineState).some((candidate) => candidate.id === 'T4'),
     'ownerless changes_requested T4 is claimable frontend work',
   )
 
@@ -3409,96 +3511,175 @@ function pickInput(overrides: Partial<{
   } as Parameters<typeof pickNextAutoRuns>[2]
 }
 
-function testAgentOwnsOpenSprintEngineImplementationWorkIgnoresOwnerlessRework(): void {
-  const state = sprintEngineStateFixture({
-    tasks: [
-      task({ id: 'T1', status: 'changes_requested', ownerAgentId: null, role: 'frontend' }),
-      task({ id: 'T2', status: 'needs_input', ownerAgentId: 'developer-1', role: 'developer' }),
-      task({ id: 'T3', status: 'done', ownerAgentId: 'tester', role: 'tester' }),
-    ],
-  })
-
-  assert.equal(agentOwnsOpenSprintEngineImplementationWork(state, 'frontend'), false)
-  assert.equal(agentOwnsOpenSprintEngineImplementationWork(state, 'developer-1'), false)
-  assert.equal(agentOwnsOpenSprintEngineImplementationWork(state, 'tester'), false)
+function bootstrapWorkspace(agents: Workspace['agents'] = {}): Workspace {
+  return workspaceFixture({ agents })
 }
 
-function testAgentHasOpenSprintEngineGateWorkDetectsPendingAndActiveGates(): void {
-  const state = sprintEngineStateFixture({
-    tasks: [
-      task({ id: 'T1', status: 'review' }),
-      task({
-        id: 'T2',
-        status: 'testing',
-        boardColumn: 'testing',
-        qualityGates: [
-          { id: 'code_reviewer', phase: 'review', role: 'code_reviewer', status: 'approved', required: true, allowSelfReview: true, focus: '', attempts: [] },
-          {
-            id: 'tester',
-            phase: 'testing',
-            role: 'tester',
-            status: 'in_progress',
-            required: true,
-            allowSelfReview: true,
-            focus: '',
-            attempts: [{ id: 'GA-001', role: 'tester', status: 'in_progress', claimedBy: 'tester', startedAt: '2026-05-21T21:00:00Z' }],
-          },
-        ],
-      }),
-      task({
-        id: 'T3',
-        status: 'review',
-        qualityGates: [
-          { id: 'spec_reviewer', phase: 'review', role: 'spec_reviewer', status: 'approved', required: true, allowSelfReview: true, focus: '', attempts: [] },
-        ],
-      }),
-    ],
+function bootstrapState(overrides: Partial<SprintEngineState> = {}): SprintEngineState {
+  return sprintEngineStateFixture({
+    sprintEngineAgents: {
+      architect: runtimeAgent('architect'),
+      developer: runtimeAgent('developer'),
+      code_reviewer: runtimeAgent('code_reviewer'),
+    },
+    ...overrides,
   })
-
-  assert.equal(agentHasOpenSprintEngineGateWork(state, 'spec_reviewer', 'spec_reviewer'), true)
-  assert.equal(agentHasOpenSprintEngineGateWork(state, 'tester', 'tester'), true)
-  assert.equal(agentHasOpenSprintEngineGateWork(state, 'code_reviewer', 'code_reviewer'), true)
-  assert.equal(agentHasOpenSprintEngineGateWork(state, 'frontend', 'frontend'), false)
 }
 
-function testRoleHasClaimableSprintEngineImplementationWorkDetectsReadyRoleWork(): void {
-  const state = sprintEngineStateFixture({
-    tasks: [
-      task({ id: 'T1', status: 'done', role: 'code_reviewer', ownerAgentId: 'code_reviewer' }),
-      task({ id: 'T2', status: 'todo', boardColumn: 'ready', role: 'code_reviewer', ownerAgentId: null }),
-      task({ id: 'T3', status: 'todo', boardColumn: 'ready', role: 'developer', ownerAgentId: 'developer-1' }),
-      task({ id: 'T4', status: 'changes_requested', boardColumn: 'changes_requested', role: 'frontend', ownerAgentId: 'frontend-1' }),
-    ],
-  })
-
-  assert.equal(roleHasClaimableSprintEngineImplementationWork(state, 'code_reviewer'), true)
-  assert.equal(roleHasClaimableSprintEngineImplementationWork(state, 'developer'), false)
-  assert.equal(roleHasClaimableSprintEngineImplementationWork(state, 'frontend'), true)
-  assert.equal(roleHasClaimableSprintEngineImplementationWork(state, 'tester'), false)
+function bootstrapOptions(overrides: Partial<{
+  runningAgentIds: Set<string>
+  inFlightSpawnKeys: Set<string>
+}> = {}): Parameters<typeof pickSprintEngineBootstrapCandidate>[2] {
+  return {
+    runningAgentIds: new Set<string>(),
+    inFlightSpawnKeys: new Set<string>(),
+    ...overrides,
+  }
 }
 
-function testShouldSkipExitedSprintEngineRosterAgentAllowsOwnedReworkRestart(): void {
-  const exitedAgent = {
-    kind: 'sprintengine' as const,
-    cliLastExitedAt: Date.now(),
-    cliStartRequested: false,
-    cliHasLaunched: false,
+function testBootstrapSpawnsArchitectForFreshRunWithoutTasks(): void {
+  const decision = pickSprintEngineBootstrapCandidate(
+    bootstrapWorkspace({ architect: { ...sprintAgent('architect', 'Ari'), cliStartupPrompt: 'handoff', cliOnboardingPromptSent: false } }),
+    bootstrapState(),
+    bootstrapOptions()
+  )
+
+  assert.equal(decision.kind, 'spawn', 'fresh run with no tasks bootstraps the architect')
+  if (decision.kind === 'spawn') {
+    assert.equal(decision.candidate.agentId, 'architect', 'only the architect is bootstrap-spawned')
+    assert.equal(decision.candidate.role, 'architect')
+    assert.equal(decision.candidate.taskId, 'bootstrap-architect')
+    assert.equal(decision.candidate.label, 'Ari', 'bootstrap reuses the named workspace agent label')
   }
 
+  // New-team wizard runs have no stored handoff prompt and no workspace agent
+  // entry yet; the architect still bootstraps (with the generated init prompt
+  // downstream) under the roster label.
+  const freshTeam = pickSprintEngineBootstrapCandidate(bootstrapWorkspace(), bootstrapState(), bootstrapOptions())
+  assert.equal(freshTeam.kind, 'spawn', 'a new team with no stored prompt still bootstraps the architect')
+  if (freshTeam.kind === 'spawn') {
+    assert.equal(freshTeam.candidate.agentId, 'architect')
+    assert.ok(freshTeam.candidate.label, 'bootstrap falls back to the roster label when no agent entry exists')
+  }
+}
+
+function testBootstrapDeliversUndeliveredArchitectStartupPromptEvenWithTasks(): void {
+  const tasks = [task({ id: 'T1', status: 'todo', boardColumn: 'ready', role: 'developer', ownerAgentId: null })]
+  const undelivered = pickSprintEngineBootstrapCandidate(
+    bootstrapWorkspace({ architect: { ...sprintAgent('architect', 'Ari'), cliStartupPrompt: 'handoff', cliOnboardingPromptSent: false } }),
+    bootstrapState({ tasks }),
+    bootstrapOptions()
+  )
+  assert.equal(undelivered.kind, 'spawn', 'an undelivered stored handoff prompt still bootstraps after tasks exist')
+
+  const delivered = pickSprintEngineBootstrapCandidate(
+    bootstrapWorkspace({ architect: { ...sprintAgent('architect', 'Ari'), cliStartupPrompt: 'handoff', cliOnboardingPromptSent: true } }),
+    bootstrapState({ tasks }),
+    bootstrapOptions()
+  )
+  assert.equal(delivered.kind, 'none', 'a delivered handoff prompt does not re-bootstrap')
+}
+
+function testBootstrapDoesNothingOncePlanTasksExist(): void {
+  const decision = pickSprintEngineBootstrapCandidate(
+    bootstrapWorkspace(),
+    bootstrapState({
+      tasks: [
+        task({ id: 'T1', status: 'todo', boardColumn: 'ready', role: 'developer', ownerAgentId: null }),
+        task({ id: 'T2', status: 'review', role: 'developer' }),
+      ],
+    }),
+    bootstrapOptions()
+  )
+
   assert.equal(
-    shouldSkipExitedSprintEngineRosterAgent(exitedAgent, false),
-    true,
-    'exited idle roster agents without owned work remain skipped'
+    decision.kind,
+    'none',
+    'once the plan exists, all spawning is work-driven through pickNextAutoRuns — never a roster sweep'
+  )
+}
+
+function testBootstrapSkipsRunningInFlightAndRetiredArchitect(): void {
+  assert.equal(
+    pickSprintEngineBootstrapCandidate(
+      bootstrapWorkspace(),
+      bootstrapState(),
+      bootstrapOptions({ runningAgentIds: new Set(['architect']) })
+    ).kind,
+    'none',
+    'a running architect terminal is never duplicated'
   )
   assert.equal(
-    shouldSkipExitedSprintEngineRosterAgent(exitedAgent, true),
-    false,
-    'exited agents with open owned or claimable work are eligible for restart'
+    pickSprintEngineBootstrapCandidate(
+      bootstrapWorkspace(),
+      bootstrapState(),
+      bootstrapOptions({ inFlightSpawnKeys: new Set(['workspace-1:architect']) })
+    ).kind,
+    'none',
+    'an in-flight architect spawn is never duplicated'
   )
   assert.equal(
-    shouldSkipExitedSprintEngineRosterAgent({ ...exitedAgent, cliStartRequested: true }, true),
-    false,
-    'agents already requested for startup are not treated as skipped exited agents'
+    pickSprintEngineBootstrapCandidate(
+      bootstrapWorkspace(),
+      bootstrapState({
+        sprintEngineAgents: {
+          architect: runtimeAgent('architect', { status: 'retired' }),
+          developer: runtimeAgent('developer'),
+        },
+      }),
+      bootstrapOptions()
+    ).kind,
+    'none',
+    'a retired architect waits for roster replenishment instead of bootstrap'
+  )
+}
+
+function testBootstrapStallsInsteadOfSpawningWithoutArchitectOrAfterPrePlanExit(): void {
+  const noArchitect = pickSprintEngineBootstrapCandidate(
+    bootstrapWorkspace(),
+    bootstrapState({ sprintEngineAgents: { developer: runtimeAgent('developer') } }),
+    bootstrapOptions()
+  )
+  assert.deepEqual(
+    noArchitect,
+    { kind: 'stall', reason: 'no_architect' },
+    'no tasks and no architect is a visible stall, not a silent no-op'
+  )
+
+  const noArchitectWithTasks = pickSprintEngineBootstrapCandidate(
+    bootstrapWorkspace(),
+    bootstrapState({
+      sprintEngineAgents: { developer: runtimeAgent('developer') },
+      tasks: [task({ id: 'T1', status: 'todo', boardColumn: 'ready', role: 'developer', ownerAgentId: null })],
+    }),
+    bootstrapOptions()
+  )
+  assert.equal(noArchitectWithTasks.kind, 'none', 'architect-less runs with tasks proceed work-driven')
+
+  const exitedBeforePlan = pickSprintEngineBootstrapCandidate(
+    bootstrapWorkspace({
+      architect: { ...sprintAgent('architect', 'Ari'), cliLastExitedAt: Date.now(), cliOnboardingPromptSent: true },
+    }),
+    bootstrapState(),
+    bootstrapOptions()
+  )
+  assert.deepEqual(
+    exitedBeforePlan,
+    { kind: 'stall', reason: 'architect_exited_before_plan' },
+    'an architect that exited pre-plan after its prompt was delivered stalls visibly instead of spawn-looping'
+  )
+
+  const exitedWithUndeliveredPrompt = pickSprintEngineBootstrapCandidate(
+    bootstrapWorkspace({
+      architect: { ...sprintAgent('architect', 'Ari'), cliLastExitedAt: Date.now(), cliStartupPrompt: 'handoff', cliOnboardingPromptSent: false },
+    }),
+    bootstrapState(),
+    bootstrapOptions()
+  )
+  assert.equal(
+    exitedWithUndeliveredPrompt.kind,
+    'spawn',
+    'an exited architect whose stored handoff was never delivered is respawned to deliver it'
   )
 }
 

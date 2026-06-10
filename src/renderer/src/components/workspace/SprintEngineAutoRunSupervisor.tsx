@@ -23,8 +23,6 @@ import {
 } from '../../utils/sprintengine'
 import {
   agentNotificationDeliveryKey,
-  agentHasOpenSprintEngineGateWork,
-  agentOwnsOpenSprintEngineImplementationWork,
   architectTriageMessageKey,
   artifactApprovalMessageKey,
   buildAgentNotificationPrompt,
@@ -48,8 +46,7 @@ import {
   isSprintEngineRunBlockedOnExternalInput,
   isSprintEngineAutoPendingSpawnStillRelevant,
   pickNextAutoRuns,
-  roleHasClaimableSprintEngineImplementationWork,
-  shouldSkipExitedSprintEngineRosterAgent,
+  pickSprintEngineBootstrapCandidate,
   type AutoRunCandidate,
   type RoleContinuationGrace,
 } from '../../utils/sprintengineAutoRun'
@@ -845,12 +842,12 @@ export async function sendContinuationPromptsToIdleAgents(
  * Last-resort re-engagement for a roster agent whose CLI is alive but idle and
  * has stopped responding to wake-candidate prompts while it still has claimable
  * role work (e.g. a `changes_requested` task its reviewers handed back). Because
- * a live terminal makes the agent count as "running", neither `pickNextAutoRuns`
- * nor `startMissingRosterAgents` will replace it, and the capped continuation
- * prompts are the only other path — so once that budget is exhausted the run
- * stalls silently. Here we restart the stalled terminal: killing it lets the
- * existing exit→respawn path (`startMissingRosterAgents` + open work) bring a
- * fresh agent that claims the work through `sprintengine.agent.join`.
+ * a live terminal makes the agent count as "running", `pickNextAutoRuns` will
+ * not replace it, and the capped continuation prompts are the only other path —
+ * so once that budget is exhausted the run stalls silently. Here we restart the
+ * stalled terminal: killing it leaves the agent projection-idle with claimable
+ * role work, so `pickNextAutoRuns` spawns a fresh terminal next tick that
+ * claims the work through `sprintengine.agent.join`.
  *
  * Role-agnostic: applies to any role with a claimable wake task (implementer,
  * frontend, tester rework, …), not just frontend. Quality-gate stalls keep the
@@ -892,7 +889,7 @@ export async function escalateStalledLiveIdleAgents(
 
     await safeTerminalKill(defaultExecutorPorts, session.sessionId)
     // Reset the wake budget for this task/agent. The fresh terminal that
-    // `startMissingRosterAgents` spawns next tick claims via join on startup;
+    // `pickNextAutoRuns` spawns next tick claims via join on startup;
     // clearing the counter also guarantees we never kill-loop the replacement
     // before it has a chance to claim.
     sentContinuationMessages.current.delete(key)
@@ -1551,7 +1548,21 @@ export async function spawnAutoRunCandidate(
   }
 }
 
-async function startMissingRosterAgents(
+// One stall notice per run store, so a bootstrap stall (no architect, or the
+// architect terminal exited before planning) surfaces once instead of every
+// supervision tick. Cleared when a bootstrap spawn later succeeds.
+const bootstrapStallNoticeKeys = new Set<string>()
+
+/**
+ * Run-start bootstrap. The decision of *whether* anything needs a bootstrap
+ * spawn is pure planner logic in `pickSprintEngineBootstrapCandidate`; this
+ * wrapper owns the IPC side effects (terminal liveness check, diagnostics,
+ * the actual spawn). All other spawning is work-driven and capped: ready
+ * tasks, rework, and quality gates through `pickNextAutoRuns`, notification
+ * targets through `deliverAgentNotificationEvents`, and needs-input triage
+ * through `signalArchitectForNeedsInputTriage`.
+ */
+async function ensureSprintEngineBootstrapAgent(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   runningAgentIds: Set<string>,
@@ -1559,160 +1570,74 @@ async function startMissingRosterAgents(
   mcpSettings: McpSettings,
   inFlightSpawns: MutableRefObject<Set<string>>
 ): Promise<'started' | 'failed' | 'none'> {
-  const autoState = getSprintEngineAutoState(workspace)
-  const automationMode = deriveSprintEngineAutomationMode(autoState, sprintEngineState.runner)
-  const localRunnerActive = isSprintEngineRunnerActive(workspace)
-  logPerfEvent('SprintEngineAutoRun', 'roster-spawn-audit-start', {
-    workspaceId: workspace.id,
-    workspaceName: workspace.name,
-    automationMode,
-    runtimeState: autoState.runtimeState ?? null,
-    runnerCliWatchPolling: sprintEngineState.runner?.cliWatchPolling ?? null,
-    localRunnerActive,
-    artifactApprovalDesired: sprintEngineArtifactApprovalDesired(autoState),
-    runningAgentIds: [...runningAgentIds],
-    rosterAgentCount: Object.keys(sprintEngineState.sprintEngineAgents).length,
-    taskCounts: {
-      ready: sprintEngineState.tasks.filter((task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'ready').length,
-      changesRequested: sprintEngineState.tasks.filter((task) => task.status === 'changes_requested').length,
-      review: sprintEngineState.tasks.filter((task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'review').length,
-      testing: sprintEngineState.tasks.filter((task) => getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks) === 'testing').length,
-      needsInput: sprintEngineState.tasks.filter((task) => task.status === 'needs_input').length,
-    },
+  if (!isSprintEngineRunnerActive(workspace) || !workspace.sprintEngineContext) return 'none'
+
+  const decision = pickSprintEngineBootstrapCandidate(workspace, sprintEngineState, {
+    runningAgentIds,
+    inFlightSpawnKeys: inFlightSpawns.current,
   })
-  if (!localRunnerActive || !workspace.sprintEngineContext) {
-    logPerfEvent('SprintEngineAutoRun', 'roster-spawn-audit-skipped', {
+  const stallNoticeKey = `${workspace.id}:${workspace.sprintEngineContext.statePath}`
+
+  if (decision.kind === 'stall') {
+    logPerfEvent('SprintEngineAutoRun', 'bootstrap-stalled', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
-      reason: !workspace.sprintEngineContext ? 'missing-sprintengine-context' : 'local-runner-inactive',
-      automationMode,
-      runtimeState: autoState.runtimeState ?? null,
-      runnerCliWatchPolling: sprintEngineState.runner?.cliWatchPolling ?? null,
-      localRunnerActive,
-      artifactApprovalDesired: sprintEngineArtifactApprovalDesired(autoState),
+      reason: decision.reason,
     })
+    if (!bootstrapStallNoticeKeys.has(stallNoticeKey)) {
+      bootstrapStallNoticeKeys.add(stallNoticeKey)
+      await defaultExecutorPorts.publishDiagnostic({
+        level: 'warning',
+        source: 'sprintengine',
+        title: decision.reason === 'no_architect'
+          ? 'Automation has nothing to start'
+          : 'Architect terminal exited before planning finished',
+        message: decision.reason === 'no_architect'
+          ? 'This run has no tasks yet and no architect on the roster, so automation cannot create a plan.'
+          : 'The run has no tasks yet and the architect terminal already exited. Automation does not respawn it automatically; spawn the architect from the board to continue planning.',
+        details: [
+          `Workspace: ${workspace.name}`,
+          decision.reason === 'no_architect'
+            ? 'Add an architect to the roster or create tasks before enabling automation.'
+            : 'Once the architect records tasks, agents spawn on their own when work becomes claimable.',
+        ].join('\n'),
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+      })
+    }
     return 'none'
   }
+  if (decision.kind === 'none') return 'none'
 
-  const stateFileExists = await defaultExecutorPorts.pathExists(workspace.sprintEngineContext.statePath).catch(() => false)
-  const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
-  let started = false
-
-  for (const agent of roster) {
-    const runtimeAgent = sprintEngineState.sprintEngineAgents[agent.id]
-    const currentAgent = workspace.agents[agent.id]
-    const ownsOpenImplementationWork = agentOwnsOpenSprintEngineImplementationWork(sprintEngineState, agent.id)
-    const hasOpenGateWork = agentHasOpenSprintEngineGateWork(sprintEngineState, agent.id, agent.role)
-    const hasClaimableImplementationWork = roleHasClaimableSprintEngineImplementationWork(sprintEngineState, agent.role)
-    const hasOpenWork = ownsOpenImplementationWork || hasOpenGateWork || hasClaimableImplementationWork
-    logPerfEvent('SprintEngineAutoRun', 'roster-spawn-agent-audit', {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      agentId: agent.id,
-      role: agent.role,
-      runtimeStatus: runtimeAgent?.status ?? null,
-      currentTaskId: runtimeAgent?.currentTaskId ?? null,
-      currentDispatchKind: runtimeAgent?.currentDispatch?.targetKind ?? null,
-      runningKnown: runningAgentIds.has(agent.id),
-      inFlight: inFlightSpawns.current.has(`${workspace.id}:${agent.id}`),
-      terminalSessionId: currentAgent?.cliSessionId ?? null,
-      terminalLastExitedAt: currentAgent?.cliLastExitedAt ?? null,
-      terminalStartRequested: currentAgent?.cliStartRequested ?? null,
-      terminalHasLaunched: currentAgent?.cliHasLaunched ?? null,
-      ownsOpenImplementationWork,
-      hasOpenGateWork,
-      hasClaimableImplementationWork,
-      hasOpenWork,
-    })
-    if (runtimeAgent?.status === 'retired') {
-      logPerfEvent('SprintEngineAutoRun', 'roster-spawn-skipped-retired', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        agentId: agent.id,
-        role: agent.role,
-      })
-      continue
-    }
-    if (!stateFileExists) {
-      logPerfEvent('SprintEngineAutoRun', 'roster-spawn-before-state', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        agentId: agent.id,
-        role: agent.role,
-      })
-    }
-    if (runningAgentIds.has(agent.id)) continue
-    if (inFlightSpawns.current.has(`${workspace.id}:${agent.id}`)) {
-      logPerfEvent('SprintEngineAutoRun', 'roster-spawn-skipped-in-flight', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        agentId: agent.id,
-        role: agent.role,
-      })
-      continue
-    }
-    if (shouldSkipExitedSprintEngineRosterAgent(currentAgent, hasOpenWork)) {
-      logPerfEvent('SprintEngineAutoRun', 'roster-spawn-skipped-exited', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        agentId: agent.id,
-        role: agent.role,
-        lastExitedAt: currentAgent.cliLastExitedAt,
-        ownsOpenImplementationWork,
-        hasOpenGateWork,
-        hasClaimableImplementationWork,
-      })
-      continue
-    }
-    if (
-      currentAgent?.kind === 'sprintengine'
-      && currentAgent.cliLastExitedAt
-      && ownsOpenImplementationWork
-    ) {
-      logPerfEvent('SprintEngineAutoRun', 'roster-spawn-restarting-exited-owner', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        agentId: agent.id,
-        role: agent.role,
-        lastExitedAt: currentAgent.cliLastExitedAt,
-      })
-    }
-    const status = currentAgent?.cliSessionId
-      ? await safeTerminalStatus(defaultExecutorPorts, currentAgent.cliSessionId)
-      : { processAlive: false }
-    if (status.processAlive) {
-      logPerfEvent('SprintEngineAutoRun', 'roster-spawn-skipped-terminal-alive', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        agentId: agent.id,
-        role: agent.role,
-        sessionId: currentAgent?.cliSessionId ?? null,
-      })
-      continue
-    }
-
-    const result = await spawnAutoRunCandidate(
-      workspace,
-      sprintEngineState,
-      {
-        agentId: agent.id,
-        label: currentAgent?.name ?? agent.label,
-        role: agent.role,
-        taskId: `roster-${agent.id}`,
-      },
-      cliRuntimes,
-      mcpSettings,
-      inFlightSpawns,
-      { trackPendingSpawn: false }
-    )
-    if (result === 'failed') return 'failed'
-    if (result === 'started') {
-      started = true
-      runningAgentIds.add(agent.id)
-    }
+  const currentAgent = workspace.agents[decision.candidate.agentId]
+  if (currentAgent?.cliSessionId) {
+    const status = await safeTerminalStatus(defaultExecutorPorts, currentAgent.cliSessionId)
+    if (status.processAlive) return 'none'
   }
 
-  return started ? 'started' : 'none'
+  logPerfEvent('SprintEngineAutoRun', 'bootstrap-spawn', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    agentId: decision.candidate.agentId,
+    role: decision.candidate.role,
+    taskCount: sprintEngineState.tasks.length,
+  })
+  const result = await spawnAutoRunCandidate(
+    workspace,
+    sprintEngineState,
+    decision.candidate,
+    cliRuntimes,
+    mcpSettings,
+    inFlightSpawns,
+    { trackPendingSpawn: false }
+  )
+  if (result === 'failed') return 'failed'
+  if (result === 'started') {
+    bootstrapStallNoticeKeys.delete(stallNoticeKey)
+    runningAgentIds.add(decision.candidate.agentId)
+    return 'started'
+  }
+  return 'none'
 }
 
 async function replenishRetiredRosterCapacity(
@@ -2079,7 +2004,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     })
   }
 
-  const rosterStartResult = await startMissingRosterAgents(
+  const bootstrapResult = await ensureSprintEngineBootstrapAgent(
     workspace,
     sprintEngineState,
     runningAgentIds,
@@ -2087,7 +2012,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     mcpSettings,
     inFlightSpawns
   )
-  if (rosterStartResult === 'failed') return
+  if (bootstrapResult === 'failed') return
 
   const hasArchitectOnRoster = buildSprintEngineAgentRosterForState(sprintEngineState)
     .some((candidate) => candidate.role === 'architect')

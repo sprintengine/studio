@@ -1,7 +1,7 @@
 import React from 'react'
 
 import type { RendererHost } from './renderer-host'
-import type { LayoutTemplate, PreviewSlot, SprintEngineMockConfig, SprintEngineTask } from '../types/workspace'
+import type { LayoutTemplate, PreviewSlot, SprintEngineMockConfig } from '../types/workspace'
 import { GuidedBriefWorkspaceTypeIcon, SprintEngineWorkspaceTypeIcon } from '../components/AppIcons'
 import { deriveSprintEngineRunGlyph } from '../utils/sprintengine'
 import type { WorkspaceActivityKind, WorkspaceRunGlyphProviderInput } from '../utils/workspaceRunGlyph'
@@ -90,62 +90,63 @@ function isSprintEngineRunGlyphWorkspace(workspace: WorkspaceRunGlyphProviderInp
   return workspace.mode === 'sprintengine' || Boolean(workspace.sprintEngineContext)
 }
 
-function latestTaskCompletionAt(tasks: SprintEngineTask[]): number | null {
-  let latest: number | null = null
-  for (const task of tasks) {
-    if (!task.completedAt) continue
-    const at = Date.parse(task.completedAt)
-    if (Number.isFinite(at) && (latest === null || at > latest)) latest = at
-  }
-  return latest
-}
-
 // AutoRun never reaches `complete` on a manual run, so a run whose tasks all
 // finished by hand still reads as done.
-function manualRunCompletedAt(workspace: WorkspaceRunGlyphProviderInput): number | null {
+function isManualRunCompleted(workspace: WorkspaceRunGlyphProviderInput): boolean {
   const tasks = workspace.sprintEngineState?.tasks ?? []
-  if (tasks.length === 0 || !tasks.every((task) => task.status === 'done')) return null
-  return latestTaskCompletionAt(tasks) ?? 0
+  return tasks.length > 0 && tasks.every((task) => task.status === 'done')
 }
 
-// Completion is news once: the done glyph shows only until the user next has
-// the workspace active while the run is complete (markSprintEngineRunCompletionSeen),
-// then the row reverts to recency text. An undatable completion counts as
-// unseen until any seen mark exists.
-function completionSeen(workspace: WorkspaceRunGlyphProviderInput, completedAt: number | null): boolean {
-  const seenAt = workspace.sprintEngineAutoState?.completionSeenAt
-  if (typeof seenAt !== 'number') return false
-  return completedAt === null || seenAt >= completedAt
+function parseCompletionTime(value: string | null | undefined): number | null {
+  if (!value) return null
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : null
 }
 
-export function isSprintEngineRunCompletionUnseen(workspace: WorkspaceRunGlyphProviderInput): boolean {
-  if (!isSprintEngineRunGlyphWorkspace(workspace)) return false
-  const rollup = deriveSprintEngineRunGlyph({
-    sprintEngineState: workspace.sprintEngineState,
-    autoState: workspace.sprintEngineAutoState,
-  })
-  if (rollup && rollup.state !== 'done') return false
-  const completedAt = rollup?.state === 'done'
-    ? workspace.sprintEngineAutoState?.changedAt ?? manualRunCompletedAt(workspace)
-    : manualRunCompletedAt(workspace)
-  if (rollup?.state !== 'done' && completedAt === null) return false
-  return !completionSeen(workspace, completedAt)
+function manualRunCompletionAt(workspace: WorkspaceRunGlyphProviderInput): number | null {
+  if (!isManualRunCompleted(workspace)) return null
+  const completedAt = (workspace.sprintEngineState?.tasks ?? [])
+    .map((task) => parseCompletionTime(task.completedAt))
+    .filter((value): value is number => typeof value === 'number')
+  return completedAt.length > 0 ? Math.max(...completedAt) : 1
 }
 
+function sprintEngineCompletionAt(workspace: WorkspaceRunGlyphProviderInput, rollupState: string | null): number | null {
+  if (rollupState === 'done') {
+    return typeof workspace.sprintEngineAutoState?.changedAt === 'number'
+      && Number.isFinite(workspace.sprintEngineAutoState.changedAt)
+      ? workspace.sprintEngineAutoState.changedAt
+      : 1
+  }
+  return manualRunCompletionAt(workspace)
+}
+
+function completionIsUnseen(workspace: WorkspaceRunGlyphProviderInput, completionAt: number): boolean {
+  return typeof workspace.sprintEngineCompletionSeenAt !== 'number'
+    || !Number.isFinite(workspace.sprintEngineCompletionSeenAt)
+    || workspace.sprintEngineCompletionSeenAt < completionAt
+}
+
+// A completed run wears the done glyph until the user views the workspace after
+// completion. Recency survives in the glyph tooltip and returns once the
+// completion has been acknowledged.
 export function deriveSprintEngineWorkspaceRunGlyph(
   workspace: WorkspaceRunGlyphProviderInput,
-  _activity: WorkspaceActivityKind,
+  activity: WorkspaceActivityKind,
 ) {
   const rollup = deriveSprintEngineRunGlyph({
     sprintEngineState: workspace.sprintEngineState,
     autoState: workspace.sprintEngineAutoState,
   })
   if (rollup && rollup.state !== 'done') return rollup
-  if (
-    (rollup?.state === 'done' || manualRunCompletedAt(workspace) !== null)
-    && isSprintEngineRunCompletionUnseen(workspace)
-  ) {
-    return { state: 'done', live: false, label: 'Run completed' } as const
+  // Busy or failed terminals outrank a finished run: new activity in a
+  // completed workspace reads as live again via the caller's fallback.
+  if (activity === 'working' || activity === 'failed') return null
+  if (rollup?.state === 'done' || isManualRunCompleted(workspace)) {
+    const completionAt = sprintEngineCompletionAt(workspace, rollup?.state ?? null)
+    if (completionAt !== null && completionIsUnseen(workspace, completionAt)) {
+      return { state: 'done', live: false, label: 'Run completed' } as const
+    }
   }
   return null
 }
@@ -161,7 +162,6 @@ export function registerSprintEngineWorkspaceTypes(host: RendererHost): void {
     createTemplate: () => createSprintEngineTemplate(defaultSprintEngineTemplateConfig),
     isRunGlyphProviderForWorkspace: isSprintEngineRunGlyphWorkspace,
     deriveRunGlyph: deriveSprintEngineWorkspaceRunGlyph,
-    isRunCompletionUnseen: isSprintEngineRunCompletionUnseen,
     supervisors: [
       { Component: SprintEngineAutoRunSupervisor, scope: 'global' },
     ],

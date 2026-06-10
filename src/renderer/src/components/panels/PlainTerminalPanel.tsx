@@ -9,7 +9,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
-import { deferFitDuringSidebarAnimation } from '../../utils/sidebarTransition'
+import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import {
   hasCommitDropData,
@@ -166,7 +166,7 @@ export default function PlainTerminalPanel({
       void window.api.terminalResize(sessionId, cols, rows)
     })
 
-    const fitScheduler = deferFitDuringSidebarAnimation(fitTerminal)
+    const fitScheduler = createTerminalFitScheduler(fitTerminal, container)
     const resizeObserver = new ResizeObserver(() => {
       fitScheduler.requestFit()
     })

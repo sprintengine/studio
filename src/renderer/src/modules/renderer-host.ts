@@ -61,7 +61,6 @@ export type WorkspaceTypeDefinition = {
   }
   isRunGlyphProviderForWorkspace?(workspace: WorkspaceRunGlyphProviderInput): boolean
   deriveRunGlyph?(workspace: WorkspaceRunGlyphProviderInput, activity: WorkspaceActivityKind): WorkspaceRunGlyph | null
-  isRunCompletionUnseen?(workspace: WorkspaceRunGlyphProviderInput): boolean
   supervisors?: WorkspaceTypeSupervisor[]
   creationStepsId?: string
   pickerOrder?: number

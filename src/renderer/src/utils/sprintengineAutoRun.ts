@@ -1,5 +1,4 @@
 import type {
-  AgentState,
   SprintEngineArtifact,
   SprintEngineAutoPendingSpawn,
   SprintEngineCurrentDispatch,
@@ -39,11 +38,6 @@ export type AutoRunCandidate = {
 export type RoleContinuationGrace = {
   startedAt: number
 }
-
-export type SprintEngineExitedAgentLike = Pick<
-  AgentState,
-  'kind' | 'cliLastExitedAt' | 'cliStartRequested' | 'cliHasLaunched'
->
 
 export type SprintEngineAutoRunActiveGateClaim = {
   gate: SprintEngineQualityGate
@@ -320,43 +314,6 @@ export function agentNotificationDeliveryKey(workspace: Workspace, event: Sprint
   ].join(':')
 }
 
-export function agentOwnsOpenSprintEngineImplementationWork(
-  sprintEngineState: SprintEngineState,
-  agentId: string
-): boolean {
-  return sprintEngineState.tasks.some((task) =>
-    task.ownerAgentId === agentId
-    && task.status === 'in_progress'
-  )
-}
-
-export function agentHasOpenSprintEngineGateWork(
-  sprintEngineState: SprintEngineState,
-  agentId: string,
-  role: SprintEngineRoleId
-): boolean {
-  return sprintEngineState.tasks.some((task) => {
-    const taskColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
-    return getOpenSprintEngineQualityGates(task).some((gate) => {
-      if (gate.phase !== taskColumn || gate.role !== role) return false
-      if (gate.status === 'pending') return true
-      if (gate.status !== 'in_progress') return false
-      return gate.attempts.some((attempt) =>
-        attempt.status === 'in_progress' && attempt.claimedBy === agentId
-      )
-    })
-  })
-}
-
-export function roleHasClaimableSprintEngineImplementationWork(
-  sprintEngineState: SprintEngineState,
-  role: SprintEngineRoleId
-): boolean {
-  return sprintEngineState.tasks.some((task) =>
-    task.role === role && isSprintEngineAutoRunImplementationWakeCandidate(task, sprintEngineState)
-  )
-}
-
 function isSprintEngineAutoRunImplementationWakeCandidate(
   task: SprintEngineTask,
   sprintEngineState: SprintEngineState
@@ -392,17 +349,62 @@ export function findSprintEngineWakeCandidateTaskForAgent(
   )
 }
 
-export function shouldSkipExitedSprintEngineRosterAgent(
-  currentAgent: SprintEngineExitedAgentLike | null | undefined,
-  hasOpenWork: boolean
-): boolean {
-  return Boolean(
-    currentAgent?.kind === 'sprintengine'
-    && currentAgent.cliLastExitedAt
-    && !currentAgent.cliStartRequested
-    && !currentAgent.cliHasLaunched
-    && !hasOpenWork
-  )
+export type SprintEngineBootstrapDecision =
+  | { kind: 'spawn'; candidate: AutoRunCandidate }
+  | { kind: 'stall'; reason: 'no_architect' | 'architect_exited_before_plan' }
+  | { kind: 'none' }
+
+/**
+ * Run-start bootstrap decision. Before the architect produces a plan there are
+ * no tasks, so `pickNextAutoRuns` has nothing to select — the architect (and
+ * only the architect) is spawned here, carrying its stored handoff prompt when
+ * one exists. Every other spawn is work-driven: ready tasks, rework, and
+ * quality gates flow through `pickNextAutoRuns` under the concurrency cap,
+ * notification targets through notification delivery, and needs-input triage
+ * through the architect triage path.
+ *
+ * An architect terminal that exited after its startup prompt was delivered is
+ * not respawned blindly (a broken CLI would spawn/exit loop); that pre-plan
+ * stall is reported as a decision so the supervisor can surface it once.
+ */
+export function pickSprintEngineBootstrapCandidate(
+  workspace: Workspace,
+  sprintEngineState: SprintEngineState,
+  options: {
+    runningAgentIds: ReadonlySet<string>
+    inFlightSpawnKeys: ReadonlySet<string>
+  }
+): SprintEngineBootstrapDecision {
+  const runHasTasks = sprintEngineState.tasks.length > 0
+  const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
+  const architect = roster.find((candidate) => candidate.role === 'architect')
+  if (!architect) {
+    return runHasTasks ? { kind: 'none' } : { kind: 'stall', reason: 'no_architect' }
+  }
+
+  const currentAgent = workspace.agents[architect.id]
+  const hasUndeliveredStartupPrompt =
+    Boolean(currentAgent?.cliStartupPrompt?.trim()) && !currentAgent?.cliOnboardingPromptSent
+  if (runHasTasks && !hasUndeliveredStartupPrompt) return { kind: 'none' }
+
+  const runtimeAgent = sprintEngineState.sprintEngineAgents[architect.id]
+  if (runtimeAgent?.status === 'retired') return { kind: 'none' }
+  if (options.runningAgentIds.has(architect.id)) return { kind: 'none' }
+  if (options.inFlightSpawnKeys.has(`${workspace.id}:${architect.id}`)) return { kind: 'none' }
+
+  if (currentAgent?.cliLastExitedAt && !hasUndeliveredStartupPrompt) {
+    return { kind: 'stall', reason: 'architect_exited_before_plan' }
+  }
+
+  return {
+    kind: 'spawn',
+    candidate: {
+      agentId: architect.id,
+      label: currentAgent?.name ?? architect.label,
+      role: architect.role,
+      taskId: `bootstrap-${architect.id}`,
+    },
+  }
 }
 
 export function getSprintEngineAutoRunOccupiedAgentIds(input: {

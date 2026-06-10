@@ -7,6 +7,7 @@ import type {
 } from '../../../shared/electron-api'
 import type { DiagnosticLogInput } from '../types/workspace'
 import type { SprintEngineState, Workspace, WorkspaceId } from '../types/workspace'
+import type { SprintEngineAutomationEvent } from '../types/workspace'
 import { publishDiagnostic } from './diagnostics'
 import { logPerfEvent } from './perfDiagnostics'
 import { normalizeSprintEngineProjection } from './sprintengine'
@@ -23,6 +24,7 @@ export type SprintEngineProjectionRefreshResult =
 export type SprintEngineProjectionRefreshPorts = {
   readSprintEngineProjection(statePath: string): Promise<SprintEngineProjectionReadResult>
   setSprintEngineState(workspaceId: WorkspaceId, state: SprintEngineState | null): void
+  applySprintEngineAutomationEvent?(workspaceId: WorkspaceId, event: SprintEngineAutomationEvent): void
   readBacklogObjectStore?(workspaceRoot: string): Promise<BacklogReadResult>
   addOrUpdateBacklogLink?(input: {
     workspaceRoot: string
@@ -43,6 +45,8 @@ function defaultSprintEngineProjectionRefreshPorts(): SprintEngineProjectionRefr
     readSprintEngineProjection: (statePath) => window.api.readSprintEngineProjection(statePath),
     setSprintEngineState: (workspaceId, state) =>
       useWorkspaceStore.getState().setSprintEngineState(workspaceId, state),
+    applySprintEngineAutomationEvent: (workspaceId, event) =>
+      useWorkspaceStore.getState().applySprintEngineAutomationEvent(workspaceId, event),
     readBacklogObjectStore: (workspaceRoot) => window.api.readBacklogObjectStore(workspaceRoot),
     addOrUpdateBacklogLink: (input) => window.api.addOrUpdateBacklogLink(input),
     publishDiagnostic: (input) => publishDiagnostic(input),
@@ -88,6 +92,12 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
 
     signatures.set(workspace.id, signature)
     ports.setSprintEngineState(workspace.id, parsedState)
+    if (projectionRunIsComplete(projectionResult.data)) {
+      ports.applySprintEngineAutomationEvent?.(workspace.id, {
+        type: 'runner_complete',
+        message: 'All tasks are complete.',
+      })
+    }
     await refreshBacklogSprintEngineRunLinks({
       workspace,
       state: parsedState,
@@ -123,6 +133,12 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
     })
     return { status: 'error', message }
   }
+}
+
+function projectionRunIsComplete(projection: unknown): boolean {
+  if (!projection || typeof projection !== 'object') return false
+  const run = (projection as { run?: unknown }).run
+  return Boolean(run && typeof run === 'object' && (run as { status?: unknown }).status === 'complete')
 }
 
 function normalizedPathKey(path: string): string {

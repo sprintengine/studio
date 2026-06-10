@@ -1,8 +1,36 @@
-import { BrowserWindow, Menu, dialog, type IpcMain } from 'electron'
+import { stat } from 'node:fs/promises'
+import { BrowserWindow, Menu, app, dialog, type IpcMain } from 'electron'
 import type { ContextMenuItem } from '../../shared/electron-api'
+
+export const TEST_OPEN_DIR_ENV = 'MULTICODE_TEST_OPEN_DIR'
+
+export type TestOpenDirOverrideOptions = {
+  isPackaged: boolean
+  env?: NodeJS.ProcessEnv
+  statPath?: typeof stat
+}
+
+export async function resolveTestOpenDirOverride({
+  isPackaged,
+  env = process.env,
+  statPath = stat,
+}: TestOpenDirOverrideOptions): Promise<string | null> {
+  const overridePath = env[TEST_OPEN_DIR_ENV]
+  if (!overridePath || isPackaged) return null
+
+  const target = await statPath(overridePath).catch(() => null)
+  if (!target?.isDirectory()) {
+    throw new Error(`${TEST_OPEN_DIR_ENV} must point to an existing directory: ${overridePath}`)
+  }
+
+  return overridePath
+}
 
 export function registerMenuDialogIpc(ipcMain: IpcMain): void {
   ipcMain.handle('fs:dialog:opendir', async (event) => {
+    const testOverride = await resolveTestOpenDirOverride({ isPackaged: app.isPackaged })
+    if (testOverride) return testOverride
+
     const win = BrowserWindow.fromWebContents(event.sender)
     const result = await dialog.showOpenDialog(win!, {
       properties: process.platform === 'darwin' ? ['openDirectory', 'createDirectory'] : ['openDirectory'],

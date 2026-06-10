@@ -21,9 +21,7 @@ export {
   AUTO_RUN_ROLE_CONTINUATION_GRACE_MS,
   AGENT_COMPLETION_NOTIFICATION_KINDS,
   NEEDS_INPUT_AUTO_APPROVAL_STATUSES,
-  agentHasOpenSprintEngineGateWork,
   agentNotificationDeliveryKey,
-  agentOwnsOpenSprintEngineImplementationWork,
   architectTriageMessageKey,
   artifactApprovalMessageKey,
   buildAgentNotificationPrompt,
@@ -43,8 +41,7 @@ export {
   isSprintEngineAutoPendingSpawnStillRelevant,
   isSprintEngineRunBlockedOnExternalInput,
   pickNextAutoRuns,
-  roleHasClaimableSprintEngineImplementationWork,
-  shouldSkipExitedSprintEngineRosterAgent,
+  pickSprintEngineBootstrapCandidate,
   sprintEngineAutoRunWorkKey,
   sprintEngineDispatchDeliveryKey,
 } from './sprintengineAutoRun'
@@ -54,5 +51,5 @@ export type {
   PickNextAutoRunsOptions,
   RoleContinuationGrace,
   SprintEngineAutoRunActiveGateClaim,
-  SprintEngineExitedAgentLike,
+  SprintEngineBootstrapDecision,
 } from './sprintengineAutoRun'

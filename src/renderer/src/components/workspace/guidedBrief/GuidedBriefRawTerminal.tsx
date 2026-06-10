@@ -5,7 +5,7 @@ import '@xterm/xterm/css/xterm.css'
 import { bindTerminalClipboardHandlers } from '../../../utils/terminalClipboard'
 import { bindTerminalTheme, getTerminalTheme } from '../../../utils/terminalTheme'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../../utils/xtermOutputQueue'
-import { deferFitDuringSidebarAnimation } from '../../../utils/sidebarTransition'
+import { createTerminalFitScheduler } from '../../../utils/terminalFitScheduler'
 import { MONO_FONT_STACK, waitForMonoFontReady } from '../../../utils/fonts'
 import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../../shared/terminal-history'
 
@@ -57,7 +57,7 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
     const onResizeDisposable = terminal.onResize(({ cols, rows }) => {
       void window.api.terminalResize(sessionId, cols, rows)
     })
-    const fitScheduler = deferFitDuringSidebarAnimation(fitTerminal)
+    const fitScheduler = createTerminalFitScheduler(fitTerminal, container)
     const resizeObserver = new ResizeObserver(() => fitScheduler.requestFit())
 
     resizeObserver.observe(container)

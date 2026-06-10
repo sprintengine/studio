@@ -30,7 +30,7 @@ type BacklogObjectRecord = BacklogObjectRecordPayload
 
 const EMPTY_STORE: BacklogObjectStore = { schemaVersion: 1, items: [] }
 
-const VALID_STATUS = new Set(['idea', 'ready', 'in_progress', 'completed', 'archived'])
+const VALID_STATUS = new Set(['idea', 'ready', 'in_progress', 'needs_input', 'completed', 'archived'])
 const VALID_TYPE = new Set(['feature', 'bug', 'mockup'])
 const VALID_DIFFICULTY = new Set(['xs', 's', 'm', 'l', 'xl'])
 const VALID_CRITICALITY = new Set(['low', 'normal', 'high', 'critical'])

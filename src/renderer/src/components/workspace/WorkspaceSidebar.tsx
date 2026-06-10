@@ -745,7 +745,7 @@ export default function WorkspaceSidebar({
     const recency = terminalRecencyByWorkspaceId[workspace.id]
     // Sprint Engine rows carry the run's lifecycle glyph in the status slot
     // instead of the dot + recency idiom: the run state (spinner / needs input
-    // / paused / failed / done-once) is the signal a sprint workspace wants.
+    // / paused / failed / done) is the signal a sprint workspace wants.
     // Recency still drives ordering and survives in the glyph's tooltip.
     const runGlyph = deriveWorkspaceRunGlyph(workspace, activity)
     const runGlyphRecencyAgo =

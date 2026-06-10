@@ -41,6 +41,18 @@ const sprintEngineOnIcon = renderToStaticMarkup(
 )
 assert.ok(sprintEngineOnIcon.includes(EXPECTED_ICON_PATH.sprintengine), 'enabled sprint-engine renders its glyph')
 
+// AC4 tab icon-shape degradation + re-enable recovery for the multiloop tab
+// (its wrapper is neutral, so only the icon shape degrades).
+const multiloopOffIcon = renderToStaticMarkup(
+  <WorkspaceTypeIcon mode="multiloop" moduleOverrides={{ multiloop: false }} className="icon-sm" />,
+)
+assert.ok(multiloopOffIcon.includes(EXPECTED_ICON_PATH.standard), 'disabled multiloop tab renders the generic glyph')
+assert.ok(!multiloopOffIcon.includes(EXPECTED_ICON_PATH.multiloop), 'disabled multiloop tab drops the multiloop glyph')
+const multiloopOnIcon = renderToStaticMarkup(
+  <WorkspaceTypeIcon mode="multiloop" moduleOverrides={{ multiloop: true }} className="icon-sm" />,
+)
+assert.ok(multiloopOnIcon.includes(EXPECTED_ICON_PATH.multiloop), 're-enabled multiloop tab restores its glyph')
+
 // AC4: enablement gating — a disabled module resolves to no definition, so the
 // caller degrades to the generic icon/default accent. resolveEnabledWorkspaceType
 // is the pure seam both WorkspaceTypeIcon and workspaceTabIconClass use.

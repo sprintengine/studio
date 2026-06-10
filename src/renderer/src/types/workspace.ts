@@ -700,10 +700,6 @@ export type SprintEngineAutoState = {
   reasonTaskId?: string
   reasonAgentId?: string
   changedAt?: number
-  /** When the user last had the workspace active while its run was complete.
-   *  The sidebar shows the done glyph only for completions newer than this —
-   *  completion is news once, then the row reverts to recency text. */
-  completionSeenAt?: number
   keepDoneAgentTerminals: boolean
   cliPermissionPreset: SprintEngineCliPermissionPreset
   maxConcurrentAgents: number
@@ -1589,6 +1585,7 @@ export type Workspace = {
   editorState: EditorState
   fileExplorerState?: WorkspaceFileExplorerState
   sprintEngineState: SprintEngineState | null
+  sprintEngineCompletionSeenAt?: number | null
   multiloopState?: MultiloopState | null
   sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults
   sprintEngineAutoState: SprintEngineAutoState
