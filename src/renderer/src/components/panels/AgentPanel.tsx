@@ -17,8 +17,9 @@ import {
   selectAgentCliCatalog,
 } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { PrimaryButton } from '../ui'
-import TerminalView from './TerminalView'
-import AgentChatView from './AgentChatView'
+
+const TerminalView = React.lazy(() => import('./TerminalView'))
+const AgentChatView = React.lazy(() => import('./AgentChatView'))
 
 interface Props {
   workspaceId: string
@@ -138,19 +139,25 @@ export default function AgentPanel({
   const startLabel = sprintEngineRuntimeAgent?.role === 'architect' ? 'Spawn Architect' : `Spawn ${label}`
 
   if (isConversationRuntime) {
-    return <AgentChatView workspaceId={workspaceId} agentId={agentId} />
+    return (
+      <React.Suspense fallback={null}>
+        <AgentChatView workspaceId={workspaceId} agentId={agentId} />
+      </React.Suspense>
+    )
   }
 
   return (
     <div className={`flex h-full flex-col bg-[color:var(--bg-surface)] font-mono text-[12px] text-[color:var(--text-default)] ${cliShellTone}`}>
       <div className={`relative flex-1 overflow-hidden bg-[color:var(--bg-app)] ${needsInput ? 'shadow-[inset_0_1px_0_var(--tone-warn-soft)]' : ''}`}>
         {hasStarted ? (
-          <TerminalView
-            workspaceId={workspaceId}
-            agentId={agentId}
-            sessionId={sessionId}
-            shouldKillOnUnmount={shouldKillTerminalOnUnmount}
-          />
+          <React.Suspense fallback={null}>
+            <TerminalView
+              workspaceId={workspaceId}
+              agentId={agentId}
+              sessionId={sessionId}
+              shouldKillOnUnmount={shouldKillTerminalOnUnmount}
+            />
+          </React.Suspense>
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-5 text-center">
             {sprintEngineTerminalBlocked ? (

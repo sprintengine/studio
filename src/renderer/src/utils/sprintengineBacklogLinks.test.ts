@@ -227,8 +227,8 @@ async function main(): Promise<void> {
             statePath: '/tmp/other/run.yaml',
           },
         }],
-        setActiveWorkspace: (workspaceId) => invalidOpenCalls.push(`active:${workspaceId}`),
-        openRunSummaryOverlay: (workspaceId) => invalidOpenCalls.push(`summary:${workspaceId}`),
+        setActiveWorkspace: (workspaceId: string) => invalidOpenCalls.push(`active:${workspaceId}`),
+        openRunSummaryOverlay: (workspaceId: string) => invalidOpenCalls.push(`summary:${workspaceId}`),
         publishDiagnostic: (input) => diagnostics.push(input.message),
       },
     }),
@@ -238,6 +238,7 @@ async function main(): Promise<void> {
   assert.deepEqual(invalidOpenCalls, [])
   assert.match(diagnostics.at(-1) ?? '', /project-relative Sprint Engine run target/)
 
+  const invalidYmlOpenCalls: string[] = []
   assert.equal(
     await openSprintEngineBacklogLink({
       workspaceId: 'ws-backlog',
@@ -249,19 +250,19 @@ async function main(): Promise<void> {
           ...mountedWorkspace,
           id: 'yml-run',
           sprintEngineContext: {
-            ...mountedWorkspace.sprintEngineContext,
+            ...mountedWorkspace.sprintEngineContext!,
             statePath: '/repo/.multi-code/sprintengine/team/run.yml',
           },
         }],
-        setActiveWorkspace: (workspaceId) => invalidOpenCalls.push(`active:${workspaceId}`),
-        openRunSummaryOverlay: (workspaceId) => invalidOpenCalls.push(`summary:${workspaceId}`),
+        setActiveWorkspace: (workspaceId: string) => invalidYmlOpenCalls.push(`active:${workspaceId}`),
+        openRunSummaryOverlay: (workspaceId: string) => invalidYmlOpenCalls.push(`summary:${workspaceId}`),
         publishDiagnostic: (input) => diagnostics.push(input.message),
       },
     }),
     false,
     'persisted run.yml targets do not open mounted workspaces',
   )
-  assert.deepEqual(invalidOpenCalls, [])
+  assert.deepEqual(invalidYmlOpenCalls, [])
   assert.match(diagnostics.at(-1) ?? '', /project-relative Sprint Engine run target/)
 
   const host = createRendererHost()

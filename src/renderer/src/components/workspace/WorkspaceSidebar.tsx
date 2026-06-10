@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { NewChatIcon, WorkspaceTypeIcon } from '../AppIcons'
+import { NewChatIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
+import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
 import CliIcon from '../CliIcon'
 import { InboxSearchInput, LifecycleGlyph, StatusDot, Tooltip, type Tone } from '../ui'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
@@ -193,8 +194,11 @@ const modeAccents: Record<Workspace['mode'], RowAccent> = {
 
 // Effective accent for a workspace row. When the workspace has a highlight
 // color, it overrides the mode accent everywhere except the icon glyph
-// shape (which still tells the user which mode the workspace is in).
-function rowAccent(workspace: Workspace): RowAccent {
+// shape (which still tells the user which mode the workspace is in). A workspace
+// whose type module is disabled (or an unknown/standard mode) degrades to the
+// generic standard accent, matching the generic icon WorkspaceTypeIcon renders
+// for the same row (AC4 disabled-module contract).
+export function rowAccent(workspace: Workspace, moduleOverrides: ModuleEnablementOverrides): RowAccent {
   const highlight = workspace.highlight?.color
   if (highlight) {
     const swatch = getHighlightSwatch(highlight)
@@ -208,16 +212,19 @@ function rowAccent(workspace: Workspace): RowAccent {
       glyph: `text-[${swatch.hex}]`,
     }
   }
-  return modeAccents[workspace.mode] ?? modeAccents.standard
+  const effectiveMode: Workspace['mode'] = resolveEnabledWorkspaceType(workspace.mode, moduleOverrides)
+    ? workspace.mode
+    : 'standard'
+  return modeAccents[effectiveMode] ?? modeAccents.standard
 }
 
-function activeRowClass(workspace: Workspace): string {
-  const accent = rowAccent(workspace)
+function activeRowClass(workspace: Workspace, moduleOverrides: ModuleEnablementOverrides): string {
+  const accent = rowAccent(workspace, moduleOverrides)
   return `border-l-[3px] ${accent.border} ${accent.bg} ${accent.text} ${accent.shadow}`
 }
 
-function collapsedActiveRowClass(workspace: Workspace): string {
-  const accent = rowAccent(workspace)
+function collapsedActiveRowClass(workspace: Workspace, moduleOverrides: ModuleEnablementOverrides): string {
+  const accent = rowAccent(workspace, moduleOverrides)
   return `${accent.bg} ${accent.text} ${accent.collapsedShadow}`
 }
 
@@ -344,6 +351,9 @@ export default function WorkspaceSidebar({
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
   const moveAgentToWorkspace = useWorkspaceStore((s) => s.moveAgentToWorkspace)
   const moveOpenFileToWorkspace = useWorkspaceStore((s) => s.moveOpenFileToWorkspace)
+  // Passed to WorkspaceTypeIcon so a disabled-module workspace row degrades to
+  // the generic glyph (AC4) instead of its tool icon.
+  const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
   const now = useRelativeNow()
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
@@ -768,7 +778,7 @@ export default function WorkspaceSidebar({
     const folderMissing = workspace.folderMissing === true
     const starred = isStarred(workspace.highlight)
     const highlighted = hasHighlightOverride(workspace.highlight)
-    const accent = rowAccent(workspace)
+    const accent = rowAccent(workspace, moduleOverrides)
     const dropMark =
       dropIndicator?.kind === 'workspace' && dropIndicator.targetId === workspace.id
         ? dropIndicator.position
@@ -823,8 +833,8 @@ export default function WorkspaceSidebar({
         } ${
           active
             ? sidebarCollapsed
-              ? collapsedActiveRowClass(workspace)
-              : activeRowClass(workspace)
+              ? collapsedActiveRowClass(workspace, moduleOverrides)
+              : activeRowClass(workspace, moduleOverrides)
             : highlighted && !sidebarCollapsed
               ? `${inactiveHighlightClass(workspace)} text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]`
               : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
@@ -852,6 +862,7 @@ export default function WorkspaceSidebar({
         >
           <WorkspaceTypeIcon
             mode={workspace.mode}
+            moduleOverrides={moduleOverrides}
             className={`h-4 w-4 ${accent.glyph}`}
           />
         </span>

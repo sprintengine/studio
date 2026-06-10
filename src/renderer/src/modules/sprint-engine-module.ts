@@ -1,6 +1,7 @@
 import React from 'react'
 
 import type { RendererModule } from './renderer-host'
+import { registerSprintEngineWorkspaceTypes } from './sprint-engine-workspace-types'
 import { basename } from '../utils/paths'
 import { slugifySprintEngineName } from '../utils/sprintengineStateFile'
 import { markdownTitle } from '../components/workspace/newWorkspace/helpers'
@@ -63,6 +64,7 @@ export const sprintEngineRendererModule: RendererModule = {
   },
   registerRenderer(host) {
     host.registerPanel('sprintengine', SprintEngineBoardPanel)
+    registerSprintEngineWorkspaceTypes(host)
     host.registerBacklogLinkProvider({
       moduleId: SPRINT_ENGINE_MODULE_ID,
       targetKinds: [SPRINT_ENGINE_RUN_TARGET_KIND],
@@ -80,7 +82,7 @@ export const sprintEngineRendererModule: RendererModule = {
       label: 'Start Sprint Engine',
       category: 'execute',
       order: 10,
-      isVisible: ({ item }) => item.status !== 'archived' && !hasSprintEngineRunLink(item),
+      isVisible: ({ item }) => item.status !== 'archived' && item.status !== 'completed' && !hasSprintEngineRunLink(item),
       getState: ({ startSourcePlan }) => startSourcePlan ? 'enabled' : 'disabled',
       async run(context) {
         if (!context.startSourcePlan) return

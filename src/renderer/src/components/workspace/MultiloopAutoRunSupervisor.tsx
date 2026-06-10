@@ -488,7 +488,7 @@ async function spawnMultiloopAutoRunCandidate(
   }
 }
 
-async function superviseWorkspace(
+export async function superviseMultiloopAutoRunCycle(
   workspace: Workspace,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   mcpSettings: McpSettings,
@@ -584,7 +584,13 @@ export default function MultiloopAutoRunSupervisor() {
         const startupSpawnDelayElapsed = Date.now() - startedAt.current >= AUTO_RUN_STARTUP_SPAWN_DELAY_MS
         for (const workspace of autoWorkspaces) {
           if (disposed || !startupSpawnDelayElapsed) return
-          await superviseWorkspace(workspace, appSettings.cliRuntimes, appSettings.mcp, inFlightSpawns, lastContentByWorkspace)
+          await superviseMultiloopAutoRunCycle(
+            workspace,
+            appSettings.cliRuntimes,
+            appSettings.mcp,
+            inFlightSpawns,
+            lastContentByWorkspace
+          )
         }
       } finally {
         tickInProgress.current = false

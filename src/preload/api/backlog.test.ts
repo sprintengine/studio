@@ -7,7 +7,7 @@ async function main(): Promise<void> {
   const api = createBacklogApi({
     async invoke(channel, ...args) {
       calls.push({ channel, args })
-      return { ok: true, store: { schemaVersion: 1, items: [] } }
+      return { ok: true as const, store: { schemaVersion: 1 as const, items: [] } }
     },
   })
 

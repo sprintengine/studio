@@ -4,7 +4,20 @@ import type { OnboardingStep } from '../store/onboardingState'
 export type WorkspaceId = string
 export type WorkspaceWindowId = string
 export type AgentId = string
-export type WorkspaceMode = 'standard' | 'sprintengine' | 'switchboard' | 'multiloop' | 'guided-brief'
+export const STANDARD_WORKSPACE_MODE = 'standard'
+export const SPRINT_ENGINE_WORKSPACE_MODE = 'sprintengine'
+export const SWITCHBOARD_WORKSPACE_MODE = 'switchboard'
+export const MULTILOOP_WORKSPACE_MODE = 'multiloop'
+export const GUIDED_BRIEF_WORKSPACE_MODE = 'guided-brief'
+
+export type BundledWorkspaceMode =
+  | typeof STANDARD_WORKSPACE_MODE
+  | typeof SPRINT_ENGINE_WORKSPACE_MODE
+  | typeof SWITCHBOARD_WORKSPACE_MODE
+  | typeof MULTILOOP_WORKSPACE_MODE
+  | typeof GUIDED_BRIEF_WORKSPACE_MODE
+
+export type WorkspaceMode = typeof STANDARD_WORKSPACE_MODE | (string & {})
 
 export type HighlightColor = 'red' | 'orange' | 'amber' | 'green' | 'blue' | 'purple' | 'pink'
 

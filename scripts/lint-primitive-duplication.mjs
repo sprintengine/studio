@@ -93,9 +93,15 @@ const MEMORY_CANVAS_PATH = 'src/renderer/src/components/memory/MemoryGraphCanvas
 //     This audit's panel migrations stop short of these surfaces by design.
 // Migration complete: SwitchboardBoardPanel and WatchtowerPanel native
 // <select> sites are now routed through ui/Select (see T8 of the Linear App
-// UI Upgrade — Phase 4 plan). Allow-list is intentionally empty so any new
-// native <select> in the renderer tree fails this guard.
-const NATIVE_SELECT_ALLOW = []
+// UI Upgrade — Phase 4 plan). SettingsPanel remains companion-plan-owned; keep
+// this allow-list scoped to that existing settings control until the Settings
+// surface migration lands.
+const NATIVE_SELECT_ALLOW = [
+  {
+    path: 'src/renderer/src/components/settings/SettingsPanel.tsx',
+    owner: 'COMPANION-PLAN-OWNED: settings surface migration to ui/Select',
+  },
+]
 
 const nativeSelectAllow = new Set(NATIVE_SELECT_ALLOW.map((entry) => entry.path))
 

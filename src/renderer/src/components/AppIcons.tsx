@@ -1,3 +1,5 @@
+import type { ModuleEnablementOverrides } from '../../../shared/modules/manifest'
+import { getRendererHost, selectModuleEnabled } from '../modules'
 import type { SpecialistIcon } from '../specialists/specialistActions'
 import type {
   SprintEngineRoleId,
@@ -14,55 +16,95 @@ type IconProps = {
 
 const iconStroke = 1.7
 
+// Resolve a workspace mode to its registered type definition, but only when the
+// owning module is enabled. Disabled or unknown modes (and shell-owned
+// 'standard') resolve to undefined so callers degrade to the generic/standard
+// presentation. The registry is read at render time — never during module init —
+// so the components→modules reference here does not create an initialization
+// cycle with the workspace-type modules that import these icon components.
+export function resolveEnabledWorkspaceType(
+  mode: Workspace['mode'],
+  moduleOverrides: ModuleEnablementOverrides,
+) {
+  const definition = getRendererHost().getWorkspaceType(mode)
+  if (!definition) return undefined
+  return selectModuleEnabled(moduleOverrides, definition.moduleId) ? definition : undefined
+}
+
+// Workspace-type identity glyph, resolved through the registry. When
+// `moduleOverrides` is supplied the lookup is enablement-gated, so a disabled
+// module degrades to the generic standard glyph (the workspace tabs and sidebar
+// rows pass it); without it the icon resolves ungated (an unknown/standard id
+// still falls back to the generic glyph). This component deliberately takes the
+// overrides as a prop rather than reading the workspace store, so this
+// universally-imported leaf icon module never pulls the store (and flexlayout-react)
+// into utility/test bundles.
 export function WorkspaceTypeIcon({
   mode,
   className,
+  moduleOverrides,
 }: IconProps & {
   mode: Workspace['mode']
+  moduleOverrides?: ModuleEnablementOverrides
 }) {
-  if (mode === 'switchboard') {
-    return (
-      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <rect x="3.5" y="5" width="17" height="14" rx="2" stroke="currentColor" strokeWidth={iconStroke} />
-        <path d="M9 5.5V18.5M15 5.5V18.5" stroke="currentColor" strokeWidth={iconStroke - 0.3} />
-        <rect x="4.75" y="8" width="3" height="2.5" rx="0.6" fill="currentColor" />
-        <rect x="10.5" y="11" width="3" height="2.5" rx="0.6" fill="currentColor" />
-        <rect x="16.25" y="14" width="3" height="2.5" rx="0.6" fill="currentColor" />
-      </svg>
-    )
-  }
+  const definition = moduleOverrides
+    ? resolveEnabledWorkspaceType(mode, moduleOverrides)
+    : getRendererHost().getWorkspaceType(mode)
+  const Icon = definition?.icon ?? StandardWorkspaceTypeIcon
+  return <Icon className={className} />
+}
 
-  if (mode === 'sprintengine') {
-    return (
-      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <circle cx="12" cy="6" r="2.4" stroke="currentColor" strokeWidth={iconStroke} />
-        <circle cx="6.5" cy="16.5" r="2.4" stroke="currentColor" strokeWidth={iconStroke} />
-        <circle cx="17.5" cy="16.5" r="2.4" stroke="currentColor" strokeWidth={iconStroke} />
-        <path d="M10.85 8.2L7.65 14.35M13.15 8.2L16.35 14.35M9 16.5H15" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      </svg>
-    )
-  }
+export function SwitchboardWorkspaceTypeIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3.5" y="5" width="17" height="14" rx="2" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M9 5.5V18.5M15 5.5V18.5" stroke="currentColor" strokeWidth={iconStroke - 0.3} />
+      <rect x="4.75" y="8" width="3" height="2.5" rx="0.6" fill="currentColor" />
+      <rect x="10.5" y="11" width="3" height="2.5" rx="0.6" fill="currentColor" />
+      <rect x="16.25" y="14" width="3" height="2.5" rx="0.6" fill="currentColor" />
+    </svg>
+  )
+}
 
-  if (mode === 'multiloop') {
-    return (
-      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth={iconStroke} />
-        <circle cx="12" cy="12" r="3.5" stroke="currentColor" strokeWidth={iconStroke} strokeOpacity="0.5" />
-        <path d="M12 4.5 A7.5 7.5 0 0 1 19.5 12" stroke="currentColor" strokeWidth={iconStroke + 0.5} strokeLinecap="round" />
-      </svg>
-    )
-  }
+export function SprintEngineWorkspaceTypeIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="6" r="2.4" stroke="currentColor" strokeWidth={iconStroke} />
+      <circle cx="6.5" cy="16.5" r="2.4" stroke="currentColor" strokeWidth={iconStroke} />
+      <circle cx="17.5" cy="16.5" r="2.4" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M10.85 8.2L7.65 14.35M13.15 8.2L16.35 14.35M9 16.5H15" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
 
-  if (mode === 'guided-brief') {
-    return (
-      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M5 5.5H15.25L19 9.25V18.5H5V5.5Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
-        <path d="M15 5.75V9.5H18.75" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
-        <path d="M8 12.25H15.5M8 15.25H13" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      </svg>
-    )
-  }
+export function MultiloopWorkspaceTypeIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth={iconStroke} />
+      <circle cx="12" cy="12" r="3.5" stroke="currentColor" strokeWidth={iconStroke} strokeOpacity="0.5" />
+      <path d="M12 4.5 A7.5 7.5 0 0 1 19.5 12" stroke="currentColor" strokeWidth={iconStroke + 0.5} strokeLinecap="round" />
+    </svg>
+  )
+}
 
+// The Guided Brief identity glyph is the brief/conversation speech-bubble that
+// the new-workspace mode card has always shown. Kept here as the single
+// registry-owned icon so the mode picker and the top bar render the same mark.
+export function GuidedBriefWorkspaceTypeIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M5 6.25C5 5.42 5.67 4.75 6.5 4.75H17.5C18.33 4.75 19 5.42 19 6.25V13.75C19 14.58 18.33 15.25 17.5 15.25H10.75L7.5 18.5V15.25H6.5C5.67 15.25 5 14.58 5 13.75V6.25Z"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinejoin="round"
+      />
+      <path d="M9 9.25H15M9 12H13" stroke="currentColor" strokeWidth={iconStroke - 0.1} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function StandardWorkspaceTypeIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="4" y="5.5" width="16" height="13" rx="2.2" stroke="currentColor" strokeWidth={iconStroke} />

@@ -79,7 +79,7 @@ function workspace(): Workspace {
       tasks: [],
       artifacts: [],
     } satisfies SprintEngineState,
-  } as Workspace
+  } as unknown as Workspace
 }
 
 function portsFor(input: {

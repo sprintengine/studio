@@ -46,6 +46,7 @@ async function testRegistersProviderListChannel(): Promise<void> {
         version: 1,
         providerType: 'model-provider',
         models: [{ id: 'gpt-5' }],
+        supportsDynamicModels: false,
         adapter: { kind: 'declarative', execution: 'declarative', trust: 'not_required' },
       },
     ],
@@ -171,6 +172,7 @@ async function testRegistersSessionChannelsAndEventSubscription(): Promise<void>
   const ipcMain = createIpcMain()
   registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
     listProviders: () => ({ ok: true, providers: [] }),
+    listProviderModels: async () => ({ ok: true, models: [] }),
     testProvider: async () => ({ ok: false, status: { providerId: 'mock-provider', state: 'missing_key', message: 'unused' } }),
     getSecretStatus: async () => ({ ok: false, message: 'unused' }),
     setSecret: async () => ({ ok: false, message: 'unused' }),
@@ -322,9 +324,10 @@ async function testFailureIsExplicit(): Promise<void> {
 
 function runtimeHandlerStubs(): Pick<
   ConversationIpcHandlers,
-  'startSession' | 'sendTurn' | 'interrupt' | 'respondToRequest' | 'stopSession' | 'listSessions' | 'onEvent'
+  'listProviderModels' | 'startSession' | 'sendTurn' | 'interrupt' | 'respondToRequest' | 'stopSession' | 'listSessions' | 'onEvent'
 > {
   return {
+    listProviderModels: async () => ({ ok: true, models: [] }),
     startSession: async () => ({ ok: false, message: 'unused' }),
     sendTurn: async () => ({ ok: false, message: 'unused' }),
     interrupt: async () => ({ ok: false, message: 'unused' }),

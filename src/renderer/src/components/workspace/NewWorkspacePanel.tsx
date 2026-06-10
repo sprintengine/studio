@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { LAYOUT_TEMPLATES, createGuidedBriefTemplate, createMultiloopTemplate } from '../../layouts/templates'
+import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { userLayoutTemplateToTemplate } from '../../layouts/userTemplates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { selectModuleEnabled } from '../../modules'
+import { getRendererHost, selectModuleEnabled } from '../../modules'
+import { StandardWorkspaceTypeIcon } from '../AppIcons'
+import { createMultiloopTemplate } from '../../modules/multiloop-workspace-types'
+import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
 import type {
   AgentCli,
   AgentId,
@@ -60,7 +63,9 @@ import { useRelativeNow } from '../../hooks/useRelativeNow'
 import type { BacklogItem, BacklogScanResult } from '../../utils/backlog'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind, workspaceRelativePath } from './newWorkspace/helpers'
-import type { CreationMode, ExistingTeam, GuidedBriefHasUi, SprintEnginePath } from './newWorkspace/types'
+import type { CreationMode, ExistingTeam, GuidedBriefHasUi, ModeCardModel, SprintEnginePath } from './newWorkspace/types'
+import { stepsForMode, type StepId } from './newWorkspace/creationStepFlows'
+import { folderHintAutoSelectMode } from './newWorkspace/folderHintMode'
 import { CliPermissionPresetRow, PathRadio, RosterAndRunSettings } from './newWorkspace/WizardControls'
 import { selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import {
@@ -83,25 +88,13 @@ import {
   type PremiumFeatureAccessState,
 } from '../../utils/premiumAccess'
 
-const MODES: CreationMode[] = ['standard', 'switchboard', 'sprintengine', 'multiloop', 'guided-brief']
-
-type StepId =
-  | 'workspace'
-  | 'mode'
-  | 'mcp-servers'
-  | 'skill-packs'
-  | 'standard-layout'
-  | 'multiloop-goal'
-  | 'sprintengine-team'
-  | 'sprintengine-roster'
-  | 'guided-idea'
-
-const STEPS_BY_MODE: Record<CreationMode, StepId[]> = {
-  standard: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'standard-layout'],
-  switchboard: ['workspace', 'mode', 'mcp-servers', 'skill-packs'],
-  multiloop: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'multiloop-goal'],
-  sprintengine: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'sprintengine-team', 'sprintengine-roster'],
-  'guided-brief': ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'guided-idea'],
+// 'standard' is shell-owned (never a registered workspace type), so the picker
+// seeds it here and appends the registry-contributed types after it.
+const STANDARD_MODE_MODEL: ModeCardModel = {
+  id: 'standard',
+  label: 'Standard',
+  description: 'IDE layout with editor, terminals, and file explorer for direct work.',
+  icon: StandardWorkspaceTypeIcon,
 }
 
 const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
@@ -469,6 +462,7 @@ export default function NewWorkspacePanel({
     [pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes],
   )
   const sprintEngineModuleEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
+  const multiloopModuleEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
   const sprintEngineDisabledRoleIds = useMemo(
     () => getUserDisabledSprintEngineRoleIds(sprintEngineRoleSettings),
     [sprintEngineRoleSettings],
@@ -620,7 +614,7 @@ export default function NewWorkspacePanel({
   const [step, setStep] = useState<StepId>(initialFuturePlan ? 'sprintengine-team' : 'workspace')
   const [direction, setDirection] = useState<'forward' | 'backward'>('forward')
 
-  const steps = STEPS_BY_MODE[mode]
+  const steps = stepsForMode(mode)
   const stepIndex = Math.max(0, steps.indexOf(step))
   const isLastStep = stepIndex >= steps.length - 1
 
@@ -705,7 +699,7 @@ export default function NewWorkspacePanel({
 
   // When mode changes, ensure the current step exists in the new mode's step list.
   useEffect(() => {
-    const list = STEPS_BY_MODE[mode]
+    const list = stepsForMode(mode)
     if (!list.includes(step)) {
       const fallback = list.includes('mode') ? 'mode' : list[0]
       setStep(fallback as StepId)
@@ -871,12 +865,13 @@ export default function NewWorkspacePanel({
     if (!seTeamNameTouched) setSeTeamName(toTitleName(folderName) || 'Sprint Engine Team')
     setMlName(toTitleName(folderName) || 'Product Loop')
 
-    const hint = folderHints.get(dir)
-    if (hint && (hint.hasSprintEngineTeam || hint.hasMultiloop)) {
-      // Don't auto-select a mode whose module the user disabled.
-      if (!nameTouched && hint.hasSprintEngineTeam && sprintEngineModuleEnabled) handleSelectMode('sprintengine')
-      else if (!nameTouched && hint.hasMultiloop) handleSelectMode('multiloop')
-    }
+    // Don't auto-select a mode whose module the user disabled, and only seed a
+    // mode when the user hasn't already named the workspace.
+    const autoMode = folderHintAutoSelectMode(folderHints.get(dir), {
+      sprintEngineEnabled: sprintEngineModuleEnabled,
+      multiloopEnabled: multiloopModuleEnabled,
+    })
+    if (!nameTouched && autoMode) handleSelectMode(autoMode)
   }
 
   const pickFolder = async () => {
@@ -1912,13 +1907,24 @@ function ModeStep({
   // guided-brief hands its build off to a Sprint Engine run, so it depends on
   // the sprint-engine module and is hidden when Sprint Engine is disabled.
   const sprintEngineEnabled = selectModuleEnabled(moduleOverrides, 'sprint-engine')
-  const visibleModes = MODES.filter((m) => {
-    if (m === 'switchboard') return selectModuleEnabled(moduleOverrides, 'switchboard')
-    if (m === 'multiloop') return selectModuleEnabled(moduleOverrides, 'multiloop')
-    if (m === 'sprintengine') return sprintEngineEnabled
-    if (m === 'guided-brief') return sprintEngineEnabled
-    return true
-  })
+
+  // 'standard' (shell-owned) plus the enabled registry-contributed types, in
+  // pickerOrder. getWorkspaceTypes returns a fresh array, so the derived list is
+  // memoised from the stable moduleOverrides reference (Zustand v5: selectors and
+  // selector-derived arrays must not return fresh arrays/objects each render).
+  // Each definition's moduleId drives gating, so disabling sprint-engine drops
+  // both sprintengine and guided-brief, exactly as the prior hardcoded list did.
+  const modeModels = useMemo<ModeCardModel[]>(() => {
+    const contributed = getRendererHost()
+      .getWorkspaceTypes((moduleId) => selectModuleEnabled(moduleOverrides, moduleId))
+      .map<ModeCardModel>((definition) => ({
+        id: definition.id,
+        label: definition.label,
+        description: definition.description,
+        icon: definition.icon,
+      }))
+    return [STANDARD_MODE_MODEL, ...contributed]
+  }, [moduleOverrides])
 
   const suggested: CreationMode | null = (() => {
     if (!folderHint) return null
@@ -1937,8 +1943,8 @@ function ModeStep({
         </p>
       ) : null}
       <div role="radiogroup" aria-label="Workspace mode" className="grid grid-cols-2 gap-2.5">
-        {visibleModes.map((m) => (
-          <ModeCard key={m} mode={m} active={mode === m} onSelect={onSelect} />
+        {modeModels.map((model) => (
+          <ModeCard key={model.id} model={model} active={mode === model.id} onSelect={onSelect} />
         ))}
       </div>
     </div>
@@ -3122,18 +3128,10 @@ function guidedBriefStartBuildErrorMessage(error: GuidedBriefStartBuildError): s
 }
 
 function labelFor(mode: CreationMode): string {
-  switch (mode) {
-    case 'standard':
-      return 'Standard'
-    case 'switchboard':
-      return 'Switchboard'
-    case 'sprintengine':
-      return 'Sprint Engine'
-    case 'multiloop':
-      return 'Multiloop'
-    case 'guided-brief':
-      return 'Guided brief'
-  }
+  if (mode === 'standard') return 'Standard'
+  // Contributed types carry their own label; fall back to the id for an
+  // unrecognised mode rather than throwing on the open CreationMode union.
+  return getRendererHost().getWorkspaceType(mode)?.label ?? mode
 }
 
 function createLabelFor(mode: CreationMode, isCreating: boolean, hasExistingTeam: boolean): string {
@@ -3149,6 +3147,8 @@ function createLabelFor(mode: CreationMode, isCreating: boolean, hasExistingTeam
     case 'guided-brief':
       return 'Continue'
     case 'standard':
+      return 'Create workspace'
+    default:
       return 'Create workspace'
   }
 }

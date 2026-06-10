@@ -12,7 +12,7 @@ import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import { resolveAvailableAgentCli, resolveCliModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
-import { selectModuleEnabled } from '../../modules'
+import { getRendererHost, selectModuleEnabled } from '../../modules'
 import {
   deriveWorkspaceLastOutputAt,
   deriveWorkspaceTerminalActivity,
@@ -49,8 +49,6 @@ import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
-import SprintEngineAutoRunSupervisor from './SprintEngineAutoRunSupervisor'
-import MultiloopAutoRunSupervisor from './MultiloopAutoRunSupervisor'
 import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
 import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
@@ -72,7 +70,7 @@ import {
   uniqueAgentName,
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
-import { isSprintEngineCompletionUnseen } from '../../utils/workspaceRunGlyph'
+import { acknowledgeActiveSprintEngineCompletion } from './workspaceCompletionAcknowledgement'
 import {
   EMPTY_WORKSPACE_NAVIGATION_HISTORY,
   recordWorkspaceVisit,
@@ -89,6 +87,7 @@ import { computeRetainedWorkspaceLayoutIds, type WorkspaceLayoutRetentionReason 
 import type { ConversationProviderListResult } from '../../../../shared/electron-api'
 import { restoreDetachedWorkspaceWindowsOnStartup } from './workspaceWindowRestore'
 import { LAYOUT_TEMPLATES } from '../../layouts/templates'
+import { collectWorkspaceTypeSupervisors } from '../../modules/workspace-type-supervisors'
 import { RendererCommandDispatcher } from '../../commands/commandDispatcher'
 import { getCommandDefinition, type CommandId } from '../../commands/commandRegistry'
 import { getElectronAccelerator } from '../../commands/effectiveKeybindings'
@@ -131,6 +130,7 @@ export default function WorkspaceManager() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const workspaceWindows = useWorkspaceStore((s) => s.workspaceWindows)
   const primaryWorkspaceWindowId = useWorkspaceStore((s) => s.primaryWorkspaceWindowId)
+  const moduleEnablement = useWorkspaceStore((s) => s.appSettings.modules)
   const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const voiceDictationEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'voice-dictation'))
@@ -365,6 +365,13 @@ export default function WorkspaceManager() {
   const renderedWorkspaceIds = visibleWorkspaces
     .map((workspace) => workspace.id)
     .filter((workspaceId) => workspaceId === windowActiveWorkspaceId || mountedWorkspaceIds.includes(workspaceId))
+  const workspaceTypeSupervisors = useMemo(() => {
+    const moduleEnabled = (moduleId: string) => selectModuleEnabled(moduleEnablement, moduleId)
+    return collectWorkspaceTypeSupervisors(
+      getRendererHost().getWorkspaceTypes(moduleEnabled),
+      ownsGlobalSupervisors,
+    )
+  }, [moduleEnablement, ownsGlobalSupervisors])
 
   const openNewWorkspacePanel = () => {
     setNewWorkspacePanelInitialState(null)
@@ -1025,10 +1032,11 @@ export default function WorkspaceManager() {
   // sidebar's done glyph reverts to recency text. Settles after one write —
   // the seen mark flips isSprintEngineCompletionUnseen to false.
   useEffect(() => {
-    if (!windowActiveWorkspaceId) return
-    const workspace = workspaces.find((candidate) => candidate.id === windowActiveWorkspaceId)
-    if (!workspace || !isSprintEngineCompletionUnseen(workspace)) return
-    markSprintEngineRunCompletionSeen(workspace.id)
+    acknowledgeActiveSprintEngineCompletion({
+      activeWorkspaceId: windowActiveWorkspaceId,
+      workspaces,
+      markSprintEngineRunCompletionSeen,
+    })
   }, [windowActiveWorkspaceId, workspaces, markSprintEngineRunCompletionSeen])
 
 
@@ -1715,13 +1723,18 @@ export default function WorkspaceManager() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-strong)]">
       {sprintEngineEnabled && !MULTICODE_DISABLE_SPRINTENGINE_SYNC ? (
+        // Projection sync consumes active-window/workspace identity from the shell,
+        // so it remains the known propful exception to zero-prop supervisor contributions.
         <SprintEngineProjectionSupervisor
           activeWorkspaceId={windowActiveWorkspaceId}
           workspaceIds={workspaces.map((workspace) => workspace.id)}
         />
       ) : null}
-      {sprintEngineEnabled && ownsGlobalSupervisors ? <SprintEngineAutoRunSupervisor /> : null}
-      {multiloopEnabled && ownsGlobalSupervisors ? <MultiloopAutoRunSupervisor /> : null}
+      {workspaceTypeSupervisors.map(({ key, Component }) => (
+        <React.Suspense key={key} fallback={null}>
+          <Component />
+        </React.Suspense>
+      ))}
       {multiloopEnabled && visibleWorkspaces.map((workspace) => (
         workspace.id === windowActiveWorkspaceId && (workspace.mode === 'multiloop' || workspace.multiloopContext)
           ? <MultiloopStateSynchronizer key={workspace.id} workspaceId={workspace.id} />

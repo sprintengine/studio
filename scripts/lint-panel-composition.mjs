@@ -62,13 +62,14 @@ const ALLOW_LIST = new Map([
   ['TerminalView.tsx', 'Hosts xterm with tokenised drag/drop and folder-blocked chrome; xterm owns the canvas palette, not PanelHeader.'],
   ['PlainTerminalPanel.tsx', 'Hosts xterm with tokenised drag/drop and folder-blocked chrome; xterm owns the canvas palette, not PanelHeader.'],
   ['FileExplorer.tsx', 'Tree surface with a bespoke folder-root + search bar header. Chrome was tokenised in T23 (hex=0); a deeper rebuild around PanelHeader + Tabs is still scheduled in the app-wide audit plan.'],
-  // GitPanel.tsx now imports PanelHeader (T20). The allow-list entry has been
-  // removed; the lint script will detect the import and mark the file ok.
+  ['GitPanel.tsx', 'Git workspace surface still owns branch/status/filter chrome directly; scheduled for the Git panel rebuild before enforcing PanelHeader.'],
+  ['GitGraphView.tsx', 'Graph sub-view rendered inside GitPanel; the parent panel owns the operational chrome.'],
   ['GitConflictResolverPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 7).'],
   ['ContentSearchPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 8).'],
   ['MemoryGraphPanel.tsx', 'Graph canvas surface; rebuild scheduled in the app-wide audit plan.'],
   ['SprintEngineTaskGraphView.tsx', 'Sub-view of SprintEngineBoardPanel; rendered inside the parent panel\'s body, so PanelHeader is owned by the parent. Extracted to its own file for maintainability.'],
   ['SprintEngineInspectorPanel.tsx', 'Inspector aside of SprintEngineBoardPanel; rendered as the right-hand detail pane, so PanelHeader chrome is owned by the parent panel. Extracted to its own file in Stage 2.1 of the app-wide dedup plan.'],
+  ['runSummaryCharts.tsx', 'Chart primitives rendered inside SprintEngineRunSummaryPanel; parent panel owns PanelHeader chrome.'],
   ['SprintEngineBoardPanel.tsx', 'Carries a bespoke run-hero strip (project name + run-phase dot + progress hairline + settings overflow) above the Tabs strip in place of PanelHeader. The generic title/count chrome was redundant with the FlexLayout tab label and per-tab content, and the hero conveys identity richer than PanelHeader allows.'],
   ['SwitchboardWorkspacePanel.tsx', 'Thin Watchtower / Switchboard wrapper that renders the icon Tabs sub-nav at the top and delegates body chrome (PanelHeader, counts, etc.) to the active child panel. Mirrors SprintEngineBoardPanel\'s ownership pattern: the wrapper owns the row chrome, each child owns its surface.'],
 ])

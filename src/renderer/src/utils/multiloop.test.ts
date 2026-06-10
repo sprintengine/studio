@@ -29,11 +29,101 @@ import {
 import type { MultiloopStateDisplayError } from '../types/workspace'
 import { selectMultiloopAutoRunCandidates } from './multiloopAutoRun'
 import { useWorkspaceStore } from '../store/workspaceStore'
-import { createMultiloopTemplate } from '../layouts/templates'
+import { defaultAgent } from '../store/slices/agentsSlice'
+import { createMultiloopTemplate } from '../modules/multiloop-workspace-types'
+import { superviseMultiloopAutoRunCycle } from '../components/workspace/MultiloopAutoRunSupervisor'
 import { normalizeSprintEngineProjection } from './sprintengine'
 import { createPlanSourcedSprintEngineWorkspace } from './sprintengineWorkspaceCreation'
 import { inferSourcePlanKind } from '../components/workspace/newWorkspace/helpers'
-import type { SprintEngineState } from '../types/workspace'
+import type { AgentCli, CliRuntimeSettings, McpSettings, SprintEngineState, Workspace } from '../types/workspace'
+
+type TestWindowApi = Record<string, (...args: any[]) => any>
+
+function installTestWindow(api: TestWindowApi): void {
+  const storage = new Map<string, string>()
+  const localStorage = {
+    clear: () => storage.clear(),
+    getItem: (key: string) => storage.get(key) ?? null,
+    key: (index: number) => [...storage.keys()][index] ?? null,
+    removeItem: (key: string) => { storage.delete(key) },
+    setItem: (key: string, value: string) => { storage.set(key, value) },
+    get length() { return storage.size },
+  }
+  const cryptoShim = globalThis.crypto ?? {
+    randomUUID: () => `test-uuid-${Math.random().toString(36).slice(2)}`,
+  }
+  Object.defineProperty(globalThis, 'window', {
+    value: { api, crypto: cryptoShim, localStorage },
+    configurable: true,
+    writable: true,
+  })
+  if (!globalThis.crypto) {
+    Object.defineProperty(globalThis, 'crypto', { value: cryptoShim, configurable: true })
+  }
+}
+
+function mutableRef<T>(initial: T): { current: T } {
+  return { current: initial }
+}
+
+function multiloopWorkspaceFixture(overrides: Partial<Workspace> = {}): Workspace {
+  const state = parseFixture({
+    blockers: [],
+    agents: {},
+    tasks: [
+      {
+        id: 'T-ready',
+        milestoneId: 'M2',
+        role: 'developer',
+        status: 'ready',
+        title: 'Implement real-path Multiloop auto-run work',
+      },
+    ],
+  })
+
+  return {
+    id: 'multiloop-auto-workspace',
+    name: 'Multiloop auto workspace',
+    mode: 'multiloop',
+    folderPath: '/tmp/multiloop-workspace',
+    multiloopContext: {
+      loopName: 'Fixture Loop',
+      loopSlug: 'fixture-loop',
+      loopDirectoryPath: '/tmp/multiloop-workspace/multiloop/fixture-loop',
+      statePath: '/tmp/multiloop-workspace/multiloop/fixture-loop/state.json',
+    },
+    templateId: 'multiloop',
+    layoutModel: createMultiloopTemplate().layout,
+    agents: {
+      'multiloop-developer': {
+        ...defaultAgent('multiloop-developer', 'Developer', 'multiloop'),
+        cli: 'codex',
+      },
+    },
+    worktreeState: { containerPath: null, entries: {}, updatedAt: null },
+    memory: { relativeRoot: '' },
+    editorState: { openFiles: [], activeFilePath: null },
+    sprintEngineState: null,
+    multiloopState: state,
+    sprintEngineAutoState: {
+      desiredMode: 'manual',
+      runtimeState: 'idle',
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+    multiloopAutoState: {
+      enabled: true,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 1,
+      pendingSpawns: [],
+    },
+    createdAt: 1,
+    ...overrides,
+  } as Workspace
+}
 
 function sprintEngineFixture(input: {
   sprintengine?: { name?: string; goal?: string; status?: string; updatedAt?: string; rosterConfigured?: boolean }
@@ -833,6 +923,86 @@ function testMultiloopAutoRunPausesForBlockersAndUnknownRoles() {
   assert.deepEqual(unknownRoleSelection.skippedUnknownRoles, ['implementor'])
 }
 
+async function testMultiloopSupervisorCycleSpawnsReadyTaskThroughStore() {
+  const spawns: Array<{
+    sessionId: string
+    cwd?: string
+    cli?: AgentCli
+    initialPrompt?: string
+    metadata?: { kind?: string; workspaceId?: string; agentId?: string }
+  }> = []
+  installTestWindow({
+    terminalList: async () => [],
+    terminalStatus: async () => ({ processAlive: false }),
+    pathExists: async () => true,
+    readfile: async () => {
+      throw new Error('unchanged state is allowed to fall back to the current store state')
+    },
+    initializeMultiloopState: async () => ({ ok: true }),
+    readMultiloopPrompt: async () => ({ ok: true, prompt: 'Multiloop developer prompt.' }),
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    logDiagnostic: async (input: unknown) => input,
+    terminalSpawn: async (
+      sessionId: string,
+      _cols: number,
+      _rows: number,
+      cwd?: string,
+      _resume?: boolean,
+      _statePath?: string,
+      cli?: AgentCli,
+      initialPrompt?: string,
+      _cliRuntimes?: unknown,
+      _shellOnly?: boolean,
+      metadata?: { kind?: string; workspaceId?: string; agentId?: string },
+    ) => {
+      spawns.push({ sessionId, cwd, cli, initialPrompt, metadata })
+      return { ok: true, sessionId }
+    },
+  })
+
+  const workspace = multiloopWorkspaceFixture()
+  useWorkspaceStore.setState({
+    workspaces: [workspace],
+    activeWorkspaceId: workspace.id,
+  })
+
+  const cliRuntimes: Record<AgentCli, CliRuntimeSettings> = {
+    codex: { command: 'codex', useWsl: false },
+  }
+  const mcpSettings: McpSettings = { syncEnabled: false, servers: {} }
+
+  await superviseMultiloopAutoRunCycle(
+    workspace,
+    cliRuntimes,
+    mcpSettings,
+    mutableRef(new Set<string>()),
+    mutableRef(new Map<string, string>())
+  )
+
+  const updatedWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
+  assert.ok(updatedWorkspace, 'workspace remains in the store after supervisor cycle')
+  assert.equal(spawns.length, 1, 'Multiloop supervisor real path starts one terminal for ready work')
+  assert.equal(spawns[0].cwd, '/tmp/multiloop-workspace')
+  assert.equal(spawns[0].cli, 'codex')
+  assert.equal(spawns[0].metadata?.kind, 'agent')
+  assert.equal(spawns[0].metadata?.workspaceId, workspace.id)
+  assert.equal(spawns[0].metadata?.agentId, 'multiloop-developer')
+  assert.match(spawns[0].initialPrompt ?? '', /Multiloop developer prompt\./)
+  assert.match(spawns[0].initialPrompt ?? '', /Ready tasks for this role: T-ready/)
+  assert.deepEqual(
+    updatedWorkspace.multiloopAutoState.pendingSpawns.map((pending) => ({
+      agentId: pending.agentId,
+      taskId: pending.taskId,
+      role: pending.role,
+    })),
+    [{ agentId: 'multiloop-developer', taskId: 'T-ready', role: 'developer' }],
+    'supervisor cycle records the pending spawn through the workspace store',
+  )
+  assert.equal(updatedWorkspace.agents['multiloop-developer']?.cliStartRequested, true)
+  assert.equal(updatedWorkspace.agents['multiloop-developer']?.cliHasLaunched, true)
+  assert.equal(updatedWorkspace.agents['multiloop-developer']?.kind, 'multiloop')
+}
+
 async function testMultiloopWorkspaceCreationOpensParsedState() {
   const state = baseMultiloopState()
   const initializedPath = 'C:\\repo\\multiloop\\creation-loop\\state.json'
@@ -1464,6 +1634,7 @@ void (async () => {
   await testMultiloopSynchronizerParseErrorEventPreservesJsonParserTitle()
   await testMultiloopSynchronizerParseErrorEventPreservesInvalidStateTitle()
   await testMultiloopSynchronizerIoErrorEventUsesMissingTitle()
+  await testMultiloopSupervisorCycleSpawnsReadyTaskThroughStore()
   await testSprintEngineWorkspaceCreationRegressionKeepsSprintEngineModeAndPrompt()
   await testSprintEngineWorkspaceCreationSupportsHtmlOnlySourceBundle()
   await testSprintEngineWorkspaceCreationAutoRunPromptContinuesToJoin()

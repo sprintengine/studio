@@ -352,6 +352,10 @@ const linksSectionSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/backlog/BacklogLinksSection.tsx'),
   'utf8',
 )
+const sprintEngineModuleSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/modules/sprint-engine-module.ts'),
+  'utf8',
+)
 
 run('the link state machine and renderer are extracted out of BacklogPanel', () => {
   assert.ok(!backlogPanelSource.includes('function BacklogLinkControl'), 'the link renderer no longer lives in the panel')
@@ -401,6 +405,24 @@ run('the primary Sprint Engine run link is the Open action, not a duplicate Link
   assert.match(backlogPanelSource, /excludeLinkId=\{primaryRunLinkId\}/, 'the panel hands the primary link to the section to exclude')
   // The section excludes exactly the link the caller promoted to a primary action.
   assert.match(linksSectionSource, /\.filter\(\(link\) => link\.id !== excludeLinkId\)/, 'the section excludes the promoted primary link')
+})
+
+run('completed Backlog items can be marked done manually and do not offer Sprint Engine start', () => {
+  assert.match(
+    backlogPanelSource,
+    /id: 'mark-completed', label: 'Mark completed'/,
+    'the detail overflow exposes a manual completed status action',
+  )
+  assert.match(
+    backlogPanelSource,
+    /window\.api\.updateBacklogStatus/,
+    'manual completion persists through the Backlog object service',
+  )
+  assert.match(
+    sprintEngineModuleSource,
+    /item\.status !== 'archived' && item\.status !== 'completed' && !hasSprintEngineRunLink\(item\)/,
+    'completed items without a run link hide Start Sprint Engine',
+  )
 })
 
 async function main(): Promise<void> {

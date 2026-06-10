@@ -1,4 +1,4 @@
-import { createSprintEngineTemplate } from '../layouts/templates'
+import { createSprintEngineTemplate } from '../modules/sprint-engine-workspace-types'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type {
   SprintEngineRoleCounts,

@@ -2,8 +2,13 @@ import type { ComponentType, LazyExoticComponent } from 'react'
 
 import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import { resolveModuleEnablement } from '../../../shared/modules/resolve'
-import type { FuturePlanWorkspaceSource } from '../types/workspace'
+import type { FuturePlanWorkspaceSource, LayoutTemplate } from '../types/workspace'
 import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLink } from '../utils/backlog'
+import type {
+  WorkspaceActivityKind,
+  WorkspaceRunGlyph,
+  WorkspaceRunGlyphProviderInput,
+} from '../utils/workspaceRunGlyph'
 
 // Renderer-side host kernel. Mirrors the main-process MainHost: capability
 // modules register their contributions (panels for now) into shared registries
@@ -23,6 +28,48 @@ export type WorkspacePanelProps = {
 export type WorkspacePanelComponent =
   | ComponentType<WorkspacePanelProps>
   | LazyExoticComponent<ComponentType<WorkspacePanelProps>>
+
+export type WorkspaceTypeIconComponent = ComponentType<{ className?: string }>
+
+export type WorkspaceTypeTopBarView = {
+  component: string
+  name: string
+}
+
+export type WorkspaceTypeSupervisorScope = 'global' | 'all-windows'
+
+export type WorkspaceTypeSupervisorComponent =
+  | ComponentType
+  | LazyExoticComponent<ComponentType>
+
+export type WorkspaceTypeSupervisor = {
+  Component: WorkspaceTypeSupervisorComponent
+  scope: WorkspaceTypeSupervisorScope
+}
+
+export type WorkspaceTypeDefinition = {
+  id: string
+  label: string
+  description: string
+  icon: WorkspaceTypeIconComponent
+  accentToken?: string
+  searchTerms?: string[]
+  createTemplate(): LayoutTemplate
+  topBarViews?: {
+    label: string
+    views: WorkspaceTypeTopBarView[]
+  }
+  isRunGlyphProviderForWorkspace?(workspace: WorkspaceRunGlyphProviderInput): boolean
+  deriveRunGlyph?(workspace: WorkspaceRunGlyphProviderInput, activity: WorkspaceActivityKind): WorkspaceRunGlyph | null
+  isRunCompletionUnseen?(workspace: WorkspaceRunGlyphProviderInput): boolean
+  supervisors?: WorkspaceTypeSupervisor[]
+  creationStepsId?: string
+  pickerOrder?: number
+}
+
+export type RegisteredWorkspaceTypeDefinition = WorkspaceTypeDefinition & {
+  moduleId: string
+}
 
 export type BacklogItemActionCategory = 'execute' | 'analyze' | 'transform' | 'publish' | 'review' | 'organize'
 
@@ -69,6 +116,7 @@ export type BacklogLinkProvider = {
 
 export type RendererHost = {
   registerPanel(componentId: string, component: WorkspacePanelComponent): void
+  registerWorkspaceType(definition: WorkspaceTypeDefinition): void
   registerBacklogItemAction(action: BacklogItemAction): void
   registerBacklogLinkProvider(provider: BacklogLinkProvider): void
 }
@@ -83,6 +131,9 @@ export type RendererKernel = {
   getPanel(componentId: string): WorkspacePanelComponent | undefined
   /** The capability module that registered the panel, for enablement gating. */
   getPanelModule(componentId: string): string | undefined
+  getWorkspaceType(id: string): RegisteredWorkspaceTypeDefinition | undefined
+  getWorkspaceTypes(moduleEnabled?: (moduleId: string) => boolean): RegisteredWorkspaceTypeDefinition[]
+  getWorkspaceTypeModule(id: string): string | undefined
   getBacklogItemActions(): RegisteredBacklogItemAction[]
   getBacklogLinkProviders(moduleEnabled?: (moduleId: string) => boolean): BacklogLinkProvider[]
 }
@@ -90,6 +141,7 @@ export type RendererKernel = {
 export function createRendererHost(): RendererKernel {
   const panels = new Map<string, WorkspacePanelComponent>()
   const panelModules = new Map<string, string>()
+  const workspaceTypes = new Map<string, RegisteredWorkspaceTypeDefinition>()
   const backlogItemActions = new Map<string, RegisteredBacklogItemAction>()
   const backlogLinkProviders = new Map<string, BacklogLinkProvider>()
   return {
@@ -101,6 +153,18 @@ export function createRendererHost(): RendererKernel {
           }
           panels.set(componentId, component)
           panelModules.set(componentId, moduleId)
+        },
+        registerWorkspaceType(definition) {
+          if (definition.id.trim().length === 0) {
+            throw new Error('Workspace type id must be a non-empty string.')
+          }
+          if (definition.id === 'standard') {
+            throw new Error('Workspace type "standard" is shell-owned and cannot be registered.')
+          }
+          if (workspaceTypes.has(definition.id)) {
+            throw new Error(`Workspace type "${definition.id}" is already registered.`)
+          }
+          workspaceTypes.set(definition.id, { ...definition, moduleId })
         },
         registerBacklogItemAction(action) {
           if (backlogItemActions.has(action.id)) {
@@ -136,6 +200,24 @@ export function createRendererHost(): RendererKernel {
     },
     getPanelModule(componentId) {
       return panelModules.get(componentId)
+    },
+    getWorkspaceType(id) {
+      return workspaceTypes.get(id)
+    },
+    getWorkspaceTypes(moduleEnabled) {
+      // The module list registers eagerly at boot and these definitions are
+      // stored by reference, so lookups are stable. Components that derive
+      // arrays from this registry should still memoize those arrays before
+      // returning them from Zustand selectors.
+      return [...workspaceTypes.values()]
+        .filter((definition) => !moduleEnabled || moduleEnabled(definition.moduleId))
+        .sort((a, b) => {
+          const order = (a.pickerOrder ?? 100) - (b.pickerOrder ?? 100)
+          return order === 0 ? a.id.localeCompare(b.id) : order
+        })
+    },
+    getWorkspaceTypeModule(id) {
+      return workspaceTypes.get(id)?.moduleId
     },
     getBacklogItemActions() {
       return [...backlogItemActions.values()].sort((a, b) => {

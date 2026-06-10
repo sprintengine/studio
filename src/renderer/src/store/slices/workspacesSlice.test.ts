@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { GuidedBriefRuntimeState, LayoutTemplate, Workspace, WorkspaceWindowState } from '../../types/workspace'
-import { createGuidedBriefTemplate } from '../../layouts/templates'
+import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
 import { getEditorBuffer } from '../../utils/editorBuffers'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { useWorkspaceStore } from '../workspaceStore'
@@ -55,8 +55,16 @@ const soloDevTemplate: LayoutTemplate = {
 }
 
 assert.equal(workspaceFolderKey(' /Users/example/project/ '), '/users/example/project')
-assert.equal(normalizeWorkspaceMode('unknown'), 'standard')
+const legacyPersistedWorkspace = {
+  id: 'workspace-with-plugin-mode',
+  mode: 'future-plugin-mode',
+}
+assert.equal(normalizeWorkspaceMode(legacyPersistedWorkspace.mode), 'future-plugin-mode')
+assert.equal(normalizeWorkspaceMode('  future-plugin-mode  '), '  future-plugin-mode  ')
 assert.equal(normalizeWorkspaceMode('switchboard'), 'switchboard')
+assert.equal(normalizeWorkspaceMode(''), 'standard')
+assert.equal(normalizeWorkspaceMode('   '), 'standard')
+assert.equal(normalizeWorkspaceMode(null), 'standard')
 assert.equal(normalizeWorkspaceMode('standard', { goal: 'ship' } as never), 'sprintengine')
 assert.equal(normalizeWorkspaceMode('standard', null, { goal: 'loop' } as never), 'multiloop')
 

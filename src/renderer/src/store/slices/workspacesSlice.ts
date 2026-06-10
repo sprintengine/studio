@@ -88,15 +88,7 @@ export function normalizeWorkspaceMode(
 ): WorkspaceMode {
   if (multiloopState) return 'multiloop'
   if (sprintEngineState) return 'sprintengine'
-  if (
-    input === 'standard'
-    || input === 'sprintengine'
-    || input === 'switchboard'
-    || input === 'multiloop'
-    || input === 'guided-brief'
-  ) {
-    return input
-  }
+  if (typeof input === 'string' && input.trim().length > 0) return input
   return 'standard'
 }
 

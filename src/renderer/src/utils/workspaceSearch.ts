@@ -1,3 +1,4 @@
+import { getRendererHost } from '../modules'
 import type { Workspace } from '../types/workspace'
 
 export function normalizeWorkspaceSearchQuery(value: string): string {
@@ -8,10 +9,13 @@ function normalizeSearchField(value: string | null | undefined): string {
   return (value ?? '').toLocaleLowerCase()
 }
 
+// Search match terms for a workspace mode come from its registered type
+// definition (label + searchTerms); a shell-owned/unknown mode falls back to the
+// raw id. Comparison lower-cases fields, so casing here is irrelevant.
 function workspaceModeLabel(mode: Workspace['mode']): string {
-  if (mode === 'guided-brief') return 'guided brief'
-  if (mode === 'sprintengine') return 'sprint engine sprintengine'
-  return mode
+  const definition = getRendererHost().getWorkspaceType(mode)
+  if (!definition) return mode
+  return [definition.label, ...(definition.searchTerms ?? [])].join(' ')
 }
 
 export function workspaceMatchesSearch(workspace: Workspace, normalizedQuery: string): boolean {

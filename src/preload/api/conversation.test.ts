@@ -20,6 +20,7 @@ async function main(): Promise<void> {
         version: 1,
         providerType: 'model-provider',
         models: [{ id: 'gpt-5' }],
+        supportsDynamicModels: false,
         adapter: { kind: 'declarative', execution: 'declarative', trust: 'not_required' },
       },
     ],

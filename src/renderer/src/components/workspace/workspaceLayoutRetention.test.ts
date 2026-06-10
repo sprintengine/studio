@@ -13,7 +13,7 @@ const DEFAULT_INPUT = {
     recent: NOW - 5 * MINUTE,
     older: NOW - 45 * MINUTE,
     busy: NOW - 60 * MINUTE,
-  },
+  } as Record<string, number>,
   now: NOW,
   idleUnloadMs: 30 * MINUTE,
   inactiveLimit: 4,

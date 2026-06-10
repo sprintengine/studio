@@ -44,6 +44,21 @@ const workspaces = [
     mode: 'guided-brief',
     folderPath: '/Users/dev/work/storefront',
   }),
+  makeWorkspace('board', {
+    name: 'Triage queue',
+    mode: 'switchboard',
+    folderPath: '/Users/dev/work/inbox-app',
+  }),
+  makeWorkspace('loop', {
+    name: 'Roadmap planning',
+    mode: 'multiloop',
+    folderPath: '/Users/dev/work/roadmap-app',
+  }),
+  makeWorkspace('plugin', {
+    name: 'Experimental surface',
+    mode: 'future-plugin-mode' as Workspace['mode'],
+    folderPath: '/Users/dev/work/plugin-app',
+  }),
 ]
 
 run('normalizes surrounding whitespace and case', () => {
@@ -66,14 +81,34 @@ run('matches folder names and full paths', () => {
   )
 })
 
-run('matches workspace mode labels', () => {
+run('matches workspace mode labels from the registry', () => {
+  // Registry-sourced label + searchTerms preserve the prior hardcoded matches.
   assert.deepEqual(
     filterWorkspacesBySearchQuery(workspaces, 'sprint engine').map((workspace) => workspace.id),
     ['swarm'],
   )
   assert.deepEqual(
+    filterWorkspacesBySearchQuery(workspaces, 'sprintengine').map((workspace) => workspace.id),
+    ['swarm'],
+  )
+  assert.deepEqual(
     filterWorkspacesBySearchQuery(workspaces, 'guided brief').map((workspace) => workspace.id),
     ['brief'],
+  )
+  assert.deepEqual(
+    filterWorkspacesBySearchQuery(workspaces, 'switchboard').map((workspace) => workspace.id),
+    ['board'],
+  )
+  assert.deepEqual(
+    filterWorkspacesBySearchQuery(workspaces, 'multiloop').map((workspace) => workspace.id),
+    ['loop'],
+  )
+})
+
+run('matches the raw mode id for an unregistered type', () => {
+  assert.deepEqual(
+    filterWorkspacesBySearchQuery(workspaces, 'future-plugin-mode').map((workspace) => workspace.id),
+    ['plugin'],
   )
 })
 

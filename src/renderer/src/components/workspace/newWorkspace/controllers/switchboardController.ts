@@ -1,4 +1,4 @@
-import { createSwitchboardTemplate } from '../../../../layouts/templates'
+import { createSwitchboardTemplate } from '../../../../modules/switchboard-workspace-types'
 import type { OnCreateArgs } from './types'
 
 export type SwitchboardControllerInput = {

@@ -1,5 +1,6 @@
 import React from 'react'
-import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
+import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
+import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
 import { Popover, StatusDot, Tooltip } from '../ui'
 import CliIcon from '../CliIcon'
 import {
@@ -227,19 +228,6 @@ function CliModelListbox({
   )
 }
 
-type ViewItem = { component: string; name: string }
-// Sprint Engine intentionally has no entry: Inbox / Roster / Tasks render as
-// an icon-led sub-nav at the top of the SprintEngineBoardPanel (Linear-style
-// underline-on-active), not as workspace top-bar chrome or FlexLayout tabs.
-const VIEWS_FOR_MODE: Record<string, { label: string; views: ViewItem[] }> = {
-  multiloop: {
-    label: 'Multiloop',
-    views: [
-      { component: 'multiloop-board', name: 'Multiloop' },
-    ],
-  },
-}
-
 export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
   value: SprintEngineCliPermissionPreset
   label: string
@@ -262,11 +250,13 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
   },
 ]
 
-function workspaceTabIconClass(mode: Workspace['mode']): string {
-  if (mode === 'sprintengine') return 'text-[color:var(--tool-sprintengine)]'
-  if (mode === 'switchboard') return 'text-[color:var(--tool-switchboard)]'
-  if (mode === 'guided-brief') return 'text-[color:var(--accent-primary)]'
-  return 'text-[color:var(--text-muted)]'
+// Tab accent comes from the enabled workspace type's accentToken; a disabled
+// module, an unknown id, or shell-owned 'standard' falls back to the muted
+// default. Matches the prior per-mode mapping for the bundled types while
+// degrading disabled-module workspaces to the generic accent (AC4).
+function workspaceTabIconClass(mode: Workspace['mode'], moduleOverrides: ModuleEnablementOverrides): string {
+  const token = resolveEnabledWorkspaceType(mode, moduleOverrides)?.accentToken ?? '--text-muted'
+  return `text-[color:var(${token})]`
 }
 
 function sessionAgentTypeLabel(item: SessionItem): string | null {
@@ -834,6 +824,15 @@ export default function WorkspaceTopBar({
   switchOrganization,
 }: WorkspaceTopBarProps) {
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
+  const moduleOverrides = useWorkspaceStore((state) => state.appSettings.modules)
+  // The active workspace type's top-bar view set, from the registry and gated by
+  // module enablement (was VIEWS_FOR_MODE). getWorkspaceType returns a stable
+  // reference, so this memo only recomputes when the mode or enablement changes;
+  // null means no switcher (most types, or a disabled module).
+  const activeWorkspaceViews = React.useMemo(
+    () => (activeWorkspace ? resolveEnabledWorkspaceType(activeWorkspace.mode, moduleOverrides)?.topBarViews ?? null : null),
+    [activeWorkspace, moduleOverrides],
+  )
   const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
   const shortcutFor = React.useCallback((commandId: string): string | null => (
     getEffectiveKeybindingLabel(commandId, keybindingSettings, keybindingPlatform)
@@ -906,7 +905,7 @@ export default function WorkspaceTopBar({
           {activeWorkspace ? (
             <>
               <span
-                className={`shrink-0 ${activeWorkspace.highlight?.color ? '' : workspaceTabIconClass(activeWorkspace.mode)}`}
+                className={`shrink-0 ${activeWorkspace.highlight?.color ? '' : workspaceTabIconClass(activeWorkspace.mode, moduleOverrides)}`}
                 style={{
                   color: activeWorkspace.highlight?.color
                     ? getHighlightSwatch(activeWorkspace.highlight.color).hex
@@ -915,6 +914,7 @@ export default function WorkspaceTopBar({
               >
                 <WorkspaceTypeIcon
                   mode={activeWorkspace.mode}
+                  moduleOverrides={moduleOverrides}
                   className="icon-sm"
                 />
               </span>
@@ -1000,7 +1000,7 @@ export default function WorkspaceTopBar({
             </div>
           ) : null}
 
-          {workspaceActionsEnabled && activeWorkspace && VIEWS_FOR_MODE[activeWorkspace.mode] ? (
+          {workspaceActionsEnabled && activeWorkspace && activeWorkspaceViews ? (
             <div ref={viewMenuRef} className="relative inline-flex">
               <Popover
                 open={viewMenuOpen}
@@ -1014,11 +1014,11 @@ export default function WorkspaceTopBar({
                     setAccountOpen(false)
                   }
                 }}
-                ariaLabel={`${VIEWS_FOR_MODE[activeWorkspace.mode]?.label ?? 'View'} panels`}
+                ariaLabel={`${activeWorkspaceViews?.label ?? 'View'} panels`}
                 popupRole="menu"
                 placement="bottom-end"
                 renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                  <Tooltip content={`${VIEWS_FOR_MODE[activeWorkspace.mode]?.label ?? 'View'} panels`} placement="bottom">
+                  <Tooltip content={`${activeWorkspaceViews?.label ?? 'View'} panels`} placement="bottom">
                     <button
                       ref={ref}
                       type="button"
@@ -1036,7 +1036,7 @@ export default function WorkspaceTopBar({
                         <rect x="9" y="2" width="5" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
                         <rect x="9" y="10" width="5" height="4" rx="1" stroke="currentColor" strokeWidth="1.4" />
                       </svg>
-                      <span className="text-[12px] font-semibold">{VIEWS_FOR_MODE[activeWorkspace.mode]?.label ?? 'View'}</span>
+                      <span className="text-[12px] font-semibold">{activeWorkspaceViews?.label ?? 'View'}</span>
                       <svg className={`icon-xs transition-transform ${viewMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
                         <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
@@ -1046,9 +1046,9 @@ export default function WorkspaceTopBar({
               >
                 <div className="w-60 overflow-hidden p-1">
                   <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium text-[color:var(--text-muted)]">
-                    {VIEWS_FOR_MODE[activeWorkspace.mode]?.label ?? 'View'} panels
+                    {activeWorkspaceViews?.label ?? 'View'} panels
                   </div>
-                  {(VIEWS_FOR_MODE[activeWorkspace.mode]?.views ?? []).map((view) => {
+                  {(activeWorkspaceViews?.views ?? []).map((view) => {
                     void viewMenuTick
                     const checked = hasComponentTab(activeWorkspace.id, view.component)
                     return (

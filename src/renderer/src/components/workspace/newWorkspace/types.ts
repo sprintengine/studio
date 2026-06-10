@@ -1,3 +1,4 @@
+import type { ComponentType } from 'react'
 import type {
   SprintEngineState,
   SprintEngineWorkspaceContext,
@@ -5,9 +6,22 @@ import type {
   GuidedBriefHasUi,
 } from '../../../types/workspace'
 
-export type CreationMode = WorkspaceMode | 'guided-brief'
+// The wizard's mode is whatever the workspace-type registry can contribute, plus
+// the shell-owned 'standard'. It is open (WorkspaceMode) so the mode picker can
+// surface registry-discovered ids without the bundled union gating the list.
+export type CreationMode = WorkspaceMode
 
 export type { GuidedBriefHasUi }
+
+// What a single mode card needs to render. Sourced from the workspace-type
+// registry for contributed types and from the shell for 'standard'; the card
+// itself stays presentation-only.
+export type ModeCardModel = {
+  id: CreationMode
+  label: string
+  description: string
+  icon: ComponentType<{ className?: string }>
+}
 
 export type MarkdownPlanOption = {
   path: string

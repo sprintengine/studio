@@ -1,6 +1,7 @@
 import React from 'react'
 
 import type { RendererModule } from './renderer-host'
+import { registerMultiloopWorkspaceTypes } from './multiloop-workspace-types'
 
 const MultiloopBoardPanel = React.lazy(() => import('../components/panels/MultiloopBoardPanel'))
 
@@ -19,5 +20,6 @@ export const multiloopRendererModule: RendererModule = {
   },
   registerRenderer(host) {
     host.registerPanel('multiloop-board', MultiloopBoardPanel)
+    registerMultiloopWorkspaceTypes(host)
   },
 }

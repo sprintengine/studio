@@ -19,7 +19,8 @@ import {
   sprintEngineTabsLayoutModel,
   stripSettingsTabsFromLayout,
 } from './layoutSlice'
-import { createGuidedBriefTemplate, createSwitchboardTemplate } from '../../layouts/templates'
+import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
+import { createSwitchboardTemplate } from '../../modules/switchboard-workspace-types'
 import { guidedBriefLayoutModel } from './guidedBriefSlice'
 
 const standardTemplate: LayoutTemplate = {

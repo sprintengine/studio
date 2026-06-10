@@ -940,28 +940,32 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
           }
         } else if (componentId === 'watchtower-panel' || componentId === 'switchboard-board') {
           const isWatchtower = componentId === 'watchtower-panel'
+          // Degrade the panel-tab accent + icon to generic when the switchboard
+          // module is disabled, matching the workspace tab/row contract (AC4).
+          const switchboardEnabled = selectModuleEnabled(moduleOverrides, 'switchboard')
+          const accentClass = switchboardEnabled
+            ? (isWatchtower ? 'text-[color:var(--tool-watchtower)]' : 'text-[color:var(--tool-switchboard)]')
+            : 'text-[color:var(--text-muted)]'
           renderValues.leading = (
             <span
-              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${
-                isWatchtower ? 'text-[color:var(--tool-watchtower)]' : 'text-[color:var(--tool-switchboard)]'
-              }`}
+              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${accentClass}`}
               title={isWatchtower ? 'Watchtower panel' : 'Switchboard panel'}
               aria-label={isWatchtower ? 'Watchtower panel' : 'Switchboard panel'}
             >
-              <WorkspaceTypeIcon mode={isWatchtower ? 'switchboard' : 'switchboard'} className="h-3.5 w-3.5" />
+              <WorkspaceTypeIcon mode="switchboard" moduleOverrides={moduleOverrides} className="h-3.5 w-3.5" />
             </span>
           )
         } else if (componentId?.startsWith('sprintengine')) {
-          const iconMode = 'sprintengine'
+          const sprintEngineEnabled = selectModuleEnabled(moduleOverrides, 'sprint-engine')
           renderValues.leading = (
             <span
               className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${
-                'text-[color:var(--tool-sprintengine)]'
+                sprintEngineEnabled ? 'text-[color:var(--tool-sprintengine)]' : 'text-[color:var(--text-muted)]'
               }`}
               title='Sprint Engine panel'
               aria-label='Sprint Engine panel'
             >
-              <WorkspaceTypeIcon mode={iconMode} className="h-3.5 w-3.5" />
+              <WorkspaceTypeIcon mode="sprintengine" moduleOverrides={moduleOverrides} className="h-3.5 w-3.5" />
             </span>
           )
         }
@@ -1058,7 +1062,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
         )
       }
     },
-    [commitRename, hideTab, renameValue, renamingTabId, showTabContextMenu, startRename, terminalSessions, now, workspace.agents, workspace.editorState?.openFiles, workspace.lastTerminalActivityAt, workspace.sprintEngineState, workspaceId]
+    [commitRename, hideTab, moduleOverrides, renameValue, renamingTabId, showTabContextMenu, startRename, terminalSessions, now, workspace.agents, workspace.editorState?.openFiles, workspace.lastTerminalActivityAt, workspace.sprintEngineState, workspaceId]
   )
 
   const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {

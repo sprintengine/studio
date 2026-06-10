@@ -1,4 +1,4 @@
-import { createSprintEngineTemplate } from '../../../../layouts/templates'
+import { createSprintEngineTemplate } from '../../../../modules/sprint-engine-workspace-types'
 import { countSprintEngineAgents, createInitialSprintEngineState } from '../../../../utils/sprintengine'
 import {
   sprintEngineAutomationInitialStateForMode,

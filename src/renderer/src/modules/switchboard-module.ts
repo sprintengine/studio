@@ -1,6 +1,7 @@
 import React from 'react'
 
 import type { RendererModule } from './renderer-host'
+import { registerSwitchboardWorkspaceTypes } from './switchboard-workspace-types'
 
 // Lazy so the Switchboard/Watchtower panel bundles only load when rendered —
 // never, when the module is disabled.
@@ -27,5 +28,6 @@ export const switchboardRendererModule: RendererModule = {
     host.registerPanel('switchboard-workspace', SwitchboardWorkspacePanel)
     host.registerPanel('watchtower-panel', WatchtowerPanel)
     host.registerPanel('switchboard-board', SwitchboardBoardPanel)
+    registerSwitchboardWorkspaceTypes(host)
   },
 }

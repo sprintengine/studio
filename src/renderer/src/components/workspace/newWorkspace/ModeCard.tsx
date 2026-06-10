@@ -1,5 +1,4 @@
-import { WorkspaceTypeIcon } from '../../AppIcons'
-import type { CreationMode } from './types'
+import type { CreationMode, ModeCardModel } from './types'
 
 type ModeStyle = {
   border: string
@@ -9,7 +8,15 @@ type ModeStyle = {
   iconColor: string
 }
 
-const MODE_STYLES: Record<CreationMode, ModeStyle> = {
+// Card accent treatment per known mode. This stays card-local rather than
+// deriving from the registry definition's accentToken: the card's active accent
+// (e.g. --tone-warn for Sprint Engine) is theme-reactive and diverges from the
+// panel-header identity token (--tool-sprintengine) in non-Dark themes, so the
+// card keeps its own visual map. Unknown registry ids fall back to the neutral
+// 'standard' treatment.
+type KnownModeId = 'standard' | 'switchboard' | 'sprintengine' | 'multiloop' | 'guided-brief'
+
+const MODE_STYLES: Record<KnownModeId, ModeStyle> = {
   standard: {
     border: 'border-[color:var(--color-6)]',
     bg: 'bg-[color:var(--bg-hover)]',
@@ -47,53 +54,16 @@ const MODE_STYLES: Record<CreationMode, ModeStyle> = {
   },
 }
 
-const MODE_COPY: Record<CreationMode, { title: string; body: string }> = {
-  standard: {
-    title: 'Standard',
-    body: 'IDE layout with editor, terminals, and file explorer for direct work.',
-  },
-  switchboard: {
-    title: 'Switchboard',
-    body: 'Triage board and Watchtower review, fed by agent-created inbox tasks.',
-  },
-  sprintengine: {
-    title: 'Sprint Engine',
-    body: 'Specialist roster, architect plan, kanban, and evidence trail.',
-  },
-  multiloop: {
-    title: 'Multiloop',
-    body: 'Roadmap, milestones, decisions, and evidence for long-running work.',
-  },
-  'guided-brief': {
-    title: 'Guided brief',
-    body: 'Answer questions. We produce a brief, screens, and a build handoff before any code starts.',
-  },
-}
-
-function GuidedBriefIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M5 6.25C5 5.42 5.67 4.75 6.5 4.75H17.5C18.33 4.75 19 5.42 19 6.25V13.75C19 14.58 18.33 15.25 17.5 15.25H10.75L7.5 18.5V15.25H6.5C5.67 15.25 5 14.58 5 13.75V6.25Z"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinejoin="round"
-      />
-      <path d="M9 9.25H15M9 12H13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  )
-}
-
 interface ModeCardProps {
-  mode: CreationMode
+  model: ModeCardModel
   active: boolean
   disabled?: boolean
   onSelect: (mode: CreationMode) => void
 }
 
-export function ModeCard({ mode, active, disabled = false, onSelect }: ModeCardProps) {
-  const styles = MODE_STYLES[mode]
-  const copy = MODE_COPY[mode]
+export function ModeCard({ model, active, disabled = false, onSelect }: ModeCardProps) {
+  const styles = MODE_STYLES[model.id as KnownModeId] ?? MODE_STYLES.standard
+  const Icon = model.icon
 
   return (
     <button
@@ -101,7 +71,7 @@ export function ModeCard({ mode, active, disabled = false, onSelect }: ModeCardP
       role="radio"
       aria-checked={active}
       disabled={disabled}
-      onClick={() => onSelect(mode)}
+      onClick={() => onSelect(model.id)}
       className={`
         relative flex h-[120px] w-full flex-col items-start gap-2 overflow-hidden rounded-md border p-3 text-left
         transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
@@ -116,26 +86,19 @@ export function ModeCard({ mode, active, disabled = false, onSelect }: ModeCardP
         className={`absolute inset-x-0 top-0 h-[3px] ${active ? styles.topAccent : 'bg-transparent'}`}
       />
       <span className="flex items-center gap-2">
-        {mode === 'guided-brief' ? (
-          <GuidedBriefIcon
-            className={`h-4 w-4 shrink-0 ${active ? styles.iconColor : 'text-[color:var(--text-muted)]'}`}
-          />
-        ) : (
-          <WorkspaceTypeIcon
-            mode={mode}
-            className={`h-4 w-4 shrink-0 ${active ? styles.iconColor : 'text-[color:var(--text-muted)]'}`}
-          />
-        )}
+        <Icon
+          className={`h-4 w-4 shrink-0 ${active ? styles.iconColor : 'text-[color:var(--text-muted)]'}`}
+        />
         <span
           className={`text-[13px] font-semibold leading-4 ${
             active ? styles.label : 'text-[color:var(--text-strong)]'
           }`}
         >
-          {copy.title}
+          {model.label}
         </span>
       </span>
       <span className="text-[12px] leading-4 text-[color:var(--text-muted)]">
-        {copy.body}
+        {model.description}
       </span>
     </button>
   )

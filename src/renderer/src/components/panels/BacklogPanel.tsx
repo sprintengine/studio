@@ -88,6 +88,7 @@ type BacklogActions = {
   rename: (item: BacklogItem) => void
   archive: (item: BacklogItem) => void
   remove: (item: BacklogItem) => void
+  setStatus: (item: BacklogItem, status: BacklogItemStatus) => void
   setDifficulty: (item: BacklogItem, value: DifficultyChoice) => void
   setCriticality: (item: BacklogItem, value: CriticalityChoice) => void
 }
@@ -594,6 +595,21 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [folderPath, runAction, runScan],
   )
 
+  const setItemStatus = useCallback(
+    (item: BacklogItem, status: BacklogItemStatus) =>
+      runAction(async () => {
+        if (!folderPath || item.status === status) return
+        const updated = await window.api.updateBacklogStatus({
+          workspaceRoot: folderPath,
+          relativePath: item.relativePath,
+          status,
+        })
+        assertBacklogMutation(updated)
+        await runScan()
+      }),
+    [folderPath, runAction, runScan],
+  )
+
   const refreshButton = (
     <Tooltip content="Refresh backlog">
       <IconButton aria-label="Refresh backlog" onClick={() => void runScan()} disabled={loading || !folderPath}>
@@ -619,6 +635,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     rename: (item) => void renameItem(item),
     archive: (item) => void archiveItem(item),
     remove: (item) => void deleteItem(item),
+    setStatus: (item, status) => void setItemStatus(item, status),
     setDifficulty: (item, value) => setItemTriage(item, { difficulty: value === 'unset' ? null : value }),
     setCriticality: (item, value) => setItemTriage(item, { criticality: value === 'unset' ? null : value }),
   }
@@ -1101,6 +1118,9 @@ function BacklogDetail({
           <OverflowMenu
             ariaLabel="Item actions"
             items={[
+              ...(selected.status !== 'archived' && selected.status !== 'completed'
+                ? [{ id: 'mark-completed', label: 'Mark completed', onSelect: () => actions.setStatus(selected, 'completed') }]
+                : []),
               { id: 'rename', label: 'Rename…', onSelect: () => actions.rename(selected) },
               ...(selected.status === 'archived'
                 ? []
