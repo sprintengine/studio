@@ -9,7 +9,7 @@ import {
   platformKeybindingsFromApiPlatform,
 } from '../../commands/effectiveKeybindings'
 
-type PanelKey = 'explorer' | 'editor' | 'git' | 'backlog' | 'memory-graph'
+type PanelKey = 'explorer' | 'git' | 'backlog' | 'sprint-engines'
 
 // 999 is the visible ceiling: it occupies the same three glyph slots as a
 // "99+" cap would, so we just clamp the number and skip the suffix.
@@ -47,24 +47,6 @@ const PANELS: PanelDescriptor[] = [
     ),
   },
   {
-    key: 'editor',
-    commandId: 'panel.editor.toggle',
-    moduleId: 'dev-tools',
-    tabName: 'Editor',
-    label: 'Editor',
-    icon: ({ className }) => (
-      <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-        <path
-          d="M5.5 4.5L2.5 8l3 3.5M10.5 4.5L13.5 8l-3 3.5M9 3.5L7 12.5"
-          stroke="currentColor"
-          strokeWidth="1.3"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    ),
-  },
-  {
     key: 'git',
     commandId: 'panel.git.toggle',
     moduleId: 'git',
@@ -94,16 +76,24 @@ const PANELS: PanelDescriptor[] = [
     ),
   },
   {
-    key: 'memory-graph',
-    moduleId: 'memory-graph',
-    tabName: 'Knowledge Graph',
-    label: 'Knowledge Graph',
+    key: 'sprint-engines',
+    moduleId: 'sprint-engine',
+    tabName: 'Sprint Engines',
+    label: 'Sprint Engines',
+    // 16px restatement of SprintEngineWorkspaceTypeIcon (AppIcons.tsx): the
+    // outlined three-node roster triangle, distinct from the retired Knowledge
+    // Graph glyph's filled dots.
     icon: ({ className }) => (
       <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-        <path d="M8 4L3.5 11.5M8 4L12.5 11.5M4 11.5h8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-        <circle cx="8" cy="4" r="1.6" fill="currentColor" />
-        <circle cx="3.5" cy="11.5" r="1.6" fill="currentColor" />
-        <circle cx="12.5" cy="11.5" r="1.6" fill="currentColor" />
+        <circle cx="8" cy="4" r="1.7" stroke="currentColor" strokeWidth="1.3" />
+        <circle cx="4" cy="11.5" r="1.7" stroke="currentColor" strokeWidth="1.3" />
+        <circle cx="12" cy="11.5" r="1.7" stroke="currentColor" strokeWidth="1.3" />
+        <path
+          d="M7.2 5.5L4.85 10M8.8 5.5L11.15 10M5.8 11.5h4.4"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+        />
       </svg>
     ),
   },
@@ -196,13 +186,8 @@ export default function PanelRail({ workspaceId, collapsed, onToggleCollapse }: 
   // Shared between layouts: one nav switch button.
   const renderPanelButton = (panel: PanelDescriptor) => {
         const Icon = panel.icon
-        // The Editor keeps its own document tab strip, so its switch reads as
-        // active whenever an editor surface is open — the welcome 'editor' tab
-        // or any open file ('file-editor'). The nav switches map 1:1 to their
-        // component.
-        const active = panel.key === 'editor'
-          ? jsonModelHasComponent(layoutModel, 'editor') || jsonModelHasComponent(layoutModel, 'file-editor')
-          : jsonModelHasComponent(layoutModel, panel.key)
+        // Every rail switch maps 1:1 to its FlexLayout component.
+        const active = jsonModelHasComponent(layoutModel, panel.key)
         const showGitBadge = panel.key === 'git' && gitHasChanges
         const shortcut = panel.commandId ? shortcutFor(panel.commandId) : null
         const baseTooltip = shortcut

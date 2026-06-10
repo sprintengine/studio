@@ -77,6 +77,7 @@ export type TerminalSession = {
   startedAt: number
   lastOutputAt: number | null
   lastInputAt: number | null
+  lastVisibleAt: number | null
   pendingResize?: TerminalSize
   startupScriptPath?: string
 }
@@ -141,6 +142,43 @@ export function recordTerminalInput(session: TerminalSession, at = Date.now()): 
   session.lastInputAt = at
 }
 
+// Visibility recency feeds the stale-terminal sweep. Both transitions count as
+// "the user looked at this": becoming visible marks the view starting, and
+// becoming hidden marks the moment the user navigated away.
+export function recordTerminalVisibility(
+  session: TerminalSession,
+  visible: boolean,
+  at = Date.now()
+): void {
+  session.visible = visible
+  session.lastVisibleAt = at
+}
+
+// A terminal that nobody has looked at (no mounted view, no input, no output)
+// for this long is reaped by the main-process sweep.
+export const STALE_TERMINAL_MAX_UNSEEN_MS = 24 * 60 * 60 * 1000
+
+export function getTerminalLastSeenAt(session: TerminalSession): number {
+  return Math.max(
+    session.startedAt,
+    session.lastInputAt ?? 0,
+    session.lastOutputAt ?? 0,
+    session.lastVisibleAt ?? 0
+  )
+}
+
+export function isTerminalSessionStale(
+  session: TerminalSession,
+  now = Date.now(),
+  maxUnseenMs = STALE_TERMINAL_MAX_UNSEEN_MS
+): boolean {
+  if (session.isDisposed) return false
+  // A session with a mounted TerminalView is on screen somewhere; only treat
+  // the visible flag as live while its window still exists.
+  if (session.visible && !session.sender.isDestroyed()) return false
+  return now - getTerminalLastSeenAt(session) > maxUnseenMs
+}
+
 export function markTerminalIdle(session: TerminalSession, at = Date.now()): boolean {
   if (session.activity.kind !== 'working') return false
   return transitionTerminalActivity(session, { kind: 'idle', since: at })
@@ -200,6 +238,7 @@ export function createFailedTerminalSession(input: FailedTerminalSessionInput): 
     startedAt: at,
     lastOutputAt: input.lastOutputAt === undefined ? at : input.lastOutputAt,
     lastInputAt: input.lastInputAt ?? null,
+    lastVisibleAt: input.visible ? at : null,
   }
 }
 
@@ -259,6 +298,7 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     startedAt: session.startedAt,
     lastOutputAt: session.lastOutputAt,
     lastInputAt: session.lastInputAt,
+    lastVisibleAt: session.lastVisibleAt,
     activity: session.activity,
     exitedAt: session.exitedAt,
     outputBufferLength: session.outputLength,

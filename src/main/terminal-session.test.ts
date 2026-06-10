@@ -3,14 +3,18 @@ import {
   appendTerminalOutput,
   createFailedTerminalSession,
   createInitialTerminalActivity,
+  getTerminalLastSeenAt,
   getTerminalSnapshot,
+  isTerminalSessionStale,
   markTerminalExited,
   markTerminalFailed,
   markTerminalIdle,
   markTerminalWorking,
   materializeTerminalReplay,
   recordTerminalInput,
+  recordTerminalVisibility,
   transitionTerminalActivity,
+  STALE_TERMINAL_MAX_UNSEEN_MS,
   type TerminalSession,
 } from './terminal-session'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
@@ -35,6 +39,9 @@ function main(): void {
   assertRecentInputKeepsSessionInExtendedReplayTier()
   assertColdSingleLargeChunkIsTrimmedNotDropped()
   assertColdSessionNewOutputUsesRecentReplayTier()
+  assertVisibilityRecordingUpdatesRecency()
+  assertStaleRuleExemptsVisibleSessionsWithLiveSender()
+  assertStaleRuleUsesMostRecentUserSignal()
 }
 
 function assertSpawnSnapshotStartsWorking(): void {
@@ -239,10 +246,61 @@ function assertColdSessionNewOutputUsesRecentReplayTier(): void {
   assert.equal(session.outputBytes, TERMINAL_RECENT_REPLAY_BYTES)
 }
 
+function assertVisibilityRecordingUpdatesRecency(): void {
+  const session = createSession({ startedAt: 100, visible: false })
+  assert.equal(session.lastVisibleAt, null)
+
+  recordTerminalVisibility(session, true, 500)
+  assert.equal(session.visible, true)
+  assert.equal(session.lastVisibleAt, 500)
+
+  recordTerminalVisibility(session, false, 900)
+  assert.equal(session.visible, false)
+  assert.equal(session.lastVisibleAt, 900, 'hiding still counts as the user having just looked')
+
+  const snapshot = getTerminalSnapshot(session)
+  assert.equal(snapshot.lastVisibleAt, 900)
+}
+
+function assertStaleRuleExemptsVisibleSessionsWithLiveSender(): void {
+  const startedAt = 1_000
+  const wellPastStale = startedAt + STALE_TERMINAL_MAX_UNSEEN_MS * 2
+
+  const visible = createSession({ startedAt, visible: true })
+  assert.equal(isTerminalSessionStale(visible, wellPastStale), false)
+
+  const visibleButWindowGone = createSession({ startedAt, visible: true, senderDestroyed: true })
+  assert.equal(isTerminalSessionStale(visibleButWindowGone, wellPastStale), true)
+
+  const hidden = createSession({ startedAt, visible: false })
+  assert.equal(isTerminalSessionStale(hidden, wellPastStale), true)
+
+  const disposed = createSession({ startedAt, visible: false })
+  disposed.isDisposed = true
+  assert.equal(isTerminalSessionStale(disposed, wellPastStale), false, 'disposed sessions are already gone')
+}
+
+function assertStaleRuleUsesMostRecentUserSignal(): void {
+  const startedAt = 1_000
+  const session = createSession({ startedAt, visible: false })
+  session.lastOutputAt = startedAt
+
+  recordTerminalInput(session, 5_000)
+  appendTerminalOutput(session, 'output', 9_000)
+  recordTerminalVisibility(session, false, 12_000)
+  assert.equal(getTerminalLastSeenAt(session), 12_000)
+
+  assert.equal(isTerminalSessionStale(session, 12_000 + STALE_TERMINAL_MAX_UNSEEN_MS), false)
+  assert.equal(isTerminalSessionStale(session, 12_000 + STALE_TERMINAL_MAX_UNSEEN_MS + 1), true)
+}
+
 function createSession(input: {
   startedAt: number
   idleTimer?: ReturnType<typeof setTimeout>
+  visible?: boolean
+  senderDestroyed?: boolean
 }): TerminalSession {
+  const visible = input.visible ?? true
   return {
     sessionId: 'session_1',
     process: {
@@ -252,7 +310,9 @@ function createSession(input: {
       onData: () => ({ dispose: () => undefined }),
       onExit: () => ({ dispose: () => undefined }),
     } as unknown as TerminalSession['process'],
-    sender: {} as TerminalSession['sender'],
+    sender: {
+      isDestroyed: () => input.senderDestroyed ?? false,
+    } as TerminalSession['sender'],
     isReady: true,
     hasExited: false,
     exitedAt: null,
@@ -267,9 +327,10 @@ function createSession(input: {
     kind: 'agent',
     workspaceId: 'workspace_1',
     agentId: 'developer-1',
-    visible: true,
+    visible,
     startedAt: input.startedAt,
     lastOutputAt: input.startedAt,
     lastInputAt: null,
+    lastVisibleAt: visible ? input.startedAt : null,
   }
 }

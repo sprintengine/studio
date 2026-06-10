@@ -159,6 +159,18 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'app-menu', command: 'toggle-git' },
   }),
+  // The Knowledge Graph has no rail glyph (the rail is reserved for the
+  // navigational core: Files / Git / Backlog / Sprint Engines), so this
+  // command — surfaced in the palette and the View menu — is its entry point.
+  // It ships unbound; users can bind it in Shortcuts settings.
+  command({
+    id: 'panel.knowledge-graph.toggle',
+    title: 'Toggle Knowledge Graph',
+    category: 'panel',
+    scopes: ['workspace'],
+    availability: ['activeWorkspace', 'memoryGraphEnabled'],
+    handlerPath: { kind: 'app-menu', command: 'panel.knowledge-graph.toggle' },
+  }),
   command({
     id: 'git.worktrees.open',
     title: 'Git: Manage Worktrees',
@@ -272,14 +284,6 @@ export const COMMAND_REGISTRY = [
     handlerPath: { kind: 'workspace-manager', handler: "addNewSpecialist('nuclear-review')" },
   }),
   command({
-    id: 'sprintengine.open.automation-settings',
-    title: 'Sprint Engine: Automation Settings',
-    category: 'sprintengine',
-    scopes: ['panel:sprintengine'],
-    availability: ['sprintengineWorkspace'],
-    handlerPath: { kind: 'panel-event', eventId: 'sprintengine.open.automation-settings' },
-  }),
-  command({
     id: 'sprintengine.verify.progress',
     title: 'Sprint Engine: Verify Progress',
     category: 'sprintengine',
@@ -382,7 +386,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'sprintengine.open.settings',
-    title: 'Sprint Engine: Settings',
+    title: 'Sprint Engine: Run Configuration',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
     defaultKeybindings: ['Primary+,'],

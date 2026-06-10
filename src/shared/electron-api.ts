@@ -528,6 +528,7 @@ export type TerminalSessionSnapshot = {
   startedAt: number
   lastOutputAt: number | null
   lastInputAt: number | null
+  lastVisibleAt: number | null
   activity: SessionActivity
   exitedAt: number | null
   outputBufferLength: number

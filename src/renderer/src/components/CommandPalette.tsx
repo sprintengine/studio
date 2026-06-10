@@ -103,7 +103,6 @@ export default function CommandPalette({
     // requires a focusable running/waiting agent; both come through the shared
     // availability context, so a row only appears when the shortcut would run.
     const sprintEngineCommands: Command[] = [
-      { id: 'sprintengine.open.automation-settings', label: 'Sprint Engine: Automation settings', run: runPanel('sprintengine.open.automation-settings') },
       { id: 'sprintengine.verify.progress', label: 'Sprint Engine: Verify progress', run: runPanel('sprintengine.verify.progress') },
       { id: 'sprintengine.add.role', label: 'Sprint Engine: More roles', run: runPanel('sprintengine.add.role') },
       { id: 'sprintengine.request.plan-reviews', label: 'Sprint Engine: Request plan reviews', run: runPanel('sprintengine.request.plan-reviews') },
@@ -116,7 +115,7 @@ export default function CommandPalette({
       { id: 'sprintengine.goto.tasks', label: 'Sprint Engine: Tasks', shortcut: shortcutFor('sprintengine.goto.tasks'), run: runPanel('sprintengine.goto.tasks') },
       { id: 'sprintengine.goto.graph', label: 'Sprint Engine: Tasks → Graph layout', shortcut: shortcutFor('sprintengine.goto.graph'), run: runPanel('sprintengine.goto.graph') },
       { id: 'sprintengine.goto.kanban', label: 'Sprint Engine: Tasks → Kanban layout', shortcut: shortcutFor('sprintengine.goto.kanban'), run: runPanel('sprintengine.goto.kanban') },
-      { id: 'sprintengine.open.settings', label: 'Sprint Engine: Settings', shortcut: shortcutFor('sprintengine.open.settings'), run: runPanel('sprintengine.open.settings') },
+      { id: 'sprintengine.open.settings', label: 'Sprint Engine: Run configuration', shortcut: shortcutFor('sprintengine.open.settings'), run: runPanel('sprintengine.open.settings') },
     ].filter((command) => panelCommandEnabled(command.id))
     // open-coordinator requires a loaded Multiloop state, carried by the shared
     // availability context.
@@ -167,6 +166,22 @@ export default function CommandPalette({
               onClose()
             },
           },
+          // The Knowledge Graph has no rail glyph, so this row (and the View
+          // menu) is its entry point. Availability-gated like the panel
+          // commands: hidden while the memory-graph module is disabled.
+          ...(panelCommandEnabled('panel.knowledge-graph.toggle')
+            ? [
+                {
+                  id: 'panel.knowledge-graph.toggle',
+                  label: 'Toggle Knowledge Graph',
+                  shortcut: shortcutFor('panel.knowledge-graph.toggle'),
+                  run: () => {
+                    togglePanelRailComponent(activeWorkspace.id, 'memory-graph', 'Knowledge Graph')
+                    onClose()
+                  },
+                },
+              ]
+            : []),
         ]
       : []
     const navigationCommands: Command[] = []

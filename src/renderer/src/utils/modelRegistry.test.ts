@@ -74,7 +74,7 @@ function allTabs(model: Model): TabJson[] {
 }
 
 function navTabsets(model: Model): TabsetJson[] {
-  const nav = new Set(['explorer', 'git', 'backlog', 'memory-graph'])
+  const nav = new Set(['explorer', 'git', 'backlog', 'sprint-engines', 'memory-graph'])
   return tabsets(model).filter((tabset) => componentsOf(tabset).some((c) => nav.has(c)))
 }
 
@@ -145,6 +145,27 @@ function navTabsets(model: Model): TabsetJson[] {
   assert.equal(nav.length, 1)
   assert.deepEqual(componentsOf(nav[0]), ['memory-graph'])
   // Closing the open switch collapses the nav pane.
+  togglePanelRailComponent(WS, 'memory-graph', 'Knowledge Graph')
+  assert.equal(navTabsets(model).length, 0)
+  unregisterModel(WS)
+}
+
+// Sprint Engines is a strip-less nav switch with the same exclusive semantics;
+// Knowledge Graph keeps nav-pane semantics even though it is reached through
+// the palette/menu toggle rather than a rail glyph.
+{
+  const model = freshModel()
+  registerModel(WS, model)
+  togglePanelRailComponent(WS, 'sprint-engines', 'Sprint Engines')
+  let nav = navTabsets(model)
+  assert.equal(nav.length, 1)
+  assert.deepEqual(componentsOf(nav[0]), ['sprint-engines'])
+  assert.equal(nav[0].enableTabStrip, false)
+  // The command-driven Knowledge Graph toggle swaps into the same pane.
+  togglePanelRailComponent(WS, 'memory-graph', 'Knowledge Graph')
+  nav = navTabsets(model)
+  assert.equal(nav.length, 1)
+  assert.deepEqual(componentsOf(nav[0]), ['memory-graph'])
   togglePanelRailComponent(WS, 'memory-graph', 'Knowledge Graph')
   assert.equal(navTabsets(model).length, 0)
   unregisterModel(WS)

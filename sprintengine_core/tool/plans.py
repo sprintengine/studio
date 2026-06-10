@@ -650,20 +650,17 @@ def build_address_reviews_prompt(
     state: Dict[str, Any],
     state_path: Path,
     status: Dict[str, Any],
-    review_contents: List[Dict[str, str]],
+    reviews: List[Dict[str, Any]],
 ) -> str:
+    # Reviews are referenced by path, not inlined: the architect has file
+    # tools, and inlining every plan-review file would put unbounded review
+    # prose into the response.
     plan_path = plan_path_for_state(state_path)
     plan_display_path = project_relative_display_path(state_path, plan_path)
-    plan_content = plan_path.read_text(encoding="utf-8")
-    review_blocks = []
-
-    for review in review_contents:
-        review_blocks.extend([
-            f"## Review File: {review['path']}",
-            "",
-            review["content"].rstrip(),
-            "",
-        ])
+    review_lines = [
+        f"- {review['path']} (reviewer: {review.get('agentId') or 'unknown'}, role: {review.get('role') or 'unknown'}, verdict: {review.get('verdict') or 'unknown'})"
+        for review in reviews
+    ]
 
     warnings = []
     if status["missingReviewers"]:
@@ -689,7 +686,7 @@ def build_address_reviews_prompt(
         warning_block,
         "",
         "Steps:",
-        "1. Read the current plan and all specialist review feedback below.",
+        f"1. Read the current plan ({plan_display_path}) and every specialist review file listed below.",
         "2. Decide which feedback to accept, adapt, or reject.",
         "3. Repair any plan or task acceptance criteria that would let sample data, fake responses, mocked transports, stubbed commands, placeholder persistence, disconnected UI state, or documentation-only verification count as completion.",
         "4. Update the exact plan file shown above when the human-readable plan needs changes; do not search for or edit another plan.md.",
@@ -702,13 +699,9 @@ def build_address_reviews_prompt(
         "6. Do not start implementation work.",
         "7. When done, tell the user which review items were accepted, adapted, or rejected.",
         "",
-        "# Current Plan",
+        "# Specialist Review Files",
         "",
-        plan_content.rstrip(),
-        "",
-        "# Specialist Reviews",
-        "",
-        "\n".join(review_blocks).rstrip() or "(No plan review files found.)",
+        "\n".join(review_lines).rstrip() or "(No plan review files found.)",
     ])
 
 def build_run_summary(state: Dict[str, Any]) -> Dict[str, Any]:

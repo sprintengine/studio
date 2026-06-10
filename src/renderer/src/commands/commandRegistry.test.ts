@@ -17,6 +17,7 @@ for (const id of [
   'app.settings.open',
   'commandPalette.open',
   'panel.files.toggle',
+  'panel.knowledge-graph.toggle',
   'specialist.spawn.architect',
   'specialist.spawn.nuclear-review',
   'voice.toggle',

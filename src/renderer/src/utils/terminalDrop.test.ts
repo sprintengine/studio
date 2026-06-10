@@ -27,6 +27,7 @@ function session(input: Partial<TerminalSessionSnapshot>): TerminalSessionSnapsh
     startedAt: 1,
     lastOutputAt: null,
     lastInputAt: null,
+    lastVisibleAt: null,
     activity: { kind: 'idle', since: 1 },
     exitedAt: null,
     outputBufferLength: 0,

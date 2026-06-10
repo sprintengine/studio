@@ -289,14 +289,19 @@ def cmd_plan_address_reviews(args: argparse.Namespace) -> Dict[str, Any]:
     state = load_mutation_state(args.state)
     reviews_dir = plan_reviews_dir_for_state(args.state)
     status = build_plan_review_status(state, args.state)
-    review_contents = []
+    reviews = []
 
     if reviews_dir.exists():
         for path in sorted(reviews_dir.glob("*.md")):
             metadata = parse_review_metadata(path)
-            review_contents.append({"path": str(path), "content": metadata["content"]})
+            reviews.append({
+                "path": str(path),
+                "agentId": metadata.get("agentId"),
+                "role": metadata.get("role"),
+                "verdict": metadata.get("verdict"),
+            })
 
-    prompt = build_address_reviews_prompt(state, args.state, status, review_contents)
+    prompt = build_address_reviews_prompt(state, args.state, status, reviews)
     return {
         "ok": True,
         "role": "architect",
@@ -304,7 +309,8 @@ def cmd_plan_address_reviews(args: argparse.Namespace) -> Dict[str, Any]:
         "action": "address_plan_reviews",
         "planPath": status["planPath"],
         "reviewsDirectory": status["reviewsDirectory"],
-        "reviewCount": len(review_contents),
+        "reviewCount": len(reviews),
+        "reviews": reviews,
         "status": status,
         "prompt": prompt,
     }

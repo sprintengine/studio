@@ -258,9 +258,29 @@ Active operation names:
   `sprintengine.plan.remove_dependency`, `sprintengine.plan.start_review`,
   `sprintengine.plan.review_status`, `sprintengine.plan.address_reviews`.
 - Run: `sprintengine.run.get`, `sprintengine.run.policy.get`,
-  `sprintengine.run.projection`, `sprintengine.run.subscribe`.
+  `sprintengine.run.subscribe`. The run projection is deliberately not an MCP
+  tool: it exists for the UI, which reads `projection.json` from disk, and
+  over MCP it returned more tokens than an agent context window. The CLI
+  `projection` command is unaffected.
 - Support: `sprintengine.init`, `sprintengine.recover`, roster tools,
   `sprintengine.summary`, feedback tools, and `sprintengine.health`.
+
+MCP response contract (`sprintengine_mcp/response_shapes.py`): MCP responses
+carry deltas and references, not state echoes — the run store stays the source
+of truth and the UI keeps reading it from disk. Mutation tools (`task.log`,
+`task.publish`, `task.status`, `gate.verdict`, `plan.add_task`, artifact
+review, and the rest of `MUTATION_ACK_TOOLS`) return acks with `taskId`,
+`taskStatus`, the event, and any progression/continuation fields instead of
+the full task. Acks include an `openFeedback` delta (newest open feedback and
+user notes, newest first) so a working agent still notices comments posted
+mid-task. Read tools (`task.next`, `task.claim`, `gate.next`, `gate.claim`,
+`task.get`) return a slim task card without `activity`, full `comments`,
+`evidence.commandsRan`/`results`, or `evidence.diffs`; `task.get` accepts
+`include: ["activity", "comments", "evidence_log", "diffs"]` for deep reads.
+Directives carry `{id, title, status, role}` stubs. Server-composed review and
+rework prompts are built from full store state and are unaffected. The
+human/debug CLI keeps full command output shapes. Response-shape regression
+tests live in `tests/sprintengine_tool/test_response_shapes.py`.
 
 Compatibility names:
 

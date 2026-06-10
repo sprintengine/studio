@@ -26,7 +26,6 @@ from sprintengine_core.tool import (
     cmd_plan_review_status,
     cmd_plan_start_review,
     cmd_plan_update_task,
-    cmd_projection,
     cmd_recover,
     cmd_roster_add,
     cmd_roster_list,
@@ -142,7 +141,10 @@ MCP_TOOL_CONTRACTS: dict[str, McpToolContract] = {
         _command("sprintengine.artifact.request_changes", cmd_artifact_request_changes),
         _special("sprintengine.run.get"),
         _special("sprintengine.run.policy.get"),
-        _command("sprintengine.run.projection", cmd_projection),
+        # `sprintengine.run.projection` is deliberately not an MCP tool. The
+        # projection exists for the UI, which reads `projection.json` from
+        # disk; over MCP it returned ~242k tokens in one call — more than an
+        # entire agent context window.
         _special("sprintengine.run.subscribe"),
         _special("sprintengine.feedback.summarize"),
         _special("sprintengine.feedback.recommend_actions"),

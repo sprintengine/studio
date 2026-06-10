@@ -317,8 +317,14 @@ def test_sprintengine_auto_approval_marks_architect_startup_as_autonomous() -> N
     prompt_source = (repo_root / "src/renderer/src/utils/agentPrompt.ts").read_text(encoding="utf-8")
     terminal_view_source = (repo_root / "src/renderer/src/components/panels/TerminalView.tsx").read_text(encoding="utf-8")
 
-    assert "autonomousPlanningOverride: nextRun.role === 'architect' && autoState.autoApproveArtifacts" in supervisor_source
-    assert "autonomousPlanningOverride: rosterAgent.role === 'architect' && Boolean(workspace.sprintEngineAutoState?.autoApproveArtifacts)" in terminal_view_source
+    # Lazy-spawning rewrite: both spawn paths now derive the override from the
+    # automation helpers instead of reading autoApproveArtifacts directly.
+    assert "autonomousPlanningOverride: nextRun.role === 'architect' && sprintEngineArtifactApprovalDesired(autoState)" in supervisor_source
+    assert "rosterAgent.role === 'architect'" in terminal_view_source
+    assert (
+        "deriveSprintEngineAutomationDesiredMode(workspace.sprintEngineAutoState) === 'run_agents_and_approve_artifacts'"
+        in terminal_view_source
+    )
     assert "## Autonomous Planning Override" in prompt_source
     # The MCP-only prompt rewrite reframed the trigger as the automation mode
     # name (still semantically "Approve all artifacts is on") and described the
@@ -403,16 +409,30 @@ def test_electron_auto_run_clears_stale_spawn_state_before_retrying() -> None:
 
 
 def test_electron_roster_runner_starts_roster_agents_without_task_named_workers() -> None:
+    """Lazy-spawning contract: run start bootstraps only the architect via the
+    pure planner decision (`pickSprintEngineBootstrapCandidate`) plus the
+    supervisor IPC wrapper (`ensureSprintEngineBootstrapAgent`); every other
+    spawn is work-driven through the capped planner. Agents keep roster
+    identities — there are no per-task named workers. The old blanket roster
+    audit (`startMissingRosterAgents`) must not return.
+    See future-plans/2026-06-10-sprintengine-lazy-agent-spawning.md.
+    """
     repo_root = Path(__file__).resolve().parents[2]
     supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
         encoding="utf-8"
     )
     auto_run_utils_source = (repo_root / "src/renderer/src/utils/sprintengineAutoRun.ts").read_text(encoding="utf-8")
 
-    assert "async function startMissingRosterAgents" in supervisor_source
-    assert "buildSprintEngineAgentRosterForState(sprintEngineState)" in supervisor_source
-    assert "taskId: `roster-${agent.id}`" in supervisor_source
+    assert "async function ensureSprintEngineBootstrapAgent" in supervisor_source
+    assert "pickSprintEngineBootstrapCandidate(workspace, sprintEngineState, {" in supervisor_source
+    assert "export function pickSprintEngineBootstrapCandidate" in auto_run_utils_source
+    assert "buildSprintEngineAgentRosterForState(sprintEngineState)" in auto_run_utils_source
+    # Bootstrap spawns keep the roster agent id; the synthetic task id only
+    # namespaces the spawn, it does not create a task-named worker.
+    assert "taskId: `bootstrap-${architect.id}`" in auto_run_utils_source
     assert "candidate-pick-ready-task-waiting-for-roster-agent" in auto_run_utils_source
+    assert "async function startMissingRosterAgents" not in supervisor_source
+    assert "taskId: `roster-${agent.id}`" not in supervisor_source
     assert "function buildAutoRunAgentId" not in supervisor_source
     assert "buildAutoRunAgentId(task.role, task.id)" not in supervisor_source
 

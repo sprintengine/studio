@@ -331,6 +331,7 @@ function session(
     startedAt: input.startedAt ?? 0,
     lastOutputAt: input.lastOutputAt ?? null,
     lastInputAt: input.lastInputAt ?? null,
+    lastVisibleAt: input.lastVisibleAt ?? null,
     activity: input.activity ?? { kind: 'idle', since: 0 },
     exitedAt: input.exitedAt ?? null,
     outputBufferLength: input.outputBufferLength ?? 0,

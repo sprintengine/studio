@@ -216,7 +216,6 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.artifact.request_changes",
         "sprintengine.run.get",
         "sprintengine.run.policy.get",
-        "sprintengine.run.projection",
         "sprintengine.run.subscribe",
         "sprintengine.feedback.summarize",
         "sprintengine.feedback.recommend_actions",
@@ -339,7 +338,6 @@ def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() 
         "sprintengine.gate.skip",
         "sprintengine.run.get",
         "sprintengine.run.policy.get",
-        "sprintengine.run.projection",
         "sprintengine.run.subscribe",
         "sprintengine.plan.list",
         "sprintengine.plan.read",
@@ -468,6 +466,8 @@ def test_mcp_run_and_dispatch_tools_return_role_agnostic_progression_context(tmp
     )
     run = server.call_tool("sprintengine.run.get", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
     policy = server.call_tool("sprintengine.run.policy.get", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
+    # The run projection is deliberately not reachable over MCP: it exists
+    # for the UI, which reads projection.json from disk.
     projection = server.call_tool("sprintengine.run.projection", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
     events = server.call_tool("sprintengine.run.subscribe", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
 
@@ -485,7 +485,8 @@ def test_mcp_run_and_dispatch_tools_return_role_agnostic_progression_context(tmp
     assert persisted_subscription["lastDispatchOutcome"] == "acknowledged"
     assert run["result"]["run"]["name"] == "mcp-run-dispatch"
     assert "cliWatchPolling" in policy["result"]["runner"]
-    assert projection["result"]["run"]["name"] == "mcp-run-dispatch"
+    assert projection["ok"] is False
+    assert projection["error"]["code"] == "unknown_tool"
     assert events["result"]["latestEventId"] == events["result"]["latestEvent"]["id"]
     assert events["result"]["state"] == "events_available"
     assert [row["operation_name"] for row in audit_rows(fixture.team_dir)] == [
@@ -753,13 +754,22 @@ def test_mcp_task_get_comment_publish_and_request_changes_cover_agent_paths(tmp_
     assert published["ok"] is True
     assert published["result"]["nextStatus"] == "done"
     assert published["result"]["progression"]["state"] == "idle"
+    # Mutation tools return acks, not task echoes.
+    assert "task" not in published["result"]
+    assert published["result"]["taskId"] == "T1"
     assert changes["ok"] is True
-    assert changes["result"]["task"]["status"] == "changes_requested"
-    assert "needsInput" not in changes["result"]["task"]
-    assert changes["result"]["task"]["ownerAgentId"] is None
+    assert "task" not in changes["result"]
+    assert changes["result"]["taskId"] == "T1"
+    assert changes["result"]["taskStatus"] == "changes_requested"
     assert changes["result"]["comment"]["type"] == "review_feedback"
     assert changes["result"]["comment"]["data"]["status"] == "open"
     assert changes["result"]["comment"]["data"]["reason"] == "Add MCP gate coverage."
+    # The open review feedback travels in the ack delta (newest first) and in the store.
+    assert changes["result"]["openFeedback"][0]["body"] == "Add MCP gate coverage."
+    persisted = get_task(read_state(fixture.state_path), "T1")
+    assert persisted["status"] == "changes_requested"
+    assert "needsInput" not in persisted
+    assert persisted["ownerAgentId"] is None
 
 
 def test_mcp_task_request_changes_rejects_needs_input_fields(tmp_path) -> None:
@@ -1400,8 +1410,10 @@ def test_mcp_task_ready_uses_core_and_emits_audit(tmp_path) -> None:
 
     assert response["ok"] is True
     assert response["result"]["ok"] is True
-    assert response["result"]["task"]["dispatch"]["status"] == "ready"
+    assert "task" not in response["result"]
+    assert response["result"]["taskId"] == "T1"
     state = read_state(fixture.state_path)
+    assert get_task(state, "T1")["dispatch"]["status"] == "ready"
     assert get_task(state, "T1")["dispatch"]["triagedBy"] == "user"
     assert [row["operation_name"] for row in audit_rows(fixture.team_dir)] == ["sprintengine.task.ready"]
 
@@ -1432,11 +1444,12 @@ def test_mcp_plan_add_task_can_create_manual_dispatch_local_task(tmp_path) -> No
     )
 
     assert response["ok"] is True
-    task_record = response["result"]["task"]
+    assert "task" not in response["result"]
+    task_id = response["result"]["taskId"]
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, task_id)
     assert task_record["dispatch"] == {"mode": "manual", "status": "todo", "triagedBy": "none"}
     assert task_record["notes"] == ["Created locally."]
-    state = read_state(fixture.state_path)
-    assert get_task(state, task_record["id"])["dispatch"]["status"] == "todo"
 
 
 def test_mcp_plan_add_and_update_task_forward_needs_triage(tmp_path) -> None:
@@ -1464,7 +1477,8 @@ def test_mcp_plan_add_and_update_task_forward_needs_triage(tmp_path) -> None:
     )
 
     assert response["ok"] is True
-    task_record = response["result"]["task"]
+    task_id = response["result"]["taskId"]
+    task_record = get_task(read_state(fixture.state_path), task_id)
     assert task_record["needsTriage"] is True
     assert task_record["difficulty"]["architectEstimatePct"] == 42
 
@@ -1472,7 +1486,7 @@ def test_mcp_plan_add_and_update_task_forward_needs_triage(tmp_path) -> None:
         "sprintengine.plan.update_task",
         {
             "statePath": str(fixture.state_path),
-            "taskId": task_record["id"],
+            "taskId": task_id,
             "clearNeedsTriage": True,
             "difficultyPct": 55,
             "difficultyReason": "Scope expanded during planning.",
@@ -1481,8 +1495,10 @@ def test_mcp_plan_add_and_update_task_forward_needs_triage(tmp_path) -> None:
     )
 
     assert update["ok"] is True
-    assert update["result"]["task"]["needsTriage"] is False
-    assert update["result"]["task"]["difficulty"]["architectEstimatePct"] == 55
+    assert update["result"]["taskId"] == task_id
+    updated_record = get_task(read_state(fixture.state_path), task_id)
+    assert updated_record["needsTriage"] is False
+    assert updated_record["difficulty"]["architectEstimatePct"] == 55
 
 
 def test_mcp_plan_add_task_forwards_quality_gate_flags(tmp_path) -> None:
@@ -1510,7 +1526,7 @@ def test_mcp_plan_add_task_forwards_quality_gate_flags(tmp_path) -> None:
     )
 
     assert response["ok"] is True
-    task_record = response["result"]["task"]
+    task_record = get_task(read_state(fixture.state_path), response["result"]["taskId"])
     assert task_record["producesImplementation"] is True
     assert [gate["id"] for gate in task_record["qualityGates"]] == ["code_reviewer"]
 
@@ -1552,7 +1568,8 @@ def test_mcp_plan_update_task_edits_execution_details_and_preserves_source(tmp_p
     )
 
     assert response["ok"] is True
-    updated = response["result"]["task"]
+    assert "task" not in response["result"]
+    updated = get_task(read_state(fixture.state_path), "T1")
     assert updated["title"] == "Refined task"
     assert updated["description"] == "Local execution brief"
     assert updated["role"] == "tester"
@@ -2030,7 +2047,8 @@ def test_http_run_token_allows_different_agent_payload_identities_in_same_run(tm
     task_result = json.loads(task_body["result"]["content"][0]["text"])
     assert task_body["result"]["isError"] is False
     assert task_result["ok"] is True
-    assert task_result["result"]["task"]["ownerAgentId"] == "developer-b"
+    assert task_result["result"]["task"]["id"] == "T1"
+    assert get_task(read_state(fixture.state_path), "T1")["ownerAgentId"] == "developer-b"
 
 
 def test_http_transport_requires_bearer_token(tmp_path) -> None:

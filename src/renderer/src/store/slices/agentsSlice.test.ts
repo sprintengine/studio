@@ -57,6 +57,7 @@ function terminalSession(input: Partial<TerminalSessionSnapshot> & { sessionId: 
     startedAt: input.startedAt ?? 1,
     lastOutputAt: input.lastOutputAt ?? null,
     lastInputAt: input.lastInputAt ?? null,
+    lastVisibleAt: input.lastVisibleAt ?? null,
     activity: input.activity ?? { kind: 'idle', since: 1 },
     exitedAt: input.exitedAt ?? null,
     outputBufferLength: input.outputBufferLength ?? 0,

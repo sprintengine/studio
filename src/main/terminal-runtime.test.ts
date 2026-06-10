@@ -104,8 +104,67 @@ async function main(): Promise<void> {
     await assertSprintEngineConcurrentSpawnFailureKeepsReservedRun(runtimeModule)
     await assertSprintEngineSpawnDerivesFallbackAgentIdBeforeMcpSync(runtimeModule)
     await assertTerminalReattachUsesReplayChannel(runtimeModule)
+    await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
   } finally {
     moduleWithLoad._load = originalLoad
+  }
+}
+
+async function assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-stale-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+
+  try {
+    const hiddenSpawn = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_stale_hidden',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      kind: 'terminal',
+      shellOnly: true,
+      visible: false,
+    })
+    assert.equal(hiddenSpawn.ok, true, JSON.stringify(hiddenSpawn))
+
+    const visibleSpawn = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_stale_visible',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      kind: 'terminal',
+      shellOnly: true,
+      visible: true,
+    })
+    assert.equal(visibleSpawn.ok, true, JSON.stringify(visibleSpawn))
+
+    const beforeSweep = runtime.ipcHandlers.listTerminals().map((session) => session.sessionId).sort()
+    assert.deepEqual(beforeSweep, ['session_stale_hidden', 'session_stale_visible'])
+
+    const freshSweep = runtimeModule.reapStaleTerminals(Date.now())
+    assert.deepEqual(freshSweep, [], 'recently spawned terminals must survive the sweep')
+
+    const wellPastStale = Date.now() + 25 * 60 * 60 * 1000
+    const reaped = runtimeModule.reapStaleTerminals(wellPastStale)
+    assert.deepEqual(reaped, ['session_stale_hidden'], 'only the unseen hidden terminal is reaped')
+
+    const afterSweep = runtime.ipcHandlers.listTerminals().map((session) => session.sessionId)
+    assert.deepEqual(afterSweep, ['session_stale_visible'])
+    const hiddenProcess = mockPty.spawnCalls.find((call) => call.process)?.process
+    assert.equal(hiddenProcess?.killed, true, 'reaping must kill the underlying pty')
+    assert.equal(
+      mockSender.sent.some((event) => event.channel === 'terminal:exit:session_stale_hidden'),
+      false,
+      'reaped terminals must not emit terminal:exit so renderer launch flags survive for resume'
+    )
+  } finally {
+    await runtime.shutdown()
   }
 }
 

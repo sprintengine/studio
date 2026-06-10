@@ -9,13 +9,16 @@ import {
  CloseIconButton,
  OverflowMenu,
  GhostButton,
+ LifecycleGlyph,
  Popover,
  SidePane,
+ Spinner,
  StatusDot,
  Section,
  Select,
  Tabs,
  DefinitionList,
+ type LifecycleState,
  type OverflowMenuItem,
  type TabItem,
  type Tone,
@@ -302,13 +305,13 @@ const sprintEngineAutomationRuntimeLabels: Record<SprintEngineAutomationRuntimeS
  complete: 'Complete',
 }
 
-const sprintEngineAutomationRuntimeTones: Record<SprintEngineAutomationRuntimeState, Tone> = {
- idle: 'neutral',
- running: 'good',
- paused: 'warn',
- blocked: 'warn',
- failed: 'error',
- complete: 'good',
+// Automation status reads by shape, not a colored dot: only the exceptional
+// lifecycle states earn a glyph. `running` shows the Spinner instead, and
+// idle/complete render no mark at all.
+const sprintEngineAutomationRuntimeGlyphs: Partial<Record<SprintEngineAutomationRuntimeState, LifecycleState>> = {
+ paused: 'paused',
+ blocked: 'needs_input',
+ failed: 'failed',
 }
 
 function sprintEngineAutomationRuntimeActionLabel(
@@ -327,7 +330,6 @@ function SprintEngineSettingsPopover({
  onChangeAutomationMode,
  onResumeAutomation,
  onUpdateCliPreset,
- onVerifyProgress,
  onClose,
 }: {
  automationMode: SprintEngineAutomationMode
@@ -337,7 +339,6 @@ function SprintEngineSettingsPopover({
  onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
  onResumeAutomation: (() => void) | null
  onUpdateCliPreset: (preset: SprintEngineCliPermissionPreset) => void
- onVerifyProgress: (() => void) | null
  onClose: () => void
 }) {
  const containerRef = useRef<HTMLDivElement>(null)
@@ -354,7 +355,7 @@ function SprintEngineSettingsPopover({
  })
  return () => {
  window.cancelAnimationFrame(frame)
- const trigger = document.querySelector<HTMLElement>('[aria-label="Sprint Engine overflow"]')
+ const trigger = document.querySelector<HTMLElement>('[aria-label^="Run configuration"]')
  ;(trigger ?? restoreFocusElementRef.current)?.focus()
  }
  }, [])
@@ -375,24 +376,20 @@ function SprintEngineSettingsPopover({
  first.focus()
  }
  }
- const currentPresetLabel =
- sprintEngineCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.label
- ?? cliPermissionPreset
  const runtimeActionLabel = sprintEngineAutomationRuntimeActionLabel(runtimeState)
+ const runtimeGlyph = sprintEngineAutomationRuntimeGlyphs[runtimeState]
+ const currentPresetHint =
+ sprintEngineCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.title
  return (
  <div
  ref={containerRef}
- aria-label="Sprint Engine settings"
+ aria-label="Sprint Engine run configuration"
  tabIndex={-1}
  onKeyDown={onPanelKey}
- className="w-[280px] overflow-hidden py-1"
+ className="w-[300px] overflow-hidden py-1"
  >
- <Section
- title="Run"
- level={3}
- inset={true}
- >
- <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="Sprint Engine automation mode">
+ <Section title="Automation" level={3} inset={true}>
+ <div className="flex flex-col" role="radiogroup" aria-label="Automation mode">
  {sprintEngineAutomationModeOptions.map((option) => {
  const checked = option.value === automationMode
  return (
@@ -402,47 +399,35 @@ function SprintEngineSettingsPopover({
  role="radio"
  aria-checked={checked}
  onClick={() => onChangeAutomationMode(option.value)}
- className={`
- grid w-full grid-cols-[14px_minmax(0,1fr)] items-start gap-2 rounded-md border px-2.5 py-2 text-left
- transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
- ${checked
- ? 'border-[color:var(--color-6)] bg-[color:var(--bg-surface-raised)]'
- : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
- `}
+ className="interactive flex w-full items-start gap-2 rounded-[5px] px-2 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
  >
- <span
- className={`mt-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border ${
- checked ? 'border-[color:var(--text-strong)] bg-[color:var(--text-strong)]' : 'border-[color:var(--color-6)]'
- }`}
- aria-hidden="true"
- >
- {/* design-tokens-allow: radio selected indicator, not a status dot */}
- {checked ? <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--bg-app)]" /> : null}
- </span>
- <span className="min-w-0">
- <span className={`block text-[12px] font-medium ${checked ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
+ <span className="min-w-0 flex-1">
+ <span className={`block text-[12px] ${checked ? 'font-medium text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
  {option.label}
  </span>
  <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">{option.hint}</span>
  </span>
+ <svg
+ className={`icon-sm mt-0.5 shrink-0 text-[color:var(--accent-primary)] ${checked ? '' : 'invisible'}`}
+ viewBox="0 0 16 16"
+ fill="none"
+ aria-hidden="true"
+ >
+ <path d="M3.5 8.5L6.5 11.5L12.5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+ </svg>
  </button>
  )
  })}
  </div>
- <div className="mt-2 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-2">
- <div className="flex items-center gap-2">
- <StatusDot
- tone={sprintEngineAutomationRuntimeTones[runtimeState]}
- label={`Automation status: ${sprintEngineAutomationRuntimeLabels[runtimeState]}`}
- />
- <div className="min-w-0 flex-1">
- <div className="truncate text-[11px] font-medium text-[color:var(--text-default)]">
+ {runtimeGlyph ? (
+ <div className="mt-2 flex items-start gap-2 px-2">
+ <LifecycleGlyph state={runtimeGlyph} className="mt-px" />
+ <div className="min-w-0 flex-1 text-[11px] leading-4">
+ <span className="font-medium text-[color:var(--text-default)]">
  {sprintEngineAutomationRuntimeLabels[runtimeState]}
- </div>
+ </span>
  {runtimeReason ? (
- <div className="mt-0.5 truncate text-[11px] text-[color:var(--text-muted)]">
- {runtimeReason}
- </div>
+ <span className="text-[color:var(--text-muted)]"> — {runtimeReason}</span>
  ) : null}
  </div>
  {runtimeActionLabel && onResumeAutomation ? (
@@ -456,34 +441,20 @@ function SprintEngineSettingsPopover({
  </GhostButton>
  ) : null}
  </div>
- </div>
+ ) : null}
  </Section>
  <Section title="CLI permissions" level={3} inset={true}>
- <div className="flex flex-col gap-1.5">
- <div className="text-[11px] text-[color:var(--text-muted)]">
- Current:{' '}
- <span className="text-[color:var(--text-default)]">{currentPresetLabel}</span>
- </div>
  <Select<SprintEngineCliPermissionPreset>
  ariaLabel="CLI permission preset"
  items={sprintEngineCliPermissionOptions.map(({ value, label }) => ({ value, label }))}
  value={cliPermissionPreset}
  onChange={onUpdateCliPreset}
+ className="w-full"
  />
- </div>
- </Section>
- {onVerifyProgress ? (
- <Section title="Verification" level={3} inset={true}>
- <GhostButton
- onClick={() => {
- onVerifyProgress()
- onClose()
- }}
- >
- Verify progress
- </GhostButton>
- </Section>
+ {currentPresetHint ? (
+ <p className="mt-1.5 text-[11px] leading-4 text-[color:var(--text-muted)]">{currentPresetHint}</p>
  ) : null}
+ </Section>
  </div>
  )
 }
@@ -647,6 +618,7 @@ function SprintEngineBoardPanelContent({
   projectedAutomationMode,
   )
   const automationRuntimeReason = workspace?.sprintEngineAutoState?.reasonMessage
+  const automationRuntimeGlyph = sprintEngineAutomationRuntimeGlyphs[automationRuntimeState]
   const cliPermissionPreset = workspace?.sprintEngineAutoState?.cliPermissionPreset ?? 'default'
 
  // Sprint Engine role registry for the workspace. Loaded once per folder so
@@ -1435,21 +1407,9 @@ function SprintEngineBoardPanelContent({
  }
  items.push({ kind: 'separator', id: 'sep-2' })
  items.push({
- id: 'automation-settings',
- label: 'Automation settings',
- onSelect: () => setSettingsOpen(true),
- })
- items.push({ kind: 'separator', id: 'sep-3' })
- items.push({
  id: 'read-plan',
  label: 'Read plan',
  onSelect: () => focusOrAddComponentTab(workspaceId, 'sprintengine-plan-reader', 'Architect Plan'),
- })
- items.push({
- id: 'open-settings',
- label: 'Sprint Engine settings',
- onSelect: () => setSettingsOpen(true),
- shortcut: shortcutFor('sprintengine.open.settings'),
  })
  return items
  })()
@@ -1492,9 +1452,6 @@ function SprintEngineBoardPanelContent({
  commandHandlerRef.current = (detail) => {
  if (!detail || typeof detail.id !== 'string') return
  switch (detail.id) {
- case 'sprintengine.open.automation-settings':
- setSettingsOpen(true)
- break
  case 'sprintengine.verify.progress':
  if (architectAgentId) {
  openRecoveryDialog()
@@ -1626,25 +1583,37 @@ function SprintEngineBoardPanelContent({
   <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">
   {doneCount}/{totalTasks}
   </span>
-  <span
-  className="flex max-w-[180px] shrink-0 items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]"
-  title={automationRuntimeReason ?? sprintEngineAutomationRuntimeLabels[automationRuntimeState]}
-  >
-  <StatusDot
-  tone={sprintEngineAutomationRuntimeTones[automationRuntimeState]}
-  label={`Automation status: ${sprintEngineAutomationRuntimeLabels[automationRuntimeState]}`}
-  />
-  <span className="hidden truncate sm:inline">{sprintEngineAutomationRuntimeLabels[automationRuntimeState]}</span>
-  </span>
- {tasksLayoutToggle}
   <Popover
  open={settingsOpen}
  onOpenChange={setSettingsOpen}
- ariaLabel="Sprint Engine settings"
+ ariaLabel="Sprint Engine run configuration"
  popupRole="dialog"
  placement="bottom-end"
- renderTrigger={() => (
- <OverflowMenu ariaLabel="Sprint Engine overflow" items={chromeOverflowItems} />
+ renderTrigger={({ ref, triggerProps, togglePopover }) => (
+ <button
+ ref={ref}
+ type="button"
+ aria-label={`Run configuration: ${sprintEngineAutomationRuntimeLabels[automationRuntimeState]}`}
+ aria-haspopup="dialog"
+ aria-expanded={triggerProps['aria-expanded']}
+ aria-controls={triggerProps['aria-controls']}
+ onClick={togglePopover}
+ className={`interactive flex h-6 max-w-[200px] shrink-0 items-center gap-1.5 rounded-[5px] px-1.5 text-[11px] transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
+ settingsOpen
+ ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+ : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+ }`}
+ >
+ {automationRuntimeState === 'running' ? (
+ <Spinner size={14} />
+ ) : automationRuntimeGlyph ? (
+ <LifecycleGlyph state={automationRuntimeGlyph} />
+ ) : null}
+ <span className="truncate">{sprintEngineAutomationRuntimeLabels[automationRuntimeState]}</span>
+ <svg className="icon-xs shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+ <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+ </svg>
+ </button>
  )}
  >
   <SprintEngineSettingsPopover
@@ -1655,10 +1624,11 @@ function SprintEngineBoardPanelContent({
   onChangeAutomationMode={updateAutomationMode}
   onResumeAutomation={resumeAutomation}
   onUpdateCliPreset={updateCliPermissionPreset}
- onVerifyProgress={architectAgentId ? openRecoveryDialog : null}
  onClose={() => setSettingsOpen(false)}
  />
  </Popover>
+ {tasksLayoutToggle}
+ <OverflowMenu ariaLabel="Sprint Engine overflow" items={chromeOverflowItems} />
  </div>
  </div>
  <div

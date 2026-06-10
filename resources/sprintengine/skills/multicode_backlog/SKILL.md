@@ -1,16 +1,30 @@
 # Multicode Backlog
 
-Backlog items are durable work-intake records, not implementation plans.
+Backlog items are durable work records. Include as much detail as is useful —
+err on the side of a rich, complete item rather than a thin one.
 
-When creating or updating a Backlog item, describe the outcome in plain
-language: the feature to add, bug to fix, or mockup/reference to preserve.
-Capture the what and why, user impact, reproduction notes for bugs, and any
-external reference needed to understand the request.
+Every item must capture the outcome in plain language: the feature to add,
+bug to fix, or mockup/reference to preserve. Cover the what and why, user
+impact, reproduction notes for bugs, and any external reference needed to
+understand the request. Behaviour and intent are the core of the item.
 
-Do not prescribe implementation components, files, services, migrations,
-task breakdowns, or acceptance-test internals in the Backlog item. Those are
-decided later by the architect at Sprint Engine start time after reading the
-current codebase, Knowledge Graph, tests, and runtime constraints.
+Beyond that core, items may also carry a structured implementation plan.
+Two shapes are common:
+
+- **Sprint Engine intake**: when the item will be planned by the architect at
+  Sprint Engine start, behaviour-focused is the ideal — the architect designs
+  the implementation then, against the current codebase, Knowledge Graph,
+  tests, and runtime constraints. Implementation notes in the item are
+  welcome as hints, but they are advisory: the architect may override them.
+- **Direct pickup**: when the item is likely to be handed straight to a
+  single agent to complete, a structured implementation plan in the item is
+  genuinely useful. Include the intended approach, affected areas, task
+  breakdown, and verification expectations so any agent can pick the item up
+  and execute it without a separate planning pass.
+
+Do not strip detail from an item to keep it "behaviour only". If implementation
+notes turn out to conflict with the codebase at execution time, the stated
+behaviour and the current codebase win.
 
 Backlog metadata is lightweight triage:
 

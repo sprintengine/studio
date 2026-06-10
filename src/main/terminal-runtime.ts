@@ -28,12 +28,15 @@ import {
   clearTerminalIdleTimer,
   createFailedTerminalSession,
   createInitialTerminalActivity,
+  getTerminalLastSeenAt,
   getTerminalSize,
   getTerminalSnapshot,
   getTerminalIdleTimeoutMs,
   isTerminalProcessAlive,
+  isTerminalSessionStale,
   materializeTerminalReplay,
   recordTerminalInput,
+  recordTerminalVisibility,
   transitionTerminalActivity,
   type TerminalSession,
 } from './terminal-session'
@@ -174,10 +177,11 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
     enabled: options.diagnosticsEnabled,
     logMainPerfEvent: options.logMainPerfEvent,
   })
+  startStaleTerminalSweep()
 
   return {
     commandService: createMobileCommandService(),
-    shutdown: disposeAllTerminals,
+    shutdown: shutdownTerminalRuntime,
     getLiveAgentExecutionIds,
     killAgentSession: killAgentSessionByExecutionId,
     spawnAgentSession: spawnAgentSessionFromDescriptor,
@@ -321,7 +325,7 @@ function broadcastTerminalSessionsChanged(): void {
 function setTerminalVisible(sessionId: string, visible: boolean): void {
   const session = terminals.get(sessionId)
   if (!session || session.isDisposed) return
-  session.visible = visible
+  recordTerminalVisibility(session, visible)
   broadcastTerminalSessionsChanged()
 }
 
@@ -383,6 +387,57 @@ async function waitForTerminalExit(session: TerminalSession, timeoutMs: number):
       resolve(true)
     })
   })
+}
+
+export const STALE_TERMINAL_SWEEP_INTERVAL_MS = 15 * 60 * 1000
+
+let staleTerminalSweepTimer: ReturnType<typeof setInterval> | undefined
+
+function startStaleTerminalSweep(): void {
+  if (staleTerminalSweepTimer) clearInterval(staleTerminalSweepTimer)
+  staleTerminalSweepTimer = setInterval(() => {
+    reapStaleTerminals()
+  }, STALE_TERMINAL_SWEEP_INTERVAL_MS)
+  staleTerminalSweepTimer.unref?.()
+}
+
+function stopStaleTerminalSweep(): void {
+  if (!staleTerminalSweepTimer) return
+  clearInterval(staleTerminalSweepTimer)
+  staleTerminalSweepTimer = undefined
+}
+
+// Reap terminals nobody has looked at for the stale window: no mounted view,
+// no user input, and no process output. Disposing through `disposeTerminal`
+// deliberately skips the renderer `terminal:exit` event, so agent launch flags
+// stay intact and reopening the workspace re-launches the CLI with resume.
+export function reapStaleTerminals(now = Date.now()): string[] {
+  const staleSessionIds = [...terminals.values()]
+    .filter((session) => isTerminalSessionStale(session, now))
+    .map((session) => session.sessionId)
+
+  for (const sessionId of staleSessionIds) {
+    const session = terminals.get(sessionId)
+    if (!session) continue
+    logMainPerfEvent('TerminalRuntime', 'terminal-stale-reaped', {
+      sessionId,
+      kind: session.kind,
+      workspaceId: session.workspaceId,
+      agentId: session.agentId,
+      terminalId: session.terminalId,
+      cli: session.cli,
+      processAlive: isTerminalProcessAlive(session),
+      lastSeenAt: getTerminalLastSeenAt(session),
+      unseenMs: now - getTerminalLastSeenAt(session),
+    })
+    disposeTerminal(sessionId)
+  }
+  return staleSessionIds
+}
+
+async function shutdownTerminalRuntime(): Promise<void> {
+  stopStaleTerminalSweep()
+  await disposeAllTerminals()
 }
 
 async function disposeAllTerminals(): Promise<void> {
@@ -846,6 +901,7 @@ async function spawnAgentSessionFromDescriptor(input: {
       startedAt,
       lastOutputAt: startedAt,
       lastInputAt: null,
+      lastVisibleAt: null,
     }
 
     const injectionMode = input.descriptor.injection?.mode ?? 'stdin-pipe'
@@ -1077,6 +1133,7 @@ async function spawnMobileAgentTerminal(input: {
       startedAt,
       lastOutputAt: startedAt,
       lastInputAt: null,
+      lastVisibleAt: null,
       startupScriptPath,
     }
 
@@ -1161,7 +1218,7 @@ async function spawnTerminalFromIpc(
       existingSession.worktreeId = worktreeId ?? existingSession.worktreeId
       existingSession.worktreePath = worktreePath ?? existingSession.worktreePath
       existingSession.agentSession = materializeAgentSessionIdentity(sessionId, workspaceId, agentSession) ?? existingSession.agentSession
-      existingSession.visible = visible
+      recordTerminalVisibility(existingSession, visible)
       if (!existingSession.hasExited) {
         safeResizeTerminal(sessionId, cols, rows)
       }
@@ -1360,6 +1417,7 @@ async function spawnTerminalFromIpc(
         startedAt,
         lastOutputAt: startedAt,
         lastInputAt: null,
+        lastVisibleAt: visible ? startedAt : null,
         startupScriptPath,
       }
 

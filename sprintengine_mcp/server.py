@@ -53,6 +53,7 @@ from sprintengine_core.tool.tasks import ensure_evidence, recompute_phase
 
 from .auth import MUTATING_TOOLS, ActorContext, AuthorizationError, authorize_tool
 from .payloads import command_payload_to_namespace
+from .response_shapes import shape_tool_result
 from .schemas import TOOL_SCHEMAS, list_tool_schemas
 from .tool_contracts import MCP_TOOL_CONTRACTS
 
@@ -145,6 +146,7 @@ class SprintEngineMcpServer:
                 if contract.requires_state_path:
                     assert state_path is not None
                 result = self._dispatch(tool_name, state_path, payload, actor_context)
+            result = shape_tool_result(tool_name, payload, result)
             self._audit(tool_name, state_path, actor_context, payload, start, "success", None)
             return {"ok": True, "tool": tool_name, "result": result}
         except McpToolError as exc:
@@ -260,7 +262,7 @@ class SprintEngineMcpServer:
                 f"Claim next ready role work: sprintengine.task.next with {{role: \"{role}\", id: \"{agent_id}\"}}.",
                 f"Claim next ready quality gate: sprintengine.gate.next with {{role: \"{role}\", id: \"{agent_id}\"}}.",
                 f"Architect-actionable triage: sprintengine.triage.needs_input with {{id: \"{agent_id}\"}}.",
-                "Read a task card: sprintengine.task.get with {taskId}.",
+                "Read a task card: sprintengine.task.get with {taskId}. The card is slim by default; pass include: [\"activity\", \"comments\", \"evidence_log\", \"diffs\"] for deep history.",
                 "Log evidence: sprintengine.task.log with {taskId, id, summary, file, command, result, scopeExpansionJson}.",
                 "Publish implementation evidence: sprintengine.task.publish with {taskId, id, summary, ...}.",
                 "Request ordinary task rework outside an active gate: sprintengine.task.request_changes with {taskId, id, reason, source?, paths?}.",
@@ -528,11 +530,19 @@ class SprintEngineMcpServer:
 
         return with_locked_state(state_path, run)
 
+    # Without a cursor, the full event log is unbounded over a run's life
+    # (~11k tokens observed on a real store). Cold subscribers get only the
+    # newest window plus a truncation marker; they can page back via
+    # lastEventId if they genuinely need history.
+    RUN_SUBSCRIBE_NO_CURSOR_LIMIT = 50
+
     def _run_subscribe(self, state_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
         last_event_id = str(payload.get("lastEventId") or "").strip()
 
         def run(state: dict[str, Any]) -> dict[str, Any]:
             events = [event for event in state.get("events", []) if isinstance(event, dict)]
+            truncated = False
+            oldest_returned_id = None
             if last_event_id:
                 seen = False
                 filtered = []
@@ -542,10 +552,17 @@ class SprintEngineMcpServer:
                     elif event.get("id") == last_event_id:
                         seen = True
                 events = filtered
+            elif len(events) > self.RUN_SUBSCRIBE_NO_CURSOR_LIMIT:
+                events = events[-self.RUN_SUBSCRIBE_NO_CURSOR_LIMIT:]
+                truncated = True
+            if events:
+                oldest_returned_id = events[0].get("id") if isinstance(events[0], dict) else None
             latest_event = events[-1] if events else None
             return {
                 "ok": True,
                 "events": events,
+                "truncated": truncated,
+                "oldestReturnedEventId": oldest_returned_id,
                 "latestEvent": latest_event,
                 "latestEventId": latest_event.get("id") if isinstance(latest_event, dict) else None,
                 "state": "events_available" if events else "idle",

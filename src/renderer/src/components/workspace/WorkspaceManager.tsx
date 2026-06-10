@@ -122,6 +122,7 @@ const MENU_ACCELERATOR_COMMAND_IDS = [
   'panel.files.toggle',
   'panel.editor.toggle',
   'panel.git.toggle',
+  'panel.knowledge-graph.toggle',
 ] as const
 export default function WorkspaceManager() {
   useAppTheme()
@@ -326,6 +327,9 @@ export default function WorkspaceManager() {
     const context: CommandAvailabilityContext = {}
     if (workspaceActionsEnabled) context.activeWorkspace = true
     if (voiceDictationEnabled) context.voiceDictationEnabled = true
+    // The Knowledge Graph toggle is the panel's only entry point (no rail
+    // glyph), so its availability tracks the memory-graph module directly.
+    if (selectModuleEnabled(moduleEnablement, 'memory-graph')) context.memoryGraphEnabled = true
     if (activeCommandScopes.includes('panel:sprintengine')) {
       context.sprintengineWorkspace = true
       const sprintEngineState = activeWorkspace?.sprintEngineState ?? null
@@ -348,7 +352,7 @@ export default function WorkspaceManager() {
       context.terminalActive = true
     }
     return context
-  }, [workspaceActionsEnabled, voiceDictationEnabled, activeCommandScopes, activeWorkspace, terminalSessions])
+  }, [workspaceActionsEnabled, voiceDictationEnabled, moduleEnablement, activeCommandScopes, activeWorkspace, terminalSessions])
   const sessions = getSessionItems(visibleWorkspaces, terminalSessions)
   const sidebarWorkspaceOrder = useMemo(
     () =>
@@ -1354,6 +1358,15 @@ export default function WorkspaceManager() {
       togglePanelRailComponent(windowActiveWorkspaceId, 'git', 'Git')
       return true
     }
+    if (commandId === 'panel.knowledge-graph.toggle' && windowActiveWorkspaceId) {
+      // The Knowledge Graph has no rail glyph; this palette/menu command is its
+      // entry point. The module guard mirrors the command's availability so the
+      // static View-menu item can't mount a panel the disabled memory-graph
+      // module never registered.
+      if (!selectModuleEnabled(moduleEnablement, 'memory-graph')) return false
+      togglePanelRailComponent(windowActiveWorkspaceId, 'memory-graph', 'Knowledge Graph')
+      return true
+    }
     if (commandId === 'git.worktrees.open' && windowActiveWorkspaceId) {
       // Worktrees live in the Git panel, so reveal the Git nav switch via the
       // same route the command palette uses. Sharing the route keeps a bound
@@ -1438,6 +1451,7 @@ export default function WorkspaceManager() {
     terminalSessions,
     voiceDictationEnabled,
     voiceDictation,
+    moduleEnablement,
     setLastSelectedSpecialist,
     addNewSpecialist,
     dispatchPanelCommand,

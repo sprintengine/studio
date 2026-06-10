@@ -156,6 +156,12 @@ assert.ok(
   !/window\.addEventListener\('mousedown'/.test(sprintEngineSettingsPopover),
   'Sprint Engine settings delegates outside-click dismissal to Popover',
 )
+// Run configuration: the chrome status chip is the popover trigger (one click),
+// and the popover's automation modes are a real radio group.
+expectIncludes(sprintEnginePanel, 'aria-label={`Run configuration: ${sprintEngineAutomationRuntimeLabels[automationRuntimeState]}`}', 'Run configuration chip names itself and the current runtime state')
+expectIncludes(sprintEnginePanel, 'aria-haspopup="dialog"', 'Run configuration chip advertises its dialog popover')
+expectIncludes(sprintEngineSettingsPopover, 'role="radiogroup"', 'Sprint Engine automation modes form a radio group')
+expectIncludes(sprintEngineSettingsPopover, 'aria-checked={checked}', 'Sprint Engine automation mode radios expose checked state')
 assert.ok(
   !/window\.addEventListener\('keydown'/.test(multiloopSettingsPopover),
   'Multiloop settings delegates Escape dismissal to Popover',
@@ -280,7 +286,7 @@ assert.ok(
   !/<Drawer\b/.test(watchtowerPanel),
   'Watchtower no longer uses the modal Drawer chrome — the active review is an inline aside that joins the flex row',
 )
-expectIncludes(sprintEnginePanel, '[aria-label="Sprint Engine overflow"]', 'Sprint Engine settings restores focus to overflow trigger')
+expectIncludes(sprintEnginePanel, '[aria-label^="Run configuration"]', 'Sprint Engine run configuration restores focus to its chip trigger')
 expectIncludes(sprintEnginePanel, 'role="tabpanel"', 'Sprint Engine views expose tabpanel semantics')
 expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-inbox"', 'Sprint Engine inbox panel is labelled by its tab')
 expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-roster"', 'Sprint Engine roster panel is labelled by its tab')

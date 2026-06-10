@@ -6,6 +6,7 @@ const MENU_ACCELERATOR_COMMAND_IDS = new Set([
   'panel.files.toggle',
   'panel.editor.toggle',
   'panel.git.toggle',
+  'panel.knowledge-graph.toggle',
 ])
 
 const menuAcceleratorOverrides = new Map<string, string | null>()
@@ -24,7 +25,9 @@ function zoomFocusedWindowIn(win: Electron.BaseWindow | null): void {
   browserWindow.webContents.setZoomLevel(browserWindow.webContents.getZoomLevel() + 0.5)
 }
 
-function menuAccelerator(commandId: string, fallback: string): string | undefined {
+// `fallback` is the command's default keybinding; omit it for commands that
+// ship unbound (the menu item then only shows a user-bound shortcut).
+function menuAccelerator(commandId: string, fallback?: string): string | undefined {
   if (menuAcceleratorOverrides.has(commandId)) {
     return menuAcceleratorOverrides.get(commandId) ?? undefined
   }
@@ -100,6 +103,11 @@ export function createAppMenu(): Menu {
           label: 'Toggle Git Panel',
           accelerator: menuAccelerator('panel.git.toggle', 'CmdOrCtrl+Shift+G'),
           click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'panel.git.toggle'),
+        },
+        {
+          label: 'Toggle Knowledge Graph',
+          accelerator: menuAccelerator('panel.knowledge-graph.toggle'),
+          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'panel.knowledge-graph.toggle'),
         },
         { type: 'separator' },
         { role: 'reload' },

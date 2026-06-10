@@ -193,7 +193,7 @@ export const LEARNING_ITEMS: readonly LearningItem[] = [
     id: 'sprintengine.automation-mode',
     title: 'Choose Sprint Engine automation mode deliberately',
     summary: 'Manual, run-agents, and approve-artifacts modes change operator control.',
-    body: 'Open the Sprint Engine settings popover before a run and check the selected automation mode. Manual keeps you in control; higher automation can spawn agents and, when explicitly selected, approve artifacts.',
+    body: 'Click the runtime-status chip in the board chrome before a run and check the selected automation mode. Manual keeps you in control; higher automation can spawn agents and, when explicitly selected, approve artifacts.',
     category: 'sprintengine',
     difficulty: 'intermediate',
     showWhen: [{ kind: 'workspace-mode', value: 'sprintengine' }],

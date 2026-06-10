@@ -38,6 +38,10 @@ export type CommandAvailability =
   | 'multiloopWorkspace'
   | 'multiloopStateLoaded'
   | 'switchboardWorkspace'
+  // The memory-graph capability module is enabled, so the Knowledge Graph
+  // panel component is registered and a toggle can actually mount it. The
+  // panel has no rail glyph; the palette/menu toggle is its only entry point.
+  | 'memoryGraphEnabled'
   // The Git panel is mounted in the active workspace, so its panel-command
   // handlers (refresh/fetch/commit) can receive and act on a dispatch.
   | 'gitPanelActive'

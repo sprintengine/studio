@@ -4,6 +4,7 @@ import type { RendererHost } from './renderer-host'
 import type { LayoutTemplate, PreviewSlot, SprintEngineMockConfig } from '../types/workspace'
 import { GuidedBriefWorkspaceTypeIcon, SprintEngineWorkspaceTypeIcon } from '../components/AppIcons'
 import { deriveSprintEngineRunGlyph } from '../utils/sprintengine'
+import { isSprintEngineWorkspace } from '../utils/sprintEnginesNav'
 import type { WorkspaceActivityKind, WorkspaceRunGlyphProviderInput } from '../utils/workspaceRunGlyph'
 
 const SprintEngineAutoRunSupervisor = React.lazy(
@@ -86,10 +87,6 @@ export function createSprintEngineTemplate(_config: SprintEngineMockConfig): Lay
   }
 }
 
-function isSprintEngineRunGlyphWorkspace(workspace: WorkspaceRunGlyphProviderInput): boolean {
-  return workspace.mode === 'sprintengine' || Boolean(workspace.sprintEngineContext)
-}
-
 // AutoRun never reaches `complete` on a manual run, so a run whose tasks all
 // finished by hand still reads as done.
 function isManualRunCompleted(workspace: WorkspaceRunGlyphProviderInput): boolean {
@@ -160,7 +157,7 @@ export function registerSprintEngineWorkspaceTypes(host: RendererHost): void {
     accentToken: '--tool-sprintengine',
     searchTerms: ['sprint engine', 'sprintengine', 'roster', 'kanban', 'evidence'],
     createTemplate: () => createSprintEngineTemplate(defaultSprintEngineTemplateConfig),
-    isRunGlyphProviderForWorkspace: isSprintEngineRunGlyphWorkspace,
+    isRunGlyphProviderForWorkspace: isSprintEngineWorkspace,
     deriveRunGlyph: deriveSprintEngineWorkspaceRunGlyph,
     supervisors: [
       { Component: SprintEngineAutoRunSupervisor, scope: 'global' },

@@ -862,8 +862,12 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           }
         }
 
-        const result = toolResult.response.result as { task?: { id?: unknown } }
-        const taskId = typeof result.task?.id === 'string' ? result.task.id : null
+        // MCP mutation tools return acks ({taskId}) rather than task echoes;
+        // accept the legacy {task: {id}} shape from older bundled runtimes.
+        const result = toolResult.response.result as { taskId?: unknown; task?: { id?: unknown } }
+        const taskId = typeof result.taskId === 'string'
+          ? result.taskId
+          : typeof result.task?.id === 'string' ? result.task.id : null
         return {
           ok: true,
           data: await buildSprintEngineMutationData(state, {

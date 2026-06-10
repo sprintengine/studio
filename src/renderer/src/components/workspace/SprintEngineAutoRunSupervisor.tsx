@@ -52,6 +52,7 @@ import {
 } from '../../utils/sprintengineAutoRun'
 import {
   TerminalListIpcError,
+  closeSprintEngineRunAgentTerminals,
   createDefaultSprintEngineAutoRunExecutorPorts,
   listTerminalSessionsForAutoRun as executorListTerminalSessionsForAutoRun,
   publishTerminalListIpcFailureNotice as executorPublishTerminalListIpcFailureNotice,
@@ -2079,6 +2080,12 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   )
 
   if (sprintEngineState.tasks.length > 0 && sprintEngineState.tasks.every((task) => task.status === 'done')) {
+    // Close the run's agent terminals before applying the stop reason: a
+    // terminal-list IPC failure throws here, leaves the runner in `running`,
+    // and the next tick retries both the close and the completion transition.
+    if (!autoState.keepDoneAgentTerminals) {
+      await closeCompletedRunAgentTerminals(workspace)
+    }
     defaultExecutorPorts.applyAutomationStopReason(workspace.id, 'all_tasks_done')
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
       workspaceId: workspace.id,
@@ -2186,6 +2193,44 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     )
     if (spawnResult === 'failed') return
   }
+}
+
+// All tasks are done: the run summary lives on the Sprint Engine board, so the
+// roster's CLI terminals are no longer needed. Closing them returns each agent
+// tab to its Spawn placeholder; the user can re-spawn an agent manually if they
+// want to talk to it about the finished run.
+async function closeCompletedRunAgentTerminals(workspace: Workspace): Promise<void> {
+  const result = await closeSprintEngineRunAgentTerminals(defaultExecutorPorts, workspace)
+  for (const agentId of result.resetAgentIds) {
+    void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, agentId, {
+      cliSessionId: null,
+      cliStartRequested: false,
+      cliHasLaunched: false,
+      cliOnboardingPromptSent: false,
+      cliResumeAvailable: false,
+    })
+  }
+  if (result.closedSessionIds.length === 0) return
+
+  logPerfEvent('SprintEngineAutoRun', 'run-complete-terminals-closed', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    closedSessionIds: result.closedSessionIds,
+    resetAgentIds: result.resetAgentIds,
+  })
+  await defaultExecutorPorts.publishDiagnostic({
+    level: 'info',
+    source: 'sprintengine',
+    title: 'Sprint complete — agent terminals closed',
+    message: `All tasks are done, so ${result.closedSessionIds.length === 1 ? 'the remaining agent terminal was' : `${result.closedSessionIds.length} agent terminals were`} closed. The Sprint Engine board and run summary stay available.`,
+    details: [
+      `Workspace: ${workspace.name}`,
+      `Closed sessions: ${result.closedSessionIds.join(', ')}`,
+      'Keep terminals open after a run via the Sprint Engine "keep done agent terminals" setting.',
+    ].join('\n'),
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+  })
 }
 
 async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
