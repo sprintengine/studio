@@ -339,6 +339,15 @@ first, then change one seam at a time.
 Scope decided: tags + provenance envelopes, dedup/compression, and tests.
 No MCP tool, no script extraction, no architecture changes.
 
+**Status: Phases 0–3 implemented on this branch.** Rule inventory:
+`docs/skill-rule-inventory.md`. Contract tests:
+`tests/sprintengine_tool/test_soul_contracts.py` (anchors, legend/envelope
+structure, well-formed tags, what-to-do size limit). Renderer:
+`render_soul()` emits the legend and `<skill name="...">` envelopes. All 25
+bundled soul skills and the installable `/backlog` family (all harness
+copies, manifests re-hashed) are tagged and deduplicated. Remaining: run
+real sprints on the converted souls and watch gate findings (§6.4).
+
 **Phase 0 — safety net (do first, no behaviour change)**
 
 1. Rule inventory: critical rules get stable IDs; every occurrence mapped
