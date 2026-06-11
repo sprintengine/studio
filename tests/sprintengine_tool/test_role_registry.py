@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from sprintengine_core.role_registry import RoleSkillRegistry, SoulRenderError, discover_role_registry
+from sprintengine_core.role_registry import SOUL_LEGEND, RoleSkillRegistry, SoulRenderError, discover_role_registry
 
 
 def write_role(
@@ -257,8 +257,13 @@ def test_rendered_soul_strips_frontmatter_and_preserves_ordered_skill_bodies(tmp
         bundled_root=tmp_path / "bundled",
     ).discover().render_soul("developer", workspace_root=workspace, run_id="run-123")
 
-    assert rendered.content == "First body for developer.\n\nSecond body for Developer in run-123."
+    assert rendered.content == (
+        f"{SOUL_LEGEND}\n\n"
+        '<skill name="first">\nFirst body for developer.\n</skill>\n\n'
+        '<skill name="second">\nSecond body for Developer in run-123.\n</skill>'
+    )
     assert "---" not in rendered.content
+    assert rendered.content.count("<soul-legend>") == 1
 
 
 def test_rendered_soul_substitutes_allow_list_only_and_warns_for_unsupported_variables(tmp_path: Path) -> None:

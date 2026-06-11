@@ -1441,7 +1441,8 @@ def test_mcp_registry_discovery_returns_roles_skills_soul_and_warnings(tmp_path)
     assert {skill["id"] for skill in skills["result"]["skills"]} >= {"strategy", "drafting"}
     assert all("body" not in skill for skill in skills["result"]["skills"])
     assert soul["ok"] is True
-    assert soul["result"]["soul"]["content"] == "Draft for writer in run-123."
+    assert soul["result"]["soul"]["content"].startswith("<soul-legend>")
+    assert '<skill name="drafting">\nDraft for writer in run-123.\n</skill>' in soul["result"]["soul"]["content"]
     assert str(tmp_path) not in json.dumps(roles["result"], sort_keys=True)
 
 

@@ -76,6 +76,19 @@ def test_every_bundled_soul_skill_has_registered_anchors(bundled_discovery) -> N
     )
 
 
+def test_rendered_souls_carry_legend_and_skill_provenance(bundled_discovery, tmp_path: Path) -> None:
+    for role_id in sorted(bundled_discovery.roles):
+        rendered = bundled_discovery.render_soul(
+            role_id, workspace_root=tmp_path / "workspace", run_id="contract"
+        )
+        assert rendered.content.count("<soul-legend>") == 1, role_id
+        role = bundled_discovery.get_role(role_id)
+        for soul_entry in role.soul:
+            assert f'<skill name="{soul_entry.skill}">' in rendered.content, (
+                f"{role_id}: missing envelope for {soul_entry.skill}"
+            )
+
+
 def test_every_rendered_soul_contains_required_rule_anchors(bundled_discovery, tmp_path: Path) -> None:
     missing: list[str] = []
     for role_id in sorted(bundled_discovery.roles):
