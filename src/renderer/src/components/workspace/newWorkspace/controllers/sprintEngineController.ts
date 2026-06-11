@@ -58,6 +58,8 @@ export function buildSprintEngineExistingTeamCreation(
     sprintEngineContext: context,
     sprintEngineRoleCliDefaults: input.roleCliDefaults,
     sprintEngineAgentCliOverrides: input.agentCliOverrides,
+    sprintEngineRoleModelOverrides: input.roleModelOverrides ?? null,
+    sprintEngineInitialSpawnRoles: input.initialSpawnRoles ?? null,
     sprintEngineAutoState: {
       ...sprintEngineAutoStateFromRunOptions(input),
       cliPermissionPreset: input.cliPermissionPreset,
@@ -93,6 +95,8 @@ export function buildSprintEngineNewTeamCreation(
     sprintEngineState,
     sprintEngineContext,
     sprintEngineRoleCliDefaults: input.roleCliDefaults,
+    sprintEngineRoleModelOverrides: input.roleModelOverrides ?? null,
+    sprintEngineInitialSpawnRoles: input.initialSpawnRoles ?? null,
     sprintEngineAutoState: {
       ...sprintEngineAutoStateFromRunOptions(input),
       cliPermissionPreset: input.cliPermissionPreset,

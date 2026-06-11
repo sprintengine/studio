@@ -1,7 +1,7 @@
 import React from 'react'
 
 import CliIcon from '../../CliIcon'
-import { InboxRow, Popover, Tooltip } from '../../ui'
+import { CliModelPickerButton, InboxRow, Popover, Tooltip } from '../../ui'
 import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
   getSprintEngineWizardRoleSummary,
@@ -12,10 +12,18 @@ import type {
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
+  SprintEngineRoleModelOverrides,
   SprintEngineRoleRegistry,
 } from '../../../types/workspace'
+import type { PluginModelCatalog } from '../../../../../shared/plugin-manifest'
 
-export type SprintEngineCliOption = { value: AgentCli; label: string }
+export type SprintEngineCliOption = {
+  value: AgentCli
+  label: string
+  // Present when the plugin declares model selection; enables the per-role
+  // model sublist in the roster runtime picker.
+  modelSelection?: PluginModelCatalog
+}
 
 interface RosterTableProps {
   roleCounts: SprintEngineRoleCounts
@@ -27,6 +35,18 @@ interface RosterTableProps {
   cliDisabled: boolean
   onSetCount: (role: SprintEngineRoleId, count: number) => void
   onSetCli: (role: SprintEngineRoleId, cli: AgentCli) => void
+  // Model-aware roster controls. When `onSetModel` is provided the CLI picker
+  // expands per-CLI model sublists; the override map and remembered per-CLI
+  // defaults determine the effective model shown (string = explicit id,
+  // null = explicit CLI default, absent = remembered default).
+  roleModelOverrides?: SprintEngineRoleModelOverrides
+  cliModelDefaults?: Partial<Record<AgentCli, string>>
+  onSetModel?: (role: SprintEngineRoleId, model: string | null) => void
+  // "Start now" launch intent per role. When `onSetSpawnAtStart` is provided,
+  // each added role row gets a checkbox marking its agents for an explicit
+  // spawn when the workspace opens.
+  spawnAtStartRoles?: Partial<Record<SprintEngineRoleId, boolean>>
+  onSetSpawnAtStart?: (role: SprintEngineRoleId, spawn: boolean) => void
   /** Optional trailing row rendered inside the roster border, hairline-divided
    *  below the role rows (e.g. the "save as default" affordance). */
   footer?: React.ReactNode
@@ -42,6 +62,11 @@ export function SprintEngineRosterTable({
   cliDisabled,
   onSetCount,
   onSetCli,
+  roleModelOverrides,
+  cliModelDefaults,
+  onSetModel,
+  spawnAtStartRoles,
+  onSetSpawnAtStart,
   footer,
 }: RosterTableProps) {
   const roles = listSprintEngineAddableRoles(registry, disabledRoleIds)
@@ -53,6 +78,7 @@ export function SprintEngineRosterTable({
         const isAdded = role === 'architect' || count > 0
         const label = getSprintEngineRoleLabel(role, registry)
         const summary = getSprintEngineWizardRoleSummary(role, registry)
+        const roleCli = roleCliDefaults[role] ?? fallbackCli
         const trailing = isAdded ? (
           <div className="flex items-center gap-2">
             <CountStepper
@@ -62,14 +88,42 @@ export function SprintEngineRosterTable({
               disabled={countDisabled}
               onSetCount={onSetCount}
             />
-            <CliPicker
-              role={role}
-              label={label}
-              value={roleCliDefaults[role] ?? fallbackCli}
-              disabled={cliDisabled}
-              cliOptions={cliOptions}
-              onChange={onSetCli}
-            />
+            {onSetModel ? (
+              <RoleRuntimePicker
+                role={role}
+                label={label}
+                cli={roleCli}
+                disabled={cliDisabled}
+                cliOptions={cliOptions}
+                roleModelOverrides={roleModelOverrides}
+                cliModelDefaults={cliModelDefaults}
+                onSetCli={onSetCli}
+                onSetModel={onSetModel}
+              />
+            ) : (
+              <CliPicker
+                role={role}
+                label={label}
+                value={roleCli}
+                disabled={cliDisabled}
+                cliOptions={cliOptions}
+                onChange={onSetCli}
+              />
+            )}
+            {onSetSpawnAtStart ? (
+              <Tooltip content={`Start ${label} agents when the workspace opens`}>
+                <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)] px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)] has-[:checked]:border-[color:var(--accent-primary-soft)] has-[:checked]:text-[color:var(--text-strong)]">
+                  <input
+                    type="checkbox"
+                    checked={spawnAtStartRoles?.[role] ?? false}
+                    aria-label={`Start ${label} agents when the workspace opens`}
+                    onChange={(event) => onSetSpawnAtStart(role, event.target.checked)}
+                    className="h-3.5 w-3.5 accent-[color:var(--accent-primary)]"
+                  />
+                  Start
+                </label>
+              </Tooltip>
+            ) : null}
           </div>
         ) : (
           <button
@@ -151,6 +205,61 @@ function CountStepper({
         +
       </button>
     </div>
+  )
+}
+
+// Effective launch model for a role row: explicit override (string), explicit
+// CLI default (null -> undefined), else the remembered per-CLI default.
+function effectiveRoleModel(
+  role: SprintEngineRoleId,
+  cli: AgentCli,
+  roleModelOverrides: SprintEngineRoleModelOverrides | undefined,
+  cliModelDefaults: Partial<Record<AgentCli, string>> | undefined,
+): string | undefined {
+  const override = roleModelOverrides?.[role]
+  if (override === null) return undefined
+  if (override) return override
+  return cliModelDefaults?.[cli]?.trim() || undefined
+}
+
+// Model-aware runtime picker for a roster role row: the shared CLI+model
+// picker button with role-scoped override semantics.
+function RoleRuntimePicker({
+  role,
+  label,
+  cli,
+  disabled,
+  cliOptions,
+  roleModelOverrides,
+  cliModelDefaults,
+  onSetCli,
+  onSetModel,
+}: {
+  role: SprintEngineRoleId
+  label: string
+  cli: AgentCli
+  disabled: boolean
+  cliOptions: SprintEngineCliOption[]
+  roleModelOverrides?: SprintEngineRoleModelOverrides
+  cliModelDefaults?: Partial<Record<AgentCli, string>>
+  onSetCli: (role: SprintEngineRoleId, cli: AgentCli) => void
+  onSetModel: (role: SprintEngineRoleId, model: string | null) => void
+}) {
+  return (
+    <CliModelPickerButton
+      ariaLabel={`${label} agent runtime`}
+      options={cliOptions}
+      cli={cli}
+      disabled={disabled}
+      effectiveModelFor={(candidateCli) =>
+        effectiveRoleModel(role, candidateCli, candidateCli === cli ? roleModelOverrides : undefined, cliModelDefaults)
+      }
+      onSelectCli={(nextCli) => onSetCli(role, nextCli)}
+      onSelectModel={(nextCli, nextModel) => {
+        if (nextCli !== cli) onSetCli(role, nextCli)
+        onSetModel(role, nextModel)
+      }}
+    />
   )
 }
 

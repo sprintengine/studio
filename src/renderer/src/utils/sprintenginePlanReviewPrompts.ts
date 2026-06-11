@@ -63,3 +63,22 @@ export function buildSprintEngineRosterRevisionPrompt(
     'Do not implement work yourself. Do not create tasks for unrelated roles. Do not edit Sprint Engine run-store files directly.',
   ].join('\n')
 }
+
+// Variant for the app-owned roster-add path: the member is already canonical
+// (added through `sprintengine:roster:add`), so the architect is asked only to
+// review whether the plan needs revision for the new specialist.
+export function buildSprintEnginePlanRevisionForNewMemberPrompt(
+  input: SprintEngineRosterRevisionPromptInput,
+): string {
+  const { role, agentId, teamSlug, registry } = input
+  const label = getSprintEngineRoleLabel(role, registry ?? null)
+  return [
+    'A new roster member was just added to this Sprint Engine run; review whether the plan needs revision for them.',
+    `Team: \`${teamSlug}\``,
+    `New roster member: ${label} (\`${role}\`) with agent id \`${agentId}\` — already on the canonical roster; do not add them again.`,
+    '',
+    'Inspect the current plan, task graph, completed evidence, and open risks. If this new specialist should do work, add only the needed task cards with normal `Sprint Engine plan add-task` commands and correct dependencies. If no task is needed, record a concise rationale in the architect terminal and stop.',
+    '',
+    'Do not implement work yourself. Do not create tasks for unrelated roles. Do not edit Sprint Engine run-store files directly.',
+  ].join('\n')
+}

@@ -131,6 +131,25 @@ function testBuildSprintEngineNewTeamCreation(): void {
   assert.equal(args.sprintEngineAutoState?.desiredMode, 'manual')
   assert.equal(args.sprintEngineAutoState?.runtimeState, 'idle')
   assert.equal(args.sprintEngineAutoState?.maxConcurrentAgents, 2)
+  assert.equal(args.sprintEngineRoleModelOverrides, null, 'no roster model overrides unless the wizard picked them')
+  assert.equal(args.sprintEngineInitialSpawnRoles, null, 'no initial spawn roles unless the wizard marked them')
+
+  const withLaunchIntent = buildSprintEngineNewTeamCreation({
+    folderPath: '/p',
+    teamName: 'Launch Squad',
+    goal: 'Ship the things',
+    roleCounts: { architect: 1, product: 1, frontend: 1, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+    visibleRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+    totalAgents: 3,
+    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'codex', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+    roleModelOverrides: { frontend: 'model-a', product: null },
+    initialSpawnRoles: ['frontend'],
+    startRunner: false,
+    autoApproveArtifacts: false,
+    cliPermissionPreset: 'default',
+  })
+  assert.deepEqual(withLaunchIntent.sprintEngineRoleModelOverrides, { frontend: 'model-a', product: null })
+  assert.deepEqual(withLaunchIntent.sprintEngineInitialSpawnRoles, ['frontend'])
 
   const noFolder = buildSprintEngineNewTeamCreation({
     folderPath: null,

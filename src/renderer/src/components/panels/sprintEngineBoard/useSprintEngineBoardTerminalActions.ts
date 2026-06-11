@@ -83,6 +83,13 @@ export type SprintEngineBoardTerminalActions = {
   ) => Promise<boolean>
   ensureWorkspaceFolderReadyForLaunch: (agentId: string, label: string) => Promise<boolean>
   openAgentTerminal: (agentId: string) => void
+  // Kills the live app-owned terminal process and clears local launch flags.
+  // Canonical roster membership is untouched; the main-process teardown sends
+  // sprintengine.agent.leave so owned claims are released.
+  stopAgentTerminal: (agentId: string) => Promise<boolean>
+  // Kills any live terminal, then starts a fresh session with the agent's
+  // current CLI/model selection.
+  restartAgentTerminal: (agentId: string) => Promise<boolean>
   openSpawnDialog: (agentId: string) => void
   confirmSpawnDialog: () => Promise<void>
   openRecoveryDialog: () => void
@@ -256,6 +263,67 @@ export function useSprintEngineBoardTerminalActions(
     focusOrAddAgentTab(workspaceId, agentId, label)
   }
 
+  const stopAgentTerminal: SprintEngineBoardTerminalActions['stopAgentTerminal'] = async (agentId) => {
+    const fallbackLabel = rosterById[agentId]?.label ?? agentId
+    const label = getAgentName(agentId, fallbackLabel)
+    const liveSession = getLiveAgentTerminalSession(agentId)
+    if (!liveSession) {
+      void publishDiagnostic({
+        level: 'warning',
+        source: 'terminal',
+        title: `${label} has no live terminal`,
+        message: 'The agent terminal was already stopped.',
+        details: [
+          `Workspace ID: ${workspaceId}`,
+          `Agent ID: ${agentId}`,
+        ].join('\n'),
+        workspaceId,
+        workspaceName: workspace?.name,
+        agentId,
+      })
+      return false
+    }
+    try {
+      await window.api.terminalKill(liveSession.sessionId)
+    } catch (error) {
+      void publishDiagnostic({
+        level: 'error',
+        source: 'terminal',
+        title: `${label} could not be stopped`,
+        message: error instanceof Error ? error.message : 'Killing the agent terminal failed.',
+        details: [
+          `Workspace ID: ${workspaceId}`,
+          `Agent ID: ${agentId}`,
+          `Session ID: ${liveSession.sessionId}`,
+        ].join('\n'),
+        workspaceId,
+        workspaceName: workspace?.name,
+        agentId,
+      })
+      return false
+    }
+    // Local launch flags only — canonical roster membership stays intact and
+    // the main-process teardown handles sprintengine.agent.leave.
+    updateAgent(workspaceId, agentId, {
+      cliStartRequested: false,
+      cliHasLaunched: false,
+      cliSessionId: undefined,
+      cliOnboardingPromptSent: false,
+      cliResumeAvailable: false,
+      kind: 'sprintengine',
+    })
+    return true
+  }
+
+  const restartAgentTerminal: SprintEngineBoardTerminalActions['restartAgentTerminal'] = async (agentId) => {
+    const fallbackLabel = rosterById[agentId]?.label ?? agentId
+    const label = getAgentName(agentId, fallbackLabel)
+    return startAgentTerminalWhenReady(agentId, label, agents[agentId]?.cli, {
+      freshSession: true,
+      agentName: getCustomAgentName(agentId, fallbackLabel),
+    })
+  }
+
   const openSpawnDialog: SprintEngineBoardTerminalActions['openSpawnDialog'] = (agentId) => {
     const agentState = agents[agentId]
     const defaultName = rosterById[agentId]?.label ?? agentId
@@ -343,6 +411,8 @@ export function useSprintEngineBoardTerminalActions(
     startAgentTerminalWhenReady,
     ensureWorkspaceFolderReadyForLaunch,
     openAgentTerminal,
+    stopAgentTerminal,
+    restartAgentTerminal,
     openSpawnDialog,
     confirmSpawnDialog,
     openRecoveryDialog,

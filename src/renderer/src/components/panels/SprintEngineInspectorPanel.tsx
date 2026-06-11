@@ -53,7 +53,7 @@ import {
   getSprintEngineTasksReviewedByAgent,
   getSprintEngineTasksWorkedOnByAgent,
   getSprintEngineRoleLabel,
-  sprintEngineArtifactKindLabels,
+  sprintEngineArtifactKindLabel,
   sprintEngineArtifactStatusLabels,
   sprintEngineQualityGatePhaseLabels,
   sprintEngineQualityGateStatusLabels,
@@ -525,7 +525,7 @@ function SprintEngineArtifactInspector({
   })
   items.push({
     term: 'Kind',
-    description: isSourceHandoff ? 'Handover' : sprintEngineArtifactKindLabels[artifact.kind],
+    description: isSourceHandoff ? 'Handover' : sprintEngineArtifactKindLabel(artifact.kind),
   })
   if (!isSourceHandoff && artifact.taskId) {
     items.push({
@@ -721,7 +721,7 @@ export function SprintEngineArtifactList({
                   <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[color:var(--text-subtle)]">
                     {isSourceHandoff ? null : (
                       <>
-                        <span>{sprintEngineArtifactKindLabels[artifact.kind]}</span>
+                        <span>{sprintEngineArtifactKindLabel(artifact.kind)}</span>
                         <span>·</span>
                         <button
                           type="button"
@@ -1238,7 +1238,7 @@ function TaskReviewPrompt({
   const pending = action?.status === 'pending'
   const readyForReview = artifact.status === 'ready_for_review'
   const canOpenArtifact = Boolean(artifact.path.trim())
-  const kindLabel = sprintEngineArtifactKindLabels[artifact.kind] ?? artifact.kind
+  const kindLabel = sprintEngineArtifactKindLabel(artifact.kind)
   const reviewer = reportedBy ?? artifact.createdBy
   const relative = reportedAt
     ? formatRelativeTime(reportedAt)
@@ -1807,7 +1807,7 @@ function ArtifactDetail({
   artifact: SprintEngineArtifact
   onOpen: (() => void) | null
 }) {
-  const kindLabel = sprintEngineArtifactKindLabels[artifact.kind] ?? artifact.kind
+  const kindLabel = sprintEngineArtifactKindLabel(artifact.kind)
   const statusLabel = sprintEngineArtifactStatusLabels[artifact.status] ?? artifact.status
   return (
     <div className="mt-2 space-y-1.5 border-l border-[color:var(--border-subtle)] pl-3 text-[12px] leading-5">

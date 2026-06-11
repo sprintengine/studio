@@ -64,6 +64,7 @@ export const sprintEngineModule: CapabilityModule = {
       commentTask: artifacts.commentTask,
       setRunnerMode: artifacts.setRunnerMode,
       replenishRoster: artifacts.replenishRoster,
+      addRosterMember: artifacts.addRosterMember,
       readProjection: artifacts.readProjection,
       readRegistryRoles: artifacts.readRegistryRoles,
       readRegistryRole: artifacts.readRegistryRole,

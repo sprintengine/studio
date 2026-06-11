@@ -33,6 +33,7 @@ from sprintengine_core.tool import (
     load_mutation_state,
 )
 from sprintengine_core.tool.artifacts import release_task_from_owner
+from sprintengine_core.tool.constants import VALID_ARTIFACT_KINDS
 from sprintengine_core.tool.gates import find_active_gate_claim
 from sprintengine_core.tool.plans import plan_path_for_state
 from sprintengine_core.tool.prompts import compose_prompt, load_sprintengine_coordination_prompt
@@ -302,6 +303,7 @@ class SprintEngineMcpServer:
             ],
             "artifacts": [
                 "Register an artifact with sprintengine.artifact.add and {taskId, kind, title, path, createdBy, ready}.",
+                f"kind must be one of: {', '.join(sorted(VALID_ARTIFACT_KINDS))}. Other values are rejected.",
                 "Set ready: true only when the artifact must wait for human approval.",
             ],
             "gates": [

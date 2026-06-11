@@ -6,6 +6,7 @@ import {
   type SprintEngineView,
 } from '../../store/sprintEngineViewStore'
 import {
+ CliModelPickerButton,
  CloseIconButton,
  OverflowMenu,
  GhostButton,
@@ -78,10 +79,9 @@ import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengine
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { findFirstUncoveredSprintEngineRole } from '../../utils/sprintengineRoleOptions'
 import {
- buildSprintEngineRosterRevisionPrompt,
+ buildSprintEnginePlanRevisionForNewMemberPrompt,
 } from '../../utils/sprintenginePlanReviewPrompts'
 import { normalizeAgentIdentifier } from '../../utils/agentPrompt'
-import { focusOrAddAgentTab } from '../../utils/modelRegistry'
 import { publishDiagnostic, publishDiagnosticSync } from '../../utils/diagnostics'
 import {
  getEffectiveKeybindingLabel,
@@ -149,9 +149,20 @@ type SyncState = {
  message: string
 }
 
+// Local spawn intent for a canonical roster addition, keyed by the expected
+// agent id passed to `sprintengine:roster:add`. The member becomes real only
+// when the normalized projection contains it; the confirm effect then applies
+// the chosen runtime and (optionally) starts the terminal. This is launch
+// intent, not roster state — the canonical roster lives in the run store.
 type PendingRosterMemberSpawn = {
  agentId: string
  role: SprintEngineRoleId
+ name?: string
+ cli?: AgentCli
+ // string = explicit model id, null = explicit CLI default, undefined = keep
+ // whatever the reconciled agent record already has.
+ model?: string | null
+ spawnNow?: boolean
 }
 
 type SprintEngineTasksLayout = 'graph' | 'kanban'
@@ -496,6 +507,7 @@ function SprintEngineBoardPanelContent({
   const applySprintEngineAutomationEvent = useWorkspaceStore((s) => s.applySprintEngineAutomationEvent)
   const setSprintEngineCliPermissionPreset = useWorkspaceStore((s) => s.setSprintEngineCliPermissionPreset)
  const addSprintEngineMember = useWorkspaceStore((s) => s.addSprintEngineMember)
+ const consumeSprintEngineInitialSpawns = useWorkspaceStore((s) => s.consumeSprintEngineInitialSpawns)
  const updateAgent = useWorkspaceStore((s) => s.updateAgent)
  const openFile = useWorkspaceStore((s) => s.openFile)
  const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
@@ -587,6 +599,15 @@ function SprintEngineBoardPanelContent({
  const [settingsOpen, setSettingsOpen] = useState(false)
  const [addMemberOpen, setAddMemberOpen] = useState(false)
  const [addMemberRole, setAddMemberRole] = useState<SprintEngineRole>('developer')
+ // Runtime selections for the Add Member dialog. `addMemberCli === null`
+ // means "use the role's CLI default"; model semantics match the spawn
+ // dialog (undefined = the CLI's own default, no flag passed).
+ const [addMemberName, setAddMemberName] = useState('')
+ const [addMemberCli, setAddMemberCli] = useState<AgentCli | null>(null)
+ const [addMemberModel, setAddMemberModel] = useState<string | undefined>(undefined)
+ const [addMemberSpawnNow, setAddMemberSpawnNow] = useState(true)
+ const [addMemberBusy, setAddMemberBusy] = useState(false)
+ const [addMemberError, setAddMemberError] = useState<string | null>(null)
  const [pendingRosterMemberSpawns, setPendingRosterMemberSpawns] = useState<PendingRosterMemberSpawn[]>([])
  const pendingRosterMemberSpawnInFlightRef = useRef<Set<string>>(new Set())
  const [manualRefreshBusy, setManualRefreshBusy] = useState(false)
@@ -1237,6 +1258,15 @@ function SprintEngineBoardPanelContent({
  })
  }
 
+ const addMemberRoleDefaultCli = (role: SprintEngineRole): AgentCli =>
+ workspace?.sprintEngineRoleCliDefaults?.[role] ?? lastSelectedCli
+
+ const selectAddMemberRole = (role: SprintEngineRole) => {
+ setAddMemberRole(role)
+ setAddMemberCli(null)
+ setAddMemberModel(cliModelDefaults[addMemberRoleDefaultCli(role)])
+ }
+
  const openAddMemberDialog = () => {
  const uncoveredRole = findFirstUncoveredSprintEngineRole({
  registry: roleRegistry,
@@ -1244,46 +1274,117 @@ function SprintEngineBoardPanelContent({
  roster,
  tasks: sprintEngineTasks,
  })
- setAddMemberRole((uncoveredRole ?? 'developer') as SprintEngineRole)
+ const initialRole = (uncoveredRole ?? 'developer') as SprintEngineRole
+ setAddMemberName('')
+ setAddMemberSpawnNow(true)
+ setAddMemberBusy(false)
+ setAddMemberError(null)
+ selectAddMemberRole(initialRole)
  setAddMemberOpen(true)
  }
 
- const confirmAddMember = async (role = addMemberRole) => {
- if (sprintEngineState.rosterConfigured) {
+ // Plan-revision notification for a member that is already canonical: paste
+ // into the live architect terminal, or start the architect with the prompt.
+ // The architect only revises the plan — the roster mutation already happened.
+ const notifyArchitectPlanRevision = async (agentId: string, role: SprintEngineRole) => {
  if (!architectAgentId || !sprintEngineContext) return
- const agentId = getNextSprintEngineAgentId(role, sprintEngineState.sprintEngineAgents)
- const fallbackLabel = rosterById[architectAgentId]?.label ?? 'Architect'
- const label = getAgentName(architectAgentId, fallbackLabel)
- const prompt = buildSprintEngineRosterRevisionPrompt({
+ const prompt = buildSprintEnginePlanRevisionForNewMemberPrompt({
  role,
  agentId,
  teamSlug: sprintEngineContext.teamSlug,
+ registry: roleRegistry,
  })
  const liveArchitectSession = getLiveAgentTerminalSession(architectAgentId)
  if (liveArchitectSession) {
  await window.api.terminalWrite(liveArchitectSession.sessionId, bracketedTerminalPaste(prompt))
- enqueuePendingRosterMemberSpawn({ agentId, role })
- focusOrAddAgentTab(workspaceId, architectAgentId, label)
- setSelectedAgentId(architectAgentId)
- setAddMemberOpen(false)
  return
  }
- const started = await startAgentTerminalWhenReady(architectAgentId, label, agents[architectAgentId]?.cli, {
+ const fallbackLabel = rosterById[architectAgentId]?.label ?? 'Architect'
+ const label = getAgentName(architectAgentId, fallbackLabel)
+ await startAgentTerminalWhenReady(architectAgentId, label, agents[architectAgentId]?.cli, {
  freshSession: true,
  agentName: getCustomAgentName(architectAgentId, fallbackLabel),
  startupPrompt: prompt,
  })
- if (!started) return
- enqueuePendingRosterMemberSpawn({ agentId, role })
- setSelectedAgentId(architectAgentId)
+ }
+
+ const confirmAddMember = async (role = addMemberRole) => {
+ const memberName = normalizeAgentIdentifier(addMemberName)
+ const memberCli = addMemberCli ?? addMemberRoleDefaultCli(role)
+
+ if (sprintEngineState.rosterConfigured) {
+ if (!sprintEngineContext) return
+ const agentId = getNextSprintEngineAgentId(role, sprintEngineState.sprintEngineAgents)
+ setAddMemberBusy(true)
+ setAddMemberError(null)
+ try {
+ const result = await window.api.addSprintEngineRosterMember({
+ statePath: sprintEngineContext.statePath,
+ agentId,
+ role,
+ })
+ if (!result.ok) {
+ setAddMemberError(result.message)
+ void publishDiagnostic({
+ level: 'error',
+ source: 'terminal',
+ title: 'Roster member was not added',
+ message: result.message,
+ details: [
+ `Workspace ID: ${workspaceId}`,
+ `Role: ${role}`,
+ `Agent ID: ${agentId}`,
+ ].join('\n'),
+ workspaceId,
+ workspaceName: workspace?.name,
+ agentId,
+ })
+ return
+ }
+ // The member is real only once the normalized projection contains it;
+ // the pending-spawn effect applies the chosen runtime then. Refresh so
+ // confirmation does not wait for the next watcher tick.
+ enqueuePendingRosterMemberSpawn({
+ agentId,
+ role,
+ name: memberName || undefined,
+ cli: memberCli,
+ model: addMemberModel ?? null,
+ spawnNow: addMemberSpawnNow,
+ })
+ if (workspace) {
+ void refreshSprintEngineWorkspaceProjection({
+ workspace,
+ signatures: new Map(),
+ cause: 'manual',
+ force: true,
+ })
+ }
+ if (hasPlannedTasks) {
+ void notifyArchitectPlanRevision(agentId, role)
+ }
  setAddMemberOpen(false)
+ } finally {
+ setAddMemberBusy(false)
+ }
  return
  }
 
  const addedAgent = addSprintEngineMember(workspaceId, role)
  if (!addedAgent) return
 
- void startAgentTerminalWhenReady(addedAgent.id, addedAgent.label)
+ updateAgent(workspaceId, addedAgent.id, {
+ ...(memberName ? { name: memberName } : {}),
+ cli: memberCli,
+ cliModel: addMemberModel,
+ kind: 'sprintengine',
+ })
+ if (addMemberSpawnNow) {
+ void startAgentTerminalWhenReady(addedAgent.id, memberName || addedAgent.label, memberCli, {
+ agentName: memberName,
+ cliModel: addMemberModel ?? null,
+ })
+ }
  setSelectedAgentId(addedAgent.id)
  setAddMemberOpen(false)
  }
@@ -1291,6 +1392,8 @@ function SprintEngineBoardPanelContent({
  const {
  startAgentTerminalWhenReady,
  openAgentTerminal,
+ stopAgentTerminal,
+ restartAgentTerminal,
  openSpawnDialog,
  confirmSpawnDialog,
  openRecoveryDialog,
@@ -1325,12 +1428,61 @@ function SprintEngineBoardPanelContent({
  getLiveAgentTerminalSession,
  })
 
+ // "CLI · model" summary for roster rows; null when the agent has no CLI yet.
+ const runtimeSummaryFor = (agentId: string): string | null => {
+ const agent = agents[agentId]
+ if (!agent?.cli) return null
+ const option = cliOptions.find((candidate) => candidate.value === agent.cli)
+ const cliLabel = option?.label ?? agent.cli
+ if (!agent.cliModel) return cliLabel
+ const modelLabel = option?.modelSelection?.options.find((entry) => entry.id === agent.cliModel)?.label ?? agent.cliModel
+ return `${cliLabel} · ${modelLabel}`
+ }
+
+ // Kill = stop the app-owned terminal process and release Sprint Engine
+ // claims (main-process teardown sends agent.leave). Never removes the
+ // canonical roster member, and says so.
+ const killAgentTerminal = async (agentId: string) => {
+ const fallbackLabel = rosterById[agentId]?.label ?? agentId
+ const label = getAgentName(agentId, fallbackLabel)
+ const runtime = runtimeAgents.find((entry) => entry.agentId === agentId)
+ const ownedTask = runtime?.currentTaskId
+ ? sprintEngineState.tasks.find((task) => task.id === runtime.currentTaskId) ?? null
+ : null
+ const confirmed = await dialog.confirm({
+ title: `Kill ${label}'s terminal?`,
+ body: ownedTask
+ ? `${label} is working on ${ownedTask.id} · ${ownedTask.title}. Killing the terminal releases the claim so the work can be picked up again. The roster member stays on the team.`
+ : `${label}'s terminal process will be stopped and its Sprint Engine claims released. The roster member stays on the team.`,
+ confirmLabel: 'Kill terminal',
+ tone: 'danger',
+ })
+ if (!confirmed) return
+ await stopAgentTerminal(agentId)
+ }
+
  useEffect(() => {
  if (pendingRosterMemberSpawns.length === 0) return
 
  for (const pending of pendingRosterMemberSpawns) {
+ // Only act once the canonical projection contains the member with the
+ // expected role — never spawn a terminal for an invented local identity.
  const rosterAgent = rosterById[pending.agentId]
  if (!rosterAgent || rosterAgent.role !== pending.role) continue
+
+ if (!pending.spawnNow) {
+ // Member confirmed but the user did not ask for an immediate start:
+ // record the chosen runtime on the reconciled agent and finish.
+ updateAgent(workspaceId, pending.agentId, {
+ ...(pending.name ? { name: pending.name } : {}),
+ ...(pending.cli ? { cli: pending.cli } : {}),
+ ...(pending.model !== undefined ? { cliModel: pending.model ?? undefined } : {}),
+ kind: 'sprintengine',
+ })
+ setSelectedAgentId(pending.agentId)
+ setPendingRosterMemberSpawns((current) => current.filter((candidate) => candidate.agentId !== pending.agentId))
+ continue
+ }
  if (getLiveAgentTerminalSession(pending.agentId)) {
  setPendingRosterMemberSpawns((current) => current.filter((candidate) => candidate.agentId !== pending.agentId))
  continue
@@ -1338,11 +1490,15 @@ function SprintEngineBoardPanelContent({
  if (pendingRosterMemberSpawnInFlightRef.current.has(pending.agentId)) continue
 
  pendingRosterMemberSpawnInFlightRef.current.add(pending.agentId)
- const label = getAgentName(pending.agentId, rosterAgent.label)
+ const label = pending.name || getAgentName(pending.agentId, rosterAgent.label)
  void startAgentTerminalWhenReady(
  pending.agentId,
  label,
- agents[pending.agentId]?.cli,
+ pending.cli ?? agents[pending.agentId]?.cli,
+ {
+ ...(pending.name ? { agentName: pending.name } : {}),
+ ...(pending.model !== undefined ? { cliModel: pending.model } : {}),
+ },
  ).then((started) => {
  if (!started) return
  setSelectedAgentId(pending.agentId)
@@ -1358,6 +1514,32 @@ function SprintEngineBoardPanelContent({
  pendingRosterMemberSpawns,
  rosterById,
  startAgentTerminalWhenReady,
+ updateAgent,
+ workspaceId,
+ ])
+
+ // New-workspace "Start now" intent: launch the marked roster agents through
+ // the same path as a manual spawn, exactly once. The store consume is atomic,
+ // so a re-render cannot double-spawn; intent is cleared after the first
+ // attempt regardless of outcome (failures surface as launch diagnostics).
+ const hasInitialSpawnIntent = Boolean(workspace.sprintEngineInitialSpawnAgentIds?.length)
+ useEffect(() => {
+ if (!hasInitialSpawnIntent) return
+ const agentIds = consumeSprintEngineInitialSpawns(workspaceId)
+ for (const agentId of agentIds) {
+ if (getLiveAgentTerminalSession(agentId)) continue
+ const label = getAgentName(agentId, rosterById[agentId]?.label ?? agentId)
+ void startAgentTerminalWhenReady(agentId, label, agents[agentId]?.cli)
+ }
+ }, [
+ agents,
+ consumeSprintEngineInitialSpawns,
+ getAgentName,
+ getLiveAgentTerminalSession,
+ hasInitialSpawnIntent,
+ rosterById,
+ startAgentTerminalWhenReady,
+ workspaceId,
  ])
 
  const chromeOverflowItems: OverflowMenuItem[] = (() => {
@@ -1806,6 +1988,15 @@ function SprintEngineBoardPanelContent({
  }}
  addMemberOptions={addMemberOptions}
  isAgentTerminalLive={isAgentTerminalLive}
+ runtimeSummaryFor={runtimeSummaryFor}
+ onOpenAgent={openAgentTerminal}
+ onSpawnAgent={openSpawnDialog}
+ onRestartAgent={(agentId) => {
+ void restartAgentTerminal(agentId)
+ }}
+ onKillAgent={(agentId) => {
+ void killAgentTerminal(agentId)
+ }}
  inspectorContent={renderInspectorPanel()}
  inspectorExpanded={inspectorExpanded}
  />
@@ -2301,7 +2492,7 @@ function SprintEngineBoardPanelContent({
  return (
  <button
  key={role}
- onClick={() => setAddMemberRole(role as SprintEngineRole)}
+ onClick={() => selectAddMemberRole(role as SprintEngineRole)}
  aria-pressed={selected}
  className={`w-full rounded-md border-l-2 px-3 py-3 text-left interactive transition-colors ${
  selected
@@ -2336,15 +2527,80 @@ function SprintEngineBoardPanelContent({
  </button>
  )
  })}
+
+ <div className="space-y-4 pt-4">
+ <label className="block">
+ <span className="mb-2 block text-[10px] font-bold text-[color:var(--text-disabled)]">
+ Name (optional)
+ </span>
+ <input
+ type="text"
+ value={addMemberName}
+ onChange={(event) => setAddMemberName(event.target.value)}
+ placeholder={getSprintEngineRoleLabel(addMemberRole)}
+ className="h-10 w-full rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-sm text-[color:var(--text-strong)] outline-none interactive transition-colors placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus:ring-1 focus:ring-[color:var(--accent-primary-soft)]"
+ />
+ </label>
+
+ <div className="flex items-center justify-between gap-3">
+ <span className="text-[10px] font-bold text-[color:var(--text-disabled)]">
+ Agent runtime
+ </span>
+ <CliModelPickerButton
+ ariaLabel={`${getSprintEngineRoleLabel(addMemberRole)} agent runtime`}
+ options={cliOptions}
+ cli={addMemberCli ?? addMemberRoleDefaultCli(addMemberRole)}
+ effectiveModelFor={(cli) =>
+ cli === (addMemberCli ?? addMemberRoleDefaultCli(addMemberRole))
+ ? addMemberModel
+ : cliModelDefaults[cli]
+ }
+ onSelectCli={(cli) => {
+ setAddMemberCli(cli)
+ setAddMemberModel(cliModelDefaults[cli])
+ }}
+ onSelectModel={(cli, model) => {
+ setAddMemberCli(cli)
+ setAddMemberModel(model ?? undefined)
+ }}
+ />
+ </div>
+
+ <label className="flex cursor-pointer items-center gap-2 text-[12px] text-[color:var(--text-default)]">
+ <input
+ type="checkbox"
+ checked={addMemberSpawnNow}
+ onChange={(event) => setAddMemberSpawnNow(event.target.checked)}
+ className="h-3.5 w-3.5 accent-[color:var(--accent-primary)]"
+ />
+ Spawn the agent terminal now
+ </label>
+
+ {sprintEngineState.rosterConfigured ? (
+ <p className="border-l border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
+ The member is added to the canonical Sprint Engine roster first.
+ {hasPlannedTasks
+ ? ' The architect will be asked to review whether the plan needs revision for this new specialist.'
+ : ' No tasks are planned yet, so no architect revision is requested.'}
+ </p>
+ ) : null}
+
+ {addMemberError ? (
+ <p role="alert" className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
+ {addMemberError}
+ </p>
+ ) : null}
+ </div>
  </ModalBody>
 
  <ModalFooter>
  <ModalButton onClick={() => setAddMemberOpen(false)}>Cancel</ModalButton>
  <ModalButton
  variant="primary"
+ disabled={addMemberBusy}
  onClick={() => void confirmAddMember()}
  >
- {sprintEngineState.rosterConfigured ? 'Ask Architect' : 'Spawn'} {getSprintEngineRoleLabel(addMemberRole)}
+ {addMemberBusy ? 'Adding…' : `Add ${getSprintEngineRoleLabel(addMemberRole)}`}
  </ModalButton>
  </ModalFooter>
  </Modal>

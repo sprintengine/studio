@@ -129,6 +129,15 @@ def append_artifact_history(
     return entry
 
 def build_artifact_from_args(args: argparse.Namespace, state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
+    # The CLI enforces kind via argparse choices, but the MCP server builds the
+    # namespace directly, so the contract must also be enforced here: an
+    # unknown kind silently breaks artifact review and auto-approval downstream.
+    kind = str(getattr(args, "kind", "") or "").strip()
+    if kind not in VALID_ARTIFACT_KINDS:
+        raise SystemExit(
+            f"Invalid artifact kind: {kind or '(empty)'}. "
+            f"Valid kinds: {', '.join(sorted(VALID_ARTIFACT_KINDS))}."
+        )
     task = find_task(state, args.task_id)
     artifact_id = args.artifact_id or next_artifact_id(state.setdefault("artifacts", []))
     if any(isinstance(a, dict) and a.get("id") == artifact_id for a in state.get("artifacts", [])):
@@ -140,7 +149,7 @@ def build_artifact_from_args(args: argparse.Namespace, state: Dict[str, Any], st
     now = now_iso()
     return {
         "id": artifact_id,
-        "kind": args.kind,
+        "kind": kind,
         "title": args.title.strip(),
         "path": path_info["path"],
         "status": "draft",

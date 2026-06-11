@@ -9,6 +9,7 @@ import type {
   SprintEngineProjectionReadResult,
   SprintEngineRegistryRoleReadInput,
   SprintEngineRegistryRolesReadInput,
+  SprintEngineRosterAddInput,
   SprintEngineRosterReplenishInput,
   SprintEngineRunnerSetInput,
   SprintEngineStateInitializeInput,
@@ -215,6 +216,31 @@ function resolveSprintEngineTaskId(input: unknown): string {
     throw new Error('Task id must be a safe sprintengine identifier.')
   }
   return taskId
+}
+
+function resolveSprintEngineRosterAgentId(input: unknown): string {
+  if (typeof input !== 'string' || !input.trim()) {
+    throw new Error('Agent id is required.')
+  }
+  const agentId = input.trim()
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(agentId)) {
+    throw new Error('Agent id must be a safe sprintengine identifier.')
+  }
+  return agentId
+}
+
+// Roster roles accept any configured registry role (including custom and
+// plugin-installed ids), so this only screens for a safe identifier; the
+// Sprint Engine CLI canonicalizes the id and rejects unknown roles.
+function resolveSprintEngineRosterRole(input: unknown): string {
+  if (typeof input !== 'string' || !input.trim()) {
+    throw new Error('Roster role is required.')
+  }
+  const role = input.trim()
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(role)) {
+    throw new Error('Roster role must be a safe sprintengine identifier.')
+  }
+  return role
 }
 
 function resolveTaskRole(input: unknown): SprintEngineTaskMutationRole {
@@ -636,6 +662,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   commentTask(payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult>
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
   replenishRoster(payload: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult>
+  addRosterMember(payload: SprintEngineRosterAddInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
   readRegistryRoles(payload: SprintEngineRegistryRolesReadInput): Promise<SprintEngineMcpReadResult>
   readRegistryRole(payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult>
@@ -1006,6 +1033,47 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           ok: true,
           data: await buildSprintEngineMutationData(state, {
             action: 'roster-replenish',
+            tool,
+          }),
+        }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    async addRosterMember(payload) {
+      try {
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const agentId = resolveSprintEngineRosterAgentId(payload?.agentId)
+        const role = resolveSprintEngineRosterRole(payload?.role)
+        const toolResult = await runSprintEngineCli(state, [
+          '--state',
+          state.statePath,
+          'roster',
+          'add',
+          '--id',
+          agentId,
+          '--role',
+          role,
+          '--actor',
+          'ui',
+        ])
+        if (toolResult.exitCode !== 0) {
+          return {
+            ok: false,
+            message: toolResult.stderr.trim() || toolResult.stdout.trim() || 'The sprintengine roster command failed.',
+            stdout: toolResult.stdout,
+            stderr: toolResult.stderr,
+            exitCode: toolResult.exitCode ?? 'unknown',
+          }
+        }
+        const tool = parseSprintEngineCliJsonOutput(toolResult.stdout)
+        return {
+          ok: true,
+          data: await buildSprintEngineMutationData(state, {
+            action: 'roster-add',
+            agentId,
+            role,
             tool,
           }),
         }

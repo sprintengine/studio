@@ -25,6 +25,7 @@ import type {
   MultiloopWorkspaceContext,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
+  SprintEngineRoleModelOverrides,
   SprintEngineSavedRoster,
   AgentCli,
   AgentCliModelSelection,
@@ -229,6 +230,8 @@ export interface WorkspaceStore extends PluginsSlice {
       multiloopContext?: MultiloopWorkspaceContext | null
       sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
       sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
+      sprintEngineRoleModelOverrides?: SprintEngineRoleModelOverrides | null
+      sprintEngineInitialSpawnRoles?: SprintEngineRoleId[] | null
       templateAgentCli?: AgentCli | null
       seedAgent?: SoloChatSeed | null
       sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
@@ -309,6 +312,7 @@ export interface WorkspaceStore extends PluginsSlice {
     workspaceId: WorkspaceId,
     role: SprintEngineRoleId
   ) => { id: AgentId; label: string } | null
+  consumeSprintEngineInitialSpawns: (workspaceId: WorkspaceId) => AgentId[]
   appendStream: (workspaceId: WorkspaceId, agentId: AgentId, chunk: string) => void
   commitStream: (workspaceId: WorkspaceId, agentId: AgentId) => void
   importWorkspace: (ws: Workspace) => void

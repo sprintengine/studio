@@ -130,6 +130,75 @@ run('independent roots stack without phantom connectors', () => {
   assert.deepEqual(layout.rows[1].lines, [])
 })
 
+run('linear history keeps a single branch-line colour', () => {
+  const layout = computeGitGraphLayout([
+    commit('A', ['B']),
+    commit('B', ['C']),
+    commit('C', []),
+  ])
+
+  assert.deepEqual(layout.rows.map((row) => row.colorIndex), [0, 0, 0])
+  for (const row of layout.rows) {
+    for (const line of row.lines) assert.equal(line.colorIndex, 0)
+  }
+})
+
+run('second tip opens a new branch-line colour and keeps it to the join', () => {
+  // X and Y are independent tips converging on P.
+  const layout = computeGitGraphLayout([
+    commit('X', ['P']),
+    commit('Y', ['P']),
+    commit('P', []),
+  ])
+  const [rowX, rowY, rowP] = layout.rows
+
+  assert.equal(rowX.colorIndex, 0)
+  assert.equal(rowY.colorIndex, 1)
+  // P is owned by the leftmost (first) branch line.
+  assert.equal(rowP.colorIndex, 0)
+  // Y's connector into the shared parent lane joins X's line, so it wears
+  // that line's colour; the lane passing through Y's row keeps colour 0.
+  const yOut = rowY.lines.find((line) => line.kind === 'out')
+  assert.equal(yOut?.colorIndex, 0)
+  const yThrough = rowY.lines.find((line) => line.kind === 'through')
+  assert.equal(yThrough?.colorIndex, 0)
+})
+
+run('merge parent opens a new branch-line colour', () => {
+  const layout = computeGitGraphLayout([
+    commit('M', ['A', 'B']),
+    commit('A', ['base']),
+    commit('B', ['base']),
+    commit('base', []),
+  ])
+  const [rowM, rowA, rowB] = layout.rows
+
+  assert.equal(rowM.colorIndex, 0)
+  assert.equal(rowA.colorIndex, 0)
+  // The merged-in branch line carries its own colour from the merge node down.
+  assert.equal(rowB.colorIndex, 1)
+  const mergeOut = rowM.lines.find((line) => line.kind === 'out' && line.toColumn === 1)
+  assert.equal(mergeOut?.colorIndex, 1)
+  const bThrough = rowA.lines.find((line) => line.kind === 'through')
+  assert.equal(bThrough?.colorIndex, 1)
+})
+
+run('headHash pins the checked-out branch line to colour slot 0', () => {
+  // Newest commit X is a side tip; HEAD sits on Y's line, which would
+  // otherwise take colour 1.
+  const commits = [
+    commit('X', ['P']),
+    commit('Y', ['P']),
+    commit('P', []),
+  ]
+  const layout = computeGitGraphLayout(commits, { headHash: 'Y' })
+  const [rowX, rowY, rowP] = layout.rows
+
+  assert.equal(rowY.colorIndex, 0, 'HEAD branch line takes slot 0')
+  assert.equal(rowX.colorIndex, 1, 'displaced line takes the swapped slot')
+  assert.equal(rowP.colorIndex, 1, 'lines owned by the displaced colour follow the swap')
+})
+
 run('orphan branch alongside mainline keeps a parallel lane', () => {
   // mainline: M1 -> M2 ; orphan tip O with no shared ancestry.
   const layout = computeGitGraphLayout([

@@ -13,6 +13,7 @@ import type {
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
   SprintEngineRoleId,
+  SprintEngineRoleModelOverrides,
   SprintEngineSourceBundleItem,
   SprintEngineSourcePlanKind,
   SprintEngineState,
@@ -35,6 +36,8 @@ export type OnCreateArgs = {
   sprintEngineContext?: SprintEngineWorkspaceContext | null
   sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
   sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
+  sprintEngineRoleModelOverrides?: SprintEngineRoleModelOverrides | null
+  sprintEngineInitialSpawnRoles?: SprintEngineRoleId[] | null
   sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
   guidedBriefState?: GuidedBriefRuntimeState | null
   mode?: WorkspaceMode
@@ -73,6 +76,8 @@ export type AddWorkspacePort = (
     multiloopContext?: MultiloopWorkspaceContext | null
     sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
     sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
+    sprintEngineRoleModelOverrides?: SprintEngineRoleModelOverrides | null
+    sprintEngineInitialSpawnRoles?: SprintEngineRoleId[] | null
     sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
     multiloopAutoState?: Partial<MultiloopAutoState> | null
     guidedBriefState?: GuidedBriefRuntimeState | null
@@ -107,6 +112,8 @@ export type SprintEngineExistingTeamInput = {
   }
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   agentCliOverrides: Record<AgentId, AgentCli>
+  roleModelOverrides?: SprintEngineRoleModelOverrides | null
+  initialSpawnRoles?: SprintEngineRoleId[] | null
   startRunner: boolean
   autoApproveArtifacts: boolean
   cliPermissionPreset: SprintEngineCliPermissionPreset
@@ -121,6 +128,8 @@ export type SprintEngineNewTeamInput = {
   visibleRoleCounts: SprintEngineRoleCounts
   totalAgents: number
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
+  roleModelOverrides?: SprintEngineRoleModelOverrides | null
+  initialSpawnRoles?: SprintEngineRoleId[] | null
   startRunner: boolean
   autoApproveArtifacts: boolean
   useWorktrees?: boolean

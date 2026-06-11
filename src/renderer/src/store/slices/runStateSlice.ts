@@ -408,6 +408,9 @@ export interface RunStateSliceActions {
     workspaceId: WorkspaceId,
     role: SprintEngineRoleId
   ) => { id: AgentId; label: string } | null
+  // Atomically takes the session-only creation launch intent so exactly one
+  // consumer (the Sprint Engine board) starts the requested agents once.
+  consumeSprintEngineInitialSpawns: (workspaceId: WorkspaceId) => AgentId[]
 }
 
 export type RunStateSlice = RunStateSliceState & RunStateSliceActions
@@ -684,6 +687,17 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
       })
 
       return addedAgent
+    },
+
+    consumeSprintEngineInitialSpawns: (workspaceId) => {
+      let consumed: AgentId[] = []
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === workspaceId)
+        if (!ws?.sprintEngineInitialSpawnAgentIds?.length) return
+        consumed = [...ws.sprintEngineInitialSpawnAgentIds]
+        ws.sprintEngineInitialSpawnAgentIds = undefined
+      })
+      return consumed
     },
   }
 }

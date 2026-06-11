@@ -3446,10 +3446,23 @@ function testGetAutoApprovalIntentArtifactsRespectsEligibility(): void {
     createdBy: 'frontend',
     createdAt: '2026-05-18T00:00:02Z',
   } as SprintEngineArtifact
+  // Regression: an agent-invented kind survives normalization for manual
+  // review, but must never become an approval intent — the main-process gate
+  // rejects unknown kinds, so proposing one loops warning/cooldown forever.
+  const unknownKindArtifact: SprintEngineArtifact = {
+    id: 'AR-004',
+    taskId: 'T4',
+    kind: 'frontend_design',
+    title: 'Unknown kind',
+    status: 'ready_for_review',
+    path: 'docs/unknown.md',
+    createdBy: 'developer-1',
+    createdAt: '2026-05-18T00:00:03Z',
+  } as SprintEngineArtifact
 
   const state = sprintEngineStateFixture({
     tasks,
-    artifacts: [reviewArtifact, draftArtifact, orphanArtifact],
+    artifacts: [reviewArtifact, draftArtifact, orphanArtifact, unknownKindArtifact],
   })
   const eligibleIds = getAutoApprovalIntentArtifacts(state).map((artifact) => artifact.id)
   // The review artifact is eligible because the artifact passes the eligibility predicate
@@ -3457,6 +3470,7 @@ function testGetAutoApprovalIntentArtifactsRespectsEligibility(): void {
   assert.ok(eligibleIds.includes('AR-001'), 'ready_for_review artifact on review task is eligible')
   assert.ok(eligibleIds.includes('AR-002'), 'draft artifact whose sibling task is in needs_input is eligible')
   assert.ok(!eligibleIds.includes('AR-003'), 'orphan artifact without a matching task is not eligible')
+  assert.ok(!eligibleIds.includes('AR-004'), 'unknown-kind artifact is never proposed for auto-approval')
 }
 
 function testGetPendingAgentNotificationEventsFiltersDeliveredAndSent(): void {

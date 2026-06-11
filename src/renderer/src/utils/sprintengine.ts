@@ -340,6 +340,12 @@ export const sprintEngineArtifactKindLabels: Record<SprintEngineArtifactKind, st
   validation_report: 'Validation Report',
 }
 
+export function sprintEngineArtifactKindLabel(kind: string): string {
+  return kind in sprintEngineArtifactKindLabels
+    ? sprintEngineArtifactKindLabels[kind as SprintEngineArtifactKind]
+    : kind
+}
+
 export const sprintEngineArtifactStatusLabels: Record<SprintEngineArtifactStatus, string> = {
   draft: 'Draft',
   ready_for_review: 'Ready For Review',
@@ -435,22 +441,6 @@ export function applyUserDisabledSprintEngineRoleCounts(
   }
   return mutated && next ? next : roleCounts
 }
-
-const sprintEngineArtifactKinds: readonly SprintEngineArtifactKind[] = [
-  'architect_plan',
-  'product_strategy',
-  'requirements',
-  'html_mockup',
-  'design_notes',
-  'branding',
-  'security_review',
-  'code_review',
-  'spec_review',
-  'performance_review',
-  'production_readiness_review',
-  'cross_platform_review',
-  'validation_report',
-]
 
 const sprintEngineArtifactStatuses: readonly SprintEngineArtifactStatus[] = [
   'draft',
@@ -563,7 +553,10 @@ export function isSprintEngineTaskLaunchable(task: SprintEngineTask, sprintEngin
   return !task.ownerAgentId && isSprintEngineTaskClaimableColumn(getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks))
 }
 
-const reviewGateArtifactKinds = new Set<SprintEngineArtifactKind>([
+// Typed against plain strings because artifact.kind tolerates unknown values
+// from stores written by other Sprint Engine versions; unknown kinds are
+// simply never review-gated or auto-approvable.
+const reviewGateArtifactKinds: ReadonlySet<string> = new Set([
   'architect_plan',
   'product_strategy',
   'requirements',
@@ -939,10 +932,6 @@ export function buildSprintEngineRoleRegistry(payload: unknown): SprintEngineRol
     if (normalized) warnings.push(normalized)
   }
   return { roles, aliases, warnings }
-}
-
-function isSprintEngineArtifactKind(value: unknown): value is SprintEngineArtifactKind {
-  return sprintEngineArtifactKinds.includes(value as SprintEngineArtifactKind)
 }
 
 function isSprintEngineArtifactStatus(value: unknown): value is SprintEngineArtifactStatus {
@@ -1530,9 +1519,14 @@ function normalizeSprintEngineArtifacts(value: unknown): SprintEngineArtifact[] 
   return value.flatMap((artifact, index) => {
     if (!artifact || typeof artifact !== 'object') return []
     const record = artifact as Record<string, unknown>
+    // Unknown kinds are kept: dropping them here made artifacts referenced by
+    // needs_input tasks invisible, so the inspector claimed no artifact was
+    // attached and auto-approval never saw the review request. Kind validity
+    // is enforced where artifacts are created (sprintengine artifact add).
     if (
       typeof record.id !== 'string'
-      || !isSprintEngineArtifactKind(record.kind)
+      || typeof record.kind !== 'string'
+      || !record.kind.trim()
       || !isSprintEngineArtifactStatus(record.status)
     ) {
       return []
@@ -1943,12 +1937,13 @@ export function getSprintEngineTaskSourceType(task: Pick<SprintEngineTask, 'sour
 }
 
 export function getReviewableSprintEngineArtifacts(artifacts: SprintEngineArtifact[]): SprintEngineArtifact[] {
-  return artifacts.filter((artifact) =>
-    reviewGateArtifactKinds.has(artifact.kind) && artifact.status !== 'superseded'
-  )
+  // Unknown kinds stay reviewable: the user must be able to see and manually
+  // approve an artifact a task's needs_input points at even when this build
+  // does not recognize the kind. Only superseded artifacts leave the surface.
+  return artifacts.filter((artifact) => artifact.status !== 'superseded')
 }
 
-export function isSprintEngineArtifactAutoApprovableKind(kind: SprintEngineArtifactKind): boolean {
+export function isSprintEngineArtifactAutoApprovableKind(kind: string): boolean {
   return reviewGateArtifactKinds.has(kind)
 }
 
@@ -1999,8 +1994,13 @@ export function getAutoApprovableReadySprintEngineArtifacts(
     const task = tasksById.get(artifact.taskId)
     if (!task || task.status !== 'needs_input') return false
 
+    // Mirrors the main-process auto-approval gate: only auto-approvable kinds
+    // count as blockers, so an unknown-kind sibling awaiting manual review
+    // does not veto auto-approval of the artifacts this build understands.
     const blockingArtifacts = (reviewArtifactsByTaskId[task.id] ?? []).filter((candidate) =>
-      candidate.status !== 'approved' && candidate.status !== 'superseded'
+      candidate.status !== 'approved'
+      && candidate.status !== 'superseded'
+      && isSprintEngineArtifactAutoApprovableKind(candidate.kind)
     )
     if (blockingArtifacts.length === 0) return false
 

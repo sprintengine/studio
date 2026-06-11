@@ -75,6 +75,13 @@ assert.equal(autoRunCleaned.sprintEngineAutoState.runtimeState, 'running')
 assert.deepEqual(autoRunCleaned.sprintEngineAutoState.pendingSpawns, [])
 assert.equal(autoRunCleaned.sprintEngineAutoState.maxConcurrentAgents, 4)
 
+// Creation "start now" launch intent is session-only: persisting it would
+// replay the initial spawns on the next app start.
+const initialSpawnCleaned = normalizeWorkspaceForPartialize(baseWorkspace({
+  sprintEngineInitialSpawnAgentIds: ['frontend'],
+}))
+assert.equal(initialSpawnCleaned.sprintEngineInitialSpawnAgentIds, undefined)
+
 // normalizeWorkspaceForPartialize zeros the in-memory stream buffer + status on agents
 // that survive a save so they cold-load idle instead of streaming.
 const withAgent = baseWorkspace({

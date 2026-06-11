@@ -88,6 +88,9 @@ export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace
       ...sprintEngineAutoState,
       pendingSpawns: [],
     },
+    // Session-only creation launch intent; never persist it, or a restart
+    // would replay the initial spawns.
+    sprintEngineInitialSpawnAgentIds: undefined,
     multiloopAutoState: normalizeMultiloopAutoState(launchSafeWorkspace.multiloopAutoState),
     agents: Object.fromEntries(
       Object.entries(launchSafeWorkspace.agents).map(([id, a]) => {
