@@ -215,3 +215,52 @@ def test_authenticated_mcp_user_approval_preserves_payload_actor_and_role_indepe
     assert_artifact_status(approved_state, "A1", "approved")
     assert artifact["approvedBy"] == "code-reviewer-fixture"
     assert_task_status(approved_state, "T1", "done")
+
+
+def test_mcp_artifact_add_rejects_unknown_kind_with_corrective_error(tmp_path) -> None:
+    # Regression: the MCP payload adapter bypasses the CLI argparse choices,
+    # so an agent could register an invented kind (e.g. "frontend_design").
+    # The stored unknown kind then broke artifact review surfaces and
+    # auto-approval downstream. Kind must be validated at the mutation path.
+    fixture = create_team(
+        tmp_path,
+        "mcp-artifact-kind-validation",
+        [task("T1", "Design notes", "frontend", "in_progress", owner="frontend-fixture")],
+    )
+    write_team_file(fixture, "design.md", "# Design\n")
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    actor_context = {"id": "frontend-fixture", "role": "frontend", "authenticated": True, "mcpAuthorized": True}
+
+    rejected = server.call_tool(
+        "sprintengine.artifact.add",
+        {
+            "statePath": str(fixture.state_path),
+            "taskId": "T1",
+            "kind": "frontend_design",
+            "title": "Design notes",
+            "path": "design.md",
+            "createdBy": "frontend-fixture",
+        },
+        actor_context,
+    )
+    assert rejected["ok"] is False
+    assert "Invalid artifact kind: frontend_design" in rejected["error"]["message"]
+    # The error must teach the caller the valid vocabulary so the agent can
+    # immediately re-register with a correct kind.
+    assert "design_notes" in rejected["error"]["message"]
+    assert read_state(fixture.state_path).get("artifacts", []) == []
+
+    accepted = server.call_tool(
+        "sprintengine.artifact.add",
+        {
+            "statePath": str(fixture.state_path),
+            "taskId": "T1",
+            "kind": "design_notes",
+            "title": "Design notes",
+            "path": "design.md",
+            "createdBy": "frontend-fixture",
+        },
+        actor_context,
+    )
+    assert accepted["ok"] is True
+    assert accepted["result"]["artifact"]["kind"] == "design_notes"

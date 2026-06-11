@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react'
 import type { GitGraphCommit, GitGraphSnapshot } from '../../../../shared/electron-api'
 import { computeGitGraphLayout, type GitGraphLine } from '../../utils/gitGraphLayout'
-import { GhostButton, InlineNotice, OverflowMenu, StatusDot, Tooltip, type OverflowMenuItem, type Tone } from '../ui'
+import { GhostButton, InlineNotice, OverflowMenu, Tooltip, type OverflowMenuItem } from '../ui'
 import { setCommitDropData } from '../../utils/terminalDrop'
 
 export type GitGraphState =
@@ -22,7 +22,17 @@ const LANE_WIDTH = 14
 const ROW_HEIGHT = 44
 const NODE_RADIUS = 3.5
 const HEAD_NODE_RADIUS = 4.5
+const HEAD_RING_RADIUS = 7
 const GUTTER_PADDING = 5
+// Size of the --git-lane-* palette in index.css; layout colour indices are
+// unbounded and wrap onto it.
+const LANE_PALETTE_SIZE = 8
+// Opacity for branch lines outside the traced ancestry while a trace is active.
+const UNTRACED_LANE_OPACITY = 0.3
+
+function laneColor(colorIndex: number): string {
+  return `var(--git-lane-${colorIndex % LANE_PALETTE_SIZE})`
+}
 // Beyond this the gutter stops widening and far lanes clamp to the edge; keeps a
 // pathological fan-out from pushing commit subjects off-screen.
 const MAX_GUTTER_COLUMNS = 8
@@ -51,26 +61,30 @@ function collectAncestry(commitsByHash: Map<string, GitGraphCommit>, hash: strin
   return set
 }
 
-function refTone(ref: string, currentBranch: string | null): Tone {
-  if (ref === 'HEAD') return 'accent'
-  if (ref === currentBranch) return 'accent'
-  if (ref.includes('/')) return 'neutral'
-  return 'neutral'
+interface VisibleRef {
+  label: string
+  isTag: boolean
 }
 
-function visibleRefs(commit: GitGraphCommit): string[] {
+function visibleRefs(commit: GitGraphCommit): VisibleRef[] {
   // `%D` decoration ("HEAD -> main") and the exact-ref scan ("main") both reduce
   // to the same label, so dedup after normalising. Keep a bare "HEAD" only when
   // it is the sole ref (detached with no branch pointing here).
-  const normalized = commit.refs
-    .map((ref) => ref.replace(/^HEAD -> /, '').replace(/^tag: /, ''))
-    .filter((ref) => ref.length > 0 && (ref !== 'HEAD' || commit.refs.length === 1))
-  return [...new Set(normalized)].slice(0, 4)
+  const seen = new Map<string, VisibleRef>()
+  for (const raw of commit.refs) {
+    const isTag = raw.startsWith('tag: ')
+    const label = raw.replace(/^HEAD -> /, '').replace(/^tag: /, '')
+    if (label.length === 0) continue
+    if (label === 'HEAD' && commit.refs.length > 1) continue
+    if (!seen.has(label)) seen.set(label, { label, isTag })
+  }
+  return [...seen.values()].slice(0, 4)
 }
 
 function GitGraphGutter({
   commitHash,
   column,
+  colorIndex,
   lines,
   columns,
   isHead,
@@ -78,6 +92,7 @@ function GitGraphGutter({
 }: {
   commitHash: string
   column: number
+  colorIndex: number
   lines: GitGraphLine[]
   columns: number
   isHead: boolean
@@ -85,11 +100,13 @@ function GitGraphGutter({
 }) {
   const width = gutterWidth(columns)
   const mid = ROW_HEIGHT / 2
-  // Neutral lanes first, traced lanes on top so the accent reads cleanly.
+  const traceActive = highlight.size > 0
+  // Dimmed lanes first, traced lanes on top so the trace reads cleanly.
   const ordered = [...lines].sort(
     (a, b) => Number(highlight.has(a.hash)) - Number(highlight.has(b.hash))
   )
-  const nodeHighlighted = highlight.has(commitHash)
+  const nodeDimmed = traceActive && !highlight.has(commitHash)
+  const nodeColor = laneColor(colorIndex)
 
   return (
     <svg
@@ -101,7 +118,6 @@ function GitGraphGutter({
     >
       {ordered.map((line, index) => {
         const traced = highlight.has(line.hash)
-        const stroke = traced ? 'var(--accent-primary)' : 'var(--text-disabled)'
         const fromX = laneX(line.fromColumn, columns)
         const toX = laneX(line.toColumn, columns)
         const d =
@@ -114,20 +130,31 @@ function GitGraphGutter({
           <path
             key={`${line.kind}-${line.fromColumn}-${line.toColumn}-${index}`}
             d={d}
-            stroke={stroke}
+            stroke={laneColor(line.colorIndex)}
             strokeWidth={traced ? 1.5 : 1.25}
+            opacity={traceActive && !traced ? UNTRACED_LANE_OPACITY : 1}
             fill="none"
             strokeLinecap="round"
           />
         )
       })}
+      {isHead ? (
+        <circle
+          cx={laneX(column, columns)}
+          cy={mid}
+          r={HEAD_RING_RADIUS}
+          fill="none"
+          stroke={nodeColor}
+          strokeWidth={1}
+          opacity={nodeDimmed ? UNTRACED_LANE_OPACITY : 1}
+        />
+      ) : null}
       <circle
         cx={laneX(column, columns)}
         cy={mid}
         r={isHead ? HEAD_NODE_RADIUS : NODE_RADIUS}
-        fill={isHead || nodeHighlighted ? 'var(--accent-primary)' : 'var(--bg-surface)'}
-        stroke={isHead || nodeHighlighted ? 'var(--accent-primary)' : 'var(--text-disabled)'}
-        strokeWidth={1.25}
+        fill={nodeColor}
+        opacity={nodeDimmed ? UNTRACED_LANE_OPACITY : 1}
       />
     </svg>
   )
@@ -159,6 +186,7 @@ function buildCommitMenuItems(commit: GitGraphCommit, actions: GitCommitActions)
 function GitGraphCommitRow({
   commit,
   column,
+  colorIndex,
   lines,
   columns,
   isHead,
@@ -171,6 +199,7 @@ function GitGraphCommitRow({
 }: {
   commit: GitGraphCommit
   column: number
+  colorIndex: number
   lines: GitGraphLine[]
   columns: number
   isHead: boolean
@@ -196,7 +225,9 @@ function GitGraphCommitRow({
       <button
         type="button"
         aria-pressed={active}
-        aria-label={`Commit ${commit.shortHash}: ${commit.subject}`}
+        aria-label={`Commit ${commit.shortHash}: ${commit.subject}${
+          refs.length > 0 ? ` (${refs.map((ref) => ref.label).join(', ')})` : ''
+        }`}
         onMouseEnter={() => onHover(commit.hash)}
         onMouseLeave={() => onHover(null)}
         onFocus={() => onHover(commit.hash)}
@@ -211,6 +242,7 @@ function GitGraphCommitRow({
         <GitGraphGutter
           commitHash={commit.hash}
           column={column}
+          colorIndex={colorIndex}
           lines={lines}
           columns={columns}
           isHead={isHead}
@@ -219,9 +251,15 @@ function GitGraphCommitRow({
         <span className="flex min-w-0 flex-1 flex-col justify-center">
           <span className="flex min-w-0 items-center gap-2">
             {refs.length > 0 ? (
-              <span className="flex shrink-0 items-center gap-1.5">
+              <span className="flex shrink-0 items-center gap-1">
                 {refs.map((ref) => (
-                  <GitRefLabel key={ref} label={ref} tone={refTone(ref, currentBranch)} />
+                  <GitRefPill
+                    key={ref.label}
+                    label={ref.label}
+                    isTag={ref.isTag}
+                    isCurrent={ref.label === currentBranch}
+                    colorIndex={colorIndex}
+                  />
                 ))}
               </span>
             ) : null}
@@ -256,13 +294,29 @@ function GitGraphCommitRow({
   )
 }
 
-function GitRefLabel({ label, tone }: { label: string; tone: Tone }) {
+function GitRefPill({
+  label,
+  isTag,
+  isCurrent,
+  colorIndex,
+}: {
+  label: string
+  isTag: boolean
+  isCurrent: boolean
+  colorIndex: number
+}) {
+  // Branch refs wear their branch line's lane colour; tags stay neutral so the
+  // hue vocabulary remains "one colour per branch line".
+  const surface = isTag
+    ? 'border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]'
+    : `git-ref-pill-${colorIndex % LANE_PALETTE_SIZE}`
   return (
     <span
-      className="inline-flex max-w-[150px] items-center gap-1 text-[11px] font-medium text-[color:var(--text-default)]"
+      className={`inline-flex h-[17px] max-w-[150px] items-center rounded border px-1.5 text-[10px] ${
+        isCurrent ? 'font-semibold' : 'font-medium'
+      } ${surface}`}
       title={label}
     >
-      <StatusDot tone={tone} />
       <span className="truncate font-mono">{label}</span>
     </span>
   )
@@ -290,7 +344,7 @@ export function GitGraphView({
 
   const snapshot = state.status === 'ready' ? state.snapshot : null
   const layout = useMemo(
-    () => computeGitGraphLayout(snapshot?.commits ?? []),
+    () => computeGitGraphLayout(snapshot?.commits ?? [], { headHash: snapshot?.headHash ?? null }),
     [snapshot]
   )
   const commitsByHash = useMemo(() => {
@@ -365,6 +419,7 @@ export function GitGraphView({
               key={row.hash}
               commit={commit}
               column={row.column}
+              colorIndex={row.colorIndex}
               lines={row.lines}
               columns={layout.columns}
               isHead={snapshot.headHash === row.hash}

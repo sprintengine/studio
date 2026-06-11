@@ -11,6 +11,7 @@ import type {
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
   SprintEngineRoleId,
+  SprintEngineRoleModelOverrides,
   SprintEngineRoleRegistry,
 } from '../../../types/workspace'
 import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAutomation'
@@ -139,6 +140,11 @@ export function RosterAndRunSettings({
   cliDisabled,
   onSetCount,
   onSetCli,
+  roleModelOverrides,
+  cliModelDefaults,
+  onSetModel,
+  spawnAtStartRoles,
+  onSetSpawnAtStart,
   totalAgents,
   rosterCountLabel,
   saveRoster,
@@ -157,6 +163,13 @@ export function RosterAndRunSettings({
   cliDisabled: boolean
   onSetCount: (role: SprintEngineRoleId, count: number) => void
   onSetCli: (role: SprintEngineRoleId, cli: AgentCli) => void
+  // Model-aware roster controls and per-role "start now" intent; optional so
+  // surfaces without launch semantics (Guided Brief handoff) stay as-is.
+  roleModelOverrides?: SprintEngineRoleModelOverrides
+  cliModelDefaults?: Partial<Record<AgentCli, string>>
+  onSetModel?: (role: SprintEngineRoleId, model: string | null) => void
+  spawnAtStartRoles?: Partial<Record<SprintEngineRoleId, boolean>>
+  onSetSpawnAtStart?: (role: SprintEngineRoleId, spawn: boolean) => void
   totalAgents: number
   // Lets the Sprint Engine step show "Loading roles" while the registry resolves;
   // omit to show the plain specialist count.
@@ -190,6 +203,11 @@ export function RosterAndRunSettings({
           cliDisabled={cliDisabled}
           onSetCount={onSetCount}
           onSetCli={onSetCli}
+          roleModelOverrides={roleModelOverrides}
+          cliModelDefaults={cliModelDefaults}
+          onSetModel={onSetModel}
+          spawnAtStartRoles={spawnAtStartRoles}
+          onSetSpawnAtStart={onSetSpawnAtStart}
           footer={
             onChangeSaveRoster ? (
               <SaveRosterDefaultRow checked={saveRoster ?? false} onChange={onChangeSaveRoster} />

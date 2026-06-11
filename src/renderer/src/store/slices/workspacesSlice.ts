@@ -47,6 +47,7 @@ import type {
   SprintEngineRole,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
+  SprintEngineRoleModelOverrides,
   SprintEngineWorkspaceContext,
   Workspace,
   WorkspaceFileExplorerState,
@@ -152,6 +153,14 @@ export interface WorkspacesSliceActions {
       multiloopContext?: MultiloopWorkspaceContext | null
       sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
       sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
+      // Explicit per-role launch model from the new-workspace roster. String =
+      // explicit model id, null = explicit CLI default; absent roles seed from
+      // the remembered per-CLI model default as before.
+      sprintEngineRoleModelOverrides?: SprintEngineRoleModelOverrides | null
+      // Roles the user marked "start now" in the new-workspace roster. Every
+      // seeded roster agent of these roles is queued as session-only initial
+      // spawn intent for the Sprint Engine board to launch on first open.
+      sprintEngineInitialSpawnRoles?: SprintEngineRoleId[] | null
       // CLI for the general template agents (e.g. the solo "New chat" agent).
       // When set, overrides the remembered `lastSelectedCli` default below.
       templateAgentCli?: AgentCli | null
@@ -875,6 +884,8 @@ export function createWorkspacesSlice(
         const sprintEngineRoleCliDefaults = sprintEngineState
           ? deps.normalizeSprintEngineRoleCliDefaults(options?.sprintEngineRoleCliDefaults)
           : undefined
+        const initialSpawnRoles = new Set(options?.sprintEngineInitialSpawnRoles ?? [])
+        const initialSpawnAgentIds: AgentId[] = []
         if (sprintEngineState) {
           if (!sprintEngineRoleCliDefaults) {
             throw new Error('Missing Sprint Engine CLI defaults for workspace creation.')
@@ -884,6 +895,15 @@ export function createWorkspacesSlice(
             const rosterCli = typeof overrideCli === 'string' && overrideCli.trim()
               ? overrideCli.trim()
               : requireSprintEngineRoleCli(sprintEngineRoleCliDefaults, agent.role)
+            // An explicit roster model choice wins; null means the user picked
+            // "CLI default" (no flag); absent keeps the legacy seeding from the
+            // remembered per-CLI model default.
+            const modelOverride = options?.sprintEngineRoleModelOverrides?.[agent.role]
+            const rosterModel = modelOverride === null
+              ? undefined
+              : modelOverride?.trim()
+                || state.appSettings.cliModelDefaults?.[rosterCli]?.trim()
+                || undefined
             agents[agent.id] = {
               ...deps.defaultAgent(
                 agent.id,
@@ -891,10 +911,9 @@ export function createWorkspacesSlice(
                 'sprintengine'
               ),
               cli: rosterCli,
-              // Roster members inherit the remembered per-CLI model; per-member
-              // model picking happens later in the spawn/recovery dialogs.
-              cliModel: state.appSettings.cliModelDefaults?.[rosterCli]?.trim() || undefined,
+              cliModel: rosterModel,
             }
+            if (initialSpawnRoles.has(agent.role)) initialSpawnAgentIds.push(agent.id)
           })
         } else if (options?.seedAgent?.terminal) {
           // Terminal seed: the lone agent tab is swapped for a terminal tab in
@@ -972,6 +991,7 @@ export function createWorkspacesSlice(
           multiloopState,
           guidedBriefState,
           sprintEngineRoleCliDefaults,
+          ...(initialSpawnAgentIds.length > 0 ? { sprintEngineInitialSpawnAgentIds: initialSpawnAgentIds } : {}),
           sprintEngineAutoState: deps.normalizeSprintEngineAutoState(options?.sprintEngineAutoState),
           multiloopAutoState: deps.normalizeMultiloopAutoState(options?.multiloopAutoState),
           createdAt: Date.now(),

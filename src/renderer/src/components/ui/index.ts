@@ -14,6 +14,8 @@ export { LifecycleGlyph, LIFECYCLE_LABEL, type LifecycleState } from './Lifecycl
 export { GhostButton, PrimaryButton, IconButton, CloseIconButton } from './Buttons'
 export { ConfirmDialog, ConfirmDialogProvider, useConfirmDialog } from './ConfirmDialog'
 export type { ConfirmDialogOptions, ConfirmDialogProps, PromptDialogOptions } from './ConfirmDialog'
+export { CliModelListbox, CliModelPickerButton } from './CliModelListbox'
+export type { CliModelListboxOption } from './CliModelListbox'
 export { Popover } from './Popover'
 export type { PopoverProps, PopoverPlacement } from './Popover'
 export { OverflowMenu } from './OverflowMenu'

@@ -256,7 +256,10 @@ export type SprintEngineArtifactReviewHistoryEntry = {
 
 export type SprintEngineArtifact = {
   id: string
-  kind: SprintEngineArtifactKind
+  // Known kinds get labels and auto-approval; stores written by other Sprint
+  // Engine versions may carry kinds this build does not know, and those
+  // artifacts must still surface for manual review instead of vanishing.
+  kind: SprintEngineArtifactKind | (string & {})
   title: string
   path: string
   status: SprintEngineArtifactStatus
@@ -1052,6 +1055,12 @@ export type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete
 export type AgentCli = string
 export type SprintEngineRoleCliDefaults = Partial<Record<SprintEngineRoleId, AgentCli>>
 
+// Explicit per-role model selection from the new-workspace roster. A string
+// is an explicit model id; null is an explicit "CLI default" (no flag passed)
+// that suppresses the remembered per-CLI default; an absent role keeps the
+// legacy behavior of seeding from the remembered per-CLI model default.
+export type SprintEngineRoleModelOverrides = Partial<Record<SprintEngineRoleId, string | null>>
+
 export type SprintEngineSavedRoster = {
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: SprintEngineRoleCliDefaults
@@ -1596,6 +1605,11 @@ export type Workspace = {
   sprintEngineCompletionSeenAt?: number | null
   multiloopState?: MultiloopState | null
   sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults
+  // Roster agents the user explicitly asked to start when the workspace
+  // opens (new-workspace "Start now" intent). Session-only launch intent:
+  // consumed by the Sprint Engine board on first ready render and stripped
+  // at persist so an app restart never replays the spawns.
+  sprintEngineInitialSpawnAgentIds?: AgentId[]
   sprintEngineAutoState: SprintEngineAutoState
   multiloopAutoState: MultiloopAutoState
   guidedBriefState?: GuidedBriefRuntimeState | null

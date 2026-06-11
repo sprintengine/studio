@@ -972,6 +972,19 @@ export type SprintEngineRosterReplenishInput = {
   role?: SprintEngineTaskMutationRole
 }
 
+export type SprintEngineRosterAddInput = {
+  statePath: string
+  /** Expected agent id, e.g. `frontend-2`; the CLI add is idempotent on it. */
+  agentId: string
+  /**
+   * Registry role id. A plain string (not SprintEngineTaskMutationRole)
+   * because roster membership accepts any configured registry role, including
+   * custom and plugin-installed roles; the Sprint Engine CLI canonicalizes
+   * the id and rejects unknown roles.
+   */
+  role: string
+}
+
 export type MultiloopInitInput = {
   workspaceRoot: string
   loopName: string
@@ -1520,6 +1533,7 @@ export type ElectronApi = {
   commentSprintEngineTask: (input: SprintEngineTaskCommentInput) => Promise<SprintEngineArtifactCommandResult>
   setSprintEngineRunnerMode: (input: SprintEngineRunnerSetInput) => Promise<SprintEngineArtifactCommandResult>
   replenishSprintEngineRoster: (input: SprintEngineRosterReplenishInput) => Promise<SprintEngineArtifactCommandResult>
+  addSprintEngineRosterMember: (input: SprintEngineRosterAddInput) => Promise<SprintEngineArtifactCommandResult>
   readSprintEngineProjection: (statePath: string) => Promise<SprintEngineProjectionReadResult>
   readSprintEngineRegistryRoles: (input: SprintEngineRegistryRolesReadInput) => Promise<SprintEngineMcpReadResult>
   readSprintEngineRegistryRole: (input: SprintEngineRegistryRoleReadInput) => Promise<SprintEngineMcpReadResult>

@@ -22,6 +22,8 @@ import {
   getSprintEngineTaskBoardColumn,
   getSprintEngineTaskImplementerTimeline,
   getSprintEngineTaskOwnerLabel,
+  getReviewableSprintEngineArtifacts,
+  getSprintEngineArtifactAutoApprovalEligibility,
   getSprintEngineTaskQualityGates,
   getSprintEngineTasksReviewedByAgent,
   getSprintEngineTasksWorkedOnByAgent,
@@ -36,6 +38,7 @@ import {
   orderSprintEngineBoardColumnTasks,
   orderSprintEngineRosterRoles,
   resolveSprintEngineArtifactEditorPath,
+  sprintEngineArtifactKindLabel,
   sprintEngineNeutralRoleAccent,
   deriveSprintEngineRunGlyph,
   sprintEngineRoleOrder,
@@ -2308,6 +2311,45 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
     () => resolveSprintEngineArtifactEditorPath(statePath, 'mailto:foo@bar', helpers),
     /Only workspace artifact file paths/,
   )
+}
+
+// Regression (GolfGPS T5): an artifact whose kind this build does not know —
+// e.g. an agent-invented "frontend_design" stored through the MCP path —
+// must survive normalization so the needs_input review surface can show it
+// and the user can approve it manually. It must never be auto-approvable.
+{
+  const unknownKindProjection = fakeProjection({
+    artifacts: [
+      {
+        id: 'A3',
+        kind: 'frontend_design',
+        title: 'UI design notes',
+        path: 'design/ui-design-notes.md',
+        status: 'ready_for_review',
+        createdBy: 'frontend',
+        taskId: 'T1',
+        fingerprint: 'abc',
+        reviewHistory: [],
+        recommendedTasks: [],
+        createdAt: '2026-06-10T23:28:12Z',
+        updatedAt: '2026-06-10T23:28:19Z',
+      },
+    ],
+  })
+  const unknownKindState = normalizeSprintEngineProjection(unknownKindProjection, 'fallback-name')
+  assert.ok(unknownKindState, 'projection with unknown artifact kind should normalize')
+  assert.equal(unknownKindState!.artifacts.length, 1, 'unknown-kind artifact is retained, not silently dropped')
+  assert.equal(unknownKindState!.artifacts[0]!.kind, 'frontend_design')
+  assert.equal(
+    getReviewableSprintEngineArtifacts(unknownKindState!.artifacts).length,
+    1,
+    'unknown-kind artifact stays on review surfaces for manual approval'
+  )
+  const eligibility = getSprintEngineArtifactAutoApprovalEligibility(unknownKindState!.artifacts[0]!)
+  assert.equal(eligibility.eligible, false, 'unknown-kind artifact is not auto-approvable')
+  assert.equal(eligibility.reason, 'Unknown artifact type.')
+  assert.equal(sprintEngineArtifactKindLabel('frontend_design'), 'frontend_design', 'unknown kind labels fall back to the raw value')
+  assert.equal(sprintEngineArtifactKindLabel('design_notes'), 'Design Notes')
 }
 
 // eslint-disable-next-line no-console
