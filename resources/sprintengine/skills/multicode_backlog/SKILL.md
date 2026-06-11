@@ -24,7 +24,7 @@ Follow the object-store procedure in the supporting info exactly; never compute 
 
 ## Item Content
 
-Beyond the behaviour-and-intent core, items may carry a structured implementation plan:
+Include as much detail as is useful — err on the side of a rich, complete item rather than a thin one. Beyond the behaviour-and-intent core, items may carry a structured implementation plan:
 
 - **Planned intake**: when the item will be planned by the architect at sprint start, behaviour-focused content is the ideal — the architect designs the implementation then, against the current codebase, Knowledge Graph, tests, and runtime constraints. Implementation notes are advisory hints the architect may override.
 - **Direct pickup**: when the item is handed straight to a single agent, include the intended approach, affected areas, task breakdown, and verification expectations so any agent can execute without a separate planning pass.

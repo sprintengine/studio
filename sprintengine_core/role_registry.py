@@ -184,10 +184,10 @@ class RegistryDiscovery:
 
 SOUL_LEGEND = (
     "<soul-legend>\n"
-    "Sections tagged <what-to-do> are mandatory behaviour and take precedence over "
-    "everything else in this prompt. Sections tagged <supporting-info> are reference "
-    "detail; consult them when the work touches them. Each <skill> block names the "
-    "source skill for the content it wraps.\n"
+    "Sections tagged <what-to-do> are the mandatory core of each skill; sections tagged "
+    "<supporting-info> are reference detail to consult when the work touches them. When "
+    "they conflict, <what-to-do> wins. Each <skill> block names the source skill for the "
+    "content it wraps.\n"
     "</soul-legend>"
 )
 
