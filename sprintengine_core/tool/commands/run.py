@@ -35,12 +35,14 @@ from sprintengine_core.tool.plans import (
 from sprintengine_core.tool.prompts import artifact_registration_instruction, completion_reality_instruction, load_prompt
 from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.review_prompts import build_merge_start_prompt, worker_execution_workspace_block
+from sprintengine_core.tool.shell import ensure_run_worktree, get_run_vcs
 from sprintengine_core.tool.state import (
     agent_is_retired,
     append_event,
     apply_agent_specs,
     clear_non_active_task_owner_claims,
     ensure_agent_in_roster,
+    find_task,
     load_mutation_state,
     parse_agent_specs,
     reconcile_agent,
@@ -50,7 +52,13 @@ from sprintengine_core.tool.state import (
     task_quality_gates,
     with_locked_state,
 )
-from sprintengine_core.tool.tasks import add_unique_values, recompute_phase, task_is_ready
+from sprintengine_core.tool.tasks import (
+    add_unique_values,
+    ensure_evidence,
+    recompute_phase,
+    refresh_task_diff_evidence,
+    task_is_ready,
+)
 
 BENCHMARK_FEEDBACK_GUIDANCE = (
     "Benchmark feedback counts are evidence fields, not guesses. "
@@ -254,6 +262,12 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             sprintengine["name"] = default_name
         if getattr(args, "goal", None) and not sprintengine.get("goal"):
             sprintengine["goal"] = args.goal
+        # When worktree mode is requested, create (or reuse) one shared run
+        # worktree + branch for the whole team before any task work. The vcs
+        # block is recorded into run state so every agent prompt routes work
+        # into the same worktree and per-task commits land on the same branch.
+        if getattr(args, "use_worktrees", False) and not get_run_vcs(state):
+            ensure_run_worktree(state, state_path)
         has_product_plan_source = state_has_source_kind(state, "product_plan")
         has_architect_plan_source = state_has_source_kind(state, "architect_plan")
         existing_plan_gate = find_architect_plan_gate(state, state_path)
@@ -348,6 +362,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             "team": sprintengine.get("name") or default_name,
             "productGate": product_gate,
             "planGate": plan_gate,
+            "vcs": get_run_vcs(state),
         }
 
     init_state = with_locked_state(state_path, run, initial_state=initial_state)
@@ -362,6 +377,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         "productArtifact": product_gate["artifact"] if product_gate else None,
         "planTask": plan_gate["task"],
         "planArtifact": plan_gate["artifact"],
+        "vcs": init_state.get("vcs"),
     }
 def runner_watch_delay_seconds(policy: Dict[str, Any], attempts: int) -> int:
     poll_interval = int(policy.get("pollIntervalSeconds") or 10)
@@ -842,6 +858,81 @@ def cmd_merge_start(args: argparse.Namespace) -> Dict[str, Any]:
     }
 
 
+def cmd_vcs_status(args: argparse.Namespace) -> Dict[str, Any]:
+    from sprintengine_core.tool.shell import git_status_short, worktree_for_vcs
+
+    state = load_mutation_state(args.state)
+    vcs = get_run_vcs(state)
+    if not vcs:
+        return {"ok": True, "enabled": False, "vcs": None, "message": "Sprint Engine run is not in worktree mode."}
+    worktree = worktree_for_vcs(state, args.state)
+    dirty = git_status_short(worktree) if worktree and worktree.exists() else ""
+    return {
+        "ok": True,
+        "enabled": True,
+        "vcs": vcs,
+        "worktreePath": vcs.get("worktreePath"),
+        "branchName": vcs.get("branchName"),
+        "clean": not dirty,
+        "dirtyFiles": [line.strip() for line in dirty.splitlines() if line.strip()],
+    }
+
+
+def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
+    from sprintengine_core.tool.shell import commit_run_worktree_paths, worktree_for_vcs
+
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        vcs = get_run_vcs(state)
+        if not vcs:
+            raise SystemExit("Sprint Engine run is not in worktree mode; nothing to commit.")
+        task = find_task(state, args.task_id)
+        actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
+        if getattr(args, "summary", None):
+            ensure_evidence(task)["summary"] = args.summary
+        refresh_task_diff_evidence(state, args.state, task, str(actor), args.path or [])
+        sha = commit_run_worktree_paths(state, args.state, task, str(actor), explicit_paths=args.path or [])
+        worktree = worktree_for_vcs(state, args.state)
+        dirty = ""
+        if worktree and worktree.exists():
+            from sprintengine_core.tool.shell import git_status_short
+            dirty = git_status_short(worktree)
+        recompute_phase(state)
+        return {
+            "ok": True,
+            "taskId": args.task_id,
+            "committed": bool(sha),
+            "commitSha": sha,
+            "branchName": vcs.get("branchName"),
+            "worktreePath": vcs.get("worktreePath"),
+            "clean": not dirty,
+            "message": (
+                f"Committed task {args.task_id} changes as {sha}."
+                if sha
+                else f"No in-scope changes to commit for task {args.task_id}."
+            ),
+        }
+
+    return with_locked_state(args.state, run)
+
+
+def cmd_vcs_pr(args: argparse.Namespace) -> Dict[str, Any]:
+    from sprintengine_core.tool.shell import create_run_pull_request
+
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        result = create_run_pull_request(
+            state,
+            args.state,
+            base=getattr(args, "base", None),
+            title=getattr(args, "title", None),
+            body=getattr(args, "body", None),
+            draft=bool(getattr(args, "draft", False)),
+            push=not bool(getattr(args, "no_push", False)),
+        )
+        return {"action": "vcs_pr", **result}
+
+    return with_locked_state(args.state, run)
+
+
 def build_recovery_prompt(state: Dict[str, Any], state_path: Path, backup_path: Path) -> str:
     sprintengine = state.get("sprintengine", {})
     goal = sprintengine.get("goal") or "(not set - read the codebase for context)"
@@ -1055,3 +1146,6 @@ projection = cmd_projection
 runner_status = cmd_runner_status
 runner_set = cmd_runner_set
 triage_needs_input = cmd_triage_needs_input
+vcs_status = cmd_vcs_status
+vcs_commit = cmd_vcs_commit
+vcs_pr = cmd_vcs_pr

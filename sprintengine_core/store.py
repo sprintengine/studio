@@ -52,6 +52,9 @@ RUN_LOCK_FILE = "runner/run.queue.lock"
 READY_QUEUE_LOCK_FILE = "runner/ready.queue.lock"
 CLAIM_QUEUE_LOCK_FILE = "runner/claim.queue.lock"
 GATE_QUEUE_LOCK_FILE = "runner/gate.queue.lock"
+# Serializes the shared run-worktree git index across concurrent agents in
+# worktree mode: only one agent stages and commits at a time.
+GIT_COMMIT_LOCK_FILE = "runner/git.commit.lock"
 RUN_SOURCE_KEYS = ("source", "sourceBundle")
 DEFAULT_QUALITY_POLICY = {
     "enabled": True,
@@ -1156,6 +1159,7 @@ def _projection_locks(team_dir: Path, state_path: Path | None) -> dict[str, Any]
         "readyQueue": team_dir / READY_QUEUE_LOCK_FILE,
         "claimQueue": team_dir / CLAIM_QUEUE_LOCK_FILE,
         "gateQueue": team_dir / GATE_QUEUE_LOCK_FILE,
+        "gitCommit": team_dir / GIT_COMMIT_LOCK_FILE,
     }
     lock_reports = []
     warnings = []
@@ -1221,6 +1225,8 @@ def build_projection(
     board = _build_board(tasks)
     locks = _projection_locks(team_dir, state_path)
     updated_at = run.get("updatedAt") or now_iso()
+    run_sprintengine = run.get("sprintengine") if isinstance(run.get("sprintengine"), dict) else {}
+    vcs = run_sprintengine.get("vcs") if isinstance(run_sprintengine.get("vcs"), dict) else None
     projection = {
         "ok": True,
         "projectionVersion": 1,
@@ -1237,6 +1243,7 @@ def build_projection(
             "creation": run.get("creation") if isinstance(run.get("creation"), dict) else {},
             "qualityPolicy": quality_policy,
             "runner": runner_policy,
+            "vcs": vcs,
         },
         "roster": roster if isinstance(roster, dict) else {},
         "tasks": tasks,

@@ -49,6 +49,9 @@ from sprintengine_core.tool import (
     cmd_task_resolve_input,
     cmd_task_status,
     cmd_triage_needs_input,
+    cmd_vcs_commit,
+    cmd_vcs_pr,
+    cmd_vcs_status,
 )
 
 from .auth import ActorContext
@@ -141,6 +144,9 @@ MCP_TOOL_CONTRACTS: dict[str, McpToolContract] = {
         _command("sprintengine.artifact.ready", cmd_artifact_ready),
         _command("sprintengine.artifact.approve", cmd_artifact_approve),
         _command("sprintengine.artifact.request_changes", cmd_artifact_request_changes),
+        _command("sprintengine.vcs.status", cmd_vcs_status),
+        _command("sprintengine.vcs.commit", cmd_vcs_commit),
+        _command("sprintengine.vcs.pr", cmd_vcs_pr),
         _special("sprintengine.run.get"),
         _special("sprintengine.run.policy.get"),
         # `sprintengine.run.projection` is deliberately not an MCP tool. The

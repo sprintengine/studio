@@ -205,6 +205,24 @@ def command_payload_to_namespace(
         base.update(artifact_id=payload["artifactId"], id=payload["id"])
     elif tool_name == "sprintengine.artifact.request_changes":
         base.update(artifact_id=payload["artifactId"], id=payload["id"], feedback=payload["feedback"])
+    elif tool_name == "sprintengine.vcs.status":
+        pass
+    elif tool_name == "sprintengine.vcs.commit":
+        base.update(
+            task_id=payload["taskId"],
+            id=payload["id"],
+            summary=payload.get("summary"),
+            path=list(payload.get("path") or payload.get("paths") or []),
+        )
+    elif tool_name == "sprintengine.vcs.pr":
+        base.update(
+            id=payload.get("id") or _actor_id(actor, "architect"),
+            base=payload.get("base"),
+            title=payload.get("title"),
+            body=payload.get("body"),
+            draft=bool(payload.get("draft", False)),
+            no_push=bool(payload.get("noPush", False)),
+        )
     return SimpleNamespace(**base)
 
 
