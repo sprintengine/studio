@@ -21,6 +21,7 @@ import type {
   SprintEngineRoleRegistry,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
+  SprintEngineRoleModelOverrides,
   SprintEngineSourceBundleItem,
   SprintEngineSourceBundleKind,
   SprintEngineSourcePlanKind,
@@ -55,7 +56,7 @@ import { CloseIconButton, Field, GhostButton, Select, WizardProgress } from '../
 import { CreateFolderField } from './newWorkspace/CreateFolderField'
 import { ModeCard } from './newWorkspace/ModeCard'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
-import { AgentCliPicker } from './newWorkspace/SprintEngineRosterTable'
+import { AgentCliPicker, type SprintEngineCliOption } from './newWorkspace/SprintEngineRosterTable'
 import { useFolderHints, useFolderScan } from './newWorkspace/useNewWorkspaceFolder'
 import { useBacklogScan } from './newWorkspace/useBacklogScan'
 import { BacklogRowContent } from '../backlog/BacklogRow'
@@ -414,6 +415,11 @@ export default function NewWorkspacePanel({
     () => sprintEngineRoleCliDefaultsFromSavedRoster(savedSprintEngineRoster),
   )
   const [seAgentCliOverrides, setSeAgentCliOverrides] = useState<Record<AgentId, AgentCli>>({})
+  // Explicit per-role launch model (string = explicit id, null = explicit CLI
+  // default); absent roles seed from the remembered per-CLI model default.
+  const [seRoleModelOverrides, setSeRoleModelOverrides] = useState<SprintEngineRoleModelOverrides>({})
+  // Roles marked "Start now": their agents spawn when the workspace opens.
+  const [seSpawnAtStartRoles, setSeSpawnAtStartRoles] = useState<Partial<Record<SprintEngineRoleId, boolean>>>({})
   const [seSaveRosterPreference, setSeSaveRosterPreference] = useState(false)
   const [seRoleRegistry, setSeRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
   const [seRoleRegistryStatus, setSeRoleRegistryStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
@@ -452,6 +458,7 @@ export default function NewWorkspacePanel({
   const [closeConfirmation, setCloseConfirmation] = useState(false)
 
   const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const cliModelDefaults = useWorkspaceStore((s) => s.appSettings.cliModelDefaults)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   // Shared plugin-aware catalog (installed agents + configured runtimes) used by
@@ -994,6 +1001,15 @@ export default function NewWorkspacePanel({
 
   const setRoleCli = (role: SprintEngineRoleId, cli: AgentCli) => {
     setSeRoleCliDefaults((current) => ({ ...current, [role]: cli }))
+    // A model picked for the previous CLI is meaningless on the new one;
+    // drop the override so the row falls back to the new CLI's remembered
+    // model default.
+    setSeRoleModelOverrides((current) => {
+      if (!(role in current)) return current
+      const next = { ...current }
+      delete next[role]
+      return next
+    })
     setSeAgentCliOverrides((current) => {
       if (!seExistingTeam) return current
       let changed = false
@@ -1012,6 +1028,21 @@ export default function NewWorkspacePanel({
   const setGuidedRoleCli = (role: keyof GuidedBriefRoleCliDefaults, cli: AgentCli) => {
     setGuidedRoleCliDefaults((current) => ({ ...current, [role]: cli }))
   }
+
+  const setRoleModel = (role: SprintEngineRoleId, model: string | null) => {
+    setSeRoleModelOverrides((current) => ({ ...current, [role]: model }))
+  }
+
+  const setRoleSpawnAtStart = (role: SprintEngineRoleId, spawn: boolean) => {
+    setSeSpawnAtStartRoles((current) => ({ ...current, [role]: spawn }))
+  }
+
+  const seInitialSpawnRoles = useMemo(
+    () => (Object.entries(seSpawnAtStartRoles) as Array<[SprintEngineRoleId, boolean | undefined]>)
+      .filter(([, spawn]) => spawn)
+      .map(([role]) => role),
+    [seSpawnAtStartRoles],
+  )
 
   // Multicode Design forces the design-only path: a screen is implied, the
   // product and architecture discussions are off, and the frontend discussion
@@ -1182,6 +1213,8 @@ export default function NewWorkspacePanel({
           existingTeam: seExistingTeam,
           roleCliDefaults: seRoleCliDefaults,
           agentCliOverrides: seAgentCliOverrides,
+          roleModelOverrides: seRoleModelOverrides,
+          initialSpawnRoles: seInitialSpawnRoles,
           startRunner: seStartRunner,
           autoApproveArtifacts: seAutoApproveArtifacts,
           cliPermissionPreset,
@@ -1287,6 +1320,8 @@ export default function NewWorkspacePanel({
         visibleRoleCounts: visibleSprintEngineRoleCounts,
         totalAgents,
         roleCliDefaults: seRoleCliDefaults,
+        roleModelOverrides: seRoleModelOverrides,
+        initialSpawnRoles: seInitialSpawnRoles,
         startRunner: seStartRunner,
         autoApproveArtifacts: seAutoApproveArtifacts,
         cliPermissionPreset,
@@ -1705,6 +1740,11 @@ export default function NewWorkspacePanel({
               rosterDisabled={seExistingTeam != null}
               onSetRoleCount={setRoleCount}
               onSetRoleCli={setRoleCli}
+              roleModelOverrides={seRoleModelOverrides}
+              cliModelDefaults={cliModelDefaults}
+              onSetRoleModel={setRoleModel}
+              spawnAtStartRoles={seSpawnAtStartRoles}
+              onSetRoleSpawnAtStart={setRoleSpawnAtStart}
               automationMode={seAutomationMode}
               onChangeAutomationMode={setSeAutomationMode}
               cliPermissionPreset={cliPermissionPreset}
@@ -3006,13 +3046,19 @@ function SprintEngineRosterStep(props: {
   onSignIn: () => void
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
-  cliOptions: Array<{ value: AgentCli; label: string }>
+  // Full catalog options: modelSelection drives the per-role model sublists.
+  cliOptions: SprintEngineCliOption[]
   registry: SprintEngineRoleRegistry | null
   registryStatus: 'idle' | 'loading' | 'ready' | 'unavailable'
   disabledRoleIds: ReadonlySet<SprintEngineRoleId> | null
   rosterDisabled: boolean
   onSetRoleCount: (role: SprintEngineRoleId, count: number) => void
   onSetRoleCli: (role: SprintEngineRoleId, cli: AgentCli) => void
+  roleModelOverrides: SprintEngineRoleModelOverrides
+  cliModelDefaults: Partial<Record<AgentCli, string>> | undefined
+  onSetRoleModel: (role: SprintEngineRoleId, model: string | null) => void
+  spawnAtStartRoles: Partial<Record<SprintEngineRoleId, boolean>>
+  onSetRoleSpawnAtStart: (role: SprintEngineRoleId, spawn: boolean) => void
   automationMode: SprintEngineAutomationMode
   onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
   cliPermissionPreset: SprintEngineCliPermissionPreset
@@ -3036,6 +3082,11 @@ function SprintEngineRosterStep(props: {
     rosterDisabled,
     onSetRoleCount,
     onSetRoleCli,
+    roleModelOverrides,
+    cliModelDefaults,
+    onSetRoleModel,
+    spawnAtStartRoles,
+    onSetRoleSpawnAtStart,
     automationMode,
     onChangeAutomationMode,
     cliPermissionPreset,
@@ -3076,6 +3127,11 @@ function SprintEngineRosterStep(props: {
         cliDisabled={false}
         onSetCount={onSetRoleCount}
         onSetCli={onSetRoleCli}
+        roleModelOverrides={roleModelOverrides}
+        cliModelDefaults={cliModelDefaults}
+        onSetModel={onSetRoleModel}
+        spawnAtStartRoles={spawnAtStartRoles}
+        onSetSpawnAtStart={onSetRoleSpawnAtStart}
         totalAgents={totalAgents}
         rosterCountLabel={registryStatus === 'loading' ? 'Loading roles' : undefined}
         saveRoster={saveRoster}

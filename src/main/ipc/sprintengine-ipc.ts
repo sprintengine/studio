@@ -6,6 +6,7 @@ import type {
   SprintEngineProjectionReadResult,
   SprintEngineRegistryRoleReadInput,
   SprintEngineRegistryRolesReadInput,
+  SprintEngineRosterAddInput,
   SprintEngineRosterReplenishInput,
   SprintEngineRunnerSetInput,
   SprintEngineStateInitializeInput,
@@ -51,6 +52,7 @@ type SprintEngineIpcDependencies = {
   commentTask(payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult>
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
   replenishRoster(payload: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult>
+  addRosterMember(payload: SprintEngineRosterAddInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
   readRegistryRoles(payload: SprintEngineRegistryRolesReadInput): Promise<SprintEngineMcpReadResult>
   readRegistryRole(payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult>
@@ -101,6 +103,10 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:roster:replenish', async (_, payload: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult> => {
     return deps.replenishRoster(payload)
+  })
+
+  ipcMain.handle('sprintengine:roster:add', async (_, payload: SprintEngineRosterAddInput): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.addRosterMember(payload)
   })
 
   ipcMain.handle('sprintengine:projection:read', async (_, payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult> => {

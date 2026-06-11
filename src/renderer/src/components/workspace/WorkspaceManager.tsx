@@ -37,6 +37,8 @@ import type {
   MultiloopRole,
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
+  SprintEngineRoleId,
+  SprintEngineRoleModelOverrides,
   Workspace,
   WorkspaceWindowId,
 } from '../../types/workspace'
@@ -912,6 +914,8 @@ export default function WorkspaceManager() {
     sprintEngineContext,
     sprintEngineRoleCliDefaults,
     sprintEngineAgentCliOverrides,
+    sprintEngineRoleModelOverrides,
+    sprintEngineInitialSpawnRoles,
     sprintEngineAutoState,
     guidedBriefState,
     mode,
@@ -923,11 +927,13 @@ export default function WorkspaceManager() {
     sprintEngineContext?: Workspace['sprintEngineContext']
     sprintEngineRoleCliDefaults?: Workspace['sprintEngineRoleCliDefaults'] | null
     sprintEngineAgentCliOverrides?: Record<string, AgentCli> | null
+    sprintEngineRoleModelOverrides?: SprintEngineRoleModelOverrides | null
+    sprintEngineInitialSpawnRoles?: SprintEngineRoleId[] | null
     sprintEngineAutoState?: Partial<Workspace['sprintEngineAutoState']> | null
     guidedBriefState?: Workspace['guidedBriefState'] | null
     mode?: Workspace['mode']
   }) => {
-    addWorkspace(template, { name, folderPath, sprintEngineState, sprintEngineContext, sprintEngineRoleCliDefaults, sprintEngineAgentCliOverrides, sprintEngineAutoState, guidedBriefState, mode, windowId: workspaceWindowId })
+    addWorkspace(template, { name, folderPath, sprintEngineState, sprintEngineContext, sprintEngineRoleCliDefaults, sprintEngineAgentCliOverrides, sprintEngineRoleModelOverrides, sprintEngineInitialSpawnRoles, sprintEngineAutoState, guidedBriefState, mode, windowId: workspaceWindowId })
     setShowNewWorkspacePanel(false)
     setNewWorkspacePanelInitialState(null)
     // Creating the first workspace ends onboarding — jump straight to 'complete'

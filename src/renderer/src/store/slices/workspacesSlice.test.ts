@@ -319,6 +319,54 @@ const sprintEngineWorkspace = state.workspaces.find((workspace) => workspace.id 
 assert.equal(sprintEngineWorkspace?.agents.architect?.cli, 'claude-code')
 assert.equal(sprintEngineWorkspace?.agents['developer-1']?.cli, 'codex')
 assert.equal(sprintEngineWorkspace?.agents['developer-2']?.cli, 'claude-code')
+assert.equal(
+  sprintEngineWorkspace?.sprintEngineInitialSpawnAgentIds,
+  undefined,
+  'no launch intent is recorded when no roles are marked spawn-at-start',
+)
+
+// Per-role model overrides and spawn-at-start launch intent from the wizard:
+// explicit model id wins, explicit null means the CLI default (no model), and
+// marked roles queue session-only initial spawn intent for the board.
+const launchIntentState = createInitialSprintEngineState({
+  name: 'Launch Intent Team',
+  goal: 'Preserve roster launch intent.',
+  roleCounts: { architect: 1, developer: 1, frontend: 1 },
+})
+const launchIntentId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Launch Intent Team',
+  folderPath: '/Users/example/launch-intent',
+  sprintEngineState: launchIntentState,
+  sprintEngineRoleCliDefaults: {
+    architect: 'claude-code',
+    developer: 'claude-code',
+    frontend: 'codex',
+  },
+  sprintEngineRoleModelOverrides: {
+    developer: 'sonnet-test-model',
+    frontend: null,
+  },
+  sprintEngineInitialSpawnRoles: ['frontend'],
+})
+state = useWorkspaceStore.getState()
+const launchIntentWorkspace = state.workspaces.find((workspace) => workspace.id === launchIntentId)
+assert.equal(launchIntentWorkspace?.agents['developer-1']?.cliModel, 'sonnet-test-model')
+assert.equal(
+  launchIntentWorkspace?.agents.frontend?.cliModel,
+  undefined,
+  'an explicit null override means the CLI default and suppresses remembered model defaults',
+)
+assert.deepEqual(launchIntentWorkspace?.sprintEngineInitialSpawnAgentIds, ['frontend'])
+
+// The launch intent is consumed atomically — exactly one consumer spawn pass.
+const consumedSpawns = useWorkspaceStore.getState().consumeSprintEngineInitialSpawns(launchIntentId)
+assert.deepEqual(consumedSpawns, ['frontend'])
+assert.deepEqual(useWorkspaceStore.getState().consumeSprintEngineInitialSpawns(launchIntentId), [])
+assert.equal(
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === launchIntentId)
+    ?.sprintEngineInitialSpawnAgentIds,
+  undefined,
+)
 
 // A second workspace in the same folder inserts directly above the first
 // (top of that folder's block), not at the global head and not at the tail.

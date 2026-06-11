@@ -23,6 +23,7 @@ async function main(): Promise<void> {
   await testReadRegistryRoleSurfacesUnknownRole()
   await testReadDispatchUsesMcpTool()
   await testRunnerModeCliInvocationUsesSprintEngineTool()
+  await testRosterAddCliInvocationUsesSprintEngineTool()
   await testReadBridgeSurfacesUnavailableMcpAndMalformedPayloads()
   await testIpcRegistersReadOnlyBridgeChannels()
 
@@ -513,6 +514,48 @@ async function testRunnerModeCliInvocationUsesSprintEngineTool(): Promise<void> 
   }
 }
 
+async function testRosterAddCliInvocationUsesSprintEngineTool(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-roster-add-'))
+  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'team', 'run.yaml')
+  const handlers = createHandlers(async () => {
+    throw new Error('roster mutations must use the Sprint Engine CLI bridge')
+  })
+
+  try {
+    const init = await handlers.initializeSprintEngineState({
+      statePath,
+      name: 'Roster add bridge test',
+      goal: 'Verify roster add CLI invocation',
+      agents: {
+        architect: { role: 'architect' },
+      },
+    })
+    assert.equal(init.ok, true, init.ok ? undefined : init.message)
+
+    const result = await handlers.addRosterMember({ statePath, agentId: 'frontend-1', role: 'frontend' })
+    assert.equal(result.ok, true, result.ok ? undefined : result.message)
+    if (!result.ok) return
+    assert.equal((result.data as { agentId?: string }).agentId, 'frontend-1')
+
+    const runYaml = await readFile(statePath, 'utf-8')
+    assert.match(runYaml, /frontend-1/u)
+
+    const unknownRole = await handlers.addRosterMember({ statePath, agentId: 'mystery-1', role: 'not_a_role' })
+    assert.equal(unknownRole.ok, false)
+    if (!unknownRole.ok) assert.match(unknownRole.message, /unknown role/iu)
+
+    const missingAgentId = await handlers.addRosterMember({ statePath, agentId: '  ', role: 'frontend' })
+    assert.equal(missingAgentId.ok, false)
+    if (!missingAgentId.ok) assert.match(missingAgentId.message, /Agent id is required/u)
+
+    const unsafeAgentId = await handlers.addRosterMember({ statePath, agentId: 'bad id;rm', role: 'frontend' })
+    assert.equal(unsafeAgentId.ok, false)
+    if (!unsafeAgentId.ok) assert.match(unsafeAgentId.message, /safe sprintengine identifier/u)
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
 async function testReadBridgeSurfacesUnavailableMcpAndMalformedPayloads(): Promise<void> {
   const { statePath } = await createStateFixture()
   const handlers = createHandlers(async () => ({
@@ -561,6 +604,7 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
     commentTask: async () => ({ ok: true, data: {} }),
     setRunnerMode: async () => ({ ok: true, data: {} }),
     replenishRoster: async () => ({ ok: true, data: {} }),
+    addRosterMember: async () => ({ ok: true, data: {} }),
     readProjection: async () => ({ ok: true, data: null }),
     readRegistryRoles: async () => {
       calls.push('roles')
