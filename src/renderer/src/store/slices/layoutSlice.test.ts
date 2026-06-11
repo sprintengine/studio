@@ -418,6 +418,28 @@ assert.equal(modelContainsComponent(sprintEnginesStripped, 'sprint-engines'), fa
 assert.equal(modelContainsComponent(sprintEnginesStripped, 'agent'), true)
 assert.equal((sprintEnginesStripped.layout as { children?: unknown[] }).children?.length, 1)
 
+// A layout that held ONLY the retired nav tab falls back to an empty root row
+// (WorkspaceLayout's zero-tab empty state), never the original layout with the
+// stale tab restored.
+const sprintEnginesOnlyStripped = stripSprintEnginesNavFromLayout({
+  global: {},
+  borders: [],
+  layout: {
+    type: 'row',
+    children: [
+      {
+        type: 'tabset',
+        enableTabStrip: false,
+        children: [
+          { type: 'tab', name: 'Sprint Engines', component: 'sprint-engines' },
+        ],
+      },
+    ],
+  },
+}) as IJsonModel
+assert.equal(modelContainsComponent(sprintEnginesOnlyStripped, 'sprint-engines'), false)
+assert.deepEqual(sprintEnginesOnlyStripped.layout, { type: 'row', children: [] })
+
 const carrier = {
   workspaces: [
     {

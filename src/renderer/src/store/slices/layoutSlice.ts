@@ -150,7 +150,10 @@ function stripComponentTabsFromLayout(layoutModel: unknown, component: string): 
   const layout = model.layout
   if (!layout || typeof layout !== 'object') return layoutModel
   const nextLayout = stripComponentTabsFromLayoutNode(layout, component)
-  return { ...model, layout: nextLayout ?? layout }
+  // A layout whose every tab was stripped collapses to null; fall back to an
+  // empty root row (WorkspaceLayout's zero-tab empty state) rather than
+  // restoring the original layout with the retired tab still in it.
+  return { ...model, layout: nextLayout ?? { type: 'row', children: [] } }
 }
 
 export function stripSettingsTabsFromLayout(layoutModel: unknown): unknown {
