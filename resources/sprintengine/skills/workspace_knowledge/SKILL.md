@@ -1,13 +1,14 @@
 # Workspace Knowledge Graph
 
-## First: Check Whether A Knowledge Graph Is Configured
+<what-to-do>
 
-Before doing anything else in this skill, look for the `MULTICODE_KNOWLEDGE_ROOT` environment variable (or the legacy alias `MULTICODE_MEMORY_ROOT`).
+Before anything else in this skill, check the `MULTICODE_KNOWLEDGE_ROOT` environment variable (or the legacy alias `MULTICODE_MEMORY_ROOT`). If neither is set, this workspace has no Knowledge Graph: skip every step below — do not create notes, do not write into a default `knowledge/` folder, and do not stop the task to ask for one. Reviewers must not flag KG drift in unconfigured workspaces.
 
-- If **neither** is set, this workspace has no Knowledge Graph configured. Skip every step below. Do not create notes. Do not write into a default `knowledge/` folder. Do not stop the task to ask the user to configure one. Reviewers must not flag KG drift in unconfigured workspaces.
-- If **either** is set, treat its value as the KG root and follow the rest of this skill against that path.
+When either is set, treat its value as the KG root. KG updates are part of acceptance evidence, not follow-up work: when your change touches a documented behavior, contract, file layout, or convention, update the relevant note in the same handoff as the source change and log the note path as file evidence.
 
-The KG is opt-in per workspace. Respect the user's choice when it is unset.
+</what-to-do>
+
+<supporting-info>
 
 ## Read Workflow (when KG is configured)
 
@@ -19,8 +20,6 @@ The KG is opt-in per workspace. Respect the user's choice when it is unset.
 
 ## Update Workflow (when KG is configured)
 
-Treat KG updates as part of acceptance evidence, not as follow-up work. The update happens in the same work handoff as the source change.
-
 Update an existing note when your work changes any of:
 
 - A documented behavior, contract, API shape, IPC route, command surface, or data model.
@@ -29,8 +28,6 @@ Update an existing note when your work changes any of:
 - A decision recorded in the KG that the new work supersedes or refines.
 
 Create a new note only for a durable concept that does not fit an existing page. New notes must be linked from `<kg-root>/README.md`, an ecosystem map, or the most relevant existing note via `[[wikilinks]]`.
-
-Log the KG note path as file evidence alongside the source files you touched. Reviewers use that evidence to confirm the KG stayed in sync with the change.
 
 ## Do Not Store
 
@@ -53,3 +50,5 @@ Before publishing the task, confirm:
 ## Reviewer Responsibility
 
 Spec reviewers and code reviewers: when a KG is configured for the workspace and the reviewed change touches a documented behavior, contract, file layout, or convention, the absence of a corresponding KG note update is a blocking finding. Record it like any other acceptance miss. When no KG is configured, do not raise KG-related findings.
+
+</supporting-info>

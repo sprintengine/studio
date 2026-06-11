@@ -205,7 +205,8 @@ def test_workspace_marketer_soul_renders_through_registry_without_dispatch_role(
     content = render_soul("marketer")
 
     assert soul.role == "marketer"
-    assert content == "# Marketer\n\nRender Marketer for marketer."
+    assert content.startswith("<soul-legend>")
+    assert '<skill name="marketer">\n# Marketer\n\nRender Marketer for marketer.\n</skill>' in content
     assert "marketer" not in VALID_ROLES
 
 

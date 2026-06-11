@@ -173,11 +173,27 @@ class RegistryDiscovery:
                     skill_id=soul_entry.skill,
                 )
                 raise SoulRenderError(warning.message, (*self.warnings, warning))
-            content_parts.append(entry.value.body.strip())
+            body = entry.value.body.strip()
+            if body:
+                content_parts.append(_wrap_skill_envelope(skill_id, body))
 
-        content = "\n\n".join(part for part in content_parts if part)
+        content = "\n\n".join((SOUL_LEGEND, *content_parts))
         rendered = _substitute_supported_variables(content, variables, role, warnings)
         return RenderedSoul(role=role, content=rendered, warnings=(*self.warnings, *warnings))
+
+
+SOUL_LEGEND = (
+    "<soul-legend>\n"
+    "Sections tagged <what-to-do> are the mandatory core of each skill; sections tagged "
+    "<supporting-info> are reference detail to consult when the work touches them. When "
+    "they conflict, <what-to-do> wins. Each <skill> block names the source skill for the "
+    "content it wraps.\n"
+    "</soul-legend>"
+)
+
+
+def _wrap_skill_envelope(skill_id: str, body: str) -> str:
+    return f'<skill name="{skill_id}">\n{body}\n</skill>'
 
 
 class RoleSkillRegistry:
