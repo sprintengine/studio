@@ -147,6 +147,9 @@ export function RosterAndRunSettings({
   onChangeAutomationMode,
   cliPermissionPreset,
   onChangeCliPermissionPreset,
+  useWorktrees,
+  onChangeUseWorktrees,
+  worktreesDisabled,
 }: {
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
@@ -170,6 +173,11 @@ export function RosterAndRunSettings({
   onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
   cliPermissionPreset: SprintEngineCliPermissionPreset
   onChangeCliPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
+  // Worktree mode toggle. Omitted by the Guided Brief handoff, which has no
+  // separate run-options surface.
+  useWorktrees?: boolean
+  onChangeUseWorktrees?: (value: boolean) => void
+  worktreesDisabled?: boolean
 }) {
   return (
     <>
@@ -224,6 +232,27 @@ export function RosterAndRunSettings({
               ))}
             </div>
           </div>
+          {onChangeUseWorktrees ? (
+            <label
+              className={`flex items-start gap-2.5 border-t border-[color:var(--border-default)] px-3.5 py-3 text-[12px] text-[color:var(--text-default)] transition-colors ${worktreesDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-[color:var(--bg-hover)]'}`}
+            >
+              <input
+                type="checkbox"
+                checked={useWorktrees ?? false}
+                disabled={worktreesDisabled}
+                onChange={(event) => onChangeUseWorktrees(event.target.checked)}
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[color:var(--accent-primary)]"
+              />
+              <span>
+                <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Run in an isolated git worktree</span>
+                <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
+                  {worktreesDisabled
+                    ? 'Worktree mode is fixed for an existing team and cannot be changed here.'
+                    : 'All agents work in one shared worktree on a dedicated branch and commit per task; a pull request opens when the run completes.'}
+                </span>
+              </span>
+            </label>
+          ) : null}
         </div>
       </div>
     </>

@@ -46,6 +46,7 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   roleCliDefaults?: SprintEngineRoleCliDefaults
   sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
   workspaceWindowId?: WorkspaceWindowId | null
+  useWorktrees?: boolean
   pathExists?: (path: string) => boolean | Promise<boolean>
   initializeSprintEngineState?: (
     input: SprintEngineStateInitializeInput
@@ -101,6 +102,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   roleCliDefaults,
   sprintEngineAutoState,
   workspaceWindowId,
+  useWorktrees,
   pathExists,
   initializeSprintEngineState,
 }: PlanSourcedSprintEngineWorkspaceArgs): Promise<PlanSourcedSprintEngineWorkspaceResult> {
@@ -135,6 +137,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
       tasks: sprintEngineState.tasks,
       events: sprintEngineState.events,
       artifacts: sprintEngineState.artifacts,
+      useWorktrees: useWorktrees === true,
     })
     if (!initResult.ok) {
       throw new Error(initResult.message || 'Could not initialize Sprint Engine run state.')

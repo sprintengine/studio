@@ -65,6 +65,7 @@ import {
   type TerminalListNoticeCooldown,
 } from '../../utils/sprintengineAutoRunExecutor'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
+import { pathJoin } from '../../utils/paths'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
@@ -1389,6 +1390,13 @@ export async function spawnAutoRunCandidate(
 
     let executionCwd = workspaceFolderPath
     let executionMode: 'current_workspace' | 'worktree' = 'current_workspace'
+    // Worktree mode: route every agent terminal into the one shared run
+    // worktree so all agents work and commit in the same isolated checkout.
+    const runWorktree = sprintEngineState.vcs
+    if (runWorktree?.mode === 'run_worktree' && runWorktree.worktreePath) {
+      executionCwd = pathJoin(workspaceFolderPath, runWorktree.worktreePath)
+      executionMode = 'worktree'
+    }
     const autoState = getSprintEngineAutoState(workspace)
 
     const memoryConfig = resolveProjectKnowledgeConfig(
@@ -1427,6 +1435,7 @@ export async function spawnAutoRunCandidate(
         rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
         commandMode: getSprintEngineStartupCommandMode(nextRun.role, nextRun.agentId, sprintEngineState),
         autonomousPlanningOverride: nextRun.role === 'architect' && sprintEngineArtifactApprovalDesired(autoState),
+        useWorktrees: sprintEngineState.useWorktrees === true,
       }),
       nextRun.label,
       getSprintEngineRoleLabel(nextRun.role)
@@ -1442,7 +1451,7 @@ export async function spawnAutoRunCandidate(
       execution: {
         mode: executionMode,
         worktreeId: null,
-        cwd: null,
+        cwd: executionMode === 'worktree' ? executionCwd : null,
       },
       cliStartRequested: true,
       cliSessionId: sessionId,
@@ -1461,6 +1470,7 @@ export async function spawnAutoRunCandidate(
       workspaceId: workspace.id,
       agentId: nextRun.agentId,
       executionMode,
+      ...(executionMode === 'worktree' ? { worktreePath: executionCwd } : {}),
       cliPermissionPreset: getSprintEngineAutoState(workspace).cliPermissionPreset,
       cliModel: currentAgent?.cliModel,
       memoryRootPath: memoryStatus?.ok ? memoryStatus.rootPath : undefined,
@@ -1478,6 +1488,7 @@ export async function spawnAutoRunCandidate(
       },
     } as TerminalSpawnMetadata & {
       executionMode: 'current_workspace' | 'worktree'
+      worktreePath?: string
     }
 
     const spawnResult = await spawnTerminalSession(defaultExecutorPorts, {

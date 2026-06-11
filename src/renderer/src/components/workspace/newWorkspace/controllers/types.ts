@@ -123,6 +123,7 @@ export type SprintEngineNewTeamInput = {
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   startRunner: boolean
   autoApproveArtifacts: boolean
+  useWorktrees?: boolean
   cliPermissionPreset: SprintEngineCliPermissionPreset
   workspaceWindowId?: WorkspaceWindowId | null
 }
@@ -141,6 +142,7 @@ export type SprintEnginePlanSourcedInput = {
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   startRunner: boolean
   autoApproveArtifacts: boolean
+  useWorktrees?: boolean
   cliPermissionPreset: SprintEngineCliPermissionPreset
   workspaceWindowId?: WorkspaceWindowId | null
 }

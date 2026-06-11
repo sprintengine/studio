@@ -418,6 +418,7 @@ export default function NewWorkspacePanel({
   const [seRoleRegistry, setSeRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
   const [seRoleRegistryStatus, setSeRoleRegistryStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
   const [seStartRunner, setSeStartRunner] = useState(false)
+  const [seUseWorktrees, setSeUseWorktrees] = useState(false)
   const [sePlanError, setSePlanError] = useState<string | null>(null)
   const [cliPermissionPreset, setCliPermissionPreset] = useState<SprintEngineCliPermissionPreset>(
     lastSpawnPermissionPreset,
@@ -1233,6 +1234,7 @@ export default function NewWorkspacePanel({
               roleCliDefaults: seRoleCliDefaults,
               startRunner: seStartRunner,
               autoApproveArtifacts: seAutoApproveArtifacts,
+              useWorktrees: seUseWorktrees,
               cliPermissionPreset,
               workspaceWindowId,
             },
@@ -1289,6 +1291,7 @@ export default function NewWorkspacePanel({
         roleCliDefaults: seRoleCliDefaults,
         startRunner: seStartRunner,
         autoApproveArtifacts: seAutoApproveArtifacts,
+        useWorktrees: seUseWorktrees,
         cliPermissionPreset,
       })
       triggerSelectedSkillPackInstalls(folderPath)
@@ -1709,6 +1712,9 @@ export default function NewWorkspacePanel({
               onChangeAutomationMode={setSeAutomationMode}
               cliPermissionPreset={cliPermissionPreset}
               onChangeCliPermissionPreset={setCliPermissionPreset}
+              useWorktrees={seUseWorktrees}
+              onChangeUseWorktrees={setSeUseWorktrees}
+              worktreesDisabled={seExistingTeam != null}
               totalAgents={totalAgents}
               hasExistingTeam={seExistingTeam != null}
               existingTeamName={seExistingTeam?.displayName ?? null}
@@ -3017,6 +3023,9 @@ function SprintEngineRosterStep(props: {
   onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
   cliPermissionPreset: SprintEngineCliPermissionPreset
   onChangeCliPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
+  useWorktrees: boolean
+  onChangeUseWorktrees: (value: boolean) => void
+  worktreesDisabled: boolean
   totalAgents: number
   hasExistingTeam: boolean
   existingTeamName: string | null
@@ -3040,6 +3049,9 @@ function SprintEngineRosterStep(props: {
     onChangeAutomationMode,
     cliPermissionPreset,
     onChangeCliPermissionPreset,
+    useWorktrees,
+    onChangeUseWorktrees,
+    worktreesDisabled,
     totalAgents,
     hasExistingTeam,
     existingTeamName,
@@ -3084,6 +3096,9 @@ function SprintEngineRosterStep(props: {
         onChangeAutomationMode={onChangeAutomationMode}
         cliPermissionPreset={cliPermissionPreset}
         onChangeCliPermissionPreset={onChangeCliPermissionPreset}
+        useWorktrees={useWorktrees}
+        onChangeUseWorktrees={onChangeUseWorktrees}
+        worktreesDisabled={worktreesDisabled}
       />
     </div>
   )
