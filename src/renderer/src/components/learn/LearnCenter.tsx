@@ -90,23 +90,16 @@ export default function LearnCenter({ onSettingsTab }: LearnCenterProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <label
-            htmlFor={searchInputId}
-            className="text-[12px] font-medium text-[color:var(--text-default)]"
-          >
-            Search
-          </label>
-          <input
-            id={searchInputId}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Filter tips by title or summary"
-            className="h-9 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 text-[13px] text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--border-focus)]"
-          />
-        </div>
-        <div className="flex shrink-0 items-center gap-3 self-end">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <input
+          id={searchInputId}
+          aria-label="Search tips"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search tips"
+          className="h-8 w-64 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 text-[13px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)]"
+        />
+        <div className="flex shrink-0 items-center gap-3">
           <div className="flex items-center gap-2">
             <Switch
               id={startupSwitchId}
@@ -140,13 +133,13 @@ export default function LearnCenter({ onSettingsTab }: LearnCenterProps) {
       </div>
 
       {items.length === 0 ? (
-        <div className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-4 py-6 text-center text-[12px] text-[color:var(--text-muted)]">
+        <p className="py-4 text-[12px] leading-5 text-[color:var(--text-muted)]">
           {query.trim()
             ? `No tips match "${query.trim()}" in ${category === 'all' ? 'any category' : LEARNING_CATEGORY_LABELS[category as LearningCategory]}.`
             : 'No tips available for this category yet.'}
-        </div>
+        </p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="divide-y divide-[color:var(--border-subtle)]">
           {items.map((item) => (
             <LearningRow
               key={item.id}
@@ -172,20 +165,18 @@ type LearningRowProps = {
 function LearningRow({ item, completed, onToggleComplete, onAction }: LearningRowProps) {
   const switchId = useId()
   return (
-    <li
-      className={`rounded-md border bg-[color:var(--bg-surface)] px-3.5 py-3 transition-colors ${
-        completed
-          ? 'border-[color:var(--accent-primary-soft-strong)]'
-          : 'border-[color:var(--border-default)] hover:bg-[color:var(--bg-surface-raised)]'
-      }`}
-    >
+    <li className="py-3">
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h4 className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+          <div className="flex items-baseline gap-2">
+            <h4
+              className={`truncate text-[13px] font-medium ${
+                completed ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-strong)]'
+              }`}
+            >
               {item.title}
             </h4>
-            <span className="rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-1.5 py-px text-[11px] font-medium text-[color:var(--text-muted)]">
+            <span className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">
               {LEARNING_CATEGORY_LABELS[item.category]}
             </span>
           </div>

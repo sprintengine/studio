@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useId, useState } from 'react'
-import { Field, StatusDot, type Tone } from '../ui'
-import { MetaCell, SettingsSectionTitle, SettingToggle, formatNullableDate } from './SettingsAtoms'
+import { GhostButton, PrimaryButton, StatusDot, type Tone } from '../ui'
+import { MetaCell, SettingsRow, SettingsSectionTitle, SettingToggle, formatNullableDate } from './SettingsAtoms'
 
 type MobileControlCommandType =
   | 'snapshot.request'
@@ -280,14 +280,6 @@ export default function MobileSettingsTab() {
     }
   }
 
-  const noteToneClass = action.status === 'error'
-    ? 'border-[color:var(--tone-error)] text-[color:var(--tone-error)]'
-    : enabled && state?.relayStatus === 'connected'
-      ? 'border-[color:var(--tone-good)]/70 text-[color:var(--tone-good)]'
-      : enabled && (state?.relayStatus === 'connecting' || state?.relayStatus === 'retrying')
-        ? 'border-[color:var(--tone-warn)]/75 text-[color:var(--tone-warn)]'
-        : 'border-[color:var(--border-default)] text-[color:var(--text-muted)]'
-
   return (
     <div
       role="tabpanel"
@@ -295,115 +287,87 @@ export default function MobileSettingsTab() {
       aria-labelledby="settings-tab-mobile"
       className="space-y-5"
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">
-            Mobile companion
-          </div>
-          <div className="mt-1 text-sm font-semibold text-[color:var(--text-strong)]">
-            Pair phones to drive Sprint Engine remotely
-          </div>
+      {/* Relay status line: dot + text, not a tinted pill; the message below is
+          plain status copy, not an alert block. The dot is earned — it only
+          renders while the companion is on (live link, working, or failing). */}
+      <div className="space-y-1 border-b border-[color:var(--border-subtle)] pb-3.5">
+        <div className="flex items-center gap-1.5">
+          {enabled ? (
+            <StatusDot
+              tone={relayStatusDotTone(state?.relayStatus)}
+              label={relayStatusLabel(state?.relayStatus)}
+            />
+          ) : null}
+          <span className="text-[13px] font-medium text-[color:var(--text-strong)]">
+            {enabled ? relayStatusLabel(state?.relayStatus) : 'Off'}
+          </span>
         </div>
-        <div className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${
-          enabled
-            ? state?.relayStatus === 'connected'
-              ? 'border-[color:var(--tone-good)]/35 bg-[color:var(--tone-good-soft)] text-[color:var(--tone-good)]'
-              : state?.relayStatus === 'connecting' || state?.relayStatus === 'retrying'
-                ? 'border-[color:var(--tone-warn)]/35 bg-[color:var(--tone-warn-soft)] text-[color:var(--tone-warn)]'
-                : state?.relayStatus === 'error'
-                  ? 'border-[color:var(--tone-error)]/35 bg-[color:var(--tone-error-soft)] text-[color:var(--tone-error)]'
-                  : 'border-[color:var(--accent-primary)]/35 bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
-            : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-muted)]'
-        }`}>
-          {enabled ? relayStatusLabel(state?.relayStatus) : 'Off'}
-        </div>
+        <p className={`text-[12px] leading-5 ${action.status === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-muted)]'}`}>
+          {action.message || statusMessage(state)}
+        </p>
       </div>
 
-      <div className={`border-l-2 pl-3 text-[12px] leading-5 ${noteToneClass}`}>
-        {action.message || statusMessage(state)}
-      </div>
-
-      <section>
-        <SettingsSectionTitle className="mb-1.5">Companion</SettingsSectionTitle>
+      <div className="divide-y divide-[color:var(--border-subtle)]">
         <SettingToggle
           label="Enable mobile companion"
-          description="Connect this desktop to the relay so paired phones can request snapshots, send follow-ups, and control Sprint Engine."
+          description="Let paired phones request snapshots, send follow-ups, and control Sprint Engine."
           enabled={enabled}
           onChange={(next) => void toggleEnabled(next)}
           disabled={busy}
         />
-      </section>
 
-      <section>
-        <SettingsSectionTitle className="mb-1.5">Relay</SettingsSectionTitle>
-        <Field
+        <SettingsRow
           label="Relay URL"
+          help="The relay your phone is configured to reach. The connection stays open while the companion is enabled."
           htmlFor={relayUrlId}
-          help="Point this desktop at the relay your phone is configured to reach. Multicode keeps the connection open while the companion is enabled."
         >
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <input
-              value={relayUrlDraft}
-              onChange={(event) => setRelayUrlDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  void saveRelayUrl()
-                }
-              }}
-              placeholder="https://relay.example.com"
-              autoComplete="off"
-              spellCheck={false}
-              className="h-9 min-w-0 flex-1 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-3 font-mono text-sm text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)]/70"
-            />
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => void saveRelayUrl()}
-                disabled={busy || !relayUrlDirty}
-                className="h-9 rounded-md bg-[color:var(--accent-primary)] px-3 text-sm font-semibold text-[color:var(--text-on-accent)] transition-colors hover:bg-[color:var(--accent-primary-hover)] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[color:var(--accent-primary)]"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </Field>
-      </section>
+          <input
+            id={relayUrlId}
+            value={relayUrlDraft}
+            onChange={(event) => setRelayUrlDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                void saveRelayUrl()
+              }
+            }}
+            placeholder="https://relay.example.com"
+            autoComplete="off"
+            spellCheck={false}
+            className="h-8 w-60 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45"
+          />
+          <PrimaryButton size="md" onClick={() => void saveRelayUrl()} disabled={busy || !relayUrlDirty}>
+            Save
+          </PrimaryButton>
+        </SettingsRow>
+      </div>
 
       <section>
         <SettingsSectionTitle
           className="mb-1.5"
           action={
-            <button
-              type="button"
-              onClick={() => void requestPairingCode()}
-              disabled={!enabled || busy}
-              className="h-9 rounded-md bg-[color:var(--accent-primary)] px-3 text-sm font-semibold text-[color:var(--text-on-accent)] transition-colors hover:bg-[color:var(--accent-primary-hover)] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-[color:var(--accent-primary)]"
-            >
+            <PrimaryButton size="md" onClick={() => void requestPairingCode()} disabled={!enabled || busy}>
               Generate code
-            </button>
+            </PrimaryButton>
           }
         >
           Pairing code
         </SettingsSectionTitle>
-        <p className="text-[12px] leading-5 text-[color:var(--text-disabled)]">
-          Generate a single-use code, then enter it on a phone running the Multicode mobile app.
+        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          Single-use; enter it in the Multicode mobile app.
         </p>
         {pairingChallenge ? (
-          <div className="mt-4 rounded-md border border-[color:var(--accent-primary)]/30 bg-[color:var(--accent-primary-soft)] px-4 py-4">
-            <div className="text-[12px] font-semibold text-[color:var(--text-muted)]">
-              Pairing code
-            </div>
+          <div className="mt-3 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-4 py-3">
             <button
               type="button"
               onClick={() => void copyPairingCode()}
-              className="mt-1 block font-mono text-[36px] font-semibold tracking-[0.2em] text-[color:var(--text-strong)] transition-colors hover:text-[color:var(--accent-primary)] focus:outline-none focus-visible:text-[color:var(--accent-primary)]"
+              className="block font-mono text-[32px] font-semibold tracking-[0.2em] text-[color:var(--text-strong)] transition-colors hover:text-[color:var(--accent-primary)] focus:outline-none focus-visible:text-[color:var(--accent-primary)]"
               aria-label={`Copy pairing code ${pairingChallenge.pairingCode}`}
             >
               {pairingChallenge.pairingCode}
             </button>
             <div className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
-              Expires {formatDate(pairingChallenge.expiresAt)}. Tap the code to copy.
+              Expires {formatDate(pairingChallenge.expiresAt)} · tap to copy
             </div>
           </div>
         ) : null}
@@ -421,29 +385,29 @@ export default function MobileSettingsTab() {
                 className="grid gap-3 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
               >
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-[color:var(--text-strong)]">
+                  <div className="truncate text-[13px] font-medium text-[color:var(--text-strong)]">
                     {device.displayName}
                   </div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[color:var(--text-muted)]">
+                  <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[color:var(--text-muted)]">
                     <span className="capitalize">{device.platform}</span>
                     <span className="font-mono text-[color:var(--text-muted)]">v{device.appVersion}</span>
                     <span>Last seen {formatNullableDate(device.lastSeenAt)}</span>
                   </div>
                 </div>
-                <button
-                  type="button"
+                <GhostButton
+                  size="md"
                   onClick={() => void revokeDevice(device)}
                   disabled={!enabled || revokingDeviceId === device.deviceId}
-                  className="justify-self-start rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-3 py-1.5 text-sm font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--tone-error)]/45 hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--tone-error)] disabled:cursor-default disabled:opacity-45 disabled:hover:border-[color:var(--border-strong)] disabled:hover:bg-[color:var(--bg-surface)] disabled:hover:text-[color:var(--text-default)] sm:justify-self-end"
+                  className="justify-self-start border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:text-[color:var(--tone-error)] sm:justify-self-end"
                 >
-                  {revokingDeviceId === device.deviceId ? 'Revoking.' : 'Revoke'}
-                </button>
+                  {revokingDeviceId === device.deviceId ? 'Revoking' : 'Revoke'}
+                </GhostButton>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-[12px] leading-5 text-[color:var(--text-disabled)]">
-            No phones paired yet. Generate a pairing code, then enter it in the mobile app to link a device.
+          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+            No phones paired yet. Generate a pairing code to link one.
           </p>
         )}
       </section>
@@ -578,6 +542,20 @@ function relayStatusTone(status: MobileBridgeRelayStatus | undefined): 'positive
   if (status === 'connected') return 'positive'
   if (!status || status === 'disabled' || status === 'unconfigured') return 'muted'
   return undefined
+}
+
+function relayStatusDotTone(status: MobileBridgeRelayStatus | undefined): Tone {
+  switch (status) {
+    case 'connected':
+      return 'good'
+    case 'connecting':
+    case 'retrying':
+      return 'warn'
+    case 'error':
+      return 'error'
+    default:
+      return 'neutral'
+  }
 }
 
 function diagnosticDotTone(level: MobileBridgeDiagnosticEntry['level']): Tone {

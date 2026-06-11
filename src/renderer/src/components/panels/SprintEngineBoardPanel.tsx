@@ -46,6 +46,7 @@ import type {
  SprintEngineRoleId,
  SprintEngineRoleRegistry,
  SprintEngineState,
+ SprintEngineTask,
  SprintEngineTaskBoardColumn,
  Workspace,
 } from '../../types/workspace'
@@ -333,22 +334,26 @@ function sprintEngineAutomationRuntimeActionLabel(
  return null
 }
 
-function SprintEngineSettingsPopover({
+export function SprintEngineSettingsPopover({
  automationMode,
  runtimeState,
  runtimeReason,
+ runtimeTask,
  cliPermissionPreset,
  onChangeAutomationMode,
  onResumeAutomation,
+ onOpenRuntimeTask,
  onUpdateCliPreset,
  onClose,
 }: {
  automationMode: SprintEngineAutomationMode
  runtimeState: SprintEngineAutomationRuntimeState
  runtimeReason?: string
+ runtimeTask: SprintEngineTask | null
  cliPermissionPreset: SprintEngineCliPermissionPreset
  onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
  onResumeAutomation: (() => void) | null
+ onOpenRuntimeTask: ((taskId: string) => void) | null
  onUpdateCliPreset: (preset: SprintEngineCliPermissionPreset) => void
  onClose: () => void
 }) {
@@ -389,6 +394,13 @@ function SprintEngineSettingsPopover({
  }
  const runtimeActionLabel = sprintEngineAutomationRuntimeActionLabel(runtimeState)
  const runtimeGlyph = sprintEngineAutomationRuntimeGlyphs[runtimeState]
+ // Blocked reasons arrive as "Waiting on <taskId>: <question>". When the task
+ // row below already names the id, keep only the question so the id isn't
+ // stated twice in four lines.
+ const runtimeTaskPrefix = runtimeTask ? `Waiting on ${runtimeTask.id}: ` : null
+ const runtimeReasonDisplay = runtimeTaskPrefix && runtimeReason?.startsWith(runtimeTaskPrefix)
+ ? runtimeReason.slice(runtimeTaskPrefix.length)
+ : runtimeReason
  const currentPresetHint =
  sprintEngineCliPermissionOptions.find((option) => option.value === cliPermissionPreset)?.title
  return (
@@ -431,16 +443,12 @@ function SprintEngineSettingsPopover({
  })}
  </div>
  {runtimeGlyph ? (
- <div className="mt-2 flex items-start gap-2 px-2">
- <LifecycleGlyph state={runtimeGlyph} className="mt-px" />
- <div className="min-w-0 flex-1 text-[11px] leading-4">
- <span className="font-medium text-[color:var(--text-default)]">
+ <div className="mt-2 px-2">
+ <div className="flex items-center gap-2">
+ <LifecycleGlyph state={runtimeGlyph} />
+ <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
  {sprintEngineAutomationRuntimeLabels[runtimeState]}
  </span>
- {runtimeReason ? (
- <span className="text-[color:var(--text-muted)]"> — {runtimeReason}</span>
- ) : null}
- </div>
  {runtimeActionLabel && onResumeAutomation ? (
  <GhostButton
  onClick={() => {
@@ -450,6 +458,28 @@ function SprintEngineSettingsPopover({
  >
  {runtimeActionLabel}
  </GhostButton>
+ ) : null}
+ </div>
+ {runtimeReasonDisplay ? (
+ <p className="mt-1 text-[11px] leading-4 text-[color:var(--text-muted)]">{runtimeReasonDisplay}</p>
+ ) : null}
+ {runtimeTask && onOpenRuntimeTask ? (
+ <button
+ type="button"
+ onClick={() => {
+ onOpenRuntimeTask(runtimeTask.id)
+ onClose()
+ }}
+ aria-label={`Open task ${runtimeTask.id} ${runtimeTask.title}`}
+ className="interactive -mx-1 mt-1 flex w-[calc(100%+0.5rem)] items-baseline gap-2 rounded-[5px] px-1 py-1 text-left transition-colors hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+ >
+ <span className="shrink-0 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
+ {runtimeTask.id}
+ </span>
+ <span className="min-w-0 flex-1 truncate text-[12px] text-[color:var(--text-strong)]">
+ {runtimeTask.title}
+ </span>
+ </button>
  ) : null}
  </div>
  ) : null}
@@ -693,6 +723,14 @@ function SprintEngineBoardPanelContent({
  inboxArtifactCount,
  addMemberOptions,
  } = useSprintEngineBoardModel({ sprintEngineState, agents, roleRegistry, disabledRoleIds })
+
+ // The runtime stop reason (blocked / paused / failed) usually names the task
+ // it stopped on; resolve it so the run-configuration popover can deep-link
+ // into the task inspector instead of dead-ending on the reason sentence.
+ const automationRuntimeTaskId = workspace?.sprintEngineAutoState?.reasonTaskId
+ const automationRuntimeTask = automationRuntimeTaskId
+ ? tasksById[automationRuntimeTaskId] ?? null
+ : null
 
  const getLiveAgentTerminalSession = useCallback(
  (agentId: string) => {
@@ -1222,7 +1260,18 @@ function SprintEngineBoardPanelContent({
   })
   }
 
-  const resumeAutomation = automationRuntimeState === 'paused'
+  // Deep-link from the run-configuration popover to the task the runtime
+ // stopped on. The roster view is the only board view whose inspector cannot
+ // show a task, so it hops to Tasks first; a pinned roster layout passes a
+ // null handler instead so the popover renders no dead link.
+ const showAutomationRuntimeTask = (taskId: string) => {
+ if (!fixedView && effectiveView === 'roster') setActiveView('tasks')
+ setPreviewedArtifact(null)
+ setSelectedArtifactId(null)
+ setSelectedTaskId(taskId)
+ }
+
+ const resumeAutomation = automationRuntimeState === 'paused'
   || automationRuntimeState === 'blocked'
   || automationRuntimeState === 'failed'
   ? () => {
@@ -1802,9 +1851,11 @@ function SprintEngineBoardPanelContent({
   automationMode={automationMode}
   runtimeState={automationRuntimeState}
   runtimeReason={automationRuntimeReason}
+  runtimeTask={automationRuntimeTask}
   cliPermissionPreset={cliPermissionPreset}
   onChangeAutomationMode={updateAutomationMode}
   onResumeAutomation={resumeAutomation}
+  onOpenRuntimeTask={fixedView === 'roster' ? null : showAutomationRuntimeTask}
   onUpdateCliPreset={updateCliPermissionPreset}
  onClose={() => setSettingsOpen(false)}
  />

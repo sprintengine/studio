@@ -54,7 +54,7 @@ import {
   SkillPackTile,
   groupSkillPackCatalog,
 } from './SkillPacksCatalog'
-import { MetaCell, SettingsSectionTitle, formatNullableDate } from './SettingsAtoms'
+import { MetaCell, SettingsRow, SettingsSectionTitle, formatNullableDate } from './SettingsAtoms'
 import { AutomationServerSettings } from './AutomationServerSettings'
 import { ProjectKnowledgeList } from './ProjectKnowledgeList'
 import CliIcon from '../CliIcon'
@@ -136,23 +136,35 @@ type SettingsTabId =
   | 'voice-dictation'
   | 'telemetry'
 
+// Declared in rail order: the flat order of this array (filtered to visible
+// tabs, then module sections appended) drives index-based roving focus, so it
+// must match the grouped visual order in `settingsTabGroups` below.
 const settingsTabs: Array<{ id: SettingsTabId; label: string; description: string }> = [
   { id: 'appearance', label: 'Appearance', description: 'Theme and visual style' },
   { id: 'shortcuts', label: 'Shortcuts', description: 'Keyboard shortcuts' },
-  { id: 'modules', label: 'Modules', description: 'Enable or disable features' },
   { id: 'updates', label: 'Updates', description: 'Version and release channel' },
-  { id: 'github', label: 'GitHub', description: 'Issue import token' },
+  { id: 'telemetry', label: 'Telemetry', description: 'Usage and diagnostics' },
   { id: 'agents', label: 'Agents', description: 'CLI runtime commands' },
   { id: 'providers', label: 'Providers', description: 'Model and harness API keys' },
   { id: 'roles', label: 'Roles', description: 'Sprint Engine role registry' },
   { id: 'mcps', label: 'MCPs', description: 'Agent tool integrations' },
   { id: 'skill-packs', label: 'Skill packs', description: 'Bundled and ecosystem agent skills' },
+  { id: 'github', label: 'GitHub', description: 'Issue import token' },
   { id: 'file-search', label: 'File search', description: 'Index exclude patterns' },
   { id: 'knowledge-graph', label: 'Knowledge graph', description: 'Project knowledge' },
-  { id: 'learn', label: 'Learn', description: 'Tips and lessons' },
+  { id: 'modules', label: 'Modules', description: 'Enable or disable features' },
   { id: 'mobile', label: 'Mobile', description: 'Phone pairing and relay' },
   { id: 'voice-dictation', label: 'Voice dictation', description: 'Transcription server and model' },
-  { id: 'telemetry', label: 'Telemetry', description: 'Usage and diagnostics' },
+  { id: 'learn', label: 'Learn', description: 'Tips and lessons' },
+]
+
+// Rail groups (sentence-case micro labels). Module-contributed sections render
+// after these in a trailing "Extensions" group.
+const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
+  { label: 'App', ids: ['appearance', 'shortcuts', 'updates', 'telemetry'] },
+  { label: 'Agents', ids: ['agents', 'providers', 'roles', 'mcps', 'skill-packs'] },
+  { label: 'Workspace', ids: ['github', 'file-search', 'knowledge-graph', 'modules'] },
+  { label: 'Companion', ids: ['mobile', 'voice-dictation', 'learn'] },
 ]
 
 // A rail entry: a built-in tab, or a module-contributed section rendered after
@@ -216,6 +228,16 @@ function parseSearchExcludeText(value: string): string[] {
 
 const INPUT_CLASS =
   'h-9 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+
+/**
+ * Compact control for `SettingsRow`: callers add a width (`w-60` for the
+ * standard 240 px row control) so inputs stay sized to their expected content,
+ * never stretched to the panel. Recessed to `--bg-app` so it reads as a well
+ * inside the `--bg-surface` body. Mono because row inputs hold identifiers
+ * (commands, model ids, tokens), not prose.
+ */
+const ROW_INPUT_CLASS =
+  'h-8 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
 
 const TEXTAREA_CLASS =
   'min-h-[96px] w-full resize-y rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 font-mono text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)]'
@@ -296,12 +318,16 @@ function PluginModelSettings({
   onUserModelsChange: (models: string[]) => void
 }) {
   const [draftModel, setDraftModel] = useState('')
+  // Custom ids are a lower-frequency task than picking a default; they
+  // collapse to a count until opened.
+  const [userModelsOpen, setUserModelsOpen] = useState(false)
   const seedIds = new Set(modelSelection.options.map((option) => option.id))
   const mergedOptions = [
     ...modelSelection.options,
     ...userModels.filter((id) => !seedIds.has(id)).map((id) => ({ id, label: undefined })),
   ]
   const defaultIsKnown = !defaultModel || mergedOptions.some((option) => option.id === defaultModel)
+  const userModelsListId = `cli-user-models-${pluginId}`
   const addDraftModel = (): void => {
     const model = draftModel.trim()
     if (!model) return
@@ -310,13 +336,17 @@ function PluginModelSettings({
   }
   return (
     <>
-      <Field label="Default model" htmlFor={`cli-model-${pluginId}`}>
+      <SettingsRow
+        label="Default model"
+        help="Used for new launches unless a surface overrides it."
+        htmlFor={`cli-model-${pluginId}`}
+      >
         <select
           id={`cli-model-${pluginId}`}
           aria-label={`${displayName} default model`}
           value={defaultModel}
           onChange={(event) => onDefaultModelChange(event.target.value || null)}
-          className={INPUT_CLASS}
+          className={`${ROW_INPUT_CLASS} w-60`}
         >
           <option value="">CLI default</option>
           {mergedOptions.map((option) => (
@@ -328,38 +358,60 @@ function PluginModelSettings({
               with that id; show it instead of silently snapping to another model. */}
           {defaultIsKnown ? null : <option value={defaultModel}>{defaultModel}</option>}
         </select>
-      </Field>
+      </SettingsRow>
       {modelSelection.allowCustomId ? (
-        <div className="space-y-1">
-          {userModels.map((model) => (
-            <div key={model} className="group -mx-1 flex h-8 items-center gap-2 rounded px-1">
-              <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-[color:var(--text-default)]">
-                {model}
-              </span>
-              <button
-                type="button"
-                onClick={() => onUserModelsChange(userModels.filter((id) => id !== model))}
-                className="invisible rounded px-1.5 py-0.5 text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] focus-visible:visible group-focus-within:visible group-hover:visible"
+        <div className="py-2.5 last:pb-0">
+          <button
+            type="button"
+            onClick={() => setUserModelsOpen((open) => !open)}
+            aria-expanded={userModelsOpen}
+            aria-controls={userModelsListId}
+            className="interactive flex w-full items-center justify-between gap-4 rounded-[5px] text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          >
+            <span className="flex items-center gap-1.5 text-[13px] font-medium text-[color:var(--text-strong)]">
+              <span
+                aria-hidden="true"
+                className={`text-[color:var(--text-subtle)] transition-transform ${userModelsOpen ? 'rotate-90' : ''}`}
               >
-                Remove
-                <span className="sr-only"> {model} from {displayName} models</span>
-              </button>
+                ›
+              </span>
+              Custom model ids
+            </span>
+            <span className="tabular-nums text-[12px] text-[color:var(--text-muted)]">{userModels.length}</span>
+          </button>
+          {userModelsOpen ? (
+            <div id={userModelsListId} className="mt-2 space-y-1">
+              {userModels.map((model) => (
+                <div key={model} className="group -mx-1 flex h-8 items-center gap-2 rounded px-1">
+                  <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-[color:var(--text-default)]">
+                    {model}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onUserModelsChange(userModels.filter((id) => id !== model))}
+                    className="invisible rounded px-1.5 py-0.5 text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] focus-visible:visible group-focus-within:visible group-hover:visible"
+                  >
+                    Remove
+                    <span className="sr-only"> {model} from {displayName} models</span>
+                  </button>
+                </div>
+              ))}
+              <input
+                type="text"
+                value={draftModel}
+                aria-label={`Add a model id for ${displayName}`}
+                placeholder="Add model id and press Enter"
+                onChange={(event) => setDraftModel(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    addDraftModel()
+                  }
+                }}
+                className={`${ROW_INPUT_CLASS} w-full`}
+              />
             </div>
-          ))}
-          <input
-            type="text"
-            value={draftModel}
-            aria-label={`Add a model id for ${displayName}`}
-            placeholder="Add model id and press Enter"
-            onChange={(event) => setDraftModel(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault()
-                addDraftModel()
-              }
-            }}
-            className={INPUT_CLASS}
-          />
+          ) : null}
         </div>
       ) : null}
     </>
@@ -606,6 +658,9 @@ export default function SettingsPanel({
   const [githubTokenDraft, setGithubTokenDraft] = useState('')
   const [githubTokenMessage, setGithubTokenMessage] = useState('')
   const [githubTokenPending, setGithubTokenPending] = useState(false)
+  // True while the user is replacing an already-saved token; the write-only
+  // input only renders when there is nothing saved or a replace is underway.
+  const [githubTokenEditing, setGithubTokenEditing] = useState(false)
   const [activityInstalled, setActivityInstalled] = useState(false)
   const [activityPending, setActivityPending] = useState(false)
   const [activityMessage, setActivityMessage] = useState<string | null>(null)
@@ -1032,6 +1087,7 @@ export default function SettingsPanel({
       const status = await window.api.setGitHubToken(token)
       setGithubTokenStatus(status)
       setGithubTokenDraft('')
+      setGithubTokenEditing(false)
       setGithubTokenMessage('Saved. Switchboard can now import private GitHub issues.')
     } catch (error) {
       setGithubTokenMessage(error instanceof Error ? error.message : 'Could not save the GitHub token.')
@@ -1047,6 +1103,7 @@ export default function SettingsPanel({
       const status = await window.api.clearGitHubToken()
       setGithubTokenStatus(status)
       setGithubTokenDraft('')
+      setGithubTokenEditing(false)
       setGithubTokenMessage(status.configured && status.source === 'environment'
         ? 'Saved token cleared. GitHub imports are still using a token from the environment.'
         : 'GitHub token cleared.')
@@ -1063,6 +1120,11 @@ export default function SettingsPanel({
       ? 'download'
       : 'check'
 
+  // Write-only token entry: render the input only when nothing is saved or the
+  // user is replacing; a saved token reads as meta text plus Replace/Clear.
+  const githubTokenInputVisible =
+    githubTokenStatus !== null && (githubTokenEditing || !githubTokenStatus.configured)
+
   const activeTab = visibleSettingsTabs.find((tab) => tab.id === activeSettingsTab) ?? visibleSettingsTabs[0]
   const groupedMcpCatalog = groupMcpCatalog(mcpCatalog)
   const selectedCatalogServer = selectedCatalogId
@@ -1070,9 +1132,6 @@ export default function SettingsPanel({
     : null
   const activeMcpServers = Object.values(mcpSettings.servers).filter((server) => server.enabled)
   const registryRoles = orderedSprintEngineRoles(roleRegistry)
-  const registryWarningCount =
-    (roleRegistry?.warnings.length ?? 0)
-    + registryRoles.reduce((total, role) => total + roleWarnings(role).length, 0)
 
   const groupedSkillPackCatalog = groupSkillPackCatalog(skillPackCatalog)
   const selectedSkillPack = selectedSkillPackId
@@ -1317,30 +1376,56 @@ export default function SettingsPanel({
     window.requestAnimationFrame(() => tabRefs.current[nextTab.id]?.focus())
   }, [visibleSettingsTabs])
 
+  // Flat index into visibleSettingsTabs for roving focus; the grouped rail
+  // renders in the same order, so arrow keys move in visual order.
+  const tabIndexById = new Map(visibleSettingsTabs.map((tab, index) => [tab.id, index] as const))
+  const moduleSectionTabs = visibleSettingsTabs.filter((tab) => tab.moduleSection)
+  const railGroups = [
+    ...settingsTabGroups
+      .map((group) => ({
+        label: group.label,
+        tabs: group.ids
+          .map((id) => visibleSettingsTabs.find((tab) => tab.id === id))
+          .filter((tab): tab is SettingsTabDescriptor => tab !== undefined),
+      }))
+      .filter((group) => group.tabs.length > 0),
+    ...(moduleSectionTabs.length > 0 ? [{ label: 'Extensions', tabs: moduleSectionTabs }] : []),
+  ]
+
   const sidebarNode = (
-    <div
-      role="tablist"
-      aria-label="Settings categories"
-      aria-orientation="vertical"
-      className="grid grid-cols-2 gap-1 md:grid-cols-1"
-    >
-      {visibleSettingsTabs.map((tab, index) => (
-        <SettingsTabButton
-          key={tab.id}
-          ref={(node) => {
-            tabRefs.current[tab.id] = node
-          }}
-          tab={tab}
-          active={activeSettingsTab === tab.id}
-          onClick={() => selectSettingsTab(tab.id)}
-          onKeyDown={(event) => onSettingsTabKeyDown(event, index)}
-        />
+    <div role="tablist" aria-label="Settings categories" aria-orientation="vertical">
+      {railGroups.map((group) => (
+        <div key={group.label} className="mt-3.5 first:mt-0">
+          <div className="px-2 pb-1 text-[11px] text-[color:var(--text-subtle)]">{group.label}</div>
+          <div className="grid grid-cols-2 gap-0.5 md:grid-cols-1">
+            {group.tabs.map((tab) => (
+              <SettingsTabButton
+                key={tab.id}
+                ref={(node) => {
+                  tabRefs.current[tab.id] = node
+                }}
+                tab={tab}
+                active={activeSettingsTab === tab.id}
+                onClick={() => selectSettingsTab(tab.id)}
+                onKeyDown={(event) => onSettingsTabKeyDown(event, tabIndexById.get(tab.id) ?? 0)}
+              />
+            ))}
+          </div>
+        </div>
       ))}
     </div>
   )
 
+  // Form tabs read in a capped measure; catalog/table tabs (tile grids, the
+  // shortcuts editor, Learn) keep the full panel width.
+  const fullWidthTab =
+    activeTab.id === 'mcps'
+    || activeTab.id === 'skill-packs'
+    || activeTab.id === 'shortcuts'
+    || activeTab.id === 'learn'
+
   const bodyContent = (
-    <>
+    <div className={fullWidthTab ? undefined : 'max-w-[640px]'}>
       <header className="mb-4 border-b border-[color:var(--border-subtle)] pb-3">
         <h3 className="flex items-center gap-2 text-[15px] font-semibold text-[color:var(--text-strong)]">
           {activeTab.moduleSection ? (
@@ -1377,58 +1462,71 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-updates"
           className="space-y-4"
         >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[color:var(--text-strong)]">
+          {/* Identity row with one state-driven action: the update flow is a
+              line (check → download → restart), so only the current step's
+              action renders instead of three buttons with two disabled. */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] pb-3.5">
+            <div className="flex min-w-0 items-center gap-2.5">
               <MulticodeMark className="h-4 w-4 shrink-0" />
-              <span>multicode {updateState?.version ?? '...'}</span>
-            </div>
-            <StatusTag tone={updateChannelTone(updateState?.channel)} label={formatUpdateChannel(updateState?.channel)} />
-          </div>
-
-          <MessageBlock tone={updateMessageTone(updateState?.status)}>
-            {formatUpdateStatus(updateState)}
-            {updateState?.progress ? (
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[color:var(--bg-active)]">
-                <div
-                  className="h-full rounded-full bg-[color:var(--accent-primary)]"
-                  style={{ width: `${Math.max(0, Math.min(100, updateState.progress.percent))}%` }}
-                />
+              <div className="min-w-0">
+                <div className="text-[13px] font-medium text-[color:var(--text-strong)]">
+                  Multicode <span className="tabular-nums">{updateState?.version ?? '…'}</span>
+                </div>
+                <div className="mt-0.5 text-[12px] text-[color:var(--text-muted)]">
+                  {formatUpdateChannel(updateState?.channel)} channel · last checked {formatNullableDate(updateState?.lastCheckedAt)}
+                </div>
               </div>
-            ) : null}
-          </MessageBlock>
-
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => void window.api.updateOpenReleaseNotes()}
-              className="text-sm font-semibold text-[color:var(--accent-primary)] hover:text-[color:var(--accent-primary-hover)] focus:outline-none focus-visible:underline"
-            >
-              Release notes
-            </button>
-            <UpdateActionButton
-              label="Check"
-              primary={nextUpdateAction === 'check'}
-              onClick={() => void checkForUpdates()}
-              disabled={updateActionPending || updateState?.status === 'checking' || updateState?.status === 'downloading'}
-            />
-            <UpdateActionButton
-              label="Download"
-              primary={nextUpdateAction === 'download'}
-              onClick={() => void downloadUpdate()}
-              disabled={updateActionPending || updateState?.status !== 'available'}
-            />
-            <UpdateActionButton
-              label="Restart"
-              primary={nextUpdateAction === 'restart'}
-              onClick={() => void restartToInstall()}
-              disabled={!updateState?.downloaded}
-            />
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void window.api.updateOpenReleaseNotes()}
+                className="text-[12px] font-medium text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline"
+              >
+                Release notes
+              </button>
+              {updateState && !updateState.packaged ? null : nextUpdateAction === 'restart' ? (
+                <PrimaryButton size="md" onClick={() => void restartToInstall()} disabled={updateActionPending}>
+                  Restart to install
+                </PrimaryButton>
+              ) : nextUpdateAction === 'download' ? (
+                <PrimaryButton
+                  size="md"
+                  onClick={() => void downloadUpdate()}
+                  disabled={updateActionPending || updateState?.status === 'downloading'}
+                >
+                  {updateState?.updateVersion ? `Download ${updateState.updateVersion}` : 'Download update'}
+                </PrimaryButton>
+              ) : (
+                <GhostButton
+                  size="md"
+                  onClick={() => void checkForUpdates()}
+                  disabled={updateActionPending || updateState?.status === 'checking' || updateState?.status === 'downloading'}
+                  className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                >
+                  {updateState?.status === 'error' ? 'Retry check' : 'Check for updates'}
+                </GhostButton>
+              )}
+            </div>
           </div>
 
-          <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-sm sm:grid-cols-2">
-            <MetaCell label="Update version" value={updateState?.updateVersion ?? 'None'} />
-            <MetaCell label="Last checked" value={formatNullableDate(updateState?.lastCheckedAt)} />
-          </div>
+          <p
+            className={`text-[12px] leading-5 ${
+              updateState?.status === 'error'
+                ? 'text-[color:var(--tone-error)]'
+                : 'text-[color:var(--text-muted)]'
+            }`}
+          >
+            {formatUpdateStatus(updateState)}
+          </p>
+          {updateState?.progress ? (
+            <div className="h-1 overflow-hidden rounded-full bg-[color:var(--bg-active)]">
+              <div
+                className="h-full rounded-full bg-[color:var(--accent-primary)]"
+                style={{ width: `${Math.max(0, Math.min(100, updateState.progress.percent))}%` }}
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -1439,48 +1537,78 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-github"
           className="space-y-4"
         >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0 text-sm font-semibold text-[color:var(--text-strong)]">
-              GitHub access token
-            </div>
-            <StatusTag tone={githubTokenTone(githubTokenStatus)} label={formatGitHubTokenStatus(githubTokenStatus)} />
-          </div>
-
-          <Field label="Token" htmlFor="github-token-input">
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <input
-                type="password"
-                value={githubTokenDraft}
-                onChange={(event) => setGithubTokenDraft(event.target.value)}
-                placeholder={githubTokenStatus?.configured ? 'Token saved' : 'Fine-grained GitHub token'}
-                autoComplete="off"
-                className={`${INPUT_CLASS} min-w-0 flex-1`}
-              />
-              <div className="flex gap-2">
+          <SettingsRow
+            label="Access token"
+            help={
+              <>
+                Switchboard uses this to import private GitHub issues. Stored on this device; never written to workspace files.
+                {githubTokenStatus && !githubTokenStatus.encryptionAvailable
+                  ? ' Secure storage is unavailable, so the token is kept for this app session only.'
+                  : ''}
+              </>
+            }
+            htmlFor={githubTokenInputVisible ? 'github-token-input' : undefined}
+          >
+            {githubTokenInputVisible ? (
+              <>
+                <input
+                  id="github-token-input"
+                  type="password"
+                  value={githubTokenDraft}
+                  onChange={(event) => setGithubTokenDraft(event.target.value)}
+                  placeholder="Fine-grained GitHub token"
+                  autoComplete="off"
+                  className={`${ROW_INPUT_CLASS} w-60`}
+                />
                 <PrimaryButton
                   size="md"
                   onClick={() => void saveGitHubToken()}
                   disabled={githubTokenPending || !githubTokenDraft.trim()}
-                  className="h-9"
                 >
                   Save
                 </PrimaryButton>
+                {githubTokenStatus?.configured ? (
+                  <GhostButton
+                    size="md"
+                    onClick={() => {
+                      setGithubTokenEditing(false)
+                      setGithubTokenDraft('')
+                    }}
+                  >
+                    Cancel
+                  </GhostButton>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <span className="text-[12px] font-medium text-[color:var(--text-default)]">
+                  {formatGitHubTokenStatus(githubTokenStatus)}
+                </span>
+                <GhostButton
+                  size="md"
+                  onClick={() => setGithubTokenEditing(true)}
+                  disabled={githubTokenStatus === null}
+                  className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                >
+                  Replace
+                </GhostButton>
                 <GhostButton
                   size="md"
                   onClick={() => void clearGitHubToken()}
                   disabled={githubTokenPending || githubTokenStatus?.source !== 'settings'}
-                  className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                  className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                 >
                   Clear
                 </GhostButton>
-              </div>
-            </div>
-          </Field>
+              </>
+            )}
+          </SettingsRow>
 
-          <MessageBlock tone={githubTokenMessage ? 'accent' : 'neutral'}>
-            {githubTokenMessage || 'Switchboard uses this token to import private GitHub issues. The token is stored on this device and is not saved in workspace files.'}
-            {githubTokenStatus && !githubTokenStatus.encryptionAvailable ? ' Secure storage is unavailable, so the token is kept for this app session only.' : ''}
-          </MessageBlock>
+          {githubTokenMessage ? (
+            <p role="status" className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+              {githubTokenMessage}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -1489,7 +1617,7 @@ export default function SettingsPanel({
           role="tabpanel"
           id="settings-panel-agents"
           aria-labelledby="settings-tab-agents"
-          className="space-y-4"
+          className="space-y-5"
         >
           <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
             Installed plugins define which agent CLIs are available. These fields only override how each
@@ -1525,51 +1653,62 @@ export default function SettingsPanel({
             installedPluginRows.map((plugin) => {
               const override = cliRuntimeForPlugin(plugin.id, cliRuntimes)
               return (
-                <div key={plugin.id} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <CliIcon cli={plugin.id} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
-                    <span className="text-[13px] font-medium text-[color:var(--text-strong)]">
+                <section key={plugin.id} aria-label={plugin.displayName} className="pt-2 first-of-type:pt-0">
+                  <SettingsSectionTitle
+                    action={
+                      <span className="text-[11px] text-[color:var(--text-subtle)]">
+                        {plugin.source === 'bundled' ? 'Built-in' : 'User plugin'}
+                      </span>
+                    }
+                  >
+                    <span className="flex items-center gap-2">
+                      <CliIcon cli={plugin.id} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
                       {plugin.displayName}
                     </span>
-                    <span className="text-[11px] text-[color:var(--text-muted)]">
-                      {plugin.source === 'bundled' ? 'Built-in' : 'User plugin'}
-                    </span>
-                  </div>
-                  <Field label="Command" htmlFor={`cli-command-${plugin.id}`}>
-                    <input
-                      id={`cli-command-${plugin.id}`}
-                      // Per-plugin accessible name so screen readers don't announce an
-                      // identical "Command" for every row; the visible label stays compact.
-                      aria-label={`${plugin.displayName} command`}
-                      value={override.command}
-                      onChange={(event) => setCliRuntime(plugin.id, { command: event.target.value, useWsl: override.useWsl })}
-                      placeholder={plugin.binary}
-                      className={INPUT_CLASS}
-                    />
-                  </Field>
+                  </SettingsSectionTitle>
 
-                  {isWindows && (
-                    <CompoundSwitchRow
-                      label={`Run ${plugin.displayName} through WSL`}
-                      checked={override.useWsl}
-                      onChange={(enabled) => setCliRuntime(plugin.id, { command: override.command, useWsl: enabled })}
-                    />
-                  )}
-                  {plugin.modelSelection ? (
-                    <PluginModelSettings
-                      pluginId={plugin.id}
-                      displayName={plugin.displayName}
-                      modelSelection={plugin.modelSelection}
-                      userModels={cliRuntimes?.[plugin.id]?.models ?? EMPTY_USER_MODELS}
-                      defaultModel={cliModelDefaults[plugin.id] ?? ''}
-                      onDefaultModelChange={(model) => setCliModelDefault(plugin.id, model)}
-                      onUserModelsChange={(models) => setCliRuntime(plugin.id, { models })}
-                    />
-                  ) : null}
-                  <p className="text-[11px] leading-5 text-[color:var(--text-muted)]">
-                    Runs <span className="font-mono text-[color:var(--text-default)]">{plugin.binary}</span> when the command is blank.
-                  </p>
-                </div>
+                  <div className="mt-1 divide-y divide-[color:var(--border-subtle)]">
+                    <SettingsRow
+                      label="Command"
+                      help={
+                        <>
+                          Runs <span className="font-mono text-[color:var(--text-default)]">{plugin.binary}</span> when blank.
+                        </>
+                      }
+                      htmlFor={`cli-command-${plugin.id}`}
+                    >
+                      <input
+                        id={`cli-command-${plugin.id}`}
+                        // Per-plugin accessible name so screen readers don't announce an
+                        // identical "Command" for every row; the visible label stays compact.
+                        aria-label={`${plugin.displayName} command`}
+                        value={override.command}
+                        onChange={(event) => setCliRuntime(plugin.id, { command: event.target.value, useWsl: override.useWsl })}
+                        placeholder={plugin.binary}
+                        className={`${ROW_INPUT_CLASS} w-60`}
+                      />
+                    </SettingsRow>
+
+                    {isWindows && (
+                      <CompoundSwitchRow
+                        label={`Run ${plugin.displayName} through WSL`}
+                        checked={override.useWsl}
+                        onChange={(enabled) => setCliRuntime(plugin.id, { command: override.command, useWsl: enabled })}
+                      />
+                    )}
+                    {plugin.modelSelection ? (
+                      <PluginModelSettings
+                        pluginId={plugin.id}
+                        displayName={plugin.displayName}
+                        modelSelection={plugin.modelSelection}
+                        userModels={cliRuntimes?.[plugin.id]?.models ?? EMPTY_USER_MODELS}
+                        defaultModel={cliModelDefaults[plugin.id] ?? ''}
+                        onDefaultModelChange={(model) => setCliModelDefault(plugin.id, model)}
+                        onUserModelsChange={(models) => setCliRuntime(plugin.id, { models })}
+                      />
+                    ) : null}
+                  </div>
+                </section>
               )
             })
           )}
@@ -1585,37 +1724,24 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-roles"
           className="space-y-5"
         >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-[color:var(--text-strong)]">
-                Sprint Engine roles
-              </div>
-              <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
-                Registry manifests provide display metadata. Runtime enablement is stored in app settings.
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <StatusTag
-                tone={
-                  roleRegistryStatus === 'ready'
-                    ? registryWarningCount > 0 ? 'warn' : 'good'
-                    : roleRegistryStatus === 'loading' ? 'neutral' : 'warn'
-                }
-                label={
-                  roleRegistryStatus === 'ready'
-                    ? `${registryRoles.length} role${registryRoles.length === 1 ? '' : 's'}`
-                    : roleRegistryStatus === 'loading' ? 'Loading' : 'Unavailable'
-                }
-              />
-              <PrimaryButton
-                size="md"
-                onClick={() => void installSprintEngineRoleFolder()}
-                disabled={roleInstallPending || !activeSprintEngineRoot}
-                className="h-9"
-              >
-                {roleInstallPending ? 'Installing' : 'Install folder'}
-              </PrimaryButton>
-            </div>
+          <div className="space-y-1">
+            <SettingsSectionTitle
+              count={roleRegistryStatus === 'ready' ? registryRoles.length : undefined}
+              action={
+                <PrimaryButton
+                  size="md"
+                  onClick={() => void installSprintEngineRoleFolder()}
+                  disabled={roleInstallPending || !activeSprintEngineRoot}
+                >
+                  {roleInstallPending ? 'Installing' : 'Install folder'}
+                </PrimaryButton>
+              }
+            >
+              Workspace roles
+            </SettingsSectionTitle>
+            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+              Install accepts a registry folder, a roles folder of JSON manifests, or a skills folder of SKILL.md directories.
+            </p>
           </div>
 
           {roleRegistryStatus === 'loading' ? (
@@ -1656,18 +1782,12 @@ export default function SettingsPanel({
                   <div key={role.id} className="py-3">
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span
-                            id={switchLabelId}
-                            className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]"
-                          >
-                            {label}
-                          </span>
-                          <StatusDot
-                            tone={enabled ? 'good' : 'neutral'}
-                            label={enabled ? 'Enabled' : 'Disabled'}
-                          />
-                        </div>
+                        <span
+                          id={switchLabelId}
+                          className="block truncate text-[13px] font-medium text-[color:var(--text-strong)]"
+                        >
+                          {label}
+                        </span>
                         <div
                           id={switchHelpId}
                           className="mt-0.5 truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]"
@@ -1679,6 +1799,23 @@ export default function SettingsPanel({
                             {role.summary}
                           </p>
                         ) : null}
+                        {manifestDisabled ? (
+                          <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                            Disabled by the role manifest; the app setting cannot override it.
+                          </p>
+                        ) : isArchitect ? (
+                          <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                            Required for planning; cannot be disabled.
+                          </p>
+                        ) : null}
+                        {warnings.map((warning) => (
+                          <p
+                            key={`${role.id}:${warning.code}:${warning.message}`}
+                            className="mt-1 text-[12px] leading-5 text-[color:var(--tone-warn)]"
+                          >
+                            Warning: {warning.message}
+                          </p>
+                        ))}
                       </div>
                       <Switch
                         checked={enabled}
@@ -1689,27 +1826,6 @@ export default function SettingsPanel({
                         className="mt-0.5"
                       />
                     </div>
-                    {manifestDisabled ? (
-                      <div className="mt-2 border-l-2 border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
-                        Disabled by this role manifest. The app setting cannot enable it until the manifest changes.
-                      </div>
-                    ) : isArchitect ? (
-                      <div className="mt-2 border-l-2 border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
-                        Architect cannot be disabled. Sprint Engine planning requires it on every new roster.
-                      </div>
-                    ) : null}
-                    {warnings.length > 0 ? (
-                      <div className="mt-2 space-y-1 border-l-2 border-[color:var(--tone-warn)] pl-3">
-                        {warnings.map((warning) => (
-                          <p
-                            key={`${role.id}:${warning.code}:${warning.message}`}
-                            className="text-[12px] leading-5 text-[color:var(--tone-warn)]"
-                          >
-                            Warning: {warning.message}
-                          </p>
-                        ))}
-                      </div>
-                    ) : null}
                   </div>
                 )
               })}
@@ -1733,29 +1849,28 @@ export default function SettingsPanel({
             <MessageBlock tone={roleInstallMessage.tone}>
               {roleInstallMessage.text}
             </MessageBlock>
-          ) : (
-            <MessageBlock tone="neutral">
-              Install accepts a registry folder with roles and skills, a roles folder with JSON manifests, or a skills folder with SKILL.md directories.
-            </MessageBlock>
-          )}
+          ) : null}
 
           <div className="space-y-3 border-t border-[color:var(--border-subtle)] pt-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-[color:var(--text-strong)]">Global roles</div>
-                <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
-                  Third-party roles installed for every workspace. Manifests are validated on install;
-                  invalid ones are skipped. Reload to pick them up in open workspaces.
-                </p>
-              </div>
-              <GhostButton
-                size="md"
-                onClick={() => void installGlobalRoleFolder()}
-                disabled={globalInstallPending}
-                className="h-9"
+            <div className="space-y-1">
+              <SettingsSectionTitle
+                count={userRoles.length || undefined}
+                action={
+                  <GhostButton
+                    size="md"
+                    onClick={() => void installGlobalRoleFolder()}
+                    disabled={globalInstallPending}
+                    className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                  >
+                    {globalInstallPending ? 'Installing' : 'Install from folder'}
+                  </GhostButton>
+                }
               >
-                {globalInstallPending ? 'Installing' : 'Install from folder'}
-              </GhostButton>
+                Global roles
+              </SettingsSectionTitle>
+              <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+                Installed for every workspace. Invalid manifests are skipped; reload open workspaces to pick up changes.
+              </p>
             </div>
 
             {globalInstallMessage ? (
@@ -1763,10 +1878,9 @@ export default function SettingsPanel({
             ) : null}
 
             {userRoles.length === 0 ? (
-              <MessageBlock tone="neutral">
-                No global roles installed. Install a folder of role manifests to share roles across
-                workspaces.
-              </MessageBlock>
+              <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+                No global roles installed.
+              </p>
             ) : (
               <div className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
                 {userRoles.map((role) => (
@@ -1971,18 +2085,12 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-skill-packs"
           className="space-y-5"
         >
-          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            Agent skills available to this workspace — Multicode&apos;s bundled workflow skills
-            and curated packs from the open <code className="font-mono">skills</code> ecosystem.
-          </p>
-
-          <section className="space-y-2 border-t border-[color:var(--border-subtle)] pt-4">
+          <section className="space-y-2">
             <SettingsSectionTitle count={builtinSkills.length}>Bundled</SettingsSectionTitle>
             <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
               First-party workflow skills, installed into <code className="font-mono">.agents/skills</code>.
-              Workspace Knowledge reads and updates the graph configured in the Knowledge graph tab.
             </p>
-            <div className="grid gap-2">
+            <div className="divide-y divide-[color:var(--border-subtle)]">
               {builtinSkills.length ? builtinSkills.map((skill) => {
                 const status = builtinSkillStatuses[skill.id] ?? null
                 const installBlocked =
@@ -1995,12 +2103,12 @@ export default function SettingsPanel({
                 return (
                   <div
                     key={skill.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2"
+                    className="flex flex-wrap items-center justify-between gap-3 py-2.5"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">{skill.name}</div>
+                      <div className="truncate text-[13px] font-medium text-[color:var(--text-strong)]">{skill.name}</div>
                       <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">{skill.description}</div>
-                      <div className="mt-1 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+                      <div className="mt-0.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
                         {formatBuiltinSkillStatus(status, skill.id)}
                       </div>
                     </div>
@@ -2008,16 +2116,16 @@ export default function SettingsPanel({
                       size="md"
                       onClick={() => void installBuiltinSkill(skill)}
                       disabled={builtinSkillPendingId !== null || installBlocked}
-                      className="h-8 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                      className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                     >
                       {status?.ok && status.status === 'update-available' ? 'Update' : 'Install'}
                     </GhostButton>
                   </div>
                 )
               }) : (
-                <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                <p className="py-2.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
                   Built-in skills have not loaded yet.
-                </div>
+                </p>
               )}
             </div>
             {builtinSkillMessage ? (
@@ -2028,9 +2136,9 @@ export default function SettingsPanel({
           <section className="space-y-2 border-t border-[color:var(--border-subtle)] pt-4">
             <SettingsSectionTitle count={installedSkillPacks.length}>Installed</SettingsSectionTitle>
             {installedSkillPacks.length === 0 ? (
-              <MessageBlock tone="neutral">
+              <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
                 Nothing installed yet. Pick a pack from the catalog below.
-              </MessageBlock>
+              </p>
             ) : (
               <ul className="divide-y divide-[color:var(--border-subtle)]">
                 {installedSkillPacks.map((pack) => (
@@ -2076,7 +2184,12 @@ export default function SettingsPanel({
 
           <div className="flex gap-4 border-t border-[color:var(--border-subtle)] pt-4">
             <section className="min-w-0 flex-1 space-y-4">
-              <SettingsSectionTitle count={skillPackCatalog.length}>Ecosystem catalog</SettingsSectionTitle>
+              <div className="space-y-1">
+                <SettingsSectionTitle count={skillPackCatalog.length}>Ecosystem catalog</SettingsSectionTitle>
+                <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+                  Install runs <code className="font-mono">npx skills add &lt;slug&gt;</code> in the workspace root.
+                </p>
+              </div>
               <div className="space-y-5">
                 {groupedSkillPackCatalog.map(([category, packs]) => (
                   <div key={category} className="space-y-2">
@@ -2123,10 +2236,9 @@ export default function SettingsPanel({
             ) : null}
           </div>
 
-          <MessageBlock tone={skillPackMessage ? 'accent' : 'neutral'}>
-            {skillPackMessage
-              || 'Install runs `npx skills add <slug>` inside the workspace root and writes files into the harness directories that already exist.'}
-          </MessageBlock>
+          {skillPackMessage ? (
+            <MessageBlock tone="accent">{skillPackMessage}</MessageBlock>
+          ) : null}
         </div>
       ) : null}
 
@@ -2154,9 +2266,9 @@ export default function SettingsPanel({
             </Field>
           ) : null}
           <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            Defaults still exclude heavy folders like <span className="font-mono text-[color:var(--text-default)]">.git</span>,{' '}
+            Defaults already exclude <span className="font-mono text-[color:var(--text-default)]">.git</span>,{' '}
             <span className="font-mono text-[color:var(--text-default)]">node_modules</span>, and{' '}
-            <span className="font-mono text-[color:var(--text-default)]">dist</span>. Add one pattern per line or separate entries with commas.
+            <span className="font-mono text-[color:var(--text-default)]">dist</span>.
           </p>
         </div>
       ) : null}
@@ -2168,32 +2280,32 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-knowledge-graph"
           className="space-y-4"
         >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0 text-sm font-semibold text-[color:var(--text-strong)]">
+          <div className="space-y-1">
+            <SettingsSectionTitle
+              action={
+                activeProjectRoot ? (
+                  <span
+                    className="max-w-[260px] truncate font-mono text-[11px] text-[color:var(--text-subtle)]"
+                    title={activeProjectRoot}
+                  >
+                    {basename(activeProjectRoot)}
+                  </span>
+                ) : undefined
+              }
+            >
               Markdown knowledge graph
-            </div>
-            {activeProjectRoot ? (
-              <div
-                className="max-w-[260px] truncate rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--accent-primary)]"
-                title={activeProjectRoot}
-              >
-                {basename(activeProjectRoot)}
-              </div>
-            ) : null}
+            </SettingsSectionTitle>
+            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+              Each project points at a knowledge folder; its workspaces and Sprint Engine runs inherit it.
+            </p>
           </div>
-
-          <p className="text-[12px] leading-5 text-[color:var(--text-subtle)]">
-            Each project points at a knowledge folder, relative to its own root.
-            Workspaces under a project (including Sprint Engine runs) inherit it.
-            Select several to point them at one shared folder.
-          </p>
 
           <ProjectKnowledgeList activeProjectRoot={activeProjectRoot} />
 
           <div className="border-t border-[color:var(--border-subtle)] pt-4">
             <CompoundSwitchRow
               label="Activity tracking (Claude Code)"
-              description="Record which knowledge files Claude touches in this project and animate the graph as files are read. Adds a project-local hook to .claude/settings.local.json. Only files under the knowledge folder are recorded."
+              description="Record which knowledge files Claude touches and animate the graph as they are read. What gets installed is shown before enabling."
               checked={activityInstalled}
               disabled={activityPending || !activeProjectRoot || !activeKnowledgeConfig?.relativeRoot}
               onChange={(next) => void toggleActivityTracking(next)}
@@ -2365,7 +2477,7 @@ export default function SettingsPanel({
           </GhostButton>
         </div>
       ) : null}
-    </>
+    </div>
   )
 
   if (chrome === 'overlay') {
@@ -2387,10 +2499,10 @@ export default function SettingsPanel({
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-          <aside className="shrink-0 overflow-y-auto border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] p-2 md:w-56 md:border-b-0 md:border-r md:p-3">
+          <aside className="shrink-0 overflow-y-auto border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] p-2 md:w-48 md:border-b-0 md:border-r md:px-2 md:py-3">
             {sidebarNode}
           </aside>
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+          <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
             {bodyContent}
           </div>
         </div>
@@ -2412,6 +2524,8 @@ export default function SettingsPanel({
   )
 }
 
+// Single-line rail item. The tab's description renders once, in the body
+// header, not in the rail.
 const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
   tab: { id: string; label: string; description: string }
   active: boolean
@@ -2429,49 +2543,16 @@ const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
       tabIndex={active ? 0 : -1}
       onClick={onClick}
       onKeyDown={onKeyDown}
-      className={`interactive group min-h-12 rounded-md border-l-[3px] px-2.5 py-1.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+      className={`interactive block w-full truncate rounded-[5px] px-2 py-[5px] text-left text-[13px] leading-[18px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
         active
-          ? 'border-l-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-          : 'border-l-transparent text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
+          ? 'bg-[color:var(--accent-primary-soft)] font-medium text-[color:var(--text-strong)]'
+          : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
       }`}
     >
-      <span className="block text-[13px] font-semibold leading-5">{tab.label}</span>
-      <span className={`mt-0.5 block truncate text-[11px] leading-4 ${active ? 'text-[color:var(--accent-primary)]' : 'text-[color:var(--text-subtle)] group-hover:text-[color:var(--text-muted)]'}`}>
-        {tab.description}
-      </span>
+      {tab.label}
     </button>
   )
 })
-
-function UpdateActionButton({
-  label,
-  primary,
-  onClick,
-  disabled,
-}: {
-  label: string
-  primary: boolean
-  onClick: () => void
-  disabled?: boolean
-}) {
-  if (primary) {
-    return (
-      <PrimaryButton size="md" onClick={onClick} disabled={disabled}>
-        {label}
-      </PrimaryButton>
-    )
-  }
-  return (
-    <GhostButton
-      size="md"
-      onClick={onClick}
-      disabled={disabled}
-      className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-    >
-      {label}
-    </GhostButton>
-  )
-}
 
 function formatBuiltinSkillStatus(status: BuiltinSkillStatus | null, skillId: string): string {
   if (!status) return 'Skill status has not been checked.'
@@ -2506,44 +2587,11 @@ function formatUpdateChannel(channel: AppUpdateState['channel'] | undefined): st
   }
 }
 
-function updateChannelTone(channel: AppUpdateState['channel'] | undefined): Tone {
-  switch (channel) {
-    case 'stable':
-      return 'accent'
-    case 'preview':
-      return 'warn'
-    case 'dev':
-      return 'accent'
-    default:
-      return 'neutral'
-  }
-}
-
 function formatGitHubTokenStatus(status: GitHubTokenUiStatus | null): string {
   if (!status) return 'Checking'
   if (status.source === 'settings') return 'Saved'
   if (status.source === 'environment') return 'Environment'
   return 'Not set'
-}
-
-function githubTokenTone(status: GitHubTokenUiStatus | null): Tone {
-  if (status?.configured) return 'accent'
-  return 'neutral'
-}
-
-function updateMessageTone(status: AppUpdateState['status'] | undefined): MessageTone {
-  switch (status) {
-    case 'available':
-    case 'downloaded':
-      return 'accent'
-    case 'checking':
-    case 'downloading':
-      return 'warn'
-    case 'error':
-      return 'error'
-    default:
-      return 'neutral'
-  }
 }
 
 function formatUpdateStatus(state: AppUpdateState | null): string {

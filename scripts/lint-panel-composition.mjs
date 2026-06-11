@@ -79,7 +79,11 @@ const REPORT_ONLY = args.has('--report')
 
 let files
 try {
-  files = readdirSync(PANELS_DIR).filter((name) => name.endsWith('.tsx'))
+  // Focused component tests live beside the panels they cover; they are not
+  // operational panel surfaces, so the PanelHeader contract does not apply.
+  files = readdirSync(PANELS_DIR).filter(
+    (name) => name.endsWith('.tsx') && !name.endsWith('.test.tsx'),
+  )
 } catch (error) {
   process.stdout.write(
     `Panel directory missing or unreadable: ${PANELS_DIR}\n${error.message}\n`,
