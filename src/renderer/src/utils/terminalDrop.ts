@@ -1,5 +1,18 @@
+import type { SkillPackHarness } from '../../../shared/electron-api'
+import { SKILL_PACK_HARNESSES } from '../../../shared/skill-harnesses'
+
 export const MULTICODE_FILE_DROP_MIME = 'application/x-multicode-file-drop'
 export const MULTICODE_COMMIT_DROP_MIME = 'application/x-multicode-commit-drop'
+
+export const BACKLOG_SKILL_ID = 'backlog'
+
+// Agent CLIs whose composer accepts a typed `/backlog` skill invocation, and
+// the skill-harness directory each one reads installed skills from.
+const AGENT_CLI_SKILL_HARNESS: Record<string, SkillPackHarness> = {
+  'claude-code': 'claude',
+  claude: 'claude',
+  codex: 'codex',
+}
 
 export type FileDropPayload = {
   version: 1
@@ -80,11 +93,73 @@ export async function pasteDroppedFilesIntoTerminal(input: {
   )
   if (!session) return { ok: false, message: 'Terminal session is no longer running.' }
 
+  const slashCommand = await resolveBacklogSlashCommand(payload, session)
+  if (slashCommand) {
+    await window.api.terminalWrite(input.sessionId, bracketedPaste(slashCommand))
+    return { ok: true, text: slashCommand }
+  }
+
   const text = formatDroppedPathsForTerminal(payload, session)
   if (!text) return { ok: false, message: 'No valid file path was available to drop.' }
 
   await window.api.terminalWrite(input.sessionId, bracketedPaste(text))
   return { ok: true, text }
+}
+
+// A single backlog/ item dropped into a slash-capable agent terminal pastes
+// `/backlog <item>` so the agent picks the item up through the installed
+// backlog skill (lifecycle updates included) instead of receiving a bare path.
+export function backlogSlashCommandForDrop(
+  payload: FileDropPayload,
+  session: TerminalSessionSnapshot,
+  installedHarnesses: readonly SkillPackHarness[]
+): string | null {
+  if (session.kind !== 'agent') return null
+  // Worktree agents would mutate the worktree's copy of the backlog object
+  // store, silently forking lifecycle state; they keep plain path pastes.
+  if (session.executionMode === 'worktree' || session.worktreePath) return null
+  const harness = session.cli ? AGENT_CLI_SKILL_HARNESS[session.cli] : undefined
+  if (!harness || !installedHarnesses.includes(harness)) return null
+  if (payload.files.length !== 1) return null
+
+  const [file] = payload.files
+  if (file.isDir || !isSafeDroppedPath(file.path)) return null
+  const relativePath = backlogRelativePath(payload.rootPath, file.path)
+  if (!relativePath) return null
+  if (relativePath.includes("'")) return null
+  return `/backlog ${/\s/.test(relativePath) ? `'${relativePath}'` : relativePath}`
+}
+
+async function resolveBacklogSlashCommand(
+  payload: FileDropPayload,
+  session: TerminalSessionSnapshot
+): Promise<string | null> {
+  // Cheap shape check first; only ask the skill manager when the drop matches.
+  if (!backlogSlashCommandForDrop(payload, session, SKILL_PACK_HARNESSES)) return null
+
+  try {
+    const status = await window.api.builtinSkillStatus({
+      workspaceRoot: payload.rootPath,
+      skillId: BACKLOG_SKILL_ID,
+    })
+    if (!status.ok) return null
+    const presentHarnesses = status.targets
+      .filter((target) => target.status !== 'missing')
+      .map((target) => target.harness)
+    return backlogSlashCommandForDrop(payload, session, presentHarnesses)
+  } catch {
+    return null
+  }
+}
+
+function backlogRelativePath(rootPath: string, filePath: string): string | null {
+  const root = rootPath.replace(/\\/g, '/').replace(/\/+$/, '')
+  const file = filePath.replace(/\\/g, '/')
+  if (!root) return null
+  if (!file.toLowerCase().startsWith(`${root.toLowerCase()}/`)) return null
+  const relativePath = file.slice(root.length + 1)
+  if (!/^backlog\/.+/i.test(relativePath)) return null
+  return relativePath
 }
 
 function parseFileDropPayload(dataTransfer: DataTransfer): FileDropPayload | null {

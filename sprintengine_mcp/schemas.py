@@ -18,7 +18,7 @@ from .tool_contracts import ACTIVE_TOOL_NAMES
 
 STATE_PATH_PROPERTY = {
     "type": "string",
-    "description": "Path to the active Sprint Engine run.yaml file. Must resolve under an allowed root.",
+    "description": "Run state path; server-resolved, agents normally omit it.",
 }
 
 WORKSPACE_ROOT_PROPERTY = {
@@ -104,26 +104,20 @@ def feedback_properties() -> dict[str, Any]:
             ]
         },
     }
-    for attr, camel, _ in FEEDBACK_SCORE_FIELDS:
-        properties[attr] = percent_schema
+    # Schemas advertise camelCase only; the payload adapter still accepts the
+    # snake_case spellings for compatibility (`add_feedback_defaults`).
+    for _attr, camel, _ in FEEDBACK_SCORE_FIELDS:
         properties[camel] = percent_schema
-    for attr, camel, _ in FEEDBACK_COUNT_FIELDS:
-        properties[attr] = count_schema
+    for _attr, camel, _ in FEEDBACK_COUNT_FIELDS:
         properties[camel] = count_schema
-    for attr, camel, _ in FEEDBACK_TEXT_FIELDS:
-        properties[attr] = text_schema
+    for _attr, camel, _ in FEEDBACK_TEXT_FIELDS:
         properties[camel] = text_schema
     properties.update(
         {
-            "review_target_task_id": {"type": "string"},
             "reviewTargetTaskId": {"type": "string"},
-            "review_target_agent_id": {"type": "string"},
             "reviewTargetAgentId": {"type": "string"},
-            "review_target_execution_id": {"type": "string"},
             "reviewTargetExecutionId": {"type": "string"},
-            "issue_json": json_list_schema,
             "issueJson": json_list_schema,
-            "finding_json": json_list_schema,
             "findingJson": json_list_schema,
         }
     )
@@ -133,11 +127,11 @@ def feedback_properties() -> dict[str, Any]:
 FEEDBACK_PROPERTIES = feedback_properties()
 
 
+# Schemas advertise camelCase only; the payload adapter still accepts the
+# snake_case spellings (`add_*_difficulty_defaults`).
 def implementer_difficulty_properties() -> dict[str, Any]:
     return {
-        "actual_difficulty_pct": {"type": "integer", "minimum": 0, "maximum": 100},
         "actualDifficultyPct": {"type": "integer", "minimum": 0, "maximum": 100},
-        "actual_difficulty_reason": {"type": "string"},
         "actualDifficultyReason": {"type": "string"},
     }
 
@@ -145,11 +139,8 @@ def implementer_difficulty_properties() -> dict[str, Any]:
 def reviewer_difficulty_properties() -> dict[str, Any]:
     dimension_schema = {"type": "string", "enum": sorted(VALID_DIFFICULTY_REVIEWER_DIMENSIONS)}
     return {
-        "reviewed_difficulty_pct": {"type": "integer", "minimum": 0, "maximum": 100},
         "reviewedDifficultyPct": {"type": "integer", "minimum": 0, "maximum": 100},
-        "reviewed_difficulty_dimension": dimension_schema,
         "reviewedDifficultyDimension": dimension_schema,
-        "reviewed_difficulty_reason": {"type": "string"},
         "reviewedDifficultyReason": {"type": "string"},
     }
 
@@ -157,9 +148,7 @@ def reviewer_difficulty_properties() -> dict[str, Any]:
 IMPLEMENTER_DIFFICULTY_PROPERTIES = implementer_difficulty_properties()
 REVIEWER_DIFFICULTY_PROPERTIES = reviewer_difficulty_properties()
 ARCHITECT_DIFFICULTY_PROPERTIES = {
-    "difficulty_pct": {"type": "integer", "minimum": 0, "maximum": 100},
     "difficultyPct": {"type": "integer", "minimum": 0, "maximum": 100},
-    "difficulty_reason": {"type": "string"},
     "difficultyReason": {"type": "string"},
 }
 
@@ -232,8 +221,8 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
             },
         },
     ),
-    "sprintengine.agent.heartbeat": object_schema(["statePath", "agentId"], {"agentId": AGENT_ID_PROPERTY}),
-    "sprintengine.agent.leave": object_schema(["statePath", "agentId"], {"agentId": AGENT_ID_PROPERTY, "reason": {"type": "string"}}),
+    "sprintengine.agent.heartbeat": object_schema(["statePath", "agentId"], {"agentId": AGENT_ID_PROPERTY, "role": ROLE_PROPERTY}),
+    "sprintengine.agent.leave": object_schema(["statePath", "agentId"], {"agentId": AGENT_ID_PROPERTY, "role": ROLE_PROPERTY, "reason": {"type": "string"}}),
     "sprintengine.subscribe": object_schema(
         ["statePath", "agentId"],
         {
@@ -284,8 +273,6 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     "sprintengine.gate.next": object_schema(["statePath", "role", "id"], {"role": ROLE_PROPERTY, "id": AGENT_ID_PROPERTY}),
     "sprintengine.gate.claim": object_schema(["statePath", "taskId", "gateId", "role", "id"], {"taskId": TASK_ID_PROPERTY, "gateId": GATE_ID_PROPERTY, "role": ROLE_PROPERTY, "id": AGENT_ID_PROPERTY}),
     "sprintengine.gate.verdict": object_schema(["statePath", "taskId", "gateId", "role", "id", "verdict", "summary"], {"taskId": TASK_ID_PROPERTY, "gateId": GATE_ID_PROPERTY, "role": ROLE_PROPERTY, "id": AGENT_ID_PROPERTY, "verdict": {"type": "string", "enum": sorted(VALID_GATE_VERDICTS)}, "summary": {"type": "string"}, "requiredAction": {"type": "array", "items": {"type": "string"}}, "artifactPath": {"type": "string"}, "artifactTitle": {"type": "string"}, "artifactKind": {"type": "string"}, "needsInputKind": {"type": "string"}, "needsInputReason": {"type": "string"}, "needsInputQuestion": {"type": "string"}, "needsInputSuggestedResolution": {"type": "string"}, **REVIEWER_DIFFICULTY_PROPERTIES, **FEEDBACK_PROPERTIES}),
-    "sprintengine.gate.publish": object_schema(["statePath", "taskId", "gateId", "role", "id", "verdict", "summary"], {"taskId": TASK_ID_PROPERTY, "gateId": GATE_ID_PROPERTY, "role": ROLE_PROPERTY, "id": AGENT_ID_PROPERTY, "verdict": {"type": "string", "enum": sorted(VALID_GATE_VERDICTS)}, "summary": {"type": "string"}, "requiredAction": {"type": "array", "items": {"type": "string"}}, "artifactPath": {"type": "string"}, "artifactTitle": {"type": "string"}, "artifactKind": {"type": "string"}, **REVIEWER_DIFFICULTY_PROPERTIES, **FEEDBACK_PROPERTIES}),
-    "sprintengine.gate.skip": object_schema(["statePath", "taskId", "gateId", "role", "id", "rationale"], {"taskId": TASK_ID_PROPERTY, "gateId": GATE_ID_PROPERTY, "role": ROLE_PROPERTY, "id": AGENT_ID_PROPERTY, "rationale": {"type": "string"}}),
     "sprintengine.plan.add_task": object_schema(["statePath", "title", "role"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": {"type": "string"}, "dependsOn": {"type": "array"}, "path": {"type": "array"}, "acceptance": {"type": "array"}, "note": {"type": "array"}, "taskNote": {"type": "array"}, "producesImplementation": {"type": "boolean"}, "needsTriage": {"type": "boolean"}, "noQualityGates": {"type": "boolean"}, "noReview": {"type": "boolean"}, "noTesting": {"type": "boolean"}, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, "noProductAcceptance": {"type": "boolean"}, "requireGate": {"type": "array"}, "skipGate": {"type": "array"}, "manualDispatch": {"type": "boolean"}, "dispatchStatus": {"type": "string"}, "triagedBy": {"type": "string"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),
     "sprintengine.plan.update_task": object_schema(["statePath", "taskId"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": {"type": "string"}, "path": {"type": "array"}, "acceptance": {"type": "array"}, "note": {"type": "array"}, "taskNote": {"type": "array"}, "clearTaskNotes": {"type": "boolean"}, "producesImplementation": {"type": "boolean"}, "needsTriage": {"type": "boolean"}, "clearNeedsTriage": {"type": "boolean"}, "noQualityGates": {"type": "boolean"}, "noReview": {"type": "boolean"}, "noTesting": {"type": "boolean"}, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, "noProductAcceptance": {"type": "boolean"}, "requireGate": {"type": "array"}, "skipGate": {"type": "array"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),
     "sprintengine.plan.delete_task": object_schema(["statePath", "taskId"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "unlinkDependents": {"type": "boolean"}}),
@@ -316,10 +303,12 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
 
 
 def list_tool_schemas() -> list[dict[str, Any]]:
+    # Tool names are self-descriptive; the generic description stays terse
+    # because this text lands in every agent context.
     return [
         {
             "name": name,
-            "description": f"Local sprintengine operation {name}.",
+            "description": name.removeprefix("sprintengine.").replace(".", " ").replace("_", " "),
             "inputSchema": schema,
         }
         for name, schema in sorted(TOOL_SCHEMAS.items())

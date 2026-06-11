@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict'
-import { formatDroppedPathsForTerminal, type FileDropPayload } from './terminalDrop'
+import {
+  backlogSlashCommandForDrop,
+  formatDroppedPathsForTerminal,
+  type FileDropPayload,
+} from './terminalDrop'
 
 function payload(path: string, rootPath = 'C:\\repo'): FileDropPayload {
   return {
@@ -123,4 +127,116 @@ assert.equal(
     session({ cwd: '/repo', pathStyle: 'posix' })
   ),
   ''
+)
+
+// --- backlogSlashCommandForDrop -------------------------------------------
+
+const allHarnesses = ['claude', 'codex', 'cursor', 'gemini', 'opencode', 'agents'] as const
+
+function backlogPayload(path: string, rootPath = '/repo'): FileDropPayload {
+  return payload(path, rootPath)
+}
+
+const agentSession = (input: Partial<TerminalSessionSnapshot> = {}): TerminalSessionSnapshot =>
+  session({ kind: 'agent', cli: 'claude-code', executionMode: 'current_workspace', ...input })
+
+assert.equal(
+  backlogSlashCommandForDrop(backlogPayload('/repo/backlog/item.md'), agentSession(), allHarnesses),
+  '/backlog backlog/item.md'
+)
+
+// Windows separators normalize to a forward-slash project-relative path.
+assert.equal(
+  backlogSlashCommandForDrop(
+    backlogPayload('C:\\repo\\backlog\\item.md', 'C:\\repo'),
+    agentSession({ pathStyle: 'windows' }),
+    allHarnesses
+  ),
+  '/backlog backlog/item.md'
+)
+
+// Whitespace in the file name gets quoted.
+assert.equal(
+  backlogSlashCommandForDrop(backlogPayload('/repo/backlog/two words.md'), agentSession(), allHarnesses),
+  "/backlog 'backlog/two words.md'"
+)
+
+// Codex maps to the codex harness.
+assert.equal(
+  backlogSlashCommandForDrop(
+    backlogPayload('/repo/backlog/item.md'),
+    agentSession({ cli: 'codex' }),
+    ['codex']
+  ),
+  '/backlog backlog/item.md'
+)
+
+// Not an agent terminal.
+assert.equal(
+  backlogSlashCommandForDrop(
+    backlogPayload('/repo/backlog/item.md'),
+    session({ kind: 'terminal', cli: undefined }),
+    allHarnesses
+  ),
+  null
+)
+
+// Worktree sessions keep plain path pastes.
+assert.equal(
+  backlogSlashCommandForDrop(
+    backlogPayload('/repo/backlog/item.md'),
+    agentSession({ executionMode: 'worktree', worktreePath: '/repo/.worktrees/a' }),
+    allHarnesses
+  ),
+  null
+)
+
+// Unknown or shell CLIs never get a slash command.
+assert.equal(
+  backlogSlashCommandForDrop(
+    backlogPayload('/repo/backlog/item.md'),
+    agentSession({ cli: 'generic-shell' }),
+    allHarnesses
+  ),
+  null
+)
+
+// The CLI's harness must actually have the skill present.
+assert.equal(
+  backlogSlashCommandForDrop(backlogPayload('/repo/backlog/item.md'), agentSession(), ['codex']),
+  null
+)
+
+// Only single-file drops inject.
+assert.equal(
+  backlogSlashCommandForDrop(
+    {
+      version: 1,
+      workspaceId: 'workspace-1',
+      rootPath: '/repo',
+      files: [
+        { path: '/repo/backlog/a.md', name: 'a.md' },
+        { path: '/repo/backlog/b.md', name: 'b.md' },
+      ],
+    },
+    agentSession(),
+    allHarnesses
+  ),
+  null
+)
+
+// Files outside backlog/ keep the plain path behavior.
+assert.equal(
+  backlogSlashCommandForDrop(backlogPayload('/repo/src/main.ts'), agentSession(), allHarnesses),
+  null
+)
+
+// Directories and native drops (no workspace root) are excluded.
+assert.equal(
+  backlogSlashCommandForDrop(directoryPayload('/repo/backlog/sub', '/repo'), agentSession(), allHarnesses),
+  null
+)
+assert.equal(
+  backlogSlashCommandForDrop(backlogPayload('/repo/backlog/item.md', ''), agentSession(), allHarnesses),
+  null
 )

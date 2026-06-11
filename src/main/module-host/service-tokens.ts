@@ -17,3 +17,6 @@ export const SprintEngineArtifactsToken = createServiceToken<AppServices['sprint
 export const MulticodeAuthToken = createServiceToken<AppServices['multicodeAuth']>(
   'core.multicode-auth'
 )
+export const SprintEngineMcpHubToken = createServiceToken<AppServices['sprintEngineMcpHub']>(
+  'core.sprintengine-mcp-hub'
+)

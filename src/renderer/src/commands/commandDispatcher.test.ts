@@ -263,3 +263,81 @@ result = stillValidChord.resolve(
 )
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'sprintengine.goto.kanban')
+
+// --- Module-contributed commands (merged via context.commands) --------------
+// The dispatcher matches against the merge-point output (shell registry +
+// enabled module commands). These cases pin the enablement-reactive behavior
+// and the no-silent-shadowing rule.
+import { COMMAND_REGISTRY } from './commandRegistry'
+import type { CommandContribution } from './types'
+
+const moduleCommand: CommandContribution = {
+  id: 'demo-module.hello',
+  title: 'Say Hello',
+  category: 'Demo Module',
+  scopes: ['global'],
+  defaultKeybindings: ['Primary+Alt+H'],
+}
+const enabledCommands: readonly CommandContribution[] = [...COMMAND_REGISTRY, moduleCommand]
+
+const moduleDispatcher = new RendererCommandDispatcher(500)
+result = moduleDispatcher.resolve(
+  key({ key: 'h', code: 'KeyH', ctrlKey: true, altKey: true }),
+  { activeScopes: ['global'], platform: 'linux', commands: enabledCommands, now: 5000 },
+)
+assert.equal(result.kind, 'matched')
+assert.equal(
+  result.kind === 'matched' ? result.commandId : null,
+  'demo-module.hello',
+  'a module command keybinding dispatches like a built-in',
+)
+
+// Module disabled -> the merge point omits the command, so the binding is gone
+// from key dispatch without any dispatcher-side special case.
+result = moduleDispatcher.resolve(
+  key({ key: 'h', code: 'KeyH', ctrlKey: true, altKey: true }),
+  { activeScopes: ['global'], platform: 'linux', commands: COMMAND_REGISTRY, now: 5100 },
+)
+assert.equal(result.kind, 'unmatched', 'disabling the module removes its key dispatch')
+
+// User override persisted by command id re-attaches when the module returns.
+result = moduleDispatcher.resolve(
+  key({ key: 'j', code: 'KeyJ', ctrlKey: true, altKey: true }),
+  {
+    activeScopes: ['global'],
+    platform: 'linux',
+    commands: enabledCommands,
+    keybindingOverrides: { 'demo-module.hello': ['Primary+Alt+J'] },
+    now: 5200,
+  },
+)
+assert.equal(result.kind, 'matched')
+assert.equal(
+  result.kind === 'matched' ? result.commandId : null,
+  'demo-module.hello',
+  'a customized module binding works after re-enable',
+)
+
+// A module command that duplicates a built-in binding at the same scope
+// specificity cannot silently shadow it: shell commands sort first in the
+// merge point, so the built-in keeps firing (and the Shortcuts tab surfaces
+// the conflict like any other duplicate binding).
+const shadowingCommand: CommandContribution = {
+  id: 'demo-module.shadow',
+  title: 'Shadow Palette',
+  category: 'Demo Module',
+  scopes: ['global'],
+  defaultKeybindings: ['Primary+K'],
+}
+result = moduleDispatcher.resolve(
+  key({ key: 'k', code: 'KeyK', ctrlKey: true }),
+  { activeScopes: ['global'], platform: 'linux', commands: [...COMMAND_REGISTRY, shadowingCommand], now: 5300 },
+)
+assert.equal(result.kind, 'matched')
+assert.equal(
+  result.kind === 'matched' ? result.commandId : null,
+  'commandPalette.open',
+  'a built-in keeps priority over a module command bound to the same keys',
+)
+
+console.log('command dispatcher module command tests passed')

@@ -61,6 +61,32 @@ export class MobileSprintEngineCommandResultRecorder {
     }
   }
 
+  acceptWorkspaceCommand(
+    command: MobileControlCommand,
+    data: unknown,
+    workspacePath: string,
+    message: string
+  ): MobileSprintEngineCommandResult {
+    const audit = this.recordAudit({
+      command,
+      status: 'accepted',
+      message,
+      workspacePath,
+    })
+
+    return {
+      ok: true,
+      commandId: command.commandId,
+      commandType: command.type,
+      idempotencyKey: command.idempotencyKey,
+      executedAt: audit.recordedAt,
+      data,
+      stdout: '',
+      stderr: '',
+      audit,
+    }
+  }
+
   reject(
     command: MobileControlCommand,
     code: MobileControlError['code'],

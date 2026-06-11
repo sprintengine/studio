@@ -4,9 +4,15 @@
 // controls on the custom-frame builds. The whole strip is a drag region; the
 // brand is pointer-transparent so it never eats a drag, and only the menu /
 // control clusters opt back out with `app-no-drag`.
+//
+// The right edge is the home for app-level (cross-workspace) surface toggles —
+// today the Sprint Engines aside — matching the common "secondary
+// side bar" idiom: a global panel gets a global toggle, never a slot in the
+// per-workspace PanelRail.
 
 import React from 'react'
 import MulticodeMark from '../brand/MulticodeMark'
+import { Tooltip } from '../ui'
 import { WindowControls } from './WindowControls'
 
 const TITLE_BAR_HEIGHT = 'h-[36px]'
@@ -15,11 +21,42 @@ const TITLE_BAR_HEIGHT = 'h-[36px]'
 // menu/brand flow past them so nothing sits under the close/zoom buttons.
 const TRAFFIC_LIGHT_INSET = 'pl-[78px]'
 
+type SprintEnginesToggle = {
+  open: boolean
+  onToggle: () => void
+}
+
 type AppTitleBarProps<MenuItem extends string> = {
   isMac: boolean
   isMaximized: boolean
   menuItems: readonly MenuItem[]
   onShowMenu: (event: React.MouseEvent<HTMLButtonElement>, label: MenuItem) => void
+  // Null when the sprint-engine module is disabled — the toggle hides entirely.
+  sprintEnginesToggle: SprintEnginesToggle | null
+}
+
+function SprintEnginesAsideToggle({ open, onToggle }: SprintEnginesToggle) {
+  return (
+    <Tooltip content="Sprint Engines" placement="bottom">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-pressed={open}
+        aria-label="Toggle Sprint Engines"
+        className={`app-no-drag interactive inline-flex h-7 w-7 items-center justify-center bg-transparent transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
+          open
+            ? 'text-[color:var(--text-strong)]'
+            : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]'
+        }`}
+      >
+        {/* `panel-right` mirror of the sidebar's panel-left collapse glyph. */}
+        <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
+          <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M10 3V13" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      </button>
+    </Tooltip>
+  )
 }
 
 export function AppTitleBar<MenuItem extends string>({
@@ -27,6 +64,7 @@ export function AppTitleBar<MenuItem extends string>({
   isMaximized,
   menuItems,
   onShowMenu,
+  sprintEnginesToggle,
 }: AppTitleBarProps<MenuItem>) {
   return (
     <div
@@ -41,8 +79,15 @@ export function AppTitleBar<MenuItem extends string>({
       </div>
 
       {isMac ? (
-        // Spacer holds the traffic-light gutter; the centered brand floats above.
-        <div aria-hidden="true" className={TRAFFIC_LIGHT_INSET} />
+        <>
+          {/* Spacer holds the traffic-light gutter; the centered brand floats above. */}
+          <div aria-hidden="true" className={TRAFFIC_LIGHT_INSET} />
+          {sprintEnginesToggle ? (
+            <div className="relative z-10 flex items-center px-1.5">
+              <SprintEnginesAsideToggle {...sprintEnginesToggle} />
+            </div>
+          ) : null}
+        </>
       ) : (
         <>
           <div className="relative z-10 flex min-w-0 items-center gap-1 px-2">
@@ -58,7 +103,12 @@ export function AppTitleBar<MenuItem extends string>({
             ))}
           </div>
 
-          <div className="relative z-10">
+          <div className="relative z-10 flex items-center">
+            {sprintEnginesToggle ? (
+              <div className="flex items-center px-1">
+                <SprintEnginesAsideToggle {...sprintEnginesToggle} />
+              </div>
+            ) : null}
             <WindowControls isMaximized={isMaximized} />
           </div>
         </>

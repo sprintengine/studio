@@ -1,5 +1,10 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type {
+  AutomationRendererRequest,
+  AutomationRendererResponse,
+  AutomationServerStatus,
+} from './automation'
+import type {
   SwitchboardAddCommentInput,
   SwitchboardCancelTaskInput,
   SwitchboardClaimTaskInput,
@@ -51,6 +56,7 @@ import type {
   ThirdPartyModuleInstallResult,
   ThirdPartyModuleListResult,
   ThirdPartyModuleTrustResult,
+  ThirdPartyRendererEntriesResult,
 } from './modules/manifest'
 import type {
   WorkspaceSyncCommand,
@@ -247,18 +253,26 @@ export type BuiltinSkill = {
   name: string
   version: string
   description: string
+  harnesses?: SkillPackHarness[]
+}
+
+export type BuiltinSkillTargetState = {
+  harness: SkillPackHarness
+  destinationPath: string
+  status: 'missing' | 'installed' | 'update-available' | 'modified' | 'local'
+  installedVersion?: string
 }
 
 export type BuiltinSkillStatus =
-  | { ok: true; status: 'missing'; skill: BuiltinSkill; destinationPath: string }
-  | { ok: true; status: 'installed'; skill: BuiltinSkill; destinationPath: string; installedVersion: string }
-  | { ok: true; status: 'update-available'; skill: BuiltinSkill; destinationPath: string; installedVersion: string }
-  | { ok: true; status: 'modified'; skill: BuiltinSkill; destinationPath: string; installedVersion: string }
-  | { ok: true; status: 'local'; skill: BuiltinSkill; destinationPath: string; message: string }
+  | { ok: true; status: 'missing'; skill: BuiltinSkill; destinationPath: string; targets: BuiltinSkillTargetState[] }
+  | { ok: true; status: 'installed'; skill: BuiltinSkill; destinationPath: string; installedVersion: string; targets: BuiltinSkillTargetState[] }
+  | { ok: true; status: 'update-available'; skill: BuiltinSkill; destinationPath: string; installedVersion: string; targets: BuiltinSkillTargetState[] }
+  | { ok: true; status: 'modified'; skill: BuiltinSkill; destinationPath: string; installedVersion: string; targets: BuiltinSkillTargetState[] }
+  | { ok: true; status: 'local'; skill: BuiltinSkill; destinationPath: string; message: string; targets: BuiltinSkillTargetState[] }
   | { ok: false; status: 'unknown-skill' | 'missing-workspace' | 'missing-source'; skillId: string; message: string }
 
 export type BuiltinSkillInstallResult =
-  | { ok: true; status: 'installed' | 'updated'; skill: BuiltinSkill; destinationPath: string }
+  | { ok: true; status: 'installed' | 'updated'; skill: BuiltinSkill; destinationPath: string; skipped?: BuiltinSkillTargetState[] }
   | { ok: false; status: 'unknown-skill' | 'missing-workspace' | 'missing-source' | 'modified' | 'local'; skillId: string; message: string }
 
 export type PluginRegistryListResult =
@@ -1086,6 +1100,8 @@ export type MobileControlCommandType =
   | 'artifact.requestChanges'
   | 'agent.followUp'
   | 'device.revoke'
+  | 'backlog.update'
+  | 'backlog.startSprintEngine'
 
 export type MobileControlCapability =
   | 'snapshots.read'
@@ -1095,6 +1111,8 @@ export type MobileControlCapability =
   | 'artifacts.review'
   | 'agents.followUp'
   | 'devices.revoke'
+  | 'backlog.update'
+  | 'backlog.start'
 
 export type MobileControlDevice = {
   protocolVersion: 1
@@ -1320,6 +1338,10 @@ export type ElectronApi = {
   workspaceSyncGetSnapshot: () => Promise<WorkspaceSyncSnapshot>
   workspaceSyncGetEventsAfter: (sequence: number) => Promise<WorkspaceSyncEvent[]>
   onWorkspaceSyncEvent: (cb: (event: WorkspaceSyncEvent) => void) => () => void
+  automationGetStatus: () => Promise<AutomationServerStatus>
+  automationSetEnabled: (enabled: boolean) => Promise<AutomationServerStatus>
+  onAutomationRequest: (cb: (requestId: string, request: AutomationRendererRequest) => void) => () => void
+  automationRespond: (requestId: string, response: AutomationRendererResponse) => Promise<void>
   authGetState: () => Promise<MulticodeAuthState>
   authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
   authLogout: () => Promise<{ loggedOut: true }>
@@ -1515,6 +1537,8 @@ export type ElectronApi = {
   installThirdPartyModuleFolder: (srcDir: string) => Promise<ThirdPartyModuleInstallResult>
   /** Trust or untrust an installed third-party module. */
   setThirdPartyModuleTrust: (id: string, trusted: boolean) => Promise<ThirdPartyModuleTrustResult>
+  /** Serve trusted third-party modules' entry.renderer bundles for the renderer loader. */
+  listThirdPartyRendererEntries: () => Promise<ThirdPartyRendererEntriesResult>
   readSprintEngineDispatch: (input: SprintEngineDispatchReadInput) => Promise<SprintEngineMcpReadResult>
   /** Sanitized per-run + per-agent feedback analysis for the run summary (read-only). */
   summarizeSprintEngineFeedback: (statePath: string) => Promise<SprintEngineMcpReadResult>

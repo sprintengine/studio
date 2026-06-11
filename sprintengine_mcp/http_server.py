@@ -62,6 +62,13 @@ class HttpMcpRunRegistry:
         actor = ActorContext(id=actor_id, role="user", authenticated=True, mcp_authorized=True)
         registry_roots = tuple(_registry_root(value) for value in payload.get("registryRoots") or [])
         user_root = _optional_path_field(payload, "userRoot")
+        # Agent-scoped registrations bind the session token to one agent's
+        # role and id: `tools/list` filters to that role's capability surface
+        # and out-of-surface calls fail with tool_not_permitted_for_role.
+        # Registrations without agentId/role stay run-scoped (operator
+        # surface), which keeps older app builds working.
+        agent_id = str(payload.get("agentId") or "").strip()
+        agent_role = str(payload.get("role") or "").strip()
         context = McpRequestContext(
             actor=actor,
             state_path=state_path,
@@ -70,6 +77,8 @@ class HttpMcpRunRegistry:
             plugin_registry_roots=registry_roots,
             user_root=user_root,
             actor_id=actor_id,
+            agent_id=agent_id,
+            role=agent_role,
         )
         token = secrets.token_urlsafe(32)
         run = HttpMcpRegisteredRun(id=run_id, token=token, context=context)

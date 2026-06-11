@@ -18,6 +18,7 @@ import {
   deriveWorkspaceTerminalActivity,
 } from '../../hooks/useTerminalSessions'
 import { useAppTheme } from '../../hooks/useAppTheme'
+import { useAutomationRequests } from '../../hooks/useAutomationRequests'
 import { useVoiceDictation } from '../../hooks/useVoiceDictation'
 import {
   MULTILOOP_ROLES,
@@ -53,6 +54,7 @@ import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
 import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
+import SprintEnginesAside from './SprintEnginesAside'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
 import { AppTitleBar } from './AppTitleBar'
@@ -89,7 +91,7 @@ import { restoreDetachedWorkspaceWindowsOnStartup } from './workspaceWindowResto
 import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { collectWorkspaceTypeSupervisors } from '../../modules/workspace-type-supervisors'
 import { RendererCommandDispatcher } from '../../commands/commandDispatcher'
-import { getCommandDefinition, type CommandId } from '../../commands/commandRegistry'
+import { getCommandDefinition } from '../../commands/commandRegistry'
 import { getElectronAccelerator } from '../../commands/effectiveKeybindings'
 import type { CommandAvailabilityContext } from '../../commands/availability'
 import type { CommandScope } from '../../commands/types'
@@ -128,6 +130,9 @@ export default function WorkspaceManager() {
   useAppTheme()
   const dialog = useConfirmDialog()
   const workspaceWindowId = useMemo(() => getWorkspaceWindowIdFromLocation(), [])
+  // App-automation MCP mutations delegate to the primary window so they run the
+  // same store actions as the UI (see src/main/automation/).
+  useAutomationRequests(workspaceWindowId)
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const workspaceWindows = useWorkspaceStore((s) => s.workspaceWindows)
   const primaryWorkspaceWindowId = useWorkspaceStore((s) => s.primaryWorkspaceWindowId)
@@ -147,6 +152,8 @@ export default function WorkspaceManager() {
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
   const sidebarCollapsed = useWorkspaceStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useWorkspaceStore((s) => s.setSidebarCollapsed)
+  const sprintEnginesAsideOpen = useWorkspaceStore((s) => s.sprintEnginesAsideOpen)
+  const setSprintEnginesAsideOpen = useWorkspaceStore((s) => s.setSprintEnginesAsideOpen)
   const settingsOverlayOpen = useWorkspaceStore((s) => s.settingsOverlay.open)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const closeSettingsOverlay = useWorkspaceStore((s) => s.closeSettingsOverlay)
@@ -219,6 +226,7 @@ export default function WorkspaceManager() {
     [primaryWorkspaceWindowId, workspaceWindowId, workspaceWindows]
   )
   const isPrimaryWorkspaceWindow = workspaceWindowId === (primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID)
+  const showSprintEnginesAside = sprintEngineEnabled && sprintEnginesAsideOpen
   const visibleWorkspaceIdSet = useMemo(
     () => new Set(currentWorkspaceWindow?.workspaceIds ?? workspaces.map((workspace) => workspace.id)),
     [currentWorkspaceWindow, workspaces]
@@ -330,6 +338,9 @@ export default function WorkspaceManager() {
     // The Knowledge Graph toggle is the panel's only entry point (no rail
     // glyph), so its availability tracks the memory-graph module directly.
     if (selectModuleEnabled(moduleEnablement, 'memory-graph')) context.memoryGraphEnabled = true
+    // The Sprint Engines aside is app-level chrome, so its toggle tracks the
+    // sprint-engine module rather than any active workspace.
+    if (selectModuleEnabled(moduleEnablement, 'sprint-engine')) context.sprintEngineEnabled = true
     if (activeCommandScopes.includes('panel:sprintengine')) {
       context.sprintengineWorkspace = true
       const sprintEngineState = activeWorkspace?.sprintEngineState ?? null
@@ -375,6 +386,13 @@ export default function WorkspaceManager() {
       ownsGlobalSupervisors,
     )
   }, [moduleEnablement, ownsGlobalSupervisors])
+  // The merge point output for keyboard dispatch: shell registry + enabled
+  // module commands. Recomputed when enablement changes, so toggling a module
+  // adds/removes its keybindings without a reload.
+  const commandContributions = useMemo(
+    () => getRendererHost().getCommandContributions((moduleId) => selectModuleEnabled(moduleEnablement, moduleId)),
+    [moduleEnablement],
+  )
 
   const openNewWorkspacePanel = () => {
     setNewWorkspacePanelInitialState(null)
@@ -1268,7 +1286,7 @@ export default function WorkspaceManager() {
     window.dispatchEvent(new CustomEvent('multicode:panel-command', { detail: { id, workspaceId } }))
   }, [])
 
-  const runCommand = useCallback((commandId: CommandId): boolean => {
+  const runCommand = useCallback((commandId: string): boolean => {
     if (commandId === 'app.settings.open') {
       openSettings(false)
       return true
@@ -1293,6 +1311,13 @@ export default function WorkspaceManager() {
     if (commandId === 'workspace.sidebar.toggle') {
       beginSidebarTransition()
       setSidebarCollapsed(!sidebarCollapsed)
+      return true
+    }
+    if (commandId === 'panel.sprint-engines.toggle') {
+      // Mirrors the command's sprintEngineEnabled availability so a stale
+      // shortcut can't open an aside the disabled module never renders.
+      if (!sprintEngineEnabled) return false
+      setSprintEnginesAsideOpen(!sprintEnginesAsideOpen)
       return true
     }
     if (commandId === 'workspace.close' && windowActiveWorkspaceId) {
@@ -1426,6 +1451,16 @@ export default function WorkspaceManager() {
       void addNewSpecialist('nuclear-review')
       return true
     }
+    // Module-contributed commands carry their handler callback directly; an
+    // exact registry hit wins over the panel-command prefix heuristic below.
+    // Enablement is re-checked at dispatch so a stale binding cannot fire a
+    // command whose module was just toggled off.
+    const moduleCommand = getRendererHost().getModuleCommand(commandId)
+    if (moduleCommand) {
+      if (!selectModuleEnabled(moduleEnablement, moduleCommand.moduleId)) return false
+      void moduleCommand.run()
+      return true
+    }
     if (
       commandId.startsWith('sprintengine.')
       || commandId.startsWith('multiloop.')
@@ -1441,6 +1476,9 @@ export default function WorkspaceManager() {
     openNewWorkspacePanel,
     sidebarCollapsed,
     setSidebarCollapsed,
+    sprintEngineEnabled,
+    sprintEnginesAsideOpen,
+    setSprintEnginesAsideOpen,
     windowActiveWorkspaceId,
     closeWorkspaceById,
     visibleWorkspaces,
@@ -1466,6 +1504,7 @@ export default function WorkspaceManager() {
           : 'linux'
       const result = commandDispatcherRef.current.resolve(event, {
         activeScopes: activeCommandScopes,
+        commands: commandContributions,
         disabledCommandIds,
         keybindingOverrides: keybindingSettings?.overrides,
         availability: commandAvailability,
@@ -1488,6 +1527,7 @@ export default function WorkspaceManager() {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [
     activeCommandScopes,
+    commandContributions,
     disabledCommandIds,
     keybindingSettings?.overrides,
     commandAvailability,
@@ -1529,7 +1569,7 @@ export default function WorkspaceManager() {
     return window.api.onAppMenuCommand((command) => {
       const definition = getCommandDefinition(command)
       if (definition) {
-        runCommand(definition.id as CommandId)
+        runCommand(definition.id)
         return
       }
       if (command === 'show-settings') {
@@ -1750,6 +1790,14 @@ export default function WorkspaceManager() {
         isMaximized={windowState.isMaximized}
         menuItems={MENU_BAR_ITEMS}
         onShowMenu={(event, label) => void handleShowMenubarMenu(event, label)}
+        sprintEnginesToggle={
+          sprintEngineEnabled
+            ? {
+                open: sprintEnginesAsideOpen,
+                onToggle: () => setSprintEnginesAsideOpen(!sprintEnginesAsideOpen),
+              }
+            : null
+        }
       />
 
       <div className="flex min-h-0 flex-1 flex-row">
@@ -1780,7 +1828,17 @@ export default function WorkspaceManager() {
         onRevealFolder={handleRevealFolder}
         onSetSidebarCollapsed={setSidebarCollapsed}
       />
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-tl-[10px] rounded-bl-[10px] bg-[color:var(--bg-surface)] shadow-[inset_1px_0_0_rgba(255,255,255,0.04)]">
+      {/* The workspace card: everything inside the rounded surface belongs to
+          the active workspace. With the Sprint Engines aside open the card
+          also rounds its right edge, reading as a card floating between two
+          pieces of app-level chrome (sidebar left, aside right). */}
+      <div
+        className={`flex min-w-0 flex-1 flex-col overflow-hidden rounded-tl-[10px] rounded-bl-[10px] bg-[color:var(--bg-surface)] ${
+          showSprintEnginesAside
+            ? 'rounded-tr-[10px] rounded-br-[10px] shadow-[inset_1px_0_0_rgba(255,255,255,0.04),inset_-1px_0_0_rgba(255,255,255,0.04)]'
+            : 'shadow-[inset_1px_0_0_rgba(255,255,255,0.04)]'
+        }`}
+      >
       <WorkspaceTopBar
         workspaces={visibleWorkspaces}
         activeWorkspace={activeWorkspace}
@@ -1918,6 +1976,17 @@ export default function WorkspaceManager() {
         <OnboardingFlow />
       </div>
       </div>
+      {showSprintEnginesAside ? (
+        <SprintEnginesAside
+          activeWorkspaceId={windowActiveWorkspaceId}
+          windowWorkspaceIds={visibleWorkspaceIdSet}
+          onSelectWorkspace={(id) => {
+            setShowNewWorkspacePanel(false)
+            setActiveWorkspaceForWindow(workspaceWindowId, id)
+          }}
+          onClose={() => setSprintEnginesAsideOpen(false)}
+        />
+      ) : null}
       </div>
 
       {showPalette && (

@@ -139,6 +139,8 @@ export interface WorkspaceStore extends PluginsSlice {
   authState: MulticodeAuthState
   sidebarCollapsed: boolean
   setSidebarCollapsed: (collapsed: boolean) => void
+  sprintEnginesAsideOpen: boolean
+  setSprintEnginesAsideOpen: (open: boolean) => void
   settingsOverlay: {
     open: boolean
     initialTab: string | null
@@ -205,6 +207,8 @@ export interface WorkspaceStore extends PluginsSlice {
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
   setSprintEngineSavedRoster: (roster: SprintEngineSavedRoster | null) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
+  /** Write one value in a module's `module:<id>` settings namespace; `undefined` deletes the key. */
+  setModuleSettingValue: (moduleId: string, key: string, value: unknown) => void
   applyModuleProfile: (profileId: ModuleProfileId) => void
   setModulesChosen: (chosen: boolean) => void
   setOnboardingStep: (step: OnboardingStep) => void
@@ -437,6 +441,7 @@ type RegistryEnvelopeState = {
 type SettingsEnvelopeState = {
   appSettings: unknown
   sidebarCollapsed: unknown
+  sprintEnginesAsideOpen: unknown
 }
 
 let lastWrittenRegistrySerialized: string | null = null
@@ -521,6 +526,7 @@ function extractSettingsFields(state: Record<string, unknown>): SettingsEnvelope
   return {
     appSettings: state.appSettings,
     sidebarCollapsed: state.sidebarCollapsed,
+    sprintEnginesAsideOpen: state.sprintEnginesAsideOpen,
   }
 }
 
@@ -552,6 +558,7 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
       return {
         appSettings: s.appSettings,
         sidebarCollapsed: s.sidebarCollapsed,
+        sprintEnginesAsideOpen: s.sprintEnginesAsideOpen,
         workspaces: retainedWorkspaces,
         activeWorkspaceId: retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
         workspaceWindows: normalizeWorkspaceWindows(
@@ -571,6 +578,7 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
   return {
     appSettings: s.appSettings,
     sidebarCollapsed: s.sidebarCollapsed,
+    sprintEnginesAsideOpen: s.sprintEnginesAsideOpen,
     ...partializeRegistryFields(s),
   }
 }
@@ -1072,7 +1080,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }
       },
       merge: (persisted, current) => {
-        const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean }> | undefined
+        const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean; sprintEnginesAsideOpen?: boolean }> | undefined
         const workspaces = state?.workspaces ?? current.workspaces
         const normalizedWindows = normalizeWorkspaceWindows(
           workspaces,
@@ -1092,6 +1100,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             typeof state?.sidebarCollapsed === 'boolean'
               ? state.sidebarCollapsed
               : current.sidebarCollapsed,
+          sprintEnginesAsideOpen:
+            typeof state?.sprintEnginesAsideOpen === 'boolean'
+              ? state.sprintEnginesAsideOpen
+              : current.sprintEnginesAsideOpen,
           workspaceRegistryEmptyState:
             state?.workspaceRegistryEmptyState !== undefined
               ? state.workspaceRegistryEmptyState

@@ -37,6 +37,9 @@ async function main(): Promise<void> {
   await assertFollowUpUsesAuthorizedDiscoveredStateOutsideServiceCwd()
   await assertFollowUpRejectsTerminalControlCharacters()
   await assertUnsupportedCommandIsRejected()
+  await assertBacklogUpdateMutatesObjectStore()
+  await assertBacklogStartSprintEngineUsesHandoverAndMarksItem()
+  await assertBacklogStartRejectsPathOutsideBacklogFolder()
   await assertFilesystemMutationHandlersProtectSprintEngineStateAliases()
 }
 
@@ -735,6 +738,118 @@ async function assertUnsupportedCommandIsRejected(): Promise<void> {
   assert.equal(result.ok === false ? result.error.code : '', 'command_not_supported')
 }
 
+async function assertBacklogUpdateMutatesObjectStore(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-update-'))
+  await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
+  await writeFile(join(workspaceRoot, 'backlog', 'idea.md'), '# A rough idea\n\nDo the thing.\n', 'utf8')
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot,
+    now: () => now,
+    execute: async () => {
+      throw new Error('Sprint Engine tool should not run for backlog updates')
+    },
+  })
+
+  const result = await service.dispatch(command('backlog.update', {
+    workspacePath: workspaceRoot,
+    relativePath: 'backlog/idea.md',
+    status: 'ready',
+    difficulty: 'm',
+    criticality: 'high',
+  }, {
+    commandId: 'cmd_backlog_update',
+    idempotencyKey: 'mobile:device_1:backlog-update',
+  }))
+
+  assert.equal(result.ok, true)
+  const store = JSON.parse(await readFile(join(workspaceRoot, '.multi-code', 'backlog', 'items.json'), 'utf8')) as {
+    items: Array<{ source: { relativePath: string }; status?: string; difficulty?: string; criticality?: string }>
+  }
+  const record = store.items.find((item) => item.source.relativePath === 'backlog/idea.md')
+  assert.ok(record, 'backlog.update should upsert the item record')
+  assert.equal(record?.status, 'ready')
+  assert.equal(record?.difficulty, 'm')
+  assert.equal(record?.criticality, 'high')
+
+  const invalid = await service.dispatch(command('backlog.update', {
+    workspacePath: workspaceRoot,
+    relativePath: 'backlog/idea.md',
+    status: 'not-a-status',
+  }, {
+    commandId: 'cmd_backlog_update_invalid',
+    idempotencyKey: 'mobile:device_1:backlog-update-invalid',
+  }))
+  assert.equal(invalid.ok, false)
+  assert.equal(invalid.ok === false ? invalid.error.code : '', 'invalid_payload')
+}
+
+async function assertBacklogStartSprintEngineUsesHandoverAndMarksItem(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-start-'))
+  await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
+  await writeFile(
+    join(workspaceRoot, 'backlog', 'feature.md'),
+    '---\ntype: feature\n---\n\n# Ship the widget\n\nUsers need the widget.\n',
+    'utf8'
+  )
+  const invocations: Array<{ args: string[]; cwd: string }> = []
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot,
+    now: () => now,
+    execute: async (invocation) => {
+      invocations.push(invocation)
+      return { exitCode: 0, stdout: '{"ok":true,"action":"handover"}', stderr: '' }
+    },
+  })
+
+  const result = await service.dispatch(command('backlog.startSprintEngine', {
+    workspacePath: workspaceRoot,
+    relativePath: 'backlog/feature.md',
+  }, {
+    commandId: 'cmd_backlog_start',
+    idempotencyKey: 'mobile:device_1:backlog-start',
+  }))
+
+  assert.equal(result.ok, true)
+  assert.equal(invocations.length, 1)
+  assert.equal(invocations[0].cwd, workspaceRoot)
+  assert.deepEqual(invocations[0].args.slice(0, 3), ['handover', '--name', 'backlog-cmd_backlog_start'])
+  const goalIndex = invocations[0].args.indexOf('--goal')
+  assert.equal(invocations[0].args[goalIndex + 1], 'Ship the widget')
+  const handoverIndex = invocations[0].args.indexOf('--handover-text')
+  assert.equal(invocations[0].args[handoverIndex + 1].includes('Users need the widget.'), true)
+  assert.equal(invocations[0].args[handoverIndex + 1].includes('type: feature'), false)
+
+  const store = JSON.parse(await readFile(join(workspaceRoot, '.multi-code', 'backlog', 'items.json'), 'utf8')) as {
+    items: Array<{ source: { relativePath: string }; status?: string; metadata?: Record<string, unknown> }>
+  }
+  const record = store.items.find((item) => item.source.relativePath === 'backlog/feature.md')
+  assert.equal(record?.status, 'in_progress')
+  const moduleMetadata = record?.metadata?.['mobile-companion'] as Record<string, unknown> | undefined
+  assert.equal(moduleMetadata?.['teamName'], 'backlog-cmd_backlog_start')
+}
+
+async function assertBacklogStartRejectsPathOutsideBacklogFolder(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-escape-'))
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot,
+    now: () => now,
+    execute: async () => {
+      throw new Error('Sprint Engine tool should not run for rejected backlog paths')
+    },
+  })
+
+  const result = await service.dispatch(command('backlog.startSprintEngine', {
+    workspacePath: workspaceRoot,
+    relativePath: 'backlog/../run.yaml',
+  }, {
+    commandId: 'cmd_backlog_escape',
+    idempotencyKey: 'mobile:device_1:backlog-escape',
+  }))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.ok === false ? result.error.code : '', 'path_not_allowed')
+}
+
 async function assertFilesystemMutationHandlersProtectSprintEngineStateAliases(): Promise<void> {
   const handlers = await importMainProcessIpcHandlers()
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-fs-guard-'))
@@ -871,6 +986,7 @@ async function importMainProcessIpcHandlers(): Promise<FilesystemMutationHandler
           defaultApp: false,
           getAppPath: () => process.cwd(),
           getPath: (name: string) => join(tmpdir(), `multicode-electron-${name}`),
+          getVersion: () => '0.0.0',
           isPackaged: false,
           on: () => undefined,
           quit: () => undefined,

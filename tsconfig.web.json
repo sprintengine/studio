@@ -1,6 +1,11 @@
 {
   "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
-  "include": ["src/renderer/src/**/*", "src/shared/**/*"],
+  "include": [
+    "src/renderer/src/**/*",
+    "src/shared/**/*",
+    "packages/module-sdk/src/index.ts",
+    "packages/module-sdk/src/manifest-validate.ts"
+  ],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"],
   "compilerOptions": {
     "composite": true,

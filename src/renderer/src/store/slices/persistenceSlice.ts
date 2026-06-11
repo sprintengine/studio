@@ -25,6 +25,7 @@ import {
   migrateSprintEngineLayout,
   sprintEngineTabsLayoutModel,
   stripSettingsTabsFromLayout,
+  stripSprintEnginesNavFromLayout,
 } from './layoutSlice'
 import { normalizeWorkspaceMemoryConfig } from './memorySlice'
 import {
@@ -50,7 +51,7 @@ import { clearSprintEngineAgentLaunchState, mapMigrationWorkspaces } from './nor
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 59
+export const WORKSPACE_STORE_VERSION = 60
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -861,6 +862,16 @@ export function migratePersistedWorkspaceState(
     // processes are not. Clear stale launch intent so reopening Multicode or
     // restoring an agent tab does not spawn autonomous agents.
     mapMigrationWorkspaces(migrationState, clearSprintEngineAgentLaunchState)
+  }
+  if (version < 60) {
+    // The Sprint Engines survey moved from the per-workspace nav rail to the
+    // app-level right aside (SprintEnginesAside); strip the retired
+    // 'sprint-engines' tab from persisted layouts so it cannot render as an
+    // empty surface.
+    mapMigrationWorkspaces(migrationState, (ws) => {
+      const next = stripSprintEnginesNavFromLayout(ws.layoutModel)
+      return next === ws.layoutModel ? ws : { ...ws, layoutModel: next as Workspace['layoutModel'] }
+    })
   }
 
   return state as never

@@ -19,6 +19,8 @@ const commandTypes = new Set<MobileControlCommandType>([
   'artifact.requestChanges',
   'agent.followUp',
   'device.revoke',
+  'backlog.update',
+  'backlog.startSprintEngine',
 ])
 const worktreeIsolationValues = new Set(['required', 'preferred', 'disabled'])
 
@@ -95,6 +97,17 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
       return requireString(payload, 'sprintEngineId') ?? requireString(payload, 'agentId') ?? requireString(payload, 'text')
     case 'device.revoke':
       return requireString(payload, 'deviceId') ?? optionalString(payload, 'reason')
+    case 'backlog.update':
+      return (
+        requireString(payload, 'workspacePath') ??
+        requireString(payload, 'relativePath') ??
+        optionalString(payload, 'status') ??
+        optionalString(payload, 'type') ??
+        optionalString(payload, 'difficulty') ??
+        optionalString(payload, 'criticality')
+      )
+    case 'backlog.startSprintEngine':
+      return requireString(payload, 'workspacePath') ?? requireString(payload, 'relativePath')
   }
 }
 

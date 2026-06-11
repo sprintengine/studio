@@ -18,6 +18,7 @@ import {
   multiloopTabsLayoutModel,
   sprintEngineTabsLayoutModel,
   stripSettingsTabsFromLayout,
+  stripSprintEnginesNavFromLayout,
 } from './layoutSlice'
 import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
 import { createSwitchboardTemplate } from '../../modules/switchboard-workspace-types'
@@ -387,6 +388,35 @@ const stripped = stripSettingsTabsFromLayout({
 }) as IJsonModel
 assert.equal(modelContainsComponent(stripped, 'settings'), false)
 assert.equal(modelContainsComponent(stripped, 'editor'), true)
+
+// The Sprint Engines survey moved to the app-level right aside; the v60
+// migration strips its retired nav tab and drops the tabset it emptied,
+// leaving the rest of the layout untouched.
+const sprintEnginesStripped = stripSprintEnginesNavFromLayout({
+  global: {},
+  borders: [],
+  layout: {
+    type: 'row',
+    children: [
+      {
+        type: 'tabset',
+        enableTabStrip: false,
+        children: [
+          { type: 'tab', name: 'Sprint Engines', component: 'sprint-engines' },
+        ],
+      },
+      {
+        type: 'tabset',
+        children: [
+          { type: 'tab', name: 'Agent', component: 'agent' },
+        ],
+      },
+    ],
+  },
+}) as IJsonModel
+assert.equal(modelContainsComponent(sprintEnginesStripped, 'sprint-engines'), false)
+assert.equal(modelContainsComponent(sprintEnginesStripped, 'agent'), true)
+assert.equal((sprintEnginesStripped.layout as { children?: unknown[] }).children?.length, 1)
 
 const carrier = {
   workspaces: [

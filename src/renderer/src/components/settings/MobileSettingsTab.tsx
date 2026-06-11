@@ -11,6 +11,8 @@ type MobileControlCommandType =
   | 'artifact.requestChanges'
   | 'agent.followUp'
   | 'device.revoke'
+  | 'backlog.update'
+  | 'backlog.startSprintEngine'
 
 type MobileControlCapability =
   | 'snapshots.read'
@@ -20,6 +22,8 @@ type MobileControlCapability =
   | 'artifacts.review'
   | 'agents.followUp'
   | 'devices.revoke'
+  | 'backlog.update'
+  | 'backlog.start'
 
 type MobileControlDevice = {
   protocolVersion: 1
@@ -605,6 +609,10 @@ function commandLabel(commandType: MobileControlCommandType): string {
       return 'Sprint Engine create requested'
     case 'device.revoke':
       return 'Device revoke requested'
+    case 'backlog.update':
+      return 'Backlog item updated'
+    case 'backlog.startSprintEngine':
+      return 'Sprint Engine started from backlog'
   }
 }
 

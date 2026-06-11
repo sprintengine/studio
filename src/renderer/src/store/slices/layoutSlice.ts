@@ -118,17 +118,17 @@ export function migrateSprintEngineLayout(ws: Workspace): Workspace {
   }
 }
 
-function stripSettingsTabsFromLayoutNode(node: unknown): unknown {
+function stripComponentTabsFromLayoutNode(node: unknown, component: string): unknown {
   if (!node || typeof node !== 'object') return node
   const record = node as Record<string, unknown>
 
-  if (record.type === 'tab' && record.component === 'settings') return null
+  if (record.type === 'tab' && record.component === component) return null
 
   const rawChildren = record.children
   if (!Array.isArray(rawChildren)) return record
 
   const nextChildren = rawChildren
-    .map((child) => stripSettingsTabsFromLayoutNode(child))
+    .map((child) => stripComponentTabsFromLayoutNode(child, component))
     .filter((child) => child !== null && child !== undefined)
 
   if ((record.type === 'tabset' || record.type === 'row') && nextChildren.length === 0) {
@@ -144,13 +144,24 @@ function stripSettingsTabsFromLayoutNode(node: unknown): unknown {
   return next
 }
 
-export function stripSettingsTabsFromLayout(layoutModel: unknown): unknown {
+function stripComponentTabsFromLayout(layoutModel: unknown, component: string): unknown {
   if (!layoutModel || typeof layoutModel !== 'object') return layoutModel
   const model = layoutModel as Record<string, unknown>
   const layout = model.layout
   if (!layout || typeof layout !== 'object') return layoutModel
-  const nextLayout = stripSettingsTabsFromLayoutNode(layout)
+  const nextLayout = stripComponentTabsFromLayoutNode(layout, component)
   return { ...model, layout: nextLayout ?? layout }
+}
+
+export function stripSettingsTabsFromLayout(layoutModel: unknown): unknown {
+  return stripComponentTabsFromLayout(layoutModel, 'settings')
+}
+
+// The Sprint Engines survey moved out of the per-workspace nav rail into the
+// app-level right aside (SprintEnginesAside); a persisted 'sprint-engines' tab
+// would render an empty surface, so drop it from existing layouts.
+export function stripSprintEnginesNavFromLayout(layoutModel: unknown): unknown {
+  return stripComponentTabsFromLayout(layoutModel, 'sprint-engines')
 }
 
 const STICKY_TAB_COMPONENTS = new Set(['watchtower-panel', 'switchboard-board'])

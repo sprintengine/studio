@@ -11,6 +11,8 @@ import {
   normalizeCliModelSelections,
   normalizeCliPermissionPreset,
   normalizeKeybindingSettings,
+  normalizeModuleSettings,
+  moduleSettingsNamespace,
   normalizeRecentWorkspaceFolders,
   normalizeSearchExcludes,
   normalizeSpecialistOrder,
@@ -149,13 +151,17 @@ assert.deepEqual(
   {
     'commandPalette.open': ['primary+k', 'ctrl++'],
     'app.settings.open': ['primary+,'],
+    // Ids outside the static shell registry are kept on purpose: module
+    // command deltas are stored by id and filtered at consumption, so they
+    // survive module disable/enable (and uninstall/reinstall) cycles.
+    'unknown.command': ['primary+l'],
   },
-  'normalization keeps valid overrides, collapses duplicates, and drops invalid/unknown entries',
+  'normalization keeps valid overrides (including unregistered ids), collapses duplicates, and drops malformed entries',
 )
 assert.deepEqual(
   normalizedKeybindings.keybindings.disabled,
-  { 'voice.toggle': true },
-  'normalization keeps only true disabled flags for known commands',
+  { 'voice.toggle': true, 'unknown.command': true },
+  'normalization keeps true disabled flags by id; non-true and malformed flags are dropped',
 )
 
 assert.deepEqual(
@@ -224,6 +230,7 @@ const carrier = {
   settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
   runSummaryOverlay: { open: false, workspaceId: null },
   sidebarCollapsed: false,
+  sprintEnginesAsideOpen: false,
 }
 const slice = createSettingsSlice((mutator) => mutator(carrier))
 slice.openSettingsOverlay({ initialTab: 'integrations', checkForUpdates: true })
@@ -458,6 +465,55 @@ assert.deepEqual(
   useWorkspaceStore.getState().appSettings.specialistOrder,
   ['developer', 'frontend-design-review'],
   'setSpecialistOrder persists a normalized id sequence',
+)
+
+// --- Module settings namespace (contributed settings sections) --------------
+// Values live under `module:<id>` in appSettings.moduleSettings: real
+// persistence through the existing app-settings path, keyed so module values
+// can never collide with shell settings keys.
+assert.equal(moduleSettingsNamespace('demo-module'), 'module:demo-module')
+assert.deepEqual(
+  normalizeModuleSettings({
+    'module:demo-module': { greeting: 'hello', count: 2 },
+    'module:': { dropped: true },
+    'not-namespaced': { dropped: true },
+    'module:bad-entry': 'not-an-object',
+    'module:array-entry': ['dropped'],
+  }),
+  { 'module:demo-module': { greeting: 'hello', count: 2 } },
+  'normalization keeps only namespaced object entries',
+)
+
+store.setModuleSettingValue('demo-module', 'greeting', 'hello')
+store.setModuleSettingValue('demo-module', 'count', 2)
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.moduleSettings['module:demo-module'],
+  { greeting: 'hello', count: 2 },
+  'setModuleSettingValue writes into the module namespace',
+)
+store.setModuleSettingValue('demo-module', 'greeting', undefined)
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.moduleSettings['module:demo-module'],
+  { count: 2 },
+  'undefined deletes the key',
+)
+// Module enablement is orthogonal to the namespace: disabling and re-enabling
+// the module never touches stored values, so they survive the cycle.
+store.setModuleEnabled('demo-module', false)
+store.setModuleEnabled('demo-module', true)
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.moduleSettings['module:demo-module'],
+  { count: 2 },
+  'module settings survive a disable/enable cycle',
+)
+// Round-trip through the persistence normalizer (what app restart replays).
+assert.deepEqual(
+  normalizeAppSettings(
+    { moduleSettings: useWorkspaceStore.getState().appSettings.moduleSettings },
+    [],
+  ).moduleSettings,
+  { 'module:demo-module': { count: 2 } },
+  'module settings survive the persisted-settings normalization round trip',
 )
 
 console.log('settingsSlice.test.ts: ok')

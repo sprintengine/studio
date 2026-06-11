@@ -1,0 +1,13 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
+  "include": ["drift", "../../src/renderer/src/env.d.ts", "../../src/preload/index.d.ts"],
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "baseUrl": "../..",
+    "types": ["vite/client", "node"],
+    "paths": {
+      "@renderer/*": ["src/renderer/src/*"]
+    }
+  }
+}

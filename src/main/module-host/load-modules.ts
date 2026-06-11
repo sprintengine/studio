@@ -5,6 +5,11 @@ import type {
   ModuleEnablementOverrides,
   ModuleResolutionErrorCode,
 } from '../../shared/modules/manifest'
+import {
+  MODULE_NOTIFICATIONS_RECENT_CHANNEL,
+  sanitizeNotificationText,
+  type ModuleNotification,
+} from '../../shared/modules/notifications'
 import { resolveModuleEnablement } from '../../shared/modules/resolve'
 import { createMainKernel, type MainHost, type MainKernel, type SidecarSpec } from './main-host'
 
@@ -54,6 +59,10 @@ export function loadMainModules(options: {
   ineligible?: Record<string, ModuleResolutionErrorCode>
   /** Pre-resolution launch errors from module discovery/validation. */
   launchErrors?: MainModuleLoadError[]
+  /** Sends a module notification to every open renderer window. */
+  deliverNotification?: (notification: ModuleNotification) => void
+  /** Clock override for notification flood-bound tests. */
+  now?: () => number
 }): LoadMainModulesResult {
   const { ipcMain, modules, overrides = {}, provideServices, ineligible, launchErrors = [] } = options
   const byId = new Map(modules.map((module) => [module.manifest.id, module]))
@@ -63,8 +72,13 @@ export function loadMainModules(options: {
     { ineligible }
   )
 
-  const kernel = createMainKernel(ipcMain)
-  provideServices?.(kernel.hostFor('@host'))
+  const kernel = createMainKernel(ipcMain, {
+    deliverNotification: options.deliverNotification,
+    now: options.now,
+  })
+  const hostScope = kernel.hostFor('@host')
+  hostScope.registerIpc(MODULE_NOTIFICATIONS_RECENT_CHANNEL, () => kernel.recentNotifications())
+  provideServices?.(hostScope)
   const loaded: string[] = []
   const manifestOnly: string[] = []
   const errors: MainModuleLoadError[] = launchErrors.concat(
@@ -87,6 +101,21 @@ export function loadMainModules(options: {
     } catch (err) {
       errors.push({ id, message: err instanceof Error ? err.message : String(err) })
     }
+  }
+
+  // Blocked or failed third-party modules graduate from log lines to
+  // user-visible status: every load error attributable to an installed
+  // third-party module becomes an error notification under that module's
+  // identity. Manifest-rejection launch errors are keyed by file path, not
+  // module id, so they stay out (no identity to stamp, and the path would
+  // leak the install location). Bundled-module failures remain log-only.
+  for (const loadError of errors) {
+    if (byId.get(loadError.id)?.manifest.source !== 'third-party') continue
+    kernel.emitNotification(loadError.id, {
+      severity: 'error',
+      title: `Module "${loadError.id}" failed to load`,
+      body: sanitizeNotificationText(loadError.message, 'Module startup failed.'),
+    })
   }
 
   return {

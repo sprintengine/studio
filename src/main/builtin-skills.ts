@@ -7,9 +7,14 @@ import type {
   BuiltinSkill,
   BuiltinSkillInstallResult,
   BuiltinSkillStatus,
+  BuiltinSkillTargetState,
+  SkillPackHarness,
 } from '../shared/electron-api'
+import { SKILL_HARNESS_DIR, SKILL_PACK_HARNESSES } from '../shared/skill-harnesses'
 
 const MANIFEST_FILE = '.multicode-skill.json'
+
+const DEFAULT_HARNESSES: readonly SkillPackHarness[] = ['agents']
 
 type ManagedSkillManifest = {
   id: string
@@ -64,6 +69,13 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     version: '1.0.0',
     description: 'Create concise continuation handoffs for another agent or session.',
   },
+  {
+    id: 'backlog',
+    name: 'Backlog',
+    version: '1.0.0',
+    description: 'Take and work a Backlog item with truthful lifecycle status (/backlog).',
+    harnesses: [...SKILL_PACK_HARNESSES],
+  },
 ]
 
 type BuiltinSkillManagerOptions = {
@@ -117,13 +129,21 @@ async function hashDirectory(root: string, ignoredNames = new Set<string>()): Pr
   return hash.digest('hex')
 }
 
-function skillDestination(workspaceRoot: string, skillId: string): string {
+function skillHarnesses(skill: BuiltinSkill): readonly SkillPackHarness[] {
+  return skill.harnesses && skill.harnesses.length > 0 ? skill.harnesses : DEFAULT_HARNESSES
+}
+
+function skillDestination(workspaceRoot: string, skillId: string, harness: SkillPackHarness): string {
   const workspace = resolve(workspaceRoot)
-  const destination = resolve(workspace, '.agents', 'skills', skillId)
+  const destination = resolve(workspace, SKILL_HARNESS_DIR[harness], 'skills', skillId)
   if (!isInside(workspace, destination)) {
     throw new Error('Skill destination must stay inside the workspace.')
   }
   return destination
+}
+
+function canonicalTarget(targets: BuiltinSkillTargetState[]): BuiltinSkillTargetState {
+  return targets.find((target) => target.harness === 'agents') ?? targets[0]
 }
 
 function defaultSourceRoot(): string {
@@ -142,6 +162,34 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
     return join(sourceRoot, id)
   }
 
+  async function getTargetState(
+    skill: BuiltinSkill,
+    sourceHash: string,
+    workspaceRoot: string,
+    harness: SkillPackHarness
+  ): Promise<BuiltinSkillTargetState> {
+    const destinationPath = skillDestination(workspaceRoot, skill.id, harness)
+    if (!(await pathExists(destinationPath))) {
+      return { harness, destinationPath, status: 'missing' }
+    }
+
+    const manifest = await readJson<ManagedSkillManifest>(join(destinationPath, MANIFEST_FILE))
+    if (!manifest || manifest.id !== skill.id || manifest.source !== 'multicode-builtin') {
+      return { harness, destinationPath, status: 'local' }
+    }
+
+    const currentHash = await hashDirectory(destinationPath, new Set([MANIFEST_FILE]))
+    if (currentHash !== manifest.installedSkillHash) {
+      return { harness, destinationPath, status: 'modified', installedVersion: manifest.version }
+    }
+
+    if (sourceHash !== manifest.sourceHash || manifest.version !== skill.version) {
+      return { harness, destinationPath, status: 'update-available', installedVersion: manifest.version }
+    }
+
+    return { harness, destinationPath, status: 'installed', installedVersion: manifest.version }
+  }
+
   async function getStatus(workspaceRoot: string | null, skillId: string): Promise<BuiltinSkillStatus> {
     const skill = getSkill(skillId)
     if (!skill) return { ok: false, status: 'unknown-skill', skillId, message: `Unknown built-in skill: ${skillId}` }
@@ -152,70 +200,93 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
       return { ok: false, status: 'missing-source', skillId, message: `Built-in skill source is missing: ${skill.id}` }
     }
 
-    const destinationPath = skillDestination(workspaceRoot, skill.id)
-    if (!(await pathExists(destinationPath))) {
-      return { ok: true, status: 'missing', skill, destinationPath }
-    }
-
-    const manifestPath = join(destinationPath, MANIFEST_FILE)
-    const manifest = await readJson<ManagedSkillManifest>(manifestPath)
-    if (!manifest || manifest.id !== skill.id || manifest.source !== 'multicode-builtin') {
-      return { ok: true, status: 'local', skill, destinationPath, message: 'A local skill exists but is not managed by Multicode.' }
-    }
-
-    const currentHash = await hashDirectory(destinationPath, new Set([MANIFEST_FILE]))
-    if (currentHash !== manifest.installedSkillHash) {
-      return { ok: true, status: 'modified', skill, destinationPath, installedVersion: manifest.version }
-    }
-
     const sourceHash = await hashDirectory(sourcePath)
-    if (sourceHash !== manifest.sourceHash || manifest.version !== skill.version) {
-      return { ok: true, status: 'update-available', skill, destinationPath, installedVersion: manifest.version }
+    const targets: BuiltinSkillTargetState[] = []
+    for (const harness of skillHarnesses(skill)) {
+      targets.push(await getTargetState(skill, sourceHash, workspaceRoot, harness))
     }
 
-    return { ok: true, status: 'installed', skill, destinationPath, installedVersion: manifest.version }
+    const destinationPath = canonicalTarget(targets).destinationPath
+    const installedVersion =
+      targets.find((target) => target.installedVersion)?.installedVersion ?? skill.version
+
+    // Aggregate by actionability: anything installable wins over anything
+    // merely protected, so install stays offered while modified/local copies
+    // are skipped rather than blocking every other harness.
+    if (targets.some((target) => target.status === 'missing')) {
+      return { ok: true, status: 'missing', skill, destinationPath, targets }
+    }
+    if (targets.some((target) => target.status === 'update-available')) {
+      return { ok: true, status: 'update-available', skill, destinationPath, installedVersion, targets }
+    }
+    if (targets.some((target) => target.status === 'modified')) {
+      return { ok: true, status: 'modified', skill, destinationPath, installedVersion, targets }
+    }
+    if (targets.some((target) => target.status === 'local')) {
+      return {
+        ok: true,
+        status: 'local',
+        skill,
+        destinationPath,
+        message: 'A local skill exists but is not managed by Multicode.',
+        targets,
+      }
+    }
+    return { ok: true, status: 'installed', skill, destinationPath, installedVersion, targets }
   }
 
   async function install(workspaceRoot: string | null, skillId: string): Promise<BuiltinSkillInstallResult> {
     const status = await getStatus(workspaceRoot, skillId)
     if (!status.ok) return status
-    if (status.status === 'local' || status.status === 'modified') {
+
+    const actionable = status.targets.filter(
+      (target) => target.status === 'missing' || target.status === 'installed' || target.status === 'update-available'
+    )
+    const skipped = status.targets.filter(
+      (target) => target.status === 'modified' || target.status === 'local'
+    )
+    if (actionable.length === 0) {
       return {
         ok: false,
-        status: status.status,
+        status: skipped.every((target) => target.status === 'local') ? 'local' : 'modified',
         skillId,
         message: 'The workspace skill has local changes. Multicode will not overwrite it.',
       }
     }
 
     const sourcePath = getSourcePath(status.skill.id)
-    const destinationPath = status.destinationPath
     const sourceHash = await hashDirectory(sourcePath)
-
-    if (status.status !== 'missing') {
-      await rm(destinationPath, { recursive: true, force: true })
-    }
-
-    await mkdir(join(destinationPath, '..'), { recursive: true })
-    await cp(sourcePath, destinationPath, { recursive: true, force: false, errorOnExist: true })
-    const installedSkillHash = await hashDirectory(destinationPath)
     const now = new Date().toISOString()
-    const manifest: ManagedSkillManifest = {
-      id: status.skill.id,
-      source: 'multicode-builtin',
-      version: status.skill.version,
-      sourceHash,
-      installedSkillHash,
-      installedAt: now,
-      updatedAt: now,
+
+    for (const target of actionable) {
+      if (target.status !== 'missing') {
+        await rm(target.destinationPath, { recursive: true, force: true })
+      }
+      await mkdir(join(target.destinationPath, '..'), { recursive: true })
+      await cp(sourcePath, target.destinationPath, { recursive: true, force: false, errorOnExist: true })
+      const installedSkillHash = await hashDirectory(target.destinationPath)
+      const manifest: ManagedSkillManifest = {
+        id: status.skill.id,
+        source: 'multicode-builtin',
+        version: status.skill.version,
+        sourceHash,
+        installedSkillHash,
+        installedAt: now,
+        updatedAt: now,
+      }
+      await writeFile(
+        join(target.destinationPath, MANIFEST_FILE),
+        `${JSON.stringify(manifest, null, 2)}\n`,
+        'utf-8'
+      )
     }
-    await writeFile(join(destinationPath, MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8')
 
     return {
       ok: true,
-      status: status.status === 'missing' ? 'installed' : 'updated',
+      status: actionable.every((target) => target.status === 'missing') ? 'installed' : 'updated',
       skill: status.skill,
-      destinationPath,
+      destinationPath: canonicalTarget(status.targets).destinationPath,
+      ...(skipped.length > 0 ? { skipped } : {}),
     }
   }
 

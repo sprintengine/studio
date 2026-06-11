@@ -2,6 +2,9 @@ import type { ComponentType, LazyExoticComponent } from 'react'
 
 import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import { resolveModuleEnablement } from '../../../shared/modules/resolve'
+import { COMMAND_REGISTRY } from '../commands/commandRegistry'
+import { collapseDuplicateKeybindings } from '../commands/keybindings'
+import type { CommandAvailability, CommandContribution, CommandScope } from '../commands/types'
 import type { FuturePlanWorkspaceSource, LayoutTemplate } from '../types/workspace'
 import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLink } from '../utils/backlog'
 import type {
@@ -113,11 +116,72 @@ export type BacklogLinkProvider = {
   openLink?(input: BacklogLinkProviderInput): Promise<void | boolean>
 }
 
+// A command contributed by a module. Unlike shell CommandDefinitions, module
+// commands carry their handler callback directly — handlerPath indirection is
+// a shell-internal idiom. The registered command id is namespaced
+// `<moduleId>.<id>`, so user keybinding overrides persist by full id and
+// survive module disable/enable cycles (storage keeps them; consumers filter
+// by enablement instead).
+export type ModuleCommandDefinition = {
+  /** Bare command id; the registered id becomes `<moduleId>.<id>`. */
+  id: string
+  title: string
+  /** Grouping label in the palette and Shortcuts settings, e.g. the module's display name. */
+  category: string
+  scopes: readonly CommandScope[]
+  defaultKeybindings?: readonly string[]
+  availability?: readonly CommandAvailability[]
+  allowInEditableTarget?: boolean
+  run: () => void | Promise<void>
+}
+
+export type RegisteredModuleCommand = CommandContribution & {
+  moduleId: string
+  run: () => void | Promise<void>
+}
+
+// A Settings overlay section contributed by a module. The host owns
+// persistence: section values live in the module's `module:<id>` namespace
+// inside the existing app-settings storage (never a new store or file), so
+// they survive module disable/enable cycles and app restarts.
+export type SettingsSectionProps = {
+  values: Readonly<Record<string, unknown>>
+  /** Persist one value in the module's namespace; `undefined` deletes the key. */
+  setValue: (key: string, value: unknown) => void
+}
+
+export type SettingsSectionComponent =
+  | ComponentType<SettingsSectionProps>
+  | LazyExoticComponent<ComponentType<SettingsSectionProps>>
+
+// Brand constraint: icons follow the house glyph pattern (24×24 viewBox,
+// fill="none", currentColor strokes). The Settings rail sizes and tints the
+// glyph via className; a module must not bake in its own colors.
+export type SettingsSectionIconComponent = ComponentType<{ className?: string }>
+
+export type SettingsSectionDefinition = {
+  id: string
+  label: string
+  /** One-line rail description; the overlay falls back to naming the owning module. */
+  description?: string
+  icon: SettingsSectionIconComponent
+  /** Eager component or React.lazy() wrapper, mirroring WorkspacePanelComponent. */
+  Component: SettingsSectionComponent
+  /** Sort hint among contributed sections; built-in tabs always render first. */
+  order?: number
+}
+
+export type RegisteredSettingsSection = SettingsSectionDefinition & {
+  moduleId: string
+}
+
 export type RendererHost = {
   registerPanel(componentId: string, component: WorkspacePanelComponent): void
   registerWorkspaceType(definition: WorkspaceTypeDefinition): void
   registerBacklogItemAction(action: BacklogItemAction): void
   registerBacklogLinkProvider(provider: BacklogLinkProvider): void
+  registerCommand(definition: ModuleCommandDefinition): void
+  registerSettingsSection(definition: SettingsSectionDefinition): void
 }
 
 // The kernel owns the registries and is consumed by the factory/rail. Modules
@@ -135,7 +199,26 @@ export type RendererKernel = {
   getWorkspaceTypeModule(id: string): string | undefined
   getBacklogItemActions(): RegisteredBacklogItemAction[]
   getBacklogLinkProviders(moduleEnabled?: (moduleId: string) => boolean): BacklogLinkProvider[]
+  getModuleCommand(commandId: string): RegisteredModuleCommand | undefined
+  getModuleCommands(moduleEnabled?: (moduleId: string) => boolean): RegisteredModuleCommand[]
+  /**
+   * The one merge point for the command pipeline: the static shell registry
+   * followed by enabled module commands. The palette, the keyboard dispatcher,
+   * and the Shortcuts settings tab all consume this so a module toggle removes
+   * (and re-enabling restores) a command everywhere at once, without a reload.
+   * Shell commands come first, so on a duplicate binding at equal scope
+   * specificity the dispatcher keeps firing the built-in.
+   */
+  getCommandContributions(moduleEnabled?: (moduleId: string) => boolean): CommandContribution[]
+  /**
+   * Contributed Settings sections for enabled modules, in stable order
+   * (order hint, then id) regardless of registration order, so the rail reads
+   * the same across reloads. The overlay renders these after built-in tabs.
+   */
+  getSettingsSections(moduleEnabled?: (moduleId: string) => boolean): RegisteredSettingsSection[]
 }
+
+const SHELL_COMMAND_IDS: ReadonlySet<string> = new Set(COMMAND_REGISTRY.map((command) => command.id))
 
 export function createRendererHost(): RendererKernel {
   const panels = new Map<string, WorkspacePanelComponent>()
@@ -143,6 +226,12 @@ export function createRendererHost(): RendererKernel {
   const workspaceTypes = new Map<string, RegisteredWorkspaceTypeDefinition>()
   const backlogItemActions = new Map<string, RegisteredBacklogItemAction>()
   const backlogLinkProviders = new Map<string, BacklogLinkProvider>()
+  const moduleCommands = new Map<string, RegisteredModuleCommand>()
+  const settingsSections = new Map<string, RegisteredSettingsSection>()
+  const enabledModuleCommands = (moduleEnabled?: (moduleId: string) => boolean): RegisteredModuleCommand[] =>
+    [...moduleCommands.values()]
+      .filter((command) => !moduleEnabled || moduleEnabled(command.moduleId))
+      .sort((a, b) => a.id.localeCompare(b.id))
   return {
     hostFor(moduleId) {
       return {
@@ -192,6 +281,44 @@ export function createRendererHost(): RendererKernel {
             backlogLinkProviders.set(targetKind, provider)
           }
         },
+        registerCommand(definition) {
+          if (definition.id.trim().length === 0) {
+            throw new Error('Module command id must be a non-empty string.')
+          }
+          const commandId = `${moduleId}.${definition.id}`
+          if (SHELL_COMMAND_IDS.has(commandId)) {
+            throw new Error(`Command "${commandId}" is already registered by the application command registry.`)
+          }
+          if (moduleCommands.has(commandId)) {
+            throw new Error(`Module command "${commandId}" is already registered.`)
+          }
+          if (definition.title.trim().length === 0) {
+            throw new Error(`Module command "${commandId}" must have a non-empty title.`)
+          }
+          if (definition.scopes.length === 0) {
+            throw new Error(`Module command "${commandId}" must declare at least one scope.`)
+          }
+          moduleCommands.set(commandId, {
+            ...definition,
+            id: commandId,
+            moduleId,
+            defaultKeybindings: definition.defaultKeybindings
+              ? collapseDuplicateKeybindings(definition.defaultKeybindings)
+              : undefined,
+          })
+        },
+        registerSettingsSection(definition) {
+          if (definition.id.trim().length === 0) {
+            throw new Error('Settings section id must be a non-empty string.')
+          }
+          const existing = settingsSections.get(definition.id)
+          if (existing) {
+            throw new Error(
+              `Settings section "${definition.id}" is already registered by module "${existing.moduleId}".`
+            )
+          }
+          settingsSections.set(definition.id, { ...definition, moduleId })
+        },
       }
     },
     getPanel(componentId) {
@@ -234,6 +361,23 @@ export function createRendererHost(): RendererKernel {
         const moduleOrder = a.moduleId.localeCompare(b.moduleId)
         return moduleOrder === 0 ? a.targetKinds.join('\0').localeCompare(b.targetKinds.join('\0')) : moduleOrder
       })
+    },
+    getModuleCommand(commandId) {
+      return moduleCommands.get(commandId)
+    },
+    getModuleCommands(moduleEnabled) {
+      return enabledModuleCommands(moduleEnabled)
+    },
+    getCommandContributions(moduleEnabled) {
+      return [...COMMAND_REGISTRY, ...enabledModuleCommands(moduleEnabled)]
+    },
+    getSettingsSections(moduleEnabled) {
+      return [...settingsSections.values()]
+        .filter((section) => !moduleEnabled || moduleEnabled(section.moduleId))
+        .sort((a, b) => {
+          const order = (a.order ?? 100) - (b.order ?? 100)
+          return order === 0 ? a.id.localeCompare(b.id) : order
+        })
     },
   }
 }

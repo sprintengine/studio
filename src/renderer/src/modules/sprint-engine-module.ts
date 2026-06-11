@@ -21,12 +21,6 @@ const SprintEngineBoardPanel = React.lazy(
   () => import('../components/panels/SprintEngineBoardPanel')
 )
 
-// The rail's Sprint Engines nav switch: a list of every Sprint Engine
-// workspace with its live run state.
-const SprintEnginesPanel = React.lazy(
-  () => import('../components/panels/SprintEnginesPanel')
-)
-
 async function sprintEngineBacklogOpenPorts(): Promise<SprintEngineBacklogLinkOpenPorts> {
   const [{ useWorkspaceStore }, { publishDiagnostic }] = await Promise.all([
     import('../store/workspaceStore'),
@@ -70,7 +64,6 @@ export const sprintEngineRendererModule: RendererModule = {
   },
   registerRenderer(host) {
     host.registerPanel('sprintengine', SprintEngineBoardPanel)
-    host.registerPanel('sprint-engines', SprintEnginesPanel)
     registerSprintEngineWorkspaceTypes(host)
     host.registerBacklogLinkProvider({
       moduleId: SPRINT_ENGINE_MODULE_ID,

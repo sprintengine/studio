@@ -1,8 +1,8 @@
 import type { WorkspaceRunGlyph } from './workspaceRunGlyph'
 
 // One predicate for "this workspace is a Sprint Engine run surface", shared by
-// the run-glyph provider registration and the Sprint Engines nav panel so the
-// sidebar glyph and the nav list can never disagree about membership.
+// the run-glyph provider registration and the Sprint Engines aside so the
+// sidebar glyph and the aside list can never disagree about membership.
 // Structural input (a subset of Workspace) keeps it usable from both the
 // provider's narrowed projection and plain test fixtures.
 export function isSprintEngineWorkspace(workspace: {
@@ -50,7 +50,7 @@ function rowRank(glyph: WorkspaceRunGlyph | null): number {
   return GLYPH_RANK[glyph.state] ?? 5
 }
 
-// Pure row derivation for the Sprint Engines nav panel. `deriveGlyph` is a
+// Pure row derivation for the Sprint Engines aside. `deriveGlyph` is a
 // port so the caller wires in the live rollup (workspaceRunGlyph + terminal
 // activity) while tests pass a stub; the function itself owns membership,
 // task-progress counting, and the attention-first ordering.

@@ -197,8 +197,6 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.gate.next",
         "sprintengine.gate.claim",
         "sprintengine.gate.verdict",
-        "sprintengine.gate.publish",
-        "sprintengine.gate.skip",
         "sprintengine.plan.add_task",
         "sprintengine.plan.update_task",
         "sprintengine.plan.delete_task",
@@ -261,7 +259,6 @@ def test_mcp_contract_registry_covers_schemas_and_payload_adapters(tmp_path) -> 
         "sprintengine.gate.next": {"role": "tester", "id": "tester"},
         "sprintengine.gate.claim": {"taskId": "T1", "gateId": "tester", "role": "tester", "id": "tester"},
         "sprintengine.gate.verdict": {"taskId": "T1", "gateId": "tester", "role": "tester", "id": "tester", "verdict": "approved", "summary": "ok"},
-        "sprintengine.gate.publish": {"taskId": "T1", "gateId": "tester", "role": "tester", "id": "tester", "verdict": "approved", "summary": "ok"},
         "sprintengine.plan.add_task": {"title": "Task", "role": "developer"},
         "sprintengine.plan.update_task": {"taskId": "T1"},
         "sprintengine.plan.delete_task": {"taskId": "T1"},
@@ -334,8 +331,6 @@ def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() 
         "sprintengine.task.publish",
         "sprintengine.task.request_changes",
         "sprintengine.gate.list",
-        "sprintengine.gate.publish",
-        "sprintengine.gate.skip",
         "sprintengine.run.get",
         "sprintengine.run.policy.get",
         "sprintengine.run.subscribe",
@@ -348,7 +343,6 @@ def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() 
     assert active_now <= set(TOOL_SCHEMAS)
     assert MCP_V1_CONTRACT_SCHEMAS["sprintengine.task.status"]["properties"]["status"]["enum"]
     assert MCP_V1_CONTRACT_SCHEMAS["sprintengine.gate.verdict"]["properties"]["verdict"]["enum"]
-    assert MCP_V1_CONTRACT_SCHEMAS["sprintengine.gate.publish"]["properties"]["verdict"]["enum"]
     assert "needsInputKind" not in MCP_V1_CONTRACT_SCHEMAS["sprintengine.task.request_changes"]["properties"]
 
 
@@ -356,40 +350,39 @@ def test_mcp_feedback_schemas_expose_known_feedback_fields() -> None:
     feedback_tools = [
         "sprintengine.task.status",
         "sprintengine.gate.verdict",
-        "sprintengine.gate.publish",
         "sprintengine.artifact.ready",
     ]
 
+    # Schemas advertise camelCase only; the snake_case spellings stay accepted
+    # by the payload adapter but must not bloat every reviewer's tool listing.
     for tool_name in feedback_tools:
         schema = MCP_V1_CONTRACT_SCHEMAS[tool_name]
         properties = schema["properties"]
         assert schema["additionalProperties"] is True
         for attr, camel, _ in FEEDBACK_SCORE_FIELDS:
-            assert properties[attr]["type"] == "integer"
+            assert attr not in properties
             assert properties[camel]["maximum"] == 100
         for attr, camel, _ in FEEDBACK_COUNT_FIELDS:
-            assert properties[attr]["type"] == "integer"
+            assert attr not in properties
             assert properties[camel]["minimum"] == 0
         for attr, camel, _ in FEEDBACK_TEXT_FIELDS:
-            assert properties[attr]["type"] == "string"
+            assert attr not in properties
             assert properties[camel]["type"] == "string"
-        assert "issue_json" in properties
+        assert "issue_json" not in properties
         assert "issueJson" in properties
-        assert "finding_json" in properties
+        assert "finding_json" not in properties
         assert "findingJson" in properties
-    for tool_name in ("sprintengine.gate.verdict", "sprintengine.gate.publish"):
+    for tool_name in ("sprintengine.gate.verdict",):
         properties = MCP_V1_CONTRACT_SCHEMAS[tool_name]["properties"]
-        assert properties["reviewed_difficulty_pct"]["maximum"] == 100
+        assert "reviewed_difficulty_pct" not in properties
         assert properties["reviewedDifficultyPct"]["type"] == "integer"
-        assert "implementation" in properties["reviewed_difficulty_dimension"]["enum"]
+        assert properties["reviewedDifficultyPct"]["maximum"] == 100
         assert "implementation" in properties["reviewedDifficultyDimension"]["enum"]
-        assert properties["reviewed_difficulty_reason"]["type"] == "string"
         assert properties["reviewedDifficultyReason"]["type"] == "string"
     for tool_name in ("sprintengine.plan.add_task", "sprintengine.plan.update_task"):
         properties = MCP_V1_CONTRACT_SCHEMAS[tool_name]["properties"]
-        assert properties["difficulty_pct"]["maximum"] == 100
-        assert properties["difficultyPct"]["type"] == "integer"
-        assert properties["difficulty_reason"]["type"] == "string"
+        assert "difficulty_pct" not in properties
+        assert properties["difficultyPct"]["maximum"] == 100
         assert properties["difficultyReason"]["type"] == "string"
 
 
@@ -675,7 +668,7 @@ def test_mcp_gate_publish_records_reviewer_difficulty_assessment(tmp_path) -> No
         actor("workspace-user", "user"),
     )
     verdict = server.call_tool(
-        "sprintengine.gate.publish",
+        "sprintengine.gate.verdict",
         {
             "statePath": str(fixture.state_path),
             "taskId": "T1",
@@ -1247,7 +1240,7 @@ def test_mcp_agent_heartbeat_preserves_assignment_state(tmp_path) -> None:
 
     response = server.call_tool(
         "sprintengine.agent.heartbeat",
-        {"statePath": str(fixture.state_path), "agentId": "developer-a"},
+        {"statePath": str(fixture.state_path), "agentId": "developer-a", "role": "developer"},
         actor("workspace-user", "user"),
     )
 
@@ -1256,6 +1249,66 @@ def test_mcp_agent_heartbeat_preserves_assignment_state(tmp_path) -> None:
     assert agent["currentTaskId"] == before["currentTaskId"]
     assert agent["currentDispatch"] == before["currentDispatch"]
     assert response["result"]["assignmentUnchanged"]["currentDispatch"] is True
+
+
+def test_mcp_agent_heartbeat_unknown_agent_does_not_create_roster_entry(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-agent-heartbeat-unknown", [])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    response = server.call_tool(
+        "sprintengine.agent.heartbeat",
+        {"statePath": str(fixture.state_path), "agentId": "developer-a", "role": "developer"},
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is True
+    assert response["result"]["known"] is False
+    assert response["result"]["agent"] is None
+    assert "developer-a" not in read_state(fixture.state_path).get("agents", {})
+
+
+def test_mcp_agent_leave_preserves_needs_input_ownership(tmp_path) -> None:
+    """Leaving must not release tasks blocked on a human: the needs_input
+    question and owner survive so input resolution can route the answer back
+    to the owner (mirrors the expiry sweep's exclusion)."""
+    record = task("T1", "Blocked on user", "developer", status="needs_input", owner="developer-a")
+    record["needsInput"] = {"kind": "user", "reason": "product_decision", "question": "Which auth provider?"}
+    fixture = create_team(tmp_path, "mcp-agent-leave-needs-input", [record])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    state = read_state(fixture.state_path)
+    state["agents"]["developer-a"] = {"role": "developer", "status": "needs_input", "currentTaskId": "T1", "heartbeatAt": "2026-01-01T00:00:00Z"}
+    write_state(fixture.state_path, state)
+
+    response = server.call_tool(
+        "sprintengine.agent.leave",
+        {"statePath": str(fixture.state_path), "agentId": "developer-a", "role": "developer", "reason": "terminal disposed"},
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is True
+    assert response["result"]["agent"]["status"] == "left"
+    assert response["result"]["releasedTargets"] == []
+    persisted = get_task(read_state(fixture.state_path), "T1")
+    assert persisted["status"] == "needs_input"
+    assert persisted["needsInput"]["question"] == "Which auth provider?"
+    assert persisted["ownerAgentId"] == "developer-a"
+
+
+def test_mcp_agent_leave_unknown_agent_does_not_create_roster_entry(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-agent-leave-unknown", [])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    response = server.call_tool(
+        "sprintengine.agent.leave",
+        {"statePath": str(fixture.state_path), "agentId": "developer-a", "role": "developer", "reason": "terminal disposed"},
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is True
+    assert response["result"]["known"] is False
+    assert response["result"]["agent"] is None
+    assert response["result"]["releasedTargets"] == []
+    assert "developer-a" not in read_state(fixture.state_path).get("agents", {})
 
 
 def test_mcp_agent_leave_releases_active_task_for_dispatch(tmp_path) -> None:
@@ -1269,7 +1322,7 @@ def test_mcp_agent_leave_releases_active_task_for_dispatch(tmp_path) -> None:
 
     response = server.call_tool(
         "sprintengine.agent.leave",
-        {"statePath": str(fixture.state_path), "agentId": "developer-a", "reason": "terminal closed"},
+        {"statePath": str(fixture.state_path), "agentId": "developer-a", "role": "developer", "reason": "terminal closed"},
         actor("workspace-user", "user"),
     )
 
@@ -1288,6 +1341,33 @@ def test_mcp_agent_leave_releases_active_task_for_dispatch(tmp_path) -> None:
         actor("workspace-user", "user"),
     )
     assert [entry["id"] for entry in ready["result"]["readyTasks"]] == ["T1"]
+
+
+def test_mcp_agent_leave_releases_owned_active_task_when_agent_ref_is_stale(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-agent-leave-release-stale-ref", [task("T1", "Leave task", "developer", "in_progress", owner="developer-a")])
+    state = read_state(fixture.state_path)
+    state["agents"]["developer-a"] = {
+        "role": "developer",
+        "status": "running",
+        "currentTaskId": "missing-task",
+        "heartbeatAt": "2026-01-01T00:00:00Z",
+    }
+    write_state(fixture.state_path, state)
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    response = server.call_tool(
+        "sprintengine.agent.leave",
+        {"statePath": str(fixture.state_path), "agentId": "developer-a", "role": "developer", "reason": "terminal closed"},
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is True
+    assert response["result"]["releasedTargets"] == [
+        {"kind": "task", "taskId": "T1", "previousOwnerAgentId": "developer-a", "status": "todo"}
+    ]
+    task_record = get_task(read_state(fixture.state_path), "T1")
+    assert task_record["status"] == "todo"
+    assert task_record["ownerAgentId"] is None
 
 
 def test_mcp_agent_leave_releases_active_gate_without_blocked_attempt(tmp_path) -> None:
@@ -1584,7 +1664,7 @@ def test_mcp_health_reports_allowed_root_and_capabilities(tmp_path) -> None:
     fixture = create_team(tmp_path, "mcp-health", [task("T1", "Health", "developer")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
-    response = server.call_tool("sprintengine.health", {"statePath": str(fixture.state_path)}, actor("workspace-user"))
+    response = server.call_tool("sprintengine.health", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
 
     assert response["ok"] is True
     report = response["result"]
@@ -1596,7 +1676,7 @@ def test_mcp_health_reports_allowed_root_and_capabilities(tmp_path) -> None:
 
 def test_stdio_transport_exercises_initialize_read_and_mutating_tool(tmp_path) -> None:
     fixture = create_team(tmp_path, "mcp-stdio-smoke", [task("T1", "Smoke task", "developer")])
-    actor_context = actor("workspace-user")
+    actor_context = actor("workspace-user", "user")
     messages = [
         {
             "jsonrpc": "2.0",
@@ -2266,12 +2346,12 @@ def test_mcp_feedback_tools_return_sanitized_summary_and_recommendations(tmp_pat
     summary = server.call_tool(
         "sprintengine.feedback.summarize",
         {"statePath": str(fixture.state_path)},
-        actor("workspace-user"),
+        actor("workspace-user", "user"),
     )
     recommendations = server.call_tool(
         "sprintengine.feedback.recommend_actions",
         {"statePath": str(fixture.state_path)},
-        actor("workspace-user"),
+        actor("workspace-user", "user"),
     )
 
     assert summary["ok"] is True

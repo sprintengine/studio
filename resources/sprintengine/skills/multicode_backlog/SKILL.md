@@ -1,5 +1,9 @@
 # Multicode Backlog
 
+<!-- Keep the lifecycle rules in this skill in sync with
+     resources/skills/backlog/SKILL.md (the installable /backlog built-in
+     skill that carries the same contract for manual agent terminals). -->
+
 Backlog items are durable work records. Include as much detail as is useful —
 err on the side of a rich, complete item rather than a thin one.
 
@@ -63,10 +67,17 @@ durable lifecycle metadata.
    `id: stableBacklogObjectId(relativePath)`, `source: { type: "file",
    relativePath }`, `status: "in_progress"`, `metadata: {}`, `links: []`,
    `createdAt`, and `updatedAt`. `stableBacklogObjectId` is the FNV-1a hash
-   used by `src/renderer/src/utils/backlog.ts`: normalize slashes, lowercase
-   the relative path, start with `2166136261`, for each character XOR the char
-   code and multiply with `16777619` using 32-bit integer multiplication, then
-   format `backlog_${(hash >>> 0).toString(36)}`.
+   used by `src/renderer/src/utils/backlog.ts`. **Never compute the hash or
+   the timestamp in your head**; run this command and use its output verbatim:
+
+   ```bash
+   node -e "const p=process.argv[1].replace(/\\\\/g,'/').toLowerCase();let h=2166136261;for(const c of p){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}console.log(JSON.stringify({id:'backlog_'+(h>>>0).toString(36),now:new Date().toISOString()}))" "backlog/<file>"
+   ```
+
+   If `node` is unavailable, apply the same algorithm with any runtime
+   (normalize slashes, lowercase, FNV-1a 32-bit from `2166136261` with
+   multiplier `16777619`, formatted `backlog_${(hash >>> 0).toString(36)}`) —
+   execute it, do not estimate. Use the real current time for timestamps.
 5. Do not edit markdown frontmatter just to change status. The object store is
    the source of truth for Backlog lifecycle once present.
 

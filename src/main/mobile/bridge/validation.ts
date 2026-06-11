@@ -14,6 +14,8 @@ const MOBILE_CONTROL_CAPABILITIES: MobileControlCapability[] = [
   'artifacts.review',
   'agents.followUp',
   'devices.revoke',
+  'backlog.update',
+  'backlog.start',
 ]
 
 export function isMobileControlDevice(input: unknown): input is MobileControlDevice {

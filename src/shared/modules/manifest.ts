@@ -55,7 +55,11 @@ export type ModuleSignature = {
 
 // Code entry points for a third-party module's bundles (relative to the module
 // root). The main loader imports `entry.main` in-process only for trusted
-// modules, using the same MainHost registration contract as bundled modules.
+// modules, using the same MainHost registration contract as bundled modules;
+// `entry.renderer` is served to the renderer loader under the same trust gate.
+// `entry.preload` is reserved and intentionally NOT loaded in v1: preload
+// scripts must be registered at window creation, which forces app-restart
+// semantics and widens the attack surface. Deferred until a concrete need.
 export type ModuleEntry = {
   main?: string
   preload?: string
@@ -103,11 +107,54 @@ export type ThirdPartyModuleLaunchStatus =
   | 'blocked_invalid'
   | 'launch_error'
 
+// Whether a module's `entry.renderer` can be served to the renderer loader:
+// 'none' — the manifest declares no renderer entry; 'blocked' — declared, but
+// the module's trust status is not load-eligible; 'error' — declared and
+// trusted, but the entry is rejected (escapes the module root or the bundle
+// file is missing); 'available' — declared, trusted, contained, servable.
+export type ThirdPartyRendererEntryAvailability = 'none' | 'blocked' | 'error' | 'available'
+
+export type ThirdPartyRendererEntryView = {
+  availability: ThirdPartyRendererEntryAvailability
+  /** Sanitized human-readable detail; never contains absolute paths. */
+  message?: string
+}
+
 export type ThirdPartyModuleLaunchView = {
   status: ThirdPartyModuleLaunchStatus
   hasMainEntry: boolean
   expectedToLoad: boolean
   message?: string
+  /**
+   * Renderer-entry availability for this module. Always populated by the
+   * main-process list IPC; optional so older fixtures stay valid.
+   */
+  rendererEntry?: ThirdPartyRendererEntryView
+}
+
+// IPC channel that serves loadable third-party renderer entries. Owned by the
+// module-host kernel ('@host'); the renderer loader invokes it at boot.
+export const THIRD_PARTY_RENDERER_ENTRIES_CHANNEL = 'modules:third-party:renderer-entries'
+
+// One servable renderer entry: the module is trusted (isLoadEligible), its
+// `entry.renderer` resolves inside the module root, and the bundle was read
+// from disk. `code` is the ESM bundle source; the renderer loader evaluates it
+// via dynamic import of a blob URL — content over IPC keeps delivery free of
+// any file:// / custom-protocol surface.
+export type ThirdPartyRendererEntry = {
+  id: string
+  manifest: CapabilityManifest
+  code: string
+}
+
+export type ThirdPartyRendererEntriesResult = {
+  entries: ThirdPartyRendererEntry[]
+  /**
+   * Modules whose declared renderer entry could not be served, keyed by module
+   * id to a sanitized reason (no absolute paths). Trust-blocked modules are
+   * NOT listed here — they are reported through their existing launch statuses.
+   */
+  failures: Record<string, string>
 }
 
 // What the renderer shows for one installed third-party module.

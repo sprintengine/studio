@@ -8,7 +8,9 @@ import type {
   ThirdPartyModuleInstallResult,
   ThirdPartyModuleListResult,
   ThirdPartyModuleTrustResult,
+  ThirdPartyRendererEntriesResult,
 } from '../../shared/modules/manifest'
+import { THIRD_PARTY_RENDERER_ENTRIES_CHANNEL } from '../../shared/modules/manifest'
 
 type ModulesIpcRenderer = {
   invoke(channel: 'modules:set-enablement', overrides: ModuleEnablementOverrides): Promise<ModuleEnablementWriteResult>
@@ -18,6 +20,7 @@ type ModulesIpcRenderer = {
     channel: 'modules:third-party:set-trust',
     payload: { id: string; trusted: boolean }
   ): Promise<ThirdPartyModuleTrustResult>
+  invoke(channel: typeof THIRD_PARTY_RENDERER_ENTRIES_CHANNEL): Promise<ThirdPartyRendererEntriesResult>
 }
 
 export function createModulesApi(renderer: ModulesIpcRenderer) {
@@ -31,12 +34,15 @@ export function createModulesApi(renderer: ModulesIpcRenderer) {
       renderer.invoke('modules:third-party:install-folder', srcDir),
     setThirdPartyModuleTrust: (id: string, trusted: boolean): Promise<ThirdPartyModuleTrustResult> =>
       renderer.invoke('modules:third-party:set-trust', { id, trusted }),
+    listThirdPartyRendererEntries: (): Promise<ThirdPartyRendererEntriesResult> =>
+      renderer.invoke(THIRD_PARTY_RENDERER_ENTRIES_CHANNEL),
   } satisfies Pick<
     ElectronApi,
     | 'setModuleEnablement'
     | 'listThirdPartyModules'
     | 'installThirdPartyModuleFolder'
     | 'setThirdPartyModuleTrust'
+    | 'listThirdPartyRendererEntries'
   >
 }
 

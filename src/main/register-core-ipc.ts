@@ -1,5 +1,6 @@
 import type { IpcMain } from 'electron'
 import { registerAuthIpc } from './ipc/auth-ipc'
+import { registerAutomationIpc } from './ipc/automation-ipc'
 import { registerAppMenuIpc } from './app-menu'
 import { registerBacklogIpc } from './ipc/backlog-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
@@ -43,6 +44,7 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
     confirmWindowClose: confirmWorkspaceWindowClose,
   })
   registerWorkspaceSyncIpc(ipcMain, services.workspaceSyncService)
+  registerAutomationIpc(ipcMain, services.automationService, services.automationDelegate)
   registerAppMenuIpc(ipcMain)
   registerWorkspaceBackupIpc(ipcMain, services.workspaceBackupService)
   registerClipboardIpc(ipcMain)

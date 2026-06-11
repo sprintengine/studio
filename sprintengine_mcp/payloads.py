@@ -108,7 +108,7 @@ def command_payload_to_namespace(
         base.update(role=payload["role"], id=payload["id"])
     elif tool_name == "sprintengine.gate.claim":
         base.update(task_id=payload["taskId"], gate_id=payload["gateId"], role=payload["role"], id=payload["id"])
-    elif tool_name in {"sprintengine.gate.verdict", "sprintengine.gate.publish"}:
+    elif tool_name == "sprintengine.gate.verdict":
         base.update(
             task_id=payload["taskId"],
             gate_id=payload["gateId"],

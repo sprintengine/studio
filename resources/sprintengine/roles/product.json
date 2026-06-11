@@ -5,6 +5,12 @@
     "product-strategist"
   ],
   "summary": "Shapes product strategy, requirements, and acceptance criteria.",
+  "capabilities": [
+    {
+      "kind": "review",
+      "phase": "product"
+    }
+  ],
   "soul": [
     {
       "skill": "product"

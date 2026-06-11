@@ -3,7 +3,8 @@ import { EventEmitter } from 'node:events'
 import { mkdtemp, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
+import { createMainKernel } from './module-host/main-host'
+import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
 
 async function main(): Promise<void> {
   const diagnostics: Array<{ scope: string; event: string; payload: Record<string, unknown> }> = []
@@ -138,6 +139,97 @@ async function main(): Promise<void> {
     false,
     `intentional stop during startup must not log start-failed: ${JSON.stringify(slowDiagnostics)}`
   )
+
+  await testGatedHubOwnership()
+  await testKernelOwnedSidecarLifecycle()
+}
+
+// The spawn-ownership gate: until the Sprint Engine module claims the hub
+// (i.e. while the module is disabled), spawn paths fail explicitly; spawn
+// failures after claiming are reported to the owning module.
+async function testGatedHubOwnership(): Promise<void> {
+  const unclaimed = createGatedSprintEngineMcpHub(
+    createSprintEngineMcpHubService({ runtimeRoot: () => process.cwd() })
+  )
+  await assert.rejects(() => unclaimed.ensureStarted(), /Sprint Engine module is disabled/)
+  await assert.rejects(
+    () =>
+      unclaimed.ensureRunRegistered({
+        workspaceRoot: process.cwd(),
+        statePath: join(process.cwd(), 'run.yaml'),
+        allowedRoots: [process.cwd()],
+        registryRoots: [],
+        actorId: 'multicode-app',
+      }),
+    /Sprint Engine module is disabled/
+  )
+  assert.equal(unclaimed.status().state, 'stopped', 'an unclaimed hub never spawned')
+  await unclaimed.stop()
+
+  const spawnFailures: string[] = []
+  const failing = createGatedSprintEngineMcpHub(createSprintEngineMcpHubService({ runtimeRoot: () => null }))
+  failing.claimOwnership({ onSpawnFailure: (message) => spawnFailures.push(message) })
+  await assert.rejects(() => failing.ensureStarted(), /Bundled Sprint Engine MCP runtime was not found/)
+  assert.deepEqual(spawnFailures, ['Bundled Sprint Engine MCP runtime was not found.'])
+  assert.equal(failing.status().state, 'failed')
+}
+
+// The migrated first-party path end to end: the sprint-engine module registers
+// the hub as a demand sidecar through the kernel; a real hub spawns, a real
+// MCP run registration succeeds, and kernel shutdown stops the process.
+async function testKernelOwnedSidecarLifecycle(): Promise<void> {
+  const notifications: Array<{ sourceModuleId: string; title: string }> = []
+  const kernel = createMainKernel({ handle: () => undefined } as unknown as Parameters<typeof createMainKernel>[0], {
+    deliverNotification: (notification) => {
+      notifications.push({ sourceModuleId: notification.sourceModuleId, title: notification.title })
+    },
+  })
+  const hub = createGatedSprintEngineMcpHub(
+    createSprintEngineMcpHubService({ runtimeRoot: () => process.cwd() })
+  )
+  const host = kernel.hostFor('sprint-engine')
+  hub.claimOwnership({
+    onSpawnFailure: (message) =>
+      host.notify({ severity: 'error', title: 'Sprint Engine MCP hub failed to start', body: message }),
+  })
+  const handle = host.registerSidecar(
+    { id: 'sprintengine-mcp', kind: 'python-mcp', module: 'sprintengine_mcp', startOn: 'demand' },
+    {
+      start: async () => {
+        await hub.ensureStarted()
+      },
+      stop: () => hub.stop(),
+      status: () => {
+        const current = hub.status()
+        const state = current.state === 'ready' ? 'running' : current.state
+        return { state, error: current.lastError }
+      },
+    }
+  )
+
+  await kernel.runStartup()
+  assert.equal(handle.status().state, 'stopped', 'demand sidecar does not spawn at app startup')
+
+  // Demand trigger: a managed run registration spawns the hub and performs a
+  // real MCP run registration over HTTP.
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mcp-hub-sidecar-'))
+  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', 'team')
+  await mkdir(teamDirectory, { recursive: true })
+  const registration = await hub.ensureRunRegistered({
+    workspaceRoot,
+    statePath: join(teamDirectory, 'run.yaml'),
+    allowedRoots: [workspaceRoot],
+    registryRoots: [],
+    actorId: 'multicode-app',
+  })
+  assert.ok(registration.runToken, 'a real run registration returns a run token')
+  assert.equal(handle.status().state, 'running', 'kernel status reflects the demand-spawned hub')
+  assert.equal(kernel.sidecarStatuses()[0].moduleId, 'sprint-engine')
+
+  await kernel.runShutdown()
+  assert.equal(handle.status().state, 'stopped', 'kernel shutdown stops the hub process')
+  assert.equal(hub.status().state, 'stopped')
+  assert.deepEqual(notifications, [], 'a healthy lifecycle emits no failure notifications')
 }
 
 main().catch((error) => {

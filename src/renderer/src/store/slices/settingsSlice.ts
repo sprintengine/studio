@@ -35,7 +35,6 @@ import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
 import { moduleProfile, profileOverrides, type ModuleProfileId } from '../../../../shared/modules/profiles'
 import { OPTIONAL_MODULE_IDS } from '../../modules'
-import { COMMAND_REGISTRY, getCommandDefinition, type CommandId } from '../../commands/commandRegistry'
 import { collapseDuplicateKeybindings } from '../../commands/keybindings'
 
 export const MAX_RECENT_WORKSPACE_FOLDERS = 50
@@ -352,15 +351,17 @@ export function defaultKeybindingSettings(): KeybindingSettings {
   return { overrides: {}, disabled: {} }
 }
 
-function isCommandId(value: string): value is CommandId {
-  return Boolean(getCommandDefinition(value))
-}
-
 function normalizeCommandKeybindings(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return collapseDuplicateKeybindings(value.filter((entry): entry is string => typeof entry === 'string'))
 }
 
+// Keybinding deltas are stored by command id and filtered at consumption, so
+// validation here is shape-only. Ids outside the static shell registry are
+// kept on purpose: module commands (`<moduleId>.<commandId>`) must keep their
+// user customizations across module disable/enable cycles and even across
+// uninstall/reinstall — the merge point (RendererKernel.getCommandContributions)
+// decides what is currently bindable, not this normalizer.
 export function normalizeKeybindingSettings(value: unknown): KeybindingSettings {
   if (!value || typeof value !== 'object') return defaultKeybindingSettings()
   const candidate = value as Partial<KeybindingSettings>
@@ -368,7 +369,7 @@ export function normalizeKeybindingSettings(value: unknown): KeybindingSettings 
   if (candidate.overrides && typeof candidate.overrides === 'object') {
     for (const [commandId, rawBindings] of Object.entries(candidate.overrides as Record<string, unknown>)) {
       const id = commandId.trim()
-      if (!isCommandId(id)) continue
+      if (!id) continue
       const normalized = normalizeCommandKeybindings(rawBindings)
       if (normalized.length > 0) overrides[id] = normalized
     }
@@ -378,7 +379,7 @@ export function normalizeKeybindingSettings(value: unknown): KeybindingSettings 
   if (candidate.disabled && typeof candidate.disabled === 'object') {
     for (const [commandId, rawDisabled] of Object.entries(candidate.disabled as Record<string, unknown>)) {
       const id = commandId.trim()
-      if (!isCommandId(id) || rawDisabled !== true) continue
+      if (!id || rawDisabled !== true) continue
       disabled[id] = true
     }
   }
@@ -546,6 +547,28 @@ export function normalizeSpecialistOrder(input: unknown): SpecialistActionId[] {
   return result
 }
 
+// Module-contributed settings sections persist their values in a `module:<id>`
+// namespace inside app settings (see AppSettings.moduleSettings). The prefix is
+// the collision guard between module keyspaces and shell settings keys.
+export const MODULE_SETTINGS_NAMESPACE_PREFIX = 'module:'
+
+export function moduleSettingsNamespace(moduleId: string): string {
+  return `${MODULE_SETTINGS_NAMESPACE_PREFIX}${moduleId.trim()}`
+}
+
+export function normalizeModuleSettings(value: unknown): Record<string, Record<string, unknown>> {
+  if (!value || typeof value !== 'object') return {}
+  const result: Record<string, Record<string, unknown>> = {}
+  for (const [namespace, entry] of Object.entries(value as Record<string, unknown>)) {
+    const key = namespace.trim()
+    if (!key.startsWith(MODULE_SETTINGS_NAMESPACE_PREFIX)) continue
+    if (key.length === MODULE_SETTINGS_NAMESPACE_PREFIX.length) continue
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    result[key] = { ...(entry as Record<string, unknown>) }
+  }
+  return result
+}
+
 // Architect is the only role Sprint Engine planning truly requires. It is
 // excluded from user disablement so a stray persisted `architect: false`
 // cannot strand future workspaces without a planner. Settings normalization
@@ -632,6 +655,7 @@ export const defaultAppSettings = (): AppSettings => ({
   appearance: defaultAppearanceSettings(),
   voiceDictation: defaultVoiceDictationSettings(),
   modules: {},
+  moduleSettings: {},
   modulesChosen: false,
   onboardingStep: 'welcome',
 })
@@ -667,6 +691,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     appearance: normalizeAppearanceSettings(settings?.appearance),
     voiceDictation: normalizeVoiceDictationSettings(settings?.voiceDictation),
     modules: normalizeModuleOverrides(settings?.modules),
+    moduleSettings: normalizeModuleSettings(settings?.moduleSettings),
     // Existing installs (already have workspaces) are treated as chosen so the
     // first-run chooser only appears for a genuinely fresh install.
     modulesChosen: settings?.modulesChosen ?? workspaces.length > 0,
@@ -686,10 +711,15 @@ export interface SettingsSliceState {
   settingsOverlay: SettingsOverlayState
   runSummaryOverlay: RunSummaryOverlayState
   sidebarCollapsed: boolean
+  // The global Sprint Engines aside docked on the right of the workspace card.
+  // App-level (not per-workspace layout) because the aside surveys every
+  // workspace and must survive workspace switches.
+  sprintEnginesAsideOpen: boolean
 }
 
 export interface SettingsSliceActions {
   setSidebarCollapsed: (collapsed: boolean) => void
+  setSprintEnginesAsideOpen: (open: boolean) => void
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
   openRunSummaryOverlay: (workspaceId: string) => void
@@ -713,13 +743,22 @@ export interface SettingsSliceActions {
   setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void
   setMultiloopRoleModelDefault: (role: MultiloopRole, selection: AgentCliModelSelection | null) => void
   setSpecialistOrder: (order: SpecialistActionId[]) => void
-  setCommandKeybindings: (commandId: CommandId, keybindings: string[]) => void
-  setCommandKeybindingDisabled: (commandId: CommandId, disabled: boolean) => void
-  resetCommandKeybindings: (commandId: CommandId) => void
+  // Command ids are open strings: shell registry ids plus namespaced module
+  // command ids (`<moduleId>.<commandId>`). The Shortcuts tab only offers rows
+  // the merged registry currently exposes.
+  setCommandKeybindings: (commandId: string, keybindings: string[]) => void
+  setCommandKeybindingDisabled: (commandId: string, disabled: boolean) => void
+  resetCommandKeybindings: (commandId: string) => void
   resetAllKeybindings: () => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
   setSprintEngineSavedRoster: (roster: SprintEngineSavedRoster | null) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
+  /**
+   * Write one value in a module's settings namespace (`module:<moduleId>`).
+   * `undefined` deletes the key. Module enablement never touches this state,
+   * so values survive a disable/enable cycle.
+   */
+  setModuleSettingValue: (moduleId: string, key: string, value: unknown) => void
   applyModuleProfile: (profileId: ModuleProfileId) => void
   setModulesChosen: (chosen: boolean) => void
   /** Set the onboarding step explicitly. */
@@ -747,10 +786,16 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
     runSummaryOverlay: { open: false, workspaceId: null },
     sidebarCollapsed: false,
+    sprintEnginesAsideOpen: false,
 
     setSidebarCollapsed: (collapsed) =>
       set((state) => {
         state.sidebarCollapsed = collapsed
+      }),
+
+    setSprintEnginesAsideOpen: (open) =>
+      set((state) => {
+        state.sprintEnginesAsideOpen = open
       }),
 
     openSettingsOverlay: (opts) =>
@@ -937,9 +982,13 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.specialistOrder = normalizeSpecialistOrder(order)
       }),
 
+    // The setters accept any non-empty command id: the Shortcuts tab only
+    // offers rows from the merged shell + enabled-module registry, and stored
+    // deltas for ids that are not currently registered are inert until the
+    // owning module is enabled again.
     setCommandKeybindings: (commandId, keybindings) =>
       set((state) => {
-        if (!COMMAND_REGISTRY.some((command) => command.id === commandId)) return
+        if (!commandId.trim()) return
         const current = normalizeKeybindingSettings(state.appSettings.keybindings)
         const normalized = normalizeCommandKeybindings(keybindings)
         if (normalized.length === 0) {
@@ -952,7 +1001,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
 
     setCommandKeybindingDisabled: (commandId, disabled) =>
       set((state) => {
-        if (!COMMAND_REGISTRY.some((command) => command.id === commandId)) return
+        if (!commandId.trim()) return
         const current = normalizeKeybindingSettings(state.appSettings.keybindings)
         if (disabled) {
           current.disabled[commandId] = true
@@ -964,7 +1013,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
 
     resetCommandKeybindings: (commandId) =>
       set((state) => {
-        if (!COMMAND_REGISTRY.some((command) => command.id === commandId)) return
+        if (!commandId.trim()) return
         const current = normalizeKeybindingSettings(state.appSettings.keybindings)
         delete current.overrides[commandId]
         delete current.disabled[commandId]
@@ -1008,6 +1057,22 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
           ...normalizeModuleOverrides(state.appSettings.modules),
           [id]: enabled,
         }
+      }),
+
+    setModuleSettingValue: (moduleId, key, value) =>
+      set((state) => {
+        const id = moduleId.trim()
+        const settingKey = key.trim()
+        if (!id || !settingKey) return
+        const namespace = moduleSettingsNamespace(id)
+        const current = normalizeModuleSettings(state.appSettings.moduleSettings)
+        const entry = { ...(current[namespace] ?? {}) }
+        if (value === undefined) {
+          delete entry[settingKey]
+        } else {
+          entry[settingKey] = value
+        }
+        state.appSettings.moduleSettings = { ...current, [namespace]: entry }
       }),
 
     applyModuleProfile: (profileId) =>

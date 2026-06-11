@@ -1,4 +1,5 @@
-import { app, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
+import { MODULE_NOTIFICATIONS_EVENT_CHANNEL } from '../shared/modules/notifications'
 import { parseAuthCallbackFromArgv } from './auth-service'
 import { registerAppLifecycle } from './app-lifecycle'
 import { createAppServices } from './app-services'
@@ -8,7 +9,8 @@ import { createAgentRuntimeModule } from './modules/agent-runtime-module'
 import { BUNDLED_MAIN_MODULES } from './modules'
 import { readTrustedModulesSync } from './modules/trust-store'
 import { planThirdPartyMainModules, recordThirdPartyMainLaunchReport } from './modules/third-party-main-loader'
-import { defaultUserModuleRoot, discoverUserModulesSync } from './modules/user-module-registry'
+import { registerThirdPartyRendererEntryIpc } from './modules/third-party-renderer-entries'
+import { defaultUserModuleRoot, discoverUserModules, discoverUserModulesSync } from './modules/user-module-registry'
 import { registerCoreIpc } from './register-core-ipc'
 import { registerWorkflowIpc } from './register-workflow-ipc'
 
@@ -40,11 +42,25 @@ const moduleLoad = loadMainModules({
   overrides: moduleOverrides,
   ineligible: thirdPartyMainLoad.ineligible,
   launchErrors: thirdPartyMainLoad.launchErrors,
+  deliverNotification: (notification) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+      window.webContents.send(MODULE_NOTIFICATIONS_EVENT_CHANNEL, notification)
+    }
+  },
 })
 recordThirdPartyMainLaunchReport(
   thirdPartyMainLoad.modules.map((module) => module.manifest.id),
   moduleLoad.report
 )
+// Trusted third-party entry.renderer bundles are served on demand (the trust
+// store is re-read per request, so revoking trust takes effect immediately).
+registerThirdPartyRendererEntryIpc(moduleLoad.kernel.hostFor('@host'), {
+  discoverModules: () =>
+    discoverUserModules(defaultUserModuleRoot(), {
+      trustedModules: readTrustedModulesSync(app.getPath('userData')),
+    }),
+})
 if (MULTICODE_DIAGNOSTICS) {
   console.info(
     '[modules] loaded:', moduleLoad.report.loaded,
@@ -82,8 +98,8 @@ registerAppLifecycle({
     process.env['MULTICODE_ALLOW_MULTI_INSTANCE'] === '1' &&
     Boolean(process.env['MULTICODE_USER_DATA_DIR']?.trim()),
   terminalRuntime: services.terminalRuntime,
+  automationService: services.automationService,
   workspaceSyncService: services.workspaceSyncService,
-  sprintEngineMcpHub: services.sprintEngineMcpHub,
   moduleKernel: moduleLoad.kernel,
   updateService: services.updateService,
   handleAuthCallback: (argv) => {

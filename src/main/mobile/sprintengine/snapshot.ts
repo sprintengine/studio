@@ -14,7 +14,8 @@ import {
   listWatchtowerRuns,
   readAllSwitchboardTasks,
 } from '../../switchboard-files'
-import type { MobileControlCommandType } from '../../../shared/mobile-control/protocol'
+import type { MobileControlBacklogWorkspaceSnapshot, MobileControlCommandType } from '../../../shared/mobile-control/protocol'
+import { readMobileBacklogWorkspaceSnapshot } from './backlog'
 
 const mobileControlProtocolVersion = 1 as const
 const mobileControlWorkspaceSnapshotVersion = 2 as const
@@ -30,6 +31,8 @@ const mobileSnapshotCommandTypes = [
   'artifact.requestChanges',
   'agent.followUp',
   'device.revoke',
+  'backlog.update',
+  'backlog.startSprintEngine',
 ] as const satisfies readonly MobileControlCommandType[]
 
 export const defaultMobileSnapshotCommands: readonly MobileControlCommandType[] = mobileSnapshotCommandTypes
@@ -332,6 +335,7 @@ export type MobileControlSnapshot = {
   commands?: MobileControlCommandType[]
   sprintEngines: MobileSprintEngineSnapshot[]
   workspaces?: MobileWorkspaceSnapshot[]
+  backlog?: MobileControlBacklogWorkspaceSnapshot[]
 }
 
 export type MobileSprintEngineSnapshotRequest = {
@@ -453,6 +457,7 @@ export class MobileSprintEngineSnapshotService {
       ...sprintEngines.map(toSprintEngineWorkspaceSnapshot),
       ...desktopWorkspaces,
     ]
+    const backlog = await readBacklogWorkspaceSnapshots(workspaceRoots, generatedAt)
 
     return {
       protocolVersion: mobileControlProtocolVersion,
@@ -467,6 +472,7 @@ export class MobileSprintEngineSnapshotService {
       commands: normalizeMobileControlCommands(request.commands ?? this.supportedCommands),
       sprintEngines,
       workspaces,
+      ...(backlog.length > 0 ? { backlog } : {}),
     }
   }
 
@@ -535,6 +541,18 @@ export class MobileSprintEngineSnapshotService {
 
     return settled.flatMap((result) => result.status === 'fulfilled' ? result.value : [])
   }
+}
+
+async function readBacklogWorkspaceSnapshots(
+  workspaceRoots: string[],
+  generatedAt: string
+): Promise<MobileControlBacklogWorkspaceSnapshot[]> {
+  const settled = await Promise.allSettled(
+    workspaceRoots.map((workspaceRoot) => readMobileBacklogWorkspaceSnapshot(workspaceRoot, generatedAt))
+  )
+  return settled
+    .flatMap((result) => (result.status === 'fulfilled' && result.value ? [result.value] : []))
+    .sort((left, right) => left.workspaceName.localeCompare(right.workspaceName))
 }
 
 export async function readSprintEngineSnapshot(statePathInput: string): Promise<MobileSprintEngineSnapshot> {

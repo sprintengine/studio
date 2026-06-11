@@ -8,9 +8,11 @@ import type {
   ThirdPartyModuleLaunchView,
   ThirdPartyModuleView,
 } from '../../../../shared/modules/manifest'
+import type { ThirdPartyRendererLoadState } from '../../modules/third-party-loader'
 import {
   ThirdPartyModuleRow,
   describeModuleLaunch,
+  describeRendererEntry,
   resolveModuleEnabled,
 } from './ThirdPartyModuleList'
 
@@ -35,12 +37,16 @@ function moduleView(
   }
 }
 
-function renderRow(view: ThirdPartyModuleView, opts: { pending?: boolean; enabled?: boolean } = {}): string {
+function renderRow(
+  view: ThirdPartyModuleView,
+  opts: { pending?: boolean; enabled?: boolean; rendererLoadState?: ThirdPartyRendererLoadState } = {}
+): string {
   return renderToStaticMarkup(
     <ThirdPartyModuleRow
       module={view}
       pending={opts.pending ?? false}
       enabled={opts.enabled ?? false}
+      rendererLoadState={opts.rendererLoadState}
       onTrustChange={() => {}}
       onEnabledChange={() => {}}
     />
@@ -167,6 +173,24 @@ function testPendingRowDisablesTheTrustSwitch(): void {
   assert.ok(html.includes('disabled'), 'trust switch is disabled while a trust change is in flight')
 }
 
+function testPermissionChipsDiscloseTiersAndFlagBroadAndUnknown(): void {
+  const html = renderRow(
+    moduleView('trusted', launch({}), {
+      permissions: ['ipc:agents', 'ipc:invoke', 'totally-made-up'],
+    }),
+    { enabled: true }
+  )
+  // Tiered scope renders its consent description without a warning tint.
+  assert.ok(html.includes('Launch and control agents and terminals'), 'tier description shown')
+  // The legacy broad scope is retained but flagged: wording + warn tint.
+  assert.match(html, /broad legacy scope/i, 'broad legacy scope named in copy, not color-only')
+  assert.ok(html.includes('tone-warn'), 'broad/unknown chips carry the warn tint')
+  // Unknown scopes surface verbatim as unrecognized (forward-compatible).
+  assert.ok(html.includes('Unrecognized capability: totally-made-up'))
+  // Disclosure framing: nothing in the row claims enforcement.
+  assert.doesNotMatch(html, /sandbox|enforced/i)
+}
+
 function testLaunchErrorRowSurfacesTheRealError(): void {
   const html = renderRow(
     moduleView('trusted', launch({ status: 'launch_error', message: 'entry escaped module root' })),
@@ -174,6 +198,108 @@ function testLaunchErrorRowSurfacesTheRealError(): void {
   )
   assert.match(html, /Launch error/)
   assert.ok(html.includes('entry escaped module root'), 'real startup error is surfaced')
+}
+
+function testDescribeRendererEntryMapsSourcesAndSession(): void {
+  // No declared entry, and trust-blocked modules, render no renderer line: the
+  // trust row already carries one "blocked until trusted" signal.
+  assert.equal(describeRendererEntry(undefined, undefined, 'trusted'), null)
+  assert.equal(describeRendererEntry({ availability: 'none' }, undefined, 'trusted'), null)
+  assert.equal(describeRendererEntry({ availability: 'blocked' }, undefined, 'unsigned'), null)
+  assert.equal(describeRendererEntry({ availability: 'available' }, undefined, 'unsigned'), null)
+
+  // Main-reported serving failure (contained-but-broken bundle).
+  const serving = describeRendererEntry(
+    { availability: 'error', message: 'entry.renderer bundle file is missing.' },
+    undefined,
+    'trusted'
+  )
+  assert.equal(serving?.label, 'Renderer entry error')
+  assert.equal(serving.detail, 'entry.renderer bundle file is missing.')
+
+  // Servable but not evaluated this session (e.g. trusted after boot) reads as
+  // next-launch, mirroring main-entry semantics.
+  const ready = describeRendererEntry({ availability: 'available' }, undefined, 'trusted')
+  assert.equal(ready?.label, 'Renderer entry ready')
+  assert.match(ready.detail, /next app launch/i)
+
+  // Loaded this session: contributions follow the toggle live.
+  const loaded = describeRendererEntry({ availability: 'available' }, { status: 'loaded' }, 'trusted')
+  assert.equal(loaded?.label, 'Renderer entry loaded')
+  assert.match(loaded.detail, /without a reload/i)
+
+  // This session's import/registration failure surfaces its sanitized message.
+  const failed = describeRendererEntry(
+    { availability: 'available' },
+    { status: 'error', message: 'registerRenderer threw: boom' },
+    'trusted'
+  )
+  assert.equal(failed?.label, 'Renderer entry failed')
+  assert.equal(failed.detail, 'registerRenderer threw: boom')
+}
+
+function testRendererOnlyModuleRowIsNotManifestOnly(): void {
+  const html = renderRow(
+    moduleView('trusted', {
+      status: 'trusted_manifest_only',
+      hasMainEntry: false,
+      expectedToLoad: false,
+      rendererEntry: { availability: 'available' },
+    }),
+    { enabled: true, rendererLoadState: { status: 'loaded' } }
+  )
+  // "Manifest only — no code to run" would be false for this shape.
+  assert.doesNotMatch(html, /Manifest only/)
+  assert.match(html, /Renderer entry loaded/)
+  // The renderer-only module gets a live enable affordance.
+  assert.equal(countSwitches(html), 2, 'trust switch + enable switch')
+  assert.ok(html.includes('Enable contributions'))
+}
+
+function testRendererEntryFailureRowIsolatesTheError(): void {
+  const html = renderRow(
+    moduleView('trusted', {
+      status: 'trusted_manifest_only',
+      hasMainEntry: false,
+      expectedToLoad: false,
+      rendererEntry: { availability: 'available' },
+    }),
+    { enabled: true, rendererLoadState: { status: 'error', message: 'boom at import time' } }
+  )
+  assert.match(html, /Renderer entry failed/)
+  assert.ok(html.includes('boom at import time'), 'renderer load error is surfaced verbatim (sanitized upstream)')
+}
+
+function testDualEntryRowNamesBothHalves(): void {
+  const html = renderRow(
+    moduleView('trusted', {
+      status: 'trusted_executable',
+      hasMainEntry: true,
+      expectedToLoad: true,
+      rendererEntry: { availability: 'available' },
+    }),
+    { enabled: true, rendererLoadState: { status: 'loaded' } }
+  )
+  // Both execution surfaces visible, each named, plus one enable control.
+  assert.match(html, /Main entry ready/)
+  assert.match(html, /Renderer entry loaded/)
+  assert.ok(html.includes('Enable this module'))
+  assert.equal(countSwitches(html), 2)
+}
+
+function testBlockedRendererOnlyModuleStaysBlockedTextOnly(): void {
+  const html = renderRow(
+    moduleView('unsigned', {
+      status: 'blocked_unsigned',
+      hasMainEntry: false,
+      expectedToLoad: false,
+      rendererEntry: { availability: 'blocked', message: 'Renderer entry is blocked until the module is trusted.' },
+    })
+  )
+  assert.match(html, /Blocked until trusted/)
+  // Exactly one blocked signal: no second renderer-entry line, no enable toggle.
+  assert.doesNotMatch(html, /Renderer entry/)
+  assert.equal(countSwitches(html), 1, 'only the trust switch')
 }
 
 const tests = [
@@ -185,7 +311,13 @@ const tests = [
   testBlockedRowShowsOffSwitchAndNoEnableControl,
   testInvalidRowHasNoToggles,
   testPendingRowDisablesTheTrustSwitch,
+  testPermissionChipsDiscloseTiersAndFlagBroadAndUnknown,
   testLaunchErrorRowSurfacesTheRealError,
+  testDescribeRendererEntryMapsSourcesAndSession,
+  testRendererOnlyModuleRowIsNotManifestOnly,
+  testRendererEntryFailureRowIsolatesTheError,
+  testDualEntryRowNamesBothHalves,
+  testBlockedRendererOnlyModuleStaysBlockedTextOnly,
 ]
 
 let failures = 0

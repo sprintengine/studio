@@ -1,9 +1,21 @@
-import { createHash, createPublicKey, verify } from 'crypto'
+// Trust classification for third-party modules.
+//
+// The pure sign/verify/canonicalization logic lives in the published SDK
+// (packages/module-sdk/src/signing.ts) so the app and the `multicode-module`
+// CLI can never disagree about what a valid signature is; this module re-exports
+// it and adds the app's trust policy on top.
 
-import type { CapabilityManifest, ModuleSignature, ModuleTrustStatus } from '../../shared/modules/manifest'
-import { canonicalManifestPayload } from '../../shared/modules/third-party-manifest'
+import {
+  manifestFingerprint,
+  verifyModuleSignature,
+  type SignedManifest,
+} from '../../../packages/module-sdk/src/signing'
+
+import type { CapabilityManifest, ModuleTrustStatus } from '../../shared/modules/manifest'
 
 export type { ModuleTrustStatus } from '../../shared/modules/manifest'
+export { manifestFingerprint, verifyModuleSignature }
+export type { SignedManifest }
 
 export type ModuleTrustContext = {
   /**
@@ -18,70 +30,18 @@ export type ModuleTrustContext = {
   trustedKeyFingerprints?: ReadonlySet<string>
 }
 
-// A content fingerprint of the manifest's security-relevant declaration
-// (everything except the signature itself): id, version, permissions, entry,
-// deps. Trust is recorded against this so a changed declaration voids trust.
-// NOTE: this covers the declared manifest, not the entry bundle bytes — full
-// content integrity (hashing the code) must land before third-party code is
-// ever executed (a later Phase 7 increment).
-export function manifestFingerprint(manifest: SignedManifest): string {
-  return createHash('sha256').update(canonicalManifestPayload(manifest)).digest('hex')
-}
-
 export type ModuleTrust = {
   status: ModuleTrustStatus
   /** sha256 of the signer's normalized public key (hex), when signed. */
   fingerprint?: string
 }
 
-export type SignedManifest = {
-  id: string
-  signature?: ModuleSignature
-}
-
-function publicKeyFingerprint(publicKeyB64: string): string | undefined {
-  try {
-    const der = Buffer.from(publicKeyB64, 'base64')
-    const key = createPublicKey({ key: der, format: 'der', type: 'spki' })
-    const normalized = key.export({ type: 'spki', format: 'der' })
-    return createHash('sha256').update(normalized).digest('hex')
-  } catch {
-    return undefined
-  }
-}
-
-// Verify the detached ed25519 signature over the canonical manifest payload
-// (the manifest minus its signature field). Returns whether it's valid plus the
-// signer's key fingerprint. Any malformed key/signature is treated as invalid,
-// never thrown.
-export function verifyModuleSignature(manifest: SignedManifest): { valid: boolean; fingerprint?: string } {
-  const sig = manifest.signature
-  if (!sig) return { valid: false }
-  try {
-    const der = Buffer.from(sig.publicKey, 'base64')
-    const key = createPublicKey({ key: der, format: 'der', type: 'spki' })
-    const payload = Buffer.from(canonicalManifestPayload(manifest), 'utf8')
-    const valid = verify(null, payload, key, Buffer.from(sig.signature, 'base64'))
-    return { valid, fingerprint: publicKeyFingerprint(sig.publicKey) }
-  } catch {
-    return { valid: false }
-  }
-}
-
 export function classifyModuleTrust(manifest: CapabilityManifest, ctx: ModuleTrustContext): ModuleTrust {
-  // Trust is honored only if the user trusted *this exact* manifest content.
-  const idTrusted = ctx.trustedModules.get(manifest.id) === manifestFingerprint(manifest)
-  if (!manifest.signature) {
-    return idTrusted ? { status: 'trusted' } : { status: 'unsigned' }
-  }
-  const { valid, fingerprint } = verifyModuleSignature(manifest)
-  if (!valid) return { status: 'invalid', fingerprint }
-  const keyAccepted = fingerprint !== undefined && (ctx.trustedKeyFingerprints?.has(fingerprint) ?? false)
-  if (idTrusted || keyAccepted) return { status: 'trusted', fingerprint }
-  return { status: 'signed', fingerprint }
+  return classifySignedManifestTrust(manifest, ctx)
 }
 
 export function classifySignedManifestTrust(manifest: SignedManifest, ctx: ModuleTrustContext): ModuleTrust {
+  // Trust is honored only if the user trusted *this exact* manifest content.
   const idTrusted = ctx.trustedModules.get(manifest.id) === manifestFingerprint(manifest)
   if (!manifest.signature) {
     return idTrusted ? { status: 'trusted' } : { status: 'unsigned' }

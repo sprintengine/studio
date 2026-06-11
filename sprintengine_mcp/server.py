@@ -52,6 +52,12 @@ from sprintengine_core.tool.state import (
 from sprintengine_core.tool.tasks import ensure_evidence, recompute_phase
 
 from .auth import MUTATING_TOOLS, ActorContext, AuthorizationError, authorize_tool
+from .capabilities import (
+    CALLER_ROLE_PAYLOAD_TOOLS,
+    allowed_tools_for_classification,
+    classify_role,
+    permitted_alternative,
+)
 from .payloads import command_payload_to_namespace
 from .response_shapes import shape_tool_result
 from .schemas import TOOL_SCHEMAS, list_tool_schemas
@@ -110,8 +116,23 @@ class SprintEngineMcpServer:
         self.stdio_actor = self._actor(stdio_actor)
         self.default_state_path = Path(default_state_path).expanduser().resolve() if default_state_path is not None else None
 
-    def list_tools(self) -> list[dict[str, Any]]:
-        return list_tool_schemas()
+    def list_tools(self, context: McpRequestContext | None = None) -> list[dict[str, Any]]:
+        """List tool schemas, filtered to the session's role surface.
+
+        Role-bound sessions (per-agent HTTP tokens) see only their
+        capability surface. Run-scoped sessions, the app's operator actor,
+        and stdio debug sessions see the full surface.
+        """
+        schemas = list_tool_schemas()
+        role = (context.role if context else "") or ""
+        classification = classify_role(
+            role,
+            workspace_root=context.workspace_root if context else None,
+            plugin_registry_roots=context.plugin_registry_roots if context else (),
+            user_root=context.user_root if context else None,
+        )
+        allowed = allowed_tools_for_classification(classification, TOOL_SCHEMAS)
+        return [schema for schema in schemas if schema["name"] in allowed]
 
     def call_tool(
         self,
@@ -136,6 +157,7 @@ class SprintEngineMcpServer:
             state_path = self._state_path(payload, required=contract.requires_state_path)
             self._validate_request_workspace_root(payload)
             authorize_tool(tool_name, payload, actor_context, state_path)
+            self._authorize_role_capability(tool_name, payload, actor_context, state_path)
             if tool_name == "sprintengine.health":
                 result = build_health_report(
                     state_path=state_path,
@@ -215,9 +237,6 @@ class SprintEngineMcpServer:
         if tool_name == "sprintengine.task.request_changes":
             assert state_path is not None
             return self._task_request_changes(state_path, payload, actor)
-        if tool_name == "sprintengine.gate.skip":
-            payload = {**payload, "verdict": "skipped", "summary": payload["rationale"]}
-            tool_name = "sprintengine.gate.verdict"
         if tool_name in {
             "sprintengine.roles.list",
             "sprintengine.roles.get",
@@ -258,10 +277,17 @@ class SprintEngineMcpServer:
                 "Multicode owns later runtime dispatch and continuation.",
                 "If Auto Mode is off, you are blocked, need user input, or are near context limit, stop after recording the appropriate note or status.",
             ],
+            # The triage line names an architect-only tool, so it is filtered
+            # out for every other role: help must never direct a role at a
+            # tool outside its capability surface.
             "tools": [
                 f"Claim next ready role work: sprintengine.task.next with {{role: \"{role}\", id: \"{agent_id}\"}}.",
                 f"Claim next ready quality gate: sprintengine.gate.next with {{role: \"{role}\", id: \"{agent_id}\"}}.",
-                f"Architect-actionable triage: sprintengine.triage.needs_input with {{id: \"{agent_id}\"}}.",
+                *(
+                    [f"Architect-actionable triage: sprintengine.triage.needs_input with {{id: \"{agent_id}\"}}."]
+                    if normalize_role_id(role) == "architect"
+                    else []
+                ),
                 "Read a task card: sprintengine.task.get with {taskId}. The card is slim by default; pass include: [\"activity\", \"comments\", \"evidence_log\", \"diffs\"] for deep history.",
                 "Log evidence: sprintengine.task.log with {taskId, id, summary, file, command, result, scopeExpansionJson}.",
                 "Publish implementation evidence: sprintengine.task.publish with {taskId, id, summary, ...}.",
@@ -279,8 +305,8 @@ class SprintEngineMcpServer:
                 "Set ready: true only when the artifact must wait for human approval.",
             ],
             "gates": [
-                "Record a gate verdict with sprintengine.gate.verdict or sprintengine.gate.publish and {taskId, gateId, role, id, verdict, summary}.",
-                "Use approved when the gate passes; changes_requested or failed for rework; blocked when routed input is needed; skipped only with rationale.",
+                "Record a gate verdict with sprintengine.gate.verdict and {taskId, gateId, role, id, verdict, summary}.",
+                "Use approved when the gate passes; changes_requested or failed for rework; blocked when routed input is needed; skipped records the summary as the skip rationale.",
                 "If no active gate attempt is claimed but later evidence shows rework is needed, use sprintengine.task.request_changes instead of forcing a gate verdict.",
             ],
         }
@@ -355,10 +381,22 @@ class SprintEngineMcpServer:
             raise McpToolError("invalid_payload", "agentId cannot be empty.")
 
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
-            before = dict(state.get("agents", {}).get(agent_id) or {})
-            agent = record_agent_heartbeat(state, agent_id, before.get("role"))
+            agents = state.get("agents") if isinstance(state.get("agents"), dict) else {}
+            existing = agents.get(agent_id) if isinstance(agents, dict) else None
+            if not isinstance(existing, dict):
+                return {
+                    "ok": True,
+                    "known": False,
+                    "agent": None,
+                    "previous": {},
+                    "write": False,
+                }
+            before = dict(existing)
+            role = payload.get("role") or before.get("role")
+            agent = record_agent_heartbeat(state, agent_id, str(role) if role else None)
             return {
                 "ok": True,
+                "known": True,
                 "agent": agent,
                 "previous": {
                     "status": before.get("status"),
@@ -370,15 +408,17 @@ class SprintEngineMcpServer:
             }
 
         result = with_locked_state(state_path, mutate)
+        agent = result.get("agent") if isinstance(result.get("agent"), dict) else None
         return {
             "ok": True,
-            "agent": result["agent"],
-            "currentDispatch": result["agent"].get("currentDispatch"),
+            "known": result.get("known", True),
+            "agent": agent,
+            "currentDispatch": agent.get("currentDispatch") if agent else None,
             "assignmentUnchanged": {
-                "status": result["agent"].get("status") == result["previous"].get("status"),
-                "currentTaskId": result["agent"].get("currentTaskId") == result["previous"].get("currentTaskId"),
-                "currentGateId": result["agent"].get("currentGateId") == result["previous"].get("currentGateId"),
-                "currentDispatch": result["agent"].get("currentDispatch") == result["previous"].get("currentDispatch"),
+                "status": bool(agent) and agent.get("status") == result["previous"].get("status"),
+                "currentTaskId": bool(agent) and agent.get("currentTaskId") == result["previous"].get("currentTaskId"),
+                "currentGateId": bool(agent) and agent.get("currentGateId") == result["previous"].get("currentGateId"),
+                "currentDispatch": bool(agent) and agent.get("currentDispatch") == result["previous"].get("currentDispatch"),
             },
         }
 
@@ -389,18 +429,22 @@ class SprintEngineMcpServer:
         reason = str(payload.get("reason") or "agent left")
 
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
-            agent = state.get("agents", {}).get(agent_id)
-            role = agent.get("role") if isinstance(agent, dict) else None
+            agents = state.get("agents") if isinstance(state.get("agents"), dict) else {}
+            agent = agents.get(agent_id)
+            known = isinstance(agent, dict)
+            role = agent.get("role") if known else None
             released: list[dict[str, Any]] = []
-            current_task_id = str(agent.get("currentTaskId") or "") if isinstance(agent, dict) else ""
-            if current_task_id:
-                for task in state.get("tasks", []) or []:
-                    if not isinstance(task, dict) or str(task.get("id") or "") != current_task_id:
-                        continue
-                    if task.get("ownerAgentId") == agent_id:
-                        release = release_task_from_owner(state, task, agent_id, reason)
-                        released.append({"kind": "task", "taskId": task.get("id"), **release})
-                    break
+            for task in state.get("tasks", []) or []:
+                if not isinstance(task, dict) or task.get("ownerAgentId") != agent_id:
+                    continue
+                # needs_input tasks stay owned on leave: the blocker is on the
+                # human, and input resolution routes the answer back to the
+                # owner, whose terminal the supervisor respawns. Mirrors the
+                # expiry sweep's exclusion in release_expired_agent_targets.
+                if task.get("status") != "in_progress":
+                    continue
+                release = release_task_from_owner(state, task, agent_id, reason)
+                released.append({"kind": "task", "taskId": task.get("id"), **release})
             active_gate = find_active_gate_claim(state, agent_id, str(role or ""))
             if active_gate:
                 gate = active_gate["gate"]
@@ -417,6 +461,20 @@ class SprintEngineMcpServer:
                     {"gateId": gate.get("id"), "attemptId": attempt.get("id")},
                 )
                 released.append({"kind": "gate", "taskId": task.get("id"), "gateId": gate.get("id"), "attemptId": attempt.get("id")})
+            if not known:
+                # Never create a roster entry from a leave (same guard as
+                # heartbeat). Owned targets, if any, were still released above
+                # as defensive cleanup of stale ownership.
+                if not released:
+                    return {"ok": True, "known": False, "agent": None, "releasedTargets": [], "event": None, "write": False}
+                event = append_event(
+                    state,
+                    "agent_left",
+                    agent_id,
+                    f"Unknown agent {agent_id} left Sprint Engine. Released targets: {len(released)}.",
+                    {"releasedTargets": released, "reason": reason},
+                )
+                return {"ok": True, "known": False, "agent": None, "releasedTargets": released, "event": event, "write": True}
             left = record_agent_leave(state, agent_id, role, reason=reason)
             event = append_event(
                 state,
@@ -427,11 +485,12 @@ class SprintEngineMcpServer:
             )
             set_agent_idle(left)
             left["status"] = "left"
-            return {"ok": True, "agent": left, "releasedTargets": released, "event": event, "write": True}
+            return {"ok": True, "known": True, "agent": left, "releasedTargets": released, "event": event, "write": True}
 
         result = with_locked_state(state_path, mutate)
         return {
             "ok": True,
+            "known": result["known"],
             "agent": result["agent"],
             "releasedTargets": result["releasedTargets"],
             "event": result["event"],
@@ -790,7 +849,7 @@ class SprintEngineMcpServer:
                 result.setdefault("state", "idle" if not result.get("claimed") else "blocked")
             else:
                 result.setdefault("state", "dispatched")
-        if tool_name in {"sprintengine.gate.verdict", "sprintengine.gate.publish", "sprintengine.task.publish", "sprintengine.task.status"}:
+        if tool_name in {"sprintengine.gate.verdict", "sprintengine.task.publish", "sprintengine.task.status"}:
             next_command = result.get("nextCommand")
             result.setdefault("progression", {"nextCommand": next_command, "state": "continuation_available" if next_command else "idle"})
         return result
@@ -917,6 +976,61 @@ class SprintEngineMcpServer:
         # HTTP run tokens scope routing to a workspace/run store. Agents still
         # self-identify with their own role and id in tool payloads.
         return
+
+    def _authorize_role_capability(
+        self,
+        tool_name: str,
+        payload: dict[str, Any],
+        actor: ActorContext | None,
+        state_path: Path | None,
+    ) -> None:
+        """Reject calls outside the session role's tool surface.
+
+        The effective role is the session-bound role for agent-scoped HTTP
+        tokens, falling back to the actor's self-declared role. Operator
+        actors (the app, the human/debug CLI, stdio) keep the full surface.
+        Visibility and authorization share one capability table, so a tool
+        hidden from a role's `tools/list` also fails when called by name.
+        """
+        context = self._request_context()
+        bound_role = (context.role if context else "") or ""
+        effective_role = bound_role or (actor.role if actor else "")
+        workspace_root: Path | str | None = context.workspace_root if context else None
+        if workspace_root is None:
+            raw_workspace_root = payload.get("workspaceRoot")
+            if isinstance(raw_workspace_root, str) and raw_workspace_root.strip():
+                workspace_root = raw_workspace_root
+            elif state_path is not None:
+                workspace_root = _default_workspace_root(state_path)
+        classification = classify_role(
+            effective_role,
+            workspace_root=workspace_root,
+            plugin_registry_roots=context.plugin_registry_roots if context else self.plugin_registry_roots,
+            user_root=(context.user_root if context else None) or self.user_root,
+        )
+        if classification == "operator":
+            return
+        if bound_role and tool_name in CALLER_ROLE_PAYLOAD_TOOLS:
+            payload_role = str(payload.get("role") or "").strip()
+            if payload_role and normalize_role_id(payload_role) != normalize_role_id(bound_role):
+                raise McpToolError(
+                    "tool_not_permitted_for_role",
+                    f"This session is bound to role {bound_role!r} and cannot call {tool_name} as role {payload_role!r}.",
+                    {"role": bound_role, "payloadRole": payload_role},
+                )
+        allowed = allowed_tools_for_classification(classification, TOOL_SCHEMAS)
+        if tool_name in allowed:
+            return
+        alternative = permitted_alternative(tool_name)
+        raise McpToolError(
+            "tool_not_permitted_for_role",
+            f"{tool_name} is not in the {effective_role!r} role's tool surface."
+            + (f" Use {alternative} instead." if alternative else ""),
+            {
+                "role": effective_role,
+                **({"permittedAlternative": alternative} if alternative else {}),
+            },
+        )
 
     def _validate_request_workspace_root(self, payload: dict[str, Any]) -> None:
         context = self._request_context()
@@ -1071,7 +1185,7 @@ def _handle_jsonrpc_message(
             },
         }
     if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": server.list_tools()}}
+        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": server.list_tools(context)}}
     if method == "tools/call":
         params = message.get("params") or {}
         raw = server.call_tool(params.get("name", ""), params.get("arguments") or {}, actor, context=context)

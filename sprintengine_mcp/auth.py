@@ -36,8 +36,6 @@ AUDITED_TOOLS = {
     "sprintengine.gate.next",
     "sprintengine.gate.claim",
     "sprintengine.gate.verdict",
-    "sprintengine.gate.publish",
-    "sprintengine.gate.skip",
     "sprintengine.plan.add_task",
     "sprintengine.plan.update_task",
     "sprintengine.plan.delete_task",

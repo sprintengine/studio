@@ -1,5 +1,6 @@
 import { getCommandDefinition, type CommandId } from './commandRegistry'
 import { parseKeybinding, renderKeybinding, type KeybindingPlatform } from './keybindings'
+import type { CommandContribution } from './types'
 
 export type KeybindingSettingsLike = {
   overrides?: Readonly<Record<string, readonly string[]>>
@@ -23,22 +24,27 @@ export function getSpecialistCommandId(specialistId: string): CommandId | null {
   return SPECIALIST_COMMAND_BY_ID[specialistId] ?? null
 }
 
+// `command` carries the registry defaults for commands that live outside the
+// static shell registry (module contributions); shell commands resolve through
+// getCommandDefinition as before.
 export function getEffectiveKeybindings(
   commandId: string,
   settings?: KeybindingSettingsLike | null,
+  command?: Pick<CommandContribution, 'defaultKeybindings'> | null,
 ): readonly string[] {
   if (settings?.disabled?.[commandId] === true) return []
   const override = settings?.overrides?.[commandId]
   if (override && override.length > 0) return override
-  return getCommandDefinition(commandId)?.defaultKeybindings ?? []
+  return (command ?? getCommandDefinition(commandId))?.defaultKeybindings ?? []
 }
 
 export function getEffectiveKeybindingLabel(
   commandId: string,
   settings?: KeybindingSettingsLike | null,
   platform: KeybindingPlatform = 'linux',
+  command?: Pick<CommandContribution, 'defaultKeybindings'> | null,
 ): string | null {
-  const keybinding = getEffectiveKeybindings(commandId, settings)[0]
+  const keybinding = getEffectiveKeybindings(commandId, settings, command)[0]
   return keybinding ? renderKeybinding(keybinding, platform) : null
 }
 

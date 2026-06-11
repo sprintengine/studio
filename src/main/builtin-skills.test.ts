@@ -43,6 +43,7 @@ async function main(): Promise<void> {
       'prototype',
       'architecture-deepening',
       'handoff',
+      'backlog',
     ]
   )
 
@@ -91,6 +92,56 @@ async function main(): Promise<void> {
   const blocked = await manager.install(workspaceRoot, 'workspace-knowledge')
   assert.equal(blocked.ok, false)
   assert.equal(!blocked.ok && blocked.status, 'modified')
+
+  // Multi-harness skills install one managed copy per harness directory.
+  const harnessDirs = ['.claude', '.codex', '.cursor', '.gemini', '.opencode', '.agents']
+  const backlogMissing = await manager.getStatus(workspaceRoot, 'backlog')
+  assert.equal(backlogMissing.ok, true)
+  assert.equal(backlogMissing.ok && backlogMissing.status, 'missing')
+  assert.equal(backlogMissing.ok && backlogMissing.targets.length, harnessDirs.length)
+
+  const backlogInstalled = await manager.install(workspaceRoot, 'backlog')
+  assert.equal(backlogInstalled.ok, true)
+  assert.equal(backlogInstalled.ok && backlogInstalled.status, 'installed')
+  for (const dir of harnessDirs) {
+    assert.equal(
+      await readFile(join(workspaceRoot, dir, 'skills', 'backlog', 'SKILL.md'), 'utf-8'),
+      'version two\n'
+    )
+  }
+
+  const backlogStatus = await manager.getStatus(workspaceRoot, 'backlog')
+  assert.equal(backlogStatus.ok, true)
+  assert.equal(backlogStatus.ok && backlogStatus.status, 'installed')
+
+  // A modified copy in one harness is skipped, not a block on the others.
+  await writeFile(
+    join(workspaceRoot, '.claude', 'skills', 'backlog', 'SKILL.md'),
+    'local claude edit\n',
+    'utf-8'
+  )
+  const backlogModified = await manager.getStatus(workspaceRoot, 'backlog')
+  assert.equal(backlogModified.ok, true)
+  assert.equal(backlogModified.ok && backlogModified.status, 'modified')
+
+  await writeAllSkillSources(sourceRoot, 'version three\n')
+  const backlogStale = await manager.getStatus(workspaceRoot, 'backlog')
+  assert.equal(backlogStale.ok, true)
+  assert.equal(backlogStale.ok && backlogStale.status, 'update-available')
+
+  const backlogUpdated = await manager.install(workspaceRoot, 'backlog')
+  assert.equal(backlogUpdated.ok, true)
+  assert.equal(backlogUpdated.ok && backlogUpdated.status, 'updated')
+  assert.equal(backlogUpdated.ok && backlogUpdated.skipped?.length, 1)
+  assert.equal(backlogUpdated.ok && backlogUpdated.skipped?.[0]?.harness, 'claude')
+  assert.equal(
+    await readFile(join(workspaceRoot, '.claude', 'skills', 'backlog', 'SKILL.md'), 'utf-8'),
+    'local claude edit\n'
+  )
+  assert.equal(
+    await readFile(join(workspaceRoot, '.agents', 'skills', 'backlog', 'SKILL.md'), 'utf-8'),
+    'version three\n'
+  )
 }
 
 main().catch((error) => {

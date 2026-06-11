@@ -134,4 +134,71 @@ assert.equal(categoryLabel('command_palette'), 'Command palette')
 const total = groups.reduce((sum, group) => sum + group.rows.length, 0)
 assert.equal(total, COMMAND_REGISTRY.length, 'every command appears in exactly one group')
 
+// --- Module commands in the editor ------------------------------------------
+// Rows come from the merge point (shell registry + enabled module commands),
+// so a module command is editable exactly like a built-in: same row shape,
+// same override/disable deltas keyed by its namespaced id, same conflict
+// handling. Disabling the module removes the row; the persisted override stays
+// in settings and re-attaches on re-enable.
+const moduleHello = {
+  id: 'demo-module.hello',
+  title: 'Say Hello',
+  category: 'Demo Module',
+  scopes: ['global'] as const,
+  defaultKeybindings: ['Primary+Alt+H'] as const,
+}
+const mergedCommands = [...COMMAND_REGISTRY, moduleHello]
+
+const moduleRow = buildShortcutRows(mergedCommands, EMPTY).find((row) => row.id === 'demo-module.hello')
+assert.ok(moduleRow, 'module command appears as an editable shortcut row')
+assert.equal(moduleRow.category, 'Demo Module')
+assert.deepEqual(moduleRow.effective, ['primary+alt+h'], 'module defaults flow into the effective binding')
+assert.equal(categoryLabel('Demo Module'), 'Demo Module', 'module categories label as themselves')
+
+const customizedModuleSettings: KeybindingSettings = {
+  overrides: { 'demo-module.hello': ['Primary+Alt+J'] },
+  disabled: {},
+}
+const customizedModuleRow = buildShortcutRows(mergedCommands, customizedModuleSettings)
+  .find((row) => row.id === 'demo-module.hello')
+assert.deepEqual(customizedModuleRow?.effective, ['primary+alt+j'], 'module command overrides apply like built-ins')
+assert.equal(customizedModuleRow?.customized, true)
+
+// Module disabled: the merge point omits the contribution, so the row is gone
+// while the stored override is untouched; rebuilding with the module back
+// restores the row with the customization intact.
+const disabledModuleRows = buildShortcutRows(COMMAND_REGISTRY, customizedModuleSettings)
+assert.equal(
+  disabledModuleRows.some((row) => row.id === 'demo-module.hello'),
+  false,
+  'disabling the module removes its row from shortcut editing',
+)
+const restoredModuleRow = buildShortcutRows(mergedCommands, customizedModuleSettings)
+  .find((row) => row.id === 'demo-module.hello')
+assert.deepEqual(
+  restoredModuleRow?.effective,
+  ['primary+alt+j'],
+  're-enabling restores the row with the user-customized binding',
+)
+
+// A module command bound onto a built-in's keys surfaces through the same
+// conflict pipeline as built-in duplicates — no silent shadowing.
+const shadowConflicts = computeConflicts(buildShortcutRows(
+  [...COMMAND_REGISTRY, { ...moduleHello, defaultKeybindings: ['Primary+K'] as const }],
+  EMPTY,
+))
+const moduleShadowConflicts = shadowConflicts.get('demo-module.hello') ?? []
+assert.ok(
+  moduleShadowConflicts.some(
+    (conflict) => conflict.severity === 'blocking' && conflict.conflictingCommandId === 'commandPalette.open',
+  ),
+  'module binding on built-in keys is a blocking conflict naming the built-in',
+)
+assert.ok(
+  (shadowConflicts.get('commandPalette.open') ?? []).some(
+    (conflict) => conflict.conflictingCommandId === 'demo-module.hello',
+  ),
+  'the built-in row names the module command as the conflicting side',
+)
+
 console.log('KeyboardShortcutsTab.test.ts: ok')

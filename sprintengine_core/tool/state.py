@@ -373,6 +373,15 @@ def ensure_agent(state: Dict[str, Any], agent_id: str, role: Optional[str] = Non
     return agent
 
 
+def clear_terminal_state_metadata(agent: Dict[str, Any]) -> bool:
+    changed = False
+    for key in ("deadAt", "deathReason", "leftAt", "leaveReason"):
+        if key in agent:
+            agent.pop(key, None)
+            changed = True
+    return changed
+
+
 def set_agent_idle(agent: Dict[str, Any]) -> bool:
     changed = set_if_changed(agent, "status", "idle")
     changed = set_if_changed(agent, "currentTaskId", None) or changed
@@ -390,6 +399,7 @@ def set_agent_idle(agent: Dict[str, Any]) -> bool:
 def set_agent_active(agent: Dict[str, Any], task: Dict[str, Any], *, refresh_heartbeat: bool = True) -> bool:
     changed = set_if_changed(agent, "status", "needs_input" if task.get("status") == "needs_input" else "running")
     changed = set_if_changed(agent, "currentTaskId", task.get("id")) or changed
+    changed = clear_terminal_state_metadata(agent) or changed
     if refresh_heartbeat:
         changed = set_if_changed(agent, "heartbeatAt", now_iso()) or changed
     return changed
@@ -407,6 +417,7 @@ def record_agent_join(
     agent["role"] = role
     agent["status"] = "idle" if agent.get("status") in {None, "", "left", "dead"} else agent.get("status", "idle")
     agent["heartbeatAt"] = timestamp
+    clear_terminal_state_metadata(agent)
     agent.setdefault("joinedAt", timestamp)
     mode = subscription_mode if subscription_mode in {"none", "poll", "mcp_notifications"} else "none"
     agent["subscription"] = {"mode": mode}

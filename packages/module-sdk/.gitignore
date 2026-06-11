@@ -1,0 +1,3 @@
+dist/
+test-fixtures/*.tgz
+test-fixtures/external-project/node_modules/

@@ -58,8 +58,6 @@ MUTATION_ACK_TOOLS = {
     "sprintengine.artifact.approve",
     "sprintengine.artifact.request_changes",
     "sprintengine.gate.verdict",
-    "sprintengine.gate.publish",
-    "sprintengine.gate.skip",
 }
 
 # Read tools whose `task` payload becomes the slim card. The server-composed

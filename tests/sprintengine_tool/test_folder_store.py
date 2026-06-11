@@ -175,6 +175,32 @@ def test_agent_heartbeat_does_not_reactivate_left_or_dead_agents(tmp_path) -> No
 
     rejoined = record_agent_join(state, "developer-1", "developer")
     assert rejoined["status"] == "idle"
+    assert "leftAt" not in rejoined
+    assert "leaveReason" not in rejoined
+    assert "deadAt" not in rejoined
+    assert "deathReason" not in rejoined
+
+
+def test_agent_reactivation_clears_terminal_state_metadata(tmp_path) -> None:
+    fixture = create_team(tmp_path, "agent-reactivation-clears-terminal-metadata", [task("T1", "Implement", "developer")])
+    state = read_state(fixture.state_path)
+
+    agent = record_agent_join(state, "developer-1", "developer")
+    agent["status"] = "dead"
+    agent["deadAt"] = "2000-01-01T00:00:00Z"
+    agent["deathReason"] = "heartbeat_expired"
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
+
+    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+    persisted = store.load_run_yaml(fixture.team_dir)["agents"]["developer-1"]
+
+    assert claimed["claimed"] is True
+    assert persisted["status"] == "running"
+    assert persisted["currentTaskId"] == "T1"
+    assert "deadAt" not in persisted
+    assert "deathReason" not in persisted
+    assert "leftAt" not in persisted
+    assert "leaveReason" not in persisted
 
 
 def test_lifecycle_statuses_materialize_and_project_without_ready_claimability(tmp_path) -> None:

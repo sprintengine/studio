@@ -38,6 +38,21 @@ import {
   resolveStateForSprintEngine,
   validateMobileWorkspacePath,
 } from './workspace'
+import { assertBacklogRelativePath, resolveBacklogStartPrompt } from './backlog'
+import {
+  updateBacklogModuleMetadata,
+  updateBacklogStatus,
+  updateBacklogTriage,
+  updateBacklogType,
+} from '../../backlog-service'
+import type {
+  BacklogCriticalityPayload,
+  BacklogDifficultyPayload,
+  BacklogItemStatusPayload,
+  BacklogMutationResult,
+  BacklogObjectStorePayload,
+  BacklogTypePayload,
+} from '../../../shared/electron-api'
 
 export { MobileSprintEngineCommandError } from './command-error'
 
@@ -52,6 +67,8 @@ export type MobileControlCommandType =
   | 'artifact.requestChanges'
   | 'agent.followUp'
   | 'device.revoke'
+  | 'backlog.update'
+  | 'backlog.startSprintEngine'
 
 type MobileControlErrorCode =
   | 'unsupported_protocol_version'
@@ -139,8 +156,31 @@ type ArtifactRequestChangesCommand = MobileControlCommandBase<
   }
 >
 
+type BacklogUpdateCommand = MobileControlCommandBase<
+  'backlog.update',
+  {
+    workspacePath: string
+    relativePath: string
+    status?: string
+    type?: string
+    difficulty?: string
+    criticality?: string
+  }
+>
+
+type BacklogStartSprintEngineCommand = MobileControlCommandBase<
+  'backlog.startSprintEngine',
+  {
+    workspacePath: string
+    relativePath: string
+  }
+>
+
 type UnsupportedMobileControlCommand = MobileControlCommandBase<
-  Exclude<MobileControlCommandType, 'sprintengine.create' | 'task.start' | 'agent.followUp' | 'artifact.approve' | 'artifact.requestChanges'>,
+  Exclude<
+    MobileControlCommandType,
+    'sprintengine.create' | 'task.start' | 'agent.followUp' | 'artifact.approve' | 'artifact.requestChanges' | 'backlog.update' | 'backlog.startSprintEngine'
+  >,
   Record<string, unknown>
 >
 
@@ -150,6 +190,8 @@ export type MobileControlCommand =
   | AgentFollowUpCommand
   | ArtifactApproveCommand
   | ArtifactRequestChangesCommand
+  | BacklogUpdateCommand
+  | BacklogStartSprintEngineCommand
   | UnsupportedMobileControlCommand
 
 export type MobileSprintEngineTaskStartRequest = {
@@ -200,6 +242,8 @@ const allowedCommandTypes = new Set<MobileControlCommandType>([
   'agent.followUp',
   'artifact.approve',
   'artifact.requestChanges',
+  'backlog.update',
+  'backlog.startSprintEngine',
 ])
 export type SprintEngineArtifactReviewAction = 'approve' | 'request-changes'
 
@@ -366,6 +410,10 @@ export class MobileSprintEngineCommandService {
         return this.executeArtifactReviewCommand(command, 'request-changes', scope)
       case 'sprintengine.create':
         return this.executeSprintEngineCreateCommand(command, scope)
+      case 'backlog.update':
+        return this.executeBacklogUpdateCommand(command, scope)
+      case 'backlog.startSprintEngine':
+        return this.executeBacklogStartSprintEngineCommand(command, scope)
       case 'task.start':
         return this.executeTaskStartCommand(command, scope)
       case 'agent.followUp':
@@ -512,6 +560,104 @@ export class MobileSprintEngineCommandService {
     ]
 
     return this.invokeTool(command, args, workspacePath, undefined, undefined, workspacePath)
+  }
+
+  private async executeBacklogUpdateCommand(
+    command: Extract<MobileControlCommand, { type: 'backlog.update' }>,
+    scope: MobileSprintEngineCommandScope
+  ): Promise<MobileSprintEngineCommandResult> {
+    const workspacePath = await validateMobileWorkspacePath({
+      workspacePath: command.payload.workspacePath,
+      allowedWorkspaceRoots: scope.allowedWorkspaceRoots,
+    })
+    const relativePath = assertBacklogRelativePath(command.payload.relativePath)
+    const { status, type, difficulty, criticality } = command.payload
+    if (status === undefined && type === undefined && difficulty === undefined && criticality === undefined) {
+      return this.resultRecorder.reject(command, 'invalid_payload', 'Backlog updates require at least one of status, type, difficulty, or criticality.', false, undefined, undefined, workspacePath)
+    }
+
+    // The store mutations are sequential on purpose: each one is a full
+    // read-modify-write of items.json, so running them concurrently would
+    // race on the file.
+    const mutations: Array<() => Promise<BacklogMutationResult>> = []
+    if (status !== undefined) {
+      mutations.push(() => updateBacklogStatus({ workspaceRoot: workspacePath, relativePath, status: status as BacklogItemStatusPayload }))
+    }
+    if (type !== undefined) {
+      mutations.push(() => updateBacklogType({ workspaceRoot: workspacePath, relativePath, type: type as BacklogTypePayload }))
+    }
+    if (difficulty !== undefined || criticality !== undefined) {
+      mutations.push(() => updateBacklogTriage({
+        workspaceRoot: workspacePath,
+        relativePath,
+        ...(difficulty !== undefined ? { difficulty: difficulty as BacklogDifficultyPayload } : {}),
+        ...(criticality !== undefined ? { criticality: criticality as BacklogCriticalityPayload } : {}),
+      }))
+    }
+
+    let store: BacklogObjectStorePayload | null = null
+    for (const mutation of mutations) {
+      const result = await mutation()
+      if (!result.ok) {
+        return this.resultRecorder.reject(command, 'invalid_payload', result.message, false, undefined, undefined, workspacePath)
+      }
+      store = result.store
+    }
+
+    const item = store?.items.find((record) => record.source.relativePath.toLowerCase() === relativePath.toLowerCase()) ?? null
+    return this.resultRecorder.acceptWorkspaceCommand(
+      command,
+      { item },
+      workspacePath,
+      'Mobile backlog update was applied to the workspace backlog store.'
+    )
+  }
+
+  private async executeBacklogStartSprintEngineCommand(
+    command: Extract<MobileControlCommand, { type: 'backlog.startSprintEngine' }>,
+    scope: MobileSprintEngineCommandScope
+  ): Promise<MobileSprintEngineCommandResult> {
+    const workspacePath = await validateMobileWorkspacePath({
+      workspacePath: command.payload.workspacePath,
+      allowedWorkspaceRoots: scope.allowedWorkspaceRoots,
+    })
+    const relativePath = assertBacklogRelativePath(command.payload.relativePath)
+    const { title, prompt } = await resolveBacklogStartPrompt(workspacePath, relativePath)
+
+    const teamName = `backlog-${safeSlug(command.commandId)}`
+    const args = [
+      'handover',
+      '--name',
+      teamName,
+      '--goal',
+      title,
+      '--handover-text',
+      prompt,
+      '--actor',
+      mobileActorId(command.deviceId),
+    ]
+
+    const result = await this.invokeTool(command, args, workspacePath, undefined, undefined, workspacePath)
+    if (!result.ok) {
+      return result
+    }
+
+    // Best-effort lifecycle bookkeeping after the run started: the start
+    // already succeeded, so a store hiccup must not fail the command.
+    await updateBacklogStatus({ workspaceRoot: workspacePath, relativePath, status: 'in_progress' })
+    await updateBacklogModuleMetadata({
+      workspaceRoot: workspacePath,
+      relativePath,
+      moduleId: 'mobile-companion',
+      value: {
+        startedAt: this.now().toISOString(),
+        commandId: command.commandId,
+        deviceId: command.deviceId,
+        teamName,
+      },
+    })
+
+    return result
   }
 
   private commandScope(options: MobileSprintEngineCommandDispatchOptions): MobileSprintEngineCommandScope {

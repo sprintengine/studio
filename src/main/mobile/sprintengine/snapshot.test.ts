@@ -30,6 +30,8 @@ async function main(): Promise<void> {
   await assertGatedProjectionSnapshotExposesQualityContext()
   await assertProjectionSnapshotPassesProtocolValidation()
   await assertSnapshotIncludesDesktopWorkspaceEntries()
+  await assertSnapshotIncludesWorkspaceBacklog()
+  await assertSnapshotOmitsBacklogWhenWorkspaceHasNone()
   await assertSnapshotOmitsUnavailableWorkspaceKinds()
   await assertMalformedMultiloopStateIsSkipped()
   await assertSnapshotOmitsNonMobileStatePayloads()
@@ -498,6 +500,108 @@ async function assertSnapshotIncludesDesktopWorkspaceEntries(): Promise<void> {
   assert.equal(multiloopDetail?.kind, 'multiloop')
   assert.equal(multiloopDetail?.kind === 'multiloop' ? multiloopDetail.data.milestones?.[0]?.title : '', 'Milestone One')
   assert.equal(multiloopDetail?.kind === 'multiloop' ? multiloopDetail.data.blockers?.[0]?.title : '', 'Blocked by validation')
+  service.shutdown()
+}
+
+async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
+  const statePath = await writeStateFixture({
+    sprintengine: { name: 'Backlog Sprint Engine', updatedAt: generatedAt },
+    tasks: [task('T1', 'done', [])],
+    artifacts: [],
+  })
+  const workspaceRoot = workspaceRootForStatePath(statePath)
+  await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
+  await writeFile(
+    join(workspaceRoot, 'backlog', '2026-06-11-widget.md'),
+    '---\ntype: feature\n---\n\n# Ship the widget\n\nUsers need the widget on the phone.\n',
+    'utf8'
+  )
+  await mkdir(join(workspaceRoot, '.multi-code', 'backlog'), { recursive: true })
+  await writeFile(
+    join(workspaceRoot, '.multi-code', 'backlog', 'items.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      items: [
+        {
+          id: 'backlog_widget',
+          source: { type: 'file', relativePath: 'backlog/2026-06-11-widget.md' },
+          status: 'ready',
+          type: 'feature',
+          difficulty: 'm',
+          criticality: 'high',
+          metadata: {},
+          links: [],
+          createdAt: generatedAt,
+          updatedAt: generatedAt,
+        },
+        {
+          id: 'backlog_archived',
+          source: { type: 'file', relativePath: 'backlog/archived/old.md' },
+          status: 'archived',
+          metadata: {},
+          links: [],
+          createdAt: generatedAt,
+          updatedAt: generatedAt,
+        },
+      ],
+    }),
+    'utf8'
+  )
+  const service = new MobileSprintEngineSnapshotService({
+    stateReaders: {
+      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
+      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
+      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
+      readMultiloopStates: async () => [],
+    },
+  })
+
+  const snapshot = await service.readSnapshot({
+    desktopSessionId: 'desktop_1',
+    statePaths: [statePath],
+    generatedAt,
+  })
+
+  assert.equal(snapshot.commands?.includes('backlog.update'), true)
+  assert.equal(snapshot.commands?.includes('backlog.startSprintEngine'), true)
+  assert.equal(snapshot.backlog?.length, 1)
+  const backlogWorkspace = snapshot.backlog?.[0]
+  assert.equal(backlogWorkspace?.workspacePath, workspaceRoot)
+  assert.equal(backlogWorkspace?.items.length, 1)
+  const item = backlogWorkspace?.items[0]
+  assert.equal(item?.itemId, 'backlog_widget')
+  assert.equal(item?.title, 'Ship the widget')
+  assert.equal(item?.status, 'ready')
+  assert.equal(item?.type, 'feature')
+  assert.equal(item?.difficulty, 'm')
+  assert.equal(item?.criticality, 'high')
+  assert.equal(item?.excerpt?.includes('Users need the widget'), true)
+  assert.equal(item?.excerpt?.includes('type: feature'), false)
+  service.shutdown()
+}
+
+async function assertSnapshotOmitsBacklogWhenWorkspaceHasNone(): Promise<void> {
+  const statePath = await writeStateFixture({
+    sprintengine: { name: 'No Backlog Sprint Engine', updatedAt: generatedAt },
+    tasks: [task('T1', 'done', [])],
+    artifacts: [],
+  })
+  const service = new MobileSprintEngineSnapshotService({
+    stateReaders: {
+      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
+      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
+      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
+      readMultiloopStates: async () => [],
+    },
+  })
+
+  const snapshot = await service.readSnapshot({
+    desktopSessionId: 'desktop_1',
+    statePaths: [statePath],
+    generatedAt,
+  })
+
+  assert.equal(snapshot.backlog, undefined)
   service.shutdown()
 }
 

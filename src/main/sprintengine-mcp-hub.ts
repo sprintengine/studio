@@ -28,6 +28,12 @@ export type SprintEngineMcpRunRegistrationInput = {
   userRoot?: string
   actorId: string
   workspaceId?: string
+  // When set, the registration is agent-scoped: the returned token binds the
+  // MCP session to this agent's role, so tools/list and tool authorization
+  // are filtered to that role's capability surface. Without these the
+  // registration stays run-scoped (operator surface).
+  agentId?: string
+  role?: string
 }
 
 export type SprintEngineMcpRunRegistration = {
@@ -36,9 +42,16 @@ export type SprintEngineMcpRunRegistration = {
   reused?: boolean
 }
 
+export type SprintEngineMcpToolCallInput = {
+  runId: string
+  toolName: string
+  arguments?: Record<string, unknown>
+}
+
 export type SprintEngineMcpHubService = {
   ensureStarted(): Promise<SprintEngineMcpHubInfo>
   ensureRunRegistered(input: SprintEngineMcpRunRegistrationInput): Promise<SprintEngineMcpRunRegistration>
+  callRunTool(input: SprintEngineMcpToolCallInput): Promise<unknown>
   unregisterRun(runId: string): Promise<void>
   stop(): Promise<void>
   status(): SprintEngineMcpHubStatus
@@ -116,6 +129,8 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
         userRoot: input.userRoot,
         actorId: input.actorId,
         workspaceId: input.workspaceId,
+        agentId: input.agentId,
+        role: input.role,
       })
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
@@ -153,6 +168,44 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
       if (hadRun) logHubDiagnostic('run-unregistered', {})
     } catch {
       // Run cleanup is best-effort; the hub process also dies on app shutdown.
+    }
+  }
+
+  async function callRunTool(input: SprintEngineMcpToolCallInput): Promise<unknown> {
+    if (!info) throw new Error('Sprint Engine MCP hub is not ready.')
+    const registration = [...activeRunsByKey.values()].find((candidate) => candidate.runId === input.runId)
+    if (!registration) throw new Error(`Sprint Engine MCP run ${input.runId} is not registered.`)
+
+    const initialize = await postMcpJsonRpc(info.url, registration.runToken, {
+      jsonrpc: '2.0',
+      id: `init-${Date.now()}`,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'multicode-main', version: '1' },
+      },
+    })
+    const sessionId = initialize.sessionId
+    if (!sessionId) throw new Error('Sprint Engine MCP initialize did not return a session id.')
+    try {
+      const called = await postMcpJsonRpc(info.url, registration.runToken, {
+        jsonrpc: '2.0',
+        id: `call-${Date.now()}`,
+        method: 'tools/call',
+        params: {
+          name: input.toolName,
+          arguments: input.arguments ?? {},
+        },
+      }, sessionId)
+      if (called.body && typeof called.body === 'object' && 'error' in called.body) {
+        throw new Error(formatJsonRpcFailure(input.toolName, called.body))
+      }
+      return called.body && typeof called.body === 'object' && 'result' in called.body
+        ? (called.body as { result?: unknown }).result
+        : called.body
+    } finally {
+      void deleteMcpSession(info.url, registration.runToken, sessionId).catch(() => {})
     }
   }
 
@@ -290,6 +343,7 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
   return {
     ensureStarted,
     ensureRunRegistered,
+    callRunTool,
     unregisterRun,
     stop,
     status,
@@ -315,8 +369,63 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
   }
 }
 
+export type SprintEngineMcpSpawnObserver = {
+  onSpawnFailure(message: string): void
+}
+
+export type GatedSprintEngineMcpHubService = SprintEngineMcpHubService & {
+  /**
+   * Called by the Sprint Engine capability module when it registers its
+   * sidecar; transfers spawn ownership to the module. Until claimed, spawn
+   * paths fail explicitly — so a disabled Sprint Engine module means the hub
+   * process never starts, and callers see why instead of a silent fallback.
+   */
+  claimOwnership(observer: SprintEngineMcpSpawnObserver): void
+}
+
+const HUB_UNCLAIMED_MESSAGE =
+  'Sprint Engine MCP hub is unavailable because the Sprint Engine module is disabled. ' +
+  'Enable Sprint Engine in Settings → Modules and restart Multicode.'
+
+// Spawn-ownership gate around the hub service. Process management stays in
+// createSprintEngineMcpHubService; this only decides *whether* spawning is
+// allowed (module enabled and registered) and reports spawn failures to the
+// owning module so they surface as module-identified notifications.
+export function createGatedSprintEngineMcpHub(hub: SprintEngineMcpHubService): GatedSprintEngineMcpHubService {
+  let observer: SprintEngineMcpSpawnObserver | null = null
+
+  async function guardSpawn<T>(operation: () => Promise<T>): Promise<T> {
+    if (!observer) throw new Error(HUB_UNCLAIMED_MESSAGE)
+    try {
+      return await operation()
+    } catch (error) {
+      // Only spawn failures are the module's lifecycle concern; run
+      // registration errors surface to their callers unchanged.
+      if (hub.status().state === 'failed') {
+        observer.onSpawnFailure(hub.status().lastError ?? (error instanceof Error ? error.message : String(error)))
+      }
+      throw error
+    }
+  }
+
+  return {
+    claimOwnership(spawnObserver) {
+      observer = spawnObserver
+    },
+    ensureStarted: () => guardSpawn(() => hub.ensureStarted()),
+    ensureRunRegistered: (input) => guardSpawn(() => hub.ensureRunRegistered(input)),
+    callRunTool: (input) => hub.callRunTool(input),
+    unregisterRun: (runId) => hub.unregisterRun(runId),
+    stop: () => hub.stop(),
+    status: () => hub.status(),
+  }
+}
+
 function runRegistrationKey(input: SprintEngineMcpRunRegistrationInput): string {
-  return resolve(input.statePath)
+  // Agent-scoped registrations get their own token per agent; run-scoped
+  // registrations keep sharing one token per state path.
+  const agentSuffix = input.agentId ? `::agent::${input.agentId}::${input.role ?? ''}` : ''
+  return `${resolve(input.statePath)}${agentSuffix}`
 }
 
 function defaultPythonCommand(runtimeRoot: string): string {
@@ -362,6 +471,86 @@ function postJson<T>(url: string, authToken: string, payload: Record<string, unk
     request.on('error', reject)
     request.end(body)
   })
+}
+
+function postMcpJsonRpc(
+  url: string,
+  runToken: string,
+  payload: Record<string, unknown>,
+  sessionId?: string
+): Promise<{ body: unknown; sessionId?: string }> {
+  const body = JSON.stringify(payload)
+  const target = new URL(url)
+  return new Promise((resolve, reject) => {
+    const request = http.request({
+      hostname: target.hostname,
+      port: target.port,
+      path: `${target.pathname}${target.search}`,
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${runToken}`,
+        ...(sessionId ? { 'Mcp-Session-Id': sessionId } : {}),
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    }, (response) => {
+      let raw = ''
+      response.setEncoding('utf8')
+      response.on('data', (chunk) => {
+        raw += chunk
+      })
+      response.on('end', () => {
+        if ((response.statusCode ?? 500) < 200 || (response.statusCode ?? 500) >= 300) {
+          reject(new Error(formatHttpFailure('Sprint Engine MCP JSON-RPC call', response.statusCode, raw)))
+          return
+        }
+        try {
+          resolve({
+            body: raw ? JSON.parse(raw) : null,
+            sessionId: response.headers['mcp-session-id']?.toString(),
+          })
+        } catch (error) {
+          reject(error)
+        }
+      })
+    })
+    request.on('error', reject)
+    request.end(body)
+  })
+}
+
+function deleteMcpSession(url: string, runToken: string, sessionId: string): Promise<void> {
+  const target = new URL(url)
+  return new Promise((resolve, reject) => {
+    const request = http.request({
+      hostname: target.hostname,
+      port: target.port,
+      path: `${target.pathname}${target.search}`,
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${runToken}`,
+        'Mcp-Session-Id': sessionId,
+      },
+    }, (response) => {
+      response.resume()
+      response.on('end', () => {
+        if ((response.statusCode ?? 500) < 200 || (response.statusCode ?? 500) >= 300) {
+          reject(new Error(`Sprint Engine MCP session cleanup failed with HTTP ${response.statusCode ?? 'unknown'}.`))
+          return
+        }
+        resolve()
+      })
+    })
+    request.on('error', reject)
+    request.end()
+  })
+}
+
+function formatJsonRpcFailure(toolName: string, body: object): string {
+  const error = (body as { error?: { code?: unknown; message?: unknown } }).error
+  const code = typeof error?.code === 'string' ? error.code : 'jsonrpc_error'
+  const message = typeof error?.message === 'string' ? error.message : 'Unknown JSON-RPC error.'
+  return `${toolName} failed: ${code}: ${message}`
 }
 
 function formatHttpFailure(operation: string, statusCode: number | undefined, rawBody: string): string {

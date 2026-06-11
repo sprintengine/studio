@@ -9,7 +9,7 @@ import {
   platformKeybindingsFromApiPlatform,
 } from '../../commands/effectiveKeybindings'
 
-type PanelKey = 'explorer' | 'git' | 'backlog' | 'sprint-engines'
+type PanelKey = 'explorer' | 'git' | 'backlog'
 
 // 999 is the visible ceiling: it occupies the same three glyph slots as a
 // "99+" cap would, so we just clamp the number and skip the suffix.
@@ -72,28 +72,6 @@ const PANELS: PanelDescriptor[] = [
         <circle cx="3" cy="4.5" r="1" fill="currentColor" />
         <circle cx="3" cy="8" r="1" fill="currentColor" />
         <circle cx="3" cy="11.5" r="1" fill="currentColor" />
-      </svg>
-    ),
-  },
-  {
-    key: 'sprint-engines',
-    moduleId: 'sprint-engine',
-    tabName: 'Sprint Engines',
-    label: 'Sprint Engines',
-    // 16px restatement of SprintEngineWorkspaceTypeIcon (AppIcons.tsx): the
-    // outlined three-node roster triangle, distinct from the retired Knowledge
-    // Graph glyph's filled dots.
-    icon: ({ className }) => (
-      <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-        <circle cx="8" cy="4" r="1.7" stroke="currentColor" strokeWidth="1.3" />
-        <circle cx="4" cy="11.5" r="1.7" stroke="currentColor" strokeWidth="1.3" />
-        <circle cx="12" cy="11.5" r="1.7" stroke="currentColor" strokeWidth="1.3" />
-        <path
-          d="M7.2 5.5L4.85 10M8.8 5.5L11.15 10M5.8 11.5h4.4"
-          stroke="currentColor"
-          strokeWidth="1.3"
-          strokeLinecap="round"
-        />
       </svg>
     ),
   },

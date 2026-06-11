@@ -12,15 +12,17 @@ type RegisterAppLifecycleOptions = {
   terminalRuntime: {
     shutdown(): Promise<void>
   }
+  automationService?: {
+    initialize(): Promise<unknown>
+    shutdown(): Promise<void>
+  }
   workspaceSyncService?: {
     flushRoutingSnapshot(): Promise<void>
   }
-  sprintEngineMcpHub?: {
-    stop(): Promise<void>
-  }
   // Capability-module kernel: runs module startup hooks on ready and shutdown
-  // hooks on quit. Currently no bundled module registers hooks, so these are
-  // no-ops, but this is the integration point for module-owned lifecycle.
+  // hooks on quit. Module-owned lifecycle runs here — including kernel-owned
+  // sidecar stops (e.g. the Sprint Engine MCP hub via its module's sidecar
+  // registration), in reverse registration order.
   moduleKernel?: {
     runStartup(): Promise<void>
     runShutdown(): Promise<void>
@@ -33,8 +35,8 @@ export function registerAppLifecycle({
   diagnosticsEnabled,
   allowMultipleInstances = false,
   terminalRuntime,
+  automationService,
   workspaceSyncService,
-  sprintEngineMcpHub,
   moduleKernel,
   updateService,
   handleAuthCallback,
@@ -73,6 +75,9 @@ export function registerAppLifecycle({
 
     Menu.setApplicationMenu(createAppMenu())
     createMainWindow({ diagnosticsEnabled })
+    // Off by default: initialize() only starts the local automation socket
+    // when the persisted setting enables it.
+    void automationService?.initialize()
     void moduleKernel?.runStartup()
     handleAuthCallback(process.argv)
 
@@ -97,13 +102,14 @@ export function registerAppLifecycle({
     markAppQuitInProgressForWindowClose()
     beginSwitchboardPythonRuntimeShutdown()
     const shutdown = async () => {
+      await automationService?.shutdown()
       await terminalRuntime.shutdown()
       await workspaceSyncService?.flushRoutingSnapshot()
-      await sprintEngineMcpHub?.stop()
       await shutdownSwitchboardPythonRuntime()
       await releaseAllWorkspaceRunnerLocks()
-      // The mobile relay bridge's shutdown runs here, via its module's
-      // onShutdown hook (it owns the bridge now).
+      // Module-owned shutdown runs here: the mobile relay bridge via its
+      // onShutdown hook, and kernel-owned sidecar stops (e.g. the Sprint
+      // Engine MCP hub) in reverse registration order.
       await moduleKernel?.runShutdown()
     }
 

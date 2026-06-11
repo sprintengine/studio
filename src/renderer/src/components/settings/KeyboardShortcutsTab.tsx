@@ -10,20 +10,19 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
-  COMMAND_REGISTRY,
   collapseDuplicateKeybindings,
   findKeybindingConflicts,
   keyFromEvent,
   normalizeKeybinding,
   renderKeybinding,
   type CommandCategory,
-  type CommandDefinition,
-  type CommandId,
+  type CommandContribution,
   type CommandScope,
   type KeybindingConflict,
   type KeybindingConflictCandidate,
   type KeybindingPlatform,
 } from '../../commands'
+import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { KeybindingSettings } from '../../types/workspace'
 import { SettingsSectionTitle } from './SettingsAtoms'
 import {
@@ -40,9 +39,10 @@ import { useConfirmDialog } from '../ui/ConfirmDialog'
 // --- View model (pure, exported for tests) ---------------------------------
 
 export type ShortcutRow = {
-  id: CommandId
+  id: string
   title: string
-  category: CommandCategory
+  /** A built-in CommandCategory or a module command's own grouping label. */
+  category: string
   scopes: readonly CommandScope[]
   /** Canonical registry defaults. */
   defaults: string[]
@@ -71,12 +71,13 @@ export const CATEGORY_LABELS: Record<CommandCategory, string> = {
   terminal: 'Terminal',
 }
 
-export function categoryLabel(category: CommandCategory): string {
-  return CATEGORY_LABELS[category] ?? category
+// Module command categories are already display labels, so they pass through.
+export function categoryLabel(category: string): string {
+  return (CATEGORY_LABELS as Partial<Record<string, string>>)[category] ?? category
 }
 
 export function buildShortcutRows(
-  commands: readonly CommandDefinition[],
+  commands: readonly CommandContribution[],
   keybindings: KeybindingSettings,
 ): ShortcutRow[] {
   return commands.map((def) => {
@@ -87,7 +88,7 @@ export function buildShortcutRows(
     const disabled = keybindings.disabled[def.id] === true
     const effective = disabled ? [] : overrides ?? defaults
     return {
-      id: def.id as CommandId,
+      id: def.id,
       title: def.title,
       category: def.category,
       scopes: def.scopes,
@@ -142,12 +143,12 @@ export function rowMatchesQuery(row: ShortcutRow, query: string, platform: Keybi
   return haystack.includes(trimmed)
 }
 
-export type ShortcutGroup = { category: CommandCategory; label: string; rows: ShortcutRow[] }
+export type ShortcutGroup = { category: string; label: string; rows: ShortcutRow[] }
 
 /** Group rows by category, preserving the order categories first appear in. */
 export function groupRows(rows: readonly ShortcutRow[]): ShortcutGroup[] {
   const groups: ShortcutGroup[] = []
-  const index = new Map<CommandCategory, ShortcutGroup>()
+  const index = new Map<string, ShortcutGroup>()
   for (const row of rows) {
     let group = index.get(row.category)
     if (!group) {
@@ -219,10 +220,18 @@ export function KeyboardShortcutsTab() {
 
   const platform = useMemo(resolvePlatform, [])
   const [query, setQuery] = useState('')
-  const [recordingId, setRecordingId] = useState<CommandId | null>(null)
+  const [recordingId, setRecordingId] = useState<string | null>(null)
 
   const keybindings = useMemo<KeybindingSettings>(() => ({ overrides, disabled }), [overrides, disabled])
-  const rows = useMemo(() => buildShortcutRows(COMMAND_REGISTRY, keybindings), [keybindings])
+  // Shell commands plus the commands of currently enabled modules. Disabling a
+  // module drops its rows here reactively; its persisted overrides stay in
+  // settings, so re-enabling restores the rows with the customization intact.
+  const moduleEnablement = useWorkspaceStore((s) => s.appSettings.modules)
+  const commands = useMemo(
+    () => getRendererHost().getCommandContributions((moduleId) => selectModuleEnabled(moduleEnablement, moduleId)),
+    [moduleEnablement],
+  )
+  const rows = useMemo(() => buildShortcutRows(commands, keybindings), [commands, keybindings])
   const conflicts = useMemo(() => computeConflicts(rows), [rows])
   const visibleRows = useMemo(
     () => rows.filter((row) => rowMatchesQuery(row, query, platform)),
@@ -232,7 +241,7 @@ export function KeyboardShortcutsTab() {
   const customizedCount = useMemo(() => rows.filter((row) => row.customized).length, [rows])
 
   const handleCapture = useCallback(
-    (commandId: CommandId, chord: string) => {
+    (commandId: string, chord: string) => {
       setCommandKeybindings(commandId, [chord])
       setCommandKeybindingDisabled(commandId, false)
       setRecordingId(null)

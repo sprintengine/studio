@@ -16,6 +16,8 @@ const CAPABILITY_BY_RELAY_SCOPE: Record<MobileRelayScope, MobileControlCapabilit
   'relay:agent:followup': 'agents.followUp',
   'relay:push:register': null,
   'relay:device:revoke': 'devices.revoke',
+  'relay:backlog:update': 'backlog.update',
+  'relay:backlog:start': 'backlog.start',
 }
 
 export function relayDeviceCapabilities(device: MobileRelayAuthenticatedDevice): MobileControlCapability[] {

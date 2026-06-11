@@ -13,7 +13,13 @@ import { classifyModuleTrust, type ModuleTrust, type ModuleTrustContext } from '
 // execute module code; trusted `entry.main` loading is wired separately through
 // third-party-main-loader.
 
+// MULTICODE_USER_MODULE_ROOT redirects discovery for hermetic end-to-end
+// testing (paired with MULTICODE_USER_DATA_DIR temp profiles). It moves the
+// install root only — trust classification, signing, and isLoadEligible gating
+// apply to that root exactly as they do to the default one.
 export function defaultUserModuleRoot(): string {
+  const override = process.env.MULTICODE_USER_MODULE_ROOT?.trim()
+  if (override) return override
   return join(homedir(), '.multicode', 'modules')
 }
 

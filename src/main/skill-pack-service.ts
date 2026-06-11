@@ -14,24 +14,10 @@ import type {
   SkillPackRemoveInput,
   SkillPackRemoveResult,
 } from '../shared/electron-api'
+import { SKILL_HARNESS_DIR, SKILL_PACK_HARNESSES } from '../shared/skill-harnesses'
 
-const ALL_HARNESSES: readonly SkillPackHarness[] = [
-  'claude',
-  'codex',
-  'cursor',
-  'gemini',
-  'opencode',
-  'agents',
-]
-
-const HARNESS_DIR: Record<SkillPackHarness, string> = {
-  claude: '.claude',
-  codex: '.codex',
-  cursor: '.cursor',
-  gemini: '.gemini',
-  opencode: '.opencode',
-  agents: '.agents',
-}
+const ALL_HARNESSES = SKILL_PACK_HARNESSES
+const HARNESS_DIR = SKILL_HARNESS_DIR
 
 export type SkillPackService = {
   listCatalog(): SkillPackCatalogResult

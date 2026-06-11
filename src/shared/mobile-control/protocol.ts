@@ -12,7 +12,9 @@ export type MobileControlCommandType =
   | "artifact.approve"
   | "artifact.requestChanges"
   | "agent.followUp"
-  | "device.revoke";
+  | "device.revoke"
+  | "backlog.update"
+  | "backlog.startSprintEngine";
 
 export type MobileControlEventType =
   | "snapshot.updated"
@@ -29,7 +31,9 @@ export type MobileControlCapability =
   | "tasks.start"
   | "artifacts.review"
   | "agents.followUp"
-  | "devices.revoke";
+  | "devices.revoke"
+  | "backlog.update"
+  | "backlog.start";
 
 export type MobileControlErrorCode =
   | "unsupported_protocol_version"
@@ -193,6 +197,26 @@ export type DeviceRevokeCommand = MobileControlCommandBase<
   }
 >;
 
+export type BacklogUpdateCommand = MobileControlCommandBase<
+  "backlog.update",
+  {
+    workspacePath: string;
+    relativePath: string;
+    status?: MobileControlBacklogItemStatus;
+    type?: MobileControlBacklogItemType;
+    difficulty?: MobileControlBacklogItemDifficulty;
+    criticality?: MobileControlBacklogItemCriticality;
+  }
+>;
+
+export type BacklogStartSprintEngineCommand = MobileControlCommandBase<
+  "backlog.startSprintEngine",
+  {
+    workspacePath: string;
+    relativePath: string;
+  }
+>;
+
 export type MobileControlCommand =
   | SnapshotRequestCommand
   | ArtifactReadCommand
@@ -201,7 +225,9 @@ export type MobileControlCommand =
   | ArtifactApproveCommand
   | ArtifactRequestChangesCommand
   | AgentFollowUpCommand
-  | DeviceRevokeCommand;
+  | DeviceRevokeCommand
+  | BacklogUpdateCommand
+  | BacklogStartSprintEngineCommand;
 
 export type MobileControlNeedsInputKind = "architect" | "user" | "owner" | "external_validation";
 
@@ -540,6 +566,31 @@ export interface MobileControlWorkspaceSnapshot {
   detail?: MobileControlWorkspaceDetail;
 }
 
+export type MobileControlBacklogItemStatus = "idea" | "ready" | "in_progress" | "needs_input" | "completed" | "archived";
+export type MobileControlBacklogItemType = "feature" | "bug" | "mockup";
+export type MobileControlBacklogItemDifficulty = "xs" | "s" | "m" | "l" | "xl";
+export type MobileControlBacklogItemCriticality = "low" | "normal" | "high" | "critical";
+
+export interface MobileControlBacklogItemSnapshot {
+  itemId: string;
+  relativePath: string;
+  title: string;
+  excerpt?: string;
+  status: MobileControlBacklogItemStatus;
+  type?: MobileControlBacklogItemType;
+  difficulty?: MobileControlBacklogItemDifficulty;
+  criticality?: MobileControlBacklogItemCriticality;
+  updatedAt?: string;
+}
+
+export interface MobileControlBacklogWorkspaceSnapshot {
+  workspaceId: string;
+  workspacePath: string;
+  workspaceName: string;
+  updatedAt: string;
+  items: MobileControlBacklogItemSnapshot[];
+}
+
 export interface MobileControlSnapshot {
   protocolVersion: MobileControlProtocolVersion;
   generatedAt: string;
@@ -548,6 +599,7 @@ export interface MobileControlSnapshot {
   commands?: MobileControlCommandType[];
   sprintEngines: MobileControlSprintEngineSnapshot[];
   workspaces?: MobileControlWorkspaceSnapshot[];
+  backlog?: MobileControlBacklogWorkspaceSnapshot[];
 }
 
 export interface MobileControlEventBase<Type extends MobileControlEventType, Payload> {
@@ -648,6 +700,8 @@ const commandTypes = [
   "artifact.requestChanges",
   "agent.followUp",
   "device.revoke",
+  "backlog.update",
+  "backlog.startSprintEngine",
 ] as const satisfies readonly MobileControlCommandType[];
 
 const eventTypes = [
@@ -1022,6 +1076,17 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
       return requireString(payload, "sprintEngineId") ?? requireString(payload, "agentId") ?? requireString(payload, "text");
     case "device.revoke":
       return requireString(payload, "deviceId") ?? optionalString(payload, "reason");
+    case "backlog.update":
+      return (
+        requireString(payload, "workspacePath") ??
+        requireString(payload, "relativePath") ??
+        optionalString(payload, "status") ??
+        optionalString(payload, "type") ??
+        optionalString(payload, "difficulty") ??
+        optionalString(payload, "criticality")
+      );
+    case "backlog.startSprintEngine":
+      return requireString(payload, "workspacePath") ?? requireString(payload, "relativePath");
   }
 }
 

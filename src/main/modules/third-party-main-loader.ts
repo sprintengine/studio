@@ -1,9 +1,9 @@
 import { createRequire } from 'node:module'
-import { relative, resolve } from 'node:path'
 
 import type { ModuleResolutionErrorCode } from '../../shared/modules/manifest'
 import type { CapabilityModule, MainModuleLoadError, MainModuleLoadReport } from '../module-host/load-modules'
 import type { MainHost } from '../module-host/main-host'
+import { resolveContainedEntry, sanitizeEntryMessage } from './entry-containment'
 import { isLoadEligible } from './module-signature'
 import type { InstalledModule, ModuleRejection } from './user-module-registry'
 
@@ -85,12 +85,7 @@ function rejectionToLoadError(rejection: ModuleRejection): MainModuleLoadError {
 }
 
 function sanitizeLaunchMessage(message: string): string {
-  if (containsAbsolutePath(message)) return 'Module main entry failed during startup.'
-  return message
-}
-
-function containsAbsolutePath(message: string): boolean {
-  return /(^|[\s'"])(?:\/[\w.-][^\s'"]*|[A-Za-z]:\\[^\s'"]+)/.test(message)
+  return sanitizeEntryMessage(message, 'Module main entry failed during startup.')
 }
 
 function createThirdPartyMainModule(installed: InstalledModule): CapabilityModule {
@@ -108,25 +103,10 @@ function createThirdPartyMainModule(installed: InstalledModule): CapabilityModul
 }
 
 function loadTrustedEntry(moduleRoot: string, entryMain: string, host: MainHost): void {
-  const entryPath = resolveContainedEntry(moduleRoot, entryMain)
+  const entryPath = resolveContainedEntry(moduleRoot, entryMain, 'entry.main')
   const entryModule = createRequire(`${entryPath}.loader.cjs`)(entryPath) as ThirdPartyMainExport
   const registerMain = resolveRegisterMain(entryModule)
   registerMain(host)
-}
-
-function resolveContainedEntry(moduleRoot: string, entryMain: string): string {
-  const root = resolve(moduleRoot)
-  const entryPath = resolve(root, entryMain)
-  const rootRelative = relative(root, entryPath)
-  if (
-    rootRelative.length === 0 ||
-    rootRelative.startsWith('..') ||
-    rootRelative.includes('\0') ||
-    resolve(root, rootRelative) !== entryPath
-  ) {
-    throw new Error('entry.main must resolve inside the module root.')
-  }
-  return entryPath
 }
 
 function resolveRegisterMain(entryModule: ThirdPartyMainExport): (host: MainHost) => void {

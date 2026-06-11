@@ -191,10 +191,22 @@ def test_authenticated_mcp_user_approval_preserves_payload_actor_and_role_indepe
     write_state(fixture.state_path, state)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
-    approved = server.call_tool(
+    # Role capability policy: artifact.approve is architect/operator surface.
+    # An actor declaring an unrecognized role gets the worker surface and is
+    # rejected; the operator (user) actor approves with the payload actor id
+    # still independent of the authenticated identity.
+    rejected = server.call_tool(
         "sprintengine.artifact.approve",
         {"statePath": str(fixture.state_path), "artifactId": "A1", "id": "code-reviewer-fixture"},
         {"id": "workspace-user", "role": "not-a-sprintengine-role", "authenticated": True, "mcpAuthorized": True},
+    )
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "tool_not_permitted_for_role"
+
+    approved = server.call_tool(
+        "sprintengine.artifact.approve",
+        {"statePath": str(fixture.state_path), "artifactId": "A1", "id": "code-reviewer-fixture"},
+        {"id": "workspace-user", "role": "user", "authenticated": True, "mcpAuthorized": True},
     )
 
     assert approved["ok"] is True

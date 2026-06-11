@@ -1,4 +1,7 @@
 import { app, shell } from 'electron'
+import { createAutomationService } from './automation/automation-service'
+import { createAutomationTools } from './automation/automation-tools'
+import { createRendererAutomationDelegate } from './automation/renderer-delegate'
 import { createBuiltinSkillManager } from './builtin-skills'
 import { installMulticodeCliTools } from './cli-install'
 import { MulticodeAuthBridge } from './auth-service'
@@ -6,7 +9,7 @@ import { createMainDiagnostics } from './main-diagnostics'
 import { createMcpConfigService } from './mcp-config-service'
 import { createSkillPackService } from './skill-pack-service'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
-import { createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
+import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
 import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
 import { createTerminalRuntime } from './terminal-runtime'
 import { MulticodeUpdateService } from './update-service'
@@ -34,7 +37,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
 
   const multicodeAuth = new MulticodeAuthBridge()
   const mcpConfigService = createMcpConfigService()
-  const sprintEngineMcpHub = createSprintEngineMcpHubService({ logMainPerfEvent })
+  // Spawn ownership of the hub belongs to the sprint-engine capability module
+  // (it claims the gate when it registers its sidecar); a disabled module
+  // means the hub process cannot start, by explicit error rather than silence.
+  const sprintEngineMcpHub = createGatedSprintEngineMcpHub(createSprintEngineMcpHubService({ logMainPerfEvent }))
   const skillPackService = createSkillPackService()
 
   function getAuthenticatedMulticodeUserId(): string | null {
@@ -55,6 +61,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     logMainPerfEvent,
     onAgentSessionExit: (input) => input.workspaceRoot ? recordSwitchboardSessionExit(input) : undefined,
     syncMcpConfig: (input) => syncManagedSprintEngineMcpConfig(input, { mcpConfigService, sprintEngineMcpHub }),
+    callManagedSprintEngineTool: (input) => sprintEngineMcpHub.callRunTool(input),
     releaseManagedSprintEngineRun: async (input) => {
       await sprintEngineMcpHub.unregisterRun(input.runId)
       if (input.cleanupMcpConfig) {
@@ -100,7 +107,27 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     openExternal: (url) => shell.openExternal(url),
   })
 
+  // App-automation MCP surface: reads come from the workspace-sync snapshot
+  // and terminal runtime; mutations are delegated to the primary renderer so
+  // they run the same store actions as the UI. Off by default; the persisted
+  // setting gates startServer in automationService.initialize().
+  const automationDelegate = createRendererAutomationDelegate()
+  const automationService = createAutomationService({
+    resolveUserDataDir: () => app.getPath('userData'),
+    appVersion: app.getVersion(),
+    tools: createAutomationTools({
+      getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
+      listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
+      delegateToRenderer: (request) => automationDelegate.request(request),
+    }),
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+    },
+  })
+
   return {
+    automationDelegate,
+    automationService,
     builtinSkillManager,
     githubTokenStore,
     logMainPerfEvent,

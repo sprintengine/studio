@@ -29,6 +29,8 @@ export async function syncManagedSprintEngineMcpConfig(
       userRoot: input.managedSprintEngine.userRoot,
       actorId: input.managedSprintEngine.actorId || 'multicode-app',
       workspaceId: input.managedSprintEngine.workspaceId,
+      agentId: input.managedSprintEngine.agentId,
+      role: input.managedSprintEngine.role,
     })
     registeredRunId = run.runId
     registeredRunWasCreated = !run.reused

@@ -35,6 +35,7 @@ type FailedTerminalSessionInput = {
   cwd?: string
   sprintEngineStatePath?: string
   sprintEngineMcpRunId?: string
+  sprintEngineRole?: string
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
@@ -69,6 +70,7 @@ export type TerminalSession = {
   cwd?: string
   sprintEngineStatePath?: string
   sprintEngineMcpRunId?: string
+  sprintEngineRole?: string
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string

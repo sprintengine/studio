@@ -147,7 +147,7 @@ def test_authenticated_mcp_user_can_invoke_task_tool_with_payload_agent_id(tmp_p
     assert state["events"][-1]["actor"] == "developer-b"
 
 
-def test_authenticated_mcp_user_can_invoke_plan_tool_without_architect_role(tmp_path) -> None:
+def test_plan_tool_is_architect_or_operator_surface(tmp_path) -> None:
     fixture = create_team(tmp_path, "mcp-plan-auth", [task("T1", "Existing task", "developer")])
     state = read_state(fixture.state_path)
     state["sprintengine"]["rosterConfigured"] = True
@@ -157,7 +157,10 @@ def test_authenticated_mcp_user_can_invoke_plan_tool_without_architect_role(tmp_
     write_state(fixture.state_path, state)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
-    response = server.call_tool(
+    # Role capability policy: plan tools are architect/operator surface. A
+    # tester-role actor is rejected; the operator (user) actor edits the graph
+    # with the payload actor id still independent of the authenticated id.
+    rejected = server.call_tool(
         "sprintengine.plan.add_task",
         {
             "statePath": str(fixture.state_path),
@@ -166,6 +169,19 @@ def test_authenticated_mcp_user_can_invoke_plan_tool_without_architect_role(tmp_
             "actor": "developer-a",
         },
         actor("workspace-user", "tester"),
+    )
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "tool_not_permitted_for_role"
+
+    response = server.call_tool(
+        "sprintengine.plan.add_task",
+        {
+            "statePath": str(fixture.state_path),
+            "title": "Payload graph edit",
+            "role": "developer",
+            "actor": "developer-a",
+        },
+        actor("workspace-user", "user"),
     )
 
     assert response["ok"] is True
@@ -179,8 +195,8 @@ def test_allowed_roots_reject_out_of_scope_and_platform_confused_paths(tmp_path)
     fixture = create_team(tmp_path, "mcp-path-auth", [task("T1", "Path guarded", "developer")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path / "allowed"])
 
-    out_of_scope = server.call_tool("sprintengine.summary", {"statePath": str(fixture.state_path)}, actor("workspace-user"))
-    platform_confused = server.call_tool("sprintengine.summary", {"statePath": r"C:\workspace\.multi-code\sprintengine\run.yaml"}, actor("workspace-user"))
+    out_of_scope = server.call_tool("sprintengine.summary", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
+    platform_confused = server.call_tool("sprintengine.summary", {"statePath": r"C:\workspace\.multi-code\sprintengine\run.yaml"}, actor("workspace-user", "user"))
     handover_file = tmp_path / "handover.md"
     handover_file.write_text("Outside allowed root.", encoding="utf-8")
     out_of_scope_handover = server.call_tool(
@@ -190,7 +206,7 @@ def test_allowed_roots_reject_out_of_scope_and_platform_confused_paths(tmp_path)
             "name": "mcp-handover",
             "handoverPath": str(handover_file),
         },
-        actor("workspace-user"),
+        actor("workspace-user", "user"),
     )
 
     assert out_of_scope["ok"] is False
@@ -205,7 +221,7 @@ def test_allowed_roots_reject_out_of_scope_and_platform_confused_paths(tmp_path)
     assert out_of_scope_handover["error"]["code"] == "input_path_not_allowed"
 
 
-def test_authenticated_mcp_user_can_invoke_artifact_review_with_payload_actor(tmp_path) -> None:
+def test_artifact_approval_is_operator_surface_with_payload_actor_independence(tmp_path) -> None:
     artifact_file = tmp_path / ".multi-code" / "sprintengine" / "mcp-artifact-auth" / "review.md"
     artifact_file.parent.mkdir(parents=True)
     artifact_file.write_text("review", encoding="utf-8")
@@ -231,10 +247,21 @@ def test_authenticated_mcp_user_can_invoke_artifact_review_with_payload_actor(tm
     write_state(fixture.state_path, state)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
-    approved = server.call_tool(
+    # artifact.approve is architect/operator surface; the security reviewer
+    # role cannot approve, the operator can, and the payload actor id stays
+    # independent of the authenticated identity.
+    rejected = server.call_tool(
         "sprintengine.artifact.approve",
         {"statePath": str(fixture.state_path), "artifactId": "A1", "id": "review-board"},
         actor("workspace-user", "security"),
+    )
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "tool_not_permitted_for_role"
+
+    approved = server.call_tool(
+        "sprintengine.artifact.approve",
+        {"statePath": str(fixture.state_path), "artifactId": "A1", "id": "review-board"},
+        actor("workspace-user", "user"),
     )
 
     assert approved["ok"] is True
@@ -242,14 +269,24 @@ def test_authenticated_mcp_user_can_invoke_artifact_review_with_payload_actor(tm
     assert approved["result"]["artifact"]["approvedBy"] == "review-board"
 
 
-def test_authenticated_mcp_user_can_invoke_feedback_tool_without_swarm_role(tmp_path) -> None:
+def test_feedback_summarize_is_architect_or_operator_surface(tmp_path) -> None:
     fixture = create_team(tmp_path, "mcp-feedback-auth", [task("T1", "Feedback", "developer")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    # feedback.summarize is architect/operator surface; an unrecognized role
+    # falls back to the worker surface and is rejected.
+    rejected = server.call_tool(
+        "sprintengine.feedback.summarize",
+        {"statePath": str(fixture.state_path)},
+        actor("workspace-user", "not-a-sprintengine-role"),
+    )
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "tool_not_permitted_for_role"
 
     response = server.call_tool(
         "sprintengine.feedback.summarize",
         {"statePath": str(fixture.state_path)},
-        actor("workspace-user", "not-a-sprintengine-role"),
+        actor("workspace-user", "user"),
     )
 
     assert response["ok"] is True

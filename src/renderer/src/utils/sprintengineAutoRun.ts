@@ -464,7 +464,7 @@ export function buildSprintEngineGateContinuationPrompt(
       : 'This is not a durable gate dispatch assignment; the Sprint Engine state will record one only after you claim the gate through MCP.',
     'Call the directive tool to receive the current MCP-native directive:',
     nextDirectivePayloadBlock(gate.role, agentId),
-    'The returned directive will name the next MCP tool to invoke — typically `sprintengine.gate.next` for an unclaimed gate, or context for `sprintengine.gate.verdict` / `sprintengine.gate.publish` after review. Record the verdict through MCP.',
+    'The returned directive will name the next MCP tool to invoke — typically `sprintengine.gate.next` for an unclaimed gate, or context for `sprintengine.gate.verdict` after review. Record the verdict through MCP.',
   ].join('\n')
 }
 

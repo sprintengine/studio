@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { selectModuleEnabled } from '../../modules'
+import { getRendererHost, selectModuleEnabled } from '../../modules'
+import type { RegisteredSettingsSection } from '../../modules/renderer-host'
+import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
 import type {
   McpCatalogServer,
   McpSettings,
@@ -53,6 +55,7 @@ import {
   groupSkillPackCatalog,
 } from './SkillPacksCatalog'
 import { MetaCell, SettingsSectionTitle, formatNullableDate } from './SettingsAtoms'
+import { AutomationServerSettings } from './AutomationServerSettings'
 import { ProjectKnowledgeList } from './ProjectKnowledgeList'
 import CliIcon from '../CliIcon'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
@@ -151,6 +154,22 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
   { id: 'voice-dictation', label: 'Voice dictation', description: 'Transcription server and model' },
   { id: 'telemetry', label: 'Telemetry', description: 'Usage and diagnostics' },
 ]
+
+// A rail entry: a built-in tab, or a module-contributed section rendered after
+// the built-ins. Contributed tab ids carry a prefix so they can never collide
+// with (or spoof) a built-in tab id.
+type SettingsTabDescriptor = {
+  id: string
+  label: string
+  description: string
+  moduleSection?: RegisteredSettingsSection
+}
+
+const MODULE_SECTION_TAB_PREFIX = 'module-section:'
+
+function moduleSectionTabId(sectionId: string): string {
+  return `${MODULE_SECTION_TAB_PREFIX}${sectionId}`
+}
 
 function isSettingsTabId(value: unknown): value is SettingsTabId {
   return (
@@ -532,14 +551,29 @@ export default function SettingsPanel({
   const voiceDictationEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'voice-dictation'))
   const voiceDictation = useWorkspaceStore((s) => s.appSettings.voiceDictation)
   const setVoiceDictationSettings = useWorkspaceStore((s) => s.setVoiceDictationSettings)
+  const moduleEnablement = useWorkspaceStore((s) => s.appSettings.modules)
+  // Module-contributed sections render after every built-in tab, in the
+  // registry's stable order (order hint, then id). Disabling a module drops
+  // its section reactively; persisted values stay in the module namespace.
+  const moduleSections = useMemo(
+    () => getRendererHost().getSettingsSections((moduleId) => selectModuleEnabled(moduleEnablement, moduleId)),
+    [moduleEnablement],
+  )
   const visibleSettingsTabs = useMemo(
-    () =>
-      settingsTabs.filter(
+    (): SettingsTabDescriptor[] => [
+      ...settingsTabs.filter(
         (tab) =>
           (tab.id !== 'mobile' || mobileRelayEnabled) &&
           (tab.id !== 'voice-dictation' || voiceDictationEnabled)
       ),
-    [mobileRelayEnabled, voiceDictationEnabled]
+      ...moduleSections.map((section) => ({
+        id: moduleSectionTabId(section.id),
+        label: section.label,
+        description: section.description ?? `From the ${section.moduleId} module`,
+        moduleSection: section,
+      })),
+    ],
+    [mobileRelayEnabled, voiceDictationEnabled, moduleSections]
   )
   const appearanceTheme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
   const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
@@ -601,12 +635,14 @@ export default function SettingsPanel({
   const [customMcpUrl, setCustomMcpUrl] = useState('')
   const [customMcpEnv, setCustomMcpEnv] = useState('')
   const [customMcpTransport, setCustomMcpTransport] = useState<'stdio' | 'http'>('stdio')
-  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTabId>(
+  // Built-in tab ids plus `module-section:<id>` for contributed sections. An
+  // initialTab may name either; unknown values fall back to the default tab.
+  const [activeSettingsTab, setActiveSettingsTab] = useState<string>(
     isSettingsTabId(initialTab) ? initialTab : 'updates'
   )
 
   useEffect(() => {
-    if (isSettingsTabId(initialTab)) {
+    if (isSettingsTabId(initialTab) || (typeof initialTab === 'string' && initialTab.startsWith(MODULE_SECTION_TAB_PREFIX))) {
       setActiveSettingsTab(initialTab)
       window.requestAnimationFrame(() => tabRefs.current[initialTab]?.focus())
     }
@@ -620,24 +656,9 @@ export default function SettingsPanel({
       setActiveSettingsTab(visibleSettingsTabs[0]?.id ?? 'updates')
     }
   }, [visibleSettingsTabs, activeSettingsTab])
-  const tabRefs = useRef<Record<SettingsTabId, HTMLButtonElement | null>>({
-    appearance: null,
-    shortcuts: null,
-    modules: null,
-    updates: null,
-    github: null,
-    agents: null,
-    providers: null,
-    roles: null,
-    mcps: null,
-    'skill-packs': null,
-    'file-search': null,
-    'knowledge-graph': null,
-    learn: null,
-    mobile: null,
-    'voice-dictation': null,
-    telemetry: null,
-  })
+  // Keyed by tab id; contributed `module-section:*` ids join the built-ins, so
+  // the map is open-keyed rather than a closed SettingsTabId record.
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const autoCheckStartedRef = useRef(false)
   const lastUpdateRequestIdRef = useRef<number | null>(null)
 
@@ -1275,7 +1296,7 @@ export default function SettingsPanel({
     }
   }, [loadUserRoles])
 
-  const selectSettingsTab = useCallback((tabId: SettingsTabId) => {
+  const selectSettingsTab = useCallback((tabId: string) => {
     setActiveSettingsTab(tabId)
   }, [])
 
@@ -1321,7 +1342,10 @@ export default function SettingsPanel({
   const bodyContent = (
     <>
       <header className="mb-4 border-b border-[color:var(--border-subtle)] pb-3">
-        <h3 className="text-[15px] font-semibold text-[color:var(--text-strong)]">
+        <h3 className="flex items-center gap-2 text-[15px] font-semibold text-[color:var(--text-strong)]">
+          {activeTab.moduleSection ? (
+            <activeTab.moduleSection.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+          ) : null}
           {activeTab.label}
         </h3>
         <p className="mt-1 text-[12px] text-[color:var(--text-muted)]">
@@ -1935,6 +1959,8 @@ export default function SettingsPanel({
               ? 'Changes apply automatically across Claude Code, Codex, and other terminal agents. Existing terminals keep their current config until relaunched.'
               : 'Open a workspace folder to sync MCPs to terminal agents.')}
           </MessageBlock>
+
+          <AutomationServerSettings />
         </div>
       ) : null}
 
@@ -2321,6 +2347,17 @@ export default function SettingsPanel({
         </div>
       ) : null}
 
+      {activeTab.moduleSection ? (
+        <div
+          role="tabpanel"
+          id={`settings-panel-${activeTab.id}`}
+          aria-labelledby={`settings-tab-${activeTab.id}`}
+          className="space-y-4"
+        >
+          <ModuleSettingsSectionHost section={activeTab.moduleSection} />
+        </div>
+      ) : null}
+
       {chrome === 'panel' ? (
         <div className="mt-6 flex justify-end border-t border-[color:var(--border-subtle)] pt-4">
           <GhostButton size="md" onClick={closeSettings}>
@@ -2376,7 +2413,7 @@ export default function SettingsPanel({
 }
 
 const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
-  tab: { id: SettingsTabId; label: string; description: string }
+  tab: { id: string; label: string; description: string }
   active: boolean
   onClick: () => void
   onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void

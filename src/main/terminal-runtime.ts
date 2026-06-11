@@ -82,6 +82,11 @@ type TerminalRuntimeOptions = {
     clients: AgentCli[]
     cleanupMcpConfig: boolean
   }): Promise<void> | void
+  callManagedSprintEngineTool?(input: {
+    runId: string
+    toolName: string
+    arguments?: Record<string, unknown>
+  }): Promise<unknown>
 }
 
 type TerminalIpcHandlers = {
@@ -120,9 +125,15 @@ let logMainPerfEvent: TerminalRuntimeOptions['logMainPerfEvent'] = () => {}
 let onAgentSessionExit: TerminalRuntimeOptions['onAgentSessionExit']
 let syncMcpConfig: TerminalRuntimeOptions['syncMcpConfig']
 let releaseManagedSprintEngineRun: TerminalRuntimeOptions['releaseManagedSprintEngineRun']
+let callManagedSprintEngineTool: TerminalRuntimeOptions['callManagedSprintEngineTool']
 const sprintEngineMcpRunRefCounts = new Map<string, number>()
 const sprintEngineMcpWorkspaceRefCounts = new Map<string, number>()
 const pendingSprintEngineMcpRunReleases = new Set<Promise<void>>()
+const sprintEngineAgentHeartbeatTimers = new Map<string, ReturnType<typeof setInterval>>()
+const pendingSprintEngineLifecycleCalls = new Set<Promise<void>>()
+const pendingSprintEngineTerminalTeardowns = new Map<string, { session: TerminalSession; promise: Promise<void> }>()
+
+export const SPRINTENGINE_AGENT_HEARTBEAT_INTERVAL_MS = 60 * 1000
 
 export function buildManagedSprintEngineSyncInputForLaunch(
   statePath: string,
@@ -169,9 +180,12 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   onAgentSessionExit = options.onAgentSessionExit
   syncMcpConfig = options.syncMcpConfig
   releaseManagedSprintEngineRun = options.releaseManagedSprintEngineRun
+  callManagedSprintEngineTool = options.callManagedSprintEngineTool
   sprintEngineMcpRunRefCounts.clear()
   sprintEngineMcpWorkspaceRefCounts.clear()
   pendingSprintEngineMcpRunReleases.clear()
+  pendingSprintEngineLifecycleCalls.clear()
+  pendingSprintEngineTerminalTeardowns.clear()
   logMainPerfEvent = options.logMainPerfEvent
   terminalDiagnostics = createTerminalDiagnostics({
     enabled: options.diagnosticsEnabled,
@@ -359,7 +373,7 @@ function disposeTerminal(sessionId: string): void {
   const session = terminals.get(sessionId)
   if (!session) return
 
-  releaseSprintEngineMcpRun(session)
+  void queueSprintEngineTerminalTeardown(session, 'terminal disposed')
   cleanupTerminalStartupScript(session.startupScriptPath)
   terminalOutput.flush(sessionId, 'dispose')
   terminalDiagnostics.clear(sessionId)
@@ -438,12 +452,16 @@ export function reapStaleTerminals(now = Date.now()): string[] {
 async function shutdownTerminalRuntime(): Promise<void> {
   stopStaleTerminalSweep()
   await disposeAllTerminals()
+  await Promise.allSettled([...pendingSprintEngineTerminalTeardowns.values()].map((entry) => entry.promise))
+  await Promise.allSettled([...pendingSprintEngineLifecycleCalls])
+  await Promise.allSettled([...pendingSprintEngineMcpRunReleases])
 }
 
 async function disposeAllTerminals(): Promise<void> {
   const sessions = [...terminals.values()].filter((session) => !session.isDisposed)
+  const teardownPromises: Promise<void>[] = []
   for (const session of sessions) {
-    releaseSprintEngineMcpRun(session)
+    teardownPromises.push(queueSprintEngineTerminalTeardown(session, 'terminal runtime shutdown'))
     cleanupTerminalStartupScript(session.startupScriptPath)
     terminalOutput.flush(session.sessionId, 'dispose')
     terminalDiagnostics.clear(session.sessionId)
@@ -467,6 +485,8 @@ async function disposeAllTerminals(): Promise<void> {
   })
   await Promise.all(sessions.map((session) => waitForTerminalExit(session, 500)))
   await Promise.allSettled([...pendingAgentSessionExitRecords])
+  await Promise.allSettled(teardownPromises)
+  await Promise.allSettled([...pendingSprintEngineTerminalTeardowns.values()].map((entry) => entry.promise))
   await Promise.allSettled([...pendingSprintEngineMcpRunReleases])
 
   for (const session of sessions) {
@@ -675,6 +695,104 @@ function queueSprintEngineMcpRunRelease(runId: string, context?: {
   })
 }
 
+function sprintEngineLifecycleCallInput(
+  session: TerminalSession,
+  toolName: string,
+  reason?: string
+): { runId: string; toolName: string; arguments: Record<string, unknown> } | null {
+  if (!session.sprintEngineMcpRunId || !session.sprintEngineStatePath || !session.agentId) return null
+  return {
+    runId: session.sprintEngineMcpRunId,
+    toolName,
+    arguments: {
+      agentId: session.agentId,
+      ...(session.sprintEngineRole ? { role: session.sprintEngineRole } : {}),
+      ...(reason ? { reason } : {}),
+    },
+  }
+}
+
+function queueSprintEngineLifecycleCall(
+  session: TerminalSession,
+  toolName: string,
+  reason?: string
+): Promise<void> | null {
+  const input = sprintEngineLifecycleCallInput(session, toolName, reason)
+  if (!input || !callManagedSprintEngineTool) return null
+  const call = Promise.resolve(callManagedSprintEngineTool(input))
+    .then(() => undefined)
+    .catch((error) => {
+      logMainPerfEvent('TerminalRuntime', 'sprintengine-lifecycle-call-failed', {
+        sessionId: session.sessionId,
+        agentId: session.agentId,
+        toolName,
+        message: getErrorMessage(error),
+      })
+    })
+  pendingSprintEngineLifecycleCalls.add(call)
+  void call.finally(() => {
+    pendingSprintEngineLifecycleCalls.delete(call)
+  })
+  return call
+}
+
+function startSprintEngineAgentHeartbeat(session: TerminalSession): void {
+  if (sprintEngineAgentHeartbeatTimers.has(session.sessionId)) return
+  if (!sprintEngineLifecycleCallInput(session, 'sprintengine.agent.heartbeat')) return
+  const timer = setInterval(() => {
+    if (!isTerminalProcessAlive(session)) {
+      stopSprintEngineAgentHeartbeat(session.sessionId)
+      return
+    }
+    void queueSprintEngineLifecycleCall(session, 'sprintengine.agent.heartbeat')
+  }, SPRINTENGINE_AGENT_HEARTBEAT_INTERVAL_MS)
+  timer.unref?.()
+  sprintEngineAgentHeartbeatTimers.set(session.sessionId, timer)
+}
+
+function stopSprintEngineAgentHeartbeat(sessionId: string): void {
+  const timer = sprintEngineAgentHeartbeatTimers.get(sessionId)
+  if (!timer) return
+  clearInterval(timer)
+  sprintEngineAgentHeartbeatTimers.delete(sessionId)
+}
+
+export async function sendSprintEngineAgentHeartbeats(): Promise<string[]> {
+  const sent: string[] = []
+  for (const session of terminals.values()) {
+    if (!isTerminalProcessAlive(session)) continue
+    if (!sprintEngineLifecycleCallInput(session, 'sprintengine.agent.heartbeat')) continue
+    await queueSprintEngineLifecycleCall(session, 'sprintengine.agent.heartbeat')
+    if (session.agentId) sent.push(session.agentId)
+  }
+  return sent
+}
+
+function recordSprintEngineAgentLeave(session: TerminalSession, reason: string): Promise<void> | null {
+  stopSprintEngineAgentHeartbeat(session.sessionId)
+  return queueSprintEngineLifecycleCall(session, 'sprintengine.agent.leave', reason)
+}
+
+function queueSprintEngineTerminalTeardown(session: TerminalSession, reason: string): Promise<void> {
+  const existing = pendingSprintEngineTerminalTeardowns.get(session.sessionId)
+  if (existing?.session === session) return existing.promise
+  const leave = recordSprintEngineAgentLeave(session, reason)
+  if (!leave) {
+    releaseSprintEngineMcpRun(session)
+    return Promise.resolve()
+  }
+  const teardown = leave.finally(() => {
+    releaseSprintEngineMcpRun(session)
+  })
+  pendingSprintEngineTerminalTeardowns.set(session.sessionId, { session, promise: teardown })
+  void teardown.finally(() => {
+    if (pendingSprintEngineTerminalTeardowns.get(session.sessionId)?.promise === teardown) {
+      pendingSprintEngineTerminalTeardowns.delete(session.sessionId)
+    }
+  })
+  return teardown
+}
+
 function materializeAgentSessionIdentity(
   sessionId: string,
   workspaceId: string | undefined,
@@ -700,6 +818,7 @@ function attachTerminalSession(
   initialInput: string | undefined
 ): void {
   terminals.set(sessionId, terminalSession)
+  startSprintEngineAgentHeartbeat(terminalSession)
   scheduleTerminalIdleTransition(terminalSession)
   broadcastTerminalSessionsChanged()
 
@@ -720,7 +839,7 @@ function attachTerminalSession(
   })
 
   terminalSession.process.onExit((event) => {
-    releaseSprintEngineMcpRun(terminalSession)
+    void queueSprintEngineTerminalTeardown(terminalSession, `terminal exited with code ${event.exitCode}`)
     cleanupTerminalStartupScript(terminalSession.startupScriptPath)
     terminalOutput.flush(sessionId, 'exit')
     terminalDiagnostics.clear(sessionId)
@@ -1126,6 +1245,7 @@ async function spawnMobileAgentTerminal(input: {
       cwd: launchCwd ?? input.cwd,
       sprintEngineStatePath: input.sprintEngineStatePath,
       sprintEngineMcpRunId,
+      sprintEngineRole: input.role,
       executionMode: input.executionMode,
       worktreeId: input.worktreeId,
       worktreePath: input.worktreePath,
@@ -1409,6 +1529,7 @@ async function spawnTerminalFromIpc(
         cwd: launchCwd ?? workingDirectory,
         sprintEngineStatePath,
         sprintEngineMcpRunId,
+        sprintEngineRole: sprintEngineRoleForLaunch(agentSession?.role, agentId),
         executionMode,
         worktreeId,
         worktreePath,

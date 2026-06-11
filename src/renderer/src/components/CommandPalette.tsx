@@ -9,8 +9,9 @@ import {
   getSpecialistCommandId,
   platformKeybindingsFromApiPlatform,
 } from '../commands/effectiveKeybindings'
-import { isCommandIdEnabled, type CommandAvailabilityContext } from '../commands/availability'
+import { isCommandEnabled, isCommandIdEnabled, type CommandAvailabilityContext } from '../commands/availability'
 import type { CommandScope } from '../commands/types'
+import { getRendererHost, selectModuleEnabled } from '../modules'
 
 interface Command {
   id: string
@@ -61,6 +62,7 @@ export default function CommandPalette({
   const inputRef = useRef<HTMLInputElement>(null)
   const { setActiveWorkspaceForWindow, addWorkspace, setActiveFile } = useWorkspaceStore()
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
+  const moduleEnablement = useWorkspaceStore((state) => state.appSettings.modules)
   const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
   const shortcutFor = (commandId: string): string | undefined =>
     getEffectiveKeybindingLabel(commandId, keybindingSettings, keybindingPlatform) ?? undefined
@@ -185,6 +187,24 @@ export default function CommandPalette({
         ]
       : []
     const navigationCommands: Command[] = []
+    // Commands contributed by enabled capability modules, gated by the same
+    // scope + availability predicate as built-in panel commands. Rows label as
+    // "<category>: <title>" so a module's commands read like the built-in
+    // groups; the handler is the module's own callback.
+    const moduleCommands: Command[] = getRendererHost()
+      .getModuleCommands((moduleId) => selectModuleEnabled(moduleEnablement, moduleId))
+      .filter((moduleCommand) => isCommandEnabled(moduleCommand, activeScopes, commandAvailability))
+      .map((moduleCommand) => ({
+        id: moduleCommand.id,
+        label: `${moduleCommand.category}: ${moduleCommand.title}`,
+        shortcut:
+          getEffectiveKeybindingLabel(moduleCommand.id, keybindingSettings, keybindingPlatform, moduleCommand)
+          ?? undefined,
+        run: () => {
+          void moduleCommand.run()
+          onClose()
+        },
+      }))
     return [
       {
         id: 'new-chat',
@@ -265,6 +285,7 @@ export default function CommandPalette({
       ...watchtowerCommands,
       ...sprintEngineCommands,
       ...multiloopCommands,
+      ...moduleCommands,
       {
         id: 'workspace.new',
         label: 'New Workspace...',
@@ -275,7 +296,7 @@ export default function CommandPalette({
         },
       },
     ]
-  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, onClose, onNewChat, onNewWorkspace, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability])
+  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, onClose, onNewChat, onNewWorkspace, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleEnablement])
 
   const filtered = query.trim()
     ? commands.filter((command) => {

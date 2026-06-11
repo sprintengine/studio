@@ -160,7 +160,7 @@ export const COMMAND_REGISTRY = [
     handlerPath: { kind: 'app-menu', command: 'toggle-git' },
   }),
   // The Knowledge Graph has no rail glyph (the rail is reserved for the
-  // navigational core: Files / Git / Backlog / Sprint Engines), so this
+  // navigational core: Files / Git / Backlog), so this
   // command — surfaced in the palette and the View menu — is its entry point.
   // It ships unbound; users can bind it in Shortcuts settings.
   command({
@@ -170,6 +170,18 @@ export const COMMAND_REGISTRY = [
     scopes: ['workspace'],
     availability: ['activeWorkspace', 'memoryGraphEnabled'],
     handlerPath: { kind: 'app-menu', command: 'panel.knowledge-graph.toggle' },
+  }),
+  // The Sprint Engines aside is app-level chrome (it surveys every workspace
+  // and survives workspace switches), so unlike the rail panel toggles it is
+  // global scope and needs no active workspace. It ships unbound; users can
+  // bind it in Shortcuts settings.
+  command({
+    id: 'panel.sprint-engines.toggle',
+    title: 'Toggle Sprint Engines',
+    category: 'panel',
+    scopes: ['global'],
+    availability: ['sprintEngineEnabled'],
+    handlerPath: { kind: 'workspace-manager', handler: 'setSprintEnginesAsideOpen(!sprintEnginesAsideOpen)' },
   }),
   command({
     id: 'git.worktrees.open',

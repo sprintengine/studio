@@ -54,6 +54,8 @@ export type MobileControlCommandType =
   | 'artifact.requestChanges'
   | 'agent.followUp'
   | 'device.revoke'
+  | 'backlog.update'
+  | 'backlog.startSprintEngine'
 
 export type MobileControlCapability =
   | 'snapshots.read'
@@ -63,6 +65,8 @@ export type MobileControlCapability =
   | 'artifacts.review'
   | 'agents.followUp'
   | 'devices.revoke'
+  | 'backlog.update'
+  | 'backlog.start'
 
 export type MobileControlErrorCode =
   | 'unsupported_protocol_version'
@@ -132,6 +136,8 @@ export type MobileRelayScope =
   | 'relay:agent:followup'
   | 'relay:push:register'
   | 'relay:device:revoke'
+  | 'relay:backlog:update'
+  | 'relay:backlog:start'
 
 export type RelayCommandType =
   | 'snapshot.request'
@@ -142,6 +148,8 @@ export type RelayCommandType =
   | 'artifact.requestChanges'
   | 'agent.followup'
   | 'device.revoke'
+  | 'backlog.update'
+  | 'backlog.startSprintEngine'
 
 export type RelayCommandEnvelope = {
   desktopRelaySessionId: string
@@ -335,6 +343,8 @@ const REQUESTED_SCOPES: MobileControlCapability[] = [
   'artifacts.review',
   'agents.followUp',
   'devices.revoke',
+  'backlog.update',
+  'backlog.start',
 ]
 const REQUESTED_RELAY_SCOPES: MobileRelayScope[] = [
   'relay:snapshot:read',
@@ -344,6 +354,8 @@ const REQUESTED_RELAY_SCOPES: MobileRelayScope[] = [
   'relay:artifact:review',
   'relay:agent:followup',
   'relay:device:revoke',
+  'relay:backlog:update',
+  'relay:backlog:start',
 ]
 const SUPPORTED_COMMANDS: MobileControlCommandType[] = [
   'snapshot.request',
@@ -354,6 +366,8 @@ const SUPPORTED_COMMANDS: MobileControlCommandType[] = [
   'artifact.requestChanges',
   'agent.followUp',
   'device.revoke',
+  'backlog.update',
+  'backlog.startSprintEngine',
 ]
 const RELAY_SUPPORTED_COMMANDS: RelayCommandType[] = [
   'snapshot.request',
@@ -364,6 +378,8 @@ const RELAY_SUPPORTED_COMMANDS: RelayCommandType[] = [
   'artifact.requestChanges',
   'agent.followup',
   'device.revoke',
+  'backlog.update',
+  'backlog.startSprintEngine',
 ]
 
 function normalizeRelayUrlUpdate(value: string | null | undefined): string | null {
@@ -970,12 +986,33 @@ export class MobileBridge {
       case 'artifact.requestChanges':
       case 'agent.followUp':
         return this.dispatchSprintEngineMutation(command)
+      case 'backlog.update':
+      case 'backlog.startSprintEngine':
+        return this.dispatchBacklogMutation(command)
     }
   }
 
   private async dispatchSprintEngineMutation(command: MobileControlCommand): Promise<MobileSprintEngineCommandResult> {
     const statePaths = await this.statePathsProvider()
     const allowedWorkspaceRoots = statePaths.map((statePath) => validateSprintEngineStatePath(statePath).workspaceRoot)
+    return this.commandService.dispatch(command, {
+      statePaths,
+      allowedWorkspaceRoots,
+    })
+  }
+
+  // Backlog commands target workspace roots directly (no Sprint Engine run is
+  // required yet), so the allowed roots include the snapshot workspace roots
+  // alongside any roots derived from configured run state paths.
+  private async dispatchBacklogMutation(command: MobileControlCommand): Promise<MobileSprintEngineCommandResult> {
+    const [statePaths, workspaceRoots] = await Promise.all([
+      this.statePathsProvider(),
+      this.workspaceRootsProvider(),
+    ])
+    const allowedWorkspaceRoots = [
+      ...statePaths.map((statePath) => validateSprintEngineStatePath(statePath).workspaceRoot),
+      ...workspaceRoots,
+    ]
     return this.commandService.dispatch(command, {
       statePaths,
       allowedWorkspaceRoots,

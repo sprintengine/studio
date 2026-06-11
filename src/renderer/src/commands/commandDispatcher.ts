@@ -1,7 +1,7 @@
 import { isCommandAvailable, type CommandAvailabilityContext } from './availability'
-import { COMMAND_REGISTRY, type CommandId } from './commandRegistry'
+import { COMMAND_REGISTRY } from './commandRegistry'
 import { parseKeybinding, type KeybindingPlatform, type KeybindingStroke } from './keybindings'
-import type { CommandDefinition, CommandScope } from './types'
+import type { CommandContribution, CommandScope } from './types'
 
 export type CommandDispatcherKeyEvent = {
   key: string
@@ -16,6 +16,12 @@ export type CommandDispatcherKeyEvent = {
 
 export type CommandDispatcherContext = {
   activeScopes: readonly CommandScope[]
+  // The full command universe to match against: the static shell registry plus
+  // enabled module commands (RendererKernel.getCommandContributions). Defaults
+  // to the shell registry alone, so callers without a module host keep the
+  // previous behavior. Order is priority on equal scope specificity, which is
+  // what keeps a module binding from silently shadowing a built-in.
+  commands?: readonly CommandContribution[]
   disabledCommandIds?: ReadonlySet<string>
   keybindingOverrides?: Readonly<Record<string, readonly string[]>>
   // Runtime preconditions (architect on roster, multiloop state loaded, voice
@@ -29,7 +35,7 @@ export type CommandDispatcherContext = {
 }
 
 export type CommandDispatcherResult =
-  | { kind: 'matched'; commandId: CommandId; command: CommandDefinition; preventDefault: true }
+  | { kind: 'matched'; commandId: string; command: CommandContribution; preventDefault: true }
   | { kind: 'pending'; preventDefault: true }
   | { kind: 'unmatched'; preventDefault: false }
 
@@ -43,7 +49,7 @@ type StrokeSignature = {
 }
 
 type ActiveBinding = {
-  command: CommandDefinition
+  command: CommandContribution
   strokes: readonly StrokeSignature[]
   specificity: number
   order: number
@@ -150,7 +156,7 @@ function signaturesMatch(a: StrokeSignature, b: StrokeSignature): boolean {
     && a.shift === b.shift
 }
 
-function scopeSpecificity(command: CommandDefinition, activeScopes: readonly CommandScope[]): number {
+function scopeSpecificity(command: CommandContribution, activeScopes: readonly CommandScope[]): number {
   if (command.scopes.some((scope) => scope.startsWith('panel:') && activeScopes.includes(scope))) return 4
   if (command.scopes.includes('editor') && activeScopes.includes('editor')) return 3
   if (command.scopes.includes('terminal') && activeScopes.includes('terminal')) return 3
@@ -160,18 +166,19 @@ function scopeSpecificity(command: CommandDefinition, activeScopes: readonly Com
   return 0
 }
 
-function commandIsActive(command: CommandDefinition, activeScopes: readonly CommandScope[]): boolean {
+function commandIsActive(command: CommandContribution, activeScopes: readonly CommandScope[]): boolean {
   return scopeSpecificity(command, activeScopes) > 0
 }
 
-function effectiveKeybindings(command: CommandDefinition, overrides?: Readonly<Record<string, readonly string[]>>): readonly string[] {
+function effectiveKeybindings(command: CommandContribution, overrides?: Readonly<Record<string, readonly string[]>>): readonly string[] {
   const override = overrides?.[command.id]
   return override && override.length > 0 ? override : command.defaultKeybindings ?? []
 }
 
 function activeBindings(context: CommandDispatcherContext): ActiveBinding[] {
   const bindings: ActiveBinding[] = []
-  COMMAND_REGISTRY.forEach((command, order) => {
+  const commands = context.commands ?? COMMAND_REGISTRY
+  commands.forEach((command, order) => {
     if (context.disabledCommandIds?.has(command.id)) return
     if (!commandIsActive(command, context.activeScopes)) return
     if (!isCommandAvailable(command, context.availability ?? {})) return
@@ -216,7 +223,7 @@ export class RendererCommandDispatcher {
         .filter((binding) => signaturesMatch(binding.strokes[0], firstStroke))
         .find((binding) => signaturesMatch(binding.strokes[1], eventStroke))
       if (match) {
-        return { kind: 'matched', commandId: match.command.id as CommandId, command: match.command, preventDefault: true }
+        return { kind: 'matched', commandId: match.command.id, command: match.command, preventDefault: true }
       }
     } else {
       this.pending = null
@@ -235,6 +242,6 @@ export class RendererCommandDispatcher {
     const match = candidates.find((binding) => binding.strokes.length === 1)
     if (!match) return { kind: 'unmatched', preventDefault: false }
     this.pending = null
-    return { kind: 'matched', commandId: match.command.id as CommandId, command: match.command, preventDefault: true }
+    return { kind: 'matched', commandId: match.command.id, command: match.command, preventDefault: true }
   }
 }

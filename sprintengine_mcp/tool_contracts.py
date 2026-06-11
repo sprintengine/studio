@@ -121,9 +121,11 @@ MCP_TOOL_CONTRACTS: dict[str, McpToolContract] = {
         _command("sprintengine.gate.list", cmd_task_gate_list),
         _command("sprintengine.gate.next", cmd_task_gate_next),
         _command("sprintengine.gate.claim", cmd_task_gate_claim),
+        # `gate.publish` and `gate.skip` were aliases of `gate.verdict`
+        # (skip = verdict "skipped" with the rationale as summary). They were
+        # removed to shrink every reviewer's tool surface; the CLI wrappers
+        # are unaffected.
         _command("sprintengine.gate.verdict", cmd_task_gate_verdict),
-        _command("sprintengine.gate.publish", cmd_task_gate_verdict),
-        _special("sprintengine.gate.skip"),
         _command("sprintengine.plan.add_task", cmd_plan_add_task),
         _command("sprintengine.plan.update_task", cmd_plan_update_task),
         _command("sprintengine.plan.delete_task", cmd_plan_delete_task),

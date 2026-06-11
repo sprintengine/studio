@@ -248,8 +248,10 @@ Active operation names:
   routes the task to `changes_requested`; routed blockers use
   `sprintengine.task.status` with `status: needs_input`.
 - Gates: `sprintengine.gate.list`, `sprintengine.gate.next`,
-  `sprintengine.gate.claim`, `sprintengine.gate.verdict`,
-  `sprintengine.gate.publish`, `sprintengine.gate.skip`.
+  `sprintengine.gate.claim`, `sprintengine.gate.verdict`. The former
+  `gate.publish` and `gate.skip` aliases were removed; a skip is
+  `gate.verdict` with `verdict: "skipped"`, which records the summary as the
+  skip rationale.
 - Artifacts: `sprintengine.artifact.add`, `sprintengine.artifact.ready`,
   `sprintengine.artifact.approve`, `sprintengine.artifact.request_changes`,
   `sprintengine.artifact.list`.
@@ -282,11 +284,38 @@ rework prompts are built from full store state and are unaffected. The
 human/debug CLI keeps full command output shapes. Response-shape regression
 tests live in `tests/sprintengine_tool/test_response_shapes.py`.
 
+Role capability policy (`sprintengine_mcp/capabilities.py`): one role→tool
+table is consumed by both sides of the contract — `tools/list` filters the
+advertised schemas by the session's role, and every call is checked against
+the same table, failing with `tool_not_permitted_for_role` (naming the role
+and, where known, the permitted alternative) when a hidden tool is called by
+name. Classification derives from the role registry, not hardcoded ids, so
+plugin roles participate: `architect` (registry-normalized id) gets the
+planning surface, any role whose manifest declares a `review` capability gets
+the rework-request privileges (`task.request_changes`,
+`artifact.request_changes` — this is why
+`resources/sprintengine/roles/product.json` declares
+`{"kind": "review", "phase": "product"}`), every other resolvable or unknown
+role gets the worker surface, and the operator (`role: "user"`, the app's IPC
+actor, the human/debug CLI, and stdio sessions) keeps the full surface. Gate
+tools (`gate.list/next/claim/verdict`) are in the common agent surface, not
+reviewer-only: quality gates carry their own role (a `frontend_review` gate
+is claimed by the frontend worker), and `gate_is_claimable_for_role` is the
+authority for who may claim a gate. The session role comes from agent-scoped HTTP run registrations: the
+app registers each agent terminal with `agentId` + `role`
+(`src/main/sprintengine-mcp-hub.ts` → `POST /runs`), and the returned token
+binds that terminal's MCP session to the role. Registrations without
+`agentId`/`role` stay run-scoped (operator surface), which keeps older
+callers working. Capability tests live in
+`tests/sprintengine_tool/test_capabilities.py`.
+
 Compatibility names:
 
 - `sprintengine.join` remains a compatibility alias for the agent join
   behavior used by `sprintengine join --watch`. It must keep the current CLI
   response shape while sharing lifecycle state with `sprintengine.agent.join`.
+  It is operator-only under the capability policy: autonomous agents never see
+  it and use `sprintengine.agent.join` + `agent.next_directive`.
 - CLI wrapper flows still use `sprintengine.task.next`,
   `sprintengine.task.claim`, `sprintengine.task.ready`,
   `sprintengine.task.note`, `sprintengine.task.resolve_input`,

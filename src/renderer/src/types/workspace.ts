@@ -1379,6 +1379,14 @@ export type AppSettings = {
   /** Capability-module enablement overrides, keyed by module id. */
   modules: ModuleEnablementOverrides
   /**
+   * Values persisted by module-contributed settings sections, keyed by
+   * `module:<moduleId>` namespace so module keys can never collide with shell
+   * settings. Disabling a module hides its section but leaves this namespace
+   * intact, so values survive a disable/enable cycle. Values must be
+   * JSON-serializable.
+   */
+  moduleSettings: Record<string, Record<string, unknown>>
+  /**
    * Whether the user has made a first-run capability-module choice. Until then
    * the module chooser is shown. Existing installs (with workspaces) are treated
    * as already-chosen so an upgrade never interrupts them.

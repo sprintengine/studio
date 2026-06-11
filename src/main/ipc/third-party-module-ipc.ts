@@ -11,6 +11,7 @@ import type {
 import { readModuleOverridesSync } from '../module-host/enablement-store'
 import { manifestFingerprint, type ModuleTrustContext } from '../modules/module-signature'
 import { readThirdPartyMainLaunchSnapshot, type ThirdPartyMainLaunchSnapshot } from '../modules/third-party-main-loader'
+import { rendererEntryView } from '../modules/third-party-renderer-entries'
 import {
   defaultUserModuleRoot,
   discoverUserModules,
@@ -97,6 +98,14 @@ export function toThirdPartyModuleView(
 }
 
 function launchViewFor(
+  module: InstalledModule,
+  launchSnapshot: ThirdPartyMainLaunchSnapshot,
+  enablementOverrides: ModuleEnablementOverrides
+): ThirdPartyModuleLaunchView {
+  return { ...mainEntryLaunchView(module, launchSnapshot, enablementOverrides), rendererEntry: rendererEntryView(module) }
+}
+
+function mainEntryLaunchView(
   module: InstalledModule,
   launchSnapshot: ThirdPartyMainLaunchSnapshot,
   enablementOverrides: ModuleEnablementOverrides

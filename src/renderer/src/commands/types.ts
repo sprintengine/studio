@@ -42,6 +42,10 @@ export type CommandAvailability =
   // panel component is registered and a toggle can actually mount it. The
   // panel has no rail glyph; the palette/menu toggle is its only entry point.
   | 'memoryGraphEnabled'
+  // The sprint-engine capability module is enabled, so the app-level Sprint
+  // Engines aside (the global run survey docked right of the workspace card)
+  // can be toggled.
+  | 'sprintEngineEnabled'
   // The Git panel is mounted in the active workspace, so its panel-command
   // handlers (refresh/fetch/commit) can receive and act on a dispatch.
   | 'gitPanelActive'
@@ -55,16 +59,26 @@ export type CommandHandlerPath =
   | { kind: 'command-palette'; handler: string }
   | { kind: 'context-bound'; owner: string; action: string }
 
-export type CommandDefinition = {
+// The shape shared by every command the palette, keybindings pipeline, and
+// dispatcher consume. Shell commands attach a handlerPath descriptor on top of
+// this (CommandDefinition); module commands attach their handler callback
+// directly (RegisteredModuleCommand in modules/renderer-host.ts). Module
+// commands group under their module's own label, so `category` is open here
+// and narrowed to CommandCategory on CommandDefinition.
+export type CommandContribution = {
   id: string
   title: string
-  category: CommandCategory
+  category: CommandCategory | (string & {})
   scopes: readonly CommandScope[]
   defaultKeybindings?: readonly string[]
   availability?: readonly CommandAvailability[]
-  handlerPath: CommandHandlerPath
   keybindingContext?: string
   allowInEditableTarget?: boolean
+}
+
+export type CommandDefinition = CommandContribution & {
+  category: CommandCategory
+  handlerPath: CommandHandlerPath
 }
 
 export type PlatformKeybindingMap = Partial<Record<KeybindingPlatform, readonly string[]>>

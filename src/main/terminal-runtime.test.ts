@@ -14,6 +14,8 @@ type SyncInput = Parameters<SyncMcpConfig>[0]
 type SyncResult = Awaited<ReturnType<SyncMcpConfig>>
 type ReleaseManagedSprintEngineRun = NonNullable<Parameters<typeof import('./terminal-runtime')['createTerminalRuntime']>[0]['releaseManagedSprintEngineRun']>
 type ReleaseInput = Parameters<ReleaseManagedSprintEngineRun>[0]
+type CallManagedSprintEngineTool = NonNullable<Parameters<typeof import('./terminal-runtime')['createTerminalRuntime']>[0]['callManagedSprintEngineTool']>
+type ToolCallInput = Parameters<CallManagedSprintEngineTool>[0]
 
 type SentEvent = {
   channel: string
@@ -27,6 +29,7 @@ type MockPtyProcess = {
   onData(callback: (data: string) => void): { dispose(): void }
   onExit(callback: (event: { exitCode: number, signal?: number }) => void): { dispose(): void }
   emitData(data: string): void
+  emitExit(event?: { exitCode: number, signal?: number }): void
   writes: string[]
   killed: boolean
 }
@@ -101,6 +104,9 @@ async function main(): Promise<void> {
     await assertSprintEngineSpawnReportsThrownHttpMcpSetupFailureWithoutPtySpawn(runtimeModule)
     await assertSprintEngineSpawnReleasesUnusedRunWhenPtySpawnFails(runtimeModule)
     await assertSprintEngineRunCleanupWaitsForLastTerminal(runtimeModule)
+    await assertSprintEngineAgentHeartbeatAndLeaveUseManagedMcp(runtimeModule)
+    await assertSprintEngineShutdownWaitsForLeaveBeforeRelease(runtimeModule)
+    await assertSprintEngineTeardownIsSessionObjectScoped(runtimeModule)
     await assertSprintEngineConcurrentSpawnFailureKeepsReservedRun(runtimeModule)
     await assertSprintEngineSpawnDerivesFallbackAgentIdBeforeMcpSync(runtimeModule)
     await assertTerminalReattachUsesReplayChannel(runtimeModule)
@@ -164,6 +170,236 @@ async function assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule: Run
       'reaped terminals must not emit terminal:exit so renderer launch flags survive for resume'
     )
   } finally {
+    await runtime.shutdown()
+  }
+}
+
+async function assertSprintEngineAgentHeartbeatAndLeaveUseManagedMcp(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprintengine-liveness-'))
+  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const toolCalls: ToolCallInput[] = []
+  const releasedRuns: ReleaseInput[] = []
+  const order: string[] = []
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (): Promise<SyncResult> => ({
+      ok: true,
+      managedSprintEngineRunId: 'liveness-run-1',
+      runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'liveness-token' },
+    }),
+    callManagedSprintEngineTool: async (input) => {
+      toolCalls.push(input)
+      order.push(input.toolName)
+      return { ok: true }
+    },
+    releaseManagedSprintEngineRun: async (input) => {
+      releasedRuns.push(input)
+      order.push('release')
+    },
+  })
+
+  try {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_liveness',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      sprintEngineStatePath,
+      agentId: 'frontend-2',
+      cli: 'codex',
+      kind: 'agent',
+      shellOnly: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+
+    const heartbeats = await runtimeModule.sendSprintEngineAgentHeartbeats()
+    assert.deepEqual(heartbeats, ['frontend-2'])
+    assert.deepEqual(toolCalls[0], {
+      runId: 'liveness-run-1',
+      toolName: 'sprintengine.agent.heartbeat',
+      arguments: {
+        agentId: 'frontend-2',
+        role: 'frontend',
+      },
+    })
+
+    runtime.ipcHandlers.killTerminal('session_liveness')
+    mockPty.spawnCalls[0]?.process.emitExit({ exitCode: 0 })
+    await delay(20)
+
+    const leaveCalls = toolCalls.filter((call) => call.toolName === 'sprintengine.agent.leave')
+    assert.deepEqual(leaveCalls, [{
+      runId: 'liveness-run-1',
+      toolName: 'sprintengine.agent.leave',
+      arguments: {
+        agentId: 'frontend-2',
+        role: 'frontend',
+        reason: 'terminal disposed',
+      },
+    }])
+    assert.deepEqual(releasedRuns, [{
+      runId: 'liveness-run-1',
+      workspaceRoot,
+      clients: ['codex', 'claude-code'],
+      cleanupMcpConfig: true,
+    }])
+    assert.deepEqual(order, ['sprintengine.agent.heartbeat', 'sprintengine.agent.leave', 'release'])
+  } finally {
+    await runtime.shutdown()
+  }
+}
+
+async function assertSprintEngineShutdownWaitsForLeaveBeforeRelease(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprintengine-shutdown-'))
+  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const releasedRuns: ReleaseInput[] = []
+  const order: string[] = []
+  let resolveLeave: (() => void) | undefined
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (): Promise<SyncResult> => ({
+      ok: true,
+      managedSprintEngineRunId: 'shutdown-run-1',
+      runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'shutdown-token' },
+    }),
+    callManagedSprintEngineTool: async (input) => {
+      order.push(input.toolName)
+      if (input.toolName === 'sprintengine.agent.leave') {
+        await new Promise<void>((resolve) => {
+          resolveLeave = resolve
+        })
+      }
+      return { ok: true }
+    },
+    releaseManagedSprintEngineRun: async (input) => {
+      releasedRuns.push(input)
+      order.push('release')
+    },
+  })
+
+  const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+    sessionId: 'session_shutdown_liveness',
+    cols: 120,
+    rows: 30,
+    cwd: workspaceRoot,
+    sprintEngineStatePath,
+    agentId: 'developer-1',
+    cli: 'codex',
+    kind: 'agent',
+    shellOnly: false,
+    mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+  })
+  assert.equal(result.ok, true, JSON.stringify(result))
+
+  const shutdown = runtime.shutdown()
+  mockPty.spawnCalls[0]?.process.emitExit({ exitCode: 0 })
+  await delay(20)
+  assert.deepEqual(releasedRuns, [], 'shutdown must not release the MCP run before agent.leave settles')
+
+  resolveLeave?.()
+  await shutdown
+  assert.deepEqual(releasedRuns, [{
+    runId: 'shutdown-run-1',
+    workspaceRoot,
+    clients: ['codex', 'claude-code'],
+    cleanupMcpConfig: true,
+  }])
+  assert.deepEqual(order, ['sprintengine.agent.leave', 'release'])
+}
+
+async function assertSprintEngineTeardownIsSessionObjectScoped(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprintengine-respawn-'))
+  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const toolCalls: ToolCallInput[] = []
+  const releasedRuns: ReleaseInput[] = []
+  const leaveResolvers: Array<() => void> = []
+  let registrationCount = 0
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (): Promise<SyncResult> => {
+      registrationCount += 1
+      return {
+        ok: true,
+        managedSprintEngineRunId: `respawn-run-${registrationCount}`,
+        runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: `respawn-token-${registrationCount}` },
+      }
+    },
+    callManagedSprintEngineTool: async (input) => {
+      toolCalls.push(input)
+      if (input.toolName === 'sprintengine.agent.leave') {
+        await new Promise<void>((resolve) => {
+          leaveResolvers.push(resolve)
+        })
+      }
+      return { ok: true }
+    },
+    releaseManagedSprintEngineRun: async (input) => {
+      releasedRuns.push(input)
+    },
+  })
+
+  try {
+    const first = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_respawn',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      sprintEngineStatePath,
+      agentId: 'developer-1',
+      cli: 'codex',
+      kind: 'agent',
+      shellOnly: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(first.ok, true, JSON.stringify(first))
+
+    runtime.ipcHandlers.killTerminal('session_respawn')
+    await delay(20)
+    assert.equal(leaveResolvers.length, 1)
+
+    const second = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_respawn',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      sprintEngineStatePath,
+      agentId: 'developer-1',
+      cli: 'codex',
+      kind: 'agent',
+      shellOnly: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(second.ok, true, JSON.stringify(second))
+
+    runtime.ipcHandlers.killTerminal('session_respawn')
+    await delay(20)
+    assert.equal(leaveResolvers.length, 2, 'new session object with same id must get its own leave')
+
+    leaveResolvers.forEach((resolve) => resolve())
+    await delay(20)
+    assert.deepEqual(
+      toolCalls.filter((call) => call.toolName === 'sprintengine.agent.leave').map((call) => call.runId),
+      ['respawn-run-1', 'respawn-run-2']
+    )
+    assert.deepEqual(releasedRuns.map((run) => run.runId), ['respawn-run-1', 'respawn-run-2'])
+  } finally {
+    leaveResolvers.forEach((resolve) => resolve())
     await runtime.shutdown()
   }
 }
@@ -650,6 +886,9 @@ function createMockPtyProcess(): MockPtyProcess {
     },
     emitData(data: string): void {
       for (const callback of dataCallbacks) callback(data)
+    },
+    emitExit(event = { exitCode: 0 }): void {
+      for (const callback of exitCallbacks) callback(event)
     },
   }
 }

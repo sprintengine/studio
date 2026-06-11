@@ -6,8 +6,17 @@ import type {
   ModuleTrustStatus,
   ThirdPartyModuleLaunchView,
   ThirdPartyModuleView,
+  ThirdPartyRendererEntryView,
 } from '../../../../shared/modules/manifest'
-import { describeCapabilityPermission } from '../../../../shared/modules/permissions'
+import {
+  describeCapabilityPermission,
+  isBroadCapabilityPermission,
+  isKnownCapabilityPermission,
+} from '../../../../shared/modules/permissions'
+import {
+  getThirdPartyRendererLoadState,
+  type ThirdPartyRendererLoadState,
+} from '../../modules/third-party-loader'
 import type { Tone } from '../ui/tokens'
 import { GhostButton, StatusDot, Switch } from '../ui'
 
@@ -66,6 +75,39 @@ export function describeModuleLaunch(
   }
 }
 
+// The renderer-entry consequence line, shown only for trusted modules that
+// declare one (status is earned: undeclared entries render nothing, and
+// trust-blocked modules already carry one "blocked until trusted" line — a
+// second would double the same signal). Two sources, clearly split: the main
+// process reports whether the bundle is servable; the renderer loader reports
+// what happened when this session evaluated it. A trusted-after-boot module
+// has no load state yet, which honestly reads as next-launch.
+export function describeRendererEntry(
+  view: ThirdPartyRendererEntryView | undefined,
+  loadState: ThirdPartyRendererLoadState | undefined,
+  trust: ModuleTrustStatus
+): { label: string; detail: string } | null {
+  if (trust !== 'trusted' || !view || view.availability === 'none' || view.availability === 'blocked') {
+    return null
+  }
+  if (view.availability === 'error') {
+    return {
+      label: 'Renderer entry error',
+      detail: view.message ?? 'entry.renderer bundle could not be served.',
+    }
+  }
+  if (!loadState) {
+    return { label: 'Renderer entry ready', detail: 'Loads on the next app launch.' }
+  }
+  if (loadState.status === 'error') {
+    return { label: 'Renderer entry failed', detail: loadState.message }
+  }
+  return {
+    label: 'Renderer entry loaded',
+    detail: 'Contributions follow the enable toggle without a reload.',
+  }
+}
+
 // The live enablement intent for one module: an explicit appSettings.modules
 // override wins, otherwise the manifest default. Mirrors the main launch view's
 // `enablementOverrides[id] ?? manifest.defaultEnabled` so the renderer toggle and
@@ -86,50 +128,81 @@ const MESSAGE_CLASS: Record<NonNullable<Message>['tone'], string> = {
   error: 'border-[color:var(--tone-error)] text-[color:var(--tone-error)]',
 }
 
+// Requested-access chips. Disclosure only: the chip text is what the module
+// says it does (describeCapabilityPermission keeps every string free of
+// enforcement language). The broad legacy scope (ipc:invoke) and unrecognized
+// scopes warn-tint the chip; the wording itself carries the same signal
+// ("broad legacy scope" / "Unrecognized capability"), so the flag is never
+// color-only.
 function PermissionChips({ permissions }: { permissions: string[] }) {
   if (permissions.length === 0) {
     return <span className="text-[11px] text-[color:var(--text-subtle)]">No special access requested.</span>
   }
   return (
     <div className="flex flex-wrap gap-1.5">
-      {permissions.map((permission) => (
-        <span
-          key={permission}
-          title={permission}
-          className="inline-flex items-center rounded-md bg-[color:var(--bg-active)] px-2 py-0.5 text-[11px] text-[color:var(--text-default)]"
-        >
-          {describeCapabilityPermission(permission)}
-        </span>
-      ))}
+      {permissions.map((permission) => {
+        const flagged = isBroadCapabilityPermission(permission) || !isKnownCapabilityPermission(permission)
+        return (
+          <span
+            key={permission}
+            title={permission}
+            className={`inline-flex items-center rounded-md bg-[color:var(--bg-active)] px-2 py-0.5 text-[11px] ${
+              flagged ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-default)]'
+            }`}
+          >
+            {describeCapabilityPermission(permission)}
+          </span>
+        )
+      })}
     </div>
   )
 }
 
 // One installed module: trust on the StatusDot, launch readiness as plain
-// consequence text, the trust toggle (or a static "cannot be trusted" note for
-// invalid signatures), an enable toggle once the module is trusted and has a
-// main entry, and the requested access. Presentational so row status and copy
-// can be rendered and asserted in isolation.
+// consequence text (one line per entry kind, each naming its half — "Main
+// entry …" / "Renderer entry …" — so the two execution surfaces and their
+// different toggle semantics stay distinguishable), the trust toggle (or a
+// static "cannot be trusted" note for invalid signatures), an enable toggle
+// once the module is trusted and has code to run, and the requested access.
+// Presentational so row status and copy can be rendered and asserted in
+// isolation; the renderer-side load state is injectable for the same reason.
 export function ThirdPartyModuleRow({
   module,
   pending,
   enabled,
+  rendererLoadState = getThirdPartyRendererLoadState(module.manifest.id),
   onTrustChange,
   onEnabledChange,
 }: {
   module: ThirdPartyModuleView
   pending: boolean
   enabled: boolean
+  rendererLoadState?: ThirdPartyRendererLoadState
   onTrustChange: (trusted: boolean) => void
   onEnabledChange: (enabled: boolean) => void
 }) {
   const trust = TRUST_PRESENTATION[module.trust]
-  const launch = describeModuleLaunch(module.launch, enabled)
+  const rendererEntry = describeRendererEntry(module.launch.rendererEntry, rendererLoadState, module.trust)
+  // A trusted renderer-entry module without a main entry would otherwise read
+  // "Manifest only — no code to run", which is false; the renderer line is the
+  // whole story for that shape.
+  const launch =
+    module.launch.status === 'trusted_manifest_only' && rendererEntry
+      ? null
+      : describeModuleLaunch(module.launch, enabled)
   const isInvalid = module.trust === 'invalid'
   // The enable control is only meaningful once a module is trusted and actually
   // has code to run; without it the row would dead-end on a disabled trusted
-  // module (the product follow-up this task fixes).
-  const canEnable = module.trust === 'trusted' && module.launch.hasMainEntry
+  // module. Renderer-entry contributions gate by the same toggle, live.
+  const hasRendererEntry = Boolean(
+    module.launch.rendererEntry && module.launch.rendererEntry.availability !== 'none'
+  )
+  const canEnable = module.trust === 'trusted' && (module.launch.hasMainEntry || hasRendererEntry)
+  const enableLabel = module.launch.hasMainEntry
+    ? hasRendererEntry
+      ? 'Enable this module'
+      : 'Load on the next app launch'
+    : 'Enable contributions'
   const enableLabelId = useId()
   return (
     <div className="flex flex-col gap-2 py-3">
@@ -163,14 +236,22 @@ export function ThirdPartyModuleRow({
           />
         )}
       </div>
-      <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-        <span className="text-[color:var(--text-default)]">{launch.label}</span>
-        {` — ${launch.detail}`}
-      </div>
+      {launch ? (
+        <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <span className="text-[color:var(--text-default)]">{launch.label}</span>
+          {` — ${launch.detail}`}
+        </div>
+      ) : null}
+      {rendererEntry ? (
+        <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <span className="text-[color:var(--text-default)]">{rendererEntry.label}</span>
+          {` — ${rendererEntry.detail}`}
+        </div>
+      ) : null}
       {canEnable ? (
         <div className="flex items-center justify-between gap-3">
           <span id={enableLabelId} className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            Load on the next app launch
+            {enableLabel}
           </span>
           <Switch checked={enabled} ariaLabelledBy={enableLabelId} onChange={onEnabledChange} />
         </div>
@@ -254,9 +335,11 @@ export function ThirdPartyModuleList({
           <div className="text-sm font-semibold text-[color:var(--text-strong)]">Third-party modules</div>
           <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
             Modules you install from disk. Review the access each one requests and trust the ones you
-            approve. A trusted module&rsquo;s main code runs in this app and loads at app launch;
-            manifest-only modules contribute metadata without running code. Enabling, disabling, or
-            untrusting a module takes effect on the next app launch.
+            approve — requested access is install-time disclosure, not a runtime sandbox. A trusted
+            module&rsquo;s code runs in this app with the app&rsquo;s access and loads at app launch;
+            manifest-only modules contribute metadata without running code. The enable toggle applies
+            to renderer contributions immediately; main-process code and trust changes take effect on
+            the next app launch.
           </p>
         </div>
         <GhostButton size="md" onClick={() => void installFromFolder()} disabled={installing} className="h-9">

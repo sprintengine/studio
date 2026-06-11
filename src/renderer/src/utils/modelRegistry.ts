@@ -771,19 +771,20 @@ export function toggleComponentTab(
   return focusOrAddComponentTab(workspaceId, component, name)
 }
 
-// Strip-less navigational rail components. Files / Git / Backlog / Sprint
-// Engines are single-instance navigational surfaces, so they share ONE
-// left-docked pane whose FlexLayout tab strip is hidden and the PanelRail
-// buttons act as exclusive switches into it — exactly one shows at a time.
-// Knowledge Graph keeps the same nav-pane semantics but is reached through the
-// command palette / View menu rather than a rail glyph. The Editor is
+// Strip-less navigational rail components. Files / Git / Backlog are
+// single-instance navigational surfaces, so they share ONE left-docked pane
+// whose FlexLayout tab strip is hidden and the PanelRail buttons act as
+// exclusive switches into it — exactly one shows at a time. Knowledge Graph
+// keeps the same nav-pane semantics but is reached through the command
+// palette / View menu rather than a rail glyph. Sprint Engines is NOT here:
+// it surveys every workspace, so it lives in the app-level right aside
+// (SprintEnginesAside), outside any per-workspace layout model. The Editor is
 // deliberately excluded: it owns a document tab strip so multiple open files
 // stay switchable (see toggleEditorRailComponent).
 export const NAV_RAIL_COMPONENTS = new Set<string>([
   'explorer',
   'git',
   'backlog',
-  'sprint-engines',
   'memory-graph',
 ])
 
