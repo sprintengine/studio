@@ -255,25 +255,20 @@ real:
 
 Levers, in descending order of value:
 
-1. **Extract deterministic mechanics into scripts.** The FNV-1a `node -e`
-   one-liner plus the items.json edit procedure is ~60 lines of the backlog
-   skills. Replace with a small `scripts/backlog-status.mjs` the agent
-   invokes (`node … <path> in_progress`): the prompt drops to ~3 lines and
-   hand-mangled JSON becomes impossible — the only lever that *improves*
-   behaviour while compressing. Precedent already exists
-   (`.agents/skills/sprintengine/scripts/sprintengine_tool.py`), and it
-   matches the upstream `write-a-skill` guidance: scripts for deterministic
-   operations.
-2. **One full statement per rule; short references elsewhere.** This is the
+1. **One full statement per rule; short references elsewhere.** This is the
    §4 dedup move — compression and deduplication are the same edit.
-3. **Category + examples in directives; the exhaustive vocabulary survives
+2. **Category + examples in directives; the exhaustive vocabulary survives
    exactly once**, in the canonical skill's `<supporting-info>`, where
    reviewer rubrics cite it. Relocate full lists, never delete them.
-4. **Qualifier audit — per instance, never mechanical.** Hedges split into
+3. **Qualifier audit — per instance, never mechanical.** Hedges split into
    load-bearing escape hatches ("where practical" on relative paths: strip it
    and agents will mangle legitimately-absolute paths) and flab ("Respect the
    user's choice when it is unset", restating the directive above it). Each
    gets a keep/cut call recorded in the rule inventory (§6).
+4. **(Deferred)** Extracting the FNV-1a/items.json mechanics into a script or
+   MCP tool was considered and rejected for now: a loose script can't assume
+   `node` on shipped customer machines, and an MCP tool is overkill for a
+   status write. The prose procedure stays, demoted to `<supporting-info>`.
 
 Ballpark: dedup + compression + script extraction takes the developer soul
 from ~260 to ~130–150 lines with zero rules lost.
@@ -339,23 +334,46 @@ first, then change one seam at a time.
   `<what-to-do>` stays small. The lint in §3.3 is what keeps the floor from
   sloping back.
 
-## 8. Suggested sequencing
+## 8. Decided plan (2026-06-11)
 
-1. **Rule inventory** (§6.1) — half a day; converts every later edit from
-   editorial judgement into checked coverage.
-2. **Soul contract tests** (§6.2), green against the *current* souls before
-   anything changes.
-3. Renderer: envelope-wrap + legend in `render_soul()` (no skill edits needed;
-   immediately fixes heading collisions). Add the lint warnings.
-4. **Tagging pass** (§3) — purely additive, lowest risk, done under the net.
-5. **Script extraction** (§5.1) — `backlog-status.mjs` replaces the FNV-1a /
-   items.json prose in both backlog skills and all synced copies.
-6. Merge the five discipline micro-skills into `delivery_discipline`
-   (built alongside, not in place — §6.5), applying §5's compression and the
-   canonical vocabulary; switch only the `developer` manifest.
-7. Trial in real sprints with reviewers unchanged (§6.3–6.4).
-8. Convert remaining producer roles, then reviewer souls last (they're the
-   largest and benefit most from a careful what-to-do trim, not a mechanical
-   wrap), then delete the deprecated micro-skills.
-9. Convert the user-invocable family, propagating the backlog skill to all
-   synced copies in one change.
+Scope decided: tags + provenance envelopes, dedup/compression, and tests.
+No MCP tool, no script extraction, no architecture changes.
+
+**Phase 0 — safety net (do first, no behaviour change)**
+
+1. Rule inventory: critical rules get stable IDs; every occurrence mapped
+   (file:line). The §4 table is the starting point.
+2. Soul contract tests: extend `sprintengine-role-registry.test.ts` to render
+   every role's soul and assert each required rule ID is present (anchor on
+   rule IDs, not phrasing). Green against current souls before any edit.
+
+**Phase 1 — renderer (one small PR)**
+
+3. `render_soul()` wraps each composed part in
+   `<skill name="<skill_id>">…</skill>` (provenance + fixes heading
+   collisions).
+4. Three-line legend at the top of every rendered soul defining
+   `<what-to-do>` (mandatory, overrides) vs `<supporting-info>` (reference).
+5. `RegistryWarning` lint: skill missing `<what-to-do>` or block over ~10
+   lines.
+
+**Phase 2 — tag and trim the Soul skills (one PR per role group)**
+
+6. Each SKILL.md gets `<what-to-do>` (≤10 lines) + `<supporting-info>`.
+   In the same edit, apply §4/§5: delete duplicates covered by the inventory
+   (`developer:11`, the shadowed slop-list bullets, `spec_reviewer:18`'s
+   copied evidence list, relative-paths restatements), cut restated
+   rationale and dead qualifiers, keep one canonical vocabulary in
+   `production_reality_gate` with reviewers citing it.
+7. Order: `developer` soul set first → run real sprints with reviewers
+   unchanged (they are the net) → remaining producer roles → reviewer souls
+   last. Contract tests gate every PR.
+
+**Phase 3 — user-invocable skills**
+
+8. Same tag-and-trim on the `/backlog` family; propagate to all synced
+   harness copies in one change.
+
+Expected outcome: souls roughly 40–50% smaller, every critical rule pinned
+by a test, and every line in a rendered soul attributable to its source
+skill.
