@@ -76,6 +76,35 @@ def test_every_bundled_soul_skill_has_registered_anchors(bundled_discovery) -> N
     )
 
 
+WHAT_TO_DO_MAX_NONEMPTY_LINES = 16
+
+
+def test_bundled_soul_skills_have_wellformed_emphasis_tags(bundled_discovery) -> None:
+    referenced = {
+        soul_entry.skill
+        for entry in bundled_discovery.roles.values()
+        for soul_entry in entry.value.soul
+    }
+    problems: list[str] = []
+    for skill_id in sorted(referenced):
+        body = bundled_discovery.skills[skill_id].value.body
+        if body.count("<what-to-do>") != 1 or body.count("</what-to-do>") != 1:
+            problems.append(f"{skill_id}: needs exactly one <what-to-do> block")
+            continue
+        if body.count("<supporting-info>") != body.count("</supporting-info>"):
+            problems.append(f"{skill_id}: unbalanced <supporting-info> tags")
+        if "<supporting-info>" in body and body.index("<what-to-do>") > body.index("<supporting-info>"):
+            problems.append(f"{skill_id}: <what-to-do> must come before <supporting-info>")
+        block = body.split("<what-to-do>", 1)[1].split("</what-to-do>", 1)[0]
+        nonempty = [line for line in block.splitlines() if line.strip()]
+        if len(nonempty) > WHAT_TO_DO_MAX_NONEMPTY_LINES:
+            problems.append(
+                f"{skill_id}: <what-to-do> has {len(nonempty)} non-empty lines "
+                f"(max {WHAT_TO_DO_MAX_NONEMPTY_LINES}); demote detail to <supporting-info>"
+            )
+    assert not problems, "Skill emphasis-tag problems:\n" + "\n".join(problems)
+
+
 def test_rendered_souls_carry_legend_and_skill_provenance(bundled_discovery, tmp_path: Path) -> None:
     for role_id in sorted(bundled_discovery.roles):
         rendered = bundled_discovery.render_soul(

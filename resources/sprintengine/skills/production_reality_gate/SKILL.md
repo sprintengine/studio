@@ -1,3 +1,5 @@
+<what-to-do>
+
 # Production Reality Gate
 
 Production work defaults to real implementation. Do not treat `MVP`, `first pass`, `local`, or `works in UI` as permission to ship sample data, generated demo entities, fake API responses, mocked transports, stubbed commands, placeholder persistence, disconnected local-only UI state, or controls that only simulate success.
@@ -9,3 +11,5 @@ Before marking implementation or review work done, identify the real source of t
 If the real dependency is unavailable, blocked, physically unverified, missing from the codebase, or outside the current task, do not claim the product behavior is done. Record a blocker or follow-up, and make the remaining real integration explicit.
 
 Architecture plans and acceptance criteria must fail when the feature only works through hardcoded samples, disconnected UI state, fake success paths, mocks, stubs, or documentation of unverified limits.
+
+</what-to-do>
