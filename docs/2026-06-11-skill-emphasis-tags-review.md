@@ -192,13 +192,140 @@ comments. Any restructure lands in all copies in the same change. Frontmatter
 (`name`/`description`) is untouched by this proposal; tags only structure the
 body, so skill discovery/triggering is unaffected.
 
-## 4. Honest caveats
+## 4. The duplication inventory — what is repeated and why
+
+Four rules are restated across the skill set, with file:line evidence. Each
+appears multiple times *within a single composed soul* because every role
+manifest includes all five discipline micro-skills plus a role skill that
+predates them.
+
+1. **No fake success (real implementation).** Canonical home:
+   `production_reality_gate`. Also restated in `developer:62` (slop-list
+   bullet), `post_change_self_review:5`, `fallback_discipline:5`, and per
+   role in `security:49`, `performance:106`, `code_reviewer:125,130`,
+   `production_readiness_reviewer:21,58,74`, `spec_reviewer:37,103`,
+   `creative:81,143`, `architect:63`, `presentation:64`. The developer soul
+   states it 4×; reviewer souls 5–6×.
+2. **Explicit failure over fallback.** `fallback_discipline:3` and
+   `developer:11` are near-verbatim duplicates of each other.
+3. **Evidence requirements.** `evidence_quality_assessment:3`'s list
+   reappears almost verbatim in `spec_reviewer:18` and overlaps
+   `production_reality_gate:7`, `post_change_self_review:7`, and
+   `multicode_backlog:100-101`.
+4. **Project-relative paths.** The 5-line `project_relative_paths` skill plus
+   restatements in `developer:16`, `multicode_backlog`,
+   `workspace_knowledge:49`, `cross_platform`, and `blog_writer`.
+
+Why it happened, because the mechanism dictates the fix:
+
+- **Layering without subtraction** — role skills were written self-contained;
+  the shared micro-skill layer was added later and the role-skill copies were
+  never removed (`developer:11` vs `fallback_discipline:3` is the smoking
+  gun). Fix: delete the shadowed copies.
+- **À-la-carte composition makes authors defensive** — a skill can't assume
+  which others are present, so each inlines its dependencies. All current
+  manifests include all five micro-skills, so the defensive copies never pay
+  off. Fix: the consolidated discipline skill becomes a guaranteed layer.
+- **Producer/reviewer symmetry — partially legitimate.** "Don't ship fakes"
+  (producer) and "fail work that ships fakes" (reviewer rubric, with scoring
+  weights) are genuinely different obligations. Keep both; but each currently
+  re-enumerates the fake-things vocabulary from scratch and the seven copies
+  have drifted — no two lists agree. Fix: one canonical vocabulary, cited.
+- **Incident-driven accretion** — rules grew a restatement per incident,
+  wherever the author was looking. Repetition-as-emphasis works only with
+  hierarchy; by the fourth flat restatement it reads as boilerplate.
+
+Target state per soul: **two deliberate statements** of each critical rule —
+once in the consolidated discipline layer (producer obligation, owning the
+canonical vocabulary) and once per reviewer skill (enforcement rubric citing
+that vocabulary) — instead of four-to-six drifted copies.
+
+## 5. Compression — fewer words per rule
+
+Two different "too long" problems hide under one complaint, and only one is
+real:
+
+- **Token budget: mostly a non-issue.** A 260-line soul is ~3–4k tokens.
+- **Salience: a real issue.** Verbosity is dilution at the sentence level,
+  exactly as duplication is dilution at the document level. Exhaustive
+  enumerations ("inputs, permissions, configuration, state, external data,
+  user intent, or unavailable dependencies") are incident logs — each item
+  closed a loophole — but models generalize from a crisp category plus 2–3
+  examples; the seventh item adds attention cost, not binding force.
+
+Levers, in descending order of value:
+
+1. **Extract deterministic mechanics into scripts.** The FNV-1a `node -e`
+   one-liner plus the items.json edit procedure is ~60 lines of the backlog
+   skills. Replace with a small `scripts/backlog-status.mjs` the agent
+   invokes (`node … <path> in_progress`): the prompt drops to ~3 lines and
+   hand-mangled JSON becomes impossible — the only lever that *improves*
+   behaviour while compressing. Precedent already exists
+   (`.agents/skills/sprintengine/scripts/sprintengine_tool.py`), and it
+   matches the upstream `write-a-skill` guidance: scripts for deterministic
+   operations.
+2. **One full statement per rule; short references elsewhere.** This is the
+   §4 dedup move — compression and deduplication are the same edit.
+3. **Category + examples in directives; the exhaustive vocabulary survives
+   exactly once**, in the canonical skill's `<supporting-info>`, where
+   reviewer rubrics cite it. Relocate full lists, never delete them.
+4. **Qualifier audit — per instance, never mechanical.** Hedges split into
+   load-bearing escape hatches ("where practical" on relative paths: strip it
+   and agents will mangle legitimately-absolute paths) and flab ("Respect the
+   user's choice when it is unset", restating the directive above it). Each
+   gets a keep/cut call recorded in the rule inventory (§6).
+
+Ballpark: dedup + compression + script extraction takes the developer soul
+from ~260 to ~130–150 lines with zero rules lost.
+
+## 6. Regression net — changing scar tissue without reopening wounds
+
+These prompts are load-bearing production code that accreted through
+incidents. Refactor them like such code: put a net under current behaviour
+first, then change one seam at a time.
+
+1. **Rule inventory before any edit.** Extract every normative rule into a
+   canonical list with stable IDs (`no-fake-success`, `explicit-failure`,
+   `evidence-required`, `relative-paths`, `lifecycle-truthful`, …) and map
+   every occurrence (file:line) to its ID. Deletion is allowed only when the
+   rule ID is provably stated elsewhere in the same composed soul. The
+   inventory is also where canonical wording is chosen (usually the most
+   complete enumeration) and where §5's qualifier keep/cut calls live.
+2. **Soul contract tests, green on the status quo first.** `render_soul()`
+   is deterministic; extend `sprintengine-role-registry.test.ts` /
+   `souls-service.test.ts` with a test that renders every role's soul and
+   asserts each required rule ID is present. **Anchor on rule IDs (e.g.
+   embedded comment anchors), not exact phrasing** — §5's canonicalization
+   rewrites the words. Once green against today's souls, no refactor — or
+   future architecture change — can silently drop a critical behaviour.
+3. **Producers before reviewers, one role at a time.** Convert the
+   `developer` soul first and leave all reviewer souls untouched: the
+   unchanged reviewer rubrics are the safety net, surfacing any
+   producer-side regression as gate findings before it reaches users.
+   Reviewers convert last, so scoring weights are never in flux at the same
+   time as producer prompts.
+4. **Measure with what Sprint Engine already emits.** Gate findings per
+   sprint (especially `real-integration`/`evidence` categories), reviewer
+   rejection categories, and `items.json` lifecycle truthfulness are the
+   observable proxies for the behaviours at risk. Run two or three
+   comparable backlog items on old vs new developer souls and compare.
+5. **One-line rollback.** Build `delivery_discipline` *alongside* the five
+   micro-skills and switch roles via manifest edits; reverting a damaged
+   role is a one-line manifest change, not a content restoration. Delete the
+   deprecated micro-skill files only after every role has migrated and
+   survived observation.
+
+## 7. Honest caveats
 
 - **Tags are not the whole fix.** The biggest dilution driver in the composed
   souls is volume plus redundancy — four skills restating the
-  no-fake-success rule. Tagging without the consolidation in §3.2 gets maybe
-  half the benefit. Conversely, consolidation alone still leaves crucial rules
-  visually equal to FNV-1a plumbing, so do both.
+  no-fake-success rule (§4). Tagging without the consolidation in §3.2 gets
+  maybe half the benefit. Conversely, consolidation alone still leaves crucial
+  rules visually equal to FNV-1a plumbing, so do both.
+- **The enumerations are scar tissue.** Compress wording (§5) only where the
+  full vocabulary survives once and is referenced; a stripped qualifier or a
+  deleted list item may reopen the loophole that put it there. The rule
+  inventory (§6.1) is the ledger that keeps every cut accountable.
 - **The evidence for the pattern is directional, not measured.** It aligns
   with Anthropic's published prompting guidance and our own experience that
   flat long prompts decay, but nobody (including Matt Pocock — the tagged
@@ -212,14 +339,23 @@ body, so skill discovery/triggering is unaffected.
   `<what-to-do>` stays small. The lint in §3.3 is what keeps the floor from
   sloping back.
 
-## 5. Suggested sequencing
+## 8. Suggested sequencing
 
-1. Renderer: envelope-wrap + legend in `render_soul()` (no skill edits needed;
+1. **Rule inventory** (§6.1) — half a day; converts every later edit from
+   editorial judgement into checked coverage.
+2. **Soul contract tests** (§6.2), green against the *current* souls before
+   anything changes.
+3. Renderer: envelope-wrap + legend in `render_soul()` (no skill edits needed;
    immediately fixes heading collisions). Add the lint warnings.
-2. Merge the five discipline micro-skills into `delivery_discipline`; update
-   all role manifests.
-3. Convert `developer` + its soul set; trial in real sprints.
-4. Convert remaining Soul skills (reviewers last — they're the largest and
-   benefit most from a careful what-to-do trim, not a mechanical wrap).
-5. Convert the user-invocable family, propagating the backlog skill to all
+4. **Tagging pass** (§3) — purely additive, lowest risk, done under the net.
+5. **Script extraction** (§5.1) — `backlog-status.mjs` replaces the FNV-1a /
+   items.json prose in both backlog skills and all synced copies.
+6. Merge the five discipline micro-skills into `delivery_discipline`
+   (built alongside, not in place — §6.5), applying §5's compression and the
+   canonical vocabulary; switch only the `developer` manifest.
+7. Trial in real sprints with reviewers unchanged (§6.3–6.4).
+8. Convert remaining producer roles, then reviewer souls last (they're the
+   largest and benefit most from a careful what-to-do trim, not a mechanical
+   wrap), then delete the deprecated micro-skills.
+9. Convert the user-invocable family, propagating the backlog skill to all
    synced copies in one change.
