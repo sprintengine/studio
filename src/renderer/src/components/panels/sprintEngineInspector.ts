@@ -21,7 +21,7 @@ import type {
 } from '../../types/workspace'
 import {
   getSprintEngineArtifactDependencyBlockers,
-  sprintEngineArtifactKindLabels,
+  sprintEngineArtifactKindLabel,
   type SprintEngineAgentRosterItem,
 } from '../../utils/sprintengine'
 import { formatTimestamp } from '../../utils/time'
@@ -279,7 +279,7 @@ export function sprintEngineInboxRowSupporting(
   task: SprintEngineTask | undefined,
 ): string {
   if (artifact.id === SOURCE_HANDOFF_ARTIFACT_ID) return 'Architect handover'
-  const kind = sprintEngineArtifactKindLabels[artifact.kind]
+  const kind = sprintEngineArtifactKindLabel(artifact.kind)
   const parts = [kind]
   if (artifact.taskId) parts.push(artifact.taskId)
   if (task?.title) parts.push(task.title)

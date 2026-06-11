@@ -273,12 +273,25 @@ def test_auto_approval_policy_allows_only_approved_artifact_kinds(tmp_path) -> N
 
 
 def test_renderer_auto_approval_policy_matches_approved_artifact_kinds() -> None:
-    renderer_source = (Path(__file__).resolve().parents[2] / "src/renderer/src/utils/sprintengine.ts").read_text(encoding="utf-8")
-    match = re.search(r"const reviewGateArtifactKinds = new Set<SprintEngineArtifactKind>\(\[([\s\S]*?)\]\)", renderer_source)
+    repo_root = Path(__file__).resolve().parents[2]
+    renderer_source = (repo_root / "src/renderer/src/utils/sprintengine.ts").read_text(encoding="utf-8")
+    match = re.search(r"const reviewGateArtifactKinds: ReadonlySet<string> = new Set\(\[([\s\S]*?)\]\)", renderer_source)
     assert match, "renderer reviewGateArtifactKinds declaration not found"
 
     renderer_kinds = set(re.findall(r"'([^']+)'", match.group(1)))
     assert renderer_kinds == APPROVED_AUTO_APPROVAL_KINDS
+
+    # The same vocabulary is duplicated in the python store contract and the
+    # main-process auto-approval gate; drift in any copy silently breaks
+    # artifact review for kinds the other layers accept.
+    from sprintengine_core.tool.constants import VALID_ARTIFACT_KINDS
+
+    assert VALID_ARTIFACT_KINDS == APPROVED_AUTO_APPROVAL_KINDS
+
+    main_source = (repo_root / "src/main/sprintengine-artifacts.ts").read_text(encoding="utf-8")
+    main_match = re.search(r"const autoApprovableArtifactKinds = new Set\(\[([\s\S]*?)\]\)", main_source)
+    assert main_match, "main-process autoApprovableArtifactKinds declaration not found"
+    assert set(re.findall(r"'([^']+)'", main_match.group(1))) == APPROVED_AUTO_APPROVAL_KINDS
 
 
 def test_electron_auto_run_approves_through_sprint_engine_not_terminal() -> None:

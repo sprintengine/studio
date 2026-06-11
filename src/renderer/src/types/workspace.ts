@@ -256,7 +256,10 @@ export type SprintEngineArtifactReviewHistoryEntry = {
 
 export type SprintEngineArtifact = {
   id: string
-  kind: SprintEngineArtifactKind
+  // Known kinds get labels and auto-approval; stores written by other Sprint
+  // Engine versions may carry kinds this build does not know, and those
+  // artifacts must still surface for manual review instead of vanishing.
+  kind: SprintEngineArtifactKind | (string & {})
   title: string
   path: string
   status: SprintEngineArtifactStatus

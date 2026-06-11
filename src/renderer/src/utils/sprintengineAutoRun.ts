@@ -14,6 +14,7 @@ import {
   getOpenSprintEngineQualityGates,
   getSprintEngineArtifactAutoApprovalEligibility,
   getSprintEngineTaskBoardColumn,
+  isSprintEngineArtifactAutoApprovableKind,
   isSprintEngineTaskLaunchable,
 } from './sprintengine'
 import { logPerfEvent } from './perfDiagnostics'
@@ -153,6 +154,10 @@ export function getAutoApprovalIntentArtifacts(sprintEngineState: SprintEngineSt
     if (!artifact.createdBy.trim() && !task.ownerAgentId?.trim()) return false
     if (getSprintEngineArtifactAutoApprovalEligibility(artifact).eligible) return true
     if (!hasNeedsInputTask) return false
+    // Unknown kinds stay visible for manual review but must not become
+    // approval intents: the main-process auto-approval gate rejects them, so
+    // proposing one here would loop warning -> cooldown -> warning forever.
+    if (!isSprintEngineArtifactAutoApprovableKind(artifact.kind)) return false
     if (!NEEDS_INPUT_AUTO_APPROVAL_STATUSES.has(artifact.status)) return false
     return Boolean(artifact.path.trim())
   })
