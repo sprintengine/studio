@@ -735,6 +735,57 @@ samp,
 .chip-text-error { color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-error)); }
 /* design-tokens-allow-end */
 
+/* Git graph lane palette — branch-line identity for the commit graph
+ * (each branch line keeps one hue; ref pills wear the same
+ * hue). Identity data colour, not a second accent — documented north-star
+ * exception. Slot 0 is the brand-blue family and is pinned to HEAD's branch
+ * line by utils/gitGraphLayout.ts. Lane strokes mix the hue toward
+ * --text-strong (brightens on dark themes, deepens on light); pill surfaces
+ * reuse the chip color-mix recipe. Hues match the highlight palette family.
+ * design-tokens-allow-block: git graph lane palette, hue literals */
+:root {
+  --git-lane-0: color-mix(in oklab, var(--text-strong) 22%, #5c7cff);
+  --git-lane-1: color-mix(in oklab, var(--text-strong) 22%, #a78bfa);
+  --git-lane-2: color-mix(in oklab, var(--text-strong) 22%, #30d158);
+  --git-lane-3: color-mix(in oklab, var(--text-strong) 22%, #ff8c42);
+  --git-lane-4: color-mix(in oklab, var(--text-strong) 22%, #ff7eb3);
+  --git-lane-5: color-mix(in oklab, var(--text-strong) 22%, #2dd4bf);
+  --git-lane-6: color-mix(in oklab, var(--text-strong) 22%, #ffbf2f);
+  --git-lane-7: color-mix(in oklab, var(--text-strong) 22%, #ff5a5f);
+}
+
+.git-ref-pill-0 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #5c7cff); border-color: color-mix(in oklab, var(--bg-surface) 66%, #5c7cff); color: color-mix(in oklab, var(--text-strong) 30%, #5c7cff); }
+.git-ref-pill-1 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #a78bfa); border-color: color-mix(in oklab, var(--bg-surface) 66%, #a78bfa); color: color-mix(in oklab, var(--text-strong) 30%, #a78bfa); }
+.git-ref-pill-2 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #30d158); border-color: color-mix(in oklab, var(--bg-surface) 66%, #30d158); color: color-mix(in oklab, var(--text-strong) 30%, #30d158); }
+.git-ref-pill-3 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #ff8c42); border-color: color-mix(in oklab, var(--bg-surface) 66%, #ff8c42); color: color-mix(in oklab, var(--text-strong) 30%, #ff8c42); }
+.git-ref-pill-4 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #ff7eb3); border-color: color-mix(in oklab, var(--bg-surface) 66%, #ff7eb3); color: color-mix(in oklab, var(--text-strong) 30%, #ff7eb3); }
+.git-ref-pill-5 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #2dd4bf); border-color: color-mix(in oklab, var(--bg-surface) 66%, #2dd4bf); color: color-mix(in oklab, var(--text-strong) 30%, #2dd4bf); }
+.git-ref-pill-6 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #ffbf2f); border-color: color-mix(in oklab, var(--bg-surface) 66%, #ffbf2f); color: color-mix(in oklab, var(--text-strong) 30%, #ffbf2f); }
+.git-ref-pill-7 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #ff5a5f); border-color: color-mix(in oklab, var(--bg-surface) 66%, #ff5a5f); color: color-mix(in oklab, var(--text-strong) 30%, #ff5a5f); }
+
+/* Light-theme legibility: deepen lane strokes and pull pill labels to
+ * majority-ink, same fix as the highlight palette. */
+:root[data-theme="light"] {
+  --git-lane-0: color-mix(in oklab, var(--text-strong) 35%, #5c7cff);
+  --git-lane-1: color-mix(in oklab, var(--text-strong) 35%, #a78bfa);
+  --git-lane-2: color-mix(in oklab, var(--text-strong) 35%, #30d158);
+  --git-lane-3: color-mix(in oklab, var(--text-strong) 35%, #ff8c42);
+  --git-lane-4: color-mix(in oklab, var(--text-strong) 35%, #ff7eb3);
+  --git-lane-5: color-mix(in oklab, var(--text-strong) 35%, #2dd4bf);
+  --git-lane-6: color-mix(in oklab, var(--text-strong) 40%, #ffbf2f);
+  --git-lane-7: color-mix(in oklab, var(--text-strong) 35%, #ff5a5f);
+}
+
+:root[data-theme="light"] .git-ref-pill-0 { color: color-mix(in oklab, var(--text-strong) 52%, #5c7cff); }
+:root[data-theme="light"] .git-ref-pill-1 { color: color-mix(in oklab, var(--text-strong) 52%, #a78bfa); }
+:root[data-theme="light"] .git-ref-pill-2 { color: color-mix(in oklab, var(--text-strong) 55%, #30d158); }
+:root[data-theme="light"] .git-ref-pill-3 { color: color-mix(in oklab, var(--text-strong) 55%, #ff8c42); }
+:root[data-theme="light"] .git-ref-pill-4 { color: color-mix(in oklab, var(--text-strong) 55%, #ff7eb3); }
+:root[data-theme="light"] .git-ref-pill-5 { color: color-mix(in oklab, var(--text-strong) 55%, #2dd4bf); }
+:root[data-theme="light"] .git-ref-pill-6 { color: color-mix(in oklab, var(--text-strong) 58%, #ffbf2f); }
+:root[data-theme="light"] .git-ref-pill-7 { color: color-mix(in oklab, var(--text-strong) 55%, #ff5a5f); }
+/* design-tokens-allow-end */
+
 /* Light-theme legibility overrides for the user-chosen highlight / tab-highlight
  * palettes. The base rules mix mostly-hue with --text-strong (good on dark,
  * where that lands a bright pastel on an ink surface) and tint the tab
