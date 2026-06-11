@@ -181,13 +181,13 @@ def test_init_bootstraps_board_without_returning_role_prompt(tmp_path) -> None:
     assert "autonomous planning or artifact auto-approval" in " ".join(payload["planTask"]["acceptanceCriteria"])
 
 
-def test_init_ignores_legacy_worktree_preference_without_claiming_architect_work(tmp_path) -> None:
+def test_init_without_worktrees_does_not_claim_architect_work(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
         "worktree-init-prompt",
         [task("T0", "Completed product intake", "product", status="done")],
     )
-    payload = fixture.cli.run("init", "--goal", "Plan in the current workspace", "--use-worktrees", "true")
+    payload = fixture.cli.run("init", "--goal", "Plan in the current workspace")
 
     assert payload["ok"] is True
     assert payload["action"] == "initialized"
@@ -196,6 +196,8 @@ def test_init_ignores_legacy_worktree_preference_without_claiming_architect_work
     assert payload["planTask"]["role"] == "architect"
     assert payload["planTask"]["status"] == "todo"
     assert payload["planTask"]["ownerAgentId"] is None
+    # Without the flag, no worktree is created and no vcs block is recorded.
+    assert payload.get("vcs") is None
 
 
 def test_join_returns_worker_prompt_and_resume_directive(tmp_path) -> None:

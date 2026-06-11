@@ -46,6 +46,9 @@ from .commands.run import (
     cmd_runner_status,
     cmd_summary,
     cmd_triage_needs_input,
+    cmd_vcs_commit,
+    cmd_vcs_pr,
+    cmd_vcs_status,
     runner_watch_delay_seconds,
 )
 from .commands.task import (

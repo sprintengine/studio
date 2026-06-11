@@ -953,6 +953,9 @@ export type SprintEngineStateInitializeInput = {
   tasks?: unknown[]
   events?: unknown[]
   artifacts?: unknown[]
+  // When true, Sprint Engine creates one shared git worktree + branch for the
+  // whole team before any task runs, and all agents work and commit there.
+  useWorktrees?: boolean
 }
 
 export type SprintEngineCliWatchPolling = 'enabled' | 'disabled'

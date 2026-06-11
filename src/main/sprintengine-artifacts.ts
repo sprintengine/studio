@@ -106,6 +106,7 @@ type SerializableSprintEngineStatePayload = {
   tasks: unknown[]
   events: unknown[]
   artifacts: unknown[]
+  useWorktrees: boolean
 }
 
 type SprintEngineEventMetadata = {
@@ -369,6 +370,7 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
     tasks: resolveArray(payload?.tasks, 'Sprint Engine tasks'),
     events: resolveArray(payload?.events, 'Sprint Engine events'),
     artifacts: resolveArray(payload?.artifacts, 'Sprint Engine artifacts'),
+    useWorktrees: payload?.useWorktrees === true,
   }
 }
 
@@ -401,6 +403,9 @@ function validateWorkspaceRoot(input: unknown): string {
 
 function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: SerializableSprintEngineStatePayload): string[] {
   const args = ['--state', state.statePath, 'init', '--goal', payload.goal || payload.name]
+  if (payload.useWorktrees) {
+    args.push('--use-worktrees', 'true')
+  }
   for (const [agentId, agent] of Object.entries(payload.agents)) {
     if (!agent || typeof agent !== 'object' || Array.isArray(agent)) continue
     const role = (agent as Record<string, unknown>).role

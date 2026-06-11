@@ -168,6 +168,8 @@ def _mcp_payload(args) -> tuple[str, dict]:
         return _plan_payload(action, args, base)
     if group == "artifact":
         return _artifact_payload(action, args, base)
+    if group == "vcs":
+        return _vcs_payload(args)
     raise SystemExit(f"MCP backend does not support command group: {group}")
 
 
@@ -390,6 +392,18 @@ def _artifact_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "feedback": args.feedback,
         }
     raise SystemExit(f"MCP backend does not support artifact action: {action}")
+
+
+def _vcs_payload(args) -> tuple[str, dict]:
+    base = {"statePath": str(args.state)}
+    action = getattr(args, "action", None)
+    if action == "status":
+        return "sprintengine.vcs.status", base
+    if action == "commit":
+        return "sprintengine.vcs.commit", {**base, "taskId": args.task_id, "id": args.id, "summary": getattr(args, "summary", None), "path": getattr(args, "path", None) or []}
+    if action == "pr":
+        return "sprintengine.vcs.pr", {**base, "id": args.id, "base": getattr(args, "base", None), "title": getattr(args, "title", None), "body": getattr(args, "body", None), "draft": bool(getattr(args, "draft", False)), "noPush": bool(getattr(args, "no_push", False))}
+    raise SystemExit(f"MCP backend does not support vcs action: {action}")
 
 
 def _feedback_payload(args) -> dict:

@@ -28,6 +28,7 @@ import type {
   SprintEngineRoleSettings,
   SprintEngineRunnerPolicy,
   SprintEngineRuntimeAgent,
+  SprintEngineVcs,
   SprintEngineSkillMap,
   SprintEngineTaskActivityEntry,
   SprintEngineTaskActivityType,
@@ -1165,6 +1166,25 @@ function normalizeSprintEngineRunnerPolicy(input: unknown): SprintEngineRunnerPo
   }
 }
 
+function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const record = input as Record<string, unknown>
+  if (record.mode !== 'run_worktree') return undefined
+  const worktreePath = optionalTrimmedString(record.worktreePath)
+  const branchName = optionalTrimmedString(record.branchName)
+  if (!worktreePath || !branchName) return undefined
+  return {
+    mode: 'run_worktree',
+    worktreePath,
+    branchName,
+    ...(optionalTrimmedString(record.repoRoot) ? { repoRoot: optionalTrimmedString(record.repoRoot) } : {}),
+    ...(optionalTrimmedString(record.baseRef) ? { baseRef: optionalTrimmedString(record.baseRef) } : {}),
+    ...(optionalTrimmedString(record.status) ? { status: optionalTrimmedString(record.status) } : {}),
+    pullRequestUrl: typeof record.pullRequestUrl === 'string' ? record.pullRequestUrl : null,
+    lastCommitSha: typeof record.lastCommitSha === 'string' ? record.lastCommitSha : null,
+  }
+}
+
 function isFeedbackIssueCategory(value: unknown): value is SprintEngineTaskFeedbackIssueCategory {
   return feedbackIssueCategories.includes(value as SprintEngineTaskFeedbackIssueCategory)
 }
@@ -2115,6 +2135,8 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     ...(input.creation ? { creation: input.creation } : {}),
     ...(input.qualityPolicy ? { qualityPolicy: input.qualityPolicy } : {}),
     ...(input.runner ? { runner: input.runner } : {}),
+    ...(input.useWorktrees ? { useWorktrees: true } : {}),
+    ...(input.vcs ? { vcs: input.vcs } : {}),
   }
 }
 
@@ -2317,6 +2339,7 @@ export function normalizeSprintEngineProjection(
     ...(normalizeSprintEngineRunnerPolicy(runRecord.runner)
       ? { runner: normalizeSprintEngineRunnerPolicy(runRecord.runner) }
       : {}),
+    ...(normalizeSprintEngineVcs(runRecord.vcs) ? { vcs: normalizeSprintEngineVcs(runRecord.vcs), useWorktrees: true } : {}),
   }
 
   return normalizeSprintEngineState(candidate)

@@ -14,12 +14,24 @@ from sprintengine_core.tool.tasks import ensure_evidence
 from sprintengine_core.tool.state import gate_attempts
 
 def architect_worktree_preference_block(use_worktrees: bool) -> str:
+    if not use_worktrees:
+        return "\n".join([
+            "## Execution Workspace",
+            "Sprint Engine worktree orchestration is disabled for this run.",
+            "- Plan execution in the current workspace.",
+            "- Do not create Sprint Engine worktrees or add worktree setup tasks.",
+        ])
     return "\n".join([
         "## Execution Workspace",
-        "Sprint Engine worktree orchestration is disabled.",
-        "- Plan execution in the current workspace.",
-        "- Do not create Sprint Engine worktrees or add worktree setup tasks.",
+        "This run executes in one shared git worktree on a dedicated branch; Sprint Engine already created it.",
+        "- Do not add tasks to create, configure, or tear down the worktree — it exists before any task runs.",
+        "- Plan tasks with tight, non-overlapping `ownedPaths` so two workers rarely touch the same file; that is what keeps per-task commits clean.",
+        "- Workers commit their own changes to the shared branch after each task; you do not need committer tasks.",
+        "- When the run is complete, open a pull request from the run branch with `sprintengine vcs pr`.",
     ])
+
+def architect_worktree_preference_block_for_state(state: Dict[str, Any]) -> str:
+    return architect_worktree_preference_block(get_run_vcs(state) is not None)
 
 def worker_plan_worktree_block() -> str:
     return "\n".join([
@@ -45,15 +57,19 @@ def worker_execution_workspace_block(state: Dict[str, Any], state_path: Path) ->
         "## Execution Workspace Discipline",
         "- Read only the active team's approved `architect_plan` artifact from the Sprint Engine run store before claiming work.",
         "- The canonical plan is normally `.multi-code/sprintengine/<team>/plan.md`; do not use any other `plan.md` found by search.",
-        f"- Work in the Sprint Engine run worktree `{worktree_path}` on branch `{branch}`.",
+        f"- This run shares ONE git worktree `{worktree_path}` on branch `{branch}`. You are already working inside it; do not `cd` elsewhere and do not create another worktree.",
         f"- Shared Sprint Engine run file is `{project_relative_path(workspace_root_for_state_path(state_path), state_path)}`; mutate the run store only through the Sprint Engine tool.",
-        "- Do not create additional Sprint Engine worktrees.",
         "- Treat task-owned paths as the primary edit surface and collision boundary.",
         "- Prefer owned paths, but you may make small directly required companion edits for correctness, integration, type safety, tests, or cleaner structure.",
         "- Log every touched file. For files outside owned paths, also log a scope expansion with the path, reason, and risk.",
         "- Move to `needs_input` with kind `architect` before broad expansion, product scope changes, major ownership boundary changes, or likely overlap with another active task.",
-        "- Marking an implementation task done may commit dirty run-worktree changes through the Sprint Engine tool.",
-        "- Do not merge or push unless you are explicitly running Sprint Engine finalization.",
+        "## Committing Your Work",
+        "- After you finish a task's code changes, commit them to the shared branch with `sprintengine vcs commit --task-id <id> --id <your-agent-id>` (add `--path <file>` for any file outside your owned paths).",
+        "- That command takes the run's commit lock so only one agent stages the git index at a time, then stages and commits ONLY your task's files. It is safe to run while other agents work.",
+        "- Marking the task done also commits any still-uncommitted task-scoped changes as a backstop, so nothing is lost if you forget.",
+        "- Other agents commit their own whole files independently; their commits on the shared branch are expected. Do not revert, amend, or worry about commits you did not make.",
+        "- If git reports a conflict on a file you own, resolve it: stage the specific hunks you changed when that is clearly simple, otherwise commit the whole file. Then continue.",
+        "- Do not push or open a pull request yourself; the architect opens the pull request when the run is complete.",
     ])
 
 def benchmark_feedback_prompt_block() -> str:

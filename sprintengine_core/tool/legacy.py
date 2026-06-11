@@ -299,7 +299,7 @@ def add_handover_parser(sub: argparse._SubParsersAction, name: str, help_text: s
         "--use-worktrees",
         type=parse_bool,
         default=False,
-        help=argparse.SUPPRESS,
+        help="Run this team in one shared git worktree + branch so all agents work in the same isolated checkout and commit per task.",
     )
     p.add_argument("--force", action="store_true", help="Replace existing run-store/handover bootstrap files.")
     p.set_defaults(handler=run_commands.handover, uses_state=False)
@@ -425,7 +425,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--use-worktrees",
         type=parse_bool,
         default=False,
-        help=argparse.SUPPRESS,
+        help="Run this team in one shared git worktree + branch so all agents work in the same isolated checkout and commit per task.",
     )
     p.set_defaults(handler=run_commands.init)
 
@@ -826,6 +826,29 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id", required=True, help="Architect actor id.")
     p.add_argument("--target", required=True, help="Target branch for the user-authorized merge.")
     p.set_defaults(handler=run_commands.merge_start)
+
+    # vcs (shared run worktree)
+    vcs_p = sub.add_parser("vcs", help="Shared run-worktree git operations (worktree mode only).")
+    vcs_sub = vcs_p.add_subparsers(dest="action", required=True)
+
+    p = vcs_sub.add_parser("status", help="Report the run worktree branch, path, and dirty state.")
+    p.set_defaults(handler=run_commands.vcs_status)
+
+    p = vcs_sub.add_parser("commit", help="Commit your task's changes to the shared run worktree (serialized by the commit lock).")
+    p.add_argument("--task-id", required=True, help="Task whose changes you are committing.")
+    p.add_argument("--id", required=True, help="Your agent id.")
+    p.add_argument("--summary", help="Optional implementation summary to record on the task before committing.")
+    p.add_argument("--path", action="append", default=[], help="Extra project-root-relative path to include beyond the task's owned and logged paths.")
+    p.set_defaults(handler=run_commands.vcs_commit)
+
+    p = vcs_sub.add_parser("pr", help="Push the run worktree branch and open a pull request via the GitHub CLI.")
+    p.add_argument("--id", default="architect", help="Actor id opening the pull request.")
+    p.add_argument("--base", help="Target base branch for the pull request. Defaults to the recorded base ref.")
+    p.add_argument("--title", help="Pull request title.")
+    p.add_argument("--body", help="Pull request body.")
+    p.add_argument("--draft", action="store_true", help="Open the pull request as a draft.")
+    p.add_argument("--no-push", dest="no_push", action="store_true", help="Skip pushing the branch; only attempt PR creation.")
+    p.set_defaults(handler=run_commands.vcs_pr)
 
     return parser
 

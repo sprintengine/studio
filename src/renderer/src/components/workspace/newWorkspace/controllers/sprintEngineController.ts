@@ -77,6 +77,9 @@ export function buildSprintEngineNewTeamCreation(
     roleCounts: input.visibleRoleCounts,
   }
   const sprintEngineState = createInitialSprintEngineState(sprintEngineConfig)
+  if (input.useWorktrees) {
+    sprintEngineState.useWorktrees = true
+  }
   const template = createSprintEngineTemplate(sprintEngineConfig)
   const sprintEngineContext = input.folderPath
     ? buildSprintEngineContext(
@@ -132,6 +135,7 @@ export async function runSprintEnginePlanSourcedCreation(
       roleCounts: input.visibleRoleCounts,
       roleCliDefaults: input.roleCliDefaults,
       workspaceWindowId: input.workspaceWindowId,
+      useWorktrees: input.useWorktrees === true,
       sprintEngineAutoState: {
         ...sprintEngineAutoStateFromRunOptions(input),
         cliPermissionPreset: input.cliPermissionPreset,

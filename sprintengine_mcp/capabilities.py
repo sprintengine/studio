@@ -65,6 +65,8 @@ AGENT_COMMON_TOOLS: frozenset[str] = frozenset({
     "sprintengine.artifact.add",
     "sprintengine.artifact.list",
     "sprintengine.artifact.ready",
+    "sprintengine.vcs.status",
+    "sprintengine.vcs.commit",
     "sprintengine.run.get",
     "sprintengine.run.policy.get",
     "sprintengine.run.subscribe",
@@ -107,6 +109,7 @@ PLANNING_TOOLS: frozenset[str] = frozenset({
     "sprintengine.roles.list",
     "sprintengine.task.ready",
     "sprintengine.artifact.approve",
+    "sprintengine.vcs.pr",
 })
 
 # Operator-only compatibility surface. `sprintengine.join` backs the human

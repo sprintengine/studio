@@ -43,6 +43,7 @@ export function buildSprintEngineStartupPrompt(
     rosterArgs?: string[]
     commandMode?: 'init' | 'join'
     autonomousPlanningOverride?: boolean
+    useWorktrees?: boolean
   } = {}
 ): string {
   const commandMode = options.commandMode ?? (role === 'architect' ? 'init' : 'join')
@@ -67,6 +68,10 @@ export function buildSprintEngineStartupPrompt(
     goal: goal || '<run goal>',
   }
   if (options.rosterArgs?.length) initPayload.agent = options.rosterArgs
+  // Worktree mode is set at workspace creation. The architect's init call
+  // creates (or reuses) the one shared run worktree + branch so every agent
+  // works and commits in the same isolated checkout.
+  if (options.useWorktrees) initPayload.useWorktrees = true
 
   const initBlock = commandMode === 'init'
     ? [

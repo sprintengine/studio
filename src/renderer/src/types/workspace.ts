@@ -1039,6 +1039,30 @@ export type SprintEngineState = {
   qualityPolicy?: SprintEngineQualityPolicy
   /** Durable agent polling policy from run.yaml. */
   runner?: SprintEngineRunnerPolicy
+  /**
+   * Creation-time intent: run this team in one shared git worktree + branch so
+   * every agent works and commits in the same isolated checkout. Persisted so
+   * the (possibly deferred) `sprintengine.init` records the run worktree.
+   */
+  useWorktrees?: boolean
+  /**
+   * Shared run worktree metadata once worktree mode has been initialized
+   * (mirrors run.yaml `sprintengine.vcs`). Agent terminals cwd into
+   * `worktreePath` and per-task commits land on `branchName`.
+   */
+  vcs?: SprintEngineVcs | null
+}
+
+export type SprintEngineVcs = {
+  mode: 'run_worktree'
+  repoRoot?: string
+  /** Project-root-relative path to the shared run worktree directory. */
+  worktreePath: string
+  branchName: string
+  baseRef?: string
+  status?: string
+  pullRequestUrl?: string | null
+  lastCommitSha?: string | null
 }
 
 export type SprintEngineMockConfig = Pick<SprintEngineState, 'name' | 'goal' | 'roleCounts'>
