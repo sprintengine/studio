@@ -178,7 +178,8 @@ def build_gate_review_prompt(
             "- Submit the verdict with `--artifact-path <team-folder-report-path>`, `--artifact-title`, and `--artifact-kind validation_report`. Include changed test files, commands, results, browser/MCP evidence, path/reason/risk for any companion test edits, and residual risk.",
             "- If no new test is needed, say why and name the existing tests or checks that cover the risk.",
             "- Use `failed` or `changes_requested` when required behavior is unverified, regression coverage is missing, or validation cannot be reproduced. Use `blocked` with needs-input routing when tooling, fixtures, environment, or real integration access prevents validation.",
-            "- A passing tester verdict should report scope reviewed, commands run, tests evaluated or added, release confidence, and residual risk.",
+            "- A passing tester verdict should report scope reviewed, commands run, tests evaluated or added, release confidence, and residual risk — as terse bullets, one line each.",
+            "- Keep the validation report bullet-first and under ~120 lines; do not restate the task card or implementation summary, and reference file paths instead of quoting file content.",
         ]
     lines = [
         "# Sprint Engine Gate Review Context",
