@@ -126,6 +126,7 @@ def build_rework_prompt(state_path: Path, task: Dict[str, Any]) -> str:
     plan_path = plan_prompt_path(state_path)
     open_feedback = newest_comments(open_feedback_comments(task), limit=10)
     latest_comments = newest_comments(task_comments(task), limit=5)
+    shared_findings = shared_finding_lines(open_feedback)
     return "\n".join([
         "# Sprint Engine Task Context",
         "",
@@ -133,8 +134,13 @@ def build_rework_prompt(state_path: Path, task: Dict[str, Any]) -> str:
         f"Task: `{task.get('id')}` - {task.get('title')}",
         f"Status: `{task.get('status')}`",
         "",
-        *prompt_list("Open Feedback (newest first)", [comment_prompt_line(comment) for comment in open_feedback]),
+        *prompt_list("Open Feedback (grouped by gate, newest first)", grouped_feedback_lines(open_feedback)),
         "",
+        *(
+            [*prompt_list("Shared Findings (fix once — resolves the finding for every gate listed)", shared_findings), ""]
+            if shared_findings
+            else []
+        ),
         *prompt_list("Latest Comments (newest first)", [comment_prompt_line(comment) for comment in latest_comments]),
         "",
         "Use the open feedback as the rework queue. Address newer feedback first when comments conflict, and publish an `implementation_response` when the changes are ready.",
@@ -159,6 +165,10 @@ def build_gate_review_prompt(
     ]
     gate_focus = str(gate.get("focus") or "").strip() or "Review the task against the gate role and phase."
     gate_role = str(gate.get("role") or "")
+    gate_id = str(gate.get("id") or "")
+    open_feedback = newest_comments(open_feedback_comments(task), limit=10)
+    known_findings = [comment for comment in open_feedback if feedback_gate_id(comment) != gate_id]
+    own_gate_feedback = [comment for comment in open_feedback if feedback_gate_id(comment) == gate_id]
     validation_report_dir = project_relative_display_path(state_path, state_path.parent / "docs" / "validation")
     validation_report_example = f"{validation_report_dir}/{str(task.get('id') or 'task').lower()}-tester-validation.md"
     role_specific_lines: List[str] = []
@@ -221,7 +231,18 @@ def build_gate_review_prompt(
         "",
         *prompt_list("Latest Implementation Summary Or Response", [comment_prompt_line(implementation_comment)] if implementation_comment else []),
         "",
-        *prompt_list("Open Feedback (newest first)", [comment_prompt_line(comment) for comment in newest_comments(open_feedback_comments(task), limit=10)]),
+        *prompt_list("Known Findings From Other Gates (newest first)", [comment_prompt_line(comment) for comment in known_findings]),
+        *(
+            [
+                "Verify your own gate's full scope, but do not re-describe a known finding: confirm it by"
+                " comment id in `requiredAction` (e.g. `confirms C7 — <scope note>`) and spend your"
+                " write-up on findings that are new."
+            ]
+            if known_findings
+            else []
+        ),
+        "",
+        *prompt_list("Open Feedback From This Gate (newest first)", [comment_prompt_line(comment) for comment in own_gate_feedback]),
         "",
         *prompt_list("Latest Comments (newest first)", [comment_prompt_line(comment) for comment in newest_comments(task_comments(task), limit=5)]),
         "",

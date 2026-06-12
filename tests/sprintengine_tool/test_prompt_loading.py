@@ -356,7 +356,7 @@ def test_gate_claim_returns_contextual_reviewer_prompt(tmp_path) -> None:
             "A1 `code_review` status=`recorded`",
             "Latest Implementation Summary Or Response",
             "The feature is ready for review.",
-            "Open Feedback (newest first)",
+            "Open Feedback From This Gate (newest first)",
             "Older feedback should be below newer feedback.",
             "Prior Gate Attempts",
             "GA-001 status=`changes_requested`",
@@ -445,7 +445,8 @@ def test_task_next_rework_prompt_orders_open_feedback_newest_first(tmp_path) -> 
 
     assert payload["ok"] is True
     prompt = payload["prompt"]
-    assert "Open Feedback (newest first)" in prompt
+    assert "Open Feedback (grouped by gate, newest first)" in prompt
+    assert "### Gate `code_reviewer`" in prompt
     assert prompt.index("Newest feedback should be handled first.") < prompt.index("Older feedback should be below newer feedback.")
     assert "publish an `implementation_response`" in prompt
 

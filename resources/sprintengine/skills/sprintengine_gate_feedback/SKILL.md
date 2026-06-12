@@ -10,6 +10,11 @@ For structured findings, add `findingJson` entries (`{kind, severity, area,
 title, detail, file?, recommendation?}`). These budgets cap how findings are
 written, never how much you check — report every real finding, tersely.
 
+If the review context lists a known finding from another gate, do not
+re-describe it: verify it within your scope and confirm it by comment id in
+`requiredAction` (`confirms C7 — <scope note>`). Write up only findings that
+are new; a confirmed finding is fixed once for every gate that filed it.
+
 When submitting a Sprint Engine gate verdict with `sprintengine.gate.verdict`,
 use feedback count fields only for evidence you actually evaluated:
 
