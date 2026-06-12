@@ -20,6 +20,14 @@ export { Popover } from './Popover'
 export type { PopoverProps, PopoverPlacement } from './Popover'
 export { OverflowMenu } from './OverflowMenu'
 export type { OverflowMenuItem } from './OverflowMenu'
+export {
+  ContextMenu,
+  MenuDivider,
+  MenuFlyoutItem,
+  MenuItem,
+  MenuSwatchRow,
+  useClampedMenuPosition,
+} from './ContextMenu'
 export { Tabs, TabPanel } from './Tabs'
 export type { TabItem } from './Tabs'
 export { TaskCard } from './TaskCard'

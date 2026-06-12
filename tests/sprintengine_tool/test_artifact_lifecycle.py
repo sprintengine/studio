@@ -5,6 +5,7 @@ from helpers import (
     assert_event_type,
     assert_task_status,
     create_team,
+    create_workspace_team,
     get_artifact,
     get_task,
     read_state,
@@ -114,6 +115,64 @@ def test_artifact_add_ready_approve_and_request_changes_cover_lifecycle_statuses
         "ready_for_review",
         "approved",
     ]
+
+
+def test_approving_duplicate_same_file_artifact_supersedes_stale_blocker(tmp_path) -> None:
+    fixture = create_workspace_team(
+        tmp_path,
+        "workspace",
+        "duplicate-plan-artifacts",
+        [task("T0", "Review architect plan artifact", "architect", "in_progress", owner="architect")],
+    )
+    write_team_file(fixture, "plan.md", "# Plan\n")
+
+    fixture.cli.run(
+        "artifact",
+        "add",
+        "--actor",
+        "sprintengine",
+        "--artifact-id",
+        "A1",
+        "--task-id",
+        "T0",
+        "--kind",
+        "architect_plan",
+        "--title",
+        "Architect Plan",
+        "--path",
+        ".multi-code/sprintengine/duplicate-plan-artifacts/plan.md",
+        "--created-by",
+        "sprintengine",
+    )
+    fixture.cli.run(
+        "artifact",
+        "add",
+        "--actor",
+        "architect",
+        "--artifact-id",
+        "A2",
+        "--task-id",
+        "T0",
+        "--kind",
+        "architect_plan",
+        "--title",
+        "Architect Plan",
+        "--path",
+        "plan.md",
+        "--created-by",
+        "architect",
+        "--ready",
+    )
+
+    approved = fixture.cli.run("artifact", "approve", "--artifact-id", "A2", "--id", "user")
+
+    state = read_state(fixture.state_path)
+    assert approved["taskCompleted"] is True
+    assert approved["supersededArtifactIds"] == ["A1"]
+    assert_artifact_status(state, "A1", "superseded")
+    assert_artifact_status(state, "A2", "approved")
+    assert_task_status(state, "T0", "done")
+    assert get_artifact(state, "A1")["reviewHistory"][-1]["action"] == "superseded"
 
 
 def test_superseded_artifacts_are_not_reviewable_or_approval_blocking(tmp_path) -> None:

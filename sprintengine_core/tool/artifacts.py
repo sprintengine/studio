@@ -213,6 +213,48 @@ def mark_task_done_if_artifacts_approved(state: Dict[str, Any], task: Dict[str, 
             set_agent_idle(ensure_agent(state, agent_id))
     return True
 
+def supersede_duplicate_artifacts_for_approved_artifact(
+    state: Dict[str, Any],
+    approved_artifact: Dict[str, Any],
+    state_path: Path,
+    actor: str,
+) -> List[str]:
+    task_id = str(approved_artifact.get("taskId") or "")
+    kind = str(approved_artifact.get("kind") or "")
+    path = str(approved_artifact.get("path") or "")
+    if not task_id or not kind or not path:
+        return []
+
+    approved_path = artifact_absolute_path(state_path, path)
+    superseded_ids: List[str] = []
+    for artifact in state.get("artifacts", []):
+        if not isinstance(artifact, dict):
+            continue
+        if artifact.get("id") == approved_artifact.get("id"):
+            continue
+        if artifact.get("taskId") != task_id or artifact.get("kind") != kind:
+            continue
+        if artifact.get("status") in {"approved", "superseded"}:
+            continue
+        if artifact.get("status", "draft") not in APPROVAL_BLOCKING_ARTIFACT_STATUSES:
+            continue
+        candidate_path = str(artifact.get("path") or "")
+        if not candidate_path:
+            continue
+        if artifact_absolute_path(state_path, candidate_path) != approved_path:
+            continue
+
+        artifact["status"] = "superseded"
+        artifact["updatedAt"] = now_iso()
+        append_artifact_history(
+            artifact,
+            "superseded",
+            actor,
+            f"Superseded by approved duplicate artifact {approved_artifact.get('id')}.",
+        )
+        superseded_ids.append(str(artifact.get("id") or ""))
+    return superseded_ids
+
 def resolve_task_input(
     state: Dict[str, Any],
     task: Dict[str, Any],

@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import {
   addOrUpdateBacklogLink,
   readBacklogObjectStore,
+  updateBacklogHighlight,
   updateBacklogModuleMetadata,
   updateBacklogStatus,
 } from './backlog-service'
@@ -54,6 +55,77 @@ async function main(): Promise<void> {
       metadataUpdated.ok ? metadataUpdated.store.items[0]?.metadata?.['sprint-engine'] : null,
       { lastRunId: 'checkout' },
     )
+
+    const beforeHighlightUpdatedAt = metadataUpdated.ok ? metadataUpdated.store.items[0]?.updatedAt : undefined
+    const highlighted = await updateBacklogHighlight({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/checkout.md',
+      starred: true,
+      color: 'amber',
+    })
+    assert.equal(highlighted.ok, true)
+    assert.deepEqual(highlighted.ok ? highlighted.store.items[0]?.highlight : null, { starred: true, color: 'amber' })
+    const highlightedUpdatedAt = highlighted.ok ? highlighted.store.items[0]?.updatedAt : undefined
+    assert.ok(
+      highlightedUpdatedAt && beforeHighlightUpdatedAt
+        && Date.parse(highlightedUpdatedAt) >= Date.parse(beforeHighlightUpdatedAt),
+      'highlight mutation must bump updatedAt',
+    )
+
+    // Unknown color names are rejected explicitly, never coerced or persisted.
+    const beforeInvalidColor = await readFile(join(tempRoot, '.multi-code', 'backlog', 'items.json'), 'utf-8')
+    const rejectedColor = await updateBacklogHighlight({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/checkout.md',
+      starred: true,
+      color: 'magenta' as unknown as 'red',
+    })
+    assert.equal(rejectedColor.ok, false)
+    assert.match(rejectedColor.ok ? '' : rejectedColor.message, /highlight color/)
+    assert.equal(
+      await readFile(join(tempRoot, '.multi-code', 'backlog', 'items.json'), 'utf-8'),
+      beforeInvalidColor,
+      'rejected highlight colors must not mutate the sidecar',
+    )
+
+    const rejectedStarred = await updateBacklogHighlight({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/checkout.md',
+      starred: 1 as unknown as boolean,
+      color: null,
+    })
+    assert.equal(rejectedStarred.ok, false)
+    assert.match(rejectedStarred.ok ? '' : rejectedStarred.message, /highlight star/)
+
+    // Starred with no color is a valid state.
+    const starredOnly = await updateBacklogHighlight({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/checkout.md',
+      starred: true,
+      color: null,
+    })
+    assert.equal(starredOnly.ok, true)
+    assert.deepEqual(starredOnly.ok ? starredOnly.store.items[0]?.highlight : null, { starred: true, color: null })
+
+    // The persisted highlight survives a reload (normalization carries it).
+    const reloadedHighlight = await readBacklogObjectStore(tempRoot)
+    assert.equal(reloadedHighlight.ok, true)
+    assert.deepEqual(reloadedHighlight.ok ? reloadedHighlight.store.items[0]?.highlight : null, { starred: true, color: null })
+
+    // Clearing both star and color removes the field, keeping un-highlighted
+    // records in their original schema-v1 shape (no migration, no empty object).
+    const clearedHighlight = await updateBacklogHighlight({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/checkout.md',
+      starred: false,
+      color: null,
+    })
+    assert.equal(clearedHighlight.ok, true)
+    assert.equal(clearedHighlight.ok ? clearedHighlight.store.items[0]?.highlight : 'missing', undefined)
+    const persistedCleared = JSON.parse(await readFile(join(tempRoot, '.multi-code', 'backlog', 'items.json'), 'utf-8')) as {
+      items: Array<Record<string, unknown>>
+    }
+    assert.ok(!('highlight' in persistedCleared.items[0]), 'cleared highlight must not persist a field')
 
     const linked = await addOrUpdateBacklogLink({
       workspaceRoot: tempRoot,

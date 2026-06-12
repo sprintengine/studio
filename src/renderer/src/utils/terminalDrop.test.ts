@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
+import type { SkillPackHarness } from '../../../shared/electron-api'
 import {
   backlogSlashCommandForDrop,
   formatDroppedPathsForTerminal,
+  sendFileDropToTerminal,
   type FileDropPayload,
 } from './terminalDrop'
 
@@ -240,3 +242,146 @@ assert.equal(
   backlogSlashCommandForDrop(backlogPayload('/repo/backlog/item.md', ''), agentSession(), allHarnesses),
   null
 )
+
+// --- sendFileDropToTerminal -------------------------------------------------
+
+type TerminalWriteCall = { sessionId: string; data: string }
+
+function bracketedPaste(text: string): string {
+  return `\x1b[200~${text}\x1b[201~`
+}
+
+function installWindowApiStub(input: {
+  sessions: TerminalSessionSnapshot[]
+  backlogSkillHarnesses?: SkillPackHarness[]
+}): TerminalWriteCall[] {
+  const writes: TerminalWriteCall[] = []
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      api: {
+        terminalList: async () => input.sessions,
+        terminalWrite: async (sessionId: string, data: string) => {
+          writes.push({ sessionId, data })
+        },
+        builtinSkillStatus: async () => ({
+          ok: true,
+          status: 'installed',
+          skill: { id: 'backlog', name: 'Backlog', version: '1.0.0', description: '' },
+          destinationPath: '.agents/skills/backlog',
+          installedVersion: '1.0.0',
+          targets: (input.backlogSkillHarnesses ?? []).map((harness) => ({
+            harness,
+            destinationPath: '.agents/skills/backlog',
+            status: 'installed' as const,
+          })),
+        }),
+      },
+    },
+  })
+  return writes
+}
+
+async function testSlashCapableAgentGetsBacklogCommand(): Promise<void> {
+  const liveAgent = agentSession({ cwd: '/repo', pathStyle: 'posix' })
+  const writes = installWindowApiStub({
+    sessions: [liveAgent],
+    backlogSkillHarnesses: ['claude'],
+  })
+
+  const sent = await sendFileDropToTerminal({
+    payload: backlogPayload('/repo/backlog/item.md'),
+    sessionId: 'session-1',
+    workspaceId: 'workspace-1',
+  })
+
+  assert.deepEqual(sent, { ok: true, text: '/backlog backlog/item.md' })
+  assert.deepEqual(writes, [
+    { sessionId: 'session-1', data: bracketedPaste('/backlog backlog/item.md') },
+  ])
+}
+
+async function testNonSlashAgentGetsQuotedRelativePath(): Promise<void> {
+  const shellAgent = agentSession({ cli: 'generic-shell', cwd: '/repo', pathStyle: 'posix' })
+  const writes = installWindowApiStub({
+    sessions: [shellAgent],
+    backlogSkillHarnesses: ['claude'],
+  })
+
+  const sent = await sendFileDropToTerminal({
+    payload: backlogPayload('/repo/backlog/item.md'),
+    sessionId: 'session-1',
+    workspaceId: 'workspace-1',
+  })
+
+  assert.deepEqual(sent, { ok: true, text: "'backlog/item.md'" })
+  assert.deepEqual(writes, [
+    { sessionId: 'session-1', data: bracketedPaste("'backlog/item.md'") },
+  ])
+}
+
+async function testWorktreeSessionGetsPlainPathNeverBacklog(): Promise<void> {
+  const worktreeAgent = agentSession({
+    executionMode: 'worktree',
+    worktreePath: '/repo/.worktrees/a',
+    cwd: '/repo/.worktrees/a',
+    pathStyle: 'posix',
+  })
+  const writes = installWindowApiStub({
+    sessions: [worktreeAgent],
+    backlogSkillHarnesses: ['claude'],
+  })
+
+  const sent = await sendFileDropToTerminal({
+    payload: backlogPayload('/repo/backlog/item.md'),
+    sessionId: 'session-1',
+    workspaceId: 'workspace-1',
+  })
+
+  assert.deepEqual(sent, { ok: true, text: "'/repo/backlog/item.md'" })
+  assert.deepEqual(writes, [
+    { sessionId: 'session-1', data: bracketedPaste("'/repo/backlog/item.md'") },
+  ])
+}
+
+async function testDeadSessionReturnsExplicitError(): Promise<void> {
+  const deadAgent = agentSession({ processAlive: false, cwd: '/repo', pathStyle: 'posix' })
+  const writes = installWindowApiStub({
+    sessions: [deadAgent],
+    backlogSkillHarnesses: ['claude'],
+  })
+
+  const sent = await sendFileDropToTerminal({
+    payload: backlogPayload('/repo/backlog/item.md'),
+    sessionId: 'session-1',
+    workspaceId: 'workspace-1',
+  })
+
+  assert.deepEqual(sent, { ok: false, message: 'Terminal session is no longer running.' })
+  assert.deepEqual(writes, [])
+}
+
+async function testWorkspaceMismatchRejectsBeforeWrite(): Promise<void> {
+  const writes = installWindowApiStub({
+    sessions: [agentSession({ cwd: '/repo', pathStyle: 'posix' })],
+    backlogSkillHarnesses: ['claude'],
+  })
+
+  const sent = await sendFileDropToTerminal({
+    payload: backlogPayload('/repo/backlog/item.md'),
+    sessionId: 'session-1',
+    workspaceId: 'workspace-2',
+  })
+
+  assert.deepEqual(sent, {
+    ok: false,
+    message: 'Drop files into a terminal from the same workspace.',
+  })
+  assert.deepEqual(writes, [])
+}
+
+void testSlashCapableAgentGetsBacklogCommand()
+  .then(testNonSlashAgentGetsQuotedRelativePath)
+  .then(testWorktreeSessionGetsPlainPathNeverBacklog)
+  .then(testDeadSessionReturnsExplicitError)
+  .then(testWorkspaceMismatchRejectsBeforeWrite)

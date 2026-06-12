@@ -22,7 +22,6 @@ import { logPerfEvent } from './perfDiagnostics'
 export const AUTO_RUN_ROLE_CONTINUATION_GRACE_MS = 30000
 
 export const NEEDS_INPUT_AUTO_APPROVAL_STATUSES = new Set<SprintEngineArtifact['status']>([
-  'draft',
   'ready_for_review',
   'changes_requested',
 ])

@@ -124,11 +124,35 @@ function testBacklogBundleUsesRelativeBundlePaths(): void {
   assert.ok(!CLI_INSTRUCTION_PATTERN.test(prompt), 'bundle handoff does not instruct the agent to run any sprintengine CLI command')
 }
 
+function testWorktreeModeFlowsIntoInitPayload(): void {
+  const base = {
+    teamSlug: 'checkout-flow',
+    goal: 'Checkout Flow',
+    sourcePath: 'backlog/checkout-flow.md',
+    sourceContent: '# Checkout Flow\nShip it.',
+    sourcePlanKind: 'product_plan',
+    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+  }
+
+  const withWorktrees = buildPlanFileSprintEngineHandoffPrompt({ ...base, useWorktrees: true })
+  assert.ok(
+    withWorktrees.includes('"useWorktrees": true'),
+    'worktree mode requested at creation reaches the architect init payload',
+  )
+
+  const withoutWorktrees = buildPlanFileSprintEngineHandoffPrompt(base)
+  assert.ok(
+    !withoutWorktrees.includes('useWorktrees'),
+    'init payload omits useWorktrees when worktree mode was not requested',
+  )
+}
+
 function main(): void {
   testPlanFileHandoffIsMcpNative()
   testPlanFileHandoffBundleIssuesOneHandoverCallWithSourceBundle()
   testBacklogHandoffUsesBacklogPathsAndKeepsManagedMcpInvariants()
   testBacklogBundleUsesRelativeBundlePaths()
+  testWorktreeModeFlowsIntoInitPayload()
   console.log('sprintengineHandoff.test.ts: ok')
 }
 

@@ -13,6 +13,7 @@ type PlanFileSprintEngineHandoffPromptArgs = {
   statePath: string
   rosterArgs?: string[]
   autoRunRequested?: boolean
+  useWorktrees?: boolean
 }
 
 function jsonBlock(payload: Record<string, unknown>): string {
@@ -68,6 +69,7 @@ export function buildPlanFileSprintEngineHandoffPrompt({
   sourceBundle = [],
   rosterArgs = [],
   autoRunRequested = false,
+  useWorktrees = false,
 }: PlanFileSprintEngineHandoffPromptArgs): string {
   const hasExplicitSourceBundle = sourceBundle.length > 0
   const bundle = hasExplicitSourceBundle
@@ -106,6 +108,10 @@ export function buildPlanFileSprintEngineHandoffPrompt({
     goal,
   }
   if (rosterArgs.length > 0) initPayload.agent = rosterArgs
+  // Worktree mode is decided at workspace creation. The architect's init call
+  // creates (or reuses) the one shared run worktree + branch, so dropping this
+  // flag here would silently disable worktree mode for plan-sourced runs.
+  if (useWorktrees) initPayload.useWorktrees = true
 
   const architectJoinPayload = {
     role: 'architect',

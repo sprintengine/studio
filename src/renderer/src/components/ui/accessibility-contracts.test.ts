@@ -79,6 +79,48 @@ expectIncludes(popover, 'popover-enter z-50 rounded-[7px]', 'Popover uses the ca
 expectIncludes(popover, "window.addEventListener('scroll', reposition, true)", 'Popover tracks its trigger on scroll')
 expectIncludes(popover, "wantsBottom && surfaceHeight + SURFACE_GAP > spaceBelow", 'Popover flips above the trigger when space is tight')
 
+// ContextMenu — pointer-positioned menu primitive (right-click / kebab-corner
+// menus). Unlike Popover it opens at viewport coordinates, so it owns its own
+// clamped positioning, dismissal, focus restoration, and roving focus.
+const contextMenu = read('src/renderer/src/components/ui/ContextMenu.tsx')
+const workspaceSidebar = read('src/renderer/src/components/workspace/WorkspaceSidebar.tsx')
+
+expectIncludes(contextMenu, 'role="menu"', 'ContextMenu surface exposes the menu role')
+expectIncludes(contextMenu, 'aria-label={ariaLabel}', 'ContextMenu requires an accessible surface name')
+expectMatches(
+  contextMenu,
+  /role=\{checked !== undefined \? 'menuitemcheckbox' : 'menuitem'\}/,
+  'MenuItem switches to menuitemcheckbox for checkable items',
+)
+expectIncludes(contextMenu, 'aria-checked={checked}', 'MenuItem exposes aria-checked for checkable items')
+expectIncludes(contextMenu, 'role="separator"', 'MenuDivider exposes the separator role')
+expectIncludes(contextMenu, 'role="menuitemradio"', 'MenuSwatchRow swatches expose menuitemradio semantics')
+expectIncludes(contextMenu, "event.key === 'Escape'", 'ContextMenu closes on Escape')
+expectIncludes(contextMenu, 'event.defaultPrevented', 'ContextMenu ignores Escape already handled by nested surfaces')
+expectIncludes(contextMenu, 'previousFocusRef.current?.focus()', 'ContextMenu restores focus to the opener on close')
+expectIncludes(contextMenu, "window.addEventListener('pointerdown'", 'ContextMenu closes on outside pointer down')
+expectIncludes(contextMenu, "event.key === 'ArrowDown'", 'ContextMenu roves focus on ArrowDown')
+expectIncludes(contextMenu, "event.key === 'ArrowUp'", 'ContextMenu roves focus on ArrowUp')
+expectIncludes(contextMenu, "event.key === 'Home'", 'ContextMenu roves focus to the first item on Home')
+expectIncludes(contextMenu, "event.key === 'End'", 'ContextMenu roves focus to the last item on End')
+expectIncludes(contextMenu, 'aria-haspopup="menu"', 'MenuFlyoutItem advertises its nested menu')
+expectIncludes(contextMenu, 'aria-expanded={open}', 'MenuFlyoutItem reports flyout expanded state')
+expectIncludes(contextMenu, "event.key === 'ArrowRight'", 'MenuFlyoutItem opens its flyout on ArrowRight')
+expectIncludes(contextMenu, "event.key === 'ArrowLeft'", 'MenuFlyoutItem flyout closes back to its item on ArrowLeft')
+expectIncludes(contextMenu, 'FOCUS_RING_CLASS', 'ContextMenu items apply the shared focus ring class')
+
+// WorkspaceSidebar consumes the primitive — it must not hand-roll menu chrome.
+expectIncludes(workspaceSidebar, '<ContextMenu', 'WorkspaceSidebar menus render through the ui ContextMenu primitive')
+expectIncludes(workspaceSidebar, '<MenuSwatchRow', 'WorkspaceSidebar highlight swatch row comes from the primitive')
+assert.ok(
+  !/role="menu"/.test(workspaceSidebar),
+  'WorkspaceSidebar no longer hand-rolls a role="menu" surface',
+)
+assert.ok(
+  !/useClampedMenuPosition/.test(workspaceSidebar),
+  'WorkspaceSidebar delegates menu positioning to the ContextMenu primitive',
+)
+
 expectIncludes(overflowMenu, 'aria-haspopup="menu"', 'Overflow menu trigger exposes menu semantics')
 expectIncludes(overflowMenu, "aria-expanded={triggerProps['aria-expanded']}", 'Overflow menu trigger reports expanded state')
 expectIncludes(overflowMenu, 'popupRole="menu"', 'Overflow menu delegates menu role to Popover')

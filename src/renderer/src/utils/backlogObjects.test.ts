@@ -30,6 +30,7 @@ const store: BacklogObjectStore = {
       type: 'feature',
       difficulty: 'm',
       criticality: 'high',
+      highlight: { starred: true, color: 'amber' },
       metadata: { 'sprint-engine': { lastRunId: 'checkout' } },
       links: [
         {
@@ -54,6 +55,9 @@ assert.equal(hydrated.items[0]?.links[0]?.target.path, '.multi-code/sprintengine
 assert.equal(hydrated.items[0]?.type, 'feature')
 assert.equal(hydrated.items[0]?.difficulty, 'm')
 assert.equal(hydrated.items[0]?.criticality, 'high')
+// Highlight rides along from the object record; items without one stay unset.
+assert.equal(item.highlight, undefined)
+assert.deepEqual(hydrated.items[0]?.highlight, { starred: true, color: 'amber' })
 
 const ensured = ensureBacklogObjectRecords({ schemaVersion: 1, items: [] }, [item], '2026-06-07T01:00:00.000Z')
 assert.equal(ensured.changed, true)
@@ -89,6 +93,7 @@ const dirty: BacklogObjectStore = {
       type: 'epic' as unknown as 'feature',
       difficulty: 'huge' as unknown as 'xl',
       criticality: 'high',
+      highlight: { starred: true, color: 'magenta' as unknown as 'red' },
     },
   ],
 }
@@ -96,6 +101,8 @@ const cleaned = updateBacklogObjectStatus(dirty, item, 'idea', '2026-06-07T08:00
 assert.equal(cleaned.items[0]?.type, undefined)
 assert.equal(cleaned.items[0]?.difficulty, undefined)
 assert.equal(cleaned.items[0]?.criticality, 'high')
+// Unknown highlight colors are dropped on normalization; the star survives.
+assert.deepEqual(cleaned.items[0]?.highlight, { starred: true, color: null })
 
 const statusUpdated = updateBacklogObjectStatus(store, item, 'completed', '2026-06-07T02:00:00.000Z')
 assert.equal(statusUpdated.items[0]?.status, 'completed')

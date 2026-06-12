@@ -292,6 +292,52 @@ async function testSprintEnginePlanSourcedInitializesAndLinksBacklog(): Promise<
   ])
 }
 
+async function testSprintEnginePlanSourcedWorktreeModeFlowsThroughStateAndPrompt(): Promise<void> {
+  const initInputs: Array<{ useWorktrees?: boolean }> = []
+  await runSprintEnginePlanSourcedCreation(
+    {
+      folderPath: '/p',
+      teamName: 'Worktree Run',
+      goal: 'Ship the worktree work',
+      sourcePlanPath: '/p/backlog/worktree-plan.md',
+      sourcePlanRelativePath: 'backlog/worktree-plan.md',
+      sourcePlanContent: '# Plan',
+      sourcePlanKind: 'architect_plan',
+      sourceBundle: null,
+      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      totalAgents: 2,
+      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      startRunner: false,
+      autoApproveArtifacts: false,
+      useWorktrees: true,
+      cliPermissionPreset: 'default',
+    },
+    {
+      pathExists: async (path) => path === '/p/backlog/worktree-plan.md',
+      initializeSprintEngineState: async (input) => {
+        initInputs.push({ useWorktrees: input.useWorktrees })
+        return { ok: true, data: {} }
+      },
+    },
+  )
+
+  assert.deepEqual(initInputs, [{ useWorktrees: true }], 'creation-time init requests worktree mode')
+
+  const { useWorkspaceStore } = await import('../../../../store/workspaceStore')
+  const workspace = useWorkspaceStore.getState().workspaces.find((entry) => entry.sprintEngineContext?.teamSlug === 'worktree-run')
+  assert.ok(workspace, 'plan-sourced creation stores the workspace')
+  assert.equal(
+    workspace.sprintEngineState?.useWorktrees,
+    true,
+    'worktree mode persists on workspace Sprint Engine state so the auto-run supervisor routes agents into the run worktree',
+  )
+  const architectPrompt = Object.values(workspace.agents).find((agent) => agent.cliStartupPrompt)?.cliStartupPrompt ?? ''
+  assert.ok(
+    architectPrompt.includes('"useWorktrees": true'),
+    'architect handoff prompt carries worktree mode into the MCP init payload',
+  )
+}
+
 async function testSprintEnginePlanSourcedSkipsNonBacklogLink(): Promise<void> {
   const events: string[] = []
   await runSprintEnginePlanSourcedCreation(
@@ -718,6 +764,7 @@ async function main(): Promise<void> {
   testBuildSprintEngineNewTeamCreation()
   await testSprintEnginePlanSourcedValidation()
   await testSprintEnginePlanSourcedInitializesAndLinksBacklog()
+  await testSprintEnginePlanSourcedWorktreeModeFlowsThroughStateAndPrompt()
   await testSprintEnginePlanSourcedSkipsNonBacklogLink()
   await testGuidedBriefScaffoldValidation()
   await testGuidedBriefScaffoldHappyPath()

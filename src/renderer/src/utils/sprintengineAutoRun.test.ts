@@ -3466,9 +3466,9 @@ function testGetAutoApprovalIntentArtifactsRespectsEligibility(): void {
   })
   const eligibleIds = getAutoApprovalIntentArtifacts(state).map((artifact) => artifact.id)
   // The review artifact is eligible because the artifact passes the eligibility predicate
-  // OR because its task has a sibling in needs_input that allows draft/ready_for_review/changes_requested.
+  // or because its task has a sibling in needs_input that allows approvable review statuses.
   assert.ok(eligibleIds.includes('AR-001'), 'ready_for_review artifact on review task is eligible')
-  assert.ok(eligibleIds.includes('AR-002'), 'draft artifact whose sibling task is in needs_input is eligible')
+  assert.ok(!eligibleIds.includes('AR-002'), 'draft artifact is not proposed because Sprint Engine rejects draft approval')
   assert.ok(!eligibleIds.includes('AR-003'), 'orphan artifact without a matching task is not eligible')
   assert.ok(!eligibleIds.includes('AR-004'), 'unknown-kind artifact is never proposed for auto-approval')
 }

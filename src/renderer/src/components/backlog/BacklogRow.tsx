@@ -85,8 +85,24 @@ export function BacklogRowContent({
         <Tooltip content={statusLabel} placement="top">
           <LifecycleGlyph state={lifecycle} live={live} />
         </Tooltip>
-        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
-          {item.title}
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span className="min-w-0 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
+            {item.title}
+          </span>
+          {/* Earned mark: the star exists only when starred — no placeholder
+              outline on idle rows, same rule as the status dot. Matches the
+              sidebar's starred-workspace glyph (color, size, name). */}
+          {item.highlight?.starred ? (
+            <svg
+              className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
+              viewBox="0 0 16 16"
+              fill="currentColor"
+              aria-label="Starred"
+            >
+              <title>Starred</title>
+              <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" />
+            </svg>
+          ) : null}
         </span>
         <DifficultyIndicator difficulty={item.difficulty} />
         <CriticalityIndicator criticality={item.criticality} />

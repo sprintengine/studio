@@ -3,6 +3,8 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import type {
   BacklogAddOrUpdateLinkInput,
+  BacklogHighlightColorPayload,
+  BacklogHighlightInput,
   BacklogItemLinkPayload,
   BacklogItemRecordInput,
   BacklogModuleMetadataInput,
@@ -34,6 +36,7 @@ const VALID_STATUS = new Set(['idea', 'ready', 'in_progress', 'needs_input', 'co
 const VALID_TYPE = new Set(['feature', 'bug', 'mockup'])
 const VALID_DIFFICULTY = new Set(['xs', 's', 'm', 'l', 'xl'])
 const VALID_CRITICALITY = new Set(['low', 'normal', 'high', 'critical'])
+const VALID_HIGHLIGHT_COLOR = new Set(['red', 'orange', 'amber', 'green', 'blue', 'purple', 'pink'])
 
 export async function readBacklogObjectStore(workspaceRoot: string): Promise<BacklogReadResult> {
   try {
@@ -105,6 +108,20 @@ export async function updateBacklogTriage(input: BacklogTriageInput): Promise<Ba
     if ('criticality' in input) next.criticality = input.criticality ?? undefined
     return next
   })
+}
+
+export async function updateBacklogHighlight(input: BacklogHighlightInput): Promise<BacklogMutationResult> {
+  if (typeof input.starred !== 'boolean') return { ok: false, message: 'Enter a valid Backlog highlight star value.' }
+  if (input.color !== null && !isBacklogHighlightColor(input.color)) {
+    return { ok: false, message: 'Enter a valid Backlog highlight color.' }
+  }
+  return mutateItem(input.workspaceRoot, input.relativePath, (record, now) => ({
+    ...record,
+    // Unstarred with no color is the default state: drop the field instead of
+    // persisting an empty highlight object.
+    highlight: input.starred || input.color !== null ? { starred: input.starred, color: input.color } : undefined,
+    updatedAt: now,
+  }))
 }
 
 export async function addOrUpdateBacklogLink(input: BacklogAddOrUpdateLinkInput): Promise<BacklogMutationResult> {
@@ -296,11 +313,20 @@ function normalizeRecord(value: unknown): BacklogObjectRecord | null {
     type: isBacklogType(raw.type) ? raw.type : undefined,
     difficulty: isBacklogDifficulty(raw.difficulty) ? raw.difficulty : undefined,
     criticality: isBacklogCriticality(raw.criticality) ? raw.criticality : undefined,
+    highlight: normalizeBacklogHighlight(raw.highlight),
     metadata: isPlainRecord(raw.metadata) ? raw.metadata : {},
     links: Array.isArray(raw.links) ? raw.links.map(normalizeBacklogLink).filter((link): link is BacklogItemLinkPayload => Boolean(link)) : [],
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : undefined,
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : undefined,
   }
+}
+
+function normalizeBacklogHighlight(value: unknown): BacklogObjectRecord['highlight'] {
+  if (!isPlainRecord(value)) return undefined
+  const starred = value.starred === true
+  const color = isBacklogHighlightColor(value.color) ? value.color : null
+  if (!starred && color === null) return undefined
+  return { starred, color }
 }
 
 function normalizeBacklogLink(value: unknown): BacklogItemLinkPayload | null {
@@ -376,6 +402,10 @@ function isBacklogDifficulty(value: unknown): value is BacklogObjectRecord['diff
 
 function isBacklogCriticality(value: unknown): value is BacklogObjectRecord['criticality'] {
   return typeof value === 'string' && VALID_CRITICALITY.has(value)
+}
+
+function isBacklogHighlightColor(value: unknown): value is BacklogHighlightColorPayload {
+  return typeof value === 'string' && VALID_HIGHLIGHT_COLOR.has(value)
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

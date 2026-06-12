@@ -22,6 +22,16 @@ export type BacklogType = 'feature' | 'bug' | 'mockup'
 export type BacklogDifficulty = 'xs' | 's' | 'm' | 'l' | 'xl'
 export type BacklogCriticality = 'low' | 'normal' | 'high' | 'critical'
 
+// Star/highlight metadata is owned exclusively by the object store: markdown
+// frontmatter never seeds it. Mirrors the shared BacklogHighlightPayload and
+// the workspace HighlightColor union, which stays assignable to it.
+export type BacklogHighlightColor = 'red' | 'orange' | 'amber' | 'green' | 'blue' | 'purple' | 'pink'
+
+export type BacklogHighlight = {
+  starred: boolean
+  color: BacklogHighlightColor | null
+}
+
 export type BacklogItemLinkStatus = 'active' | 'completed' | 'failed' | 'unknown'
 
 export type BacklogItemLink = {
@@ -52,6 +62,7 @@ export type BacklogItemObjectMetadata = {
   type?: BacklogType
   difficulty?: BacklogDifficulty
   criticality?: BacklogCriticality
+  highlight?: BacklogHighlight
   updatedAt?: string
 }
 
@@ -66,6 +77,7 @@ export type BacklogItem = {
   type?: BacklogType
   difficulty?: BacklogDifficulty
   criticality?: BacklogCriticality
+  highlight?: BacklogHighlight
   metadata: Record<string, unknown>
   links: BacklogItemLink[]
   objectUpdatedAt?: string
@@ -109,6 +121,7 @@ const VALID_STATUS = new Set<BacklogItemStatus>(['idea', 'ready', 'in_progress',
 const VALID_TYPE = new Set<BacklogType>(['feature', 'bug', 'mockup'])
 const VALID_DIFFICULTY = new Set<BacklogDifficulty>(['xs', 's', 'm', 'l', 'xl'])
 const VALID_CRITICALITY = new Set<BacklogCriticality>(['low', 'normal', 'high', 'critical'])
+const VALID_HIGHLIGHT_COLOR = new Set<BacklogHighlightColor>(['red', 'orange', 'amber', 'green', 'blue', 'purple', 'pink'])
 
 export function isBacklogType(value: unknown): value is BacklogType {
   return typeof value === 'string' && VALID_TYPE.has(value as BacklogType)
@@ -120,6 +133,10 @@ export function isBacklogDifficulty(value: unknown): value is BacklogDifficulty 
 
 export function isBacklogCriticality(value: unknown): value is BacklogCriticality {
   return typeof value === 'string' && VALID_CRITICALITY.has(value as BacklogCriticality)
+}
+
+export function isBacklogHighlightColor(value: unknown): value is BacklogHighlightColor {
+  return typeof value === 'string' && VALID_HIGHLIGHT_COLOR.has(value as BacklogHighlightColor)
 }
 
 export function backlogRootPath(workspaceRoot: string): string {
@@ -217,6 +234,7 @@ export function createBacklogItem(input: {
     type: input.object?.type ?? frontmatterType ?? defaultBacklogType(frontmatterKind ?? inferredKind),
     difficulty: input.object?.difficulty ?? frontmatterDifficulty,
     criticality: input.object?.criticality ?? frontmatterCriticality,
+    highlight: input.object?.highlight,
     metadata: input.object?.metadata ?? {},
     links: input.object?.links ?? [],
     objectUpdatedAt: input.object?.updatedAt,

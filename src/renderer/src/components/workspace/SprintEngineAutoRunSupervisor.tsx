@@ -1829,21 +1829,6 @@ async function superviseWorkspace(
   // polling flag here. That bridge was removed: local autoState is enough to
   // decide whether to spawn agents, and the CLI flag is the CLI's concern.
 
-  if (isSprintEngineRunBlockedOnExternalInput(sprintEngineState)) {
-    const blockReason = describeSprintEngineExternalInputAutoRunBlock(sprintEngineState)
-    defaultExecutorPorts.applyAutomationStopReason(workspace.id, 'blocked_on_external_input', blockReason)
-    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      reason: 'blocked-on-external-input',
-      blockedTaskIds: sprintEngineState.tasks
-        .filter((task) => task.status === 'needs_input')
-        .map((task) => task.id),
-      elapsedMs: Math.round(performance.now() - superviseStartedAt),
-    })
-    return
-  }
-
   if (approvalActive) {
     const approvalResult = await sendApprovalToNextEligibleArtifactProducer(
       workspace,
@@ -1869,6 +1854,21 @@ async function superviseWorkspace(
       })
       return
     }
+  }
+
+  if (isSprintEngineRunBlockedOnExternalInput(sprintEngineState)) {
+    const blockReason = describeSprintEngineExternalInputAutoRunBlock(sprintEngineState)
+    defaultExecutorPorts.applyAutomationStopReason(workspace.id, 'blocked_on_external_input', blockReason)
+    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      reason: 'blocked-on-external-input',
+      blockedTaskIds: sprintEngineState.tasks
+        .filter((task) => task.status === 'needs_input')
+        .map((task) => task.id),
+      elapsedMs: Math.round(performance.now() - superviseStartedAt),
+    })
+    return
   }
 
   if (!runnerActive) {

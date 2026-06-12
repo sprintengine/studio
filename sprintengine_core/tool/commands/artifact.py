@@ -14,6 +14,7 @@ from sprintengine_core.tool.artifacts import (
     mark_task_needs_input_for_artifact,
     normalize_artifact_path,
     reopen_task_for_artifact_changes,
+    supersede_duplicate_artifacts_for_approved_artifact,
 )
 from sprintengine_core.tool.feedback import append_feedback_record, attach_feedback_payload, build_feedback_payload
 from sprintengine_core.tool.paths import now_iso
@@ -132,6 +133,7 @@ def cmd_artifact_approve(args: argparse.Namespace) -> Dict[str, Any]:
         artifact["updatedAt"] = artifact["approvedAt"]
         append_artifact_history(artifact, "approved", args.id)
         owner_id = str(task.get("ownerAgentId") or "").strip()
+        superseded_artifact_ids = supersede_duplicate_artifacts_for_approved_artifact(state, artifact, args.state, args.id)
         task_completed = mark_task_done_if_artifacts_approved(state, task)
         append_task_activity(task, "artifact", args.id, f"{args.id} approved artifact {args.artifact_id}.", {"artifactId": args.artifact_id, "artifactStatus": "approved"})
         recompute_phase(state)
@@ -152,6 +154,7 @@ def cmd_artifact_approve(args: argparse.Namespace) -> Dict[str, Any]:
             "artifact": artifact,
             "task": task,
             "taskCompleted": task_completed,
+            "supersededArtifactIds": superseded_artifact_ids,
             "event": event,
             "notification": notification,
         }

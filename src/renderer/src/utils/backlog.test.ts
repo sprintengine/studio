@@ -254,6 +254,25 @@ run('invalid frontmatter triage values are ignored without warnings', () => {
   assert.equal(item.criticality, undefined)
 })
 
+run('highlight comes only from the object store, never frontmatter', () => {
+  const seeded = createBacklogItem({
+    path: '/repo/backlog/starred.md',
+    relativePath: 'backlog/starred.md',
+    sourceContent: '---\nhighlight: red\nstarred: true\n---\n# Starred idea',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.equal(seeded.highlight, undefined)
+
+  const hydrated = createBacklogItem({
+    path: '/repo/backlog/starred.md',
+    relativePath: 'backlog/starred.md',
+    sourceContent: '# Starred idea',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+    object: { objectId: 'obj_starred', metadata: {}, links: [], highlight: { starred: true, color: 'pink' } },
+  })
+  assert.deepEqual(hydrated.highlight, { starred: true, color: 'pink' })
+})
+
 run('archived paths are always marked archived', () => {
   const item = createBacklogItem({
     path: '/repo/backlog/archived/product-plan.md',

@@ -1,11 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
+  ContextMenu,
   GhostButton,
   IconButton,
   InboxSearchInput,
   InlineNotice,
   LifecycleGlyph,
+  MenuDivider,
+  MenuFlyoutItem,
+  MenuItem,
+  MenuSwatchRow,
   OverflowMenu,
   PanelHeader,
   PrimaryButton,
@@ -15,13 +20,15 @@ import {
   useConfirmDialog,
   type SelectItem,
 } from '../ui'
+import CliIcon from '../CliIcon'
+import type { AgentState } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import { renderMarkdown } from '../../utils/markdown'
 import { basename } from '../../utils/paths'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
-import { setFileDropData } from '../../utils/terminalDrop'
+import { sendFileDropToTerminal, setFileDropData, type FileDropPayload } from '../../utils/terminalDrop'
 import {
   backlogPreviewMarkdown,
   backlogRootPath,
@@ -32,10 +39,12 @@ import {
   type BacklogCriticality,
   type BacklogDifficulty,
   type BacklogFilesystemAdapter,
+  type BacklogHighlight,
   type BacklogItem,
   type BacklogItemStatus,
   type BacklogScanResult,
 } from '../../utils/backlog'
+import { getHighlightSwatch } from '../../utils/highlight'
 import {
   hydrateBacklogScanResult,
 } from '../../utils/backlogObjects'
@@ -91,6 +100,7 @@ type BacklogActions = {
   setStatus: (item: BacklogItem, status: BacklogItemStatus) => void
   setDifficulty: (item: BacklogItem, value: DifficultyChoice) => void
   setCriticality: (item: BacklogItem, value: CriticalityChoice) => void
+  setHighlight: (item: BacklogItem, highlight: BacklogHighlight) => void
 }
 
 // Only states past capture earn a visible lifecycle word in the detail; rough
@@ -197,6 +207,14 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // Visible, actionable error from a file action (create/rename/archive/delete/
   // open/reveal). Cleared at the start of each action.
   const [actionError, setActionError] = useState<string | null>(null)
+  // Row context menu (right-click). Keyed by item id, not the item object, so a
+  // re-scan triggered by a menu mutation (star, highlight) re-resolves the live
+  // item and the open menu reflects the new state instead of a stale snapshot.
+  const [rowMenu, setRowMenu] = useState<{ itemId: string; x: number; y: number } | null>(null)
+  // Terminal-session liveness for the send-to-agent flyout. null = not fetched
+  // yet (agents render enabled; the send core re-verifies liveness anyway);
+  // fetched on every flyout open so a dead session shows as disabled.
+  const [agentSessions, setAgentSessions] = useState<TerminalSessionSnapshot[] | null>(null)
 
   // Guards against a stale async scan (folder switch / rapid refresh) clobbering
   // a newer result.
@@ -611,6 +629,26 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [folderPath, runAction, runScan],
   )
 
+  // Star / highlight color persist to the backlog object store (items.json)
+  // via backlog:update-highlight and re-scan, same as triage — owned metadata,
+  // never frontmatter, never disconnected renderer state. Visual marks only:
+  // sorting and filtering never key on them.
+  const setItemHighlight = useCallback(
+    (item: BacklogItem, highlight: BacklogHighlight) =>
+      runAction(async () => {
+        if (!folderPath) return
+        const updated = await window.api.updateBacklogHighlight({
+          workspaceRoot: folderPath,
+          relativePath: item.relativePath,
+          starred: highlight.starred,
+          color: highlight.color,
+        })
+        assertBacklogMutation(updated)
+        await runScan()
+      }),
+    [folderPath, runAction, runScan],
+  )
+
   const refreshButton = (
     <Tooltip content="Refresh backlog">
       <IconButton aria-label="Refresh backlog" onClick={() => void runScan()} disabled={loading || !folderPath}>
@@ -639,6 +677,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     setStatus: (item, status) => void setItemStatus(item, status),
     setDifficulty: (item, value) => setItemTriage(item, { difficulty: value === 'unset' ? null : value }),
     setCriticality: (item, value) => setItemTriage(item, { criticality: value === 'unset' ? null : value }),
+    setHighlight: (item, highlight) => void setItemHighlight(item, highlight),
   }
 
   // Partial scan: some files read but others failed. Surface the failures so a
@@ -741,6 +780,65 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [folderPath, workspaceId],
   )
 
+  // Right-click selects the row first (Files-tree behavior) so the menu and the
+  // detail pane agree about the target; in single-column mode it stays on the
+  // list face so the menu doesn't open over a swapped-in detail pane.
+  const handleRowContextMenu = useCallback((event: React.MouseEvent, item: BacklogItem) => {
+    event.preventDefault()
+    setSelectedId(item.id)
+    setRowMenu({ itemId: item.id, x: event.clientX, y: event.clientY })
+  }, [])
+
+  // Agents of this workspace that own a CLI terminal session — the send-to-agent
+  // targets. Liveness comes from terminalList(), fetched when the flyout opens.
+  const agentTargets = useMemo(() => {
+    const workspace = workspaces.find((candidate) => candidate.id === workspaceId)
+    if (!workspace) return []
+    return Object.values(workspace.agents).filter(
+      (agent): agent is typeof agent & { cliSessionId: string } =>
+        typeof agent.cliSessionId === 'string' && agent.cliSessionId.length > 0,
+    )
+  }, [workspaces, workspaceId])
+
+  const refreshAgentSessions = useCallback(() => {
+    setAgentSessions(null)
+    void window.api
+      .terminalList()
+      .then(setAgentSessions)
+      // Leave null on failure: unknown liveness must not render live agents as
+      // dead; the send core re-verifies before writing anyway.
+      .catch(() => {})
+  }, [])
+
+  // Same code path as dragging a row onto an agent terminal: build the
+  // FileDropPayload and let the shared send core own the liveness check, the
+  // /backlog slash-vs-quoted-path decision, and the worktree rule. A dead
+  // session picked from a stale list rejects and surfaces as actionError.
+  const sendItemToAgent = useCallback(
+    (item: BacklogItem, sessionId: string) =>
+      runAction(async () => {
+        if (!folderPath) return
+        const payload: FileDropPayload = {
+          version: 1,
+          workspaceId,
+          rootPath: folderPath,
+          files: [{ path: item.path, name: basename(item.relativePath), isDir: false }],
+        }
+        const result = await sendFileDropToTerminal({ payload, sessionId, workspaceId })
+        if (!result.ok) throw new Error(result.message)
+      }),
+    [folderPath, runAction, workspaceId],
+  )
+
+  const menuItem = rowMenu ? filtered.find((item) => item.id === rowMenu.itemId) ?? null : null
+
+  // A mutation that removes the item from the current view (rename, archive,
+  // delete, filter change) closes the menu rather than leaving it aimed at a
+  // target that no longer exists.
+  useEffect(() => {
+    if (rowMenu && !menuItem) setRowMenu(null)
+  }, [rowMenu, menuItem])
+
   const listPane = (
     <BacklogList
       items={filtered}
@@ -748,6 +846,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       onSelect={handleSelectRow}
       onKeyDown={handleListKeyDown}
       onItemDragStart={folderPath ? handleRowDragStart : undefined}
+      onItemContextMenu={folderPath ? handleRowContextMenu : undefined}
       emptyHint={listEmptyHint(scan, items.length, filtered.length, loading)}
       now={now}
       runGlyphById={runGlyphById}
@@ -873,6 +972,20 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           onCreate={submitCreate}
         />
       ) : null}
+
+      {rowMenu && menuItem ? (
+        <BacklogItemContextMenu
+          x={rowMenu.x}
+          y={rowMenu.y}
+          item={menuItem}
+          actions={actions}
+          agentTargets={agentTargets}
+          agentSessions={agentSessions}
+          onFlyoutOpen={refreshAgentSessions}
+          onSendToAgent={(item, sessionId) => void sendItemToAgent(item, sessionId)}
+          onClose={() => setRowMenu(null)}
+        />
+      ) : null}
     </section>
   )
 }
@@ -885,6 +998,7 @@ function BacklogList({
   onSelect,
   onKeyDown,
   onItemDragStart,
+  onItemContextMenu,
   emptyHint,
   now,
   runGlyphById,
@@ -894,6 +1008,7 @@ function BacklogList({
   onSelect: (id: string) => void
   onKeyDown: (event: React.KeyboardEvent<HTMLUListElement>) => void
   onItemDragStart?: (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => void
+  onItemContextMenu?: (event: React.MouseEvent, item: BacklogItem) => void
   emptyHint: string | null
   now: number
   runGlyphById?: ReadonlyMap<string, BacklogRunGlyph>
@@ -932,6 +1047,10 @@ function BacklogList({
       {items.map((item, index) => {
         const active = item.id === selectedId
         const archived = item.status === 'archived'
+        // Highlight color owns the row's left-edge stripe; on the selected row
+        // it also replaces the accent soft-bg, mirroring the sidebar rowAccent
+        // override. Marks are visual only — order and padding never change.
+        const swatch = item.highlight?.color ? getHighlightSwatch(item.highlight.color) : null
         return (
           <li
             key={item.id}
@@ -940,12 +1059,13 @@ function BacklogList({
             aria-selected={active}
             draggable={Boolean(onItemDragStart)}
             onDragStart={onItemDragStart ? (event) => onItemDragStart(event, item) : undefined}
+            onContextMenu={onItemContextMenu ? (event) => onItemContextMenu(event, item) : undefined}
             onClick={() => onSelect(item.id)}
             title={item.relativePath}
             className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors ${
               active
-                ? 'border-l-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] pl-[9px]'
-                : 'border-l-transparent hover:bg-[color:var(--bg-hover)]'
+                ? `${swatch ? `${swatch.border} ${swatch.bg}` : 'border-l-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'} pl-[9px]`
+                : `${swatch ? swatch.border : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
             } ${archived ? 'opacity-70' : ''}`}
           >
             <BacklogRowContent item={item} now={now} runGlyph={runGlyphById?.get(item.id)} />
@@ -953,6 +1073,226 @@ function BacklogList({
         )
       })}
     </ul>
+  )
+}
+
+// ---- Row context menu ------------------------------------------------------
+
+// Status submenu choices: lifecycle states the user sets directly. Archived is
+// deliberately absent — archiving is a file move owned by the top-level
+// Archive action, not a status flip.
+const STATUS_MENU_CHOICES: BacklogItemStatus[] = [
+  'idea',
+  'ready',
+  'in_progress',
+  'needs_input',
+  'completed',
+]
+
+// Leading slot for submenu choice rows: a check on the current value, an
+// equal-width spacer on the rest so labels align into one column.
+function MenuCheckGlyph({ visible }: { visible: boolean }): JSX.Element {
+  if (!visible) return <span className="icon-xs shrink-0" aria-hidden="true" />
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
+      <path d="M3.5 8.5L6.5 11.5L12.5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+// Right-click menu for a Backlog list row. Every mutation routes through the
+// same BacklogActions handlers as the detail pane — the menu adds no mutation
+// paths. One-shot actions close the menu; the Star checkbox and highlight
+// swatches keep it open (sidebar idiom) and re-render from the re-scanned item.
+function BacklogItemContextMenu({
+  x,
+  y,
+  item,
+  actions,
+  agentTargets,
+  agentSessions,
+  onFlyoutOpen,
+  onSendToAgent,
+  onClose,
+}: {
+  x: number
+  y: number
+  item: BacklogItem
+  actions: BacklogActions
+  agentTargets: Array<AgentState & { cliSessionId: string }>
+  agentSessions: TerminalSessionSnapshot[] | null
+  onFlyoutOpen: () => void
+  onSendToAgent: (item: BacklogItem, sessionId: string) => void
+  onClose: () => void
+}): JSX.Element {
+  const starred = item.highlight?.starred === true
+  const currentColor = item.highlight?.color ?? null
+  const archived = item.status === 'archived'
+
+  return (
+    <ContextMenu
+      x={x}
+      y={y}
+      ariaLabel={`Backlog item actions: ${item.title}`}
+      onClose={onClose}
+      surfaceClassName="min-w-[240px]"
+    >
+      <MenuFlyoutItem
+        label="Send to agent"
+        ariaLabel="Send to agent"
+        surfaceClassName="min-w-[200px]"
+        onOpenChange={(open) => {
+          if (open) onFlyoutOpen()
+        }}
+      >
+        {agentTargets.length === 0 ? (
+          <MenuItem disabled onClick={() => {}}>
+            No running agents
+          </MenuItem>
+        ) : (
+          agentTargets.map((agent) => {
+            const session = agentSessions?.find(
+              (candidate) => candidate.sessionId === agent.cliSessionId,
+            )
+            // Unknown liveness (list not fetched / fetch failed) keeps the row
+            // enabled — the send core re-verifies before writing, so a dead
+            // session still fails loudly instead of being mislabeled here.
+            const dead = agentSessions !== null && session?.processAlive !== true
+            return (
+              <MenuItem
+                key={agent.id}
+                disabled={dead}
+                icon={
+                  agent.cli ? (
+                    <CliIcon cli={agent.cli} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
+                  ) : undefined
+                }
+                onClick={() => {
+                  onSendToAgent(item, agent.cliSessionId)
+                  onClose()
+                }}
+              >
+                {agent.name}
+              </MenuItem>
+            )
+          })
+        )}
+      </MenuFlyoutItem>
+      <MenuDivider />
+      <MenuItem
+        checked={starred}
+        onClick={() => actions.setHighlight(item, { starred: !starred, color: currentColor })}
+        icon={
+          <svg
+            viewBox="0 0 16 16"
+            fill={starred ? 'currentColor' : 'none'}
+            stroke="currentColor"
+            strokeWidth="1.4"
+            className={`icon-sm shrink-0 ${starred ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-disabled)]'}`}
+          >
+            <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" strokeLinejoin="round" />
+          </svg>
+        }
+      >
+        {starred ? 'Unstar' : 'Star'}
+      </MenuItem>
+      <MenuSwatchRow
+        label="Highlight color"
+        value={currentColor}
+        onPick={(color) => actions.setHighlight(item, { starred, color })}
+        onClear={() => actions.setHighlight(item, { starred, color: null })}
+      />
+      <MenuDivider />
+      <MenuFlyoutItem label="Status" ariaLabel="Set status" surfaceClassName="min-w-[180px]">
+        {STATUS_MENU_CHOICES.map((status) => (
+          <MenuItem
+            key={status}
+            checked={item.status === status}
+            icon={<MenuCheckGlyph visible={item.status === status} />}
+            onClick={() => {
+              actions.setStatus(item, status)
+              onClose()
+            }}
+          >
+            {BACKLOG_STATUS_LABEL[status]}
+          </MenuItem>
+        ))}
+      </MenuFlyoutItem>
+      <MenuFlyoutItem label="Priority" ariaLabel="Set priority" surfaceClassName="min-w-[180px]">
+        {CRITICALITY_EDIT_ITEMS.map(({ value, label }) => (
+          <MenuItem
+            key={value}
+            checked={(item.criticality ?? 'unset') === value}
+            icon={<MenuCheckGlyph visible={(item.criticality ?? 'unset') === value} />}
+            onClick={() => {
+              actions.setCriticality(item, value)
+              onClose()
+            }}
+          >
+            {label}
+          </MenuItem>
+        ))}
+      </MenuFlyoutItem>
+      <MenuFlyoutItem label="Size" ariaLabel="Set size" surfaceClassName="min-w-[180px]">
+        {DIFFICULTY_EDIT_ITEMS.map(({ value, label }) => (
+          <MenuItem
+            key={value}
+            checked={(item.difficulty ?? 'unset') === value}
+            icon={<MenuCheckGlyph visible={(item.difficulty ?? 'unset') === value} />}
+            onClick={() => {
+              actions.setDifficulty(item, value)
+              onClose()
+            }}
+          >
+            {label}
+          </MenuItem>
+        ))}
+      </MenuFlyoutItem>
+      <MenuDivider />
+      <MenuItem
+        onClick={() => {
+          actions.openInEditor(item)
+          onClose()
+        }}
+      >
+        Open in editor
+      </MenuItem>
+      <MenuItem
+        onClick={() => {
+          actions.revealInFiles(item)
+          onClose()
+        }}
+      >
+        Reveal in Files
+      </MenuItem>
+      <MenuItem
+        onClick={() => {
+          actions.rename(item)
+          onClose()
+        }}
+      >
+        Rename…
+      </MenuItem>
+      {!archived ? (
+        <MenuItem
+          onClick={() => {
+            actions.archive(item)
+            onClose()
+          }}
+        >
+          Archive
+        </MenuItem>
+      ) : null}
+      <MenuItem
+        variant="danger"
+        onClick={() => {
+          actions.remove(item)
+          onClose()
+        }}
+      >
+        Delete…
+      </MenuItem>
+    </ContextMenu>
   )
 }
 
@@ -1122,6 +1462,15 @@ function BacklogDetail({
               ...(selected.status !== 'archived' && selected.status !== 'completed'
                 ? [{ id: 'mark-completed', label: 'Mark completed', onSelect: () => actions.setStatus(selected, 'completed') }]
                 : []),
+              {
+                id: 'star',
+                label: selected.highlight?.starred ? 'Unstar' : 'Star',
+                onSelect: () =>
+                  actions.setHighlight(selected, {
+                    starred: !selected.highlight?.starred,
+                    color: selected.highlight?.color ?? null,
+                  }),
+              },
               { id: 'rename', label: 'Rename…', onSelect: () => actions.rename(selected) },
               ...(selected.status === 'archived'
                 ? []

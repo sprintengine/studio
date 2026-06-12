@@ -1237,6 +1237,14 @@ export type BacklogItemStatusPayload = 'idea' | 'ready' | 'in_progress' | 'needs
 export type BacklogTypePayload = 'feature' | 'bug' | 'mockup'
 export type BacklogDifficultyPayload = 'xs' | 's' | 'm' | 'l' | 'xl'
 export type BacklogCriticalityPayload = 'low' | 'normal' | 'high' | 'critical'
+// Declared fresh in shared (no renderer imports); the renderer's HighlightColor
+// union must stay assignable to this payload type.
+export type BacklogHighlightColorPayload = 'red' | 'orange' | 'amber' | 'green' | 'blue' | 'purple' | 'pink'
+
+export type BacklogHighlightPayload = {
+  starred: boolean
+  color: BacklogHighlightColorPayload | null
+}
 
 export type BacklogItemLinkPayload = {
   id: string
@@ -1263,6 +1271,7 @@ export type BacklogObjectRecordPayload = {
   type?: BacklogTypePayload
   difficulty?: BacklogDifficultyPayload
   criticality?: BacklogCriticalityPayload
+  highlight?: BacklogHighlightPayload
   metadata?: Record<string, unknown>
   links?: BacklogItemLinkPayload[]
   createdAt?: string
@@ -1307,6 +1316,13 @@ export type BacklogTriageInput = {
   relativePath: string
   difficulty?: BacklogDifficultyPayload | null
   criticality?: BacklogCriticalityPayload | null
+}
+
+export type BacklogHighlightInput = {
+  workspaceRoot: string
+  relativePath: string
+  starred: boolean
+  color: BacklogHighlightColorPayload | null
 }
 
 export type BacklogAddOrUpdateLinkInput = {
@@ -1622,6 +1638,7 @@ export type ElectronApi = {
   updateBacklogStatus: (input: BacklogStatusInput) => Promise<BacklogMutationResult>
   updateBacklogType: (input: BacklogTypeInput) => Promise<BacklogMutationResult>
   updateBacklogTriage: (input: BacklogTriageInput) => Promise<BacklogMutationResult>
+  updateBacklogHighlight: (input: BacklogHighlightInput) => Promise<BacklogMutationResult>
   addOrUpdateBacklogLink: (input: BacklogAddOrUpdateLinkInput) => Promise<BacklogMutationResult>
   updateBacklogModuleMetadata: (input: BacklogModuleMetadataInput) => Promise<BacklogMutationResult>
   moveBacklogObjectSource: (input: BacklogMoveSourceInput) => Promise<BacklogMutationResult>
