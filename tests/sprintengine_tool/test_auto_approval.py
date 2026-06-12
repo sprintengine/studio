@@ -73,7 +73,7 @@ def collect_fixture_auto_approval_intents(fixture, enabled: bool) -> list[str]:
         task_record = next(task_record for task_record in state["tasks"] if task_record["id"] == artifact["taskId"])
         if (
             artifact["kind"] in APPROVED_AUTO_APPROVAL_KINDS
-            and artifact["status"] in {"draft", "ready_for_review", "changes_requested"}
+            and artifact["status"] in {"ready_for_review", "changes_requested"}
             and artifact["path"].strip()
             and str(task_record.get("ownerAgentId") or "").strip()
         ):

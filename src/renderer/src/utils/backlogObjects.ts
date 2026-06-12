@@ -1,6 +1,7 @@
 import {
   type BacklogCriticality,
   type BacklogDifficulty,
+  type BacklogHighlight,
   type BacklogItem,
   type BacklogItemLink,
   type BacklogItemObjectMetadata,
@@ -10,6 +11,7 @@ import {
   createBacklogItem,
   isBacklogCriticality,
   isBacklogDifficulty,
+  isBacklogHighlightColor,
   isBacklogType,
   normalizeRelativePath,
   stableBacklogObjectId,
@@ -26,6 +28,7 @@ export type BacklogObjectRecord = {
   type?: BacklogType
   difficulty?: BacklogDifficulty
   criticality?: BacklogCriticality
+  highlight?: BacklogHighlight
   metadata?: Record<string, unknown>
   links?: BacklogItemLink[]
   createdAt?: string
@@ -93,6 +96,7 @@ export function hydrateBacklogScanResult(
       type: record.type,
       difficulty: record.difficulty,
       criticality: record.criticality,
+      highlight: record.highlight,
       updatedAt: record.updatedAt,
     }
     return {
@@ -323,6 +327,7 @@ function normalizeBacklogObjectRecord(value: unknown): BacklogObjectRecord | nul
     type?: unknown
     difficulty?: unknown
     criticality?: unknown
+    highlight?: unknown
     metadata?: unknown
     links?: unknown
     createdAt?: unknown
@@ -341,11 +346,20 @@ function normalizeBacklogObjectRecord(value: unknown): BacklogObjectRecord | nul
     type: isBacklogType(raw.type) ? raw.type : undefined,
     difficulty: isBacklogDifficulty(raw.difficulty) ? raw.difficulty : undefined,
     criticality: isBacklogCriticality(raw.criticality) ? raw.criticality : undefined,
+    highlight: normalizeBacklogHighlight(raw.highlight),
     metadata: isPlainRecord(raw.metadata) ? raw.metadata : {},
     links: Array.isArray(raw.links) ? raw.links.filter(isBacklogItemLink) : [],
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : undefined,
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : undefined,
   }
+}
+
+function normalizeBacklogHighlight(value: unknown): BacklogHighlight | undefined {
+  if (!isPlainRecord(value)) return undefined
+  const starred = value.starred === true
+  const color = isBacklogHighlightColor(value.color) ? value.color : null
+  if (!starred && color === null) return undefined
+  return { starred, color }
 }
 
 function isBacklogObjectStatus(value: unknown): value is BacklogItemStatus {

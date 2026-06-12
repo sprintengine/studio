@@ -1,6 +1,7 @@
 import { ipcRenderer } from 'electron'
 import type {
   BacklogAddOrUpdateLinkInput,
+  BacklogHighlightInput,
   BacklogItemRecordInput,
   BacklogModuleMetadataInput,
   BacklogMutationResult,
@@ -19,6 +20,7 @@ type BacklogIpcRenderer = {
   invoke(channel: 'backlog:update-status', input: BacklogStatusInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:update-type', input: BacklogTypeInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:update-triage', input: BacklogTriageInput): Promise<BacklogMutationResult>
+  invoke(channel: 'backlog:update-highlight', input: BacklogHighlightInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:add-or-update-link', input: BacklogAddOrUpdateLinkInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:update-module-metadata', input: BacklogModuleMetadataInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:move-object-source', input: BacklogMoveSourceInput): Promise<BacklogMutationResult>
@@ -37,6 +39,8 @@ export function createBacklogApi(renderer: BacklogIpcRenderer) {
       renderer.invoke('backlog:update-type', input),
     updateBacklogTriage: (input: BacklogTriageInput): Promise<BacklogMutationResult> =>
       renderer.invoke('backlog:update-triage', input),
+    updateBacklogHighlight: (input: BacklogHighlightInput): Promise<BacklogMutationResult> =>
+      renderer.invoke('backlog:update-highlight', input),
     addOrUpdateBacklogLink: (input: BacklogAddOrUpdateLinkInput): Promise<BacklogMutationResult> =>
       renderer.invoke('backlog:add-or-update-link', input),
     updateBacklogModuleMetadata: (input: BacklogModuleMetadataInput): Promise<BacklogMutationResult> =>
@@ -52,6 +56,7 @@ export function createBacklogApi(renderer: BacklogIpcRenderer) {
     | 'updateBacklogStatus'
     | 'updateBacklogType'
     | 'updateBacklogTriage'
+    | 'updateBacklogHighlight'
     | 'addOrUpdateBacklogLink'
     | 'updateBacklogModuleMetadata'
     | 'moveBacklogObjectSource'

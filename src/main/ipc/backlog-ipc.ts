@@ -2,6 +2,7 @@ import type { IpcMain } from 'electron'
 
 import type {
   BacklogAddOrUpdateLinkInput,
+  BacklogHighlightInput,
   BacklogItemRecordInput,
   BacklogModuleMetadataInput,
   BacklogMutationResult,
@@ -18,6 +19,7 @@ import {
   moveBacklogObjectSource,
   readBacklogObjectStore,
   removeBacklogObjectRecord,
+  updateBacklogHighlight,
   updateBacklogModuleMetadata,
   updateBacklogStatus,
   updateBacklogTriage,
@@ -46,6 +48,10 @@ export function registerBacklogIpc(ipcMain: IpcMain): void {
 
   ipcMain.handle('backlog:update-triage', (_event, input: BacklogTriageInput): Promise<BacklogMutationResult> => {
     return updateBacklogTriage(input)
+  })
+
+  ipcMain.handle('backlog:update-highlight', (_event, input: BacklogHighlightInput): Promise<BacklogMutationResult> => {
+    return updateBacklogHighlight(input)
   })
 
   ipcMain.handle('backlog:add-or-update-link', (_event, input: BacklogAddOrUpdateLinkInput): Promise<BacklogMutationResult> => {

@@ -20,6 +20,14 @@ export { Popover } from './Popover'
 export type { PopoverProps, PopoverPlacement } from './Popover'
 export { OverflowMenu } from './OverflowMenu'
 export type { OverflowMenuItem } from './OverflowMenu'
+export {
+  ContextMenu,
+  MenuDivider,
+  MenuFlyoutItem,
+  MenuItem,
+  MenuSwatchRow,
+  useClampedMenuPosition,
+} from './ContextMenu'
 export { Tabs, TabPanel } from './Tabs'
 export type { TabItem } from './Tabs'
 export { TaskCard } from './TaskCard'
@@ -45,6 +53,7 @@ export type { LoadingOverlayProps } from './LoadingOverlay'
 export { FilePreviewPane } from './FilePreviewPane'
 export { KbdChord } from './KbdChord'
 export { RoleGlyph } from './RoleGlyph'
+export { StarGlyph } from './StarGlyph'
 export { RoleAvatar } from './RoleAvatar'
 export { Toast } from './Toast'
 export { Tooltip, type TooltipChildProps } from './Tooltip'

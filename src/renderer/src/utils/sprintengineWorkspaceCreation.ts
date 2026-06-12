@@ -125,6 +125,12 @@ export async function createPlanSourcedSprintEngineWorkspace({
     goal: trimmedGoal,
     roleCounts,
   })
+  // Persisted on workspace state (matching the new-team path) so the auto-run
+  // supervisor routes agent terminals into the shared run worktree and later
+  // agent prompts keep requesting worktree mode.
+  if (useWorktrees === true) {
+    sprintEngineState.useWorktrees = true
+  }
   const architect = buildSprintEngineAgentRosterForState(sprintEngineState).find((agent) => agent.role === 'architect')
   if (!architect) throw new PlanSourcedSprintEngineWorkspaceError('missing-architect')
 
@@ -169,6 +175,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
     statePath: sprintEngineContext.statePath,
     rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
     autoRunRequested: deriveSprintEngineAutomationDesiredMode(sprintEngineAutoState) !== 'manual',
+    useWorktrees: useWorktrees === true,
   })
 
   useWorkspaceStore.getState().updateAgent(workspaceId, architect.id, {

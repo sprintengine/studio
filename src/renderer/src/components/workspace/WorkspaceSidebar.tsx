@@ -1,8 +1,19 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NewChatIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
 import CliIcon from '../CliIcon'
-import { InboxSearchInput, LifecycleGlyph, StatusDot, Tooltip, type Tone } from '../ui'
+import {
+  ContextMenu,
+  InboxSearchInput,
+  LifecycleGlyph,
+  MenuDivider,
+  MenuItem,
+  MenuSwatchRow,
+  StarGlyph,
+  StatusDot,
+  Tooltip,
+  type Tone,
+} from '../ui'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import PanelRail from './PanelRail'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -13,12 +24,7 @@ import type {
   Workspace,
   WorkspaceId,
 } from '../../types/workspace'
-import {
-  HIGHLIGHT_COLORS,
-  getHighlightSwatch,
-  hasHighlightOverride,
-  isStarred,
-} from '../../utils/highlight'
+import { getHighlightSwatch, hasHighlightOverride, isStarred } from '../../utils/highlight'
 import {
   addTabAsNewColumn,
   appendTabAsNewColumnInJson,
@@ -448,29 +454,6 @@ export default function WorkspaceSidebar({
     if (sidebarCollapsed && workspaceSearchQuery) setWorkspaceSearchQuery('')
   }, [sidebarCollapsed, workspaceSearchQuery])
 
-  // Close any open menu/popover on outside pointerdown or Escape
-  useEffect(() => {
-    if (!contextMenu && !folderMenu) return
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as HTMLElement | null
-      if (target?.closest('[data-sidebar-menu]')) return
-      setContextMenu(null)
-      setFolderMenu(null)
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setContextMenu(null)
-        setFolderMenu(null)
-      }
-    }
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [contextMenu, folderMenu])
-
   const startRename = useCallback((workspace: Workspace) => {
     setRenamingId(workspace.id)
     setRenameValue(workspace.name)
@@ -888,15 +871,11 @@ export default function WorkspaceSidebar({
                 className={`flex min-w-0 flex-1 items-center gap-1.5 truncate ${folderMissing ? 'line-through decoration-[color:var(--text-subtle)]' : ''}`}
               >
                 {starred ? (
-                  <svg
+                  <StarGlyph
+                    filled
                     className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
-                    viewBox="0 0 16 16"
-                    fill="currentColor"
-                    aria-label="Starred"
-                  >
-                    <title>Starred</title>
-                    <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" />
-                  </svg>
+                    label="Starred"
+                  />
                 ) : null}
                 <span className="min-w-0 truncate" title={workspace.name}>{workspace.name}</span>
               </span>
@@ -1251,14 +1230,7 @@ export default function WorkspaceSidebar({
               >
                 <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <svg
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                className="icon-sm shrink-0 text-[color:var(--tone-warn)]"
-                aria-hidden="true"
-              >
-                <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" />
-              </svg>
+              <StarGlyph filled className="icon-sm shrink-0 text-[color:var(--tone-warn)]" />
               <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[color:var(--text-strong)]">
                 Starred
               </span>
@@ -1380,7 +1352,7 @@ export default function WorkspaceSidebar({
 
       {/* Context menu (workspace row) */}
       {contextMenu ? (
-        <ContextMenu
+        <WorkspaceContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
           workspace={workspaceById.get(contextMenu.workspaceId) ?? null}
@@ -1671,36 +1643,10 @@ type ContextMenuAction =
   | 'toggle-star'
   | 'clear-color'
 
-// Keeps a popover-style menu fully inside the viewport. If the menu would
-// overflow the bottom, flip it above the anchor point so the user can read it.
-function useClampedMenuPosition(
-  x: number,
-  y: number,
-  ref: React.RefObject<HTMLElement | null>,
-) {
-  const [pos, setPos] = useState<{ left: number; top: number }>({ left: x, top: y })
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    const margin = 6
-    const vw = window.innerWidth
-    const vh = window.innerHeight
-    let left = x
-    let top = y
-    if (x + rect.width + margin > vw) {
-      left = Math.max(margin, vw - rect.width - margin)
-    }
-    if (y + rect.height + margin > vh) {
-      const flipped = y - rect.height
-      top = flipped >= margin ? flipped : Math.max(margin, vh - rect.height - margin)
-    }
-    setPos({ left, top })
-  }, [x, y, ref])
-  return pos
-}
-
-function ContextMenu({
+// Workspace-row context menu. Generic menu chrome (surface, clamped
+// positioning, items, dividers, swatch row, dismissal, focus handling) lives
+// in the ui/ContextMenu primitive; only the sidebar's actions stay here.
+function WorkspaceContextMenu({
   x,
   y,
   workspace,
@@ -1719,16 +1665,6 @@ function ContextMenu({
   onPickColor: (color: HighlightColor) => void
   onPickNewChatAgent: (x: number, y: number) => void
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const pos = useClampedMenuPosition(x, y, ref)
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) onClose()
-    }
-    window.addEventListener('pointerdown', onPointerDown)
-    return () => window.removeEventListener('pointerdown', onPointerDown)
-  }, [onClose])
-
   if (!workspace) return null
   const showDelete = workspaceHasOnDiskState(workspace)
   const folderPathExists = Boolean(workspace.folderPath) && !workspace.folderMissing
@@ -1736,13 +1672,12 @@ function ContextMenu({
   const currentColor = workspace.highlight?.color ?? null
 
   return (
-    <div
-      ref={ref}
-      data-sidebar-menu="true"
-      role="menu"
-      style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: 60 }}
-      // design-tokens-allow: popover-elevation reuses the OverflowMenu shadow shape (no glow CTA pattern)
-      className="min-w-[240px] rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1 text-[13px] text-[color:var(--text-default)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]"
+    <ContextMenu
+      x={x}
+      y={y}
+      ariaLabel={`Workspace actions: ${workspace.name}`}
+      onClose={onClose}
+      surfaceClassName="min-w-[240px]"
     >
       <MenuItem onClick={() => onSelect('open')}>Open</MenuItem>
       <MenuItem onClick={() => onSelect('rename')} shortcut="F2">
@@ -1770,64 +1705,25 @@ function ContextMenu({
         <MenuItem onClick={() => onSelect('move-to-new-window')}>Move to New Window</MenuItem>
       )}
       <MenuDivider />
-      <button
-        type="button"
-        role="menuitemcheckbox"
-        aria-checked={starred}
+      <MenuItem
+        checked={starred}
         onClick={() => onSelect('toggle-star')}
-        className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+        icon={
+          <StarGlyph
+            filled={starred}
+            stroked
+            className={`icon-sm shrink-0 ${starred ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-disabled)]'}`}
+          />
+        }
       >
-        <svg
-          viewBox="0 0 16 16"
-          fill={starred ? 'currentColor' : 'none'}
-          stroke="currentColor"
-          strokeWidth="1.4"
-          className={`icon-sm shrink-0 ${starred ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-disabled)]'}`}
-        >
-          <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" strokeLinejoin="round" />
-        </svg>
-        <span className="min-w-0 flex-1 truncate">{starred ? 'Unstar' : 'Star'}</span>
-      </button>
-      <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium text-[color:var(--text-muted)]">
-        Highlight color
-      </div>
-      <div className="flex items-center gap-1 px-2 pb-1.5">
-        <Tooltip content="Clear color">
-          <button
-            type="button"
-            onClick={() => onSelect('clear-color')}
-            aria-label="Clear color"
-            className={`flex h-5 w-5 items-center justify-center rounded-full border border-[color:var(--border-default)] text-[color:var(--text-disabled)] transition-colors hover:border-[color:var(--text-disabled)] hover:text-[color:var(--text-default)] ${
-              currentColor === null ? 'ring-1 ring-[color:var(--text-default)]' : ''
-            }`}
-          >
-            <svg viewBox="0 0 12 12" fill="none" className="icon-xs">
-              <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-            </svg>
-          </button>
-        </Tooltip>
-        {HIGHLIGHT_COLORS.map((color) => {
-          const swatch = getHighlightSwatch(color)
-          const selected = currentColor === color
-          return (
-            <Tooltip key={color} content={swatch.label}>
-              <button
-                type="button"
-                onClick={() => onPickColor(color)}
-                aria-label={`Highlight ${swatch.label}`}
-                className={`h-5 w-5 rounded-full transition-transform hover:scale-110 ${
-                  selected ? 'ring-2 ring-offset-1 ring-offset-[color:var(--bg-surface)]' : ''
-                }`}
-                style={{
-                  backgroundColor: swatch.hex,
-                  boxShadow: selected ? `0 0 8px ${swatch.ringRgba(0.6)}` : undefined,
-                  ['--tw-ring-color' as never]: swatch.hex,
-                }}
-              />
-            </Tooltip>
-          )
-        })}
-      </div>
+        {starred ? 'Unstar' : 'Star'}
+      </MenuItem>
+      <MenuSwatchRow
+        label="Highlight color"
+        value={currentColor}
+        onPick={onPickColor}
+        onClear={() => onSelect('clear-color')}
+      />
       <MenuDivider />
       <MenuItem onClick={() => onSelect('close')}>Close workspace</MenuItem>
       {showDelete ? (
@@ -1835,7 +1731,7 @@ function ContextMenu({
           Delete workspace…
         </MenuItem>
       ) : null}
-    </div>
+    </ContextMenu>
   )
 }
 
@@ -1856,29 +1752,18 @@ function FolderContextMenu({
   onSelect: (action: FolderMenuAction) => void
   onPickNewChatAgent: (x: number, y: number) => void
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const pos = useClampedMenuPosition(x, y, ref)
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) onClose()
-    }
-    window.addEventListener('pointerdown', onPointerDown)
-    return () => window.removeEventListener('pointerdown', onPointerDown)
-  }, [onClose])
-
   if (!group) return null
   const canReveal = Boolean(group.fullPath) && !group.missing
   const canForget = Boolean(group.fullPath)
   const canCreateWorkspace = Boolean(group.fullPath) && !group.missing
 
   return (
-    <div
-      ref={ref}
-      data-sidebar-menu="true"
-      role="menu"
-      style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: 60 }}
-      // design-tokens-allow: popover-elevation reuses the OverflowMenu shadow shape (no glow CTA pattern)
-      className="min-w-[220px] rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1 text-[13px] text-[color:var(--text-default)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]"
+    <ContextMenu
+      x={x}
+      y={y}
+      ariaLabel={`Folder actions: ${group.displayName}`}
+      onClose={onClose}
+      surfaceClassName="min-w-[220px]"
     >
       {canCreateWorkspace ? (
         <MenuItem
@@ -1902,7 +1787,7 @@ function FolderContextMenu({
           Forget folder…
         </MenuItem>
       ) : null}
-    </div>
+    </ContextMenu>
   )
 }
 
@@ -1919,82 +1804,25 @@ function NewChatAgentMenu({
   onClose: () => void
   onSelect: (cli: AgentCli) => void
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const pos = useClampedMenuPosition(x, y, ref)
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) onClose()
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [onClose])
-
   if (options.length === 0) return null
 
   return (
-    <div
-      ref={ref}
-      data-sidebar-menu="true"
-      role="menu"
-      aria-label="Start a new chat with"
-      style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: 60 }}
-      // design-tokens-allow: popover-elevation reuses the OverflowMenu shadow shape (no glow CTA pattern)
-      className="min-w-[200px] rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1 text-[13px] text-[color:var(--text-default)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]"
+    <ContextMenu
+      x={x}
+      y={y}
+      ariaLabel="Start a new chat with"
+      onClose={onClose}
+      surfaceClassName="min-w-[200px]"
     >
       {options.map((option) => (
-        <button
+        <MenuItem
           key={option.value}
-          type="button"
-          role="menuitem"
           onClick={() => onSelect(option.value)}
-          className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          icon={<CliIcon cli={option.value} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />}
         >
-          <CliIcon cli={option.value} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
-          <span className="min-w-0 flex-1 truncate">{option.label}</span>
-        </button>
+          {option.label}
+        </MenuItem>
       ))}
-    </div>
+    </ContextMenu>
   )
-}
-
-function MenuItem({
-  children,
-  onClick,
-  onContextMenu,
-  shortcut,
-  variant,
-}: {
-  children: React.ReactNode
-  onClick: () => void
-  onContextMenu?: (event: React.MouseEvent) => void
-  shortcut?: string
-  variant?: 'danger'
-}) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      onClick={onClick}
-      onContextMenu={onContextMenu}
-      className={`flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left transition-colors ${
-        variant === 'danger'
-          ? 'text-[color:var(--tone-error)] hover:bg-[rgba(255,120,124,0.08)]'
-          : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-      }`}
-    >
-      <span className="min-w-0 flex-1 truncate">{children}</span>
-      {shortcut ? <span className="text-[11px] text-[color:var(--text-disabled)] font-mono">{shortcut}</span> : null}
-    </button>
-  )
-}
-
-function MenuDivider() {
-  return <div className="my-1 h-px bg-[color:var(--border-subtle)]" />
 }

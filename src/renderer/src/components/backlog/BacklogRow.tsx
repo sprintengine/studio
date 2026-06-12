@@ -1,4 +1,4 @@
-import { LifecycleGlyph, Tooltip, type LifecycleState } from '../ui'
+import { LifecycleGlyph, StarGlyph, Tooltip, type LifecycleState } from '../ui'
 import type {
   BacklogCriticality,
   BacklogDifficulty,
@@ -85,8 +85,20 @@ export function BacklogRowContent({
         <Tooltip content={statusLabel} placement="top">
           <LifecycleGlyph state={lifecycle} live={live} />
         </Tooltip>
-        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
-          {item.title}
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span className="min-w-0 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
+            {item.title}
+          </span>
+          {/* Earned mark: the star exists only when starred — no placeholder
+              outline on idle rows, same rule as the status dot. Matches the
+              sidebar's starred-workspace glyph (color, size, name). */}
+          {item.highlight?.starred ? (
+            <StarGlyph
+              filled
+              className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
+              label="Starred"
+            />
+          ) : null}
         </span>
         <DifficultyIndicator difficulty={item.difficulty} />
         <CriticalityIndicator criticality={item.criticality} />

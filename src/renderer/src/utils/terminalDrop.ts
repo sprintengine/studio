@@ -25,7 +25,7 @@ export type FileDropPayload = {
   }>
 }
 
-type TerminalDropResult =
+export type TerminalDropResult =
   | { ok: true; text: string }
   | { ok: false; message: string }
 
@@ -83,6 +83,21 @@ export async function pasteDroppedFilesIntoTerminal(input: {
 }): Promise<TerminalDropResult> {
   const payload = parseFileDropPayload(input.dataTransfer)
   if (!payload) return { ok: false, message: 'No Multicode file was dropped.' }
+  return sendFileDropToTerminal({
+    payload,
+    sessionId: input.sessionId,
+    workspaceId: input.workspaceId,
+  })
+}
+
+// Shared send-to-agent core: drag-drop (above) and the Backlog row context
+// menu both route a FileDropPayload to a terminal session through this path.
+export async function sendFileDropToTerminal(input: {
+  payload: FileDropPayload
+  sessionId: string
+  workspaceId: string
+}): Promise<TerminalDropResult> {
+  const { payload } = input
   if (payload.workspaceId && payload.workspaceId !== input.workspaceId) {
     return { ok: false, message: 'Drop files into a terminal from the same workspace.' }
   }

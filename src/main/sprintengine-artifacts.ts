@@ -597,7 +597,7 @@ function getArtifactAutoApprovalBlocker(
 ): string | null {
   if (artifact.status === 'approved') return 'Artifact is already approved.'
   if (artifact.status === 'superseded') return 'Superseded artifacts are obsolete and cannot be auto-approved.'
-  if (!['draft', 'ready_for_review', 'changes_requested'].includes(artifact.status)) {
+  if (!['ready_for_review', 'changes_requested'].includes(artifact.status)) {
     return 'Artifact status is not eligible for auto-approval.'
   }
   if (!artifact.path.trim()) return 'Artifact file path is missing.'
@@ -615,7 +615,7 @@ function getArtifactAutoApprovalBlocker(
   if (blockingArtifacts.length === 0) return 'No blocking review artifact is waiting for approval.'
 
   const ineligibleBlockingArtifact = blockingArtifacts.find((candidate) =>
-    !['draft', 'ready_for_review', 'changes_requested'].includes(candidate.status) || !candidate.path.trim()
+    !['ready_for_review', 'changes_requested'].includes(candidate.status) || !candidate.path.trim()
   )
   if (ineligibleBlockingArtifact) {
     return `Related artifact ${ineligibleBlockingArtifact.id} is not eligible for auto-approval.`
