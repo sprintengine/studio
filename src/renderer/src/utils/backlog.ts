@@ -1,5 +1,5 @@
-import type { FileSystemStat } from '../../../shared/electron-api'
-import type { SprintEngineSourcePlanKind } from '../types/workspace'
+import type { BacklogHighlightColorPayload, FileSystemStat } from '../../../shared/electron-api'
+import type { HighlightColor, SprintEngineSourcePlanKind } from '../types/workspace'
 import {
   inferSourcePlanKind,
   joinPath,
@@ -26,6 +26,22 @@ export type BacklogCriticality = 'low' | 'normal' | 'high' | 'critical'
 // frontmatter never seeds it. Mirrors the shared BacklogHighlightPayload and
 // the workspace HighlightColor union, which stays assignable to it.
 export type BacklogHighlightColor = 'red' | 'orange' | 'amber' | 'green' | 'blue' | 'purple' | 'pink'
+
+// The 7-color highlight vocabulary is declared in three places that must stay
+// identical: HighlightColor (src/renderer/src/types/workspace.ts),
+// BacklogHighlightColorPayload (src/shared/electron-api.ts), and
+// BacklogHighlightColor above. They cannot share one declaration because
+// shared code must not import renderer types, and the two renderer unions
+// mirror that shared payload independently. The asserts below are erased at
+// compile time and fail typecheck if any union gains or loses a color
+// relative to the others.
+type MutuallyAssignable<A, B> = [A, B] extends [B, A] ? true : false
+type StaticAssert<T extends true> = T
+export type HighlightColorUnionsAligned = [
+  StaticAssert<MutuallyAssignable<BacklogHighlightColor, HighlightColor>>,
+  StaticAssert<MutuallyAssignable<BacklogHighlightColor, BacklogHighlightColorPayload>>,
+  StaticAssert<MutuallyAssignable<HighlightColor, BacklogHighlightColorPayload>>,
+]
 
 export type BacklogHighlight = {
   starred: boolean

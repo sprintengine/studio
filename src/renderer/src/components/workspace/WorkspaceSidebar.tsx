@@ -9,6 +9,7 @@ import {
   MenuDivider,
   MenuItem,
   MenuSwatchRow,
+  StarGlyph,
   StatusDot,
   Tooltip,
   type Tone,
@@ -870,15 +871,11 @@ export default function WorkspaceSidebar({
                 className={`flex min-w-0 flex-1 items-center gap-1.5 truncate ${folderMissing ? 'line-through decoration-[color:var(--text-subtle)]' : ''}`}
               >
                 {starred ? (
-                  <svg
+                  <StarGlyph
+                    filled
                     className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
-                    viewBox="0 0 16 16"
-                    fill="currentColor"
-                    aria-label="Starred"
-                  >
-                    <title>Starred</title>
-                    <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" />
-                  </svg>
+                    label="Starred"
+                  />
                 ) : null}
                 <span className="min-w-0 truncate" title={workspace.name}>{workspace.name}</span>
               </span>
@@ -1233,14 +1230,7 @@ export default function WorkspaceSidebar({
               >
                 <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <svg
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                className="icon-sm shrink-0 text-[color:var(--tone-warn)]"
-                aria-hidden="true"
-              >
-                <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" />
-              </svg>
+              <StarGlyph filled className="icon-sm shrink-0 text-[color:var(--tone-warn)]" />
               <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[color:var(--text-strong)]">
                 Starred
               </span>
@@ -1719,15 +1709,11 @@ function WorkspaceContextMenu({
         checked={starred}
         onClick={() => onSelect('toggle-star')}
         icon={
-          <svg
-            viewBox="0 0 16 16"
-            fill={starred ? 'currentColor' : 'none'}
-            stroke="currentColor"
-            strokeWidth="1.4"
+          <StarGlyph
+            filled={starred}
+            stroked
             className={`icon-sm shrink-0 ${starred ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-disabled)]'}`}
-          >
-            <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" strokeLinejoin="round" />
-          </svg>
+          />
         }
       >
         {starred ? 'Unstar' : 'Star'}

@@ -1,4 +1,4 @@
-import { LifecycleGlyph, Tooltip, type LifecycleState } from '../ui'
+import { LifecycleGlyph, StarGlyph, Tooltip, type LifecycleState } from '../ui'
 import type {
   BacklogCriticality,
   BacklogDifficulty,
@@ -93,15 +93,11 @@ export function BacklogRowContent({
               outline on idle rows, same rule as the status dot. Matches the
               sidebar's starred-workspace glyph (color, size, name). */}
           {item.highlight?.starred ? (
-            <svg
+            <StarGlyph
+              filled
               className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
-              viewBox="0 0 16 16"
-              fill="currentColor"
-              aria-label="Starred"
-            >
-              <title>Starred</title>
-              <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" />
-            </svg>
+              label="Starred"
+            />
           ) : null}
         </span>
         <DifficultyIndicator difficulty={item.difficulty} />

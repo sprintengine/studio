@@ -1,7 +1,7 @@
 import React from 'react'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
-import { CliModelListbox, Popover, StatusDot, Tooltip } from '../ui'
+import { CliModelListbox, Popover, StarGlyph, StatusDot, Tooltip } from '../ui'
 import CliIcon from '../CliIcon'
 import {
   MULTILOOP_ROLES,
@@ -289,14 +289,11 @@ function SessionsPopover({
                   <WorkspaceTypeIcon mode={group.workspace.mode} className="h-3.5 w-3.5 shrink-0" />
                   <span className="min-w-0 truncate">{group.workspace.name}</span>
                   {starred ? (
-                    <svg
-                      viewBox="0 0 16 16"
-                      fill="currentColor"
+                    <StarGlyph
+                      filled
                       className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
-                      aria-label="Starred workspace"
-                    >
-                      <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" />
-                    </svg>
+                      label="Starred workspace"
+                    />
                   ) : null}
                   {group.items.length > 1 ? (
                     <button
@@ -766,15 +763,11 @@ export default function WorkspaceTopBar({
                 />
               </span>
               {activeWorkspace.highlight?.starred ? (
-                <svg
+                <StarGlyph
+                  filled
                   className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  aria-label="Starred workspace"
-                >
-                  <title>Starred workspace</title>
-                  <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" />
-                </svg>
+                  label="Starred workspace"
+                />
               ) : null}
               <span className="min-w-0 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
                 {activeWorkspace.name}
