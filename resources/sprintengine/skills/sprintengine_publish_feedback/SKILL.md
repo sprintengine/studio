@@ -1,6 +1,6 @@
 # Sprint Engine Publish Feedback
 
-Publish `summary` budget: under ~600 characters (2000 enforced) of terse
+Publish `summary` budget: under ~600 characters of terse
 bullets — what changed, where, and how it was verified. Reviewers receive your
 full evidence, touched files, and diffs in the gate prompt; do not restate
 them, and reference paths instead of quoting file content.

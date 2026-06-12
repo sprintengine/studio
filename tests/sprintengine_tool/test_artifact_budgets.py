@@ -1,21 +1,17 @@
 """Artifact write-budget regression tests.
 
-Verdict summaries, publish summaries, and required actions are re-read into
-every later rework/gate prompt, so the server rejects oversized writes before
-any state mutates. The prompt/skill byte ceilings keep the writing-side style
-contract from silently bloating back.
+Artifact length budgets are guidance-only by decision (2026-06-12): the
+prompts and skills direct agents to write terse summaries, but the server
+never rejects an oversized write — `task.publish` and `gate.verdict` are the
+critical autonomous lifecycle transitions and must not gain failure modes.
+These tests guard that decision (oversized writes are accepted, schemas
+advertise no maxLength a client could pre-validate against) and keep the
+prompt/skill sources under byte ceilings so the guidance itself cannot bloat.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from helpers import REPO_ROOT, create_team, get_task, read_state, task
-from sprintengine_core.tool.constants import (
-    GATE_VERDICT_SUMMARY_LIMIT,
-    PUBLISH_SUMMARY_LIMIT,
-    REQUIRED_ACTION_LIMIT,
-)
 from sprintengine_mcp import SprintEngineMcpServer
 from sprintengine_mcp.schemas import TOOL_SCHEMAS
 
@@ -46,129 +42,66 @@ def review_task_with_pending_gate() -> dict[str, object]:
     return record
 
 
-def claim_gate(server: SprintEngineMcpServer, state_path, reviewer: str) -> None:
+def test_oversized_verdict_summary_is_accepted(tmp_path) -> None:
+    fixture = create_team(tmp_path, "budget-verdict-summary", [review_task_with_pending_gate()])
+    server = make_server(tmp_path)
+
     claimed = server.call_tool(
         "sprintengine.gate.next",
-        {"statePath": str(state_path), "role": "code_reviewer", "id": reviewer},
-        actor(reviewer, "code_reviewer"),
+        {"statePath": str(fixture.state_path), "role": "code_reviewer", "id": "reviewer-a"},
+        actor("reviewer-a", "code_reviewer"),
     )
     assert claimed["ok"] is True
     assert claimed["result"]["claimed"] is True
 
-
-def verdict_payload(state_path, reviewer: str, **overrides) -> dict[str, object]:
-    payload: dict[str, object] = {
-        "statePath": str(state_path),
-        "taskId": "T1",
-        "gateId": "code_reviewer",
-        "id": reviewer,
-        "role": "code_reviewer",
-        "verdict": "approved",
-        "summary": "Looks correct.",
-    }
-    payload.update(overrides)
-    return payload
-
-
-def test_oversized_verdict_summary_rejected_before_mutation(tmp_path) -> None:
-    fixture = create_team(tmp_path, "budget-verdict-summary", [review_task_with_pending_gate()])
-    server = make_server(tmp_path)
-    claim_gate(server, fixture.state_path, "reviewer-a")
-
-    rejected = server.call_tool(
+    long_summary = "x" * 10_000
+    verdict = server.call_tool(
         "sprintengine.gate.verdict",
-        verdict_payload(fixture.state_path, "reviewer-a", summary="x" * (GATE_VERDICT_SUMMARY_LIMIT + 1)),
+        {
+            "statePath": str(fixture.state_path),
+            "taskId": "T1",
+            "gateId": "code_reviewer",
+            "id": "reviewer-a",
+            "role": "code_reviewer",
+            "verdict": "changes_requested",
+            "summary": long_summary,
+            "requiredAction": ["fix " + "y" * 2_000],
+        },
         actor("reviewer-a", "code_reviewer"),
     )
 
-    assert rejected["ok"] is False
-    assert str(GATE_VERDICT_SUMMARY_LIMIT) in rejected["error"]["message"]
-    gate = get_task(read_state(fixture.state_path), "T1")["qualityGates"][0]
-    assert gate["status"] == "in_progress"
-    assert gate["attempts"][-1]["status"] == "in_progress"
-
-    accepted = server.call_tool(
-        "sprintengine.gate.verdict",
-        verdict_payload(fixture.state_path, "reviewer-a", summary="x" * GATE_VERDICT_SUMMARY_LIMIT),
-        actor("reviewer-a", "code_reviewer"),
-    )
-    assert accepted["ok"] is True
-    assert get_task(read_state(fixture.state_path), "T1")["qualityGates"][0]["status"] == "approved"
-
-
-def test_oversized_required_action_rejected_before_mutation(tmp_path) -> None:
-    fixture = create_team(tmp_path, "budget-required-action", [review_task_with_pending_gate()])
-    server = make_server(tmp_path)
-    claim_gate(server, fixture.state_path, "reviewer-a")
-
-    rejected = server.call_tool(
-        "sprintengine.gate.verdict",
-        verdict_payload(
-            fixture.state_path,
-            "reviewer-a",
-            verdict="changes_requested",
-            requiredAction=["fix " + "y" * REQUIRED_ACTION_LIMIT],
-        ),
-        actor("reviewer-a", "code_reviewer"),
-    )
-
-    assert rejected["ok"] is False
-    assert str(REQUIRED_ACTION_LIMIT) in rejected["error"]["message"]
+    assert verdict["ok"] is True
     persisted = get_task(read_state(fixture.state_path), "T1")
-    assert persisted["status"] == "review"
-    assert persisted["qualityGates"][0]["status"] == "in_progress"
-    assert not persisted.get("comments")
-
-    accepted = server.call_tool(
-        "sprintengine.gate.verdict",
-        verdict_payload(
-            fixture.state_path,
-            "reviewer-a",
-            verdict="changes_requested",
-            requiredAction=["src/a.ts — null deref — guard the lookup"],
-        ),
-        actor("reviewer-a", "code_reviewer"),
-    )
-    assert accepted["ok"] is True
-    assert get_task(read_state(fixture.state_path), "T1")["status"] == "changes_requested"
+    gate = persisted["qualityGates"][0]
+    assert gate["status"] == "changes_requested"
+    assert gate["attempts"][-1]["summary"] == long_summary
 
 
-def test_oversized_publish_summary_rejected_before_mutation(tmp_path) -> None:
+def test_oversized_publish_summary_is_accepted(tmp_path) -> None:
     record = task("T1", "Implement feature", "developer", status="in_progress", owner="developer-a")
     fixture = create_team(tmp_path, "budget-publish-summary", [record])
     server = make_server(tmp_path)
 
-    rejected = server.call_tool(
+    long_summary = "x" * 10_000
+    published = server.call_tool(
         "sprintengine.task.publish",
-        {
-            "statePath": str(fixture.state_path),
-            "taskId": "T1",
-            "id": "developer-a",
-            "summary": "x" * (PUBLISH_SUMMARY_LIMIT + 1),
-        },
+        {"statePath": str(fixture.state_path), "taskId": "T1", "id": "developer-a", "summary": long_summary},
         actor("developer-a", "developer"),
     )
 
-    assert rejected["ok"] is False
-    assert str(PUBLISH_SUMMARY_LIMIT) in rejected["error"]["message"]
+    assert published["ok"] is True
     persisted = get_task(read_state(fixture.state_path), "T1")
-    assert persisted["status"] == "in_progress"
-    assert not persisted.get("comments")
-
-    accepted = server.call_tool(
-        "sprintengine.task.publish",
-        {"statePath": str(fixture.state_path), "taskId": "T1", "id": "developer-a", "summary": "Done."},
-        actor("developer-a", "developer"),
-    )
-    assert accepted["ok"] is True
+    assert persisted["comments"][-1]["body"] == long_summary
 
 
-def test_budget_limits_are_visible_in_tool_schemas() -> None:
+def test_summary_fields_advertise_no_max_length() -> None:
+    # A maxLength here would let MCP clients pre-validate and hard-block the
+    # call client-side, recreating the rejected-by-decision write cap.
     verdict_properties = TOOL_SCHEMAS["sprintengine.gate.verdict"]["properties"]
-    assert verdict_properties["summary"]["maxLength"] == GATE_VERDICT_SUMMARY_LIMIT
-    assert verdict_properties["requiredAction"]["items"]["maxLength"] == REQUIRED_ACTION_LIMIT
+    assert "maxLength" not in verdict_properties["summary"]
+    assert "maxLength" not in verdict_properties["requiredAction"]["items"]
     publish_properties = TOOL_SCHEMAS["sprintengine.task.publish"]["properties"]
-    assert publish_properties["summary"]["maxLength"] == PUBLISH_SUMMARY_LIMIT
+    assert "maxLength" not in publish_properties["summary"]
 
 
 PROMPT_BYTE_CEILINGS = {

@@ -26,6 +26,6 @@ content: facts and decisions, not narrative. Never restate the task card, plan,
 or requirements the reader already has; reference file paths instead of quoting
 file content. Budgets: evidence `result` entries are one line each; `task.log`
 summaries, notes, and comments stay within a few lines; publish summaries stay
-under ~600 characters (2000 enforced); gate verdict summaries stay short
-(2000-character enforced limit). Budgets cap how findings and evidence are
-written, never how much you check — report every real finding, tersely.
+under ~600 characters; gate verdict summaries stay under ~2000 characters.
+Budgets cap how findings and evidence are written, never how much you check —
+report every real finding, tersely.

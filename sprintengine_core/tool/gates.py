@@ -335,19 +335,6 @@ def apply_gate_verdict(
     clean_summary = str(summary or "").strip()
     if not clean_summary:
         raise SystemExit("--summary is required for gate verdicts.")
-    if len(clean_summary) > GATE_VERDICT_SUMMARY_LIMIT:
-        raise SystemExit(
-            f"Gate verdict summary is {len(clean_summary)} characters; the limit is {GATE_VERDICT_SUMMARY_LIMIT}. "
-            "Send a short verdict rationale, put one single-line required action per finding, "
-            "and keep full review detail in the review artifact file."
-        )
-    actions = [str(action).strip() for action in (required_actions or []) if str(action).strip()]
-    for action in actions:
-        if len(action) > REQUIRED_ACTION_LIMIT:
-            raise SystemExit(
-                f"Each gate verdict required action must be {REQUIRED_ACTION_LIMIT} characters or fewer "
-                f"(got {len(action)}). Keep each action to one line; detail belongs in the review artifact file."
-            )
     role = str(gate.get("role") or "")
     attempt = current_gate_attempt(gate, actor)
     complete_gate_attempt(attempt, verdict, clean_summary)
@@ -387,6 +374,7 @@ def apply_gate_verdict(
         comment = None
     elif verdict in {"changes_requested", "failed"}:
         gate["status"] = "changes_requested"
+        actions = [str(action).strip() for action in (required_actions or []) if str(action).strip()]
         attempt["requiredActions"] = actions
         comment = create_task_comment(
             state,
