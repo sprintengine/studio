@@ -338,7 +338,7 @@ def apply_gate_verdict(
     if len(clean_summary) > GATE_VERDICT_SUMMARY_LIMIT:
         raise SystemExit(
             f"Gate verdict summary is {len(clean_summary)} characters; the limit is {GATE_VERDICT_SUMMARY_LIMIT}. "
-            "Send a short verdict rationale, put one single-line required action per finding in requiredAction, "
+            "Send a short verdict rationale, put one single-line required action per finding, "
             "and keep full review detail in the review artifact file."
         )
     actions = [str(action).strip() for action in (required_actions or []) if str(action).strip()]
