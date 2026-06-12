@@ -393,7 +393,8 @@ def test_tester_gate_claim_prompt_requires_qa_validation_and_browser_checks(tmp_
             "Do not write tester reports under repo-root `docs/validation/`.",
             "Submit the verdict with `--artifact-path <team-folder-report-path>`, `--artifact-title`, and `--artifact-kind validation_report`",
             "If no new test is needed, say why",
-            "A passing tester verdict should report scope reviewed, commands run, tests evaluated or added, release confidence, and residual risk.",
+            "A passing tester verdict should report scope reviewed, commands run, tests evaluated or added, release confidence, and residual risk — as terse bullets, one line each.",
+            "Keep the validation report bullet-first and under ~120 lines",
         ],
     )
 

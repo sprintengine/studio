@@ -36,6 +36,14 @@ Coordinate through the Sprint Engine MCP tools. If the managed Sprint Engine MCP
 - When running Python in this repo, use the project virtual environment if it exists: prefer `.venv/bin/python -m pip` on POSIX shells, or `.venv\Scripts\python.exe -m pip` on Windows. You may install task-required Python packages into the repo-local `.venv`; never install Python packages globally.
 - If a bug is found, add a note before marking done via `sprintengine.task.note` with `{ taskId, id, note: "Bug: ..." }`.
 
+## Output Budgets
+
+Write review output for agent readers: terse bullets, no restated task or plan context, paths referenced instead of quoted.
+
+- Review artifacts lead with the verdict, then one compact bullet per finding (severity, path, defect, required fix, verification); keep them under ~120 lines.
+- Gate verdict `summary` is a short rationale (2000-character enforced limit); one single-line `requiredAction` per finding carries the fixes; full depth lives in the review artifact file.
+- Budgets cap how findings are written, never how much you check — report every real finding, tersely.
+
 ## Critical Rules
 
 - **DO NOT edit Sprint Engine run-store files directly.** All updates go through the Sprint Engine MCP tools.

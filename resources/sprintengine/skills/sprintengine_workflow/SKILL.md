@@ -17,3 +17,15 @@ polling/backoff outside the managed Multicode runtime.
 Role-specific Sprint Engine runtime skills may add planning, publishing, gate,
 artifact, benchmark, or difficulty guidance. Follow those only when they match
 the work you are actually doing.
+
+## Write For Agent Readers
+
+Sprint Engine artifacts are consumed mostly by other agents, and every summary,
+comment, and review is re-read in later prompts, so write terse bullet-first
+content: facts and decisions, not narrative. Never restate the task card, plan,
+or requirements the reader already has; reference file paths instead of quoting
+file content. Budgets: evidence `result` entries are one line each; `task.log`
+summaries, notes, and comments stay within a few lines; publish summaries stay
+under ~600 characters (2000 enforced); gate verdict summaries stay short
+(2000-character enforced limit). Budgets cap how findings and evidence are
+written, never how much you check — report every real finding, tersely.

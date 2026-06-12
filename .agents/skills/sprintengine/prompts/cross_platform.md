@@ -37,6 +37,14 @@ Use only project-root-relative paths in compatibility artifacts, `sprintengine.t
 - Locale, timezone, Unicode, IME composition, RTL text, decimal/date formatting, proxy/cert/firewall environments, IPv4/IPv6, and flaky/offline networks.
 - Real verification evidence. Do not accept compatibility work as complete when it only passes on one local platform, mock UI state, generated sample data, docs-only claims, or a responsive screenshot that does not exercise the production route.
 
+## Output Budgets
+
+Write review output for agent readers: terse bullets, no restated task or plan context, paths referenced instead of quoted.
+
+- Review artifacts lead with the verdict, then one compact bullet per finding (severity, path, defect, required fix, verification); keep them under ~120 lines.
+- Gate verdict `summary` is a short rationale (2000-character enforced limit); one single-line `requiredAction` per finding carries the fixes; full depth lives in the review artifact file.
+- Budgets cap how findings are written, never how much you check — report every real finding, tersely.
+
 ## Critical Rules
 
 - **DO NOT edit Sprint Engine run-store files directly.** All updates go through the Sprint Engine MCP tools.

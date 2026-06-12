@@ -28,6 +28,12 @@ def publish_task(
     previous_status = str(task.get("status") or "")
     if previous_status not in {"in_progress", "changes_requested"}:
         raise SystemExit("Only in_progress or changes_requested tasks can be published.")
+    if len(str(body or "")) > PUBLISH_SUMMARY_LIMIT:
+        raise SystemExit(
+            f"Publish summary is {len(str(body))} characters; the limit is {PUBLISH_SUMMARY_LIMIT}. "
+            "Summarize what changed and how it was verified in short bullets; reviewers read the full "
+            "evidence, touched files, and diffs from the gate prompt."
+        )
     is_rework_publish = previous_status == "changes_requested" or task_has_prior_required_rework_verdict(task)
     if is_rework_publish:
         feedback_ids = [str(comment.get("id")) for comment in open_rework_comments(task) if comment.get("id")]

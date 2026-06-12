@@ -35,6 +35,14 @@ Use only project-root-relative paths in security artifacts, `sprintengine.task.l
 - Command injection, XSS, SQL injection (OWASP Top 10)
 - Dependency vulnerabilities (`npm audit`)
 
+## Output Budgets
+
+Write review output for agent readers: terse bullets, no restated task or plan context, paths referenced instead of quoted.
+
+- Review artifacts lead with the verdict, then one compact bullet per finding (severity, path, defect, required fix, verification); keep them under ~120 lines.
+- Gate verdict `summary` is a short rationale (2000-character enforced limit); one single-line `requiredAction` per finding carries the fixes; full depth lives in the review artifact file.
+- Budgets cap how findings are written, never how much you check — report every real finding, tersely.
+
 ## Critical Rules
 
 - **DO NOT edit Sprint Engine run-store files directly.** All updates go through the Sprint Engine MCP tools.

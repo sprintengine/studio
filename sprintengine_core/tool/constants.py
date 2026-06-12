@@ -55,6 +55,12 @@ VALID_ARTIFACT_KINDS = {
 }
 VALID_ARTIFACT_STATUSES = {"draft", "recorded", "ready_for_review", "approved", "changes_requested", "superseded"}
 VALID_GATE_VERDICTS = {"approved", "changes_requested", "failed", "blocked", "skipped"}
+# Artifact write budgets. Verdict summaries and publish summaries are re-read
+# by every later rework/gate prompt, so oversized prose is rejected before any
+# state mutates; depth belongs in the review artifact file referenced by path.
+GATE_VERDICT_SUMMARY_LIMIT = 2000
+PUBLISH_SUMMARY_LIMIT = 2000
+REQUIRED_ACTION_LIMIT = 500
 VALID_SOURCE_PLAN_KINDS = {"unknown", "product_plan", "architect_plan"}
 VALID_SOURCE_BUNDLE_KINDS = VALID_SOURCE_PLAN_KINDS | {"html_mockup", "design_notes", "generic_context"}
 APPROVAL_BLOCKING_ARTIFACT_STATUSES = VALID_ARTIFACT_STATUSES - {"superseded"}
