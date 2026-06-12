@@ -49,8 +49,8 @@ def comment_prompt_line(comment: Dict[str, Any]) -> str:
         bits.append(f"verdict={data.get('verdict')}")
     if data.get("status"):
         bits.append(f"status={data.get('status')}")
-    actions = data.get("requiredActions") if isinstance(data.get("requiredActions"), list) else []
-    suffix = f" Required actions: {'; '.join(str(action) for action in actions if str(action).strip())}" if actions else ""
+    actions = comment_required_actions(comment)
+    suffix = f" Required actions: {'; '.join(actions)}" if actions else ""
     return f"- [{' | '.join(bits)}] {str(comment.get('body') or '').strip()}{suffix}"
 
 def feedback_gate_id(comment: Dict[str, Any]) -> str:
@@ -72,17 +72,12 @@ def feedback_source_label(comment: Dict[str, Any]) -> str:
 
 def grouped_feedback_lines(comments: List[Dict[str, Any]]) -> List[str]:
     groups: Dict[str, List[Dict[str, Any]]] = {}
-    order: List[str] = []
     for comment in comments:
-        key = feedback_gate_id(comment)
-        if key not in groups:
-            groups[key] = []
-            order.append(key)
-        groups[key].append(comment)
+        groups.setdefault(feedback_gate_id(comment), []).append(comment)
     lines: List[str] = []
-    for key in order:
+    for key, group in groups.items():
         lines.append(f"### Gate `{key}`" if key else "### Other Feedback")
-        lines.extend(comment_prompt_line(comment) for comment in groups[key])
+        lines.extend(comment_prompt_line(comment) for comment in group)
     return lines
 
 

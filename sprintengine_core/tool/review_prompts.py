@@ -167,8 +167,13 @@ def build_gate_review_prompt(
     gate_role = str(gate.get("role") or "")
     gate_id = str(gate.get("id") or "")
     open_feedback = newest_comments(open_feedback_comments(task), limit=10)
-    known_findings = [comment for comment in open_feedback if feedback_gate_id(comment) != gate_id]
-    own_gate_feedback = [comment for comment in open_feedback if feedback_gate_id(comment) == gate_id]
+    known_findings: List[Dict[str, Any]] = []
+    own_gate_feedback: List[Dict[str, Any]] = []
+    for comment in open_feedback:
+        if gate_id and feedback_gate_id(comment) == gate_id:
+            own_gate_feedback.append(comment)
+        else:
+            known_findings.append(comment)
     validation_report_dir = project_relative_display_path(state_path, state_path.parent / "docs" / "validation")
     validation_report_example = f"{validation_report_dir}/{str(task.get('id') or 'task').lower()}-tester-validation.md"
     role_specific_lines: List[str] = []
@@ -232,15 +237,6 @@ def build_gate_review_prompt(
         *prompt_list("Latest Implementation Summary Or Response", [comment_prompt_line(implementation_comment)] if implementation_comment else []),
         "",
         *prompt_list("Known Findings From Other Gates (newest first)", [comment_prompt_line(comment) for comment in known_findings]),
-        *(
-            [
-                "Verify your own gate's full scope, but do not re-describe a known finding: confirm it by"
-                " comment id in `requiredAction` (e.g. `confirms C7 — <scope note>`) and spend your"
-                " write-up on findings that are new."
-            ]
-            if known_findings
-            else []
-        ),
         "",
         *prompt_list("Open Feedback From This Gate (newest first)", [comment_prompt_line(comment) for comment in own_gate_feedback]),
         "",

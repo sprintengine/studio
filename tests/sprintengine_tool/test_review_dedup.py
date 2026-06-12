@@ -14,7 +14,7 @@ from helpers import create_team, task
 from sprintengine_core.tool.comments import comment_prompt_line, shared_finding_lines
 from sprintengine_core.tool.review_prompts import build_rework_prompt
 
-CONFIRM_INSTRUCTION = "confirm it by comment id in `requiredAction`"
+CONFIRM_GUIDANCE = "confirm it by comment id in"
 
 
 def feedback_comment(
@@ -103,26 +103,9 @@ def test_gate_review_prompt_separates_known_findings_from_other_gates(tmp_path) 
     assert own_index < prompt.index("Missing null check.")
     assert "[C1 | " in prompt
     assert "[C2 | " in prompt
-    assert CONFIRM_INSTRUCTION in prompt
-
-
-def test_gate_review_prompt_omits_confirm_instruction_without_known_findings(tmp_path) -> None:
-    record = reviewable_task([
-        feedback_comment(
-            "C1",
-            "code-review",
-            "code_reviewer-old",
-            "Missing null check.",
-            created_at="2026-05-17T00:01:00Z",
-        ),
-    ])
-    fixture = create_team(tmp_path, "dedup-no-known-findings", [record])
-
-    payload = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-fixture")
-
-    assert payload["ok"] is True
-    assert payload["claimed"] is True
-    assert CONFIRM_INSTRUCTION not in payload["prompt"]
+    # The confirm-by-id guidance is delivered once, by the gate feedback skill
+    # composed into this prompt — not duplicated inline by the prompt builder.
+    assert prompt.count(CONFIRM_GUIDANCE) == 1
 
 
 def rework_state_path(tmp_path) -> Path:
@@ -190,6 +173,26 @@ def test_rework_prompt_confirms_reference_attributes_both_gates(tmp_path) -> Non
     assert "Fix the null check in sprintengine_core/tool/config.py" in shared_line
     assert "code-review (C1)" in shared_line
     assert "security (C2)" in shared_line
+
+
+def test_rework_prompt_groups_ungated_feedback_under_other_feedback(tmp_path) -> None:
+    record = reviewable_task([
+        feedback_comment(
+            "C1",
+            "",
+            "architect-fixture",
+            "Scope question raised outside any gate.",
+            created_at="2026-05-17T00:01:00Z",
+            comment_type="architect_feedback",
+        ),
+    ])
+    record["status"] = "changes_requested"
+
+    prompt = build_rework_prompt(rework_state_path(tmp_path), record)
+
+    other_index = prompt.index("### Other Feedback")
+    assert other_index < prompt.index("Scope question raised outside any gate.")
+    assert "### Gate ``" not in prompt
 
 
 def test_rework_prompt_without_shared_findings_omits_section(tmp_path) -> None:
