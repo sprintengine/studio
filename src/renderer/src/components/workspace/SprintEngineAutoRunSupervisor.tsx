@@ -21,6 +21,7 @@ import {
   normalizeSprintEngineProjection,
 } from '../../utils/sprintengine'
 import {
+  AUTO_RUN_ROLE_CONTINUATION_RETRY_MS,
   AUTO_RUN_MAX_PROMPT_RETRIES as PLANNER_MAX_PROMPT_RETRIES,
   AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES as PLANNER_MAX_WAKE_RETRIES,
   agentNotificationDeliveryKey,
@@ -31,6 +32,7 @@ import {
   planSprintEngineDispatch,
   promptRetryLimitReached,
   recordPromptRetry,
+  type SprintEngineDispatchAttempt,
   type SprintEngineDispatchPlan,
   type SprintEngineDispatchPath,
   describeSprintEngineExternalInputAutoRunBlock,
@@ -122,7 +124,6 @@ const AUTO_RUN_POLL_MS = 2000
 const INACTIVE_AUTO_RUN_POLL_MS = 15000
 const AUTO_RUN_STARTUP_SPAWN_DELAY_MS = 10000
 const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
-const AUTO_RUN_ROLE_CONTINUATION_RETRY_MS = 60000
 export const AUTO_RUN_MAX_PROMPT_RETRIES = PLANNER_MAX_PROMPT_RETRIES
 export const AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES = PLANNER_MAX_WAKE_RETRIES
 const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
@@ -139,10 +140,7 @@ type RunningContinuationCapacity = {
   agentIds: Set<string>
 }
 
-type RoleContinuationMessage = {
-  sentAt: number
-  attempts?: number
-}
+type RoleContinuationMessage = SprintEngineDispatchAttempt
 
 type ArchitectTriageMessage = {
   sentAt: number
@@ -692,28 +690,26 @@ export async function deliverAgentNotificationEvents(
   return started ? 'started' : 'none'
 }
 
-function dispatchPlanLedger(
-  ledger: 'continuation' | 'dispatch',
-  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>,
-  sentDispatchMessages: MutableRefObject<Map<string, RoleContinuationMessage>> | null
-): Map<string, RoleContinuationMessage> {
-  return ledger === 'dispatch' && sentDispatchMessages ? sentDispatchMessages.current : sentContinuationMessages.current
+export type SprintEngineDispatchLedgers = {
+  continuation: MutableRefObject<Map<string, RoleContinuationMessage>> | null
+  dispatch: MutableRefObject<Map<string, RoleContinuationMessage>> | null
 }
 
-/**
- * Execute a dispatch plan from `planSprintEngineDispatch`: the planner makes
- * every re-engagement decision; this function only performs the side effects
- * (ledger maintenance, prompt pastes, stalled-terminal restarts) and logging.
- */
+function dispatchPlanLedger(
+  ledger: 'continuation' | 'dispatch',
+  ledgers: SprintEngineDispatchLedgers
+): Map<string, RoleContinuationMessage> | null {
+  return (ledger === 'dispatch' ? ledgers.dispatch : ledgers.continuation)?.current ?? null
+}
+
 export async function executeSprintEngineDispatchPlan(
   workspace: Workspace,
   plan: SprintEngineDispatchPlan,
-  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>,
-  sentDispatchMessages: MutableRefObject<Map<string, RoleContinuationMessage>> | null
+  ledgers: SprintEngineDispatchLedgers
 ): Promise<'restarted' | 'none'> {
   const base = { workspaceId: workspace.id, workspaceName: workspace.name }
   for (const entry of plan.ledgerDeletes) {
-    dispatchPlanLedger(entry.ledger, sentContinuationMessages, sentDispatchMessages).delete(entry.key)
+    dispatchPlanLedger(entry.ledger, ledgers)?.delete(entry.key)
   }
   for (const skip of plan.skips) {
     logPerfEvent('SprintEngineAutoRun', skip.event, { ...base, ...skip.data })
@@ -722,11 +718,8 @@ export async function executeSprintEngineDispatchPlan(
     const session = await findRunningAgentSession(workspace, paste.agentId)
     if (!session) continue
     await writeBracketedPrompt(defaultExecutorPorts, session.sessionId, paste.prompt)
-    recordPromptRetry(
-      dispatchPlanLedger(paste.ledger, sentContinuationMessages, sentDispatchMessages),
-      paste.key,
-      Date.now()
-    )
+    const pasteLedger = dispatchPlanLedger(paste.ledger, ledgers)
+    if (pasteLedger) recordPromptRetry(pasteLedger, paste.key, Date.now())
     logPerfEvent('SprintEngineAutoRun', paste.event, { ...base, ...paste.data, sessionId: session.sessionId })
   }
   let restarted = false
@@ -736,7 +729,7 @@ export async function executeSprintEngineDispatchPlan(
     await safeTerminalKill(defaultExecutorPorts, session.sessionId)
     // Reset the wake budget so the replacement terminal is never kill-looped
     // before it has a chance to claim.
-    sentContinuationMessages.current.delete(restart.key)
+    ledgers.continuation?.current.delete(restart.key)
     restarted = true
     await defaultExecutorPorts.publishDiagnostic({
       level: 'warning',
@@ -761,8 +754,7 @@ async function runSprintEngineDispatchPaths(input: {
   paths: SprintEngineDispatchPath[]
   runningAgentIds: ReadonlySet<string>
   idleAgentIds: ReadonlySet<string>
-  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
-  sentDispatchMessages: MutableRefObject<Map<string, RoleContinuationMessage>> | null
+  ledgers: SprintEngineDispatchLedgers
 }): Promise<'restarted' | 'none'> {
   const plan = planSprintEngineDispatch({
     workspace: input.workspace,
@@ -770,16 +762,11 @@ async function runSprintEngineDispatchPaths(input: {
     now: Date.now(),
     runningAgentIds: input.runningAgentIds,
     idleAgentIds: input.idleAgentIds,
-    continuationLedger: input.sentContinuationMessages.current,
-    dispatchLedger: input.sentDispatchMessages?.current ?? new Map(),
+    continuationLedger: input.ledgers.continuation?.current ?? new Map(),
+    dispatchLedger: input.ledgers.dispatch?.current ?? new Map(),
     paths: new Set(input.paths),
   })
-  return executeSprintEngineDispatchPlan(
-    input.workspace,
-    plan,
-    input.sentContinuationMessages,
-    input.sentDispatchMessages
-  )
+  return executeSprintEngineDispatchPlan(input.workspace, plan, input.ledgers)
 }
 
 export async function sendContinuationPromptsToIdleAgents(
@@ -794,8 +781,7 @@ export async function sendContinuationPromptsToIdleAgents(
     paths: ['task_wake'],
     runningAgentIds: new Set(),
     idleAgentIds: continuationCapacity.agentIds,
-    sentContinuationMessages,
-    sentDispatchMessages: null,
+    ledgers: { continuation: sentContinuationMessages, dispatch: null },
   })
 }
 
@@ -811,8 +797,7 @@ export async function escalateStalledLiveIdleAgents(
     paths: ['restart'],
     runningAgentIds: new Set(),
     idleAgentIds: continuationCapacity.agentIds,
-    sentContinuationMessages,
-    sentDispatchMessages: null,
+    ledgers: { continuation: sentContinuationMessages, dispatch: null },
   })
 }
 
@@ -829,8 +814,7 @@ export async function sendGateContinuationPromptsToAgents(
     paths: ['gate'],
     runningAgentIds,
     idleAgentIds: continuationCapacity.agentIds,
-    sentContinuationMessages,
-    sentDispatchMessages: null,
+    ledgers: { continuation: sentContinuationMessages, dispatch: null },
   })
 }
 
@@ -846,8 +830,7 @@ export async function sendDispatchPromptsToRunningAgents(
     paths: ['dispatch'],
     runningAgentIds,
     idleAgentIds: new Set(),
-    sentContinuationMessages: sentDispatchMessages,
-    sentDispatchMessages,
+    ledgers: { continuation: null, dispatch: sentDispatchMessages },
   })
 }
 

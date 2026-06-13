@@ -676,6 +676,10 @@ export function planSprintEngineDispatch(input: {
       const task = findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, new Set())
       if (!task) continue
       const key = continuationMessageKey(workspace, task.id, agentId)
+      // A wake paste planned this tick (all-paths mode) supersedes a restart;
+      // in per-path mode the executed paste's ledger record trips the cooldown
+      // check below instead. Either way an agent is never killed in the same
+      // pass that re-engages it.
       if (plannedPasteKeys.has(key)) continue
       const previous = input.continuationLedger.get(key)
       if (!previous || (previous.attempts ?? 0) < AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES) continue
