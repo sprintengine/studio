@@ -98,19 +98,37 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: 
   })
 }
 
-function nextDirectivePayloadBlock(role: SprintEngineRoleId | string, agentId: string): string {
+export type SprintEngineClaimToolName =
+  | 'sprintengine.task.next'
+  | 'sprintengine.gate.next'
+  | 'sprintengine.triage.needs_input'
+
+/**
+ * Canonical dispatch grammar: every renderer dispatch (wake, continuation,
+ * notification reconcile, durable-dispatch reconcile) instructs the claim
+ * tool directly. The server-side claim is the arbiter — it resumes active
+ * work, claims the next ready item, or returns no work, and enforces
+ * retirement/authorization itself. There is no directive hop for the agent
+ * to interpret.
+ */
+export function buildSprintEngineClaimInstructionBlock(
+  tool: SprintEngineClaimToolName,
+  role: SprintEngineRoleId | string,
+  agentId: string
+): string {
   // The managed Sprint Engine MCP server resolves run and workspace routing
   // from the HTTP run context. Agents do not pass statePath or
   // workspaceRoot in tool payloads.
-  const payload: Record<string, string> = {
-    role,
-    agentId,
-  }
+  const payload: Record<string, string> = tool === 'sprintengine.triage.needs_input'
+    ? { id: agentId }
+    : { role: String(role), id: agentId }
   return [
-    '`sprintengine.agent.next_directive`',
+    `Call \`${tool}\` once to claim or resume this work:`,
+    `\`${tool}\``,
     '```json',
     JSON.stringify(payload, null, 2),
     '```',
+    'Work what it returns. If it returns no claim, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.',
   ].join('\n')
 }
 
@@ -305,9 +323,11 @@ export function buildSprintEngineDispatchPrompt(input: {
     input.dispatch.gateId ? `Gate: ${input.dispatch.gateId}` : null,
     input.dispatch.reason ? `Reason: ${input.dispatch.reason}` : null,
     '',
-    'Call the directive tool to reconcile this dispatch and receive the next MCP tool to invoke:',
-    nextDirectivePayloadBlock(input.role, input.agentId),
-    'The managed Sprint Engine MCP server owns dispatch routing, task/gate claims, and completion handling. Follow the returned `nextMcpToolName` and `nextMcpArguments`.',
+    buildSprintEngineClaimInstructionBlock(
+      input.dispatch.targetKind === 'gate' ? 'sprintengine.gate.next' : 'sprintengine.task.next',
+      input.role,
+      input.agentId
+    ),
   ].filter((line): line is string => line !== null).join('\n')
 }
 
@@ -444,10 +464,7 @@ export function buildSprintEngineContinuationPrompt(
   return [
     `Sprint Engine roster runner found a wake candidate for a ready ${task.role} task in this idle terminal.`,
     `Task: ${task.id} - ${task.title}`,
-    'This is not a durable dispatch assignment; the Sprint Engine state will record one only after you claim or resume work through MCP.',
-    'Call the directive tool to receive the current MCP-native directive:',
-    nextDirectivePayloadBlock(task.role, agentId),
-    'If the returned directive includes `nextMcpToolName`, invoke it once with `nextMcpArguments` (typically `sprintengine.task.next`). Multicode owns later runtime dispatch and continuation.',
+    buildSprintEngineClaimInstructionBlock('sprintengine.task.next', task.role, agentId),
   ].join('\n')
 }
 
@@ -463,12 +480,8 @@ export function buildSprintEngineGateContinuationPrompt(
       : 'Sprint Engine roster runner found a wake candidate for a quality gate in this terminal.',
     `Task: ${task.id} - ${task.title}`,
     `Gate: ${gate.id} (${gate.phase} / ${gate.role})`,
-    claimed
-      ? 'This claimed gate has a durable dispatch assignment that the directive tool will reconcile.'
-      : 'This is not a durable gate dispatch assignment; the Sprint Engine state will record one only after you claim the gate through MCP.',
-    'Call the directive tool to receive the current MCP-native directive:',
-    nextDirectivePayloadBlock(gate.role, agentId),
-    'The returned directive will name the next MCP tool to invoke — typically `sprintengine.gate.next` for an unclaimed gate, or context for `sprintengine.gate.verdict` after review. Record the verdict through MCP.',
+    buildSprintEngineClaimInstructionBlock('sprintengine.gate.next', gate.role, agentId),
+    'Record the verdict through MCP with `sprintengine.gate.verdict` when the review is complete.',
   ].join('\n')
 }
 
@@ -493,9 +506,8 @@ export function buildAgentNotificationPrompt(
       : 'Re-read the current task card via `sprintengine.task.get`, then review its feedback comments, notes, acceptance criteria, and evidence before continuing. Do not claim a new task.'
   const reconcileBlock = !isCompletion && options.agentId && options.role
     ? [
-      'Then call the directive tool to reconcile this notification:',
-      nextDirectivePayloadBlock(options.role, options.agentId),
-      'If the returned directive includes `nextMcpToolName`, invoke it once with `nextMcpArguments`. Multicode owns later runtime dispatch and continuation.',
+      'Then resume your active task through the claim tool (it returns your active task):',
+      buildSprintEngineClaimInstructionBlock('sprintengine.task.next', options.role, options.agentId),
     ].join('\n')
     : null
 
