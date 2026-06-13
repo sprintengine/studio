@@ -841,6 +841,25 @@ export async function executeSprintEngineDispatchPlan(
     const session = await findRunningAgentSession(workspace, retirement.agentId, sessionsSnapshot)
     if (!session) continue
     await safeTerminalKill(defaultExecutorPorts, session.sessionId)
+    // Clear the agent's launch flags exactly as the completed-run closer does.
+    // The kill alone is not enough: a mounted-but-unfocused AgentPanel keeps
+    // `hasStarted` true off `cliStartRequested`, so its TerminalView respawns
+    // the PTY before the next tick — the clock never sees a gap and the agent
+    // is retired again every tick (an idle-retirement storm).
+    defaultExecutorPorts.updateAgent(workspace.id, retirement.agentId, {
+      cliSessionId: undefined,
+      cliStartRequested: false,
+      cliHasLaunched: false,
+      cliOnboardingPromptSent: false,
+      cliResumeAvailable: false,
+    })
+    void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, retirement.agentId, {
+      cliSessionId: null,
+      cliStartRequested: false,
+      cliHasLaunched: false,
+      cliOnboardingPromptSent: false,
+      cliResumeAvailable: false,
+    })
     await defaultExecutorPorts.publishDiagnostic({
       level: 'info',
       source: 'sprintengine',

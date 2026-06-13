@@ -140,6 +140,8 @@ async function main(): Promise<void> {
   await testNotificationPasteSuppressesSamePassDispatchPaste()
   await testIdleRetirementClosesParkedTerminalPastWindow()
   await testIdleRetirementSparesClaimHoldersFreshIdlersAndVisibleTabs()
+  await testIdleRetirementSparesArchitectWithTriageWork()
+  await testIdleRetirementResetsRetiredAgentLaunchState()
   await testNotificationSpawnFailureAbortsRemainingPlanActions()
   await testSecondNotificationForSameAgentDefersToNextPass()
   await testTriageDefersWhenPlanEngagedArchitectThisPass()
@@ -2956,6 +2958,100 @@ async function testIdleRetirementSparesClaimHoldersFreshIdlersAndVisibleTabs(): 
       unregisterModel(workspace.id)
     }
   }
+}
+
+async function testIdleRetirementSparesArchitectWithTriageWork(): Promise<void> {
+  // Kill/respawn-storm regression: an idle architect past the window with
+  // architect-actionable needs_input work must NOT be retired. Triage lives
+  // outside the reconcile plan and respawns the architect whenever such work
+  // exists, so retiring it here loops kill -> respawn -> retire every tick.
+  const kills: string[] = []
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-architect',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'architect',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+        startedAt: 1,
+      },
+    ],
+    terminalStatus: async () => ({ processAlive: true }),
+    terminalWrite: async (sessionId: string, text: string) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    terminalKill: async (sessionId: string) => {
+      kills.push(sessionId)
+      return { ok: true }
+    },
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: [
+      task({
+        id: 'T-triage',
+        role: 'architect',
+        status: 'needs_input',
+        boardColumn: 'in_progress',
+        ownerAgentId: null,
+        qualityGates: [],
+        needsInput: { kind: 'architect', reason: 'Design decision required' } as SprintEngineTask['needsInput'],
+      }),
+    ],
+    sprintEngineAgents: {
+      architect: runtimeAgent('architect', { status: 'idle', currentTaskId: null }),
+    },
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: { architect: sprintAgent('architect', 'Aidan') },
+  })
+  installWorkspaceStore(workspace)
+  const idleClockByAgent = mutableRef(new Map<string, number>([
+    [sprintEngineIdleClockKey(workspace, 'architect'), Date.now() - supervisor.AUTO_RUN_IDLE_RETIREMENT_MS - 60_000],
+  ]))
+
+  await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
+
+  assert.ok(
+    !kills.includes('session-architect'),
+    'an architect with actionable needs_input triage work is never retired (triage owns that terminal)',
+  )
+}
+
+async function testIdleRetirementResetsRetiredAgentLaunchState(): Promise<void> {
+  // The kill alone does not stop a mounted-but-unfocused AgentPanel from
+  // respawning the PTY (its `hasStarted` reads `cliStartRequested`). Retirement
+  // must clear the agent's launch flags so the close sticks for one tick.
+  const kills: string[] = []
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installIdleRetirementTestWindow(kills, writes)
+
+  const supervisor = await loadSupervisor()
+  const { workspace, sprintEngineState } = idleReviewerCycleFixtures({
+    tasks: [task({ id: 'T-dev', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+  })
+  installWorkspaceStore(workspace)
+  const idleClockByAgent = mutableRef(new Map<string, number>([
+    [sprintEngineIdleClockKey(workspace, 'code_reviewer-1'), Date.now() - supervisor.AUTO_RUN_IDLE_RETIREMENT_MS - 60_000],
+  ]))
+
+  await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
+
+  assert.deepEqual(kills, ['session-reviewer'], 'the parked reviewer terminal is retired past the idle window')
+  const retiredAgent = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspace.id)?.agents['code_reviewer-1']
+  assert.equal(retiredAgent?.cliStartRequested, false, 'retirement clears cliStartRequested so the renderer does not respawn the PTY')
+  assert.equal(retiredAgent?.cliSessionId, undefined, 'retirement clears the dead session id')
 }
 
 async function testNotificationSpawnFailureAbortsRemainingPlanActions(): Promise<void> {

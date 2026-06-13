@@ -1117,11 +1117,19 @@ export function planSprintEngineDispatch(input: {
         claimableGateRoles.add(gate.role)
       }
     }
+    // Triage (signalArchitectForNeedsInputTriage) runs outside this plan and
+    // re-engages the architect whenever architect-actionable needs_input tasks
+    // exist. Retiring that architect here would make triage respawn it next
+    // tick and idle_retire retire it again — an unbounded kill/respawn storm.
+    // The architect owns that triage work, so it is not "parked": skip it.
+    const hasArchitectTriageWork =
+      getArchitectActionableNeedsInputTasks(sprintEngineState).length > 0
     for (const agentId of input.idleAgentIds) {
       if (engagedAgentIds.has(agentId)) continue
       const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
       if (!runtimeAgent || !isUnclaimedIdleRuntimeAgent(runtimeAgent)) continue
       if (gateClaimHolders.has(agentId)) continue
+      if (runtimeAgent.role === 'architect' && hasArchitectTriageWork) continue
       if (findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, new Set())) continue
       if (claimableGateRoles.has(runtimeAgent.role)) continue
       const since = input.idleClock.get(sprintEngineIdleClockKey(workspace, agentId))
