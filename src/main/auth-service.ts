@@ -15,12 +15,20 @@ import type {
 } from '../shared/electron-api'
 import { getErrorMessage } from './error-message'
 
-const MULTIAUTH_BASE_URL = (process.env['MULTIAUTH_BASE_URL'] || 'http://localhost:3000').replace(/\/+$/u, '')
+const DEFAULT_MULTIAUTH_BASE_URL = 'https://multiauth-production.up.railway.app'
+const MULTIAUTH_BASE_URL = (process.env['MULTIAUTH_BASE_URL'] || DEFAULT_MULTIAUTH_BASE_URL).replace(/\/+$/u, '')
 const MULTICODE_CLIENT_ID = 'multicode-desktop' as const
 const MULTICODE_LOOPBACK_HOST = '127.0.0.1' as const
 const MULTICODE_LOOPBACK_PORT = 43110
-const MULTICODE_REDIRECT_URI = `http://${MULTICODE_LOOPBACK_HOST}:${MULTICODE_LOOPBACK_PORT}/callback` as const
-const MULTICODE_LEGACY_REDIRECT_URI = 'multicode://auth/callback' as const
+const MULTICODE_LOOPBACK_REDIRECT_URI = `http://${MULTICODE_LOOPBACK_HOST}:${MULTICODE_LOOPBACK_PORT}/callback` as const
+const MULTICODE_CUSTOM_REDIRECT_URI = 'multicode://auth/callback' as const
+const DEFAULT_MULTICODE_AUTH_REDIRECT_MODE = app.isPackaged ? 'custom' : 'loopback'
+const MULTICODE_AUTH_REDIRECT_MODE = process.env['MULTICODE_AUTH_REDIRECT_MODE'] === 'custom' ||
+  process.env['MULTICODE_AUTH_REDIRECT_MODE'] === 'loopback'
+  ? process.env['MULTICODE_AUTH_REDIRECT_MODE']
+  : DEFAULT_MULTICODE_AUTH_REDIRECT_MODE
+const MULTICODE_REDIRECT_URI: typeof MULTICODE_CUSTOM_REDIRECT_URI | typeof MULTICODE_LOOPBACK_REDIRECT_URI =
+  MULTICODE_AUTH_REDIRECT_MODE === 'loopback' ? MULTICODE_LOOPBACK_REDIRECT_URI : MULTICODE_CUSTOM_REDIRECT_URI
 const MULTICODE_PRODUCT = 'multicode' as const
 const ENTITLEMENT_GRACE_MS = 72 * 60 * 60 * 1000
 const AUTH_PREFLIGHT_TIMEOUT_MS = 3000
@@ -39,7 +47,7 @@ type TokenSet = {
 
 type DesktopExchangeRequest = {
   clientId: typeof MULTICODE_CLIENT_ID
-  redirectUri: typeof MULTICODE_REDIRECT_URI | typeof MULTICODE_LEGACY_REDIRECT_URI
+  redirectUri: typeof MULTICODE_CUSTOM_REDIRECT_URI | typeof MULTICODE_LOOPBACK_REDIRECT_URI
   code: string
   codeVerifier: string
 }
@@ -110,7 +118,8 @@ class MulticodeMultiauthClient {
       this.accessToken = null
       this.accessTokenExpiresAt = 0
       this.entitlementCache = null
-      throw error
+      console.warn('[auth] server-logout-failed-local-session-cleared', { message: getErrorMessage(error) })
+      return { loggedOut: true as const }
     })
     await this.refreshTokenStore.clearRefreshToken()
     this.accessToken = null
@@ -312,15 +321,18 @@ export class MulticodeAuthBridge {
       search.set('organization_id', selectedOrganizationId)
     }
 
-    try {
-      this.callbackServer = await startDesktopCallbackServer(async (callbackUrl) => {
-        await this.handleCallback(callbackUrl)
-      })
-    } catch (error) {
-      const message = getErrorMessage(error)
-      this.setState({ ...this.state, status: 'error', message })
-      throw new Error(message)
+    if (MULTICODE_REDIRECT_URI === MULTICODE_LOOPBACK_REDIRECT_URI) {
+      try {
+        this.callbackServer = await startDesktopCallbackServer(async (callbackUrl) => {
+          await this.handleCallback(callbackUrl)
+        })
+      } catch (error) {
+        const message = getErrorMessage(error)
+        this.setState({ ...this.state, status: 'error', message })
+        throw new Error(message)
+      }
     }
+
     this.pendingLogin = {
       state,
       nonce,
@@ -366,7 +378,7 @@ export class MulticodeAuthBridge {
 
     await this.client.exchangeDesktopCode({
       clientId: MULTICODE_CLIENT_ID,
-      redirectUri: url.protocol === 'multicode:' ? MULTICODE_LEGACY_REDIRECT_URI : MULTICODE_REDIRECT_URI,
+      redirectUri: url.protocol === 'multicode:' ? MULTICODE_CUSTOM_REDIRECT_URI : MULTICODE_LOOPBACK_REDIRECT_URI,
       code,
       codeVerifier: pending.codeVerifier,
     })
@@ -673,7 +685,7 @@ async function startDesktopCallbackServer(onCallback: (callbackUrl: string) => P
   let closed = false
   const server = createServer((request, response) => {
     void (async () => {
-      const callbackUrl = new URL(request.url ?? '/', MULTICODE_REDIRECT_URI)
+      const callbackUrl = new URL(request.url ?? '/', MULTICODE_LOOPBACK_REDIRECT_URI)
 
       if (request.method !== 'GET' || callbackUrl.pathname !== '/callback') {
         response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
@@ -706,7 +718,7 @@ async function startDesktopCallbackServer(onCallback: (callbackUrl: string) => P
       resolve()
     })
   }).catch((error) => {
-    throw new Error(`Could not start Multicode auth callback listener on ${MULTICODE_REDIRECT_URI}: ${getErrorMessage(error)}`)
+    throw new Error(`Could not start Multicode auth callback listener on ${MULTICODE_LOOPBACK_REDIRECT_URI}: ${getErrorMessage(error)}`)
   })
 
   return {
