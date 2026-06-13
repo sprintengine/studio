@@ -9,6 +9,7 @@ import type {
   SprintEngineTask,
   Workspace,
 } from '../types/workspace'
+import type { SprintEngineToolName } from '../../../shared/sprintengineToolNames.generated'
 import {
   buildSprintEngineAgentRosterForState,
   getOpenSprintEngineQualityGates,
@@ -98,19 +99,37 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: 
   })
 }
 
-function nextDirectivePayloadBlock(role: SprintEngineRoleId | string, agentId: string): string {
+export type SprintEngineClaimToolName = Extract<
+  SprintEngineToolName,
+  'sprintengine.task.next' | 'sprintengine.gate.next' | 'sprintengine.triage.needs_input'
+>
+
+/**
+ * Canonical dispatch grammar: every renderer dispatch (wake, continuation,
+ * notification reconcile, durable-dispatch reconcile) instructs the claim
+ * tool directly. The server-side claim is the arbiter — it resumes active
+ * work, claims the next ready item, or returns no work, and enforces
+ * retirement/authorization itself. There is no directive hop for the agent
+ * to interpret.
+ */
+export function buildSprintEngineClaimInstructionBlock(
+  tool: SprintEngineClaimToolName,
+  role: SprintEngineRoleId | string,
+  agentId: string
+): string {
   // The managed Sprint Engine MCP server resolves run and workspace routing
   // from the HTTP run context. Agents do not pass statePath or
   // workspaceRoot in tool payloads.
-  const payload: Record<string, string> = {
-    role,
-    agentId,
-  }
+  const payload: Record<string, string> = tool === 'sprintengine.triage.needs_input'
+    ? { id: agentId }
+    : { role: String(role), id: agentId }
   return [
-    '`sprintengine.agent.next_directive`',
+    `Call \`${tool}\` once to claim or resume this work:`,
+    `\`${tool}\``,
     '```json',
     JSON.stringify(payload, null, 2),
     '```',
+    'Work what it returns. If it returns no claim, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.',
   ].join('\n')
 }
 
@@ -305,9 +324,11 @@ export function buildSprintEngineDispatchPrompt(input: {
     input.dispatch.gateId ? `Gate: ${input.dispatch.gateId}` : null,
     input.dispatch.reason ? `Reason: ${input.dispatch.reason}` : null,
     '',
-    'Call the directive tool to reconcile this dispatch and receive the next MCP tool to invoke:',
-    nextDirectivePayloadBlock(input.role, input.agentId),
-    'The managed Sprint Engine MCP server owns dispatch routing, task/gate claims, and completion handling. Follow the returned `nextMcpToolName` and `nextMcpArguments`.',
+    buildSprintEngineClaimInstructionBlock(
+      input.dispatch.targetKind === 'gate' ? 'sprintengine.gate.next' : 'sprintengine.task.next',
+      input.role,
+      input.agentId
+    ),
   ].filter((line): line is string => line !== null).join('\n')
 }
 
@@ -351,6 +372,346 @@ export function findSprintEngineWakeCandidateTaskForAgent(
     && !reservedTaskIds.has(candidate.id)
     && (!candidate.ownerAgentId || candidate.ownerAgentId === agentId || candidate.status === 'changes_requested')
   )
+}
+
+export const AUTO_RUN_ROLE_CONTINUATION_RETRY_MS = 60_000
+export const AUTO_RUN_DISPATCH_PROMPT_RETRY_MS = 5 * 60_000
+export const AUTO_RUN_MAX_PROMPT_RETRIES = 5
+export const AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES = 3
+
+export type SprintEngineDispatchAttempt = { sentAt: number; attempts?: number }
+
+export function promptRetryLimitReached(
+  attempt: SprintEngineDispatchAttempt | undefined,
+  maxRetries = AUTO_RUN_MAX_PROMPT_RETRIES
+): boolean {
+  return (attempt?.attempts ?? 0) >= maxRetries
+}
+
+export function recordPromptRetry<T extends SprintEngineDispatchAttempt>(
+  attempts: Map<string, T>,
+  key: string,
+  sentAt: number
+): void {
+  const previous = attempts.get(key)
+  attempts.set(key, { sentAt, attempts: (previous?.attempts ?? 0) + 1 } as T)
+}
+
+export function runtimeAgentAlreadyOwnsDispatchTarget(
+  runtimeAgent: SprintEngineState['sprintEngineAgents'][string],
+  dispatch: NonNullable<SprintEngineState['sprintEngineAgents'][string]['currentDispatch']>
+): boolean {
+  if (runtimeAgent.status !== 'running') return false
+  if (!dispatch.taskId || runtimeAgent.currentTaskId !== dispatch.taskId) return false
+  if (dispatch.targetKind === 'task') return true
+  if (dispatch.targetKind !== 'gate') return false
+
+  const currentGate = runtimeAgent.currentGate
+  return Boolean(
+    dispatch.gateId
+    && (
+      (
+        currentGate
+        && currentGate.taskId === dispatch.taskId
+        && currentGate.gateId === dispatch.gateId
+        && (!dispatch.attemptId || currentGate.attemptId === dispatch.attemptId)
+      )
+      || (!dispatch.attemptId && runtimeAgent.currentGateId === dispatch.gateId)
+    )
+  )
+}
+
+export function runtimeAgentAlreadyOwnsGateClaim(
+  runtimeAgent: SprintEngineState['sprintEngineAgents'][string] | undefined,
+  taskId: string,
+  gateId: string,
+  attemptId: string | null | undefined
+): boolean {
+  if (!runtimeAgent || runtimeAgent.status !== 'running') return false
+  if (runtimeAgent.currentTaskId !== taskId) return false
+
+  const currentGate = runtimeAgent.currentGate
+  return Boolean(
+    (
+      currentGate
+      && currentGate.taskId === taskId
+      && currentGate.gateId === gateId
+      && (!attemptId || currentGate.attemptId === attemptId)
+    )
+    || (!currentGate && runtimeAgent.currentGateId === gateId)
+  )
+}
+
+export type SprintEngineDispatchPath = 'dispatch' | 'task_wake' | 'gate' | 'restart'
+
+export type SprintEngineDispatchPasteAction = {
+  agentId: string
+  prompt: string
+  ledger: 'continuation' | 'dispatch'
+  key: string
+  event: string
+  data: Record<string, unknown>
+}
+
+export type SprintEngineDispatchRestartAction = {
+  agentId: string
+  key: string
+  data: Record<string, unknown>
+  diagnostic: { title: string; message: string; details: string; taskId: string }
+}
+
+export type SprintEngineDispatchPlan = {
+  ledgerDeletes: Array<{ ledger: 'continuation' | 'dispatch'; key: string }>
+  skips: Array<{ event: string; data: Record<string, unknown> }>
+  pastes: SprintEngineDispatchPasteAction[]
+  restarts: SprintEngineDispatchRestartAction[]
+}
+
+/**
+ * The reconciler core: one pure pass that decides every re-engagement action
+ * for live terminals — durable-dispatch reconcile prompts, ready-task wake
+ * prompts, claimed/unclaimed gate continuation prompts, and stalled-agent
+ * restarts — against a unified attempt ledger. The supervisor executes the
+ * returned plan (find session, paste, record, log); it makes no decisions.
+ */
+export function planSprintEngineDispatch(input: {
+  workspace: Workspace
+  sprintEngineState: SprintEngineState
+  now: number
+  runningAgentIds: ReadonlySet<string>
+  idleAgentIds: ReadonlySet<string>
+  continuationLedger: ReadonlyMap<string, SprintEngineDispatchAttempt>
+  dispatchLedger: ReadonlyMap<string, SprintEngineDispatchAttempt>
+  paths?: ReadonlySet<SprintEngineDispatchPath>
+}): SprintEngineDispatchPlan {
+  const { workspace, sprintEngineState, now } = input
+  const include = (path: SprintEngineDispatchPath): boolean => !input.paths || input.paths.has(path)
+  const plan: SprintEngineDispatchPlan = { ledgerDeletes: [], skips: [], pastes: [], restarts: [] }
+  const plannedPasteKeys = new Set<string>()
+
+  if (include('dispatch')) {
+    const activeKeys = new Set<string>()
+    for (const [agentId, runtimeAgent] of Object.entries(sprintEngineState.sprintEngineAgents)) {
+      const dispatch = runtimeAgent.currentDispatch
+      if (!dispatch || runtimeAgent.status === 'retired') continue
+      const key = sprintEngineDispatchDeliveryKey(workspace, agentId, dispatch)
+      activeKeys.add(key)
+      const dispatchData = {
+        agentId,
+        role: dispatch.role ?? runtimeAgent.role,
+        dispatchId: dispatch.dispatchId ?? null,
+        targetKind: dispatch.targetKind ?? null,
+        taskId: dispatch.taskId ?? null,
+        gateId: dispatch.gateId ?? null,
+      }
+      if (runtimeAgent.status === 'needs_input') {
+        plan.ledgerDeletes.push({ ledger: 'dispatch', key })
+        plan.skips.push({ event: 'dispatch-prompt-skipped-needs-input', data: dispatchData })
+        continue
+      }
+      if (!input.runningAgentIds.has(agentId)) continue
+      const previous = input.dispatchLedger.get(key)
+      if (promptRetryLimitReached(previous)) {
+        plan.skips.push({
+          event: 'dispatch-prompt-retry-limit-reached',
+          data: { ...dispatchData, attempts: previous?.attempts ?? 0, maxRetries: AUTO_RUN_MAX_PROMPT_RETRIES },
+        })
+        continue
+      }
+      if (previous && now - previous.sentAt < AUTO_RUN_DISPATCH_PROMPT_RETRY_MS) continue
+      if (dispatch.taskId && runtimeAgent.currentTaskId && runtimeAgent.currentTaskId !== dispatch.taskId) {
+        plan.skips.push({
+          event: 'dispatch-prompt-skipped-active-different-task',
+          data: { ...dispatchData, dispatchTaskId: dispatch.taskId, activeTaskId: runtimeAgent.currentTaskId },
+        })
+        continue
+      }
+      if (runtimeAgentAlreadyOwnsDispatchTarget(runtimeAgent, dispatch)) {
+        plan.ledgerDeletes.push({ ledger: 'dispatch', key })
+        plan.skips.push({ event: 'dispatch-prompt-skipped-active-target', data: dispatchData })
+        continue
+      }
+      plan.pastes.push({
+        agentId,
+        prompt: buildSprintEngineDispatchPrompt({ role: dispatch.role ?? runtimeAgent.role, agentId, dispatch }),
+        ledger: 'dispatch',
+        key,
+        event: 'dispatch-prompt-sent',
+        data: dispatchData,
+      })
+    }
+    input.dispatchLedger.forEach((_, key) => {
+      if (!key.startsWith(`${workspace.sprintEngineContext?.statePath ?? workspace.id}:`)) return
+      if (!activeKeys.has(key)) plan.ledgerDeletes.push({ ledger: 'dispatch', key })
+    })
+  }
+
+  const wakeTasks = getSprintEngineWakeCandidateTasks(sprintEngineState)
+
+  if (include('task_wake') && input.idleAgentIds.size > 0 && wakeTasks.length > 0) {
+    const readyTaskIds = new Set(wakeTasks.map((task) => task.id))
+    input.continuationLedger.forEach((_, key) => {
+      const workKey = getSprintEngineContinuationMessageWorkKey(workspace, key)
+      if (!workKey || workKey.includes(':')) return
+      if (!readyTaskIds.has(workKey)) plan.ledgerDeletes.push({ ledger: 'continuation', key })
+    })
+
+    const reservedWakeCandidateTaskIds = new Set<string>()
+    for (const agentId of input.idleAgentIds) {
+      const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
+      if (!runtimeAgent) continue
+      const task = findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, reservedWakeCandidateTaskIds)
+      if (!task) continue
+      const key = continuationMessageKey(workspace, task.id, agentId)
+      const previous = input.continuationLedger.get(key)
+      if (promptRetryLimitReached(previous, AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)) {
+        plan.skips.push({
+          event: 'continuation-prompt-retry-limit-reached',
+          data: { agentId, role: runtimeAgent.role, taskId: task.id, attempts: previous?.attempts ?? 0, maxRetries: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES },
+        })
+        continue
+      }
+      if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) {
+        reservedWakeCandidateTaskIds.add(task.id)
+        continue
+      }
+      plan.pastes.push({
+        agentId,
+        prompt: buildSprintEngineContinuationPrompt(task, agentId),
+        ledger: 'continuation',
+        key,
+        event: 'continuation-prompt-sent',
+        data: { agentId, role: runtimeAgent.role, taskId: task.id },
+      })
+      plannedPasteKeys.add(key)
+      reservedWakeCandidateTaskIds.add(task.id)
+    }
+  }
+
+  if (include('gate')) {
+    const usedIdleAgentIds = new Set<string>()
+    const gatedPhaseTasks = sprintEngineState.tasks.filter((task) => {
+      const column = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
+      return column === 'review' || column === 'testing' || column === 'product'
+    })
+    for (const task of gatedPhaseTasks) {
+      for (const claim of getActiveSprintEngineAutoRunGateClaims(task, sprintEngineState.tasks)) {
+        const agentId = claim.claimedBy
+        if (!input.runningAgentIds.has(agentId)) continue
+        const key = continuationMessageKey(workspace, `${task.id}:${claim.gate.id}`, agentId)
+        const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
+        const attemptId = claim.gate.attempts.find((attempt) =>
+          attempt.status === 'in_progress' && attempt.claimedBy === agentId
+        )?.id
+        const dispatch = runtimeAgent?.currentDispatch
+        const gateData = { agentId, role: claim.gate.role, taskId: task.id, gateId: claim.gate.id, claimed: true }
+        if (
+          (dispatch?.targetKind === 'gate' && dispatch.taskId === task.id && dispatch.gateId === claim.gate.id)
+          || runtimeAgentAlreadyOwnsGateClaim(runtimeAgent, task.id, claim.gate.id, attemptId)
+        ) {
+          plan.ledgerDeletes.push({ ledger: 'continuation', key })
+          plan.skips.push({ event: 'gate-continuation-prompt-skipped', data: { ...gateData, reason: 'matching-current-dispatch' } })
+          continue
+        }
+        const previous = input.continuationLedger.get(key)
+        if (promptRetryLimitReached(previous)) {
+          plan.skips.push({
+            event: 'gate-continuation-prompt-retry-limit-reached',
+            data: { ...gateData, attempts: previous?.attempts ?? 0, maxRetries: AUTO_RUN_MAX_PROMPT_RETRIES },
+          })
+          continue
+        }
+        if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
+        plan.pastes.push({
+          agentId,
+          prompt: buildSprintEngineGateContinuationPrompt(task, claim.gate, agentId, true),
+          ledger: 'continuation',
+          key,
+          event: 'gate-continuation-prompt-sent',
+          data: gateData,
+        })
+        plannedPasteKeys.add(key)
+      }
+
+      for (const gate of getClaimableSprintEngineAutoRunGates(task, sprintEngineState.tasks)) {
+        const agentId = [...input.idleAgentIds].find((candidateId) => {
+          if (usedIdleAgentIds.has(candidateId)) return false
+          const runtimeAgent = sprintEngineState.sprintEngineAgents[candidateId]
+          return runtimeAgent?.role === gate.role
+        })
+        if (!agentId) continue
+        const key = continuationMessageKey(workspace, `${task.id}:${gate.id}`, agentId)
+        const previous = input.continuationLedger.get(key)
+        const gateData = { agentId, role: gate.role, taskId: task.id, gateId: gate.id, claimed: false }
+        if (promptRetryLimitReached(previous, AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)) {
+          plan.skips.push({
+            event: 'gate-continuation-prompt-retry-limit-reached',
+            data: { ...gateData, attempts: previous?.attempts ?? 0, maxRetries: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES },
+          })
+          continue
+        }
+        if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) {
+          usedIdleAgentIds.add(agentId)
+          continue
+        }
+        plan.pastes.push({
+          agentId,
+          prompt: buildSprintEngineGateContinuationPrompt(task, gate, agentId, false),
+          ledger: 'continuation',
+          key,
+          event: 'gate-continuation-prompt-sent',
+          data: gateData,
+        })
+        plannedPasteKeys.add(key)
+        usedIdleAgentIds.add(agentId)
+      }
+    }
+  }
+
+  if (include('restart') && input.idleAgentIds.size > 0 && wakeTasks.length > 0) {
+    for (const agentId of input.idleAgentIds) {
+      const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
+      if (!runtimeAgent) continue
+      if (runtimeAgent.status !== 'idle' || runtimeAgent.currentTaskId || runtimeAgent.currentDispatch) continue
+      const task = findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, new Set())
+      if (!task) continue
+      const key = continuationMessageKey(workspace, task.id, agentId)
+      // A wake paste planned this tick (all-paths mode) supersedes a restart;
+      // in per-path mode the executed paste's ledger record trips the cooldown
+      // check below instead. Either way an agent is never killed in the same
+      // pass that re-engages it.
+      if (plannedPasteKeys.has(key)) continue
+      const previous = input.continuationLedger.get(key)
+      if (!previous || (previous.attempts ?? 0) < AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES) continue
+      if (now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
+      plan.restarts.push({
+        agentId,
+        key,
+        data: { agentId, role: runtimeAgent.role, taskId: task.id, attempts: previous.attempts ?? 0 },
+        diagnostic: {
+          title: 'Restarted a stalled Sprint Engine agent',
+          message: `${runtimeAgent.role} had ready work on ${task.id} but its terminal stayed idle and stopped responding to wake prompts. Restarting it so the work can be claimed.`,
+          details: [
+            `Workspace: ${workspace.name}`,
+            `Agent: ${agentId} (${runtimeAgent.role})`,
+            `Task: ${task.id} - ${task.title}`,
+            `Wake prompts attempted before restart: ${previous.attempts ?? 0}`,
+          ].join('\n'),
+          taskId: task.id,
+        },
+      })
+    }
+  }
+
+  return plan
+}
+
+export function getSprintEngineContinuationMessageWorkKey(workspace: Workspace, key: string): string | null {
+  const prefix = `${workspace.id}:${workspace.sprintEngineContext?.statePath ?? ''}:`
+  if (!key.startsWith(prefix)) return null
+  const agentSeparatorIndex = key.lastIndexOf(':')
+  if (agentSeparatorIndex <= prefix.length) return null
+  return key.slice(prefix.length, agentSeparatorIndex)
 }
 
 export type SprintEngineBootstrapDecision =
@@ -444,10 +805,7 @@ export function buildSprintEngineContinuationPrompt(
   return [
     `Sprint Engine roster runner found a wake candidate for a ready ${task.role} task in this idle terminal.`,
     `Task: ${task.id} - ${task.title}`,
-    'This is not a durable dispatch assignment; the Sprint Engine state will record one only after you claim or resume work through MCP.',
-    'Call the directive tool to receive the current MCP-native directive:',
-    nextDirectivePayloadBlock(task.role, agentId),
-    'If the returned directive includes `nextMcpToolName`, invoke it once with `nextMcpArguments` (typically `sprintengine.task.next`). Multicode owns later runtime dispatch and continuation.',
+    buildSprintEngineClaimInstructionBlock('sprintengine.task.next', task.role, agentId),
   ].join('\n')
 }
 
@@ -463,12 +821,8 @@ export function buildSprintEngineGateContinuationPrompt(
       : 'Sprint Engine roster runner found a wake candidate for a quality gate in this terminal.',
     `Task: ${task.id} - ${task.title}`,
     `Gate: ${gate.id} (${gate.phase} / ${gate.role})`,
-    claimed
-      ? 'This claimed gate has a durable dispatch assignment that the directive tool will reconcile.'
-      : 'This is not a durable gate dispatch assignment; the Sprint Engine state will record one only after you claim the gate through MCP.',
-    'Call the directive tool to receive the current MCP-native directive:',
-    nextDirectivePayloadBlock(gate.role, agentId),
-    'The returned directive will name the next MCP tool to invoke — typically `sprintengine.gate.next` for an unclaimed gate, or context for `sprintengine.gate.verdict` after review. Record the verdict through MCP.',
+    buildSprintEngineClaimInstructionBlock('sprintengine.gate.next', gate.role, agentId),
+    'Record the verdict through MCP with `sprintengine.gate.verdict` when the review is complete.',
   ].join('\n')
 }
 
@@ -493,9 +847,8 @@ export function buildAgentNotificationPrompt(
       : 'Re-read the current task card via `sprintengine.task.get`, then review its feedback comments, notes, acceptance criteria, and evidence before continuing. Do not claim a new task.'
   const reconcileBlock = !isCompletion && options.agentId && options.role
     ? [
-      'Then call the directive tool to reconcile this notification:',
-      nextDirectivePayloadBlock(options.role, options.agentId),
-      'If the returned directive includes `nextMcpToolName`, invoke it once with `nextMcpArguments`. Multicode owns later runtime dispatch and continuation.',
+      'Then reconcile through the claim tool — it returns your active task while you still own one; if it returns different work or no claim, follow what it returns instead of this notification:',
+      buildSprintEngineClaimInstructionBlock('sprintengine.task.next', options.role, options.agentId),
     ].join('\n')
     : null
 
@@ -754,10 +1107,9 @@ export function pickNextAutoRuns(
   // Lifecycle phase tasks (review/testing/product) keep auto-run running even
   // when no implementation task is ready: each pending required gate maps to
   // a reviewer/tester/product role, and we spawn an idle roster agent for that
-  // role so the spawned terminal's `sprintengine.agent.next_directive` MCP call
-  // can decide whether a gate or other ready task is the next claim. We never
-  // claim the gate from the renderer — that stays an MCP mutation through
-  // `sprintengine.gate.next` / `sprintengine.gate.claim`.
+  // role; the spawned terminal claims it directly with `sprintengine.gate.next`.
+  // We never claim the gate from the renderer — that stays an MCP mutation
+  // through `sprintengine.gate.next` / `sprintengine.gate.claim`.
   const gatedPhaseTasks = sprintEngineState.tasks.filter((task) => {
     const column = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
     return column === 'review' || column === 'testing' || column === 'product'

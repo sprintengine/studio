@@ -114,7 +114,9 @@ PLANNING_TOOLS: frozenset[str] = frozenset({
 
 # Operator-only compatibility surface. `sprintengine.join` backs the human
 # `sprintengine --backend mcp-local join --watch` CLI flow and must keep its
-# response shape; autonomous agents use `agent.join` + `agent.next_directive`.
+# response shape; managed autonomous agents use `agent.join` followed by the
+# claim tool their prompt names (`task.next`/`gate.next`), while headless CLI
+# agents route through `agent.next_directive`.
 OPERATOR_ONLY_TOOLS: frozenset[str] = frozenset({
     "sprintengine.join",
 })

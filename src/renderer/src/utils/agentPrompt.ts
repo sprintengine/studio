@@ -44,9 +44,14 @@ export function buildSprintEngineStartupPrompt(
     commandMode?: 'init' | 'join'
     autonomousPlanningOverride?: boolean
     useWorktrees?: boolean
+    claimTool?: 'sprintengine.task.next' | 'sprintengine.gate.next'
   } = {}
 ): string {
   const commandMode = options.commandMode ?? (role === 'architect' ? 'init' : 'join')
+  const claimTool = options.claimTool ?? 'sprintengine.task.next'
+  const fallbackClaimTool = claimTool === 'sprintengine.task.next'
+    ? 'sprintengine.gate.next'
+    : 'sprintengine.task.next'
 
   // The managed Sprint Engine MCP server resolves run and workspace routing
   // from the HTTP run context. Agents do not pass statePath or
@@ -55,9 +60,9 @@ export function buildSprintEngineStartupPrompt(
     role,
     agentId,
   }
-  const directivePayload = {
+  const claimPayload = {
     role,
-    agentId,
+    id: agentId,
   }
   const helpPayload = {
     role,
@@ -82,8 +87,8 @@ export function buildSprintEngineStartupPrompt(
       jsonBlock(initPayload),
       'Then register as the architect agent with `sprintengine.agent.join`:',
       jsonBlock(joinPayload),
-      'Then request your structured directive with `sprintengine.agent.next_directive`:',
-      jsonBlock(directivePayload),
+      'Then claim your first architect task with `sprintengine.task.next`:',
+      jsonBlock(claimPayload),
     ].join('\n')
     : [
       '## First MCP Calls',
@@ -91,22 +96,23 @@ export function buildSprintEngineStartupPrompt(
       jsonBlock(helpPayload),
       'Register this agent with `sprintengine.agent.join`:',
       jsonBlock(joinPayload),
-      'Then request your structured directive with `sprintengine.agent.next_directive`:',
-      jsonBlock(directivePayload),
+      `Then claim your work with \`${claimTool}\`:`,
+      jsonBlock(claimPayload),
     ].join('\n')
 
-  const directiveContract = [
-    '## Directive Contract',
-    '`sprintengine.agent.next_directive` returns a structured payload:',
-    '- `nextMcpToolName` and `nextMcpArguments` are the exact MCP tool and payload to invoke next, or `null` when there is no follow-up tool.',
+  const claimContract = [
+    '## Claim Contract',
+    `\`${claimTool}\` claims the next ready item for your role, or returns your active one to resume. Work what it returns.`,
+    commandMode === 'init'
+      ? 'If it returns no claim, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.'
+      : `If it returns no claim, call \`${fallbackClaimTool}\` once with the same payload. If neither returns work, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.`,
     'Use `sprintengine.help` for the current workflow/tool details instead of relying on this startup prompt.',
   ].join('\n')
 
   const autoModeBlock = [
-    '## Directive Handling',
-    'After you finish one task or gate, publish evidence or a gate verdict as described by `sprintengine.help`.',
-    'If a returned directive includes `nextMcpToolName`, invoke it once with `nextMcpArguments`; otherwise there is no MCP tool to invoke for that directive.',
-    'Multicode owns later runtime dispatch and continuation.',
+    '## Completion Handling',
+    'After you finish one task or gate, publish evidence or a gate verdict as described by `sprintengine.help`, then stop.',
+    'Multicode owns dispatch and continuation: it re-engages this terminal when more work is ready. Do not keep checking for work.',
   ].join('\n')
 
   const roleBoundary = [
@@ -116,7 +122,7 @@ export function buildSprintEngineStartupPrompt(
   ].join('\n')
 
   const missingRunNote = commandMode === 'join' && options.sprintEngineStatePath
-    ? 'If `sprintengine.agent.join` or `sprintengine.agent.next_directive` reports that the run is missing, surface the failure to the caller/runtime with the same payload context. Do not create a different run.'
+    ? `If \`sprintengine.agent.join\` or \`${claimTool}\` reports that the run is missing, surface the failure to the caller/runtime with the same payload context. Do not create a different run.`
     : null
 
   const context = [
@@ -136,12 +142,12 @@ export function buildSprintEngineStartupPrompt(
     : null
 
   return [
-    'Your first action is to run the MCP calls listed in the "First MCP Calls" section below, in order, exactly as shown. Do not call any other tool first. Do not summarize your role or describe what you are about to do. The `sprintengine.agent.join` response contains your Soul, your role rules, and your initial directive — read those after registering, then act on the directive immediately.',
+    'Your first action is to run the MCP calls listed in the "First MCP Calls" section below, in order, exactly as shown. Do not call any other tool first. Do not summarize your role or describe what you are about to do. The `sprintengine.agent.join` response contains your Soul and your role rules — read those after registering, then claim your work immediately.',
     context.length > 0 ? context.join('\n') : null,
     autonomousPlanningOverride,
     roleBoundary,
     initBlock,
-    directiveContract,
+    claimContract,
     autoModeBlock,
     missingRunNote,
   ].filter(Boolean).join('\n\n')

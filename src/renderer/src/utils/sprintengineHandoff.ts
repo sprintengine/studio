@@ -117,9 +117,9 @@ export function buildPlanFileSprintEngineHandoffPrompt({
     role: 'architect',
     agentId: 'architect',
   }
-  const architectDirectivePayload = {
+  const architectClaimPayload = {
     role: 'architect',
-    agentId: 'architect',
+    id: 'architect',
   }
 
   return [
@@ -142,14 +142,14 @@ export function buildPlanFileSprintEngineHandoffPrompt({
     autoRunRequested
       ? [
         'Auto-run was requested when this workspace was created. The Multicode app owns runner policy and will persist `auto` mode through its supervisor IPC immediately after `sprintengine.init` returns — you do not need to set runner mode from this terminal.',
-        'After `sprintengine.init` succeeds, continue immediately into the architect MCP join + directive flow for this same run.',
+        'After `sprintengine.init` succeeds, continue immediately into the architect MCP join + claim flow for this same run.',
         'Register as the architect agent with `sprintengine.agent.join`:',
         jsonBlock(architectJoinPayload),
-        'Then request the structured directive with `sprintengine.agent.next_directive`:',
-        jsonBlock(architectDirectivePayload),
-        'Invoke the returned `nextMcpToolName` with `nextMcpArguments` verbatim. `sprintengine.init` only creates the first architect task; the directive tool will route the assignment.',
+        'Then claim the first architect task with `sprintengine.task.next`:',
+        jsonBlock(architectClaimPayload),
+        'Work what the claim returns. `sprintengine.init` creates the first architect task; if the claim returns no work, reply that no work was claimed and stop.',
       ].join('\n\n')
       : null,
-    'After initialization, agents continue through the managed MCP server: register with `sprintengine.agent.join`, then call `sprintengine.agent.next_directive` with `{role, agentId}` to receive the next directive. The directive payload names `nextMcpToolName` and `nextMcpArguments` for the next claim — implementation task, quality gate, or `needs_input` triage. Product and architect agents must read the imported source file(s) in the Sprint Engine team folder when their own work is claimed, and should treat those files as incoming context.',
+    'After initialization, agents continue through the managed MCP server: register with `sprintengine.agent.join`, then claim work with `sprintengine.task.next` (implementation and planning tasks) or `sprintengine.gate.next` (quality gates) using `{role, id}`. Work what the claim returns; if it returns no claim, stop — Multicode re-engages the terminal when work is ready. Product and architect agents must read the imported source file(s) in the Sprint Engine team folder when their own work is claimed, and should treat those files as incoming context.',
   ].filter((line): line is string => line !== null).join('\n\n')
 }
