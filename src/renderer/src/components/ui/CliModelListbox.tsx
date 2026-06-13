@@ -121,29 +121,28 @@ export function CliModelListbox({
   onSelectModel: (cli: AgentCli, model: string | null) => void
 }) {
   const [expandedCli, setExpandedCli] = React.useState<AgentCli | null>(null)
-  const [customModel, setCustomModel] = React.useState('')
   return (
     <div role="listbox" aria-label={ariaLabel}>
       {options.map((option) => {
         const isCurrent = option.value === currentCli
         const models = option.modelSelection
-        const expanded = expandedCli === option.value
+        const expanded = Boolean(models && expandedCli === option.value)
         const effectiveModel = effectiveModelFor(option.value)
         return (
           <React.Fragment key={option.value}>
-            <div className="relative">
+            <div
+              className={`flex items-center rounded transition-colors ${
+                isCurrent
+                  ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
+                  : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
+              }`}
+            >
               <button
                 type="button"
                 role="option"
                 aria-selected={isCurrent}
                 onClick={() => onSelectCli(option.value)}
-                className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
-                  models ? 'pr-7' : ''
-                } ${
-                  isCurrent
-                    ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
-                    : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
-                }`}
+                className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-[12px]"
               >
                 <CliIcon cli={option.value} className="icon-sm" />
                 {option.label}
@@ -155,10 +154,15 @@ export function CliModelListbox({
                   aria-expanded={expanded}
                   aria-label={`Models for ${option.label}`}
                   onClick={() => {
-                    setCustomModel('')
                     setExpandedCli((current) => (current === option.value ? null : option.value))
                   }}
-                  className="absolute right-1 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-[color:var(--text-disabled)] transition-colors hover:text-[color:var(--text-strong)]"
+                  className={`mr-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors ${
+                    expanded
+                      ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+                      : isCurrent
+                        ? 'text-[color:var(--text-muted)] hover:bg-[rgba(255,255,255,0.08)] hover:text-[color:var(--text-strong)]'
+                        : 'text-[color:var(--text-disabled)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
+                  }`}
                 >
                   <svg className={`icon-xs transition-transform ${expanded ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
                     <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -224,24 +228,6 @@ export function CliModelListbox({
                     <span className="min-w-0 flex-1 truncate">{effectiveModel}</span>
                     <span className="text-[color:var(--accent-primary)]">✓</span>
                   </button>
-                ) : null}
-                {models.allowCustomId ? (
-                  <input
-                    type="text"
-                    value={customModel}
-                    placeholder="Custom model id"
-                    aria-label={`Custom model id for ${option.label}`}
-                    onChange={(event) => setCustomModel(event.target.value)}
-                    onClick={(event) => event.stopPropagation()}
-                    onKeyDown={(event) => {
-                      event.stopPropagation()
-                      if (event.key === 'Enter') {
-                        const model = customModel.trim()
-                        if (model) onSelectModel(option.value, model)
-                      }
-                    }}
-                    className="mt-0.5 w-full rounded border border-[color:var(--border-subtle)] bg-transparent px-2 py-1 font-mono text-[11px] text-[color:var(--text-default)] placeholder:font-sans placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] focus:outline-none"
-                  />
                 ) : null}
               </div>
             ) : null}

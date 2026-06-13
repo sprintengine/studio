@@ -1038,11 +1038,20 @@ export default function NewWorkspacePanel({
     setSeSpawnAtStartRoles((current) => ({ ...current, [role]: spawn }))
   }
 
+  const seEffectiveSpawnAtStartRoles = useMemo<Partial<Record<SprintEngineRoleId, boolean>>>(() => {
+    if (seAutomationMode !== 'run_agents_and_approve_artifacts') return seSpawnAtStartRoles
+    const next: Partial<Record<SprintEngineRoleId, boolean>> = { ...seSpawnAtStartRoles }
+    for (const [role, count] of Object.entries(visibleSprintEngineRoleCounts) as Array<[SprintEngineRoleId, number | undefined]>) {
+      if ((count ?? 0) > 0) next[role] = true
+    }
+    return next
+  }, [seAutomationMode, seSpawnAtStartRoles, visibleSprintEngineRoleCounts])
+
   const seInitialSpawnRoles = useMemo(
-    () => (Object.entries(seSpawnAtStartRoles) as Array<[SprintEngineRoleId, boolean | undefined]>)
+    () => (Object.entries(seEffectiveSpawnAtStartRoles) as Array<[SprintEngineRoleId, boolean | undefined]>)
       .filter(([, spawn]) => spawn)
       .map(([role]) => role),
-    [seSpawnAtStartRoles],
+    [seEffectiveSpawnAtStartRoles],
   )
 
   // Multicode Design forces the design-only path: a screen is implied, the
@@ -1746,7 +1755,8 @@ export default function NewWorkspacePanel({
               roleModelOverrides={seRoleModelOverrides}
               cliModelDefaults={cliModelDefaults}
               onSetRoleModel={setRoleModel}
-              spawnAtStartRoles={seSpawnAtStartRoles}
+              spawnAtStartRoles={seEffectiveSpawnAtStartRoles}
+              spawnAtStartLocked={seAutomationMode === 'run_agents_and_approve_artifacts'}
               onSetRoleSpawnAtStart={setRoleSpawnAtStart}
               automationMode={seAutomationMode}
               onChangeAutomationMode={setSeAutomationMode}
@@ -3064,6 +3074,7 @@ function SprintEngineRosterStep(props: {
   cliModelDefaults: Partial<Record<AgentCli, string>> | undefined
   onSetRoleModel: (role: SprintEngineRoleId, model: string | null) => void
   spawnAtStartRoles: Partial<Record<SprintEngineRoleId, boolean>>
+  spawnAtStartLocked: boolean
   onSetRoleSpawnAtStart: (role: SprintEngineRoleId, spawn: boolean) => void
   automationMode: SprintEngineAutomationMode
   onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
@@ -3095,6 +3106,7 @@ function SprintEngineRosterStep(props: {
     cliModelDefaults,
     onSetRoleModel,
     spawnAtStartRoles,
+    spawnAtStartLocked,
     onSetRoleSpawnAtStart,
     automationMode,
     onChangeAutomationMode,
@@ -3143,6 +3155,7 @@ function SprintEngineRosterStep(props: {
         cliModelDefaults={cliModelDefaults}
         onSetModel={onSetRoleModel}
         spawnAtStartRoles={spawnAtStartRoles}
+        spawnAtStartLocked={spawnAtStartLocked}
         onSetSpawnAtStart={onSetRoleSpawnAtStart}
         totalAgents={totalAgents}
         rosterCountLabel={registryStatus === 'loading' ? 'Loading roles' : undefined}
