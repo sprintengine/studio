@@ -442,7 +442,7 @@ export function runtimeAgentAlreadyOwnsGateClaim(
   )
 }
 
-export type SprintEngineDispatchPath = 'dispatch' | 'task_wake' | 'gate' | 'restart'
+export type SprintEngineDispatchPath = 'dispatch' | 'task_wake' | 'gate' | 'restart' | 'respawn'
 
 export type SprintEngineDispatchPasteAction = {
   agentId: string
@@ -460,11 +460,41 @@ export type SprintEngineDispatchRestartAction = {
   diagnostic: { title: string; message: string; details: string; taskId: string }
 }
 
+/**
+ * Respawn a dead claimant: claimed work (in-progress task or gate attempt)
+ * whose owner has no live terminal can never be re-engaged by a paste, and
+ * server-side claim expiry only runs inside agent tool calls — so after an
+ * app restart a run with zero live agents deadlocks. The fix is to spawn the
+ * claimant's own terminal again; the claim tools resume their own claims, or
+ * trigger expiry and re-arbitration, either of which recovers the run.
+ */
+export type SprintEngineDispatchRespawnAction = {
+  agentId: string
+  label: string
+  role: SprintEngineRoleId
+  taskId: string
+  gateId?: string
+  key: string
+  data: Record<string, unknown>
+  diagnostic: { title: string; message: string; details: string; taskId: string }
+}
+
 export type SprintEngineDispatchPlan = {
   ledgerDeletes: Array<{ ledger: 'continuation' | 'dispatch'; key: string }>
   skips: Array<{ event: string; data: Record<string, unknown> }>
   pastes: SprintEngineDispatchPasteAction[]
   restarts: SprintEngineDispatchRestartAction[]
+  respawns: SprintEngineDispatchRespawnAction[]
+}
+
+export function sprintEngineRespawnLedgerKey(
+  workspace: Workspace,
+  work: { taskId: string; gateId?: string | null },
+  agentId: string
+): string {
+  // The `respawn:` work segment contains ':', which exempts these keys from
+  // the ready-task wake-candidate ledger sweep (same protection gate keys use).
+  return continuationMessageKey(workspace, `respawn:${sprintEngineAutoRunWorkKey(work)}`, agentId)
 }
 
 /**
@@ -486,7 +516,7 @@ export function planSprintEngineDispatch(input: {
 }): SprintEngineDispatchPlan {
   const { workspace, sprintEngineState, now } = input
   const include = (path: SprintEngineDispatchPath): boolean => !input.paths || input.paths.has(path)
-  const plan: SprintEngineDispatchPlan = { ledgerDeletes: [], skips: [], pastes: [], restarts: [] }
+  const plan: SprintEngineDispatchPlan = { ledgerDeletes: [], skips: [], pastes: [], restarts: [], respawns: [] }
   const plannedPasteKeys = new Set<string>()
 
   if (include('dispatch')) {
@@ -698,6 +728,103 @@ export function planSprintEngineDispatch(input: {
             `Wake prompts attempted before restart: ${previous.attempts ?? 0}`,
           ].join('\n'),
           taskId: task.id,
+        },
+      })
+    }
+  }
+
+  if (include('respawn')) {
+    // Claimed work whose claimant has no live terminal can never be re-engaged
+    // by a paste, and with zero live agents server-side claim expiry never
+    // runs — after an app restart this deadlocks the run. Respawn the
+    // claimant's terminal; the claim tools resume their own claims.
+    const liveAgentIds = new Set([...input.runningAgentIds, ...input.idleAgentIds])
+    const claims: Array<{ agentId: string; role: SprintEngineRoleId; taskId: string; gateId?: string }> = []
+    for (const task of sprintEngineState.tasks) {
+      if (task.status !== 'in_progress' || !task.ownerAgentId) continue
+      claims.push({ agentId: task.ownerAgentId, role: task.role, taskId: task.id })
+    }
+    for (const task of sprintEngineState.tasks) {
+      for (const claim of getActiveSprintEngineAutoRunGateClaims(task, sprintEngineState.tasks)) {
+        claims.push({ agentId: claim.claimedBy, role: claim.gate.role, taskId: task.id, gateId: claim.gate.id })
+      }
+    }
+
+    // Sweep respawn ledger entries whose claim no longer exists, so a
+    // resolved claim frees the budget for a future, unrelated recovery.
+    // Entries for still-live claims are kept on purpose: a broken CLI that
+    // spawns and immediately exits must keep consuming the same capped
+    // budget, not reset it on every short-lived "alive" observation.
+    const activeRespawnKeys = new Set(
+      claims.map((claim) => sprintEngineRespawnLedgerKey(workspace, claim, claim.agentId))
+    )
+    input.continuationLedger.forEach((_, ledgerKey) => {
+      const workKey = getSprintEngineContinuationMessageWorkKey(workspace, ledgerKey)
+      if (!workKey || !workKey.startsWith('respawn:')) return
+      if (!activeRespawnKeys.has(ledgerKey)) plan.ledgerDeletes.push({ ledger: 'continuation', key: ledgerKey })
+    })
+
+    const plannedRespawnAgentIds = new Set<string>()
+    for (const claim of claims) {
+      if (plannedRespawnAgentIds.has(claim.agentId)) continue
+      if (liveAgentIds.has(claim.agentId)) continue
+      const respawnData = {
+        agentId: claim.agentId,
+        role: claim.role,
+        taskId: claim.taskId,
+        gateId: claim.gateId ?? null,
+      }
+      // Only Multicode-managed roster agents can be respawned; headless CLI
+      // claimants have no renderer-owned terminal to recover.
+      if (!workspace.agents[claim.agentId]) {
+        plan.skips.push({ event: 'respawn-skipped-unmanaged-claimant', data: respawnData })
+        continue
+      }
+      const runtimeAgent = sprintEngineState.sprintEngineAgents[claim.agentId]
+      if (
+        !runtimeAgent
+        || runtimeAgent.status === 'retired'
+        || runtimeAgent.status === 'needs_input'
+        || runtimeAgent.status === 'done'
+      ) {
+        plan.skips.push({
+          event: 'respawn-skipped-agent-status',
+          data: { ...respawnData, status: runtimeAgent?.status ?? 'missing' },
+        })
+        continue
+      }
+      plannedRespawnAgentIds.add(claim.agentId)
+      const key = sprintEngineRespawnLedgerKey(workspace, claim, claim.agentId)
+      const previous = input.continuationLedger.get(key)
+      if (promptRetryLimitReached(previous, AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)) {
+        plan.skips.push({
+          event: 'respawn-retry-limit-reached',
+          data: { ...respawnData, attempts: previous?.attempts ?? 0, maxRetries: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES },
+        })
+        continue
+      }
+      if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
+      plan.respawns.push({
+        agentId: claim.agentId,
+        label: workspace.agents[claim.agentId]?.name ?? claim.agentId,
+        role: claim.role,
+        taskId: claim.taskId,
+        ...(claim.gateId ? { gateId: claim.gateId } : {}),
+        key,
+        data: respawnData,
+        diagnostic: {
+          title: 'Respawned a Sprint Engine agent for claimed work',
+          message: claim.gateId
+            ? `${claim.role} holds gate ${claim.gateId} on ${claim.taskId} but its terminal is not running. Respawning the terminal so the claim can resume.`
+            : `${claim.role} owns in-progress task ${claim.taskId} but its terminal is not running. Respawning the terminal so the claim can resume.`,
+          details: [
+            `Workspace: ${workspace.name}`,
+            `Agent: ${claim.agentId} (${claim.role})`,
+            `Task: ${claim.taskId}`,
+            claim.gateId ? `Gate: ${claim.gateId}` : null,
+            `Respawn attempts before this one: ${previous?.attempts ?? 0}`,
+          ].filter((line): line is string => Boolean(line)).join('\n'),
+          taskId: claim.taskId,
         },
       })
     }

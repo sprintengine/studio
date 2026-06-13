@@ -30,6 +30,7 @@ import {
   pickSprintEngineBootstrapCandidate,
   sprintEngineDispatchDeliveryKey,
   sprintEngineAutoRunWorkKey,
+  sprintEngineRespawnLedgerKey,
   type AutoRunCandidate,
   type RoleContinuationGrace,
 } from './sprintengineAutoRun'
@@ -130,6 +131,10 @@ async function main(): Promise<void> {
   await testSuperviseRunnerCycleStartsReviewGateWhenUnrelatedAgentNeedsInput()
   await testSuperviseRunnerCycleDoesNotMutateTaskOrGateState()
   await testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForChangesRequested()
+  await testRespawnsDeadTaskClaimantAfterRestart()
+  await testRespawnsDeadGateClaimantWithGateClaimTool()
+  await testRespawnSkipsLiveCappedNeedsInputAndCoolingClaimants()
+  await testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy()
 }
 
 function testAgentTerminalBackgroundPolicyDoesNotSelectOrCreateTabs(): void {
@@ -2288,6 +2293,290 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
     !/sprintengine (join|task|gate|triage|init|handover)/.test(spawns[0].initialPrompt ?? ''),
     'restarted code_reviewer prompt does not embed any sprintengine CLI command'
   )
+}
+
+type CapturedSpawn = { agentId?: string; cli?: AgentCli; initialPrompt?: string }
+
+function installRespawnTestWindow(spawns: CapturedSpawn[]): void {
+  installTestWindow({
+    terminalList: async () => [],
+    terminalStatus: async () => ({ processAlive: false }),
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    terminalSpawn: async (
+      sessionId: string,
+      _cols: number,
+      _rows: number,
+      _cwd?: string,
+      _resume?: boolean,
+      _statePath?: string,
+      cli?: AgentCli,
+      initialPrompt?: string,
+      _cliRuntimes?: unknown,
+      _shellOnly?: boolean,
+      metadata?: { agentId?: string },
+    ) => {
+      spawns.push({ agentId: metadata?.agentId, cli, initialPrompt })
+      return { ok: true, sessionId }
+    },
+    logDiagnostic: async (input) => input,
+  })
+}
+
+const respawnTestCliRuntimes = {
+  codex: { command: 'codex', useWsl: false },
+  'claude-code': { command: 'claude', useWsl: false },
+}
+
+async function testRespawnsDeadTaskClaimantAfterRestart(): Promise<void> {
+  // Restart-recovery regression: a task claimed before an app restart whose
+  // owner has no live terminal must get its claimant respawned (the claim
+  // tools resume their own claims), instead of deadlocking forever because
+  // prompts require a live terminal and spawns skip claimed work.
+  const spawns: CapturedSpawn[] = []
+  installRespawnTestWindow(spawns)
+
+  const supervisor = await loadSupervisor()
+  const workspace = workspaceFixture({
+    agents: { 'developer-1': sprintAgent('developer-1', 'Devin') },
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [task({
+      id: 'T1',
+      title: 'Implement claimed work',
+      role: 'developer',
+      status: 'in_progress',
+      boardColumn: 'in_progress',
+      ownerAgentId: 'developer-1',
+      qualityGates: [],
+    })],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { status: 'running', currentTaskId: 'T1' }),
+    },
+  })
+  installWorkspaceStore(workspace)
+  const sent = mutableRef(new Map<string, { sentAt: number; attempts?: number }>())
+
+  await supervisor.respawnDeadSprintEngineClaimants(
+    workspace,
+    state,
+    new Set(),
+    { capacityByRole: new Map(), agentIds: new Set() },
+    sent,
+    { cliRuntimes: respawnTestCliRuntimes, mcpSettings: emptyMcpSettings, inFlightSpawns: mutableRef(new Set<string>()) }
+  )
+
+  assert.equal(spawns.length, 1, `dead task claimant is respawned; spawns ${JSON.stringify(spawns)}`)
+  assert.equal(spawns[0].agentId, 'developer-1')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.join'), 'respawn prompt names the MCP join tool')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.task.next'), 'respawn prompt names the task claim tool')
+  const key = sprintEngineRespawnLedgerKey(workspace, { taskId: 'T1' }, 'developer-1')
+  assert.equal(sent.current.get(key)?.attempts, 1, 'respawn attempt is recorded in the unified attempt ledger')
+
+  // Within the cooldown window the planner must not respawn again.
+  await supervisor.respawnDeadSprintEngineClaimants(
+    workspace,
+    state,
+    new Set(),
+    { capacityByRole: new Map(), agentIds: new Set() },
+    sent,
+    { cliRuntimes: respawnTestCliRuntimes, mcpSettings: emptyMcpSettings, inFlightSpawns: mutableRef(new Set<string>()) }
+  )
+  assert.equal(spawns.length, 1, 'no second respawn inside the cooldown window')
+}
+
+async function testRespawnsDeadGateClaimantWithGateClaimTool(): Promise<void> {
+  const spawns: CapturedSpawn[] = []
+  installRespawnTestWindow(spawns)
+
+  const supervisor = await loadSupervisor()
+  const workspace = workspaceFixture({
+    agents: { 'code_reviewer-1': sprintAgent('code_reviewer-1', 'Shawn') },
+  })
+  const reviewTask = task({
+    id: 'T3',
+    status: 'review',
+    boardColumn: 'review',
+    ownerAgentId: 'developer-1',
+    qualityGates: [
+      {
+        id: 'code_reviewer',
+        phase: 'review',
+        role: 'code_reviewer',
+        status: 'in_progress',
+        required: true,
+        allowSelfReview: true,
+        focus: '',
+        attempts: [{ id: 'GA-001', status: 'in_progress', role: 'code_reviewer', claimedBy: 'code_reviewer-1', startedAt: '2026-06-12T08:00:00Z' }],
+      },
+    ],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [reviewTask],
+    sprintEngineAgents: {
+      'code_reviewer-1': runtimeAgent('code_reviewer', { status: 'running', currentTaskId: 'T3' }),
+    },
+  })
+  installWorkspaceStore(workspace)
+  const sent = mutableRef(new Map<string, { sentAt: number; attempts?: number }>())
+
+  await supervisor.respawnDeadSprintEngineClaimants(
+    workspace,
+    state,
+    new Set(),
+    { capacityByRole: new Map(), agentIds: new Set() },
+    sent,
+    { cliRuntimes: respawnTestCliRuntimes, mcpSettings: emptyMcpSettings, inFlightSpawns: mutableRef(new Set<string>()) }
+  )
+
+  assert.equal(spawns.length, 1, `dead gate claimant is respawned; spawns ${JSON.stringify(spawns)}`)
+  assert.equal(spawns[0].agentId, 'code_reviewer-1')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.gate.next'), 'gate-claim respawn prompt names the gate claim tool')
+  const key = sprintEngineRespawnLedgerKey(workspace, { taskId: 'T3', gateId: 'code_reviewer' }, 'code_reviewer-1')
+  assert.equal(sent.current.get(key)?.attempts, 1, 'gate respawn attempt is recorded under the gate work key')
+}
+
+async function testRespawnSkipsLiveCappedNeedsInputAndCoolingClaimants(): Promise<void> {
+  const spawns: CapturedSpawn[] = []
+  installRespawnTestWindow(spawns)
+
+  const supervisor = await loadSupervisor()
+  const workspace = workspaceFixture({
+    agents: {
+      'developer-live': sprintAgent('developer-live', 'Liv'),
+      'developer-blocked': sprintAgent('developer-blocked', 'Bea'),
+      'developer-capped': sprintAgent('developer-capped', 'Cap'),
+      'developer-cooling': sprintAgent('developer-cooling', 'Coda'),
+    },
+  })
+  const claimedTask = (id: string, ownerAgentId: string) => task({
+    id,
+    role: 'developer',
+    status: 'in_progress',
+    boardColumn: 'in_progress',
+    ownerAgentId,
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [
+      claimedTask('T1', 'developer-live'),
+      claimedTask('T2', 'developer-blocked'),
+      claimedTask('T3', 'developer-capped'),
+      claimedTask('T4', 'developer-cooling'),
+    ],
+    sprintEngineAgents: {
+      'developer-live': runtimeAgent('developer', { status: 'running', currentTaskId: 'T1' }),
+      'developer-blocked': runtimeAgent('developer', { status: 'needs_input', currentTaskId: 'T2' }),
+      'developer-capped': runtimeAgent('developer', { status: 'running', currentTaskId: 'T3' }),
+      'developer-cooling': runtimeAgent('developer', { status: 'running', currentTaskId: 'T4' }),
+    },
+  })
+  installWorkspaceStore(workspace)
+  const cappedKey = sprintEngineRespawnLedgerKey(workspace, { taskId: 'T3' }, 'developer-capped')
+  const coolingKey = sprintEngineRespawnLedgerKey(workspace, { taskId: 'T4' }, 'developer-cooling')
+  const sent = mutableRef(new Map<string, { sentAt: number; attempts?: number }>([
+    [cappedKey, { sentAt: Date.now() - 120_000, attempts: supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES }],
+    [coolingKey, { sentAt: Date.now() - 5_000, attempts: 1 }],
+  ]))
+
+  await supervisor.respawnDeadSprintEngineClaimants(
+    workspace,
+    state,
+    new Set(['developer-live']),
+    { capacityByRole: new Map(), agentIds: new Set() },
+    sent,
+    { cliRuntimes: respawnTestCliRuntimes, mcpSettings: emptyMcpSettings, inFlightSpawns: mutableRef(new Set<string>()) }
+  )
+
+  assert.equal(
+    spawns.length,
+    0,
+    `live, needs_input, capped, and cooling-down claimants are never respawned; spawns ${JSON.stringify(spawns)}`
+  )
+  assert.equal(
+    sent.current.get(cappedKey)?.attempts,
+    supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES,
+    'capped respawn budget is not consumed further'
+  )
+  assert.equal(sent.current.get(coolingKey)?.attempts, 1, 'cooldown does not consume respawn budget')
+}
+
+async function testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy(): Promise<void> {
+  // The live-reproduced restart deadlock: every concurrency slot is consumed
+  // by an in-progress task whose owner terminal died with the app, so the
+  // cycle used to return at `no-slots` every tick without ever spawning. The
+  // respawn path must recover all claimants before slot accounting runs.
+  const spawns: CapturedSpawn[] = []
+  installRespawnTestWindow(spawns)
+
+  const supervisor = await loadSupervisor()
+  const claimedTask = (id: string, ownerAgentId: string) => task({
+    id,
+    role: 'developer',
+    status: 'in_progress',
+    boardColumn: 'in_progress',
+    ownerAgentId,
+    qualityGates: [],
+  })
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: [
+      claimedTask('T1', 'developer-1'),
+      claimedTask('T2', 'developer-2'),
+      claimedTask('T3', 'developer-3'),
+    ],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { status: 'running', currentTaskId: 'T1' }),
+      'developer-2': runtimeAgent('developer', { status: 'running', currentTaskId: 'T2' }),
+      'developer-3': runtimeAgent('developer', { status: 'running', currentTaskId: 'T3' }),
+    },
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: {
+      'developer-1': sprintAgent('developer-1', 'Devin'),
+      'developer-2': sprintAgent('developer-2', 'Drew'),
+      'developer-3': sprintAgent('developer-3', 'Dale'),
+    },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: respawnTestCliRuntimes,
+    mcpSettings: emptyMcpSettings,
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages: mutableRef(new Map()),
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+  })
+
+  assert.equal(
+    spawns.length,
+    3,
+    `all dead claimants are respawned despite zero free slots; spawned ${JSON.stringify(spawns.map((spawn) => spawn.agentId))}`
+  )
+  assert.deepEqual(
+    spawns.map((spawn) => spawn.agentId).sort(),
+    ['developer-1', 'developer-2', 'developer-3']
+  )
+  for (const spawn of spawns) {
+    assert.ok(spawn.initialPrompt?.includes('sprintengine.agent.join'), 'respawn prompt names the MCP join tool')
+    assert.ok(spawn.initialPrompt?.includes('sprintengine.task.next'), 'respawn prompt names the task claim tool')
+  }
 }
 
 async function testSuperviseRunnerCycleBootstrapsOnlyArchitectForFreshRun(): Promise<void> {

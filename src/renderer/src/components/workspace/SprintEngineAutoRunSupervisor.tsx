@@ -695,6 +695,18 @@ export type SprintEngineDispatchLedgers = {
   dispatch: MutableRefObject<Map<string, RoleContinuationMessage>> | null
 }
 
+/**
+ * Spawn dependencies for executing planned respawn actions. Plans that carry
+ * respawns (dead-claimant recovery) need terminal-spawn capability; the paste
+ * and restart paths do not, so this context stays optional for them.
+ */
+export type SprintEngineDispatchRespawnContext = {
+  sprintEngineState: SprintEngineState
+  cliRuntimes: Record<AgentCli, CliRuntimeSettings>
+  mcpSettings: McpSettings
+  inFlightSpawns: MutableRefObject<Set<string>>
+}
+
 function dispatchPlanLedger(
   ledger: 'continuation' | 'dispatch',
   ledgers: SprintEngineDispatchLedgers
@@ -705,7 +717,8 @@ function dispatchPlanLedger(
 export async function executeSprintEngineDispatchPlan(
   workspace: Workspace,
   plan: SprintEngineDispatchPlan,
-  ledgers: SprintEngineDispatchLedgers
+  ledgers: SprintEngineDispatchLedgers,
+  respawnContext?: SprintEngineDispatchRespawnContext
 ): Promise<'restarted' | 'none'> {
   const base = { workspaceId: workspace.id, workspaceName: workspace.name }
   for (const entry of plan.ledgerDeletes) {
@@ -745,6 +758,52 @@ export async function executeSprintEngineDispatchPlan(
     })
     logPerfEvent('SprintEngineAutoRun', 'stalled-agent-restarted', { ...base, ...restart.data, sessionId: session.sessionId })
   }
+  for (const respawn of plan.respawns) {
+    if (!respawnContext) {
+      logPerfEvent('SprintEngineAutoRun', 'respawn-skipped-no-context', { ...base, ...respawn.data })
+      continue
+    }
+    const result = await spawnAutoRunCandidate(
+      workspace,
+      respawnContext.sprintEngineState,
+      {
+        agentId: respawn.agentId,
+        label: respawn.label,
+        role: respawn.role,
+        taskId: respawn.taskId,
+        ...(respawn.gateId ? { gateId: respawn.gateId } : {}),
+      },
+      respawnContext.cliRuntimes,
+      respawnContext.mcpSettings,
+      respawnContext.inFlightSpawns,
+      { trackPendingSpawn: false }
+    )
+    // 'skipped' means a live session or in-flight spawn already covers this
+    // agent — no budget consumed. Started and failed attempts both count
+    // against the respawn cap so a broken CLI cannot spawn/exit loop.
+    if (result === 'skipped') {
+      logPerfEvent('SprintEngineAutoRun', 'dead-claimant-respawn-skipped', { ...base, ...respawn.data })
+      continue
+    }
+    const respawnLedger = ledgers.continuation?.current
+    if (respawnLedger) recordPromptRetry(respawnLedger, respawn.key, Date.now())
+    if (result === 'failed') {
+      logPerfEvent('SprintEngineAutoRun', 'dead-claimant-respawn-failed', { ...base, ...respawn.data })
+      continue
+    }
+    await defaultExecutorPorts.publishDiagnostic({
+      level: 'warning',
+      source: 'sprintengine',
+      title: respawn.diagnostic.title,
+      message: respawn.diagnostic.message,
+      details: respawn.diagnostic.details,
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      taskId: respawn.diagnostic.taskId,
+      agentId: respawn.agentId,
+    })
+    logPerfEvent('SprintEngineAutoRun', 'dead-claimant-respawned', { ...base, ...respawn.data })
+  }
   return restarted ? 'restarted' : 'none'
 }
 
@@ -755,6 +814,7 @@ async function runSprintEngineDispatchPaths(input: {
   runningAgentIds: ReadonlySet<string>
   idleAgentIds: ReadonlySet<string>
   ledgers: SprintEngineDispatchLedgers
+  respawnContext?: SprintEngineDispatchRespawnContext
 }): Promise<'restarted' | 'none'> {
   const plan = planSprintEngineDispatch({
     workspace: input.workspace,
@@ -766,7 +826,30 @@ async function runSprintEngineDispatchPaths(input: {
     dispatchLedger: input.ledgers.dispatch?.current ?? new Map(),
     paths: new Set(input.paths),
   })
-  return executeSprintEngineDispatchPlan(input.workspace, plan, input.ledgers)
+  return executeSprintEngineDispatchPlan(input.workspace, plan, input.ledgers, input.respawnContext)
+}
+
+export async function respawnDeadSprintEngineClaimants(
+  workspace: Workspace,
+  sprintEngineState: SprintEngineState,
+  runningAgentIds: ReadonlySet<string>,
+  continuationCapacity: RunningContinuationCapacity,
+  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>,
+  spawnDeps: {
+    cliRuntimes: Record<AgentCli, CliRuntimeSettings>
+    mcpSettings: McpSettings
+    inFlightSpawns: MutableRefObject<Set<string>>
+  }
+): Promise<void> {
+  await runSprintEngineDispatchPaths({
+    workspace,
+    sprintEngineState,
+    paths: ['respawn'],
+    runningAgentIds,
+    idleAgentIds: continuationCapacity.agentIds,
+    ledgers: { continuation: sentContinuationMessages, dispatch: null },
+    respawnContext: { sprintEngineState, ...spawnDeps },
+  })
 }
 
 export async function sendContinuationPromptsToIdleAgents(
@@ -1651,6 +1734,19 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     sprintEngineState,
     runningAgentIds,
     sentDispatchMessages
+  )
+
+  // Recover claimed work whose claimant has no live terminal (the app-restart
+  // deadlock): respawn the claimant before any path that can early-return the
+  // cycle, and before slot accounting — dead in-progress owners consume the
+  // very slots a spawn-side recovery would need.
+  await respawnDeadSprintEngineClaimants(
+    workspace,
+    sprintEngineState,
+    runningAgentIds,
+    continuationCapacity,
+    sentContinuationMessages,
+    { cliRuntimes, mcpSettings, inFlightSpawns }
   )
 
   const architectTriageSignal = await signalArchitectForNeedsInputTriage(
