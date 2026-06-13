@@ -376,6 +376,13 @@ export function findSprintEngineWakeCandidateTaskForAgent(
 
 export const AUTO_RUN_ROLE_CONTINUATION_RETRY_MS = 60_000
 export const AUTO_RUN_DISPATCH_PROMPT_RETRY_MS = 5 * 60_000
+/**
+ * Idle retirement window. Long enough that a warm terminal is still reused
+ * for back-to-back work via wake prompts; past it, a terminal with no
+ * claimable role work is parked, and the operator invariant is visible
+ * terminals = active work. Lazy spawn revives the role when work appears.
+ */
+export const AUTO_RUN_IDLE_RETIREMENT_MS = 5 * 60_000
 export const AUTO_RUN_MAX_PROMPT_RETRIES = 5
 export const AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES = 3
 
@@ -442,7 +449,14 @@ export function runtimeAgentAlreadyOwnsGateClaim(
   )
 }
 
-export type SprintEngineDispatchPath = 'notification' | 'dispatch' | 'task_wake' | 'gate' | 'restart' | 'respawn'
+export type SprintEngineDispatchPath =
+  | 'notification'
+  | 'dispatch'
+  | 'task_wake'
+  | 'gate'
+  | 'restart'
+  | 'respawn'
+  | 'idle_retire'
 
 /**
  * Notification kinds that may spawn a terminal for a target with no live
@@ -506,6 +520,12 @@ export type SprintEngineDispatchNotificationDelivery = {
   data: Record<string, unknown>
 }
 
+export type SprintEngineDispatchRetirementAction = {
+  agentId: string
+  data: Record<string, unknown>
+  diagnostic: { title: string; message: string; details: string }
+}
+
 export type SprintEngineDispatchPlan = {
   ledgerDeletes: Array<{ ledger: 'continuation' | 'dispatch'; key: string }>
   skips: Array<{ event: string; data: Record<string, unknown> }>
@@ -514,6 +534,64 @@ export type SprintEngineDispatchPlan = {
   respawns: SprintEngineDispatchRespawnAction[]
   notificationDeliveries: SprintEngineDispatchNotificationDelivery[]
   notificationResolutions: Array<{ deliveryKey: string; event: string; data: Record<string, unknown> }>
+  retirements: SprintEngineDispatchRetirementAction[]
+}
+
+export function sprintEngineIdleClockKey(workspace: Workspace, agentId: string): string {
+  return `${workspace.sprintEngineContext?.statePath ?? workspace.id}:${agentId}`
+}
+
+function isUnclaimedIdleRuntimeAgent(
+  runtimeAgent: SprintEngineState['sprintEngineAgents'][string] | undefined
+): boolean {
+  return Boolean(
+    runtimeAgent
+    && runtimeAgent.status === 'idle'
+    && !runtimeAgent.currentTaskId
+    && !runtimeAgent.currentDispatch
+    && !runtimeAgent.currentGateId
+    && !runtimeAgent.currentGate
+  )
+}
+
+function getGateClaimHolderAgentIds(sprintEngineState: SprintEngineState): Set<string> {
+  const holders = new Set<string>()
+  for (const task of sprintEngineState.tasks) {
+    for (const claim of getActiveSprintEngineAutoRunGateClaims(task, sprintEngineState.tasks)) {
+      holders.add(claim.claimedBy)
+    }
+  }
+  return holders
+}
+
+/**
+ * Maintains the per-agent idle clock the `idle_retire` path reads: an entry
+ * is set the first tick an agent is observed live, idle, and holding no
+ * claim, and removed as soon as that stops being true (engaged, claimed,
+ * retired, or its terminal is gone), so the retirement window only counts
+ * uninterrupted idleness.
+ */
+export function updateSprintEngineIdleClock(input: {
+  workspace: Workspace
+  sprintEngineState: SprintEngineState
+  idleAgentIds: ReadonlySet<string>
+  now: number
+  clock: Map<string, number>
+}): void {
+  const { workspace, sprintEngineState } = input
+  const gateClaimHolders = getGateClaimHolderAgentIds(sprintEngineState)
+  const activeKeys = new Set<string>()
+  for (const agentId of input.idleAgentIds) {
+    if (gateClaimHolders.has(agentId)) continue
+    if (!isUnclaimedIdleRuntimeAgent(sprintEngineState.sprintEngineAgents[agentId])) continue
+    const key = sprintEngineIdleClockKey(workspace, agentId)
+    activeKeys.add(key)
+    if (!input.clock.has(key)) input.clock.set(key, input.now)
+  }
+  const prefix = `${workspace.sprintEngineContext?.statePath ?? workspace.id}:`
+  for (const key of [...input.clock.keys()]) {
+    if (key.startsWith(prefix) && !activeKeys.has(key)) input.clock.delete(key)
+  }
 }
 
 export type SprintEngineDispatchNotificationInput = {
@@ -555,6 +633,7 @@ export function planSprintEngineDispatch(input: {
   dispatchLedger: ReadonlyMap<string, SprintEngineDispatchAttempt>
   paths?: ReadonlySet<SprintEngineDispatchPath>
   notifications?: SprintEngineDispatchNotificationInput
+  idleClock?: ReadonlyMap<string, number>
 }): SprintEngineDispatchPlan {
   const { workspace, sprintEngineState, now } = input
   const include = (path: SprintEngineDispatchPath): boolean => !input.paths || input.paths.has(path)
@@ -566,6 +645,7 @@ export function planSprintEngineDispatch(input: {
     respawns: [],
     notificationDeliveries: [],
     notificationResolutions: [],
+    retirements: [],
   }
   const plannedPasteKeys = new Set<string>()
   // One engagement per agent per pass: a terminal must never receive two
@@ -973,6 +1053,53 @@ export function planSprintEngineDispatch(input: {
             `Respawn attempts before this one: ${previous?.attempts ?? 0}`,
           ].filter((line): line is string => Boolean(line)).join('\n'),
           taskId: claim.taskId,
+        },
+      })
+    }
+  }
+
+  if (
+    include('idle_retire')
+    && input.idleClock
+    && sprintEngineState.tasks.length > 0
+    && sprintEngineState.tasks.some((task) => task.status !== 'done')
+  ) {
+    // Operator invariant: visible terminals = active work. A terminal that
+    // has been live, idle, and unclaimed past the retirement window — with no
+    // claimable work for its role that the wake/gate/restart paths would
+    // engage it on — is parked and gets retired. Lazy spawn revives the role
+    // when work appears. Pre-plan runs (no tasks) and completed runs are
+    // excluded: bootstrap and the all-tasks-done closure own those terminals.
+    const gateClaimHolders = getGateClaimHolderAgentIds(sprintEngineState)
+    const claimableGateRoles = new Set<SprintEngineRoleId>()
+    for (const task of sprintEngineState.tasks) {
+      for (const gate of getClaimableSprintEngineAutoRunGates(task, sprintEngineState.tasks)) {
+        claimableGateRoles.add(gate.role)
+      }
+    }
+    for (const agentId of input.idleAgentIds) {
+      if (engagedAgentIds.has(agentId)) continue
+      const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
+      if (!runtimeAgent || !isUnclaimedIdleRuntimeAgent(runtimeAgent)) continue
+      if (gateClaimHolders.has(agentId)) continue
+      if (findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, new Set())) continue
+      if (claimableGateRoles.has(runtimeAgent.role)) continue
+      const since = input.idleClock.get(sprintEngineIdleClockKey(workspace, agentId))
+      if (!since || now - since < AUTO_RUN_IDLE_RETIREMENT_MS) continue
+      engagedAgentIds.add(agentId)
+      const idleMinutes = Math.round((now - since) / 60_000)
+      plan.retirements.push({
+        agentId,
+        data: { agentId, role: runtimeAgent.role, idleMs: now - since },
+        diagnostic: {
+          title: 'Retired an idle Sprint Engine terminal',
+          message: `${runtimeAgent.role} had no claimable work for ${idleMinutes} minute${idleMinutes === 1 ? '' : 's'}, so its terminal was closed. The role respawns automatically when work is ready.`,
+          details: [
+            `Workspace: ${workspace.name}`,
+            `Agent: ${agentId} (${runtimeAgent.role})`,
+            `Idle for: ${idleMinutes} minute${idleMinutes === 1 ? '' : 's'}`,
+            'Lazy spawning revives this role as soon as claimable work appears.',
+          ].join('\n'),
         },
       })
     }

@@ -370,7 +370,7 @@ def test_electron_auto_run_prompts_idle_running_agents_for_ready_work() -> None:
     )
     # One all-paths reconcile call per supervise cycle; the per-path wrappers
     # (sendContinuationPromptsToIdleAgents and friends) are test-surface shims.
-    assert "paths: ['notification', 'dispatch', 'task_wake', 'gate', 'restart', 'respawn']" in supervisor_source
+    assert "paths: ['notification', 'dispatch', 'task_wake', 'gate', 'restart', 'respawn', 'idle_retire']" in supervisor_source
     assert "continuation-prompt-sent" in auto_run_utils_source
 
 

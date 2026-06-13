@@ -66,6 +66,24 @@ function updateAgentTabConfig(
   }
 }
 
+/** Whether the agent's tab is the one currently shown in its tabset. */
+export function isAgentTabVisible(workspaceId: string, agentId: string): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+
+  let visible = false
+  model.visitNodes((node) => {
+    if (visible || !(node instanceof TabNode) || node.getComponent() !== 'agent') return
+    const config = node.getConfig() as { agentId?: string } | undefined
+    if (config?.agentId !== agentId) return
+    const parent = node.getParent()
+    if (parent instanceof TabSetNode) {
+      visible = parent.getSelectedNode()?.getId() === node.getId()
+    }
+  })
+  return visible
+}
+
 export function hasAgentTab(workspaceId: string, agentId: string): boolean {
   const model = models.get(workspaceId)
   if (!model) return false

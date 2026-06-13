@@ -30,6 +30,7 @@ import {
   pickSprintEngineBootstrapCandidate,
   sprintEngineDispatchDeliveryKey,
   sprintEngineAutoRunWorkKey,
+  sprintEngineIdleClockKey,
   sprintEngineRespawnLedgerKey,
   type AutoRunCandidate,
   type RoleContinuationGrace,
@@ -137,6 +138,8 @@ async function main(): Promise<void> {
   await testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy()
   await testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass()
   await testNotificationPasteSuppressesSamePassDispatchPaste()
+  await testIdleRetirementClosesParkedTerminalPastWindow()
+  await testIdleRetirementSparesClaimHoldersFreshIdlersAndVisibleTabs()
 }
 
 function testAgentTerminalBackgroundPolicyDoesNotSelectOrCreateTabs(): void {
@@ -2766,6 +2769,185 @@ async function testNotificationPasteSuppressesSamePassDispatchPaste(): Promise<v
     `the engaged notification target gets exactly one instruction this pass; writes ${JSON.stringify(writes.map((write) => write.text.slice(0, 60)))}`
   )
   assert.ok(writes[0].text.includes('Sprint Engine notification.'), 'the single write is the notification paste')
+}
+
+function idleReviewerCycleFixtures(input: { tasks: SprintEngineTask[]; reviewerOverrides?: Partial<SprintEngineRuntimeAgent> }): {
+  workspace: Workspace
+  sprintEngineState: SprintEngineState
+} {
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: input.tasks,
+    sprintEngineAgents: {
+      'code_reviewer-1': runtimeAgent('code_reviewer', { status: 'idle', currentTaskId: null, ...input.reviewerOverrides }),
+    },
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: { 'code_reviewer-1': sprintAgent('code_reviewer-1', 'Shawn') },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  return { workspace, sprintEngineState }
+}
+
+function installIdleRetirementTestWindow(kills: string[], writes: Array<{ sessionId: string; text: string }>): void {
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-reviewer',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'code_reviewer-1',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+        startedAt: 1,
+      },
+    ],
+    terminalStatus: async () => ({ processAlive: true }),
+    terminalWrite: async (sessionId: string, text: string) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    terminalKill: async (sessionId: string) => {
+      kills.push(sessionId)
+      return { ok: true }
+    },
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    logDiagnostic: async (input) => input,
+  })
+}
+
+async function runIdleRetirementCycle(
+  supervisor: Awaited<ReturnType<typeof loadSupervisor>>,
+  workspace: Workspace,
+  sprintEngineState: SprintEngineState,
+  idleClockByAgent: { current: Map<string, number> }
+): Promise<void> {
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: respawnTestCliRuntimes,
+    mcpSettings: emptyMcpSettings,
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages: mutableRef(new Map()),
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent,
+  })
+}
+
+async function testIdleRetirementClosesParkedTerminalPastWindow(): Promise<void> {
+  // Operator invariant: visible terminals = active work. A live-idle agent
+  // holding no claim, with no claimable work for its role, parked past the
+  // retirement window, gets its terminal closed; lazy spawn revives the role
+  // when work appears.
+  const kills: string[] = []
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installIdleRetirementTestWindow(kills, writes)
+
+  const supervisor = await loadSupervisor()
+  const { workspace, sprintEngineState } = idleReviewerCycleFixtures({
+    // Ready work exists for a different role only, so the run is mid-flight
+    // but nothing can engage the idle reviewer.
+    tasks: [task({ id: 'T-dev', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+  })
+  installWorkspaceStore(workspace)
+  const idleClockByAgent = mutableRef(new Map<string, number>([
+    [sprintEngineIdleClockKey(workspace, 'code_reviewer-1'), Date.now() - supervisor.AUTO_RUN_IDLE_RETIREMENT_MS - 60_000],
+  ]))
+
+  await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
+
+  assert.deepEqual(kills, ['session-reviewer'], 'the parked reviewer terminal is retired past the idle window')
+  assert.equal(writes.length, 0, 'retirement sends no prompt; the terminal is simply closed')
+}
+
+async function testIdleRetirementSparesClaimHoldersFreshIdlersAndVisibleTabs(): Promise<void> {
+  const supervisor = await loadSupervisor()
+
+  // Case 1: a fresh idler (clock inside the window) is not retired.
+  {
+    const kills: string[] = []
+    const writes: Array<{ sessionId: string; text: string }> = []
+    installIdleRetirementTestWindow(kills, writes)
+    const { workspace, sprintEngineState } = idleReviewerCycleFixtures({
+      tasks: [task({ id: 'T-dev', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+    })
+    installWorkspaceStore(workspace)
+    const idleClockByAgent = mutableRef(new Map<string, number>([
+      [sprintEngineIdleClockKey(workspace, 'code_reviewer-1'), Date.now() - 30_000],
+    ]))
+    await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
+    assert.deepEqual(kills, [], 'an idler inside the retirement window keeps its terminal')
+  }
+
+  // Case 2: a claim holder past the window is never retired, and its idle
+  // clock entry is cleared rather than left to mature.
+  {
+    const kills: string[] = []
+    const writes: Array<{ sessionId: string; text: string }> = []
+    installIdleRetirementTestWindow(kills, writes)
+    const { workspace, sprintEngineState } = idleReviewerCycleFixtures({
+      tasks: [task({ id: 'T-own', role: 'code_reviewer', status: 'in_progress', boardColumn: 'in_progress', ownerAgentId: 'code_reviewer-1', qualityGates: [] })],
+      reviewerOverrides: { status: 'running', currentTaskId: 'T-own' },
+    })
+    installWorkspaceStore(workspace)
+    const clockKey = sprintEngineIdleClockKey(workspace, 'code_reviewer-1')
+    const idleClockByAgent = mutableRef(new Map<string, number>([
+      [clockKey, Date.now() - supervisor.AUTO_RUN_IDLE_RETIREMENT_MS - 60_000],
+    ]))
+    await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
+    assert.deepEqual(kills, [], 'a claim holder is never retired no matter how old its stale clock entry is')
+    assert.equal(idleClockByAgent.current.has(clockKey), false, 'the stale idle clock entry is cleared for a claim holder')
+  }
+
+  // Case 3: the visible tab of the active workspace is never closed; the
+  // retirement retries once the operator looks away.
+  {
+    const kills: string[] = []
+    const writes: Array<{ sessionId: string; text: string }> = []
+    installIdleRetirementTestWindow(kills, writes)
+    const { workspace, sprintEngineState } = idleReviewerCycleFixtures({
+      tasks: [task({ id: 'T-dev', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+    })
+    installWorkspaceStore(workspace)
+    const layout: IJsonModel = {
+      global: {},
+      layout: {
+        type: 'row',
+        children: [{
+          type: 'tabset',
+          id: 'main',
+          selected: 0,
+          children: [{ type: 'tab', id: 'agent-tab', name: 'Shawn', component: 'agent', config: { agentId: 'code_reviewer-1' } }],
+        }],
+      },
+    }
+    registerModel(workspace.id, Model.fromJson(layout))
+    try {
+      const idleClockByAgent = mutableRef(new Map<string, number>([
+        [sprintEngineIdleClockKey(workspace, 'code_reviewer-1'), Date.now() - supervisor.AUTO_RUN_IDLE_RETIREMENT_MS - 60_000],
+      ]))
+      await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
+      assert.deepEqual(kills, [], 'the visible tab of the active workspace is never retired')
+    } finally {
+      unregisterModel(workspace.id)
+    }
+  }
 }
 
 async function testSuperviseRunnerCycleBootstrapsOnlyArchitectForFreshRun(): Promise<void> {

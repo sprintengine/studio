@@ -22,6 +22,7 @@ import {
 } from '../../utils/sprintengine'
 import {
   AUTO_RUN_ROLE_CONTINUATION_RETRY_MS,
+  AUTO_RUN_IDLE_RETIREMENT_MS as PLANNER_IDLE_RETIREMENT_MS,
   AUTO_RUN_MAX_PROMPT_RETRIES as PLANNER_MAX_PROMPT_RETRIES,
   AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES as PLANNER_MAX_WAKE_RETRIES,
   architectTriageMessageKey,
@@ -32,6 +33,7 @@ import {
   recordPromptRetry,
   type SprintEngineDispatchAttempt,
   type SprintEngineDispatchNotificationInput,
+  updateSprintEngineIdleClock,
   type SprintEngineDispatchPlan,
   type SprintEngineDispatchPath,
   describeSprintEngineExternalInputAutoRunBlock,
@@ -64,7 +66,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { pathJoin } from '../../utils/paths'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
-import { type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
+import { isAgentTabVisible, type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
 import {
   refreshSprintEngineWorkspaceProjection,
   sprintEngineProjectionSignature,
@@ -122,6 +124,7 @@ const INACTIVE_AUTO_RUN_POLL_MS = 15000
 const AUTO_RUN_STARTUP_SPAWN_DELAY_MS = 10000
 const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
 export const AUTO_RUN_MAX_PROMPT_RETRIES = PLANNER_MAX_PROMPT_RETRIES
+export const AUTO_RUN_IDLE_RETIREMENT_MS = PLANNER_IDLE_RETIREMENT_MS
 export const AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES = PLANNER_MAX_WAKE_RETRIES
 const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
 const AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS = 30000
@@ -790,6 +793,33 @@ export async function executeSprintEngineDispatchPlan(
     })
     logPerfEvent('SprintEngineAutoRun', 'dead-claimant-respawned', { ...base, ...respawn.data })
   }
+  for (const retirement of plan.retirements) {
+    // Never close the terminal the operator is currently looking at; the
+    // clock keeps running and the retirement retries once the tab is no
+    // longer the visible one.
+    if (
+      useWorkspaceStore.getState().activeWorkspaceId === workspace.id
+      && isAgentTabVisible(workspace.id, retirement.agentId)
+    ) {
+      logPerfEvent('SprintEngineAutoRun', 'idle-retirement-skipped-visible-tab', { ...base, ...retirement.data })
+      continue
+    }
+    const session = await findRunningAgentSession(workspace, retirement.agentId)
+    if (!session) continue
+    await safeTerminalKill(defaultExecutorPorts, session.sessionId)
+    await defaultExecutorPorts.publishDiagnostic({
+      level: 'info',
+      source: 'sprintengine',
+      title: retirement.diagnostic.title,
+      message: retirement.diagnostic.message,
+      details: retirement.diagnostic.details,
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      agentId: retirement.agentId,
+      sessionId: session.sessionId,
+    })
+    logPerfEvent('SprintEngineAutoRun', 'idle-terminal-retired', { ...base, ...retirement.data, sessionId: session.sessionId })
+  }
   return { restarted, notificationSpawned, notificationSpawnFailed }
 }
 
@@ -802,6 +832,7 @@ async function runSprintEngineDispatchPaths(input: {
   ledgers: SprintEngineDispatchLedgers
   spawnContext?: SprintEngineDispatchSpawnContext
   notifications?: SprintEngineDispatchNotificationInput
+  idleClock?: ReadonlyMap<string, number>
 }): Promise<SprintEngineDispatchExecution> {
   const plan = planSprintEngineDispatch({
     workspace: input.workspace,
@@ -813,6 +844,7 @@ async function runSprintEngineDispatchPaths(input: {
     dispatchLedger: input.ledgers.dispatch?.current ?? new Map(),
     paths: new Set(input.paths),
     notifications: input.notifications,
+    idleClock: input.idleClock,
   })
   return executeSprintEngineDispatchPlan(input.workspace, plan, input.ledgers, input.spawnContext)
 }
@@ -1555,7 +1587,8 @@ async function superviseWorkspace(
   sentArchitectTriageMessages: MutableRefObject<Map<string, ArchitectTriageMessage>>,
   sentAgentNotificationEvents: MutableRefObject<Set<string>>,
   continuationGraceByTask: MutableRefObject<Map<string, RoleContinuationGrace>>,
-  lastContentByWorkspace: MutableRefObject<Map<string, string>>
+  lastContentByWorkspace: MutableRefObject<Map<string, string>>,
+  idleClockByAgent?: MutableRefObject<Map<string, number>>
 ): Promise<void> {
   const superviseStartedAt = performance.now()
   let sprintEngineState = workspace.sprintEngineState
@@ -1646,6 +1679,7 @@ async function superviseWorkspace(
       sentArchitectTriageMessages,
       sentAgentNotificationEvents,
       continuationGraceByTask,
+      idleClockByAgent,
     })
   } catch (error) {
     if (error instanceof TerminalListIpcError) {
@@ -1669,6 +1703,12 @@ type RunnerActiveCycleInput = {
   sentArchitectTriageMessages: MutableRefObject<Map<string, ArchitectTriageMessage>>
   sentAgentNotificationEvents: MutableRefObject<Set<string>>
   continuationGraceByTask: MutableRefObject<Map<string, RoleContinuationGrace>>
+  /**
+   * Cross-tick idle observations for the idle_retire path. Optional for test
+   * callers; when absent, a per-call map is used and retirement never reaches
+   * its window. Production passes the supervisor's persistent ref.
+   */
+  idleClockByAgent?: MutableRefObject<Map<string, number>>
 }
 
 export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput): Promise<void> {
@@ -1713,6 +1753,15 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     continuationCapacity: Object.fromEntries(continuationCapacity.capacityByRole),
   })
 
+  const idleClock = input.idleClockByAgent?.current ?? new Map<string, number>()
+  updateSprintEngineIdleClock({
+    workspace,
+    sprintEngineState,
+    idleAgentIds: continuationCapacity.agentIds,
+    now: Date.now(),
+    clock: idleClock,
+  })
+
   // One reconcile pass for every re-engagement decision and recovery action:
   // notification deliveries (paste or spawn), durable-dispatch prompts,
   // ready-task wakes, gate continuations, stalled restarts, and dead-claimant
@@ -1724,7 +1773,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   const dispatchResult = await runSprintEngineDispatchPaths({
     workspace,
     sprintEngineState,
-    paths: ['notification', 'dispatch', 'task_wake', 'gate', 'restart', 'respawn'],
+    paths: ['notification', 'dispatch', 'task_wake', 'gate', 'restart', 'respawn', 'idle_retire'],
     runningAgentIds,
     idleAgentIds: continuationCapacity.agentIds,
     ledgers: { continuation: sentContinuationMessages, dispatch: sentDispatchMessages },
@@ -1742,6 +1791,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
       sentNotificationKeys: sentAgentNotificationEvents,
       onAgentSpawned: (agentId) => runningAgentIds.add(agentId),
     },
+    idleClock,
   })
   if (dispatchResult.notificationSpawnFailed) return
 
@@ -2049,6 +2099,7 @@ export default function SprintEngineAutoRunSupervisor() {
   const sentArchitectTriageMessages = useRef(new Map<string, ArchitectTriageMessage>())
   const sentAgentNotificationEvents = useRef(new Set<string>())
   const continuationGraceByTask = useRef(new Map<string, RoleContinuationGrace>())
+  const idleClockByAgent = useRef(new Map<string, number>())
   const lastContentByWorkspace = useRef(new Map<string, string>())
   const lastInactiveTickByWorkspace = useRef(new Map<string, number>())
   const startedAt = useRef(Date.now())
@@ -2125,7 +2176,8 @@ export default function SprintEngineAutoRunSupervisor() {
             sentArchitectTriageMessages,
             sentAgentNotificationEvents,
             continuationGraceByTask,
-            lastContentByWorkspace
+            lastContentByWorkspace,
+            idleClockByAgent
           )
         }
         logPerfEvent('SprintEngineAutoRun', 'tick-end', {
