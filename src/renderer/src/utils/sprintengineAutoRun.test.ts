@@ -140,6 +140,9 @@ async function main(): Promise<void> {
   await testNotificationPasteSuppressesSamePassDispatchPaste()
   await testIdleRetirementClosesParkedTerminalPastWindow()
   await testIdleRetirementSparesClaimHoldersFreshIdlersAndVisibleTabs()
+  await testNotificationSpawnFailureAbortsRemainingPlanActions()
+  await testSecondNotificationForSameAgentDefersToNextPass()
+  await testTriageDefersWhenPlanEngagedArchitectThisPass()
 }
 
 function testAgentTerminalBackgroundPolicyDoesNotSelectOrCreateTabs(): void {
@@ -2188,6 +2191,7 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   const replacementSpawn = spawns.find((spawn) => spawn.agentId === 'developer-2')
@@ -2287,6 +2291,7 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   assert.equal(spawns.length, 1, `exited role agent should restart for ready work; spawns ${JSON.stringify(spawns)}`)
@@ -2567,6 +2572,7 @@ async function testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy(): P
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   assert.equal(
@@ -2677,6 +2683,7 @@ async function testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass(): Promise<
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   assert.equal(writes.length, 1, `exactly one engagement for the agent; writes ${JSON.stringify(writes.map((write) => write.sessionId))}`)
@@ -2761,6 +2768,7 @@ async function testNotificationPasteSuppressesSamePassDispatchPaste(): Promise<v
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   assert.equal(
@@ -2950,6 +2958,264 @@ async function testIdleRetirementSparesClaimHoldersFreshIdlersAndVisibleTabs(): 
   }
 }
 
+async function testNotificationSpawnFailureAbortsRemainingPlanActions(): Promise<void> {
+  // Failure boundary regression: a failed notification spawn stops the
+  // automation (recordSpawnFailure), so the same reconcile pass must not go
+  // on to paste prompts, kill terminals, or spawn respawns past that
+  // boundary — the pre-fold cycle returned before any dispatch path ran.
+  const writes: Array<{ sessionId: string; text: string }> = []
+  const kills: string[] = []
+  let spawnAttempts = 0
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-frontend',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'frontend-2',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+        startedAt: 1,
+      },
+    ],
+    terminalStatus: async () => ({ processAlive: false }),
+    terminalWrite: async (sessionId: string, text: string) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    terminalKill: async (sessionId: string) => {
+      kills.push(sessionId)
+      return { ok: true }
+    },
+    terminalSpawn: async () => {
+      spawnAttempts += 1
+      return { ok: false, message: 'spawn backend unavailable' }
+    },
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const notificationEvent = reworkNotificationEvent({ targetAgentId: 'developer-1', taskId: 'T-rework' })
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: [task({ id: 'T-rework', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+    sprintEngineAgents: {
+      // Dead notification target whose spawn will fail.
+      'developer-1': runtimeAgent('developer', { status: 'idle', currentTaskId: null }),
+      // Live agent with a durable dispatch due — its paste must NOT happen
+      // once the notification spawn has failed.
+      'frontend-2': runtimeAgent('frontend', {
+        status: 'running',
+        currentTaskId: null,
+        currentDispatch: { dispatchId: 'DISP-1', targetKind: 'task', role: 'frontend', taskId: 'T-f', reason: 'task_claimed' },
+      }),
+    },
+    events: [notificationEvent],
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: {
+      'developer-1': sprintAgent('developer-1', 'Devin'),
+      'frontend-2': sprintAgent('frontend-2', 'Zion'),
+    },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: respawnTestCliRuntimes,
+    mcpSettings: emptyMcpSettings,
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages: mutableRef(new Map()),
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
+  })
+
+  assert.equal(spawnAttempts, 1, 'exactly one spawn attempt (the failing notification spawn)')
+  assert.equal(writes.length, 0, `no paste executes past the spawn-failure boundary; writes ${JSON.stringify(writes.map((write) => write.text.slice(0, 50)))}`)
+  assert.deepEqual(kills, [], 'no terminal is killed past the spawn-failure boundary')
+}
+
+async function testSecondNotificationForSameAgentDefersToNextPass(): Promise<void> {
+  // Per-agent dedup applies inside the notification path: two pending event
+  // ids for one live target produce one paste this pass; the second event
+  // stays undelivered and lands on the next pass.
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-frontend',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'frontend-2',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+        startedAt: 1,
+      },
+    ],
+    terminalWrite: async (sessionId: string, text: string) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const workspace = reworkNotificationWorkspaceFixture()
+  const firstEvent = reworkNotificationEvent({ id: 'EV-rework-1' })
+  const secondEvent = reworkNotificationEvent({ id: 'EV-rework-2', message: 'Second round of changes requested.' })
+  const state = sprintEngineStateFixture({
+    sprintEngineAgents: {
+      'frontend-2': runtimeAgent('frontend', { status: 'running', currentTaskId: 'T-rework' }),
+    },
+    events: [firstEvent, secondEvent],
+  })
+  installWorkspaceStore(workspace)
+  const sent = mutableRef(new Set<string>())
+
+  await supervisor.deliverAgentNotificationEvents(
+    workspace,
+    state,
+    new Set(['frontend-2']),
+    respawnTestCliRuntimes,
+    emptyMcpSettings,
+    mutableRef(new Set<string>()),
+    sent
+  )
+
+  assert.equal(writes.length, 1, `one engagement per agent per pass; writes ${JSON.stringify(writes.map((write) => write.text.slice(0, 50)))}`)
+  const firstKey = agentNotificationDeliveryKey(workspace, firstEvent)
+  const secondKey = agentNotificationDeliveryKey(workspace, secondEvent)
+  assert.equal(sent.current.has(firstKey), true, 'first event is delivered this pass')
+  assert.equal(sent.current.has(secondKey), false, 'second event stays pending for the next pass')
+
+  await supervisor.deliverAgentNotificationEvents(
+    workspace,
+    state,
+    new Set(['frontend-2']),
+    respawnTestCliRuntimes,
+    emptyMcpSettings,
+    mutableRef(new Set<string>()),
+    sent
+  )
+  assert.equal(writes.length, 2, 'the deferred event is delivered on the next pass')
+  assert.equal(sent.current.has(secondKey), true, 'second event is delivered on the next pass')
+}
+
+async function testTriageDefersWhenPlanEngagedArchitectThisPass(): Promise<void> {
+  // Triage lives outside the reconcile plan; when the plan engaged the
+  // architect this pass (e.g. a ready-task wake paste), triage must defer to
+  // the next tick instead of stacking a second, contradictory instruction
+  // into the same terminal.
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-architect',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'architect',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+        startedAt: 1,
+      },
+    ],
+    terminalStatus: async () => ({ processAlive: true }),
+    terminalWrite: async (sessionId: string, text: string) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: [
+      // Ready architect-role wake candidate for the live-idle architect.
+      task({ id: 'T-arch', role: 'architect', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+      // Architect-actionable needs_input task owned by another agent.
+      task({
+        id: 'T-blocked',
+        role: 'developer',
+        status: 'needs_input',
+        boardColumn: 'in_progress',
+        ownerAgentId: 'developer-9',
+        qualityGates: [],
+        needsInput: { kind: 'architect', reason: 'Design decision required', question: 'Which schema?' },
+      }),
+    ],
+    sprintEngineAgents: {
+      architect: runtimeAgent('architect', { status: 'idle', currentTaskId: null }),
+      'developer-9': runtimeAgent('developer', { status: 'needs_input', currentTaskId: 'T-blocked' }),
+    },
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: { architect: sprintAgent('architect', 'Ari') },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: respawnTestCliRuntimes,
+    mcpSettings: emptyMcpSettings,
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages: mutableRef(new Map()),
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
+  })
+
+  assert.equal(
+    writes.length,
+    1,
+    `the engaged architect receives exactly one instruction this pass; writes ${JSON.stringify(writes.map((write) => write.text.slice(0, 60)))}`
+  )
+  assert.ok(writes[0].text.includes('sprintengine.task.next'), 'the single write is the wake paste')
+  assert.ok(
+    !writes.some((write) => write.text.includes('sprintengine.triage.needs_input')),
+    'no triage prompt is pasted in the same pass that engaged the architect'
+  )
+}
+
 async function testSuperviseRunnerCycleBootstrapsOnlyArchitectForFreshRun(): Promise<void> {
   // The lazy-spawn headline: a fresh automation run with a full roster and no
   // tasks must spawn exactly one terminal — the architect carrying its stored
@@ -3027,6 +3293,7 @@ async function testSuperviseRunnerCycleBootstrapsOnlyArchitectForFreshRun(): Pro
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   assert.equal(
@@ -3163,6 +3430,7 @@ async function testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForChangesRe
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   // Before the fix: frontend is treated as "running", so no replacement is
@@ -3259,6 +3527,7 @@ async function testSuperviseRunnerCycleDoesNotRestartUnresolvedNeedsInputOwner()
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   assert.equal(spawns.length, 0, `unresolved needs_input owner should not be restarted; spawns ${JSON.stringify(spawns)}`)
@@ -3363,6 +3632,7 @@ async function testSuperviseRunnerCycleStartsReviewGateWhenUnrelatedAgentNeedsIn
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   assert.equal(spawns.length, 1, `unrelated needs_input work must not block review gate spawn; spawns ${JSON.stringify(spawns)}`)
@@ -3457,6 +3727,7 @@ async function testSuperviseRunnerCycleDoesNotMutateTaskOrGateState(): Promise<v
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   assert.deepEqual(mutations, [], 'auto-run dispatch/gate paths must not call renderer task/gate mutation APIs')

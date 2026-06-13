@@ -537,6 +537,22 @@ export type SprintEngineDispatchPlan = {
   retirements: SprintEngineDispatchRetirementAction[]
 }
 
+/**
+ * The agents a plan engages (paste, restart, respawn, notification delivery,
+ * or retirement). Canonical derivation for callers that must not engage the
+ * same terminal again in the same tick outside the planner (e.g. architect
+ * triage).
+ */
+export function getSprintEngineDispatchPlanEngagedAgentIds(plan: SprintEngineDispatchPlan): Set<string> {
+  const engaged = new Set<string>()
+  for (const paste of plan.pastes) engaged.add(paste.agentId)
+  for (const restart of plan.restarts) engaged.add(restart.agentId)
+  for (const respawn of plan.respawns) engaged.add(respawn.agentId)
+  for (const delivery of plan.notificationDeliveries) engaged.add(delivery.agentId)
+  for (const retirement of plan.retirements) engaged.add(retirement.agentId)
+  return engaged
+}
+
 export function sprintEngineIdleClockKey(workspace: Workspace, agentId: string): string {
   return `${workspace.sprintEngineContext?.statePath ?? workspace.id}:${agentId}`
 }
@@ -579,10 +595,13 @@ export function updateSprintEngineIdleClock(input: {
   clock: Map<string, number>
 }): void {
   const { workspace, sprintEngineState } = input
-  const gateClaimHolders = getGateClaimHolderAgentIds(sprintEngineState)
+  // Gate-attempt claims are deliberately not scanned here: an agent actively
+  // working a gate has running status or currentGate set (both fail the
+  // unclaimed-idle check), and the idle_retire decision re-checks gate claim
+  // holders at decision time. Skipping the scan keeps the per-tick clock
+  // update cheap.
   const activeKeys = new Set<string>()
   for (const agentId of input.idleAgentIds) {
-    if (gateClaimHolders.has(agentId)) continue
     if (!isUnclaimedIdleRuntimeAgent(sprintEngineState.sprintEngineAgents[agentId])) continue
     const key = sprintEngineIdleClockKey(workspace, agentId)
     activeKeys.add(key)
@@ -647,16 +666,34 @@ export function planSprintEngineDispatch(input: {
     notificationResolutions: [],
     retirements: [],
   }
-  const plannedPasteKeys = new Set<string>()
   // One engagement per agent per pass: a terminal must never receive two
   // dispatch instructions — or a paste and a kill — from the same plan.
-  // Paths run in priority order (dispatch, task wake, gate, restart,
-  // respawn); the first action planned for an agent wins the pass.
+  // Paths run in priority order (notification, dispatch, task wake, gate,
+  // restart, respawn, idle retire); the first action planned for an agent
+  // wins the pass. Enforced structurally: every terminal-touching action is
+  // planned through one of the helpers below, which record the engagement.
+  // Paths still pre-check `engagedAgentIds` where they want a path-specific
+  // skip event or to fall through to the next candidate.
   const engagedAgentIds = new Set<string>()
   const planPaste = (paste: SprintEngineDispatchPasteAction): void => {
     plan.pastes.push(paste)
-    plannedPasteKeys.add(paste.key)
     engagedAgentIds.add(paste.agentId)
+  }
+  const planNotificationDelivery = (delivery: SprintEngineDispatchNotificationDelivery): void => {
+    plan.notificationDeliveries.push(delivery)
+    engagedAgentIds.add(delivery.agentId)
+  }
+  const planRestart = (restart: SprintEngineDispatchRestartAction): void => {
+    plan.restarts.push(restart)
+    engagedAgentIds.add(restart.agentId)
+  }
+  const planRespawn = (respawn: SprintEngineDispatchRespawnAction): void => {
+    plan.respawns.push(respawn)
+    engagedAgentIds.add(respawn.agentId)
+  }
+  const planRetirement = (retirement: SprintEngineDispatchRetirementAction): void => {
+    plan.retirements.push(retirement)
+    engagedAgentIds.add(retirement.agentId)
   }
 
   if (include('notification') && input.notifications) {
@@ -667,16 +704,17 @@ export function planSprintEngineDispatch(input: {
     // task), spawnable kinds spawn a missing terminal, everything else stays
     // pending until the target has a terminal.
     const config = input.notifications
-    const rosterById = new Map(
-      buildSprintEngineAgentRosterForState(sprintEngineState).map((agent) => [agent.id, agent])
-    )
-    const spawnPlannedAgentIds = new Set<string>()
     const pendingEvents = getPendingAgentNotificationEvents(
       workspace,
       sprintEngineState,
       config.deliveredKeys,
       config.sentKeys
     )
+    // The roster scan only pays off when there is something to deliver; the
+    // common zero-event tick must stay cheap.
+    const rosterById = pendingEvents.length === 0
+      ? new Map<string, ReturnType<typeof buildSprintEngineAgentRosterForState>[number]>()
+      : new Map(buildSprintEngineAgentRosterForState(sprintEngineState).map((agent) => [agent.id, agent]))
     for (const event of pendingEvents) {
       const targetAgentId = event.targetAgentId
       if (!targetAgentId) continue
@@ -690,6 +728,14 @@ export function planSprintEngineDispatch(input: {
       }
       if (runtimeAgent?.status === 'retired') {
         plan.notificationResolutions.push({ deliveryKey, event: 'agent-notification-skipped-retired', data: eventData })
+        continue
+      }
+      // One engagement per agent per pass applies inside this path too: a
+      // second pending event for an already-engaged target stays pending
+      // (not delivered) and lands on the next tick, instead of stacking a
+      // second instruction into the same terminal this pass.
+      if (engagedAgentIds.has(targetAgentId)) {
+        plan.skips.push({ event: 'agent-notification-deferred-agent-engaged', data: eventData })
         continue
       }
       const rosterAgent = rosterById.get(targetAgentId)
@@ -706,8 +752,7 @@ export function planSprintEngineDispatch(input: {
           })
           continue
         }
-        engagedAgentIds.add(targetAgentId)
-        plan.notificationDeliveries.push({
+        planNotificationDelivery({
           kind: 'paste',
           deliveryKey,
           agentId: targetAgentId,
@@ -723,15 +768,12 @@ export function planSprintEngineDispatch(input: {
       if (
         !config.canSpawnTargets
         || !SPAWNABLE_NOTIFICATION_KINDS.has(event.notificationKind ?? '')
-        || spawnPlannedAgentIds.has(targetAgentId)
       ) {
         plan.skips.push({ event: 'agent-notification-pending-no-session', data: eventData })
         continue
       }
       if (!role) continue
-      spawnPlannedAgentIds.add(targetAgentId)
-      engagedAgentIds.add(targetAgentId)
-      plan.notificationDeliveries.push({
+      planNotificationDelivery({
         kind: 'spawn',
         deliveryKey,
         agentId: targetAgentId,
@@ -937,12 +979,10 @@ export function planSprintEngineDispatch(input: {
       // the same pass that re-engages it.
       if (engagedAgentIds.has(agentId)) continue
       const key = continuationMessageKey(workspace, task.id, agentId)
-      if (plannedPasteKeys.has(key)) continue
       const previous = input.continuationLedger.get(key)
       if (!previous || (previous.attempts ?? 0) < AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES) continue
       if (now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
-      engagedAgentIds.add(agentId)
-      plan.restarts.push({
+      planRestart({
         agentId,
         key,
         data: { agentId, role: runtimeAgent.role, taskId: task.id, attempts: previous.attempts ?? 0 },
@@ -1032,7 +1072,7 @@ export function planSprintEngineDispatch(input: {
         continue
       }
       if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
-      plan.respawns.push({
+      planRespawn({
         agentId: claim.agentId,
         label: workspace.agents[claim.agentId]?.name ?? claim.agentId,
         role: claim.role,
@@ -1086,9 +1126,8 @@ export function planSprintEngineDispatch(input: {
       if (claimableGateRoles.has(runtimeAgent.role)) continue
       const since = input.idleClock.get(sprintEngineIdleClockKey(workspace, agentId))
       if (!since || now - since < AUTO_RUN_IDLE_RETIREMENT_MS) continue
-      engagedAgentIds.add(agentId)
       const idleMinutes = Math.round((now - since) / 60_000)
-      plan.retirements.push({
+      planRetirement({
         agentId,
         data: { agentId, role: runtimeAgent.role, idleMs: now - since },
         diagnostic: {

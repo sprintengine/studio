@@ -33,6 +33,7 @@ import {
   recordPromptRetry,
   type SprintEngineDispatchAttempt,
   type SprintEngineDispatchNotificationInput,
+  getSprintEngineDispatchPlanEngagedAgentIds,
   updateSprintEngineIdleClock,
   type SprintEngineDispatchPlan,
   type SprintEngineDispatchPath,
@@ -294,10 +295,12 @@ async function publishAutoApprovalDiagnostic(
 
 async function findRunningAgentSession(
   workspace: Workspace,
-  agentId: string
+  agentId: string,
+  prefetchedSessions?: TerminalSessionSnapshot[]
 ): Promise<TerminalSessionSnapshot | null> {
   const agent = workspace.agents[agentId]
-  const sessions = await listTerminalSessionsForAutoRun(workspace, `find-running:${agentId}`)
+  const sessions = prefetchedSessions
+    ?? await listTerminalSessionsForAutoRun(workspace, `find-running:${agentId}`)
   if (agent?.cliStartRequested && agent.cliHasLaunched && agent.cliSessionId) {
     const storedSession = sessions.find((session) => session.sessionId === agent.cliSessionId)
     if (storedSession && isMatchingWorkspaceAgentSession(storedSession, workspace, agentId)) return storedSession
@@ -569,6 +572,13 @@ async function getRunningContinuationCapacityByRole(
   return { capacityByRole, agentIds: countedAgentIds }
 }
 
+/**
+ * Test-surface shim over the planner's notification path. Note the contract
+ * at this surface: `runningAgentIds` doubles as the live-session set, so a
+ * done-status agent's completion paste only happens when the caller includes
+ * it here. The production cycle instead passes the broader `live` session set
+ * so completion notifications reach done agents' terminals.
+ */
 export async function deliverAgentNotificationEvents(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
@@ -629,6 +639,8 @@ export type SprintEngineDispatchExecution = {
   restarted: boolean
   notificationSpawned: boolean
   notificationSpawnFailed: boolean
+  /** Agents the plan engaged this pass; later non-planner paths (architect triage) must not engage them again this tick. */
+  engagedAgentIds: ReadonlySet<string>
 }
 
 function dispatchPlanLedger(
@@ -653,17 +665,28 @@ export async function executeSprintEngineDispatchPlan(
   }
   const markNotificationDelivered = (deliveryKey: string): void => {
     spawnContext?.sentNotificationKeys?.current.add(deliveryKey)
-    useWorkspaceStore.getState().markSprintEngineAgentNotificationDelivered(workspace.id, deliveryKey)
+    defaultExecutorPorts.markSprintEngineAgentNotificationDelivered(workspace.id, deliveryKey)
   }
   for (const resolution of plan.notificationResolutions) {
     markNotificationDelivered(resolution.deliveryKey)
     logPerfEvent('SprintEngineAutoRun', resolution.event, { ...base, ...resolution.data })
   }
+  const engagedAgentIds = getSprintEngineDispatchPlanEngagedAgentIds(plan)
+  // One terminal-list snapshot serves every session lookup in this execution;
+  // per-agent dedup guarantees at most one action per agent, so the snapshot
+  // cannot go stale for an agent this pass acts on.
+  const needsSessions = plan.pastes.length > 0
+    || plan.restarts.length > 0
+    || plan.retirements.length > 0
+    || plan.notificationDeliveries.some((delivery) => delivery.kind === 'paste')
+  const sessionsSnapshot = needsSessions
+    ? await listTerminalSessionsForAutoRun(workspace, 'execute-dispatch-plan')
+    : undefined
   let notificationSpawned = false
   let notificationSpawnFailed = false
   for (const delivery of plan.notificationDeliveries) {
     if (delivery.kind === 'paste') {
-      const session = await findRunningAgentSession(workspace, delivery.agentId)
+      const session = await findRunningAgentSession(workspace, delivery.agentId, sessionsSnapshot)
       if (!session) {
         logPerfEvent('SprintEngineAutoRun', 'agent-notification-pending-no-session', { ...base, ...delivery.data })
         continue
@@ -686,9 +709,6 @@ export async function executeSprintEngineDispatchPlan(
       logPerfEvent('SprintEngineAutoRun', 'agent-notification-spawn-skipped-no-context', { ...base, ...delivery.data })
       continue
     }
-    // After a spawn failure, recordSpawnFailure has already stopped the
-    // automation; do not attempt further spawns this pass.
-    if (notificationSpawnFailed) continue
     const result = await spawnAutoRunCandidate(
       workspace,
       spawnContext.sprintEngineState,
@@ -706,7 +726,7 @@ export async function executeSprintEngineDispatchPlan(
     )
     if (result === 'failed') {
       notificationSpawnFailed = true
-      continue
+      break
     }
     if (result === 'started') {
       notificationSpawned = true
@@ -716,8 +736,22 @@ export async function executeSprintEngineDispatchPlan(
     }
     // 'skipped' leaves the event pending; it retries on the next tick.
   }
+  // A failed spawn is a failure boundary: recordSpawnFailure has stopped the
+  // automation, so executing the remaining pastes, restarts, respawns, or
+  // retirements would launch agent work past a stop condition. Undelivered
+  // actions are replanned by the next active tick.
+  if (notificationSpawnFailed) {
+    logPerfEvent('SprintEngineAutoRun', 'dispatch-plan-aborted-spawn-failure', {
+      ...base,
+      remainingPastes: plan.pastes.length,
+      remainingRestarts: plan.restarts.length,
+      remainingRespawns: plan.respawns.length,
+      remainingRetirements: plan.retirements.length,
+    })
+    return { restarted: false, notificationSpawned, notificationSpawnFailed, engagedAgentIds }
+  }
   for (const paste of plan.pastes) {
-    const session = await findRunningAgentSession(workspace, paste.agentId)
+    const session = await findRunningAgentSession(workspace, paste.agentId, sessionsSnapshot)
     if (!session) continue
     await writeBracketedPrompt(defaultExecutorPorts, session.sessionId, paste.prompt)
     const pasteLedger = dispatchPlanLedger(paste.ledger, ledgers)
@@ -726,7 +760,7 @@ export async function executeSprintEngineDispatchPlan(
   }
   let restarted = false
   for (const restart of plan.restarts) {
-    const session = await findRunningAgentSession(workspace, restart.agentId)
+    const session = await findRunningAgentSession(workspace, restart.agentId, sessionsSnapshot)
     if (!session) continue
     await safeTerminalKill(defaultExecutorPorts, session.sessionId)
     // Reset the wake budget so the replacement terminal is never kill-looped
@@ -804,7 +838,7 @@ export async function executeSprintEngineDispatchPlan(
       logPerfEvent('SprintEngineAutoRun', 'idle-retirement-skipped-visible-tab', { ...base, ...retirement.data })
       continue
     }
-    const session = await findRunningAgentSession(workspace, retirement.agentId)
+    const session = await findRunningAgentSession(workspace, retirement.agentId, sessionsSnapshot)
     if (!session) continue
     await safeTerminalKill(defaultExecutorPorts, session.sessionId)
     await defaultExecutorPorts.publishDiagnostic({
@@ -820,7 +854,7 @@ export async function executeSprintEngineDispatchPlan(
     })
     logPerfEvent('SprintEngineAutoRun', 'idle-terminal-retired', { ...base, ...retirement.data, sessionId: session.sessionId })
   }
-  return { restarted, notificationSpawned, notificationSpawnFailed }
+  return { restarted, notificationSpawned, notificationSpawnFailed, engagedAgentIds }
 }
 
 async function runSprintEngineDispatchPaths(input: {
@@ -1491,7 +1525,8 @@ async function signalArchitectForNeedsInputTriage(
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   mcpSettings: McpSettings,
   inFlightSpawns: MutableRefObject<Set<string>>,
-  sentArchitectTriageMessages: MutableRefObject<Map<string, ArchitectTriageMessage>>
+  sentArchitectTriageMessages: MutableRefObject<Map<string, ArchitectTriageMessage>>,
+  engagedThisPass: ReadonlySet<string>
 ): Promise<'started' | 'sent' | 'failed' | 'none'> {
   if (!workspace.folderPath || !workspace.sprintEngineContext) return 'none'
 
@@ -1501,6 +1536,20 @@ async function signalArchitectForNeedsInputTriage(
   const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
   const architect = roster.find((candidate) => candidate.role === 'architect')
   if (!architect) return 'none'
+
+  // Triage lives outside the reconcile plan, so it must honour the plan's
+  // per-agent dedup itself: an architect the plan engaged this pass (wake,
+  // dispatch, notification, …) gets no triage prompt this tick, or the same
+  // terminal would receive two contradictory instructions back to back.
+  if (engagedThisPass.has(architect.id)) {
+    logPerfEvent('SprintEngineAutoRun', 'architect-triage-deferred-engaged-architect', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      agentId: architect.id,
+      taskIds: architectBlockers.map((task) => task.id),
+    })
+    return 'none'
+  }
 
   const spawnKey = `${workspace.id}:${architect.id}`
   const architectPending = pendingSpawns.some((pending) => pending.agentId === architect.id)
@@ -1588,7 +1637,7 @@ async function superviseWorkspace(
   sentAgentNotificationEvents: MutableRefObject<Set<string>>,
   continuationGraceByTask: MutableRefObject<Map<string, RoleContinuationGrace>>,
   lastContentByWorkspace: MutableRefObject<Map<string, string>>,
-  idleClockByAgent?: MutableRefObject<Map<string, number>>
+  idleClockByAgent: MutableRefObject<Map<string, number>>
 ): Promise<void> {
   const superviseStartedAt = performance.now()
   let sprintEngineState = workspace.sprintEngineState
@@ -1703,12 +1752,8 @@ type RunnerActiveCycleInput = {
   sentArchitectTriageMessages: MutableRefObject<Map<string, ArchitectTriageMessage>>
   sentAgentNotificationEvents: MutableRefObject<Set<string>>
   continuationGraceByTask: MutableRefObject<Map<string, RoleContinuationGrace>>
-  /**
-   * Cross-tick idle observations for the idle_retire path. Optional for test
-   * callers; when absent, a per-call map is used and retirement never reaches
-   * its window. Production passes the supervisor's persistent ref.
-   */
-  idleClockByAgent?: MutableRefObject<Map<string, number>>
+  /** Cross-tick idle observations for the idle_retire path; must persist across ticks or retirement never reaches its window. */
+  idleClockByAgent: MutableRefObject<Map<string, number>>
 }
 
 export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput): Promise<void> {
@@ -1753,7 +1798,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     continuationCapacity: Object.fromEntries(continuationCapacity.capacityByRole),
   })
 
-  const idleClock = input.idleClockByAgent?.current ?? new Map<string, number>()
+  const idleClock = input.idleClockByAgent.current
   updateSprintEngineIdleClock({
     workspace,
     sprintEngineState,
@@ -1803,7 +1848,8 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     cliRuntimes,
     mcpSettings,
     inFlightSpawns,
-    sentArchitectTriageMessages
+    sentArchitectTriageMessages,
+    dispatchResult.engagedAgentIds
   )
   if (architectTriageSignal === 'failed') return
   if (architectTriageSignal === 'started' || architectTriageSignal === 'sent') {
