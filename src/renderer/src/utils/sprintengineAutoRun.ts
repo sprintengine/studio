@@ -9,6 +9,7 @@ import type {
   SprintEngineTask,
   Workspace,
 } from '../types/workspace'
+import type { SprintEngineToolName } from '../../../shared/sprintengineToolNames.generated'
 import {
   buildSprintEngineAgentRosterForState,
   getOpenSprintEngineQualityGates,
@@ -98,10 +99,10 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: 
   })
 }
 
-export type SprintEngineClaimToolName =
-  | 'sprintengine.task.next'
-  | 'sprintengine.gate.next'
-  | 'sprintengine.triage.needs_input'
+export type SprintEngineClaimToolName = Extract<
+  SprintEngineToolName,
+  'sprintengine.task.next' | 'sprintengine.gate.next' | 'sprintengine.triage.needs_input'
+>
 
 /**
  * Canonical dispatch grammar: every renderer dispatch (wake, continuation,

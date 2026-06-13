@@ -24,6 +24,8 @@ RENDERER_PROMPT_SOURCES = [
 
 TOOL_NAME_PATTERN = re.compile(r"\bsprintengine\.[a-z_]+(?:\.[a-z_]+)?\b")
 
+GENERATED_TOOL_NAMES_PATH = "src/shared/sprintengineToolNames.generated.ts"
+
 # Managed-mode dispatch is claim-first by design: the runtime (renderer/main)
 # decides who runs and names the claim tool; agents never route through the
 # directive protocol. The directive tool survives only for the headless CLI
@@ -43,3 +45,23 @@ def test_renderer_prompt_tool_names_exist_in_mcp_schemas() -> None:
             f"{source} references {forbidden}: managed-mode prompts are claim-first; "
             "the directive protocol is headless-CLI only"
         )
+
+
+def test_generated_tool_names_module_matches_schemas() -> None:
+    # The TS module is generated from TOOL_SCHEMAS so a tool rename is a
+    # build/test failure, never a stalled live run. Regenerate with
+    # scripts/generate_sprintengine_tool_names.py.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "generate_sprintengine_tool_names",
+        REPO_ROOT / "scripts" / "generate_sprintengine_tool_names.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    expected = module.render_module()
+    current = (REPO_ROOT / GENERATED_TOOL_NAMES_PATH).read_text(encoding="utf-8")
+    assert current == expected, (
+        f"{GENERATED_TOOL_NAMES_PATH} is stale — run "
+        "scripts/generate_sprintengine_tool_names.py"
+    )
