@@ -506,7 +506,7 @@ export function buildAgentNotificationPrompt(
       : 'Re-read the current task card via `sprintengine.task.get`, then review its feedback comments, notes, acceptance criteria, and evidence before continuing. Do not claim a new task.'
   const reconcileBlock = !isCompletion && options.agentId && options.role
     ? [
-      'Then resume your active task through the claim tool (it returns your active task):',
+      'Then reconcile through the claim tool — it returns your active task while you still own one; if it returns different work or no claim, follow what it returns instead of this notification:',
       buildSprintEngineClaimInstructionBlock('sprintengine.task.next', options.role, options.agentId),
     ].join('\n')
     : null
