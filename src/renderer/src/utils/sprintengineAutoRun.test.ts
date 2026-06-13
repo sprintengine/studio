@@ -135,6 +135,7 @@ async function main(): Promise<void> {
   await testRespawnsDeadGateClaimantWithGateClaimTool()
   await testRespawnSkipsLiveCappedNeedsInputAndCoolingClaimants()
   await testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy()
+  await testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass()
 }
 
 function testAgentTerminalBackgroundPolicyDoesNotSelectOrCreateTabs(): void {
@@ -2577,6 +2578,106 @@ async function testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy(): P
     assert.ok(spawn.initialPrompt?.includes('sprintengine.agent.join'), 'respawn prompt names the MCP join tool')
     assert.ok(spawn.initialPrompt?.includes('sprintengine.task.next'), 'respawn prompt names the task claim tool')
   }
+}
+
+async function testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass(): Promise<void> {
+  // Cross-path per-agent dedup regression: a live-idle reviewer has exhausted
+  // its wake budget on a ready task (restart-eligible) while a claimable gate
+  // of its role is due (gate-paste-eligible). One supervise pass must engage
+  // the agent exactly once — the gate paste — and never kill the terminal it
+  // just pasted into.
+  const writes: Array<{ sessionId: string; text: string }> = []
+  const kills: string[] = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-reviewer',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'code_reviewer-1',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+        startedAt: 1,
+      },
+    ],
+    terminalStatus: async () => ({ processAlive: true }),
+    terminalWrite: async (sessionId: string, text: string) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    terminalKill: async (sessionId: string) => {
+      kills.push(sessionId)
+      return { ok: true }
+    },
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const readyReviewTask = task({
+    id: 'T-ready',
+    title: 'Ownerless ready review task',
+    role: 'code_reviewer',
+    status: 'todo',
+    boardColumn: 'ready',
+    ownerAgentId: null,
+    qualityGates: [],
+  })
+  const gatedTask = task({
+    id: 'T3',
+    status: 'review',
+    boardColumn: 'review',
+    ownerAgentId: 'developer-1',
+    qualityGates: [
+      { id: 'code_reviewer', phase: 'review', role: 'code_reviewer', status: 'pending', required: true, allowSelfReview: true, focus: '', attempts: [] },
+    ],
+  })
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: [readyReviewTask, gatedTask],
+    sprintEngineAgents: {
+      'code_reviewer-1': runtimeAgent('code_reviewer', { status: 'idle', currentTaskId: null }),
+    },
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: { 'code_reviewer-1': sprintAgent('code_reviewer-1', 'Shawn') },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+  const wakeKey = continuationMessageKey(workspace, 'T-ready', 'code_reviewer-1')
+  const sentContinuationMessages = mutableRef(new Map<string, { sentAt: number; attempts?: number }>([
+    [wakeKey, { sentAt: Date.now() - 120_000, attempts: supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES }],
+  ]))
+
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: respawnTestCliRuntimes,
+    mcpSettings: emptyMcpSettings,
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages,
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+  })
+
+  assert.equal(writes.length, 1, `exactly one engagement for the agent; writes ${JSON.stringify(writes.map((write) => write.sessionId))}`)
+  assert.ok(writes[0].text.includes('sprintengine.gate.next'), 'the single engagement is the gate continuation paste')
+  assert.deepEqual(kills, [], 'a terminal that received a paste this pass is never killed in the same pass')
 }
 
 async function testSuperviseRunnerCycleBootstrapsOnlyArchitectForFreshRun(): Promise<void> {

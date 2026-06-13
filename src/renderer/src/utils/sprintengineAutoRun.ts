@@ -518,6 +518,16 @@ export function planSprintEngineDispatch(input: {
   const include = (path: SprintEngineDispatchPath): boolean => !input.paths || input.paths.has(path)
   const plan: SprintEngineDispatchPlan = { ledgerDeletes: [], skips: [], pastes: [], restarts: [], respawns: [] }
   const plannedPasteKeys = new Set<string>()
+  // One engagement per agent per pass: a terminal must never receive two
+  // dispatch instructions — or a paste and a kill — from the same plan.
+  // Paths run in priority order (dispatch, task wake, gate, restart,
+  // respawn); the first action planned for an agent wins the pass.
+  const engagedAgentIds = new Set<string>()
+  const planPaste = (paste: SprintEngineDispatchPasteAction): void => {
+    plan.pastes.push(paste)
+    plannedPasteKeys.add(paste.key)
+    engagedAgentIds.add(paste.agentId)
+  }
 
   if (include('dispatch')) {
     const activeKeys = new Set<string>()
@@ -561,7 +571,7 @@ export function planSprintEngineDispatch(input: {
         plan.skips.push({ event: 'dispatch-prompt-skipped-active-target', data: dispatchData })
         continue
       }
-      plan.pastes.push({
+      planPaste({
         agentId,
         prompt: buildSprintEngineDispatchPrompt({ role: dispatch.role ?? runtimeAgent.role, agentId, dispatch }),
         ledger: 'dispatch',
@@ -588,6 +598,7 @@ export function planSprintEngineDispatch(input: {
 
     const reservedWakeCandidateTaskIds = new Set<string>()
     for (const agentId of input.idleAgentIds) {
+      if (engagedAgentIds.has(agentId)) continue
       const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
       if (!runtimeAgent) continue
       const task = findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, reservedWakeCandidateTaskIds)
@@ -605,7 +616,7 @@ export function planSprintEngineDispatch(input: {
         reservedWakeCandidateTaskIds.add(task.id)
         continue
       }
-      plan.pastes.push({
+      planPaste({
         agentId,
         prompt: buildSprintEngineContinuationPrompt(task, agentId),
         ledger: 'continuation',
@@ -613,7 +624,6 @@ export function planSprintEngineDispatch(input: {
         event: 'continuation-prompt-sent',
         data: { agentId, role: runtimeAgent.role, taskId: task.id },
       })
-      plannedPasteKeys.add(key)
       reservedWakeCandidateTaskIds.add(task.id)
     }
   }
@@ -627,6 +637,7 @@ export function planSprintEngineDispatch(input: {
     for (const task of gatedPhaseTasks) {
       for (const claim of getActiveSprintEngineAutoRunGateClaims(task, sprintEngineState.tasks)) {
         const agentId = claim.claimedBy
+        if (engagedAgentIds.has(agentId)) continue
         if (!input.runningAgentIds.has(agentId)) continue
         const key = continuationMessageKey(workspace, `${task.id}:${claim.gate.id}`, agentId)
         const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
@@ -652,7 +663,7 @@ export function planSprintEngineDispatch(input: {
           continue
         }
         if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
-        plan.pastes.push({
+        planPaste({
           agentId,
           prompt: buildSprintEngineGateContinuationPrompt(task, claim.gate, agentId, true),
           ledger: 'continuation',
@@ -660,12 +671,11 @@ export function planSprintEngineDispatch(input: {
           event: 'gate-continuation-prompt-sent',
           data: gateData,
         })
-        plannedPasteKeys.add(key)
       }
 
       for (const gate of getClaimableSprintEngineAutoRunGates(task, sprintEngineState.tasks)) {
         const agentId = [...input.idleAgentIds].find((candidateId) => {
-          if (usedIdleAgentIds.has(candidateId)) return false
+          if (usedIdleAgentIds.has(candidateId) || engagedAgentIds.has(candidateId)) return false
           const runtimeAgent = sprintEngineState.sprintEngineAgents[candidateId]
           return runtimeAgent?.role === gate.role
         })
@@ -684,7 +694,7 @@ export function planSprintEngineDispatch(input: {
           usedIdleAgentIds.add(agentId)
           continue
         }
-        plan.pastes.push({
+        planPaste({
           agentId,
           prompt: buildSprintEngineGateContinuationPrompt(task, gate, agentId, false),
           ledger: 'continuation',
@@ -692,7 +702,6 @@ export function planSprintEngineDispatch(input: {
           event: 'gate-continuation-prompt-sent',
           data: gateData,
         })
-        plannedPasteKeys.add(key)
         usedIdleAgentIds.add(agentId)
       }
     }
@@ -705,15 +714,17 @@ export function planSprintEngineDispatch(input: {
       if (runtimeAgent.status !== 'idle' || runtimeAgent.currentTaskId || runtimeAgent.currentDispatch) continue
       const task = findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, new Set())
       if (!task) continue
+      // Any engagement planned this pass (wake, gate, dispatch) supersedes a
+      // restart; in per-path mode the executed paste's ledger record trips the
+      // cooldown check below instead. Either way an agent is never killed in
+      // the same pass that re-engages it.
+      if (engagedAgentIds.has(agentId)) continue
       const key = continuationMessageKey(workspace, task.id, agentId)
-      // A wake paste planned this tick (all-paths mode) supersedes a restart;
-      // in per-path mode the executed paste's ledger record trips the cooldown
-      // check below instead. Either way an agent is never killed in the same
-      // pass that re-engages it.
       if (plannedPasteKeys.has(key)) continue
       const previous = input.continuationLedger.get(key)
       if (!previous || (previous.attempts ?? 0) < AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES) continue
       if (now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
+      engagedAgentIds.add(agentId)
       plan.restarts.push({
         agentId,
         key,
@@ -766,7 +777,7 @@ export function planSprintEngineDispatch(input: {
 
     const plannedRespawnAgentIds = new Set<string>()
     for (const claim of claims) {
-      if (plannedRespawnAgentIds.has(claim.agentId)) continue
+      if (plannedRespawnAgentIds.has(claim.agentId) || engagedAgentIds.has(claim.agentId)) continue
       if (liveAgentIds.has(claim.agentId)) continue
       const respawnData = {
         agentId: claim.agentId,

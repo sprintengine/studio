@@ -829,6 +829,11 @@ async function runSprintEngineDispatchPaths(input: {
   return executeSprintEngineDispatchPlan(input.workspace, plan, input.ledgers, input.respawnContext)
 }
 
+// The exported per-path functions below are test-surface shims: production
+// runs one all-paths `runSprintEngineDispatchPaths` call per supervise cycle,
+// so cross-path per-agent dedup applies. The shims exercise a single planner
+// path each, with the same planner and executor underneath.
+
 export async function respawnDeadSprintEngineClaimants(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
@@ -1729,25 +1734,22 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   )
   if (notificationSignal === 'failed') return
 
-  await sendDispatchPromptsToRunningAgents(
+  // One reconcile pass for every live-terminal re-engagement decision and
+  // dead-claimant recovery: durable-dispatch prompts, ready-task wakes, gate
+  // continuations, stalled restarts, and claimant respawns come from a single
+  // plan with per-agent dedup (a terminal never gets two instructions — or a
+  // paste and a kill — in one pass). It runs before any path that can
+  // early-return the cycle, and before slot accounting — dead in-progress
+  // owners consume the very slots spawn-side recovery would need.
+  await runSprintEngineDispatchPaths({
     workspace,
     sprintEngineState,
+    paths: ['dispatch', 'task_wake', 'gate', 'restart', 'respawn'],
     runningAgentIds,
-    sentDispatchMessages
-  )
-
-  // Recover claimed work whose claimant has no live terminal (the app-restart
-  // deadlock): respawn the claimant before any path that can early-return the
-  // cycle, and before slot accounting — dead in-progress owners consume the
-  // very slots a spawn-side recovery would need.
-  await respawnDeadSprintEngineClaimants(
-    workspace,
-    sprintEngineState,
-    runningAgentIds,
-    continuationCapacity,
-    sentContinuationMessages,
-    { cliRuntimes, mcpSettings, inFlightSpawns }
-  )
+    idleAgentIds: continuationCapacity.agentIds,
+    ledgers: { continuation: sentContinuationMessages, dispatch: sentDispatchMessages },
+    respawnContext: { sprintEngineState, cliRuntimes, mcpSettings, inFlightSpawns },
+  })
 
   const architectTriageSignal = await signalArchitectForNeedsInputTriage(
     workspace,
@@ -1836,29 +1838,6 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
       elapsedMs: Math.round(performance.now() - superviseStartedAt),
     })
   }
-
-  await sendContinuationPromptsToIdleAgents(
-    workspace,
-    sprintEngineState,
-    continuationCapacity,
-    sentContinuationMessages
-  )
-  await sendGateContinuationPromptsToAgents(
-    workspace,
-    sprintEngineState,
-    runningAgentIds,
-    continuationCapacity,
-    sentContinuationMessages
-  )
-  // Re-engage any live-idle agent that exhausted its wake prompts but still has
-  // claimable role work (e.g. a changes_requested task its reviewers handed
-  // back): restart its terminal so the exit→respawn path claims the work.
-  await escalateStalledLiveIdleAgents(
-    workspace,
-    sprintEngineState,
-    continuationCapacity,
-    sentContinuationMessages
-  )
 
   if (sprintEngineState.tasks.length > 0 && sprintEngineState.tasks.every((task) => task.status === 'done')) {
     // Close the run's agent terminals before applying the stop reason: a
