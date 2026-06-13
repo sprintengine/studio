@@ -136,6 +136,7 @@ async function main(): Promise<void> {
   await testRespawnSkipsLiveCappedNeedsInputAndCoolingClaimants()
   await testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy()
   await testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass()
+  await testNotificationPasteSuppressesSamePassDispatchPaste()
 }
 
 function testAgentTerminalBackgroundPolicyDoesNotSelectOrCreateTabs(): void {
@@ -2678,6 +2679,93 @@ async function testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass(): Promise<
   assert.equal(writes.length, 1, `exactly one engagement for the agent; writes ${JSON.stringify(writes.map((write) => write.sessionId))}`)
   assert.ok(writes[0].text.includes('sprintengine.gate.next'), 'the single engagement is the gate continuation paste')
   assert.deepEqual(kills, [], 'a terminal that received a paste this pass is never killed in the same pass')
+}
+
+async function testNotificationPasteSuppressesSamePassDispatchPaste(): Promise<void> {
+  // Notification decisions are part of the one reconcile plan: a target that
+  // receives a notification paste is engaged for the pass, so the durable
+  // dispatch prompt for the same agent waits for the next tick instead of
+  // landing as a second instruction in the same pass.
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-frontend',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'frontend-2',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+        startedAt: 1,
+      },
+    ],
+    terminalStatus: async () => ({ processAlive: true }),
+    terminalWrite: async (sessionId: string, text: string) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const event = reworkNotificationEvent({ taskId: undefined })
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: [task({ id: 'T4', role: 'frontend', status: 'in_progress', boardColumn: 'in_progress', ownerAgentId: 'frontend-2', qualityGates: [] })],
+    sprintEngineAgents: {
+      'frontend-2': runtimeAgent('frontend', {
+        status: 'running',
+        currentTaskId: null,
+        currentDispatch: {
+          dispatchId: 'DISP-T4',
+          targetKind: 'task',
+          role: 'frontend',
+          taskId: 'T4',
+          reason: 'task_claimed',
+        },
+      }),
+    },
+    events: [event],
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: { 'frontend-2': sprintAgent('frontend-2', 'Zion') },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: respawnTestCliRuntimes,
+    mcpSettings: emptyMcpSettings,
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages: mutableRef(new Map()),
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+  })
+
+  assert.equal(
+    writes.length,
+    1,
+    `the engaged notification target gets exactly one instruction this pass; writes ${JSON.stringify(writes.map((write) => write.text.slice(0, 60)))}`
+  )
+  assert.ok(writes[0].text.includes('Sprint Engine notification.'), 'the single write is the notification paste')
 }
 
 async function testSuperviseRunnerCycleBootstrapsOnlyArchitectForFreshRun(): Promise<void> {

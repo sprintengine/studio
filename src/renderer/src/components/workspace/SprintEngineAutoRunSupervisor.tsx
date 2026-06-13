@@ -24,24 +24,21 @@ import {
   AUTO_RUN_ROLE_CONTINUATION_RETRY_MS,
   AUTO_RUN_MAX_PROMPT_RETRIES as PLANNER_MAX_PROMPT_RETRIES,
   AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES as PLANNER_MAX_WAKE_RETRIES,
-  agentNotificationDeliveryKey,
   architectTriageMessageKey,
   artifactApprovalMessageKey,
-  buildAgentNotificationPrompt,
   buildArchitectNeedsInputTriagePrompt,
   planSprintEngineDispatch,
   promptRetryLimitReached,
   recordPromptRetry,
   type SprintEngineDispatchAttempt,
+  type SprintEngineDispatchNotificationInput,
   type SprintEngineDispatchPlan,
   type SprintEngineDispatchPath,
   describeSprintEngineExternalInputAutoRunBlock,
   describeNeedsInputAutoApprovalState,
-  isAgentNotificationCompletionEvent,
   getArchitectActionableNeedsInputTasks,
   getAutoApprovalIntentArtifacts,
   getSprintEngineAutoRunOccupiedAgentIds,
-  getPendingAgentNotificationEvents,
   isSprintEngineRunBlockedOnExternalInput,
   isSprintEngineAutoPendingSpawnStillRelevant,
   pickNextAutoRuns,
@@ -130,10 +127,6 @@ const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
 const AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS = 30000
 const BACKGROUND_TERMINAL_COLS = 100
 const BACKGROUND_TERMINAL_ROWS = 30
-const SPAWNABLE_NOTIFICATION_KINDS = new Set([
-  'task_resume_requested',
-  'task_changes_requested_after_artifact_review',
-])
 
 type RunningContinuationCapacity = {
   capacityByRole: Map<SprintEngineRoleId, number>
@@ -508,12 +501,16 @@ async function agentHasRunningProcess(workspace: Workspace, agentId: string): Pr
 async function getRunningAutoRunAgentIds(
   workspace: Workspace,
   sprintEngineState: SprintEngineState
-): Promise<Set<string>> {
+): Promise<{ running: Set<string>; live: Set<string> }> {
   const runningAgentIds = new Set<string>()
+  // Every agent with a live session, including `done` runtime agents that
+  // `running` excludes — completion notifications still paste into those.
+  const liveAgentIds = new Set<string>()
   const sessions = await listTerminalSessionsForAutoRun(workspace, 'running-agent-ids')
 
   for (const session of sessions) {
     if (!session.agentId || !sessionBelongsToWorkspaceSprintEngine(session, workspace)) continue
+    liveAgentIds.add(session.agentId)
     const runtimeAgent = sprintEngineState.sprintEngineAgents[session.agentId]
     if (runtimeAgent?.status === 'done') continue
     runningAgentIds.add(session.agentId)
@@ -533,7 +530,7 @@ async function getRunningAutoRunAgentIds(
     }
   }
 
-  return runningAgentIds
+  return { running: runningAgentIds, live: liveAgentIds }
 }
 
 async function getRunningContinuationCapacityByRole(
@@ -578,116 +575,30 @@ export async function deliverAgentNotificationEvents(
   inFlightSpawns: MutableRefObject<Set<string>>,
   sentAgentNotificationEvents: MutableRefObject<Set<string>>
 ): Promise<'started' | 'failed' | 'none'> {
-  const events = getPendingAgentNotificationEvents(
+  const result = await runSprintEngineDispatchPaths({
     workspace,
     sprintEngineState,
-    new Set(getSprintEngineAutoState(workspace).deliveredAgentNotificationEventKeys),
-    sentAgentNotificationEvents.current
-  )
-  if (events.length === 0) return 'none'
-
-  let started = false
-  const rosterById = new Map(buildSprintEngineAgentRosterForState(sprintEngineState).map((agent) => [agent.id, agent]))
-  for (const event of events) {
-    const targetAgentId = event.targetAgentId
-    if (!targetAgentId) continue
-    const deliveryKey = agentNotificationDeliveryKey(workspace, event)
-    const runtimeAgent = sprintEngineState.sprintEngineAgents[targetAgentId]
-    if (runtimeAgent?.status === 'retired') {
-      sentAgentNotificationEvents.current.add(deliveryKey)
-      useWorkspaceStore.getState().markSprintEngineAgentNotificationDelivered(workspace.id, deliveryKey)
-      logPerfEvent('SprintEngineAutoRun', 'agent-notification-skipped-retired', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        eventId: event.id,
-        agentId: targetAgentId,
-        taskId: event.taskId ?? null,
-        notificationKind: event.notificationKind ?? null,
-      })
-      continue
-    }
-    const rosterAgent = rosterById.get(targetAgentId)
-    const role = rosterAgent?.role ?? runtimeAgent?.role
-    const prompt = buildAgentNotificationPrompt(event, {
-      agentId: targetAgentId,
-      role,
-    })
-    const session = await findRunningAgentSession(workspace, targetAgentId)
-    if (session) {
-      if (event.taskId && runtimeAgent?.currentTaskId && runtimeAgent.currentTaskId !== event.taskId) {
-        logPerfEvent('SprintEngineAutoRun', 'agent-notification-skipped-active-different-task', {
-          workspaceId: workspace.id,
-          workspaceName: workspace.name,
-          eventId: event.id,
-          agentId: targetAgentId,
-          eventTaskId: event.taskId,
-          activeTaskId: runtimeAgent.currentTaskId,
-          notificationKind: event.notificationKind ?? null,
-        })
-        continue
-      }
-      await writeBracketedPrompt(defaultExecutorPorts, session.sessionId, prompt)
-      if (!isAgentNotificationCompletionEvent(event)) {
-        defaultExecutorPorts.applyTerminalRevealPolicy(
-          workspace.id,
-          targetAgentId,
-          workspace.agents[targetAgentId]?.name ?? rosterAgent?.label ?? targetAgentId,
-          'background',
-          { sessionId: session.sessionId }
-        )
-      }
-      sentAgentNotificationEvents.current.add(deliveryKey)
-      useWorkspaceStore.getState().markSprintEngineAgentNotificationDelivered(workspace.id, deliveryKey)
-      logPerfEvent('SprintEngineAutoRun', 'agent-notification-sent', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        eventId: event.id,
-        agentId: targetAgentId,
-        taskId: event.taskId ?? null,
-        notificationKind: event.notificationKind ?? null,
-        sessionId: session.sessionId,
-      })
-      continue
-    }
-
-    if (!sprintEngineAutomationShouldRun(getSprintEngineAutoState(workspace)) || !SPAWNABLE_NOTIFICATION_KINDS.has(event.notificationKind ?? '')) {
-      logPerfEvent('SprintEngineAutoRun', 'agent-notification-pending-no-session', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        eventId: event.id,
-        agentId: targetAgentId,
-        taskId: event.taskId ?? null,
-        notificationKind: event.notificationKind ?? null,
-      })
-      continue
-    }
-
-    if (!role) continue
-    const result = await spawnAutoRunCandidate(
-      workspace,
+    paths: ['notification'],
+    runningAgentIds,
+    idleAgentIds: new Set(),
+    ledgers: { continuation: null, dispatch: null },
+    notifications: {
+      deliveredKeys: new Set(getSprintEngineAutoState(workspace).deliveredAgentNotificationEventKeys),
+      sentKeys: sentAgentNotificationEvents.current,
+      liveSessionAgentIds: runningAgentIds,
+      canSpawnTargets: sprintEngineAutomationShouldRun(getSprintEngineAutoState(workspace)),
+    },
+    spawnContext: {
       sprintEngineState,
-      {
-        agentId: targetAgentId,
-        label: workspace.agents[targetAgentId]?.name ?? rosterAgent?.label ?? targetAgentId,
-        role,
-        taskId: event.taskId ?? `notification-${event.id}`,
-        startupPromptOverride: prompt,
-      },
       cliRuntimes,
       mcpSettings,
       inFlightSpawns,
-      { trackPendingSpawn: false }
-    )
-    if (result === 'failed') return 'failed'
-    if (result === 'started') {
-      started = true
-      runningAgentIds.add(targetAgentId)
-      sentAgentNotificationEvents.current.add(deliveryKey)
-      useWorkspaceStore.getState().markSprintEngineAgentNotificationDelivered(workspace.id, deliveryKey)
-    }
-  }
-
-  return started ? 'started' : 'none'
+      sentNotificationKeys: sentAgentNotificationEvents,
+      onAgentSpawned: (agentId) => runningAgentIds.add(agentId),
+    },
+  })
+  if (result.notificationSpawnFailed) return 'failed'
+  return result.notificationSpawned ? 'started' : 'none'
 }
 
 export type SprintEngineDispatchLedgers = {
@@ -696,15 +607,25 @@ export type SprintEngineDispatchLedgers = {
 }
 
 /**
- * Spawn dependencies for executing planned respawn actions. Plans that carry
- * respawns (dead-claimant recovery) need terminal-spawn capability; the paste
- * and restart paths do not, so this context stays optional for them.
+ * Spawn dependencies for executing planned spawn actions (dead-claimant
+ * respawns and notification-target spawns). The paste and restart paths do
+ * not spawn, so this context stays optional for them.
  */
-export type SprintEngineDispatchRespawnContext = {
+export type SprintEngineDispatchSpawnContext = {
   sprintEngineState: SprintEngineState
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
   mcpSettings: McpSettings
   inFlightSpawns: MutableRefObject<Set<string>>
+  /** Session-scoped delivered-notification cache; required to execute notification actions. */
+  sentNotificationKeys?: MutableRefObject<Set<string>>
+  /** Lets the caller fold freshly spawned agents into its running-agent view for the rest of the tick. */
+  onAgentSpawned?: (agentId: string) => void
+}
+
+export type SprintEngineDispatchExecution = {
+  restarted: boolean
+  notificationSpawned: boolean
+  notificationSpawnFailed: boolean
 }
 
 function dispatchPlanLedger(
@@ -718,14 +639,79 @@ export async function executeSprintEngineDispatchPlan(
   workspace: Workspace,
   plan: SprintEngineDispatchPlan,
   ledgers: SprintEngineDispatchLedgers,
-  respawnContext?: SprintEngineDispatchRespawnContext
-): Promise<'restarted' | 'none'> {
+  spawnContext?: SprintEngineDispatchSpawnContext
+): Promise<SprintEngineDispatchExecution> {
   const base = { workspaceId: workspace.id, workspaceName: workspace.name }
   for (const entry of plan.ledgerDeletes) {
     dispatchPlanLedger(entry.ledger, ledgers)?.delete(entry.key)
   }
   for (const skip of plan.skips) {
     logPerfEvent('SprintEngineAutoRun', skip.event, { ...base, ...skip.data })
+  }
+  const markNotificationDelivered = (deliveryKey: string): void => {
+    spawnContext?.sentNotificationKeys?.current.add(deliveryKey)
+    useWorkspaceStore.getState().markSprintEngineAgentNotificationDelivered(workspace.id, deliveryKey)
+  }
+  for (const resolution of plan.notificationResolutions) {
+    markNotificationDelivered(resolution.deliveryKey)
+    logPerfEvent('SprintEngineAutoRun', resolution.event, { ...base, ...resolution.data })
+  }
+  let notificationSpawned = false
+  let notificationSpawnFailed = false
+  for (const delivery of plan.notificationDeliveries) {
+    if (delivery.kind === 'paste') {
+      const session = await findRunningAgentSession(workspace, delivery.agentId)
+      if (!session) {
+        logPerfEvent('SprintEngineAutoRun', 'agent-notification-pending-no-session', { ...base, ...delivery.data })
+        continue
+      }
+      await writeBracketedPrompt(defaultExecutorPorts, session.sessionId, delivery.prompt)
+      if (!delivery.completion) {
+        defaultExecutorPorts.applyTerminalRevealPolicy(
+          workspace.id,
+          delivery.agentId,
+          delivery.label,
+          'background',
+          { sessionId: session.sessionId }
+        )
+      }
+      markNotificationDelivered(delivery.deliveryKey)
+      logPerfEvent('SprintEngineAutoRun', 'agent-notification-sent', { ...base, ...delivery.data, sessionId: session.sessionId })
+      continue
+    }
+    if (!spawnContext || !delivery.role) {
+      logPerfEvent('SprintEngineAutoRun', 'agent-notification-spawn-skipped-no-context', { ...base, ...delivery.data })
+      continue
+    }
+    // After a spawn failure, recordSpawnFailure has already stopped the
+    // automation; do not attempt further spawns this pass.
+    if (notificationSpawnFailed) continue
+    const result = await spawnAutoRunCandidate(
+      workspace,
+      spawnContext.sprintEngineState,
+      {
+        agentId: delivery.agentId,
+        label: delivery.label,
+        role: delivery.role,
+        taskId: delivery.taskId,
+        startupPromptOverride: delivery.prompt,
+      },
+      spawnContext.cliRuntimes,
+      spawnContext.mcpSettings,
+      spawnContext.inFlightSpawns,
+      { trackPendingSpawn: false }
+    )
+    if (result === 'failed') {
+      notificationSpawnFailed = true
+      continue
+    }
+    if (result === 'started') {
+      notificationSpawned = true
+      spawnContext.onAgentSpawned?.(delivery.agentId)
+      markNotificationDelivered(delivery.deliveryKey)
+      logPerfEvent('SprintEngineAutoRun', 'agent-notification-spawned', { ...base, ...delivery.data })
+    }
+    // 'skipped' leaves the event pending; it retries on the next tick.
   }
   for (const paste of plan.pastes) {
     const session = await findRunningAgentSession(workspace, paste.agentId)
@@ -759,13 +745,13 @@ export async function executeSprintEngineDispatchPlan(
     logPerfEvent('SprintEngineAutoRun', 'stalled-agent-restarted', { ...base, ...restart.data, sessionId: session.sessionId })
   }
   for (const respawn of plan.respawns) {
-    if (!respawnContext) {
+    if (!spawnContext) {
       logPerfEvent('SprintEngineAutoRun', 'respawn-skipped-no-context', { ...base, ...respawn.data })
       continue
     }
     const result = await spawnAutoRunCandidate(
       workspace,
-      respawnContext.sprintEngineState,
+      spawnContext.sprintEngineState,
       {
         agentId: respawn.agentId,
         label: respawn.label,
@@ -773,9 +759,9 @@ export async function executeSprintEngineDispatchPlan(
         taskId: respawn.taskId,
         ...(respawn.gateId ? { gateId: respawn.gateId } : {}),
       },
-      respawnContext.cliRuntimes,
-      respawnContext.mcpSettings,
-      respawnContext.inFlightSpawns,
+      spawnContext.cliRuntimes,
+      spawnContext.mcpSettings,
+      spawnContext.inFlightSpawns,
       { trackPendingSpawn: false }
     )
     // 'skipped' means a live session or in-flight spawn already covers this
@@ -804,7 +790,7 @@ export async function executeSprintEngineDispatchPlan(
     })
     logPerfEvent('SprintEngineAutoRun', 'dead-claimant-respawned', { ...base, ...respawn.data })
   }
-  return restarted ? 'restarted' : 'none'
+  return { restarted, notificationSpawned, notificationSpawnFailed }
 }
 
 async function runSprintEngineDispatchPaths(input: {
@@ -814,8 +800,9 @@ async function runSprintEngineDispatchPaths(input: {
   runningAgentIds: ReadonlySet<string>
   idleAgentIds: ReadonlySet<string>
   ledgers: SprintEngineDispatchLedgers
-  respawnContext?: SprintEngineDispatchRespawnContext
-}): Promise<'restarted' | 'none'> {
+  spawnContext?: SprintEngineDispatchSpawnContext
+  notifications?: SprintEngineDispatchNotificationInput
+}): Promise<SprintEngineDispatchExecution> {
   const plan = planSprintEngineDispatch({
     workspace: input.workspace,
     sprintEngineState: input.sprintEngineState,
@@ -825,8 +812,9 @@ async function runSprintEngineDispatchPaths(input: {
     continuationLedger: input.ledgers.continuation?.current ?? new Map(),
     dispatchLedger: input.ledgers.dispatch?.current ?? new Map(),
     paths: new Set(input.paths),
+    notifications: input.notifications,
   })
-  return executeSprintEngineDispatchPlan(input.workspace, plan, input.ledgers, input.respawnContext)
+  return executeSprintEngineDispatchPlan(input.workspace, plan, input.ledgers, input.spawnContext)
 }
 
 // The exported per-path functions below are test-surface shims: production
@@ -853,7 +841,7 @@ export async function respawnDeadSprintEngineClaimants(
     runningAgentIds,
     idleAgentIds: continuationCapacity.agentIds,
     ledgers: { continuation: sentContinuationMessages, dispatch: null },
-    respawnContext: { sprintEngineState, ...spawnDeps },
+    spawnContext: { sprintEngineState, ...spawnDeps },
   })
 }
 
@@ -879,7 +867,7 @@ export async function escalateStalledLiveIdleAgents(
   continuationCapacity: RunningContinuationCapacity,
   sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
 ): Promise<'restarted' | 'none'> {
-  return runSprintEngineDispatchPaths({
+  const result = await runSprintEngineDispatchPaths({
     workspace,
     sprintEngineState,
     paths: ['restart'],
@@ -887,6 +875,7 @@ export async function escalateStalledLiveIdleAgents(
     idleAgentIds: continuationCapacity.agentIds,
     ledgers: { continuation: sentContinuationMessages, dispatch: null },
   })
+  return result.restarted ? 'restarted' : 'none'
 }
 
 export async function sendGateContinuationPromptsToAgents(
@@ -1714,7 +1703,8 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     workspaceId: workspace.id,
     workspaceName: workspace.name,
   })
-  const runningAgentIds = await getRunningAutoRunAgentIds(workspace, sprintEngineState)
+  const agentSessions = await getRunningAutoRunAgentIds(workspace, sprintEngineState)
+  const runningAgentIds = agentSessions.running
   const continuationCapacity = await getRunningContinuationCapacityByRole(workspace, sprintEngineState)
   logPerfEvent('SprintEngineAutoRun', 'running-agents-end', {
     workspaceId: workspace.id,
@@ -1723,33 +1713,37 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     continuationCapacity: Object.fromEntries(continuationCapacity.capacityByRole),
   })
 
-  const notificationSignal = await deliverAgentNotificationEvents(
+  // One reconcile pass for every re-engagement decision and recovery action:
+  // notification deliveries (paste or spawn), durable-dispatch prompts,
+  // ready-task wakes, gate continuations, stalled restarts, and dead-claimant
+  // respawns come from a single plan with per-agent dedup (a terminal never
+  // gets two instructions — or a paste and a kill — in one pass). It runs
+  // before any path that can early-return the cycle, and before slot
+  // accounting — dead in-progress owners consume the very slots spawn-side
+  // recovery would need.
+  const dispatchResult = await runSprintEngineDispatchPaths({
     workspace,
     sprintEngineState,
-    runningAgentIds,
-    cliRuntimes,
-    mcpSettings,
-    inFlightSpawns,
-    sentAgentNotificationEvents
-  )
-  if (notificationSignal === 'failed') return
-
-  // One reconcile pass for every live-terminal re-engagement decision and
-  // dead-claimant recovery: durable-dispatch prompts, ready-task wakes, gate
-  // continuations, stalled restarts, and claimant respawns come from a single
-  // plan with per-agent dedup (a terminal never gets two instructions — or a
-  // paste and a kill — in one pass). It runs before any path that can
-  // early-return the cycle, and before slot accounting — dead in-progress
-  // owners consume the very slots spawn-side recovery would need.
-  await runSprintEngineDispatchPaths({
-    workspace,
-    sprintEngineState,
-    paths: ['dispatch', 'task_wake', 'gate', 'restart', 'respawn'],
+    paths: ['notification', 'dispatch', 'task_wake', 'gate', 'restart', 'respawn'],
     runningAgentIds,
     idleAgentIds: continuationCapacity.agentIds,
     ledgers: { continuation: sentContinuationMessages, dispatch: sentDispatchMessages },
-    respawnContext: { sprintEngineState, cliRuntimes, mcpSettings, inFlightSpawns },
+    notifications: {
+      deliveredKeys: new Set(getSprintEngineAutoState(workspace).deliveredAgentNotificationEventKeys),
+      sentKeys: sentAgentNotificationEvents.current,
+      liveSessionAgentIds: agentSessions.live,
+      canSpawnTargets: sprintEngineAutomationShouldRun(autoState),
+    },
+    spawnContext: {
+      sprintEngineState,
+      cliRuntimes,
+      mcpSettings,
+      inFlightSpawns,
+      sentNotificationKeys: sentAgentNotificationEvents,
+      onAgentSpawned: (agentId) => runningAgentIds.add(agentId),
+    },
   })
+  if (dispatchResult.notificationSpawnFailed) return
 
   const architectTriageSignal = await signalArchitectForNeedsInputTriage(
     workspace,

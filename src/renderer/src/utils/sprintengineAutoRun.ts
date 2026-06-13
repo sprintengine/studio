@@ -442,7 +442,16 @@ export function runtimeAgentAlreadyOwnsGateClaim(
   )
 }
 
-export type SprintEngineDispatchPath = 'dispatch' | 'task_wake' | 'gate' | 'restart' | 'respawn'
+export type SprintEngineDispatchPath = 'notification' | 'dispatch' | 'task_wake' | 'gate' | 'restart' | 'respawn'
+
+/**
+ * Notification kinds that may spawn a terminal for a target with no live
+ * session. Everything else stays pending until the target has a terminal.
+ */
+export const SPAWNABLE_NOTIFICATION_KINDS = new Set([
+  'task_resume_requested',
+  'task_changes_requested_after_artifact_review',
+])
 
 export type SprintEngineDispatchPasteAction = {
   agentId: string
@@ -479,12 +488,44 @@ export type SprintEngineDispatchRespawnAction = {
   diagnostic: { title: string; message: string; details: string; taskId: string }
 }
 
+/**
+ * One decided agent-notification delivery: paste into the target's live
+ * terminal, or spawn the target's terminal with the notification as its
+ * startup prompt (spawnable kinds only). Resolutions mark an event delivered
+ * without any terminal action (e.g. retired targets).
+ */
+export type SprintEngineDispatchNotificationDelivery = {
+  kind: 'paste' | 'spawn'
+  deliveryKey: string
+  agentId: string
+  label: string
+  role?: SprintEngineRoleId
+  taskId: string
+  prompt: string
+  completion: boolean
+  data: Record<string, unknown>
+}
+
 export type SprintEngineDispatchPlan = {
   ledgerDeletes: Array<{ ledger: 'continuation' | 'dispatch'; key: string }>
   skips: Array<{ event: string; data: Record<string, unknown> }>
   pastes: SprintEngineDispatchPasteAction[]
   restarts: SprintEngineDispatchRestartAction[]
   respawns: SprintEngineDispatchRespawnAction[]
+  notificationDeliveries: SprintEngineDispatchNotificationDelivery[]
+  notificationResolutions: Array<{ deliveryKey: string; event: string; data: Record<string, unknown> }>
+}
+
+export type SprintEngineDispatchNotificationInput = {
+  deliveredKeys: ReadonlySet<string>
+  sentKeys: ReadonlySet<string>
+  /**
+   * Agents with any live terminal session, regardless of runtime status —
+   * completion notifications must still reach a `done` agent's live terminal,
+   * which `runningAgentIds` deliberately excludes.
+   */
+  liveSessionAgentIds: ReadonlySet<string>
+  canSpawnTargets: boolean
 }
 
 export function sprintEngineRespawnLedgerKey(
@@ -513,10 +554,19 @@ export function planSprintEngineDispatch(input: {
   continuationLedger: ReadonlyMap<string, SprintEngineDispatchAttempt>
   dispatchLedger: ReadonlyMap<string, SprintEngineDispatchAttempt>
   paths?: ReadonlySet<SprintEngineDispatchPath>
+  notifications?: SprintEngineDispatchNotificationInput
 }): SprintEngineDispatchPlan {
   const { workspace, sprintEngineState, now } = input
   const include = (path: SprintEngineDispatchPath): boolean => !input.paths || input.paths.has(path)
-  const plan: SprintEngineDispatchPlan = { ledgerDeletes: [], skips: [], pastes: [], restarts: [], respawns: [] }
+  const plan: SprintEngineDispatchPlan = {
+    ledgerDeletes: [],
+    skips: [],
+    pastes: [],
+    restarts: [],
+    respawns: [],
+    notificationDeliveries: [],
+    notificationResolutions: [],
+  }
   const plannedPasteKeys = new Set<string>()
   // One engagement per agent per pass: a terminal must never receive two
   // dispatch instructions — or a paste and a kill — from the same plan.
@@ -527,6 +577,92 @@ export function planSprintEngineDispatch(input: {
     plan.pastes.push(paste)
     plannedPasteKeys.add(paste.key)
     engagedAgentIds.add(paste.agentId)
+  }
+
+  if (include('notification') && input.notifications) {
+    // Notifications carry their own claim-reconcile instruction, so a target
+    // engaged here is not also pasted by a later path this pass. Decisions
+    // mirror the historical delivery loop: retired targets resolve without a
+    // terminal action, live targets get a paste (unless busy on a different
+    // task), spawnable kinds spawn a missing terminal, everything else stays
+    // pending until the target has a terminal.
+    const config = input.notifications
+    const rosterById = new Map(
+      buildSprintEngineAgentRosterForState(sprintEngineState).map((agent) => [agent.id, agent])
+    )
+    const spawnPlannedAgentIds = new Set<string>()
+    const pendingEvents = getPendingAgentNotificationEvents(
+      workspace,
+      sprintEngineState,
+      config.deliveredKeys,
+      config.sentKeys
+    )
+    for (const event of pendingEvents) {
+      const targetAgentId = event.targetAgentId
+      if (!targetAgentId) continue
+      const deliveryKey = agentNotificationDeliveryKey(workspace, event)
+      const runtimeAgent = sprintEngineState.sprintEngineAgents[targetAgentId]
+      const eventData = {
+        eventId: event.id,
+        agentId: targetAgentId,
+        taskId: event.taskId ?? null,
+        notificationKind: event.notificationKind ?? null,
+      }
+      if (runtimeAgent?.status === 'retired') {
+        plan.notificationResolutions.push({ deliveryKey, event: 'agent-notification-skipped-retired', data: eventData })
+        continue
+      }
+      const rosterAgent = rosterById.get(targetAgentId)
+      const role = rosterAgent?.role ?? runtimeAgent?.role
+      const label = workspace.agents[targetAgentId]?.name ?? rosterAgent?.label ?? targetAgentId
+      const prompt = buildAgentNotificationPrompt(event, { agentId: targetAgentId, role })
+      const completion = isAgentNotificationCompletionEvent(event)
+      const taskId = event.taskId ?? `notification-${event.id}`
+      if (config.liveSessionAgentIds.has(targetAgentId)) {
+        if (event.taskId && runtimeAgent?.currentTaskId && runtimeAgent.currentTaskId !== event.taskId) {
+          plan.skips.push({
+            event: 'agent-notification-skipped-active-different-task',
+            data: { ...eventData, eventTaskId: event.taskId, activeTaskId: runtimeAgent.currentTaskId },
+          })
+          continue
+        }
+        engagedAgentIds.add(targetAgentId)
+        plan.notificationDeliveries.push({
+          kind: 'paste',
+          deliveryKey,
+          agentId: targetAgentId,
+          label,
+          ...(role ? { role } : {}),
+          taskId,
+          prompt,
+          completion,
+          data: eventData,
+        })
+        continue
+      }
+      if (
+        !config.canSpawnTargets
+        || !SPAWNABLE_NOTIFICATION_KINDS.has(event.notificationKind ?? '')
+        || spawnPlannedAgentIds.has(targetAgentId)
+      ) {
+        plan.skips.push({ event: 'agent-notification-pending-no-session', data: eventData })
+        continue
+      }
+      if (!role) continue
+      spawnPlannedAgentIds.add(targetAgentId)
+      engagedAgentIds.add(targetAgentId)
+      plan.notificationDeliveries.push({
+        kind: 'spawn',
+        deliveryKey,
+        agentId: targetAgentId,
+        label,
+        role,
+        taskId,
+        prompt,
+        completion,
+        data: eventData,
+      })
+    }
   }
 
   if (include('dispatch')) {
@@ -550,6 +686,7 @@ export function planSprintEngineDispatch(input: {
         continue
       }
       if (!input.runningAgentIds.has(agentId)) continue
+      if (engagedAgentIds.has(agentId)) continue
       const previous = input.dispatchLedger.get(key)
       if (promptRetryLimitReached(previous)) {
         plan.skips.push({
