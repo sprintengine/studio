@@ -2056,7 +2056,8 @@ async function testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt(): P
   assert.equal(spawns[0].metadata?.agentSession?.role, 'code_reviewer')
   assert.equal(spawns[0].metadata?.visible, false, 'normal auto-run spawns stay background')
   assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.join'), 'startup prompt names the MCP join tool')
-  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.next_directive'), 'startup prompt names the MCP directive tool')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.gate.next'), 'startup prompt names the MCP gate claim tool')
+  assert.ok(!spawns[0].initialPrompt?.includes('sprintengine.agent.next_directive'), 'startup prompt does not route through the directive hop')
   assert.ok(spawns[0].initialPrompt?.includes('"role": "code_reviewer"'), 'startup prompt embeds the role in the MCP payload')
   assert.ok(spawns[0].initialPrompt?.includes('"agentId": "code_reviewer"'), 'startup prompt embeds the agentId in the MCP payload')
   assert.ok(
@@ -2282,7 +2283,7 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
   assert.equal(spawns[0].agentId, 'code_reviewer')
   assert.equal(spawns[0].cli, 'codex')
   assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.join'), 'restarted code_reviewer prompt names the MCP join tool')
-  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.next_directive'), 'restarted code_reviewer prompt names the MCP directive tool')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.gate.next'), 'restarted code_reviewer prompt names the MCP gate claim tool')
   assert.ok(
     !/sprintengine (join|task|gate|triage|init|handover)/.test(spawns[0].initialPrompt ?? ''),
     'restarted code_reviewer prompt does not embed any sprintengine CLI command'
@@ -2706,7 +2707,7 @@ async function testSuperviseRunnerCycleStartsReviewGateWhenUnrelatedAgentNeedsIn
 
   assert.equal(spawns.length, 1, `unrelated needs_input work must not block review gate spawn; spawns ${JSON.stringify(spawns)}`)
   assert.equal(spawns[0].agentId, 'code_reviewer')
-  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.next_directive'), 'reviewer prompt names the MCP directive tool')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.gate.next'), 'reviewer prompt names the MCP gate claim tool')
 }
 
 async function testSuperviseRunnerCycleDoesNotMutateTaskOrGateState(): Promise<void> {
@@ -2878,20 +2879,21 @@ function testStartupPromptIsMcpNative(): void {
   assert.ok(prompt.includes('Worker cwd: /tmp/workspace'))
   assert.ok(!prompt.includes('/tmp/workspace/.multi-code/sprintengine/team/run.yaml'), 'startup prompt does not expose the run state path')
   assert.ok(prompt.includes('sprintengine.agent.join'), 'startup prompt names the MCP join tool')
-  assert.ok(prompt.includes('sprintengine.agent.next_directive'), 'startup prompt names the MCP directive tool')
+  assert.ok(prompt.includes('sprintengine.task.next'), 'startup prompt names the MCP claim tool')
+  assert.ok(!prompt.includes('sprintengine.agent.next_directive'), 'startup prompt does not route through the directive hop')
   assert.ok(!prompt.includes('"statePath"'), 'startup prompt must not embed statePath in the MCP payload; the managed MCP server resolves it from run context')
   assert.ok(prompt.includes('"role": "frontend"'), 'startup prompt embeds the role in the MCP payload')
-  assert.ok(prompt.includes('"agentId": "frontend-2"'), 'startup prompt embeds the agentId in the MCP payload')
+  assert.ok(prompt.includes('"agentId": "frontend-2"'), 'startup prompt embeds the agentId in the join payload')
+  assert.ok(prompt.includes('"id": "frontend-2"'), 'startup prompt embeds the agent id in the claim payload')
   assert.ok(!prompt.includes('"workspaceRoot"'), 'startup prompt must not embed workspaceRoot in the MCP payload; the managed MCP server resolves it from run context')
   assert.ok(!prompt.includes('SPRINTENGINE_STATE_PATH'), 'startup prompt must not reference env-based managed routing')
   assert.ok(!prompt.includes('SPRINTENGINE_WORKSPACE_ROOT'), 'startup prompt must not reference env-based managed routing')
   assert.ok(!prompt.includes('launch env'), 'startup prompt must describe run-context routing, not launch-env routing')
   assert.ok(prompt.includes('sprintengine.help'), 'startup prompt directs agents to read MCP-owned workflow help first')
-  assert.ok(prompt.includes('nextMcpToolName') && prompt.includes('nextMcpArguments'), 'startup prompt names the directive routing fields')
+  assert.ok(!prompt.includes('nextMcpToolName') && !prompt.includes('nextMcpArguments'), 'startup prompt does not teach the directive routing fields')
   assert.ok(!prompt.includes('retryAfterMs'), 'startup prompt does not instruct Multicode agents to use retryAfterMs')
-  assert.doesNotMatch(prompt, /sleep .*sprintengine\.agent\.next_directive/iu, 'startup prompt does not define an idle sleep/retry loop')
-  assert.ok(!prompt.includes('sprintengine.task.next'), 'startup prompt does not inline MCP task workflow details')
-  assert.ok(!prompt.includes('sprintengine.gate.next'), 'startup prompt does not inline MCP gate workflow details')
+  assert.doesNotMatch(prompt, /poll|backoff|sleep/iu, 'startup prompt does not define idle polling behavior')
+  assert.ok(prompt.includes('stop — Multicode re-engages this terminal'), 'startup prompt carries the no-work stop contract')
   assert.ok(!prompt.includes('sprintengine.triage.needs_input'), 'startup prompt does not inline MCP triage workflow details')
   assert.ok(!prompt.includes('sprintengine.task.publish'), 'startup prompt does not inline MCP publish workflow details')
   assert.ok(!prompt.includes('sprintengine.gate.verdict'), 'startup prompt does not inline MCP gate verdict workflow details')
@@ -2918,7 +2920,8 @@ function testArchitectInitStartupPromptIsMcpNative(): void {
   assert.ok(prompt.includes('"agent"'), 'init payload carries the roster')
   assert.ok(prompt.includes('"developer:developer-1"'), 'init payload preserves roster agent specs verbatim')
   assert.ok(prompt.includes('sprintengine.agent.join'), 'architect init flow then joins via MCP')
-  assert.ok(prompt.includes('sprintengine.agent.next_directive'), 'architect init flow then requests the MCP directive')
+  assert.ok(prompt.includes('sprintengine.task.next'), 'architect init flow then claims its first task directly')
+  assert.ok(!prompt.includes('sprintengine.agent.next_directive'), 'architect init flow does not route through the directive hop')
   assert.ok(
     !/sprintengine (join|task|gate|triage|init|handover)/.test(prompt),
     'architect init prompt does not instruct the agent to run any sprintengine CLI command'

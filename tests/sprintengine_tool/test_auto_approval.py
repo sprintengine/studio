@@ -357,10 +357,11 @@ def test_electron_auto_run_prompts_idle_running_agents_for_ready_work() -> None:
     assert "function sendContinuationPromptsToIdleAgents" in supervisor_source
     assert "buildSprintEngineContinuationPrompt(task, agentId)" in supervisor_source
     assert "Sprint Engine roster runner found a wake candidate for a ready" in auto_run_utils_source
-    # MCP-native rewrite: the continuation prompt no longer hands the agent a
-    # `sprintengine join --watch` CLI command. It now hands them the
-    # `sprintengine.agent.next_directive` MCP tool with payload.
-    assert "sprintengine.agent.next_directive" in auto_run_utils_source
+    # Claim-first dispatch: the continuation prompt hands the agent the claim
+    # tool directly; the directive hop is headless-CLI only and must not
+    # appear in renderer prompt sources.
+    assert "sprintengine.task.next" in auto_run_utils_source
+    assert "sprintengine.agent.next_directive" not in auto_run_utils_source
     assert "sprintengine join --role" not in auto_run_utils_source, (
         "MCP-native autonomous prompts must not embed `sprintengine join` CLI invocations."
     )
@@ -382,12 +383,13 @@ def test_sprintengine_agent_prompts_do_not_continue_polling_after_claim() -> Non
 
     assert "Keep polling for ready" not in combined_source
     assert "then poll again" not in combined_source
-    # MCP-native rewrite: agents no longer run their own polling loop. The
-    # runtime owns dispatch and continuation. The agent invokes
-    # `sprintengine.agent.next_directive` once per cycle and waits for the
-    # runtime to drive the next step; no client-side sleep/backoff.
-    assert "The caller/runtime owns later continuation" in combined_source or "Multicode owns later runtime dispatch and continuation" in combined_source
-    assert "sprintengine.agent.next_directive" in combined_source
+    # Claim-first dispatch: agents never run their own polling loop. Multicode
+    # owns dispatch and continuation; the agent calls the claim tool named in
+    # its prompt once and stops when no claim is returned — no client-side
+    # sleep/backoff, no directive hop.
+    assert "Multicode owns dispatch and continuation" in combined_source
+    assert "sprintengine.task.next" in combined_source
+    assert "sprintengine.agent.next_directive" not in combined_source
     assert "sprintengine join --role" not in combined_source, (
         "MCP-native autonomous prompts must not embed `sprintengine join` CLI invocations."
     )

@@ -1436,6 +1436,7 @@ export async function spawnAutoRunCandidate(
         commandMode: getSprintEngineStartupCommandMode(nextRun.role, nextRun.agentId, sprintEngineState),
         autonomousPlanningOverride: nextRun.role === 'architect' && sprintEngineArtifactApprovalDesired(autoState),
         useWorktrees: sprintEngineState.useWorktrees === true,
+        claimTool: nextRun.gateId ? 'sprintengine.gate.next' : 'sprintengine.task.next',
       }),
       nextRun.label,
       getSprintEngineRoleLabel(nextRun.role)

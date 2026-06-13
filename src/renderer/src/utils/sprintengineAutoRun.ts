@@ -766,10 +766,9 @@ export function pickNextAutoRuns(
   // Lifecycle phase tasks (review/testing/product) keep auto-run running even
   // when no implementation task is ready: each pending required gate maps to
   // a reviewer/tester/product role, and we spawn an idle roster agent for that
-  // role so the spawned terminal's `sprintengine.agent.next_directive` MCP call
-  // can decide whether a gate or other ready task is the next claim. We never
-  // claim the gate from the renderer — that stays an MCP mutation through
-  // `sprintengine.gate.next` / `sprintengine.gate.claim`.
+  // role; the spawned terminal claims it directly with `sprintengine.gate.next`.
+  // We never claim the gate from the renderer — that stays an MCP mutation
+  // through `sprintengine.gate.next` / `sprintengine.gate.claim`.
   const gatedPhaseTasks = sprintEngineState.tasks.filter((task) => {
     const column = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
     return column === 'review' || column === 'testing' || column === 'product'

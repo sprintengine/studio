@@ -290,9 +290,9 @@ function buildStartupPrompt(input: {
     role: input.role,
     agentId: input.agentId,
   }, null, 2)
-  const directivePayload = JSON.stringify({
+  const claimPayload = JSON.stringify({
     role: input.role,
-    agentId: input.agentId,
+    id: input.agentId,
   }, null, 2)
   void input.goal
   void input.workspaceRoot
@@ -303,9 +303,9 @@ function buildStartupPrompt(input: {
     `You are assigned role: ${input.role}. Only claim and work Sprint Engine tasks or quality gates whose role exactly matches ${input.role}. Sprint Engine work runs through the managed Sprint Engine MCP server in this terminal.`,
     'Register this agent with `sprintengine.agent.join`:',
     ['```json', joinPayload, '```'].join('\n'),
-    'Then request your structured directive with `sprintengine.agent.next_directive`:',
-    ['```json', directivePayload, '```'].join('\n'),
-    'The directive returns `directiveType` (`task_work` | `resume` | `gate_work` | `needs_input_triage` | `idle` | `complete` | `blocked` | `error`), `nextMcpToolName`, and `nextMcpArguments`. If `nextMcpToolName` is present, invoke it once with `nextMcpArguments` verbatim to claim or resume. The caller/runtime owns later continuation. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.',
+    'Then claim your work with `sprintengine.task.next`:',
+    ['```json', claimPayload, '```'].join('\n'),
+    'The claim returns your next ready task, or your active one to resume. Work what it returns. If it returns no claim, call `sprintengine.gate.next` once with the same payload; if neither returns work, reply that no work was claimed and stop — the caller/runtime owns later continuation. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.',
   ].join('\n\n')
 }
 

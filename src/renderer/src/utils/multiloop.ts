@@ -353,7 +353,7 @@ function buildMultiloopRoleCommandLines(
   if (role && !['product', 'tester', 'security', 'code_reviewer', 'performance'].includes(role)) {
     if (sprintEngineStatePath) {
       const joinPayload = JSON.stringify({ statePath: sprintEngineStatePath, role, agentId })
-      const directivePayload = JSON.stringify({ statePath: sprintEngineStatePath, role, agentId })
+      const claimPayload = JSON.stringify({ statePath: sprintEngineStatePath, role, id: agentId })
       const logPayload = JSON.stringify({
         statePath: sprintEngineStatePath,
         taskId: '<task-id>',
@@ -371,7 +371,7 @@ function buildMultiloopRoleCommandLines(
       })
       return [
         `Register with the managed Sprint Engine MCP server first: call \`sprintengine.agent.join\` with ${joinPayload}.`,
-        `Then request your structured directive: call \`sprintengine.agent.next_directive\` with ${directivePayload}. Invoke the returned \`nextMcpToolName\` with \`nextMcpArguments\` to claim normal work, resume work, triage needs_input, or claim a quality gate.`,
+        `Then claim your work: call \`sprintengine.task.next\` with ${claimPayload}. If it returns no claim, call \`sprintengine.gate.next\` once with the same payload. Work what the claim returns; if neither returns work, stop.`,
         `Log evidence before handoff: call \`sprintengine.task.log\` with ${logPayload}.`,
         `Publish completion after evidence: call \`sprintengine.task.publish\` with ${publishPayload}.`,
         'Use the managed Sprint Engine MCP tools for autonomous Sprint Engine work.',
