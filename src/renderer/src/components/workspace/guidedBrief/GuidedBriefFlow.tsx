@@ -18,7 +18,7 @@ import { CloseIconButton, LifecycleGlyph, Tabs, Tooltip, type TabItem } from '..
 import { parentPath } from '../../../utils/paths'
 import { RosterAndRunSettings } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
-import { MockupPreviewPane } from './MockupPreviewPane'
+import { HtmlArtifactFrame, MockupPreviewPane } from './MockupPreviewPane'
 import { DesignFilesPane } from './DesignFilesPane'
 import { DesignArtifactPreviewPane } from './DesignArtifactPreviewPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
@@ -333,6 +333,31 @@ export function GuidedBriefFlow({
         hash: snapshot.hash,
         path: snapshot.path,
       }
+      // The HTML overview is optional — a view of the brief, never a gate.
+      // Snapshot it when present; a failure must not block the accept.
+      let acceptedOverview: GuidedBriefAcceptedArtifact | null = null
+      if (strategist.overviewFileReady) {
+        try {
+          const overviewSnapshot = await snapshotGuidedBriefArtifact({
+            workspaceRoot,
+            sourcePath: strategist.overviewPath,
+            kind: 'overview',
+            filesystem: {
+              ensureDir: window.api.ensureDir,
+              readFile: window.api.readfile,
+              writeFile: window.api.writefile,
+            },
+          })
+          acceptedOverview = {
+            kind: 'product',
+            title: 'Product overview',
+            hash: overviewSnapshot.hash,
+            path: overviewSnapshot.path,
+          }
+        } catch {
+          acceptedOverview = null
+        }
+      }
       const nextStage = nextGuidedBriefStage({ ...runtimeState, acceptedProductBrief: accepted }, 'strategist')
       // The strategist's job is done — kill the PTY and clear the persisted id
       // so it does not reattach on the next render.
@@ -341,6 +366,7 @@ export function GuidedBriefFlow({
         ...runtimeState,
         stage: nextStage,
         acceptedProductBrief: accepted,
+        acceptedProductOverview: acceptedOverview,
         strategistSessionId: null,
       }
       if (nextStage === 'handoff') {
@@ -350,12 +376,15 @@ export function GuidedBriefFlow({
           hasUi,
           productBrief: accepted,
           architecturePlan: runtimeState.acceptedArchitecturePlan,
+          productOverview: acceptedOverview,
+          architectureOverview: runtimeState.acceptedArchitectureOverview,
           requireMockups: false,
           confirmedDecisions: [
             hasUi === 'yes'
               ? 'Application includes a visual UI, but no frontend design stage was requested.'
               : 'No visual UI is required.',
           ],
+          recordedDecisions: runtimeState.guidedDecisions,
           filesystem: {
             ensureDir: window.api.ensureDir,
             readFile: window.api.readfile,
@@ -395,12 +424,37 @@ export function GuidedBriefFlow({
         hash: snapshot.hash,
         path: snapshot.path,
       }
+      // Optional HTML overview — snapshot when present, never a gate.
+      let acceptedOverview: GuidedBriefAcceptedArtifact | null = null
+      if (architect.overviewFileReady) {
+        try {
+          const overviewSnapshot = await snapshotGuidedBriefArtifact({
+            workspaceRoot,
+            sourcePath: architect.overviewPath,
+            kind: 'overview',
+            filesystem: {
+              ensureDir: window.api.ensureDir,
+              readFile: window.api.readfile,
+              writeFile: window.api.writefile,
+            },
+          })
+          acceptedOverview = {
+            kind: 'product',
+            title: 'Architecture overview',
+            hash: overviewSnapshot.hash,
+            path: overviewSnapshot.path,
+          }
+        } catch {
+          acceptedOverview = null
+        }
+      }
       const nextStage = nextGuidedBriefStage({ ...runtimeState, acceptedArchitecturePlan: accepted }, 'architect')
       const architectSessionIdToKill = runtimeState.architectSessionId
       const nextState = {
         ...runtimeState,
         stage: nextStage,
         acceptedArchitecturePlan: accepted,
+        acceptedArchitectureOverview: acceptedOverview,
         architectSessionId: null,
       }
       if (nextStage === 'handoff') {
@@ -410,10 +464,13 @@ export function GuidedBriefFlow({
           hasUi,
           productBrief: runtimeState.acceptedProductBrief,
           architecturePlan: accepted,
+          productOverview: runtimeState.acceptedProductOverview,
+          architectureOverview: acceptedOverview,
           requireMockups: false,
           confirmedDecisions: [
             hasUi === 'yes' ? 'Application includes a visual UI.' : 'No visual UI is required.',
           ],
+          recordedDecisions: runtimeState.guidedDecisions,
           validationNotes: ['Validate implementation against the accepted architecture plan snapshot hash.'],
           filesystem: {
             ensureDir: window.api.ensureDir,
@@ -486,8 +543,11 @@ export function GuidedBriefFlow({
         architecturePlan: runtimeState.acceptedArchitecturePlan,
         uiDirection: acceptedUiDirection,
         mockups: acceptedMockups,
+        productOverview: runtimeState.acceptedProductOverview,
+        architectureOverview: runtimeState.acceptedArchitectureOverview,
         requireMockups: true,
         confirmedDecisions: ['Application includes a visual UI.'],
+        recordedDecisions: runtimeState.guidedDecisions,
         validationNotes: ['Validate implementation against the accepted brief, UI direction, and mockup snapshot hashes.'],
         filesystem: {
           ensureDir: window.api.ensureDir,
@@ -541,8 +601,11 @@ export function GuidedBriefFlow({
         architecturePlan: runtimeState.acceptedArchitecturePlan,
         uiDirection: runtimeState.acceptedUiDirection,
         mockups: runtimeState.acceptedMockups,
+        productOverview: runtimeState.acceptedProductOverview,
+        architectureOverview: runtimeState.acceptedArchitectureOverview,
         requireMockups: false,
         confirmedDecisions: guidedBriefPlanningDecisionNotes(nextState),
+        recordedDecisions: runtimeState.guidedDecisions,
         validationNotes: guidedBriefPlanningValidationNotes(nextState),
         filesystem: {
           ensureDir: window.api.ensureDir,
@@ -631,6 +694,8 @@ export function GuidedBriefFlow({
             errorMessage={strategist.error}
             working={stage === 'strategist-working'}
             fileReady={strategist.readiness.fileReady}
+            overviewPath={strategist.overviewPath}
+            overviewFileReady={strategist.overviewFileReady}
             interview={strategist.interview}
             onAnswer={answerViaTerminal(strategist.session)}
             requirementsPath={strategist.requirementsPath}
@@ -644,6 +709,8 @@ export function GuidedBriefFlow({
             errorMessage={architect.error}
             working={stage === 'architect-working'}
             fileReady={architect.readiness.fileReady}
+            overviewPath={architect.overviewPath}
+            overviewFileReady={architect.overviewFileReady}
             interview={architect.interview}
             onAnswer={answerViaTerminal(architect.session)}
             architecturePlanPath={architect.architecturePlanPath}
@@ -1053,6 +1120,8 @@ function StrategistBody({
   errorMessage,
   working,
   fileReady,
+  overviewPath,
+  overviewFileReady,
   interview,
   onAnswer,
   requirementsPath,
@@ -1064,61 +1133,47 @@ function StrategistBody({
   errorMessage: string | null
   working: boolean
   fileReady: boolean
+  overviewPath: string
+  overviewFileReady: boolean
   interview: GuidedInterviewState
   onAnswer: (answerText: string) => void
   requirementsPath: string
   productDirectoryPath: string
 }) {
   const ready = stage === 'strategist-ready'
-  const files: StageArtifactFile[] = [
-    {
-      entry: {
+  return (
+    <TextStageStudioBody
+      specialistName="Product Strategist"
+      specialistSubline={
+        ready
+          ? 'Brief ready · ask anything else if needed'
+          : 'Asking about the idea — pick an option or answer in the terminal'
+      }
+      session={session}
+      starting={starting}
+      errorMessage={errorMessage}
+      working={working}
+      interview={interview}
+      onAnswer={onAnswer}
+      ready={ready}
+      plan={{
         name: 'requirements.md',
         relativePath: 'product/requirements.md',
         absolutePath: requirementsPath,
-        kind: 'notes',
-        typeLabel: 'Markdown',
-      },
-      state: !fileReady ? 'missing' : ready ? 'ready' : 'in-progress',
-    },
-  ]
-
-  return (
-    <StageStudioBody
-      activity={
-        <ConversationPane
-          session={session}
-          starting={starting}
-          errorMessage={errorMessage}
-          specialistName="Product Strategist"
-          specialistSubline={
-            ready
-              ? 'Brief ready · ask anything else if needed'
-              : 'Asking about the idea — pick an option or answer in the terminal'
-          }
-          working={working}
-          interview={interview}
-          onAnswer={onAnswer}
-        />
-      }
-      artifacts={
-        <StageArtifactsPane
-          files={files}
-          selectedPath="product/requirements.md"
-          onSelect={() => {}}
-        />
-      }
-      preview={
-        <RenderedBriefPane
-          briefPath={requirementsPath}
-          watchDirectoryPath={productDirectoryPath}
-          title="Brief"
-          displayPath="product/requirements.md"
-          unavailableTitle="Brief not started"
-          missingReason="The strategist hasn't written the brief yet. It appears here as soon as the file exists."
-          emptyReason="The brief file exists but has no content yet."
-        />
-      }
+        fileReady,
+        title: 'Brief',
+        unavailableTitle: 'Brief not started',
+        missingReason:
+          "The strategist hasn't written the brief yet. It appears here as soon as the file exists.",
+        emptyReason: 'The brief file exists but has no content yet.',
+      }}
+      overview={{
+        name: 'overview.html',
+        relativePath: 'product/overview.html',
+        absolutePath: overviewPath,
+        fileReady: overviewFileReady,
+      }}
+      watchDirectoryPath={productDirectoryPath}
     />
   )
 }
@@ -1130,6 +1185,8 @@ function ArchitectBody({
   errorMessage,
   working,
   fileReady,
+  overviewPath,
+  overviewFileReady,
   interview,
   onAnswer,
   architecturePlanPath,
@@ -1141,24 +1198,123 @@ function ArchitectBody({
   errorMessage: string | null
   working: boolean
   fileReady: boolean
+  overviewPath: string
+  overviewFileReady: boolean
   interview: GuidedInterviewState
   onAnswer: (answerText: string) => void
   architecturePlanPath: string
   architectureDirectoryPath: string
 }) {
   const ready = stage === 'architect-ready'
-  const files: StageArtifactFile[] = [
-    {
-      entry: {
+  return (
+    <TextStageStudioBody
+      specialistName="Architect"
+      specialistSubline={
+        ready
+          ? 'Plan ready · ask anything else if needed'
+          : 'Resolving architecture decisions — pick an option or answer in the terminal'
+      }
+      session={session}
+      starting={starting}
+      errorMessage={errorMessage}
+      working={working}
+      interview={interview}
+      onAnswer={onAnswer}
+      ready={ready}
+      plan={{
         name: 'plan.md',
         relativePath: 'architecture/plan.md',
         absolutePath: architecturePlanPath,
+        fileReady,
+        title: 'Plan',
+        unavailableTitle: 'Plan not started',
+        missingReason:
+          "The architect hasn't written the plan yet. It appears here as soon as the file exists.",
+        emptyReason: 'The plan file exists but has no content yet.',
+      }}
+      overview={{
+        name: 'overview.html',
+        relativePath: 'architecture/overview.html',
+        absolutePath: overviewPath,
+        fileReady: overviewFileReady,
+      }}
+      watchDirectoryPath={architectureDirectoryPath}
+    />
+  )
+}
+
+// Shared strategist/architect studio composition: one markdown plan (the
+// canonical artifact) plus an optional agent-produced HTML overview. The
+// artifacts pane selects which one the preview shows; the overview becomes
+// the default once the stage is ready and the file exists.
+function TextStageStudioBody({
+  specialistName,
+  specialistSubline,
+  session,
+  starting,
+  errorMessage,
+  working,
+  interview,
+  onAnswer,
+  ready,
+  plan,
+  overview,
+  watchDirectoryPath,
+}: {
+  specialistName: string
+  specialistSubline: string
+  session: GuidedBriefSpecialistSession | null
+  starting: boolean
+  errorMessage: string | null
+  working: boolean
+  interview: GuidedInterviewState
+  onAnswer: (answerText: string) => void
+  ready: boolean
+  plan: {
+    name: string
+    relativePath: string
+    absolutePath: string
+    fileReady: boolean
+    title: string
+    unavailableTitle: string
+    missingReason: string
+    emptyReason: string
+  }
+  overview: {
+    name: string
+    relativePath: string
+    absolutePath: string
+    fileReady: boolean
+  }
+  watchDirectoryPath: string
+}) {
+  const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const stateFor = (fileReady: boolean): StageArtifactFile['state'] =>
+    !fileReady ? 'missing' : ready ? 'ready' : 'in-progress'
+  const files: StageArtifactFile[] = [
+    {
+      entry: {
+        name: plan.name,
+        relativePath: plan.relativePath,
+        absolutePath: plan.absolutePath,
         kind: 'notes',
         typeLabel: 'Markdown',
       },
-      state: !fileReady ? 'missing' : ready ? 'ready' : 'in-progress',
+      state: stateFor(plan.fileReady),
+    },
+    {
+      entry: {
+        name: overview.name,
+        relativePath: overview.relativePath,
+        absolutePath: overview.absolutePath,
+        kind: 'page',
+        typeLabel: 'HTML',
+      },
+      state: stateFor(overview.fileReady),
     },
   ]
+  const effectiveSelected =
+    selectedPath ?? (ready && overview.fileReady ? overview.relativePath : plan.relativePath)
 
   return (
     <StageStudioBody
@@ -1167,12 +1323,8 @@ function ArchitectBody({
           session={session}
           starting={starting}
           errorMessage={errorMessage}
-          specialistName="Architect"
-          specialistSubline={
-            ready
-              ? 'Plan ready · ask anything else if needed'
-              : 'Resolving architecture decisions — pick an option or answer in the terminal'
-          }
+          specialistName={specialistName}
+          specialistSubline={specialistSubline}
           working={working}
           interview={interview}
           onAnswer={onAnswer}
@@ -1181,20 +1333,28 @@ function ArchitectBody({
       artifacts={
         <StageArtifactsPane
           files={files}
-          selectedPath="architecture/plan.md"
-          onSelect={() => {}}
+          selectedPath={effectiveSelected}
+          onSelect={(entry) => setSelectedPath(entry.relativePath)}
         />
       }
       preview={
-        <RenderedBriefPane
-          briefPath={architecturePlanPath}
-          watchDirectoryPath={architectureDirectoryPath}
-          title="Plan"
-          displayPath="architecture/plan.md"
-          unavailableTitle="Plan not started"
-          missingReason="The architect hasn't written the plan yet. It appears here as soon as the file exists."
-          emptyReason="The plan file exists but has no content yet."
-        />
+        effectiveSelected === overview.relativePath ? (
+          <HtmlArtifactFrame
+            absolutePath={overview.absolutePath}
+            relativePath={overview.relativePath}
+            watchDirectoryPath={watchDirectoryPath}
+          />
+        ) : (
+          <RenderedBriefPane
+            briefPath={plan.absolutePath}
+            watchDirectoryPath={watchDirectoryPath}
+            title={plan.title}
+            displayPath={plan.relativePath}
+            unavailableTitle={plan.unavailableTitle}
+            missingReason={plan.missingReason}
+            emptyReason={plan.emptyReason}
+          />
+        )
       }
     />
   )

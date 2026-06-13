@@ -277,6 +277,8 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
     acceptedProductBrief: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedProductBrief),
     acceptedArchitecturePlan: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedArchitecturePlan),
     acceptedUiDirection: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedUiDirection),
+    acceptedProductOverview: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedProductOverview),
+    acceptedArchitectureOverview: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedArchitectureOverview),
     acceptedMockups: Array.isArray(candidate.acceptedMockups)
       ? candidate.acceptedMockups
         .map(normalizeGuidedBriefAcceptedArtifact)

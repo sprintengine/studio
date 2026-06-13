@@ -944,6 +944,7 @@ export type SprintEngineSourceBundleKind =
   | SprintEngineSourcePlanKind
   | 'html_mockup'
   | 'design_notes'
+  | 'plan_overview'
   | 'generic_context'
 
 export type SprintEngineSourceBundleItem = {
@@ -1497,6 +1498,10 @@ export type GuidedBriefRuntimeState = {
   acceptedArchitecturePlan: GuidedBriefAcceptedArtifact | null
   acceptedUiDirection: GuidedBriefAcceptedArtifact | null
   acceptedMockups: GuidedBriefAcceptedArtifact[]
+  // Optional agent-produced HTML overviews of the brief/plan (a view of the
+  // markdown, never a second source of truth). Absent on legacy states.
+  acceptedProductOverview?: GuidedBriefAcceptedArtifact | null
+  acceptedArchitectureOverview?: GuidedBriefAcceptedArtifact | null
   activeMockupPath: string | null
   // Path of the design artifact currently selected in the Multicode Design
   // studio preview, relative to the workspace root. Absent on legacy states;

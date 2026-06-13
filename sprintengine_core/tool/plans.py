@@ -32,6 +32,7 @@ SOURCE_KIND_LABELS = {
     "architect_plan": "Implementation plan",
     "html_mockup": "HTML mockup",
     "design_notes": "Design notes",
+    "plan_overview": "Plan overview",
     "generic_context": "Context",
     "unknown": "Source context",
 }
@@ -116,6 +117,19 @@ def source_bundle_reference_notes(state: Dict[str, Any]) -> List[str]:
             notes.append(
                 f"Use design notes `{path}` as reference for relevant UI/frontend tasks. "
                 "Put this path in those tasks' implementationNotes, not ownedPaths, unless the notes themselves must be edited."
+            )
+        elif kind == "plan_overview":
+            notes.append(
+                f"`{path}` is a human-oriented HTML overview of the accepted plan. "
+                "Consult it for system shape if useful, but treat the markdown plan as the implementation source of truth. Never edit it."
+            )
+        elif kind == "product_plan":
+            notes.append(
+                f"`{path}` is the accepted product source of truth — build scope comes from it; do not re-litigate decisions it records."
+            )
+        elif kind == "architect_plan":
+            notes.append(
+                f"`{path}` is the accepted implementation contract — validate task breakdowns against it before creating cards."
             )
         elif kind in {"generic_context", "unknown"}:
             notes.append(f"Review source context `{path}` before creating affected task cards.")

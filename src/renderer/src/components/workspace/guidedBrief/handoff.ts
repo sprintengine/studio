@@ -26,8 +26,14 @@ export function guidedBriefHandoffChecklist(state: GuidedBriefRuntimeState): Gui
   if (state.acceptedProductBrief) {
     items.push(artifactChecklistItem('Accepted brief', state.acceptedProductBrief))
   }
+  if (state.acceptedProductOverview) {
+    items.push(artifactChecklistItem('Product overview', state.acceptedProductOverview))
+  }
   if (state.acceptedArchitecturePlan) {
     items.push(artifactChecklistItem('Architecture plan', state.acceptedArchitecturePlan))
+  }
+  if (state.acceptedArchitectureOverview) {
+    items.push(artifactChecklistItem('Architecture overview', state.acceptedArchitectureOverview))
   }
   if (state.hasUi === 'yes' && state.acceptedUiDirection) {
     items.push(artifactChecklistItem('UI direction', state.acceptedUiDirection))

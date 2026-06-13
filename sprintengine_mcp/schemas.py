@@ -181,7 +181,7 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
                     "properties": {
                         "kind": {
                             "type": "string",
-                            "enum": ["unknown", "product_plan", "architect_plan", "html_mockup", "design_notes", "generic_context"],
+                            "enum": ["unknown", "product_plan", "architect_plan", "html_mockup", "design_notes", "plan_overview", "generic_context"],
                         },
                         "sourcePath": {"type": "string"},
                     },
