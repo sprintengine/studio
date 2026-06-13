@@ -95,6 +95,43 @@ function stageFamily(stage: GuidedBriefStage): GuidedBriefStage {
   }
 }
 
+export type GuidedBriefStepState = 'done' | 'active' | 'upcoming'
+
+export type GuidedBriefStepInfo = {
+  /** The working-family stage this step represents (or `handoff` for Build). */
+  stage: GuidedBriefStage
+  label: string
+  state: GuidedBriefStepState
+}
+
+const STEP_LABELS: Partial<Record<GuidedBriefStage, string>> = {
+  'strategist-working': 'Strategy',
+  'architect-working': 'Architecture',
+  'designer-working': 'Design',
+  handoff: 'Build',
+}
+
+/**
+ * Labeled step rail derived from the same stage order as the progress
+ * helpers, so the rail and any counters cannot drift. Steps before the
+ * active family are done, the active family is active, the rest upcoming.
+ */
+export function guidedBriefSteps(
+  stage: GuidedBriefStage,
+  hasUi: GuidedBriefHasUi,
+  options: GuidedBriefProgressOptions = {},
+): GuidedBriefStepInfo[] {
+  const order = guidedBriefStageOrder(hasUi, options)
+  const family = stageFamily(stage)
+  const foundIndex = order.indexOf(family)
+  const activeIndex = foundIndex >= 0 ? foundIndex : order.length - 1
+  return order.map((stepStage, index) => ({
+    stage: stepStage,
+    label: STEP_LABELS[stepStage] ?? stepStage,
+    state: index < activeIndex ? 'done' : index === activeIndex ? 'active' : 'upcoming',
+  }))
+}
+
 export function progressForStage(
   stage: GuidedBriefStage,
   hasUi: GuidedBriefHasUi,
