@@ -70,5 +70,3 @@ export const SPRINTENGINE_TOOL_NAMES = [
 ] as const
 
 export type SprintEngineToolName = (typeof SPRINTENGINE_TOOL_NAMES)[number]
-
-export const SPRINTENGINE_TOOL_NAME_SET: ReadonlySet<string> = new Set(SPRINTENGINE_TOOL_NAMES)
