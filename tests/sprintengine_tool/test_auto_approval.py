@@ -355,7 +355,10 @@ def test_electron_auto_run_prompts_idle_running_agents_for_ready_work() -> None:
     auto_run_utils_source = (repo_root / "src/renderer/src/utils/sprintengineAutoRun.ts").read_text(encoding="utf-8")
 
     assert "function sendContinuationPromptsToIdleAgents" in supervisor_source
-    assert "buildSprintEngineContinuationPrompt(task, agentId)" in supervisor_source
+    # Reconciler: every re-engagement decision (wake, gate, dispatch, restart)
+    # lives in the pure planner; the supervisor only executes the plan.
+    assert "planSprintEngineDispatch" in supervisor_source
+    assert "buildSprintEngineContinuationPrompt(task, agentId)" in auto_run_utils_source
     assert "Sprint Engine roster runner found a wake candidate for a ready" in auto_run_utils_source
     # Claim-first dispatch: the continuation prompt hands the agent the claim
     # tool directly; the directive hop is headless-CLI only and must not
@@ -366,7 +369,7 @@ def test_electron_auto_run_prompts_idle_running_agents_for_ready_work() -> None:
         "MCP-native autonomous prompts must not embed `sprintengine join` CLI invocations."
     )
     assert "await sendContinuationPromptsToIdleAgents(" in supervisor_source
-    assert "continuation-prompt-sent" in supervisor_source
+    assert "continuation-prompt-sent" in auto_run_utils_source
 
 
 def test_sprintengine_agent_prompts_do_not_continue_polling_after_claim() -> None:

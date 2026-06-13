@@ -17,32 +17,29 @@ import {
   buildSprintEngineAgentRosterForState,
   buildSprintEngineRosterCommandArgs,
   getSprintEngineRoleLabel,
-  getSprintEngineTaskBoardColumn,
   isSprintEngineTaskLaunchable,
   normalizeSprintEngineProjection,
 } from '../../utils/sprintengine'
 import {
+  AUTO_RUN_MAX_PROMPT_RETRIES as PLANNER_MAX_PROMPT_RETRIES,
+  AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES as PLANNER_MAX_WAKE_RETRIES,
   agentNotificationDeliveryKey,
   architectTriageMessageKey,
   artifactApprovalMessageKey,
   buildAgentNotificationPrompt,
   buildArchitectNeedsInputTriagePrompt,
-  buildSprintEngineDispatchPrompt,
-  buildSprintEngineContinuationPrompt,
-  buildSprintEngineGateContinuationPrompt,
-  continuationMessageKey,
+  planSprintEngineDispatch,
+  promptRetryLimitReached,
+  recordPromptRetry,
+  type SprintEngineDispatchPlan,
+  type SprintEngineDispatchPath,
   describeSprintEngineExternalInputAutoRunBlock,
   describeNeedsInputAutoApprovalState,
   isAgentNotificationCompletionEvent,
-  sprintEngineDispatchDeliveryKey,
-  getActiveSprintEngineAutoRunGateClaims,
   getArchitectActionableNeedsInputTasks,
   getAutoApprovalIntentArtifacts,
   getSprintEngineAutoRunOccupiedAgentIds,
-  getClaimableSprintEngineAutoRunGates,
   getPendingAgentNotificationEvents,
-  getSprintEngineWakeCandidateTasks,
-  findSprintEngineWakeCandidateTaskForAgent,
   isSprintEngineRunBlockedOnExternalInput,
   isSprintEngineAutoPendingSpawnStillRelevant,
   pickNextAutoRuns,
@@ -126,9 +123,8 @@ const INACTIVE_AUTO_RUN_POLL_MS = 15000
 const AUTO_RUN_STARTUP_SPAWN_DELAY_MS = 10000
 const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
 const AUTO_RUN_ROLE_CONTINUATION_RETRY_MS = 60000
-const AUTO_RUN_DISPATCH_PROMPT_RETRY_MS = 300000
-export const AUTO_RUN_MAX_PROMPT_RETRIES = 5
-export const AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES = 3
+export const AUTO_RUN_MAX_PROMPT_RETRIES = PLANNER_MAX_PROMPT_RETRIES
+export const AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES = PLANNER_MAX_WAKE_RETRIES
 const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
 const AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS = 30000
 const BACKGROUND_TERMINAL_COLS = 100
@@ -575,78 +571,6 @@ async function getRunningContinuationCapacityByRole(
   return { capacityByRole, agentIds: countedAgentIds }
 }
 
-function promptRetryLimitReached(
-  message: RoleContinuationMessage | ArchitectTriageMessage | undefined,
-  maxRetries = AUTO_RUN_MAX_PROMPT_RETRIES
-): boolean {
-  return (message?.attempts ?? 0) >= maxRetries
-}
-
-function recordPromptRetry<T extends RoleContinuationMessage | ArchitectTriageMessage>(
-  messages: Map<string, T>,
-  key: string,
-  sentAt: number
-): void {
-  const previous = messages.get(key)
-  messages.set(key, {
-    sentAt,
-    attempts: (previous?.attempts ?? 0) + 1,
-  } as T)
-}
-
-function runtimeAgentAlreadyOwnsDispatchTarget(
-  runtimeAgent: SprintEngineState['sprintEngineAgents'][string],
-  dispatch: NonNullable<SprintEngineState['sprintEngineAgents'][string]['currentDispatch']>
-): boolean {
-  if (runtimeAgent.status !== 'running') return false
-  if (!dispatch.taskId || runtimeAgent.currentTaskId !== dispatch.taskId) return false
-  if (dispatch.targetKind === 'task') return true
-  if (dispatch.targetKind !== 'gate') return false
-
-  const currentGate = runtimeAgent.currentGate
-  return Boolean(
-    dispatch.gateId
-    && (
-      (
-        currentGate
-        && currentGate.taskId === dispatch.taskId
-        && currentGate.gateId === dispatch.gateId
-        && (!dispatch.attemptId || currentGate.attemptId === dispatch.attemptId)
-      )
-      || (!dispatch.attemptId && runtimeAgent.currentGateId === dispatch.gateId)
-    )
-  )
-}
-
-function runtimeAgentAlreadyOwnsGateClaim(
-  runtimeAgent: SprintEngineState['sprintEngineAgents'][string] | undefined,
-  taskId: string,
-  gateId: string,
-  attemptId: string | null | undefined
-): boolean {
-  if (!runtimeAgent || runtimeAgent.status !== 'running') return false
-  if (runtimeAgent.currentTaskId !== taskId) return false
-
-  const currentGate = runtimeAgent.currentGate
-  return Boolean(
-    (
-      currentGate
-      && currentGate.taskId === taskId
-      && currentGate.gateId === gateId
-      && (!attemptId || currentGate.attemptId === attemptId)
-    )
-    || (!currentGate && runtimeAgent.currentGateId === gateId)
-  )
-}
-
-function getContinuationMessageWorkKey(workspace: Workspace, key: string): string | null {
-  const prefix = `${workspace.id}:${workspace.sprintEngineContext?.statePath ?? ''}:`
-  if (!key.startsWith(prefix)) return null
-  const agentSeparatorIndex = key.lastIndexOf(':')
-  if (agentSeparatorIndex <= prefix.length) return null
-  return key.slice(prefix.length, agentSeparatorIndex)
-}
-
 export async function deliverAgentNotificationEvents(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
@@ -768,163 +692,128 @@ export async function deliverAgentNotificationEvents(
   return started ? 'started' : 'none'
 }
 
+function dispatchPlanLedger(
+  ledger: 'continuation' | 'dispatch',
+  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>,
+  sentDispatchMessages: MutableRefObject<Map<string, RoleContinuationMessage>> | null
+): Map<string, RoleContinuationMessage> {
+  return ledger === 'dispatch' && sentDispatchMessages ? sentDispatchMessages.current : sentContinuationMessages.current
+}
+
+/**
+ * Execute a dispatch plan from `planSprintEngineDispatch`: the planner makes
+ * every re-engagement decision; this function only performs the side effects
+ * (ledger maintenance, prompt pastes, stalled-terminal restarts) and logging.
+ */
+export async function executeSprintEngineDispatchPlan(
+  workspace: Workspace,
+  plan: SprintEngineDispatchPlan,
+  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>,
+  sentDispatchMessages: MutableRefObject<Map<string, RoleContinuationMessage>> | null
+): Promise<'restarted' | 'none'> {
+  const base = { workspaceId: workspace.id, workspaceName: workspace.name }
+  for (const entry of plan.ledgerDeletes) {
+    dispatchPlanLedger(entry.ledger, sentContinuationMessages, sentDispatchMessages).delete(entry.key)
+  }
+  for (const skip of plan.skips) {
+    logPerfEvent('SprintEngineAutoRun', skip.event, { ...base, ...skip.data })
+  }
+  for (const paste of plan.pastes) {
+    const session = await findRunningAgentSession(workspace, paste.agentId)
+    if (!session) continue
+    await writeBracketedPrompt(defaultExecutorPorts, session.sessionId, paste.prompt)
+    recordPromptRetry(
+      dispatchPlanLedger(paste.ledger, sentContinuationMessages, sentDispatchMessages),
+      paste.key,
+      Date.now()
+    )
+    logPerfEvent('SprintEngineAutoRun', paste.event, { ...base, ...paste.data, sessionId: session.sessionId })
+  }
+  let restarted = false
+  for (const restart of plan.restarts) {
+    const session = await findRunningAgentSession(workspace, restart.agentId)
+    if (!session) continue
+    await safeTerminalKill(defaultExecutorPorts, session.sessionId)
+    // Reset the wake budget so the replacement terminal is never kill-looped
+    // before it has a chance to claim.
+    sentContinuationMessages.current.delete(restart.key)
+    restarted = true
+    await defaultExecutorPorts.publishDiagnostic({
+      level: 'warning',
+      source: 'sprintengine',
+      title: restart.diagnostic.title,
+      message: restart.diagnostic.message,
+      details: restart.diagnostic.details,
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      taskId: restart.diagnostic.taskId,
+      agentId: restart.agentId,
+      sessionId: session.sessionId,
+    })
+    logPerfEvent('SprintEngineAutoRun', 'stalled-agent-restarted', { ...base, ...restart.data, sessionId: session.sessionId })
+  }
+  return restarted ? 'restarted' : 'none'
+}
+
+async function runSprintEngineDispatchPaths(input: {
+  workspace: Workspace
+  sprintEngineState: SprintEngineState
+  paths: SprintEngineDispatchPath[]
+  runningAgentIds: ReadonlySet<string>
+  idleAgentIds: ReadonlySet<string>
+  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
+  sentDispatchMessages: MutableRefObject<Map<string, RoleContinuationMessage>> | null
+}): Promise<'restarted' | 'none'> {
+  const plan = planSprintEngineDispatch({
+    workspace: input.workspace,
+    sprintEngineState: input.sprintEngineState,
+    now: Date.now(),
+    runningAgentIds: input.runningAgentIds,
+    idleAgentIds: input.idleAgentIds,
+    continuationLedger: input.sentContinuationMessages.current,
+    dispatchLedger: input.sentDispatchMessages?.current ?? new Map(),
+    paths: new Set(input.paths),
+  })
+  return executeSprintEngineDispatchPlan(
+    input.workspace,
+    plan,
+    input.sentContinuationMessages,
+    input.sentDispatchMessages
+  )
+}
+
 export async function sendContinuationPromptsToIdleAgents(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   continuationCapacity: RunningContinuationCapacity,
   sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
 ): Promise<void> {
-  if (continuationCapacity.agentIds.size === 0) return
-
-  const readyTasks = getSprintEngineWakeCandidateTasks(sprintEngineState)
-  if (readyTasks.length === 0) return
-
-  const now = Date.now()
-  const readyTaskIds = new Set(readyTasks.map((task) => task.id))
-  sentContinuationMessages.current.forEach((_, key) => {
-    const workKey = getContinuationMessageWorkKey(workspace, key)
-    if (!workKey || workKey.includes(':')) return
-    if (!readyTaskIds.has(workKey)) sentContinuationMessages.current.delete(key)
+  await runSprintEngineDispatchPaths({
+    workspace,
+    sprintEngineState,
+    paths: ['task_wake'],
+    runningAgentIds: new Set(),
+    idleAgentIds: continuationCapacity.agentIds,
+    sentContinuationMessages,
+    sentDispatchMessages: null,
   })
-
-  const reservedWakeCandidateTaskIds = new Set<string>()
-  for (const agentId of continuationCapacity.agentIds) {
-    const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
-    if (!runtimeAgent) continue
-
-    const task = findSprintEngineWakeCandidateTaskForAgent(
-      readyTasks,
-      runtimeAgent.role,
-      agentId,
-      reservedWakeCandidateTaskIds
-    )
-    if (!task) continue
-
-    const key = continuationMessageKey(workspace, task.id, agentId)
-    const previous = sentContinuationMessages.current.get(key)
-    if (promptRetryLimitReached(previous, AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)) {
-      logPerfEvent('SprintEngineAutoRun', 'continuation-prompt-retry-limit-reached', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        agentId,
-        role: runtimeAgent.role,
-        taskId: task.id,
-        attempts: previous?.attempts ?? 0,
-        maxRetries: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES,
-      })
-      continue
-    }
-    if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) {
-      reservedWakeCandidateTaskIds.add(task.id)
-      continue
-    }
-
-    const session = await findRunningAgentSession(workspace, agentId)
-    if (!session) continue
-
-    await writeBracketedPrompt(
-      defaultExecutorPorts,
-      session.sessionId,
-      buildSprintEngineContinuationPrompt(task, agentId),
-    )
-    recordPromptRetry(sentContinuationMessages.current, key, now)
-    reservedWakeCandidateTaskIds.add(task.id)
-    logPerfEvent('SprintEngineAutoRun', 'continuation-prompt-sent', {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      agentId,
-      role: runtimeAgent.role,
-      taskId: task.id,
-      sessionId: session.sessionId,
-    })
-  }
 }
 
-/**
- * Last-resort re-engagement for a roster agent whose CLI is alive but idle and
- * has stopped responding to wake-candidate prompts while it still has claimable
- * role work (e.g. a `changes_requested` task its reviewers handed back). Because
- * a live terminal makes the agent count as "running", `pickNextAutoRuns` will
- * not replace it, and the capped continuation prompts are the only other path —
- * so once that budget is exhausted the run stalls silently. Here we restart the
- * stalled terminal: killing it leaves the agent projection-idle with claimable
- * role work, so `pickNextAutoRuns` spawns a fresh terminal next tick that
- * claims the work through `sprintengine.agent.join`.
- *
- * Role-agnostic: applies to any role with a claimable wake task (implementer,
- * frontend, tester rework, …), not just frontend. Quality-gate stalls keep the
- * CLI-verdict completion route and are out of scope here.
- */
 export async function escalateStalledLiveIdleAgents(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   continuationCapacity: RunningContinuationCapacity,
   sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
 ): Promise<'restarted' | 'none'> {
-  if (continuationCapacity.agentIds.size === 0) return 'none'
-  const wakeTasks = getSprintEngineWakeCandidateTasks(sprintEngineState)
-  if (wakeTasks.length === 0) return 'none'
-
-  const now = Date.now()
-  let restarted = false
-  for (const agentId of continuationCapacity.agentIds) {
-    const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
-    if (!runtimeAgent) continue
-    // Only a genuinely idle agent — no claimed task, no active dispatch. If it
-    // had acted on a wake prompt it would already own the task and be excluded
-    // from the continuation capacity set.
-    if (runtimeAgent.status !== 'idle' || runtimeAgent.currentTaskId || runtimeAgent.currentDispatch) continue
-
-    const task = findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, new Set())
-    if (!task) continue
-
-    const key = continuationMessageKey(workspace, task.id, agentId)
-    const previous = sentContinuationMessages.current.get(key)
-    // Escalate only after the wake-candidate budget is exhausted AND the final
-    // prompt has had a full retry interval to land, so we never kill an agent
-    // that is about to wake and claim.
-    if (!previous || (previous.attempts ?? 0) < AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES) continue
-    if (now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
-
-    const session = await findRunningAgentSession(workspace, agentId)
-    if (!session) continue
-
-    await safeTerminalKill(defaultExecutorPorts, session.sessionId)
-    // Reset the wake budget for this task/agent. The fresh terminal that
-    // `pickNextAutoRuns` spawns next tick claims via join on startup;
-    // clearing the counter also guarantees we never kill-loop the replacement
-    // before it has a chance to claim.
-    sentContinuationMessages.current.delete(key)
-    restarted = true
-
-    await defaultExecutorPorts.publishDiagnostic({
-      level: 'warning',
-      source: 'sprintengine',
-      title: 'Restarted a stalled Sprint Engine agent',
-      message: `${runtimeAgent.role} had ready work on ${task.id} but its terminal stayed idle and stopped responding to wake prompts. Restarting it so the work can be claimed.`,
-      details: [
-        `Workspace: ${workspace.name}`,
-        `Agent: ${agentId} (${runtimeAgent.role})`,
-        `Task: ${task.id} - ${task.title}`,
-        `Wake prompts attempted before restart: ${previous.attempts ?? 0}`,
-      ].join('\n'),
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      taskId: task.id,
-      agentId,
-      sessionId: session.sessionId,
-    })
-    logPerfEvent('SprintEngineAutoRun', 'stalled-agent-restarted', {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      agentId,
-      role: runtimeAgent.role,
-      taskId: task.id,
-      sessionId: session.sessionId,
-      attempts: previous.attempts ?? 0,
-    })
-  }
-  return restarted ? 'restarted' : 'none'
+  return runSprintEngineDispatchPaths({
+    workspace,
+    sprintEngineState,
+    paths: ['restart'],
+    runningAgentIds: new Set(),
+    idleAgentIds: continuationCapacity.agentIds,
+    sentContinuationMessages,
+    sentDispatchMessages: null,
+  })
 }
 
 export async function sendGateContinuationPromptsToAgents(
@@ -934,128 +823,15 @@ export async function sendGateContinuationPromptsToAgents(
   continuationCapacity: RunningContinuationCapacity,
   sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
 ): Promise<void> {
-  const now = Date.now()
-  const usedIdleAgentIds = new Set<string>()
-  const gatedPhaseTasks = sprintEngineState.tasks.filter((task) => {
-    const column = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
-    return column === 'review' || column === 'testing' || column === 'product'
+  await runSprintEngineDispatchPaths({
+    workspace,
+    sprintEngineState,
+    paths: ['gate'],
+    runningAgentIds,
+    idleAgentIds: continuationCapacity.agentIds,
+    sentContinuationMessages,
+    sentDispatchMessages: null,
   })
-
-  for (const task of gatedPhaseTasks) {
-    for (const claim of getActiveSprintEngineAutoRunGateClaims(task, sprintEngineState.tasks)) {
-      const agentId = claim.claimedBy
-      if (!runningAgentIds.has(agentId)) continue
-      const key = continuationMessageKey(workspace, `${task.id}:${claim.gate.id}`, agentId)
-      const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
-      const attemptId = claim.gate.attempts.find((attempt) =>
-        attempt.status === 'in_progress' && attempt.claimedBy === agentId
-      )?.id
-      const dispatch = runtimeAgent?.currentDispatch
-      if (
-        (
-          dispatch?.targetKind === 'gate'
-          && dispatch.taskId === task.id
-          && dispatch.gateId === claim.gate.id
-        )
-        || runtimeAgentAlreadyOwnsGateClaim(runtimeAgent, task.id, claim.gate.id, attemptId)
-      ) {
-        sentContinuationMessages.current.delete(key)
-        logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-skipped', {
-          workspaceId: workspace.id,
-          workspaceName: workspace.name,
-          agentId,
-          role: claim.gate.role,
-          taskId: task.id,
-          gateId: claim.gate.id,
-          claimed: true,
-          reason: 'matching-current-dispatch',
-        })
-        continue
-      }
-      const previous = sentContinuationMessages.current.get(key)
-      if (promptRetryLimitReached(previous)) {
-        logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-retry-limit-reached', {
-          workspaceId: workspace.id,
-          workspaceName: workspace.name,
-          agentId,
-          role: claim.gate.role,
-          taskId: task.id,
-          gateId: claim.gate.id,
-          claimed: true,
-          attempts: previous?.attempts ?? 0,
-          maxRetries: AUTO_RUN_MAX_PROMPT_RETRIES,
-        })
-        continue
-      }
-      if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
-      const session = await findRunningAgentSession(workspace, agentId)
-      if (!session) continue
-      await writeBracketedPrompt(
-        defaultExecutorPorts,
-        session.sessionId,
-        buildSprintEngineGateContinuationPrompt(task, claim.gate, agentId, true),
-      )
-      recordPromptRetry(sentContinuationMessages.current, key, now)
-      logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-sent', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        agentId,
-        role: claim.gate.role,
-        taskId: task.id,
-        gateId: claim.gate.id,
-        claimed: true,
-        sessionId: session.sessionId,
-      })
-    }
-
-    for (const gate of getClaimableSprintEngineAutoRunGates(task, sprintEngineState.tasks)) {
-      const agentId = [...continuationCapacity.agentIds].find((candidateId) => {
-        if (usedIdleAgentIds.has(candidateId)) return false
-        const runtimeAgent = sprintEngineState.sprintEngineAgents[candidateId]
-        return runtimeAgent?.role === gate.role
-      })
-      if (!agentId) continue
-      const key = continuationMessageKey(workspace, `${task.id}:${gate.id}`, agentId)
-      const previous = sentContinuationMessages.current.get(key)
-      if (promptRetryLimitReached(previous, AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)) {
-        logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-retry-limit-reached', {
-          workspaceId: workspace.id,
-          workspaceName: workspace.name,
-          agentId,
-          role: gate.role,
-          taskId: task.id,
-          gateId: gate.id,
-          claimed: false,
-          attempts: previous?.attempts ?? 0,
-          maxRetries: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES,
-        })
-        continue
-      }
-      if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) {
-        usedIdleAgentIds.add(agentId)
-        continue
-      }
-      const session = await findRunningAgentSession(workspace, agentId)
-      if (!session) continue
-      await writeBracketedPrompt(
-        defaultExecutorPorts,
-        session.sessionId,
-        buildSprintEngineGateContinuationPrompt(task, gate, agentId, false),
-      )
-      recordPromptRetry(sentContinuationMessages.current, key, now)
-      usedIdleAgentIds.add(agentId)
-      logPerfEvent('SprintEngineAutoRun', 'gate-continuation-prompt-sent', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        agentId,
-        role: gate.role,
-        taskId: task.id,
-        gateId: gate.id,
-        claimed: false,
-        sessionId: session.sessionId,
-      })
-    }
-  }
 }
 
 export async function sendDispatchPromptsToRunningAgents(
@@ -1064,100 +840,14 @@ export async function sendDispatchPromptsToRunningAgents(
   runningAgentIds: Set<string>,
   sentDispatchMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
 ): Promise<void> {
-  const now = Date.now()
-  const activeKeys = new Set<string>()
-
-  for (const [agentId, runtimeAgent] of Object.entries(sprintEngineState.sprintEngineAgents)) {
-    const dispatch = runtimeAgent.currentDispatch
-    if (!dispatch || runtimeAgent.status === 'retired') continue
-    const key = sprintEngineDispatchDeliveryKey(workspace, agentId, dispatch)
-    activeKeys.add(key)
-    if (runtimeAgent.status === 'needs_input') {
-      sentDispatchMessages.current.delete(key)
-      logPerfEvent('SprintEngineAutoRun', 'dispatch-prompt-skipped-needs-input', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        agentId,
-        dispatchId: dispatch.dispatchId ?? null,
-        targetKind: dispatch.targetKind ?? null,
-        taskId: dispatch.taskId ?? null,
-        gateId: dispatch.gateId ?? null,
-      })
-      continue
-    }
-    if (!runningAgentIds.has(agentId)) continue
-    const previous = sentDispatchMessages.current.get(key)
-    if (promptRetryLimitReached(previous)) {
-      logPerfEvent('SprintEngineAutoRun', 'dispatch-prompt-retry-limit-reached', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        agentId,
-        role: dispatch.role ?? runtimeAgent.role,
-        dispatchId: dispatch.dispatchId ?? null,
-        targetKind: dispatch.targetKind ?? null,
-        taskId: dispatch.taskId ?? null,
-        gateId: dispatch.gateId ?? null,
-        attempts: previous?.attempts ?? 0,
-        maxRetries: AUTO_RUN_MAX_PROMPT_RETRIES,
-      })
-      continue
-    }
-    if (previous && now - previous.sentAt < AUTO_RUN_DISPATCH_PROMPT_RETRY_MS) continue
-    if (dispatch.taskId && runtimeAgent.currentTaskId && runtimeAgent.currentTaskId !== dispatch.taskId) {
-      logPerfEvent('SprintEngineAutoRun', 'dispatch-prompt-skipped-active-different-task', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        agentId,
-        dispatchId: dispatch.dispatchId ?? null,
-        dispatchTaskId: dispatch.taskId,
-        activeTaskId: runtimeAgent.currentTaskId,
-        targetKind: dispatch.targetKind ?? null,
-      })
-      continue
-    }
-    if (runtimeAgentAlreadyOwnsDispatchTarget(runtimeAgent, dispatch)) {
-      sentDispatchMessages.current.delete(key)
-      logPerfEvent('SprintEngineAutoRun', 'dispatch-prompt-skipped-active-target', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        agentId,
-        role: dispatch.role ?? runtimeAgent.role,
-        dispatchId: dispatch.dispatchId ?? null,
-        targetKind: dispatch.targetKind ?? null,
-        taskId: dispatch.taskId ?? null,
-        gateId: dispatch.gateId ?? null,
-      })
-      continue
-    }
-
-    const session = await findRunningAgentSession(workspace, agentId)
-    if (!session) continue
-    await writeBracketedPrompt(
-      defaultExecutorPorts,
-      session.sessionId,
-      buildSprintEngineDispatchPrompt({
-        role: dispatch.role ?? runtimeAgent.role,
-        agentId,
-        dispatch,
-      }),
-    )
-    recordPromptRetry(sentDispatchMessages.current, key, now)
-    logPerfEvent('SprintEngineAutoRun', 'dispatch-prompt-sent', {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      agentId,
-      role: dispatch.role ?? runtimeAgent.role,
-      dispatchId: dispatch.dispatchId ?? null,
-      targetKind: dispatch.targetKind ?? null,
-      taskId: dispatch.taskId ?? null,
-      gateId: dispatch.gateId ?? null,
-      sessionId: session.sessionId,
-    })
-  }
-
-  sentDispatchMessages.current.forEach((_, key) => {
-    if (!key.startsWith(`${workspace.sprintEngineContext?.statePath ?? workspace.id}:`)) return
-    if (!activeKeys.has(key)) sentDispatchMessages.current.delete(key)
+  await runSprintEngineDispatchPaths({
+    workspace,
+    sprintEngineState,
+    paths: ['dispatch'],
+    runningAgentIds,
+    idleAgentIds: new Set(),
+    sentContinuationMessages: sentDispatchMessages,
+    sentDispatchMessages,
   })
 }
 
