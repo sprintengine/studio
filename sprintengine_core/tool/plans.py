@@ -225,6 +225,22 @@ def find_architect_plan_gate(state: Dict[str, Any], state_path: Path) -> Dict[st
 
     return {"task": plan_task, "artifact": plan_artifact}
 
+def apply_plan_gate_dependency(task: Dict[str, Any], state: Dict[str, Any], state_path: Path) -> None:
+    """Planned work is gated on plan approval: a newly created task with no
+    dependencies roots on the architect plan gate task, so nothing becomes
+    claimable before the plan is approved and the task graph stays rooted at
+    the plan review. Tasks created with explicit dependencies are covered
+    transitively — every dependency chain terminates at a gated root."""
+    if task.get("dependsOn"):
+        return
+    gate_task = find_architect_plan_gate(state, state_path).get("task")
+    if not isinstance(gate_task, dict):
+        return
+    gate_id = str(gate_task.get("id") or "").strip()
+    if not gate_id or gate_id == str(task.get("id") or "").strip():
+        return
+    task["dependsOn"] = [gate_id]
+
 def ensure_product_intake_gate(state: Dict[str, Any], state_path: Path, actor: str = "product") -> Dict[str, Any]:
     requirements_path_value = product_intake_path_artifact_value(state_path)
     handover_note = product_intake_handover_note(state_path)
