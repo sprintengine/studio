@@ -103,7 +103,7 @@ export function StageArtifactsPane({
                 onClick={() => onSelect(file.entry)}
                 onFocus={() => setFocusIndex(index)}
                 className={`
-                  flex cursor-pointer items-center gap-2 border-l-2 py-2 pl-2.5 pr-3 outline-none
+                  flex min-h-[32px] cursor-pointer items-center gap-2 border-l-2 py-1.5 pl-2.5 pr-3 outline-none
                   transition-colors
                   focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--accent-primary)]
                   ${
@@ -113,19 +113,14 @@ export function StageArtifactsPane({
                   }
                 `}
               >
-                <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                  <span
-                    className={`truncate font-mono text-[12px] ${
-                      isSelected
-                        ? 'text-[color:var(--text-strong)]'
-                        : 'text-[color:var(--text-default)]'
-                    }`}
-                  >
-                    {file.entry.name}
-                  </span>
-                  <span className="truncate font-mono text-[11px] text-[color:var(--text-muted)]">
-                    {file.entry.relativePath}
-                  </span>
+                <span
+                  className={`min-w-0 flex-1 truncate font-mono text-[12px] ${
+                    isSelected
+                      ? 'text-[color:var(--text-strong)]'
+                      : 'text-[color:var(--text-default)]'
+                  }`}
+                >
+                  {file.entry.name}
                 </span>
                 <span
                   className={`shrink-0 text-[11px] ${

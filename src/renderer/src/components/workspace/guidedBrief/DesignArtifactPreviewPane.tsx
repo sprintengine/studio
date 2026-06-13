@@ -62,7 +62,7 @@ function PreviewHeader({
         {relativePath}
       </span>
       <span className="flex shrink-0 items-center gap-2">
-        <span className="font-mono text-[10px] text-[color:var(--text-muted)]">{typeLabel}</span>
+        <span className="text-[11px] text-[color:var(--text-muted)]">{typeLabel}</span>
         {onReload ? (
           <button
             type="button"

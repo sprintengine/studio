@@ -238,7 +238,7 @@ export function HtmlArtifactFrame({
                 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
               "
             >
-              <svg viewBox="0 0 16 16" fill="none" width="12" height="12" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                 <path d="M13 8a5 5 0 1 1-1.5-3.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                 <path d="M13 1.8v3h-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -255,7 +255,7 @@ export function HtmlArtifactFrame({
                 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
               "
             >
-              <svg viewBox="0 0 16 16" fill="none" width="12" height="12" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                 <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
                 <path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" stroke="currentColor" strokeWidth="1.4" />
               </svg>

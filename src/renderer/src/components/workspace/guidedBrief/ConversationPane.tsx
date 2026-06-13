@@ -108,7 +108,7 @@ export function ConversationPane({
             </div>
             {interviewActive ? (
               <div className="flex shrink-0 items-center gap-2 border-t border-[color:var(--border-subtle)] px-3 py-1.5">
-                <span className="truncate font-mono text-[11px] text-[color:var(--text-subtle)]">
+                <span className="truncate text-[11px] text-[color:var(--text-subtle)]">
                   Terminal · live
                 </span>
                 <button
