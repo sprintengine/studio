@@ -82,11 +82,14 @@ const defaultSprintEngineRoleCliDefaults = (): Required<SprintEngineRoleCliDefau
   architect: 'claude-code',
   product: 'claude-code',
   frontend: 'claude-code',
+  ui_ux_reviewer: 'claude-code',
   developer: 'claude-code',
   code_reviewer: 'claude-code',
+  nuclear_reviewer: 'claude-code',
   spec_reviewer: 'claude-code',
   performance: 'claude-code',
   production_readiness_reviewer: 'claude-code',
+  cross_platform: 'claude-code',
   tester: 'claude-code',
   security: 'claude-code',
 })
@@ -109,15 +112,18 @@ export function normalizeSprintEngineRoleCliDefaults(
   return next
 }
 
-function requireSprintEngineRoleCli(
+function resolveSprintEngineRoleCli(
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>,
   role: SprintEngineRoleId
 ): AgentCli {
   const cli = roleCliDefaults[role]
-  if (typeof cli !== 'string' || !cli.trim()) {
-    throw new Error(`Missing Sprint Engine CLI default for role "${role}".`)
-  }
-  return cli
+  if (typeof cli === 'string' && cli.trim()) return cli.trim()
+  // SprintEngineRoleId is open-ended (custom/user-defined roles), so a role
+  // missing from the defaults map must never throw — that would abort workspace
+  // creation or roster-member addition for an otherwise valid run. Fall back to
+  // the team's architect CLI (always present after normalization), else the
+  // universal default.
+  return roleCliDefaults.architect?.trim() || 'claude-code'
 }
 
 function normalizeSprintEngineAutoPendingSpawn(
@@ -666,7 +672,7 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         const agentRoleLabel = rosterAgent?.label ?? agentId
         const agentLabel = pickWorkspaceAgentName(ws.agents)
         const roleCliDefaults = normalizeSprintEngineRoleCliDefaults(ws.sprintEngineRoleCliDefaults)
-        const memberCli = requireSprintEngineRoleCli(roleCliDefaults, role)
+        const memberCli = resolveSprintEngineRoleCli(roleCliDefaults, role)
         ws.agents[agentId] = {
           ...defaultAgent(agentId, agentLabel, 'sprintengine'),
           cli: memberCli,

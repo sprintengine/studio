@@ -187,6 +187,7 @@ const initialSprintEngineRoleCliDefaults: Required<SprintEngineRoleCliDefaults> 
   ui_ux_reviewer: 'claude-code',
   developer: 'claude-code',
   code_reviewer: 'claude-code',
+  nuclear_reviewer: 'claude-code',
   spec_reviewer: 'claude-code',
   performance: 'claude-code',
   production_readiness_reviewer: 'claude-code',

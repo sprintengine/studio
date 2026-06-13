@@ -365,15 +365,19 @@ function normalizeWindowAssignments(state: WorkspacesSliceCarrier): void {
   )
 }
 
-function requireSprintEngineRoleCli(
+function resolveSprintEngineRoleCli(
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>,
   role: SprintEngineRoleId
 ): AgentCli {
   const cli = roleCliDefaults[role]
-  if (typeof cli !== 'string' || !cli.trim()) {
-    throw new Error(`Missing Sprint Engine CLI default for role "${role}".`)
-  }
-  return cli
+  if (typeof cli === 'string' && cli.trim()) return cli.trim()
+  // SprintEngineRoleId is open-ended (custom/user-defined roles), so a role
+  // missing from the defaults map must never throw here: addWorkspace runs
+  // AFTER initializeSprintEngineState has already written run.yaml and (in
+  // worktree mode) created the git worktree+branch, so a throw orphans a real
+  // on-disk run with no workspace. Fall back to the team's architect CLI
+  // (always present after normalization), else the universal default.
+  return roleCliDefaults.architect?.trim() || 'claude-code'
 }
 
 type LayoutAgentTabNode = {
@@ -894,7 +898,7 @@ export function createWorkspacesSlice(
             const overrideCli = options?.sprintEngineAgentCliOverrides?.[agent.id]
             const rosterCli = typeof overrideCli === 'string' && overrideCli.trim()
               ? overrideCli.trim()
-              : requireSprintEngineRoleCli(sprintEngineRoleCliDefaults, agent.role)
+              : resolveSprintEngineRoleCli(sprintEngineRoleCliDefaults, agent.role)
             // An explicit roster model choice wins; null means the user picked
             // "CLI default" (no flag); absent keeps the legacy seeding from the
             // remembered per-CLI model default.
