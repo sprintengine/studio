@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { StatusDot, Tabs, type TabItem } from '../../ui'
+import { Tabs, type TabItem } from '../../ui'
 import type { DesignerMockupFile } from './useDesignerSession'
 
 type Props = {
@@ -278,8 +278,7 @@ export function MockupPreviewPane({ mockups, watchDirectoryPath }: Props) {
         <span className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
           Your screens
         </span>
-        <span className="inline-flex items-center gap-1.5 truncate text-[12px] text-[color:var(--text-muted)]">
-          <StatusDot tone="good" />
+        <span className="truncate text-[12px] text-[color:var(--text-muted)]">
           {mockups.length} screen{mockups.length === 1 ? '' : 's'} ready
         </span>
       </header>

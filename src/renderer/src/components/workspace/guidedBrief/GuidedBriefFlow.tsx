@@ -14,7 +14,7 @@ import {
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
 import { applyUserDisabledSprintEngineRoleCounts } from '../../../utils/sprintengine'
-import { CloseIconButton, StatusDot, Tabs, Tooltip, WizardProgress, type TabItem } from '../../ui'
+import { CloseIconButton, Tabs, Tooltip, WizardProgress, type TabItem } from '../../ui'
 import { RosterAndRunSettings } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
 import { MockupPreviewPane } from './MockupPreviewPane'
@@ -578,7 +578,7 @@ export function GuidedBriefFlow({
             session={strategist.session}
             starting={strategist.status === 'starting' || strategist.status === 'idle'}
             errorMessage={strategist.error}
-            isLive={strategist.status === 'running' || strategist.status === 'ready'}
+            working={stage === 'strategist-working'}
             requirementsPath={strategist.requirementsPath}
             productDirectoryPath={joinWorkspacePath(workspaceRoot, 'product')}
           />
@@ -588,7 +588,7 @@ export function GuidedBriefFlow({
             session={architect.session}
             starting={architect.status === 'starting' || architect.status === 'idle'}
             errorMessage={architect.error}
-            isLive={architect.status === 'running' || architect.status === 'ready'}
+            working={stage === 'architect-working'}
             architecturePlanPath={architect.architecturePlanPath}
             architectureDirectoryPath={joinWorkspacePath(workspaceRoot, 'architecture')}
           />
@@ -597,7 +597,7 @@ export function GuidedBriefFlow({
             session={designer.session}
             starting={designer.status === 'starting' || designer.status === 'idle'}
             errorMessage={designer.error}
-            isLive={designer.status === 'running' || designer.status === 'ready'}
+            working={stage === 'designer-working'}
             mockupCount={designer.mockups.length}
             designArtifacts={designer.designArtifacts}
             designArtifactsStatus={designer.designArtifactsStatus}
@@ -610,7 +610,7 @@ export function GuidedBriefFlow({
             session={designer.session}
             starting={designer.status === 'starting' || designer.status === 'idle'}
             errorMessage={designer.error}
-            isLive={designer.status === 'running' || designer.status === 'ready'}
+            working={stage === 'designer-working'}
             mockups={designer.mockups}
             uiDirectionPath={designer.uiDirectionPath}
             productDirectoryPath={joinWorkspacePath(workspaceRoot, 'product')}
@@ -666,9 +666,21 @@ export function GuidedBriefFlow({
 }
 
 function formatAcceptError(error: unknown, kind: 'brief' | 'plan' | 'mockup'): string {
-  if (error instanceof GuidedBriefWorkspaceError) return `Could not snapshot the ${kind} (${error.code}).`
+  if (error instanceof GuidedBriefWorkspaceError) {
+    switch (error.code) {
+      case 'missing-source':
+        return `Could not save the ${kind} snapshot. The source file is missing or empty — ask the specialist to rewrite it, then accept again. (${error.code})`
+      case 'missing-root':
+      case 'missing-idea':
+        return `Could not save the ${kind} snapshot. The workspace state is incomplete — reopen the workspace and try again. (${error.code})`
+      case 'missing-crypto':
+        return `Could not save the ${kind} snapshot. Content hashing is unavailable in this environment — restart the app and try again. (${error.code})`
+      case 'mockups-required':
+        return `Could not write the build handoff. No mockups have been accepted — accept the design first. (${error.code})`
+    }
+  }
   if (error instanceof Error) return error.message
-  return `Could not snapshot the ${kind}.`
+  return `Could not save the ${kind} snapshot.`
 }
 
 function titleForMockup(mockup: DesignerMockupFile): string {
@@ -726,7 +738,7 @@ function renderPrimaryAction({
     const disabled = !strategist.readiness.fileReady || accepting
     return (
       <PrimaryButton onClick={onAcceptStrategist} disabled={disabled}>
-        {accepting ? 'Accepting…' : 'Accept · continue'}
+        {accepting ? 'Accepting…' : 'Accept brief'}
       </PrimaryButton>
     )
   }
@@ -734,18 +746,18 @@ function renderPrimaryAction({
     const disabled = !architect.readiness.fileReady || accepting
     return (
       <PrimaryButton onClick={onAcceptArchitect} disabled={disabled}>
-        {accepting ? 'Accepting…' : 'Accept · continue'}
+        {accepting ? 'Accepting…' : 'Accept plan'}
       </PrimaryButton>
     )
   }
   if (stage === 'designer-ready') {
     const disabled = !designer.readiness.mockupsAvailable || !designer.readiness.uiDirectionReady || accepting
     const blockers: string[] = []
-    if (!designer.readiness.mockupsAvailable) blockers.push('mockups/*.html')
-    if (!designer.readiness.uiDirectionReady) blockers.push('product/ui-direction.md')
+    if (!designer.readiness.mockupsAvailable) blockers.push('the screens')
+    if (!designer.readiness.uiDirectionReady) blockers.push('the UI direction')
     const button = (
       <PrimaryButton onClick={onAcceptDesigner} disabled={disabled}>
-        {accepting ? 'Accepting…' : 'Accept · continue'}
+        {accepting ? 'Accepting…' : 'Accept design'}
       </PrimaryButton>
     )
     return disabled && blockers.length > 0 ? (
@@ -763,12 +775,12 @@ function renderPrimaryAction({
   }
   const waitingReason =
     stage === 'designer-working'
-      ? 'Waiting for mockups/app.html and product/ui-direction.md, or the MOCKUP_SET_READY marker.'
+      ? 'The designer is still producing the screens and UI direction.'
       : stage === 'architect-working'
-        ? 'Waiting for architecture/plan.md, or the ARCHITECTURE_PLAN_READY marker.'
+        ? 'The architect is still writing the plan.'
       : stage === 'strategist-working'
-        ? 'Waiting for product/requirements.md, or the BRIEF_READY marker.'
-        : 'Waiting for the agent to finish.'
+        ? 'The strategist is still writing the brief.'
+        : 'The agent is still working.'
   return (
     <Tooltip content={waitingReason}>
       <button
@@ -792,22 +804,13 @@ function DesignerReadinessHint({
 }: {
   readiness: ReturnType<typeof useDesignerSession>['readiness']
 }) {
-  const items: Array<{ label: string; ready: boolean }> = [
-    { label: 'marker', ready: readiness.markerReceived },
-    { label: 'mockup', ready: readiness.mockupsAvailable },
-    { label: 'ui direction', ready: readiness.uiDirectionReady },
-  ]
+  const waitingFor: string[] = []
+  if (!readiness.mockupsAvailable) waitingFor.push('the screens')
+  if (!readiness.uiDirectionReady) waitingFor.push('the UI direction')
+  if (waitingFor.length === 0) return null
   return (
-    <span
-      aria-label="Designer readiness"
-      className="inline-flex shrink-0 items-center gap-2 font-mono text-[11px] text-[color:var(--text-subtle)]"
-    >
-      {items.map((item) => (
-        <span key={item.label} className="inline-flex items-center gap-1">
-          <StatusDot tone={item.ready ? 'good' : 'neutral'} />
-          <span>{item.label}</span>
-        </span>
-      ))}
+    <span className="shrink-0 truncate text-[12px] text-[color:var(--text-subtle)]">
+      Waiting for {waitingFor.join(' and ')}.
     </span>
   )
 }
@@ -880,7 +883,7 @@ function StrategistBody({
   session,
   starting,
   errorMessage,
-  isLive,
+  working,
   requirementsPath,
   productDirectoryPath,
 }: {
@@ -888,7 +891,7 @@ function StrategistBody({
   session: ReturnType<typeof useStrategistSession>['session']
   starting: boolean
   errorMessage: string | null
-  isLive: boolean
+  working: boolean
   requirementsPath: string
   productDirectoryPath: string
 }) {
@@ -910,7 +913,7 @@ function StrategistBody({
             ? 'Brief ready · ask anything else if needed'
             : 'Asking about the idea — answer in the terminal'
         }
-        isLive={isLive}
+        working={working}
       />
       {ready ? (
         <RenderedBriefPane briefPath={requirementsPath} watchDirectoryPath={productDirectoryPath} />
@@ -924,7 +927,7 @@ function ArchitectBody({
   session,
   starting,
   errorMessage,
-  isLive,
+  working,
   architecturePlanPath,
   architectureDirectoryPath,
 }: {
@@ -932,7 +935,7 @@ function ArchitectBody({
   session: ReturnType<typeof useArchitectSession>['session']
   starting: boolean
   errorMessage: string | null
-  isLive: boolean
+  working: boolean
   architecturePlanPath: string
   architectureDirectoryPath: string
 }) {
@@ -954,7 +957,7 @@ function ArchitectBody({
             ? 'Plan ready · ask anything else if needed'
             : 'Resolving architecture decisions — answer in the terminal'
         }
-        isLive={isLive}
+        working={working}
       />
       {ready ? (
         <RenderedBriefPane briefPath={architecturePlanPath} watchDirectoryPath={architectureDirectoryPath} />
@@ -968,7 +971,7 @@ function DesignerBody({
   session,
   starting,
   errorMessage,
-  isLive,
+  working,
   mockups,
   uiDirectionPath,
   productDirectoryPath,
@@ -978,7 +981,7 @@ function DesignerBody({
   session: ReturnType<typeof useDesignerSession>['session']
   starting: boolean
   errorMessage: string | null
-  isLive: boolean
+  working: boolean
   mockups: DesignerMockupFile[]
   uiDirectionPath: string
   productDirectoryPath: string
@@ -1002,7 +1005,7 @@ function DesignerBody({
             ? `${mockups.length} screen${mockups.length === 1 ? '' : 's'} ready · ask for a change anytime`
             : 'Drafting the screens — describe what you want in the terminal'
         }
-        isLive={isLive}
+        working={working}
       />
       {ready ? (
         <DesignerReviewPane
@@ -1026,7 +1029,7 @@ function DesignStudioBody({
   session,
   starting,
   errorMessage,
-  isLive,
+  working,
   mockupCount,
   designArtifacts,
   designArtifactsStatus,
@@ -1036,7 +1039,7 @@ function DesignStudioBody({
   session: ReturnType<typeof useDesignerSession>['session']
   starting: boolean
   errorMessage: string | null
-  isLive: boolean
+  working: boolean
   mockupCount: number
   designArtifacts: DesignArtifactIndex
   designArtifactsStatus: DesignArtifactsStatus
@@ -1058,7 +1061,7 @@ function DesignStudioBody({
               ? `${mockupCount} screen${mockupCount === 1 ? '' : 's'} on disk · ask for changes anytime`
               : 'Describe the screens you want — files and preview update as they’re written'
           }
-          isLive={isLive}
+          working={working}
         />
       </div>
       <div className="flex min-h-[260px] min-w-0 flex-col lg:min-h-0">

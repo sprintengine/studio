@@ -1,4 +1,4 @@
-import { StatusDot } from '../../ui'
+import { Spinner } from '../../ui'
 import { GuidedBriefRawTerminal } from './GuidedBriefRawTerminal'
 import type { GuidedBriefSpecialistSession } from './sessionAdapter'
 
@@ -8,7 +8,7 @@ type Props = {
   errorMessage: string | null
   specialistName: string
   specialistSubline: string
-  isLive: boolean
+  working: boolean
 }
 
 export function ConversationPane({
@@ -17,7 +17,7 @@ export function ConversationPane({
   errorMessage,
   specialistName,
   specialistSubline,
-  isLive,
+  working,
 }: Props) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -39,12 +39,7 @@ export function ConversationPane({
             {specialistSubline}
           </span>
         </div>
-        {isLive ? (
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[color:var(--text-muted)]">
-            <StatusDot tone="good" pulse />
-            Live
-          </span>
-        ) : null}
+        {working && session && !errorMessage ? <Spinner size={14} label="Working" /> : null}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)]">

@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { StatusDot } from '../../ui'
 import { renderMarkdown } from '../../../utils/markdown'
 
 type Props = {
@@ -116,10 +115,7 @@ export function RenderedBriefPane({
           </span>
           <span className="inline-flex items-center gap-1.5 truncate text-[12px] text-[color:var(--text-muted)]">
             {state.kind === 'ready' ? (
-              <>
-                <StatusDot tone="good" />
-                <span className="font-mono">{relativePath}</span>
-              </>
+              <span className="font-mono">{relativePath}</span>
             ) : state.kind === 'loading' ? (
               'Loading the brief…'
             ) : (
