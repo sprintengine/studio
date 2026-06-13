@@ -9,6 +9,7 @@ import type {
   SprintEngineRoleRegistry,
 } from '../../../types/workspace'
 import {
+  guidedBriefSnapshotSlug,
   snapshotGuidedBriefArtifact,
   GuidedBriefWorkspaceError,
   writeGuidedBriefBuildHandoff,
@@ -321,6 +322,7 @@ export function GuidedBriefFlow({
         workspaceRoot,
         sourcePath: strategist.requirementsPath,
         kind: 'product',
+        slug: 'product-brief',
         filesystem: {
           ensureDir: window.api.ensureDir,
           readFile: window.api.readfile,
@@ -342,6 +344,7 @@ export function GuidedBriefFlow({
             workspaceRoot,
             sourcePath: strategist.overviewPath,
             kind: 'overview',
+            slug: 'product-overview',
             filesystem: {
               ensureDir: window.api.ensureDir,
               readFile: window.api.readfile,
@@ -412,6 +415,8 @@ export function GuidedBriefFlow({
         workspaceRoot,
         sourcePath: architect.architecturePlanPath,
         kind: 'product',
+        slug: 'architecture-plan',
+        directory: 'architecture',
         filesystem: {
           ensureDir: window.api.ensureDir,
           readFile: window.api.readfile,
@@ -432,6 +437,8 @@ export function GuidedBriefFlow({
             workspaceRoot,
             sourcePath: architect.overviewPath,
             kind: 'overview',
+            slug: 'architecture-overview',
+            directory: 'architecture',
             filesystem: {
               ensureDir: window.api.ensureDir,
               readFile: window.api.readfile,
@@ -505,6 +512,7 @@ export function GuidedBriefFlow({
         workspaceRoot,
         sourcePath: designer.uiDirectionPath,
         kind: 'product',
+        slug: 'ui-direction',
         filesystem: {
           ensureDir: window.api.ensureDir,
           readFile: window.api.readfile,
@@ -522,6 +530,7 @@ export function GuidedBriefFlow({
           workspaceRoot,
           sourcePath: mockup.absolutePath,
           kind: 'mockup',
+          slug: guidedBriefSnapshotSlug(mockup.name.replace(/\.html?$/i, '')),
           filesystem: {
             ensureDir: window.api.ensureDir,
             readFile: window.api.readfile,

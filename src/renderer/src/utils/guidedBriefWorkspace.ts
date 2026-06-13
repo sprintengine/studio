@@ -31,6 +31,10 @@ export type GuidedBriefSnapshotInput = {
   workspaceRoot: string
   sourcePath: string
   kind: GuidedBriefSnapshotKind
+  /** Human-readable filename prefix, e.g. `product-brief`. Bare hash when omitted. */
+  slug?: string
+  /** Override the `.versions` parent (e.g. `architecture` for the plan). */
+  directory?: 'product' | 'mockups' | 'architecture'
   filesystem: GuidedBriefFilesystem
 }
 
@@ -160,12 +164,30 @@ async function sha256Hex(content: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
-function snapshotFileName(kind: GuidedBriefSnapshotKind, hash: string): string {
-  return `${hash}.${kind === 'product' ? 'md' : 'html'}`
+// Slug-prefixed names keep snapshots human-readable on disk
+// (`product-brief-3fc8a1b2c4d5.md` instead of a bare 64-char hash). Legacy
+// bare-hash snapshots from existing workspaces stay valid: consumers treat
+// the stored path + hash as an opaque pair.
+export function guidedBriefSnapshotSlug(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48)
 }
 
-function snapshotDirectory(kind: GuidedBriefSnapshotKind): 'product' | 'mockups' {
-  return kind === 'mockup' ? 'mockups' : 'product'
+function snapshotFileName(kind: GuidedBriefSnapshotKind, hash: string, slug?: string): string {
+  const extension = kind === 'product' ? 'md' : 'html'
+  return slug ? `${slug}-${hash.slice(0, 12)}.${extension}` : `${hash}.${extension}`
+}
+
+type GuidedBriefSnapshotDirectory = 'product' | 'mockups' | 'architecture'
+
+function snapshotDirectory(
+  kind: GuidedBriefSnapshotKind,
+  directory?: GuidedBriefSnapshotDirectory,
+): GuidedBriefSnapshotDirectory {
+  return directory ?? (kind === 'mockup' ? 'mockups' : 'product')
 }
 
 export function buildGuidedBriefIdeaSeedMarkdown(idea: string, hasUi: GuidedBriefHasUi): string {
@@ -213,20 +235,24 @@ export async function snapshotGuidedBriefArtifact({
   workspaceRoot,
   sourcePath,
   kind,
+  slug,
+  directory,
   filesystem,
 }: GuidedBriefSnapshotInput): Promise<GuidedBriefSnapshot> {
   const root = trimRequired(workspaceRoot, 'missing-root')
   const trimmedSource = trimRequired(sourcePath, 'missing-source')
   const content = await filesystem.readFile(trimmedSource)
   const hash = await sha256Hex(content)
+  const resolvedDirectory = snapshotDirectory(kind, directory)
+  const fileName = snapshotFileName(kind, hash, slug)
   const versionsDirectoryPath = await filesystem.ensureDir(
-    await filesystem.ensureDir(root, snapshotDirectory(kind)),
+    await filesystem.ensureDir(root, resolvedDirectory),
     '.versions',
   )
-  const relativePath = projectPath(snapshotDirectory(kind), '.versions', snapshotFileName(kind, hash))
+  const relativePath = projectPath(resolvedDirectory, '.versions', fileName)
   const snapshotPath = joinWorkspacePath(root, relativePath)
 
-  await filesystem.writeFile(joinWorkspacePath(versionsDirectoryPath, snapshotFileName(kind, hash)), content)
+  await filesystem.writeFile(joinWorkspacePath(versionsDirectoryPath, fileName), content)
 
   return {
     hash,
