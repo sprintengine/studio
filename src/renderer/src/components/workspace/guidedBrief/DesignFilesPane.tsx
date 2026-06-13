@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Tooltip } from '../../ui'
+import { formatRelativeTime } from '../../../utils/time'
 import type {
   DesignArtifactEntry,
   DesignArtifactIndex,
@@ -49,16 +51,11 @@ function CenteredState({
   )
 }
 
-function formatModifiedTime(value: string | null | undefined): string | null {
-  if (!value) return null
-  const timestamp = Date.parse(value)
-  if (!Number.isFinite(timestamp)) return null
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(timestamp))
+// Show the path line only when it disambiguates — a nested file whose name
+// alone doesn't say where it lives. Top-level entries (mockups/app.html,
+// product/ui-direction.md) read fine from the group + name.
+function isNestedArtifact(entry: DesignArtifactEntry): boolean {
+  return entry.relativePath.split('/').length > 2
 }
 
 export function DesignFilesPane({ index, status, selectedPath, onSelect }: Props) {
@@ -175,7 +172,8 @@ export function DesignFilesPane({ index, status, selectedPath, onSelect }: Props
                     flatIndex += 1
                     const rowIndex = flatIndex
                     const isSelected = entry.relativePath === selectedPath
-                    const modifiedTime = formatModifiedTime(entry.modifiedAt)
+                    const modifiedTime = formatRelativeTime(entry.modifiedAt)
+                    const nested = isNestedArtifact(entry)
                     return (
                       <div
                         key={entry.relativePath}
@@ -188,7 +186,7 @@ export function DesignFilesPane({ index, status, selectedPath, onSelect }: Props
                         onClick={() => onSelect(entry)}
                         onFocus={() => setFocusIndex(rowIndex)}
                         className={`
-                          flex cursor-pointer items-center gap-2 border-l-2 py-1.5 pl-2.5 pr-3 outline-none
+                          flex min-h-[32px] cursor-pointer items-center gap-2 border-l-2 py-1.5 pl-2.5 pr-3 outline-none
                           transition-colors
                           focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--accent-primary)]
                           ${
@@ -208,18 +206,22 @@ export function DesignFilesPane({ index, status, selectedPath, onSelect }: Props
                           >
                             {entry.name}
                           </span>
-                          <span className="truncate font-mono text-[11px] text-[color:var(--text-muted)]">
-                            {entry.relativePath}
-                          </span>
+                          {nested ? (
+                            <span className="truncate font-mono text-[11px] text-[color:var(--text-subtle)]">
+                              {entry.relativePath}
+                            </span>
+                          ) : null}
                         </span>
-                        <span className="flex shrink-0 flex-col items-end gap-0.5">
-                          <span className="font-mono text-[10px] text-[color:var(--text-muted)]">
+                        <span className="flex shrink-0 items-baseline gap-2">
+                          <span className="text-[11px] text-[color:var(--text-muted)]">
                             {entry.typeLabel}
                           </span>
                           {modifiedTime ? (
-                            <span className="font-mono text-[10px] text-[color:var(--text-subtle)]">
-                              {modifiedTime}
-                            </span>
+                            <Tooltip content={entry.modifiedAt ? new Date(entry.modifiedAt).toLocaleString() : ''}>
+                              <span className="text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+                                {modifiedTime}
+                              </span>
+                            </Tooltip>
                           ) : null}
                         </span>
                       </div>
