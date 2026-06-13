@@ -44,11 +44,13 @@ async function main(): Promise<void> {
     const copyInto = ipcMain.handlers.get('fs:copy-into')
     const createWorkspaceFolder = ipcMain.handlers.get('fs:create-workspace-folder')
     const renamePath = ipcMain.handlers.get('fs:rename')
+    const movePath = ipcMain.handlers.get('fs:move')
     const deletePath = ipcMain.handlers.get('fs:delete')
     assert.ok(writeBinaryFile, 'binary write handler should be registered')
     assert.ok(copyInto, 'basename-preserving copy handler should be registered')
     assert.ok(createWorkspaceFolder, 'workspace folder creation handler should be registered')
     assert.ok(renamePath, 'rename handler should be registered')
+    assert.ok(movePath, 'move handler should be registered')
     assert.ok(deletePath, 'delete handler should be registered')
 
     const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x00])
@@ -150,6 +152,40 @@ async function main(): Promise<void> {
       'invalid rename names are rejected before guard or filesystem mutation',
     )
     assert.equal(await readFile(renameSource, 'utf-8'), '# Plan\n', 'invalid rename attempts leave source file in place')
+
+    const moveSourceDir = join(tempRoot, 'move-source')
+    const moveDestinationDir = join(tempRoot, 'move-destination')
+    await mkdir(moveSourceDir)
+    await mkdir(moveDestinationDir)
+    const moveSourceFile = join(moveSourceDir, 'notes.md')
+    await writeFile(moveSourceFile, '# Notes\n', 'utf-8')
+
+    const movedFilePath = await movePath(null, moveSourceFile, moveDestinationDir)
+    assert.equal(movedFilePath, join(moveDestinationDir, 'notes.md'), 'move returns the file path under the destination directory')
+    assert.equal(await readFile(movedFilePath, 'utf-8'), '# Notes\n', 'move carries file content to destination')
+    await assert.rejects(
+      () => stat(moveSourceFile),
+      /ENOENT/,
+      'move removes the original file path',
+    )
+
+    const collisionSource = join(moveSourceDir, 'notes.md')
+    await writeFile(collisionSource, '# Collision\n', 'utf-8')
+    await assert.rejects(
+      () => movePath(null, collisionSource, moveDestinationDir),
+      /already exists/,
+      'move rejects destination name collisions',
+    )
+    assert.equal(await readFile(collisionSource, 'utf-8'), '# Collision\n', 'collision leaves source file in place')
+
+    const moveParentDir = join(tempRoot, 'move-parent')
+    const nestedDestinationDir = join(moveParentDir, 'nested')
+    await mkdir(nestedDestinationDir, { recursive: true })
+    await assert.rejects(
+      () => movePath(null, moveParentDir, nestedDestinationDir),
+      /Cannot move a file or folder into itself\./,
+      'move rejects moving a folder into its own child',
+    )
   } finally {
     await rm(tempRoot, { force: true, recursive: true })
   }

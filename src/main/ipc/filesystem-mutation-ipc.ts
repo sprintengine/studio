@@ -1,6 +1,6 @@
 import type { IpcMain } from 'electron'
 import { cp, mkdir, rename, writeFile } from 'fs/promises'
-import { basename, dirname, join } from 'path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'path'
 
 type FilesystemMutationIpcDependencies = {
   assertNotDirectSprintEngineStateMutation(targetPath: string): Promise<void>
@@ -41,6 +41,13 @@ function normalizeRenamedFileSystemEntryName(rawName: string): string {
     throw new Error('That file or folder name is reserved by Windows.')
   }
   return name
+}
+
+function isPathInsideOrEqual(childPath: string, parentPath: string): boolean {
+  const child = resolve(childPath)
+  const parent = resolve(parentPath)
+  const rel = relative(parent, child)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
 export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: FilesystemMutationIpcDependencies): void {
@@ -130,6 +137,26 @@ export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: Filesystem
       recursive: true,
     })
 
+    return destinationPath
+  })
+
+  ipcMain.handle('fs:move', async (_, sourcePath: string, destinationDir: string): Promise<string> => {
+    if (isPathInsideOrEqual(destinationDir, sourcePath)) {
+      throw new Error('Cannot move a file or folder into itself.')
+    }
+
+    const sourceName = basename(sourcePath)
+    const destinationPath = join(destinationDir, sourceName)
+    if (destinationPath === sourcePath) return sourcePath
+
+    await deps.assertNotDirectSprintEngineStateMutation(sourcePath)
+    await deps.assertNotDirectSprintEngineStateMutation(destinationPath)
+
+    if (await deps.pathExists(destinationPath)) {
+      throw new Error(`A file or folder named "${sourceName}" already exists.`)
+    }
+
+    await rename(sourcePath, destinationPath)
     return destinationPath
   })
 
