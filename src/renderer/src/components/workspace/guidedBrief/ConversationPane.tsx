@@ -1,5 +1,8 @@
+import { useEffect, useState } from 'react'
 import { Spinner } from '../../ui'
 import { GuidedBriefRawTerminal } from './GuidedBriefRawTerminal'
+import { InterviewQuestionCard, ResolvedDecisionsList } from './InterviewPane'
+import type { GuidedInterviewState } from './interviewProtocol'
 import type { GuidedBriefSpecialistSession } from './sessionAdapter'
 
 type Props = {
@@ -9,7 +12,17 @@ type Props = {
   specialistName: string
   specialistSubline: string
   working: boolean
+  /** Structured interview from the session stream; omit to render terminal-only. */
+  interview?: GuidedInterviewState
+  /** Writes an answer into the PTY stdin. Required for the question card. */
+  onAnswer?: (answerText: string) => void
 }
+
+// The terminal is the transport and the fallback, never hidden — only
+// demoted. While a structured question is live the card leads and the
+// terminal collapses to a bar; with no structured question the terminal is
+// the whole surface. The user's explicit show/hide choice wins over both.
+type TerminalPreference = 'auto' | 'shown' | 'hidden'
 
 export function ConversationPane({
   session,
@@ -18,7 +31,34 @@ export function ConversationPane({
   specialistName,
   specialistSubline,
   working,
+  interview,
+  onAnswer,
 }: Props) {
+  const [terminalPreference, setTerminalPreference] = useState<TerminalPreference>('auto')
+  const [answeredQuestionId, setAnsweredQuestionId] = useState<string | null>(null)
+
+  const question = working ? interview?.currentQuestion ?? null : null
+  const interviewActive = Boolean(question && onAnswer && session)
+
+  // The pending lock clears as soon as the stream resolves or replaces the
+  // question — the card state is always derived from the parse, never local.
+  useEffect(() => {
+    if (!question) {
+      setAnsweredQuestionId(null)
+      return
+    }
+    setAnsweredQuestionId((current) => (current === question.id ? current : null))
+  }, [question])
+
+  const terminalVisible =
+    terminalPreference === 'shown' || (terminalPreference === 'auto' && !interviewActive)
+
+  const answer = (text: string) => {
+    if (!question || !onAnswer) return
+    setAnsweredQuestionId(question.id)
+    onAnswer(text)
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex items-center gap-3">
@@ -44,7 +84,49 @@ export function ConversationPane({
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)]">
         {session ? (
-          <GuidedBriefRawTerminal sessionId={session.sessionId} className="px-3 py-2" />
+          <>
+            {interviewActive && question ? (
+              <div
+                className={`flex flex-col overflow-y-auto ${
+                  terminalVisible ? 'max-h-[45%] shrink-0' : 'min-h-0 flex-1'
+                }`}
+              >
+                <ResolvedDecisionsList decisions={interview?.decisions ?? []} />
+                <InterviewQuestionCard
+                  question={question}
+                  onAnswer={answer}
+                  answerPending={answeredQuestionId === question.id}
+                />
+              </div>
+            ) : null}
+            <div
+              className={
+                terminalVisible ? 'flex min-h-0 flex-1 flex-col' : 'h-0 overflow-hidden'
+              }
+            >
+              <GuidedBriefRawTerminal sessionId={session.sessionId} className="px-3 py-2" />
+            </div>
+            {interviewActive ? (
+              <div className="flex shrink-0 items-center gap-2 border-t border-[color:var(--border-subtle)] px-3 py-1.5">
+                <span className="truncate font-mono text-[11px] text-[color:var(--text-subtle)]">
+                  Terminal · live
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setTerminalPreference(terminalVisible ? 'hidden' : 'shown')
+                  }
+                  className="
+                    ml-auto inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] text-[color:var(--text-muted)]
+                    transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
+                    focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                  "
+                >
+                  {terminalVisible ? 'Hide' : 'Show'}
+                </button>
+              </div>
+            ) : null}
+          </>
         ) : (
           <RawPlaceholder
             specialistName={specialistName}

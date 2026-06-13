@@ -7,6 +7,10 @@ import {
   type GuidedBriefSessionLifecycle,
   type GuidedBriefSpecialistSession,
 } from './sessionAdapter'
+import {
+  EMPTY_GUIDED_INTERVIEW_STATE,
+  type GuidedInterviewState,
+} from './interviewProtocol'
 import { joinWorkspacePath } from './paths'
 import {
   EMPTY_DESIGN_ARTIFACT_INDEX,
@@ -86,6 +90,8 @@ export type UseDesignerSessionResult = {
   /** Full design-artifact index (pages, stylesheets, scripts, assets, notes, inspiration). */
   designArtifacts: DesignArtifactIndex
   designArtifactsStatus: DesignArtifactsStatus
+  /** Structured interview parsed from the session stream (replay included). */
+  interview: GuidedInterviewState
 }
 
 const PRIMARY_MOCKUP_RELATIVE_PATH = 'mockups/app.html'
@@ -125,6 +131,7 @@ export function useDesignerSession({
     useState<DesignArtifactsStatus>('loading')
   const [uiDirectionReady, setUiDirectionReady] = useState(false)
   const [session, setSession] = useState<GuidedBriefSpecialistSession | null>(null)
+  const [interview, setInterview] = useState<GuidedInterviewState>(EMPTY_GUIDED_INTERVIEW_STATE)
 
   const uiDirectionAbsolutePath = joinWorkspacePath(workspaceRoot, UI_DIRECTION_RELATIVE_PATH)
   const mockupsDirectoryPath = joinWorkspacePath(workspaceRoot, MOCKUPS_DIRECTORY_NAME)
@@ -185,6 +192,10 @@ export function useDesignerSession({
         onMarker: () => {
           if (cancelled) return
           setMarkerReceived(true)
+        },
+        onInterview: (state) => {
+          if (cancelled) return
+          setInterview(state)
         },
         onError: (message) => {
           if (cancelled) return
@@ -361,5 +372,6 @@ export function useDesignerSession({
     mockups,
     designArtifacts,
     designArtifactsStatus,
+    interview,
   }
 }

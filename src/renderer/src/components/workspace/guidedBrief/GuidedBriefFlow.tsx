@@ -48,11 +48,14 @@ import {
 import {
   guidedBriefSkipToHandoffState,
   guidedBriefSteps,
+  mergeGuidedBriefDecisions,
   type GuidedBriefAcceptedArtifact,
   type GuidedBriefRuntimeState,
   type GuidedBriefStage,
   type GuidedBriefStepInfo,
 } from './types'
+import type { GuidedInterviewState } from './interviewProtocol'
+import type { GuidedBriefSpecialistSession } from './sessionAdapter'
 
 export type GuidedBriefRunOptions = {
   startRunner: boolean
@@ -248,6 +251,29 @@ export function GuidedBriefFlow({
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [designer.designArtifacts])
+
+  // Persist resolved interview decisions per role so the build handoff can
+  // carry the real decision record. Merge is dedupe-by-id and returns `prev`
+  // unchanged when nothing new arrived.
+  useEffect(() => {
+    updateRuntimeState((prev) => mergeGuidedBriefDecisions(prev, 'product', strategist.interview.decisions))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [strategist.interview.decisions])
+  useEffect(() => {
+    updateRuntimeState((prev) => mergeGuidedBriefDecisions(prev, 'architect', architect.interview.decisions))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [architect.interview.decisions])
+  useEffect(() => {
+    updateRuntimeState((prev) => mergeGuidedBriefDecisions(prev, 'frontend', designer.interview.decisions))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [designer.interview.decisions])
+
+  // Writes a question-card answer into the specialist's PTY stdin — the same
+  // transport as typing in the terminal, so either surface can answer.
+  const answerViaTerminal = (session: GuidedBriefSpecialistSession | null) => (text: string) => {
+    if (!session) return
+    window.api.terminalWriteFast(session.sessionId, `${text}\r`)
+  }
 
   // Read-only review of an already-accepted step, entered from the step rail.
   // Component-local on purpose: a reload lands back on the current step.
@@ -605,6 +631,8 @@ export function GuidedBriefFlow({
             errorMessage={strategist.error}
             working={stage === 'strategist-working'}
             fileReady={strategist.readiness.fileReady}
+            interview={strategist.interview}
+            onAnswer={answerViaTerminal(strategist.session)}
             requirementsPath={strategist.requirementsPath}
             productDirectoryPath={joinWorkspacePath(workspaceRoot, 'product')}
           />
@@ -616,6 +644,8 @@ export function GuidedBriefFlow({
             errorMessage={architect.error}
             working={stage === 'architect-working'}
             fileReady={architect.readiness.fileReady}
+            interview={architect.interview}
+            onAnswer={answerViaTerminal(architect.session)}
             architecturePlanPath={architect.architecturePlanPath}
             architectureDirectoryPath={joinWorkspacePath(workspaceRoot, 'architecture')}
           />
@@ -625,6 +655,8 @@ export function GuidedBriefFlow({
             starting={designer.status === 'starting' || designer.status === 'idle'}
             errorMessage={designer.error}
             working={stage === 'designer-working'}
+            interview={designer.interview}
+            onAnswer={answerViaTerminal(designer.session)}
             mockupCount={designer.mockups.length}
             designArtifacts={designer.designArtifacts}
             designArtifactsStatus={designer.designArtifactsStatus}
@@ -1021,6 +1053,8 @@ function StrategistBody({
   errorMessage,
   working,
   fileReady,
+  interview,
+  onAnswer,
   requirementsPath,
   productDirectoryPath,
 }: {
@@ -1030,6 +1064,8 @@ function StrategistBody({
   errorMessage: string | null
   working: boolean
   fileReady: boolean
+  interview: GuidedInterviewState
+  onAnswer: (answerText: string) => void
   requirementsPath: string
   productDirectoryPath: string
 }) {
@@ -1058,9 +1094,11 @@ function StrategistBody({
           specialistSubline={
             ready
               ? 'Brief ready · ask anything else if needed'
-              : 'Asking about the idea — answer in the terminal'
+              : 'Asking about the idea — pick an option or answer in the terminal'
           }
           working={working}
+          interview={interview}
+          onAnswer={onAnswer}
         />
       }
       artifacts={
@@ -1092,6 +1130,8 @@ function ArchitectBody({
   errorMessage,
   working,
   fileReady,
+  interview,
+  onAnswer,
   architecturePlanPath,
   architectureDirectoryPath,
 }: {
@@ -1101,6 +1141,8 @@ function ArchitectBody({
   errorMessage: string | null
   working: boolean
   fileReady: boolean
+  interview: GuidedInterviewState
+  onAnswer: (answerText: string) => void
   architecturePlanPath: string
   architectureDirectoryPath: string
 }) {
@@ -1129,9 +1171,11 @@ function ArchitectBody({
           specialistSubline={
             ready
               ? 'Plan ready · ask anything else if needed'
-              : 'Resolving architecture decisions — answer in the terminal'
+              : 'Resolving architecture decisions — pick an option or answer in the terminal'
           }
           working={working}
+          interview={interview}
+          onAnswer={onAnswer}
         />
       }
       artifacts={
@@ -1164,6 +1208,8 @@ function DesignStudioBody({
   starting,
   errorMessage,
   working,
+  interview,
+  onAnswer,
   mockupCount,
   designArtifacts,
   designArtifactsStatus,
@@ -1174,6 +1220,8 @@ function DesignStudioBody({
   starting: boolean
   errorMessage: string | null
   working: boolean
+  interview: GuidedInterviewState
+  onAnswer: (answerText: string) => void
   mockupCount: number
   designArtifacts: DesignArtifactIndex
   designArtifactsStatus: DesignArtifactsStatus
@@ -1196,6 +1244,8 @@ function DesignStudioBody({
               : 'Describe the screens you want — files and preview update as they’re written'
           }
           working={working}
+          interview={interview}
+          onAnswer={onAnswer}
         />
       }
       artifacts={

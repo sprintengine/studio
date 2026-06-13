@@ -277,6 +277,16 @@ function guidedBriefInterviewInstructions(role: 'product strategist' | 'architec
     'If a question can be answered by inspecting the project files, docs, Knowledge Graph, or existing commands, inspect those sources before asking. If this is a new codebase and no source exists, say the assumption you are making.',
     'Continue interviewing until you and the user have a shared, explicit understanding of the artifact you are about to write.',
     'Do not ask bundled questionnaires. Do not skip unresolved branches by hiding them as assumptions.',
+    // Machine-readable mirror of the interview so the app renders native
+    // question cards (parsed by interviewProtocol.ts). The fence tokens must
+    // never appear alone on a line inside these instructions — the parser
+    // treats a token alone on a line as a fence, and the CLI echoes this
+    // prompt back through the PTY.
+    'Additionally, mirror every question as a machine-readable block on stdout so the app can render native answer options: print a line containing only the token GUIDED_QUESTION_BEGIN, then a single JSON object, then a line containing only the token GUIDED_QUESTION_END.',
+    'That JSON object has fields "id" (a stable string like "q1", unique per question), "question" (the question text), "options" (an array of objects with fields "key", "label", "detail", and optional "recommended": true on the first option), and optional "allowOther": true when a custom answer is sensible.',
+    'Each option "key" is exactly the text the user would type in the terminal to choose that option (for example "1").',
+    'After the block, also print the same question and options as normal readable text for the terminal.',
+    'When the user answers a question (typed in the terminal or sent by the app), print one line that starts with the token GUIDED_DECISION: followed by a JSON object with fields "id" (the question id), "question", and "label" (the chosen option label or the custom answer) — then continue to the next question.',
   ]
 }
 

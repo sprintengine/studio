@@ -9,6 +9,10 @@ import {
   type GuidedBriefSpecialistKind,
 } from '../../../specialists/specialistActions'
 import { stripAnsiAndOverwrites } from './parseStream'
+import {
+  createGuidedInterviewParser,
+  type GuidedInterviewState,
+} from './interviewProtocol'
 
 export type { GuidedBriefSpecialistKind }
 
@@ -116,6 +120,12 @@ export type StartGuidedBriefSpecialistSessionOptions = {
   onLifecycle?: (state: GuidedBriefSessionLifecycle) => void
   onMarker?: (marker: string) => void
   onError?: (message: string) => void
+  /**
+   * Structured-interview state parsed from the same stdout stream (replay
+   * included, so it rebuilds across renderer reloads). Fired after every
+   * chunk whose parse changed the current question or decisions.
+   */
+  onInterview?: (state: GuidedInterviewState) => void
 }
 
 export type GuidedBriefSpecialistSession = {
@@ -233,6 +243,20 @@ function markerDetectionForInput(input: StartGuidedBriefSpecialistSessionInput, 
 // the regex only removes whitespace and a small allowlist of prompt glyphs.
 const PROMPT_CHROME = /^[\s>│●⏺•*»]+|[\s>│●⏺•*»]+$/gu
 
+// Cheap structural equality so React state only updates when the parsed
+// interview actually changed — every PTY chunk re-parses the buffer.
+function interviewStateChanged(a: GuidedInterviewState, b: GuidedInterviewState): boolean {
+  if (a.malformedCount !== b.malformedCount) return true
+  if ((a.currentQuestion?.id ?? null) !== (b.currentQuestion?.id ?? null)) return true
+  if (a.decisions.length !== b.decisions.length) return true
+  for (let index = 0; index < a.decisions.length; index += 1) {
+    const left = a.decisions[index]
+    const right = b.decisions[index]
+    if (left.id !== right.id || left.label !== right.label) return true
+  }
+  return false
+}
+
 export function containsGuidedBriefMarker(output: string, marker: string): boolean {
   return stripAnsiAndOverwrites(output)
     .split(/\r?\n/)
@@ -250,6 +274,8 @@ export async function startGuidedBriefSpecialistSession(
   const disposers: Array<() => void> = []
   let outputBuffer = ''
   let markerEmitted = false
+  const interviewParser = createGuidedInterviewParser()
+  let lastInterviewState = interviewParser.state()
 
   const dispose = () => {
     while (disposers.length > 0) {
@@ -260,6 +286,15 @@ export async function startGuidedBriefSpecialistSession(
   const handleOutput = (chunk: string) => {
     outputBuffer = `${outputBuffer}${chunk}`.slice(-marker.length - 4096)
     options.onOutput?.({ stream: 'stdout', chunk, at: Date.now() })
+    if (options.onInterview) {
+      const nextInterviewState = interviewParser.push(chunk)
+      if (nextInterviewState !== lastInterviewState && interviewStateChanged(lastInterviewState, nextInterviewState)) {
+        lastInterviewState = nextInterviewState
+        options.onInterview(nextInterviewState)
+      } else {
+        lastInterviewState = nextInterviewState
+      }
+    }
     if (!markerEmitted && containsGuidedBriefMarker(outputBuffer, marker)) {
       markerEmitted = true
       options.onLifecycle?.('ready')

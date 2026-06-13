@@ -1465,6 +1465,16 @@ export type GuidedBriefAcceptedArtifact = {
   path: string
 }
 
+// One interview decision the user resolved during a guided-brief stage,
+// recorded from the specialist's structured GUIDED_DECISION stream so the
+// build handoff can carry the real decision record.
+export type GuidedBriefRecordedDecision = {
+  role: 'product' | 'architect' | 'frontend'
+  id: string
+  question?: string
+  label: string
+}
+
 export type GuidedBriefRuntimeState = {
   workspaceRoot: string
   workspaceName: string
@@ -1492,6 +1502,10 @@ export type GuidedBriefRuntimeState = {
   // studio preview, relative to the workspace root. Absent on legacy states;
   // normalization defaults it to `null`.
   activeDesignArtifactPath?: string | null
+  // Interview decisions resolved across all specialist stages, deduped by
+  // role + question id. Absent on legacy states; normalization defaults it
+  // to an empty array.
+  guidedDecisions?: GuidedBriefRecordedDecision[]
   // Persisted so the renderer reattaches to the same PTY across HMR / refresh
   // instead of spawning a fresh strategist, architect, or designer.
   strategistSessionId: string | null

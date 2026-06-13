@@ -6,6 +6,10 @@ import {
   type GuidedBriefSessionLifecycle,
   type GuidedBriefSpecialistSession,
 } from './sessionAdapter'
+import {
+  EMPTY_GUIDED_INTERVIEW_STATE,
+  type GuidedInterviewState,
+} from './interviewProtocol'
 import { joinWorkspacePath } from './paths'
 
 export type ArchitectSessionReadiness = {
@@ -39,6 +43,8 @@ export type UseArchitectSessionResult = {
   readiness: ArchitectSessionReadiness
   session: GuidedBriefSpecialistSession | null
   architecturePlanPath: string
+  /** Structured interview parsed from the session stream (replay included). */
+  interview: GuidedInterviewState
 }
 
 const ARCHITECTURE_PLAN_RELATIVE_PATH = 'architecture/plan.md'
@@ -64,6 +70,7 @@ export function useArchitectSession({
   const [markerReceived, setMarkerReceived] = useState(false)
   const [fileReady, setFileReady] = useState(false)
   const [session, setSession] = useState<GuidedBriefSpecialistSession | null>(null)
+  const [interview, setInterview] = useState<GuidedInterviewState>(EMPTY_GUIDED_INTERVIEW_STATE)
 
   const architecturePlanAbsolutePath = joinWorkspacePath(workspaceRoot, ARCHITECTURE_PLAN_RELATIVE_PATH)
   const architectureDirectoryPath = joinWorkspacePath(workspaceRoot, 'architecture')
@@ -116,6 +123,10 @@ export function useArchitectSession({
         onMarker: () => {
           if (cancelled) return
           setMarkerReceived(true)
+        },
+        onInterview: (state) => {
+          if (cancelled) return
+          setInterview(state)
         },
         onError: (message) => {
           if (cancelled) return
@@ -197,5 +208,6 @@ export function useArchitectSession({
     readiness: { markerReceived, fileReady, isReady },
     session,
     architecturePlanPath: architecturePlanAbsolutePath,
+    interview,
   }
 }

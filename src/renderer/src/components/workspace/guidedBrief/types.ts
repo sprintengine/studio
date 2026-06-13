@@ -3,15 +3,53 @@ import type {
   GuidedBriefPreset,
   GuidedBriefStage,
   GuidedBriefAcceptedArtifact,
+  GuidedBriefRecordedDecision,
   GuidedBriefRuntimeState,
 } from '../../../types/workspace'
+import type { GuidedInterviewDecision } from './interviewProtocol'
 
 export type {
   GuidedBriefHasUi,
   GuidedBriefPreset,
   GuidedBriefStage,
   GuidedBriefAcceptedArtifact,
+  GuidedBriefRecordedDecision,
   GuidedBriefRuntimeState,
+}
+
+/**
+ * Merge a specialist session's parsed interview decisions into the persisted
+ * runtime record, deduped by role + question id (latest label wins). Returns
+ * the same state object when nothing changed so effect-driven callers don't
+ * trigger redundant persistence.
+ */
+export function mergeGuidedBriefDecisions(
+  state: GuidedBriefRuntimeState,
+  role: GuidedBriefRecordedDecision['role'],
+  decisions: GuidedInterviewDecision[],
+): GuidedBriefRuntimeState {
+  if (decisions.length === 0) return state
+  const merged = [...(state.guidedDecisions ?? [])]
+  let changed = false
+  for (const decision of decisions) {
+    const entry: GuidedBriefRecordedDecision = {
+      role,
+      id: decision.id,
+      label: decision.label,
+      ...(decision.question ? { question: decision.question } : {}),
+    }
+    const index = merged.findIndex((existing) => existing.role === role && existing.id === decision.id)
+    if (index < 0) {
+      merged.push(entry)
+      changed = true
+      continue
+    }
+    if (merged[index].label !== entry.label || merged[index].question !== entry.question) {
+      merged[index] = entry
+      changed = true
+    }
+  }
+  return changed ? { ...state, guidedDecisions: merged } : state
 }
 
 /**

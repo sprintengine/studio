@@ -6,6 +6,10 @@ import {
   type GuidedBriefSessionLifecycle,
   type GuidedBriefSpecialistSession,
 } from './sessionAdapter'
+import {
+  EMPTY_GUIDED_INTERVIEW_STATE,
+  type GuidedInterviewState,
+} from './interviewProtocol'
 import { joinWorkspacePath } from './paths'
 
 export type StrategistSessionReadiness = {
@@ -40,6 +44,8 @@ export type UseStrategistSessionResult = {
   readiness: StrategistSessionReadiness
   session: GuidedBriefSpecialistSession | null
   requirementsPath: string
+  /** Structured interview parsed from the session stream (replay included). */
+  interview: GuidedInterviewState
 }
 
 const REQUIREMENTS_RELATIVE_PATH = 'product/requirements.md'
@@ -63,6 +69,7 @@ export function useStrategistSession({
   const [markerReceived, setMarkerReceived] = useState(false)
   const [fileReady, setFileReady] = useState(false)
   const [session, setSession] = useState<GuidedBriefSpecialistSession | null>(null)
+  const [interview, setInterview] = useState<GuidedInterviewState>(EMPTY_GUIDED_INTERVIEW_STATE)
 
   const requirementsAbsolutePath = joinWorkspacePath(workspaceRoot, REQUIREMENTS_RELATIVE_PATH)
   const productDirectoryPath = joinWorkspacePath(workspaceRoot, 'product')
@@ -122,6 +129,10 @@ export function useStrategistSession({
         onMarker: () => {
           if (cancelled) return
           setMarkerReceived(true)
+        },
+        onInterview: (state) => {
+          if (cancelled) return
+          setInterview(state)
         },
         onError: (message) => {
           if (cancelled) return
@@ -209,5 +220,6 @@ export function useStrategistSession({
     readiness: { markerReceived, fileReady, isReady },
     session,
     requirementsPath: requirementsAbsolutePath,
+    interview,
   }
 }
