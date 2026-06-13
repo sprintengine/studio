@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import Module from 'node:module'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -100,6 +100,8 @@ async function main(): Promise<void> {
   try {
     const runtimeModule = require('./terminal-runtime') as RuntimeModule
     await assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModule)
+    await assertWorktreeSpawnRegistersProjectRootNotWorktreeCwd(runtimeModule)
+    assertRegistrationRootDerivation(runtimeModule)
     await assertSprintEngineSpawnReportsSyncFailureWithoutPtySpawn(runtimeModule)
     await assertSprintEngineSpawnReportsThrownHttpMcpSetupFailureWithoutPtySpawn(runtimeModule)
     await assertSprintEngineSpawnReleasesUnusedRunWhenPtySpawnFails(runtimeModule)
@@ -675,6 +677,95 @@ async function assertSprintEngineSpawnReportsThrownHttpMcpSetupFailureWithoutPty
       exitCode: 1,
       message: failureMessage,
     })
+  } finally {
+    await runtime.shutdown()
+  }
+}
+
+function assertRegistrationRootDerivation(runtimeModule: RuntimeModule): void {
+  const root = join(tmpdir(), 'project-root')
+  const statePath = join(root, '.multi-code', 'sprintengine', 'team', 'run.yaml')
+  const worktreeCwd = join(root, '.multi-code', 'sprintengine', 'team', 'worktree')
+  assert.equal(
+    runtimeModule.deriveSprintEngineRegistrationRoot(statePath, worktreeCwd),
+    root,
+    'worktree launches register the project root (parent of .multi-code), not the worktree cwd'
+  )
+  assert.equal(
+    runtimeModule.deriveSprintEngineRegistrationRoot(statePath, root),
+    root,
+    'standard launches keep registering the project root'
+  )
+  const exoticStatePath = join(tmpdir(), 'elsewhere', 'run.yaml')
+  assert.equal(
+    runtimeModule.deriveSprintEngineRegistrationRoot(exoticStatePath, root),
+    root,
+    'state paths outside a .multi-code layout fall back to the launch cwd'
+  )
+}
+
+async function assertWorktreeSpawnRegistersProjectRootNotWorktreeCwd(runtimeModule: RuntimeModule): Promise<void> {
+  // Live-reproduced regression: a worktree-mode agent launches with
+  // cwd <root>/.multi-code/sprintengine/<run>/worktree while run.yaml lives
+  // in that directory's parent. Registering the cwd as workspaceRoot and the
+  // sole allowed root made every worktree spawn fail run registration with
+  // HTTP 400 invalid_run_registration: statePath is outside allowedRoots.
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-worktree-'))
+  const runDir = join(workspaceRoot, '.multi-code', 'sprintengine', 'v2-5-capture-everywhere')
+  const sprintEngineStatePath = join(runDir, 'run.yaml')
+  const worktreeCwd = join(runDir, 'worktree')
+  await mkdir(worktreeCwd, { recursive: true })
+  const syncInputs: SyncInput[] = []
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (input): Promise<SyncResult> => {
+      syncInputs.push(input)
+      return {
+        ok: true,
+        managedSprintEngineRunId: 'registered-run-worktree',
+        runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'run-token-worktree' },
+      }
+    },
+    releaseManagedSprintEngineRun: async () => undefined,
+  })
+
+  try {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_worktree',
+      cols: 120,
+      rows: 30,
+      cwd: worktreeCwd,
+      sprintEngineStatePath,
+      agentId: 'architect',
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      mcpSettings: { syncEnabled: true, servers: {} } satisfies McpSettings,
+    })
+
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.equal(syncInputs.length, 1)
+    assert.equal(
+      syncInputs[0]?.workspaceRoot,
+      worktreeCwd,
+      'MCP config files still sync into the launch cwd (the worktree)'
+    )
+    assert.equal(
+      syncInputs[0]?.managedSprintEngine?.workspaceRoot,
+      workspaceRoot,
+      'run registration uses the project root so the statePath is inside it'
+    )
+    assert.deepEqual(
+      syncInputs[0]?.managedSprintEngine?.allowedRoots,
+      [workspaceRoot],
+      'allowed roots cover the run store and the worktree beneath the project root'
+    )
+    runtime.ipcHandlers.killTerminal('session_worktree')
   } finally {
     await runtime.shutdown()
   }

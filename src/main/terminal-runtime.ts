@@ -19,6 +19,7 @@ import {
   getShellLaunchConfig,
   getTerminalEnv,
 } from './terminal-launch'
+import { basename, dirname } from 'node:path'
 import { getErrorMessage } from './error-message'
 import { getTerminalErrorMessage } from './terminal-error'
 import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
@@ -135,9 +136,30 @@ const pendingSprintEngineTerminalTeardowns = new Map<string, { session: Terminal
 
 export const SPRINTENGINE_AGENT_HEARTBEAT_INTERVAL_MS = 60 * 1000
 
+/**
+ * Run registration must authorize the run store, not just the terminal cwd:
+ * worktree-mode agents launch in
+ * `<root>/.multi-code/sprintengine/<run>/worktree` while `run.yaml` lives in
+ * that directory's parent, so registering the launch cwd as the workspace
+ * root rejects the statePath (HTTP 400 invalid_run_registration: statePath
+ * is outside allowedRoots). Mirror the MCP server's own
+ * `_default_workspace_root` derivation: the project root is the parent of
+ * the `.multi-code` segment the state path lives under, falling back to the
+ * launch cwd for non-standard layouts.
+ */
+export function deriveSprintEngineRegistrationRoot(statePath: string, launchCwd: string): string {
+  let current = dirname(statePath)
+  while (true) {
+    if (basename(current) === '.multi-code') return dirname(current)
+    const parent = dirname(current)
+    if (parent === current) return launchCwd
+    current = parent
+  }
+}
+
 export function buildManagedSprintEngineSyncInputForLaunch(
   statePath: string,
-  workspaceRoot: string,
+  launchCwd: string,
   launch?: {
     workspaceId?: string
     agentId?: string
@@ -145,10 +167,11 @@ export function buildManagedSprintEngineSyncInputForLaunch(
     cli?: AgentCli
   }
 ): NonNullable<Parameters<NonNullable<TerminalRuntimeOptions['syncMcpConfig']>>[0]['managedSprintEngine']> {
+  const registrationRoot = deriveSprintEngineRegistrationRoot(statePath, launchCwd)
   return {
     statePath,
-    workspaceRoot,
-    allowedRoots: [workspaceRoot],
+    workspaceRoot: registrationRoot,
+    allowedRoots: [registrationRoot],
     registryRoots: sprintEngineRegistryRootsForLaunch(),
     userRoot: getPluginRegistryUserRoot(),
     actorId: 'multicode-app',
