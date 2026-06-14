@@ -17,6 +17,26 @@ import {
   type ReplayProfileEntry,
 } from '../../utils/diagnostics/replayProfileStore'
 import { formatBytes, formatDiagnosticsReport } from '../../utils/diagnostics/formatDiagnosticsReport'
+import {
+  aggregatePerfEvents,
+  getPerfEventSamples,
+  subscribePerfEvents,
+} from '../../utils/diagnostics/perfEventStore'
+import {
+  getLongTaskSamples,
+  startLongTaskObserver,
+  subscribeLongTasks,
+  summarizeLongTasks,
+} from '../../utils/diagnostics/longTaskStore'
+import {
+  appendMetricsSample,
+  computeGrowthRates,
+  deriveMetricsSample,
+  getMetricsBaseline,
+  getMetricsHistory,
+  readRendererHeap,
+  setMetricsBaseline,
+} from '../../utils/diagnostics/metricsHistoryStore'
 
 // Poll process metrics once a second while the panel is mounted. Both surfaces
 // (overlay + standalone window) mount this only while visible, so this interval
@@ -77,6 +97,19 @@ function activityLabel(activity: TerminalDiagnosticsRow['activity']): string {
     case 'exited':
       return `exited (${activity.exitCode})`
   }
+}
+
+function formatSignedBytes(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  return `${bytes > 0 ? '+' : '−'}${formatBytes(Math.abs(bytes))}`
+}
+
+function formatPerMin(value: number | null): string {
+  return value === null ? '—' : `${formatSignedBytes(value)}/min`
+}
+
+function msOrDash(value: number | null): string {
+  return value === null ? '—' : String(Math.round(value))
 }
 
 function Th({ children, numeric }: { children: React.ReactNode; numeric?: boolean }) {
@@ -163,6 +196,8 @@ export default function DiagnosticsContent({ headerActions }: Props) {
   const [sortKey, setSortKey] = useState<TerminalDiagnosticsSortKey>('retained')
   const [profiles, setProfiles] = useState<ReplayProfileEntry[]>(() => getReplayProfiles())
   const [copied, setCopied] = useState(false)
+  // Bumped whenever the baseline is set/cleared so the trend memo recomputes.
+  const [baselineNonce, setBaselineNonce] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -171,7 +206,11 @@ export default function DiagnosticsContent({ headerActions }: Props) {
       window.api
         .diagnosticsGetProcessMetrics()
         .then((snapshot) => {
-          if (!cancelled) setMetrics(snapshot)
+          if (cancelled) return
+          setMetrics(snapshot)
+          // Feed the rolling history (with this renderer's JS heap) so the trend,
+          // growth-rate, and baseline-diff all read from one append-only series.
+          appendMetricsSample(deriveMetricsSample(snapshot, readRendererHeap()))
         })
         .catch(() => {})
     }
@@ -183,7 +222,32 @@ export default function DiagnosticsContent({ headerActions }: Props) {
     }
   }, [])
 
+  // Start the longtask observer while the panel is mounted; stops on unmount so
+  // there is no observer cost when the panel is closed.
+  useEffect(() => startLongTaskObserver(), [])
+
   useEffect(() => subscribeReplayProfiles(() => setProfiles(getReplayProfiles())), [])
+  // Re-render on perf-event / long-task arrivals between polls so spikes show
+  // promptly rather than waiting for the next 1s tick.
+  useEffect(() => subscribePerfEvents(() => setNow(Date.now())), [])
+  useEffect(() => subscribeLongTasks(() => setNow(Date.now())), [])
+
+  const perfRollup = useMemo(() => aggregatePerfEvents(getPerfEventSamples(), { now }), [now])
+  const longTaskSummary = useMemo(() => summarizeLongTasks(getLongTaskSamples(), { now }), [now])
+  const metricsTrend = useMemo(() => {
+    const history = getMetricsHistory()
+    return {
+      current: history.length > 0 ? history[history.length - 1] : null,
+      baseline: getMetricsBaseline(),
+      growth: computeGrowthRates(history, { now }),
+    }
+    // baselineNonce participates so a baseline set/clear refreshes the diff.
+  }, [now, baselineNonce])
+
+  const handleToggleBaseline = () => {
+    setMetricsBaseline(getMetricsBaseline() ? null : metricsTrend.current)
+    setBaselineNonce((value) => value + 1)
+  }
 
   const aggregation = useMemo(
     () => aggregateDiagnostics({ sessions, activeWorkspaceIds, workspaceNames, now }),
@@ -198,7 +262,15 @@ export default function DiagnosticsContent({ headerActions }: Props) {
   const handleCopy = () => {
     // Snapshot `now` at copy time so the report's relative timestamps match what
     // the user saw when they clicked.
-    const report = formatDiagnosticsReport({ aggregation, metrics, profiles, now: Date.now() })
+    const report = formatDiagnosticsReport({
+      aggregation,
+      metrics,
+      profiles,
+      perfEvents: perfRollup,
+      longTasks: longTaskSummary,
+      metricsTrend,
+      now: Date.now(),
+    })
     void window.api
       .clipboardWriteText(report)
       .then(() => {
@@ -221,6 +293,14 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           <span className="text-[10px] text-[color:var(--text-muted)]">dev · polling {PROCESS_METRICS_POLL_MS}ms</span>
         </div>
         <div className="flex items-center gap-1.5">
+          <button
+            onClick={handleToggleBaseline}
+            className="rounded px-2 py-1 text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--border-strong)]"
+            aria-label={metricsTrend.baseline ? 'Clear memory baseline' : 'Mark current metrics as baseline'}
+            title="Freeze the current metrics as a baseline and show live deltas against it"
+          >
+            {metricsTrend.baseline ? 'Clear baseline' : 'Mark baseline'}
+          </button>
           <button
             onClick={handleCopy}
             className="rounded px-2 py-1 text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--border-strong)]"
@@ -288,6 +368,115 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           <p className="mt-1 text-[10px] text-[color:var(--text-subtle)]">
             CPU % is the rolling share since the previous sample. Thread/FD counts are not collected in this build.
           </p>
+        </section>
+
+        {/* Memory trend + baseline diff */}
+        <section>
+          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">Memory trend</h2>
+          {metricsTrend.current ? (
+            <div className="flex flex-col gap-1 text-[11px] text-[color:var(--text-default)]">
+              <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
+                <span>Total RSS <strong>{formatBytes(metricsTrend.current.totalRssBytes)}</strong></span>
+                <span>renderer {formatBytes(metricsTrend.current.rendererRssBytes)}</span>
+                <span>main {formatBytes(metricsTrend.current.mainRssBytes)}</span>
+                <span>gpu {formatBytes(metricsTrend.current.gpuRssBytes)}</span>
+                {metricsTrend.current.rendererHeapUsedBytes !== null && (
+                  <span>renderer JS heap {formatBytes(metricsTrend.current.rendererHeapUsedBytes)}</span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums text-[color:var(--text-muted)]">
+                <span>
+                  Growth ({Math.round(metricsTrend.growth.windowMs / 1000)}s): RSS{' '}
+                  <span className={(metricsTrend.growth.rssBytesPerMin ?? 0) > 0 ? 'text-[color:var(--tone-error)]' : ''}>
+                    {formatPerMin(metricsTrend.growth.rssBytesPerMin)}
+                  </span>
+                </span>
+                <span>heap {formatPerMin(metricsTrend.growth.heapBytesPerMin)}</span>
+                <span className="text-[color:var(--text-subtle)]">{metricsTrend.growth.sampleCount} samples</span>
+              </div>
+              {metricsTrend.baseline && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums text-[color:var(--text-strong)]">
+                  {(() => {
+                    const b = metricsTrend.baseline
+                    const c = metricsTrend.current
+                    const dTotal = c.totalRssBytes - b.totalRssBytes
+                    const dRenderer = c.rendererRssBytes - b.rendererRssBytes
+                    const dHeap =
+                      c.rendererHeapUsedBytes !== null && b.rendererHeapUsedBytes !== null
+                        ? c.rendererHeapUsedBytes - b.rendererHeapUsedBytes
+                        : null
+                    return (
+                      <>
+                        <span>vs baseline ({formatRelativeMsAgo(b.sampledAt, now) || 'just now'}):</span>
+                        <span>Δ total {formatSignedBytes(dTotal)}</span>
+                        <span>Δ renderer {formatSignedBytes(dRenderer)}</span>
+                        <span>Δ heap {dHeap === null ? '—' : formatSignedBytes(dHeap)}</span>
+                      </>
+                    )
+                  })()}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-[color:var(--text-muted)]">Collecting samples…</p>
+          )}
+        </section>
+
+        {/* Long tasks */}
+        <section>
+          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
+            Long tasks (main-thread stalls &gt; 50ms, last {Math.round(longTaskSummary.windowMs / 1000)}s)
+          </h2>
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px] tabular-nums text-[color:var(--text-default)]">
+            <span className={longTaskSummary.count > 0 ? 'text-[color:var(--tone-error)]' : ''}>
+              Count <strong>{longTaskSummary.count}</strong>
+            </span>
+            <span>Blocking {longTaskSummary.totalBlockingMs} ms</span>
+            <span>Max {msOrDash(longTaskSummary.maxMs)} ms</span>
+            <span>p95 {msOrDash(longTaskSummary.p95Ms)} ms</span>
+            <span className="text-[color:var(--text-subtle)]">
+              {longTaskSummary.lastAt ? `last ${formatRelativeMsAgo(longTaskSummary.lastAt, now)}` : 'none'}
+            </span>
+          </div>
+        </section>
+
+        {/* Perf events rollup */}
+        <section>
+          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
+            Perf events ({perfRollup.length})
+          </h2>
+          {perfRollup.length > 0 ? (
+            <table className="w-full border-collapse">
+              <thead>
+                <tr>
+                  <Th>Scope</Th>
+                  <Th>Event</Th>
+                  <Th numeric>Count</Th>
+                  <Th numeric>p50 ms</Th>
+                  <Th numeric>p95 ms</Th>
+                  <Th numeric>Max ms</Th>
+                  <Th numeric>Last ms</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {perfRollup.map((row) => (
+                  <tr key={`${row.scope}-${row.event}`} className="border-b border-[color:var(--border-subtle)]">
+                    <Td>{row.scope}</Td>
+                    <Td>{row.event}</Td>
+                    <Td numeric>{row.count}</Td>
+                    <Td numeric>{msOrDash(row.p50Ms)}</Td>
+                    <Td numeric>{msOrDash(row.p95Ms)}</Td>
+                    <Td numeric>{msOrDash(row.maxMs)}</Td>
+                    <Td numeric>{msOrDash(row.lastMs)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-[color:var(--text-muted)]">
+              No perf events captured yet. They accrue as SprintEngine refresh/auto-run and other instrumented paths run.
+            </p>
+          )}
         </section>
 
         {/* Workspace rollups */}

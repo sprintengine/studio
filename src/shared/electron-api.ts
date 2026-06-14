@@ -573,6 +573,12 @@ export type ProcessMetricSample = {
   memoryBytes: number
   threads?: number
   fileDescriptors?: number
+  // V8 heap detail, currently populated only for the main process (from
+  // process.memoryUsage() in the IPC handler). getAppMetrics does not expose
+  // per-renderer heap; the renderer's own heap is sampled separately via
+  // performance.memory in the metrics-history store.
+  heapUsedBytes?: number
+  heapTotalBytes?: number
 }
 
 export type ProcessMetricsSnapshot = {

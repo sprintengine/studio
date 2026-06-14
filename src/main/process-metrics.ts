@@ -30,9 +30,19 @@ export type RawProcessMetric = {
   memory?: { workingSetSize?: number }
 }
 
+// V8 heap detail for the main process, read from process.memoryUsage() by the
+// IPC handler (getAppMetrics does not carry it) and attached to the entry whose
+// pid matches. Optional so the collector stays unit-testable without a runtime.
+export type MainHeapUsage = {
+  pid: number
+  heapUsedBytes: number
+  heapTotalBytes: number
+}
+
 export function collectProcessMetrics(
   getAppMetrics: () => RawProcessMetric[],
-  now = Date.now()
+  now = Date.now(),
+  mainHeap?: MainHeapUsage
 ): ProcessMetricsSnapshot {
   let raw: RawProcessMetric[]
   try {
@@ -51,6 +61,7 @@ export function collectProcessMetrics(
     const workingSetKb = Number.isFinite(metric.memory?.workingSetSize)
       ? (metric.memory!.workingSetSize as number)
       : 0
+    const heap = mainHeap && mainHeap.pid === metric.pid ? mainHeap : undefined
     return {
       pid: metric.pid,
       kind: mapProcessKind(metric.type),
@@ -60,6 +71,7 @@ export function collectProcessMetrics(
       memoryBytes: Math.max(0, workingSetKb) * 1024,
       // threads/fileDescriptors intentionally omitted in the MVP — see the
       // ProcessMetricSample doc comment in shared/electron-api.ts.
+      ...(heap ? { heapUsedBytes: heap.heapUsedBytes, heapTotalBytes: heap.heapTotalBytes } : {}),
     }
   })
 
