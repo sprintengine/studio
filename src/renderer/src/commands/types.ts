@@ -14,6 +14,7 @@ export type CommandCategory =
   | 'switchboard'
   | 'git'
   | 'terminal'
+  | 'diagnostics'
 
 export type CommandScope =
   | 'global'
@@ -51,6 +52,9 @@ export type CommandAvailability =
   | 'gitPanelActive'
   // The active workspace has at least one live terminal session to focus/stop.
   | 'terminalActive'
+  // Dev build or MULTICODE_DIAGNOSTICS=1: the performance diagnostics panel is
+  // an engineering tool, so its command is offered only when diagnostics are on.
+  | 'diagnosticsEnabled'
 
 export type CommandHandlerPath =
   | { kind: 'workspace-manager'; handler: string }

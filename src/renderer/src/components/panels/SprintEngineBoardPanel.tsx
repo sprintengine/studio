@@ -94,6 +94,7 @@ import {
  artifactTimestampMs,
  runtimeStatusLabel,
  type ArtifactActionState,
+ type TaskInputActionState,
  type SprintEngineInspectorSelection,
 } from './sprintEngineInspector'
 import { SprintEngineInspectorPanel } from './SprintEngineInspectorPanel'
@@ -644,6 +645,7 @@ function SprintEngineBoardPanelContent({
  const [manualRefreshBusy, setManualRefreshBusy] = useState(false)
  const [pendingAutomationMode, setPendingAutomationMode] = useState<SprintEngineAutomationMode | null>(null)
  const [artifactActions, setArtifactActions] = useState<Record<string, ArtifactActionState>>({})
+ const [taskInputActions, setTaskInputActions] = useState<Record<string, TaskInputActionState>>({})
  const [syncState, setSyncState] = useState<SyncState>({
  status: 'idle',
  message: 'Waiting for a Sprint Engine workspace folder.',
@@ -1024,11 +1026,13 @@ function SprintEngineBoardPanelContent({
  requestArtifactChanges,
  cancelRequestArtifactChangesDialog,
  submitRequestArtifactChanges,
+ resolveTaskInput,
  } = useSprintEngineBoardArtifactActions({
  workspaceId,
  statePath: sprintEngineContext?.statePath,
  teamName: sprintEngineContext?.teamName,
  setArtifactActions,
+ setTaskInputActions,
  setPreviewedArtifact,
  previewedArtifact,
  setRequestChangesDialog,
@@ -1159,11 +1163,13 @@ function SprintEngineBoardPanelContent({
  selectedTaskArtifacts={selectedTaskArtifacts}
  selectedTaskArtifactBlockers={selectedTaskArtifactBlockers}
  artifactActions={artifactActions}
+ taskInputActions={taskInputActions}
  onClose={closeInspector}
  onSelectTask={setSelectedTaskId}
  onOpenArtifact={openArtifact}
  onApproveArtifact={approveArtifact}
  onRequestArtifactChanges={requestArtifactChanges}
+ onResolveTaskInput={resolveTaskInput}
  onBackFromArtifact={() => setPreviewedArtifact(null)}
  onPopOutArtifact={popOutPreviewedArtifact}
  onSpawnAgent={openSpawnDialog}

@@ -5,7 +5,7 @@ import {
 } from '../../../utils/sprintengine'
 import { basename, isAbsoluteFilePath, joinFilePath, parentPath } from '../../../utils/paths'
 import { focusOrAddFileTab } from '../../../utils/modelRegistry'
-import type { ArtifactActionState } from '../sprintEngineInspector'
+import type { ArtifactActionState, TaskInputActionState } from '../sprintEngineInspector'
 import type { SprintEngineArtifact } from '../../../types/workspace'
 
 const artifactEditorPathHelpers = {
@@ -43,6 +43,9 @@ type WindowApi = {
     artifactId: string,
     feedback: string,
   ) => Promise<{ ok: true; data: unknown } | { ok: false; message: string }>
+  resolveSprintEngineTaskInput: (
+    input: { statePath: string; taskId: string; resolution: string; complete?: boolean },
+  ) => Promise<{ ok: true; data: unknown } | { ok: false; message: string }>
   pathExists: (path: string) => Promise<boolean>
   readfile: (path: string) => Promise<string>
 }
@@ -58,6 +61,7 @@ export type SprintEngineBoardArtifactActionsInput = {
   statePath: string | null | undefined
   teamName: string | undefined
   setArtifactActions: React.Dispatch<React.SetStateAction<Record<string, ArtifactActionState>>>
+  setTaskInputActions: React.Dispatch<React.SetStateAction<Record<string, TaskInputActionState>>>
   setPreviewedArtifact: React.Dispatch<React.SetStateAction<SprintEnginePreviewedArtifact | null>>
   previewedArtifact: SprintEnginePreviewedArtifact | null
   setRequestChangesDialog: React.Dispatch<
@@ -81,13 +85,21 @@ export type SprintEngineBoardArtifactActions = {
   requestArtifactChanges: (artifact: SprintEngineArtifact) => void
   cancelRequestArtifactChangesDialog: () => void
   submitRequestArtifactChanges: () => Promise<void>
+  /**
+   * Resolve a task's `needs_input` blocker from the inspector composer. The
+   * human supervisor's actor identity is attached in main (the MCP `id`); the
+   * renderer only supplies the resolution text and whether the resolution also
+   * completes the task. Resolves to `true` on success so the composer can clear.
+   */
+  resolveTaskInput: (taskId: string, resolution: string, complete: boolean) => Promise<boolean>
 }
 
 /**
- * Bundles the Sprint Engine board's artifact mutation callbacks: open in
- * preview, approve, request changes, and the projection re-apply path used
- * after each mutation. Behavior is preserved verbatim from the inline
- * panel implementation — the hook only changes where the code lives.
+ * Bundles the Sprint Engine board's authenticated mutation callbacks: artifact
+ * open-in-preview / approve / request-changes, the task `needs_input` resolve
+ * (send-and-resume / resolve-and-complete), and the projection re-apply path
+ * used after each mutation. Artifact behavior is preserved verbatim from the
+ * inline panel implementation — the hook only changes where the code lives.
  *
  * The renderer still reads Sprint Engine data from the normalized projection
  * (via the existing `window.api.approveSprintEngineArtifact` /
@@ -102,6 +114,7 @@ export function useSprintEngineBoardArtifactActions(
     statePath,
     teamName,
     setArtifactActions,
+    setTaskInputActions,
     setPreviewedArtifact,
     previewedArtifact,
     setRequestChangesDialog,
@@ -126,6 +139,21 @@ export function useSprintEngineBoardArtifactActions(
       })
     },
     [setArtifactActions],
+  )
+
+  const setTaskInputAction = useCallback(
+    (taskId: string, state: TaskInputActionState | null) => {
+      setTaskInputActions((current) => {
+        const next = { ...current }
+        if (state) {
+          next[taskId] = state
+        } else {
+          delete next[taskId]
+        }
+        return next
+      })
+    },
+    [setTaskInputActions],
   )
 
   const requireArtifactStatePath = useCallback((): string | null => {
@@ -335,6 +363,62 @@ export function useSprintEngineBoardArtifactActions(
     api,
   ])
 
+  // Resolving a needs_input blocker is a Sprint Engine task mutation, not an
+  // artifact one, but it rides the same authenticated MCP → projection-refresh
+  // pipeline as the artifact actions above, so it lives here rather than in a
+  // parallel hook that would duplicate the statePath guard and projection apply.
+  const resolveTaskInput = useCallback(
+    async (taskId: string, resolution: string, complete: boolean): Promise<boolean> => {
+      const trimmed = resolution.trim()
+      if (!trimmed) {
+        setTaskInputAction(taskId, {
+          status: 'error',
+          message: 'A response is required to resume the worker.',
+        })
+        return false
+      }
+      const ensuredStatePath = requireArtifactStatePath()
+      if (!ensuredStatePath) {
+        setTaskInputAction(taskId, {
+          status: 'error',
+          message: 'This Sprint Engine workspace is missing its selected team context.',
+        })
+        return false
+      }
+
+      setTaskInputAction(taskId, {
+        status: 'pending',
+        message: complete ? 'Resolving and completing…' : 'Sending response…',
+      })
+      try {
+        const result = await api.resolveSprintEngineTaskInput({
+          statePath: ensuredStatePath,
+          taskId,
+          resolution: trimmed,
+          complete,
+        })
+        if (!result.ok) {
+          setTaskInputAction(taskId, {
+            status: 'error',
+            message: result.message || 'Sprint Engine rejected the response.',
+          })
+          return false
+        }
+        await applyMutationResultProjection(result)
+        setTaskInputAction(taskId, {
+          status: 'success',
+          message: complete ? 'Resolved and marked complete.' : 'Response sent — worker resuming.',
+        })
+        return true
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to send response.'
+        setTaskInputAction(taskId, { status: 'error', message })
+        return false
+      }
+    },
+    [requireArtifactStatePath, setTaskInputAction, applyMutationResultProjection, api],
+  )
+
   return {
     setArtifactAction,
     requireArtifactStatePath,
@@ -345,5 +429,6 @@ export function useSprintEngineBoardArtifactActions(
     requestArtifactChanges,
     cancelRequestArtifactChangesDialog,
     submitRequestArtifactChanges,
+    resolveTaskInput,
   }
 }

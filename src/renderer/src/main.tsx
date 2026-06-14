@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './assets/index.css'
 import { ConfirmDialogProvider } from './components/ui'
+import DiagnosticsWindowApp from './components/diagnostics/DiagnosticsWindowApp'
 import WorkspaceManager from './components/workspace/WorkspaceManager'
 import { loadThirdPartyRendererModules } from './modules'
 import { bindElectronClipboardPasteBridge } from './utils/clipboardPasteBridge'
@@ -70,10 +71,23 @@ async function bootThirdPartyRendererModules(): Promise<void> {
   }
 }
 
-void bootThirdPartyRendererModules().then(() => {
+// The diagnostics window loads the same renderer bundle with `?view=diagnostics`
+// and mounts only the standalone panel — no workspace shell, no third-party
+// module boot (it needs none, and skipping it makes the monitor window snappy).
+const isDiagnosticsWindow = new URLSearchParams(window.location.search).get('view') === 'diagnostics'
+
+if (isDiagnosticsWindow) {
   ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     <ConfirmDialogProvider>
-      <WorkspaceManager />
+      <DiagnosticsWindowApp />
     </ConfirmDialogProvider>
   )
-})
+} else {
+  void bootThirdPartyRendererModules().then(() => {
+    ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+      <ConfirmDialogProvider>
+        <WorkspaceManager />
+      </ConfirmDialogProvider>
+    )
+  })
+}

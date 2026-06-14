@@ -12,6 +12,7 @@ import { buildSprintEngineAgentRosterForState, buildSprintEngineRosterCommandArg
 import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
+import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
@@ -459,6 +460,14 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           kind: 'agent',
           ...profile,
         })
+        recordReplayProfile({
+          ...profile,
+          recordedAt: Date.now(),
+          sessionId,
+          workspaceId,
+          agentId,
+          kind: 'agent',
+        })
       },
     })
 
@@ -890,7 +899,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       onDrop={(event) => void handleDrop(event)}
       className="terminal-focus-ring absolute inset-0 overflow-hidden p-2 pb-4 cursor-text"
     >
-      {!replayVisible ? <TerminalReplaySkeleton /> : null}
+      {!replayVisible || (folderBlocked && checkingFolder) ? <TerminalReplaySkeleton /> : null}
       {isFileDragOver ? (
         <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]" />
       ) : null}
@@ -902,13 +911,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           onDismiss={() => setClickError(null)}
         />
       ) : null}
-      {folderBlocked ? (
+      {folderBlocked && folderMissing ? (
         <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[color:var(--text-muted)]">
-          {checkingFolder
-            ? 'Checking workspace folder before starting this terminal...'
-            : folderMissing
-              ? folderStatusMessage ?? 'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'
-              : null}
+          {folderStatusMessage ?? 'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'}
         </div>
       ) : null}
     </div>

@@ -336,6 +336,14 @@ export type MobileControlSnapshot = {
   sprintEngines: MobileSprintEngineSnapshot[]
   workspaces?: MobileWorkspaceSnapshot[]
   backlog?: MobileControlBacklogWorkspaceSnapshot[]
+  snapshotLimits?: {
+    sprintEngines?: {
+      included: number
+      omitted: number
+      total: number
+      reason: 'relay_result_summary_size'
+    }
+  }
 }
 
 export type MobileSprintEngineSnapshotRequest = {

@@ -27,7 +27,7 @@ import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerVoiceIpc } from './ipc/voice-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { registerWorkspaceSyncIpc } from './ipc/workspace-sync-ipc'
-import { confirmWorkspaceWindowClose, createMainWindow } from './window-factory'
+import { confirmWorkspaceWindowClose, createDiagnosticsWindow, createMainWindow } from './window-factory'
 import { registerWorkspaceBackupIpc } from './ipc/workspace-backup-ipc'
 import type { AppServices } from './app-services'
 import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
@@ -64,6 +64,9 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
   registerDiagnosticsIpc(ipcMain, {
     writeDiagnosticLog,
     openDiagnosticsLogsFolder,
+    openDiagnosticsWindow: () => {
+      createDiagnosticsWindow()
+    },
   })
   registerUpdateIpc(ipcMain, { updateService: services.updateService })
   registerSoulsIpc(ipcMain, {

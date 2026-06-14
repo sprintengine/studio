@@ -18,7 +18,8 @@ type HighlightSwatch = {
   // Mirrors the panel-design-system Tier-2 selection pattern but with
   // the highlight color in place of the module accent.
   border: string // border-l-[color]
-  bg: string // bg-[deep-fill]
+  bg: string // bg-[deep-fill] — bright fill for the active/selected row
+  dimBg: string // lower-strength fill for inactive highlighted rows (full width)
   text: string // text color for active row label
   shadow: string // composed inset ring + outer halo (expanded sidebar)
   collapsedShadow: string // tighter, dimmer halo for the icon rail
@@ -34,6 +35,7 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     hex: '#ff5a5f',
     border: 'border-l-[#ff5a5f]',
     bg: 'highlight-bg-red',
+    dimBg: 'highlight-bg-dim-red',
     text: 'highlight-text-red',
     shadow:
       'shadow-[inset_0_0_0_1px_rgba(255,90,95,0.24),0_0_10px_-6px_rgba(255,90,95,0.20)]',
@@ -48,6 +50,7 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     hex: '#ff8c42',
     border: 'border-l-[#ff8c42]',
     bg: 'highlight-bg-orange',
+    dimBg: 'highlight-bg-dim-orange',
     text: 'highlight-text-orange',
     shadow:
       'shadow-[inset_0_0_0_1px_rgba(255,140,66,0.24),0_0_10px_-6px_rgba(255,140,66,0.18)]',
@@ -62,6 +65,7 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     hex: '#ffbf2f',
     border: 'border-l-[#ffbf2f]',
     bg: 'highlight-bg-amber',
+    dimBg: 'highlight-bg-dim-amber',
     text: 'highlight-text-amber',
     shadow:
       'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.22),0_0_10px_-6px_rgba(255,191,47,0.18)]',
@@ -76,6 +80,7 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     hex: '#30d158',
     border: 'border-l-[#30d158]',
     bg: 'highlight-bg-green',
+    dimBg: 'highlight-bg-dim-green',
     text: 'highlight-text-green',
     shadow:
       'shadow-[inset_0_0_0_1px_rgba(48,209,88,0.24),0_0_10px_-6px_rgba(48,209,88,0.18)]',
@@ -90,6 +95,7 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     hex: '#5c7cff',
     border: 'border-l-[#5c7cff]',
     bg: 'highlight-bg-blue',
+    dimBg: 'highlight-bg-dim-blue',
     text: 'highlight-text-blue',
     shadow:
       'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.26),0_0_10px_-6px_rgba(92,124,255,0.20)]',
@@ -104,6 +110,7 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     hex: '#a78bfa',
     border: 'border-l-[#a78bfa]',
     bg: 'highlight-bg-purple',
+    dimBg: 'highlight-bg-dim-purple',
     text: 'highlight-text-purple',
     shadow:
       'shadow-[inset_0_0_0_1px_rgba(167,139,250,0.28),0_0_10px_-6px_rgba(167,139,250,0.22)]',
@@ -118,6 +125,7 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     hex: '#ff7eb3',
     border: 'border-l-[#ff7eb3]',
     bg: 'highlight-bg-pink',
+    dimBg: 'highlight-bg-dim-pink',
     text: 'highlight-text-pink',
     shadow:
       'shadow-[inset_0_0_0_1px_rgba(255,126,179,0.26),0_0_10px_-6px_rgba(255,126,179,0.20)]',

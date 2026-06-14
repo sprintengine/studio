@@ -5,11 +5,30 @@
 // callbacks in, IPC and store mutations stay in the parent.
 
 import React, { useState } from 'react'
-import type { AppNotification } from '../../../types/workspace'
+import type { AppNotification, DiagnosticLevel } from '../../../types/workspace'
 import { StatusDot } from '../../ui'
+import type { Tone } from '../../ui/tokens'
 
 type RuntimeClipboardApi = {
   clipboardWriteText?: (text: string) => Promise<void>
+}
+
+// Severity filters offered in the popover header. Info has no chip — it is the
+// calm default that shows when no filter is engaged. Tones match the per-row
+// status dot so the chip and the rows it reveals read as one vocabulary.
+const LEVEL_FILTERS: ReadonlyArray<{ level: DiagnosticLevel; label: string; tone: Tone }> = [
+  { level: 'error', label: 'Errors', tone: 'error' },
+  { level: 'warning', label: 'Warnings', tone: 'warn' },
+]
+
+const LEVEL_NOUN: Record<DiagnosticLevel, string> = {
+  error: 'error',
+  warning: 'warning',
+  info: 'info',
+}
+
+function statusToneForLevel(level: DiagnosticLevel): Tone {
+  return level === 'error' ? 'error' : level === 'warning' ? 'warn' : 'accent'
 }
 
 function formatNotificationTime(value: string): string {
@@ -38,6 +57,23 @@ export function NotificationsPopover({
   onOpenLogs: () => void
 }) {
   const [copyErrorId, setCopyErrorId] = useState<string | null>(null)
+  // View-only severity filter. Empty = show everything; otherwise show only the
+  // engaged levels (OR), so "Errors" and "Warnings" can be on together. Resets
+  // implicitly when the popover unmounts on close.
+  const [activeLevels, setActiveLevels] = useState<DiagnosticLevel[]>([])
+
+  const toggleLevel = (level: DiagnosticLevel) =>
+    setActiveLevels((prev) => (prev.includes(level) ? prev.filter((value) => value !== level) : [...prev, level]))
+
+  const visibleNotifications =
+    activeLevels.length === 0
+      ? notifications
+      : notifications.filter((notification) => activeLevels.includes(notification.level))
+
+  const emptyMessage =
+    notifications.length === 0
+      ? 'No notifications'
+      : `No ${activeLevels.map((level) => LEVEL_NOUN[level]).join(' or ')} notifications`
 
   const copyNotification = async (notification: AppNotification) => {
     const details = [
@@ -63,10 +99,35 @@ export function NotificationsPopover({
   }
 
   return (
-    <div className="w-[440px] overflow-hidden">
-      <div className="flex h-10 items-center justify-between border-b border-[color:var(--border-default)] px-3">
-        <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">Notifications</span>
-        <div className="flex items-center gap-1">
+    <div className="w-[480px] overflow-hidden">
+      <div className="flex h-10 items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-3">
+        <span className="shrink-0 text-[12px] font-semibold text-[color:var(--text-strong)]">Notifications</span>
+        <div className="flex shrink-0 items-center gap-1">
+          {notifications.length > 0 ? (
+            <>
+              {LEVEL_FILTERS.map(({ level, label, tone }) => {
+                const active = activeLevels.includes(level)
+                return (
+                  <button
+                    key={level}
+                    type="button"
+                    aria-pressed={active}
+                    aria-label={active ? `Showing only ${LEVEL_NOUN[level]} notifications` : `Show only ${LEVEL_NOUN[level]} notifications`}
+                    onClick={() => toggleLevel(level)}
+                    className={`inline-flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-semibold transition-colors ${
+                      active
+                        ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+                        : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                    }`}
+                  >
+                    <StatusDot tone={tone} />
+                    {label}
+                  </button>
+                )
+              })}
+              <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-[color:var(--border-default)]" />
+            </>
+          ) : null}
           <button
             type="button"
             onClick={onOpenLogs}
@@ -95,11 +156,11 @@ export function NotificationsPopover({
         </div>
       </div>
 
-      {notifications.length === 0 ? (
-        <div className="px-3 py-4 text-[13px] text-[color:var(--text-disabled)]">No notifications</div>
+      {visibleNotifications.length === 0 ? (
+        <div className="px-3 py-4 text-[13px] text-[color:var(--text-disabled)]">{emptyMessage}</div>
       ) : (
         <div className="max-h-[440px] overflow-y-auto p-1">
-          {notifications.map((notification) => (
+          {visibleNotifications.map((notification) => (
             <div
               key={notification.id}
               role="menuitem"
@@ -113,16 +174,7 @@ export function NotificationsPopover({
               }}
             >
               <div className="flex items-start gap-2">
-                <StatusDot
-                  tone={
-                    notification.level === 'error'
-                      ? 'error'
-                      : notification.level === 'warning'
-                        ? 'warn'
-                        : 'accent'
-                  }
-                  className="mt-1"
-                />
+                <StatusDot tone={statusToneForLevel(notification.level)} className="mt-1" />
                 <div className="min-w-0 flex-1">
                   <div className="flex min-w-0 items-center justify-between gap-3">
                     <div className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">

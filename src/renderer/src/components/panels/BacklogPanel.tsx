@@ -11,6 +11,7 @@ import {
   PrimaryButton,
   Section,
   Select,
+  Skeleton,
   Tooltip,
   useConfirmDialog,
   type SelectItem,
@@ -811,6 +812,9 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       onKeyDown={handleListKeyDown}
       onItemDragStart={folderPath ? handleRowDragStart : undefined}
       onItemContextMenu={folderPath ? handleRowContextMenu : undefined}
+      // First load with nothing scanned yet renders a skeleton instead of a
+      // text hint; a refresh over existing items keeps the current rows visible.
+      skeleton={loading && !scan}
       emptyHint={listEmptyHint(scan, items.length, filtered.length, loading)}
       now={now}
       runGlyphById={runGlyphById}
@@ -956,6 +960,51 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
 
 // ---- List ------------------------------------------------------------------
 
+// Row-shaped placeholder shown on first load before any items have scanned,
+// mirroring BacklogRowContent's two-line rhythm (glyph + title on the primary
+// line, a shorter supporting line indented past the glyph) so the real list
+// reveals into the same shape. Widths are fixed, not random, so the placeholder
+// is stable across re-renders. Decorative; one concise status label announces
+// the load for screen readers.
+const BACKLOG_SKELETON_ROWS: ReadonlyArray<{ title: string; meta: string }> = [
+  { title: '58%', meta: '34%' },
+  { title: '42%', meta: '49%' },
+  { title: '66%', meta: '28%' },
+  { title: '37%', meta: '40%' },
+  { title: '52%', meta: '31%' },
+  { title: '61%', meta: '45%' },
+  { title: '44%', meta: '26%' },
+]
+
+function BacklogListSkeleton(): JSX.Element {
+  return (
+    <div className="min-h-0 flex-1 overflow-hidden py-1">
+      <span role="status" className="sr-only">
+        Loading backlog…
+      </span>
+      <div aria-hidden="true">
+        {BACKLOG_SKELETON_ROWS.map((row, index) => (
+          <div key={index} className="border-l-[3px] border-l-transparent px-3 py-1.5">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-3.5 w-3.5 shrink-0 rounded-full bg-[color:var(--skeleton-shimmer-high)]" />
+              <Skeleton
+                className="h-3 rounded bg-[color:var(--skeleton-shimmer-high)]"
+                style={{ width: row.title }}
+              />
+            </div>
+            <div className="mt-1 pl-[22px]">
+              <Skeleton
+                className="h-2.5 rounded bg-[color:var(--skeleton-shimmer-high)]"
+                style={{ width: row.meta }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function BacklogList({
   items,
   selectedId,
@@ -963,6 +1012,7 @@ function BacklogList({
   onKeyDown,
   onItemDragStart,
   onItemContextMenu,
+  skeleton,
   emptyHint,
   now,
   runGlyphById,
@@ -973,6 +1023,7 @@ function BacklogList({
   onKeyDown: (event: React.KeyboardEvent<HTMLUListElement>) => void
   onItemDragStart?: (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => void
   onItemContextMenu?: (event: React.MouseEvent, item: BacklogItem) => void
+  skeleton: boolean
   emptyHint: string | null
   now: number
   runGlyphById?: ReadonlyMap<string, BacklogRunGlyph>
@@ -985,6 +1036,10 @@ function BacklogList({
     const node = listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')
     node?.scrollIntoView({ block: 'nearest' })
   }, [selectedId])
+
+  if (skeleton) {
+    return <BacklogListSkeleton />
+  }
 
   if (emptyHint) {
     return (
@@ -1029,7 +1084,7 @@ function BacklogList({
             className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors ${
               active
                 ? `${swatch ? `${swatch.border} ${swatch.bg}` : 'border-l-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'} pl-[9px]`
-                : `${swatch ? swatch.border : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
+                : `${swatch ? `${swatch.border} ${swatch.dimBg}` : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
             } ${archived ? 'opacity-70' : ''}`}
           >
             <BacklogRowContent item={item} now={now} runGlyph={runGlyphById?.get(item.id)} />
@@ -1080,7 +1135,7 @@ function BacklogDetail({
     )
   }
   if (loading && !scan) {
-    return <DetailState body="Loading backlog…" />
+    return <BacklogDetailSkeleton />
   }
   if (scan?.state === 'missing-folder') {
     return (
@@ -1243,6 +1298,27 @@ function BacklogDetail({
   )
 }
 
+// Detail placeholder shown on first load before any item is scanned/selected:
+// a title bar plus a few body lines on the detail ground, so the preview reveals
+// into a familiar shape rather than flashing a "Loading…" line. Decorative; the
+// list's skeleton already carries the screen-reader status for the load.
+function BacklogDetailSkeleton(): JSX.Element {
+  return (
+    <div aria-hidden="true" className="flex h-full flex-col gap-4 p-4">
+      <Skeleton className="h-5 w-[56%] rounded bg-[color:var(--skeleton-shimmer-high)]" />
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-3 w-full rounded bg-[color:var(--skeleton-shimmer-high)]" />
+        <Skeleton className="h-3 w-[92%] rounded bg-[color:var(--skeleton-shimmer-high)]" />
+        <Skeleton className="h-3 w-[68%] rounded bg-[color:var(--skeleton-shimmer-high)]" />
+      </div>
+      <div className="mt-2 flex flex-col gap-2">
+        <Skeleton className="h-3 w-[84%] rounded bg-[color:var(--skeleton-shimmer-high)]" />
+        <Skeleton className="h-3 w-[47%] rounded bg-[color:var(--skeleton-shimmer-high)]" />
+      </div>
+    </div>
+  )
+}
+
 function DetailState({
   heading,
   body,
@@ -1382,7 +1458,8 @@ function listEmptyHint(
   filteredCount: number,
   loading: boolean,
 ): string | null {
-  if (loading && !scan) return 'Loading backlog…'
+  // First load renders the row skeleton (BacklogList), not a text hint.
+  if (loading && !scan) return null
   if (!scan) return null
   if (scan.state === 'missing-folder') return 'No backlog/ folder in this workspace yet.'
   if (scan.state === 'error') {

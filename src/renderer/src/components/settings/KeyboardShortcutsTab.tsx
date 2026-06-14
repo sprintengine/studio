@@ -69,6 +69,7 @@ export const CATEGORY_LABELS: Record<CommandCategory, string> = {
   switchboard: 'Switchboard',
   git: 'Git',
   terminal: 'Terminal',
+  diagnostics: 'Diagnostics',
 }
 
 // Module command categories are already display labels, so they pass through.

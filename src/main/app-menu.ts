@@ -110,6 +110,19 @@ export function createAppMenu(): Menu {
           click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'panel.knowledge-graph.toggle'),
         },
         { type: 'separator' },
+        // Performance diagnostics is an engineering tool; only surface it when
+        // diagnostics are on (dev build or MULTICODE_DIAGNOSTICS=1), matching
+        // the diagnostics.open command's availability gate.
+        ...(process.env.NODE_ENV === 'development' || process.env.MULTICODE_DIAGNOSTICS === '1'
+          ? [
+              {
+                label: 'Performance Diagnostics',
+                click: (_: unknown, win: Electron.BaseWindow | undefined) =>
+                  sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'diagnostics.open'),
+              } as Electron.MenuItemConstructorOptions,
+              { type: 'separator' } as Electron.MenuItemConstructorOptions,
+            ]
+          : []),
         { role: 'reload' },
         { role: 'forceReload' },
         { role: 'toggleDevTools' },

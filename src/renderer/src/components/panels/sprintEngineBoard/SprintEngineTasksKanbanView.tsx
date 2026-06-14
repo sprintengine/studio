@@ -77,7 +77,7 @@ export function SprintEngineTasksKanbanView({
                         : 'neutral'
                 const taskSelected = selectedTaskId === task.id
                 const justMoved = recentlyMovedTaskIds.has(task.id)
-                const needsInputSupporting = sprintEngineNeedsInputCardSupporting(task)
+                const needsInput = sprintEngineNeedsInputCardSummary(task)
                 // The lane header already states the column's status (its
                 // lifecycle glyph), so the card carries no leading mark — it would
                 // just repeat the column and eat horizontal space.
@@ -89,14 +89,23 @@ export function SprintEngineTasksKanbanView({
                     leading={null}
                     identifier={task.id}
                     title={task.title}
-                    supporting={needsInputSupporting}
+                    supporting={
+                      needsInput ? (
+                        <>
+                          <span className="font-medium text-[color:var(--text-default)]">
+                            {needsInput.headline}
+                          </span>
+                          {needsInput.question ? <span> · {needsInput.question}</span> : null}
+                        </>
+                      ) : null
+                    }
                     selected={taskSelected}
                     onSelect={() => onSelectTask(task.id)}
                     onContextMenu={onTaskContextMenu ? (event) => onTaskContextMenu(event, task) : undefined}
                     flipKey={task.id}
                     ariaLabel={
-                      needsInputSupporting
-                        ? `${task.id} ${task.title}. ${needsInputSupporting}`
+                      needsInput
+                        ? `${task.id} ${task.title}. ${needsInput.headline}${needsInput.question ? `: ${needsInput.question}` : ''}`
                         : undefined
                     }
                     justMovedClassName={justMoved ? 'card-just-moved-gold' : undefined}
@@ -129,32 +138,23 @@ export function SprintEngineTasksKanbanView({
   )
 }
 
-const needsInputKindLabels: Record<string, string> = {
-  architect: 'Architect',
-  user: 'User',
-}
-
-const needsInputReasonLabels: Record<string, string> = {
-  task_scope: 'Task scope',
-  artifact_review: 'Artifact review',
-  tooling: 'Tooling',
-  verification: 'Verification',
-  product_decision: 'Product decision',
-  blocked_other: 'Blocked',
-}
-
-function formatNeedsInputCardValue(value: string | undefined): string | null {
-  if (!value?.trim()) return null
-  const trimmed = value.trim()
-  return needsInputReasonLabels[trimmed] ?? needsInputKindLabels[trimmed] ?? trimmed.replace(/_/g, ' ')
-}
-
-function sprintEngineNeedsInputCardSupporting(task: SprintEngineTask): string | null {
+// The card's job in the Needs Input lane is "whose blocker is this?" — so it
+// leads with the actor route (your input vs the architect's), which is the one
+// bit that tells a human scanning the lane which cards are theirs to act on.
+// The question follows as muted detail; the reason and reporter live in the
+// inspector. Returns the display headline plus the raw question so the card can
+// tier them and build an accessible label.
+function sprintEngineNeedsInputCardSummary(
+  task: SprintEngineTask,
+): { headline: string; question: string | null } | null {
   if (task.status !== 'needs_input') return null
-  const kind = formatNeedsInputCardValue(task.needsInput?.kind)
-  const reason = formatNeedsInputCardValue(task.needsInput?.reason)
-  const question = task.needsInput?.question?.trim()
-  const route = [kind, reason].filter(Boolean).join(' · ')
-  if (route && question) return `${route}: ${question}`
-  return route || question || null
+  const kind = task.needsInput?.kind?.trim()
+  const headline =
+    kind === 'user'
+      ? 'Needs your input'
+      : kind === 'architect'
+        ? 'Needs architect input'
+        : 'Needs input'
+  const question = task.needsInput?.question?.trim() || null
+  return { headline, question }
 }

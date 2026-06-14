@@ -600,6 +600,14 @@ export interface MobileControlSnapshot {
   sprintEngines: MobileControlSprintEngineSnapshot[];
   workspaces?: MobileControlWorkspaceSnapshot[];
   backlog?: MobileControlBacklogWorkspaceSnapshot[];
+  snapshotLimits?: {
+    sprintEngines?: {
+      included: number;
+      omitted: number;
+      total: number;
+      reason: "relay_result_summary_size";
+    };
+  };
 }
 
 export interface MobileControlEventBase<Type extends MobileControlEventType, Payload> {

@@ -249,6 +249,18 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace', 'terminalActive'],
     handlerPath: { kind: 'workspace-manager', handler: 'stopActiveTerminal()' },
   }),
+  // The performance diagnostics panel is a dev/diagnostics-only engineering
+  // tool (process metrics, terminal/replay footprint, retention warnings).
+  // Gated on diagnosticsEnabled so it never surfaces in a normal build; ships
+  // unbound (users can bind it in Shortcuts settings).
+  command({
+    id: 'diagnostics.open',
+    title: 'Diagnostics: Performance Panel',
+    category: 'diagnostics',
+    scopes: ['global'],
+    availability: ['diagnosticsEnabled'],
+    handlerPath: { kind: 'workspace-manager', handler: 'setDiagnosticsOpen(true)' },
+  }),
   command({
     id: 'voice.toggle',
     title: 'Toggle Voice Transcription',

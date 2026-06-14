@@ -6,6 +6,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
+import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createXtermOutputQueue, createXtermReplayGate, type XtermReplayState } from '../../utils/xtermOutputQueue'
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
@@ -129,6 +130,14 @@ export default function PlainTerminalPanel({
           terminalId,
           kind: 'terminal',
           ...profile,
+        })
+        recordReplayProfile({
+          ...profile,
+          recordedAt: Date.now(),
+          sessionId,
+          workspaceId,
+          terminalId,
+          kind: 'terminal',
         })
       },
     })
@@ -365,7 +374,7 @@ export default function PlainTerminalPanel({
         onDrop={(event) => void handleDrop(event)}
         className="terminal-focus-ring absolute inset-0 cursor-text overflow-hidden p-2 pb-4"
       >
-        {!replayVisible ? <TerminalReplaySkeleton /> : null}
+        {!replayVisible || (folderBlocked && checkingFolder) ? <TerminalReplaySkeleton /> : null}
         {isFileDragOver ? (
           <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]" />
         ) : null}
@@ -377,13 +386,9 @@ export default function PlainTerminalPanel({
             onDismiss={() => setDropError(null)}
           />
         ) : null}
-        {folderBlocked ? (
+        {folderBlocked && folderMissing ? (
           <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[color:var(--text-muted)]">
-            {checkingFolder
-              ? 'Checking workspace folder before starting this terminal...'
-              : folderMissing
-                ? folderStatusMessage ?? 'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'
-                : null}
+            {folderStatusMessage ?? 'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'}
           </div>
         ) : null}
       </div>

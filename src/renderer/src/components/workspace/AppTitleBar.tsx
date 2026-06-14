@@ -33,6 +33,33 @@ type AppTitleBarProps<MenuItem extends string> = {
   onShowMenu: (event: React.MouseEvent<HTMLButtonElement>, label: MenuItem) => void
   // Null when the sprint-engine module is disabled — the toggle hides entirely.
   sprintEnginesToggle: SprintEnginesToggle | null
+  // Null outside dev/diagnostics builds — the performance panel is an
+  // engineering tool, so its title-bar entry only exists when diagnostics are on.
+  onOpenDiagnostics: (() => void) | null
+}
+
+function DiagnosticsTitleBarButton({ onOpen }: { onOpen: () => void }) {
+  return (
+    <Tooltip content="Performance diagnostics" placement="bottom">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label="Open performance diagnostics"
+        className="app-no-drag interactive inline-flex h-7 w-7 items-center justify-center bg-transparent text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+      >
+        {/* Activity / pulse glyph. */}
+        <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
+          <path
+            d="M1 8h3l2-4.5L9.5 13 12 8h3"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+    </Tooltip>
+  )
 }
 
 function SprintEnginesAsideToggle({ open, onToggle }: SprintEnginesToggle) {
@@ -65,6 +92,7 @@ export function AppTitleBar<MenuItem extends string>({
   menuItems,
   onShowMenu,
   sprintEnginesToggle,
+  onOpenDiagnostics,
 }: AppTitleBarProps<MenuItem>) {
   return (
     <div
@@ -82,9 +110,10 @@ export function AppTitleBar<MenuItem extends string>({
         <>
           {/* Spacer holds the traffic-light gutter; the centered brand floats above. */}
           <div aria-hidden="true" className={TRAFFIC_LIGHT_INSET} />
-          {sprintEnginesToggle ? (
-            <div className="relative z-10 flex items-center px-1.5">
-              <SprintEnginesAsideToggle {...sprintEnginesToggle} />
+          {sprintEnginesToggle || onOpenDiagnostics ? (
+            <div className="relative z-10 flex items-center gap-0.5 px-1.5">
+              {onOpenDiagnostics ? <DiagnosticsTitleBarButton onOpen={onOpenDiagnostics} /> : null}
+              {sprintEnginesToggle ? <SprintEnginesAsideToggle {...sprintEnginesToggle} /> : null}
             </div>
           ) : null}
         </>
@@ -104,9 +133,10 @@ export function AppTitleBar<MenuItem extends string>({
           </div>
 
           <div className="relative z-10 flex items-center">
-            {sprintEnginesToggle ? (
-              <div className="flex items-center px-1">
-                <SprintEnginesAsideToggle {...sprintEnginesToggle} />
+            {sprintEnginesToggle || onOpenDiagnostics ? (
+              <div className="flex items-center gap-0.5 px-1">
+                {onOpenDiagnostics ? <DiagnosticsTitleBarButton onOpen={onOpenDiagnostics} /> : null}
+                {sprintEnginesToggle ? <SprintEnginesAsideToggle {...sprintEnginesToggle} /> : null}
               </div>
             ) : null}
             <WindowControls isMaximized={isMaximized} />

@@ -1,7 +1,7 @@
 import React from 'react'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
-import { FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, Tooltip } from '../ui'
+import { ChangePulse, FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, Tooltip } from '../ui'
 import type { SessionUser } from '../../../../shared/electron-api'
 import { hasActiveProPlan } from './workspaceManagerHelpers'
 import CliIcon from '../CliIcon'
@@ -421,7 +421,8 @@ export type WorkspaceTopBarProps = {
   setViewMenuTick: React.Dispatch<React.SetStateAction<number>>
 
   notifications: AppNotification[]
-  unreadNotificationCount: number
+  /** Unread *error*-level notifications only — the bell badge is an error counter. */
+  unreadErrorCount: number
   notificationsOpen: boolean
   setNotificationsOpen: React.Dispatch<React.SetStateAction<boolean>>
   markNotificationRead: (id: string) => void
@@ -503,7 +504,7 @@ export default function WorkspaceTopBar({
   viewMenuTick,
   setViewMenuTick,
   notifications,
-  unreadNotificationCount,
+  unreadErrorCount,
   notificationsOpen,
   setNotificationsOpen,
   markNotificationRead,
@@ -651,9 +652,11 @@ export default function WorkspaceTopBar({
                       aria-label="Sessions"
                       {...triggerProps}
                     >
-                      <SessionsIcon className="h-[18px] w-[18px]" />
+                      <ChangePulse value={sessions.length} mode="increase" tint="var(--tone-good)" className="inline-flex">
+                        <SessionsIcon className="h-[18px] w-[18px]" />
+                      </ChangePulse>
                       {sessions.length > 0 ? (
-                        <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-good)] px-1 text-[10px] font-bold leading-none text-[color:var(--bg-app)]">
+                        <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-good)] px-1 text-[10px] font-bold leading-none tabular-nums text-[color:var(--bg-app)]">
                           {sessions.length > 99 ? '99+' : sessions.length}
                         </span>
                       ) : null}
@@ -785,10 +788,12 @@ export default function WorkspaceTopBar({
                     aria-label="Notifications"
                     {...triggerProps}
                   >
-                    <NotificationBellIcon className="h-[18px] w-[18px]" />
-                    {unreadNotificationCount > 0 ? (
-                      <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-error)] px-1 text-[10px] font-bold leading-none text-[color:var(--bg-app)]">
-                        {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                    <ChangePulse value={unreadErrorCount} mode="increase" tint="var(--tone-error)" className="inline-flex">
+                      <NotificationBellIcon className="h-[18px] w-[18px]" />
+                    </ChangePulse>
+                    {unreadErrorCount > 0 ? (
+                      <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-error)] px-1 text-[10px] font-bold leading-none tabular-nums text-[color:var(--bg-app)]">
+                        {unreadErrorCount > 99 ? '99+' : unreadErrorCount}
                       </span>
                     ) : null}
                   </button>

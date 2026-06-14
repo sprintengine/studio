@@ -132,6 +132,61 @@ export function createMainWindow({
   return win
 }
 
+// Singleton standalone diagnostics window. Loads the same renderer bundle with
+// `?view=diagnostics` so the renderer mounts only the performance panel. It is
+// deliberately not a workspace window: it does not participate in workspace
+// sync, carries no `windowId`, and closes normally (no unsaved-work guard).
+let diagnosticsWindow: BrowserWindow | null = null
+
+export function createDiagnosticsWindow(): BrowserWindow {
+  if (diagnosticsWindow && !diagnosticsWindow.isDestroyed()) {
+    if (diagnosticsWindow.isMinimized()) diagnosticsWindow.restore()
+    diagnosticsWindow.focus()
+    return diagnosticsWindow
+  }
+
+  const win = new BrowserWindow({
+    width: 1000,
+    height: 760,
+    minWidth: 600,
+    minHeight: 400,
+    show: false,
+    title: 'Multicode Diagnostics',
+    backgroundColor: '#09090b',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+    },
+  })
+  diagnosticsWindow = win
+
+  win.on('ready-to-show', () => {
+    win.show()
+    win.focus()
+  })
+  win.on('closed', () => {
+    if (diagnosticsWindow === win) diagnosticsWindow = null
+  })
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url)
+    return { action: 'deny' }
+  })
+
+  if (process.env['ELECTRON_RENDERER_URL']) {
+    const url = new URL(process.env['ELECTRON_RENDERER_URL'])
+    url.searchParams.set('view', 'diagnostics')
+    win.loadURL(url.toString())
+  } else {
+    win.loadFile(join(__dirname, '../renderer/index.html'), {
+      query: { view: 'diagnostics' },
+    })
+  }
+
+  return win
+}
+
 function createPlacementUpdateScheduler(win: BrowserWindow): () => void {
   let timer: NodeJS.Timeout | null = null
   return () => {

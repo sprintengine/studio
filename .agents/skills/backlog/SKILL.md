@@ -1,6 +1,6 @@
 ---
 name: backlog
-description: Take and work a Multicode Backlog item with truthful lifecycle status. Use when the user invokes /backlog, drags a backlog/ file into the terminal, or asks the agent to pick up, survey, or work a Backlog item, and keep .multi-code/backlog/items.json status current while working.
+description: Take, work, survey, or triage Multicode Backlog items with truthful lifecycle status. Use when the user invokes /backlog, drags a backlog/ file into the terminal, asks the agent to pick up/survey/work a Backlog item, or asks to triage/prune/review the backlog, and keep .multi-code/backlog/items.json status current while working.
 ---
 
 # Backlog
@@ -42,6 +42,22 @@ Follow the object-store procedure in the supporting info exactly; never compute 
 2. Exclude items whose status is `completed`, `archived`, or `in_progress`.
 3. Rank the remainder: `ready` before `idea`, then higher `criticality` first, then smaller `difficulty` first; items missing an axis rank after estimated ones at the same level.
 4. Present a short ranked list (title, one-line intent, type/size/priority when known) and ask the user which item to take. Once they choose, continue as if that item had been the argument.
+
+**Triage the backlog** (`/backlog triage`, or "triage/prune/review the backlog"): assess every item against the current codebase, report, then ask before changing anything. Triage never deletes, completes, or re-statuses an item silently.
+
+1. Read `.multi-code/backlog/items.json` (if present) and every non-archived item file under `backlog/`.
+2. Read each item and judge it against the **current codebase** (and recent git history when useful). Sort each into:
+   - **Worth doing now** — still relevant open work. Note a one-line reason it matters and roughly how it ranks.
+   - **Already done** — the described behaviour already exists in the code. Recommend status `completed`.
+   - **Outdated / no longer relevant** — the premise is gone, the code moved on, or another item/run supersedes it. Recommend deleting or archiving.
+   - **Status drift** — the recorded `status` does not match reality (e.g. `in_progress`/`needs_input` with no live run or agent session backing it, or a linked run that has already finished). Recommend the truthful status.
+   Base every judgement on what you actually find in the repo. If you cannot tell whether an item is still relevant, leave it under "worth doing now / needs a human look" — never recommend deletion on a guess.
+3. Present one report grouped by those buckets. Each line: title, project-relative path (e.g. `backlog/example.md`), a one-line reason, and the proposed action. Do **not** mutate or delete anything yet.
+4. Ask the user to confirm which recommendations to apply. Then apply **only** what they approve, leaving everything else untouched:
+   - Status change (`completed`, `idea`, etc.) — use the Object Store Updates procedure below.
+   - Delete — remove the item file at `backlog/<file>` and delete its matching record (by `source.relativePath`) from the `items` array in `.multi-code/backlog/items.json`.
+   - Archive (the reversible alternative to delete) — move the file under `backlog/archived/`; its status then derives from that path.
+   Report exactly what changed, in project-relative paths.
 
 ## Item Vocabulary
 

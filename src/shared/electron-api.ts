@@ -551,6 +551,37 @@ export type TerminalSessionSnapshot = {
   replayLimitBytes?: number
 }
 
+// One process row from Electron's app.getAppMetrics(). `kind` maps Electron's
+// process type to the role operators reason about: 'main' (Browser),
+// 'renderer' (Tab), plus 'gpu' and 'utility'. `cpuPercent` is the rolling CPU
+// share since the previous getAppMetrics() call, so it is only meaningful when
+// the diagnostics panel samples on an interval. `threads`/`fileDescriptors` are
+// optional: the MVP leaves them undefined (Electron does not expose them and
+// per-poll ps/lsof would add the overhead the panel exists to measure).
+export type ProcessMetricKind = 'main' | 'renderer' | 'gpu' | 'utility' | 'other'
+
+export type ProcessMetricSample = {
+  pid: number
+  kind: ProcessMetricKind
+  // Electron's raw process type ('Browser' | 'Tab' | 'GPU' | 'Utility' | …) and
+  // the utility/service name when present, so the panel can disambiguate
+  // multiple renderers/utilities without guessing.
+  type: string
+  name?: string
+  cpuPercent: number
+  // Working set size in bytes (Electron reports KB; the main process converts).
+  memoryBytes: number
+  threads?: number
+  fileDescriptors?: number
+}
+
+export type ProcessMetricsSnapshot = {
+  sampledAt: number
+  // Best-effort: empty when app.getAppMetrics() is unavailable in the current
+  // runtime rather than throwing, so the panel degrades to "unavailable".
+  processes: ProcessMetricSample[]
+}
+
 export type TerminalSpawnResult =
   | { ok: true; sessionId: string }
   | { ok: false; sessionId: string; message: string; exitCode: number }
@@ -1640,6 +1671,8 @@ export type ElectronApi = {
   onTerminalExit: (sessionId: string, cb: (code: number) => void) => () => void
   onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
   onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void) => () => void
+  diagnosticsGetProcessMetrics: () => Promise<ProcessMetricsSnapshot>
+  diagnosticsOpenWindow: () => Promise<void>
   onAppMenuCommand: (cb: (command: string) => void) => () => void
   updateAppMenuAccelerators: (updates: AppMenuAcceleratorUpdate[]) => Promise<AppMenuAcceleratorUpdateResult>
   workspaceBackupWrite: (payload: WorkspaceBackupPayload) => Promise<WorkspaceBackupWriteResult>

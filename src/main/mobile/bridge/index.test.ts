@@ -19,8 +19,8 @@ async function main(): Promise<void> {
   await assertDesktopPairingDisplayUsesManualRelayCode()
   await assertDesktopPairingDisplayRejectsLegacyRelayChallenge()
   await assertAuthenticatedRelayTransportDispatchesAndFailsClosed()
-  await assertOversizedSnapshotRequestFailsWithoutTruncatedSuccess()
-  await assertNonAsciiSnapshotRequestUsesUtf8ByteCap()
+  await assertOversizedSnapshotRequestReturnsBoundedSnapshotWithoutTruncatedSuccess()
+  await assertNonAsciiSnapshotRequestUsesUtf8ByteCapForBoundedSnapshot()
   await assertMobileDeviceCannotRevokeSiblingDevice()
   await assertRelayBackedMobileDeviceRevokeCommandRevokesIssuingDevice()
   await assertRelayServiceDeliveriesDispatchAndRecordResults()
@@ -233,7 +233,7 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
   assert.equal((artifactReadSummary as { data?: { content?: unknown } }).data?.content, '# Requirements\n')
 }
 
-async function assertOversizedSnapshotRequestFailsWithoutTruncatedSuccess(): Promise<void> {
+async function assertOversizedSnapshotRequestReturnsBoundedSnapshotWithoutTruncatedSuccess(): Promise<void> {
   const fixture = await writeSprintEngineFixture({ extraTaskCount: 7000 })
   const relay = new FakeRelayTransport([
     commandDelivery('cmd_oversized_snapshot', {
@@ -263,15 +263,10 @@ async function assertOversizedSnapshotRequestFailsWithoutTruncatedSuccess(): Pro
   bridge.shutdown()
 
   const result = relay.results.find((candidate) => candidate.commandId === 'cmd_oversized_snapshot')
-  assert.equal(result?.status, 'failed')
-  assert.equal(result?.resultCode, 'SNAPSHOT_TOO_LARGE')
-  assert.equal(result?.summary.ok, false)
-  assert.equal(result?.summary.code, 'snapshot_too_large')
-  assert.equal(JSON.stringify(result?.summary).includes('"truncated":true'), false)
-  assert.equal(relaySummaryByteLength(result?.summary) < relayResultSummaryMaxBytes, true)
+  assertBoundedSnapshotResult(result)
 }
 
-async function assertNonAsciiSnapshotRequestUsesUtf8ByteCap(): Promise<void> {
+async function assertNonAsciiSnapshotRequestUsesUtf8ByteCapForBoundedSnapshot(): Promise<void> {
   const fixture = await writeSprintEngineFixture({ nonAsciiPayload: createNonAsciiPayloadBelowCharacterCapAboveByteCap() })
   const relay = new FakeRelayTransport([
     commandDelivery('cmd_non_ascii_snapshot', {
@@ -301,12 +296,38 @@ async function assertNonAsciiSnapshotRequestUsesUtf8ByteCap(): Promise<void> {
   bridge.shutdown()
 
   const result = relay.results.find((candidate) => candidate.commandId === 'cmd_non_ascii_snapshot')
-  assert.equal(result?.status, 'failed')
-  assert.equal(result?.resultCode, 'SNAPSHOT_TOO_LARGE')
-  assert.equal(result?.summary.ok, false)
-  assert.equal(result?.summary.code, 'snapshot_too_large')
+  assertBoundedSnapshotResult(result)
+}
+
+function assertBoundedSnapshotResult(
+  result: FakeRelayTransport['results'][number] | undefined,
+): void {
+  assert.equal(result?.status, 'completed')
+  assert.equal(result?.resultCode, 'OK')
+  assert.equal(result?.summary.ok, true)
   assert.equal(JSON.stringify(result?.summary).includes('"truncated":true'), false)
   assert.equal(relaySummaryByteLength(result?.summary) < relayResultSummaryMaxBytes, true)
+
+  const snapshot = result?.summary.data
+  const validation = validateMobileControlSnapshot(snapshot)
+  assert.equal(validation.ok, true, validation.ok === false ? validation.error.message : undefined)
+  assert.equal(relaySummaryByteLength(snapshot) < relayResultSummaryMaxBytes, true)
+  assert.equal((snapshot as { sprintEngines?: unknown[] })?.sprintEngines?.length, 0)
+  assert.deepEqual((snapshot as {
+    snapshotLimits?: {
+      sprintEngines?: {
+        included: number
+        omitted: number
+        total: number
+        reason: string
+      }
+    }
+  })?.snapshotLimits?.sprintEngines, {
+    included: 0,
+    omitted: 1,
+    total: 1,
+    reason: 'relay_result_summary_size',
+  })
 }
 
 async function assertMobileDeviceCannotRevokeSiblingDevice(): Promise<void> {

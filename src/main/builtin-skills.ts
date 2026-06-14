@@ -72,8 +72,8 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
   {
     id: 'backlog',
     name: 'Backlog',
-    version: '1.0.0',
-    description: 'Take and work a Backlog item with truthful lifecycle status (/backlog).',
+    version: '1.1.0',
+    description: 'Take, work, survey, or triage Backlog items with truthful lifecycle status (/backlog).',
     harnesses: [...SKILL_PACK_HARNESSES],
   },
 ]

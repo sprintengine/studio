@@ -220,7 +220,10 @@ const externalNeedsInputState = normalizeSprintEngineProjection(fakeProjection({
     },
   ],
 }))
-assert.equal(externalNeedsInputState?.tasks[0]?.needsInput?.kind, 'external_validation')
+// Legacy `external_validation` kind normalizes to the first-class `user` route
+// (the human is the actor being waited on); `owner` likewise folds to
+// `architect`. The fixture feeds the legacy value to prove the mapping holds.
+assert.equal(externalNeedsInputState?.tasks[0]?.needsInput?.kind, 'user')
 assert.equal(externalNeedsInputState?.tasks[0]?.needsInput?.reason, 'A real device or supported simulator is required.')
 assert.equal(externalNeedsInputState?.tasks[0]?.needsInput?.question, 'Can a tester verify native calendar side effects?')
 

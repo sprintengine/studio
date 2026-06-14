@@ -1,4 +1,4 @@
-import { Tooltip } from '../ui'
+import { ChangePulse, Tooltip } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitStatus } from '../../hooks/useGitStatus'
 import { selectModuleEnabled } from '../../modules'
@@ -218,7 +218,25 @@ export default function PanelRail({ workspaceId, collapsed, onToggleCollapse }: 
                * against the icon.
                */}
               <span className="relative inline-flex">
-                <Icon className="h-[16px] w-[16px]" />
+                {/*
+                 * The Git glyph pulses in its badge colour each time the change
+                 * count moves while the rail stays mounted; keyed on the count,
+                 * reset on folder switch so swapping repos never flashes. Wrapped
+                 * only while there are changes, so the count first appearing on
+                 * load lands quietly. Other rail glyphs render the bare icon.
+                 */}
+                {panel.key === 'git' && gitHasChanges ? (
+                  <ChangePulse
+                    value={gitChangeCount}
+                    resetKey={folderPath}
+                    tint="var(--git-count-badge-bg)"
+                    className="inline-flex"
+                  >
+                    <Icon className="h-[16px] w-[16px]" />
+                  </ChangePulse>
+                ) : (
+                  <Icon className="h-[16px] w-[16px]" />
+                )}
                 {showGitBadge ? (
                   <span className="pointer-events-none absolute -right-[8px] -top-[10px] flex h-[14px] min-w-[14px] items-center justify-center rounded-full border-2 border-[color:var(--bg-app)] bg-[color:var(--git-count-badge-bg)] px-[3px] text-[9px] font-bold leading-none tabular-nums text-[color:var(--git-count-badge-ink)]">
                     {gitBadgeLabel}

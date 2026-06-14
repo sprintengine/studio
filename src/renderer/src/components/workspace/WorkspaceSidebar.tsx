@@ -242,14 +242,15 @@ function collapsedActiveRowClass(workspace: Workspace, moduleOverrides: ModuleEn
   return `${accent.bg} ${accent.text} ${accent.collapsedShadow}`
 }
 
-// Class fragment applied to inactive rows that have a highlight color set,
-// so the user spots their starred/highlighted workspaces in the list at a
-// glance even when not active. Uses just the colored left border — no bg,
-// no halo — so the row stays scannable.
+// Class fragment applied to inactive rows that have a highlight color set, so
+// the user spots their highlighted workspaces at a glance even when not active.
+// The colored left rail plus a dimmed full-width tint of the same hue — the
+// quiet half of the dim/bright pair; selecting the row swaps to the brighter
+// `bg` fill in `activeRowClass`.
 function inactiveHighlightClass(workspace: Workspace): string {
   if (!hasHighlightOverride(workspace.highlight)) return ''
   const swatch = getHighlightSwatch(workspace.highlight!.color!)
-  return `border-l-[3px] ${swatch.border}`
+  return `border-l-[3px] ${swatch.border} ${swatch.dimBg}`
 }
 
 // Working rows carry no status dot: a busy agent reads as "now" in the recency

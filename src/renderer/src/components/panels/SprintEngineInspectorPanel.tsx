@@ -98,6 +98,7 @@ import {
   sprintEngineInboxRowSupporting,
   sprintEngineInboxRowLifecycle,
   type ArtifactActionState,
+  type TaskInputActionState,
   type RuntimeAgentView,
   type SprintEngineInspectorSelection,
 } from './sprintEngineInspector'
@@ -1295,24 +1296,133 @@ function TaskReviewPrompt({
   )
 }
 
+// The resolve surface for a free-text needs_input ask. It is the sibling of
+// TaskReviewPrompt — same warn hairline + needs_input glyph header so both
+// needs_input variants read as one family — but where the review prompt
+// resolves via Approve/Request-changes, this one hosts a composer that drives
+// the `sprintengine.task.resolve_input` mutation. "Send & resume" returns the
+// worker to the task; "Resolve & complete" answers and closes it. The human
+// supervisor's identity is attached in main, so the renderer only supplies the
+// reply text and the complete flag.
+function TaskInputResponsePrompt({
+  taskId,
+  headline,
+  reasonLabel,
+  question,
+  fallback,
+  reportedBy,
+  reporterRole,
+  reportedAtLabel,
+  action,
+  onResolveTaskInput,
+}: {
+  taskId: string
+  headline: string
+  reasonLabel: string | null
+  question: string | null
+  fallback: string
+  reportedBy: string | null
+  reporterRole: SprintEngineRoleId | null
+  reportedAtLabel: string | null
+  action: TaskInputActionState | undefined
+  onResolveTaskInput: (taskId: string, resolution: string, complete: boolean) => Promise<boolean>
+}) {
+  const [reply, setReply] = useState('')
+  const replyFieldId = useId()
+  const pending = action?.status === 'pending'
+  const canSend = reply.trim().length > 0 && !pending
+
+  const send = async (complete: boolean) => {
+    if (reply.trim().length === 0 || pending) return
+    const ok = await onResolveTaskInput(taskId, reply, complete)
+    if (ok) setReply('')
+  }
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      void send(false)
+    }
+  }
+
+  const messageToneClass =
+    action?.status === 'error'
+      ? 'text-[color:var(--tone-error)]'
+      : action?.status === 'success'
+        ? 'text-[color:var(--tone-good)]'
+        : 'text-[color:var(--text-muted)]'
+
+  return (
+    <div className="border-l border-[color:var(--tone-warn)] pl-3.5">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[color:var(--tone-warn)]">
+        <LifecycleGlyph state="needs_input" className="-translate-y-px" />
+        {headline}
+        {reasonLabel ? (
+          <span className="font-normal text-[color:var(--text-muted)]">· {reasonLabel}</span>
+        ) : null}
+      </div>
+      <div className="mt-1.5 text-[13px] leading-6 text-[color:var(--text-default)] [overflow-wrap:anywhere]">
+        {question || fallback}
+      </div>
+      {reportedBy ? (
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-[color:var(--text-muted)]">
+          {reporterRole ? <RoleAvatar role={reporterRole} size="sm" ariaLabel="" /> : null}
+          <span className="font-mono text-[color:var(--text-default)]">{reportedBy}</span>
+          {reportedAtLabel ? <span>· {reportedAtLabel}</span> : null}
+        </div>
+      ) : null}
+      <div className="mt-3">
+        <label htmlFor={replyFieldId} className="sr-only">
+          Reply to the worker
+        </label>
+        <textarea
+          id={replyFieldId}
+          value={reply}
+          onChange={(event) => setReply(event.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={pending}
+          rows={3}
+          placeholder="Reply to the worker… (Enter to send, Shift+Enter for a new line)"
+          className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[13px] leading-5 text-[color:var(--text-strong)] outline-none interactive transition-colors placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus:ring-1 focus:ring-[color:var(--accent-primary-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+        />
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <PrimaryButton onClick={() => void send(false)} disabled={!canSend}>
+          Send &amp; resume
+        </PrimaryButton>
+        <GhostButton onClick={() => void send(true)} disabled={!canSend}>
+          Resolve &amp; complete
+        </GhostButton>
+      </div>
+      {action ? (
+        <div className={`mt-2 text-[12px] leading-5 ${messageToneClass}`}>{action.message}</div>
+      ) : null}
+    </div>
+  )
+}
+
 function TaskNeedsInputCallout({
   task,
   fallbackNote,
   runtimeAgents,
   artifacts,
   artifactActions,
+  taskInputAction,
   onOpenArtifact,
   onApproveArtifact,
   onRequestArtifactChanges,
+  onResolveTaskInput,
 }: {
   task: SprintEngineTask
   fallbackNote: string | null
   runtimeAgents: RuntimeAgentView[]
   artifacts: SprintEngineArtifact[]
   artifactActions: Record<string, ArtifactActionState>
+  taskInputAction: TaskInputActionState | undefined
   onOpenArtifact: (artifact: SprintEngineArtifact) => void
   onApproveArtifact: (artifact: SprintEngineArtifact) => void
   onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
+  onResolveTaskInput: (taskId: string, resolution: string, complete: boolean) => Promise<boolean>
 }) {
   if (task.status !== 'needs_input') return null
 
@@ -1352,33 +1462,35 @@ function TaskNeedsInputCallout({
     )
   }
 
-  // Every other ask: the question is the signal. Keep it; drop the redundant
-  // Issue + Suggested-resolution restatement that machine-generated needs_input
-  // entries carry.
+  // Every other ask: the question is the signal, and the human can resolve it
+  // inline. Lead with who is being waited on (the actor route), keep the
+  // question, drop the redundant Issue + Suggested-resolution restatement that
+  // machine-generated needs_input entries carry, and host the resolve composer.
+  const kindRaw = needsInput?.kind?.trim()
+  const headline = kindRaw === 'user'
+    ? 'Needs your input'
+    : kindRaw === 'architect'
+      ? 'Needs architect input'
+      : 'Needs input'
   const reasonLabel = formatNeedsInputValue(needsInput?.reason)
-  const kindLabel = formatNeedsInputValue(needsInput?.kind)
-  const routeLabel = kindLabel && reasonLabel
-    ? `${kindLabel} · ${reasonLabel}`
-    : kindLabel ?? reasonLabel
-  const calloutLabel = routeLabel ? `Needs input — ${routeLabel}` : 'Needs input'
-  const question = needsInput?.question?.trim()
+  const question = needsInput?.question?.trim() || null
   const fallback = fallbackNote?.trim() || 'Worker is waiting for input.'
   const reporterRole = reportedBy ? resolveNeedsInputReporterRole(task, reportedBy, runtimeAgents) : null
   const reportedAtLabel = reportedAt ? formatTimestamp(reportedAt) : null
 
   return (
-    <TaskCallout tone="warn" label={calloutLabel}>
-      <div className="space-y-2">
-        <div>{question || fallback}</div>
-        {reportedBy ? (
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-[color:var(--text-muted)]">
-            {reporterRole ? <RoleAvatar role={reporterRole} size="sm" ariaLabel="" /> : null}
-            <span className="font-mono text-[color:var(--text-default)]">{reportedBy}</span>
-            {reportedAtLabel ? <span>· {reportedAtLabel}</span> : null}
-          </div>
-        ) : null}
-      </div>
-    </TaskCallout>
+    <TaskInputResponsePrompt
+      taskId={task.id}
+      headline={headline}
+      reasonLabel={reasonLabel}
+      question={question}
+      fallback={fallback}
+      reportedBy={reportedBy}
+      reporterRole={reporterRole}
+      reportedAtLabel={reportedAtLabel}
+      action={taskInputAction}
+      onResolveTaskInput={onResolveTaskInput}
+    />
   )
 }
 
@@ -2539,11 +2651,13 @@ export function SprintEngineInspectorPanel({
   selectedTaskArtifacts,
   selectedTaskArtifactBlockers,
   artifactActions,
+  taskInputActions,
   onClose,
   onSelectTask,
   onOpenArtifact,
   onApproveArtifact,
   onRequestArtifactChanges,
+  onResolveTaskInput,
   onBackFromArtifact,
   onPopOutArtifact,
   onSpawnAgent,
@@ -2563,11 +2677,13 @@ export function SprintEngineInspectorPanel({
   selectedTaskArtifacts: SprintEngineArtifact[]
   selectedTaskArtifactBlockers: ReturnType<typeof getSprintEngineArtifactDependencyBlockers>
   artifactActions: Record<string, ArtifactActionState>
+  taskInputActions: Record<string, TaskInputActionState>
   onClose: () => void
   onSelectTask: (taskId: string) => void
   onOpenArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
   onApproveArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
   onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
+  onResolveTaskInput: (taskId: string, resolution: string, complete: boolean) => Promise<boolean>
   onBackFromArtifact: () => void
   onPopOutArtifact: () => void
   onSpawnAgent: (agentId: string) => void
@@ -2755,12 +2871,14 @@ export function SprintEngineInspectorPanel({
         selectedTaskArtifacts={selectedTaskArtifacts}
         selectedTaskArtifactBlockers={selectedTaskArtifactBlockers}
         artifactActions={artifactActions}
+        taskInputAction={taskInputActions[selectedTask.id]}
         tasksById={tasksById}
         runtimeAgents={runtimeAgents}
         onSelectTask={onSelectTask}
         onOpenArtifact={onOpenArtifact}
         onApproveArtifact={onApproveArtifact}
         onRequestArtifactChanges={onRequestArtifactChanges}
+        onResolveTaskInput={onResolveTaskInput}
         onOpenAgentTerminal={onOpenAgentTerminal}
       />
     </div>
@@ -2774,12 +2892,14 @@ function SprintEngineTaskBody({
   selectedTaskArtifacts,
   selectedTaskArtifactBlockers,
   artifactActions,
+  taskInputAction,
   tasksById,
   runtimeAgents,
   onSelectTask,
   onOpenArtifact,
   onApproveArtifact,
   onRequestArtifactChanges,
+  onResolveTaskInput,
   onOpenAgentTerminal,
 }: {
   selectedTask: SprintEngineTask
@@ -2788,12 +2908,14 @@ function SprintEngineTaskBody({
   selectedTaskArtifacts: SprintEngineArtifact[]
   selectedTaskArtifactBlockers: ReturnType<typeof getSprintEngineArtifactDependencyBlockers>
   artifactActions: Record<string, ArtifactActionState>
+  taskInputAction: TaskInputActionState | undefined
   tasksById: Record<string, SprintEngineTask>
   runtimeAgents: RuntimeAgentView[]
   onSelectTask: (taskId: string) => void
   onOpenArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
   onApproveArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
   onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
+  onResolveTaskInput: (taskId: string, resolution: string, complete: boolean) => Promise<boolean>
   onOpenAgentTerminal: (agentId: string) => void
 }) {
   const openIssues = getOpenSprintEngineFeedbackIssues(selectedTask.feedback)
@@ -2847,9 +2969,11 @@ function SprintEngineTaskBody({
         runtimeAgents={runtimeAgents}
         artifacts={selectedTaskArtifacts}
         artifactActions={artifactActions}
+        taskInputAction={taskInputAction}
         onOpenArtifact={(artifact) => void onOpenArtifact(artifact)}
         onApproveArtifact={(artifact) => void onApproveArtifact(artifact)}
         onRequestArtifactChanges={onRequestArtifactChanges}
+        onResolveTaskInput={onResolveTaskInput}
       />
 
       {selectedTaskArtifactBlockers.length > 0 ? (

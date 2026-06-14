@@ -3,6 +3,7 @@ import { Actions, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
 import { useShallow } from 'zustand/react/shallow'
 import CommandPalette from '../CommandPalette'
+import DiagnosticsOverlay from '../diagnostics/DiagnosticsOverlay'
 import { TipStartupModal } from '../learn/TipStartupModal'
 import OnboardingFlow from '../onboarding/OnboardingFlow'
 import SettingsOverlay from '../settings/SettingsOverlay'
@@ -297,6 +298,7 @@ export default function WorkspaceManager() {
   const showTipsOnStartup = useWorkspaceStore((s) => s.appSettings.learning?.showTipsOnStartup ?? true)
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const [showPalette, setShowPalette] = useState(false)
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
   // Installed conversation providers, loaded lazily when the spawn menu opens.
   // Kept separate from `agentCliCatalog`: this is the provider/model catalog for
@@ -374,6 +376,9 @@ export default function WorkspaceManager() {
       : null
     const context: CommandAvailabilityContext = {}
     if (workspaceActionsEnabled) context.activeWorkspace = true
+    // The performance diagnostics panel is an engineering tool, offered only in
+    // dev or when MULTICODE_DIAGNOSTICS=1 (matching the View-menu gate).
+    if (window.api.isDevelopment || window.api.isDiagnosticsEnabled) context.diagnosticsEnabled = true
     if (voiceDictationEnabled) context.voiceDictationEnabled = true
     // The Knowledge Graph toggle is the panel's only entry point (no rail
     // glyph), so its availability tracks the memory-graph module directly.
@@ -423,7 +428,13 @@ export default function WorkspaceManager() {
       ),
     [visibleWorkspaces, terminalSessions]
   )
-  const unreadNotificationCount = notifications.filter((notification) => !notification.read).length
+  // The bell badge is an error counter: only unread errors increment it (and
+  // drive the red just-changed pulse), so a flood of info/warning notifications
+  // never inflates the count. Warnings/info still appear in the popover list and
+  // are reachable through its severity filters.
+  const unreadErrorCount = notifications.filter(
+    (notification) => !notification.read && notification.level === 'error'
+  ).length
   const settingsOpen = settingsOverlayOpen
   const ownsGlobalSupervisors = isPrimaryWorkspaceWindow
   const renderedWorkspaceIds = visibleWorkspaces
@@ -1359,6 +1370,10 @@ export default function WorkspaceManager() {
       setNotificationsOpen(false)
       return true
     }
+    if (commandId === 'diagnostics.open') {
+      setDiagnosticsOpen(true)
+      return true
+    }
     if (commandId === 'workspace.new') {
       openNewWorkspacePanel()
       return true
@@ -1839,6 +1854,11 @@ export default function WorkspaceManager() {
               }
             : null
         }
+        onOpenDiagnostics={
+          window.api.isDevelopment || window.api.isDiagnosticsEnabled
+            ? () => setDiagnosticsOpen(true)
+            : null
+        }
       />
 
       <div className="flex min-h-0 flex-1 flex-row">
@@ -1904,7 +1924,7 @@ export default function WorkspaceManager() {
         viewMenuTick={viewMenuTick}
         setViewMenuTick={setViewMenuTick}
         notifications={notifications}
-        unreadNotificationCount={unreadNotificationCount}
+        unreadErrorCount={unreadErrorCount}
         notificationsOpen={notificationsOpen}
         setNotificationsOpen={setNotificationsOpen}
         markNotificationRead={markNotificationRead}
@@ -2009,6 +2029,8 @@ export default function WorkspaceManager() {
         />
       ) : null}
       </div>
+
+      {diagnosticsOpen && <DiagnosticsOverlay onClose={() => setDiagnosticsOpen(false)} />}
 
       {showPalette && (
         <CommandPalette

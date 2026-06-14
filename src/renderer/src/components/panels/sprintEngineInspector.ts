@@ -54,6 +54,15 @@ export type ArtifactActionState = {
   message: string
 }
 
+// Per-task transient state for resolving a `needs_input` blocker from the
+// inspector composer (send-and-resume / resolve-and-complete). Keyed by taskId,
+// it mirrors the artifact action-state machine but carries no `kind` because a
+// task input has a single resolution path.
+export type TaskInputActionState = {
+  status: 'pending' | 'success' | 'error'
+  message: string
+}
+
 export function runtimeStatusTone(status: string): Tone {
   switch (status) {
     case 'running':

@@ -11,6 +11,7 @@ import type {
   MemoryPreviewResult,
   MemoryRootStatus,
   OpenDialogOptions,
+  ProcessMetricsSnapshot,
   SaveDialogOptions,
   WorkspaceFolderCheckResult,
 } from '../../shared/electron-api'
@@ -48,6 +49,10 @@ export const filesystemApi = {
     ipcRenderer.invoke('diagnostics:log', input),
   openDiagnosticsLogsFolder: (): Promise<{ opened: true; path: string }> =>
     ipcRenderer.invoke('diagnostics:open-logs-folder'),
+  diagnosticsGetProcessMetrics: (): Promise<ProcessMetricsSnapshot> =>
+    ipcRenderer.invoke('diagnostics:get-process-metrics'),
+  diagnosticsOpenWindow: (): Promise<void> =>
+    ipcRenderer.invoke('diagnostics:open-window'),
   writefile: (path: string, content: string) => ipcRenderer.invoke('fs:writefile', path, content),
   writeBinaryFile: (path: string, base64Content: string) => ipcRenderer.invoke('fs:write-binary-file', path, base64Content),
   createFile: (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-file', parentDir, name),
@@ -99,6 +104,8 @@ export const filesystemApi = {
   | 'memoryReadPreview'
   | 'logDiagnostic'
   | 'openDiagnosticsLogsFolder'
+  | 'diagnosticsGetProcessMetrics'
+  | 'diagnosticsOpenWindow'
   | 'writefile'
   | 'writeBinaryFile'
   | 'createFile'
