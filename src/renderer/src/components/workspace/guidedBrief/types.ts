@@ -3,15 +3,53 @@ import type {
   GuidedBriefPreset,
   GuidedBriefStage,
   GuidedBriefAcceptedArtifact,
+  GuidedBriefRecordedDecision,
   GuidedBriefRuntimeState,
 } from '../../../types/workspace'
+import type { GuidedInterviewDecision } from './interviewProtocol'
 
 export type {
   GuidedBriefHasUi,
   GuidedBriefPreset,
   GuidedBriefStage,
   GuidedBriefAcceptedArtifact,
+  GuidedBriefRecordedDecision,
   GuidedBriefRuntimeState,
+}
+
+/**
+ * Merge a specialist session's parsed interview decisions into the persisted
+ * runtime record, deduped by role + question id (latest label wins). Returns
+ * the same state object when nothing changed so effect-driven callers don't
+ * trigger redundant persistence.
+ */
+export function mergeGuidedBriefDecisions(
+  state: GuidedBriefRuntimeState,
+  role: GuidedBriefRecordedDecision['role'],
+  decisions: GuidedInterviewDecision[],
+): GuidedBriefRuntimeState {
+  if (decisions.length === 0) return state
+  const merged = [...(state.guidedDecisions ?? [])]
+  let changed = false
+  for (const decision of decisions) {
+    const entry: GuidedBriefRecordedDecision = {
+      role,
+      id: decision.id,
+      label: decision.label,
+      ...(decision.question ? { question: decision.question } : {}),
+    }
+    const index = merged.findIndex((existing) => existing.role === role && existing.id === decision.id)
+    if (index < 0) {
+      merged.push(entry)
+      changed = true
+      continue
+    }
+    if (merged[index].label !== entry.label || merged[index].question !== entry.question) {
+      merged[index] = entry
+      changed = true
+    }
+  }
+  return changed ? { ...state, guidedDecisions: merged } : state
 }
 
 /**
@@ -93,6 +131,43 @@ function stageFamily(stage: GuidedBriefStage): GuidedBriefStage {
     default:
       return stage
   }
+}
+
+export type GuidedBriefStepState = 'done' | 'active' | 'upcoming'
+
+export type GuidedBriefStepInfo = {
+  /** The working-family stage this step represents (or `handoff` for Build). */
+  stage: GuidedBriefStage
+  label: string
+  state: GuidedBriefStepState
+}
+
+const STEP_LABELS: Partial<Record<GuidedBriefStage, string>> = {
+  'strategist-working': 'Strategy',
+  'architect-working': 'Architecture',
+  'designer-working': 'Design',
+  handoff: 'Build',
+}
+
+/**
+ * Labeled step rail derived from the same stage order as the progress
+ * helpers, so the rail and any counters cannot drift. Steps before the
+ * active family are done, the active family is active, the rest upcoming.
+ */
+export function guidedBriefSteps(
+  stage: GuidedBriefStage,
+  hasUi: GuidedBriefHasUi,
+  options: GuidedBriefProgressOptions = {},
+): GuidedBriefStepInfo[] {
+  const order = guidedBriefStageOrder(hasUi, options)
+  const family = stageFamily(stage)
+  const foundIndex = order.indexOf(family)
+  const activeIndex = foundIndex >= 0 ? foundIndex : order.length - 1
+  return order.map((stepStage, index) => ({
+    stage: stepStage,
+    label: STEP_LABELS[stepStage] ?? stepStage,
+    state: index < activeIndex ? 'done' : index === activeIndex ? 'active' : 'upcoming',
+  }))
 }
 
 export function progressForStage(

@@ -277,6 +277,16 @@ function guidedBriefInterviewInstructions(role: 'product strategist' | 'architec
     'If a question can be answered by inspecting the project files, docs, Knowledge Graph, or existing commands, inspect those sources before asking. If this is a new codebase and no source exists, say the assumption you are making.',
     'Continue interviewing until you and the user have a shared, explicit understanding of the artifact you are about to write.',
     'Do not ask bundled questionnaires. Do not skip unresolved branches by hiding them as assumptions.',
+    // Machine-readable mirror of the interview so the app renders native
+    // question cards (parsed by interviewProtocol.ts). The fence tokens must
+    // never appear alone on a line inside these instructions — the parser
+    // treats a token alone on a line as a fence, and the CLI echoes this
+    // prompt back through the PTY.
+    'Additionally, mirror every question as a machine-readable block on stdout so the app can render native answer options: print a line containing only the token GUIDED_QUESTION_BEGIN, then a single JSON object, then a line containing only the token GUIDED_QUESTION_END.',
+    'That JSON object has fields "id" (a stable string like "q1", unique per question), "question" (the question text), "options" (an array of objects with fields "key", "label", "detail", and optional "recommended": true on the first option), and optional "allowOther": true when a custom answer is sensible.',
+    'Each option "key" is exactly the text the user would type in the terminal to choose that option (for example "1").',
+    'After the block, also print the same question and options as normal readable text for the terminal.',
+    'When the user answers a question (typed in the terminal or sent by the app), print one line that starts with the token GUIDED_DECISION: followed by a JSON object with fields "id" (the question id), "question", and "label" (the chosen option label or the custom answer) — then continue to the next question.',
   ]
 }
 
@@ -298,6 +308,9 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
       `Read \`${ideaSeedPath}\` before asking follow-up questions.`,
       ...guidedBriefInterviewInstructions('product strategist'),
       `Write the accepted product brief to \`${requirementsPath}\`.`,
+      'After the brief is complete, additionally write a navigable HTML overview of it to `product/overview.html`: one self-contained file with no external dependencies (no CDN assets, web fonts, or scripts required to read it), summarizing users, scope, user flows, and MVP cut lines with anchor navigation between sections.',
+      'Style the overview as a calm dark technical document: near-black background, one accent color, hairline borders, sentence case — no gradients or decorative motion.',
+      'The overview is a rendering of the brief, not a second source of truth: it must not introduce or contradict anything in the markdown. The markdown brief remains the canonical artifact, and the readiness marker below must not wait for the overview.',
       `When and only when \`${requirementsPath}\` exists and is ready for user review, emit this exact marker on its own line:`,
       '',
       marker,
@@ -329,6 +342,9 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
       `Write the accepted architecture plan to \`${architecturePlanPath}\`.`,
       'The architecture plan must cover goal, confirmed requirements, assumptions, open questions, architecture direction, real data/source-of-truth contracts, UI/API/service contracts where relevant, implementation tasks, verification strategy, risks, migration or rollback notes where relevant, and deferred work.',
       'The plan must not depend on template data, sample data, hardcoded demo entities, fake API responses, placeholder persistence, mocked services, or stubbed commands outside tests.',
+      'After the plan is complete, additionally write a navigable HTML overview of it to `architecture/overview.html`: one self-contained file with no external dependencies (no CDN assets, web fonts, or scripts required to read it), covering the system map, confirmed decisions as a table, implementation phases, and risks with anchor navigation between sections.',
+      'Style the overview as a calm dark technical document: near-black background, one accent color, hairline borders, sentence case — no gradients or decorative motion.',
+      'The overview is a rendering of the plan, not a second source of truth: it must not introduce or contradict anything in the markdown. The markdown plan remains the canonical artifact, and the readiness marker below must not wait for the overview.',
       `When and only when \`${architecturePlanPath}\` exists and is ready for user review, emit this exact marker on its own line:`,
       '',
       marker,

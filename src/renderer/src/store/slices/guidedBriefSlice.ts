@@ -1,6 +1,7 @@
 import type { IJsonModel } from 'flexlayout-react'
 import type {
   GuidedBriefPreset,
+  GuidedBriefRecordedDecision,
   GuidedBriefRuntimeState,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
@@ -171,6 +172,33 @@ function normalizeGuidedBriefAcceptedArtifact(
   }
 }
 
+function normalizeGuidedBriefDecisions(input: unknown): GuidedBriefRecordedDecision[] {
+  if (!Array.isArray(input)) return []
+  const decisions: GuidedBriefRecordedDecision[] = []
+  for (const raw of input) {
+    if (!raw || typeof raw !== 'object') continue
+    const candidate = raw as Partial<GuidedBriefRecordedDecision>
+    if (
+      (candidate.role !== 'product' && candidate.role !== 'architect' && candidate.role !== 'frontend')
+      || typeof candidate.id !== 'string'
+      || !candidate.id.trim()
+      || typeof candidate.label !== 'string'
+      || !candidate.label.trim()
+    ) {
+      continue
+    }
+    decisions.push({
+      role: candidate.role,
+      id: candidate.id,
+      label: candidate.label,
+      ...(typeof candidate.question === 'string' && candidate.question.trim()
+        ? { question: candidate.question }
+        : {}),
+    })
+  }
+  return decisions
+}
+
 export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeState | null {
   if (!input || typeof input !== 'object') return null
   const candidate = input as Partial<GuidedBriefRuntimeState>
@@ -249,6 +277,8 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
     acceptedProductBrief: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedProductBrief),
     acceptedArchitecturePlan: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedArchitecturePlan),
     acceptedUiDirection: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedUiDirection),
+    acceptedProductOverview: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedProductOverview),
+    acceptedArchitectureOverview: normalizeGuidedBriefAcceptedArtifact(candidate.acceptedArchitectureOverview),
     acceptedMockups: Array.isArray(candidate.acceptedMockups)
       ? candidate.acceptedMockups
         .map(normalizeGuidedBriefAcceptedArtifact)
@@ -257,6 +287,7 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
     activeMockupPath: typeof candidate.activeMockupPath === 'string' ? candidate.activeMockupPath : null,
     activeDesignArtifactPath:
       typeof candidate.activeDesignArtifactPath === 'string' ? candidate.activeDesignArtifactPath : null,
+    guidedDecisions: normalizeGuidedBriefDecisions(candidate.guidedDecisions),
     strategistSessionId:
       typeof candidate.strategistSessionId === 'string' && candidate.strategistSessionId.trim()
         ? candidate.strategistSessionId

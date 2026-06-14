@@ -9,6 +9,7 @@ import { joinWorkspacePath, basename } from './paths'
 import { stripAnsiAndOverwrites } from './parseStream'
 import {
   guidedBriefSkipToHandoffState,
+  guidedBriefSteps,
   isMidStageGuidedRuntime,
   progressForStage,
   stepCounterLabel,
@@ -130,6 +131,48 @@ assert.equal(designerWorkingNoUi.active, 2, 'designer stage in a no-UI run is tr
 
 assert.match(stepCounterLabel('designer-working', 'yes'), /Step 3 of 4 · designer working/)
 assert.match(stepCounterLabel('designer-ready', 'yes'), /Step 3 of 4 · mockups ready/)
+
+// Labeled step rail: same stage order as the progress helpers, with labels
+// and done/active/upcoming states. Both stages of a family map to one step.
+const fullBriefSteps = guidedBriefSteps('architect-working', 'yes', {
+  wantsProductDiscussion: true,
+  wantsArchitectureDiscussion: true,
+  wantsFrontendDiscussion: true,
+})
+assert.deepEqual(
+  fullBriefSteps.map((step) => step.label),
+  ['Strategy', 'Architecture', 'Design', 'Build'],
+  'full brief rail labels all four stations',
+)
+assert.deepEqual(
+  fullBriefSteps.map((step) => step.state),
+  ['done', 'active', 'upcoming', 'upcoming'],
+  'steps before the active family are done, after it upcoming',
+)
+const readySteps = guidedBriefSteps('architect-ready', 'yes', {
+  wantsProductDiscussion: true,
+  wantsArchitectureDiscussion: true,
+  wantsFrontendDiscussion: true,
+})
+assert.deepEqual(
+  readySteps.map((step) => step.state),
+  fullBriefSteps.map((step) => step.state),
+  'working and ready stages of one family share a rail state',
+)
+const designPresetSteps = guidedBriefSteps('designer-working', 'yes', {
+  wantsProductDiscussion: false,
+  wantsArchitectureDiscussion: false,
+  wantsFrontendDiscussion: true,
+})
+assert.deepEqual(
+  designPresetSteps.map((step) => step.label),
+  ['Design', 'Build'],
+  'the frontend-design preset rail shows only its own stations',
+)
+assert.deepEqual(designPresetSteps.map((step) => step.state), ['active', 'upcoming'])
+const handoffSteps = guidedBriefSteps('handoff', 'no', { wantsProductDiscussion: true })
+assert.equal(handoffSteps[handoffSteps.length - 1].label, 'Build')
+assert.equal(handoffSteps[handoffSteps.length - 1].state, 'active')
 
 const hasUiChecklist = guidedBriefHandoffChecklist({
   ...guidedDefaults,

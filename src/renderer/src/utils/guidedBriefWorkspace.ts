@@ -1,4 +1,4 @@
-import type { SprintEngineSourceBundleItem } from '../types/workspace'
+import type { GuidedBriefRecordedDecision, SprintEngineSourceBundleItem } from '../types/workspace'
 
 export type GuidedBriefHasUi = 'yes' | 'no'
 
@@ -23,12 +23,18 @@ export type GuidedBriefScaffoldResult = {
   ideaSeedPath: string
 }
 
-export type GuidedBriefSnapshotKind = 'product' | 'mockup'
+// `product` → product/.versions/{hash}.md, `mockup` → mockups/.versions/{hash}.html,
+// `overview` → product/.versions/{hash}.html (agent-produced HTML plan overview).
+export type GuidedBriefSnapshotKind = 'product' | 'mockup' | 'overview'
 
 export type GuidedBriefSnapshotInput = {
   workspaceRoot: string
   sourcePath: string
   kind: GuidedBriefSnapshotKind
+  /** Human-readable filename prefix, e.g. `product-brief`. Bare hash when omitted. */
+  slug?: string
+  /** Override the `.versions` parent (e.g. `architecture` for the plan). */
+  directory?: 'product' | 'mockups' | 'architecture'
   filesystem: GuidedBriefFilesystem
 }
 
@@ -49,8 +55,14 @@ export type GuidedBriefBuildHandoffInput = {
   architecturePlan?: GuidedBriefAcceptedArtifact | null
   uiDirection?: GuidedBriefAcceptedArtifact | null
   mockups?: GuidedBriefAcceptedArtifact[]
+  productOverview?: GuidedBriefAcceptedArtifact | null
+  architectureOverview?: GuidedBriefAcceptedArtifact | null
   requireMockups?: boolean
   confirmedDecisions?: string[]
+  // Real interview record from the specialist sessions. When present it is
+  // the primary content of Confirmed Decisions; `confirmedDecisions` notes
+  // remain as supplementary stage facts.
+  recordedDecisions?: GuidedBriefRecordedDecision[]
   openQuestions?: string[]
   mvpScope?: string[]
   suggestedSprintEngineGoal?: string
@@ -73,6 +85,8 @@ export type GuidedBriefSprintEngineSourceBundleInput = {
   architecturePlan?: GuidedBriefAcceptedArtifact | null
   uiDirection?: GuidedBriefAcceptedArtifact | null
   mockups?: GuidedBriefAcceptedArtifact[]
+  productOverview?: GuidedBriefAcceptedArtifact | null
+  architectureOverview?: GuidedBriefAcceptedArtifact | null
   readArtifact: (workspaceRoot: string, path: string) => Promise<string>
 }
 
@@ -150,8 +164,30 @@ async function sha256Hex(content: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
-function snapshotFileName(kind: GuidedBriefSnapshotKind, hash: string): string {
-  return `${hash}.${kind === 'product' ? 'md' : 'html'}`
+// Slug-prefixed names keep snapshots human-readable on disk
+// (`product-brief-3fc8a1b2c4d5.md` instead of a bare 64-char hash). Legacy
+// bare-hash snapshots from existing workspaces stay valid: consumers treat
+// the stored path + hash as an opaque pair.
+export function guidedBriefSnapshotSlug(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48)
+}
+
+function snapshotFileName(kind: GuidedBriefSnapshotKind, hash: string, slug?: string): string {
+  const extension = kind === 'product' ? 'md' : 'html'
+  return slug ? `${slug}-${hash.slice(0, 12)}.${extension}` : `${hash}.${extension}`
+}
+
+type GuidedBriefSnapshotDirectory = 'product' | 'mockups' | 'architecture'
+
+function snapshotDirectory(
+  kind: GuidedBriefSnapshotKind,
+  directory?: GuidedBriefSnapshotDirectory,
+): GuidedBriefSnapshotDirectory {
+  return directory ?? (kind === 'mockup' ? 'mockups' : 'product')
 }
 
 export function buildGuidedBriefIdeaSeedMarkdown(idea: string, hasUi: GuidedBriefHasUi): string {
@@ -199,25 +235,42 @@ export async function snapshotGuidedBriefArtifact({
   workspaceRoot,
   sourcePath,
   kind,
+  slug,
+  directory,
   filesystem,
 }: GuidedBriefSnapshotInput): Promise<GuidedBriefSnapshot> {
   const root = trimRequired(workspaceRoot, 'missing-root')
   const trimmedSource = trimRequired(sourcePath, 'missing-source')
   const content = await filesystem.readFile(trimmedSource)
   const hash = await sha256Hex(content)
+  const resolvedDirectory = snapshotDirectory(kind, directory)
+  const fileName = snapshotFileName(kind, hash, slug)
   const versionsDirectoryPath = await filesystem.ensureDir(
-    await filesystem.ensureDir(root, kind === 'product' ? 'product' : 'mockups'),
+    await filesystem.ensureDir(root, resolvedDirectory),
     '.versions',
   )
-  const relativePath = projectPath(kind === 'product' ? 'product' : 'mockups', '.versions', snapshotFileName(kind, hash))
+  const relativePath = projectPath(resolvedDirectory, '.versions', fileName)
   const snapshotPath = joinWorkspacePath(root, relativePath)
 
-  await filesystem.writeFile(joinWorkspacePath(versionsDirectoryPath, snapshotFileName(kind, hash)), content)
+  await filesystem.writeFile(joinWorkspacePath(versionsDirectoryPath, fileName), content)
 
   return {
     hash,
     path: relativeWorkspacePath(root, snapshotPath),
   }
+}
+
+function recordedDecisionLines(decisions: GuidedBriefRecordedDecision[] | undefined): string[] {
+  if (!decisions?.length) return []
+  const roleLabel: Record<GuidedBriefRecordedDecision['role'], string> = {
+    product: 'product',
+    architect: 'architecture',
+    frontend: 'design',
+  }
+  return decisions.map((decision) => {
+    const prefix = decision.question ? `${decision.question} — ` : ''
+    return `- ${prefix}${decision.label} (${roleLabel[decision.role]})`
+  })
 }
 
 export function buildGuidedBriefBuildHandoffMarkdown({
@@ -227,8 +280,11 @@ export function buildGuidedBriefBuildHandoffMarkdown({
   architecturePlan,
   uiDirection,
   mockups,
+  productOverview,
+  architectureOverview,
   requireMockups,
   confirmedDecisions,
+  recordedDecisions,
   openQuestions,
   mvpScope,
   suggestedSprintEngineGoal,
@@ -258,12 +314,15 @@ export function buildGuidedBriefBuildHandoffMarkdown({
     '## Accepted Artifacts',
     '',
     ...(productBrief ? [`- Product brief: \`${productBrief.path}\` (${productBrief.hash})`] : ['- Product brief: not requested.']),
+    ...(productOverview ? [`- Product overview (HTML view of the brief, not a source of truth): \`${productOverview.path}\` (${productOverview.hash})`] : []),
     ...(architecturePlan ? [`- Architecture plan: \`${architecturePlan.path}\` (${architecturePlan.hash})`] : []),
+    ...(architectureOverview ? [`- Architecture overview (HTML view of the plan, not a source of truth): \`${architectureOverview.path}\` (${architectureOverview.hash})`] : []),
     ...(uiDirection ? [`- UI direction: \`${uiDirection.path}\` (${uiDirection.hash})`] : []),
     ...artifactList(mockups, hasUi === 'yes' ? 'No accepted mockups recorded.' : 'No UI mockups required for this script or service.'),
     '',
     '## Confirmed Decisions',
     '',
+    ...recordedDecisionLines(recordedDecisions),
     ...markdownList(confirmedDecisions, hasUi === 'yes' ? 'Application includes a visual UI.' : 'No visual UI is required.'),
     '',
     '## Open Questions',
@@ -303,6 +362,10 @@ export async function writeGuidedBriefBuildHandoff(input: GuidedBriefBuildHandof
     architecturePlan: input.architecturePlan ? normalizeAcceptedArtifact(root, input.architecturePlan) : input.architecturePlan,
     uiDirection: input.uiDirection ? normalizeAcceptedArtifact(root, input.uiDirection) : input.uiDirection,
     mockups: input.mockups?.map((artifact) => normalizeAcceptedArtifact(root, artifact)),
+    productOverview: input.productOverview ? normalizeAcceptedArtifact(root, input.productOverview) : input.productOverview,
+    architectureOverview: input.architectureOverview
+      ? normalizeAcceptedArtifact(root, input.architectureOverview)
+      : input.architectureOverview,
   })
 
   await input.filesystem.writeFile(joinWorkspacePath(productDirectoryPath, 'build-handoff.md'), content)
@@ -321,6 +384,8 @@ export async function buildGuidedBriefSprintEngineSourceBundle({
   architecturePlan,
   uiDirection,
   mockups = [],
+  productOverview,
+  architectureOverview,
   readArtifact,
 }: GuidedBriefSprintEngineSourceBundleInput): Promise<SprintEngineSourceBundleItem[]> {
   const sourceBundle: SprintEngineSourceBundleItem[] = [
@@ -353,6 +418,15 @@ export async function buildGuidedBriefSprintEngineSourceBundle({
       sourcePath: uiDirection.path,
       sourceRelativePath: uiDirection.path,
       sourceContent: await readArtifact(workspaceRoot, uiDirection.path),
+    })
+  }
+  for (const overview of [productOverview, architectureOverview]) {
+    if (!overview) continue
+    sourceBundle.push({
+      kind: 'plan_overview',
+      sourcePath: overview.path,
+      sourceRelativePath: overview.path,
+      sourceContent: await readArtifact(workspaceRoot, overview.path),
     })
   }
   for (const mockup of mockups) {

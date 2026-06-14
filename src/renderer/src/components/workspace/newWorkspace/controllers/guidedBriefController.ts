@@ -195,6 +195,8 @@ export async function runGuidedBriefStartBuild(
     architecturePlan: runtimeState.acceptedArchitecturePlan,
     uiDirection: runtimeState.acceptedUiDirection,
     mockups: runtimeState.acceptedMockups,
+    productOverview: runtimeState.acceptedProductOverview ?? null,
+    architectureOverview: runtimeState.acceptedArchitectureOverview ?? null,
     readArtifact: ports.readArchitecturePlan,
   })
   const goal = guidedBriefSprintEngineGoal(sourceContent, runtimeState.hasUi)

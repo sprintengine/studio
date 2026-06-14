@@ -944,6 +944,7 @@ export type SprintEngineSourceBundleKind =
   | SprintEngineSourcePlanKind
   | 'html_mockup'
   | 'design_notes'
+  | 'plan_overview'
   | 'generic_context'
 
 export type SprintEngineSourceBundleItem = {
@@ -1478,6 +1479,16 @@ export type GuidedBriefAcceptedArtifact = {
   path: string
 }
 
+// One interview decision the user resolved during a guided-brief stage,
+// recorded from the specialist's structured GUIDED_DECISION stream so the
+// build handoff can carry the real decision record.
+export type GuidedBriefRecordedDecision = {
+  role: 'product' | 'architect' | 'frontend'
+  id: string
+  question?: string
+  label: string
+}
+
 export type GuidedBriefRuntimeState = {
   workspaceRoot: string
   workspaceName: string
@@ -1500,11 +1511,19 @@ export type GuidedBriefRuntimeState = {
   acceptedArchitecturePlan: GuidedBriefAcceptedArtifact | null
   acceptedUiDirection: GuidedBriefAcceptedArtifact | null
   acceptedMockups: GuidedBriefAcceptedArtifact[]
+  // Optional agent-produced HTML overviews of the brief/plan (a view of the
+  // markdown, never a second source of truth). Absent on legacy states.
+  acceptedProductOverview?: GuidedBriefAcceptedArtifact | null
+  acceptedArchitectureOverview?: GuidedBriefAcceptedArtifact | null
   activeMockupPath: string | null
   // Path of the design artifact currently selected in the Multicode Design
   // studio preview, relative to the workspace root. Absent on legacy states;
   // normalization defaults it to `null`.
   activeDesignArtifactPath?: string | null
+  // Interview decisions resolved across all specialist stages, deduped by
+  // role + question id. Absent on legacy states; normalization defaults it
+  // to an empty array.
+  guidedDecisions?: GuidedBriefRecordedDecision[]
   // Persisted so the renderer reattaches to the same PTY across HMR / refresh
   // instead of spawning a fresh strategist, architect, or designer.
   strategistSessionId: string | null

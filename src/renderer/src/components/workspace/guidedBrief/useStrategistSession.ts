@@ -6,6 +6,10 @@ import {
   type GuidedBriefSessionLifecycle,
   type GuidedBriefSpecialistSession,
 } from './sessionAdapter'
+import {
+  EMPTY_GUIDED_INTERVIEW_STATE,
+  type GuidedInterviewState,
+} from './interviewProtocol'
 import { joinWorkspacePath } from './paths'
 
 export type StrategistSessionReadiness = {
@@ -40,9 +44,15 @@ export type UseStrategistSessionResult = {
   readiness: StrategistSessionReadiness
   session: GuidedBriefSpecialistSession | null
   requirementsPath: string
+  /** Optional agent-produced HTML overview of the brief (`product/overview.html`). */
+  overviewPath: string
+  overviewFileReady: boolean
+  /** Structured interview parsed from the session stream (replay included). */
+  interview: GuidedInterviewState
 }
 
 const REQUIREMENTS_RELATIVE_PATH = 'product/requirements.md'
+const OVERVIEW_RELATIVE_PATH = 'product/overview.html'
 const IDEA_SEED_RELATIVE_PATH = 'product/idea-seed.md'
 
 function hasContent(value: string): boolean {
@@ -63,8 +73,11 @@ export function useStrategistSession({
   const [markerReceived, setMarkerReceived] = useState(false)
   const [fileReady, setFileReady] = useState(false)
   const [session, setSession] = useState<GuidedBriefSpecialistSession | null>(null)
+  const [interview, setInterview] = useState<GuidedInterviewState>(EMPTY_GUIDED_INTERVIEW_STATE)
+  const [overviewFileReady, setOverviewFileReady] = useState(false)
 
   const requirementsAbsolutePath = joinWorkspacePath(workspaceRoot, REQUIREMENTS_RELATIVE_PATH)
+  const overviewAbsolutePath = joinWorkspacePath(workspaceRoot, OVERVIEW_RELATIVE_PATH)
   const productDirectoryPath = joinWorkspacePath(workspaceRoot, 'product')
 
   const startedRef = useRef(false)
@@ -123,6 +136,10 @@ export function useStrategistSession({
           if (cancelled) return
           setMarkerReceived(true)
         },
+        onInterview: (state) => {
+          if (cancelled) return
+          setInterview(state)
+        },
         onError: (message) => {
           if (cancelled) return
           setError(message)
@@ -162,20 +179,28 @@ export function useStrategistSession({
     let cancelled = false
     let stopWatch: (() => Promise<void>) | null = null
 
-    const checkRequirements = async () => {
+    const checkNonEmpty = async (
+      absolutePath: string,
+      setReady: (ready: boolean) => void,
+    ) => {
       try {
-        const exists = await window.api.pathExists(requirementsAbsolutePath)
+        const exists = await window.api.pathExists(absolutePath)
         if (cancelled) return
         if (!exists) {
-          if (fileReady) setFileReady(false)
+          setReady(false)
           return
         }
-        const content = await window.api.readfile(requirementsAbsolutePath)
+        const content = await window.api.readfile(absolutePath)
         if (cancelled) return
-        setFileReady(hasContent(content))
+        setReady(hasContent(content))
       } catch {
-        if (!cancelled) setFileReady(false)
+        if (!cancelled) setReady(false)
       }
+    }
+
+    const checkRequirements = async () => {
+      await checkNonEmpty(requirementsAbsolutePath, setFileReady)
+      await checkNonEmpty(overviewAbsolutePath, setOverviewFileReady)
     }
 
     void checkRequirements()
@@ -199,7 +224,7 @@ export function useStrategistSession({
       cancelled = true
       if (stopWatch) void stopWatch()
     }
-  }, [enabled, productDirectoryPath, requirementsAbsolutePath, fileReady])
+  }, [enabled, productDirectoryPath, requirementsAbsolutePath, overviewAbsolutePath])
 
   const isReady = markerReceived || fileReady
 
@@ -209,5 +234,8 @@ export function useStrategistSession({
     readiness: { markerReceived, fileReady, isReady },
     session,
     requirementsPath: requirementsAbsolutePath,
+    overviewPath: overviewAbsolutePath,
+    overviewFileReady,
+    interview,
   }
 }

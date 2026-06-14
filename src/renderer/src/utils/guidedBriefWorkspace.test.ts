@@ -64,6 +64,26 @@ assert.equal(
   'snapshot writes content-addressed copy',
 )
 
+// Slugged snapshots are human-readable and can live outside product/ —
+// the architecture plan versions into architecture/.versions.
+const sluggedPlan = await snapshotGuidedBriefArtifact({
+  workspaceRoot: '/workspace',
+  sourcePath: '/workspace/product/requirements.md',
+  kind: 'product',
+  slug: 'architecture-plan',
+  directory: 'architecture',
+  filesystem: noUiFs,
+})
+assert.equal(
+  sluggedPlan.path,
+  `architecture/.versions/architecture-plan-${sluggedPlan.hash.slice(0, 12)}.md`,
+  'slugged snapshot names are readable and directory-routed',
+)
+assert.ok(
+  noUiFs.files.has(`/workspace/architecture/.versions/architecture-plan-${sluggedPlan.hash.slice(0, 12)}.md`),
+  'slugged snapshot is written to the routed directory',
+)
+
 const noUiHandoff = await writeGuidedBriefBuildHandoff({
   workspaceRoot: '/workspace',
   idea: 'Create a CLI that summarizes invoices.',

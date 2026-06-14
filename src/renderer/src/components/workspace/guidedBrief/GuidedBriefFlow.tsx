@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electron-api'
 import type {
   SprintEngineCliPermissionPreset,
@@ -9,18 +9,22 @@ import type {
   SprintEngineRoleRegistry,
 } from '../../../types/workspace'
 import {
+  guidedBriefSnapshotSlug,
   snapshotGuidedBriefArtifact,
   GuidedBriefWorkspaceError,
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
 import { applyUserDisabledSprintEngineRoleCounts } from '../../../utils/sprintengine'
-import { CloseIconButton, StatusDot, Tabs, Tooltip, WizardProgress, type TabItem } from '../../ui'
+import { CloseIconButton, LifecycleGlyph, Tabs, Tooltip, type TabItem } from '../../ui'
+import { parentPath } from '../../../utils/paths'
 import { RosterAndRunSettings } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
-import { MockupPreviewPane } from './MockupPreviewPane'
+import { HtmlArtifactFrame, MockupPreviewPane } from './MockupPreviewPane'
 import { DesignFilesPane } from './DesignFilesPane'
 import { DesignArtifactPreviewPane } from './DesignArtifactPreviewPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
+import { StageStudioBody } from './StageStudioBody'
+import { StageArtifactsPane, type StageArtifactFile } from './StageArtifactsPane'
 import {
   applyDesignArtifactSelection,
   findDesignArtifact,
@@ -35,7 +39,7 @@ import {
   type DesignerMockupFile,
 } from './useDesignerSession'
 import { useStrategistSession } from './useStrategistSession'
-import { joinWorkspacePath } from './paths'
+import { basename, joinWorkspacePath } from './paths'
 import {
   guidedBriefBuildHandoffRelativePath,
   guidedBriefHandoffChecklist,
@@ -44,12 +48,15 @@ import {
 } from './handoff'
 import {
   guidedBriefSkipToHandoffState,
-  progressForStage,
-  stepCounterLabel,
+  guidedBriefSteps,
+  mergeGuidedBriefDecisions,
   type GuidedBriefAcceptedArtifact,
   type GuidedBriefRuntimeState,
   type GuidedBriefStage,
+  type GuidedBriefStepInfo,
 } from './types'
+import type { GuidedInterviewState } from './interviewProtocol'
+import type { GuidedBriefSpecialistSession } from './sessionAdapter'
 
 export type GuidedBriefRunOptions = {
   startRunner: boolean
@@ -118,8 +125,7 @@ export function GuidedBriefFlow({
     wantsArchitectureDiscussion: runtimeState.wantsArchitectureDiscussion,
     wantsFrontendDiscussion: runtimeState.wantsFrontendDiscussion,
   }
-  const progress = progressForStage(stage, hasUi, progressOptions)
-  const counter = stepCounterLabel(stage, hasUi, progressOptions)
+  const steps = guidedBriefSteps(stage, hasUi, progressOptions)
   const inStrategistStage = stage === 'strategist-working' || stage === 'strategist-ready'
   const inArchitectStage = stage === 'architect-working' || stage === 'architect-ready'
   const inDesignerStage = stage === 'designer-working' || stage === 'designer-ready'
@@ -227,11 +233,11 @@ export function GuidedBriefFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [designer.mockups])
 
-  // Multicode Design should open on a useful artifact as soon as files exist.
-  // Prefer the first HTML page, then any available artifact, and repair the
-  // selection if the previously selected file is deleted.
+  // The designer studio should open on a useful artifact as soon as files
+  // exist (both presets — the studio shell is shared). Prefer the first HTML
+  // page, then any available artifact, and repair the selection if the
+  // previously selected file is deleted.
   useEffect(() => {
-    if (runtimeState.preset !== 'frontend-design') return
     const entries = designer.designArtifacts.entries
     if (!entries.length) return
     updateRuntimeState((prev) => {
@@ -245,7 +251,44 @@ export function GuidedBriefFlow({
       return applyDesignArtifactSelection(prev, nextEntry)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runtimeState.preset, designer.designArtifacts])
+  }, [designer.designArtifacts])
+
+  // Persist resolved interview decisions per role so the build handoff can
+  // carry the real decision record. Merge is dedupe-by-id and returns `prev`
+  // unchanged when nothing new arrived.
+  useEffect(() => {
+    updateRuntimeState((prev) => mergeGuidedBriefDecisions(prev, 'product', strategist.interview.decisions))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [strategist.interview.decisions])
+  useEffect(() => {
+    updateRuntimeState((prev) => mergeGuidedBriefDecisions(prev, 'architect', architect.interview.decisions))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [architect.interview.decisions])
+  useEffect(() => {
+    updateRuntimeState((prev) => mergeGuidedBriefDecisions(prev, 'frontend', designer.interview.decisions))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [designer.interview.decisions])
+
+  // Writes a question-card answer into the specialist's PTY stdin — the same
+  // transport as typing in the terminal, so either surface can answer.
+  const answerViaTerminal = (session: GuidedBriefSpecialistSession | null) => (text: string) => {
+    if (!session) return
+    window.api.terminalWriteFast(session.sessionId, `${text}\r`)
+  }
+
+  // Read-only review of an already-accepted step, entered from the step rail.
+  // Component-local on purpose: a reload lands back on the current step.
+  const [reviewingStage, setReviewingStage] = useState<GuidedBriefStage | null>(null)
+  useEffect(() => {
+    setReviewingStage(null)
+  }, [stage])
+  const canReviewStep = (stepStage: GuidedBriefStage): boolean => {
+    if (stepStage === 'strategist-working') return Boolean(runtimeState.acceptedProductBrief)
+    if (stepStage === 'architect-working') return Boolean(runtimeState.acceptedArchitecturePlan)
+    if (stepStage === 'designer-working') return runtimeState.acceptedMockups.length > 0
+    return false
+  }
+  const reviewing = reviewingStage !== null && canReviewStep(reviewingStage)
 
   const [accepting, setAccepting] = useState(false)
   const [acceptError, setAcceptError] = useState<string | null>(null)
@@ -279,6 +322,7 @@ export function GuidedBriefFlow({
         workspaceRoot,
         sourcePath: strategist.requirementsPath,
         kind: 'product',
+        slug: 'product-brief',
         filesystem: {
           ensureDir: window.api.ensureDir,
           readFile: window.api.readfile,
@@ -291,6 +335,32 @@ export function GuidedBriefFlow({
         hash: snapshot.hash,
         path: snapshot.path,
       }
+      // The HTML overview is optional — a view of the brief, never a gate.
+      // Snapshot it when present; a failure must not block the accept.
+      let acceptedOverview: GuidedBriefAcceptedArtifact | null = null
+      if (strategist.overviewFileReady) {
+        try {
+          const overviewSnapshot = await snapshotGuidedBriefArtifact({
+            workspaceRoot,
+            sourcePath: strategist.overviewPath,
+            kind: 'overview',
+            slug: 'product-overview',
+            filesystem: {
+              ensureDir: window.api.ensureDir,
+              readFile: window.api.readfile,
+              writeFile: window.api.writefile,
+            },
+          })
+          acceptedOverview = {
+            kind: 'product',
+            title: 'Product overview',
+            hash: overviewSnapshot.hash,
+            path: overviewSnapshot.path,
+          }
+        } catch {
+          acceptedOverview = null
+        }
+      }
       const nextStage = nextGuidedBriefStage({ ...runtimeState, acceptedProductBrief: accepted }, 'strategist')
       // The strategist's job is done — kill the PTY and clear the persisted id
       // so it does not reattach on the next render.
@@ -299,6 +369,7 @@ export function GuidedBriefFlow({
         ...runtimeState,
         stage: nextStage,
         acceptedProductBrief: accepted,
+        acceptedProductOverview: acceptedOverview,
         strategistSessionId: null,
       }
       if (nextStage === 'handoff') {
@@ -308,12 +379,15 @@ export function GuidedBriefFlow({
           hasUi,
           productBrief: accepted,
           architecturePlan: runtimeState.acceptedArchitecturePlan,
+          productOverview: acceptedOverview,
+          architectureOverview: runtimeState.acceptedArchitectureOverview,
           requireMockups: false,
           confirmedDecisions: [
             hasUi === 'yes'
               ? 'Application includes a visual UI, but no frontend design stage was requested.'
               : 'No visual UI is required.',
           ],
+          recordedDecisions: runtimeState.guidedDecisions,
           filesystem: {
             ensureDir: window.api.ensureDir,
             readFile: window.api.readfile,
@@ -341,6 +415,8 @@ export function GuidedBriefFlow({
         workspaceRoot,
         sourcePath: architect.architecturePlanPath,
         kind: 'product',
+        slug: 'architecture-plan',
+        directory: 'architecture',
         filesystem: {
           ensureDir: window.api.ensureDir,
           readFile: window.api.readfile,
@@ -353,12 +429,39 @@ export function GuidedBriefFlow({
         hash: snapshot.hash,
         path: snapshot.path,
       }
+      // Optional HTML overview — snapshot when present, never a gate.
+      let acceptedOverview: GuidedBriefAcceptedArtifact | null = null
+      if (architect.overviewFileReady) {
+        try {
+          const overviewSnapshot = await snapshotGuidedBriefArtifact({
+            workspaceRoot,
+            sourcePath: architect.overviewPath,
+            kind: 'overview',
+            slug: 'architecture-overview',
+            directory: 'architecture',
+            filesystem: {
+              ensureDir: window.api.ensureDir,
+              readFile: window.api.readfile,
+              writeFile: window.api.writefile,
+            },
+          })
+          acceptedOverview = {
+            kind: 'product',
+            title: 'Architecture overview',
+            hash: overviewSnapshot.hash,
+            path: overviewSnapshot.path,
+          }
+        } catch {
+          acceptedOverview = null
+        }
+      }
       const nextStage = nextGuidedBriefStage({ ...runtimeState, acceptedArchitecturePlan: accepted }, 'architect')
       const architectSessionIdToKill = runtimeState.architectSessionId
       const nextState = {
         ...runtimeState,
         stage: nextStage,
         acceptedArchitecturePlan: accepted,
+        acceptedArchitectureOverview: acceptedOverview,
         architectSessionId: null,
       }
       if (nextStage === 'handoff') {
@@ -368,10 +471,13 @@ export function GuidedBriefFlow({
           hasUi,
           productBrief: runtimeState.acceptedProductBrief,
           architecturePlan: accepted,
+          productOverview: runtimeState.acceptedProductOverview,
+          architectureOverview: acceptedOverview,
           requireMockups: false,
           confirmedDecisions: [
             hasUi === 'yes' ? 'Application includes a visual UI.' : 'No visual UI is required.',
           ],
+          recordedDecisions: runtimeState.guidedDecisions,
           validationNotes: ['Validate implementation against the accepted architecture plan snapshot hash.'],
           filesystem: {
             ensureDir: window.api.ensureDir,
@@ -406,6 +512,7 @@ export function GuidedBriefFlow({
         workspaceRoot,
         sourcePath: designer.uiDirectionPath,
         kind: 'product',
+        slug: 'ui-direction',
         filesystem: {
           ensureDir: window.api.ensureDir,
           readFile: window.api.readfile,
@@ -423,6 +530,7 @@ export function GuidedBriefFlow({
           workspaceRoot,
           sourcePath: mockup.absolutePath,
           kind: 'mockup',
+          slug: guidedBriefSnapshotSlug(mockup.name.replace(/\.html?$/i, '')),
           filesystem: {
             ensureDir: window.api.ensureDir,
             readFile: window.api.readfile,
@@ -444,8 +552,11 @@ export function GuidedBriefFlow({
         architecturePlan: runtimeState.acceptedArchitecturePlan,
         uiDirection: acceptedUiDirection,
         mockups: acceptedMockups,
+        productOverview: runtimeState.acceptedProductOverview,
+        architectureOverview: runtimeState.acceptedArchitectureOverview,
         requireMockups: true,
         confirmedDecisions: ['Application includes a visual UI.'],
+        recordedDecisions: runtimeState.guidedDecisions,
         validationNotes: ['Validate implementation against the accepted brief, UI direction, and mockup snapshot hashes.'],
         filesystem: {
           ensureDir: window.api.ensureDir,
@@ -499,8 +610,11 @@ export function GuidedBriefFlow({
         architecturePlan: runtimeState.acceptedArchitecturePlan,
         uiDirection: runtimeState.acceptedUiDirection,
         mockups: runtimeState.acceptedMockups,
+        productOverview: runtimeState.acceptedProductOverview,
+        architectureOverview: runtimeState.acceptedArchitectureOverview,
         requireMockups: false,
         confirmedDecisions: guidedBriefPlanningDecisionNotes(nextState),
+        recordedDecisions: runtimeState.guidedDecisions,
         validationNotes: guidedBriefPlanningValidationNotes(nextState),
         filesystem: {
           ensureDir: window.api.ensureDir,
@@ -560,7 +674,14 @@ export function GuidedBriefFlow({
             · {isDesignPreset ? 'Multicode Design' : `Guided brief${hasUi === 'no' ? ' · no UI' : ''}`}
           </span>
         </div>
-        <WizardProgress total={progress.total} active={progress.active} done={progress.done} />
+        <StepRail
+          steps={steps}
+          canReview={canReviewStep}
+          reviewingStage={reviewingStage}
+          onReview={(stepStage) =>
+            setReviewingStage((current) => (current === stepStage ? null : stepStage))
+          }
+        />
         {onClose ? (
           <CloseIconButton
             size="md"
@@ -572,13 +693,20 @@ export function GuidedBriefFlow({
       </header>
 
       <main className="relative min-h-0 flex-1 overflow-hidden">
-        {inStrategistStage ? (
+        {reviewing && reviewingStage ? (
+          <ReviewBody runtimeState={runtimeState} family={reviewingStage} />
+        ) : inStrategistStage ? (
           <StrategistBody
             stage={stage}
             session={strategist.session}
             starting={strategist.status === 'starting' || strategist.status === 'idle'}
             errorMessage={strategist.error}
-            isLive={strategist.status === 'running' || strategist.status === 'ready'}
+            working={stage === 'strategist-working'}
+            fileReady={strategist.readiness.fileReady}
+            overviewPath={strategist.overviewPath}
+            overviewFileReady={strategist.overviewFileReady}
+            interview={strategist.interview}
+            onAnswer={answerViaTerminal(strategist.session)}
             requirementsPath={strategist.requirementsPath}
             productDirectoryPath={joinWorkspacePath(workspaceRoot, 'product')}
           />
@@ -588,33 +716,28 @@ export function GuidedBriefFlow({
             session={architect.session}
             starting={architect.status === 'starting' || architect.status === 'idle'}
             errorMessage={architect.error}
-            isLive={architect.status === 'running' || architect.status === 'ready'}
+            working={stage === 'architect-working'}
+            fileReady={architect.readiness.fileReady}
+            overviewPath={architect.overviewPath}
+            overviewFileReady={architect.overviewFileReady}
+            interview={architect.interview}
+            onAnswer={answerViaTerminal(architect.session)}
             architecturePlanPath={architect.architecturePlanPath}
             architectureDirectoryPath={joinWorkspacePath(workspaceRoot, 'architecture')}
           />
-        ) : inDesignerStage && isDesignPreset ? (
+        ) : inDesignerStage ? (
           <DesignStudioBody
             session={designer.session}
             starting={designer.status === 'starting' || designer.status === 'idle'}
             errorMessage={designer.error}
-            isLive={designer.status === 'running' || designer.status === 'ready'}
+            working={stage === 'designer-working'}
+            interview={designer.interview}
+            onAnswer={answerViaTerminal(designer.session)}
             mockupCount={designer.mockups.length}
             designArtifacts={designer.designArtifacts}
             designArtifactsStatus={designer.designArtifactsStatus}
             activeDesignArtifactPath={runtimeState.activeDesignArtifactPath ?? null}
             onSelectDesignArtifact={handleSelectDesignArtifact}
-          />
-        ) : inDesignerStage ? (
-          <DesignerBody
-            stage={stage}
-            session={designer.session}
-            starting={designer.status === 'starting' || designer.status === 'idle'}
-            errorMessage={designer.error}
-            isLive={designer.status === 'running' || designer.status === 'ready'}
-            mockups={designer.mockups}
-            uiDirectionPath={designer.uiDirectionPath}
-            productDirectoryPath={joinWorkspacePath(workspaceRoot, 'product')}
-            mockupsDirectoryPath={designer.mockupsDirectoryPath}
           />
         ) : (
           <HandoffBody
@@ -628,47 +751,71 @@ export function GuidedBriefFlow({
       </main>
 
       <footer className="flex shrink-0 items-center gap-3 border-t border-[color:var(--bg-surface-raised)] px-5 py-3">
-        <span className="min-w-0 flex-1 truncate text-[12px] text-[color:var(--text-subtle)]">
-          {counter}
-        </span>
-        {stage === 'designer-working' || stage === 'designer-ready' ? (
-          <DesignerReadinessHint readiness={designer.readiness} />
-        ) : null}
-        {acceptError ? (
-          <span className="truncate text-[12px] text-[color:var(--tone-error)]">{acceptError}</span>
-        ) : null}
-        {startBuildError ? (
-          <span className="truncate text-[12px] text-[color:var(--tone-error)]">{startBuildError}</span>
-        ) : null}
-        {skipError ? (
-          <span className="truncate text-[12px] text-[color:var(--tone-error)]">{skipError}</span>
-        ) : null}
-        <button
-          type="button"
-          onClick={onBackToIdea}
-          className="
-            inline-flex h-9 items-center rounded-md px-3 text-[12px] font-medium text-[color:var(--text-default)]
-            transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
-            focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-          "
-        >
-          Back
-        </button>
-        {stage !== 'handoff' ? (
-          <SecondaryButton onClick={() => void skipToRoster()} disabled={skippingPlanning}>
-            {skippingPlanning ? 'Skipping…' : 'Skip to roster'}
-          </SecondaryButton>
-        ) : null}
-        {primaryAction}
+        {reviewing && reviewingStage ? (
+          <>
+            <span className="min-w-0 flex-1 truncate text-[12px] text-[color:var(--text-subtle)]">
+              Reviewing an accepted artifact. The current step keeps running.
+            </span>
+            <SecondaryButton onClick={() => setReviewingStage(null)} disabled={false}>
+              Back to current step
+            </SecondaryButton>
+          </>
+        ) : (
+          <>
+            <span className="flex min-w-0 flex-1 items-center gap-3">
+              {stage === 'designer-working' || stage === 'designer-ready' ? (
+                <DesignerReadinessHint readiness={designer.readiness} />
+              ) : null}
+              {acceptError ? (
+                <span className="truncate text-[12px] text-[color:var(--tone-error)]">{acceptError}</span>
+              ) : null}
+              {startBuildError ? (
+                <span className="truncate text-[12px] text-[color:var(--tone-error)]">{startBuildError}</span>
+              ) : null}
+              {skipError ? (
+                <span className="truncate text-[12px] text-[color:var(--tone-error)]">{skipError}</span>
+              ) : null}
+            </span>
+            <button
+              type="button"
+              onClick={onBackToIdea}
+              className="
+                inline-flex h-9 items-center rounded-md px-3 text-[12px] font-medium text-[color:var(--text-default)]
+                transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
+                focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+              "
+            >
+              Back
+            </button>
+            {stage !== 'handoff' ? (
+              <SecondaryButton onClick={() => void skipToRoster()} disabled={skippingPlanning}>
+                {skippingPlanning ? 'Skipping…' : 'Skip to roster'}
+              </SecondaryButton>
+            ) : null}
+            {primaryAction}
+          </>
+        )}
       </footer>
     </section>
   )
 }
 
 function formatAcceptError(error: unknown, kind: 'brief' | 'plan' | 'mockup'): string {
-  if (error instanceof GuidedBriefWorkspaceError) return `Could not snapshot the ${kind} (${error.code}).`
+  if (error instanceof GuidedBriefWorkspaceError) {
+    switch (error.code) {
+      case 'missing-source':
+        return `Could not save the ${kind} snapshot. The source file is missing or empty — ask the specialist to rewrite it, then accept again. (${error.code})`
+      case 'missing-root':
+      case 'missing-idea':
+        return `Could not save the ${kind} snapshot. The workspace state is incomplete — reopen the workspace and try again. (${error.code})`
+      case 'missing-crypto':
+        return `Could not save the ${kind} snapshot. Content hashing is unavailable in this environment — restart the app and try again. (${error.code})`
+      case 'mockups-required':
+        return `Could not write the build handoff. No mockups have been accepted — accept the design first. (${error.code})`
+    }
+  }
   if (error instanceof Error) return error.message
-  return `Could not snapshot the ${kind}.`
+  return `Could not save the ${kind} snapshot.`
 }
 
 function titleForMockup(mockup: DesignerMockupFile): string {
@@ -699,6 +846,112 @@ function nextGuidedBriefStage(
   return 'handoff'
 }
 
+// Labeled step rail: the four stations of the flow by name. Completed steps
+// with an accepted artifact are clickable and open a read-only review.
+function StepRail({
+  steps,
+  canReview,
+  reviewingStage,
+  onReview,
+}: {
+  steps: GuidedBriefStepInfo[]
+  canReview: (stage: GuidedBriefStage) => boolean
+  reviewingStage: GuidedBriefStage | null
+  onReview: (stage: GuidedBriefStage) => void
+}) {
+  return (
+    <nav
+      aria-label="Guided brief steps"
+      className="ml-auto flex min-w-0 shrink-0 items-center gap-1"
+    >
+      {steps.map((step, index) => {
+        const reviewable = step.state === 'done' && canReview(step.stage)
+        const isReviewing = reviewingStage === step.stage
+        return (
+          <Fragment key={step.stage}>
+            {index > 0 ? (
+              <span
+                aria-hidden="true"
+                className="h-px w-3 shrink-0 bg-[color:var(--border-default)]"
+              />
+            ) : null}
+            <button
+              type="button"
+              disabled={!reviewable}
+              aria-current={step.state === 'active' ? 'step' : undefined}
+              onClick={() => onReview(step.stage)}
+              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[12px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)] ${
+                step.state === 'active'
+                  ? 'bg-[color:var(--accent-primary-soft)] font-medium text-[color:var(--text-strong)]'
+                  : isReviewing
+                    ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
+                    : reviewable
+                      ? 'cursor-pointer text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]'
+                      : 'cursor-default text-[color:var(--text-subtle)]'
+              }`}
+            >
+              {step.state === 'done' ? <LifecycleGlyph state="done" live={false} /> : null}
+              {step.label}
+            </button>
+          </Fragment>
+        )
+      })}
+    </nav>
+  )
+}
+
+// Read-only review of an accepted step's snapshot, entered from the step
+// rail. No PTY is spawned; snapshots are the content-addressed files the
+// accept action wrote, so what's shown is exactly what was accepted.
+function ReviewBody({
+  runtimeState,
+  family,
+}: {
+  runtimeState: GuidedBriefRuntimeState
+  family: GuidedBriefStage
+}) {
+  const { workspaceRoot } = runtimeState
+  if (family === 'designer-working') {
+    const mockups: DesignerMockupFile[] = runtimeState.acceptedMockups.map((mockup) => ({
+      name: basename(mockup.path),
+      relativePath: mockup.path,
+      absolutePath: joinWorkspacePath(workspaceRoot, mockup.path),
+    }))
+    const uiDirectionAbsolutePath = runtimeState.acceptedUiDirection
+      ? joinWorkspacePath(workspaceRoot, runtimeState.acceptedUiDirection.path)
+      : joinWorkspacePath(workspaceRoot, 'product/ui-direction.md')
+    return (
+      <div className="grid h-full min-h-0 grid-cols-[minmax(0,1100px)] justify-center px-6 py-6">
+        <DesignerReviewPane
+          mockups={mockups}
+          mockupsDirectoryPath={joinWorkspacePath(workspaceRoot, 'mockups/.versions')}
+          uiDirectionPath={uiDirectionAbsolutePath}
+          productDirectoryPath={parentPath(uiDirectionAbsolutePath)}
+        />
+      </div>
+    )
+  }
+  const artifact =
+    family === 'strategist-working'
+      ? runtimeState.acceptedProductBrief
+      : runtimeState.acceptedArchitecturePlan
+  if (!artifact) return null
+  const absolutePath = joinWorkspacePath(workspaceRoot, artifact.path)
+  return (
+    <div className="grid h-full min-h-0 grid-cols-[minmax(0,860px)] justify-center px-6 py-6">
+      <RenderedBriefPane
+        briefPath={absolutePath}
+        watchDirectoryPath={parentPath(absolutePath)}
+        title={`${artifact.title} (accepted)`}
+        displayPath={artifact.path}
+        unavailableTitle="Accepted snapshot unavailable"
+        missingReason={`The accepted snapshot ${artifact.path} is missing on disk.`}
+        emptyReason={`The accepted snapshot ${artifact.path} is empty.`}
+      />
+    </div>
+  )
+}
+
 function renderPrimaryAction({
   stage,
   accepting,
@@ -726,7 +979,7 @@ function renderPrimaryAction({
     const disabled = !strategist.readiness.fileReady || accepting
     return (
       <PrimaryButton onClick={onAcceptStrategist} disabled={disabled}>
-        {accepting ? 'Accepting…' : 'Accept · continue'}
+        {accepting ? 'Accepting…' : 'Accept brief'}
       </PrimaryButton>
     )
   }
@@ -734,18 +987,18 @@ function renderPrimaryAction({
     const disabled = !architect.readiness.fileReady || accepting
     return (
       <PrimaryButton onClick={onAcceptArchitect} disabled={disabled}>
-        {accepting ? 'Accepting…' : 'Accept · continue'}
+        {accepting ? 'Accepting…' : 'Accept plan'}
       </PrimaryButton>
     )
   }
   if (stage === 'designer-ready') {
     const disabled = !designer.readiness.mockupsAvailable || !designer.readiness.uiDirectionReady || accepting
     const blockers: string[] = []
-    if (!designer.readiness.mockupsAvailable) blockers.push('mockups/*.html')
-    if (!designer.readiness.uiDirectionReady) blockers.push('product/ui-direction.md')
+    if (!designer.readiness.mockupsAvailable) blockers.push('the screens')
+    if (!designer.readiness.uiDirectionReady) blockers.push('the UI direction')
     const button = (
       <PrimaryButton onClick={onAcceptDesigner} disabled={disabled}>
-        {accepting ? 'Accepting…' : 'Accept · continue'}
+        {accepting ? 'Accepting…' : 'Accept design'}
       </PrimaryButton>
     )
     return disabled && blockers.length > 0 ? (
@@ -763,12 +1016,12 @@ function renderPrimaryAction({
   }
   const waitingReason =
     stage === 'designer-working'
-      ? 'Waiting for mockups/app.html and product/ui-direction.md, or the MOCKUP_SET_READY marker.'
+      ? 'The designer is still producing the screens and UI direction.'
       : stage === 'architect-working'
-        ? 'Waiting for architecture/plan.md, or the ARCHITECTURE_PLAN_READY marker.'
+        ? 'The architect is still writing the plan.'
       : stage === 'strategist-working'
-        ? 'Waiting for product/requirements.md, or the BRIEF_READY marker.'
-        : 'Waiting for the agent to finish.'
+        ? 'The strategist is still writing the brief.'
+        : 'The agent is still working.'
   return (
     <Tooltip content={waitingReason}>
       <button
@@ -792,22 +1045,13 @@ function DesignerReadinessHint({
 }: {
   readiness: ReturnType<typeof useDesignerSession>['readiness']
 }) {
-  const items: Array<{ label: string; ready: boolean }> = [
-    { label: 'marker', ready: readiness.markerReceived },
-    { label: 'mockup', ready: readiness.mockupsAvailable },
-    { label: 'ui direction', ready: readiness.uiDirectionReady },
-  ]
+  const waitingFor: string[] = []
+  if (!readiness.mockupsAvailable) waitingFor.push('the screens')
+  if (!readiness.uiDirectionReady) waitingFor.push('the UI direction')
+  if (waitingFor.length === 0) return null
   return (
-    <span
-      aria-label="Designer readiness"
-      className="inline-flex shrink-0 items-center gap-2 font-mono text-[11px] text-[color:var(--text-subtle)]"
-    >
-      {items.map((item) => (
-        <span key={item.label} className="inline-flex items-center gap-1">
-          <StatusDot tone={item.ready ? 'good' : 'neutral'} />
-          <span>{item.label}</span>
-        </span>
-      ))}
+    <span className="shrink-0 truncate text-[12px] text-[color:var(--text-subtle)]">
+      Waiting for {waitingFor.join(' and ')}.
     </span>
   )
 }
@@ -875,12 +1119,20 @@ function PrimaryButton({
   )
 }
 
+// Strategist stage on the shared studio shell: conversation, the stage's
+// expected artifacts with truthful states, and the brief previewed live from
+// the moment the file exists — not only at the ready flip.
 function StrategistBody({
   stage,
   session,
   starting,
   errorMessage,
-  isLive,
+  working,
+  fileReady,
+  overviewPath,
+  overviewFileReady,
+  interview,
+  onAnswer,
   requirementsPath,
   productDirectoryPath,
 }: {
@@ -888,34 +1140,50 @@ function StrategistBody({
   session: ReturnType<typeof useStrategistSession>['session']
   starting: boolean
   errorMessage: string | null
-  isLive: boolean
+  working: boolean
+  fileReady: boolean
+  overviewPath: string
+  overviewFileReady: boolean
+  interview: GuidedInterviewState
+  onAnswer: (answerText: string) => void
   requirementsPath: string
   productDirectoryPath: string
 }) {
   const ready = stage === 'strategist-ready'
-
   return (
-    <div
-      className={`grid h-full min-h-0 gap-5 px-6 py-6 motion-safe:transition-[grid-template-columns] motion-safe:duration-[220ms] motion-safe:ease-[cubic-bezier(0.2,0.8,0.2,1)] ${
-        ready ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)]' : 'grid-cols-[minmax(0,720px)] justify-center'
-      }`}
-    >
-      <ConversationPane
-        session={session}
-        starting={starting}
-        errorMessage={errorMessage}
-        specialistName="Product Strategist"
-        specialistSubline={
-          ready
-            ? 'Brief ready · ask anything else if needed'
-            : 'Asking about the idea — answer in the terminal'
-        }
-        isLive={isLive}
-      />
-      {ready ? (
-        <RenderedBriefPane briefPath={requirementsPath} watchDirectoryPath={productDirectoryPath} />
-      ) : null}
-    </div>
+    <TextStageStudioBody
+      specialistName="Product Strategist"
+      specialistSubline={
+        ready
+          ? 'Brief ready · ask anything else if needed'
+          : 'Asking about the idea — pick an option or answer in the terminal'
+      }
+      session={session}
+      starting={starting}
+      errorMessage={errorMessage}
+      working={working}
+      interview={interview}
+      onAnswer={onAnswer}
+      ready={ready}
+      plan={{
+        name: 'requirements.md',
+        relativePath: 'product/requirements.md',
+        absolutePath: requirementsPath,
+        fileReady,
+        title: 'Brief',
+        unavailableTitle: 'Brief not started',
+        missingReason:
+          "The strategist hasn't written the brief yet. It appears here as soon as the file exists.",
+        emptyReason: 'The brief file exists but has no content yet.',
+      }}
+      overview={{
+        name: 'overview.html',
+        relativePath: 'product/overview.html',
+        absolutePath: overviewPath,
+        fileReady: overviewFileReady,
+      }}
+      watchDirectoryPath={productDirectoryPath}
+    />
   )
 }
 
@@ -924,7 +1192,12 @@ function ArchitectBody({
   session,
   starting,
   errorMessage,
-  isLive,
+  working,
+  fileReady,
+  overviewPath,
+  overviewFileReady,
+  interview,
+  onAnswer,
   architecturePlanPath,
   architectureDirectoryPath,
 }: {
@@ -932,101 +1205,180 @@ function ArchitectBody({
   session: ReturnType<typeof useArchitectSession>['session']
   starting: boolean
   errorMessage: string | null
-  isLive: boolean
+  working: boolean
+  fileReady: boolean
+  overviewPath: string
+  overviewFileReady: boolean
+  interview: GuidedInterviewState
+  onAnswer: (answerText: string) => void
   architecturePlanPath: string
   architectureDirectoryPath: string
 }) {
   const ready = stage === 'architect-ready'
-
   return (
-    <div
-      className={`grid h-full min-h-0 gap-5 px-6 py-6 motion-safe:transition-[grid-template-columns] motion-safe:duration-[220ms] motion-safe:ease-[cubic-bezier(0.2,0.8,0.2,1)] ${
-        ready ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)]' : 'grid-cols-[minmax(0,720px)] justify-center'
-      }`}
-    >
-      <ConversationPane
-        session={session}
-        starting={starting}
-        errorMessage={errorMessage}
-        specialistName="Architect"
-        specialistSubline={
-          ready
-            ? 'Plan ready · ask anything else if needed'
-            : 'Resolving architecture decisions — answer in the terminal'
-        }
-        isLive={isLive}
-      />
-      {ready ? (
-        <RenderedBriefPane briefPath={architecturePlanPath} watchDirectoryPath={architectureDirectoryPath} />
-      ) : null}
-    </div>
+    <TextStageStudioBody
+      specialistName="Architect"
+      specialistSubline={
+        ready
+          ? 'Plan ready · ask anything else if needed'
+          : 'Resolving architecture decisions — pick an option or answer in the terminal'
+      }
+      session={session}
+      starting={starting}
+      errorMessage={errorMessage}
+      working={working}
+      interview={interview}
+      onAnswer={onAnswer}
+      ready={ready}
+      plan={{
+        name: 'plan.md',
+        relativePath: 'architecture/plan.md',
+        absolutePath: architecturePlanPath,
+        fileReady,
+        title: 'Plan',
+        unavailableTitle: 'Plan not started',
+        missingReason:
+          "The architect hasn't written the plan yet. It appears here as soon as the file exists.",
+        emptyReason: 'The plan file exists but has no content yet.',
+      }}
+      overview={{
+        name: 'overview.html',
+        relativePath: 'architecture/overview.html',
+        absolutePath: overviewPath,
+        fileReady: overviewFileReady,
+      }}
+      watchDirectoryPath={architectureDirectoryPath}
+    />
   )
 }
 
-function DesignerBody({
-  stage,
+// Shared strategist/architect studio composition: one markdown plan (the
+// canonical artifact) plus an optional agent-produced HTML overview. The
+// artifacts pane selects which one the preview shows; the overview becomes
+// the default once the stage is ready and the file exists.
+function TextStageStudioBody({
+  specialistName,
+  specialistSubline,
   session,
   starting,
   errorMessage,
-  isLive,
-  mockups,
-  uiDirectionPath,
-  productDirectoryPath,
-  mockupsDirectoryPath,
+  working,
+  interview,
+  onAnswer,
+  ready,
+  plan,
+  overview,
+  watchDirectoryPath,
 }: {
-  stage: GuidedBriefStage
-  session: ReturnType<typeof useDesignerSession>['session']
+  specialistName: string
+  specialistSubline: string
+  session: GuidedBriefSpecialistSession | null
   starting: boolean
   errorMessage: string | null
-  isLive: boolean
-  mockups: DesignerMockupFile[]
-  uiDirectionPath: string
-  productDirectoryPath: string
-  mockupsDirectoryPath: string
+  working: boolean
+  interview: GuidedInterviewState
+  onAnswer: (answerText: string) => void
+  ready: boolean
+  plan: {
+    name: string
+    relativePath: string
+    absolutePath: string
+    fileReady: boolean
+    title: string
+    unavailableTitle: string
+    missingReason: string
+    emptyReason: string
+  }
+  overview: {
+    name: string
+    relativePath: string
+    absolutePath: string
+    fileReady: boolean
+  }
+  watchDirectoryPath: string
 }) {
-  const ready = stage === 'designer-ready'
+  const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const stateFor = (fileReady: boolean): StageArtifactFile['state'] =>
+    !fileReady ? 'missing' : ready ? 'ready' : 'in-progress'
+  const files: StageArtifactFile[] = [
+    {
+      entry: {
+        name: plan.name,
+        relativePath: plan.relativePath,
+        absolutePath: plan.absolutePath,
+        kind: 'notes',
+        typeLabel: 'Markdown',
+      },
+      state: stateFor(plan.fileReady),
+    },
+    {
+      entry: {
+        name: overview.name,
+        relativePath: overview.relativePath,
+        absolutePath: overview.absolutePath,
+        kind: 'page',
+        typeLabel: 'HTML',
+      },
+      state: stateFor(overview.fileReady),
+    },
+  ]
+  const effectiveSelected =
+    selectedPath ?? (ready && overview.fileReady ? overview.relativePath : plan.relativePath)
 
   return (
-    <div
-      className={`grid h-full min-h-0 gap-5 px-6 py-6 motion-safe:transition-[grid-template-columns] motion-safe:duration-[220ms] motion-safe:ease-[cubic-bezier(0.2,0.8,0.2,1)] ${
-        ready ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)]' : 'grid-cols-[minmax(0,720px)] justify-center'
-      }`}
-    >
-      <ConversationPane
-        session={session}
-        starting={starting}
-        errorMessage={errorMessage}
-        specialistName="Frontend Designer"
-        specialistSubline={
-          ready
-            ? `${mockups.length} screen${mockups.length === 1 ? '' : 's'} ready · ask for a change anytime`
-            : 'Drafting the screens — describe what you want in the terminal'
-        }
-        isLive={isLive}
-      />
-      {ready ? (
-        <DesignerReviewPane
-          mockups={mockups}
-          mockupsDirectoryPath={mockupsDirectoryPath}
-          uiDirectionPath={uiDirectionPath}
-          productDirectoryPath={productDirectoryPath}
+    <StageStudioBody
+      activity={
+        <ConversationPane
+          session={session}
+          starting={starting}
+          errorMessage={errorMessage}
+          specialistName={specialistName}
+          specialistSubline={specialistSubline}
+          working={working}
+          interview={interview}
+          onAnswer={onAnswer}
         />
-      ) : null}
-    </div>
+      }
+      artifacts={
+        <StageArtifactsPane
+          files={files}
+          selectedPath={effectiveSelected}
+          onSelect={(entry) => setSelectedPath(entry.relativePath)}
+        />
+      }
+      preview={
+        effectiveSelected === overview.relativePath ? (
+          <HtmlArtifactFrame
+            absolutePath={overview.absolutePath}
+            relativePath={overview.relativePath}
+            watchDirectoryPath={watchDirectoryPath}
+          />
+        ) : (
+          <RenderedBriefPane
+            briefPath={plan.absolutePath}
+            watchDirectoryPath={watchDirectoryPath}
+            title={plan.title}
+            displayPath={plan.relativePath}
+            unavailableTitle={plan.unavailableTitle}
+            missingReason={plan.missingReason}
+            emptyReason={plan.emptyReason}
+          />
+        )
+      }
+    />
   )
 }
 
-// Multicode Design studio: Activity (live designer terminal), Design Files (real
-// on-disk index), and Preview (selected artifact) shown concurrently. Three
-// columns at desktop widths; on narrow widths the same panes stack and the
-// container scrolls, so the terminal stays mounted, live, and input-capable
-// alongside files and preview at every width. Selection state and persistence
-// are owned by the parent (T2 wiring); this is the full studio composition (T4).
+// Designer studio (both presets): Activity (live designer terminal), Design
+// Files (real on-disk index), and Preview (selected artifact) shown
+// concurrently on the shared StageStudioBody shell.
 function DesignStudioBody({
   session,
   starting,
   errorMessage,
-  isLive,
+  working,
+  interview,
+  onAnswer,
   mockupCount,
   designArtifacts,
   designArtifactsStatus,
@@ -1036,7 +1388,9 @@ function DesignStudioBody({
   session: ReturnType<typeof useDesignerSession>['session']
   starting: boolean
   errorMessage: string | null
-  isLive: boolean
+  working: boolean
+  interview: GuidedInterviewState
+  onAnswer: (answerText: string) => void
   mockupCount: number
   designArtifacts: DesignArtifactIndex
   designArtifactsStatus: DesignArtifactsStatus
@@ -1046,8 +1400,8 @@ function DesignStudioBody({
   const selectedEntry = findDesignArtifact(designArtifacts, activeDesignArtifactPath)
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-1 gap-4 overflow-y-auto px-6 py-6 lg:grid-cols-[minmax(0,320px)_minmax(0,340px)_minmax(0,1fr)] lg:overflow-hidden">
-      <div className="flex min-h-[260px] min-w-0 flex-col lg:min-h-0">
+    <StageStudioBody
+      activity={
         <ConversationPane
           session={session}
           starting={starting}
@@ -1058,21 +1412,21 @@ function DesignStudioBody({
               ? `${mockupCount} screen${mockupCount === 1 ? '' : 's'} on disk · ask for changes anytime`
               : 'Describe the screens you want — files and preview update as they’re written'
           }
-          isLive={isLive}
+          working={working}
+          interview={interview}
+          onAnswer={onAnswer}
         />
-      </div>
-      <div className="flex min-h-[260px] min-w-0 flex-col lg:min-h-0">
+      }
+      artifacts={
         <DesignFilesPane
           index={designArtifacts}
           status={designArtifactsStatus}
           selectedPath={activeDesignArtifactPath}
           onSelect={onSelectDesignArtifact}
         />
-      </div>
-      <div className="flex min-h-[320px] min-w-0 flex-col lg:min-h-0">
-        <DesignArtifactPreviewPane entry={selectedEntry} />
-      </div>
-    </div>
+      }
+      preview={<DesignArtifactPreviewPane entry={selectedEntry} />}
+    />
   )
 }
 

@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { StatusDot } from '../../ui'
 import { renderMarkdown } from '../../../utils/markdown'
 
 type Props = {
@@ -10,6 +9,8 @@ type Props = {
   missingReason?: string
   emptyReason?: string
   copyPathLabel?: string
+  /** Workspace-relative path to show in the header; defaults to the inferred one. */
+  displayPath?: string
 }
 
 type LoadState =
@@ -31,6 +32,7 @@ export function RenderedBriefPane({
   missingReason = 'product/requirements.md has not been written yet.',
   emptyReason = 'product/requirements.md is empty.',
   copyPathLabel,
+  displayPath,
 }: Props) {
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
   const [copied, setCopied] = useState(false)
@@ -94,7 +96,8 @@ export function RenderedBriefPane({
     }
   }, [briefPath, watchDirectoryPath, missingReason, emptyReason])
 
-  const relativePath = relativeFromWorkspace(briefPath, watchDirectoryPath.replace(/[\\/]+product$/, ''))
+  const relativePath =
+    displayPath ?? relativeFromWorkspace(briefPath, watchDirectoryPath.replace(/[\\/]+product$/, ''))
   const pathToCopy = copyPathLabel ?? relativePath
 
   const copyPath = async () => {
@@ -116,10 +119,7 @@ export function RenderedBriefPane({
           </span>
           <span className="inline-flex items-center gap-1.5 truncate text-[12px] text-[color:var(--text-muted)]">
             {state.kind === 'ready' ? (
-              <>
-                <StatusDot tone="good" />
-                <span className="font-mono">{relativePath}</span>
-              </>
+              <span className="font-mono">{relativePath}</span>
             ) : state.kind === 'loading' ? (
               'Loading the brief…'
             ) : (

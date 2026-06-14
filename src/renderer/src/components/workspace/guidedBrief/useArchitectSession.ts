@@ -6,6 +6,10 @@ import {
   type GuidedBriefSessionLifecycle,
   type GuidedBriefSpecialistSession,
 } from './sessionAdapter'
+import {
+  EMPTY_GUIDED_INTERVIEW_STATE,
+  type GuidedInterviewState,
+} from './interviewProtocol'
 import { joinWorkspacePath } from './paths'
 
 export type ArchitectSessionReadiness = {
@@ -39,9 +43,15 @@ export type UseArchitectSessionResult = {
   readiness: ArchitectSessionReadiness
   session: GuidedBriefSpecialistSession | null
   architecturePlanPath: string
+  /** Optional agent-produced HTML overview of the plan (`architecture/overview.html`). */
+  overviewPath: string
+  overviewFileReady: boolean
+  /** Structured interview parsed from the session stream (replay included). */
+  interview: GuidedInterviewState
 }
 
 const ARCHITECTURE_PLAN_RELATIVE_PATH = 'architecture/plan.md'
+const ARCHITECTURE_OVERVIEW_RELATIVE_PATH = 'architecture/overview.html'
 const IDEA_SEED_RELATIVE_PATH = 'product/idea-seed.md'
 const POLL_INTERVAL_MS = 2500
 
@@ -64,7 +74,10 @@ export function useArchitectSession({
   const [markerReceived, setMarkerReceived] = useState(false)
   const [fileReady, setFileReady] = useState(false)
   const [session, setSession] = useState<GuidedBriefSpecialistSession | null>(null)
+  const [interview, setInterview] = useState<GuidedInterviewState>(EMPTY_GUIDED_INTERVIEW_STATE)
+  const [overviewFileReady, setOverviewFileReady] = useState(false)
 
+  const overviewAbsolutePath = joinWorkspacePath(workspaceRoot, ARCHITECTURE_OVERVIEW_RELATIVE_PATH)
   const architecturePlanAbsolutePath = joinWorkspacePath(workspaceRoot, ARCHITECTURE_PLAN_RELATIVE_PATH)
   const architectureDirectoryPath = joinWorkspacePath(workspaceRoot, 'architecture')
 
@@ -117,6 +130,10 @@ export function useArchitectSession({
           if (cancelled) return
           setMarkerReceived(true)
         },
+        onInterview: (state) => {
+          if (cancelled) return
+          setInterview(state)
+        },
         onError: (message) => {
           if (cancelled) return
           setError(message)
@@ -148,20 +165,28 @@ export function useArchitectSession({
     let cancelled = false
     let stopWatch: (() => Promise<void>) | null = null
 
-    const checkPlan = async () => {
+    const checkNonEmpty = async (
+      absolutePath: string,
+      setReady: (ready: boolean) => void,
+    ) => {
       try {
-        const exists = await window.api.pathExists(architecturePlanAbsolutePath)
+        const exists = await window.api.pathExists(absolutePath)
         if (cancelled) return
         if (!exists) {
-          setFileReady(false)
+          setReady(false)
           return
         }
-        const content = await window.api.readfile(architecturePlanAbsolutePath)
+        const content = await window.api.readfile(absolutePath)
         if (cancelled) return
-        setFileReady(hasContent(content))
+        setReady(hasContent(content))
       } catch {
-        if (!cancelled) setFileReady(false)
+        if (!cancelled) setReady(false)
       }
+    }
+
+    const checkPlan = async () => {
+      await checkNonEmpty(architecturePlanAbsolutePath, setFileReady)
+      await checkNonEmpty(overviewAbsolutePath, setOverviewFileReady)
     }
 
     void checkPlan()
@@ -187,7 +212,7 @@ export function useArchitectSession({
       clearInterval(pollHandle)
       if (stopWatch) void stopWatch()
     }
-  }, [enabled, architectureDirectoryPath, architecturePlanAbsolutePath])
+  }, [enabled, architectureDirectoryPath, architecturePlanAbsolutePath, overviewAbsolutePath])
 
   const isReady = markerReceived || fileReady
 
@@ -197,5 +222,8 @@ export function useArchitectSession({
     readiness: { markerReceived, fileReady, isReady },
     session,
     architecturePlanPath: architecturePlanAbsolutePath,
+    overviewPath: overviewAbsolutePath,
+    overviewFileReady,
+    interview,
   }
 }
