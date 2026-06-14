@@ -7,7 +7,8 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
-import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
+import { createXtermOutputQueue, createXtermReplayGate, type XtermReplayState } from '../../utils/xtermOutputQueue'
+import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
@@ -39,6 +40,9 @@ export default function PlainTerminalPanel({
   const containerRef = useRef<HTMLDivElement>(null)
   const sessionIdRef = useRef(`terminal-${terminalId}`)
   const [isFileDragOver, setIsFileDragOver] = useState(false)
+  // Drives the terminal-shaped skeleton while retained scrollback is restored
+  // on a cold workspace switch; cleared once the first content is on screen.
+  const [replayVisible, setReplayVisible] = useState(true)
   // A failed file drop, anchored to the pointer that raised it so the error
   // surfaces next to the cursor instead of a corner toast.
   const [dropError, setDropError] = useState<{ message: string; x: number; y: number } | null>(null)
@@ -113,8 +117,20 @@ export default function PlainTerminalPanel({
       recordWrite: terminalDiagnostics.recordOutputWrite,
     })
     const replayGate = createXtermReplayGate(term, outputQueue, {
-      container,
       recordWrite: terminalDiagnostics.recordOutputWrite,
+      onReplayStateChange: (state: XtermReplayState) => {
+        if (disposed) return
+        setReplayVisible(state.visible)
+      },
+      onReplayProfile: (profile) => {
+        logPerfEvent('PlainTerminalPanel', 'terminal-replay-profile', {
+          sessionId,
+          workspaceId,
+          terminalId,
+          kind: 'terminal',
+          ...profile,
+        })
+      },
     })
 
     const disposeData = window.api.onTerminalData(sessionId, (data) => {
@@ -349,6 +365,7 @@ export default function PlainTerminalPanel({
         onDrop={(event) => void handleDrop(event)}
         className="terminal-focus-ring absolute inset-0 cursor-text overflow-hidden p-2 pb-4"
       >
+        {!replayVisible ? <TerminalReplaySkeleton /> : null}
         {isFileDragOver ? (
           <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]" />
         ) : null}

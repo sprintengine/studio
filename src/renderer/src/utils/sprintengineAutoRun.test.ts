@@ -28,6 +28,7 @@ import {
   isSprintEngineRunBlockedOnExternalInput,
   pickNextAutoRuns,
   pickSprintEngineBootstrapCandidate,
+  planSprintEngineDispatch,
   sprintEngineDispatchDeliveryKey,
   sprintEngineAutoRunWorkKey,
   sprintEngineIdleClockKey,
@@ -71,6 +72,8 @@ async function main(): Promise<void> {
   testStartupPromptIsMcpNative()
   testArchitectInitStartupPromptIsMcpNative()
   testPromptBuildersIncludeAgentIdAndCommand()
+  testAgentNotificationPromptCompactsLongResolutionText()
+  testTaskWakeSkipsAgentAssignedToNeedsInputTask()
   testSprintEngineAutomationNotificationCountIsWorkspaceScoped()
   testDispatchPromptUsesDirectClaim()
   testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles()
@@ -1507,6 +1510,66 @@ async function testWakeCandidatePromptStopsAfterSmallRetryLimit(): Promise<void>
 
   assert.equal(writes.length, 1, 'wake-candidate prompt is not pasted after the small retry cap is reached')
   assert.equal(sent.current.get(key)?.attempts, supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)
+}
+
+function testTaskWakeSkipsAgentAssignedToNeedsInputTask(): void {
+  const workspace = workspaceFixture({
+    agents: {
+      'frontend-1': sprintAgent('frontend-1', 'Fia'),
+      'frontend-2': sprintAgent('frontend-2', 'Finn'),
+    },
+  })
+  const blockedTask = task({
+    id: 'T11',
+    title: 'Finish settings PIN copy',
+    status: 'needs_input',
+    boardColumn: 'needs_input',
+    role: 'frontend',
+    ownerAgentId: 'frontend-2',
+    qualityGates: [],
+  })
+  const readyTask = task({
+    id: 'T7',
+    title: 'Convert bottom sheets to PIN minimal',
+    status: 'todo',
+    boardColumn: 'ready',
+    role: 'frontend',
+    ownerAgentId: null,
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [blockedTask, readyTask],
+    sprintEngineAgents: {
+      'frontend-1': runtimeAgent('frontend', { status: 'idle', currentTaskId: null }),
+      'frontend-2': runtimeAgent('frontend', { status: 'needs_input', currentTaskId: 'T11' }),
+    },
+  })
+
+  const plan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: state,
+    now: 1,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(['frontend-2', 'frontend-1']),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['task_wake']),
+  })
+
+  assert.deepEqual(
+    plan.pastes.map((paste) => paste.agentId),
+    ['frontend-1'],
+    'a stale available-agent set does not paste a T7 wake into the frontend-2 terminal assigned to blocked T11'
+  )
+  assert.equal(plan.pastes[0].data.taskId, 'T7')
+  assert.ok(
+    plan.skips.some((skip) =>
+      skip.event === 'continuation-prompt-skipped-agent-assigned'
+      && skip.data.agentId === 'frontend-2'
+      && skip.data.currentTaskId === 'T11'
+    ),
+    'the planner records that the stale wake candidate was skipped because the agent is assigned'
+  )
 }
 
 async function testWakeCandidateCleanupPreservesGateRetryKeys(): Promise<void> {
@@ -4136,6 +4199,31 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
     !/sprintengine (join|task |gate |triage |init |handover)/.test(triage),
     'architect triage prompt does not embed a sprintengine CLI command'
   )
+}
+
+function testAgentNotificationPromptCompactsLongResolutionText(): void {
+  const longResolution = [
+    'INPUT RESOLVED by architect: Resolved (verification).',
+    'VISUAL-EVIDENCE BAR FOR T7: component-render tests are sufficient evidence for this sprint.',
+    'Rationale: web smoke is waived due to documented infra constraints.',
+    'Action for you: no source change and no scope expansion. Re-publish to review.',
+  ].join('\n\n\n')
+  const prompt = buildAgentNotificationPrompt({
+    id: 'EV-long',
+    timestamp: '2026-06-13T00:00:00Z',
+    type: 'agent_notification_requested',
+    actor: 'architect',
+    message: longResolution,
+    targetAgentId: 'frontend-1',
+    taskId: 'T7',
+    notificationKind: 'task_resume_requested',
+  }, { agentId: 'frontend-1', role: 'frontend' })
+
+  assert.ok(prompt.includes('Input was resolved for this task.'), 'resume notifications use a compact renderer-owned summary')
+  assert.ok(prompt.includes('sprintengine.task.get'), 'compact notification still tells the agent to re-read the task card')
+  assert.ok(prompt.includes('sprintengine.task.next'), 'compact notification still tells the agent to reconcile through the claim tool')
+  assert.ok(!prompt.includes('VISUAL-EVIDENCE BAR'), 'long architect resolution text is not pasted into the terminal notification')
+  assert.ok(!prompt.includes('web smoke is waived'), 'notification prompt avoids inlining detailed rationale prose')
 }
 
 function testSprintEngineAutomationNotificationCountIsWorkspaceScoped(): void {

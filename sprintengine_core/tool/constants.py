@@ -22,7 +22,11 @@ VALID_TASK_SOURCE_SYNC_STATUSES = {"clean", "local_changed", "remote_changed", "
 VALID_TASK_DISPATCH_MODES = {"dependency", "manual"}
 VALID_TASK_DISPATCH_STATUSES = {"todo", "ready"}
 VALID_TASK_DISPATCH_TRIAGED_BY = {"none", "user", "architect"}
-VALID_NEEDS_INPUT_KINDS = {"architect", "user", "owner", "external_validation"}
+VALID_NEEDS_INPUT_KINDS = {"architect", "user"}
+LEGACY_NEEDS_INPUT_KIND_MAP = {
+    "owner": ("architect", "blocked_other"),
+    "external_validation": ("user", "verification"),
+}
 VALID_NEEDS_INPUT_REASONS = {
     "task_scope",
     "artifact_review",
@@ -34,8 +38,6 @@ VALID_NEEDS_INPUT_REASONS = {
 NEEDS_INPUT_KIND_DEFAULT_REASONS = {
     "architect": "task_scope",
     "user": "product_decision",
-    "owner": "blocked_other",
-    "external_validation": "verification",
 }
 ARCHITECT_ROUTED_NEEDS_INPUT_KINDS = {"architect"}
 VALID_ARTIFACT_KINDS = {

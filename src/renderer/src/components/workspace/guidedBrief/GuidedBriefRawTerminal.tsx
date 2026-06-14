@@ -1,10 +1,11 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { bindTerminalClipboardHandlers } from '../../../utils/terminalClipboard'
 import { bindTerminalTheme, getTerminalTheme } from '../../../utils/terminalTheme'
-import { createXtermOutputQueue, createXtermReplayGate } from '../../../utils/xtermOutputQueue'
+import { createXtermOutputQueue, createXtermReplayGate, type XtermReplayState } from '../../../utils/xtermOutputQueue'
+import { TerminalReplaySkeleton } from '../../ui/TerminalReplaySkeleton'
 import { createTerminalFitScheduler } from '../../../utils/terminalFitScheduler'
 import { MONO_FONT_STACK, waitForMonoFontReady } from '../../../utils/fonts'
 import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../../shared/terminal-history'
@@ -16,10 +17,13 @@ type Props = {
 
 export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // Drives the terminal-shaped skeleton while retained scrollback is restored.
+  const [replayVisible, setReplayVisible] = useState(true)
 
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
+    let disposed = false
     const focusTerminal = () => terminal.focus()
 
     const terminal = new Terminal({
@@ -43,7 +47,12 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
     }
 
     const outputQueue = createXtermOutputQueue(terminal, { recordWrite: () => {} })
-    const replayGate = createXtermReplayGate(terminal, outputQueue, { container })
+    const replayGate = createXtermReplayGate(terminal, outputQueue, {
+      onReplayStateChange: (state: XtermReplayState) => {
+        if (disposed) return
+        setReplayVisible(state.visible)
+      },
+    })
     replayGate.beginReplayWait()
     const disposeData = window.api.onTerminalData(sessionId, (data) => replayGate.handleLiveData(data))
     const disposeReplay = window.api.onTerminalReplay(sessionId, (data) => replayGate.handleReplay(data))
@@ -63,7 +72,6 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
     resizeObserver.observe(container)
     fitTerminal()
     focusTerminal()
-    let disposed = false
     void waitForMonoFontReady().then(() => {
       if (disposed) return
       fitTerminal()
@@ -109,5 +117,10 @@ export function GuidedBriefRawTerminal({ sessionId, className = '' }: Props) {
     }
   }, [sessionId])
 
-  return <div ref={containerRef} tabIndex={0} className={`h-full min-h-0 cursor-text overflow-hidden ${className}`} />
+  return (
+    <div className={`relative h-full min-h-0 overflow-hidden ${className}`}>
+      <div ref={containerRef} tabIndex={0} className="absolute inset-0 cursor-text overflow-hidden" />
+      {!replayVisible ? <TerminalReplaySkeleton /> : null}
+    </div>
+  )
 }

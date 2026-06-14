@@ -607,9 +607,8 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             "When complete: if you produced findings, issues, or changes_requested, move the task back to "
             "`needs_input` so the implementer/author can address them. If you move a task to `needs_input`, "
             "classify it with `--needs-input-kind`: use `architect` for stale plans, impossible acceptance criteria, "
-            "wrong paths, or architectural scope mismatches; use `user` for product decisions or approvals; use "
-            "`owner` when you are waiting on your own external condition; use `external_validation` when real hardware, "
-            "credentials, or another outside check is required. Add `--needs-input-reason tooling` for "
+            "wrong paths, or architectural scope mismatches; use `user` for product decisions, approvals, real hardware, "
+            "credentials, or another outside check. Add `--needs-input-reason tooling` for "
             "missing commands/dependencies, or `--needs-input-reason verification` when real validation cannot be completed. "
             "Include `--needs-input-question` and, when useful, `--needs-input-suggested-resolution`. Otherwise, mark it done. "
             "If the task is too large for one agent or needs decomposition, use `needs_input` with "
@@ -1062,7 +1061,7 @@ def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
             "",
             "Rules:",
             "- Inspect the blocked task card, notes, evidence, owned paths, and current code before changing the plan.",
-            "- `needsInput.kind` routes who or what acts: architect, user, owner, or external_validation. Use `reason` for artifact, tooling, verification, product, and task-scope classification.",
+            "- `needsInput.kind` routes who acts next: architect for automatic architect triage or user for human/operator input. Use `reason` for artifact, tooling, verification, product, and task-scope classification.",
             "- Resolve planning defects by updating task cards or adding follow-up tasks; do not edit application source in this triage mode.",
             "- For reason=artifact_review, read the referenced artifact, adjudicate recommended follow-up tasks, wire blockers before validation when needed, then approve/request changes or resolve the blocked task.",
             "- Use `sprintengine plan update-task --force` for active task-card corrections.",

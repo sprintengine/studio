@@ -101,9 +101,8 @@ export function taskBoardColumnToLifecycle(column: SprintEngineTaskBoardColumn):
 }
 
 // True when at least one incomplete task is waiting on a *human* — a needs_input
-// task whose kind is `user` or `external_validation` (the same human/external
-// kinds `isSprintEngineRunBlockedOnExternalInput` keys off). Architect/owner-
-// routed needs_input is excluded: the architect resolves those automatically, so
+// task whose kind is `user`. Architect-routed needs_input is excluded, because
+// Sprint Engine can route those through automatic architect triage, so
 // they are not the user's action. Used to surface the needs-input glyph on the
 // Backlog even while other tasks in the run keep progressing.
 export function sprintEngineRunAwaitsHumanInput(
@@ -112,7 +111,7 @@ export function sprintEngineRunAwaitsHumanInput(
   return sprintEngineState.tasks.some(
     (task) =>
       task.status === 'needs_input'
-      && (task.needsInput?.kind === 'user' || task.needsInput?.kind === 'external_validation'),
+      && task.needsInput?.kind === 'user',
   )
 }
 
@@ -134,7 +133,7 @@ const AUTOMATION_RUN_GLYPH: Partial<Record<SprintEngineAutomationRuntimeState, S
 }
 
 // One run, one glyph. Priority:
-//   1. A task awaiting the *human* (needs_input, kind user/external_validation)
+//   1. A task awaiting the *human* (needs_input, kind user)
 //      wins over everything — it's the actionable signal even while other
 //      tasks keep running, so the spinner would otherwise hide it.
 //   2. Otherwise the AutoRun runtime state. `idle` (and a missing autoState)
@@ -518,7 +517,7 @@ const sprintEngineTaskSourceSyncStatuses: readonly SprintEngineTaskSourceSyncSta
 const sprintEngineTaskDispatchModes: readonly SprintEngineTaskDispatchMode[] = ['dependency', 'manual']
 const sprintEngineTaskDispatchStatuses: readonly SprintEngineTaskDispatchStatus[] = ['todo', 'ready']
 const sprintEngineTaskDispatchTriagedByValues: readonly SprintEngineTaskDispatchTriagedBy[] = ['none', 'user', 'architect']
-const sprintEngineNeedsInputKinds: readonly SprintEngineNeedsInputKind[] = ['architect', 'user', 'owner', 'external_validation']
+const sprintEngineNeedsInputKinds: readonly SprintEngineNeedsInputKind[] = ['architect', 'user']
 
 const sprintEngineTaskActivityTypes: readonly SprintEngineTaskActivityType[] = [
   'comment',
@@ -1254,6 +1253,16 @@ function isSprintEngineNeedsInputKind(value: unknown): value is SprintEngineNeed
   return sprintEngineNeedsInputKinds.includes(value as SprintEngineNeedsInputKind)
 }
 
+function normalizeSprintEngineNeedsInputKind(value: unknown): {
+  kind: SprintEngineNeedsInputKind
+  legacyDefaultReason?: SprintEngineNeedsInputReason
+} | null {
+  if (isSprintEngineNeedsInputKind(value)) return { kind: value }
+  if (value === 'external_validation') return { kind: 'user', legacyDefaultReason: 'verification' }
+  if (value === 'owner') return { kind: 'architect', legacyDefaultReason: 'blocked_other' }
+  return null
+}
+
 function optionalTrimmedString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
@@ -1308,16 +1317,15 @@ function normalizeSprintEngineTaskNeedsInput(value: unknown): SprintEngineTaskNe
   if (!value || typeof value !== 'object') return undefined
 
   const record = value as Record<string, unknown>
-  if (!isSprintEngineNeedsInputKind(record.kind)) return undefined
+  const routedKind = normalizeSprintEngineNeedsInputKind(record.kind)
+  if (!routedKind) return undefined
   const defaultReasonByKind: Record<SprintEngineNeedsInputKind, SprintEngineNeedsInputReason> = {
     architect: 'task_scope',
     user: 'product_decision',
-    owner: 'blocked_other',
-    external_validation: 'verification',
   }
   const reason = optionalTrimmedString(record.reason)
     ? optionalTrimmedString(record.reason)!
-    : defaultReasonByKind[record.kind]
+    : routedKind.legacyDefaultReason ?? defaultReasonByKind[routedKind.kind]
   const artifactId = optionalTrimmedString(record.artifactId)
   const suggestedResolution = optionalTrimmedString(record.suggestedResolution)
   const reportedBy = optionalTrimmedString(record.reportedBy)
@@ -1328,7 +1336,7 @@ function normalizeSprintEngineTaskNeedsInput(value: unknown): SprintEngineTaskNe
   const resumeRequestedAt = optionalTrimmedString(record.resumeRequestedAt)
 
   return {
-    kind: record.kind,
+    kind: routedKind.kind,
     reason,
     question: typeof record.question === 'string' ? record.question : '',
     ...(artifactId ? { artifactId } : {}),

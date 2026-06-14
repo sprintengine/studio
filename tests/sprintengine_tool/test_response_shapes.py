@@ -14,6 +14,8 @@ from helpers import create_team, get_task, read_state, task, write_state
 from sprintengine_mcp import SprintEngineMcpServer
 from sprintengine_mcp.response_shapes import (
     COMMENT_LIST_DEFAULT_LIMIT,
+    CARD_NOTES_LIMIT,
+    CARD_TEXT_LIMIT,
     MUTATION_ACK_TOOLS,
     SLIM_CARD_TOOLS,
 )
@@ -158,6 +160,50 @@ def test_task_get_defaults_to_slim_card_and_supports_include(tmp_path) -> None:
     assert len(deep_card["evidence"]["commandsRan"]) == 30
     assert len(deep_card["evidence"]["results"]) == 30
     assert deep_card["evidence"]["diffs"]
+
+
+def test_slim_card_caps_notes_and_needs_input_resolution(tmp_path) -> None:
+    record = seeded_in_progress_task()
+    long_resolution = "Architect ruling. " + ("verification context " * 200)
+    record["notes"] = [f"note {index}" for index in range(CARD_NOTES_LIMIT + 2)]
+    record["notes"].append("INPUT RESOLVED by architect: " + ("long note " * 200))
+    record["needsInput"] = {
+        "kind": "architect",
+        "reason": "verification",
+        "question": "Can this proceed?",
+        "resolution": long_resolution,
+    }
+    fixture = create_team(tmp_path, "shape-card-caps", [record])
+    server = make_server(tmp_path)
+
+    slim = server.call_tool(
+        "sprintengine.task.get",
+        {"statePath": str(fixture.state_path), "taskId": "T1"},
+        actor("workspace-user", "user"),
+    )
+    assert slim["ok"] is True
+    card = slim["result"]["task"]
+    assert len(card["notes"]) == CARD_NOTES_LIMIT
+    assert card["notesTruncated"] is True
+    assert len(card["needsInput"]["resolution"]) <= CARD_TEXT_LIMIT
+    assert card["needsInputTruncated"] is True
+    assert card["needsInput"]["resolution"] != long_resolution
+
+    deep = server.call_tool(
+        "sprintengine.task.get",
+        {
+            "statePath": str(fixture.state_path),
+            "taskId": "T1",
+            "include": ["notes", "needs_input"],
+        },
+        actor("workspace-user", "user"),
+    )
+    assert deep["ok"] is True
+    deep_card = deep["result"]["task"]
+    assert len(deep_card["notes"]) == CARD_NOTES_LIMIT + 3
+    assert deep_card["needsInput"]["resolution"] == long_resolution
+    assert "notesTruncated" not in deep_card
+    assert "needsInputTruncated" not in deep_card
 
 
 def test_directive_returns_stubs_not_cards(tmp_path) -> None:

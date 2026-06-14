@@ -40,6 +40,7 @@ export type TaskCardProps = {
   leading?: React.ReactNode
   identifier: React.ReactNode
   title: React.ReactNode
+  supporting?: React.ReactNode
   /** Trailing slot (priority icon, role glyph). Display-only — must not host
    *  interactive elements; the card itself is the interactive surface. */
   trailing?: React.ReactNode
@@ -47,6 +48,7 @@ export type TaskCardProps = {
   /** Variant of the card layout. Defaults to `row`. */
   variant?: TaskCardVariant
   onSelect?: () => void
+  onContextMenu?: (event: React.MouseEvent<HTMLLIElement>) => void
   /** Drag-and-drop opt-in. When provided, the card becomes a drag source. */
   draggable?: boolean
   onDragStart?: (event: React.DragEvent<HTMLLIElement>) => void
@@ -66,10 +68,12 @@ export function TaskCard({
   leading,
   identifier,
   title,
+  supporting,
   trailing,
   selected = false,
   variant = 'row',
   onSelect,
+  onContextMenu,
   draggable = false,
   onDragStart,
   onDragEnd,
@@ -111,6 +115,7 @@ export function TaskCard({
       aria-pressed={onSelect ? selected : undefined}
       aria-label={ariaLabel}
       onClick={onSelect}
+      onContextMenu={onContextMenu}
       onKeyDown={onSelect ? handleKeyDown : undefined}
       onDragStart={
         draggable
@@ -144,6 +149,11 @@ export function TaskCard({
             <div className="mt-0.5 line-clamp-2 text-[12px] font-medium leading-[1.35] text-[color:var(--text-strong)]">
               {title}
             </div>
+            {supporting ? (
+              <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-[color:var(--text-muted)]">
+                {supporting}
+              </div>
+            ) : null}
           </>
         ) : (
           <div className="flex items-baseline gap-2">
@@ -155,6 +165,11 @@ export function TaskCard({
             </span>
           </div>
         )}
+        {!isCard && supporting ? (
+          <div className="mt-0.5 truncate text-[11px] leading-4 text-[color:var(--text-muted)]">
+            {supporting}
+          </div>
+        ) : null}
       </div>
       {trailing ? <div className="shrink-0">{trailing}</div> : null}
     </li>

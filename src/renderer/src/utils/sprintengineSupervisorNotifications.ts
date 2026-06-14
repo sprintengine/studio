@@ -14,7 +14,7 @@ export type SprintEngineAutoRunDisableReason =
 const REASON_MESSAGES: Record<SprintEngineAutoRunDisableReason, string> = {
   user_manual_toggle: 'Switched to manual mode by the user.',
   folder_missing: 'Workspace folder is no longer available.',
-  blocked_on_external_input: 'A task needs input from the user or architect before agents can continue.',
+  blocked_on_external_input: 'A task needs user input before agents can continue.',
   all_tasks_done: 'All tasks are complete.',
   workspace_removed: 'Workspace was removed.',
   agent_terminal_closed: 'An agent terminal was closed.',

@@ -172,9 +172,10 @@ directly.
 Durable dispatch assignments are created for claimed tasks, claimed quality
 gates, rework directed back to the task owner, and explicit
 `currentDispatch` targets. Renderer prompts for unclaimed ready tasks or
-unclaimed gates are wake candidates only: they may wake an idle terminal to run
-`join --watch`, but they do not write `currentDispatch`, append
-`dispatch.jsonl`, or mutate canonical task or gate state before the CLI claims.
+unclaimed gates are wake candidates only: they may wake an available live agent
+to call the direct claim tool, but they do not write `currentDispatch`, append
+`dispatch.jsonl`, or mutate canonical task or gate state before the claim tool
+claims.
 
 Each line is a JSON object with:
 
@@ -277,8 +278,11 @@ the full task. Acks include an `openFeedback` delta (newest open feedback and
 user notes, newest first) so a working agent still notices comments posted
 mid-task. Read tools (`task.next`, `task.claim`, `gate.next`, `gate.claim`,
 `task.get`) return a slim task card without `activity`, full `comments`,
-`evidence.commandsRan`/`results`, or `evidence.diffs`; `task.get` accepts
-`include: ["activity", "comments", "evidence_log", "diffs"]` for deep reads.
+full `notes`, full `needsInput.resolution`,
+`evidence.commandsRan`/`results`, or `evidence.diffs`; default cards include
+only bounded newest notes and bounded needs-input prose. `task.get` accepts
+`include: ["activity", "comments", "evidence_log", "diffs", "notes",
+"needs_input"]` for deep reads.
 Directives carry `{id, title, status, role}` stubs. Server-composed review and
 rework prompts are built from full store state and are unaffected. The
 human/debug CLI keeps full command output shapes. Response-shape regression
@@ -315,7 +319,9 @@ Compatibility names:
   behavior used by `sprintengine join --watch`. It must keep the current CLI
   response shape while sharing lifecycle state with `sprintengine.agent.join`.
   It is operator-only under the capability policy: autonomous agents never see
-  it and use `sprintengine.agent.join` + `agent.next_directive`.
+  it. Managed Multicode prompt flows use `sprintengine.agent.join` followed by
+  the direct claim tool named in the runtime prompt; `agent.next_directive`
+  survives for standalone/headless compatibility only.
 - CLI wrapper flows still use `sprintengine.task.next`,
   `sprintengine.task.claim`, `sprintengine.task.ready`,
   `sprintengine.task.note`, `sprintengine.task.resolve_input`,
@@ -686,10 +692,11 @@ normal implementation task is claimable when:
 - every dependency in the run graph is `done`.
 
 An entry in `tasks/ready/` is claimability state, not a durable assignment to a
-specific agent. Auto-run renderers may surface it as a wake candidate for an idle
-terminal, but `task next`, `task claim`, or `join --watch` must perform the
-actual claim before any task owner, `currentDispatch`, or dispatch ledger row is
-created.
+specific agent. Auto-run renderers may surface it as a wake candidate for a live
+agent only when the current projection shows that agent has no active task,
+gate, dispatch, or `needs_input` ownership. `task next`, `task claim`, or
+`join --watch` must perform the actual claim before any task owner,
+`currentDispatch`, or dispatch ledger row is created.
 
 `needsTriage` is a task-card readiness flag, not a replacement for
 `needsInput`. Missing `needsTriage` normalizes to `false`. When `true`, the task
@@ -711,10 +718,11 @@ sprintengine join --role <role> --id <agent-id> --watch
 ```
 
 Multicode-launched autonomous agents instead register with
-`sprintengine.agent.join`, request routing through
-`sprintengine.agent.next_directive`, and invoke returned MCP tools once. The
-managed server resolves `statePath` and `workspaceRoot` from launch
-environment, so autonomous prompt payloads omit those fields.
+`sprintengine.agent.join`, then call the direct claim tool named by the
+renderer prompt (`sprintengine.task.next`, `sprintengine.gate.next`, or
+`sprintengine.triage.needs_input`) exactly once. The managed server resolves
+`statePath` and `workspaceRoot` from run context, so autonomous prompt payloads
+omit those fields.
 
 When CLI join directs normal implementation work,
 `sprintengine task next --role <role> --id <agent-id>` claims under the

@@ -85,7 +85,13 @@ import {
   resolveDefaultConversationOption,
   type ConversationSpawnOption,
 } from './conversationSpawnOptions'
-import { computeRetainedWorkspaceLayoutIds, type WorkspaceLayoutRetentionReason } from './workspaceLayoutRetention'
+import {
+  computeRetainedWorkspaceLayoutIds,
+  WORKSPACE_LAYOUT_BUSY_RETAINED_LIMIT,
+  WORKSPACE_LAYOUT_IDLE_UNLOAD_MS,
+  WORKSPACE_LAYOUT_RETAINED_INACTIVE_LIMIT,
+  type WorkspaceLayoutRetentionReason,
+} from './workspaceLayoutRetention'
 import type { ConversationProviderListResult } from '../../../../shared/electron-api'
 import { restoreDetachedWorkspaceWindowsOnStartup } from './workspaceWindowRestore'
 import { LAYOUT_TEMPLATES } from '../../layouts/templates'
@@ -113,9 +119,6 @@ const EMPTY_MULTILOOP_ROLE_MODEL_DEFAULTS: Partial<Record<MultiloopRole, AgentCl
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 
 const TERMINAL_SESSION_RECOVERY_POLL_MS = 30_000
-const WORKSPACE_LAYOUT_IDLE_UNLOAD_MS = 30 * 60_000
-const WORKSPACE_LAYOUT_RETAINED_INACTIVE_LIMIT = 4
-const WORKSPACE_LAYOUT_BUSY_RETAINED_LIMIT = 8
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const SOLO_CHAT_TEMPLATE = LAYOUT_TEMPLATES.find((template) => template.id === 'solo') ?? null
 const MENU_ACCELERATOR_COMMAND_IDS = [

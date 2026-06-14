@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 from sprintengine_core import store as folder_store
 from sprintengine_core.tool.artifacts import release_task_from_owner, resolve_task_input
 from sprintengine_core.tool.common import parse_json_object_arg
-from sprintengine_core.tool.constants import ACTIVE_TASK_STATUSES, ARCHITECT_ROUTED_NEEDS_INPUT_KINDS, NEEDS_INPUT_KIND_DEFAULT_REASONS
+from sprintengine_core.tool.constants import ACTIVE_TASK_STATUSES, ARCHITECT_ROUTED_NEEDS_INPUT_KINDS, NEEDS_INPUT_KIND_DEFAULT_REASONS, VALID_NEEDS_INPUT_KINDS
 from sprintengine_core.tool.feedback import (
     append_reviewer_difficulty_assessment,
     append_feedback_record,
@@ -210,8 +210,13 @@ def cmd_task_gate_verdict(args: argparse.Namespace) -> Dict[str, Any]:
                 return {"ok": False, "error": "Gate role does not match caller role.", "write": False}
             needs_input = None
             if args.verdict == "blocked":
+                kind = args.needs_input_kind or "architect"
+                if kind not in VALID_NEEDS_INPUT_KINDS:
+                    raise SystemExit(
+                        f"--needs-input-kind must be one of: {', '.join(sorted(VALID_NEEDS_INPUT_KINDS))}."
+                    )
                 needs_input = {
-                    "kind": args.needs_input_kind or "architect",
+                    "kind": kind,
                     "reason": args.needs_input_reason or "blocked_other",
                     "question": (args.needs_input_question or "").strip(),
                     "suggestedResolution": (args.needs_input_suggested_resolution or "").strip(),
@@ -395,6 +400,10 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
         task["status"] = args.status
         if args.status == "needs_input" and wants_needs_input_routing:
             kind = args.needs_input_kind or "architect"
+            if kind not in VALID_NEEDS_INPUT_KINDS:
+                raise SystemExit(
+                    f"--needs-input-kind must be one of: {', '.join(sorted(VALID_NEEDS_INPUT_KINDS))}."
+                )
             reason = args.needs_input_reason or NEEDS_INPUT_KIND_DEFAULT_REASONS.get(kind, "blocked_other")
             needs_input = {
                 "kind": kind,
@@ -505,9 +514,9 @@ def cmd_task_resolve_input(args: argparse.Namespace) -> Dict[str, Any]:
             args.task_id,
             "task_completed_after_input_resolution" if args.complete else "task_resume_requested",
             (
-                f"Your blocked task {args.task_id} was resolved by {args.id} and marked done. Resolution: {resolution}"
+                f"Input was resolved for {args.task_id} by {args.id}; the task is complete."
                 if args.complete
-                else f"Your blocked task {args.task_id} was resolved by {args.id}. Resolution: {resolution}"
+                else f"Input was resolved for {args.task_id} by {args.id}; resume through the claim tool."
             ),
         )
         return {
@@ -546,7 +555,7 @@ def cmd_task_release(args: argparse.Namespace) -> Dict[str, Any]:
             result.get("previousOwnerAgentId"),
             args.task_id,
             "task_released_from_owner",
-            f"Your task {args.task_id} was released by {args.id} and returned to the ready queue. Reason: {reason}",
+            f"{args.task_id} was released by {args.id} and returned to the ready queue.",
         )
         return {
             "ok": True,

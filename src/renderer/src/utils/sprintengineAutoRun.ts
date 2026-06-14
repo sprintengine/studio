@@ -157,9 +157,8 @@ export function describeNeedsInputAutoApprovalState(sprintEngineState: SprintEng
 }
 
 export function getArchitectActionableNeedsInputTasks(sprintEngineState: SprintEngineState): SprintEngineTask[] {
-  const architectRoutedKinds = new Set(['architect', 'artifact', 'tooling', 'verification', 'other'])
   return sprintEngineState.tasks.filter((task) =>
-    task.status === 'needs_input' && architectRoutedKinds.has(task.needsInput?.kind ?? '')
+    task.status === 'needs_input' && task.needsInput?.kind === 'architect'
   )
 }
 
@@ -190,7 +189,7 @@ export function isSprintEngineRunBlockedOnExternalInput(sprintEngineState: Sprin
     incompleteTasks
       .filter((task) =>
         task.status === 'needs_input'
-        && (task.needsInput?.kind === 'external_validation' || task.needsInput?.kind === 'user')
+        && task.needsInput?.kind === 'user'
       )
       .map((task) => task.id)
   )
@@ -236,13 +235,13 @@ export function describeSprintEngineExternalInputAutoRunBlock(
 ): { message: string; details: string; taskId?: string; agentId?: string } {
   const blockedTasks = sprintEngineState.tasks.filter((task) =>
     task.status === 'needs_input'
-    && (task.needsInput?.kind === 'external_validation' || task.needsInput?.kind === 'user')
+    && task.needsInput?.kind === 'user'
   )
   const primary = blockedTasks[0]
   if (!primary) {
     return {
-      message: 'A task needs user or external validation input before agents can continue.',
-      details: 'No user or external-validation needs_input task was present when the notification was built.',
+      message: 'A task needs user input before agents can continue.',
+      details: 'No user-routed needs_input task was present when the notification was built.',
     }
   }
 
@@ -593,6 +592,51 @@ function getGateClaimHolderAgentIds(sprintEngineState: SprintEngineState): Set<s
   return holders
 }
 
+export function getSprintEngineAssignedAgentIds(sprintEngineState: SprintEngineState): Set<string> {
+  const assigned = new Set<string>()
+  const taskById = new Map(sprintEngineState.tasks.map((task) => [task.id, task]))
+  for (const task of sprintEngineState.tasks) {
+    if (
+      task.ownerAgentId
+      && (task.status === 'in_progress' || task.status === 'needs_input')
+    ) {
+      assigned.add(task.ownerAgentId)
+    }
+    for (const claim of getActiveSprintEngineAutoRunGateClaims(task, sprintEngineState.tasks)) {
+      assigned.add(claim.claimedBy)
+    }
+  }
+  for (const [agentId, runtimeAgent] of Object.entries(sprintEngineState.sprintEngineAgents)) {
+    if (
+      runtimeAgent.status === 'needs_input'
+      || runtimeAgent.currentDispatch
+      || runtimeAgent.currentGateId
+      || runtimeAgent.currentGate
+    ) {
+      assigned.add(agentId)
+      continue
+    }
+    if (runtimeAgent.currentTaskId) {
+      const currentTask = taskById.get(runtimeAgent.currentTaskId)
+      if (!currentTask || currentTask.status !== 'done') {
+        assigned.add(agentId)
+      }
+    }
+  }
+  return assigned
+}
+
+export function isSprintEngineAgentAvailableForWake(
+  sprintEngineState: SprintEngineState,
+  agentId: string,
+  assignedAgentIds: ReadonlySet<string> = getSprintEngineAssignedAgentIds(sprintEngineState)
+): boolean {
+  const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
+  if (!runtimeAgent) return false
+  if (runtimeAgent.status === 'needs_input' || runtimeAgent.status === 'retired') return false
+  return !assignedAgentIds.has(agentId)
+}
+
 /**
  * Maintains the per-agent idle clock the `idle_retire` path reads: an entry
  * is set the first tick an agent is observed live, idle, and holding no
@@ -861,6 +905,7 @@ export function planSprintEngineDispatch(input: {
   }
 
   const wakeTasks = getSprintEngineWakeCandidateTasks(sprintEngineState)
+  const assignedAgentIds = getSprintEngineAssignedAgentIds(sprintEngineState)
 
   if (include('task_wake') && input.idleAgentIds.size > 0 && wakeTasks.length > 0) {
     const readyTaskIds = new Set(wakeTasks.map((task) => task.id))
@@ -875,6 +920,13 @@ export function planSprintEngineDispatch(input: {
       if (engagedAgentIds.has(agentId)) continue
       const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
       if (!runtimeAgent) continue
+      if (!isSprintEngineAgentAvailableForWake(sprintEngineState, agentId, assignedAgentIds)) {
+        plan.skips.push({
+          event: 'continuation-prompt-skipped-agent-assigned',
+          data: { agentId, role: runtimeAgent.role, status: runtimeAgent.status, currentTaskId: runtimeAgent.currentTaskId ?? null },
+        })
+        continue
+      }
       const task = findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, reservedWakeCandidateTaskIds)
       if (!task) continue
       const key = continuationMessageKey(workspace, task.id, agentId)
@@ -952,6 +1004,7 @@ export function planSprintEngineDispatch(input: {
           if (usedIdleAgentIds.has(candidateId) || engagedAgentIds.has(candidateId)) return false
           const runtimeAgent = sprintEngineState.sprintEngineAgents[candidateId]
           return runtimeAgent?.role === gate.role
+            && isSprintEngineAgentAvailableForWake(sprintEngineState, candidateId, assignedAgentIds)
         })
         if (!agentId) continue
         const key = continuationMessageKey(workspace, `${task.id}:${gate.id}`, agentId)
@@ -985,6 +1038,13 @@ export function planSprintEngineDispatch(input: {
     for (const agentId of input.idleAgentIds) {
       const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
       if (!runtimeAgent) continue
+      if (!isSprintEngineAgentAvailableForWake(sprintEngineState, agentId, assignedAgentIds)) {
+        plan.skips.push({
+          event: 'restart-skipped-agent-assigned',
+          data: { agentId, role: runtimeAgent.role, status: runtimeAgent.status, currentTaskId: runtimeAgent.currentTaskId ?? null },
+        })
+        continue
+      }
       if (runtimeAgent.status !== 'idle' || runtimeAgent.currentTaskId || runtimeAgent.currentDispatch) continue
       const task = findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, new Set())
       if (!task) continue
@@ -1272,7 +1332,7 @@ export function buildSprintEngineContinuationPrompt(
   agentId: string
 ): string {
   return [
-    `Sprint Engine roster runner found a wake candidate for a ready ${task.role} task in this idle terminal.`,
+    `Sprint Engine roster runner found a wake candidate for a ready ${task.role} task in this available terminal.`,
     `Task: ${task.id} - ${task.title}`,
     buildSprintEngineClaimInstructionBlock('sprintengine.task.next', task.role, agentId),
   ].join('\n')
@@ -1287,7 +1347,7 @@ export function buildSprintEngineGateContinuationPrompt(
   return [
     claimed
       ? 'Sprint Engine roster runner found an active quality gate already claimed by this terminal.'
-      : 'Sprint Engine roster runner found a wake candidate for a quality gate in this terminal.',
+      : 'Sprint Engine roster runner found a wake candidate for a quality gate in this available terminal.',
     `Task: ${task.id} - ${task.title}`,
     `Gate: ${gate.id} (${gate.phase} / ${gate.role})`,
     buildSprintEngineClaimInstructionBlock('sprintengine.gate.next', gate.role, agentId),
@@ -1300,8 +1360,37 @@ export const AGENT_COMPLETION_NOTIFICATION_KINDS = new Set<string>([
   'task_completed_after_input_resolution',
 ])
 
+const MAX_AGENT_NOTIFICATION_MESSAGE_CHARS = 320
+
 export function isAgentNotificationCompletionEvent(event: SprintEngineEvent): boolean {
   return AGENT_COMPLETION_NOTIFICATION_KINDS.has(event.notificationKind ?? '')
+}
+
+function compactNotificationMessage(message: string | null | undefined): string {
+  const compact = (message ?? '').replace(/\s+/g, ' ').trim()
+  if (compact.length <= MAX_AGENT_NOTIFICATION_MESSAGE_CHARS) return compact
+  return `${compact.slice(0, MAX_AGENT_NOTIFICATION_MESSAGE_CHARS - 3).trimEnd()}...`
+}
+
+function buildCompactAgentNotificationMessage(event: SprintEngineEvent): string {
+  switch (event.notificationKind) {
+    case 'task_resume_requested':
+      return 'Input was resolved for this task. Re-read the task card before continuing.'
+    case 'task_completed_after_input_resolution':
+      return 'Input was resolved and this Sprint Engine task is complete.'
+    case 'task_released_from_owner':
+      return 'This task was released from its previous owner. Re-read the task card before continuing.'
+    case 'task_changes_requested_after_artifact_review':
+      return event.artifactId
+        ? `Changes were requested after artifact review for ${event.artifactId}.`
+        : 'Changes were requested after artifact review.'
+    case 'task_completed_after_artifact_approval':
+      return event.artifactId
+        ? `Artifact ${event.artifactId} was approved and this Sprint Engine task is complete.`
+        : 'The linked artifact was approved and this Sprint Engine task is complete.'
+    default:
+      return compactNotificationMessage(event.message) || 'Review the current task card for details.'
+  }
 }
 
 export function buildAgentNotificationPrompt(
@@ -1327,7 +1416,7 @@ export function buildAgentNotificationPrompt(
     event.artifactId ? `Artifact: ${event.artifactId}` : null,
     event.notificationKind ? `Type: ${event.notificationKind}` : null,
     '',
-    event.message,
+    buildCompactAgentNotificationMessage(event),
     '',
     taskReadCall,
     reconcileBlock,

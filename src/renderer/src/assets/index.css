@@ -1111,24 +1111,37 @@ samp,
   }
 }
 
+/* Skeleton shimmer. The moving highlight is a `::after` overlay driven by
+ * `transform: translateX` so it is GPU-composited (no per-frame repaint) — this
+ * stays smooth even when many blocks animate over a large area (e.g. the
+ * terminal replay skeleton). The block's resting surface colour is supplied by
+ * the caller via a `bg-[color:…]` class; the sweep is a translucent
+ * highlight that reads on any base. */
 @keyframes skeleton-shimmer {
-  0% {
-    background-position: -200px 0;
-  }
   100% {
-    background-position: 200px 0;
+    transform: translateX(100%);
   }
 }
 
 .skeleton-shimmer {
-  background: linear-gradient(
-    90deg,
-    var(--skeleton-shimmer-low) 0%,
-    var(--skeleton-shimmer-high) 50%,
-    var(--skeleton-shimmer-low) 100%
-  );
-  background-size: 400px 100%;
-  animation: skeleton-shimmer 1400ms linear infinite;
+  position: relative;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton-shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--skeleton-shimmer-high) 50%,
+      transparent 100%
+    );
+    transform: translateX(-100%);
+    animation: skeleton-shimmer 1400ms ease-in-out infinite;
+  }
 }
 
 /* Status dot pulse — shared keyframe for live indicators.

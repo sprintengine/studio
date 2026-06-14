@@ -16,6 +16,7 @@ import type {
   SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
   SprintEngineTaskMutationRole,
+  SprintEngineTaskResolveInput,
   SprintEngineTaskUpdateInput,
 } from '../shared/electron-api'
 import type {
@@ -660,6 +661,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   updateTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
   createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
   commentTask(payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult>
+  resolveTaskInput(payload: SprintEngineTaskResolveInput): Promise<SprintEngineArtifactCommandResult>
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
   replenishRoster(payload: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult>
   addRosterMember(payload: SprintEngineRosterAddInput): Promise<SprintEngineArtifactCommandResult>
@@ -943,6 +945,51 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           ok: true,
           data: await buildSprintEngineMutationData(state, {
             action: 'comment-task',
+            actor: actor.id,
+            taskId,
+            tool: toolResult.response.result,
+          }),
+        }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    async resolveTaskInput(payload) {
+      try {
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const taskId = resolveSprintEngineTaskId(payload?.taskId)
+        const actor = await requireSprintEngineMcpAuthority(deps)
+        const resolution = resolveRequiredString(payload?.resolution, 'Task input resolution')
+        const toolResult = await runMcpTool(
+          { workspaceRoot: state.workspaceRoot },
+          'sprintengine.task.resolve_input',
+          {
+            statePath: state.statePath,
+            taskId,
+            id: actor.id,
+            resolution,
+            complete: payload?.complete === true,
+          },
+          actor
+        )
+        if (toolResult.exitCode !== 0 || !toolResult.response?.ok) {
+          const message = toolResult.response && !toolResult.response.ok
+            ? toolResult.response.error?.message
+            : undefined
+          return {
+            ok: false,
+            message: message ?? (toolResult.stderr.trim() || 'The sprintengine MCP command failed.'),
+            stdout: toolResult.stdout,
+            stderr: toolResult.stderr,
+            exitCode: toolResult.exitCode ?? 'unknown',
+          }
+        }
+
+        return {
+          ok: true,
+          data: await buildSprintEngineMutationData(state, {
+            action: payload?.complete === true ? 'resolve-task-input-complete' : 'resolve-task-input',
             actor: actor.id,
             taskId,
             tool: toolResult.response.result,

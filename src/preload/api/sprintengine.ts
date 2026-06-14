@@ -13,6 +13,7 @@ import type {
   SprintEngineRunnerSetInput,
   SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
+  SprintEngineTaskResolveInput,
   SprintEngineTaskUpdateInput,
 } from '../../shared/electron-api'
 
@@ -59,6 +60,10 @@ export const sprintEngineApi = {
     input: SprintEngineTaskCommentInput
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:task:comment', input),
+  resolveSprintEngineTaskInput: (
+    input: SprintEngineTaskResolveInput
+  ): Promise<SprintEngineArtifactCommandResult> =>
+    ipcRenderer.invoke('sprintengine:task:resolve-input', input),
   setSprintEngineRunnerMode: (
     input: SprintEngineRunnerSetInput
   ): Promise<SprintEngineArtifactCommandResult> =>
@@ -105,6 +110,7 @@ export const sprintEngineApi = {
   | 'updateSprintEngineTask'
   | 'createSprintEngineTask'
   | 'commentSprintEngineTask'
+  | 'resolveSprintEngineTaskInput'
   | 'setSprintEngineRunnerMode'
   | 'replenishSprintEngineRoster'
   | 'addSprintEngineRosterMember'

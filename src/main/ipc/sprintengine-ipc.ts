@@ -12,6 +12,7 @@ import type {
   SprintEngineStateInitializeInput,
   SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
+  SprintEngineTaskResolveInput,
   SprintEngineTaskUpdateInput,
 } from '../../shared/electron-api'
 
@@ -50,6 +51,7 @@ type SprintEngineIpcDependencies = {
   updateTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
   createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
   commentTask(payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult>
+  resolveTaskInput(payload: SprintEngineTaskResolveInput): Promise<SprintEngineArtifactCommandResult>
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
   replenishRoster(payload: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult>
   addRosterMember(payload: SprintEngineRosterAddInput): Promise<SprintEngineArtifactCommandResult>
@@ -95,6 +97,10 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:task:comment', async (_, payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult> => {
     return deps.commentTask(payload)
+  })
+
+  ipcMain.handle('sprintengine:task:resolve-input', async (_, payload: SprintEngineTaskResolveInput): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.resolveTaskInput(payload)
   })
 
   ipcMain.handle('sprintengine:runner:set-mode', async (_, payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult> => {

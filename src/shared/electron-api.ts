@@ -945,6 +945,13 @@ export type SprintEngineTaskCommentInput = {
   body: string
 }
 
+export type SprintEngineTaskResolveInput = {
+  statePath: string
+  taskId: string
+  resolution: string
+  complete?: boolean
+}
+
 export type SprintEngineStateInitializeInput = {
   statePath: string
   name: string
@@ -1551,6 +1558,7 @@ export type ElectronApi = {
   updateSprintEngineTask: (input: SprintEngineTaskUpdateInput) => Promise<SprintEngineArtifactCommandResult>
   createSprintEngineTask: (input: SprintEngineTaskCreateInput) => Promise<SprintEngineArtifactCommandResult>
   commentSprintEngineTask: (input: SprintEngineTaskCommentInput) => Promise<SprintEngineArtifactCommandResult>
+  resolveSprintEngineTaskInput: (input: SprintEngineTaskResolveInput) => Promise<SprintEngineArtifactCommandResult>
   setSprintEngineRunnerMode: (input: SprintEngineRunnerSetInput) => Promise<SprintEngineArtifactCommandResult>
   replenishSprintEngineRoster: (input: SprintEngineRosterReplenishInput) => Promise<SprintEngineArtifactCommandResult>
   addSprintEngineRosterMember: (input: SprintEngineRosterAddInput) => Promise<SprintEngineArtifactCommandResult>

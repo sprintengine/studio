@@ -1,6 +1,7 @@
+import type { MouseEvent } from 'react'
 import { BoardLane, LifecycleGlyph, TaskCard, Tooltip, type Tone } from '../../ui'
 import { SprintEngineRoleIcon } from '../../AppIcons'
-import type { SprintEngineState, SprintEngineTaskBoardColumn } from '../../../types/workspace'
+import type { SprintEngineState, SprintEngineTask, SprintEngineTaskBoardColumn } from '../../../types/workspace'
 import {
   getSprintEngineKanbanEmptyMessage,
   getSprintEngineRoleAccent,
@@ -20,6 +21,7 @@ type Props = {
   boardColumns: SprintEngineTasksKanbanColumn[]
   selectedTaskId: string | null
   onSelectTask: (taskId: string) => void
+  onTaskContextMenu?: (event: MouseEvent, task: SprintEngineTask) => void
   recentlyMovedTaskIds: ReadonlySet<string>
 }
 
@@ -28,6 +30,7 @@ export function SprintEngineTasksKanbanView({
   boardColumns,
   selectedTaskId,
   onSelectTask,
+  onTaskContextMenu,
   recentlyMovedTaskIds,
 }: Props) {
   return (
@@ -74,6 +77,7 @@ export function SprintEngineTasksKanbanView({
                         : 'neutral'
                 const taskSelected = selectedTaskId === task.id
                 const justMoved = recentlyMovedTaskIds.has(task.id)
+                const needsInputSupporting = sprintEngineNeedsInputCardSupporting(task)
                 // The lane header already states the column's status (its
                 // lifecycle glyph), so the card carries no leading mark — it would
                 // just repeat the column and eat horizontal space.
@@ -85,9 +89,16 @@ export function SprintEngineTasksKanbanView({
                     leading={null}
                     identifier={task.id}
                     title={task.title}
+                    supporting={needsInputSupporting}
                     selected={taskSelected}
                     onSelect={() => onSelectTask(task.id)}
+                    onContextMenu={onTaskContextMenu ? (event) => onTaskContextMenu(event, task) : undefined}
                     flipKey={task.id}
+                    ariaLabel={
+                      needsInputSupporting
+                        ? `${task.id} ${task.title}. ${needsInputSupporting}`
+                        : undefined
+                    }
                     justMovedClassName={justMoved ? 'card-just-moved-gold' : undefined}
                     trailing={
                       <Tooltip content={getSprintEngineRoleLabel(task.role)}>
@@ -116,4 +127,34 @@ export function SprintEngineTasksKanbanView({
       </div>
     </div>
   )
+}
+
+const needsInputKindLabels: Record<string, string> = {
+  architect: 'Architect',
+  user: 'User',
+}
+
+const needsInputReasonLabels: Record<string, string> = {
+  task_scope: 'Task scope',
+  artifact_review: 'Artifact review',
+  tooling: 'Tooling',
+  verification: 'Verification',
+  product_decision: 'Product decision',
+  blocked_other: 'Blocked',
+}
+
+function formatNeedsInputCardValue(value: string | undefined): string | null {
+  if (!value?.trim()) return null
+  const trimmed = value.trim()
+  return needsInputReasonLabels[trimmed] ?? needsInputKindLabels[trimmed] ?? trimmed.replace(/_/g, ' ')
+}
+
+function sprintEngineNeedsInputCardSupporting(task: SprintEngineTask): string | null {
+  if (task.status !== 'needs_input') return null
+  const kind = formatNeedsInputCardValue(task.needsInput?.kind)
+  const reason = formatNeedsInputCardValue(task.needsInput?.reason)
+  const question = task.needsInput?.question?.trim()
+  const route = [kind, reason].filter(Boolean).join(' · ')
+  if (route && question) return `${route}: ${question}`
+  return route || question || null
 }

@@ -30,11 +30,19 @@ ACK_OPEN_FEEDBACK_LIMIT = 5
 # rework-prompt convention).
 CARD_OPEN_FEEDBACK_LIMIT = 10
 
+# Newest task notes included in default slim cards. Full notes are available
+# through `task.get include=["notes"]`.
+CARD_NOTES_LIMIT = 5
+
+# Per-string cap for human-prose fields that can otherwise carry full
+# architect rulings into every claim/read response.
+CARD_TEXT_LIMIT = 700
+
 # Comments returned by sprintengine.task.comment.list when the caller does not
 # pass an explicit limit.
 COMMENT_LIST_DEFAULT_LIMIT = 20
 
-TASK_GET_INCLUDE_SECTIONS = ("activity", "comments", "evidence_log", "diffs")
+TASK_GET_INCLUDE_SECTIONS = ("activity", "comments", "evidence_log", "diffs", "notes", "needs_input")
 
 # Mutating tools whose responses become minimal acks: the agent already knows
 # what it wrote, so the full task dict is replaced with task identity fields
@@ -102,6 +110,41 @@ def open_feedback_delta(task: Any, limit: int) -> list[dict[str, Any]]:
     return [_comment_delta(comment) for comment in comments]
 
 
+def _truncate_text(value: str, limit: int = CARD_TEXT_LIMIT) -> tuple[str, bool]:
+    compact = value.strip()
+    if len(compact) <= limit:
+        return compact, False
+    return f"{compact[:limit - 3].rstrip()}...", True
+
+
+def _slim_notes(notes: Any) -> tuple[list[str], bool]:
+    if not isinstance(notes, list):
+        return [], False
+    selected = notes[-CARD_NOTES_LIMIT:]
+    slim: list[str] = []
+    truncated = len(notes) > CARD_NOTES_LIMIT
+    for note in selected:
+        text, was_truncated = _truncate_text(str(note))
+        slim.append(text)
+        truncated = truncated or was_truncated
+    return slim, truncated
+
+
+def _slim_needs_input(needs_input: Any) -> tuple[dict[str, Any] | None, bool]:
+    if not isinstance(needs_input, dict):
+        return None, False
+    slim: dict[str, Any] = {}
+    truncated = False
+    for key, value in needs_input.items():
+        if isinstance(value, str):
+            text, was_truncated = _truncate_text(value)
+            slim[key] = text
+            truncated = truncated or was_truncated
+        else:
+            slim[key] = value
+    return slim, truncated
+
+
 def gate_summary(gate: Any) -> dict[str, Any] | None:
     if not isinstance(gate, dict):
         return None
@@ -144,11 +187,19 @@ def slim_task_card(task: Any) -> dict[str, Any] | None:
             "implementationNotes",
             "ownedPaths",
             "dependsOn",
-            "needsInput",
-            "notes",
         )
         if task.get(key) is not None
     }
+    notes, notes_truncated = _slim_notes(task.get("notes"))
+    if notes:
+        card["notes"] = notes
+    if notes_truncated:
+        card["notesTruncated"] = True
+    needs_input, needs_input_truncated = _slim_needs_input(task.get("needsInput"))
+    if needs_input:
+        card["needsInput"] = needs_input
+    if needs_input_truncated:
+        card["needsInputTruncated"] = True
     card["evidence"] = {
         "summary": evidence.get("summary") or "",
         "touchedFiles": list(evidence.get("touchedFiles") or []),
@@ -176,6 +227,14 @@ def expanded_task_card(task: Any, include: list[str]) -> dict[str, Any] | None:
         card["activity"] = list(task.get("activity") or [])
     if "comments" in requested:
         card["comments"] = list(task.get("comments") or [])
+    if "notes" in requested:
+        card["notes"] = list(task.get("notes") or [])
+        card.pop("notesTruncated", None)
+    if "needs_input" in requested:
+        needs_input = task.get("needsInput")
+        if isinstance(needs_input, dict):
+            card["needsInput"] = dict(needs_input)
+        card.pop("needsInputTruncated", None)
     if "evidence_log" in requested:
         card["evidence"]["commandsRan"] = list(evidence.get("commandsRan") or [])
         card["evidence"]["results"] = list(evidence.get("results") or [])

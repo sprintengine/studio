@@ -298,7 +298,7 @@ class SprintEngineMcpServer:
             ],
             "needs_input": [
                 "Move a task to needs_input with sprintengine.task.status and {taskId, id, status: \"needs_input\", needsInputKind, needsInputReason, needsInputQuestion, needsInputArtifactId?, needsInputSuggestedResolution?}.",
-                "needsInputKind: architect for task-card/scope/artifact-review/tooling blockers; user for product decisions or approvals; owner when waiting on your own condition; external_validation for real hardware, credentials, or another outside check.",
+                "needsInputKind: architect when Sprint Engine should route automatic architect triage; user when the human operator must answer before the owner resumes.",
                 "needsInputReason: task_scope, artifact_review, tooling, verification, product_decision, or blocked_other.",
                 "Do not use needs_input for ordinary compile, test, review, or validation failures that an assigned role can fix; use gate.verdict changes_requested for an active gate or task.request_changes outside an active gate.",
             ],

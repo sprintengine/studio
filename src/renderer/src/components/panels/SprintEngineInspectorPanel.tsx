@@ -1122,8 +1122,6 @@ function TaskScoresLine({ task }: { task: SprintEngineTask }) {
 const needsInputKindLabels: Record<string, string> = {
   architect: 'Architect',
   user: 'User',
-  owner: 'Worker',
-  external_validation: 'External validation',
 }
 
 const needsInputReasonLabels: Record<string, string> = {
@@ -1359,11 +1357,10 @@ function TaskNeedsInputCallout({
   // entries carry.
   const reasonLabel = formatNeedsInputValue(needsInput?.reason)
   const kindLabel = formatNeedsInputValue(needsInput?.kind)
-  const calloutLabel = reasonLabel
-    ? `Needs input — ${reasonLabel}`
-    : kindLabel
-      ? `Needs input: ${kindLabel}`
-      : 'Needs input'
+  const routeLabel = kindLabel && reasonLabel
+    ? `${kindLabel} · ${reasonLabel}`
+    : kindLabel ?? reasonLabel
+  const calloutLabel = routeLabel ? `Needs input — ${routeLabel}` : 'Needs input'
   const question = needsInput?.question?.trim()
   const fallback = fallbackNote?.trim() || 'Worker is waiting for input.'
   const reporterRole = reportedBy ? resolveNeedsInputReporterRole(task, reportedBy, runtimeAgents) : null

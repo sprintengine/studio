@@ -12,9 +12,73 @@ type TerminalOutputQueueOptions = {
 
 type XtermOutputQueue = ReturnType<typeof createXtermOutputQueue>
 
+/**
+ * Replay reveal lifecycle, surfaced to the renderer so it can show a terminal
+ * skeleton instead of a blank panel while retained scrollback is restored.
+ *
+ * - `idle`: no replay activity (fresh terminal or after dispose).
+ * - `awaiting`: a reattach is in flight; we do not yet know if replay exists.
+ * - `replaying`: retained replay is draining but no content is visible yet.
+ * - `ready`: the first replay chunk (or an empty-replay release) is on screen.
+ */
+export type XtermReplayPhase = 'idle' | 'awaiting' | 'replaying' | 'ready'
+
+export type XtermReplayState = {
+  phase: XtermReplayPhase
+  /** Byte size of the retained replay payload, or 0 before any replay arrives. */
+  payloadBytes: number
+  /** Whether terminal content is on screen (skeleton should be hidden). */
+  visible: boolean
+}
+
+/** One-shot timing/size summary emitted when a reattach settles. */
+export type XtermReplayProfile = {
+  payloadChars: number
+  payloadBytes: number
+  writeCount: number
+  maxWriteMs: number
+  totalReplayMs: number
+  timeToFirstContentMs: number
+  liveBufferedCount: number
+  endedVia: 'replay' | 'finish-wait'
+}
+
 type XtermReplayGateOptions = {
-  container?: HTMLElement
   recordWrite?: (data: string, elapsedMs: number) => void
+  onReplayStateChange?: (state: XtermReplayState) => void
+  onReplayProfile?: (profile: XtermReplayProfile) => void
+}
+
+function replayByteLength(value: string): number {
+  return new TextEncoder().encode(value).length
+}
+
+/**
+ * Split a replay payload into bounded chunks so it can be written across
+ * animation frames instead of in one monolithic `term.write`. Chunks break on
+ * the last newline inside the budget when possible so ANSI/control sequences
+ * are less likely to be split mid-line; a single line longer than `maxChars`
+ * falls back to a hard character-boundary split.
+ */
+export function splitReplayIntoChunks(data: string, maxChars: number): string[] {
+  if (!data) return []
+  if (data.length <= maxChars) return [data]
+
+  const chunks: string[] = []
+  let index = 0
+  while (index < data.length) {
+    const remaining = data.length - index
+    if (remaining <= maxChars) {
+      chunks.push(data.slice(index))
+      break
+    }
+    const windowEnd = index + maxChars
+    const lastNewline = data.lastIndexOf('\n', windowEnd - 1)
+    const end = lastNewline > index ? lastNewline + 1 : windowEnd
+    chunks.push(data.slice(index, end))
+    index = end
+  }
+  return chunks
 }
 
 export function createXtermOutputQueue(
@@ -134,24 +198,32 @@ export function createXtermOutputQueue(
 export function createXtermReplayGate(
   term: Terminal,
   outputQueue: XtermOutputQueue,
-  { container, recordWrite }: XtermReplayGateOptions = {}
+  { recordWrite, onReplayStateChange, onReplayProfile }: XtermReplayGateOptions = {}
 ) {
   const liveBuffer: string[] = []
   let disposed = false
   let awaitingReplay = false
   let replaying = false
-  let previousVisibility: string | null = null
+  let replayHandled = false
 
-  const hide = () => {
-    if (!container || previousVisibility !== null) return
-    previousVisibility = container.style.visibility
-    container.style.visibility = 'hidden'
-  }
+  // Chunked replay drain state.
+  let replayChunks: string[] = []
+  let replayIndex = 0
+  let drainScheduled = false
+  let writing = false
 
-  const reveal = () => {
-    if (!container || previousVisibility === null) return
-    container.style.visibility = previousVisibility
-    previousVisibility = null
+  // Per-reattach diagnostics, reset on each `beginReplayWait`/`handleReplay`.
+  let payloadChars = 0
+  let payloadBytes = 0
+  let waitStartedAt = 0
+  let replayStartedAt = 0
+  let firstContentAt = 0
+  let writeCount = 0
+  let maxWriteMs = 0
+  let liveBufferedCount = 0
+
+  const emitState = (phase: XtermReplayPhase, visible: boolean) => {
+    onReplayStateChange?.({ phase, payloadBytes, visible })
   }
 
   const flushLiveBuffer = () => {
@@ -162,44 +234,143 @@ export function createXtermReplayGate(
     }
   }
 
+  const emitProfile = (endedVia: XtermReplayProfile['endedVia']) => {
+    onReplayProfile?.({
+      payloadChars,
+      payloadBytes,
+      writeCount,
+      maxWriteMs: Math.round(maxWriteMs * 10) / 10,
+      totalReplayMs: replayStartedAt > 0 ? Math.round(performance.now() - replayStartedAt) : 0,
+      timeToFirstContentMs:
+        firstContentAt > 0 && waitStartedAt > 0 ? Math.round(firstContentAt - waitStartedAt) : 0,
+      liveBufferedCount,
+      endedVia,
+    })
+  }
+
+  const settleReplay = () => {
+    replaying = false
+    replayChunks = []
+    replayIndex = 0
+    if (!disposed) {
+      // Pin to the newest output once replay has fully drained; this is the
+      // second and final scroll, so older chunks never yank the viewport.
+      term.scrollToBottom()
+      emitState('ready', true)
+      flushLiveBuffer()
+    }
+    emitProfile('replay')
+  }
+
+  const scheduleDrain = () => {
+    if (drainScheduled || writing || disposed) return
+    drainScheduled = true
+    window.requestAnimationFrame(drainReplay)
+  }
+
+  function drainReplay() {
+    drainScheduled = false
+    if (disposed || writing) return
+
+    const frameStartedAt = performance.now()
+
+    const writeNext = () => {
+      if (disposed) return
+      if (replayIndex >= replayChunks.length) {
+        settleReplay()
+        return
+      }
+
+      const chunk = replayChunks[replayIndex] ?? ''
+      replayIndex += 1
+      const writeStartedAt = performance.now()
+      writing = true
+      term.write(chunk, () => {
+        writing = false
+        const elapsedMs = performance.now() - writeStartedAt
+        writeCount += 1
+        maxWriteMs = Math.max(maxWriteMs, elapsedMs)
+        recordWrite?.(chunk, elapsedMs)
+        if (disposed) return
+
+        // Reveal as soon as the first chunk lands so the user sees terminal
+        // content instead of a blank/skeleton region. xterm sticks to the
+        // bottom as later chunks append, so we scroll once here and once on
+        // settle rather than after every chunk.
+        if (firstContentAt === 0) {
+          firstContentAt = performance.now()
+          term.scrollToBottom()
+          emitState('ready', true)
+        }
+
+        if (performance.now() - frameStartedAt >= TERMINAL_WRITE_FRAME_BUDGET_MS) {
+          scheduleDrain()
+          return
+        }
+        writeNext()
+      })
+    }
+
+    writeNext()
+  }
+
   return {
     beginReplayWait: () => {
       if (disposed) return
       awaitingReplay = true
-      hide()
+      replayHandled = false
+      payloadChars = 0
+      payloadBytes = 0
+      waitStartedAt = performance.now()
+      replayStartedAt = 0
+      firstContentAt = 0
+      writeCount = 0
+      maxWriteMs = 0
+      liveBufferedCount = 0
+      emitState('awaiting', false)
     },
     finishReplayWait: () => {
-      if (disposed || replaying) return
+      // Only releases a pending wait once: a real replay (replayHandled) takes
+      // over the reveal itself, and a second call after release is a no-op.
+      if (disposed || replaying || replayHandled || !awaitingReplay) return
       awaitingReplay = false
-      reveal()
+      firstContentAt = performance.now()
+      emitState('ready', true)
       flushLiveBuffer()
+      emitProfile('finish-wait')
     },
     handleReplay: (data: string) => {
       if (disposed || !data) return
       awaitingReplay = false
       replaying = true
-      hide()
-      const writeStartedAt = performance.now()
-      term.write(data, () => {
-        recordWrite?.(data, performance.now() - writeStartedAt)
-        term.scrollToBottom()
-        replaying = false
-        reveal()
-        flushLiveBuffer()
-      })
+      replayHandled = true
+      payloadChars = data.length
+      payloadBytes = replayByteLength(data)
+      replayStartedAt = performance.now()
+      firstContentAt = 0
+      writeCount = 0
+      maxWriteMs = 0
+      replayChunks = splitReplayIntoChunks(data, MAX_TERMINAL_WRITE_CHARS)
+      replayIndex = 0
+      emitState('replaying', false)
+      scheduleDrain()
     },
     handleLiveData: (data: string) => {
       if (disposed || !data) return
       if (awaitingReplay || replaying) {
         liveBuffer.push(data)
+        liveBufferedCount += 1
         return
       }
       outputQueue.enqueue(data)
     },
     dispose: () => {
       disposed = true
+      awaitingReplay = false
+      replaying = false
       liveBuffer.length = 0
-      reveal()
+      replayChunks = []
+      replayIndex = 0
     },
   }
 }

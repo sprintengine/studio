@@ -266,6 +266,9 @@ def normalize_task_needs_input(raw: Any, task_id: str) -> Optional[Dict[str, Any
         raise SystemExit(f"Task {task_id} needsInput must be an object.")
 
     kind = optional_non_empty_string(raw, "kind")
+    legacy_default_reason = None
+    if kind in LEGACY_NEEDS_INPUT_KIND_MAP:
+        kind, legacy_default_reason = LEGACY_NEEDS_INPUT_KIND_MAP[kind]
     if kind not in VALID_NEEDS_INPUT_KINDS:
         raise SystemExit(
             f"Task {task_id} needsInput.kind must be one of: {', '.join(sorted(VALID_NEEDS_INPUT_KINDS))}."
@@ -275,6 +278,8 @@ def normalize_task_needs_input(raw: Any, task_id: str) -> Optional[Dict[str, Any
     reason = optional_non_empty_string(raw, "reason")
     if reason is not None:
         needs_input["reason"] = reason
+    elif legacy_default_reason:
+        needs_input["reason"] = legacy_default_reason
     elif kind in NEEDS_INPUT_KIND_DEFAULT_REASONS:
         needs_input["reason"] = NEEDS_INPUT_KIND_DEFAULT_REASONS[kind]
 

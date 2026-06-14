@@ -1,3 +1,14 @@
+// Retention policy tuning. Kept beside the policy function so tests can guard
+// the production values without importing the WorkspaceManager React module.
+//
+// Memory tradeoff is deliberate: idle layouts stay mounted (hidden) for the
+// idle window, and up to the busy cap of busy layouts stay mounted regardless
+// of age. The idle cap stays at 4 until memory measurements on realistic
+// terminal-heavy workspaces show a higher cap is acceptable.
+export const WORKSPACE_LAYOUT_IDLE_UNLOAD_MS = 60 * 60_000
+export const WORKSPACE_LAYOUT_RETAINED_INACTIVE_LIMIT = 4
+export const WORKSPACE_LAYOUT_BUSY_RETAINED_LIMIT = 10
+
 export type WorkspaceLayoutRetentionReason = 'active' | 'busy' | 'recent-inactive'
 
 export type WorkspaceLayoutRetentionDecision = {

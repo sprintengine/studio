@@ -1368,6 +1368,15 @@ async function spawnTerminalFromIpc(
       const replay = materializeTerminalReplay(existingSession)
       if (replay) {
         sendTerminalEvent(sender, `terminal:replay:${sessionId}`, replay)
+        logMainPerfEvent('TerminalRuntime', 'terminal-replay-sent', {
+          sessionId,
+          workspaceId: workspaceId ?? existingSession.workspaceId,
+          agentId: agentId ?? existingSession.agentId,
+          terminalId: terminalId ?? existingSession.terminalId,
+          kind: kind ?? existingSession.kind,
+          replayChars: replay.length,
+          replayBytes: Buffer.byteLength(replay, 'utf8'),
+        })
       }
       if (existingSession.hasExited) {
         sendTerminalEvent(sender, `terminal:exit:${sessionId}`, existingSession.exitCode ?? 0)
