@@ -9,6 +9,7 @@ import {
   nonEmptyPersistedWorkspaceState,
   readPersistedWorkspaceState,
 } from './persistenceSlice'
+import { sprintEngineRunSettingsKey } from './settingsSlice'
 
 // classifyPersistedWorkspaceState ----------------------------------------------
 
@@ -152,6 +153,67 @@ assert.deepEqual(
   migratedExplorerState.workspaces[0].fileExplorerState,
   { expandedPaths: ['/repo/src'] },
   'migration normalizes persisted File Explorer expansion paths',
+)
+
+const v60SprintEnginePermissionState = {
+  appSettings: {
+    lastAgentSpawnPermissionPreset: 'bypass_all',
+  },
+  workspaces: [
+    {
+      id: 'ws-run-permission',
+      name: 'Run Permission',
+      mode: 'sprintengine',
+      folderPath: '/repo',
+      agents: {},
+      sprintEngineContext: {
+        teamName: 'run-permission',
+        teamSlug: 'run-permission',
+        teamDirectoryPath: '/repo/.multi-code/sprintengine/run-permission',
+        statePath: '/repo/.multi-code/sprintengine/run-permission/run.yaml',
+      },
+      sprintEngineState: {
+        name: 'run-permission',
+        goal: 'Persist local run permission defaults.',
+        roleCounts: { architect: 1 },
+        sprintEngineAgents: {
+          architect: { role: 'architect', status: 'idle', currentTaskId: null },
+        },
+      },
+      sprintEngineAutoState: {
+        desiredMode: 'manual',
+        runtimeState: 'idle',
+        keepDoneAgentTerminals: false,
+        cliPermissionPreset: 'default',
+        maxConcurrentAgents: 3,
+        pendingSpawns: [],
+        deliveredAgentNotificationEventKeys: [],
+      },
+    },
+  ],
+}
+const migratedSprintEnginePermission = migratePersistedWorkspaceState(v60SprintEnginePermissionState, 60) as {
+  appSettings: {
+    sprintEngineRunSettings: Record<string, { cliPermissionPreset?: string }>
+  }
+  workspaces: Array<{
+    sprintEngineContext: { statePath: string }
+    sprintEngineAutoState: { cliPermissionPreset: string }
+  }>
+}
+const migratedSprintEnginePermissionKey = sprintEngineRunSettingsKey(
+  migratedSprintEnginePermission.workspaces[0].sprintEngineContext.statePath,
+)
+assert.equal(
+  migratedSprintEnginePermission.appSettings.sprintEngineRunSettings[migratedSprintEnginePermissionKey]
+    ?.cliPermissionPreset,
+  'bypass_all',
+  'v61 migration seeds per-run Sprint Engine permission from the app default when the run was still factory-default',
+)
+assert.equal(
+  migratedSprintEnginePermission.workspaces[0].sprintEngineAutoState.cliPermissionPreset,
+  'bypass_all',
+  'v61 migration hydrates existing Sprint Engine workspaces from the local per-run setting',
 )
 
 const v52AutoRunState = {

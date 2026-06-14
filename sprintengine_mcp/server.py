@@ -272,10 +272,11 @@ class SprintEngineMcpServer:
 
         sections = {
             "agent_workflow": [
-                "After this help call, call sprintengine.agent.join, then sprintengine.agent.next_directive.",
-                "Use nextMcpToolName and nextMcpArguments from the directive verbatim to claim or resume work.",
-                "After a task or gate, publish evidence or a verdict, then stop unless the returned directive includes another nextMcpToolName.",
-                "Multicode owns later runtime dispatch and continuation.",
+                "After this help call, call sprintengine.agent.join, then claim work with the claim tool your prompt names — sprintengine.task.next for tasks, sprintengine.gate.next for quality gates — using {role, id}.",
+                "Work what the claim returns; it resumes your active item or claims the next ready one.",
+                "If the claim returns no work, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.",
+                "After a task or gate, publish evidence or a verdict, then stop. Multicode owns dispatch and continuation.",
+                "Headless CLI agents outside the managed runtime use sprintengine.agent.next_directive for routing instead.",
                 "If Auto Mode is off, you are blocked, need user input, or are near context limit, stop after recording the appropriate note or status.",
             ],
             # The triage line names an architect-only tool, so it is filtered
@@ -359,8 +360,9 @@ class SprintEngineMcpServer:
         role_payload = _role_payload(role_entry)
         prompt = _compose_registry_prompt(registry, role, workspace_root, str(lifecycle["run"].get("name") or ""))
         # `legacyJoin` (the cmd_join prose containing CLI-laden directives) is intentionally
-        # omitted from the MCP response. Agents are MCP-native and should read `prompt` plus
-        # the directive returned from `sprintengine.agent.next_directive`.
+        # omitted from the MCP response. Agents are MCP-native: managed agents read `prompt`
+        # and then call the claim tool their startup/wake prompt names; headless CLI agents
+        # route through `sprintengine.agent.next_directive`.
         return {
             "ok": True,
             "agentId": agent_id,

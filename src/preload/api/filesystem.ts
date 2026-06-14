@@ -56,6 +56,7 @@ export const filesystemApi = {
   createWorkspaceFolder: (parentDir: string, name: string) =>
     ipcRenderer.invoke('fs:create-workspace-folder', parentDir, name),
   renamePath: (sourcePath: string, nextName: string) => ipcRenderer.invoke('fs:rename', sourcePath, nextName),
+  movePath: (sourcePath: string, destinationDir: string) => ipcRenderer.invoke('fs:move', sourcePath, destinationDir),
   copyPath: (sourcePath: string, destinationDir: string) => ipcRenderer.invoke('fs:copy', sourcePath, destinationDir),
   copyPathInto: (sourcePath: string, destinationDir: string, options?: { overwrite?: boolean }) =>
     ipcRenderer.invoke('fs:copy-into', sourcePath, destinationDir, options),
@@ -105,6 +106,7 @@ export const filesystemApi = {
   | 'ensureDir'
   | 'createWorkspaceFolder'
   | 'renamePath'
+  | 'movePath'
   | 'copyPath'
   | 'copyPathInto'
   | 'deletePath'

@@ -65,6 +65,7 @@ import {
  getSprintEngineRoleAccent,
  getUserDisabledSprintEngineRoleIds,
  getSprintEngineRoleLabel,
+ isNewSprintEngineRoleForRun,
 } from '../../utils/sprintengine'
 import {
  deriveSprintEngineAutomationMode,
@@ -1409,7 +1410,16 @@ function SprintEngineBoardPanelContent({
  force: true,
  })
  }
- if (hasPlannedTasks) {
+ // Only ask the architect to revisit the plan when a genuinely new role
+ // joins the run. Adding more members of a role the team already has is
+ // reinforcement for existing task cards — it does not change the plan or
+ // task graph, so it must not interrupt the architect.
+ const roleIsNewToRun = isNewSprintEngineRoleForRun({
+ role,
+ roster,
+ pendingRoles: pendingRosterMemberSpawns.map((pending) => pending.role),
+ })
+ if (hasPlannedTasks && roleIsNewToRun) {
  void notifyArchitectPlanRevision(agentId, role)
  }
  setAddMemberOpen(false)
@@ -1486,6 +1496,33 @@ function SprintEngineBoardPanelContent({
  if (!agent.cliModel) return cliLabel
  const modelLabel = option?.modelSelection?.options.find((entry) => entry.id === agent.cliModel)?.label ?? agent.cliModel
  return `${cliLabel} · ${modelLabel}`
+ }
+
+ // The CLI a member is configured to launch with: its own saved CLI, else the
+ // role's default, else the last-used CLI. Drives the roster row's right-click
+ // runtime picker, which shares the spawn dialog's CLI/model semantics.
+ const agentRuntimeCli = (agentId: string): AgentCli => {
+   const agent = agents[agentId]
+   if (agent?.cli) return agent.cli
+   // Roster roles are the open SprintEngineRoleId space; the default lookup
+   // keys on bundled roles and falls back for anything unknown.
+   const role = rosterById[agentId]?.role as SprintEngineRole | undefined
+   return role ? addMemberRoleDefaultCli(role) : lastSelectedCli
+ }
+
+ // Current model for a given CLI in the picker: the member's configured model
+ // when the CLI matches its runtime, otherwise that CLI's saved default.
+ const effectiveModelForAgent = (agentId: string, cli: AgentCli): string | undefined =>
+   cli === agentRuntimeCli(agentId) ? agents[agentId]?.cliModel : cliModelDefaults[cli]
+
+ // Persist a runtime choice onto the member record (applied on next launch,
+ // and immediately reflected in the row's CLI summary). Mirrors the add-member
+ // dialog: picking a CLI resets to that CLI's default model.
+ const selectAgentCli = (agentId: string, cli: AgentCli) => {
+   updateAgent(workspaceId, agentId, { cli, cliModel: cliModelDefaults[cli] })
+ }
+ const selectAgentModel = (agentId: string, cli: AgentCli, model: string | null) => {
+   updateAgent(workspaceId, agentId, { cli, cliModel: model ?? undefined })
  }
 
  // Kill = stop the app-owned terminal process and release Sprint Engine
@@ -2040,6 +2077,11 @@ function SprintEngineBoardPanelContent({
  addMemberOptions={addMemberOptions}
  isAgentTerminalLive={isAgentTerminalLive}
  runtimeSummaryFor={runtimeSummaryFor}
+ cliOptions={cliOptions}
+ agentRuntimeCli={agentRuntimeCli}
+ effectiveModelForAgent={effectiveModelForAgent}
+ onSelectAgentCli={selectAgentCli}
+ onSelectAgentModel={selectAgentModel}
  onOpenAgent={openAgentTerminal}
  onSpawnAgent={openSpawnDialog}
  onRestartAgent={(agentId) => {

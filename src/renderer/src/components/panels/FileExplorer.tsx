@@ -47,6 +47,15 @@ type CreateEntryRequest = {
   token: number
 }
 
+const MULTICODE_EXPLORER_MOVE_MIME = 'application/x-multicode-explorer-move'
+
+type ExplorerMovePayload = {
+  version: 1
+  workspaceId: string
+  rootPath: string
+  entries: Entry[]
+}
+
 function toEntries(raw: { name: string; isDir: boolean }[], parent: string): Entry[] {
   const joiner = parent.includes('\\') && !parent.includes('/') ? '\\' : '/'
   return raw
@@ -357,8 +366,50 @@ function isPathOrChild(path: string, parentPath: string): boolean {
   return path.startsWith(`${parentPath}${separator}`)
 }
 
+function topLevelEntries(entries: Entry[]): Entry[] {
+  return entries.filter(
+    (entry) => !entries.some((candidate) => candidate.path !== entry.path && isPathOrChild(entry.path, candidate.path))
+  )
+}
+
 function pathSeparatorFor(path: string): '\\' | '/' {
   return path.includes('\\') && !path.includes('/') ? '\\' : '/'
+}
+
+function parseExplorerMovePayload(dataTransfer: DataTransfer): ExplorerMovePayload | null {
+  const raw = dataTransfer.getData(MULTICODE_EXPLORER_MOVE_MIME)
+  if (!raw) return null
+
+  try {
+    const value = JSON.parse(raw) as Partial<ExplorerMovePayload>
+    if (value.version !== 1 || typeof value.workspaceId !== 'string' || typeof value.rootPath !== 'string') {
+      return null
+    }
+    if (!Array.isArray(value.entries)) return null
+
+    const entries = value.entries.filter((entry): entry is Entry => (
+      Boolean(entry)
+      && typeof entry.name === 'string'
+      && typeof entry.path === 'string'
+      && typeof entry.parentPath === 'string'
+      && typeof entry.isDir === 'boolean'
+      && entry.path.trim().length > 0
+    ))
+    if (!entries.length) return null
+
+    return {
+      version: 1,
+      workspaceId: value.workspaceId,
+      rootPath: value.rootPath,
+      entries,
+    }
+  } catch {
+    return null
+  }
+}
+
+function hasExplorerMovePayload(dataTransfer: DataTransfer): boolean {
+  return Array.from(dataTransfer.types).includes(MULTICODE_EXPLORER_MOVE_MIME)
 }
 
 function parentDirectoriesForPath(rootPath: string, filePath: string): string[] {
@@ -650,6 +701,7 @@ function ExplorerTree({
   const [searchResults, setSearchResults] = useState<Entry[]>([])
   const [searchDiagnostics, setSearchDiagnostics] = useState<FileSearchDiagnostics | null>(null)
   const [renameDraft, setRenameDraft] = useState<RenameDraft | null>(null)
+  const [dropTargetPath, setDropTargetPath] = useState<string | null>(null)
   const [errorToast, setErrorToast] = useState<string | null>(null)
   const refreshTimeoutRef = useRef<number | null>(null)
   const searchTimeoutRef = useRef<number | null>(null)
@@ -663,8 +715,8 @@ function ExplorerTree({
   const lastCreateRequestTokenRef = useRef(0)
   const selectionAnchorPathRef = useRef<string | null>(null)
   const activeRowsRef = useRef<TreeRow[]>([])
+  const activeMoveDragRef = useRef<ExplorerMovePayload | null>(null)
   const dragSelectionRef = useRef<
-    | { kind: 'row'; anchorPath: string; active: boolean }
     | { kind: 'background'; startY: number; active: boolean }
     | null
   >(null)
@@ -833,16 +885,6 @@ function ExplorerTree({
     setSelectedPaths(new Set(rangePaths))
   }
 
-  const beginDragSelection = (entry: Entry, event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return
-
-    event.preventDefault()
-    dragSelectionRef.current = { kind: 'row', anchorPath: entry.path, active: true }
-    completedDragSelectionRef.current = false
-    selectOnlyEntry(entry)
-    focusTree()
-  }
-
   const beginBackgroundDragSelection = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return
     if (event.target instanceof Element && event.target.closest('[data-file-explorer-row="true"]')) return
@@ -854,18 +896,6 @@ function ExplorerTree({
     setSelectedPath(null)
     setSelectedPaths(new Set())
     focusTree()
-  }
-
-  const extendDragSelection = (entry: Entry, event: React.MouseEvent<HTMLDivElement>) => {
-    const dragSelection = dragSelectionRef.current
-    if (!dragSelection?.active || dragSelection.kind !== 'row' || event.buttons !== 1) return
-
-    event.preventDefault()
-    if (entry.path !== dragSelection.anchorPath) {
-      completedDragSelectionRef.current = true
-    }
-    setSelectedPath(entry.path)
-    selectEntryRange(dragSelection.anchorPath, entry.path)
   }
 
   const selectEntry = (entry: Entry, event?: React.MouseEvent<HTMLDivElement>) => {
@@ -1229,13 +1259,173 @@ function ExplorerTree({
       return
     }
 
+    const dragEntries = topLevelEntries(
+      (selectedPaths.has(entry.path) ? selectedEntries : [entry])
+        .filter((selectedEntry) => !selectedEntry.gitDeleted)
+    )
+    if (!dragEntries.length) {
+      event.preventDefault()
+      return
+    }
+
+    const movePayload: ExplorerMovePayload = {
+      version: 1,
+      workspaceId,
+      rootPath,
+      entries: dragEntries,
+    }
+    activeMoveDragRef.current = movePayload
     setSelectedPath(entry.path)
+    if (!selectedPaths.has(entry.path)) {
+      selectionAnchorPathRef.current = entry.path
+      setSelectedPaths(new Set([entry.path]))
+    }
     setFileDropData(event.dataTransfer, {
       version: 1,
       workspaceId,
       rootPath,
-      files: [{ path: entry.path, name: entry.name, isDir: entry.isDir }],
+      files: dragEntries.map((selectedEntry) => ({
+        path: selectedEntry.path,
+        name: selectedEntry.name,
+        isDir: selectedEntry.isDir,
+      })),
     })
+    event.dataTransfer.effectAllowed = 'copyMove'
+    event.dataTransfer.setData(MULTICODE_EXPLORER_MOVE_MIME, JSON.stringify(movePayload))
+  }
+
+  const readMoveDragPayload = (dataTransfer: DataTransfer): ExplorerMovePayload | null => {
+    const payload = activeMoveDragRef.current ?? parseExplorerMovePayload(dataTransfer)
+    if (!payload) return null
+    if (payload.workspaceId !== workspaceId) return null
+    if (normalizePathKey(payload.rootPath) !== normalizePathKey(rootPath)) return null
+    return payload
+  }
+
+  const canDropMovePayload = (payload: ExplorerMovePayload, targetDir: string): boolean => {
+    return payload.entries.some((entry) => (
+      !entry.gitDeleted
+      && entry.parentPath !== targetDir
+      && entry.path !== targetDir
+      && !isPathOrChild(targetDir, entry.path)
+    ))
+  }
+
+  const moveEntriesIntoDirectory = async (entries: Entry[], targetDir: string) => {
+    const movableEntries = topLevelEntries(entries.filter((entry) => !entry.gitDeleted))
+    if (!movableEntries.length) return
+
+    const invalidTarget = movableEntries.find((entry) => entry.path === targetDir || isPathOrChild(targetDir, entry.path))
+    if (invalidTarget) {
+      showError(`Cannot move "${invalidTarget.name}" into itself.`)
+      return
+    }
+
+    const entriesToMove = movableEntries.filter((entry) => entry.parentPath !== targetDir)
+    if (!entriesToMove.length) return
+
+    const parentDirectories = new Set(entriesToMove.flatMap((entry) => [entry.parentPath, targetDir]))
+    const movedEntries: Array<{ entry: Entry; nextPath: string }> = []
+    const selectMovedEntries = () => {
+      const movedPaths = movedEntries.map((moved) => moved.nextPath)
+      selectionAnchorPathRef.current = movedPaths[0] ?? null
+      setSelectedPath(movedPaths[0] ?? null)
+      setSelectedPaths(new Set(movedPaths))
+    }
+
+    try {
+      for (const entry of entriesToMove) {
+        const nextPath = await window.api.movePath(entry.path, targetDir)
+        if (nextPath === entry.path) continue
+        movedEntries.push({ entry, nextPath })
+        remapOpenFiles(workspaceId, entry.path, nextPath)
+        remapFileTabsForPath(workspaceId, entry.path, nextPath)
+      }
+
+      if (!movedEntries.length) return
+
+      setChildrenByPath((current) =>
+        movedEntries.reduce(
+          (next, moved) => moved.entry.isDir ? remapChildrenByPath(next, moved.entry.path, moved.nextPath) : next,
+          current
+        )
+      )
+      setExpandedPaths((current) => ({
+        ...movedEntries.reduce(
+          (next, moved) => moved.entry.isDir ? remapExpandedPaths(next, moved.entry.path, moved.nextPath) : next,
+          current
+        ),
+        [targetDir]: true,
+      }))
+
+      await Promise.all(Array.from(parentDirectories).map(refreshParentDirectory))
+      if (isSearching) {
+        applySearchResponse(await searchFiles(
+          rootPath,
+          latestSearchQueryRef.current,
+          latestGitStatusRef.current,
+          latestSearchExcludesRef.current
+        ))
+      }
+
+      selectMovedEntries()
+      focusTree()
+      void refreshGitStatus()
+    } catch (error) {
+      showError(error, 'Could not move the selected file.')
+      if (movedEntries.length) {
+        await Promise.all(Array.from(parentDirectories).map(refreshParentDirectory))
+        if (isSearching) {
+          applySearchResponse(await searchFiles(
+            rootPath,
+            latestSearchQueryRef.current,
+            latestGitStatusRef.current,
+            latestSearchExcludesRef.current
+          ))
+        }
+        selectMovedEntries()
+        void refreshGitStatus()
+      }
+    }
+  }
+
+  const handleFolderDragOver = (event: React.DragEvent<HTMLDivElement>, entry: Entry) => {
+    if (!entry.isDir || entry.gitDeleted) return
+    if (!hasExplorerMovePayload(event.dataTransfer) && !activeMoveDragRef.current) return
+
+    const payload = readMoveDragPayload(event.dataTransfer)
+    if (!payload || !canDropMovePayload(payload, entry.path)) {
+      event.dataTransfer.dropEffect = 'none'
+      setDropTargetPath(null)
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'move'
+    setDropTargetPath(entry.path)
+  }
+
+  const handleFolderDragLeave = (event: React.DragEvent<HTMLDivElement>, entry: Entry) => {
+    if (dropTargetPath !== entry.path) return
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return
+    setDropTargetPath(null)
+  }
+
+  const handleFolderDrop = (event: React.DragEvent<HTMLDivElement>, entry: Entry) => {
+    if (!entry.isDir || entry.gitDeleted) return
+    const payload = readMoveDragPayload(event.dataTransfer)
+    if (!payload || !canDropMovePayload(payload, entry.path)) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    setDropTargetPath(null)
+    void moveEntriesIntoDirectory(payload.entries, entry.path)
+  }
+
+  const handleDragEnd = () => {
+    activeMoveDragRef.current = null
+    setDropTargetPath(null)
   }
 
   const showContextMenu = async (event: React.MouseEvent, entry?: Entry) => {
@@ -1731,6 +1921,7 @@ function ExplorerTree({
           const isFocused = entry.path === selectedPath
           const isExpanded = entry.isDir && (isSearching || expandedPaths[entry.path])
           const isRenaming = renameDraft?.entry.path === entry.path
+          const isDropTarget = dropTargetPath === entry.path
           const gitStatusKind = getEntryGitStatus(gitStatus, directoryStatus, entry)
           const gitAppearance = getGitStatusAppearance(gitStatusKind)
           const nameClassName = gitAppearance.textClass || (entry.isDir ? 'text-[color:var(--text-default)] group-hover:text-[color:var(--text-strong)]' : '')
@@ -1747,14 +1938,10 @@ function ExplorerTree({
               aria-expanded={entry.isDir ? isExpanded : undefined}
               draggable={!entry.gitDeleted && !isRenaming}
               onDragStart={(event) => handleDragStart(event, entry)}
-              onMouseDown={(event) => {
-                if (isRenaming) return
-                beginDragSelection(entry, event)
-              }}
-              onMouseEnter={(event) => {
-                if (isRenaming) return
-                extendDragSelection(entry, event)
-              }}
+              onDragOver={(event) => handleFolderDragOver(event, entry)}
+              onDragLeave={(event) => handleFolderDragLeave(event, entry)}
+              onDrop={(event) => handleFolderDrop(event, entry)}
+              onDragEnd={handleDragEnd}
               onClick={(event) => {
                 if (isRenaming) return
                 if (completedDragSelectionRef.current) {
@@ -1776,7 +1963,9 @@ function ExplorerTree({
               }}
               onContextMenu={(event) => void showContextMenu(event, entry)}
               className={`group flex min-h-[26px] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors ${
-                isSelected
+                isDropTarget
+                  ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)] ring-1 ring-[color:var(--accent-primary)]'
+                  : isSelected
                   ? isFocused
                     ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
                     : 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'

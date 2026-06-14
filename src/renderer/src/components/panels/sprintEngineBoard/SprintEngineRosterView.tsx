@@ -1,21 +1,64 @@
-import React from 'react'
-import { OverflowMenu, RoleAvatar, SidePane, Spinner, Tooltip } from '../../ui'
+import React, { useState } from 'react'
+import {
+  CliModelListbox,
+  ContextMenu,
+  LifecycleGlyph,
+  MenuDivider,
+  MenuFlyoutItem,
+  MenuItem,
+  RoleAvatar,
+  SidePane,
+  Tooltip,
+  type CliModelListboxOption,
+  type LifecycleState,
+} from '../../ui'
 import type {
+  AgentCli,
   AgentState,
   SprintEngineRole,
   SprintEngineState,
 } from '../../../types/workspace'
 import type { SprintEngineAgentRosterItem } from '../../../utils/sprintengine'
 import type { SprintEngineAddMemberOption } from '../../../utils/sprintengineRoleOptions'
-import type { RuntimeAgentView } from '../sprintEngineInspector'
+import { runtimeStatusLabel, type RuntimeAgentView } from '../sprintEngineInspector'
 import { SprintEngineEmptyDetail } from './SprintEngineEmptyDetail'
+
+// Runtime status → shape-coded lifecycle glyph. Status is earned, not
+// decorated: an idle member gets no mark — its row reads as quiet — while the
+// states that actually want attention (working, blocked, errored, finished)
+// carry a glyph. Only the genuinely live states spin.
+function rosterLifecycle(
+  statusKey: string,
+  spawnPending: boolean,
+): { state: LifecycleState; live: boolean } | null {
+  if (spawnPending) return { state: 'in_progress', live: true }
+  switch (statusKey) {
+    case 'running':
+    case 'planning':
+      return { state: 'in_progress', live: true }
+    case 'needs_input':
+      return { state: 'needs_input', live: false }
+    case 'error':
+      return { state: 'failed', live: false }
+    case 'complete':
+      return { state: 'done', live: false }
+    case 'exited':
+      return { state: 'archived', live: false }
+    default:
+      return null
+  }
+}
+
+type RosterMenuTarget = { agentId: string; x: number; y: number }
 
 // Roster tab: agent list + detail. Mirrors the Inbox shape — roster on the
 // left, inspector (with agent-specific actions) on the right when an agent
 // is selected. Each row is the runtime control surface for that member:
-// status, active task, CLI/model, a primary Open/Spawn action, and a row
-// menu for restart/kill. Add-member affordance sticks to the foot of the
-// list rail so it stays one click away regardless of roster size.
+// identity, earned status, active task, and CLI/model. Row actions
+// (open/spawn, the row menu) reveal on hover, focus, or selection so a
+// dormant roster reads as a calm list rather than a wall of buttons.
+// Right-clicking any row — or the row menu — opens the shared CLI/model
+// picker so the runtime can be changed in place without the spawn dialog.
 export function SprintEngineRosterView({
   sprintEngineState,
   roster,
@@ -27,6 +70,11 @@ export function SprintEngineRosterView({
   addMemberOptions,
   isAgentTerminalLive,
   runtimeSummaryFor,
+  cliOptions,
+  agentRuntimeCli,
+  effectiveModelForAgent,
+  onSelectAgentCli,
+  onSelectAgentModel,
   onOpenAgent,
   onSpawnAgent,
   onRestartAgent,
@@ -45,6 +93,12 @@ export function SprintEngineRosterView({
   isAgentTerminalLive: (agentId: string) => boolean
   // "CLI · model" summary for the row meta line; null hides the segment.
   runtimeSummaryFor: (agentId: string) => string | null
+  // Shared CLI/model picker wiring, reused from the spawn/add-member dialogs.
+  cliOptions: CliModelListboxOption[]
+  agentRuntimeCli: (agentId: string) => AgentCli
+  effectiveModelForAgent: (agentId: string, cli: AgentCli) => string | undefined
+  onSelectAgentCli: (agentId: string, cli: AgentCli) => void
+  onSelectAgentModel: (agentId: string, cli: AgentCli, model: string | null) => void
   onOpenAgent: (agentId: string) => void
   onSpawnAgent: (agentId: string) => void
   onRestartAgent: (agentId: string) => void
@@ -53,6 +107,9 @@ export function SprintEngineRosterView({
   inspectorExpanded: boolean
 }) {
   const hasInspector = inspectorContent !== null && inspectorContent !== undefined
+  const [menu, setMenu] = useState<RosterMenuTarget | null>(null)
+
+  const menuAgent = menu ? roster.find((agent) => agent.id === menu.agentId) ?? null : null
 
   return (
     <div className="flex min-h-0 flex-1 min-w-0">
@@ -71,6 +128,8 @@ export function SprintEngineRosterView({
                   const agentState = agents[agent.id]
                   const spawnPending = Boolean(agentState?.cliStartRequested) && !hasLiveTerminal
                   const statusKey = runtime?.status ?? (hasLiveTerminal ? 'running' : 'idle')
+                  const lifecycle = rosterLifecycle(statusKey, spawnPending)
+                  const statusLabel = spawnPending ? 'Starting' : runtimeStatusLabel(statusKey)
                   const displayName = agentState?.name?.trim() || agent.label
                   const roleSlotLabel = agent.label !== displayName ? agent.label : null
                   const runtimeSummary = runtimeSummaryFor(agent.id)
@@ -81,6 +140,10 @@ export function SprintEngineRosterView({
                   return (
                     <li key={agent.id}>
                       <div
+                        onContextMenu={(event) => {
+                          event.preventDefault()
+                          setMenu({ agentId: agent.id, x: event.clientX, y: event.clientY })
+                        }}
                         className={`group relative flex w-full min-w-0 items-center gap-2 border-b border-[color:var(--border-default)] pr-2 ${
                           selected
                             ? 'bg-[color:var(--bg-hover)] before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r before:bg-[color:var(--accent-primary)]'
@@ -110,10 +173,12 @@ export function SprintEngineRosterView({
                               ) : null}
                             </span>
                             <span className="flex min-w-0 items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
-                              <span className="flex shrink-0 items-center gap-1.5">
-                                {statusKey === 'running' || spawnPending ? <Spinner size={12} /> : null}
-                                <span className="capitalize">{spawnPending ? 'Starting' : statusKey}</span>
-                              </span>
+                              {lifecycle ? (
+                                <span className="flex shrink-0 items-center gap-1.5">
+                                  <LifecycleGlyph state={lifecycle.state} live={lifecycle.live} />
+                                  <span>{statusLabel}</span>
+                                </span>
+                              ) : null}
                               {runtimeSummary ? (
                                 <span className="shrink-0 truncate text-[color:var(--text-muted)]">{runtimeSummary}</span>
                               ) : null}
@@ -123,19 +188,23 @@ export function SprintEngineRosterView({
                                   <span className="text-[color:var(--text-disabled)]"> · </span>
                                   <span>{currentTask.title}</span>
                                 </span>
-                              ) : (
-                                <span className="text-[color:var(--text-disabled)]">No active task</span>
-                              )}
+                              ) : null}
                             </span>
                           </span>
                         </button>
-                        <span className="flex shrink-0 items-center gap-1">
+                        <span
+                          className={`flex shrink-0 items-center gap-1 transition-opacity ${
+                            selected
+                              ? 'opacity-100'
+                              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+                          }`}
+                        >
                           {hasLiveTerminal ? (
                             <button
                               type="button"
                               onClick={() => onOpenAgent(agent.id)}
                               aria-label={`Open ${displayName} terminal`}
-                              className="interactive inline-flex h-6 items-center rounded border border-[color:var(--border-strong)] px-2 text-[11px] font-medium text-[color:var(--text-default)] transition-colors hover:border-[color:var(--accent-primary-soft)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+                              className="interactive inline-flex h-6 items-center rounded px-2 text-[11px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
                             >
                               Open
                             </button>
@@ -145,44 +214,28 @@ export function SprintEngineRosterView({
                               onClick={() => onSpawnAgent(agent.id)}
                               disabled={spawnPending}
                               aria-label={spawnPending ? `${displayName} is starting` : `Spawn ${displayName}`}
-                              className="interactive inline-flex h-6 items-center rounded border border-[color:var(--border-strong)] px-2 text-[11px] font-medium text-[color:var(--text-default)] transition-colors hover:border-[color:var(--accent-primary-soft)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] disabled:cursor-default disabled:opacity-50"
+                              className="interactive inline-flex h-6 items-center rounded px-2 text-[11px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] disabled:cursor-default disabled:opacity-50"
                             >
                               {spawnPending ? 'Starting…' : 'Spawn'}
                             </button>
                           )}
-                          <OverflowMenu
-                            ariaLabel={`${displayName} actions`}
-                            items={
-                              hasLiveTerminal
-                                ? [
-                                  {
-                                    id: 'change-runtime',
-                                    label: 'Change CLI / model…',
-                                    onSelect: () => onSpawnAgent(agent.id),
-                                  },
-                                  {
-                                    id: 'restart',
-                                    label: 'Restart fresh',
-                                    onSelect: () => onRestartAgent(agent.id),
-                                  },
-                                  { kind: 'separator' as const, id: 'sep' },
-                                  {
-                                    id: 'kill',
-                                    label: 'Kill terminal',
-                                    destructive: true,
-                                    onSelect: () => onKillAgent(agent.id),
-                                  },
-                                ]
-                                : [
-                                  {
-                                    id: 'spawn-options',
-                                    label: 'Spawn with CLI / model…',
-                                    disabled: spawnPending,
-                                    onSelect: () => onSpawnAgent(agent.id),
-                                  },
-                                ]
-                            }
-                          />
+                          <button
+                            type="button"
+                            aria-label={`${displayName} actions`}
+                            aria-haspopup="menu"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              const rect = event.currentTarget.getBoundingClientRect()
+                              setMenu({ agentId: agent.id, x: rect.right, y: rect.bottom })
+                            }}
+                            className="interactive inline-flex h-6 w-6 items-center justify-center rounded text-[color:var(--text-disabled)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+                          >
+                            <svg viewBox="0 0 16 16" className="icon-sm" fill="currentColor" aria-hidden="true">
+                              <circle cx="8" cy="3.4" r="1.3" />
+                              <circle cx="8" cy="8" r="1.3" />
+                              <circle cx="8" cy="12.6" r="1.3" />
+                            </svg>
+                          </button>
                         </span>
                       </div>
                     </li>
@@ -196,13 +249,8 @@ export function SprintEngineRosterView({
             aria-label="Add a roster member"
             className="shrink-0 border-t border-[color:var(--border-default)] bg-[color:var(--bg-surface)]"
           >
-            <div className="flex items-center justify-between gap-3 px-3 py-2">
-              <h4 className="truncate text-[11px] font-semibold text-[color:var(--text-muted)]">
-                Add member
-              </h4>
-              <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]">
-                {addMemberOptions.length} roles
-              </span>
+            <div className="px-3 pb-1 pt-2">
+              <h4 className="text-[11px] font-medium text-[color:var(--text-muted)]">Add member</h4>
             </div>
             <div className="flex flex-wrap gap-1.5 px-3 pb-2.5">
               {addMemberOptions.map((option) => {
@@ -215,14 +263,12 @@ export function SprintEngineRosterView({
                       type="button"
                       onClick={() => onAddRole(role as SprintEngineRole)}
                       aria-label={addLabel}
-                      className="interactive inline-flex items-center gap-1.5 rounded border border-dashed border-[color:var(--border-strong)] px-2 py-1 text-[11px] font-medium text-[color:var(--text-default)] transition-colors hover:border-[color:var(--accent-primary-soft)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+                      className="interactive inline-flex items-center gap-1.5 rounded border border-[color:var(--border-default)] px-2 py-1 text-[11px] font-medium text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
                     >
                       <RoleAvatar role={role} size="xs" ariaLabel="" />
                       <span>{option.label}</span>
                       {count > 0 ? (
-                        <span className="ml-0.5 rounded bg-[color:var(--bg-hover)] px-1 tabular-nums text-[color:var(--text-muted)]">
-                          {count}
-                        </span>
+                        <span className="ml-0.5 tabular-nums text-[color:var(--text-disabled)]">{count}</span>
                       ) : null}
                     </button>
                   </Tooltip>
@@ -249,6 +295,54 @@ export function SprintEngineRosterView({
           }
         />
       )}
+
+      {menu && menuAgent ? (() => {
+        const live = isAgentTerminalLive(menuAgent.id)
+        const agentState = agents[menuAgent.id]
+        const pending = Boolean(agentState?.cliStartRequested) && !live
+        const displayName = agentState?.name?.trim() || menuAgent.label
+        const close = () => setMenu(null)
+        return (
+          <ContextMenu
+            x={menu.x}
+            y={menu.y}
+            ariaLabel={`${displayName} actions menu`}
+            onClose={close}
+            surfaceClassName="min-w-[200px]"
+          >
+            {live ? (
+              <MenuItem onClick={() => { onOpenAgent(menuAgent.id); close() }}>Open terminal</MenuItem>
+            ) : (
+              <MenuItem disabled={pending} onClick={() => { onSpawnAgent(menuAgent.id); close() }}>
+                {pending ? 'Starting…' : 'Spawn agent'}
+              </MenuItem>
+            )}
+            <MenuFlyoutItem
+              label="CLI / model"
+              ariaLabel={`Runtime for ${displayName}`}
+              surfaceClassName="min-w-[220px] p-1"
+            >
+              <CliModelListbox
+                ariaLabel={`Runtime options for ${displayName}`}
+                options={cliOptions}
+                currentCli={agentRuntimeCli(menuAgent.id)}
+                effectiveModelFor={(cli) => effectiveModelForAgent(menuAgent.id, cli)}
+                onSelectCli={(cli) => { onSelectAgentCli(menuAgent.id, cli); close() }}
+                onSelectModel={(cli, model) => { onSelectAgentModel(menuAgent.id, cli, model); close() }}
+              />
+            </MenuFlyoutItem>
+            {live ? (
+              <>
+                <MenuItem onClick={() => { onRestartAgent(menuAgent.id); close() }}>Restart fresh</MenuItem>
+                <MenuDivider />
+                <MenuItem variant="danger" onClick={() => { onKillAgent(menuAgent.id); close() }}>
+                  Kill terminal
+                </MenuItem>
+              </>
+            ) : null}
+          </ContextMenu>
+        )
+      })() : null}
     </div>
   )
 }

@@ -160,6 +160,23 @@ export type SprintEngineAgentRosterItem = {
   role: SprintEngineRoleId
 }
 
+// A roster role is "new to the run" only when no current member and no
+// not-yet-reconciled pending spawn already covers it. Adding more members of a
+// role the team already has is reinforcement for the existing task graph, so it
+// should not trigger an architect plan-revision prompt — only a genuinely new
+// specialist can change what work the plan needs. Pending roles are included so
+// rapid repeat adds of the same role stay quiet before the projection refresh.
+export function isNewSprintEngineRoleForRun(input: {
+  role: SprintEngineRoleId
+  roster: readonly SprintEngineAgentRosterItem[]
+  pendingRoles?: readonly SprintEngineRoleId[]
+}): boolean {
+  const { role, roster, pendingRoles = [] } = input
+  if (roster.some((member) => member.role === role)) return false
+  if (pendingRoles.some((pending) => pending === role)) return false
+  return true
+}
+
 export const sprintEngineTaskStateLabel: Record<SprintEngineTaskStatus, string> = {
   todo: 'Todo',
   changes_requested: 'Changes Requested',

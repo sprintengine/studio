@@ -118,6 +118,7 @@ import {
   type WorkspaceMigrationState,
   classifyPersistedWorkspaceState,
   isDangerousEmptyClassification,
+  hydrateSprintEngineLocalRunSettings,
   migrateLegacyWorkspaceStorageKey,
   migratePersistedWorkspaceState,
   normalizeWorkspaceWindows,
@@ -979,29 +980,35 @@ async function attemptBackupRecovery(): Promise<void> {
 
     useWorkspaceStore.setState((current) => {
       const recoveredWorkspaces = envelope!.state!.workspaces as WorkspaceStore['workspaces']
+      const recoveredAppSettings =
+        legacyAppSettings !== undefined
+          ? normalizeAppSettings(legacyAppSettings, recoveredWorkspaces as Workspace[])
+          : recoveredSettingsState?.appSettings !== undefined
+            ? normalizeAppSettings(
+              recoveredSettingsState.appSettings as Partial<AppSettings>,
+              recoveredWorkspaces as Workspace[],
+            )
+            : normalizeAppSettings(current.appSettings, recoveredWorkspaces as Workspace[])
+      const hydrated = hydrateSprintEngineLocalRunSettings(
+        recoveredWorkspaces as Workspace[],
+        recoveredAppSettings,
+      )
       const normalizedWindows = normalizeWorkspaceWindows(
-        recoveredWorkspaces,
+        hydrated.workspaces,
         envelope!.state!.workspaceWindows,
         envelope!.state!.primaryWorkspaceWindowId,
         envelope!.state!.activeWorkspaceId ?? current.activeWorkspaceId,
       )
       const next: WorkspaceStore = {
         ...current,
-        workspaces: recoveredWorkspaces,
+        workspaces: hydrated.workspaces,
         activeWorkspaceId: envelope!.state!.activeWorkspaceId
           ?? envelope!.state!.workspaces?.[0]?.id
           ?? current.activeWorkspaceId,
         workspaceWindows: normalizedWindows.windows,
         primaryWorkspaceWindowId: normalizedWindows.primaryWorkspaceWindowId,
         workspaceRegistryEmptyState: null,
-      }
-      if (legacyAppSettings !== undefined) {
-        next.appSettings = normalizeAppSettings(legacyAppSettings, recoveredWorkspaces as Workspace[])
-      } else if (recoveredSettingsState?.appSettings !== undefined) {
-        next.appSettings = normalizeAppSettings(
-          recoveredSettingsState.appSettings as Partial<AppSettings>,
-          recoveredWorkspaces as Workspace[],
-        )
+        appSettings: hydrated.appSettings,
       }
       if (typeof legacySidebarCollapsed === 'boolean') {
         next.sidebarCollapsed = legacySidebarCollapsed
@@ -1085,7 +1092,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       },
       merge: (persisted, current) => {
         const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean; sprintEnginesAsideOpen?: boolean }> | undefined
-        const workspaces = state?.workspaces ?? current.workspaces
+        const rawWorkspaces = state?.workspaces ?? current.workspaces
+        const hydrated = hydrateSprintEngineLocalRunSettings(
+          rawWorkspaces,
+          normalizeAppSettings(state?.appSettings, rawWorkspaces),
+        )
+        const workspaces = hydrated.workspaces
         const normalizedWindows = normalizeWorkspaceWindows(
           workspaces,
           state?.workspaceWindows ?? current.workspaceWindows,
@@ -1112,7 +1124,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             state?.workspaceRegistryEmptyState !== undefined
               ? state.workspaceRegistryEmptyState
               : current.workspaceRegistryEmptyState,
-          appSettings: normalizeAppSettings(state?.appSettings, workspaces),
+          appSettings: hydrated.appSettings,
         }
       },
       partialize: partializeWorkspaceStoreState,

@@ -23,7 +23,7 @@ const plugins: PluginCatalogEntry[] = [
 ]
 
 assert.deepEqual(
-  buildAgentCliCatalog(plugins),
+  buildAgentCliCatalog(plugins).map(({ value, label, source }) => ({ value, label, source })),
   [
     { value: 'codex', label: 'Codex', source: 'bundled' },
     { value: 'claude-code', label: 'Claude Code', source: 'bundled' },
@@ -31,12 +31,20 @@ assert.deepEqual(
   ],
   'catalog orders bundled before user entries, labels from displayName, and dedupes ids',
 )
+assert.ok(
+  buildAgentCliCatalog(plugins).find((option) => option.value === 'codex')?.modelSelection?.options.some((model) => model.id === 'gpt-5.3-codex'),
+  'bundled Codex keeps model metadata even when the registry entry omits it',
+)
+assert.ok(
+  buildAgentCliCatalog(plugins).find((option) => option.value === 'claude-code')?.modelSelection?.options.some((model) => model.id === 'sonnet'),
+  'bundled Claude Code keeps model metadata even when the registry entry omits it',
+)
 
 assert.deepEqual(
   buildAgentCliCatalog(null, {
     opencode: { command: 'opencode', useWsl: false },
     codex: { command: 'codex-next', useWsl: true },
-  }),
+  }).map(({ value, label }) => ({ value, label })),
   [
     { value: 'codex', label: 'Codex' },
     { value: 'claude-code', label: 'Claude Code' },
@@ -44,7 +52,13 @@ assert.deepEqual(
   ],
   'missing registry data falls back to canonical bundled plugins plus configured overrides',
 )
-assert.deepEqual(buildCliRuntimeOptions(undefined), [
+assert.ok(
+  buildAgentCliCatalog(null, {
+    codex: { command: 'codex-next', useWsl: true, models: ['custom-codex'] },
+  }).find((option) => option.value === 'codex')?.modelSelection?.options.some((model) => model.id === 'custom-codex'),
+  'fallback bundled Codex model metadata includes user-added model ids',
+)
+assert.deepEqual(buildCliRuntimeOptions(undefined).map(({ value, label }) => ({ value, label })), [
   { value: 'codex', label: 'Codex' },
   { value: 'claude-code', label: 'Claude Code' },
 ])
@@ -54,7 +68,7 @@ assert.deepEqual(
   buildAgentCliCatalog([
     { id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude' },
     { id: 'generic-shell', displayName: 'Generic Shell', source: 'bundled', version: 1, binary: 'sh' },
-  ]),
+  ]).map(({ value, label, source }) => ({ value, label, source })),
   [{ value: 'claude-code', label: 'Claude Code', source: 'bundled' }],
   'generic-shell is hidden from the agent CLI picker catalog',
 )
@@ -78,7 +92,8 @@ assert.deepEqual(
   'ready status surfaces installed plugins (incl. opencode) before user entries',
 )
 assert.deepEqual(
-  selectAgentCliCatalog('loading', plugins, { opencode: { command: 'opencode', useWsl: false } }),
+  selectAgentCliCatalog('loading', plugins, { opencode: { command: 'opencode', useWsl: false } })
+    .map(({ value, label }) => ({ value, label })),
   [
     { value: 'codex', label: 'Codex' },
     { value: 'claude-code', label: 'Claude Code' },
@@ -87,7 +102,7 @@ assert.deepEqual(
   'loading status ignores registry entries and falls back to canonical bundled plugins + configured runtimes',
 )
 assert.deepEqual(
-  selectAgentCliCatalog('error', plugins),
+  selectAgentCliCatalog('error', plugins).map(({ value, label }) => ({ value, label })),
   [
     { value: 'codex', label: 'Codex' },
     { value: 'claude-code', label: 'Claude Code' },

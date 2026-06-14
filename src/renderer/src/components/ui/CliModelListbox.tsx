@@ -98,13 +98,50 @@ export function CliModelPickerButton({
   )
 }
 
-// CLI listbox shared by the top-bar spawn-row chip popovers (General Agent,
-// specialist rows, Multiloop roles) and the Sprint Engine roster runtime
-// pickers. Each CLI row selects that CLI as-is; rows whose plugin declares
-// modelSelection get a trailing disclosure that expands an indented model
-// list — "Default" (the CLI's own default, no flag passed), the merged seed +
-// user-added options, and a free-text id when the plugin allows custom ids.
-// Picking a model selects the CLI and the model together.
+// One selectable runtime row: CLI brand icon + label, with a check when active.
+// `mono` renders raw model ids (no friendly label) in the mono face.
+function CliModelRow({
+  icon,
+  label,
+  selected,
+  mono,
+  onClick,
+}: {
+  icon: AgentCli
+  label: string
+  selected: boolean
+  mono?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={selected}
+      onClick={onClick}
+      className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
+        mono ? 'font-mono text-[11px]' : ''
+      } ${
+        selected
+          ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
+          : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
+      }`}
+    >
+      <CliIcon cli={icon} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {selected ? <span className="shrink-0 text-[color:var(--accent-primary)]">✓</span> : null}
+    </button>
+  )
+}
+
+// Flat runtime listbox shared by the top-bar spawn-row chip popovers (General
+// Agent, specialist rows, Multiloop roles) and the Sprint Engine roster runtime
+// pickers. Rendered as one shared flat list grouped by CLI with
+// whitespace between groups: each group leads with a bare CLI row — that CLI
+// with no `--model` flag, so it rides the CLI's own default — followed by one
+// row per model. Every row carries the CLI brand icon. Picking any row selects
+// the CLI and the model together in a single action; the bare row clears the
+// model (CLIs without a model catalog select the CLI as-is).
 export function CliModelListbox({
   ariaLabel,
   options,
@@ -120,132 +157,48 @@ export function CliModelListbox({
   onSelectCli: (cli: AgentCli) => void
   onSelectModel: (cli: AgentCli, model: string | null) => void
 }) {
-  const [expandedCli, setExpandedCli] = React.useState<AgentCli | null>(null)
-  const [customModel, setCustomModel] = React.useState('')
   return (
-    <div role="listbox" aria-label={ariaLabel}>
-      {options.map((option) => {
-        const isCurrent = option.value === currentCli
+    <div role="listbox" aria-label={ariaLabel} className="max-h-[280px] overflow-y-auto">
+      {options.map((option, groupIndex) => {
         const models = option.modelSelection
-        const expanded = expandedCli === option.value
-        const effectiveModel = effectiveModelFor(option.value)
+        const effectiveModel = option.value === currentCli ? effectiveModelFor(option.value) : undefined
+        const hasStaleModel =
+          Boolean(effectiveModel) && !models?.options.some((model) => model.id === effectiveModel)
         return (
-          <React.Fragment key={option.value}>
-            <div className="relative">
-              <button
-                type="button"
-                role="option"
-                aria-selected={isCurrent}
-                onClick={() => onSelectCli(option.value)}
-                className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
-                  models ? 'pr-7' : ''
-                } ${
-                  isCurrent
-                    ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
-                    : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
-                }`}
-              >
-                <CliIcon cli={option.value} className="icon-sm" />
-                {option.label}
-                {isCurrent ? <span className="ml-auto text-[color:var(--accent-primary)]">✓</span> : null}
-              </button>
-              {models ? (
-                <button
-                  type="button"
-                  aria-expanded={expanded}
-                  aria-label={`Models for ${option.label}`}
-                  onClick={() => {
-                    setCustomModel('')
-                    setExpandedCli((current) => (current === option.value ? null : option.value))
-                  }}
-                  className="absolute right-1 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-[color:var(--text-disabled)] transition-colors hover:text-[color:var(--text-strong)]"
-                >
-                  <svg className={`icon-xs transition-transform ${expanded ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                    <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              ) : null}
-            </div>
-            {expanded && models ? (
-              <div
-                role="listbox"
-                aria-label={`Model for ${option.label}`}
-                // Bounded: the chip popover measured its flip placement before
-                // this section expanded, so long model lists scroll instead of
-                // growing past the spawn menu's clip.
-                className="my-0.5 ml-3.5 max-h-[168px] overflow-y-auto border-l border-[color:var(--border-subtle)] pl-1"
-              >
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={!effectiveModel}
-                  onClick={() => onSelectModel(option.value, null)}
-                  className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[12px] transition-colors ${
-                    !effectiveModel
-                      ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
-                      : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
-                  }`}
-                >
-                  Default
-                  {!effectiveModel ? <span className="ml-auto text-[color:var(--accent-primary)]">✓</span> : null}
-                </button>
-                {models.options.map((model) => {
-                  const isModelCurrent = model.id === effectiveModel
-                  return (
-                    <button
-                      key={model.id}
-                      type="button"
-                      role="option"
-                      aria-selected={isModelCurrent}
-                      onClick={() => onSelectModel(option.value, model.id)}
-                      className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[12px] transition-colors ${
-                        model.label ? '' : 'font-mono text-[11px]'
-                      } ${
-                        isModelCurrent
-                          ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
-                          : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
-                      }`}
-                    >
-                      <span className="min-w-0 flex-1 truncate">{model.label ?? model.id}</span>
-                      {isModelCurrent ? <span className="text-[color:var(--accent-primary)]">✓</span> : null}
-                    </button>
-                  )
-                })}
-                {/* A persisted model no longer in the catalog still launches with
-                    that id; surface it as the checked entry instead of hiding it. */}
-                {effectiveModel && !models.options.some((model) => model.id === effectiveModel) ? (
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected
-                    onClick={() => onSelectModel(option.value, effectiveModel)}
-                    className="flex w-full items-center gap-2 rounded bg-[color:var(--accent-primary-soft-strong)] px-2 py-1 text-left font-mono text-[11px] text-[color:var(--text-strong)]"
-                  >
-                    <span className="min-w-0 flex-1 truncate">{effectiveModel}</span>
-                    <span className="text-[color:var(--accent-primary)]">✓</span>
-                  </button>
-                ) : null}
-                {models.allowCustomId ? (
-                  <input
-                    type="text"
-                    value={customModel}
-                    placeholder="Custom model id"
-                    aria-label={`Custom model id for ${option.label}`}
-                    onChange={(event) => setCustomModel(event.target.value)}
-                    onClick={(event) => event.stopPropagation()}
-                    onKeyDown={(event) => {
-                      event.stopPropagation()
-                      if (event.key === 'Enter') {
-                        const model = customModel.trim()
-                        if (model) onSelectModel(option.value, model)
-                      }
-                    }}
-                    className="mt-0.5 w-full rounded border border-[color:var(--border-subtle)] bg-transparent px-2 py-1 font-mono text-[11px] text-[color:var(--text-default)] placeholder:font-sans placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] focus:outline-none"
-                  />
-                ) : null}
-              </div>
+          <div
+            key={option.value}
+            role="group"
+            aria-label={option.label}
+            className={groupIndex > 0 ? 'mt-1.5' : ''}
+          >
+            <CliModelRow
+              icon={option.value}
+              label={option.label}
+              selected={option.value === currentCli && !effectiveModel}
+              onClick={() => (models ? onSelectModel(option.value, null) : onSelectCli(option.value))}
+            />
+            {models?.options.map((model) => (
+              <CliModelRow
+                key={model.id}
+                icon={option.value}
+                label={model.label ?? model.id}
+                mono={!model.label}
+                selected={option.value === currentCli && effectiveModel === model.id}
+                onClick={() => onSelectModel(option.value, model.id)}
+              />
+            ))}
+            {/* A persisted model no longer in the catalog still launches with
+                that id; surface it as the checked entry instead of hiding it. */}
+            {models && hasStaleModel && effectiveModel ? (
+              <CliModelRow
+                icon={option.value}
+                label={effectiveModel}
+                mono
+                selected
+                onClick={() => onSelectModel(option.value, effectiveModel)}
+              />
             ) : null}
-          </React.Fragment>
+          </div>
         )
       })}
     </div>

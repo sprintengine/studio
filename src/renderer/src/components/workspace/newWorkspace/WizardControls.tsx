@@ -144,6 +144,7 @@ export function RosterAndRunSettings({
   cliModelDefaults,
   onSetModel,
   spawnAtStartRoles,
+  spawnAtStartLocked,
   onSetSpawnAtStart,
   totalAgents,
   rosterCountLabel,
@@ -172,6 +173,7 @@ export function RosterAndRunSettings({
   cliModelDefaults?: Partial<Record<AgentCli, string>>
   onSetModel?: (role: SprintEngineRoleId, model: string | null) => void
   spawnAtStartRoles?: Partial<Record<SprintEngineRoleId, boolean>>
+  spawnAtStartLocked?: boolean
   onSetSpawnAtStart?: (role: SprintEngineRoleId, spawn: boolean) => void
   totalAgents: number
   // Lets the Sprint Engine step show "Loading roles" while the registry resolves;
@@ -215,6 +217,7 @@ export function RosterAndRunSettings({
           cliModelDefaults={cliModelDefaults}
           onSetModel={onSetModel}
           spawnAtStartRoles={spawnAtStartRoles}
+          spawnAtStartLocked={spawnAtStartLocked}
           onSetSpawnAtStart={onSetSpawnAtStart}
           footer={
             onChangeSaveRoster ? (

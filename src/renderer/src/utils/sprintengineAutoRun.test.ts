@@ -30,6 +30,8 @@ import {
   pickSprintEngineBootstrapCandidate,
   sprintEngineDispatchDeliveryKey,
   sprintEngineAutoRunWorkKey,
+  sprintEngineIdleClockKey,
+  sprintEngineRespawnLedgerKey,
   type AutoRunCandidate,
   type RoleContinuationGrace,
 } from './sprintengineAutoRun'
@@ -70,7 +72,7 @@ async function main(): Promise<void> {
   testArchitectInitStartupPromptIsMcpNative()
   testPromptBuildersIncludeAgentIdAndCommand()
   testSprintEngineAutomationNotificationCountIsWorkspaceScoped()
-  testDispatchPromptUsesJoinReconciliation()
+  testDispatchPromptUsesDirectClaim()
   testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles()
   testGetArchitectActionableNeedsInputTasksFiltersByKind()
   testRunBlockedOnExternalInputDetectsBlockedDependencyTail()
@@ -130,6 +132,19 @@ async function main(): Promise<void> {
   await testSuperviseRunnerCycleStartsReviewGateWhenUnrelatedAgentNeedsInput()
   await testSuperviseRunnerCycleDoesNotMutateTaskOrGateState()
   await testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForChangesRequested()
+  await testRespawnsDeadTaskClaimantAfterRestart()
+  await testRespawnsDeadGateClaimantWithGateClaimTool()
+  await testRespawnSkipsLiveCappedNeedsInputAndCoolingClaimants()
+  await testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy()
+  await testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass()
+  await testNotificationPasteSuppressesSamePassDispatchPaste()
+  await testIdleRetirementClosesParkedTerminalPastWindow()
+  await testIdleRetirementSparesClaimHoldersFreshIdlersAndVisibleTabs()
+  await testIdleRetirementSparesArchitectWithTriageWork()
+  await testIdleRetirementResetsRetiredAgentLaunchState()
+  await testNotificationSpawnFailureAbortsRemainingPlanActions()
+  await testSecondNotificationForSameAgentDefersToNextPass()
+  await testTriageDefersWhenPlanEngagedArchitectThisPass()
 }
 
 function testAgentTerminalBackgroundPolicyDoesNotSelectOrCreateTabs(): void {
@@ -982,16 +997,16 @@ async function testDeliverRequestChangesWakesOwnerWithJoinDirectiveWithoutReveal
   assert.equal(writes[0].sessionId, 'session-frontend')
   assert.ok(writes[0].text.includes('\x1b[200~'), 'rework prompt uses bracketed paste')
   assert.ok(
-    writes[0].text.includes('sprintengine.agent.next_directive'),
-    'rework prompt directs the agent at the MCP directive tool'
+    writes[0].text.includes('sprintengine.task.next'),
+    'rework prompt directs the agent at the MCP claim tool directly'
   )
   assert.ok(
     !writes[0].text.includes('"statePath"'),
     'rework prompt must not embed statePath; the managed MCP server resolves it from run context'
   )
   assert.ok(
-    writes[0].text.includes('"role": "frontend"') && writes[0].text.includes('"agentId": "frontend-2"'),
-    'rework prompt embeds the directive payload for this role and agent'
+    writes[0].text.includes('"role": "frontend"') && writes[0].text.includes('"id": "frontend-2"'),
+    'rework prompt embeds the claim payload for this role and agent'
   )
   assert.ok(
     !writes[0].text.includes('sprintengine join'),
@@ -1168,8 +1183,8 @@ async function testDeliverNotificationSpawnsAgentWhenMissingTerminal(): Promise<
   assert.equal(spawns[0].role, 'frontend')
   assert.equal(spawns[0].visible, false, 'automatic rework spawns stay background unless explicitly revealed')
   assert.ok(
-    spawns[0].initialPrompt?.includes('sprintengine.agent.next_directive'),
-    'spawned agent receives the MCP directive reconcile call as its startup prompt override'
+    spawns[0].initialPrompt?.includes('sprintengine.task.next'),
+    'spawned agent receives the MCP claim call as its startup prompt override'
   )
   assert.ok(
     !spawns[0].initialPrompt?.includes('sprintengine join'),
@@ -1328,14 +1343,18 @@ async function testDispatchPromptDeliveryUsesDispatchIdCooldown(): Promise<void>
   assert.equal(writes[0].sessionId, 'session-frontend')
   assert.ok(writes[0].text.includes('\x1b[200~'), 'existing terminal receives bracketed paste')
   assert.ok(writes[0].text.includes('Dispatch: DISP-6ed51f5daa40b4bd'))
-  assert.ok(writes[0].text.includes('sprintengine.agent.next_directive'), 'dispatch prompt names the MCP directive tool')
+  assert.ok(writes[0].text.includes('sprintengine.task.next'), 'dispatch prompt names the MCP claim tool directly')
+  assert.ok(
+    !writes[0].text.includes('sprintengine.agent.next_directive'),
+    'dispatch prompt does not route through the directive hop'
+  )
   assert.ok(
     !writes[0].text.includes('"statePath"'),
     'dispatch prompt must not embed statePath; the managed MCP server resolves it from run context'
   )
   assert.ok(
-    writes[0].text.includes('"role": "frontend"') && writes[0].text.includes('"agentId": "frontend-3"'),
-    'dispatch prompt embeds the directive payload for this dispatch target'
+    writes[0].text.includes('"role": "frontend"') && writes[0].text.includes('"id": "frontend-3"'),
+    'dispatch prompt embeds the claim payload for this dispatch target'
   )
   assert.ok(!writes[0].text.includes('sprintengine join'), 'dispatch prompt does not instruct the agent to run a sprintengine CLI command')
   assert.deepEqual(mutations, [], 'dispatch prompt delivery must not call task/gate/artifact mutation IPC')
@@ -2052,7 +2071,8 @@ async function testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt(): P
   assert.equal(spawns[0].metadata?.agentSession?.role, 'code_reviewer')
   assert.equal(spawns[0].metadata?.visible, false, 'normal auto-run spawns stay background')
   assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.join'), 'startup prompt names the MCP join tool')
-  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.next_directive'), 'startup prompt names the MCP directive tool')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.gate.next'), 'startup prompt names the MCP gate claim tool')
+  assert.ok(!spawns[0].initialPrompt?.includes('sprintengine.agent.next_directive'), 'startup prompt does not route through the directive hop')
   assert.ok(spawns[0].initialPrompt?.includes('"role": "code_reviewer"'), 'startup prompt embeds the role in the MCP payload')
   assert.ok(spawns[0].initialPrompt?.includes('"agentId": "code_reviewer"'), 'startup prompt embeds the agentId in the MCP payload')
   assert.ok(
@@ -2173,6 +2193,7 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   const replacementSpawn = spawns.find((spawn) => spawn.agentId === 'developer-2')
@@ -2272,16 +2293,1022 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   assert.equal(spawns.length, 1, `exited role agent should restart for ready work; spawns ${JSON.stringify(spawns)}`)
   assert.equal(spawns[0].agentId, 'code_reviewer')
   assert.equal(spawns[0].cli, 'codex')
   assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.join'), 'restarted code_reviewer prompt names the MCP join tool')
-  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.next_directive'), 'restarted code_reviewer prompt names the MCP directive tool')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.gate.next'), 'restarted code_reviewer prompt names the MCP gate claim tool')
   assert.ok(
     !/sprintengine (join|task|gate|triage|init|handover)/.test(spawns[0].initialPrompt ?? ''),
     'restarted code_reviewer prompt does not embed any sprintengine CLI command'
+  )
+}
+
+type CapturedSpawn = { agentId?: string; cli?: AgentCli; initialPrompt?: string }
+
+function installRespawnTestWindow(spawns: CapturedSpawn[]): void {
+  installTestWindow({
+    terminalList: async () => [],
+    terminalStatus: async () => ({ processAlive: false }),
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    terminalSpawn: async (
+      sessionId: string,
+      _cols: number,
+      _rows: number,
+      _cwd?: string,
+      _resume?: boolean,
+      _statePath?: string,
+      cli?: AgentCli,
+      initialPrompt?: string,
+      _cliRuntimes?: unknown,
+      _shellOnly?: boolean,
+      metadata?: { agentId?: string },
+    ) => {
+      spawns.push({ agentId: metadata?.agentId, cli, initialPrompt })
+      return { ok: true, sessionId }
+    },
+    logDiagnostic: async (input) => input,
+  })
+}
+
+const respawnTestCliRuntimes = {
+  codex: { command: 'codex', useWsl: false },
+  'claude-code': { command: 'claude', useWsl: false },
+}
+
+async function testRespawnsDeadTaskClaimantAfterRestart(): Promise<void> {
+  // Restart-recovery regression: a task claimed before an app restart whose
+  // owner has no live terminal must get its claimant respawned (the claim
+  // tools resume their own claims), instead of deadlocking forever because
+  // prompts require a live terminal and spawns skip claimed work.
+  const spawns: CapturedSpawn[] = []
+  installRespawnTestWindow(spawns)
+
+  const supervisor = await loadSupervisor()
+  const workspace = workspaceFixture({
+    agents: { 'developer-1': sprintAgent('developer-1', 'Devin') },
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [task({
+      id: 'T1',
+      title: 'Implement claimed work',
+      role: 'developer',
+      status: 'in_progress',
+      boardColumn: 'in_progress',
+      ownerAgentId: 'developer-1',
+      qualityGates: [],
+    })],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { status: 'running', currentTaskId: 'T1' }),
+    },
+  })
+  installWorkspaceStore(workspace)
+  const sent = mutableRef(new Map<string, { sentAt: number; attempts?: number }>())
+
+  await supervisor.respawnDeadSprintEngineClaimants(
+    workspace,
+    state,
+    new Set(),
+    { capacityByRole: new Map(), agentIds: new Set() },
+    sent,
+    { cliRuntimes: respawnTestCliRuntimes, mcpSettings: emptyMcpSettings, inFlightSpawns: mutableRef(new Set<string>()) }
+  )
+
+  assert.equal(spawns.length, 1, `dead task claimant is respawned; spawns ${JSON.stringify(spawns)}`)
+  assert.equal(spawns[0].agentId, 'developer-1')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.join'), 'respawn prompt names the MCP join tool')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.task.next'), 'respawn prompt names the task claim tool')
+  const key = sprintEngineRespawnLedgerKey(workspace, { taskId: 'T1' }, 'developer-1')
+  assert.equal(sent.current.get(key)?.attempts, 1, 'respawn attempt is recorded in the unified attempt ledger')
+
+  // Within the cooldown window the planner must not respawn again.
+  await supervisor.respawnDeadSprintEngineClaimants(
+    workspace,
+    state,
+    new Set(),
+    { capacityByRole: new Map(), agentIds: new Set() },
+    sent,
+    { cliRuntimes: respawnTestCliRuntimes, mcpSettings: emptyMcpSettings, inFlightSpawns: mutableRef(new Set<string>()) }
+  )
+  assert.equal(spawns.length, 1, 'no second respawn inside the cooldown window')
+}
+
+async function testRespawnsDeadGateClaimantWithGateClaimTool(): Promise<void> {
+  const spawns: CapturedSpawn[] = []
+  installRespawnTestWindow(spawns)
+
+  const supervisor = await loadSupervisor()
+  const workspace = workspaceFixture({
+    agents: { 'code_reviewer-1': sprintAgent('code_reviewer-1', 'Shawn') },
+  })
+  const reviewTask = task({
+    id: 'T3',
+    status: 'review',
+    boardColumn: 'review',
+    ownerAgentId: 'developer-1',
+    qualityGates: [
+      {
+        id: 'code_reviewer',
+        phase: 'review',
+        role: 'code_reviewer',
+        status: 'in_progress',
+        required: true,
+        allowSelfReview: true,
+        focus: '',
+        attempts: [{ id: 'GA-001', status: 'in_progress', role: 'code_reviewer', claimedBy: 'code_reviewer-1', startedAt: '2026-06-12T08:00:00Z' }],
+      },
+    ],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [reviewTask],
+    sprintEngineAgents: {
+      'code_reviewer-1': runtimeAgent('code_reviewer', { status: 'running', currentTaskId: 'T3' }),
+    },
+  })
+  installWorkspaceStore(workspace)
+  const sent = mutableRef(new Map<string, { sentAt: number; attempts?: number }>())
+
+  await supervisor.respawnDeadSprintEngineClaimants(
+    workspace,
+    state,
+    new Set(),
+    { capacityByRole: new Map(), agentIds: new Set() },
+    sent,
+    { cliRuntimes: respawnTestCliRuntimes, mcpSettings: emptyMcpSettings, inFlightSpawns: mutableRef(new Set<string>()) }
+  )
+
+  assert.equal(spawns.length, 1, `dead gate claimant is respawned; spawns ${JSON.stringify(spawns)}`)
+  assert.equal(spawns[0].agentId, 'code_reviewer-1')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.gate.next'), 'gate-claim respawn prompt names the gate claim tool')
+  const key = sprintEngineRespawnLedgerKey(workspace, { taskId: 'T3', gateId: 'code_reviewer' }, 'code_reviewer-1')
+  assert.equal(sent.current.get(key)?.attempts, 1, 'gate respawn attempt is recorded under the gate work key')
+}
+
+async function testRespawnSkipsLiveCappedNeedsInputAndCoolingClaimants(): Promise<void> {
+  const spawns: CapturedSpawn[] = []
+  installRespawnTestWindow(spawns)
+
+  const supervisor = await loadSupervisor()
+  const workspace = workspaceFixture({
+    agents: {
+      'developer-live': sprintAgent('developer-live', 'Liv'),
+      'developer-blocked': sprintAgent('developer-blocked', 'Bea'),
+      'developer-capped': sprintAgent('developer-capped', 'Cap'),
+      'developer-cooling': sprintAgent('developer-cooling', 'Coda'),
+    },
+  })
+  const claimedTask = (id: string, ownerAgentId: string) => task({
+    id,
+    role: 'developer',
+    status: 'in_progress',
+    boardColumn: 'in_progress',
+    ownerAgentId,
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [
+      claimedTask('T1', 'developer-live'),
+      claimedTask('T2', 'developer-blocked'),
+      claimedTask('T3', 'developer-capped'),
+      claimedTask('T4', 'developer-cooling'),
+    ],
+    sprintEngineAgents: {
+      'developer-live': runtimeAgent('developer', { status: 'running', currentTaskId: 'T1' }),
+      'developer-blocked': runtimeAgent('developer', { status: 'needs_input', currentTaskId: 'T2' }),
+      'developer-capped': runtimeAgent('developer', { status: 'running', currentTaskId: 'T3' }),
+      'developer-cooling': runtimeAgent('developer', { status: 'running', currentTaskId: 'T4' }),
+    },
+  })
+  installWorkspaceStore(workspace)
+  const cappedKey = sprintEngineRespawnLedgerKey(workspace, { taskId: 'T3' }, 'developer-capped')
+  const coolingKey = sprintEngineRespawnLedgerKey(workspace, { taskId: 'T4' }, 'developer-cooling')
+  const sent = mutableRef(new Map<string, { sentAt: number; attempts?: number }>([
+    [cappedKey, { sentAt: Date.now() - 120_000, attempts: supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES }],
+    [coolingKey, { sentAt: Date.now() - 5_000, attempts: 1 }],
+  ]))
+
+  await supervisor.respawnDeadSprintEngineClaimants(
+    workspace,
+    state,
+    new Set(['developer-live']),
+    { capacityByRole: new Map(), agentIds: new Set() },
+    sent,
+    { cliRuntimes: respawnTestCliRuntimes, mcpSettings: emptyMcpSettings, inFlightSpawns: mutableRef(new Set<string>()) }
+  )
+
+  assert.equal(
+    spawns.length,
+    0,
+    `live, needs_input, capped, and cooling-down claimants are never respawned; spawns ${JSON.stringify(spawns)}`
+  )
+  assert.equal(
+    sent.current.get(cappedKey)?.attempts,
+    supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES,
+    'capped respawn budget is not consumed further'
+  )
+  assert.equal(sent.current.get(coolingKey)?.attempts, 1, 'cooldown does not consume respawn budget')
+}
+
+async function testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy(): Promise<void> {
+  // The live-reproduced restart deadlock: every concurrency slot is consumed
+  // by an in-progress task whose owner terminal died with the app, so the
+  // cycle used to return at `no-slots` every tick without ever spawning. The
+  // respawn path must recover all claimants before slot accounting runs.
+  const spawns: CapturedSpawn[] = []
+  installRespawnTestWindow(spawns)
+
+  const supervisor = await loadSupervisor()
+  const claimedTask = (id: string, ownerAgentId: string) => task({
+    id,
+    role: 'developer',
+    status: 'in_progress',
+    boardColumn: 'in_progress',
+    ownerAgentId,
+    qualityGates: [],
+  })
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: [
+      claimedTask('T1', 'developer-1'),
+      claimedTask('T2', 'developer-2'),
+      claimedTask('T3', 'developer-3'),
+    ],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { status: 'running', currentTaskId: 'T1' }),
+      'developer-2': runtimeAgent('developer', { status: 'running', currentTaskId: 'T2' }),
+      'developer-3': runtimeAgent('developer', { status: 'running', currentTaskId: 'T3' }),
+    },
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: {
+      'developer-1': sprintAgent('developer-1', 'Devin'),
+      'developer-2': sprintAgent('developer-2', 'Drew'),
+      'developer-3': sprintAgent('developer-3', 'Dale'),
+    },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: respawnTestCliRuntimes,
+    mcpSettings: emptyMcpSettings,
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages: mutableRef(new Map()),
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
+  })
+
+  assert.equal(
+    spawns.length,
+    3,
+    `all dead claimants are respawned despite zero free slots; spawned ${JSON.stringify(spawns.map((spawn) => spawn.agentId))}`
+  )
+  assert.deepEqual(
+    spawns.map((spawn) => spawn.agentId).sort(),
+    ['developer-1', 'developer-2', 'developer-3']
+  )
+  for (const spawn of spawns) {
+    assert.ok(spawn.initialPrompt?.includes('sprintengine.agent.join'), 'respawn prompt names the MCP join tool')
+    assert.ok(spawn.initialPrompt?.includes('sprintengine.task.next'), 'respawn prompt names the task claim tool')
+  }
+}
+
+async function testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass(): Promise<void> {
+  // Cross-path per-agent dedup regression: a live-idle reviewer has exhausted
+  // its wake budget on a ready task (restart-eligible) while a claimable gate
+  // of its role is due (gate-paste-eligible). One supervise pass must engage
+  // the agent exactly once — the gate paste — and never kill the terminal it
+  // just pasted into.
+  const writes: Array<{ sessionId: string; text: string }> = []
+  const kills: string[] = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-reviewer',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'code_reviewer-1',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+        startedAt: 1,
+      },
+    ],
+    terminalStatus: async () => ({ processAlive: true }),
+    terminalWrite: async (sessionId: string, text: string) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    terminalKill: async (sessionId: string) => {
+      kills.push(sessionId)
+      return { ok: true }
+    },
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const readyReviewTask = task({
+    id: 'T-ready',
+    title: 'Ownerless ready review task',
+    role: 'code_reviewer',
+    status: 'todo',
+    boardColumn: 'ready',
+    ownerAgentId: null,
+    qualityGates: [],
+  })
+  const gatedTask = task({
+    id: 'T3',
+    status: 'review',
+    boardColumn: 'review',
+    ownerAgentId: 'developer-1',
+    qualityGates: [
+      { id: 'code_reviewer', phase: 'review', role: 'code_reviewer', status: 'pending', required: true, allowSelfReview: true, focus: '', attempts: [] },
+    ],
+  })
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: [readyReviewTask, gatedTask],
+    sprintEngineAgents: {
+      'code_reviewer-1': runtimeAgent('code_reviewer', { status: 'idle', currentTaskId: null }),
+    },
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: { 'code_reviewer-1': sprintAgent('code_reviewer-1', 'Shawn') },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+  const wakeKey = continuationMessageKey(workspace, 'T-ready', 'code_reviewer-1')
+  const sentContinuationMessages = mutableRef(new Map<string, { sentAt: number; attempts?: number }>([
+    [wakeKey, { sentAt: Date.now() - 120_000, attempts: supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES }],
+  ]))
+
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: respawnTestCliRuntimes,
+    mcpSettings: emptyMcpSettings,
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages,
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
+  })
+
+  assert.equal(writes.length, 1, `exactly one engagement for the agent; writes ${JSON.stringify(writes.map((write) => write.sessionId))}`)
+  assert.ok(writes[0].text.includes('sprintengine.gate.next'), 'the single engagement is the gate continuation paste')
+  assert.deepEqual(kills, [], 'a terminal that received a paste this pass is never killed in the same pass')
+}
+
+async function testNotificationPasteSuppressesSamePassDispatchPaste(): Promise<void> {
+  // Notification decisions are part of the one reconcile plan: a target that
+  // receives a notification paste is engaged for the pass, so the durable
+  // dispatch prompt for the same agent waits for the next tick instead of
+  // landing as a second instruction in the same pass.
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-frontend',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'frontend-2',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+        startedAt: 1,
+      },
+    ],
+    terminalStatus: async () => ({ processAlive: true }),
+    terminalWrite: async (sessionId: string, text: string) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const event = reworkNotificationEvent({ taskId: undefined })
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: [task({ id: 'T4', role: 'frontend', status: 'in_progress', boardColumn: 'in_progress', ownerAgentId: 'frontend-2', qualityGates: [] })],
+    sprintEngineAgents: {
+      'frontend-2': runtimeAgent('frontend', {
+        status: 'running',
+        currentTaskId: null,
+        currentDispatch: {
+          dispatchId: 'DISP-T4',
+          targetKind: 'task',
+          role: 'frontend',
+          taskId: 'T4',
+          reason: 'task_claimed',
+        },
+      }),
+    },
+    events: [event],
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: { 'frontend-2': sprintAgent('frontend-2', 'Zion') },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: respawnTestCliRuntimes,
+    mcpSettings: emptyMcpSettings,
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages: mutableRef(new Map()),
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
+  })
+
+  assert.equal(
+    writes.length,
+    1,
+    `the engaged notification target gets exactly one instruction this pass; writes ${JSON.stringify(writes.map((write) => write.text.slice(0, 60)))}`
+  )
+  assert.ok(writes[0].text.includes('Sprint Engine notification.'), 'the single write is the notification paste')
+}
+
+function idleReviewerCycleFixtures(input: { tasks: SprintEngineTask[]; reviewerOverrides?: Partial<SprintEngineRuntimeAgent> }): {
+  workspace: Workspace
+  sprintEngineState: SprintEngineState
+} {
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: input.tasks,
+    sprintEngineAgents: {
+      'code_reviewer-1': runtimeAgent('code_reviewer', { status: 'idle', currentTaskId: null, ...input.reviewerOverrides }),
+    },
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: { 'code_reviewer-1': sprintAgent('code_reviewer-1', 'Shawn') },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  return { workspace, sprintEngineState }
+}
+
+function installIdleRetirementTestWindow(kills: string[], writes: Array<{ sessionId: string; text: string }>): void {
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-reviewer',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'code_reviewer-1',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+        startedAt: 1,
+      },
+    ],
+    terminalStatus: async () => ({ processAlive: true }),
+    terminalWrite: async (sessionId: string, text: string) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    terminalKill: async (sessionId: string) => {
+      kills.push(sessionId)
+      return { ok: true }
+    },
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    logDiagnostic: async (input) => input,
+  })
+}
+
+async function runIdleRetirementCycle(
+  supervisor: Awaited<ReturnType<typeof loadSupervisor>>,
+  workspace: Workspace,
+  sprintEngineState: SprintEngineState,
+  idleClockByAgent: { current: Map<string, number> }
+): Promise<void> {
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: respawnTestCliRuntimes,
+    mcpSettings: emptyMcpSettings,
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages: mutableRef(new Map()),
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent,
+  })
+}
+
+async function testIdleRetirementClosesParkedTerminalPastWindow(): Promise<void> {
+  // Operator invariant: visible terminals = active work. A live-idle agent
+  // holding no claim, with no claimable work for its role, parked past the
+  // retirement window, gets its terminal closed; lazy spawn revives the role
+  // when work appears.
+  const kills: string[] = []
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installIdleRetirementTestWindow(kills, writes)
+
+  const supervisor = await loadSupervisor()
+  const { workspace, sprintEngineState } = idleReviewerCycleFixtures({
+    // Ready work exists for a different role only, so the run is mid-flight
+    // but nothing can engage the idle reviewer.
+    tasks: [task({ id: 'T-dev', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+  })
+  installWorkspaceStore(workspace)
+  const idleClockByAgent = mutableRef(new Map<string, number>([
+    [sprintEngineIdleClockKey(workspace, 'code_reviewer-1'), Date.now() - supervisor.AUTO_RUN_IDLE_RETIREMENT_MS - 60_000],
+  ]))
+
+  await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
+
+  assert.deepEqual(kills, ['session-reviewer'], 'the parked reviewer terminal is retired past the idle window')
+  assert.equal(writes.length, 0, 'retirement sends no prompt; the terminal is simply closed')
+}
+
+async function testIdleRetirementSparesClaimHoldersFreshIdlersAndVisibleTabs(): Promise<void> {
+  const supervisor = await loadSupervisor()
+
+  // Case 1: a fresh idler (clock inside the window) is not retired.
+  {
+    const kills: string[] = []
+    const writes: Array<{ sessionId: string; text: string }> = []
+    installIdleRetirementTestWindow(kills, writes)
+    const { workspace, sprintEngineState } = idleReviewerCycleFixtures({
+      tasks: [task({ id: 'T-dev', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+    })
+    installWorkspaceStore(workspace)
+    const idleClockByAgent = mutableRef(new Map<string, number>([
+      [sprintEngineIdleClockKey(workspace, 'code_reviewer-1'), Date.now() - 30_000],
+    ]))
+    await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
+    assert.deepEqual(kills, [], 'an idler inside the retirement window keeps its terminal')
+  }
+
+  // Case 2: a claim holder past the window is never retired, and its idle
+  // clock entry is cleared rather than left to mature.
+  {
+    const kills: string[] = []
+    const writes: Array<{ sessionId: string; text: string }> = []
+    installIdleRetirementTestWindow(kills, writes)
+    const { workspace, sprintEngineState } = idleReviewerCycleFixtures({
+      tasks: [task({ id: 'T-own', role: 'code_reviewer', status: 'in_progress', boardColumn: 'in_progress', ownerAgentId: 'code_reviewer-1', qualityGates: [] })],
+      reviewerOverrides: { status: 'running', currentTaskId: 'T-own' },
+    })
+    installWorkspaceStore(workspace)
+    const clockKey = sprintEngineIdleClockKey(workspace, 'code_reviewer-1')
+    const idleClockByAgent = mutableRef(new Map<string, number>([
+      [clockKey, Date.now() - supervisor.AUTO_RUN_IDLE_RETIREMENT_MS - 60_000],
+    ]))
+    await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
+    assert.deepEqual(kills, [], 'a claim holder is never retired no matter how old its stale clock entry is')
+    assert.equal(idleClockByAgent.current.has(clockKey), false, 'the stale idle clock entry is cleared for a claim holder')
+  }
+
+  // Case 3: the visible tab of the active workspace is never closed; the
+  // retirement retries once the operator looks away.
+  {
+    const kills: string[] = []
+    const writes: Array<{ sessionId: string; text: string }> = []
+    installIdleRetirementTestWindow(kills, writes)
+    const { workspace, sprintEngineState } = idleReviewerCycleFixtures({
+      tasks: [task({ id: 'T-dev', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+    })
+    installWorkspaceStore(workspace)
+    const layout: IJsonModel = {
+      global: {},
+      layout: {
+        type: 'row',
+        children: [{
+          type: 'tabset',
+          id: 'main',
+          selected: 0,
+          children: [{ type: 'tab', id: 'agent-tab', name: 'Shawn', component: 'agent', config: { agentId: 'code_reviewer-1' } }],
+        }],
+      },
+    }
+    registerModel(workspace.id, Model.fromJson(layout))
+    try {
+      const idleClockByAgent = mutableRef(new Map<string, number>([
+        [sprintEngineIdleClockKey(workspace, 'code_reviewer-1'), Date.now() - supervisor.AUTO_RUN_IDLE_RETIREMENT_MS - 60_000],
+      ]))
+      await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
+      assert.deepEqual(kills, [], 'the visible tab of the active workspace is never retired')
+    } finally {
+      unregisterModel(workspace.id)
+    }
+  }
+}
+
+async function testIdleRetirementSparesArchitectWithTriageWork(): Promise<void> {
+  // Kill/respawn-storm regression: an idle architect past the window with
+  // architect-actionable needs_input work must NOT be retired. Triage lives
+  // outside the reconcile plan and respawns the architect whenever such work
+  // exists, so retiring it here loops kill -> respawn -> retire every tick.
+  const kills: string[] = []
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-architect',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'architect',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+        startedAt: 1,
+      },
+    ],
+    terminalStatus: async () => ({ processAlive: true }),
+    terminalWrite: async (sessionId: string, text: string) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    terminalKill: async (sessionId: string) => {
+      kills.push(sessionId)
+      return { ok: true }
+    },
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: [
+      task({
+        id: 'T-triage',
+        role: 'architect',
+        status: 'needs_input',
+        boardColumn: 'in_progress',
+        ownerAgentId: null,
+        qualityGates: [],
+        needsInput: { kind: 'architect', reason: 'Design decision required' } as SprintEngineTask['needsInput'],
+      }),
+    ],
+    sprintEngineAgents: {
+      architect: runtimeAgent('architect', { status: 'idle', currentTaskId: null }),
+    },
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: { architect: sprintAgent('architect', 'Aidan') },
+  })
+  installWorkspaceStore(workspace)
+  const idleClockByAgent = mutableRef(new Map<string, number>([
+    [sprintEngineIdleClockKey(workspace, 'architect'), Date.now() - supervisor.AUTO_RUN_IDLE_RETIREMENT_MS - 60_000],
+  ]))
+
+  await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
+
+  assert.ok(
+    !kills.includes('session-architect'),
+    'an architect with actionable needs_input triage work is never retired (triage owns that terminal)',
+  )
+}
+
+async function testIdleRetirementResetsRetiredAgentLaunchState(): Promise<void> {
+  // The kill alone does not stop a mounted-but-unfocused AgentPanel from
+  // respawning the PTY (its `hasStarted` reads `cliStartRequested`). Retirement
+  // must clear the agent's launch flags so the close sticks for one tick.
+  const kills: string[] = []
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installIdleRetirementTestWindow(kills, writes)
+
+  const supervisor = await loadSupervisor()
+  const { workspace, sprintEngineState } = idleReviewerCycleFixtures({
+    tasks: [task({ id: 'T-dev', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+  })
+  installWorkspaceStore(workspace)
+  const idleClockByAgent = mutableRef(new Map<string, number>([
+    [sprintEngineIdleClockKey(workspace, 'code_reviewer-1'), Date.now() - supervisor.AUTO_RUN_IDLE_RETIREMENT_MS - 60_000],
+  ]))
+
+  await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
+
+  assert.deepEqual(kills, ['session-reviewer'], 'the parked reviewer terminal is retired past the idle window')
+  const retiredAgent = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspace.id)?.agents['code_reviewer-1']
+  assert.equal(retiredAgent?.cliStartRequested, false, 'retirement clears cliStartRequested so the renderer does not respawn the PTY')
+  assert.equal(retiredAgent?.cliSessionId, undefined, 'retirement clears the dead session id')
+}
+
+async function testNotificationSpawnFailureAbortsRemainingPlanActions(): Promise<void> {
+  // Failure boundary regression: a failed notification spawn stops the
+  // automation (recordSpawnFailure), so the same reconcile pass must not go
+  // on to paste prompts, kill terminals, or spawn respawns past that
+  // boundary — the pre-fold cycle returned before any dispatch path ran.
+  const writes: Array<{ sessionId: string; text: string }> = []
+  const kills: string[] = []
+  let spawnAttempts = 0
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-frontend',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'frontend-2',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+        startedAt: 1,
+      },
+    ],
+    terminalStatus: async () => ({ processAlive: false }),
+    terminalWrite: async (sessionId: string, text: string) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    terminalKill: async (sessionId: string) => {
+      kills.push(sessionId)
+      return { ok: true }
+    },
+    terminalSpawn: async () => {
+      spawnAttempts += 1
+      return { ok: false, message: 'spawn backend unavailable' }
+    },
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const notificationEvent = reworkNotificationEvent({ targetAgentId: 'developer-1', taskId: 'T-rework' })
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: [task({ id: 'T-rework', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+    sprintEngineAgents: {
+      // Dead notification target whose spawn will fail.
+      'developer-1': runtimeAgent('developer', { status: 'idle', currentTaskId: null }),
+      // Live agent with a durable dispatch due — its paste must NOT happen
+      // once the notification spawn has failed.
+      'frontend-2': runtimeAgent('frontend', {
+        status: 'running',
+        currentTaskId: null,
+        currentDispatch: { dispatchId: 'DISP-1', targetKind: 'task', role: 'frontend', taskId: 'T-f', reason: 'task_claimed' },
+      }),
+    },
+    events: [notificationEvent],
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: {
+      'developer-1': sprintAgent('developer-1', 'Devin'),
+      'frontend-2': sprintAgent('frontend-2', 'Zion'),
+    },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: respawnTestCliRuntimes,
+    mcpSettings: emptyMcpSettings,
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages: mutableRef(new Map()),
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
+  })
+
+  assert.equal(spawnAttempts, 1, 'exactly one spawn attempt (the failing notification spawn)')
+  assert.equal(writes.length, 0, `no paste executes past the spawn-failure boundary; writes ${JSON.stringify(writes.map((write) => write.text.slice(0, 50)))}`)
+  assert.deepEqual(kills, [], 'no terminal is killed past the spawn-failure boundary')
+}
+
+async function testSecondNotificationForSameAgentDefersToNextPass(): Promise<void> {
+  // Per-agent dedup applies inside the notification path: two pending event
+  // ids for one live target produce one paste this pass; the second event
+  // stays undelivered and lands on the next pass.
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-frontend',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'frontend-2',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+        startedAt: 1,
+      },
+    ],
+    terminalWrite: async (sessionId: string, text: string) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const workspace = reworkNotificationWorkspaceFixture()
+  const firstEvent = reworkNotificationEvent({ id: 'EV-rework-1' })
+  const secondEvent = reworkNotificationEvent({ id: 'EV-rework-2', message: 'Second round of changes requested.' })
+  const state = sprintEngineStateFixture({
+    sprintEngineAgents: {
+      'frontend-2': runtimeAgent('frontend', { status: 'running', currentTaskId: 'T-rework' }),
+    },
+    events: [firstEvent, secondEvent],
+  })
+  installWorkspaceStore(workspace)
+  const sent = mutableRef(new Set<string>())
+
+  await supervisor.deliverAgentNotificationEvents(
+    workspace,
+    state,
+    new Set(['frontend-2']),
+    respawnTestCliRuntimes,
+    emptyMcpSettings,
+    mutableRef(new Set<string>()),
+    sent
+  )
+
+  assert.equal(writes.length, 1, `one engagement per agent per pass; writes ${JSON.stringify(writes.map((write) => write.text.slice(0, 50)))}`)
+  const firstKey = agentNotificationDeliveryKey(workspace, firstEvent)
+  const secondKey = agentNotificationDeliveryKey(workspace, secondEvent)
+  assert.equal(sent.current.has(firstKey), true, 'first event is delivered this pass')
+  assert.equal(sent.current.has(secondKey), false, 'second event stays pending for the next pass')
+
+  await supervisor.deliverAgentNotificationEvents(
+    workspace,
+    state,
+    new Set(['frontend-2']),
+    respawnTestCliRuntimes,
+    emptyMcpSettings,
+    mutableRef(new Set<string>()),
+    sent
+  )
+  assert.equal(writes.length, 2, 'the deferred event is delivered on the next pass')
+  assert.equal(sent.current.has(secondKey), true, 'second event is delivered on the next pass')
+}
+
+async function testTriageDefersWhenPlanEngagedArchitectThisPass(): Promise<void> {
+  // Triage lives outside the reconcile plan; when the plan engaged the
+  // architect this pass (e.g. a ready-task wake paste), triage must defer to
+  // the next tick instead of stacking a second, contradictory instruction
+  // into the same terminal.
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-architect',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'architect',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+        startedAt: 1,
+      },
+    ],
+    terminalStatus: async () => ({ processAlive: true }),
+    terminalWrite: async (sessionId: string, text: string) => {
+      writes.push({ sessionId, text })
+      return { ok: true }
+    },
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: [
+      // Ready architect-role wake candidate for the live-idle architect.
+      task({ id: 'T-arch', role: 'architect', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+      // Architect-actionable needs_input task owned by another agent.
+      task({
+        id: 'T-blocked',
+        role: 'developer',
+        status: 'needs_input',
+        boardColumn: 'in_progress',
+        ownerAgentId: 'developer-9',
+        qualityGates: [],
+        needsInput: { kind: 'architect', reason: 'Design decision required', question: 'Which schema?' },
+      }),
+    ],
+    sprintEngineAgents: {
+      architect: runtimeAgent('architect', { status: 'idle', currentTaskId: null }),
+      'developer-9': runtimeAgent('developer', { status: 'needs_input', currentTaskId: 'T-blocked' }),
+    },
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: { architect: sprintAgent('architect', 'Ari') },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      keepDoneAgentTerminals: false,
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+
+  await supervisor.superviseRunnerActiveCycle({
+    workspace,
+    sprintEngineState,
+    autoState: workspace.sprintEngineAutoState,
+    superviseStartedAt: 0,
+    cliRuntimes: respawnTestCliRuntimes,
+    mcpSettings: emptyMcpSettings,
+    inFlightSpawns: mutableRef(new Set<string>()),
+    sentContinuationMessages: mutableRef(new Map()),
+    sentDispatchMessages: mutableRef(new Map()),
+    sentArchitectTriageMessages: mutableRef(new Map()),
+    sentAgentNotificationEvents: mutableRef(new Set()),
+    continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
+  })
+
+  assert.equal(
+    writes.length,
+    1,
+    `the engaged architect receives exactly one instruction this pass; writes ${JSON.stringify(writes.map((write) => write.text.slice(0, 60)))}`
+  )
+  assert.ok(writes[0].text.includes('sprintengine.task.next'), 'the single write is the wake paste')
+  assert.ok(
+    !writes.some((write) => write.text.includes('sprintengine.triage.needs_input')),
+    'no triage prompt is pasted in the same pass that engaged the architect'
   )
 }
 
@@ -2362,6 +3389,7 @@ async function testSuperviseRunnerCycleBootstrapsOnlyArchitectForFreshRun(): Pro
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   assert.equal(
@@ -2498,6 +3526,7 @@ async function testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForChangesRe
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   // Before the fix: frontend is treated as "running", so no replacement is
@@ -2594,6 +3623,7 @@ async function testSuperviseRunnerCycleDoesNotRestartUnresolvedNeedsInputOwner()
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   assert.equal(spawns.length, 0, `unresolved needs_input owner should not be restarted; spawns ${JSON.stringify(spawns)}`)
@@ -2698,11 +3728,12 @@ async function testSuperviseRunnerCycleStartsReviewGateWhenUnrelatedAgentNeedsIn
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   assert.equal(spawns.length, 1, `unrelated needs_input work must not block review gate spawn; spawns ${JSON.stringify(spawns)}`)
   assert.equal(spawns[0].agentId, 'code_reviewer')
-  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.agent.next_directive'), 'reviewer prompt names the MCP directive tool')
+  assert.ok(spawns[0].initialPrompt?.includes('sprintengine.gate.next'), 'reviewer prompt names the MCP gate claim tool')
 }
 
 async function testSuperviseRunnerCycleDoesNotMutateTaskOrGateState(): Promise<void> {
@@ -2792,6 +3823,7 @@ async function testSuperviseRunnerCycleDoesNotMutateTaskOrGateState(): Promise<v
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
+    idleClockByAgent: mutableRef(new Map()),
   })
 
   assert.deepEqual(mutations, [], 'auto-run dispatch/gate paths must not call renderer task/gate mutation APIs')
@@ -2874,20 +3906,21 @@ function testStartupPromptIsMcpNative(): void {
   assert.ok(prompt.includes('Worker cwd: /tmp/workspace'))
   assert.ok(!prompt.includes('/tmp/workspace/.multi-code/sprintengine/team/run.yaml'), 'startup prompt does not expose the run state path')
   assert.ok(prompt.includes('sprintengine.agent.join'), 'startup prompt names the MCP join tool')
-  assert.ok(prompt.includes('sprintengine.agent.next_directive'), 'startup prompt names the MCP directive tool')
+  assert.ok(prompt.includes('sprintengine.task.next'), 'startup prompt names the MCP claim tool')
+  assert.ok(!prompt.includes('sprintengine.agent.next_directive'), 'startup prompt does not route through the directive hop')
   assert.ok(!prompt.includes('"statePath"'), 'startup prompt must not embed statePath in the MCP payload; the managed MCP server resolves it from run context')
   assert.ok(prompt.includes('"role": "frontend"'), 'startup prompt embeds the role in the MCP payload')
-  assert.ok(prompt.includes('"agentId": "frontend-2"'), 'startup prompt embeds the agentId in the MCP payload')
+  assert.ok(prompt.includes('"agentId": "frontend-2"'), 'startup prompt embeds the agentId in the join payload')
+  assert.ok(prompt.includes('"id": "frontend-2"'), 'startup prompt embeds the agent id in the claim payload')
   assert.ok(!prompt.includes('"workspaceRoot"'), 'startup prompt must not embed workspaceRoot in the MCP payload; the managed MCP server resolves it from run context')
   assert.ok(!prompt.includes('SPRINTENGINE_STATE_PATH'), 'startup prompt must not reference env-based managed routing')
   assert.ok(!prompt.includes('SPRINTENGINE_WORKSPACE_ROOT'), 'startup prompt must not reference env-based managed routing')
   assert.ok(!prompt.includes('launch env'), 'startup prompt must describe run-context routing, not launch-env routing')
   assert.ok(prompt.includes('sprintengine.help'), 'startup prompt directs agents to read MCP-owned workflow help first')
-  assert.ok(prompt.includes('nextMcpToolName') && prompt.includes('nextMcpArguments'), 'startup prompt names the directive routing fields')
+  assert.ok(!prompt.includes('nextMcpToolName') && !prompt.includes('nextMcpArguments'), 'startup prompt does not teach the directive routing fields')
   assert.ok(!prompt.includes('retryAfterMs'), 'startup prompt does not instruct Multicode agents to use retryAfterMs')
-  assert.doesNotMatch(prompt, /sleep .*sprintengine\.agent\.next_directive/iu, 'startup prompt does not define an idle sleep/retry loop')
-  assert.ok(!prompt.includes('sprintengine.task.next'), 'startup prompt does not inline MCP task workflow details')
-  assert.ok(!prompt.includes('sprintengine.gate.next'), 'startup prompt does not inline MCP gate workflow details')
+  assert.doesNotMatch(prompt, /poll|backoff|sleep/iu, 'startup prompt does not define idle polling behavior')
+  assert.ok(prompt.includes('stop — Multicode re-engages this terminal'), 'startup prompt carries the no-work stop contract')
   assert.ok(!prompt.includes('sprintengine.triage.needs_input'), 'startup prompt does not inline MCP triage workflow details')
   assert.ok(!prompt.includes('sprintengine.task.publish'), 'startup prompt does not inline MCP publish workflow details')
   assert.ok(!prompt.includes('sprintengine.gate.verdict'), 'startup prompt does not inline MCP gate verdict workflow details')
@@ -2914,7 +3947,8 @@ function testArchitectInitStartupPromptIsMcpNative(): void {
   assert.ok(prompt.includes('"agent"'), 'init payload carries the roster')
   assert.ok(prompt.includes('"developer:developer-1"'), 'init payload preserves roster agent specs verbatim')
   assert.ok(prompt.includes('sprintengine.agent.join'), 'architect init flow then joins via MCP')
-  assert.ok(prompt.includes('sprintengine.agent.next_directive'), 'architect init flow then requests the MCP directive')
+  assert.ok(prompt.includes('sprintengine.task.next'), 'architect init flow then claims its first task directly')
+  assert.ok(!prompt.includes('sprintengine.agent.next_directive'), 'architect init flow does not route through the directive hop')
   assert.ok(
     !/sprintengine (join|task|gate|triage|init|handover)/.test(prompt),
     'architect init prompt does not instruct the agent to run any sprintengine CLI command'
@@ -2925,15 +3959,15 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
   const teamStatePath = '/tmp/workspace/.multi-code/sprintengine/team/run.yaml'
   const readyTask = task({ id: 'T3', title: 'Build feature', role: 'developer' })
   const continuation = buildSprintEngineContinuationPrompt(readyTask, 'developer-1')
-  assert.ok(continuation.includes('sprintengine.agent.next_directive'), 'continuation prompt names the MCP directive tool')
+  assert.ok(!continuation.includes('sprintengine.agent.next_directive'), 'continuation prompt does not route through the directive hop')
   assert.ok(!continuation.includes('"statePath"'), 'continuation prompt must not embed statePath; the managed MCP server resolves it from run context')
   assert.ok(!continuation.includes('SPRINTENGINE_STATE_PATH'), 'continuation prompt must not reference env-based managed routing')
-  assert.ok(continuation.includes('"role": "developer"'), 'continuation prompt embeds the role in the directive payload')
-  assert.ok(continuation.includes('"agentId": "developer-1"'), 'continuation prompt embeds the agentId in the directive payload')
+  assert.ok(continuation.includes('"role": "developer"'), 'continuation prompt embeds the role in the claim payload')
+  assert.ok(continuation.includes('"id": "developer-1"'), 'continuation prompt embeds the agent id in the claim payload')
   assert.ok(continuation.includes('sprintengine.task.next'), 'continuation prompt names the MCP task-next tool to invoke')
   assert.ok(continuation.includes('T3 - Build feature'))
   assert.ok(continuation.includes('wake candidate'))
-  assert.ok(continuation.includes('not a durable dispatch assignment'))
+  assert.ok(continuation.includes('stop — Multicode re-engages this terminal'), 'continuation prompt carries the no-work stop contract')
   assert.ok(!continuation.includes('retryAfterMs'), 'continuation prompt does not reference retryAfterMs')
   assert.doesNotMatch(continuation, /poll|backoff|sleep/iu, 'continuation prompt does not define idle polling behavior')
   assert.ok(
@@ -2951,8 +3985,8 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
   const gate = gateTask.qualityGates![0]
   const claimed = buildSprintEngineGateContinuationPrompt(gateTask, gate, 'code_reviewer', true)
   assert.ok(claimed.includes('already claimed by this terminal'))
-  assert.ok(claimed.includes('durable dispatch assignment'))
-  assert.ok(claimed.includes('sprintengine.agent.next_directive'), 'claimed gate prompt names the MCP directive tool')
+  assert.ok(claimed.includes('sprintengine.gate.next'), 'claimed gate prompt names the MCP gate-next tool to resume the claim')
+  assert.ok(!claimed.includes('sprintengine.agent.next_directive'), 'claimed gate prompt does not route through the directive hop')
   assert.ok(!claimed.includes('"statePath"'), 'claimed gate prompt must not embed statePath; the managed MCP server resolves it from run context')
   assert.ok(claimed.includes('sprintengine.gate.verdict'), 'claimed gate prompt names the MCP verdict tool')
   const broadCommandBan = ['do not run', 'shell', 'commands'].join(' ')
@@ -2972,11 +4006,10 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
 
   const ready = buildSprintEngineGateContinuationPrompt(gateTask, gate, 'code_reviewer', false)
   assert.ok(ready.includes('wake candidate'))
-  assert.ok(ready.includes('not a durable gate dispatch assignment'))
-  assert.ok(ready.includes('sprintengine.agent.next_directive'))
+  assert.ok(!ready.includes('sprintengine.agent.next_directive'), 'unclaimed gate prompt does not route through the directive hop')
   assert.ok(!ready.includes('"statePath"'), 'unclaimed gate prompt must not embed statePath; the managed MCP server resolves it from run context')
   assert.ok(ready.includes('"role": "code_reviewer"'))
-  assert.ok(ready.includes('"agentId": "code_reviewer"'))
+  assert.ok(ready.includes('"id": "code_reviewer"'))
   assert.ok(ready.includes('sprintengine.gate.next'), 'unclaimed gate prompt names the MCP gate-next tool to invoke')
   assert.ok(
     !ready.includes(broadCommandBan),
@@ -3030,10 +4063,11 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
     !reworkNotif.includes(`statePath: "${teamStatePath}"`),
     'rework notifications embed statePath in the task.get payload'
   )
-  assert.ok(reworkNotif.includes('sprintengine.agent.next_directive'))
+  assert.ok(reworkNotif.includes('sprintengine.task.next'), 'rework notifications name the MCP claim tool to resume the active task')
+  assert.ok(!reworkNotif.includes('sprintengine.agent.next_directive'), 'rework notifications do not route through the directive hop')
   assert.ok(!reworkNotif.includes('"statePath"'), 'rework notifications must not embed statePath; the managed MCP server resolves it from run context')
   assert.ok(reworkNotif.includes('"role": "frontend"'))
-  assert.ok(reworkNotif.includes('"agentId": "frontend-2"'))
+  assert.ok(reworkNotif.includes('"id": "frontend-2"'))
   assert.ok(reworkNotif.includes('Artifact: AR-9'))
   assert.ok(
     !/sprintengine (join|task|gate|triage|init|handover)/.test(reworkNotif),
@@ -3092,7 +4126,7 @@ function automationNotification(input: { workspaceId: string; read: boolean }): 
   }
 }
 
-function testDispatchPromptUsesJoinReconciliation(): void {
+function testDispatchPromptUsesDirectClaim(): void {
   const prompt = buildSprintEngineDispatchPrompt({
     role: 'frontend',
     agentId: 'frontend-3',
@@ -3108,11 +4142,11 @@ function testDispatchPromptUsesJoinReconciliation(): void {
   assert.ok(prompt.includes('Dispatch: DISP-123'))
   assert.ok(prompt.includes('Task: T4'))
   assert.ok(prompt.includes('Reason: task_claimed'))
-  assert.ok(prompt.includes('sprintengine.agent.next_directive'), 'dispatch prompt names the MCP directive tool')
+  assert.ok(prompt.includes('sprintengine.task.next'), 'task dispatch prompt names the MCP claim tool directly')
+  assert.ok(!prompt.includes('sprintengine.agent.next_directive'), 'dispatch prompt does not route through the directive hop')
   assert.ok(!prompt.includes('"statePath"'), 'dispatch prompt must not embed statePath; the managed MCP server resolves it from run context')
   assert.ok(prompt.includes('"role": "frontend"'), 'dispatch prompt embeds the dispatch role in the MCP payload')
-  assert.ok(prompt.includes('"agentId": "frontend-3"'), 'dispatch prompt embeds the agent id in the MCP payload')
-  assert.ok(prompt.includes('managed Sprint Engine MCP server owns dispatch routing'))
+  assert.ok(prompt.includes('"id": "frontend-3"'), 'dispatch prompt embeds the agent id in the MCP payload')
   assert.ok(
     !/sprintengine (join|task|gate|triage|init|handover)/.test(prompt),
     'dispatch prompt does not embed any sprintengine CLI command'
@@ -3155,21 +4189,22 @@ function testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles(): void {
   })
   assert.ok(dispatchPrompt.includes('Dispatch: DISP-MK-1'))
   assert.ok(dispatchPrompt.includes('Task: M2'))
-  assert.ok(dispatchPrompt.includes('sprintengine.agent.next_directive'))
+  assert.ok(dispatchPrompt.includes('sprintengine.task.next'))
+  assert.ok(!dispatchPrompt.includes('sprintengine.agent.next_directive'))
   assert.ok(!dispatchPrompt.includes('"statePath"'), 'dispatch prompt must not embed statePath')
   assert.ok(dispatchPrompt.includes('"role": "marketer"'))
-  assert.ok(dispatchPrompt.includes('"agentId": "marketer-1"'))
+  assert.ok(dispatchPrompt.includes('"id": "marketer-1"'))
 
   const continuationPrompt = buildSprintEngineContinuationPrompt(
     task({ id: 'M3', title: 'Campaign brief', role: 'marketer' }),
     'marketer-1',
   )
   assert.ok(continuationPrompt.includes('wake candidate for a ready marketer task'))
-  assert.ok(continuationPrompt.includes('not a durable dispatch assignment'))
-  assert.ok(continuationPrompt.includes('sprintengine.agent.next_directive'))
+  assert.ok(continuationPrompt.includes('sprintengine.task.next'))
+  assert.ok(!continuationPrompt.includes('sprintengine.agent.next_directive'))
   assert.ok(!continuationPrompt.includes('"statePath"'), 'continuation prompt must not embed statePath')
   assert.ok(continuationPrompt.includes('"role": "marketer"'))
-  assert.ok(continuationPrompt.includes('"agentId": "marketer-1"'))
+  assert.ok(continuationPrompt.includes('"id": "marketer-1"'))
 
   const gateTask = task({ id: 'M4', title: 'Campaign QA', role: 'marketer' })
   const customGate: SprintEngineQualityGate = {
@@ -3184,10 +4219,11 @@ function testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles(): void {
   const gatePrompt = buildSprintEngineGateContinuationPrompt(gateTask, customGate, 'marketer-2', false)
   assert.ok(gatePrompt.includes('wake candidate'))
   assert.ok(gatePrompt.includes('Gate: marketer_review (review / marketer)'))
-  assert.ok(gatePrompt.includes('sprintengine.agent.next_directive'))
+  assert.ok(gatePrompt.includes('sprintengine.gate.next'))
+  assert.ok(!gatePrompt.includes('sprintengine.agent.next_directive'))
   assert.ok(!gatePrompt.includes('"statePath"'), 'gate prompt must not embed statePath')
   assert.ok(gatePrompt.includes('"role": "marketer"'))
-  assert.ok(gatePrompt.includes('"agentId": "marketer-2"'))
+  assert.ok(gatePrompt.includes('"id": "marketer-2"'))
 }
 
 function testGetArchitectActionableNeedsInputTasksFiltersByKind(): void {

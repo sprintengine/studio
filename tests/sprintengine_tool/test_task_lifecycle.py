@@ -1726,6 +1726,16 @@ def test_temporary_marketer_role_flows_through_core_cli(tmp_path) -> None:
     )
     assert accepted["task"]["role"] == "marketer"
 
+    # Planned work roots on the architect plan gate: the marketer task is not
+    # claimable until the plan gate completes.
+    state = read_state(state_path)
+    plan_gate_id = next(t["id"] for t in state["tasks"] if t.get("role") == "architect")
+    assert accepted["task"]["dependsOn"] == [plan_gate_id]
+    for task in state["tasks"]:
+        if task["id"] == plan_gate_id:
+            task["status"] = "done"
+    store.sync_state_to_store(state_path.parent, state, state_path=state_path)
+
     listed = cli.run("task", "list", "--role", "growth-marketer")
     assert [task["id"] for task in listed["readyTasks"]] == [accepted["task"]["id"]]
 

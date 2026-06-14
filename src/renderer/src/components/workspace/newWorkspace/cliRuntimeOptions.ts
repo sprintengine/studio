@@ -19,6 +19,31 @@ export type AgentCliCatalogOption = {
 
 const CLAUDE_CODE_PLUGIN_ID = 'claude-code'
 
+const BUNDLED_AGENT_MODEL_CATALOGS: Record<AgentCli, PluginModelCatalog> = {
+  codex: {
+    options: [
+      { id: 'gpt-5.5', label: 'GPT-5.5' },
+      { id: 'gpt-5.4', label: 'GPT-5.4' },
+      { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
+      { id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
+    ],
+    allowCustomId: true,
+  },
+  [CLAUDE_CODE_PLUGIN_ID]: {
+    options: [
+      { id: 'fable', label: 'Fable 5' },
+      { id: 'opus', label: 'Opus' },
+      { id: 'sonnet', label: 'Sonnet' },
+      { id: 'haiku', label: 'Haiku' },
+      { id: 'claude-opus-4-8', label: 'Opus 4.8' },
+      { id: 'claude-opus-4-7', label: 'Opus 4.7' },
+      { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+      { id: 'claude-haiku-4-5', label: 'Haiku 4.5' },
+    ],
+    allowCustomId: true,
+  },
+}
+
 function labelForCliRuntime(cli: AgentCli): string {
   if (cli === 'codex') return 'Codex'
   if (cli === 'claude-code') return 'Claude Code'
@@ -41,7 +66,14 @@ function legacyCliRuntimeOptions(
     seen.add(canonical)
     orderedIds.push(canonical)
   }
-  return orderedIds.map((value) => ({ value, label: labelForCliRuntime(value) }))
+  return orderedIds.map((value) => {
+    const modelSelection = mergeModelCatalog(BUNDLED_AGENT_MODEL_CATALOGS[value], cliRuntimes?.[value]?.models)
+    return {
+      value,
+      label: labelForCliRuntime(value),
+      ...(modelSelection ? { modelSelection } : {}),
+    }
+  })
 }
 
 export function pluginRegistryIdForCli(cli: AgentCli): AgentCli {
@@ -145,7 +177,7 @@ export function buildAgentCliCatalog(
     const id = plugin.id.trim()
     if (!id || seen.has(id) || AGENT_PICKER_HIDDEN_CLI_IDS.has(id)) continue
     seen.add(id)
-    const modelSelection = mergeModelCatalog(plugin.modelSelection, cliRuntimes?.[id]?.models)
+    const modelSelection = mergeModelCatalog(plugin.modelSelection ?? BUNDLED_AGENT_MODEL_CATALOGS[id], cliRuntimes?.[id]?.models)
     options.push({
       value: id,
       label: plugin.displayName,
@@ -187,6 +219,19 @@ export function resolveCliModel(
   if (overrideModel) return overrideModel
   const fallback = cliModelDefaults?.[cli]?.trim()
   return fallback || undefined
+}
+
+// Effective model for a per-surface picker (specialist row, Multiloop role): the
+// surface's own (cli, model) override when it matches the bound CLI, else no
+// model — the CLI's own default, no flag. Deliberately does NOT fall back to the
+// app-level `cliModelDefaults`: that store belongs to the General Agent and must
+// not bleed into specialist/role spawns, or picking the bare "Claude Code" row
+// (which clears the override) would silently inherit the General Agent's model.
+export function resolveSurfaceModel(
+  cli: AgentCli,
+  override: AgentCliModelSelection | null | undefined,
+): string | undefined {
+  return resolveCliModel(cli, override, undefined)
 }
 
 export function buildCliRuntimeOptions(

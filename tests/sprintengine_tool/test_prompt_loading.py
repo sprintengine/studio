@@ -356,7 +356,7 @@ def test_gate_claim_returns_contextual_reviewer_prompt(tmp_path) -> None:
             "A1 `code_review` status=`recorded`",
             "Latest Implementation Summary Or Response",
             "The feature is ready for review.",
-            "Open Feedback (newest first)",
+            "Open Feedback From This Gate (newest first)",
             "Older feedback should be below newer feedback.",
             "Prior Gate Attempts",
             "GA-001 status=`changes_requested`",
@@ -393,7 +393,8 @@ def test_tester_gate_claim_prompt_requires_qa_validation_and_browser_checks(tmp_
             "Do not write tester reports under repo-root `docs/validation/`.",
             "Submit the verdict with `--artifact-path <team-folder-report-path>`, `--artifact-title`, and `--artifact-kind validation_report`",
             "If no new test is needed, say why",
-            "A passing tester verdict should report scope reviewed, commands run, tests evaluated or added, release confidence, and residual risk.",
+            "A passing tester verdict should report scope reviewed, commands run, tests evaluated or added, release confidence, and residual risk — as terse bullets, one line each.",
+            "Keep the validation report bullet-first and under ~120 lines",
         ],
     )
 
@@ -444,7 +445,8 @@ def test_task_next_rework_prompt_orders_open_feedback_newest_first(tmp_path) -> 
 
     assert payload["ok"] is True
     prompt = payload["prompt"]
-    assert "Open Feedback (newest first)" in prompt
+    assert "Open Feedback (grouped by gate, newest first)" in prompt
+    assert "### Gate `code_reviewer`" in prompt
     assert prompt.index("Newest feedback should be handled first.") < prompt.index("Older feedback should be below newer feedback.")
     assert "publish an `implementation_response`" in prompt
 

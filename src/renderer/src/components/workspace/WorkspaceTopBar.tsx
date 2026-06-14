@@ -1,7 +1,9 @@
 import React from 'react'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
-import { CliModelListbox, Popover, StarGlyph, StatusDot, Tooltip } from '../ui'
+import { CliModelListbox, FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, Tooltip } from '../ui'
+import type { SessionUser } from '../../../../shared/electron-api'
+import { hasActiveProPlan } from './workspaceManagerHelpers'
 import CliIcon from '../CliIcon'
 import {
   MULTILOOP_ROLES,
@@ -20,7 +22,7 @@ import type {
   SprintEngineCliPermissionPreset,
   Workspace,
 } from '../../types/workspace'
-import { resolveAvailableAgentCli, resolveCliModel, type AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
+import { resolveAvailableAgentCli, resolveCliModel, resolveSurfaceModel, type AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
 import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getHighlightSwatch, getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
@@ -199,15 +201,6 @@ function MicIcon({ className }: { className?: string }) {
   )
 }
 
-function AccountIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 12.25a4.25 4.25 0 1 0 0-8.5a4.25 4.25 0 0 0 0 8.5Z" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M4.75 20.25c.72-3.1 3.38-5.25 7.25-5.25s6.53 2.15 7.25 5.25" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  )
-}
-
 function GearIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -379,82 +372,102 @@ function SessionsPopover({
   )
 }
 
+function accountInitials(user: SessionUser | null): string {
+  const source = user?.displayName?.trim() || user?.email?.trim() || ''
+  if (!source) return '?'
+  const words = source.split(/\s+/).filter(Boolean)
+  if (words.length >= 2) return `${words[0][0]}${words[1][0]}`.toUpperCase()
+  return source[0].toUpperCase()
+}
+
+function sentenceCase(value: string): string {
+  return value ? value[0].toUpperCase() + value.slice(1).replace(/_/g, ' ') : value
+}
+
+function AccountMenuItem({ onSelect, children }: { onSelect: () => void; children: React.ReactNode }) {
+  const onKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const surface = event.currentTarget.closest('[data-account-menu="true"]')
+    if (!surface) return
+    const items = Array.from(surface.querySelectorAll<HTMLButtonElement>('[data-account-item="true"]'))
+    if (items.length === 0) return
+    const idx = items.indexOf(event.currentTarget)
+    const next = event.key === 'Home'
+      ? items[0]
+      : event.key === 'End'
+        ? items[items.length - 1]
+        : items[(idx + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]
+    next?.focus()
+  }
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      data-account-item="true"
+      onClick={onSelect}
+      onKeyDown={onKeyDown}
+      className={`flex w-full items-center px-3 py-1.5 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+    >
+      {children}
+    </button>
+  )
+}
+
 function AccountPopover({
   authState,
   message,
-  onRefresh,
+  onCheckAccess,
   onLogout,
-  onSwitchOrganization,
   onUpgrade,
 }: {
   authState: MulticodeAuthState
   message: string | null
-  onRefresh: () => void
+  onCheckAccess: () => void
   onLogout: () => void
-  onSwitchOrganization: () => void
   onUpgrade: () => void
 }) {
-  const planLabel = authState.entitlements?.plan.status === 'active'
-    ? authState.entitlements.plan.code
-    : authState.entitlementStatus === 'offline_grace'
-      ? 'offline grace'
-      : authState.entitlements?.plan.status ?? null
+  const plan = authState.entitlements?.plan ?? null
+  const planLabel = plan
+    ? plan.status === 'active' ? `${sentenceCase(plan.code)} plan` : sentenceCase(plan.status)
+    : null
+  const metaLine = [planLabel, authState.selectedOrganization?.name]
+    .filter(Boolean)
+    .join(' · ')
+  const primaryLine = authState.user?.displayName ?? authState.user?.email ?? 'Multicode account'
+  const email = authState.user?.displayName ? authState.user?.email : null
+  const accessStale = Boolean(message) || authState.entitlementStatus !== 'fresh'
 
   return (
-    <div className="w-72 overflow-hidden p-3">
-      <div className="space-y-2">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-[color:var(--text-strong)]">
-              {authState.user?.displayName ?? authState.user?.email ?? 'Multicode account'}
-            </div>
-            <div className="mt-1 truncate text-[12px] text-[color:var(--text-muted)]">
-              {authState.selectedOrganization?.name ?? 'No organization selected'}
-            </div>
-          </div>
-          {planLabel ? (
-            <span className="shrink-0 rounded border border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-[11px] font-semibold text-[color:var(--text-default)]">
-              {planLabel}
-            </span>
+    <div data-account-menu="true" className="w-64 overflow-hidden">
+      <div className="px-3 pb-2.5 pt-3">
+        <div className="truncate text-[13px] font-medium text-[color:var(--text-strong)]">{primaryLine}</div>
+        {email ? (
+          <div className="mt-0.5 truncate text-[12px] text-[color:var(--text-muted)]">{email}</div>
+        ) : null}
+        {metaLine ? (
+          <div className="mt-1 truncate text-[11px] text-[color:var(--text-subtle)]">{metaLine}</div>
+        ) : null}
+      </div>
+
+      {message || authState.entitlementStatus === 'offline_grace' ? (
+        <div className="border-t border-[color:var(--border-subtle)] px-3 py-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
+          {message ?? `Offline access expires ${formatShortDate(authState.graceExpiresAt)}.`}
+        </div>
+      ) : null}
+
+      {!hasActiveProPlan(authState) || accessStale ? (
+        <div className="border-t border-[color:var(--border-subtle)] py-1">
+          {!hasActiveProPlan(authState) ? (
+            <AccountMenuItem onSelect={onUpgrade}>Upgrade to Pro</AccountMenuItem>
+          ) : null}
+          {accessStale ? (
+            <AccountMenuItem onSelect={onCheckAccess}>Check access again</AccountMenuItem>
           ) : null}
         </div>
-
-        {message || authState.entitlementStatus === 'offline_grace' ? (
-          <div className="rounded border border-[color:var(--tone-warn-soft)] bg-[color:var(--bg-hover)] px-2.5 py-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
-            {message ?? `Offline grace expires ${formatShortDate(authState.graceExpiresAt)}.`}
-          </div>
-        ) : null}
-
-        <div className="flex flex-wrap gap-2 pt-1">
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="h-8 rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-hover)] px-3 text-[12px] font-semibold text-[color:var(--text-default)] hover:bg-[color:var(--border-default)]"
-          >
-            Refresh
-          </button>
-          <button
-            type="button"
-            onClick={onSwitchOrganization}
-            className="h-8 rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)] px-3 text-[12px] font-semibold text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
-          >
-            Switch org
-          </button>
-          <button
-            type="button"
-            onClick={onUpgrade}
-            className="h-8 rounded-md border border-[color:var(--text-strong)] bg-[color:var(--text-strong)] px-3 text-[12px] font-semibold text-[color:var(--bg-app)] hover:bg-[color:var(--bg-inverted-hover)]"
-          >
-            Upgrade
-          </button>
-          <button
-            type="button"
-            onClick={onLogout}
-            className="h-8 rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] px-3 text-[12px] font-semibold text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
-          >
-            Sign out
-          </button>
-        </div>
+      ) : null}
+      <div className="border-t border-[color:var(--border-subtle)] py-1">
+        <AccountMenuItem onSelect={onLogout}>Sign out</AccountMenuItem>
       </div>
     </div>
   )
@@ -572,11 +585,9 @@ export type WorkspaceTopBarProps = {
   setAccountOpen: React.Dispatch<React.SetStateAction<boolean>>
   authState: MulticodeAuthState
   authMessage: string | null
-  proAccount: boolean
   startLogin: () => void | Promise<void>
   refreshAuthState: () => void | Promise<void>
   logout: () => void | Promise<void>
-  switchOrganization: () => void | Promise<void>
 }
 
 export default function WorkspaceTopBar({
@@ -661,11 +672,9 @@ export default function WorkspaceTopBar({
   setAccountOpen,
   authState,
   authMessage,
-  proAccount,
   startLogin,
   refreshAuthState,
   logout,
-  switchOrganization,
 }: WorkspaceTopBarProps) {
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
   const moduleOverrides = useWorkspaceStore((state) => state.appSettings.modules)
@@ -713,29 +722,40 @@ export default function WorkspaceTopBar({
     ids.splice(to, 0, sourceId)
     setSpecialistOrder(ids)
   }
-  // The per-row CLI chip popover is absolutely positioned inside the spawn
-  // menu's scroll container, which clips overflow. For rows near the bottom it
-  // would open downward into the clip and extend the scrollbar, so flip it to
-  // open upward when there isn't room below within the scroller (or panel for
-  // the quick rows that sit above the list).
-  const [chipPopoverPlacement, setChipPopoverPlacement] = React.useState<'down' | 'up'>('down')
+  // The per-row CLI chip flyout lives inside the spawn menu's scroll container,
+  // which clips overflow — with the full model list it would be cut off. The menu
+  // surface is portaled to <body>, so the flyout is not a descendant of the menu
+  // root and can't inherit positioning from it. Instead position the open flyout
+  // `fixed` by writing coordinates straight onto its node: it escapes the clip and
+  // floats on top, anchored to its row (mirroring the old right-8 / top-32 offsets)
+  // and flips above the row when the list would run past the viewport bottom.
   React.useLayoutEffect(() => {
-    if (!chipPopoverForRole) {
-      setChipPopoverPlacement('down')
-      return
+    if (!chipPopoverForRole) return
+    const apply = () => {
+      const surface = document.querySelector<HTMLElement>('[data-chip-popover="true"]')
+      const anchor = surface?.parentElement
+      if (!surface || !anchor) return
+      const rect = anchor.getBoundingClientRect()
+      const openUp = window.innerHeight - rect.top - 32 < surface.offsetHeight + 8
+      surface.style.position = 'fixed'
+      surface.style.left = 'auto'
+      surface.style.right = `${Math.max(8, Math.round(window.innerWidth - rect.right + 8))}px`
+      if (openUp) {
+        surface.style.top = 'auto'
+        surface.style.bottom = `${Math.round(window.innerHeight - rect.bottom + 32)}px`
+      } else {
+        surface.style.bottom = 'auto'
+        surface.style.top = `${Math.round(rect.top + 32)}px`
+      }
     }
-    const root = specialistMenuRef.current
-    const surface = root?.querySelector<HTMLElement>('[data-chip-popover="true"]')
-    const anchor = surface?.parentElement
-    if (!surface || !anchor) return
-    const bounds =
-      surface.closest<HTMLElement>('[data-spawn-scroll="true"]')
-      ?? surface.closest<HTMLElement>('[data-spawn-panel="true"]')
-    const boundsBottom = bounds ? bounds.getBoundingClientRect().bottom : window.innerHeight
-    const spaceBelow = boundsBottom - anchor.getBoundingClientRect().bottom
-    setChipPopoverPlacement(spaceBelow < surface.offsetHeight + 8 ? 'up' : 'down')
-  }, [chipPopoverForRole, specialistMenuRef, agentCliOptions.length])
-  const chipPopoverPositionClass = chipPopoverPlacement === 'up' ? 'bottom-[32px]' : 'top-[32px]'
+    apply()
+    window.addEventListener('resize', apply)
+    window.addEventListener('scroll', apply, true)
+    return () => {
+      window.removeEventListener('resize', apply)
+      window.removeEventListener('scroll', apply, true)
+    }
+  }, [chipPopoverForRole, agentCliOptions.length])
   return (
       <div
         className="flex h-[48px] shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-3 transition-colors"
@@ -1249,7 +1269,7 @@ export default function WorkspaceTopBar({
                                 data-chip-popover="true"
                                 aria-label="Terminal actions"
                                 // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
+                                className={`fixed z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                               >
                                 <OpenInNewChatItem
                                   onSelect={() => {
@@ -1304,7 +1324,7 @@ export default function WorkspaceTopBar({
                                 data-chip-popover="true"
                                 aria-label="General Agent actions"
                                 // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
+                                className={`fixed z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                               >
                                 <OpenInNewChatItem
                                   onSelect={() => {
@@ -1360,7 +1380,7 @@ export default function WorkspaceTopBar({
                                 data-chip-popover="true"
                                 aria-label="Conversation agent actions"
                                 // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
+                                className={`fixed z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                               >
                                 <OpenInNewChatItem
                                   onSelect={() => {
@@ -1386,7 +1406,7 @@ export default function WorkspaceTopBar({
                         ? filteredMultiloop.map((soul, index) => {
                             const highlighted = index === safeHighlight
                             const boundCli = resolvePickerCli(multiloopRoleCliDefaults[soul.role] ?? lastSelectedCli)
-                            const boundModel = resolveCliModel(boundCli, multiloopRoleModelDefaults[soul.role], cliModelDefaults)
+                            const boundModel = resolveSurfaceModel(boundCli, multiloopRoleModelDefaults[soul.role])
                             const popoverOpen =
                               chipPopoverForRole?.kind === 'multiloop'
                               && chipPopoverForRole.role === soul.role
@@ -1447,14 +1467,14 @@ export default function WorkspaceTopBar({
                                     // primitive-duplication-allow: nested chip-listbox inside the Popover-managed specialist menu;
                                     // anchored to a row-local `<div className="relative">` with no separate outside-click handler.
                                     // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                    className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
+                                    className={`fixed z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                                   >
                                     <CliModelListbox
                                       ariaLabel={`Agent CLI for ${soul.label}`}
                                       options={agentCliOptions}
                                       currentCli={boundCli}
                                       effectiveModelFor={(cli) =>
-                                        resolveCliModel(cli, multiloopRoleModelDefaults[soul.role], cliModelDefaults)}
+                                        resolveSurfaceModel(cli, multiloopRoleModelDefaults[soul.role])}
                                       onSelectCli={(cli) => {
                                         setMultiloopRoleCliDefault(soul.role, cli)
                                         setChipPopoverForRole(null)
@@ -1473,7 +1493,7 @@ export default function WorkspaceTopBar({
                         : filteredSpecialists.map((action, index) => {
                             const highlighted = index === safeHighlight
                             const boundCli = resolvePickerCli(specialistCliDefaults[action.id] ?? lastSelectedCli)
-                            const boundModel = resolveCliModel(boundCli, specialistModelDefaults[action.id], cliModelDefaults)
+                            const boundModel = resolveSurfaceModel(boundCli, specialistModelDefaults[action.id])
                             const popoverOpen =
                               chipPopoverForRole?.kind === 'specialist'
                               && chipPopoverForRole.id === action.id
@@ -1574,7 +1594,7 @@ export default function WorkspaceTopBar({
                                     // primitive-duplication-allow: nested chip menu inside the Popover-managed specialist menu;
                                     // anchored to a row-local `<div className="relative">` with no separate outside-click handler.
                                     // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                    className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
+                                    className={`fixed z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                                   >
                                     <OpenInNewChatItem
                                       onSelect={() => {
@@ -1588,7 +1608,7 @@ export default function WorkspaceTopBar({
                                       options={agentCliOptions}
                                       currentCli={boundCli}
                                       effectiveModelFor={(cli) =>
-                                        resolveCliModel(cli, specialistModelDefaults[action.id], cliModelDefaults)}
+                                        resolveSurfaceModel(cli, specialistModelDefaults[action.id])}
                                       onSelectCli={(cli) => {
                                         setSpecialistCliDefault(action.id, cli)
                                         setChipPopoverForRole(null)
@@ -1650,28 +1670,32 @@ export default function WorkspaceTopBar({
                     setNotificationsOpen(false)
                   }
                 }}
-                ariaLabel={proAccount ? 'Multicode Pro account' : 'Multicode account'}
+                ariaLabel="Account"
                 popupRole="menu"
                 placement="bottom-end"
+                onOpenAutoFocus={(surface) => {
+                  surface.querySelector<HTMLButtonElement>('[data-account-item="true"]')?.focus()
+                }}
                 renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                  <Tooltip content={proAccount ? 'Multicode Pro account' : 'Multicode account'} placement="bottom">
+                  <Tooltip content="Account" placement="bottom">
                     <button
                       ref={ref}
                       type="button"
                       onClick={togglePopover}
                       className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
-                        proAccount
-                          ? accountOpen
-                            ? 'border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn)]/8 text-[color:var(--tone-warn)]'
-                            : 'border-transparent text-[color:var(--tone-warn)] hover:bg-[color:var(--tone-warn)]/8 hover:text-[color:var(--tone-warn)]'
-                          : accountOpen
-                            ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--tone-good)]'
-                            : 'border-[color:var(--tone-good-soft)] bg-[color:var(--tone-good-soft)] text-[color:var(--tone-good)] hover:border-[color:var(--tone-good)]/50 hover:bg-[color:var(--tone-good-soft)]'
+                        accountOpen
+                          ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)]'
+                          : 'border-transparent hover:bg-[color:var(--bg-hover)]'
                       }`}
-                      aria-label={proAccount ? 'Multicode Pro account' : 'Multicode account'}
+                      aria-label="Account"
                       {...triggerProps}
                     >
-                      <AccountIcon className="icon-md" />
+                      <span
+                        aria-hidden="true"
+                        className="flex h-6 w-6 items-center justify-center rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[11px] font-semibold text-[color:var(--text-default)]"
+                      >
+                        {accountInitials(authState.user)}
+                      </span>
                     </button>
                   </Tooltip>
                 )}
@@ -1679,24 +1703,24 @@ export default function WorkspaceTopBar({
                 <AccountPopover
                   authState={authState}
                   message={authMessage}
-                  onRefresh={() => void refreshAuthState()}
+                  onCheckAccess={() => void refreshAuthState()}
                   onLogout={() => void logout()}
-                  onSwitchOrganization={() => void switchOrganization()}
-                  onUpgrade={() => void window.api.authOpenUpgrade('sprintengine')}
+                  onUpgrade={() => {
+                    setAccountOpen(false)
+                    void window.api.authOpenUpgrade('sprintengine')
+                  }}
                 />
               </Popover>
             ) : (
-              <Tooltip content={authState.status === 'checking' ? 'Checking sign-in status' : 'Sign in'} placement="bottom">
-                <button
-                  type="button"
-                  onClick={() => void startLogin()}
-                  disabled={authState.status === 'checking'}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] disabled:cursor-default disabled:opacity-60 disabled:hover:border-[color:var(--bg-selected)] disabled:hover:bg-[color:var(--bg-surface-raised)] disabled:hover:text-[color:var(--text-muted)]"
-                  aria-label={authState.status === 'checking' ? 'Checking sign-in status' : 'Sign in'}
-                >
-                  <AccountIcon className="icon-md" />
-                </button>
-              </Tooltip>
+              <button
+                type="button"
+                onClick={() => void startLogin()}
+                disabled={authState.status === 'checking'}
+                className="inline-flex h-8 items-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-3 text-[12px] font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:opacity-60 disabled:hover:border-[color:var(--bg-selected)] disabled:hover:bg-[color:var(--bg-surface-raised)] disabled:hover:text-[color:var(--text-default)]"
+                aria-busy={authState.status === 'checking'}
+              >
+                Sign in
+              </button>
             )}
           </div>
 

@@ -46,6 +46,7 @@ interface RosterTableProps {
   // each added role row gets a checkbox marking its agents for an explicit
   // spawn when the workspace opens.
   spawnAtStartRoles?: Partial<Record<SprintEngineRoleId, boolean>>
+  spawnAtStartLocked?: boolean
   onSetSpawnAtStart?: (role: SprintEngineRoleId, spawn: boolean) => void
   /** Optional trailing row rendered inside the roster border, hairline-divided
    *  below the role rows (e.g. the "save as default" affordance). */
@@ -66,6 +67,7 @@ export function SprintEngineRosterTable({
   cliModelDefaults,
   onSetModel,
   spawnAtStartRoles,
+  spawnAtStartLocked = false,
   onSetSpawnAtStart,
   footer,
 }: RosterTableProps) {
@@ -111,17 +113,38 @@ export function SprintEngineRosterTable({
               />
             )}
             {onSetSpawnAtStart ? (
-              <Tooltip content={`Start ${label} agents when the workspace opens`}>
-                <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)] px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)] has-[:checked]:border-[color:var(--accent-primary-soft)] has-[:checked]:text-[color:var(--text-strong)]">
-                  <input
-                    type="checkbox"
-                    checked={spawnAtStartRoles?.[role] ?? false}
-                    aria-label={`Start ${label} agents when the workspace opens`}
-                    onChange={(event) => onSetSpawnAtStart(role, event.target.checked)}
-                    className="h-3.5 w-3.5 accent-[color:var(--accent-primary)]"
-                  />
+              <Tooltip content={spawnAtStartLocked ? 'Full auto starts every selected roster agent.' : `Start ${label} agents when the workspace opens`}>
+                <button
+                  type="button"
+                  aria-pressed={spawnAtStartRoles?.[role] ?? false}
+                  aria-disabled={spawnAtStartLocked}
+                  aria-label={`Start ${label} agents when the workspace opens`}
+                  onClick={() => {
+                    if (!spawnAtStartLocked) onSetSpawnAtStart(role, !(spawnAtStartRoles?.[role] ?? false))
+                  }}
+                  className={`
+                    interactive inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[11px] font-semibold transition-colors
+                    focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                    ${(spawnAtStartRoles?.[role] ?? false)
+                      ? `border-[color:var(--accent-primary-soft)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)] ${spawnAtStartLocked ? 'cursor-default' : ''}`
+                      : 'border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                    }
+                  `}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`
+                      inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border transition-colors
+                      ${(spawnAtStartRoles?.[role] ?? false)
+                        ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--bg-base)]'
+                        : 'border-[color:var(--text-disabled)] text-transparent'
+                      }
+                    `}
+                  >
+                    <span className="ml-[1px] text-[8px] leading-none">▶</span>
+                  </span>
                   Start
-                </label>
+                </button>
               </Tooltip>
             ) : null}
           </div>

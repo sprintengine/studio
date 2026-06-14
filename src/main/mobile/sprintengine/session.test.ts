@@ -40,7 +40,8 @@ async function assertTaskStartUsesCurrentWorkspace(): Promise<void> {
   assert.equal(spawned[0].cwd, fixture.workspaceRoot)
   assert.match(spawned[0].initialPrompt, /managed Sprint Engine MCP server/u)
   assert.match(spawned[0].initialPrompt, /sprintengine\.agent\.join/u)
-  assert.match(spawned[0].initialPrompt, /sprintengine\.agent\.next_directive/u)
+  assert.match(spawned[0].initialPrompt, /sprintengine\.task\.next/u)
+  assert.doesNotMatch(spawned[0].initialPrompt, /sprintengine\.agent\.next_directive/u)
   assert.match(spawned[0].initialPrompt, /"role": "developer"/u)
   assert.match(spawned[0].initialPrompt, /"agentId": "developer-1"/u)
   assert.doesNotMatch(

@@ -15,7 +15,8 @@ installPgStubForMultiauthMemoryStoreTests()
 void main()
 
 async function main(): Promise<void> {
-  await assertDesktopPairingDisplayUsesCurrentRelayPayload()
+  await assertLegacyLocalRelayUrlMigratesToProductionDefault()
+  await assertDesktopPairingDisplayUsesManualRelayCode()
   await assertDesktopPairingDisplayRejectsLegacyRelayChallenge()
   await assertAuthenticatedRelayTransportDispatchesAndFailsClosed()
   await assertOversizedSnapshotRequestFailsWithoutTruncatedSuccess()
@@ -26,7 +27,28 @@ async function main(): Promise<void> {
   await assertDesktopRevocationUpdatesRelayAuthority()
 }
 
-async function assertDesktopPairingDisplayUsesCurrentRelayPayload(): Promise<void> {
+async function assertLegacyLocalRelayUrlMigratesToProductionDefault(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-store-'))
+  const storePath = join(workspaceRoot, 'mobile-bridge.json')
+  await writeFile(storePath, `${JSON.stringify({
+    enabled: false,
+    relayUrl: 'http://localhost:3000',
+    desktopInstanceId: 'mdi_existing',
+    pairedDevices: [],
+    pushRegistrations: [],
+  }, null, 2)}\n`, 'utf8')
+  const bridge = new MobileBridge(
+    async () => ({ authenticated: false }),
+    { storePath }
+  )
+
+  const state = await bridge.getState()
+  bridge.shutdown()
+
+  assert.equal(state.relayUrl, 'https://multiauth-production.up.railway.app')
+}
+
+async function assertDesktopPairingDisplayUsesManualRelayCode(): Promise<void> {
   const fixture = await writeSprintEngineFixture()
   const relay = new PairingChallengeRelayTransport()
   const bridge = new MobileBridge(
@@ -49,17 +71,7 @@ async function assertDesktopPairingDisplayUsesCurrentRelayPayload(): Promise<voi
   const challenge = await bridge.requestPairingCode()
   bridge.shutdown()
 
-  const displayedValue = new URL(challenge.pairingCode)
-  assert.equal(displayedValue.searchParams.get('mobileControlProtocolVersion'), '1')
-  assert.equal(displayedValue.searchParams.get('pairingChallengeId'), 'pcha_current')
-  assert.equal(displayedValue.searchParams.get('relayUrl'), 'https://relay.test')
-  assert.equal(displayedValue.searchParams.get('pairingSecret'), 'psec_current')
-  assert.equal(displayedValue.searchParams.get('secret'), null)
-  assert.equal(displayedValue.searchParams.get('expiresAt'), new Date(now.getTime() + 60_000).toISOString())
-  assert.equal(displayedValue.searchParams.get('desktopName'), 'Relay desktop')
-  assert.equal(displayedValue.searchParams.get('desktopInstanceId'), 'desktop-instance-current')
-  assert.equal(displayedValue.searchParams.get('desktopRelaySessionId'), 'drs_desktop_1')
-  assert.equal(challenge.pairingCode.includes('psec_current'), true)
+  assert.equal(challenge.pairingCode, '123456')
   assert.notEqual(challenge.pairingCode, challenge.pairingUri)
   assert.equal(challenge.pairingUri.includes('pairingSecret=psec_current'), true)
 }
@@ -86,7 +98,7 @@ async function assertDesktopPairingDisplayRejectsLegacyRelayChallenge(): Promise
   await waitFor(() => relay.connects.length === 1)
   await assert.rejects(
     () => bridge.requestPairingCode(),
-    /Relay pairing challenge did not include a mobile-compatible pairing payload/u
+    /Relay pairing challenge did not include a mobile-compatible pairing link/u
   )
   bridge.shutdown()
 }
@@ -510,6 +522,7 @@ class PairingChallengeRelayTransport extends FakeRelayTransport {
 
     return {
       pairingChallengeId: 'pcha_current',
+      manualPairingCode: '123456',
       pairingUri: [
         'multicode://mobile/pair?',
         new URLSearchParams({
@@ -588,13 +601,23 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
     this.requestedScopes = this.enqueueOwnDeviceRevoke
       ? ['relay:artifact:review', 'relay:device:revoke']
       : ['relay:artifact:review']
-    const { AuthService, MemoryAuthStore } = require('../../../../../multiauth/src/auth') as {
+    const { AuthService } = require('../../../../../multiauth/src/auth') as {
       AuthService: new (input: Record<string, unknown>) => RelayServiceBackedTransport['auth']
-      MemoryAuthStore: new () => unknown
     }
-    const { MemoryRelayStore, RelayService } = require('../../../../../multiauth/src/relay') as {
-      MemoryRelayStore: new () => unknown
+    const { RelayService } = require('../../../../../multiauth/src/relay') as {
       RelayService: new (input: Record<string, unknown>) => RelayServiceBackedTransport['relay']
+    }
+    const { EntitlementResolver } = require('../../../../../multiauth/src/entitlements') as {
+      EntitlementResolver: new (reader: unknown, now: () => Date) => unknown
+    }
+    const {
+      MemoryAuthStore,
+      MemoryRelayStore,
+      entitlementReaderForPlans,
+    } = require('../../../../../multiauth/tests/support/memory-stores') as {
+      MemoryAuthStore: new () => unknown
+      MemoryRelayStore: new () => unknown
+      entitlementReaderForPlans: (plans: Record<string, string>) => unknown
     }
     const authStore = new MemoryAuthStore()
     this.auth = new AuthService({
@@ -606,6 +629,10 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
     this.relayStore = new MemoryRelayStore()
     this.relay = new RelayService({
       authService: this.auth,
+      entitlementResolver: new EntitlementResolver(
+        entitlementReaderForPlans({ org_seed_pro_personal: 'team' }),
+        () => now
+      ),
       store: this.relayStore,
       now: () => now,
     })
@@ -746,9 +773,23 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
     }
     return new RelayService({
       authService: this.auth,
+      entitlementResolver: this.entitlementResolver(),
       store: this.relayStore,
       now: () => now,
     })
+  }
+
+  private entitlementResolver(): unknown {
+    const { EntitlementResolver } = require('../../../../../multiauth/src/entitlements') as {
+      EntitlementResolver: new (reader: unknown, now: () => Date) => unknown
+    }
+    const { entitlementReaderForPlans } = require('../../../../../multiauth/tests/support/memory-stores') as {
+      entitlementReaderForPlans: (plans: Record<string, string>) => unknown
+    }
+    return new EntitlementResolver(
+      entitlementReaderForPlans({ org_seed_pro_personal: 'team' }),
+      () => now
+    )
   }
 
   async enqueueDifferentCommandWithSameIdempotencyKey(): Promise<void> {

@@ -146,6 +146,8 @@ Do not create thin task cards that only contain a title and broad acceptance cri
 
 `plan.md` is the user-reviewable architecture artifact. Keep it compact, but do not make it so thin that approval requires opening every task card.
 
+Write it for agent readers first: bullets over paragraphs, decisions and contracts over narrative, paths referenced instead of content quoted. Budgets: small and medium plans normally fit in 150 lines; go past 250 lines only when risk or ambiguity demands it, and never by duplicating approved product requirements, restating imported plan content that is already valid, or padding sections with context the reader can get from a referenced path.
+
 For small and medium Sprint Engine plans, include these sections unless clearly irrelevant:
 
 - Goal: the outcome in one or two short paragraphs.

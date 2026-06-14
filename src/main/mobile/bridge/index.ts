@@ -330,8 +330,9 @@ export type MobileBridgeOptions = {
   commandPollIntervalMs?: number
 }
 
-const DEFAULT_RELAY_URL = 'http://192.168.0.35:3000'
+const DEFAULT_RELAY_URL = 'https://multiauth-production.up.railway.app'
 const RELAY_URL = process.env['MULTICODE_MOBILE_RELAY_URL']?.replace(/\/+$/u, '') || DEFAULT_RELAY_URL
+const USING_DEFAULT_RELAY_URL = RELAY_URL === DEFAULT_RELAY_URL
 const INITIAL_RECONNECT_DELAY_MS = 1000
 const MAX_RECONNECT_DELAY_MS = 60 * 1000
 const DEFAULT_COMMAND_POLL_INTERVAL_MS = 2_000
@@ -386,6 +387,20 @@ function normalizeRelayUrlUpdate(value: string | null | undefined): string | nul
   if (value === undefined || value === null) return null
   const trimmed = value.trim().replace(/\/+$/u, '')
   return trimmed || null
+}
+
+function shouldReplaceStoredRelayUrl(value: string | null): boolean {
+  if (!USING_DEFAULT_RELAY_URL || !value) return false
+
+  try {
+    const url = new URL(value)
+    return (
+      (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '192.168.0.35') &&
+      (url.port === '3000' || url.port === '')
+    )
+  } catch {
+    return false
+  }
 }
 
 export class MobileBridge {
@@ -624,7 +639,9 @@ export class MobileBridge {
 
     const persisted = await readMobileBridgeStore(this.storePath)
     this.enabled = persisted.enabled
-    this.relayUrl = persisted.relayUrl ?? this.relayUrl
+    this.relayUrl = shouldReplaceStoredRelayUrl(persisted.relayUrl)
+      ? RELAY_URL
+      : persisted.relayUrl ?? this.relayUrl
     this.desktopInstanceId = persisted.desktopInstanceId
     this.pairedDevices = persisted.pairedDevices
     this.pushRegistrations = persisted.pushRegistrations

@@ -437,6 +437,34 @@ run('the primary Sprint Engine run link is the Open action, not a duplicate Link
   assert.match(linksSectionSource, /\.filter\(\(link\) => link\.id !== excludeLinkId\)/, 'the section excludes the promoted primary link')
 })
 
+run('Sprint Engine contributes Start/Open Backlog actions for run-linked items', () => {
+  assert.match(
+    sprintEngineModuleSource,
+    /host\.registerBacklogLinkProvider\(\{\s*moduleId: SPRINT_ENGINE_MODULE_ID,\s*targetKinds: \[SPRINT_ENGINE_RUN_TARGET_KIND\]/s,
+    'the Sprint Engine module registers the built-in run link provider',
+  )
+  assert.match(
+    sprintEngineModuleSource,
+    /id: 'sprint-engine\.start-from-backlog',\s*label: 'Start Sprint Engine'/s,
+    'the module registers the Start Sprint Engine Backlog action',
+  )
+  assert.match(
+    sprintEngineModuleSource,
+    /id: 'sprint-engine\.open-linked-run',\s*label: 'Open Sprint Engine'/s,
+    'the module registers the Open Sprint Engine Backlog action',
+  )
+  assert.match(
+    sprintEngineModuleSource,
+    /item\.status !== 'archived' && item\.status !== 'completed' && !hasSprintEngineRunLink\(item\)/,
+    'Start is visible only for runnable items without a Sprint Engine run link',
+  )
+  assert.match(
+    sprintEngineModuleSource,
+    /item\.status !== 'archived' && hasSprintEngineRunLink\(item\)/,
+    'Open is visible for non-archived items with a Sprint Engine run link',
+  )
+})
+
 run('completed Backlog items can be marked done manually and do not offer Sprint Engine start', () => {
   assert.match(
     backlogPanelSource,

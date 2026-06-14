@@ -12,6 +12,7 @@ import {
   normalizeSprintEngineAutoState,
   normalizeSprintEngineRoleCliDefaults,
 } from './runStateSlice'
+import { sprintEngineRunSettingsKey } from './settingsSlice'
 
 const standardTemplate: LayoutTemplate = {
   id: 'run-state-standard',
@@ -217,7 +218,13 @@ const storeWorkspaceId = useWorkspaceStore.getState().addWorkspace(standardTempl
 })
 useWorkspaceStore.getState().setSprintEngineState(storeWorkspaceId, sprintState)
 useWorkspaceStore.getState().setSprintEngineAutomationMode(storeWorkspaceId, 'run_agents_and_approve_artifacts')
-useWorkspaceStore.getState().setSprintEngineCliPermissionPreset(storeWorkspaceId, 'bypass_all')
+const originalDateNow = Date.now
+Date.now = () => 1780801560320
+try {
+  useWorkspaceStore.getState().setSprintEngineCliPermissionPreset(storeWorkspaceId, 'bypass_all')
+} finally {
+  Date.now = originalDateNow
+}
 useWorkspaceStore.getState().setMultiloopState(storeWorkspaceId, initialMultiloopState)
 useWorkspaceStore.getState().setMultiloopCoordinatorAutoSpawnKey(storeWorkspaceId, 'coordinator-key')
 
@@ -227,6 +234,28 @@ assert.equal(storeWorkspace.sprintEngineState?.goal, 'Validate run-state slice')
 assert.equal(storeWorkspace.multiloopState?.loop.name, 'release-loop')
 assert.equal(storeWorkspace.sprintEngineAutoState?.desiredMode, 'run_agents_and_approve_artifacts')
 assert.equal(storeWorkspace.sprintEngineAutoState?.cliPermissionPreset, 'bypass_all')
+assert.equal(storeWorkspace.sprintEngineAutoState?.changedAt, 1780801560320)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.sprintEngineRunSettings[
+    sprintEngineRunSettingsKey(storeWorkspace.sprintEngineContext?.statePath)
+  ]?.cliPermissionPreset,
+  'bypass_all',
+)
 assert.equal(storeWorkspace.multiloopAutoState?.coordinatorAutoSpawnKey, 'coordinator-key')
+
+useWorkspaceStore.getState().setLastAgentSpawnPermissionPreset('bypass_all')
+const inheritedPermissionWorkspaceId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Inherited Sprint Permission',
+  folderPath: '/repo/inherited',
+  sprintEngineState: sprintState,
+})
+const inheritedPermissionWorkspace = useWorkspaceStore.getState().workspaces.find(
+  (workspace) => workspace.id === inheritedPermissionWorkspaceId,
+)
+assert.equal(
+  inheritedPermissionWorkspace?.sprintEngineAutoState?.cliPermissionPreset,
+  'bypass_all',
+  'new Sprint Engine workspaces inherit the app-level permission default when no run override exists',
+)
 
 console.log('runStateSlice.test.ts: ok')

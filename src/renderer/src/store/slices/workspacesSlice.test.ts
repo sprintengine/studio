@@ -663,4 +663,42 @@ const swapped = applySoloChatSeed(seedSource, { terminal: { terminalId: 't-9' },
 assert.equal(firstTab({ layoutModel: swapped } as never)?.component, 'terminal')
 assert.equal(firstTab({ layoutModel: seedSource } as never)?.component, 'agent')
 
+// Regression: a Sprint Engine roster role missing from the CLI-defaults map
+// must NOT throw in addWorkspace. addWorkspace runs AFTER
+// initializeSprintEngineState has already written run.yaml and (in worktree
+// mode) created the git worktree+branch, so a throw orphaned a real on-disk run
+// with no workspace — observed with plans whose roster included nuclear_reviewer
+// (which was absent from the defaults map). nuclear_reviewer now resolves from
+// the completed map; an open-ended/custom role (SprintEngineRoleId is `string`)
+// falls back to the team's architect CLI instead of aborting creation.
+const openRoleState = createInitialSprintEngineState({
+  name: 'Open Role Team',
+  goal: 'Roster includes roles outside the CLI-defaults map.',
+  roleCounts: { architect: 1, nuclear_reviewer: 1, qa_lead: 1 },
+})
+let openRoleId: string | undefined
+assert.doesNotThrow(() => {
+  openRoleId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+    name: 'Open Role Team',
+    folderPath: '/Users/example/open-role',
+    sprintEngineState: openRoleState,
+    // Deliberately supply only the architect default; nuclear_reviewer and the
+    // custom qa_lead role are left to the completed map / fallback respectively.
+    sprintEngineRoleCliDefaults: { architect: 'codex' },
+  })
+}, 'a roster role missing from the CLI-defaults map never throws in addWorkspace')
+state = useWorkspaceStore.getState()
+const openRoleWorkspace = state.workspaces.find((workspace) => workspace.id === openRoleId)
+assert.ok(openRoleWorkspace, 'the workspace is created despite an unmapped roster role')
+assert.equal(
+  openRoleWorkspace?.agents.nuclear_reviewer?.cli,
+  'claude-code',
+  'nuclear_reviewer resolves from the completed default CLI map',
+)
+assert.equal(
+  openRoleWorkspace?.agents.qa_lead?.cli,
+  'codex',
+  'an open-ended/custom role falls back to the team architect CLI',
+)
+
 console.log('workspacesSlice.test.ts: ok')

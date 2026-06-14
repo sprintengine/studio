@@ -8,7 +8,10 @@ from sprintengine_core import store as folder_store
 from sprintengine_core.tool.artifacts import project_relative_display_path
 from sprintengine_core.tool.feedback import set_architect_difficulty_estimate
 from sprintengine_core.tool.gates import sync_product_quality_gate
+from pathlib import Path
+
 from sprintengine_core.tool.plans import (
+    apply_plan_gate_dependency,
     build_address_reviews_prompt,
     build_plan_review_prompt,
     build_plan_review_status,
@@ -40,6 +43,7 @@ def cmd_plan_add_task(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         ensure_role_in_roster(state, args.role)
         task = build_task_from_args(args, state)
+        apply_plan_gate_dependency(task, state, Path(args.state))
         state.setdefault("tasks", []).append(task)
         recompute_phase(state)
         event = append_event(state, "task_added", args.actor, f"{args.actor} added {task['id']}: {task['title']}.")

@@ -10,7 +10,7 @@ import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
-import { resolveAvailableAgentCli, resolveCliModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
+import { resolveAvailableAgentCli, resolveCliModel, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import {
@@ -71,7 +71,6 @@ import {
   getSessionItems,
   getTerminalSessionsSignature,
   getWorkspaceActivity,
-  hasActiveProPlan,
   uniqueAgentName,
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
@@ -249,7 +248,6 @@ export default function WorkspaceManager() {
   const selectedSpecialistAction = getSpecialistAction(lastSelectedSpecialist)
   const selectedMultiloopRoleDescriptor = getMultiloopRole(lastSelectedMultiloopRole)
   const multiloopLaunchMenu = activeWorkspace?.mode === 'multiloop'
-  const proAccount = hasActiveProPlan(authState)
 
   const [showNewWorkspacePanel, setShowNewWorkspacePanel] = useState(false)
   const [newWorkspacePanelInitialState, setNewWorkspacePanelInitialState] = useState<NewWorkspacePanelInitialState | null>(null)
@@ -1083,7 +1081,7 @@ export default function WorkspaceManager() {
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: cliForSpawn,
-      cliModel: resolveCliModel(cliForSpawn, specialistModelDefaults[specialist.id], cliModelDefaults),
+      cliModel: resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id]),
       cliPermissionPreset: agentSpawnPermissionPreset,
       kind: 'specialist',
       specialistId: specialist.id,
@@ -1146,7 +1144,7 @@ export default function WorkspaceManager() {
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: cliForSpawn,
-      cliModel: resolveCliModel(cliForSpawn, multiloopRoleModelDefaults[soul.role], cliModelDefaults),
+      cliModel: resolveSurfaceModel(cliForSpawn, multiloopRoleModelDefaults[soul.role]),
       cliPermissionPreset: agentSpawnPermissionPreset,
       kind: 'multiloop',
       specialistId: undefined,
@@ -1252,7 +1250,7 @@ export default function WorkspaceManager() {
         agentPatch: {
           name: tabName,
           cli: cliForSpawn,
-          cliModel: resolveCliModel(cliForSpawn, specialistModelDefaults[specialist.id], cliModelDefaults),
+          cliModel: resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id]),
           cliPermissionPreset: agentSpawnPermissionPreset,
           kind: 'specialist',
           specialistId: specialist.id,
@@ -1658,20 +1656,6 @@ export default function WorkspaceManager() {
     setAccountOpen(false)
   }
 
-  const switchOrganization = async () => {
-    const organizationId = await dialog.prompt({
-      title: 'Switch organization',
-      inputLabel: 'Organization ID',
-      placeholder: 'org_…',
-      required: true,
-      confirmLabel: 'Switch',
-    })
-    const trimmed = organizationId?.trim()
-    if (!trimmed) return
-    await window.api.authSelectOrganization(trimmed)
-    setAuthState(await window.api.authRefreshEntitlements())
-  }
-
   const openSession = async (item: SessionItem) => {
     const status = await window.api.terminalStatus(item.sessionId)
     if (!status.processAlive) {
@@ -1927,11 +1911,9 @@ export default function WorkspaceManager() {
         setAccountOpen={setAccountOpen}
         authState={authState}
         authMessage={authMessage}
-        proAccount={proAccount}
         startLogin={startLogin}
         refreshAuthState={refreshAuthState}
         logout={logout}
-        switchOrganization={switchOrganization}
       />
 
       <div className="relative min-h-0 flex-1">

@@ -121,7 +121,7 @@ export default function PanelRail({ workspaceId, collapsed, onToggleCollapse }: 
   // bar; collapsed it stacks vertically with the collapse toggle on top.
   const containerClass = collapsed
     ? 'flex flex-col items-stretch pt-2'
-    : 'flex h-[48px] items-center border-b border-[color:var(--border-subtle)] px-2'
+    : 'grid h-[48px] grid-cols-[32px_minmax(0,1fr)_32px] items-center border-b border-[color:var(--border-subtle)] px-2'
 
   // `right` placement in collapsed mode prevents the tooltip from overflowing
   // the viewport to the left of a 44 px sidebar (a top/bottom-centered
@@ -131,8 +131,8 @@ export default function PanelRail({ workspaceId, collapsed, onToggleCollapse }: 
 
   // The collapse toggle is chrome, not a nav switch: it brightens on hover
   // like the rail icons but carries no accent stripe. It leads in both
-  // layouts — the full-width top row when collapsed, the leading cell (before
-  // the hairline divider and the nav switches) when expanded.
+  // layouts — the full-width top row when collapsed, the leading grid cell
+  // when expanded.
   const collapseToggle = (
     <Tooltip
       content={
@@ -231,11 +231,10 @@ export default function PanelRail({ workspaceId, collapsed, onToggleCollapse }: 
         )
   }
 
-  // Expanded: the collapse toggle leads the row, a hairline divider marks it
-  // off as utility chrome, then the nav switches pack against it — left-aligned
-  // like Linear / T3 Chat, with no trailing void. The divider does the "this
-  // is not a nav switch" job that a far-right gap used to. Collapsed: the
-  // toggle leads the vertical stack, the same reading order.
+  // Expanded: the collapse toggle stays in the leading utility cell, while the
+  // panel switches are centered in the row and balanced by a matching trailing
+  // spacer. Collapsed: the toggle leads the vertical stack, the same reading
+  // order.
   return (
     <div
       role="toolbar"
@@ -250,18 +249,17 @@ export default function PanelRail({ workspaceId, collapsed, onToggleCollapse }: 
         </>
       ) : (
         <>
-          {collapseToggle}
+          <div className="flex h-8 w-8 items-center justify-center">
+            {collapseToggle}
+          </div>
           {workspaceId ? (
-            <>
-              <span
-                aria-hidden="true"
-                className="mx-1.5 h-5 w-px shrink-0 bg-[color:var(--border-subtle)]"
-              />
-              <div className="flex items-center gap-4">
-                {panels.map(renderPanelButton)}
-              </div>
-            </>
-          ) : null}
+            <div className="flex min-w-0 items-center justify-center gap-4">
+              {panels.map(renderPanelButton)}
+            </div>
+          ) : (
+            <span aria-hidden="true" />
+          )}
+          <span aria-hidden="true" className="h-8 w-8" />
         </>
       )}
     </div>

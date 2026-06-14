@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import { SprintEngineRosterView } from './SprintEngineRosterView'
-import type { AgentState, SprintEngineState } from '../../../types/workspace'
+import type { AgentCli, AgentState, SprintEngineState } from '../../../types/workspace'
 import type { RuntimeAgentView } from '../sprintEngineInspector'
 
 // Static accessibility/affordance contracts for the roster control rows:
@@ -51,6 +51,11 @@ const html = renderToStaticMarkup(
     isAgentTerminalLive={(agentId) => liveAgentIds.has(agentId)}
     runtimeSummaryFor={(agentId) =>
       agentId === 'developer-1' ? 'Codex · model-a' : agentId === 'architect' ? 'Claude Code' : null}
+    cliOptions={[]}
+    agentRuntimeCli={(agentId) => (agents[agentId]?.cli ?? 'codex') as AgentCli}
+    effectiveModelForAgent={(agentId) => agents[agentId]?.cliModel}
+    onSelectAgentCli={() => {}}
+    onSelectAgentModel={() => {}}
     onOpenAgent={() => {}}
     onSpawnAgent={() => {}}
     onRestartAgent={() => {}}

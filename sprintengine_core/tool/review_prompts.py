@@ -126,6 +126,7 @@ def build_rework_prompt(state_path: Path, task: Dict[str, Any]) -> str:
     plan_path = plan_prompt_path(state_path)
     open_feedback = newest_comments(open_feedback_comments(task), limit=10)
     latest_comments = newest_comments(task_comments(task), limit=5)
+    shared_findings = shared_finding_lines(open_feedback)
     return "\n".join([
         "# Sprint Engine Task Context",
         "",
@@ -133,8 +134,13 @@ def build_rework_prompt(state_path: Path, task: Dict[str, Any]) -> str:
         f"Task: `{task.get('id')}` - {task.get('title')}",
         f"Status: `{task.get('status')}`",
         "",
-        *prompt_list("Open Feedback (newest first)", [comment_prompt_line(comment) for comment in open_feedback]),
+        *prompt_list("Open Feedback (grouped by gate, newest first)", grouped_feedback_lines(open_feedback)),
         "",
+        *(
+            [*prompt_list("Shared Findings (fix once — resolves the finding for every gate listed)", shared_findings), ""]
+            if shared_findings
+            else []
+        ),
         *prompt_list("Latest Comments (newest first)", [comment_prompt_line(comment) for comment in latest_comments]),
         "",
         "Use the open feedback as the rework queue. Address newer feedback first when comments conflict, and publish an `implementation_response` when the changes are ready.",
@@ -159,6 +165,15 @@ def build_gate_review_prompt(
     ]
     gate_focus = str(gate.get("focus") or "").strip() or "Review the task against the gate role and phase."
     gate_role = str(gate.get("role") or "")
+    gate_id = str(gate.get("id") or "")
+    open_feedback = newest_comments(open_feedback_comments(task), limit=10)
+    known_findings: List[Dict[str, Any]] = []
+    own_gate_feedback: List[Dict[str, Any]] = []
+    for comment in open_feedback:
+        if gate_id and feedback_gate_id(comment) == gate_id:
+            own_gate_feedback.append(comment)
+        else:
+            known_findings.append(comment)
     validation_report_dir = project_relative_display_path(state_path, state_path.parent / "docs" / "validation")
     validation_report_example = f"{validation_report_dir}/{str(task.get('id') or 'task').lower()}-tester-validation.md"
     role_specific_lines: List[str] = []
@@ -178,7 +193,8 @@ def build_gate_review_prompt(
             "- Submit the verdict with `--artifact-path <team-folder-report-path>`, `--artifact-title`, and `--artifact-kind validation_report`. Include changed test files, commands, results, browser/MCP evidence, path/reason/risk for any companion test edits, and residual risk.",
             "- If no new test is needed, say why and name the existing tests or checks that cover the risk.",
             "- Use `failed` or `changes_requested` when required behavior is unverified, regression coverage is missing, or validation cannot be reproduced. Use `blocked` with needs-input routing when tooling, fixtures, environment, or real integration access prevents validation.",
-            "- A passing tester verdict should report scope reviewed, commands run, tests evaluated or added, release confidence, and residual risk.",
+            "- A passing tester verdict should report scope reviewed, commands run, tests evaluated or added, release confidence, and residual risk — as terse bullets, one line each.",
+            "- Keep the validation report bullet-first and under ~120 lines; do not restate the task card or implementation summary, and reference file paths instead of quoting file content.",
         ]
     lines = [
         "# Sprint Engine Gate Review Context",
@@ -220,7 +236,9 @@ def build_gate_review_prompt(
         "",
         *prompt_list("Latest Implementation Summary Or Response", [comment_prompt_line(implementation_comment)] if implementation_comment else []),
         "",
-        *prompt_list("Open Feedback (newest first)", [comment_prompt_line(comment) for comment in newest_comments(open_feedback_comments(task), limit=10)]),
+        *prompt_list("Known Findings From Other Gates (newest first)", [comment_prompt_line(comment) for comment in known_findings]),
+        "",
+        *prompt_list("Open Feedback From This Gate (newest first)", [comment_prompt_line(comment) for comment in own_gate_feedback]),
         "",
         *prompt_list("Latest Comments (newest first)", [comment_prompt_line(comment) for comment in newest_comments(task_comments(task), limit=5)]),
         "",

@@ -148,13 +148,17 @@ function testClaudeCodeRenderWithModel(): void {
     'sid_m1',
   ])
 
+  // Resume must NOT pass --model: Claude Code persists the model per session id,
+  // so a resumed session keeps its own model — including a mid-session `/model`
+  // switch. Re-passing the spawned-with model here would clobber that change on
+  // every reopen. (Verified empirically against claude 2.1.177.)
   const resumed = renderAgentLaunchArgv({
     cli: 'claude-code',
     sessionId: 'sid_m1',
     resume: true,
     cliModel: 'opus',
   })
-  assert.deepEqual(resumed.argv, ['claude', '--model', 'opus', '--resume', 'sid_m1'])
+  assert.deepEqual(resumed.argv, ['claude', '--resume', 'sid_m1'])
 }
 
 function testCodexRenderWithModel(): void {
@@ -165,13 +169,17 @@ function testCodexRenderWithModel(): void {
   })
   assert.deepEqual(out.argv, ['codex', '--model', 'gpt-5-codex'])
 
+  // Resume omits --model, same as Claude Code: the CLI tracks its own session
+  // model, so re-passing it would clobber a mid-session switch. This is a
+  // per-manifest choice (resume.argv), not engine behavior — a CLI that does NOT
+  // persist its session model can keep modelArgs in its own resume.argv.
   const resumed = renderAgentLaunchArgv({
     cli: 'codex',
     sessionId: 'sid_m2',
     resume: true,
     cliModel: 'gpt-5-codex',
   })
-  assert.deepEqual(resumed.argv, ['codex', 'resume', '--model', 'gpt-5-codex'])
+  assert.deepEqual(resumed.argv, ['codex', 'resume'])
 
   // No model selected → manifest renders no model flag at all.
   const noModel = renderAgentLaunchArgv({ cli: 'codex', sessionId: 'sid_m3' })

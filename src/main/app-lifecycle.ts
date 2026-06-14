@@ -1,5 +1,4 @@
 import { app, BrowserWindow, Menu } from 'electron'
-import { resolve } from 'path'
 import { createAppMenu } from './app-menu'
 import { createMainWindow, markAppQuitInProgressForWindowClose } from './window-factory'
 import { beginSwitchboardPythonRuntimeShutdown, shutdownSwitchboardPythonRuntime } from './switchboard-runtime-service'
@@ -120,8 +119,8 @@ export function registerAppLifecycle({
 }
 
 function registerMulticodeProtocol(): void {
-  if (process.defaultApp) {
-    const appEntry = process.argv[1] ? resolve(process.argv[1]) : app.getAppPath()
+  if (!app.isPackaged) {
+    const appEntry = app.getAppPath()
     app.setAsDefaultProtocolClient('multicode', process.execPath, [appEntry])
     return
   }

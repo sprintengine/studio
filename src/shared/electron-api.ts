@@ -1480,6 +1480,7 @@ export type ElectronApi = {
   ensureDir: (parentDir: string, name: string) => Promise<string>
   createWorkspaceFolder: (parentDir: string, name: string) => Promise<string>
   renamePath: (sourcePath: string, nextName: string) => Promise<string>
+  movePath: (sourcePath: string, destinationDir: string) => Promise<string>
   copyPath: (sourcePath: string, destinationDir: string) => Promise<string>
   copyPathInto: (sourcePath: string, destinationDir: string, options?: { overwrite?: boolean }) => Promise<string>
   deletePath: (targetPath: string) => Promise<void>

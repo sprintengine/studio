@@ -273,6 +273,81 @@ def test_plan_add_task_requires_configured_roster_for_quality_gated_runs(tmp_pat
     assert "Cannot add quality-gated Sprint Engine tasks before configuring a roster" in rejected.stderr
 
 
+def test_plan_add_task_roots_new_tasks_on_the_plan_gate(tmp_path) -> None:
+    """Live-reproduced planning defect: architects created implementation
+    tasks with no dependency on the plan-review gate, so work became
+    claimable before the plan was approved. Dependency-free tasks must root
+    on the plan gate; explicit dependencies stay untouched (covered
+    transitively)."""
+    fixture = create_team(tmp_path, "plan-gate-rooting", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
+        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
+    }
+    state["tasks"] = [
+        {
+            "id": "T0",
+            "title": "Review architect plan artifact",
+            "role": "architect",
+            "status": "needs_input",
+            "ownerAgentId": None,
+            "dependsOn": [],
+            "ownedPaths": [],
+            "acceptanceCriteria": [],
+            "implementationNotes": [],
+            "evidence": {"summary": "", "touchedFiles": [], "commandsRan": [], "results": []},
+            "notes": [],
+            "startedAt": None,
+            "completedAt": None,
+        }
+    ]
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
+
+    rooted = fixture.cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Implementation task with no explicit deps",
+        "--role",
+        "developer",
+    )
+    assert rooted["task"]["dependsOn"] == ["T0"]
+
+    chained = fixture.cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Task with an explicit dependency",
+        "--role",
+        "developer",
+        "--depends-on",
+        rooted["task"]["id"],
+    )
+    assert chained["task"]["dependsOn"] == [rooted["task"]["id"]]
+
+
+def test_plan_add_task_keeps_empty_dependencies_without_a_plan_gate(tmp_path) -> None:
+    fixture = create_team(tmp_path, "plan-gate-absent", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
+    }
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
+
+    added = fixture.cli.run(
+        "plan",
+        "add-task",
+        "--title",
+        "Ungated run keeps free roots",
+        "--role",
+        "developer",
+    )
+    assert added["task"]["dependsOn"] == []
+
+
 def test_cross_cutting_tasks_get_architect_quality_gate_when_rostered(tmp_path) -> None:
     fixture = create_team(
         tmp_path,

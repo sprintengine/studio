@@ -1402,6 +1402,13 @@ export type AppSettings = {
    */
   specialistOrder: SpecialistActionId[]
   sprintEngineRoleSettings: SprintEngineRoleSettings
+  /**
+   * Local operator preferences for an existing Sprint Engine run, keyed by the
+   * normalized absolute `run.yaml` path. These intentionally stay in app-local
+   * settings instead of the portable run store because permission bypass is a
+   * machine/user trust decision.
+   */
+  sprintEngineRunSettings: Record<string, SprintEngineRunSettings>
   searchExcludes: string[]
   projectKnowledgeRoots: Record<string, string | null>
   recentWorkspaceFolders: string[]
@@ -1432,6 +1439,12 @@ export type AppSettings = {
    * 'complete'. See store/onboardingState.ts.
    */
   onboardingStep: OnboardingStep
+}
+
+export type SprintEngineRunSettings = {
+  keepDoneAgentTerminals?: boolean
+  cliPermissionPreset?: SprintEngineCliPermissionPreset
+  maxConcurrentAgents?: number
 }
 
 export type GuidedBriefHasUi = 'yes' | 'no'

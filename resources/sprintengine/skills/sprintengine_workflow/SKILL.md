@@ -8,12 +8,27 @@ Use project-root-relative paths in Sprint Engine MCP payload fields that carry p
 
 If `MULTICODE_KNOWLEDGE_ROOT` is set and your change affects a behavior, contract, file layout, or convention documented in the Knowledge Graph, update the relevant note in the same publish. Log the KG note path with `sprintengine.task.log` `file` evidence alongside the source files you touched.
 
-When a returned directive includes `nextMcpToolName`, invoke that MCP tool once
-with `nextMcpArguments`. After completing or publishing work in Multicode,
-publish the required evidence/verdict and let the runtime own later dispatch
-and continuation. Standalone/headless CLI users can still use `join --watch` for
+When Multicode names a claim tool (`sprintengine.task.next`,
+`sprintengine.gate.next`, or `sprintengine.triage.needs_input`), call it once
+and work what it returns; if it returns no claim, say so and stop — Multicode
+re-engages this terminal when work is ready. If a directive payload names
+`nextMcpToolName`, invoke that MCP tool once with `nextMcpArguments`. After
+publishing evidence or a verdict, let the runtime own later dispatch and
+continuation. Standalone/headless CLI users can still use `join --watch` for
 polling/backoff outside the managed Multicode runtime.
 
 Role-specific Sprint Engine runtime skills may add planning, publishing, gate,
 artifact, benchmark, or difficulty guidance. Follow those only when they match
 the work you are actually doing.
+
+## Write For Agent Readers
+
+Sprint Engine artifacts are consumed mostly by other agents, and every summary,
+comment, and review is re-read in later prompts, so write terse bullet-first
+content: facts and decisions, not narrative. Never restate the task card, plan,
+or requirements the reader already has; reference file paths instead of quoting
+file content. Budgets: evidence `result` entries are one line each; `task.log`
+summaries, notes, and comments stay within a few lines; publish summaries stay
+under ~600 characters; gate verdict summaries stay under ~2000 characters.
+Budgets cap how findings and evidence are written, never how much you check —
+report every real finding, tersely.
