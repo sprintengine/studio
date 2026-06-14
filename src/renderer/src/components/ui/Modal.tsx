@@ -143,7 +143,7 @@ export function ModalButton({ variant = 'ghost', className, ...rest }: ModalButt
     primary: PRIMARY_STYLES,
     ghost:
       'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
-    danger: 'bg-[color:var(--tone-error)] text-[color:var(--text-on-accent)]',
+    danger: 'bg-[color:var(--tone-error)] text-[color:var(--tone-error-ink)]',
   }
   return <button {...rest} className={`${base} ${styles[variant]} ${className ?? ''}`} />
 }

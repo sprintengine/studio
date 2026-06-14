@@ -88,6 +88,14 @@
   --tone-warn-soft: rgba(252, 192, 48, 0.18);
   --tone-error-soft: rgba(252, 120, 124, 0.18);
 
+  /* Ink for solid --tone-error fills (danger buttons). Borrowing
+     --text-on-accent broke here: that token is tuned for the blue accent and
+     flips to white on some dark themes (e.g. slate), leaving white-on-coral.
+     The error red is the light coral #fc787c on every theme except `light`,
+     so near-black is the correct ink; the light theme overrides it to white
+     against its deeper #d92d2d. Same approach as --git-count-badge-ink. */
+  --tone-error-ink: #08080c;
+
   /* Git change-count badge on the panel rail. A count chip is self-contained,
      so it carries one fixed amber fill + near-black ink across every theme
      rather than borrowing --text-on-accent — that token is tuned for the blue
@@ -232,6 +240,9 @@
   --tone-good: #157f37;
   --tone-warn: #9a6000;
   --tone-error: #d92d2d;
+  /* Light theme uses a deeper red than the shared coral, so its danger ink
+     flips to white (near-black would be illegible on #d92d2d). */
+  --tone-error-ink: #ffffff;
 
   --tone-neutral-soft: rgba(100, 108, 120, 0.14);
   --tone-accent-soft: rgba(56, 92, 252, 0.14);
