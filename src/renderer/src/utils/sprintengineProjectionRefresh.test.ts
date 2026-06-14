@@ -8,7 +8,6 @@ import type {
 import type { SprintEngineAutomationEvent, SprintEngineState, Workspace } from '../types/workspace'
 import {
   refreshSprintEngineWorkspaceProjection,
-  sprintEngineProjectionSignature,
   type SprintEngineProjectionRefreshPorts,
 } from './sprintengineProjectionRefresh'
 
@@ -86,6 +85,7 @@ function portsFor(input: {
   data?: unknown
   ok?: boolean
   message?: string
+  token?: string
   applied: SprintEngineState[]
   backlogStore?: BacklogObjectStorePayload
   backlogReadResult?: BacklogReadResult
@@ -100,9 +100,12 @@ function portsFor(input: {
   automationEvents?: SprintEngineAutomationEvent[]
 }): SprintEngineProjectionRefreshPorts {
   return {
-    readSprintEngineProjection: async () => input.ok === false
-      ? { ok: false, message: input.message ?? 'projection read failed' }
-      : { ok: true, data: input.data ?? projection('in_progress') },
+    readSprintEngineProjection: async (_statePath, knownToken) => {
+      if (input.ok === false) return { ok: false, message: input.message ?? 'projection read failed' }
+      const token = input.token ?? 'tok-1'
+      if (knownToken && knownToken === token) return { ok: true, data: null, token, unchanged: true }
+      return { ok: true, data: input.data ?? projection('in_progress'), token }
+    },
     setSprintEngineState: (_workspaceId, state) => {
       if (state) input.applied.push(state)
     },
@@ -128,7 +131,7 @@ async function testChangedRefresh(): Promise<void> {
   const applied: SprintEngineState[] = []
   const result = await refreshSprintEngineWorkspaceProjection({
     workspace: workspace(),
-    signatures: new Map(),
+    tokens: new Map(),
     cause: 'supervisor',
     ports: portsFor({ data: projection('in_progress'), applied }),
   })
@@ -143,7 +146,7 @@ async function testColdStateRefreshWithContext(): Promise<void> {
   const coldWorkspace = { ...workspace(), sprintEngineState: null } as Workspace
   const result = await refreshSprintEngineWorkspaceProjection({
     workspace: coldWorkspace,
-    signatures: new Map(),
+    tokens: new Map(),
     cause: 'supervisor',
     ports: portsFor({ data: projection('in_progress'), applied }),
   })
@@ -156,35 +159,53 @@ async function testColdStateRefreshWithContext(): Promise<void> {
 async function testUnchangedDedupe(): Promise<void> {
   const applied: SprintEngineState[] = []
   const data = projection('done')
-  const signatures = new Map([['workspace-1', sprintEngineProjectionSignature(data)]])
+  // The reader is told our last-seen token; a matching token short-circuits to
+  // an `unchanged` result with no read/parse and no store mutation.
+  const tokens = new Map([['workspace-1', 'tok-1']])
   const result = await refreshSprintEngineWorkspaceProjection({
     workspace: workspace(),
-    signatures,
+    tokens,
     cause: 'auto-run',
-    ports: portsFor({ data, applied }),
+    ports: portsFor({ data, token: 'tok-1', applied }),
   })
 
   assert.equal(result.status, 'unchanged')
   assert.equal(applied.length, 0)
 }
 
-async function testForcedRefreshUpdatesSignature(): Promise<void> {
+async function testForcedRefreshUpdatesToken(): Promise<void> {
   const applied: SprintEngineState[] = []
-  const staleData = projection('todo')
   const forcedData = projection('done')
-  const signatures = new Map([['workspace-1', sprintEngineProjectionSignature(staleData)]])
+  // A stale token would normally dedupe, but force bypasses it (no knownToken is
+  // sent), so the reader returns full data and we record its fresh token.
+  const tokens = new Map([['workspace-1', 'stale-tok']])
   const result = await refreshSprintEngineWorkspaceProjection({
     workspace: workspace(),
-    signatures,
+    tokens,
     cause: 'manual',
     force: true,
-    ports: portsFor({ data: forcedData, applied }),
+    ports: portsFor({ data: forcedData, token: 'fresh-tok', applied }),
   })
 
   assert.equal(result.status, 'changed')
   assert.equal(applied.length, 1)
   assert.equal(applied[0].tasks[0].status, 'done')
-  assert.equal(signatures.get('workspace-1'), sprintEngineProjectionSignature(forcedData))
+  assert.equal(tokens.get('workspace-1'), 'fresh-tok')
+}
+
+async function testChangedRefreshRecordsToken(): Promise<void> {
+  // A changed read must persist the reader's token so the next poll can dedupe.
+  const applied: SprintEngineState[] = []
+  const tokens = new Map<string, string>()
+  const result = await refreshSprintEngineWorkspaceProjection({
+    workspace: workspace(),
+    tokens,
+    cause: 'supervisor',
+    ports: portsFor({ data: projection('in_progress'), token: 'tok-99', applied }),
+  })
+
+  assert.equal(result.status, 'changed')
+  assert.equal(tokens.get('workspace-1'), 'tok-99')
 }
 
 async function testReadError(): Promise<void> {
@@ -192,7 +213,7 @@ async function testReadError(): Promise<void> {
   const diagnostics: string[] = []
   const result = await refreshSprintEngineWorkspaceProjection({
     workspace: workspace(),
-    signatures: new Map(),
+    tokens: new Map(),
     cause: 'supervisor',
     ports: portsFor({ ok: false, message: 'boom', applied, diagnostics }),
   })
@@ -205,7 +226,7 @@ async function testReadError(): Promise<void> {
 async function testMissingContextSkip(): Promise<void> {
   const result = await refreshSprintEngineWorkspaceProjection({
     workspace: { ...workspace(), sprintEngineContext: null } as Workspace,
-    signatures: new Map(),
+    tokens: new Map(),
     cause: 'manual',
     ports: portsFor({ applied: [] }),
   })
@@ -224,7 +245,7 @@ async function testCompletedProjectionRefreshesMatchingBacklogLink(): Promise<vo
   }> = []
   const result = await refreshSprintEngineWorkspaceProjection({
     workspace: workspace(),
-    signatures: new Map(),
+    tokens: new Map(),
     cause: 'supervisor',
     ports: portsFor({
       data: projection('done', '2026-06-07T15:00:00Z', 'complete'),
@@ -291,7 +312,7 @@ async function testNonterminalProjectionDoesNotCompleteBacklogLink(): Promise<vo
   }> = []
   await refreshSprintEngineWorkspaceProjection({
     workspace: workspace(),
-    signatures: new Map(),
+    tokens: new Map(),
     cause: 'supervisor',
     ports: portsFor({
       data: projection('in_progress'),
@@ -335,7 +356,7 @@ async function testBacklogRefreshFailureWarnsAndLeavesItemUnchanged(): Promise<v
   }> = []
   await refreshSprintEngineWorkspaceProjection({
     workspace: workspace(),
-    signatures: new Map(),
+    tokens: new Map(),
     cause: 'supervisor',
     ports: portsFor({
       data: projection('done'),
@@ -353,7 +374,8 @@ async function testBacklogRefreshFailureWarnsAndLeavesItemUnchanged(): Promise<v
 await testChangedRefresh()
 await testColdStateRefreshWithContext()
 await testUnchangedDedupe()
-await testForcedRefreshUpdatesSignature()
+await testForcedRefreshUpdatesToken()
+await testChangedRefreshRecordsToken()
 await testReadError()
 await testMissingContextSkip()
 await testCompletedProjectionRefreshesMatchingBacklogLink()

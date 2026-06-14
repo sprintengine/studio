@@ -34,6 +34,9 @@ export type SprintEngineTaskReadyPayload = {
 
 export type SprintEngineProjectionReadPayload = {
   statePath: string
+  // When provided, the reader returns an `unchanged` result without reading or
+  // parsing the projection file if its current token matches.
+  knownToken?: string
 }
 
 export type SprintEngineArtifactReviewAction = 'approve' | 'request-changes'

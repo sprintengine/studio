@@ -72,7 +72,6 @@ import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { isAgentTabVisible, type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
 import {
   refreshSprintEngineWorkspaceProjection,
-  sprintEngineProjectionSignature,
 } from '../../utils/sprintengineProjectionRefresh'
 import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
 import {
@@ -203,12 +202,12 @@ function isMatchingWorkspaceAgentSession(
 
 async function refreshAutoWorkspaceState(
   workspace: Workspace,
-  lastContentByWorkspace: MutableRefObject<Map<string, string>>,
+  projectionTokensByWorkspace: MutableRefObject<Map<string, string>>,
   options: { force?: boolean } = {}
 ): Promise<SprintEngineState | null> {
   const result = await refreshSprintEngineWorkspaceProjection({
     workspace,
-    signatures: lastContentByWorkspace.current,
+    tokens: projectionTokensByWorkspace.current,
     cause: 'auto-run',
     force: options.force,
     ports: {
@@ -352,7 +351,7 @@ async function findRunningAgentSession(
 function applyAutoApprovalProjectionContent(
   workspace: Workspace,
   projectionContent: unknown,
-  lastContentByWorkspace: MutableRefObject<Map<string, string>>
+  projectionTokensByWorkspace: MutableRefObject<Map<string, string>>
 ): SprintEngineState | null {
   if (typeof projectionContent !== 'string') return null
   if (!workspace.sprintEngineContext) return null
@@ -361,9 +360,12 @@ function applyAutoApprovalProjectionContent(
     const parsedState = normalizeSprintEngineProjection(projection, workspace.sprintEngineContext.teamSlug)
     if (!parsedState) return null
     useWorkspaceStore.getState().setSprintEngineState(workspace.id, parsedState)
-    // Keep the projection-watcher signature in sync so the disk reader does not
-    // immediately re-apply the same state on its next tick.
-    lastContentByWorkspace.current.set(workspace.id, sprintEngineProjectionSignature(projection))
+    // We applied this projection content out-of-band (from the mutation result,
+    // not a disk read), so we don't know the file's current change token. Drop
+    // any stale token so the next poll re-reads from disk and records the
+    // authoritative one. The mutation already wrote the file, so that read is a
+    // single, self-correcting re-sync rather than a redundant re-apply loop.
+    projectionTokensByWorkspace.current.delete(workspace.id)
     return parsedState
   } catch {
     return null
@@ -375,7 +377,7 @@ export async function sendApprovalToNextEligibleArtifactProducer(
   sprintEngineState: SprintEngineState,
   sentArtifactApprovalMessages: MutableRefObject<Map<string, number>>,
   autoApprovalDiagnostics: MutableRefObject<Map<string, number>>,
-  lastContentByWorkspace: MutableRefObject<Map<string, string>>
+  projectionTokensByWorkspace: MutableRefObject<Map<string, string>>
 ): Promise<'sent' | 'failed' | 'none'> {
   const autoState = getSprintEngineAutoState(workspace)
   if (!sprintEngineArtifactApprovalDesired(autoState) || !workspace.sprintEngineContext) {
@@ -447,9 +449,9 @@ export async function sendApprovalToNextEligibleArtifactProducer(
     }
 
     const projectionContent = (result.data as { projectionContent?: unknown } | undefined)?.projectionContent
-    const appliedState = applyAutoApprovalProjectionContent(workspace, projectionContent, lastContentByWorkspace)
+    const appliedState = applyAutoApprovalProjectionContent(workspace, projectionContent, projectionTokensByWorkspace)
     if (!appliedState) {
-      const refreshedState = await refreshAutoWorkspaceState(workspace, lastContentByWorkspace, { force: true })
+      const refreshedState = await refreshAutoWorkspaceState(workspace, projectionTokensByWorkspace, { force: true })
       if (!refreshedState) {
         await publishArtifactApprovalWarning(
           workspace,
@@ -1702,7 +1704,7 @@ async function superviseWorkspace(
   sentArchitectTriageMessages: MutableRefObject<Map<string, ArchitectTriageMessage>>,
   sentAgentNotificationEvents: MutableRefObject<Set<string>>,
   continuationGraceByTask: MutableRefObject<Map<string, RoleContinuationGrace>>,
-  lastContentByWorkspace: MutableRefObject<Map<string, string>>,
+  projectionTokensByWorkspace: MutableRefObject<Map<string, string>>,
   idleClockByAgent: MutableRefObject<Map<string, number>>,
   retirementCooldownByAgent: MutableRefObject<Map<string, number>>
 ): Promise<void> {
@@ -1735,7 +1737,7 @@ async function superviseWorkspace(
       sprintEngineState,
       sentArtifactApprovalMessages,
       autoApprovalDiagnostics,
-      lastContentByWorkspace
+      projectionTokensByWorkspace
     )
     if (approvalResult === 'failed') return
     if (approvalResult === 'sent') {
@@ -2239,7 +2241,7 @@ export default function SprintEngineAutoRunSupervisor() {
   const continuationGraceByTask = useRef(new Map<string, RoleContinuationGrace>())
   const idleClockByAgent = useRef(new Map<string, number>())
   const retirementCooldownByAgent = useRef(new Map<string, number>())
-  const lastContentByWorkspace = useRef(new Map<string, string>())
+  const projectionTokensByWorkspace = useRef(new Map<string, string>())
   const lastInactiveTickByWorkspace = useRef(new Map<string, number>())
   const startedAt = useRef(Date.now())
   const tickInProgress = useRef(false)
@@ -2315,7 +2317,7 @@ export default function SprintEngineAutoRunSupervisor() {
             sentArchitectTriageMessages,
             sentAgentNotificationEvents,
             continuationGraceByTask,
-            lastContentByWorkspace,
+            projectionTokensByWorkspace,
             idleClockByAgent,
             retirementCooldownByAgent
           )

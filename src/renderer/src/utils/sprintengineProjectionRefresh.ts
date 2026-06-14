@@ -22,7 +22,7 @@ export type SprintEngineProjectionRefreshResult =
   | { status: 'error'; message: string }
 
 export type SprintEngineProjectionRefreshPorts = {
-  readSprintEngineProjection(statePath: string): Promise<SprintEngineProjectionReadResult>
+  readSprintEngineProjection(statePath: string, knownToken?: string): Promise<SprintEngineProjectionReadResult>
   setSprintEngineState(workspaceId: WorkspaceId, state: SprintEngineState | null): void
   applySprintEngineAutomationEvent?(workspaceId: WorkspaceId, event: SprintEngineAutomationEvent): void
   readBacklogObjectStore?(workspaceRoot: string): Promise<BacklogReadResult>
@@ -36,13 +36,10 @@ export type SprintEngineProjectionRefreshPorts = {
   now?(): number
 }
 
-export function sprintEngineProjectionSignature(projection: unknown): string {
-  return JSON.stringify(projection)
-}
-
 function defaultSprintEngineProjectionRefreshPorts(): SprintEngineProjectionRefreshPorts {
   return {
-    readSprintEngineProjection: (statePath) => window.api.readSprintEngineProjection(statePath),
+    readSprintEngineProjection: (statePath, knownToken) =>
+      window.api.readSprintEngineProjection(statePath, knownToken),
     setSprintEngineState: (workspaceId, state) =>
       useWorkspaceStore.getState().setSprintEngineState(workspaceId, state),
     applySprintEngineAutomationEvent: (workspaceId, event) =>
@@ -55,12 +52,14 @@ function defaultSprintEngineProjectionRefreshPorts(): SprintEngineProjectionRefr
 
 export async function refreshSprintEngineWorkspaceProjection(input: {
   workspace: Workspace
-  signatures: Map<string, string>
+  // Per-workspace change-detection tokens (mtime:size of projection.json),
+  // keyed by workspace id. Used to skip re-reading unchanged projections.
+  tokens: Map<string, string>
   cause: SprintEngineProjectionRefreshCause
   force?: boolean
   ports?: SprintEngineProjectionRefreshPorts
 }): Promise<SprintEngineProjectionRefreshResult> {
-  const { workspace, signatures, cause, force = false } = input
+  const { workspace, tokens, cause, force = false } = input
   const ports = input.ports ?? defaultSprintEngineProjectionRefreshPorts()
 
   if (!workspace.sprintEngineContext?.statePath) {
@@ -69,11 +68,15 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
 
   const startedAt = ports.now?.() ?? performance.now()
   try {
-    const projectionResult = await ports.readSprintEngineProjection(workspace.sprintEngineContext.statePath)
+    // On a forced refresh, pass no token so the reader always returns full data.
+    const knownToken = force ? undefined : tokens.get(workspace.id)
+    const projectionResult = await ports.readSprintEngineProjection(
+      workspace.sprintEngineContext.statePath,
+      knownToken,
+    )
     if (!projectionResult.ok) throw new Error(projectionResult.message)
 
-    const signature = sprintEngineProjectionSignature(projectionResult.data)
-    if (!force && signatures.get(workspace.id) === signature) {
+    if (projectionResult.unchanged) {
       logPerfEvent('SprintEngineProjection', 'refresh', {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
@@ -90,7 +93,11 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
     )
     if (!parsedState) throw new Error('Sprint Engine projection was malformed.')
 
-    signatures.set(workspace.id, signature)
+    // Record the new token so the next poll can short-circuit when nothing
+    // changed. If the reader did not return one, drop any stale token so we
+    // re-read next time rather than dedupe against a fingerprint we don't have.
+    if (projectionResult.token) tokens.set(workspace.id, projectionResult.token)
+    else tokens.delete(workspace.id)
     ports.setSprintEngineState(workspace.id, parsedState)
     if (projectionRunIsComplete(projectionResult.data)) {
       ports.applySprintEngineAutomationEvent?.(workspace.id, {
