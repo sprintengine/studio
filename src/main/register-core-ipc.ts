@@ -27,7 +27,7 @@ import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerVoiceIpc } from './ipc/voice-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { registerWorkspaceSyncIpc } from './ipc/workspace-sync-ipc'
-import { confirmWorkspaceWindowClose, createDiagnosticsWindow, createMainWindow } from './window-factory'
+import { confirmWorkspaceWindowClose, createDiagnosticsWindow, createMainWindow, openAuxWindow } from './window-factory'
 import { registerWorkspaceBackupIpc } from './ipc/workspace-backup-ipc'
 import type { AppServices } from './app-services'
 import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
@@ -42,6 +42,7 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
       createMainWindow({ diagnosticsEnabled, windowId, bounds, isMaximized })
     },
     confirmWindowClose: confirmWorkspaceWindowClose,
+    openAuxWindow,
   })
   registerWorkspaceSyncIpc(ipcMain, services.workspaceSyncService)
   registerAutomationIpc(ipcMain, services.automationService, services.automationDelegate)

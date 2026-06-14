@@ -7,7 +7,6 @@ import {
   defaultAppSettings,
   defaultKeybindingSettings,
   normalizeAppSettings,
-  normalizeCliModelDefaults,
   normalizeCliModelSelections,
   normalizeCliPermissionPreset,
   normalizeKeybindingSettings,
@@ -239,13 +238,7 @@ assert.deepEqual(
   },
 )
 
-// CLI model defaults: trimmed, empty entries dropped, per-surface overrides
-// keep only well-formed { cli, model } pairs.
-assert.deepEqual(
-  normalizeCliModelDefaults({ codex: ' gpt-5-codex ', 'claude-code': '  ', opencode: 'x' }),
-  { codex: 'gpt-5-codex', opencode: 'x' },
-)
-assert.deepEqual(normalizeCliModelDefaults(null), {})
+// Per-surface model overrides keep only well-formed { cli, model } pairs.
 assert.deepEqual(
   normalizeCliModelSelections({
     architect: { cli: 'claude-code', model: ' opus ' },
@@ -259,7 +252,6 @@ const modelNormalized = normalizeAppSettings(
     cliRuntimes: {
       codex: { command: 'codex', useWsl: false, models: [' gpt-5-codex ', '', 'gpt-5-codex', 'o4-mini'] },
     },
-    cliModelDefaults: { codex: 'gpt-5-codex' },
     specialistModelDefaults: { architect: { cli: 'claude-code', model: 'opus' } },
     multiloopRoleModelDefaults: { coordinator: { cli: 'codex', model: '' } as never },
   },
@@ -267,7 +259,7 @@ const modelNormalized = normalizeAppSettings(
 )
 assert.deepEqual(modelNormalized.cliRuntimes.codex.models, ['gpt-5-codex', 'o4-mini'])
 assert.equal(modelNormalized.cliRuntimes['claude-code'].models, undefined)
-assert.deepEqual(modelNormalized.cliModelDefaults, { codex: 'gpt-5-codex' })
+assert.equal('cliModelDefaults' in modelNormalized, false)
 assert.deepEqual(modelNormalized.specialistModelDefaults, { architect: { cli: 'claude-code', model: 'opus' } })
 assert.deepEqual(modelNormalized.multiloopRoleModelDefaults, {})
 assert.deepEqual(normalizeSearchExcludes(['!build', 'build', 'src\\gen']), ['build', 'src/gen'])
@@ -378,10 +370,6 @@ assert.deepEqual(useWorkspaceStore.getState().appSettings.searchExcludes, ['dist
 store.setLastSelectedCli('codex')
 assert.equal(useWorkspaceStore.getState().appSettings.lastSelectedCli, 'codex')
 
-store.setCliModelDefault('codex', ' gpt-5-codex ')
-assert.deepEqual(useWorkspaceStore.getState().appSettings.cliModelDefaults, { codex: 'gpt-5-codex' })
-store.setCliModelDefault('codex', null)
-assert.deepEqual(useWorkspaceStore.getState().appSettings.cliModelDefaults, {})
 store.setSpecialistModelDefault('architect', { cli: 'claude-code', model: 'opus' })
 assert.deepEqual(
   useWorkspaceStore.getState().appSettings.specialistModelDefaults,

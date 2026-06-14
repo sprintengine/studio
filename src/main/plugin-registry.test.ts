@@ -29,6 +29,8 @@ async function main(): Promise<void> {
   await testInvalidArgvTokenRejected()
   await testSendAfterReadyRequiresReadiness()
   await testCompletionFallbackValidated()
+  await testSkillIntegrationValidated()
+  await testInvalidSkillIntegrationRejected()
   await testProviderManifestLoadsThroughProviderListOnly()
   await testOpenAiCompatibleProviderConfigValidated()
   await testProviderCliFieldMixingRejected()
@@ -63,6 +65,11 @@ async function testBundledManifestsLoad(): Promise<void> {
     registry.listConversationProviders().some((provider) => provider.id === 'openrouter'),
     true
   )
+  const codexEntry = registry.list().find((entry) => entry.id === 'codex')
+  assert.equal(codexEntry?.skillIntegration?.support, 'native')
+  assert.equal(codexEntry?.skillIntegration?.harnessId, 'codex')
+  assert.equal(codexEntry?.skillIntegration?.installTargetCount, 1)
+  assert.equal(codexEntry?.skillIntegration?.invocation?.fileDropTemplate, 'Use ${{skillId}} to work {{path}}.')
   assert.equal(
     registry.list().some((entry) => entry.id === 'openrouter'),
     false,
@@ -191,6 +198,84 @@ async function testInvalidManifestRejectedWithIssues(): Promise<void> {
   if (result.ok) return
   assert.equal(result.issues.length, 1)
   assert.match(result.issues[0].message, /not valid JSON/)
+}
+
+async function testSkillIntegrationValidated(): Promise<void> {
+  const result = validateManifestSource(
+    JSON.stringify({
+      id: 'pi',
+      displayName: 'Pi',
+      version: 1,
+      binary: 'pi',
+      permissionPresets: { default: { label: 'Default', args: [] } },
+      launch: { argv: ['{{binary}}'] },
+      promptInjection: { mode: 'stdin-pipe' },
+      completion: { mode: 'process-exit' },
+      capabilities: {
+        resumeSession: false,
+        sessionIdFromCaller: false,
+        toolUse: false,
+        mcpServers: false,
+      },
+      skillIntegration: {
+        support: 'native',
+        harnessId: 'pi',
+        installTargets: [
+          {
+            scope: 'workspace',
+            path: '{{workspaceRoot}}/.pi/skills/{{skillId}}',
+            format: 'generic',
+          },
+        ],
+        invocation: {
+          fileDropTemplate: 'pi skill {{skillId}} {{path}}',
+        },
+      },
+    })
+  )
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  assert.equal(result.manifest.kind, undefined)
+  assert.equal(result.manifest.skillIntegration?.support, 'native')
+}
+
+async function testInvalidSkillIntegrationRejected(): Promise<void> {
+  const result = validateManifestSource(
+    JSON.stringify({
+      id: 'bad-skill-cli',
+      displayName: 'Bad Skill CLI',
+      version: 1,
+      binary: 'bad',
+      permissionPresets: { default: { label: 'Default', args: [] } },
+      launch: { argv: ['{{binary}}'] },
+      promptInjection: { mode: 'stdin-pipe' },
+      completion: { mode: 'process-exit' },
+      capabilities: {
+        resumeSession: false,
+        sessionIdFromCaller: false,
+        toolUse: false,
+        mcpServers: false,
+      },
+      skillIntegration: {
+        support: 'native',
+        harnessId: 'bad',
+        installTargets: [
+          {
+            scope: 'workspace',
+            path: '{{home}}/.bad/skills/{{skillId}}',
+            format: 'generic',
+          },
+        ],
+        invocation: {
+          fileDropTemplate: 'bad {{unknown}}',
+        },
+      },
+    })
+  )
+  assert.equal(result.ok, false)
+  if (result.ok) return
+  assert.ok(result.issues.some((issue) => issue.path === 'skillIntegration.installTargets[0].path'))
+  assert.ok(result.issues.some((issue) => issue.path === 'skillIntegration.invocation.fileDropTemplate'))
 }
 
 async function testIdDirectoryMismatchRejected(): Promise<void> {

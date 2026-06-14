@@ -1,7 +1,7 @@
 # Multicode Backlog
 
 <!-- Keep the lifecycle rules in this skill in sync with
-     resources/skills/backlog/SKILL.md (the installable /backlog built-in
+     resources/skills/backlog/SKILL.md (the installable Backlog built-in
      skill that carries the same contract for manual agent terminals). -->
 
 <what-to-do>

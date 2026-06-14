@@ -84,7 +84,6 @@ type UpdateAction = 'check' | 'download' | 'restart'
 type GitHubTokenUiStatus = Awaited<ReturnType<typeof window.api.getGitHubTokenStatus>>
 
 const EMPTY_SEARCH_EXCLUDES: string[] = []
-const EMPTY_CLI_MODEL_DEFAULTS: Partial<Record<string, string>> = {}
 const EMPTY_USER_MODELS: string[] = []
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
@@ -305,28 +304,18 @@ function PluginModelSettings({
   displayName,
   modelSelection,
   userModels,
-  defaultModel,
-  onDefaultModelChange,
   onUserModelsChange,
 }: {
   pluginId: string
   displayName: string
   modelSelection: NonNullable<PluginCatalogEntry['modelSelection']>
   userModels: string[]
-  defaultModel: string
-  onDefaultModelChange: (model: string | null) => void
   onUserModelsChange: (models: string[]) => void
 }) {
   const [draftModel, setDraftModel] = useState('')
   // Custom ids are a lower-frequency task than picking a default; they
   // collapse to a count until opened.
   const [userModelsOpen, setUserModelsOpen] = useState(false)
-  const seedIds = new Set(modelSelection.options.map((option) => option.id))
-  const mergedOptions = [
-    ...modelSelection.options,
-    ...userModels.filter((id) => !seedIds.has(id)).map((id) => ({ id, label: undefined })),
-  ]
-  const defaultIsKnown = !defaultModel || mergedOptions.some((option) => option.id === defaultModel)
   const userModelsListId = `cli-user-models-${pluginId}`
   const addDraftModel = (): void => {
     const model = draftModel.trim()
@@ -336,29 +325,6 @@ function PluginModelSettings({
   }
   return (
     <>
-      <SettingsRow
-        label="Default model"
-        help="Used for new launches unless a surface overrides it."
-        htmlFor={`cli-model-${pluginId}`}
-      >
-        <select
-          id={`cli-model-${pluginId}`}
-          aria-label={`${displayName} default model`}
-          value={defaultModel}
-          onChange={(event) => onDefaultModelChange(event.target.value || null)}
-          className={`${ROW_INPUT_CLASS} w-60`}
-        >
-          <option value="">CLI default</option>
-          {mergedOptions.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label ?? option.id}
-            </option>
-          ))}
-          {/* A persisted default that is no longer in the catalog still launches
-              with that id; show it instead of silently snapping to another model. */}
-          {defaultIsKnown ? null : <option value={defaultModel}>{defaultModel}</option>}
-        </select>
-      </SettingsRow>
       {modelSelection.allowCustomId ? (
         <div className="py-2.5 last:pb-0">
           <button
@@ -630,8 +596,6 @@ export default function SettingsPanel({
   const appearanceTheme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
   const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
-  const cliModelDefaults = useWorkspaceStore((s) => s.appSettings.cliModelDefaults ?? EMPTY_CLI_MODEL_DEFAULTS)
-  const setCliModelDefault = useWorkspaceStore((s) => s.setCliModelDefault)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
   const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
   const skillPackSettings = useWorkspaceStore(
@@ -1702,8 +1666,6 @@ export default function SettingsPanel({
                         displayName={plugin.displayName}
                         modelSelection={plugin.modelSelection}
                         userModels={cliRuntimes?.[plugin.id]?.models ?? EMPTY_USER_MODELS}
-                        defaultModel={cliModelDefaults[plugin.id] ?? ''}
-                        onDefaultModelChange={(model) => setCliModelDefault(plugin.id, model)}
                         onUserModelsChange={(models) => setCliRuntime(plugin.id, { models })}
                       />
                     ) : null}
@@ -2088,7 +2050,7 @@ export default function SettingsPanel({
           <section className="space-y-2">
             <SettingsSectionTitle count={builtinSkills.length}>Bundled</SettingsSectionTitle>
             <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-              First-party workflow skills, installed into <code className="font-mono">.agents/skills</code>.
+              First-party workflow skills, installed into the workspace targets each agent CLI supports.
             </p>
             <div className="divide-y divide-[color:var(--border-subtle)]">
               {builtinSkills.length ? builtinSkills.map((skill) => {
@@ -2557,11 +2519,25 @@ const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
 function formatBuiltinSkillStatus(status: BuiltinSkillStatus | null, skillId: string): string {
   if (!status) return 'Skill status has not been checked.'
   if (!status.ok) return status.message
+  const nativeTargets = status.targets.filter((target) => target.support !== 'unsupported' && target.status !== 'unsupported' && target.status !== 'prompt-shim')
+  const installedNativeTargets = nativeTargets.filter((target) => (
+    target.status === 'installed'
+    || target.status === 'update-available'
+    || target.status === 'modified'
+    || target.status === 'local'
+  ))
+  const promptShimCount = status.targets.filter((target) => target.status === 'prompt-shim').length
+  const unsupportedCount = status.targets.filter((target) => target.status === 'unsupported').length
 
   switch (status.status) {
     case 'missing':
-      return 'Not installed in this workspace.'
+      return nativeTargets.length > 1
+        ? `Not installed. ${nativeTargets.length} native targets available.`
+        : 'Not installed in this workspace.'
     case 'installed':
+      if (installedNativeTargets.length > 1) {
+        return `Installed in ${installedNativeTargets.length} native targets${promptShimCount ? `; ${promptShimCount} prompt-shim CLI${promptShimCount === 1 ? '' : 's'}` : ''}${unsupportedCount ? `; ${unsupportedCount} unsupported CLI${unsupportedCount === 1 ? '' : 's'}` : ''}.`
+      }
       return `Installed in .agents/skills/${skillId}.`
     case 'update-available':
       return `Update available. Installed version: ${status.installedVersion}.`

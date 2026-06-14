@@ -254,13 +254,20 @@ export type BuiltinSkill = {
   version: string
   description: string
   harnesses?: SkillPackHarness[]
+  targetPolicy?: 'agents' | 'all-native'
 }
 
 export type BuiltinSkillTargetState = {
-  harness: SkillPackHarness
-  destinationPath: string
-  status: 'missing' | 'installed' | 'update-available' | 'modified' | 'local'
+  harness: string
+  destinationPath?: string
+  status: 'missing' | 'installed' | 'update-available' | 'modified' | 'local' | 'prompt-shim' | 'unsupported'
   installedVersion?: string
+  pluginId?: string
+  displayName?: string
+  support?: 'native' | 'prompt-shim' | 'unsupported'
+  installScope?: 'workspace' | 'user'
+  format?: string
+  restartRequired?: boolean
 }
 
 export type BuiltinSkillStatus =
@@ -661,6 +668,14 @@ export type GitFileBaseResult =
   | { ok: true; content: string }
   | { ok: false; message: string }
 
+// Which stored version of a file the diff viewer reads. `head` is the committed
+// version (`git show HEAD:<p>`); `index` is the staged version (`git show :0:<p>`).
+export type GitFileStage = 'head' | 'index'
+
+export type GitFileStageResult =
+  | { ok: true; exists: boolean; content: string; binary: boolean; tooLarge: boolean }
+  | { ok: false; message: string }
+
 export type GitBranch = {
   name: string
   current: boolean
@@ -871,6 +886,32 @@ export type CreateWorkspaceWindowInput = {
 export type CreateWorkspaceWindowResult =
   | { ok: true; windowId: string }
   | { ok: false; message: string }
+
+// Lightweight auxiliary windows (diff viewer, external file editor). Unlike
+// workspace windows they do not mount the workspace shell or join workspace
+// sync — the renderer branches on the `aux` query param into a dedicated root,
+// mirroring the diagnostics window (`?view=diagnostics`).
+export type AuxWindowKind = 'diff' | 'file'
+
+export type OpenAuxWindowInput = {
+  kind: AuxWindowKind
+  // Small string params encoded into the renderer URL (e.g. repoRoot, focusPath).
+  params: Record<string, string>
+  // Singleton identity. A request whose key matches an open window retargets and
+  // focuses it instead of opening a duplicate. Diff uses a constant key (one diff
+  // window at a time); file uses the file path (one window per file).
+  singletonKey: string
+  bounds?: WindowBounds | null
+}
+
+export type OpenAuxWindowResult =
+  | { ok: true; retargeted: boolean }
+  | { ok: false; message: string }
+
+export type AuxWindowRetargetPayload = {
+  kind: AuxWindowKind
+  params: Record<string, string>
+}
 
 export type OpenExternalResult =
   | { ok: true }
@@ -1435,6 +1476,8 @@ export type ElectronApi = {
   getWindowPlacement: () => Promise<WindowPlacement | null>
   getWorkspaceWindowId: () => Promise<string>
   createWorkspaceWindow: (input: CreateWorkspaceWindowInput) => Promise<CreateWorkspaceWindowResult>
+  openAuxWindow: (input: OpenAuxWindowInput) => Promise<OpenAuxWindowResult>
+  onAuxWindowRetarget: (cb: (payload: AuxWindowRetargetPayload) => void) => () => void
   confirmWindowClose: () => Promise<void>
   openExternal: (url: string) => Promise<OpenExternalResult>
   onWindowStateChanged: (cb: (state: WindowState) => void) => () => void
@@ -1575,6 +1618,7 @@ export type ElectronApi = {
   getGitRepoRoot: (folderPath: string) => Promise<string | null>
   getGitStatus: (repoRoot: string) => Promise<GitStatusSnapshot>
   getGitFileBase: (repoRoot: string, filePath: string) => Promise<GitFileBaseResult>
+  getGitFileAtStage: (repoRoot: string, filePath: string, stage: GitFileStage) => Promise<GitFileStageResult>
   getGitBranches: (repoRoot: string) => Promise<GitBranchSnapshot>
   getGitHistory: (repoRoot: string, limit?: number) => Promise<GitHistorySnapshot>
   getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions) => Promise<GitGraphSnapshot>

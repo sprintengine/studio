@@ -53,7 +53,6 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
-  const cliModelDefaults = useWorkspaceStore((s) => s.appSettings.cliModelDefaults)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const cliOptions = useMemo(
@@ -204,7 +203,6 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
       onBackToIdea={() => setViewingIdea(true)}
       onStartBuild={startBuild}
       cliRuntimes={cliRuntimes}
-      cliModelDefaults={cliModelDefaults}
       cliOptions={cliOptions}
       sprintEngineDisabledRoleIds={sprintEngineDisabledRoleIds}
     />

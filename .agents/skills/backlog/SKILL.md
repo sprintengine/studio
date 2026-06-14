@@ -1,6 +1,6 @@
 ---
 name: backlog
-description: Take, work, survey, or triage Multicode Backlog items with truthful lifecycle status. Use when the user invokes /backlog, drags a backlog/ file into the terminal, asks the agent to pick up/survey/work a Backlog item, or asks to triage/prune/review the backlog, and keep .multi-code/backlog/items.json status current while working.
+description: Take, work, survey, or triage Multicode Backlog items with truthful lifecycle status. Use when the user explicitly invokes the backlog skill, drags a backlog/ file into an agent terminal, asks the agent to pick up/survey/work a Backlog item, or asks to triage/prune/review the backlog, and keep .multi-code/backlog/items.json status current while working.
 ---
 
 # Backlog
@@ -29,21 +29,25 @@ Follow the object-store procedure in the supporting info exactly; never compute 
 
 ## Invocation
 
-**With an item argument** (`/backlog backlog/<file>.md`, a dragged file path, or a named item):
+The exact CLI invocation is adapter-specific. For example, slash-capable CLIs
+may expose `/backlog`, while Codex uses explicit skill mention such as
+`$backlog`. Once this skill is active, follow the modes below.
+
+**With an item argument** (for example `backlog/<file>.md`, a dragged file path, or a named item):
 
 1. Confirm the path is under `backlog/`. If it is not, refuse and say why — this skill only works Backlog items.
 2. Read the item. It is the intake brief: the what, why, user impact, reproduction notes, references, and (optionally) an implementation plan or checklist. If the item carries implementation notes that conflict with the current codebase, the stated behaviour and the current codebase win.
 3. Set the item `in_progress` in the object store (see below) **before** starting implementation work.
 4. Do the work, honouring whatever role or Soul you are already operating under. Follow the item's checklist if it has one, updating it as you go.
 
-**Without an argument** (`/backlog` alone): survey, then ask — never pick work silently.
+**Without an argument**: survey, then ask — never pick work silently.
 
 1. Read `.multi-code/backlog/items.json` (if present) and list the item files under `backlog/`.
 2. Exclude items whose status is `completed`, `archived`, or `in_progress`.
 3. Rank the remainder: `ready` before `idea`, then higher `criticality` first, then smaller `difficulty` first; items missing an axis rank after estimated ones at the same level.
 4. Present a short ranked list (title, one-line intent, type/size/priority when known) and ask the user which item to take. Once they choose, continue as if that item had been the argument.
 
-**Triage the backlog** (`/backlog triage`, or "triage/prune/review the backlog"): assess every item against the current codebase, report, then ask before changing anything. Triage never deletes, completes, or re-statuses an item silently.
+**Triage the backlog** (`triage`, or "triage/prune/review the backlog"): assess every item against the current codebase, report, then ask before changing anything. Triage never deletes, completes, or re-statuses an item silently.
 
 1. Read `.multi-code/backlog/items.json` (if present) and every non-archived item file under `backlog/`.
 2. Read each item and judge it against the **current codebase** (and recent git history when useful). Sort each into:

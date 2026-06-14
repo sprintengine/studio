@@ -1081,9 +1081,8 @@ export type AgentCli = string
 export type SprintEngineRoleCliDefaults = Partial<Record<SprintEngineRoleId, AgentCli>>
 
 // Explicit per-role model selection from the new-workspace roster. A string
-// is an explicit model id; null is an explicit "CLI default" (no flag passed)
-// that suppresses the remembered per-CLI default; an absent role keeps the
-// legacy behavior of seeding from the remembered per-CLI model default.
+// is an explicit model id; null or an absent role means "CLI default" (no
+// model flag passed).
 export type SprintEngineRoleModelOverrides = Partial<Record<SprintEngineRoleId, string | null>>
 
 export type SprintEngineSavedRoster = {
@@ -1382,15 +1381,9 @@ export type AppSettings = {
   specialistCliDefaults: Partial<Record<SpecialistActionId, AgentCli>>
   multiloopRoleCliDefaults: Partial<Record<MultiloopRole, AgentCli>>
   /**
-   * Remembered model id per agent CLI ("whenever I use Codex, use X").
-   * Absent means the CLI's own default model — no flag is passed at launch.
-   */
-  cliModelDefaults: Partial<Record<AgentCli, string>>
-  /**
    * Per-specialist model override, stored with the CLI it was picked for so a
    * later CLI switch cannot leak a stale model across CLIs. Honored only when
-   * the row's effective CLI matches; otherwise resolution falls back to
-   * `cliModelDefaults[cli]`, then the CLI default.
+   * the row's effective CLI matches; otherwise no model flag is passed.
    */
   specialistModelDefaults: Partial<Record<SpecialistActionId, AgentCliModelSelection>>
   /** Per-Multiloop-role model override; same matching rules as specialists. */

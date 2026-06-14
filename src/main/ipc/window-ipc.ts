@@ -1,5 +1,8 @@
 import { BrowserWindow, screen, shell, type IpcMain, type IpcMainInvokeEvent } from 'electron'
 import { safeExternalUrl } from './external-url'
+import type { AuxWindowKind, OpenAuxWindowResult } from '../../shared/electron-api'
+
+const AUX_WINDOW_KINDS: readonly AuxWindowKind[] = ['diff', 'file']
 
 type WindowState = {
   isMaximized: boolean
@@ -58,6 +61,12 @@ type RegisterWindowIpcOptions = {
     isMaximized?: boolean
   }): void
   confirmWindowClose(win: BrowserWindow): void
+  openAuxWindow(input: {
+    kind: AuxWindowKind
+    singletonKey: string
+    params: Record<string, string>
+    bounds?: WindowBounds | null
+  }): { retargeted: boolean }
 }
 
 function getWorkspaceWindowId(win: BrowserWindow): string {
@@ -125,6 +134,33 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
     }
   })
 
+  ipcMain.handle('window:open-aux-window', (_event, input: {
+    kind?: unknown
+    singletonKey?: unknown
+    params?: unknown
+    bounds?: unknown
+  }): OpenAuxWindowResult => {
+    const kind = AUX_WINDOW_KINDS.find((candidate) => candidate === input?.kind)
+    if (!kind) return { ok: false, message: 'invalid_aux_window_kind' }
+    const singletonKey = typeof input?.singletonKey === 'string' ? input.singletonKey.trim() : ''
+    if (!singletonKey) return { ok: false, message: 'missing_singleton_key' }
+    const params = normalizeStringParams(input?.params)
+    try {
+      const { retargeted } = options.openAuxWindow({
+        kind,
+        singletonKey,
+        params,
+        bounds: normalizeWindowBounds(input?.bounds),
+      })
+      return { ok: true, retargeted }
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : 'open_aux_window_failed',
+      }
+    }
+  })
+
   ipcMain.handle('window:create-workspace-window', (_event, input: {
     windowId?: unknown
     bounds?: unknown
@@ -146,6 +182,15 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
       }
     }
   })
+}
+
+function normalizeStringParams(input: unknown): Record<string, string> {
+  if (!input || typeof input !== 'object') return {}
+  const params: Record<string, string> = {}
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof value === 'string') params[key] = value
+  }
+  return params
 }
 
 function normalizeWindowBounds(input: unknown): WindowBounds | null {

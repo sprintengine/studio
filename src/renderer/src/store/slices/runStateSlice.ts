@@ -788,9 +788,6 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         ws.agents[agentId] = {
           ...defaultAgent(agentId, agentLabel, 'sprintengine'),
           cli: memberCli,
-          // New members inherit the remembered per-CLI model, matching roster
-          // creation at workspace setup; the spawn dialog can override it.
-          cliModel: state.appSettings?.cliModelDefaults?.[memberCli]?.trim() || undefined,
         }
         ws.agents = reconcileSprintEngineAgents(ws.agents, ws.sprintEngineState)
         ws.sprintEngineState.events.push({

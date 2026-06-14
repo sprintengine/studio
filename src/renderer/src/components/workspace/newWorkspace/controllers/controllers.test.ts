@@ -241,6 +241,7 @@ async function testSprintEnginePlanSourcedValidation(): Promise<void> {
 async function testSprintEnginePlanSourcedInitializesAndLinksBacklog(): Promise<void> {
   const events: string[] = []
   const links: Array<{ workspaceRoot: string; sourceRelativePath: string; teamSlug: string; statePath: string }> = []
+  const { useWorkspaceStore } = await import('../../../../store/workspaceStore')
   await runSprintEnginePlanSourcedCreation(
     {
       folderPath: '/p',
@@ -254,6 +255,8 @@ async function testSprintEnginePlanSourcedInitializesAndLinksBacklog(): Promise<
       visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
       totalAgents: 2,
       roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      roleModelOverrides: { architect: 'claude-opus-4-8', product: null },
+      initialSpawnRoles: ['architect'],
       startRunner: false,
       autoApproveArtifacts: false,
       cliPermissionPreset: 'default',
@@ -290,6 +293,20 @@ async function testSprintEnginePlanSourcedInitializesAndLinksBacklog(): Promise<
       statePath: '/p/.multi-code/sprintengine/backlog-run/run.yaml',
     },
   ])
+  const workspace = useWorkspaceStore
+    .getState()
+    .workspaces.find((candidate) => candidate.sprintEngineContext?.teamSlug === 'backlog-run')
+  assert.equal(
+    workspace?.agents.architect?.cliModel,
+    'claude-opus-4-8',
+    'backlog/plan-sourced creation preserves the explicit model selected in the roster',
+  )
+  assert.equal(
+    workspace?.agents.product?.cliModel,
+    undefined,
+    'explicit CLI-default model selections pass no model flag',
+  )
+  assert.deepEqual(workspace?.sprintEngineInitialSpawnAgentIds, ['architect'])
 }
 
 async function testSprintEnginePlanSourcedWorktreeModeFlowsThroughStateAndPrompt(): Promise<void> {

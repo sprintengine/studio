@@ -187,6 +187,90 @@ export function createDiagnosticsWindow(): BrowserWindow {
   return win
 }
 
+// Lightweight auxiliary windows (diff viewer, external file editor). They share
+// the main window's chrome treatment but mount a dedicated renderer root via the
+// `aux=<kind>` query param — no workspace shell, no workspace-window sync. Keyed
+// by `<kind>:<singletonKey>` so a repeat request reuses (retargets + focuses)
+// the existing window rather than spawning a duplicate.
+const auxWindows = new Map<string, BrowserWindow>()
+
+export type AuxWindowKind = 'diff' | 'file'
+
+type CreateAuxWindowOptions = {
+  kind: AuxWindowKind
+  singletonKey: string
+  params: Record<string, string>
+  bounds?: { x: number; y: number; width: number; height: number } | null
+}
+
+export function openAuxWindow({
+  kind,
+  singletonKey,
+  params,
+  bounds = null,
+}: CreateAuxWindowOptions): { retargeted: boolean } {
+  const registryKey = `${kind}:${singletonKey}`
+  const existing = auxWindows.get(registryKey)
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore()
+    existing.webContents.send('aux:retarget', { kind, params })
+    existing.focus()
+    return { retargeted: true }
+  }
+
+  const safeBounds = normalizeWindowBounds(bounds)
+  const win = new BrowserWindow({
+    width: safeBounds?.width ?? 1100,
+    height: safeBounds?.height ?? 720,
+    ...(safeBounds ? { x: safeBounds.x, y: safeBounds.y } : {}),
+    minWidth: 700,
+    minHeight: 480,
+    show: false,
+    ...(process.platform !== 'darwin'
+      ? { frame: false }
+      : {
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 12, y: 11 },
+        }),
+    autoHideMenuBar: process.platform !== 'darwin',
+    backgroundColor: '#09090b',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+    },
+  })
+  auxWindows.set(registryKey, win)
+
+  win.on('ready-to-show', () => {
+    win.show()
+    win.focus()
+  })
+  win.on('closed', () => {
+    if (auxWindows.get(registryKey) === win) auxWindows.delete(registryKey)
+  })
+
+  const schedulePlacementUpdate = createPlacementUpdateScheduler(win)
+  win.on('move', schedulePlacementUpdate)
+  win.on('resize', schedulePlacementUpdate)
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url)
+    return { action: 'deny' }
+  })
+
+  const query: Record<string, string> = { aux: kind, ...params }
+  if (process.env['ELECTRON_RENDERER_URL']) {
+    const url = new URL(process.env['ELECTRON_RENDERER_URL'])
+    url.searchParams.set('aux', kind)
+    for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value)
+    win.loadURL(url.toString())
+  } else {
+    win.loadFile(join(__dirname, '../renderer/index.html'), { query })
+  }
+
+  return { retargeted: false }
+}
+
 function createPlacementUpdateScheduler(win: BrowserWindow): () => void {
   let timer: NodeJS.Timeout | null = null
   return () => {

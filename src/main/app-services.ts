@@ -19,6 +19,7 @@ import { createWorkspaceSyncRoutingSnapshotStore } from './workspace-sync-routin
 import { createWorkspaceSyncService } from './workspace-sync-service'
 import { recordSwitchboardSessionExit } from './switchboard-files'
 import { writeDiagnosticLog } from './diagnostics-service'
+import { getPluginRegistry } from './plugin-registry-instance'
 
 export function createAppServices(diagnosticsEnabled: boolean) {
   const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
@@ -73,7 +74,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
   const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
-  const builtinSkillManager = createBuiltinSkillManager()
+  const builtinSkillManager = createBuiltinSkillManager({
+    listPlugins: () => getPluginRegistry().loaded(),
+  })
   const githubTokenStore = new GitHubTokenStore()
 
   // The mobile relay bridge (construction + IPC + shutdown) and the Switchboard

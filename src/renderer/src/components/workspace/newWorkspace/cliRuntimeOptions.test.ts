@@ -203,19 +203,19 @@ assert.equal(
   'user models without a declared modelSelection never surface model UI',
 )
 
-// resolveCliModel: per-surface override wins only for its own CLI, then the
-// remembered per-CLI default, else undefined (CLI default, no flag).
+// resolveCliModel: per-surface override wins only for its own CLI; otherwise
+// undefined means CLI default, no flag.
 assert.equal(
-  resolveCliModel('claude-code', { cli: 'claude-code', model: 'opus' }, { 'claude-code': 'sonnet' }),
+  resolveCliModel('claude-code', { cli: 'claude-code', model: 'opus' }),
   'opus',
   'a matching per-surface override wins',
 )
 assert.equal(
-  resolveCliModel('codex', { cli: 'claude-code', model: 'opus' }, { codex: 'gpt-5-codex' }),
-  'gpt-5-codex',
-  'an override for a different CLI is ignored in favor of the per-CLI default',
+  resolveCliModel('codex', { cli: 'claude-code', model: 'opus' }),
+  undefined,
+  'an override for a different CLI is ignored and no fallback model is used',
 )
-assert.equal(resolveCliModel('codex', undefined, {}), undefined, 'no selection means the CLI default')
-assert.equal(resolveCliModel('codex', null, { codex: '  ' }), undefined, 'blank defaults are treated as unset')
+assert.equal(resolveCliModel('codex', undefined), undefined, 'no selection means the CLI default')
+assert.equal(resolveCliModel('codex', null), undefined, 'null selections mean the CLI default')
 
 console.log('cliRuntimeOptions.test.ts: ok')

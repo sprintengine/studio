@@ -76,9 +76,6 @@ type Props = {
     runOptions: GuidedBriefRunOptions,
   ) => Promise<void>
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
-  // Remembered model id per CLI; resolved here so each session hook launches
-  // with the user's default model for its role CLI.
-  cliModelDefaults?: Partial<Record<AgentCli, string>>
   // Plugin-aware role CLI picker options, built by the parent from the installed
   // plugin catalog. `cliRuntimes` above stays for the session hooks, which need
   // the real launch command / WSL config, not just the selectable list.
@@ -94,7 +91,6 @@ export function GuidedBriefFlow({
   onClose,
   onStartBuild,
   cliRuntimes,
-  cliModelDefaults,
   cliOptions,
   sprintEngineRoleRegistry = null,
   sprintEngineDisabledRoleIds = null,
@@ -133,7 +129,6 @@ export function GuidedBriefFlow({
   const strategist = useStrategistSession({
     workspaceRoot,
     cli: runtimeState.guidedRoleCliDefaults.product,
-    cliModel: cliModelDefaults?.[runtimeState.guidedRoleCliDefaults.product],
     cliRuntimes,
     enabled: inStrategistStage,
     sessionId: runtimeState.strategistSessionId,
@@ -149,7 +144,6 @@ export function GuidedBriefFlow({
     workspaceRoot,
     acceptedBriefSnapshotPath: acceptedBriefRelativePath,
     cli: runtimeState.guidedRoleCliDefaults.architect,
-    cliModel: cliModelDefaults?.[runtimeState.guidedRoleCliDefaults.architect],
     cliRuntimes,
     enabled: inArchitectStage,
     sessionId: runtimeState.architectSessionId,
@@ -169,7 +163,6 @@ export function GuidedBriefFlow({
     acceptedBriefSnapshotPath: acceptedBriefRelativePath ?? undefined,
     acceptedArchitecturePlanPath: acceptedArchitecturePlanRelativePath,
     cli: runtimeState.guidedRoleCliDefaults.frontend,
-    cliModel: cliModelDefaults?.[runtimeState.guidedRoleCliDefaults.frontend],
     cliRuntimes,
     enabled:
       hasUi === 'yes' &&

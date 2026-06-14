@@ -36,11 +36,9 @@ interface RosterTableProps {
   onSetCount: (role: SprintEngineRoleId, count: number) => void
   onSetCli: (role: SprintEngineRoleId, cli: AgentCli) => void
   // Model-aware roster controls. When `onSetModel` is provided the CLI picker
-  // expands per-CLI model sublists; the override map and remembered per-CLI
-  // defaults determine the effective model shown (string = explicit id,
-  // null = explicit CLI default, absent = remembered default).
+  // expands per-CLI model sublists; the override map determines the effective
+  // model shown (string = explicit id, null/absent = CLI default).
   roleModelOverrides?: SprintEngineRoleModelOverrides
-  cliModelDefaults?: Partial<Record<AgentCli, string>>
   onSetModel?: (role: SprintEngineRoleId, model: string | null) => void
   // "Start now" launch intent per role. When `onSetSpawnAtStart` is provided,
   // each added role row gets a checkbox marking its agents for an explicit
@@ -64,7 +62,6 @@ export function SprintEngineRosterTable({
   onSetCount,
   onSetCli,
   roleModelOverrides,
-  cliModelDefaults,
   onSetModel,
   spawnAtStartRoles,
   spawnAtStartLocked = false,
@@ -98,7 +95,6 @@ export function SprintEngineRosterTable({
                 disabled={cliDisabled}
                 cliOptions={cliOptions}
                 roleModelOverrides={roleModelOverrides}
-                cliModelDefaults={cliModelDefaults}
                 onSetCli={onSetCli}
                 onSetModel={onSetModel}
               />
@@ -231,18 +227,16 @@ function CountStepper({
   )
 }
 
-// Effective launch model for a role row: explicit override (string), explicit
-// CLI default (null -> undefined), else the remembered per-CLI default.
+// Effective launch model for a role row: explicit override (string), otherwise
+// CLI default (undefined -> no model flag).
 function effectiveRoleModel(
   role: SprintEngineRoleId,
-  cli: AgentCli,
   roleModelOverrides: SprintEngineRoleModelOverrides | undefined,
-  cliModelDefaults: Partial<Record<AgentCli, string>> | undefined,
 ): string | undefined {
   const override = roleModelOverrides?.[role]
   if (override === null) return undefined
   if (override) return override
-  return cliModelDefaults?.[cli]?.trim() || undefined
+  return undefined
 }
 
 // Model-aware runtime picker for a roster role row: the shared CLI+model
@@ -254,7 +248,6 @@ function RoleRuntimePicker({
   disabled,
   cliOptions,
   roleModelOverrides,
-  cliModelDefaults,
   onSetCli,
   onSetModel,
 }: {
@@ -264,7 +257,6 @@ function RoleRuntimePicker({
   disabled: boolean
   cliOptions: SprintEngineCliOption[]
   roleModelOverrides?: SprintEngineRoleModelOverrides
-  cliModelDefaults?: Partial<Record<AgentCli, string>>
   onSetCli: (role: SprintEngineRoleId, cli: AgentCli) => void
   onSetModel: (role: SprintEngineRoleId, model: string | null) => void
 }) {
@@ -275,7 +267,7 @@ function RoleRuntimePicker({
       cli={cli}
       disabled={disabled}
       effectiveModelFor={(candidateCli) =>
-        effectiveRoleModel(role, candidateCli, candidateCli === cli ? roleModelOverrides : undefined, cliModelDefaults)
+        candidateCli === cli ? effectiveRoleModel(role, roleModelOverrides) : undefined
       }
       onSelectCli={(nextCli) => onSetCli(role, nextCli)}
       onSelectModel={(nextCli, nextModel) => {

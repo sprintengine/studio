@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { LoadedPlugin } from '../shared/plugin-manifest'
 import { BUILTIN_SKILLS, createBuiltinSkillManager } from './builtin-skills'
 
 async function writeSkillSource(root: string, skillId: string, body: string): Promise<void> {
@@ -31,7 +32,104 @@ async function main(): Promise<void> {
   await mkdir(workspaceRoot, { recursive: true })
   await writeAllSkillSources(sourceRoot, 'version one\n')
 
-  const manager = createBuiltinSkillManager({ sourceRoot })
+  const loadedPlugins: LoadedPlugin[] = [
+    {
+      source: 'bundled',
+      manifestPath: join(temp, 'plugins', 'claude-code', 'plugin.json'),
+      pluginRoot: join(temp, 'plugins', 'claude-code'),
+      manifest: {
+        id: 'claude-code',
+        displayName: 'Claude Code',
+        version: 1,
+        binary: 'claude',
+        permissionPresets: { default: { label: 'Default', args: [] } },
+        launch: { argv: ['claude'] },
+        promptInjection: { mode: 'positional-arg' },
+        completion: { mode: 'process-exit' },
+        capabilities: { resumeSession: true, sessionIdFromCaller: true, toolUse: true, mcpServers: true },
+        skillIntegration: {
+          support: 'native',
+          harnessId: 'claude',
+          installTargets: [
+            {
+              scope: 'workspace',
+              path: '{{workspaceRoot}}/.claude/skills/{{skillId}}',
+              format: 'claude-code',
+              restartRequired: true,
+            },
+          ],
+          invocation: { fileDropTemplate: '/{{skillId}} {{path}}' },
+        },
+      },
+    },
+    {
+      source: 'user',
+      manifestPath: join(temp, 'plugins', 'pi', 'plugin.json'),
+      pluginRoot: join(temp, 'plugins', 'pi'),
+      manifest: {
+        id: 'pi',
+        displayName: 'Pi',
+        version: 1,
+        binary: 'pi',
+        permissionPresets: { default: { label: 'Default', args: [] } },
+        launch: { argv: ['pi'] },
+        promptInjection: { mode: 'stdin-pipe' },
+        completion: { mode: 'process-exit' },
+        capabilities: { resumeSession: false, sessionIdFromCaller: false, toolUse: false, mcpServers: false },
+        skillIntegration: {
+          support: 'native',
+          harnessId: 'pi',
+          installTargets: [
+            {
+              scope: 'workspace',
+              path: '{{workspaceRoot}}/.pi/skills/{{skillId}}',
+              format: 'generic',
+            },
+          ],
+        },
+      },
+    },
+    {
+      source: 'user',
+      manifestPath: join(temp, 'plugins', 'shim', 'plugin.json'),
+      pluginRoot: join(temp, 'plugins', 'shim'),
+      manifest: {
+        id: 'shim',
+        displayName: 'Shim CLI',
+        version: 1,
+        binary: 'shim',
+        permissionPresets: { default: { label: 'Default', args: [] } },
+        launch: { argv: ['shim'] },
+        promptInjection: { mode: 'stdin-pipe' },
+        completion: { mode: 'process-exit' },
+        capabilities: { resumeSession: false, sessionIdFromCaller: false, toolUse: false, mcpServers: false },
+        skillIntegration: {
+          support: 'prompt-shim',
+          harnessId: 'shim',
+          invocation: { fileDropTemplate: 'Use {{skillName}} for {{path}}' },
+        },
+      },
+    },
+    {
+      source: 'bundled',
+      manifestPath: join(temp, 'plugins', 'generic-shell', 'plugin.json'),
+      pluginRoot: join(temp, 'plugins', 'generic-shell'),
+      manifest: {
+        id: 'generic-shell',
+        displayName: 'Generic Shell',
+        version: 1,
+        binary: 'sh',
+        permissionPresets: { default: { label: 'Default', args: [] } },
+        launch: { argv: ['sh'] },
+        promptInjection: { mode: 'stdin-pipe' },
+        completion: { mode: 'process-exit' },
+        capabilities: { resumeSession: false, sessionIdFromCaller: false, toolUse: false, mcpServers: false },
+        skillIntegration: { support: 'unsupported', harnessId: 'generic-shell' },
+      },
+    },
+  ]
+
+  const manager = createBuiltinSkillManager({ sourceRoot, listPlugins: () => loadedPlugins })
   const listed = await manager.list()
   assert.deepEqual(
     listed.map((skill) => skill.id),
@@ -93,12 +191,22 @@ async function main(): Promise<void> {
   assert.equal(blocked.ok, false)
   assert.equal(!blocked.ok && blocked.status, 'modified')
 
-  // Multi-harness skills install one managed copy per harness directory.
-  const harnessDirs = ['.claude', '.codex', '.cursor', '.gemini', '.opencode', '.agents']
+  // Multi-target skills install one managed copy for .agents plus each native
+  // CLI plugin adapter. Prompt-shim and unsupported adapters are reported but
+  // do not get fake native files.
+  const harnessDirs = ['.agents', '.claude', '.pi']
   const backlogMissing = await manager.getStatus(workspaceRoot, 'backlog')
   assert.equal(backlogMissing.ok, true)
   assert.equal(backlogMissing.ok && backlogMissing.status, 'missing')
-  assert.equal(backlogMissing.ok && backlogMissing.targets.length, harnessDirs.length)
+  assert.equal(backlogMissing.ok && backlogMissing.targets.length, 5)
+  assert.equal(
+    backlogMissing.ok && backlogMissing.targets.find((target) => target.harness === 'shim')?.status,
+    'prompt-shim'
+  )
+  assert.equal(
+    backlogMissing.ok && backlogMissing.targets.find((target) => target.harness === 'generic-shell')?.status,
+    'unsupported'
+  )
 
   const backlogInstalled = await manager.install(workspaceRoot, 'backlog')
   assert.equal(backlogInstalled.ok, true)
@@ -140,6 +248,10 @@ async function main(): Promise<void> {
   )
   assert.equal(
     await readFile(join(workspaceRoot, '.agents', 'skills', 'backlog', 'SKILL.md'), 'utf-8'),
+    'version three\n'
+  )
+  assert.equal(
+    await readFile(join(workspaceRoot, '.pi', 'skills', 'backlog', 'SKILL.md'), 'utf-8'),
     'version three\n'
   )
 }

@@ -121,7 +121,6 @@ async function launchAgent(
   state.updateAgent(workspace.id, agentId, {
     name,
     cli,
-    cliModel: state.appSettings.cliModelDefaults?.[cli]?.trim() || undefined,
     kind: 'general',
     specialistId: undefined,
     cliStartupPrompt: request.prompt,

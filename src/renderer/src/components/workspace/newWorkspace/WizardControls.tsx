@@ -141,7 +141,6 @@ export function RosterAndRunSettings({
   onSetCount,
   onSetCli,
   roleModelOverrides,
-  cliModelDefaults,
   onSetModel,
   spawnAtStartRoles,
   spawnAtStartLocked,
@@ -170,7 +169,6 @@ export function RosterAndRunSettings({
   // Model-aware roster controls and per-role "start now" intent; optional so
   // surfaces without launch semantics (Guided Brief handoff) stay as-is.
   roleModelOverrides?: SprintEngineRoleModelOverrides
-  cliModelDefaults?: Partial<Record<AgentCli, string>>
   onSetModel?: (role: SprintEngineRoleId, model: string | null) => void
   spawnAtStartRoles?: Partial<Record<SprintEngineRoleId, boolean>>
   spawnAtStartLocked?: boolean
@@ -214,7 +212,6 @@ export function RosterAndRunSettings({
           onSetCount={onSetCount}
           onSetCli={onSetCli}
           roleModelOverrides={roleModelOverrides}
-          cliModelDefaults={cliModelDefaults}
           onSetModel={onSetModel}
           spawnAtStartRoles={spawnAtStartRoles}
           spawnAtStartLocked={spawnAtStartLocked}

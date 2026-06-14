@@ -6,6 +6,7 @@ import { getGitStatusAppearance } from '../../utils/gitStatusAppearance'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { isImageFile } from '../../utils/files'
+import { openDiffWindow } from '../auxWindows/openDiffWindow'
 import { fileExplorerSelectionFromVerticalRange, fileExplorerSelectionRange } from '../../utils/fileExplorerSelection'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { setFileDropData } from '../../utils/terminalDrop'
@@ -1443,6 +1444,13 @@ function ExplorerTree({
     const targetDir = entry ? (entry.isDir ? entry.path : entry.parentPath) : rootPath
     const canUsePathCommands = contextSelection.length > 0 && contextSelection.every((selectedEntry) => !selectedEntry.gitDeleted)
     const isSingleSelection = contextSelection.length === 1
+    const gitDiffEntry = isSingleSelection && entry && !entry.isDir
+      ? getGitEntry(latestGitStatusRef.current, entry.path)
+      : null
+    const canViewGitDiff = Boolean(
+      isSingleSelection && entry && !entry.isDir && latestGitStatusRef.current?.repoRoot
+      && (gitDiffEntry || entry.gitDeleted)
+    )
     const canDeletePath = canUsePathCommands && typeof window.api.deletePath === 'function'
     const canStartFuturePlan = Boolean(
       isSingleSelection && entry && canUsePathCommands && markdownSourceRelativePath(rootPath, entry)
@@ -1469,6 +1477,7 @@ function ExplorerTree({
       ...(isSingleSelection && entry && !entry.isDir && canUsePathCommands ? [{ id: 'open', label: 'Open' }] : []),
       ...(isSingleSelection && entry && isHtmlFile(entry) && canUsePathCommands ? [{ id: 'open-in-browser', label: 'Open in Browser' }] : []),
       ...(isSingleSelection && entry && !entry.isDir && canUsePathCommands ? [{ id: 'open-in-explorer', label: 'Open in Explorer' }] : []),
+      ...(canViewGitDiff ? [{ id: 'view-git-diff', label: 'View Git Diff' }] : []),
       ...(canStartFuturePlan
         ? [{
           label: 'Start Sprint Engine From',
@@ -1516,6 +1525,15 @@ function ExplorerTree({
         await window.api.showItemInFolder(entry.path)
       } catch (error) {
         showError(error)
+      }
+      return
+    }
+    if (command === 'view-git-diff' && entry && !entry.isDir) {
+      const repoRoot = latestGitStatusRef.current?.repoRoot
+      if (repoRoot) {
+        const gitEntry = getGitEntry(latestGitStatusRef.current, entry.path)
+        const scope = gitEntry?.staged && !gitEntry.unstaged ? 'staged' : 'unstaged'
+        await openDiffWindow({ repoRoot, focusPath: entry.path, scope })
       }
       return
     }

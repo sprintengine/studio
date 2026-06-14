@@ -281,13 +281,7 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
     },
 
     list(): PluginRegistryListEntry[] {
-      return Array.from(plugins.values()).map((p) => ({
-        id: p.manifest.id,
-        displayName: p.manifest.displayName,
-        source: p.source,
-        version: p.manifest.version,
-        binary: p.manifest.binary,
-      }))
+      return Array.from(plugins.values()).map(manifestToListEntry)
     },
 
     listConversationProviders(): ConversationProviderListEntry[] {
@@ -507,6 +501,7 @@ function formatError(err: unknown): string {
 
 export function manifestToListEntry(plugin: LoadedPlugin): PluginRegistryListEntry {
   const modelSelection = plugin.manifest.modelSelection
+  const skillIntegration = plugin.manifest.skillIntegration
   return {
     id: plugin.manifest.id,
     displayName: plugin.manifest.displayName,
@@ -522,6 +517,23 @@ export function manifestToListEntry(plugin: LoadedPlugin): PluginRegistryListEnt
               ...(option.label ? { label: option.label } : {}),
             })),
             allowCustomId: modelSelection.allowCustomId ?? false,
+          },
+        }
+      : {}),
+    ...(skillIntegration
+      ? {
+          skillIntegration: {
+            support: skillIntegration.support,
+            harnessId: skillIntegration.harnessId,
+            restartRequired: (skillIntegration.installTargets ?? []).some((target) => target.restartRequired === true),
+            installTargetCount: skillIntegration.installTargets?.length ?? 0,
+            ...(skillIntegration.invocation
+              ? {
+                  invocation: {
+                    ...skillIntegration.invocation,
+                  },
+                }
+              : {}),
           },
         }
       : {}),

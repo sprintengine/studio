@@ -29,6 +29,12 @@ import {
   summarizeLongTasks,
 } from '../../utils/diagnostics/longTaskStore'
 import {
+  getFrameSamples,
+  startFrameMonitor,
+  summarizeFrameStats,
+} from '../../utils/diagnostics/frameStatsStore'
+import { Sparkline } from './Sparkline'
+import {
   appendMetricsSample,
   computeGrowthRates,
   deriveMetricsSample,
@@ -251,6 +257,11 @@ export default function DiagnosticsContent({ headerActions }: Props) {
   // there is no observer cost when the panel is closed.
   useEffect(() => startLongTaskObserver(), [])
 
+  // Frame-cadence monitor (rAF). Like the longtask observer it runs only while
+  // the panel is mounted. Samples accumulate silently and are read on the 1s
+  // `now` tick below — it deliberately does not re-render per frame.
+  useEffect(() => startFrameMonitor(), [])
+
   useEffect(() => subscribeReplayProfiles(() => setProfiles(getReplayProfiles())), [])
   // Re-render on perf-event / long-task / timer / terminal arrivals between polls
   // so spikes show promptly rather than waiting for the next 1s tick.
@@ -262,8 +273,21 @@ export default function DiagnosticsContent({ headerActions }: Props) {
 
   const perfRollup = useMemo(() => aggregatePerfEvents(getPerfEventSamples(), { now }), [now])
   const longTaskSummary = useMemo(() => summarizeLongTasks(getLongTaskSamples(), { now }), [now])
+  const frameStats = useMemo(() => summarizeFrameStats(getFrameSamples(), { now }), [now])
   const timerRows = useMemo(() => summarizeTimers(getTimerRegistrations()), [now])
   const scrollback = useMemo(() => collectScrollbackFootprint(), [now])
+  // Series for the memory-trend sparklines, drawn from the same rolling history
+  // the growth slope uses. Refreshed on the 1s tick.
+  const memorySparklines = useMemo(() => {
+    const history = getMetricsHistory()
+    return {
+      rendererRss: history.map((sample) => sample.rendererRssBytes),
+      gpuRss: history.map((sample) => sample.gpuRssBytes),
+      heap: history.map((sample) => sample.rendererHeapUsedBytes ?? 0),
+    }
+  }, [now])
+  // Recent raw frame durations (ms) for the frames sparkline — spikes = stutter.
+  const frameDurations = useMemo(() => getFrameSamples().map((sample) => sample.durationMs), [now])
   const metricsTrend = useMemo(() => {
     const history = getMetricsHistory()
     return {
@@ -307,6 +331,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
       profiles,
       perfEvents: perfRollup,
       longTasks: longTaskSummary,
+      frameStats,
       metricsTrend,
       ipc: ipcThroughput,
       terminalThroughput,
@@ -426,6 +451,22 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                   <span>renderer JS heap {formatBytes(metricsTrend.current.rendererHeapUsedBytes)}</span>
                 )}
               </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-[color:var(--text-subtle)]">
+                <span className="flex items-center gap-1 text-[color:var(--text-muted)]">
+                  renderer
+                  <Sparkline values={memorySparklines.rendererRss} title="Renderer RSS over recent samples" />
+                </span>
+                <span className="flex items-center gap-1 text-[color:var(--text-muted)]">
+                  gpu
+                  <Sparkline values={memorySparklines.gpuRss} title="GPU RSS over recent samples" />
+                </span>
+                {metricsTrend.current.rendererHeapUsedBytes !== null && (
+                  <span className="flex items-center gap-1 text-[color:var(--text-muted)]">
+                    heap
+                    <Sparkline values={memorySparklines.heap} title="Renderer JS heap over recent samples" />
+                  </span>
+                )}
+              </div>
               <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums text-[color:var(--text-muted)]">
                 <span>
                   Growth ({Math.round(metricsTrend.growth.windowMs / 1000)}s): RSS{' '}
@@ -480,6 +521,31 @@ export default function DiagnosticsContent({ headerActions }: Props) {
               {longTaskSummary.lastAt ? `last ${formatRelativeMsAgo(longTaskSummary.lastAt, now)}` : 'none'}
             </span>
           </div>
+        </section>
+
+        {/* Frame cadence (rAF) — per-frame jank the longtask observer misses */}
+        <section>
+          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
+            Rendering cadence (frames, last {Math.round(frameStats.windowMs / 1000)}s)
+          </h2>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-[11px] tabular-nums text-[color:var(--text-default)]">
+            <span className={frameStats.fps !== null && frameStats.fps < 50 ? 'text-[color:var(--tone-error)]' : ''}>
+              FPS <strong>{frameStats.fps ?? '—'}</strong>
+            </span>
+            <span className={frameStats.longFrameCount > 0 ? 'text-[color:var(--tone-error)]' : ''}>
+              Long frames {frameStats.longFrameCount} ({frameStats.longFramePercent}%)
+            </span>
+            <span>p95 {msOrDash(frameStats.p95Ms)} ms</span>
+            <span>worst {msOrDash(frameStats.maxMs)} ms</span>
+            <span className="text-[color:var(--text-subtle)]">{frameStats.frameCount} frames</span>
+            <span className="text-[color:var(--text-muted)]">
+              <Sparkline values={frameDurations} title="Frame durations (ms) — spikes are stutters" />
+            </span>
+          </div>
+          <p className="mt-0.5 text-[10px] text-[color:var(--text-subtle)]">
+            Catches per-frame jank (style/layout/compositing) that no single &gt;50ms task shows. Main-thread
+            cadence — pure GPU draw stalls can read low here; confirm those in DevTools.
+          </p>
         </section>
 
         {/* Perf events rollup */}

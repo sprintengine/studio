@@ -9,6 +9,17 @@ export const WORKSPACE_LAYOUT_IDLE_UNLOAD_MS = 60 * 60_000
 export const WORKSPACE_LAYOUT_RETAINED_INACTIVE_LIMIT = 4
 export const WORKSPACE_LAYOUT_BUSY_RETAINED_LIMIT = 10
 
+// How many hidden (retained-but-inactive) layouts stay "warm" — i.e. fully
+// rendered/composited behind the active layer so switching to them is instant.
+// Layers retained beyond this warm set stay mounted (DOM + JS + xterm buffers
+// preserved) but render with `content-visibility: hidden`, so the compositor
+// skips their layout/paint/composite work every frame. That removes the
+// per-frame compositor cost of the deep retained layers (the scroll-jank
+// driver) while the most-recently-used layers you are likely to switch back to
+// stay sharp. Cold layers pay a cheap one-time render on reveal, after which
+// the existing WORKSPACE_LAYER_REVEAL_EVENT re-fits their terminals.
+export const WORKSPACE_LAYOUT_WARM_HIDDEN_LIMIT = 3
+
 export type WorkspaceLayoutRetentionReason = 'active' | 'busy' | 'recent-inactive'
 
 export type WorkspaceLayoutRetentionDecision = {

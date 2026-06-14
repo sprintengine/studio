@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import type { SkillPackHarness } from '../../../shared/electron-api'
+import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
 import {
+  backlogSkillInvocationForDrop,
   backlogSlashCommandForDrop,
   formatDroppedPathsForTerminal,
   sendFileDropToTerminal,
@@ -134,6 +136,63 @@ assert.equal(
 // --- backlogSlashCommandForDrop -------------------------------------------
 
 const allHarnesses = ['claude', 'codex', 'cursor', 'gemini', 'opencode', 'agents'] as const
+const pluginEntries: PluginRegistryListEntry[] = [
+  {
+    id: 'claude-code',
+    displayName: 'Claude Code',
+    source: 'bundled',
+    version: 1,
+    binary: 'claude',
+    skillIntegration: {
+      support: 'native',
+      harnessId: 'claude',
+      restartRequired: true,
+      installTargetCount: 1,
+      invocation: { fileDropTemplate: '/{{skillId}} {{path}}', nativeSlashCommand: true },
+    },
+  },
+  {
+    id: 'codex',
+    displayName: 'Codex',
+    source: 'bundled',
+    version: 1,
+    binary: 'codex',
+    skillIntegration: {
+      support: 'native',
+      harnessId: 'codex',
+      restartRequired: true,
+      installTargetCount: 1,
+      invocation: { fileDropTemplate: 'Use ${{skillId}} to work {{path}}.', explicitMention: true },
+    },
+  },
+  {
+    id: 'pi',
+    displayName: 'Pi',
+    source: 'user',
+    version: 1,
+    binary: 'pi',
+    skillIntegration: {
+      support: 'native',
+      harnessId: 'pi',
+      restartRequired: false,
+      installTargetCount: 1,
+      invocation: { fileDropTemplate: 'pi-skill {{skillId}} {{path}}' },
+    },
+  },
+  {
+    id: 'generic-shell',
+    displayName: 'Generic Shell',
+    source: 'bundled',
+    version: 1,
+    binary: 'sh',
+    skillIntegration: {
+      support: 'unsupported',
+      harnessId: 'generic-shell',
+      restartRequired: false,
+      installTargetCount: 0,
+    },
+  },
+]
 
 function backlogPayload(path: string, rootPath = '/repo'): FileDropPayload {
   return payload(path, rootPath)
@@ -144,6 +203,16 @@ const agentSession = (input: Partial<TerminalSessionSnapshot> = {}): TerminalSes
 
 assert.equal(
   backlogSlashCommandForDrop(backlogPayload('/repo/backlog/item.md'), agentSession(), allHarnesses),
+  '/backlog backlog/item.md'
+)
+
+assert.equal(
+  backlogSkillInvocationForDrop(
+    backlogPayload('/repo/backlog/item.md'),
+    agentSession(),
+    pluginEntries,
+    [{ harness: 'claude', status: 'installed', support: 'native', pluginId: 'claude-code' }]
+  ),
   '/backlog backlog/item.md'
 )
 
@@ -163,14 +232,35 @@ assert.equal(
   "/backlog 'backlog/two words.md'"
 )
 
-// Codex maps to the codex harness.
+// Codex maps to the codex adapter, but not to a top-level `/backlog` command.
 assert.equal(
   backlogSlashCommandForDrop(
     backlogPayload('/repo/backlog/item.md'),
     agentSession({ cli: 'codex' }),
     ['codex']
   ),
-  '/backlog backlog/item.md'
+  'Use $backlog to work backlog/item.md.'
+)
+
+assert.equal(
+  backlogSkillInvocationForDrop(
+    backlogPayload('/repo/backlog/item.md'),
+    agentSession({ cli: 'codex' }),
+    pluginEntries,
+    [{ harness: 'codex', status: 'installed', support: 'native', pluginId: 'codex' }]
+  ),
+  'Use $backlog to work backlog/item.md.'
+)
+
+// Custom CLI plugins get their invocation from the manifest, not Multicode source.
+assert.equal(
+  backlogSkillInvocationForDrop(
+    backlogPayload('/repo/backlog/item.md'),
+    agentSession({ cli: 'pi' }),
+    pluginEntries,
+    [{ harness: 'pi', status: 'installed', support: 'native', pluginId: 'pi' }]
+  ),
+  'pi-skill backlog backlog/item.md'
 )
 
 // Not an agent terminal.
@@ -199,6 +289,16 @@ assert.equal(
     backlogPayload('/repo/backlog/item.md'),
     agentSession({ cli: 'generic-shell' }),
     allHarnesses
+  ),
+  null
+)
+
+assert.equal(
+  backlogSkillInvocationForDrop(
+    backlogPayload('/repo/backlog/item.md'),
+    agentSession({ cli: 'generic-shell' }),
+    pluginEntries,
+    [{ harness: 'generic-shell', status: 'unsupported', support: 'unsupported', pluginId: 'generic-shell' }]
   ),
   null
 )
@@ -254,6 +354,7 @@ function bracketedPaste(text: string): string {
 function installWindowApiStub(input: {
   sessions: TerminalSessionSnapshot[]
   backlogSkillHarnesses?: SkillPackHarness[]
+  plugins?: PluginRegistryListEntry[]
 }): TerminalWriteCall[] {
   const writes: TerminalWriteCall[] = []
   Object.defineProperty(globalThis, 'window', {
@@ -274,7 +375,12 @@ function installWindowApiStub(input: {
             harness,
             destinationPath: '.agents/skills/backlog',
             status: 'installed' as const,
+            support: 'native' as const,
           })),
+        }),
+        pluginsList: async () => ({
+          ok: true as const,
+          plugins: input.plugins ?? pluginEntries,
         }),
       },
     },
@@ -287,6 +393,7 @@ async function testSlashCapableAgentGetsBacklogCommand(): Promise<void> {
   const writes = installWindowApiStub({
     sessions: [liveAgent],
     backlogSkillHarnesses: ['claude'],
+    plugins: pluginEntries,
   })
 
   const sent = await sendFileDropToTerminal({
@@ -306,6 +413,7 @@ async function testNonSlashAgentGetsQuotedRelativePath(): Promise<void> {
   const writes = installWindowApiStub({
     sessions: [shellAgent],
     backlogSkillHarnesses: ['claude'],
+    plugins: pluginEntries,
   })
 
   const sent = await sendFileDropToTerminal({
@@ -330,6 +438,7 @@ async function testWorktreeSessionGetsPlainPathNeverBacklog(): Promise<void> {
   const writes = installWindowApiStub({
     sessions: [worktreeAgent],
     backlogSkillHarnesses: ['claude'],
+    plugins: pluginEntries,
   })
 
   const sent = await sendFileDropToTerminal({
@@ -349,6 +458,7 @@ async function testDeadSessionReturnsExplicitError(): Promise<void> {
   const writes = installWindowApiStub({
     sessions: [deadAgent],
     backlogSkillHarnesses: ['claude'],
+    plugins: pluginEntries,
   })
 
   const sent = await sendFileDropToTerminal({

@@ -15,7 +15,7 @@ import type {
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
 } from '../../types/workspace'
-import { resolveAvailableAgentCli, resolveCliModel, resolveSurfaceModel, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
+import { resolveAvailableAgentCli, resolveSurfaceModel, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
@@ -36,7 +36,6 @@ export type ChipPopoverForRole =
 // Stable empty fallbacks so store selectors returning a default don't churn refs.
 const EMPTY_SPECIALIST_CLI_DEFAULTS: Partial<Record<SpecialistActionId, AgentCli>> = {}
 const EMPTY_MULTILOOP_ROLE_CLI_DEFAULTS: Partial<Record<MultiloopRole, AgentCli>> = {}
-const EMPTY_CLI_MODEL_DEFAULTS: Partial<Record<AgentCli, string>> = {}
 const EMPTY_SPECIALIST_MODEL_DEFAULTS: Partial<Record<SpecialistActionId, AgentCliModelSelection>> = {}
 const EMPTY_MULTILOOP_ROLE_MODEL_DEFAULTS: Partial<Record<MultiloopRole, AgentCliModelSelection>> = {}
 const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
@@ -180,10 +179,8 @@ export default function SpawnAgentMenu({
   const multiloopRoleCliDefaults = useWorkspaceStore((s) => s.appSettings.multiloopRoleCliDefaults ?? EMPTY_MULTILOOP_ROLE_CLI_DEFAULTS)
   const setSpecialistCliDefault = useWorkspaceStore((s) => s.setSpecialistCliDefault)
   const setMultiloopRoleCliDefault = useWorkspaceStore((s) => s.setMultiloopRoleCliDefault)
-  const cliModelDefaults = useWorkspaceStore((s) => s.appSettings.cliModelDefaults ?? EMPTY_CLI_MODEL_DEFAULTS)
   const specialistModelDefaults = useWorkspaceStore((s) => s.appSettings.specialistModelDefaults ?? EMPTY_SPECIALIST_MODEL_DEFAULTS)
   const multiloopRoleModelDefaults = useWorkspaceStore((s) => s.appSettings.multiloopRoleModelDefaults ?? EMPTY_MULTILOOP_ROLE_MODEL_DEFAULTS)
-  const setCliModelDefault = useWorkspaceStore((s) => s.setCliModelDefault)
   const setSpecialistModelDefault = useWorkspaceStore((s) => s.setSpecialistModelDefault)
   const setMultiloopRoleModelDefault = useWorkspaceStore((s) => s.setMultiloopRoleModelDefault)
   const specialistOrder = useWorkspaceStore((s) => s.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER)
@@ -198,6 +195,10 @@ export default function SpawnAgentMenu({
   const agentCliOptions = React.useMemo(
     () => selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes),
     [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes],
+  )
+  const generalCliOptions = React.useMemo(
+    () => agentCliOptions.map(({ modelSelection, ...option }) => option),
+    [agentCliOptions],
   )
 
   // Transient UI state for this menu instance.
@@ -473,11 +474,11 @@ export default function SpawnAgentMenu({
                 >
                   <CliIcon cli={generalCli} className="h-4 w-4 text-[color:var(--text-muted)]" />
                   <span className="truncate text-[13px]">General Agent</span>
-                  <Tooltip placement="bottom" content={`Agent CLI: ${cliWithModelLabel(generalCli, resolveCliModel(generalCli, undefined, cliModelDefaults))} · right-click or click to change`}>
+                  <Tooltip placement="bottom" content={`Agent CLI: ${cliWithModelLabel(generalCli, undefined)} · right-click or click to change`}>
                     <span
                       role="button"
                       tabIndex={-1}
-                      aria-label={`Agent CLI: ${cliWithModelLabel(generalCli, resolveCliModel(generalCli, undefined, cliModelDefaults))}`}
+                      aria-label={`Agent CLI: ${cliWithModelLabel(generalCli, undefined)}`}
                       onClick={(event) => {
                         event.stopPropagation()
                         setChipPopoverForRole((current) => (current?.kind === 'general' ? null : { kind: 'general' }))
@@ -511,16 +512,15 @@ export default function SpawnAgentMenu({
                     ) : null}
                     <CliModelListbox
                       ariaLabel="Agent CLI for General Agent"
-                      options={agentCliOptions}
+                      options={generalCliOptions}
                       currentCli={generalCli}
-                      effectiveModelFor={(cli) => resolveCliModel(cli, undefined, cliModelDefaults)}
+                      effectiveModelFor={() => undefined}
                       onSelectCli={(cli) => {
                         setLastSelectedCli(cli)
                         setChipPopoverForRole(null)
                       }}
-                      onSelectModel={(cli, model) => {
+                      onSelectModel={(cli) => {
                         setLastSelectedCli(cli)
-                        setCliModelDefault(cli, model)
                         setChipPopoverForRole(null)
                       }}
                     />

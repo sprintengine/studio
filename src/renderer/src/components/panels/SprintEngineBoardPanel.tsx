@@ -175,8 +175,6 @@ type PendingRosterMemberSpawn = {
 
 type SprintEngineTasksLayout = 'graph' | 'kanban'
 
-const EMPTY_CLI_MODEL_DEFAULTS: Partial<Record<AgentCli, string>> = {}
-
 // Model field for the spawn/recovery dialogs. Rendered only when the selected
 // CLI's plugin declares modelSelection; "Default" means the CLI's own default
 // (no flag passed at launch).
@@ -550,7 +548,6 @@ function SprintEngineBoardPanelContent({
  const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
  const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli)
  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
- const cliModelDefaults = useWorkspaceStore((s) => s.appSettings.cliModelDefaults ?? EMPTY_CLI_MODEL_DEFAULTS)
  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
  const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
  const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
@@ -1331,7 +1328,7 @@ function SprintEngineBoardPanelContent({
  const selectAddMemberRole = (role: SprintEngineRole) => {
  setAddMemberRole(role)
  setAddMemberCli(null)
- setAddMemberModel(cliModelDefaults[addMemberRoleDefaultCli(role)])
+ setAddMemberModel(undefined)
  }
 
  const openAddMemberDialog = () => {
@@ -1489,7 +1486,6 @@ function SprintEngineBoardPanelContent({
  folderStatusMessage,
  folderCheckedPath,
  lastSelectedCli,
- cliModelDefaults,
  spawnDialog,
  recoveryDialog,
  spawnDialogHasLiveTerminal,
@@ -1528,15 +1524,15 @@ function SprintEngineBoardPanelContent({
  }
 
  // Current model for a given CLI in the picker: the member's configured model
- // when the CLI matches its runtime, otherwise that CLI's saved default.
+ // only when the CLI matches its runtime. Otherwise there is no model flag.
  const effectiveModelForAgent = (agentId: string, cli: AgentCli): string | undefined =>
-   cli === agentRuntimeCli(agentId) ? agents[agentId]?.cliModel : cliModelDefaults[cli]
+   cli === agentRuntimeCli(agentId) ? agents[agentId]?.cliModel : undefined
 
  // Persist a runtime choice onto the member record (applied on next launch,
- // and immediately reflected in the row's CLI summary). Mirrors the add-member
- // dialog: picking a CLI resets to that CLI's default model.
+ // and immediately reflected in the row's CLI summary). Picking a bare CLI
+ // clears any explicit model so the CLI's own default is used.
  const selectAgentCli = (agentId: string, cli: AgentCli) => {
-   updateAgent(workspaceId, agentId, { cli, cliModel: cliModelDefaults[cli] })
+   updateAgent(workspaceId, agentId, { cli, cliModel: undefined })
  }
  const selectAgentModel = (agentId: string, cli: AgentCli, model: string | null) => {
    updateAgent(workspaceId, agentId, { cli, cliModel: model ?? undefined })
@@ -1848,6 +1844,11 @@ function SprintEngineBoardPanelContent({
  const runHero = (
  <header className="relative shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
  <div className="flex min-h-10 items-center justify-between gap-2 pr-3">
+ {/* Left: view tabs + the Tasks layout switcher. Keeping the switcher here
+     (rather than in the right cluster) holds the run-state cluster — count,
+     automation, overflow — in a fixed position across tabs, so switching to
+     Tasks no longer shoves those controls sideways. */}
+ <div className="flex min-w-0 items-center gap-2">
  {!fixedView ? (
  <Tabs<SprintEngineView>
  ariaLabel="Sprint Engine view"
@@ -1861,6 +1862,8 @@ function SprintEngineBoardPanelContent({
  ) : (
  <span className="sr-only">{sprintEngineState.name}</span>
  )}
+ {tasksLayoutToggle}
+ </div>
  <div className="flex min-w-0 shrink-0 items-center gap-2">
  {runPhaseTone === 'neutral' ? null : (
  <StatusDot tone={runPhaseTone} label={`Run phase: ${runPhase}`} />
@@ -1914,7 +1917,6 @@ function SprintEngineBoardPanelContent({
  onClose={() => setSettingsOpen(false)}
  />
  </Popover>
- {tasksLayoutToggle}
  <OverflowMenu ariaLabel="Sprint Engine overflow" items={chromeOverflowItems} />
  </div>
  </div>
@@ -2123,8 +2125,8 @@ function SprintEngineBoardPanelContent({
  onKeyDown={effectiveTasksLayout === 'kanban' ? handleKanbanKeyDown : undefined}
  aria-label={effectiveTasksLayout === 'kanban' ? 'Sprint Engine kanban' : undefined}
  >
- {/* Tasks layout (Graph / Kanban) toggle now lives on the trailing edge of */}
- {/* the panel sub-nav row above so we don't stack a second horizontal bar. */}
+ {/* Tasks layout (Graph / Kanban) toggle lives beside the view tabs on the */}
+ {/* leading edge of the sub-nav row above so we don't stack a second bar. */}
 
  <div className="flex min-h-0 flex-1">
  {inspectorExpanded ? null : effectiveTasksLayout === 'graph' ? (
@@ -2246,7 +2248,7 @@ function SprintEngineBoardPanelContent({
  aria-selected={selected}
  onClick={() => {
  setRecoveryDialog((current) =>
- current ? { ...current, cli: option.value, model: cliModelDefaults[option.value] } : current
+ current ? { ...current, cli: option.value, model: undefined } : current
  )
  setCliPickerOpen(false)
  }}
@@ -2428,7 +2430,7 @@ function SprintEngineBoardPanelContent({
  aria-selected={selected}
  onClick={() => {
  setSpawnDialog((current) =>
- current ? { ...current, cli: option.value, model: cliModelDefaults[option.value] } : current
+ current ? { ...current, cli: option.value, model: undefined } : current
  )
  setCliPickerOpen(false)
  }}
@@ -2663,11 +2665,11 @@ function SprintEngineBoardPanelContent({
  effectiveModelFor={(cli) =>
  cli === (addMemberCli ?? addMemberRoleDefaultCli(addMemberRole))
  ? addMemberModel
- : cliModelDefaults[cli]
+ : undefined
  }
  onSelectCli={(cli) => {
  setAddMemberCli(cli)
- setAddMemberModel(cliModelDefaults[cli])
+ setAddMemberModel(undefined)
  }}
  onSelectModel={(cli, model) => {
  setAddMemberCli(cli)

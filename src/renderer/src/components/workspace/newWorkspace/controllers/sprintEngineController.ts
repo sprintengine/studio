@@ -134,6 +134,8 @@ export async function runSprintEnginePlanSourcedCreation(
       sourceBundle: input.sourceBundle ?? undefined,
       roleCounts: input.visibleRoleCounts,
       roleCliDefaults: input.roleCliDefaults,
+      roleModelOverrides: input.roleModelOverrides ?? null,
+      initialSpawnRoles: input.initialSpawnRoles ?? null,
       workspaceWindowId: input.workspaceWindowId,
       useWorktrees: input.useWorktrees === true,
       sprintEngineAutoState: {

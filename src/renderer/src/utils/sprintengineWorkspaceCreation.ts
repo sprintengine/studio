@@ -2,8 +2,10 @@ import { createSprintEngineTemplate } from '../modules/sprint-engine-workspace-t
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type {
   SprintEngineRoleCounts,
+  SprintEngineRoleId,
   SprintEngineAutoState,
   SprintEngineRoleCliDefaults,
+  SprintEngineRoleModelOverrides,
   SprintEngineSourceBundleItem,
   SprintEngineSourcePlanKind,
   SprintEngineWorkspaceContext,
@@ -44,6 +46,8 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   sourceBundle?: SprintEngineSourceBundleItem[]
   roleCounts?: SprintEngineRoleCounts
   roleCliDefaults?: SprintEngineRoleCliDefaults
+  roleModelOverrides?: SprintEngineRoleModelOverrides | null
+  initialSpawnRoles?: SprintEngineRoleId[] | null
   sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
   workspaceWindowId?: WorkspaceWindowId | null
   useWorktrees?: boolean
@@ -100,6 +104,8 @@ export async function createPlanSourcedSprintEngineWorkspace({
   sourceBundle,
   roleCounts = planSourcedSprintEngineRoleCounts,
   roleCliDefaults,
+  roleModelOverrides,
+  initialSpawnRoles,
   sprintEngineAutoState,
   workspaceWindowId,
   useWorktrees,
@@ -161,6 +167,8 @@ export async function createPlanSourcedSprintEngineWorkspace({
     sprintEngineState,
     sprintEngineContext,
     sprintEngineRoleCliDefaults: roleCliDefaults,
+    sprintEngineRoleModelOverrides: roleModelOverrides,
+    sprintEngineInitialSpawnRoles: initialSpawnRoles,
     sprintEngineAutoState,
     windowId: workspaceWindowId,
   })

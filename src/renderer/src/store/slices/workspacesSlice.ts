@@ -158,8 +158,7 @@ export interface WorkspacesSliceActions {
       sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
       sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
       // Explicit per-role launch model from the new-workspace roster. String =
-      // explicit model id, null = explicit CLI default; absent roles seed from
-      // the remembered per-CLI model default as before.
+      // explicit model id, null or absent = CLI default with no model flag.
       sprintEngineRoleModelOverrides?: SprintEngineRoleModelOverrides | null
       // Roles the user marked "start now" in the new-workspace roster. Every
       // seeded roster agent of these roles is queued as session-only initial
@@ -903,15 +902,12 @@ export function createWorkspacesSlice(
             const rosterCli = typeof overrideCli === 'string' && overrideCli.trim()
               ? overrideCli.trim()
               : resolveSprintEngineRoleCli(sprintEngineRoleCliDefaults, agent.role)
-            // An explicit roster model choice wins; null means the user picked
-            // "CLI default" (no flag); absent keeps the legacy seeding from the
-            // remembered per-CLI model default.
+            // An explicit roster model choice wins; null or absent means the
+            // user picked the CLI default (no model flag).
             const modelOverride = options?.sprintEngineRoleModelOverrides?.[agent.role]
             const rosterModel = modelOverride === null
               ? undefined
-              : modelOverride?.trim()
-                || state.appSettings.cliModelDefaults?.[rosterCli]?.trim()
-                || undefined
+              : modelOverride?.trim() || undefined
             agents[agent.id] = {
               ...deps.defaultAgent(
                 agent.id,
@@ -932,7 +928,6 @@ export function createWorkspacesSlice(
               ? options.templateAgentCli.trim()
               : state.appSettings.lastSelectedCli
           const agentPatch = options?.seedAgent?.agentPatch
-          const templateAgentCliModel = state.appSettings.cliModelDefaults?.[templateAgentCli]?.trim() || undefined
           collectTemplateAgentTabs(template).forEach((agent, index) => {
             const base = {
               ...deps.defaultAgent(
@@ -941,7 +936,6 @@ export function createWorkspacesSlice(
                 'general'
               ),
               cli: templateAgentCli,
-              cliModel: templateAgentCliModel,
             }
             // The solo-chat template has a single agent tab; merge the seed patch
             // onto it so an Open-in-new-chat agent (specialist/conversation) is

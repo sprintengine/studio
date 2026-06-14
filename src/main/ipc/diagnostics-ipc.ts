@@ -5,6 +5,34 @@ import type {
   ProcessMetricsSnapshot,
 } from '../../shared/electron-api'
 import { collectProcessMetrics, type RawProcessMetric } from '../process-metrics'
+import { sampleThreadCounts, THREAD_SAMPLE_THROTTLE_MS } from '../thread-counts'
+
+// Thread counts come from the OS (getAppMetrics has none), which on macOS means a
+// `ps` spawn. To keep that off the 1s metrics poll, the latest counts are cached
+// and refreshed at most once per THREAD_SAMPLE_THROTTLE_MS, asynchronously and
+// fire-and-forget so the metrics response never waits on it. The poll attaches
+// whatever is currently cached; counts lag by at most one throttle window, which
+// is fine for a value that changes slowly.
+let threadCountCache: ReadonlyMap<number, number> = new Map()
+let threadCountSampledAt = 0
+let threadCountSampleInFlight = false
+
+function maybeRefreshThreadCounts(pids: readonly number[]): void {
+  if (threadCountSampleInFlight) return
+  if (Date.now() - threadCountSampledAt < THREAD_SAMPLE_THROTTLE_MS) return
+  threadCountSampleInFlight = true
+  void sampleThreadCounts(pids)
+    .then((counts) => {
+      threadCountCache = counts
+      threadCountSampledAt = Date.now()
+    })
+    .catch(() => {
+      // Best-effort: keep the last good counts on failure.
+    })
+    .finally(() => {
+      threadCountSampleInFlight = false
+    })
+}
 
 type DiagnosticsIpcDependencies = {
   writeDiagnosticLog(input: DiagnosticLogInput): Promise<DiagnosticLogEntry>
@@ -32,10 +60,15 @@ export function registerDiagnosticsIpc(
     // working set). process.pid here is the Browser process, matching that entry's
     // pid so the collector merges it onto the right row.
     const heap = process.memoryUsage()
+    const metrics = app.getAppMetrics() as unknown as RawProcessMetric[]
+    // Refresh thread counts off the hot path (throttled, async); attach the
+    // current cache to this snapshot.
+    maybeRefreshThreadCounts(metrics.map((metric) => metric.pid).filter((pid) => Number.isInteger(pid)))
     return collectProcessMetrics(
-      () => app.getAppMetrics() as unknown as RawProcessMetric[],
+      () => metrics,
       Date.now(),
-      { pid: process.pid, heapUsedBytes: heap.heapUsed, heapTotalBytes: heap.heapTotal }
+      { pid: process.pid, heapUsedBytes: heap.heapUsed, heapTotalBytes: heap.heapTotal },
+      threadCountCache
     )
   })
 

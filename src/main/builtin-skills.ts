@@ -1,8 +1,10 @@
 import { app } from 'electron'
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'fs/promises'
 import { createHash } from 'crypto'
+import { homedir } from 'os'
 import { isAbsolute, join, relative, resolve } from 'path'
 
+import type { LoadedPlugin, PluginSkillInstallTarget, PluginSkillSupport } from '../shared/plugin-manifest'
 import type {
   BuiltinSkill,
   BuiltinSkillInstallResult,
@@ -10,11 +12,12 @@ import type {
   BuiltinSkillTargetState,
   SkillPackHarness,
 } from '../shared/electron-api'
-import { SKILL_HARNESS_DIR, SKILL_PACK_HARNESSES } from '../shared/skill-harnesses'
+import { SKILL_HARNESS_DIR } from '../shared/skill-harnesses'
 
 const MANIFEST_FILE = '.multicode-skill.json'
 
 const DEFAULT_HARNESSES: readonly SkillPackHarness[] = ['agents']
+const ALL_NATIVE_TARGET_POLICY = 'all-native'
 
 type ManagedSkillManifest = {
   id: string
@@ -72,14 +75,27 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
   {
     id: 'backlog',
     name: 'Backlog',
-    version: '1.1.0',
-    description: 'Take, work, survey, or triage Backlog items with truthful lifecycle status (/backlog).',
-    harnesses: [...SKILL_PACK_HARNESSES],
+    version: '1.2.0',
+    description: 'Take, work, survey, or triage Backlog items with truthful lifecycle status.',
+    targetPolicy: ALL_NATIVE_TARGET_POLICY,
   },
 ]
 
 type BuiltinSkillManagerOptions = {
   sourceRoot?: string
+  listPlugins?: () => LoadedPlugin[]
+}
+
+type SkillTargetDescriptor = {
+  harness: string
+  destinationPath?: string
+  status?: 'prompt-shim' | 'unsupported'
+  pluginId?: string
+  displayName?: string
+  support?: PluginSkillSupport
+  installScope?: 'workspace' | 'user'
+  format?: string
+  restartRequired?: boolean
 }
 
 function isInside(parent: string, child: string): boolean {
@@ -143,7 +159,9 @@ function skillDestination(workspaceRoot: string, skillId: string, harness: Skill
 }
 
 function canonicalTarget(targets: BuiltinSkillTargetState[]): BuiltinSkillTargetState {
-  return targets.find((target) => target.harness === 'agents') ?? targets[0]
+  return targets.find((target) => target.harness === 'agents' && target.destinationPath)
+    ?? targets.find((target) => Boolean(target.destinationPath))
+    ?? targets[0]
 }
 
 function defaultSourceRoot(): string {
@@ -153,6 +171,7 @@ function defaultSourceRoot(): string {
 
 export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = {}) {
   const sourceRoot = options.sourceRoot ?? defaultSourceRoot()
+  const listPlugins = options.listPlugins ?? (() => [])
 
   function getSkill(id: string): BuiltinSkill | null {
     return BUILTIN_SKILLS.find((skill) => skill.id === id) ?? null
@@ -162,32 +181,116 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
     return join(sourceRoot, id)
   }
 
+  function staticSkillTargets(workspaceRoot: string, skill: BuiltinSkill): SkillTargetDescriptor[] {
+    return skillHarnesses(skill).map((harness) => ({
+      harness,
+      destinationPath: skillDestination(workspaceRoot, skill.id, harness),
+      support: 'native',
+      installScope: 'workspace',
+      format: harness,
+    }))
+  }
+
+  function pluginSkillTargets(workspaceRoot: string, skill: BuiltinSkill): SkillTargetDescriptor[] {
+    if (skill.targetPolicy !== ALL_NATIVE_TARGET_POLICY) return []
+    const targets: SkillTargetDescriptor[] = []
+    for (const plugin of listPlugins()) {
+      const integration = plugin.manifest.skillIntegration
+      if (!integration) {
+        targets.push({
+          harness: plugin.manifest.id,
+          pluginId: plugin.manifest.id,
+          displayName: plugin.manifest.displayName,
+          support: 'unsupported',
+          status: 'unsupported',
+        })
+        continue
+      }
+
+      if (integration.support !== 'native') {
+        targets.push({
+          harness: integration.harnessId,
+          pluginId: plugin.manifest.id,
+          displayName: plugin.manifest.displayName,
+          support: integration.support,
+          status: integration.support === 'prompt-shim' ? 'prompt-shim' : 'unsupported',
+        })
+        continue
+      }
+
+      for (const installTarget of integration.installTargets ?? []) {
+        const destinationPath = renderSkillInstallTargetPath({
+          workspaceRoot,
+          skillId: skill.id,
+          target: installTarget,
+        })
+        if (!destinationPath) continue
+        targets.push({
+          harness: integration.harnessId,
+          destinationPath,
+          pluginId: plugin.manifest.id,
+          displayName: plugin.manifest.displayName,
+          support: 'native',
+          installScope: installTarget.scope,
+          format: installTarget.format,
+          restartRequired: installTarget.restartRequired === true,
+        })
+      }
+    }
+    return targets
+  }
+
+  function skillTargets(workspaceRoot: string, skill: BuiltinSkill): SkillTargetDescriptor[] {
+    const seen = new Set<string>()
+    const result: SkillTargetDescriptor[] = []
+    for (const target of [...staticSkillTargets(workspaceRoot, skill), ...pluginSkillTargets(workspaceRoot, skill)]) {
+      const key = `${target.pluginId ?? ''}:${target.harness}:${target.destinationPath ?? target.status ?? ''}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      result.push(target)
+    }
+    return result
+  }
+
   async function getTargetState(
     skill: BuiltinSkill,
     sourceHash: string,
-    workspaceRoot: string,
-    harness: SkillPackHarness
+    target: SkillTargetDescriptor
   ): Promise<BuiltinSkillTargetState> {
-    const destinationPath = skillDestination(workspaceRoot, skill.id, harness)
+    const base = {
+      harness: target.harness,
+      ...(target.destinationPath ? { destinationPath: target.destinationPath } : {}),
+      ...(target.pluginId ? { pluginId: target.pluginId } : {}),
+      ...(target.displayName ? { displayName: target.displayName } : {}),
+      ...(target.support ? { support: target.support } : {}),
+      ...(target.installScope ? { installScope: target.installScope } : {}),
+      ...(target.format ? { format: target.format } : {}),
+      ...(target.restartRequired ? { restartRequired: true } : {}),
+    }
+    if (target.status === 'prompt-shim' || target.status === 'unsupported') {
+      return { ...base, status: target.status }
+    }
+    const destinationPath = target.destinationPath
+    if (!destinationPath) return { ...base, status: 'unsupported' }
     if (!(await pathExists(destinationPath))) {
-      return { harness, destinationPath, status: 'missing' }
+      return { ...base, destinationPath, status: 'missing' }
     }
 
     const manifest = await readJson<ManagedSkillManifest>(join(destinationPath, MANIFEST_FILE))
     if (!manifest || manifest.id !== skill.id || manifest.source !== 'multicode-builtin') {
-      return { harness, destinationPath, status: 'local' }
+      return { ...base, destinationPath, status: 'local' }
     }
 
     const currentHash = await hashDirectory(destinationPath, new Set([MANIFEST_FILE]))
     if (currentHash !== manifest.installedSkillHash) {
-      return { harness, destinationPath, status: 'modified', installedVersion: manifest.version }
+      return { ...base, destinationPath, status: 'modified', installedVersion: manifest.version }
     }
 
     if (sourceHash !== manifest.sourceHash || manifest.version !== skill.version) {
-      return { harness, destinationPath, status: 'update-available', installedVersion: manifest.version }
+      return { ...base, destinationPath, status: 'update-available', installedVersion: manifest.version }
     }
 
-    return { harness, destinationPath, status: 'installed', installedVersion: manifest.version }
+    return { ...base, destinationPath, status: 'installed', installedVersion: manifest.version }
   }
 
   async function getStatus(workspaceRoot: string | null, skillId: string): Promise<BuiltinSkillStatus> {
@@ -202,11 +305,11 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
 
     const sourceHash = await hashDirectory(sourcePath)
     const targets: BuiltinSkillTargetState[] = []
-    for (const harness of skillHarnesses(skill)) {
-      targets.push(await getTargetState(skill, sourceHash, workspaceRoot, harness))
+    for (const target of skillTargets(workspaceRoot, skill)) {
+      targets.push(await getTargetState(skill, sourceHash, target))
     }
 
-    const destinationPath = canonicalTarget(targets).destinationPath
+    const destinationPath = canonicalTarget(targets).destinationPath ?? ''
     const installedVersion =
       targets.find((target) => target.installedVersion)?.installedVersion ?? skill.version
 
@@ -240,10 +343,11 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
     if (!status.ok) return status
 
     const actionable = status.targets.filter(
-      (target) => target.status === 'missing' || target.status === 'installed' || target.status === 'update-available'
+      (target) => Boolean(target.destinationPath)
+        && (target.status === 'missing' || target.status === 'installed' || target.status === 'update-available')
     )
     const skipped = status.targets.filter(
-      (target) => target.status === 'modified' || target.status === 'local'
+      (target) => Boolean(target.destinationPath) && (target.status === 'modified' || target.status === 'local')
     )
     if (actionable.length === 0) {
       return {
@@ -259,6 +363,7 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
     const now = new Date().toISOString()
 
     for (const target of actionable) {
+      if (!target.destinationPath) continue
       if (target.status !== 'missing') {
         await rm(target.destinationPath, { recursive: true, force: true })
       }
@@ -285,7 +390,7 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
       ok: true,
       status: actionable.every((target) => target.status === 'missing') ? 'installed' : 'updated',
       skill: status.skill,
-      destinationPath: canonicalTarget(status.targets).destinationPath,
+      destinationPath: canonicalTarget(status.targets).destinationPath ?? '',
       ...(skipped.length > 0 ? { skipped } : {}),
     }
   }
@@ -295,4 +400,21 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
     getStatus,
     install,
   }
+}
+
+function renderSkillInstallTargetPath(input: {
+  workspaceRoot: string
+  skillId: string
+  target: PluginSkillInstallTarget
+}): string | null {
+  const workspace = resolve(input.workspaceRoot)
+  const home = resolve(homedir())
+  const rendered = input.target.path
+    .replace(/\{\{\s*workspaceRoot\s*\}\}/g, workspace)
+    .replace(/\{\{\s*home\s*\}\}/g, home)
+    .replace(/\{\{\s*skillId\s*\}\}/g, input.skillId)
+  const destination = resolve(input.target.scope === 'workspace' ? workspace : home, rendered)
+  const root = input.target.scope === 'workspace' ? workspace : home
+  if (!isInside(root, destination)) return null
+  return destination
 }

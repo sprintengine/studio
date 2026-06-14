@@ -777,7 +777,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
 
   // Same code path as dragging a row onto an agent terminal: build the
   // FileDropPayload and let the shared send core own the liveness check, the
-  // /backlog slash-vs-quoted-path decision, and the worktree rule. A dead
+  // plugin-adapter skill invocation vs quoted-path decision, and the worktree rule. A dead
   // session picked from a stale list rejects and surfaces as actionError.
   const sendItemToAgent = useCallback(
     (item: BacklogItem, sessionId: string) =>

@@ -12,7 +12,7 @@ import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
-import { resolveAvailableAgentCli, resolveCliModel, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
+import { resolveAvailableAgentCli, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import {
@@ -91,6 +91,7 @@ import {
   WORKSPACE_LAYOUT_BUSY_RETAINED_LIMIT,
   WORKSPACE_LAYOUT_IDLE_UNLOAD_MS,
   WORKSPACE_LAYOUT_RETAINED_INACTIVE_LIMIT,
+  WORKSPACE_LAYOUT_WARM_HIDDEN_LIMIT,
   type WorkspaceLayoutRetentionReason,
 } from './workspaceLayoutRetention'
 import type { ConversationProviderListResult } from '../../../../shared/electron-api'
@@ -114,7 +115,6 @@ const NewWorkspacePanel = React.lazy(() => import('./NewWorkspacePanel'))
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 const EMPTY_SPECIALIST_CLI_DEFAULTS: Partial<Record<SpecialistActionId, AgentCli>> = {}
 const EMPTY_MULTILOOP_ROLE_CLI_DEFAULTS: Partial<Record<MultiloopRole, AgentCli>> = {}
-const EMPTY_CLI_MODEL_DEFAULTS: Partial<Record<AgentCli, string>> = {}
 const EMPTY_SPECIALIST_MODEL_DEFAULTS: Partial<Record<SpecialistActionId, AgentCliModelSelection>> = {}
 const EMPTY_MULTILOOP_ROLE_MODEL_DEFAULTS: Partial<Record<MultiloopRole, AgentCliModelSelection>> = {}
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
@@ -246,9 +246,6 @@ export default function WorkspaceManager() {
   )
   const multiloopRoleCliDefaults = useWorkspaceStore(
     (s) => s.appSettings.multiloopRoleCliDefaults ?? EMPTY_MULTILOOP_ROLE_CLI_DEFAULTS
-  )
-  const cliModelDefaults = useWorkspaceStore(
-    (s) => s.appSettings.cliModelDefaults ?? EMPTY_CLI_MODEL_DEFAULTS
   )
   const specialistModelDefaults = useWorkspaceStore(
     (s) => s.appSettings.specialistModelDefaults ?? EMPTY_SPECIALIST_MODEL_DEFAULTS
@@ -440,6 +437,20 @@ export default function WorkspaceManager() {
   const renderedWorkspaceIds = visibleWorkspaces
     .map((workspace) => workspace.id)
     .filter((workspaceId) => workspaceId === windowActiveWorkspaceId || mountedWorkspaceIds.includes(workspaceId))
+  // "Warm" layers stay fully composited behind the active one so switching back
+  // to a recently-used workspace is instant. Everything beyond the warm set is
+  // kept mounted but rendered with `content-visibility: hidden` (see the render
+  // map below), so the compositor skips its per-frame work — that is the
+  // scroll-jank fix. Warm = the most-recently-focused inactive layers, ranked by
+  // the same last-focused clock the retention policy uses.
+  const warmHiddenWorkspaceIdSet = useMemo(() => {
+    const lastFocusedAt = workspaceLayoutLastFocusedAtRef.current
+    const warm = renderedWorkspaceIds
+      .filter((workspaceId) => workspaceId !== windowActiveWorkspaceId)
+      .sort((a, b) => (lastFocusedAt[b] ?? 0) - (lastFocusedAt[a] ?? 0))
+      .slice(0, WORKSPACE_LAYOUT_WARM_HIDDEN_LIMIT)
+    return new Set(warm)
+  }, [renderedWorkspaceIds, windowActiveWorkspaceId])
   const workspaceTypeSupervisors = useMemo(() => {
     const moduleEnabled = (moduleId: string) => selectModuleEnabled(moduleEnablement, moduleId)
     return collectWorkspaceTypeSupervisors(
@@ -1226,7 +1237,6 @@ export default function WorkspaceManager() {
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: spawnCli,
-      cliModel: resolveCliModel(spawnCli, undefined, cliModelDefaults),
       cliPermissionPreset: agentSpawnPermissionPreset,
       kind: 'general',
       specialistId: undefined,
@@ -1993,11 +2003,22 @@ export default function WorkspaceManager() {
               {visibleWorkspaces.length === 0 && <EmptyState onNew={openNewWorkspacePanel} />}
               {renderedWorkspaceIds.map((workspaceId) => {
                 const active = workspaceId === windowActiveWorkspaceId
+                // Cold = retained but neither active nor warm. Cold layers keep
+                // their DOM / JS / xterm buffers but render with
+                // content-visibility: hidden, so the compositor skips their
+                // per-frame layout/paint/composite work (the scroll-jank fix).
+                // On reveal they render once and the WORKSPACE_LAYER_REVEAL_EVENT
+                // re-fits their terminals. Active + warm layers stay fully
+                // composited so switching to them is instant.
+                const cold = !active && !warmHiddenWorkspaceIdSet.has(workspaceId)
                 return (
                   <div
                     key={workspaceId}
                     className={`absolute inset-0 ${active ? 'z-10 visible' : 'z-0 invisible'}`}
-                    style={{ pointerEvents: active ? 'auto' : 'none' }}
+                    style={{
+                      pointerEvents: active ? 'auto' : 'none',
+                      contentVisibility: cold ? 'hidden' : undefined,
+                    }}
                     aria-hidden={!active}
                   >
                     <WorkspaceLayout

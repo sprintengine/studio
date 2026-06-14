@@ -53,7 +53,6 @@ export type SprintEngineBoardTerminalActionsInput = {
   folderStatusMessage: string | null
   folderCheckedPath: string | null
   lastSelectedCli: AgentCli
-  cliModelDefaults: Partial<Record<AgentCli, string>>
   spawnDialog: SpawnDialogState | null
   recoveryDialog: RecoveryDialogState | null
   spawnDialogHasLiveTerminal: boolean
@@ -114,7 +113,6 @@ export function useSprintEngineBoardTerminalActions(
     folderStatusMessage,
     folderCheckedPath,
     lastSelectedCli,
-    cliModelDefaults,
     spawnDialog,
     recoveryDialog,
     spawnDialogHasLiveTerminal,
@@ -336,7 +334,7 @@ export function useSprintEngineBoardTerminalActions(
     setSpawnDialog({
       agentId,
       cli: dialogCli,
-      model: agentState?.cliModel ?? cliModelDefaults[dialogCli],
+      model: agentState?.cliModel,
       name: savedName,
     })
   }
@@ -358,7 +356,7 @@ export function useSprintEngineBoardTerminalActions(
 
   const openRecoveryDialog: SprintEngineBoardTerminalActions['openRecoveryDialog'] = () => {
     setCliPickerOpen(false)
-    setRecoveryDialog({ cli: 'codex', model: cliModelDefaults.codex })
+    setRecoveryDialog({ cli: 'codex', model: undefined })
   }
 
   const confirmRecoveryAudit: SprintEngineBoardTerminalActions['confirmRecoveryAudit'] = async () => {

@@ -82,6 +82,37 @@ export type PluginMcpConfigSpec = {
   format: PluginMcpConfigFormat
 }
 
+export type PluginSkillSupport = 'native' | 'prompt-shim' | 'unsupported'
+export type PluginSkillInstallScope = 'workspace' | 'user'
+export type PluginSkillFormat =
+  | 'agent-skills-v1'
+  | 'claude-code'
+  | 'codex'
+  | 'opencode'
+  | 'generic'
+
+export type PluginSkillInstallTarget = {
+  scope: PluginSkillInstallScope
+  path: string
+  format: PluginSkillFormat
+  restartRequired?: boolean
+}
+
+export type PluginSkillInvocation = {
+  fileDropTemplate?: string
+  explicitTemplate?: string
+  nativeSlashCommand?: boolean
+  explicitMention?: boolean
+  implicitInvocation?: boolean
+}
+
+export type PluginSkillIntegration = {
+  support: PluginSkillSupport
+  harnessId: string
+  installTargets?: PluginSkillInstallTarget[]
+  invocation?: PluginSkillInvocation
+}
+
 export type PluginCapabilities = {
   resumeSession: boolean
   sessionIdFromCaller: boolean
@@ -131,6 +162,7 @@ export type PluginManifest = {
   capabilities: PluginCapabilities
   souls?: PluginSoulsSpec
   modelSelection?: PluginModelSelectionSpec
+  skillIntegration?: PluginSkillIntegration
 }
 
 export type ConversationProviderType = 'model-provider' | 'agent-harness'
@@ -245,6 +277,14 @@ export type PluginModelCatalog = {
   allowCustomId: boolean
 }
 
+export type PluginSkillCatalog = {
+  support: PluginSkillSupport
+  harnessId: string
+  restartRequired: boolean
+  installTargetCount: number
+  invocation?: PluginSkillInvocation
+}
+
 export type PluginRegistryListEntry = {
   id: string
   displayName: string
@@ -252,6 +292,7 @@ export type PluginRegistryListEntry = {
   version: number
   binary: string
   modelSelection?: PluginModelCatalog
+  skillIntegration?: PluginSkillCatalog
 }
 
 export type ConversationProviderListEntry = {

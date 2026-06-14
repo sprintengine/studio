@@ -417,7 +417,7 @@ export default function NewWorkspacePanel({
   )
   const [seAgentCliOverrides, setSeAgentCliOverrides] = useState<Record<AgentId, AgentCli>>({})
   // Explicit per-role launch model (string = explicit id, null = explicit CLI
-  // default); absent roles seed from the remembered per-CLI model default.
+  // default/no model flag).
   const [seRoleModelOverrides, setSeRoleModelOverrides] = useState<SprintEngineRoleModelOverrides>({})
   // Roles marked "Start now": their agents spawn when the workspace opens.
   const [seSpawnAtStartRoles, setSeSpawnAtStartRoles] = useState<Partial<Record<SprintEngineRoleId, boolean>>>({})
@@ -460,7 +460,6 @@ export default function NewWorkspacePanel({
   const [closeConfirmation, setCloseConfirmation] = useState(false)
 
   const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
-  const cliModelDefaults = useWorkspaceStore((s) => s.appSettings.cliModelDefaults)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   // Shared plugin-aware catalog (installed agents + configured runtimes) used by
@@ -1275,6 +1274,8 @@ export default function NewWorkspacePanel({
               visibleRoleCounts: visibleSprintEngineRoleCounts,
               totalAgents,
               roleCliDefaults: seRoleCliDefaults,
+              roleModelOverrides: seRoleModelOverrides,
+              initialSpawnRoles: seInitialSpawnRoles,
               startRunner: seStartRunner,
               autoApproveArtifacts: seAutoApproveArtifacts,
               useWorktrees: seUseWorktrees,
@@ -1754,7 +1755,6 @@ export default function NewWorkspacePanel({
               onSetRoleCount={setRoleCount}
               onSetRoleCli={setRoleCli}
               roleModelOverrides={seRoleModelOverrides}
-              cliModelDefaults={cliModelDefaults}
               onSetRoleModel={setRoleModel}
               spawnAtStartRoles={seEffectiveSpawnAtStartRoles}
               spawnAtStartLocked={seAutomationMode === 'run_agents_and_approve_artifacts'}
@@ -3072,7 +3072,6 @@ function SprintEngineRosterStep(props: {
   onSetRoleCount: (role: SprintEngineRoleId, count: number) => void
   onSetRoleCli: (role: SprintEngineRoleId, cli: AgentCli) => void
   roleModelOverrides: SprintEngineRoleModelOverrides
-  cliModelDefaults: Partial<Record<AgentCli, string>> | undefined
   onSetRoleModel: (role: SprintEngineRoleId, model: string | null) => void
   spawnAtStartRoles: Partial<Record<SprintEngineRoleId, boolean>>
   spawnAtStartLocked: boolean
@@ -3104,7 +3103,6 @@ function SprintEngineRosterStep(props: {
     onSetRoleCount,
     onSetRoleCli,
     roleModelOverrides,
-    cliModelDefaults,
     onSetRoleModel,
     spawnAtStartRoles,
     spawnAtStartLocked,
@@ -3153,7 +3151,6 @@ function SprintEngineRosterStep(props: {
         onSetCount={onSetRoleCount}
         onSetCli={onSetRoleCli}
         roleModelOverrides={roleModelOverrides}
-        cliModelDefaults={cliModelDefaults}
         onSetModel={onSetRoleModel}
         spawnAtStartRoles={spawnAtStartRoles}
         spawnAtStartLocked={spawnAtStartLocked}

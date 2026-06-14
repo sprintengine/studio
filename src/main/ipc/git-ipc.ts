@@ -1,4 +1,5 @@
 import type { IpcMain } from 'electron'
+import type { GitFileStage } from '../git'
 import {
   checkoutGitCommit,
   checkoutGitCommitAsBranch,
@@ -13,6 +14,7 @@ import {
   getGitCommitGraph,
   getGitConflictFile,
   getGitConflicts,
+  getGitFileAtStage,
   getGitFileBase,
   getGitHistory,
   getGitRepoRoot,
@@ -63,6 +65,12 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
 
   ipcMain.handle('git:get-file-base', async (_, repoRoot: string, filePath: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-file-base', { repoRoot, filePath }, () => getGitFileBase(repoRoot, filePath))
+  })
+
+  ipcMain.handle('git:get-file-at-stage', async (_, repoRoot: string, filePath: string, stage: GitFileStage) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-file-at-stage', { repoRoot, filePath, stage }, () =>
+      getGitFileAtStage(repoRoot, filePath, stage)
+    )
   })
 
   ipcMain.handle('git:get-branches', async (_, repoRoot: string) => {

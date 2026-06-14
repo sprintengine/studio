@@ -4,6 +4,7 @@ import { useGitStatus } from '../../hooks/useGitStatus'
 import { getGitScopeStatusAppearance, getGitStatusAppearance } from '../../utils/gitStatusAppearance'
 import { focusOrAddFileTab, focusOrAddGitConflictTab, focusOrAddTerminalTab } from '../../utils/modelRegistry'
 import { isImageFile } from '../../utils/files'
+import { openDiffWindow } from '../auxWindows/openDiffWindow'
 import { basename, samePath, trimPath } from '../../utils/paths'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
@@ -38,6 +39,10 @@ type GitPanelMessage = {
 
 type GitChangeGroup = {
   title: string
+  // Which diff the viewer shows for rows in this group: the Staged group shows
+  // HEAD↔index, the Unstaged group index↔worktree. A partially-staged file
+  // appears in both groups, so the group — not the entry — decides the scope.
+  scope: 'staged' | 'unstaged'
   empty: string
   actionTitle: string
   actionIcon: GitActionIconKind
@@ -515,6 +520,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const groups: GitChangeGroup[] = [
     {
       title: `Staged (${stagedEntries.length})`,
+      scope: 'staged',
       empty: 'No staged changes',
       actionTitle: 'Unstage this file',
       actionIcon: 'unstage',
@@ -536,6 +542,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     },
     {
       title: `Unstaged (${unstagedEntries.length})`,
+      scope: 'unstaged',
       empty: 'No unstaged changes',
       actionTitle: 'Stage this file',
       actionIcon: 'stage',
@@ -797,7 +804,17 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
   }
 
-  const handleOpenFile = async (entry: GitStatusEntry) => {
+  // Activating a changed row opens the dedicated diff viewer window (the IDE
+  // idiom): old content left, new content right, arrow-key hunk navigation that
+  // flows across files. The scope picks which diff to show first — a staged row
+  // shows HEAD↔index, an unstaged row index↔worktree. Tab-opening stays
+  // available via the row's "Open file in editor" context-menu entry.
+  const handleOpenFile = async (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => {
+    if (!repoRoot) return
+    await openDiffWindow({ repoRoot, focusPath: entry.path, scope })
+  }
+
+  const handleOpenFileInEditor = async (entry: GitStatusEntry) => {
     const name = entry.relativePath.split('/').filter(Boolean).pop() ?? entry.relativePath
     let content = ''
 
@@ -951,7 +968,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                   <ConflictGroup
                     entries={conflictEntries}
                     busy={busy}
-                    onOpenFile={handleOpenFile}
+                    onOpenFile={handleOpenFileInEditor}
                     onResolve={handleResolveConflict}
                   />
                   {groups.map((group) => (
@@ -960,6 +977,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                       group={group}
                       busy={busy}
                       onOpenFile={handleOpenFile}
+                      onOpenFileInEditor={handleOpenFileInEditor}
                     />
                   ))}
                 </>
@@ -1170,14 +1188,34 @@ function ConflictGroup({
   )
 }
 
+async function showChangeRowContextMenu(
+  event: React.MouseEvent,
+  entry: GitStatusEntry,
+  scope: 'staged' | 'unstaged',
+  onOpenFile: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => Promise<void>,
+  onOpenFileInEditor: (entry: GitStatusEntry) => Promise<void>
+): Promise<void> {
+  event.preventDefault()
+  event.stopPropagation()
+  if (typeof window.api.showContextMenu !== 'function') return
+  const command = await window.api.showContextMenu([
+    { id: 'view-diff', label: 'View Git Diff' },
+    { id: 'open-in-editor', label: 'Open File in Editor' },
+  ])
+  if (command === 'view-diff') return void onOpenFile(entry, scope)
+  if (command === 'open-in-editor') return void onOpenFileInEditor(entry)
+}
+
 function ChangeGroup({
   group,
   busy,
   onOpenFile,
+  onOpenFileInEditor,
 }: {
   group: GitChangeGroup
   busy: string | null
-  onOpenFile: (entry: GitStatusEntry) => Promise<void>
+  onOpenFile: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => Promise<void>
+  onOpenFileInEditor: (entry: GitStatusEntry) => Promise<void>
 }) {
   return (
     <section className="mb-4">
@@ -1236,13 +1274,19 @@ function ChangeGroup({
                 <span className="font-mono text-[10px] font-bold opacity-80">{appearance.badge}</span>
               ) : null
               return (
-                <div key={`${group.title}:${entry.path}`} className="group/row flex items-center gap-1">
+                <div
+                  key={`${group.title}:${entry.path}`}
+                  className="group/row flex items-center gap-1"
+                  onContextMenu={(event) =>
+                    void showChangeRowContextMenu(event, entry, group.scope, onOpenFile, onOpenFileInEditor)
+                  }
+                >
                   <div className="min-w-0 flex-1">
                     <InboxRow
                       hideDot
                       title={title}
                       trailing={trailing}
-                      onSelect={() => void onOpenFile(entry)}
+                      onSelect={() => void onOpenFile(entry, group.scope)}
                       ariaLabel={statusWord ? `Open ${entry.relativePath}, ${statusWord}` : `Open ${entry.relativePath}`}
                     />
                   </div>

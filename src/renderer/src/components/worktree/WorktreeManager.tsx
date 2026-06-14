@@ -4,7 +4,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { WorktreeEntry as StoredWorktreeEntry } from '../../types/workspace'
 import { focusOrAddTerminalTab } from '../../utils/modelRegistry'
 import { basename, parentPath, pathJoin, samePath, trimPath } from '../../utils/paths'
-import { Select, StatusDot, type SelectItem, type Tone } from '../ui'
+import { Field, LifecycleGlyph, OverflowMenu, Select, Spinner, type LifecycleState, type SelectItem } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
 type WorktreeMessage = {
@@ -64,19 +64,28 @@ function branchLabel(row: WorktreeRow): string {
   return 'detached'
 }
 
-function rowStatusLabel(row: WorktreeRow): string {
-  if (row.missing) return 'Missing'
-  if (row.prunable) return 'Prunable'
-  if (row.locked) return 'Locked'
-  if (row.dirtyCount && row.dirtyCount > 0) return `Dirty ${row.dirtyCount}`
-  return 'Clean'
+// Status is earned: only the exceptional, action-needing states carry a glyph.
+// A clean worktree (and the default checkout) shows no mark — the absence reads
+// as "fine", which keeps the list from turning into dot-soup.
+function worktreeGlyph(row: WorktreeRow): { state: LifecycleState; label: string } | null {
+  if (row.missing) return { state: 'failed', label: 'Missing on disk' }
+  if (row.prunable) return { state: 'archived', label: 'Prunable' }
+  if (row.locked) return { state: 'paused', label: 'Locked' }
+  return null
 }
 
-function rowStatusTone(row: WorktreeRow): Tone {
-  if (row.missing || row.prunable) return 'error'
-  if (row.dirtyCount && row.dirtyCount > 0) return 'warn'
-  if (row.locked) return 'warn'
-  return 'good'
+// One muted supporting line of facts that aren't already in the name. Built only
+// from signal that earns its place; a clean non-main worktree contributes none,
+// so its row is just the branch name.
+function worktreeMeta(row: WorktreeRow, ownerName: string): string {
+  const parts: string[] = []
+  if (row.isMain) parts.push('default checkout')
+  if (row.missing) parts.push('missing')
+  else if (row.prunable) parts.push('prunable')
+  else if (row.locked) parts.push('locked')
+  if (row.dirtyCount && row.dirtyCount > 0) parts.push(`${row.dirtyCount} uncommitted`)
+  if (ownerName !== '-') parts.push(ownerName)
+  return parts.join(' · ')
 }
 
 function messageFromResult<T>(result: GitWorktreeOperationResult<T>, success: string): WorktreeMessage {
@@ -108,6 +117,7 @@ export default function WorktreeManager({
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<WorktreeMessage | null>(null)
+  const [creating, setCreating] = useState(false)
   const [worktreeName, setWorktreeName] = useState('')
   const [branchName, setBranchName] = useState('')
   const [baseRef, setBaseRef] = useState(currentBranch ?? 'HEAD')
@@ -266,6 +276,7 @@ export default function WorktreeManager({
       })
       setWorktreeName('')
       setBranchName('')
+      setCreating(false)
       await refreshWorktrees()
       await onChanged()
     })

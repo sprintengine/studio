@@ -1,8 +1,11 @@
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
+  AuxWindowRetargetPayload,
   CreateWorkspaceWindowInput,
   CreateWorkspaceWindowResult,
   ElectronApi,
+  OpenAuxWindowInput,
+  OpenAuxWindowResult,
   OpenExternalResult,
   WindowPlacement,
   WindowState,
@@ -17,6 +20,14 @@ export const windowApi = {
   getWorkspaceWindowId: (): Promise<string> => ipcRenderer.invoke('window:get-workspace-window-id'),
   createWorkspaceWindow: (input: CreateWorkspaceWindowInput): Promise<CreateWorkspaceWindowResult> =>
     ipcRenderer.invoke('window:create-workspace-window', input),
+  openAuxWindow: (input: OpenAuxWindowInput): Promise<OpenAuxWindowResult> =>
+    ipcRenderer.invoke('window:open-aux-window', input),
+  onAuxWindowRetarget: (cb: (payload: AuxWindowRetargetPayload) => void): (() => void) => {
+    const ch = 'aux:retarget'
+    const handler = (_: IpcRendererEvent, payload: AuxWindowRetargetPayload) => cb(payload)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
   confirmWindowClose: (): Promise<void> => ipcRenderer.invoke('window:confirm-close'),
   openExternal: (url: string): Promise<OpenExternalResult> =>
     ipcRenderer.invoke('window:open-external', url),
@@ -47,6 +58,8 @@ export const windowApi = {
   | 'getWindowPlacement'
   | 'getWorkspaceWindowId'
   | 'createWorkspaceWindow'
+  | 'openAuxWindow'
+  | 'onAuxWindowRetarget'
   | 'confirmWindowClose'
   | 'openExternal'
   | 'onWindowStateChanged'

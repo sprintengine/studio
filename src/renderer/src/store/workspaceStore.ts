@@ -194,7 +194,6 @@ export interface WorkspaceStore extends PluginsSlice {
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
-  setCliModelDefault: (cli: AgentCli, model: string | null) => void
   setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void
   setMultiloopRoleModelDefault: (role: MultiloopRole, selection: AgentCliModelSelection | null) => void
   setSpecialistOrder: (order: SpecialistActionId[]) => void

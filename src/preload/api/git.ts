@@ -7,6 +7,8 @@ import type {
   GitConflictFileContent,
   GitConflictSnapshot,
   GitFileBaseResult,
+  GitFileStage,
+  GitFileStageResult,
   GitGraphOptions,
   GitGraphSnapshot,
   GitHistorySnapshot,
@@ -28,6 +30,8 @@ export const gitApi = {
     ipcRenderer.invoke('git:get-status', repoRoot),
   getGitFileBase: (repoRoot: string, filePath: string): Promise<GitFileBaseResult> =>
     ipcRenderer.invoke('git:get-file-base', repoRoot, filePath),
+  getGitFileAtStage: (repoRoot: string, filePath: string, stage: GitFileStage): Promise<GitFileStageResult> =>
+    ipcRenderer.invoke('git:get-file-at-stage', repoRoot, filePath, stage),
   getGitBranches: (repoRoot: string): Promise<GitBranchSnapshot> =>
     ipcRenderer.invoke('git:get-branches', repoRoot),
   getGitHistory: (repoRoot: string, limit?: number): Promise<GitHistorySnapshot> =>
@@ -91,6 +95,7 @@ export const gitApi = {
   | 'getGitRepoRoot'
   | 'getGitStatus'
   | 'getGitFileBase'
+  | 'getGitFileAtStage'
   | 'getGitBranches'
   | 'getGitHistory'
   | 'getGitCommitGraph'

@@ -9,6 +9,9 @@ import type {
   PluginManifestValidationIssue,
   PluginManifestValidationResult,
   PluginPromptInjectionMode,
+  PluginSkillFormat,
+  PluginSkillInstallScope,
+  PluginSkillSupport,
 } from '../shared/plugin-manifest'
 
 const INJECTION_MODES: PluginPromptInjectionMode[] = [
@@ -26,6 +29,9 @@ const COMPLETION_MODES: PluginCompletionMode[] = [
 ]
 
 const MCP_FORMATS = ['claude-code', 'codex', 'opencode', 'generic'] as const
+const SKILL_SUPPORTS: PluginSkillSupport[] = ['native', 'prompt-shim', 'unsupported']
+const SKILL_INSTALL_SCOPES: PluginSkillInstallScope[] = ['workspace', 'user']
+const SKILL_FORMATS: PluginSkillFormat[] = ['agent-skills-v1', 'claude-code', 'codex', 'opencode', 'generic']
 const VARIABLE_TYPES = ['string', 'enum', 'boolean', 'number'] as const
 const PROVIDER_TYPES: ConversationProviderType[] = ['model-provider', 'agent-harness']
 const PROVIDER_ADAPTER_KINDS: ConversationProviderAdapterKind[] = ['declarative', 'trusted-executable']
@@ -41,6 +47,7 @@ const CLI_ONLY_FIELDS = [
   'capabilities',
   'souls',
   'modelSelection',
+  'skillIntegration',
 ] as const
 const PROVIDER_ONLY_FIELDS = ['providerType', 'models', 'auth', 'adapter', 'openaiCompatible', 'signature'] as const
 
@@ -91,6 +98,9 @@ export function validateManifestStructure(value: unknown): PluginManifestValidat
   }
   if ('modelSelection' in value && value.modelSelection !== undefined) {
     validateModelSelection(value.modelSelection, issues)
+  }
+  if ('skillIntegration' in value && value.skillIntegration !== undefined) {
+    validateSkillIntegration(value.skillIntegration, issues)
   }
 
   if (issues.length > 0) {
@@ -532,6 +542,117 @@ function validateMcpConfig(value: unknown, issues: PluginManifestValidationIssue
   }
 }
 
+function validateSkillIntegration(value: unknown, issues: PluginManifestValidationIssue[]): void {
+  if (!isObject(value)) {
+    issues.push({ path: 'skillIntegration', message: 'skillIntegration must be an object when present.' })
+    return
+  }
+
+  if (typeof value.support !== 'string' || !SKILL_SUPPORTS.includes(value.support as PluginSkillSupport)) {
+    issues.push({
+      path: 'skillIntegration.support',
+      message: `skillIntegration.support must be one of: ${SKILL_SUPPORTS.join(', ')}.`,
+    })
+  }
+
+  requireString(value, 'harnessId', issues, /^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$/, 'skillIntegration')
+
+  const support = value.support as PluginSkillSupport
+  if (support === 'native') {
+    if (!Array.isArray(value.installTargets) || value.installTargets.length === 0) {
+      issues.push({
+        path: 'skillIntegration.installTargets',
+        message: 'native skillIntegration requires at least one install target.',
+      })
+    } else {
+      value.installTargets.forEach((target, index) =>
+        validateSkillInstallTarget(target, `skillIntegration.installTargets[${index}]`, issues)
+      )
+    }
+  } else if ('installTargets' in value && value.installTargets !== undefined) {
+    issues.push({
+      path: 'skillIntegration.installTargets',
+      message: 'installTargets are only valid when skillIntegration.support is "native".',
+    })
+  }
+
+  if ('invocation' in value && value.invocation !== undefined) {
+    validateSkillInvocation(value.invocation, issues)
+  }
+}
+
+function validateSkillInstallTarget(
+  value: unknown,
+  path: string,
+  issues: PluginManifestValidationIssue[]
+): void {
+  if (!isObject(value)) {
+    issues.push({ path, message: 'Skill install target must be an object.' })
+    return
+  }
+  if (typeof value.scope !== 'string' || !SKILL_INSTALL_SCOPES.includes(value.scope as PluginSkillInstallScope)) {
+    issues.push({
+      path: `${path}.scope`,
+      message: `scope must be one of: ${SKILL_INSTALL_SCOPES.join(', ')}.`,
+    })
+  }
+  if (typeof value.format !== 'string' || !SKILL_FORMATS.includes(value.format as PluginSkillFormat)) {
+    issues.push({
+      path: `${path}.format`,
+      message: `format must be one of: ${SKILL_FORMATS.join(', ')}.`,
+    })
+  }
+  if (typeof value.restartRequired !== 'undefined' && typeof value.restartRequired !== 'boolean') {
+    issues.push({ path: `${path}.restartRequired`, message: 'restartRequired must be a boolean when present.' })
+  }
+  if (typeof value.path !== 'string' || value.path.length === 0) {
+    issues.push({ path: `${path}.path`, message: 'path must be a non-empty string template.' })
+    return
+  }
+  if (!value.path.includes('{{skillId}}')) {
+    issues.push({ path: `${path}.path`, message: 'path must include {{skillId}} so each skill has its own directory.' })
+  }
+  validateTemplateVariables(value.path, `${path}.path`, ['workspaceRoot', 'home', 'skillId'], issues)
+  if (value.path.includes('\0')) {
+    issues.push({ path: `${path}.path`, message: 'path must not contain NUL bytes.' })
+  }
+  if (value.scope === 'workspace' && !isWorkspaceSkillPathTemplate(value.path)) {
+    issues.push({
+      path: `${path}.path`,
+      message: 'workspace skill paths must be relative or start with {{workspaceRoot}}/.',
+    })
+  }
+  if (value.scope === 'user' && !value.path.startsWith('{{home}}/')) {
+    issues.push({
+      path: `${path}.path`,
+      message: 'user skill paths must start with {{home}}/.',
+    })
+  }
+}
+
+function validateSkillInvocation(value: unknown, issues: PluginManifestValidationIssue[]): void {
+  if (!isObject(value)) {
+    issues.push({ path: 'skillIntegration.invocation', message: 'invocation must be an object when present.' })
+    return
+  }
+  for (const [key, template] of Object.entries({
+    fileDropTemplate: value.fileDropTemplate,
+    explicitTemplate: value.explicitTemplate,
+  })) {
+    if (template === undefined) continue
+    if (typeof template !== 'string' || template.length === 0) {
+      issues.push({ path: `skillIntegration.invocation.${key}`, message: `${key} must be a non-empty string.` })
+      continue
+    }
+    validateTemplateVariables(template, `skillIntegration.invocation.${key}`, ['skillId', 'skillName', 'path'], issues)
+  }
+  for (const key of ['nativeSlashCommand', 'explicitMention', 'implicitInvocation'] as const) {
+    if (key in value && typeof value[key] !== 'boolean') {
+      issues.push({ path: `skillIntegration.invocation.${key}`, message: `${key} must be a boolean when present.` })
+    }
+  }
+}
+
 function validateCapabilities(value: unknown, issues: PluginManifestValidationIssue[]): void {
   if (!isObject(value)) {
     issues.push({ path: 'capabilities', message: 'capabilities must be an object.' })
@@ -690,6 +811,31 @@ function isSafeRelativePath(value: unknown): value is string {
   if (value.includes('\0') || value.includes('\\') || value.startsWith('/')) return false
   const segments = value.split('/')
   return !segments.some((segment) => segment === '..' || segment === '.' || segment.length === 0)
+}
+
+function isWorkspaceSkillPathTemplate(value: string): boolean {
+  if (value.startsWith('{{workspaceRoot}}/')) return !value.includes('/../') && !value.endsWith('/..')
+  if (value.startsWith('/') || value.startsWith('{{home}}/')) return false
+  return isSafeRelativePath(value.replace(/\{\{skillId\}\}/g, 'skill'))
+}
+
+function validateTemplateVariables(
+  template: string,
+  path: string,
+  allowed: readonly string[],
+  issues: PluginManifestValidationIssue[]
+): void {
+  const variablePattern = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g
+  let match: RegExpExecArray | null
+  while ((match = variablePattern.exec(template)) !== null) {
+    const name = match[1]
+    if (!allowed.includes(name)) {
+      issues.push({
+        path,
+        message: `Unsupported template variable {{${name}}}. Allowed variables: ${allowed.map((item) => `{{${item}}}`).join(', ')}.`,
+      })
+    }
+  }
 }
 
 function isBase64(value: unknown): value is string {

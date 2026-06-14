@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './assets/index.css'
 import { ConfirmDialogProvider } from './components/ui'
+import AuxWindowApp from './components/auxWindows/AuxWindowApp'
 import DiagnosticsWindowApp from './components/diagnostics/DiagnosticsWindowApp'
 import WorkspaceManager from './components/workspace/WorkspaceManager'
 import { loadThirdPartyRendererModules } from './modules'
@@ -74,12 +75,22 @@ async function bootThirdPartyRendererModules(): Promise<void> {
 // The diagnostics window loads the same renderer bundle with `?view=diagnostics`
 // and mounts only the standalone panel — no workspace shell, no third-party
 // module boot (it needs none, and skipping it makes the monitor window snappy).
-const isDiagnosticsWindow = new URLSearchParams(window.location.search).get('view') === 'diagnostics'
+const searchParams = new URLSearchParams(window.location.search)
+const isDiagnosticsWindow = searchParams.get('view') === 'diagnostics'
+// Auxiliary windows (diff viewer, external file editor) mount a dedicated root —
+// no workspace shell, no third-party module boot — branching on `?aux=<kind>`.
+const auxWindowKind = searchParams.get('aux')
 
 if (isDiagnosticsWindow) {
   ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     <ConfirmDialogProvider>
       <DiagnosticsWindowApp />
+    </ConfirmDialogProvider>
+  )
+} else if (auxWindowKind) {
+  ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+    <ConfirmDialogProvider>
+      <AuxWindowApp />
     </ConfirmDialogProvider>
   )
 } else {

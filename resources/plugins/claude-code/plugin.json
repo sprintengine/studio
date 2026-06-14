@@ -21,11 +21,8 @@
   "modelSelection": {
     "args": ["--model", "{{model}}"],
     "options": [
-      { "id": "fable", "label": "Fable 5" },
-      { "id": "opus", "label": "Opus" },
-      { "id": "sonnet", "label": "Sonnet" },
-      { "id": "haiku", "label": "Haiku" },
       { "id": "claude-opus-4-8", "label": "Opus 4.8" },
+      { "id": "fable", "label": "Fable 5" },
       { "id": "claude-opus-4-7", "label": "Opus 4.7" },
       { "id": "claude-sonnet-4-6", "label": "Sonnet 4.6" },
       { "id": "claude-haiku-4-5", "label": "Haiku 4.5" }
@@ -61,6 +58,23 @@
   "mcpConfig": {
     "path": "{{workspaceRoot}}/.mcp.json",
     "format": "claude-code"
+  },
+  "skillIntegration": {
+    "support": "native",
+    "harnessId": "claude",
+    "installTargets": [
+      {
+        "scope": "workspace",
+        "path": "{{workspaceRoot}}/.claude/skills/{{skillId}}",
+        "format": "claude-code",
+        "restartRequired": true
+      }
+    ],
+    "invocation": {
+      "fileDropTemplate": "/{{skillId}} {{path}}",
+      "explicitTemplate": "/{{skillId}}",
+      "nativeSlashCommand": true
+    }
   },
   "capabilities": {
     "resumeSession": true,

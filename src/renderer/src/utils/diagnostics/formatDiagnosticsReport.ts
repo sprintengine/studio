@@ -4,6 +4,7 @@ import type { DiagnosticsAggregation, TerminalDiagnosticsWarning } from './aggre
 import type { ReplayProfileEntry } from './replayProfileStore'
 import type { PerfEventRollupRow } from './perfEventStore'
 import type { LongTaskSummary } from './longTaskStore'
+import type { FrameStatsSummary } from './frameStatsStore'
 import { diffMetricsSamples, type GrowthRates, type MetricsSample } from './metricsHistoryStore'
 import type { IpcThroughput } from './ipcThroughputStore'
 import type { TerminalThroughput } from './terminalThroughputStore'
@@ -71,6 +72,7 @@ export function formatDiagnosticsReport(input: {
   // New, optional sections; omitted keeps the legacy report shape unchanged.
   perfEvents?: readonly PerfEventRollupRow[]
   longTasks?: LongTaskSummary | null
+  frameStats?: FrameStatsSummary | null
   metricsTrend?: MetricsTrendReport | null
   ipc?: IpcThroughput | null
   terminalThroughput?: TerminalThroughput | null
@@ -78,7 +80,7 @@ export function formatDiagnosticsReport(input: {
   timers?: readonly TimerRegistrationRow[]
   now: number
 }): string {
-  const { aggregation, metrics, profiles, perfEvents, longTasks, metricsTrend, ipc, terminalThroughput, scrollback, timers, now } = input
+  const { aggregation, metrics, profiles, perfEvents, longTasks, frameStats, metricsTrend, ipc, terminalThroughput, scrollback, timers, now } = input
   const totals = aggregation.totals
 
   const sections: string[] = []
@@ -181,6 +183,19 @@ export function formatDiagnosticsReport(input: {
         `Total blocking: ${longTasks.totalBlockingMs} ms`,
         `Max: ${msOrDash(longTasks.maxMs)} ms · p95: ${msOrDash(longTasks.p95Ms)} ms`,
         `Last: ${lastOutput(longTasks.lastAt, now)}`,
+      ].join('\n')
+    )
+  }
+
+  if (frameStats) {
+    sections.push('## Rendering cadence (frames)')
+    sections.push(
+      [
+        `Window: last ${Math.round(frameStats.windowMs / 1000)}s · ${frameStats.frameCount} frames`,
+        `FPS: ${frameStats.fps ?? '—'}`,
+        `Long frames (>50ms): ${frameStats.longFrameCount} (${frameStats.longFramePercent}%)`,
+        `p95: ${msOrDash(frameStats.p95Ms)} ms · worst: ${msOrDash(frameStats.maxMs)} ms`,
+        'Note: main-thread frame cadence; pure GPU draw stalls can read low here.',
       ].join('\n')
     )
   }

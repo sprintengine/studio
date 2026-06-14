@@ -62,6 +62,15 @@ export type GitFileBaseResult =
   | { ok: true; content: string }
   | { ok: false; message: string }
 
+// Which stored version of a file to read for the diff viewer. `head` is the
+// committed version (`git show HEAD:<p>`); `index` is the staged version
+// (`git show :0:<p>`). Worktree content is read off disk via the fs IPC.
+export type GitFileStage = 'head' | 'index'
+
+export type GitFileStageResult =
+  | { ok: true; exists: boolean; content: string; binary: boolean; tooLarge: boolean }
+  | { ok: false; message: string }
+
 export type GitBranch = {
   name: string
   current: boolean
@@ -491,6 +500,49 @@ export async function getGitFileBase(repoRoot: string, filePath: string): Promis
     const relativePath = getRelativeGitPath(repoRoot, absolutePath)
     const content = await runGit(repoRoot, ['show', `HEAD:${relativePath}`])
     return { ok: true, content }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { ok: false, message }
+  }
+}
+
+// Read the file 5 MiB cap mirrors the renderer's editor read limit: past this
+// the diff viewer degrades to a clear "too large" message rather than hanging.
+const GIT_FILE_STAGE_MAX_BYTES = 5 * 1024 * 1024
+
+// Returns the file's stored content at a given Git stage for the diff viewer.
+// A missing object (new file has no HEAD/index entry; a deleted file has no
+// index entry) is not an error here — it resolves to `exists: false` with empty
+// content so the viewer can render an empty pane. Binary and oversized objects
+// are reported via flags instead of returning their bytes as text.
+export async function getGitFileAtStage(
+  repoRoot: string,
+  filePath: string,
+  stage: GitFileStage
+): Promise<GitFileStageResult> {
+  const absolutePath = isAbsolute(filePath) ? filePath : resolve(filePath)
+  if (!isInsideRepo(repoRoot, absolutePath) && dirname(absolutePath) !== repoRoot) {
+    return { ok: false, message: 'File is outside the Git repository.' }
+  }
+
+  const relativePath = getRelativeGitPath(repoRoot, absolutePath)
+  const ref = stage === 'head' ? `HEAD:${relativePath}` : `:0:${relativePath}`
+
+  // `cat-file -s` resolves both existence and size in one cheap call: it fails
+  // when the object is absent at this stage, and prints the byte size when present.
+  const sizeResult = await runGitCommand(repoRoot, ['cat-file', '-s', ref])
+  if (!sizeResult.ok) {
+    return { ok: true, exists: false, content: '', binary: false, tooLarge: false }
+  }
+  const size = Number.parseInt(sizeResult.stdout.trim(), 10)
+  if (Number.isFinite(size) && size > GIT_FILE_STAGE_MAX_BYTES) {
+    return { ok: true, exists: true, content: '', binary: false, tooLarge: true }
+  }
+
+  try {
+    const content = await runGit(repoRoot, ['show', ref])
+    const binary = content.includes('\u0000')
+    return { ok: true, exists: true, content: binary ? '' : content, binary, tooLarge: false }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return { ok: false, message }

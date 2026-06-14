@@ -35,7 +35,9 @@ export function InboxSearchInput({
         onChange={(event) => onChange(event.target.value)}
         aria-label={ariaLabel}
         placeholder={placeholder}
-        className="min-w-0 flex-1 bg-transparent text-[color:var(--text-default)] outline-none"
+        // Suppress Chromium's native search clear button so it doesn't double
+        // up with the styled clear affordance below (two X's in the field).
+        className="min-w-0 flex-1 bg-transparent text-[color:var(--text-default)] outline-none [&::-webkit-search-cancel-button]:hidden"
       />
       {value ? (
         <button

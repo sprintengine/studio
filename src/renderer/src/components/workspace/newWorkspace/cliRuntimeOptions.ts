@@ -207,31 +207,25 @@ function mergeModelCatalog(
   return { options: merged, allowCustomId: declared.allowCustomId }
 }
 
-// Effective model for a launch surface: the surface's own override (only when
-// it was picked for this CLI), else the remembered per-CLI default, else
-// undefined — meaning the CLI's own default model, no flag passed.
+// Effective model for a launch surface: the surface's own override only when
+// it was picked for this CLI. Otherwise undefined means the CLI's own default,
+// with no model flag passed.
 export function resolveCliModel(
   cli: AgentCli,
   override: AgentCliModelSelection | null | undefined,
-  cliModelDefaults: Partial<Record<AgentCli, string>> | null | undefined,
 ): string | undefined {
   const overrideModel = override && override.cli === cli ? override.model.trim() : ''
-  if (overrideModel) return overrideModel
-  const fallback = cliModelDefaults?.[cli]?.trim()
-  return fallback || undefined
+  return overrideModel || undefined
 }
 
 // Effective model for a per-surface picker (specialist row, Multiloop role): the
 // surface's own (cli, model) override when it matches the bound CLI, else no
-// model — the CLI's own default, no flag. Deliberately does NOT fall back to the
-// app-level `cliModelDefaults`: that store belongs to the General Agent and must
-// not bleed into specialist/role spawns, or picking the bare "Claude Code" row
-// (which clears the override) would silently inherit the General Agent's model.
+// model — the CLI's own default, no flag.
 export function resolveSurfaceModel(
   cli: AgentCli,
   override: AgentCliModelSelection | null | undefined,
 ): string | undefined {
-  return resolveCliModel(cli, override, undefined)
+  return resolveCliModel(cli, override)
 }
 
 export function buildCliRuntimeOptions(

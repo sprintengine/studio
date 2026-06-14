@@ -42,7 +42,11 @@ export type MainHeapUsage = {
 export function collectProcessMetrics(
   getAppMetrics: () => RawProcessMetric[],
   now = Date.now(),
-  mainHeap?: MainHeapUsage
+  mainHeap?: MainHeapUsage,
+  // Per-pid OS thread counts, sampled out-of-band on a throttled cadence by the
+  // IPC handler (getAppMetrics does not carry them). Optional so this stays
+  // unit-testable and so the panel degrades to "—" when unavailable.
+  threadCounts?: ReadonlyMap<number, number>
 ): ProcessMetricsSnapshot {
   let raw: RawProcessMetric[]
   try {
@@ -62,6 +66,7 @@ export function collectProcessMetrics(
       ? (metric.memory!.workingSetSize as number)
       : 0
     const heap = mainHeap && mainHeap.pid === metric.pid ? mainHeap : undefined
+    const threads = threadCounts?.get(metric.pid)
     return {
       pid: metric.pid,
       kind: mapProcessKind(metric.type),
@@ -69,8 +74,9 @@ export function collectProcessMetrics(
       name,
       cpuPercent,
       memoryBytes: Math.max(0, workingSetKb) * 1024,
-      // threads/fileDescriptors intentionally omitted in the MVP — see the
-      // ProcessMetricSample doc comment in shared/electron-api.ts.
+      // threads populated from the throttled OS sample when available;
+      // fileDescriptors still omitted (see ProcessMetricSample in electron-api.ts).
+      ...(threads !== undefined ? { threads } : {}),
       ...(heap ? { heapUsedBytes: heap.heapUsedBytes, heapTotalBytes: heap.heapTotalBytes } : {}),
     }
   })

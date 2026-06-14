@@ -55,6 +55,24 @@
     "userPath": "{{home}}/.codex/config.toml",
     "format": "codex"
   },
+  "skillIntegration": {
+    "support": "native",
+    "harnessId": "codex",
+    "installTargets": [
+      {
+        "scope": "workspace",
+        "path": "{{workspaceRoot}}/.codex/skills/{{skillId}}",
+        "format": "codex",
+        "restartRequired": true
+      }
+    ],
+    "invocation": {
+      "fileDropTemplate": "Use ${{skillId}} to work {{path}}.",
+      "explicitTemplate": "Use ${{skillId}}.",
+      "explicitMention": true,
+      "implicitInvocation": true
+    }
+  },
   "capabilities": {
     "resumeSession": true,
     "sessionIdFromCaller": false,

@@ -149,6 +149,8 @@ export type SprintEnginePlanSourcedInput = {
   visibleRoleCounts: SprintEngineRoleCounts
   totalAgents: number
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
+  roleModelOverrides?: SprintEngineRoleModelOverrides | null
+  initialSpawnRoles?: SprintEngineRoleId[] | null
   startRunner: boolean
   autoApproveArtifacts: boolean
   useWorktrees?: boolean
