@@ -31,6 +31,7 @@ import {
   getUserDisabledSprintEngineRoleIds,
   humanizeSprintEngineRoleId,
   isBundledSprintEngineRole,
+  isNewSprintEngineRoleForRun,
   isPathInsideOrEqual,
   isSprintEngineRoleId,
   isSprintEngineTaskLaunchable,
@@ -1663,6 +1664,38 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
   })
   assert.ok(custom.includes('Brand Marketer'), 'registry label flows into custom-role prompt')
   assert.ok(custom.includes('(`marketer`)'), 'role id still emitted verbatim')
+}
+
+// New-role gate: the architect is only nudged when the added role is not
+// already covered by the roster or a pending spawn. Reinforcing an existing
+// role must stay quiet so it does not churn the plan.
+{
+  const roster = [
+    { id: 'architect-1', label: 'Architect', role: 'architect' },
+    { id: 'developer-1', label: 'Developer', role: 'developer' },
+    { id: 'tester-1', label: 'Tester', role: 'tester' },
+  ]
+
+  assert.equal(
+    isNewSprintEngineRoleForRun({ role: 'tester', roster }),
+    false,
+    'adding another tester is reinforcement, not a new role',
+  )
+  assert.equal(
+    isNewSprintEngineRoleForRun({ role: 'security', roster }),
+    true,
+    'a role absent from the roster is new to the run',
+  )
+  assert.equal(
+    isNewSprintEngineRoleForRun({ role: 'security', roster, pendingRoles: ['security'] }),
+    false,
+    'a role already queued as a pending spawn is not new',
+  )
+  assert.equal(
+    isNewSprintEngineRoleForRun({ role: 'frontend', roster, pendingRoles: ['security'] }),
+    true,
+    'unrelated pending spawns do not suppress a genuinely new role',
+  )
 }
 
 // ---------------------------------------------------------------------------

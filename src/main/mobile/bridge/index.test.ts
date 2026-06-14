@@ -15,6 +15,7 @@ installPgStubForMultiauthMemoryStoreTests()
 void main()
 
 async function main(): Promise<void> {
+  await assertLegacyLocalRelayUrlMigratesToProductionDefault()
   await assertDesktopPairingDisplayUsesManualRelayCode()
   await assertDesktopPairingDisplayRejectsLegacyRelayChallenge()
   await assertAuthenticatedRelayTransportDispatchesAndFailsClosed()
@@ -24,6 +25,27 @@ async function main(): Promise<void> {
   await assertRelayBackedMobileDeviceRevokeCommandRevokesIssuingDevice()
   await assertRelayServiceDeliveriesDispatchAndRecordResults()
   await assertDesktopRevocationUpdatesRelayAuthority()
+}
+
+async function assertLegacyLocalRelayUrlMigratesToProductionDefault(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-store-'))
+  const storePath = join(workspaceRoot, 'mobile-bridge.json')
+  await writeFile(storePath, `${JSON.stringify({
+    enabled: false,
+    relayUrl: 'http://localhost:3000',
+    desktopInstanceId: 'mdi_existing',
+    pairedDevices: [],
+    pushRegistrations: [],
+  }, null, 2)}\n`, 'utf8')
+  const bridge = new MobileBridge(
+    async () => ({ authenticated: false }),
+    { storePath }
+  )
+
+  const state = await bridge.getState()
+  bridge.shutdown()
+
+  assert.equal(state.relayUrl, 'https://multiauth-production.up.railway.app')
 }
 
 async function assertDesktopPairingDisplayUsesManualRelayCode(): Promise<void> {
@@ -76,7 +98,7 @@ async function assertDesktopPairingDisplayRejectsLegacyRelayChallenge(): Promise
   await waitFor(() => relay.connects.length === 1)
   await assert.rejects(
     () => bridge.requestPairingCode(),
-    /Relay pairing challenge did not include a mobile-compatible pairing payload/u
+    /Relay pairing challenge did not include a mobile-compatible pairing link/u
   )
   bridge.shutdown()
 }
@@ -585,9 +607,17 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
     const { RelayService } = require('../../../../../multiauth/src/relay') as {
       RelayService: new (input: Record<string, unknown>) => RelayServiceBackedTransport['relay']
     }
-    const { MemoryAuthStore, MemoryRelayStore } = require('../../../../../multiauth/tests/support/memory-stores') as {
+    const { EntitlementResolver } = require('../../../../../multiauth/src/entitlements') as {
+      EntitlementResolver: new (reader: unknown, now: () => Date) => unknown
+    }
+    const {
+      MemoryAuthStore,
+      MemoryRelayStore,
+      entitlementReaderForPlans,
+    } = require('../../../../../multiauth/tests/support/memory-stores') as {
       MemoryAuthStore: new () => unknown
       MemoryRelayStore: new () => unknown
+      entitlementReaderForPlans: (plans: Record<string, string>) => unknown
     }
     const authStore = new MemoryAuthStore()
     this.auth = new AuthService({
@@ -599,6 +629,10 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
     this.relayStore = new MemoryRelayStore()
     this.relay = new RelayService({
       authService: this.auth,
+      entitlementResolver: new EntitlementResolver(
+        entitlementReaderForPlans({ org_seed_pro_personal: 'team' }),
+        () => now
+      ),
       store: this.relayStore,
       now: () => now,
     })
@@ -739,9 +773,23 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
     }
     return new RelayService({
       authService: this.auth,
+      entitlementResolver: this.entitlementResolver(),
       store: this.relayStore,
       now: () => now,
     })
+  }
+
+  private entitlementResolver(): unknown {
+    const { EntitlementResolver } = require('../../../../../multiauth/src/entitlements') as {
+      EntitlementResolver: new (reader: unknown, now: () => Date) => unknown
+    }
+    const { entitlementReaderForPlans } = require('../../../../../multiauth/tests/support/memory-stores') as {
+      entitlementReaderForPlans: (plans: Record<string, string>) => unknown
+    }
+    return new EntitlementResolver(
+      entitlementReaderForPlans({ org_seed_pro_personal: 'team' }),
+      () => now
+    )
   }
 
   async enqueueDifferentCommandWithSameIdempotencyKey(): Promise<void> {

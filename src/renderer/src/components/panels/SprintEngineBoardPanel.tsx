@@ -65,6 +65,7 @@ import {
  getSprintEngineRoleAccent,
  getUserDisabledSprintEngineRoleIds,
  getSprintEngineRoleLabel,
+ isNewSprintEngineRoleForRun,
 } from '../../utils/sprintengine'
 import {
  deriveSprintEngineAutomationMode,
@@ -1409,7 +1410,16 @@ function SprintEngineBoardPanelContent({
  force: true,
  })
  }
- if (hasPlannedTasks) {
+ // Only ask the architect to revisit the plan when a genuinely new role
+ // joins the run. Adding more members of a role the team already has is
+ // reinforcement for existing task cards — it does not change the plan or
+ // task graph, so it must not interrupt the architect.
+ const roleIsNewToRun = isNewSprintEngineRoleForRun({
+ role,
+ roster,
+ pendingRoles: pendingRosterMemberSpawns.map((pending) => pending.role),
+ })
+ if (hasPlannedTasks && roleIsNewToRun) {
  void notifyArchitectPlanRevision(agentId, role)
  }
  setAddMemberOpen(false)

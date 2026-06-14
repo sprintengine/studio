@@ -22,7 +22,7 @@ export function manualPairingValueFromRelayChallenge(challenge: PairingChallenge
 
   if (!challenge.pairingPayload) {
     if (isCurrentMobilePairingUri(challenge.pairingUri)) return challenge.pairingUri
-    throw new Error('Relay pairing challenge did not include a mobile-compatible pairing payload.')
+    throw new Error('Relay pairing challenge did not include a mobile-compatible pairing link.')
   }
 
   let url: URL
