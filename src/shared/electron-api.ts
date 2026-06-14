@@ -573,6 +573,12 @@ export type ProcessMetricSample = {
   memoryBytes: number
   threads?: number
   fileDescriptors?: number
+  // V8 heap detail, currently populated only for the main process (from
+  // process.memoryUsage() in the IPC handler). getAppMetrics does not expose
+  // per-renderer heap; the renderer's own heap is sampled separately via
+  // performance.memory in the metrics-history store.
+  heapUsedBytes?: number
+  heapTotalBytes?: number
 }
 
 export type ProcessMetricsSnapshot = {
@@ -580,6 +586,22 @@ export type ProcessMetricsSnapshot = {
   // Best-effort: empty when app.getAppMetrics() is unavailable in the current
   // runtime rather than throwing, so the panel degrades to "unavailable".
   processes: ProcessMetricSample[]
+}
+
+// Per-api-method IPC accounting, accumulated in the preload (see preload/ipcStats).
+// Counts are monotonic since process start; the renderer diffs consecutive
+// snapshots to derive per-second rates.
+export type IpcChannelStat = {
+  name: string
+  calls: number
+  outBytes: number
+  inEvents: number
+  inBytes: number
+}
+
+export type IpcStatsSnapshot = {
+  sampledAt: number
+  channels: IpcChannelStat[]
 }
 
 export type TerminalSpawnResult =
@@ -1684,6 +1706,9 @@ export type ElectronApi = {
   onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
   onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void) => () => void
   diagnosticsGetProcessMetrics: () => Promise<ProcessMetricsSnapshot>
+  // Synchronous: returns the preload's accumulated IPC counters (empty channels
+  // when diagnostics is disabled, since instrumentation is skipped entirely).
+  diagnosticsGetIpcStats: () => IpcStatsSnapshot
   diagnosticsOpenWindow: () => Promise<void>
   onAppMenuCommand: (cb: (command: string) => void) => () => void
   updateAppMenuAccelerators: (updates: AppMenuAcceleratorUpdate[]) => Promise<AppMenuAcceleratorUpdateResult>

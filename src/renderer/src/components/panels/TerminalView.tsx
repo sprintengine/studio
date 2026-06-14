@@ -17,6 +17,7 @@ import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
 import { createXtermOutputQueue, createXtermReplayGate, type XtermReplayState } from '../../utils/xtermOutputQueue'
+import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
@@ -376,6 +377,8 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     focusTerminalRef.current = focusTerminal
 
     term.loadAddon(fitAddon)
+    // Register for scrollback-footprint diagnostics; unregistered on dispose.
+    registerTerminalInstance(sessionId, term)
     term.attachCustomKeyEventHandler((event) => {
       if (event.type === 'keydown') {
         terminalDiagnostics.recordKeydown(event)
@@ -812,6 +815,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       replayGate.dispose()
       outputQueue.dispose()
       unbindTerminalTheme()
+      unregisterTerminalInstance(sessionId)
       term.dispose()
       focusTerminalRef.current = () => {
         containerRef.current?.focus()

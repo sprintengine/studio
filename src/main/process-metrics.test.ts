@@ -56,4 +56,20 @@ run('handles missing cpu/memory fields without NaN', () => {
   assert.equal(snapshot.processes[0].memoryBytes, 0)
 })
 
+run('merges main heap usage onto the matching pid only', () => {
+  const raw: RawProcessMetric[] = [
+    { pid: 100, type: 'Browser', cpu: { percentCPUUsage: 1 }, memory: { workingSetSize: 1024 } },
+    { pid: 200, type: 'Tab', cpu: { percentCPUUsage: 5 }, memory: { workingSetSize: 1024 } },
+  ]
+  const snapshot = collectProcessMetrics(() => raw, NOW, {
+    pid: 100,
+    heapUsedBytes: 40 * 1024 * 1024,
+    heapTotalBytes: 64 * 1024 * 1024,
+  })
+  const byPid = new Map(snapshot.processes.map((p) => [p.pid, p]))
+  assert.equal(byPid.get(100)!.heapUsedBytes, 40 * 1024 * 1024, 'main process gets heap detail')
+  assert.equal(byPid.get(100)!.heapTotalBytes, 64 * 1024 * 1024)
+  assert.equal(byPid.get(200)!.heapUsedBytes, undefined, 'renderer pid is untouched')
+})
+
 console.log('process-metrics tests passed')

@@ -1,4 +1,5 @@
 import { logPerfEvent, perfDiagnosticsEnabled } from './perfDiagnostics'
+import { recordTerminalWrite } from './diagnostics/terminalThroughputStore'
 
 type TerminalDiagnosticsInput = {
   scope: string
@@ -187,8 +188,12 @@ export function createTerminalDiagnostics(input: TerminalDiagnosticsInput) {
       }
     },
     recordOutputWrite: (data: string, elapsedMs: number) => {
+      const bytes = byteLength(data)
+      // Feed the per-session throughput store so the panel can split byte rate
+      // into on-screen vs hidden-but-rendering terminals.
+      recordTerminalWrite(input.sessionId, bytes)
       counters.outputEventCount += 1
-      counters.outputBytes += byteLength(data)
+      counters.outputBytes += bytes
       counters.outputWriteCount += 1
       counters.outputWriteTotalMs += elapsedMs
       counters.outputWriteMaxMs = Math.max(counters.outputWriteMaxMs, elapsedMs)
