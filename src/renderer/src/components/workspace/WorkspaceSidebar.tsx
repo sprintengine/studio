@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NewChatIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
-import CliIcon from '../CliIcon'
 import {
   ContextMenu,
   InboxSearchInput,
@@ -9,6 +8,7 @@ import {
   MenuDivider,
   MenuItem,
   MenuSwatchRow,
+  PointerPopover,
   StarGlyph,
   StatusDot,
   Tooltip,
@@ -16,11 +16,14 @@ import {
 } from '../ui'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import PanelRail from './PanelRail'
+import SpawnAgentMenu from './SpawnAgentMenu'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
   AgentCli,
   HighlightColor,
   LayoutTemplate,
+  SpecialistActionId,
+  SprintEngineCliPermissionPreset,
   Workspace,
   WorkspaceId,
 } from '../../types/workspace'
@@ -73,9 +76,14 @@ type WorkspaceSidebarProps = {
   onNewWorkspaceInFolder: (folderPath: string) => void
   onNewChat: () => void
   onNewChatInFolder: (folderPath: string) => void
-  onNewChatWithAgent: (cli: AgentCli) => void
-  onNewChatInFolderWithAgent: (folderPath: string, cli: AgentCli) => void
-  newChatAgentOptions: Array<{ value: AgentCli; label: string }>
+  // New-chat spawn handlers wired to the shared SpawnAgentMenu picker. Each
+  // creates a fresh solo-chat workspace; `folderPath` (the right-clicked folder,
+  // or undefined for the New chat button) scopes it.
+  onNewChatTerminal: (folderPath?: string | null) => void
+  onNewChatGeneral: (cli: AgentCli, folderPath?: string | null) => void
+  onNewChatSpecialist: (id: SpecialistActionId, cli: AgentCli, folderPath?: string | null) => void
+  agentSpawnPermissionPreset: SprintEngineCliPermissionPreset
+  setAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   onRevealFolder: (folderPath: string) => void
   onSetSidebarCollapsed: (collapsed: boolean) => void
 }
@@ -342,9 +350,11 @@ export default function WorkspaceSidebar({
   onNewWorkspaceInFolder,
   onNewChat,
   onNewChatInFolder,
-  onNewChatWithAgent,
-  onNewChatInFolderWithAgent,
-  newChatAgentOptions,
+  onNewChatTerminal,
+  onNewChatGeneral,
+  onNewChatSpecialist,
+  agentSpawnPermissionPreset,
+  setAgentSpawnPermissionPreset,
   onRevealFolder,
   onSetSidebarCollapsed,
 }: WorkspaceSidebarProps) {
@@ -1125,7 +1135,7 @@ export default function WorkspaceSidebar({
                 onClick={onNewChat}
                 onContextMenu={(event) => {
                   event.preventDefault()
-                  if (newChatAgentOptions.length > 0) setNewChatMenu({ x: event.clientX, y: event.clientY })
+                  setNewChatMenu({ x: event.clientX, y: event.clientY })
                 }}
                 className="flex h-[30px] w-full shrink-0 items-center justify-center rounded-md text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                 aria-label="New chat"
@@ -1179,7 +1189,7 @@ export default function WorkspaceSidebar({
                 onClick={onNewChat}
                 onContextMenu={(event) => {
                   event.preventDefault()
-                  if (newChatAgentOptions.length > 0) setNewChatMenu({ x: event.clientX, y: event.clientY })
+                  setNewChatMenu({ x: event.clientX, y: event.clientY })
                 }}
                 className="flex h-full w-9 shrink-0 items-center justify-center text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                 aria-label="New chat"
@@ -1361,7 +1371,7 @@ export default function WorkspaceSidebar({
           onPickNewChatAgent={(x, y) => {
             const workspace = workspaceById.get(contextMenu.workspaceId)
             setContextMenu(null)
-            if (workspace?.folderPath && !workspace.folderMissing && newChatAgentOptions.length > 0) {
+            if (workspace?.folderPath && !workspace.folderMissing) {
               setNewChatMenu({ x, y, folderPath: workspace.folderPath })
             }
           }}
@@ -1448,7 +1458,7 @@ export default function WorkspaceSidebar({
           onPickNewChatAgent={(x, y) => {
             const group = groups.find((g) => g.key === folderMenu.folderKey)
             setFolderMenu(null)
-            if (group?.fullPath && !group.missing && newChatAgentOptions.length > 0) {
+            if (group?.fullPath && !group.missing) {
               setNewChatMenu({ x, y, folderPath: group.fullPath })
             }
           }}
@@ -1468,20 +1478,35 @@ export default function WorkspaceSidebar({
         />
       ) : null}
 
-      {/* New chat agent picker (right-click on the New chat control) */}
+      {/* New chat agent picker (right-click on the New chat control, or a
+          folder/workspace context menu). Reuses the top bar's SpawnAgentMenu so
+          a new chat can launch any specialist/terminal/general agent; every pick
+          opens a fresh solo chat scoped to newChatMenu.folderPath. */}
       {newChatMenu ? (
-        <NewChatAgentMenu
+        <PointerPopover
           x={newChatMenu.x}
           y={newChatMenu.y}
-          options={newChatAgentOptions}
+          ariaLabel="Start a new chat with"
           onClose={() => setNewChatMenu(null)}
-          onSelect={(cli) => {
-            const folderPath = newChatMenu.folderPath
-            setNewChatMenu(null)
-            if (folderPath) onNewChatInFolderWithAgent(folderPath, cli)
-            else onNewChatWithAgent(cli)
-          }}
-        />
+        >
+          <SpawnAgentMenu
+            multiloopLaunchMenu={false}
+            // The sidebar New chat always creates a standard solo workspace, so
+            // the conversation row (which needs a provider loaded for the active
+            // standard workspace) is omitted here; Terminal, General, and every
+            // specialist are wired below.
+            conversationSpawnAvailable={false}
+            agentSpawnPermissionPreset={agentSpawnPermissionPreset}
+            onChangeAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
+            onSpawnTerminal={() => onNewChatTerminal(newChatMenu.folderPath)}
+            onSpawnGeneral={(cli) => onNewChatGeneral(cli, newChatMenu.folderPath)}
+            onSpawnConversation={() => {}}
+            onSpawnSpecialist={(id, cli) => onNewChatSpecialist(id, cli, newChatMenu.folderPath)}
+            onSpawnMultiloopRole={() => {}}
+            showOpenInNewChat={false}
+            onClose={() => setNewChatMenu(null)}
+          />
+        </PointerPopover>
       ) : null}
 
       {/* Close-confirm popover (modal-style for safety) */}
@@ -1787,42 +1812,6 @@ function FolderContextMenu({
           Forget folder…
         </MenuItem>
       ) : null}
-    </ContextMenu>
-  )
-}
-
-function NewChatAgentMenu({
-  x,
-  y,
-  options,
-  onClose,
-  onSelect,
-}: {
-  x: number
-  y: number
-  options: Array<{ value: AgentCli; label: string }>
-  onClose: () => void
-  onSelect: (cli: AgentCli) => void
-}) {
-  if (options.length === 0) return null
-
-  return (
-    <ContextMenu
-      x={x}
-      y={y}
-      ariaLabel="Start a new chat with"
-      onClose={onClose}
-      surfaceClassName="min-w-[200px]"
-    >
-      {options.map((option) => (
-        <MenuItem
-          key={option.value}
-          onClick={() => onSelect(option.value)}
-          icon={<CliIcon cli={option.value} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />}
-        >
-          {option.label}
-        </MenuItem>
-      ))}
     </ContextMenu>
   )
 }

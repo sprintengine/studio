@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { LayoutTemplate, MultiloopState, Workspace } from '../../types/workspace'
-import { createInitialSprintEngineState } from '../../utils/sprintengine'
+import { buildSprintEngineAgentRosterForState, createInitialSprintEngineState } from '../../utils/sprintengine'
 import { useWorkspaceStore } from '../workspaceStore'
 import { defaultAgent, defaultEditorState } from './agentsSlice'
 import {
@@ -11,6 +11,7 @@ import {
   normalizeMultiloopAutoState,
   normalizeSprintEngineAutoState,
   normalizeSprintEngineRoleCliDefaults,
+  reconcileSprintEngineAgents,
 } from './runStateSlice'
 import { sprintEngineRunSettingsKey } from './settingsSlice'
 
@@ -153,6 +154,33 @@ assert.equal(directWorkspace.sprintEngineContext?.teamSlug, 'run-state-team')
 assert.ok(directWorkspace.agents.specialist, 'specialist agents should survive Sprint Engine roster reconciliation')
 assert.ok(directWorkspace.agents.frontend, 'Sprint Engine roster agents should be reconciled into workspace agents')
 assert.notEqual(directWorkspace.sprintEngineState, directWorkspace.multiloopState)
+const stableAgents = reconcileSprintEngineAgents(directWorkspace.agents, sprintState)
+assert.equal(stableAgents, directWorkspace.agents, 'unchanged Sprint Engine reconcile should reuse the agents map')
+for (const [agentId, agent] of Object.entries(directWorkspace.agents)) {
+  assert.equal(stableAgents[agentId], agent, `unchanged Sprint Engine reconcile should reuse ${agentId}`)
+}
+const frontendRosterLabel = buildSprintEngineAgentRosterForState(sprintState)
+  .find((agent) => agent.id === 'frontend')
+  ?.label ?? 'frontend'
+const defaultNamedSprintAgents = {
+  frontend: {
+    ...defaultAgent('frontend', frontendRosterLabel, 'sprintengine'),
+    cli: 'claude-code' as const,
+  },
+}
+const renamedDefaultAgents = reconcileSprintEngineAgents(defaultNamedSprintAgents, sprintState)
+assert.notEqual(
+  renamedDefaultAgents.frontend?.name,
+  frontendRosterLabel,
+  'default Sprint Engine role labels should still migrate to generated display names'
+)
+const stableRenamedDefaultAgents = reconcileSprintEngineAgents(renamedDefaultAgents, sprintState)
+assert.equal(
+  stableRenamedDefaultAgents,
+  renamedDefaultAgents,
+  'migrated Sprint Engine names should be identity-stable on unchanged reconcile'
+)
+assert.equal(stableRenamedDefaultAgents.frontend, renamedDefaultAgents.frontend)
 
 runStateSlice.setSprintEngineMaxConcurrentAgents('ws-direct-run-state', 0)
 assert.equal(carrier.workspaces[0].sprintEngineAutoState?.maxConcurrentAgents, 1)

@@ -383,6 +383,19 @@ export const AUTO_RUN_DISPATCH_PROMPT_RETRY_MS = 5 * 60_000
  * terminals = active work. Lazy spawn revives the role when work appears.
  */
 export const AUTO_RUN_IDLE_RETIREMENT_MS = 5 * 60_000
+/**
+ * Per-agent cooldown after an idle terminal is retired. The retirement window
+ * only counts uninterrupted idleness, which resets every time a parked role is
+ * respawned (lazy spawn, roster replenishment, or a ready task that the agent
+ * then cannot progress). Without a cooldown that respawn idles straight back
+ * into the window and is retired again every few minutes — an unbounded
+ * kill/respawn storm that spawns a fresh CLI process each cycle. The cooldown is
+ * keyed by the stable roster agent id, so it survives the kill/respawn and caps
+ * re-retirement of the same agent: a genuinely parked role is retired once, then
+ * left parked. Long because SprintEngine is a background runner — a parked
+ * terminal is far cheaper than a respawn storm, so we err toward not churning.
+ */
+export const AUTO_RUN_RETIREMENT_COOLDOWN_MS = 15 * 60_000
 export const AUTO_RUN_MAX_PROMPT_RETRIES = 5
 export const AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES = 3
 
@@ -653,6 +666,8 @@ export function planSprintEngineDispatch(input: {
   paths?: ReadonlySet<SprintEngineDispatchPath>
   notifications?: SprintEngineDispatchNotificationInput
   idleClock?: ReadonlyMap<string, number>
+  /** Per-agent timestamp of the last idle retirement; suppresses re-retiring the same agent within AUTO_RUN_RETIREMENT_COOLDOWN_MS. */
+  retirementCooldown?: ReadonlyMap<string, number>
 }): SprintEngineDispatchPlan {
   const { workspace, sprintEngineState, now } = input
   const include = (path: SprintEngineDispatchPath): boolean => !input.paths || input.paths.has(path)
@@ -1132,7 +1147,12 @@ export function planSprintEngineDispatch(input: {
       if (runtimeAgent.role === 'architect' && hasArchitectTriageWork) continue
       if (findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, new Set())) continue
       if (claimableGateRoles.has(runtimeAgent.role)) continue
-      const since = input.idleClock.get(sprintEngineIdleClockKey(workspace, agentId))
+      const idleClockKey = sprintEngineIdleClockKey(workspace, agentId)
+      // Storm guard: a recently retired agent that was respawned (and idled
+      // again) must not be retired a second time until the cooldown elapses.
+      const retiredAt = input.retirementCooldown?.get(idleClockKey)
+      if (retiredAt !== undefined && now - retiredAt < AUTO_RUN_RETIREMENT_COOLDOWN_MS) continue
+      const since = input.idleClock.get(idleClockKey)
       if (!since || now - since < AUTO_RUN_IDLE_RETIREMENT_MS) continue
       const idleMinutes = Math.round((now - since) / 60_000)
       planRetirement({

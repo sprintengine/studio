@@ -4,7 +4,11 @@ import {
   refreshSprintEngineWorkspaceProjection,
 } from '../../utils/sprintengineProjectionRefresh'
 
-const SPRINT_ENGINE_PROJECTION_ACTIVE_POLL_MS = 2000
+// Paired with the auto-run cadence: the active projection read does a
+// main-process JSON.parse plus a renderer-side JSON.stringify of the full
+// projection (large on a busy run) every tick. 4s halves that recurring cost;
+// a background runner does not need its board reflected within 2s.
+const SPRINT_ENGINE_PROJECTION_ACTIVE_POLL_MS = 4000
 const SPRINT_ENGINE_PROJECTION_INACTIVE_POLL_MS = 15000
 
 type Props = {

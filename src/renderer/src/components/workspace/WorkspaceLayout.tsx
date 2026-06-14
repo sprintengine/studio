@@ -31,7 +31,7 @@ import {
 } from '../../hooks/useTerminalSessions'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
-import type { FuturePlanWorkspaceSource, HighlightColor, SprintEngineRole, SprintEngineRuntimeAgentStatus } from '../../types/workspace'
+import type { FuturePlanWorkspaceSource, HighlightColor, SprintEngineRole, SprintEngineRuntimeAgentStatus, Workspace } from '../../types/workspace'
 import { registerModel, unregisterModel } from '../../utils/modelRegistry'
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
@@ -166,6 +166,9 @@ const SPRINTENGINE_ROLES: SprintEngineRole[] = [
   'production_readiness_reviewer',
   'cross_platform',
 ]
+const EMPTY_WORKSPACE_AGENTS: Workspace['agents'] = {}
+const EMPTY_SPRINTENGINE_AGENTS: NonNullable<Workspace['sprintEngineState']>['sprintEngineAgents'] = {}
+const EMPTY_OPEN_FILES: Workspace['editorState']['openFiles'] = []
 
 type AgentTabActivityDot = {
   tone: Tone
@@ -286,7 +289,19 @@ function renderTerminalRecencyIndicator(
 }
 
 function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorkspace, onCloseWorkspace }: Props) {
-  const workspace    = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
+  const layoutModel = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.layoutModel)
+  const workspaceAgents = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.agents ?? EMPTY_WORKSPACE_AGENTS
+  )
+  const sprintEngineAgents = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents ?? EMPTY_SPRINTENGINE_AGENTS
+  )
+  const editorOpenFiles = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.editorState?.openFiles ?? EMPTY_OPEN_FILES
+  )
+  const lastTerminalActivityAt = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.lastTerminalActivityAt ?? null
+  )
   const terminalSessions = useTerminalSessions()
   const now = useRelativeNow()
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
@@ -302,9 +317,9 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
 
-  if (!workspace) return null
+  if (!layoutModel) return null
   if (!modelRef.current) {
-    modelRef.current = Model.fromJson(workspace.layoutModel)
+    modelRef.current = Model.fromJson(layoutModel)
     modelRef.current.doAction(Actions.updateModelAttributes({ tabEnableRename: false }))
   }
 
@@ -386,10 +401,10 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
 
       const config = node.getConfig() as { agentId?: string } | undefined
       const agentId = config?.agentId ?? node.getId()
-      const agent = workspace.agents[agentId]
+      const agent = workspaceAgents[agentId]
       const currentClassName = node.getClassName() ?? ''
       const classNames = currentClassName.split(/\s+/).filter(Boolean)
-      const needsInput = workspace.sprintEngineState?.sprintEngineAgents[agentId]?.status === 'needs_input'
+      const needsInput = sprintEngineAgents[agentId]?.status === 'needs_input'
       const nextClassNames = classNames.filter((className) => className !== AGENT_TAB_NEEDS_INPUT_CLASS)
       if (agent?.name && node.getName() !== agent.name) {
         model.doAction(Actions.renameTab(node.getId(), agent.name))
@@ -406,7 +421,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
         }))
       }
     })
-  }, [workspace.agents, workspace.mode, workspace.sprintEngineState?.sprintEngineAgents])
+  }, [workspaceAgents, sprintEngineAgents])
 
   // Capability-module gate. Host-registered panels (editor, git, sprintengine,
   // switchboard, multiloop, memory-graph, …) are gated generically in the
@@ -568,7 +583,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
 
       if (node.getComponent() === 'agent') {
         const agentId = config?.agentId ?? node.getId()
-        const agent = workspace.agents[agentId]
+        const agent = workspaceAgents[agentId]
         const sessionIds = new Set<string>()
         if (config?.sessionId) sessionIds.add(config.sessionId)
         if (agent?.cliSessionId) sessionIds.add(agent.cliSessionId)
@@ -614,7 +629,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
         })
       }
     },
-    [closeFile, terminalSessions, updateAgent, workspace.agents, workspaceId]
+    [closeFile, terminalSessions, updateAgent, workspaceAgents, workspaceId]
   )
 
   const handleAction = useCallback(
@@ -898,7 +913,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
 
       if (node.getComponent() === 'file-editor') {
         const config = node.getConfig() as { filePath?: string } | undefined
-        const file = workspace.editorState?.openFiles.find((openFile) => openFile.path === config?.filePath)
+        const file = editorOpenFiles.find((openFile) => openFile.path === config?.filePath)
         renderValues.content = (
           <span className="inline-flex min-w-0 items-center gap-1">
             {tabContent}
@@ -969,9 +984,9 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
 
       const config = node.getConfig() as { agentId?: string; sessionId?: string } | undefined
       const agentId = config?.agentId ?? node.getId()
-      const agent = workspace.agents[agentId]
+      const agent = workspaceAgents[agentId]
       const agentSessionId = config?.sessionId ?? agent?.cliSessionId
-      const runtimeAgent = workspace.sprintEngineState?.sprintEngineAgents[agentId]
+      const runtimeAgent = sprintEngineAgents[agentId]
       const agentSession = agentSessionId
         ? terminalSessions.find((s) => s.sessionId === agentSessionId)
         : undefined
@@ -1024,7 +1039,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
         ? null
         : pickAgentTabRecency(
             agentSession,
-            workspace.lastTerminalActivityAt,
+            lastTerminalActivityAt,
             agent?.cliLastExitedAt
           )
       const recencyIndicator = agentRecency !== null
@@ -1056,7 +1071,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
         )
       }
     },
-    [commitRename, hideTab, moduleOverrides, renameValue, renamingTabId, showTabContextMenu, startRename, terminalSessions, now, workspace.agents, workspace.editorState?.openFiles, workspace.lastTerminalActivityAt, workspace.sprintEngineState, workspaceId]
+    [commitRename, editorOpenFiles, hideTab, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, showTabContextMenu, sprintEngineAgents, startRename, terminalSessions, workspaceAgents, workspaceId]
   )
 
   const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {

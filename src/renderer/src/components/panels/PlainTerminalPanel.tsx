@@ -213,6 +213,7 @@ export default function PlainTerminalPanel({
           kind: 'terminal',
           workspaceId,
           terminalId,
+          visible: true,
         }
       ).then((spawnResult) => {
         replayGate.finishReplayWait()
@@ -285,6 +286,7 @@ export default function PlainTerminalPanel({
           terminalId,
           kind: 'terminal',
         })
+        void window.api.terminalSetVisible(sessionId, false).catch(() => {})
       }
     }
   }, [cwdOverride, folderReadyPath, killOnUnmount, savedFolderPath, shouldKillOnUnmount, sprintEngineContext?.statePath, terminalId, workspaceId, workspaceName])

@@ -40,9 +40,12 @@ export function createTerminalOutputBuffer({
     pendingTerminalData.delete(sessionId)
     clearTimeout(pending.timer)
     const data = pending.chunks.join('')
-    sendTerminalEvent(pending.sender, pending.channel, data)
+    const session = getSession(sessionId)
+    if (session?.visible !== false) {
+      sendTerminalEvent(pending.sender, pending.channel, data)
+    }
     recordDataBatch(
-      getSession(sessionId),
+      session,
       cause,
       pending.chunks.length,
       Buffer.byteLength(data)

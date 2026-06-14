@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Actions, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
+import { useShallow } from 'zustand/react/shallow'
 import CommandPalette from '../CommandPalette'
 import { TipStartupModal } from '../learn/TipStartupModal'
 import OnboardingFlow from '../onboarding/OnboardingFlow'
@@ -25,7 +26,6 @@ import {
   SPECIALIST_ACTIONS,
   getMultiloopRole,
   getSpecialistAction,
-  orderSpecialistActions,
   buildSpecialistSoulStartupPrompt,
   loadMultiloopPrompt,
 } from '../../specialists/specialistActions'
@@ -61,10 +61,9 @@ import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
 import { AppTitleBar } from './AppTitleBar'
 import WorkspaceTopBar, {
-  AGENT_SPAWN_PERMISSION_OPTIONS,
-  type ChipPopoverForRole,
   type SessionItem,
 } from './WorkspaceTopBar'
+import { AGENT_SPAWN_PERMISSION_OPTIONS } from './SpawnAgentMenu'
 import {
   buildMultiloopSpawnPrompt,
   buildSidebarWorkspaceOrder,
@@ -111,7 +110,6 @@ const EMPTY_MULTILOOP_ROLE_CLI_DEFAULTS: Partial<Record<MultiloopRole, AgentCli>
 const EMPTY_CLI_MODEL_DEFAULTS: Partial<Record<AgentCli, string>> = {}
 const EMPTY_SPECIALIST_MODEL_DEFAULTS: Partial<Record<SpecialistActionId, AgentCliModelSelection>> = {}
 const EMPTY_MULTILOOP_ROLE_MODEL_DEFAULTS: Partial<Record<MultiloopRole, AgentCliModelSelection>> = {}
-const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 
 const TERMINAL_SESSION_RECOVERY_POLL_MS = 30_000
@@ -127,6 +125,60 @@ const MENU_ACCELERATOR_COMMAND_IDS = [
   'panel.git.toggle',
   'panel.knowledge-graph.toggle',
 ] as const
+
+type WorkspaceManagerWorkspaceCacheEntry = {
+  source: Workspace
+  value: Workspace
+}
+
+const workspaceManagerWorkspaceCache = new Map<string, WorkspaceManagerWorkspaceCacheEntry>()
+
+function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Workspace): boolean {
+  return left.id === right.id
+    && left.name === right.name
+    && left.mode === right.mode
+    && left.folderPath === right.folderPath
+    && left.folderMissing === right.folderMissing
+    && left.sprintEngineContext === right.sprintEngineContext
+    && left.multiloopContext === right.multiloopContext
+    && left.templateId === right.templateId
+    && left.layoutModel === right.layoutModel
+    && left.worktreeState === right.worktreeState
+    && left.memory === right.memory
+    && left.editorState === right.editorState
+    && left.fileExplorerState === right.fileExplorerState
+    && left.sprintEngineState === right.sprintEngineState
+    && left.sprintEngineCompletionSeenAt === right.sprintEngineCompletionSeenAt
+    && left.multiloopState === right.multiloopState
+    && left.sprintEngineRoleCliDefaults === right.sprintEngineRoleCliDefaults
+    && left.sprintEngineInitialSpawnAgentIds === right.sprintEngineInitialSpawnAgentIds
+    && left.sprintEngineAutoState === right.sprintEngineAutoState
+    && left.multiloopAutoState === right.multiloopAutoState
+    && left.guidedBriefState === right.guidedBriefState
+    && left.highlight === right.highlight
+    && left.createdAt === right.createdAt
+    && left.lastTerminalActivityAt === right.lastTerminalActivityAt
+}
+
+function selectWorkspaceManagerWorkspaces(workspaces: Workspace[]): Workspace[] {
+  const liveIds = new Set<string>()
+  const selected = workspaces.map((workspace) => {
+    liveIds.add(workspace.id)
+    const cached = workspaceManagerWorkspaceCache.get(workspace.id)
+    if (cached && workspaceManagerWorkspaceFieldsEqual(cached.source, workspace)) {
+      return cached.value
+    }
+    workspaceManagerWorkspaceCache.set(workspace.id, { source: workspace, value: workspace })
+    return workspace
+  })
+
+  for (const workspaceId of workspaceManagerWorkspaceCache.keys()) {
+    if (!liveIds.has(workspaceId)) workspaceManagerWorkspaceCache.delete(workspaceId)
+  }
+
+  return selected
+}
+
 export default function WorkspaceManager() {
   useAppTheme()
   const dialog = useConfirmDialog()
@@ -134,7 +186,7 @@ export default function WorkspaceManager() {
   // App-automation MCP mutations delegate to the primary window so they run the
   // same store actions as the UI (see src/main/automation/).
   useAutomationRequests(workspaceWindowId)
-  const workspaces = useWorkspaceStore((s) => s.workspaces)
+  const workspaces = useWorkspaceStore(useShallow((s) => selectWorkspaceManagerWorkspaces(s.workspaces)))
   const workspaceWindows = useWorkspaceStore((s) => s.workspaceWindows)
   const primaryWorkspaceWindowId = useWorkspaceStore((s) => s.primaryWorkspaceWindowId)
   const moduleEnablement = useWorkspaceStore((s) => s.appSettings.modules)
@@ -171,7 +223,6 @@ export default function WorkspaceManager() {
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
-  const pluginCatalogError = useWorkspaceStore((s) => s.pluginCatalogError)
   const lastSelectedSpecialist = useWorkspaceStore(
     (s) => s.appSettings.lastSelectedSpecialist ?? SPECIALIST_ACTIONS[0].id
   )
@@ -192,8 +243,6 @@ export default function WorkspaceManager() {
   const multiloopRoleCliDefaults = useWorkspaceStore(
     (s) => s.appSettings.multiloopRoleCliDefaults ?? EMPTY_MULTILOOP_ROLE_CLI_DEFAULTS
   )
-  const setSpecialistCliDefault = useWorkspaceStore((s) => s.setSpecialistCliDefault)
-  const setMultiloopRoleCliDefault = useWorkspaceStore((s) => s.setMultiloopRoleCliDefault)
   const cliModelDefaults = useWorkspaceStore(
     (s) => s.appSettings.cliModelDefaults ?? EMPTY_CLI_MODEL_DEFAULTS
   )
@@ -203,18 +252,7 @@ export default function WorkspaceManager() {
   const multiloopRoleModelDefaults = useWorkspaceStore(
     (s) => s.appSettings.multiloopRoleModelDefaults ?? EMPTY_MULTILOOP_ROLE_MODEL_DEFAULTS
   )
-  const setCliModelDefault = useWorkspaceStore((s) => s.setCliModelDefault)
-  const setSpecialistModelDefault = useWorkspaceStore((s) => s.setSpecialistModelDefault)
-  const setMultiloopRoleModelDefault = useWorkspaceStore((s) => s.setMultiloopRoleModelDefault)
-  const specialistOrder = useWorkspaceStore(
-    (s) => s.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER
-  )
   const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
-  const setSpecialistOrder = useWorkspaceStore((s) => s.setSpecialistOrder)
-  const orderedSpecialistActions = useMemo(
-    () => orderSpecialistActions(specialistOrder),
-    [specialistOrder]
-  )
   const notifications = useNotificationStore((s) => s.notifications)
   const markNotificationRead = useNotificationStore((s) => s.markRead)
   const markAllNotificationsRead = useNotificationStore((s) => s.markAllRead)
@@ -257,10 +295,6 @@ export default function WorkspaceManager() {
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const [showPalette, setShowPalette] = useState(false)
   const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
-  const [agentMenuQuery, setAgentMenuQuery] = useState('')
-  const [agentMenuHighlight, setAgentMenuHighlight] = useState(0)
-  const [chipPopoverForRole, setChipPopoverForRole] = useState<ChipPopoverForRole>(null)
-  const agentMenuSearchRef = useRef<HTMLInputElement>(null)
   // Installed conversation providers, loaded lazily when the spawn menu opens.
   // Kept separate from `agentCliCatalog`: this is the provider/model catalog for
   // the conversation runtime, not the terminal CLI plugin catalog. `null` means
@@ -332,6 +366,9 @@ export default function WorkspaceManager() {
   // `activeFile` is intentionally omitted: no command declares it yet, and
   // inventing a value here would be a fake precondition.
   const commandAvailability = useMemo((): CommandAvailabilityContext => {
+    const commandWorkspace = windowActiveWorkspaceId
+      ? useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId) ?? null
+      : null
     const context: CommandAvailabilityContext = {}
     if (workspaceActionsEnabled) context.activeWorkspace = true
     if (voiceDictationEnabled) context.voiceDictationEnabled = true
@@ -343,28 +380,38 @@ export default function WorkspaceManager() {
     if (selectModuleEnabled(moduleEnablement, 'sprint-engine')) context.sprintEngineEnabled = true
     if (activeCommandScopes.includes('panel:sprintengine')) {
       context.sprintengineWorkspace = true
-      const sprintEngineState = activeWorkspace?.sprintEngineState ?? null
+      const sprintEngineState = commandWorkspace?.sprintEngineState ?? null
       const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
       if (roster.some((agent) => agent.role === 'architect')) context.sprintengineHasArchitect = true
-      const focusAvailability = computeSprintEngineFocusAgentAvailability(sprintEngineState, activeWorkspace?.agents ?? {})
+      const focusAvailability = computeSprintEngineFocusAgentAvailability(sprintEngineState, commandWorkspace?.agents ?? {})
       if (focusAvailability.showFocusAgentAction) context.sprintengineFocusAgentVisible = true
     }
     if (activeCommandScopes.includes('panel:multiloop')) {
       context.multiloopWorkspace = true
-      if (activeWorkspace?.multiloopState) context.multiloopStateLoaded = true
+      if (commandWorkspace?.multiloopState) context.multiloopStateLoaded = true
     }
     if (activeCommandScopes.includes('panel:switchboard')) context.switchboardWorkspace = true
-    if (activeWorkspace?.layoutModel && jsonModelHasComponent(activeWorkspace.layoutModel, 'git')) {
+    if (commandWorkspace?.layoutModel && jsonModelHasComponent(commandWorkspace.layoutModel, 'git')) {
       context.gitPanelActive = true
     }
     if (terminalSessions.some((session) =>
-      session.kind === 'terminal' && session.workspaceId === activeWorkspace?.id && session.terminalId,
+      session.kind === 'terminal' && session.workspaceId === commandWorkspace?.id && session.terminalId,
     )) {
       context.terminalActive = true
     }
     return context
-  }, [workspaceActionsEnabled, voiceDictationEnabled, moduleEnablement, activeCommandScopes, activeWorkspace, terminalSessions])
-  const sessions = getSessionItems(visibleWorkspaces, terminalSessions)
+  }, [
+    workspaceActionsEnabled,
+    voiceDictationEnabled,
+    moduleEnablement,
+    activeCommandScopes,
+    windowActiveWorkspaceId,
+    terminalSessions,
+  ])
+  const sessions = getSessionItems(
+    useWorkspaceStore.getState().workspaces.filter((workspace) => visibleWorkspaceIdSet.has(workspace.id)),
+    terminalSessions,
+  )
   const sidebarWorkspaceOrder = useMemo(
     () =>
       buildSidebarWorkspaceOrder(
@@ -394,13 +441,13 @@ export default function WorkspaceManager() {
     [moduleEnablement],
   )
 
-  const openNewWorkspacePanel = () => {
+  const openNewWorkspacePanel = useCallback(() => {
     setNewWorkspacePanelInitialState(null)
     setShowNewWorkspacePanel(true)
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-  }
+  }, [closeSettingsOverlay])
 
   const pickNewChatName = useCallback((folderPath: string | null): string => {
     const folderWorkspaces = workspaces.filter((workspace) => workspace.folderPath === folderPath)
@@ -554,7 +601,7 @@ export default function WorkspaceManager() {
     openSettings(false, 'learn')
   }, [openSettings])
 
-  const openFuturePlanWorkspace = (source: FuturePlanWorkspaceSource) => {
+  const openFuturePlanWorkspace = useCallback((source: FuturePlanWorkspaceSource) => {
     setNewWorkspacePanelInitialState({
       mode: 'sprintengine',
       folderPath: source.folderPath,
@@ -564,23 +611,12 @@ export default function WorkspaceManager() {
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-  }
+  }, [closeSettingsOverlay])
 
   const setAgentSpawnPermissionPreset = (preset: SprintEngineCliPermissionPreset) => {
     setAgentSpawnPermissionPresetState(preset)
     setLastAgentSpawnPermissionPreset(preset)
   }
-
-  useEffect(() => {
-    if (specialistMenuOpen) {
-      setAgentMenuQuery('')
-      setAgentMenuHighlight(0)
-      setChipPopoverForRole(null)
-      requestAnimationFrame(() => agentMenuSearchRef.current?.focus())
-    } else {
-      setChipPopoverForRole(null)
-    }
-  }, [specialistMenuOpen])
 
   useEffect(() => {
     if (tipModalDecidedRef.current) return
@@ -897,12 +933,15 @@ export default function WorkspaceManager() {
 
   const closeWorkspaceById = useCallback(
     (id: string) => {
-      const workspace = workspaces.find((candidate) => candidate.id === id)
+      const workspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === id)
       if (workspace) terminateWorkspaceTerminals(workspace)
       removeWorkspace(id)
     },
-    [workspaces, removeWorkspace]
+    [removeWorkspace]
   )
+  const createDefaultNewChat = useCallback(() => {
+    createNewChat()
+  }, [createNewChat])
 
   const handleCreate = ({
     template,
@@ -1065,7 +1104,7 @@ export default function WorkspaceManager() {
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
-    const activeWorkspace = workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
+    const activeWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
     const specialist = getSpecialistAction(specialistId)
     const agentName = normalizeAgentIdentifier(requestedName)
     const tabName = agentName || pickRandomAgentName(
@@ -1102,7 +1141,7 @@ export default function WorkspaceManager() {
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
-    const activeWorkspace = workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
+    const activeWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
     if (!multiloopEnabled || !activeWorkspace || activeWorkspace.mode !== 'multiloop') return
 
     const soul = getMultiloopRole(role)
@@ -1164,7 +1203,7 @@ export default function WorkspaceManager() {
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
-    const activeWorkspace = workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
+    const activeWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
     const spawnCli = fallbackSpawnCli(cli)
     const tabName = uniqueAgentName(label, activeWorkspace?.agents ?? {})
     const newId = `agent-${spawnCli}-${nanoid(6)}`
@@ -1196,7 +1235,7 @@ export default function WorkspaceManager() {
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
-    const activeWorkspace = workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
+    const activeWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
     if (!activeWorkspace || activeWorkspace.mode !== 'standard') return
 
     const tabName = uniqueAgentName(modelLabel || 'Conversation Agent', activeWorkspace.agents)
@@ -1230,12 +1269,18 @@ export default function WorkspaceManager() {
   }
 
   // Open-in-new-chat: spawn the chosen agent in a fresh solo-chat workspace
-  // (inheriting the current folder) instead of the active workspace. Each mirrors
-  // its in-workspace spawn counterpart, but seeds the agent at creation time via
+  // instead of the active workspace. `folderPath === undefined` inherits the
+  // active workspace's folder (the top bar's Open-in-new-chat); the sidebar New
+  // chat picker passes the right-clicked folder. Each mirrors its in-workspace
+  // spawn counterpart, but seeds the agent at creation time via
   // createSoloChatWorkspace so it lands race-free before the new model mounts.
-  const openGeneralInNewChat = (cli?: AgentCli) => createNewChat(undefined, cli)
+  const openGeneralInNewChat = (cli?: AgentCli, folderPath?: string | null) => createNewChat(folderPath, cli)
 
-  const openSpecialistInNewChat = (specialistId: SpecialistActionId, selectedCli?: AgentCli) => {
+  const openSpecialistInNewChat = (
+    specialistId: SpecialistActionId,
+    selectedCli?: AgentCli,
+    folderPath?: string | null,
+  ) => {
     setLastSelectedSpecialist(specialistId)
     const specialist = getSpecialistAction(specialistId)
     const tabName = pickRandomAgentName([])
@@ -1244,6 +1289,7 @@ export default function WorkspaceManager() {
       normalizeSelectedCli(selectedCli ?? specialistCliDefaults[specialist.id], lastSelectedCli)
     )
     createSoloChatWorkspace({
+      folderPath,
       templateAgentCli: cliForSpawn,
       seedAgent: {
         tabName,
@@ -1263,11 +1309,12 @@ export default function WorkspaceManager() {
     })
   }
 
-  const openConversationInNewChat = () => {
+  const openConversationInNewChat = (folderPath?: string | null) => {
     const option = conversationDefaultOption
     if (!option) return
     const tabName = option.modelLabel || 'Conversation Agent'
     createSoloChatWorkspace({
+      folderPath,
       seedAgent: {
         tabName,
         agentPatch: { name: tabName, ...conversationAgentRuntimePatch(option.providerId, option.modelId) },
@@ -1276,8 +1323,9 @@ export default function WorkspaceManager() {
     setLastSelectedConversationModel({ providerId: option.providerId, modelId: option.modelId })
   }
 
-  const openTerminalInNewChat = () => {
+  const openTerminalInNewChat = (folderPath?: string | null) => {
     createSoloChatWorkspace({
+      folderPath,
       seedAgent: { terminal: { terminalId: `terminal-${nanoid(6)}` }, tabName: 'Terminal' },
     })
   }
@@ -1812,9 +1860,11 @@ export default function WorkspaceManager() {
         onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
         onNewChat={() => createNewChat()}
         onNewChatInFolder={(folderPath) => createNewChat(folderPath)}
-        onNewChatWithAgent={(cli) => createNewChat(undefined, cli)}
-        onNewChatInFolderWithAgent={(folderPath, cli) => createNewChat(folderPath, cli)}
-        newChatAgentOptions={agentCliCatalog}
+        onNewChatTerminal={(folderPath) => openTerminalInNewChat(folderPath)}
+        onNewChatGeneral={(cli, folderPath) => openGeneralInNewChat(cli, folderPath)}
+        onNewChatSpecialist={(specialistId, cli, folderPath) => openSpecialistInNewChat(specialistId, cli, folderPath)}
+        agentSpawnPermissionPreset={agentSpawnPermissionPreset}
+        setAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
         onRevealFolder={handleRevealFolder}
         onSetSidebarCollapsed={setSidebarCollapsed}
       />
@@ -1839,7 +1889,6 @@ export default function WorkspaceManager() {
         notificationsRef={notificationsRef}
         specialistMenuRef={specialistMenuRef}
         accountRef={accountRef}
-        agentMenuSearchRef={agentMenuSearchRef}
         sessions={sessions}
         sidebarWorkspaceOrder={sidebarWorkspaceOrder}
         sessionsOpen={sessionsOpen}
@@ -1864,32 +1913,14 @@ export default function WorkspaceManager() {
         toggleVoiceDictation={voiceDictation.toggle}
         specialistMenuOpen={specialistMenuOpen}
         setSpecialistMenuOpen={setSpecialistMenuOpen}
-        agentMenuQuery={agentMenuQuery}
-        setAgentMenuQuery={setAgentMenuQuery}
-        agentMenuHighlight={agentMenuHighlight}
-        setAgentMenuHighlight={setAgentMenuHighlight}
-        chipPopoverForRole={chipPopoverForRole}
         agentCliOptions={agentCliCatalog}
-        agentCliStatus={pluginCatalogStatus}
-        agentCliError={pluginCatalogError}
-        setChipPopoverForRole={setChipPopoverForRole}
         multiloopLaunchMenu={multiloopLaunchMenu}
         selectedSpecialistAction={selectedSpecialistAction}
         selectedMultiloopRoleDescriptor={selectedMultiloopRoleDescriptor}
         selectedAgentPermissionOption={selectedAgentPermissionOption}
         lastSelectedCli={lastSelectedCli}
         specialistCliDefaults={specialistCliDefaults}
-        cliModelDefaults={cliModelDefaults}
-        specialistModelDefaults={specialistModelDefaults}
-        multiloopRoleModelDefaults={multiloopRoleModelDefaults}
-        setCliModelDefault={setCliModelDefault}
-        setSpecialistModelDefault={setSpecialistModelDefault}
-        setMultiloopRoleModelDefault={setMultiloopRoleModelDefault}
         multiloopRoleCliDefaults={multiloopRoleCliDefaults}
-        setSpecialistCliDefault={setSpecialistCliDefault}
-        setMultiloopRoleCliDefault={setMultiloopRoleCliDefault}
-        specialistActions={orderedSpecialistActions}
-        setSpecialistOrder={setSpecialistOrder}
         agentSpawnPermissionPreset={agentSpawnPermissionPreset}
         setAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
         handleSelectSpecialist={handleSelectSpecialist}
@@ -1898,7 +1929,6 @@ export default function WorkspaceManager() {
         addNewMultiloopAgent={(cli) => addNewMultiloopAgent(lastSelectedMultiloopRole, '', cli)}
         addNewCliAgent={addNewCliAgent}
         addNewTerminal={addNewTerminal}
-        setGeneralAgentCli={setLastSelectedCli}
         conversationSpawnAvailable={conversationSpawnAvailable}
         onSpawnConversationAgent={spawnConversationAgent}
         onOpenTerminalInNewChat={openTerminalInNewChat}
@@ -1950,7 +1980,7 @@ export default function WorkspaceManager() {
                     <WorkspaceLayout
                       workspaceId={workspaceId}
                       onStartFuturePlan={openFuturePlanWorkspace}
-                      onNewChat={() => createNewChat()}
+                      onNewChat={createDefaultNewChat}
                       onNewWorkspace={openNewWorkspacePanel}
                       onCloseWorkspace={closeWorkspaceById}
                     />

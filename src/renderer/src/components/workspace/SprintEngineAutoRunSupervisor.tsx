@@ -23,6 +23,8 @@ import {
 import {
   AUTO_RUN_ROLE_CONTINUATION_RETRY_MS,
   AUTO_RUN_IDLE_RETIREMENT_MS as PLANNER_IDLE_RETIREMENT_MS,
+  AUTO_RUN_RETIREMENT_COOLDOWN_MS,
+  sprintEngineIdleClockKey,
   AUTO_RUN_MAX_PROMPT_RETRIES as PLANNER_MAX_PROMPT_RETRIES,
   AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES as PLANNER_MAX_WAKE_RETRIES,
   architectTriageMessageKey,
@@ -120,12 +122,18 @@ function publishTerminalListIpcFailureNotice(
   )
 }
 
-const AUTO_RUN_POLL_MS = 2000
+// SprintEngine is a background runner: agents do not need re-engagement within
+// a couple of seconds, and every active tick does O(terminals) IPC plus planning
+// on the renderer's main thread — the same thread that handles keystrokes and
+// clicks. A 4s cadence halves that per-second cost (and the projection read it
+// pairs with) for no user-visible loss in a long-running run.
+const AUTO_RUN_POLL_MS = 4000
 const INACTIVE_AUTO_RUN_POLL_MS = 15000
 const AUTO_RUN_STARTUP_SPAWN_DELAY_MS = 10000
 const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
 export const AUTO_RUN_MAX_PROMPT_RETRIES = PLANNER_MAX_PROMPT_RETRIES
 export const AUTO_RUN_IDLE_RETIREMENT_MS = PLANNER_IDLE_RETIREMENT_MS
+export { AUTO_RUN_RETIREMENT_COOLDOWN_MS }
 export const AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES = PLANNER_MAX_WAKE_RETRIES
 const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
 const AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS = 30000
@@ -506,13 +514,15 @@ async function agentHasRunningProcess(workspace: Workspace, agentId: string): Pr
 
 async function getRunningAutoRunAgentIds(
   workspace: Workspace,
-  sprintEngineState: SprintEngineState
+  sprintEngineState: SprintEngineState,
+  sessionsSnapshot?: TerminalSessionSnapshot[]
 ): Promise<{ running: Set<string>; live: Set<string> }> {
   const runningAgentIds = new Set<string>()
   // Every agent with a live session, including `done` runtime agents that
   // `running` excludes — completion notifications still paste into those.
   const liveAgentIds = new Set<string>()
-  const sessions = await listTerminalSessionsForAutoRun(workspace, 'running-agent-ids')
+  const sessions = sessionsSnapshot
+    ?? await listTerminalSessionsForAutoRun(workspace, 'running-agent-ids')
 
   for (const session of sessions) {
     if (!session.agentId || !sessionBelongsToWorkspaceSprintEngine(session, workspace)) continue
@@ -541,11 +551,25 @@ async function getRunningAutoRunAgentIds(
 
 async function getRunningContinuationCapacityByRole(
   workspace: Workspace,
-  sprintEngineState: SprintEngineState
+  sprintEngineState: SprintEngineState,
+  sessionsSnapshot?: TerminalSessionSnapshot[]
 ): Promise<RunningContinuationCapacity> {
   const capacityByRole = new Map<SprintEngineRoleId, number>()
   const countedAgentIds = new Set<string>()
-  const sessions = await listTerminalSessionsForAutoRun(workspace, 'role-continuation-capacity')
+  const sessions = sessionsSnapshot
+    ?? await listTerminalSessionsForAutoRun(workspace, 'role-continuation-capacity')
+
+  // Index tasks once. The per-session loop previously ran two full
+  // sprintEngineState.tasks.find() scans per session — O(sessions × tasks) — to
+  // resolve the agent's current task and detect an owned active task. A by-id
+  // map and an owner set make each session's checks O(1), i.e. O(sessions + tasks).
+  const taskById = new Map(sprintEngineState.tasks.map((task) => [task.id, task]))
+  const agentIdsOwningActiveTask = new Set<string>()
+  for (const task of sprintEngineState.tasks) {
+    if (task.ownerAgentId && (task.status === 'in_progress' || task.status === 'needs_input')) {
+      agentIdsOwningActiveTask.add(task.ownerAgentId)
+    }
+  }
 
   for (const session of sessions) {
     if (!session.agentId || countedAgentIds.has(session.agentId)) continue
@@ -555,15 +579,11 @@ async function getRunningContinuationCapacityByRole(
     if (!runtimeAgent || runtimeAgent.status === 'needs_input' || runtimeAgent.status === 'retired') continue
 
     const currentTask = runtimeAgent.currentTaskId
-      ? sprintEngineState.tasks.find((task) => task.id === runtimeAgent.currentTaskId)
+      ? taskById.get(runtimeAgent.currentTaskId)
       : null
     if (currentTask && currentTask.status !== 'done') continue
 
-    const ownedActiveTask = sprintEngineState.tasks.find((task) =>
-      task.ownerAgentId === session.agentId
-      && (task.status === 'in_progress' || task.status === 'needs_input')
-    )
-    if (ownedActiveTask) continue
+    if (agentIdsOwningActiveTask.has(session.agentId)) continue
 
     countedAgentIds.add(session.agentId)
     capacityByRole.set(runtimeAgent.role, (capacityByRole.get(runtimeAgent.role) ?? 0) + 1)
@@ -654,7 +674,11 @@ export async function executeSprintEngineDispatchPlan(
   workspace: Workspace,
   plan: SprintEngineDispatchPlan,
   ledgers: SprintEngineDispatchLedgers,
-  spawnContext?: SprintEngineDispatchSpawnContext
+  spawnContext?: SprintEngineDispatchSpawnContext,
+  /** Records the time each agent is retired so the planner can enforce the re-retirement cooldown across ticks. */
+  retirementCooldown?: Map<string, number>,
+  /** Reuse the caller's per-cycle terminal snapshot instead of fetching a fresh one for session lookups. */
+  sharedSessionsSnapshot?: TerminalSessionSnapshot[]
 ): Promise<SprintEngineDispatchExecution> {
   const base = { workspaceId: workspace.id, workspaceName: workspace.name }
   for (const entry of plan.ledgerDeletes) {
@@ -679,9 +703,10 @@ export async function executeSprintEngineDispatchPlan(
     || plan.restarts.length > 0
     || plan.retirements.length > 0
     || plan.notificationDeliveries.some((delivery) => delivery.kind === 'paste')
-  const sessionsSnapshot = needsSessions
-    ? await listTerminalSessionsForAutoRun(workspace, 'execute-dispatch-plan')
-    : undefined
+  const sessionsSnapshot = sharedSessionsSnapshot
+    ?? (needsSessions
+      ? await listTerminalSessionsForAutoRun(workspace, 'execute-dispatch-plan')
+      : undefined)
   let notificationSpawned = false
   let notificationSpawnFailed = false
   for (const delivery of plan.notificationDeliveries) {
@@ -872,6 +897,15 @@ export async function executeSprintEngineDispatchPlan(
       sessionId: session.sessionId,
     })
     logPerfEvent('SprintEngineAutoRun', 'idle-terminal-retired', { ...base, ...retirement.data, sessionId: session.sessionId })
+    if (retirementCooldown) {
+      const retiredAt = Date.now()
+      retirementCooldown.set(sprintEngineIdleClockKey(workspace, retirement.agentId), retiredAt)
+      // Keep the cooldown map bounded to agents retired within the live window;
+      // expired entries can be forgotten without changing planner decisions.
+      for (const [key, ts] of retirementCooldown) {
+        if (retiredAt - ts >= AUTO_RUN_RETIREMENT_COOLDOWN_MS) retirementCooldown.delete(key)
+      }
+    }
   }
   return { restarted, notificationSpawned, notificationSpawnFailed, engagedAgentIds }
 }
@@ -886,6 +920,9 @@ async function runSprintEngineDispatchPaths(input: {
   spawnContext?: SprintEngineDispatchSpawnContext
   notifications?: SprintEngineDispatchNotificationInput
   idleClock?: ReadonlyMap<string, number>
+  retirementCooldown?: MutableRefObject<Map<string, number>>
+  /** Shared per-cycle terminal snapshot; reused for the executor's session lookups so the cycle issues one terminalList instead of several. */
+  sessionsSnapshot?: TerminalSessionSnapshot[]
 }): Promise<SprintEngineDispatchExecution> {
   const plan = planSprintEngineDispatch({
     workspace: input.workspace,
@@ -898,8 +935,16 @@ async function runSprintEngineDispatchPaths(input: {
     paths: new Set(input.paths),
     notifications: input.notifications,
     idleClock: input.idleClock,
+    retirementCooldown: input.retirementCooldown?.current,
   })
-  return executeSprintEngineDispatchPlan(input.workspace, plan, input.ledgers, input.spawnContext)
+  return executeSprintEngineDispatchPlan(
+    input.workspace,
+    plan,
+    input.ledgers,
+    input.spawnContext,
+    input.retirementCooldown?.current,
+    input.sessionsSnapshot
+  )
 }
 
 // The exported per-path functions below are test-surface shims: production
@@ -996,7 +1041,7 @@ export async function sendDispatchPromptsToRunningAgents(
   })
 }
 
-async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<void> {
+async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<TerminalSessionSnapshot[]> {
   const sessions = await listTerminalSessionsForAutoRun(workspace, 'reconcile-duplicates')
   const sessionsByAgentId = new Map<string, TerminalSessionSnapshot[]>()
 
@@ -1037,6 +1082,8 @@ async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<vo
       void workspaceSyncClient.dispatchAssignTerminalSession(workspace.id, agentId, preferredSession.sessionId, effectiveCli)
     }
   }
+
+  return sessions
 }
 
 function setAutoRunPendingSpawns(workspaceId: string, pendingSpawns: SprintEngineAutoPendingSpawn[]): void {
@@ -1656,7 +1703,8 @@ async function superviseWorkspace(
   sentAgentNotificationEvents: MutableRefObject<Set<string>>,
   continuationGraceByTask: MutableRefObject<Map<string, RoleContinuationGrace>>,
   lastContentByWorkspace: MutableRefObject<Map<string, string>>,
-  idleClockByAgent: MutableRefObject<Map<string, number>>
+  idleClockByAgent: MutableRefObject<Map<string, number>>,
+  retirementCooldownByAgent: MutableRefObject<Map<string, number>>
 ): Promise<void> {
   const superviseStartedAt = performance.now()
   let sprintEngineState = workspace.sprintEngineState
@@ -1748,6 +1796,7 @@ async function superviseWorkspace(
       sentAgentNotificationEvents,
       continuationGraceByTask,
       idleClockByAgent,
+      retirementCooldownByAgent,
     })
   } catch (error) {
     if (error instanceof TerminalListIpcError) {
@@ -1773,6 +1822,12 @@ type RunnerActiveCycleInput = {
   continuationGraceByTask: MutableRefObject<Map<string, RoleContinuationGrace>>
   /** Cross-tick idle observations for the idle_retire path; must persist across ticks or retirement never reaches its window. */
   idleClockByAgent: MutableRefObject<Map<string, number>>
+  /**
+   * Cross-tick record of recent retirements; must persist across ticks to
+   * suppress the kill/respawn storm. Optional so single-path test shims can omit
+   * it (no cooldown then); the production tick always threads the ref.
+   */
+  retirementCooldownByAgent?: MutableRefObject<Map<string, number>>
 }
 
 export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput): Promise<void> {
@@ -1807,9 +1862,17 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     workspaceId: workspace.id,
     workspaceName: workspace.name,
   })
-  const agentSessions = await getRunningAutoRunAgentIds(workspace, sprintEngineState)
+  // One terminal-list snapshot for the whole supervise cycle: the running-id
+  // scan, the continuation-capacity scan, and the dispatch executor's session
+  // lookups all read the same set. Taken after pending-spawn reconciliation so
+  // it reflects terminals spawned this tick; nothing between here and the
+  // executor spawns or kills a terminal, so it cannot go stale for an agent the
+  // cycle acts on (the executor's own spawns take their session from the spawn
+  // result, not this snapshot).
+  const cycleSessions = await listTerminalSessionsForAutoRun(workspace, 'supervise-cycle')
+  const agentSessions = await getRunningAutoRunAgentIds(workspace, sprintEngineState, cycleSessions)
   const runningAgentIds = agentSessions.running
-  const continuationCapacity = await getRunningContinuationCapacityByRole(workspace, sprintEngineState)
+  const continuationCapacity = await getRunningContinuationCapacityByRole(workspace, sprintEngineState, cycleSessions)
   logPerfEvent('SprintEngineAutoRun', 'running-agents-end', {
     workspaceId: workspace.id,
     workspaceName: workspace.name,
@@ -1856,6 +1919,8 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
       onAgentSpawned: (agentId) => runningAgentIds.add(agentId),
     },
     idleClock,
+    retirementCooldown: input.retirementCooldownByAgent,
+    sessionsSnapshot: cycleSessions,
   })
   if (dispatchResult.notificationSpawnFailed) return
 
@@ -2103,8 +2168,15 @@ async function closeCompletedRunAgentTerminals(workspace: Workspace): Promise<vo
 }
 
 async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
+  let sessions: TerminalSessionSnapshot[]
   try {
-    await reconcileDuplicateAgentSessions(workspace)
+    // The duplicate-session reconcile already lists every live terminal once.
+    // Reuse that single snapshot for the per-agent liveness check below instead
+    // of issuing one terminalStatus IPC round-trip per agent (N serial calls per
+    // tick at scale). A session absent from the snapshot — or present with
+    // processAlive false — is dead, matching terminalStatus for a missing/exited
+    // session.
+    sessions = await reconcileDuplicateAgentSessions(workspace)
   } catch (error) {
     if (error instanceof TerminalListIpcError) {
       await publishTerminalListIpcFailureNotice(workspace, error, 'reconcile')
@@ -2112,6 +2184,8 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
     }
     throw error
   }
+
+  const processAliveBySessionId = new Map(sessions.map((session) => [session.sessionId, session.processAlive]))
 
   for (const agent of Object.values(workspace.agents)) {
     if (!agent.cliStartRequested) continue
@@ -2133,8 +2207,7 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
       continue
     }
 
-    const status = await defaultExecutorPorts.terminalStatus(agent.cliSessionId)
-    if (status.processAlive) continue
+    if (processAliveBySessionId.get(agent.cliSessionId)) continue
 
     useWorkspaceStore.getState().updateAgent(workspace.id, agent.id, {
       cliSessionId: undefined,
@@ -2165,6 +2238,7 @@ export default function SprintEngineAutoRunSupervisor() {
   const sentAgentNotificationEvents = useRef(new Set<string>())
   const continuationGraceByTask = useRef(new Map<string, RoleContinuationGrace>())
   const idleClockByAgent = useRef(new Map<string, number>())
+  const retirementCooldownByAgent = useRef(new Map<string, number>())
   const lastContentByWorkspace = useRef(new Map<string, string>())
   const lastInactiveTickByWorkspace = useRef(new Map<string, number>())
   const startedAt = useRef(Date.now())
@@ -2242,7 +2316,8 @@ export default function SprintEngineAutoRunSupervisor() {
             sentAgentNotificationEvents,
             continuationGraceByTask,
             lastContentByWorkspace,
-            idleClockByAgent
+            idleClockByAgent,
+            retirementCooldownByAgent
           )
         }
         logPerfEvent('SprintEngineAutoRun', 'tick-end', {

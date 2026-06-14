@@ -139,6 +139,7 @@ async function main(): Promise<void> {
   await testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass()
   await testNotificationPasteSuppressesSamePassDispatchPaste()
   await testIdleRetirementClosesParkedTerminalPastWindow()
+  await testIdleRetirementCooldownSuppressesRespawnStorm()
   await testIdleRetirementSparesClaimHoldersFreshIdlersAndVisibleTabs()
   await testIdleRetirementSparesArchitectWithTriageWork()
   await testIdleRetirementResetsRetiredAgentLaunchState()
@@ -2841,7 +2842,8 @@ async function runIdleRetirementCycle(
   supervisor: Awaited<ReturnType<typeof loadSupervisor>>,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
-  idleClockByAgent: { current: Map<string, number> }
+  idleClockByAgent: { current: Map<string, number> },
+  retirementCooldownByAgent?: { current: Map<string, number> }
 ): Promise<void> {
   await supervisor.superviseRunnerActiveCycle({
     workspace,
@@ -2857,6 +2859,7 @@ async function runIdleRetirementCycle(
     sentAgentNotificationEvents: mutableRef(new Set()),
     continuationGraceByTask: mutableRef(new Map()),
     idleClockByAgent,
+    retirementCooldownByAgent,
   })
 }
 
@@ -2884,6 +2887,47 @@ async function testIdleRetirementClosesParkedTerminalPastWindow(): Promise<void>
 
   assert.deepEqual(kills, ['session-reviewer'], 'the parked reviewer terminal is retired past the idle window')
   assert.equal(writes.length, 0, 'retirement sends no prompt; the terminal is simply closed')
+}
+
+async function testIdleRetirementCooldownSuppressesRespawnStorm(): Promise<void> {
+  // Storm guard: once an idle terminal is retired, a respawn that idles straight
+  // back past the window must NOT be retired again until the cooldown elapses.
+  // Without the cooldown the retire->respawn->idle->retire loop spawns a fresh
+  // CLI process every few minutes.
+  const kills: string[] = []
+  const writes: Array<{ sessionId: string; text: string }> = []
+  installIdleRetirementTestWindow(kills, writes)
+
+  const supervisor = await loadSupervisor()
+  const { workspace, sprintEngineState } = idleReviewerCycleFixtures({
+    tasks: [task({ id: 'T-dev', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+  })
+  installWorkspaceStore(workspace)
+  const clockKey = sprintEngineIdleClockKey(workspace, 'code_reviewer-1')
+  const idleClockByAgent = mutableRef(new Map<string, number>([
+    [clockKey, Date.now() - supervisor.AUTO_RUN_IDLE_RETIREMENT_MS - 60_000],
+  ]))
+  const retirementCooldownByAgent = mutableRef(new Map<string, number>())
+
+  // First cycle: retire the parked reviewer and record the cooldown.
+  await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent, retirementCooldownByAgent)
+  assert.deepEqual(kills, ['session-reviewer'], 'first cycle retires the parked reviewer')
+  assert.equal(
+    retirementCooldownByAgent.current.has(clockKey),
+    true,
+    'the retirement is recorded in the cooldown ledger keyed by the stable agent id'
+  )
+
+  // Simulate a respawn that idles straight back past the window: the idle clock
+  // for the same agent matures again, but the cooldown is still active.
+  idleClockByAgent.current.set(clockKey, Date.now() - supervisor.AUTO_RUN_IDLE_RETIREMENT_MS - 60_000)
+  await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent, retirementCooldownByAgent)
+  assert.deepEqual(kills, ['session-reviewer'], 'the respawned reviewer is NOT retired again inside the cooldown window')
+
+  // Past the cooldown, retirement resumes (a genuinely parked role is still parked).
+  retirementCooldownByAgent.current.set(clockKey, Date.now() - supervisor.AUTO_RUN_RETIREMENT_COOLDOWN_MS - 1_000)
+  await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent, retirementCooldownByAgent)
+  assert.deepEqual(kills, ['session-reviewer', 'session-reviewer'], 'retirement resumes once the cooldown elapses')
 }
 
 async function testIdleRetirementSparesClaimHoldersFreshIdlersAndVisibleTabs(): Promise<void> {

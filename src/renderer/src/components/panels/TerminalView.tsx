@@ -158,8 +158,11 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   const sprintEngineContext = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineContext ?? null
   )
-  const sprintEngineRuntimeAgent = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId] ?? null
+  const sprintEngineRuntimeRole = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId]?.role ?? null
+  )
+  const sprintEngineRuntimeCurrentTaskId = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId]?.currentTaskId ?? null
   )
   const sprintEngineRosterRole = useWorkspaceStore((s) => {
     const sprintEngineState = s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState
@@ -234,57 +237,108 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     startupPromptRef.current = startupPrompt
   }, [startupPrompt])
 
+  const launchContextRef = useRef({
+    agent,
+    cli,
+    cliPermissionPreset,
+    cliRuntimes,
+    mcpSettings,
+    memoryConfig,
+    openFile,
+    savedFolderPath,
+    sprintEngineContext,
+    sprintEngineRosterRole,
+    sprintEngineRuntimeCurrentTaskId,
+    sprintEngineRuntimeRole,
+    storedExecutionWorktreePath,
+    updateAgent,
+    workspaceName,
+  })
+
   useEffect(() => {
+    launchContextRef.current = {
+      agent,
+      cli,
+      cliPermissionPreset,
+      cliRuntimes,
+      mcpSettings,
+      memoryConfig,
+      openFile,
+      savedFolderPath,
+      sprintEngineContext,
+      sprintEngineRosterRole,
+      sprintEngineRuntimeCurrentTaskId,
+      sprintEngineRuntimeRole,
+      storedExecutionWorktreePath,
+      updateAgent,
+      workspaceName,
+    }
+  }, [
+    agent,
+    cli,
+    cliPermissionPreset,
+    cliRuntimes,
+    mcpSettings,
+    memoryConfig,
+    openFile,
+    savedFolderPath,
+    sprintEngineContext,
+    sprintEngineRosterRole,
+    sprintEngineRuntimeCurrentTaskId,
+    sprintEngineRuntimeRole,
+    storedExecutionWorktreePath,
+    updateAgent,
+    workspaceName,
+  ])
+
+  useEffect(() => {
+    const currentContext = () => launchContextRef.current
+    const initialContext = currentContext()
     const container = containerRef.current
     if (!container) return
-    if (savedFolderPath && !folderReadyPath) return
-    if (!agent) return
-    if (!cli) {
+    if (initialContext.savedFolderPath && !folderReadyPath) return
+    if (!initialContext.agent) return
+    if (!initialContext.cli) {
       publishDiagnosticSync({
         level: 'error',
         source: 'terminal',
-        title: `${agent?.name ?? agentId} was not started`,
+        title: `${initialContext.agent?.name ?? agentId} was not started`,
         message: 'Agent terminal is missing its CLI selection.',
         details: [
-          `Workspace: ${workspaceName}`,
+          `Workspace: ${initialContext.workspaceName}`,
           `Workspace ID: ${workspaceId}`,
           `Agent ID: ${agentId}`,
         ].join('\n'),
         workspaceId,
-        workspaceName,
+        workspaceName: initialContext.workspaceName,
         agentId,
       })
       return
     }
 
-    if (!agent?.cliSessionId && !attachedSessionId) {
+    if (!initialContext.agent?.cliSessionId && !attachedSessionId) {
       // [switch-regression] If this fires on a workspace switch, the agent's
       // cliSessionId was cleared while the PTY was still alive — relaunching with
       // a fresh id makes the main runtime dispose the old (live) session.
       logPerfEvent('TerminalView', 'terminal-spawn-fresh-after-switch-risk', {
         workspaceId,
         agentId,
-        cli,
+        cli: initialContext.cli,
         reason: 'missing-cli-session-id',
       })
-      console.warn('[switch-regression] regenerating cliSessionId', {
-        workspaceId,
-        agentId,
-        agentName: agent?.name,
-        cli,
-      })
-      updateAgent(workspaceId, agentId, {
+      initialContext.updateAgent(workspaceId, agentId, {
         cliSessionId: crypto.randomUUID(),
         cliHasLaunched: false,
       })
       return
     }
 
-    const sessionId = attachedSessionId ?? agent?.cliSessionId
+    const sessionId = attachedSessionId ?? initialContext.agent?.cliSessionId
     if (!sessionId) return
-    const isSprintEngineAgent = agent?.kind === 'sprintengine'
-    const shouldResume = attachedSessionId ? true : isSprintEngineAgent ? false : agent?.cliHasLaunched ?? false
-    const shouldResumeCodexConversation = !isSprintEngineAgent && cli === 'codex' && Boolean(agent?.cliResumeAvailable)
+    const isSprintEngineAgent = initialContext.agent?.kind === 'sprintengine'
+    const shouldResume = attachedSessionId ? true : isSprintEngineAgent ? false : initialContext.agent?.cliHasLaunched ?? false
+    const shouldResumeCodexConversation =
+      !isSprintEngineAgent && initialContext.cli === 'codex' && Boolean(initialContext.agent?.cliResumeAvailable)
     const term = new Terminal({
       theme: getTerminalTheme(),
       fontFamily: MONO_FONT_STACK,
@@ -334,18 +388,18 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     focusTerminal()
 
     const linkExecutionRoot = resolveAgentExecutionRoot(
-      agent?.execution,
-      storedExecutionWorktreePath,
+      currentContext().agent?.execution,
+      currentContext().storedExecutionWorktreePath,
       folderReadyPath
     )
     const fileLinkDisposable = term.registerLinkProvider(createTerminalFileLinkProvider({
       terminal: term,
-      workspaceRoot: folderReadyPath ?? savedFolderPath,
+      workspaceRoot: folderReadyPath ?? currentContext().savedFolderPath,
       executionRoot: linkExecutionRoot.cwd,
       pathExists: (path) => window.api.pathExists(path),
       openFile: async ({ resolvedPath, name, line, column }) => {
         const content = isImageFile(resolvedPath) ? '' : await window.api.readfile(resolvedPath)
-        openFile(workspaceId, resolvedPath, name, content)
+        currentContext().openFile(workspaceId, resolvedPath, name, content)
         focusOrAddFileTab(workspaceId, resolvedPath, name)
         const dispatchFocus = () => {
           window.dispatchEvent(new CustomEvent('multicode:focus-editor', {
@@ -381,8 +435,8 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     let reportedTerminalFailure = false
     let terminalLaunchDetails = [
       `Session: ${sessionId}`,
-      `CLI: ${cli}${agent?.cliModel ? ` · ${agent.cliModel}` : ''}`,
-      `Workspace path: ${folderReadyPath ?? savedFolderPath ?? 'default app path'}`,
+      `CLI: ${initialContext.cli}${initialContext.agent?.cliModel ? ` · ${initialContext.agent.cliModel}` : ''}`,
+      `Workspace path: ${folderReadyPath ?? initialContext.savedFolderPath ?? 'default app path'}`,
     ].join('\n')
     const outputQueue = createXtermOutputQueue(term, {
       recordWrite: terminalDiagnostics.recordOutputWrite,
@@ -400,6 +454,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     })
 
     const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
+      const latestContext = currentContext()
       term.write(`\r\n\x1b[31m[Terminal exited with code ${code}]\x1b[0m\r\n`)
       const currentSessionId = useWorkspaceStore
         .getState()
@@ -411,17 +466,17 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         publishDiagnosticSync({
           level: 'error',
           source: 'terminal',
-          title: `${agent?.name ?? agentId} exited`,
+          title: `${latestContext.agent?.name ?? agentId} exited`,
           message: `Terminal exited with code ${code}.`,
           details: terminalLaunchDetails,
           workspaceId,
-          workspaceName,
+          workspaceName: latestContext.workspaceName,
           agentId,
           sessionId,
         })
       }
       if (currentSessionId !== sessionId) return
-      updateAgent(workspaceId, agentId, {
+      latestContext.updateAgent(workspaceId, agentId, {
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
@@ -436,16 +491,17 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     })
 
     const disposeError = window.api.onTerminalError(sessionId, (message) => {
+      const latestContext = currentContext()
       term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`)
       reportedTerminalFailure = true
       publishDiagnosticSync({
         level: 'error',
         source: 'terminal',
-        title: `${agent?.name ?? agentId} failed to start`,
+        title: `${latestContext.agent?.name ?? agentId} failed to start`,
         message,
         details: terminalLaunchDetails,
         workspaceId,
-        workspaceName,
+        workspaceName: latestContext.workspaceName,
         agentId,
         sessionId,
       })
@@ -479,26 +535,38 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     })
 
     const ensureSpecialistStartupPrompt = async (promptAlreadySentForActiveSession: boolean) => {
+      const latestContext = currentContext()
       if (startupPromptRef.current || promptAlreadySentForActiveSession) return
-      if (!agent) return
-      if ((agent.kind !== 'specialist' && agent.kind !== 'watchtower') || !agent.specialistId) return
+      if (!latestContext.agent) return
+      if (
+        (latestContext.agent.kind !== 'specialist' && latestContext.agent.kind !== 'watchtower')
+        || !latestContext.agent.specialistId
+      ) return
 
-      const specialist = getSpecialistAction(agent.specialistId)
+      const specialist = getSpecialistAction(latestContext.agent.specialistId)
       const prompt = buildSpecialistSoulStartupPrompt(specialist)
       if (disposed) return
 
-      const identifiedPrompt = prependAgentIdentifier(prompt, agent.name, specialist.shortLabel)
+      const identifiedPrompt = prependAgentIdentifier(prompt, latestContext.agent.name, specialist.shortLabel)
       startupPromptRef.current = identifiedPrompt
-      updateAgent(workspaceId, agentId, { cliStartupPrompt: identifiedPrompt })
+      latestContext.updateAgent(workspaceId, agentId, { cliStartupPrompt: identifiedPrompt })
     }
 
     const launchTerminal = async () => {
+      const latestContext = currentContext()
+      const latestAgent = latestContext.agent
+      const latestCli = latestContext.cli
+      if (!latestAgent || !latestCli) return
       const terminalStatus = await window.api.terminalStatus(sessionId).catch(() => ({ processAlive: false }))
       if (disposed) return
-      if (savedFolderPath && !folderReadyPath) return
+      const postStatusContext = currentContext()
+      const postStatusAgent = postStatusContext.agent
+      const postStatusCli = postStatusContext.cli
+      if (!postStatusAgent || !postStatusCli) return
+      if (postStatusContext.savedFolderPath && !folderReadyPath) return
 
       const resumeExistingPty = shouldResume && terminalStatus.processAlive
-      const shouldResumeClaudeConversation = agentCliUsesStableSessionIdForResume(cli) && shouldResume
+      const shouldResumeClaudeConversation = agentCliUsesStableSessionIdForResume(postStatusCli) && shouldResume
       const shouldResumeCli = resumeExistingPty || shouldResumeClaudeConversation || shouldResumeCodexConversation
       logPerfEvent('TerminalView', shouldResumeCli ? 'terminal-reattach-existing-session' : 'terminal-spawn-fresh', {
         sessionId,
@@ -508,7 +576,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         processAlive: terminalStatus.processAlive,
         resumeRequested: shouldResume,
         attachedSessionId,
-        cliHasLaunched: agent?.cliHasLaunched,
+        cliHasLaunched: postStatusAgent?.cliHasLaunched,
         willSpawnFresh: !shouldResumeCli,
       })
       if (!shouldResumeCli && shouldResume) {
@@ -520,60 +588,50 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           processAlive: terminalStatus.processAlive,
           resumeRequested: shouldResume,
           attachedSessionId,
-          cliHasLaunched: agent?.cliHasLaunched,
+          cliHasLaunched: postStatusAgent?.cliHasLaunched,
           willSpawnFresh: true,
         })
       }
-      // [switch-regression] One line per launch. A fresh spawn on a workspace
-      // switch shows shouldResumeCli=false: inspect cliHasLaunched / processAlive
-      // to see which precondition was lost.
-      console.warn('[switch-regression] launchTerminal', {
-        workspaceId,
-        agentId,
-        agentName: agent?.name,
-        cli,
-        sessionId,
-        attachedSessionId,
-        cliHasLaunched: agent?.cliHasLaunched,
-        cliResumeAvailable: agent?.cliResumeAvailable,
-        shouldResume,
-        processAlive: terminalStatus.processAlive,
-        resumeExistingPty,
-        shouldResumeCli,
-        willSpawnFresh: !shouldResumeCli,
-      })
-      const promptAlreadySentForActiveSession = Boolean(shouldResumeCli && agent?.cliOnboardingPromptSent)
+      const promptAlreadySentForActiveSession = Boolean(shouldResumeCli && postStatusAgent.cliOnboardingPromptSent)
       await ensureSpecialistStartupPrompt(promptAlreadySentForActiveSession)
       if (disposed) return
 
-      const sprintEngineStatePath = folderReadyPath ? sprintEngineContext?.statePath : undefined
+      const launchContext = currentContext()
+      const launchAgent = launchContext.agent
+      const launchCli = launchContext.cli
+      if (!launchAgent || !launchCli) return
+      const sprintEngineStatePath = folderReadyPath ? launchContext.sprintEngineContext?.statePath : undefined
       const executionRoot = resolveAgentExecutionRoot(
-        agent?.execution,
-        storedExecutionWorktreePath,
+        launchAgent.execution,
+        launchContext.storedExecutionWorktreePath,
         folderReadyPath
       )
       terminalLaunchDetails = [
         `Session: ${sessionId}`,
-        `CLI: ${cli}${agent?.cliModel ? ` · ${agent.cliModel}` : ''}`,
-        cliPermissionPreset ? `CLI permissions: ${cliPermissionPreset}` : null,
-        `Workspace path: ${folderReadyPath ?? savedFolderPath ?? 'default app path'}`,
+        `CLI: ${launchCli}${launchAgent.cliModel ? ` · ${launchAgent.cliModel}` : ''}`,
+        launchContext.cliPermissionPreset ? `CLI permissions: ${launchContext.cliPermissionPreset}` : null,
+        `Workspace path: ${folderReadyPath ?? launchContext.savedFolderPath ?? 'default app path'}`,
         executionRoot.worktreePath ? `Worktree path: ${executionRoot.worktreePath}` : null,
         sprintEngineStatePath ? `Sprint Engine state: ${sprintEngineStatePath}` : null,
       ].filter(Boolean).join('\n')
       const memoryContext = await resolveMemoryLaunchContext(
-        memoryConfig?.projectRoot ?? folderReadyPath ?? null,
-        memoryConfig?.relativeRoot ?? null
+        launchContext.memoryConfig?.projectRoot ?? folderReadyPath ?? null,
+        launchContext.memoryConfig?.relativeRoot ?? null
       )
       if (disposed) return
       const launchInitialPrompt = shouldResumeCli
         ? undefined
         : appendMemoryPrompt(startupPromptRef.current ?? undefined, memoryContext)
-      const sessionSystem = agentSessionSystem(agent?.kind)
+      const finalContext = currentContext()
+      const finalAgent = finalContext.agent
+      const finalCli = finalContext.cli
+      if (!finalAgent || !finalCli) return
+      const sessionSystem = agentSessionSystem(finalAgent.kind)
       const sessionRole = sessionSystem === 'sprintengine'
-        ? sprintEngineRuntimeAgent?.role ?? sprintEngineRosterRole
-        : agent?.kind ?? 'manual'
+        ? finalContext.sprintEngineRuntimeRole ?? finalContext.sprintEngineRosterRole
+        : finalAgent.kind ?? 'manual'
       const sessionWorkId = sessionSystem === 'sprintengine'
-        ? sprintEngineRuntimeAgent?.currentTaskId ?? agentId
+        ? finalContext.sprintEngineRuntimeCurrentTaskId ?? agentId
         : agentId
       const agentSession = attachedSessionId
         ? undefined
@@ -583,10 +641,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
             executionId: sessionId,
             system: sessionSystem,
             workspaceId,
-            workspaceRoot: folderReadyPath ?? savedFolderPath ?? '',
+            workspaceRoot: folderReadyPath ?? finalContext.savedFolderPath ?? '',
             workId: sessionWorkId,
             role: sessionRole,
-            displayName: agent?.name ?? agentId,
+            displayName: finalAgent.name ?? agentId,
           }
 
       replayGate.beginReplayWait()
@@ -597,9 +655,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         executionRoot.cwd,
         shouldResumeCli,
         sprintEngineStatePath,
-        cli,
+        finalCli,
         launchInitialPrompt,
-        cliRuntimes,
+        finalContext.cliRuntimes,
         false,
         ({
           kind: 'agent',
@@ -608,11 +666,11 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           executionMode: executionRoot.mode,
           worktreeId: executionRoot.worktreeId,
           worktreePath: executionRoot.worktreePath,
-          cliPermissionPreset,
-          cliModel: agent?.cliModel,
+          cliPermissionPreset: finalContext.cliPermissionPreset,
+          cliModel: finalAgent.cliModel,
           memoryRootPath: memoryContext.rootPath,
           memoryRelativeRoot: memoryContext.relativeRoot,
-          mcpSettings,
+          mcpSettings: finalContext.mcpSettings,
           visible: true,
           ...(agentSession ? { agentSession } : {}),
         } as TerminalSpawnMetadata & {
@@ -629,6 +687,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       replayGate.finishReplayWait()
       if (disposed) return
       if (!spawnResult.ok) {
+        const failureContext = currentContext()
         const currentSessionId = useWorkspaceStore
           .getState()
           .workspaces.find((w) => w.id === workspaceId)
@@ -636,7 +695,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           ?.cliSessionId
         if (attachedSessionId) return
         if (currentSessionId !== sessionId) return
-        updateAgent(workspaceId, agentId, {
+        failureContext.updateAgent(workspaceId, agentId, {
           cliSessionId: undefined,
           cliStartRequested: false,
           cliHasLaunched: false,
@@ -653,11 +712,11 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           publishDiagnosticSync({
             level: 'error',
             source: 'terminal',
-            title: `${agent?.name ?? agentId} was not started`,
+            title: `${failureContext.agent?.name ?? agentId} was not started`,
             message: spawnResult.message,
             details: terminalLaunchDetails,
             workspaceId,
-            workspaceName,
+            workspaceName: failureContext.workspaceName,
             agentId,
             sessionId,
           })
@@ -667,9 +726,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
 
       if (!resumeExistingPty) {
         if (!attachedSessionId) {
-          updateAgent(workspaceId, agentId, {
+          const successContext = currentContext()
+          successContext.updateAgent(workspaceId, agentId, {
             cliHasLaunched: true,
-            ...(agentCliSupportsConversationResume(cli) ? { cliResumeAvailable: true } : {}),
+            ...(agentCliSupportsConversationResume(finalCli) ? { cliResumeAvailable: true } : {}),
             ...(launchInitialPrompt
               ? {
                   cliOnboardingPromptSent: true,
@@ -679,9 +739,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           })
         }
       }
-      void workspaceSyncClient.dispatchAssignTerminalSession(workspaceId, agentId, sessionId, cli)
+      void workspaceSyncClient.dispatchAssignTerminalSession(workspaceId, agentId, sessionId, finalCli)
       const launchState: Parameters<typeof workspaceSyncClient.dispatchUpdateTerminalLaunchState>[2] = {}
-      if (!agentCliSupportsConversationResume(cli)) launchState.cliResumeAvailable = false
+      if (!agentCliSupportsConversationResume(finalCli)) launchState.cliResumeAvailable = false
       if (launchInitialPrompt) launchState.cliOnboardingPromptSent = true
       if (Object.keys(launchState).length > 0) {
         void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspaceId, agentId, launchState)
@@ -739,27 +799,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     attachedSessionId,
     agent?.cliRestartNonce,
     agent?.kind,
-    agent?.name,
-    agent?.specialistId,
     agent?.execution.mode,
     agent?.execution.worktreeId,
     agent?.execution.cwd,
-    cli,
-    cliPermissionPreset,
-    cliRuntimes,
     folderReadyPath,
-    workspaceName,
-    savedFolderPath,
-    sprintEngineContext?.statePath,
-    sprintEngineRuntimeAgent?.currentTaskId,
-    sprintEngineRuntimeAgent?.role,
-    sprintEngineRosterRole,
-    memoryConfig?.projectRoot,
-    memoryConfig?.relativeRoot,
-    mcpSettings,
-    storedExecutionWorktreePath,
-    updateAgent,
-    openFile,
     shouldKillOnUnmount,
   ])
 

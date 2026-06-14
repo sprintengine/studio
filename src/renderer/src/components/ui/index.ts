@@ -28,6 +28,7 @@ export {
   MenuSwatchRow,
   useClampedMenuPosition,
 } from './ContextMenu'
+export { PointerPopover } from './PointerPopover'
 export { Tabs, TabPanel } from './Tabs'
 export type { TabItem } from './Tabs'
 export { TaskCard } from './TaskCard'

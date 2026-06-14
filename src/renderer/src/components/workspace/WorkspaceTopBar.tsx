@@ -1,12 +1,12 @@
 import React from 'react'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
-import { CliModelListbox, FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, Tooltip } from '../ui'
+import { FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, Tooltip } from '../ui'
 import type { SessionUser } from '../../../../shared/electron-api'
 import { hasActiveProPlan } from './workspaceManagerHelpers'
 import CliIcon from '../CliIcon'
+import SpawnAgentMenu, { AGENT_SPAWN_PERMISSION_OPTIONS, TerminalSessionIcon } from './SpawnAgentMenu'
 import {
-  MULTILOOP_ROLES,
   getMultiloopRole,
   getSpecialistAction,
   type MultiloopRoleDescriptor,
@@ -14,15 +14,13 @@ import {
 } from '../../specialists/specialistActions'
 import type {
   AgentCli,
-  AgentCliModelSelection,
   AppNotification,
   MultiloopRole,
-  PluginCatalogStatus,
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
   Workspace,
 } from '../../types/workspace'
-import { resolveAvailableAgentCli, resolveCliModel, resolveSurfaceModel, type AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
+import { resolveAvailableAgentCli, type AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
 import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getHighlightSwatch, getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
@@ -48,56 +46,6 @@ export type SessionItem = {
   taskId: string | null
   sessionId: string
 }
-
-export type ChipPopoverForRole =
-  | { kind: 'specialist'; id: SpecialistActionId }
-  | { kind: 'multiloop'; role: MultiloopRole }
-  | { kind: 'general' }
-  | { kind: 'terminal' }
-  | { kind: 'conversation' }
-  | null
-
-// Top item of a spawn row's right-click menu: opens that row's agent in a fresh
-// workspace instead of the active one. Shared by every spawn row so the affordance
-// reads identically; rows with a CLI list render it above a divider.
-function OpenInNewChatItem({ onSelect }: { onSelect: () => void }) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      onClick={onSelect}
-      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]"
-    >
-      <svg className="icon-sm shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-        <rect x="3" y="3" width="14" height="14" rx="3" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M10 7v6M7 10h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
-      Open in New Chat
-    </button>
-  )
-}
-
-export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
-  value: SprintEngineCliPermissionPreset
-  label: string
-  title: string
-}> = [
-  {
-    value: 'default',
-    label: 'Default permissions',
-    title: 'Use the CLI default permission behavior.',
-  },
-  {
-    value: 'auto_workspace',
-    label: 'Auto in workspace',
-    title: 'Reduce prompts while keeping workspace-scoped guardrails where the CLI supports them.',
-  },
-  {
-    value: 'bypass_all',
-    label: 'Bypass permissions',
-    title: 'Skip CLI permission prompts. Use only in repos and environments you trust.',
-  },
-]
 
 // Tab accent comes from the enabled workspace type's accentToken; a disabled
 // module, an unknown id, or shell-owned 'standard' falls back to the muted
@@ -135,32 +83,6 @@ function SessionAgentIcon({ item, className }: { item: SessionItem; className?: 
     return <TerminalSessionIcon className={className} />
   }
   return <CliIcon cli={item.cli} className={className} />
-}
-
-function TerminalSessionIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="4" y="5.5" width="16" height="13" rx="2.2" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M7.25 10L10 12.5L7.25 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M12.5 15H16.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-// Neutral chat glyph for conversation-runtime spawn rows. CliIcon is reserved
-// for terminal CLI plugins; a provider-backed agent is a conversation, so it
-// reads as a speech bubble rather than a terminal prompt.
-function ConversationProviderIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M5 5.75h14a1.75 1.75 0 0 1 1.75 1.75v7a1.75 1.75 0 0 1-1.75 1.75H10l-3.75 3v-3H5A1.75 1.75 0 0 1 3.25 15.5v-8A1.75 1.75 0 0 1 5 5.75Z"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
 }
 
 function StopIcon({ className }: { className?: string }) {
@@ -484,7 +406,6 @@ export type WorkspaceTopBarProps = {
   notificationsRef: React.RefObject<HTMLDivElement>
   specialistMenuRef: React.RefObject<HTMLDivElement>
   accountRef: React.RefObject<HTMLDivElement>
-  agentMenuSearchRef: React.RefObject<HTMLInputElement>
 
   sessions: SessionItem[]
   sidebarWorkspaceOrder: Map<string, number>
@@ -515,45 +436,19 @@ export type WorkspaceTopBarProps = {
 
   specialistMenuOpen: boolean
   setSpecialistMenuOpen: React.Dispatch<React.SetStateAction<boolean>>
-  agentMenuQuery: string
-  setAgentMenuQuery: React.Dispatch<React.SetStateAction<string>>
-  agentMenuHighlight: number
-  setAgentMenuHighlight: React.Dispatch<React.SetStateAction<number>>
-  chipPopoverForRole: ChipPopoverForRole
-  setChipPopoverForRole: React.Dispatch<React.SetStateAction<ChipPopoverForRole>>
   multiloopLaunchMenu: boolean
   selectedSpecialistAction: SpecialistAction
   selectedMultiloopRoleDescriptor: MultiloopRoleDescriptor
   selectedAgentPermissionOption: typeof AGENT_SPAWN_PERMISSION_OPTIONS[number]
   lastSelectedCli: AgentCli
-  // Per-agent CLI choice (e.g. Architect → Codex). The row CLI is this default
-  // when set, else the last-used CLI — picking one agent's CLI does not change
-  // the others. Not a pinned/unpin affordance; just a persisted per-row choice.
+  // Per-agent CLI choice (e.g. Architect → Codex) used by the split-button
+  // trigger's default-spawn icon and CLI badge. The menu reads these from the
+  // store itself; the trigger needs them to resolve its default spawn.
   specialistCliDefaults: Partial<Record<SpecialistActionId, AgentCli>>
   multiloopRoleCliDefaults: Partial<Record<MultiloopRole, AgentCli>>
-  setSpecialistCliDefault: (id: SpecialistActionId, cli: AgentCli | null) => void
-  setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
-  // Model selection mirrors the CLI selection idiom: a remembered per-CLI
-  // default plus optional per-row overrides scoped to the CLI they were picked
-  // for. Absent everywhere means "the CLI's own default model".
-  cliModelDefaults: Partial<Record<AgentCli, string>>
-  specialistModelDefaults: Partial<Record<SpecialistActionId, AgentCliModelSelection>>
-  multiloopRoleModelDefaults: Partial<Record<MultiloopRole, AgentCliModelSelection>>
-  setCliModelDefault: (cli: AgentCli, model: string | null) => void
-  setSpecialistModelDefault: (id: SpecialistActionId, selection: AgentCliModelSelection | null) => void
-  setMultiloopRoleModelDefault: (role: MultiloopRole, selection: AgentCliModelSelection | null) => void
-  // Specialist roster in the user's persisted display order. Drives the spawn
-  // menu list and is the source the drag-reorder rewrites.
-  specialistActions: SpecialistAction[]
-  setSpecialistOrder: (order: SpecialistActionId[]) => void
-  // Plugin-aware agent CLI catalog (bundled + configured cliRuntimes), shared
-  // with the sidebar New chat picker so the lists stay in sync. Entries carry
-  // the plugin's merged model catalog when it declares modelSelection.
+  // Plugin-aware agent CLI catalog (bundled + configured cliRuntimes). The
+  // trigger resolves its default CLI against this list.
   agentCliOptions: AgentCliCatalogOption[]
-  // Plugin registry load state, so the spawn menu can tell "still loading" and
-  // "registry error" apart from a genuinely empty catalog.
-  agentCliStatus: PluginCatalogStatus
-  agentCliError: string | null
   agentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   setAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   handleSelectSpecialist: (id: SpecialistActionId, cli: AgentCli) => void
@@ -562,17 +457,13 @@ export type WorkspaceTopBarProps = {
   addNewMultiloopAgent: (cli: AgentCli) => void | Promise<void>
   addNewCliAgent: (cli: AgentCli, label: string) => void
   addNewTerminal: () => void
-  // Sets the CLI used by the General Agent quick row (the remembered default,
-  // shared with the trigger button and New chat). Wired to setLastSelectedCli.
-  setGeneralAgentCli: (cli: AgentCli) => void
   // Conversation runtime spawn collapses to one entry: the model is picked in
   // the chat composer, so the menu only needs to know whether a default
   // provider/model is available and how to open it.
   conversationSpawnAvailable: boolean
   onSpawnConversationAgent: () => void
   // Open-in-new-chat: spawn the row's agent in a fresh workspace (inheriting the
-  // current folder) instead of the active one. Surfaced as the top item of each
-  // row's right-click menu.
+  // current folder) instead of the active one. Surfaced in each row's flyout.
   onOpenTerminalInNewChat: () => void
   onOpenGeneralInNewChat: (cli: AgentCli) => void
   onOpenConversationInNewChat: () => void
@@ -600,7 +491,6 @@ export default function WorkspaceTopBar({
   notificationsRef,
   specialistMenuRef,
   accountRef,
-  agentMenuSearchRef,
   sessions,
   sidebarWorkspaceOrder,
   sessionsOpen,
@@ -625,12 +515,6 @@ export default function WorkspaceTopBar({
   toggleVoiceDictation,
   specialistMenuOpen,
   setSpecialistMenuOpen,
-  agentMenuQuery,
-  setAgentMenuQuery,
-  agentMenuHighlight,
-  setAgentMenuHighlight,
-  chipPopoverForRole,
-  setChipPopoverForRole,
   multiloopLaunchMenu,
   selectedSpecialistAction,
   selectedMultiloopRoleDescriptor,
@@ -638,19 +522,7 @@ export default function WorkspaceTopBar({
   lastSelectedCli,
   specialistCliDefaults,
   multiloopRoleCliDefaults,
-  setSpecialistCliDefault,
-  setMultiloopRoleCliDefault,
-  cliModelDefaults,
-  specialistModelDefaults,
-  multiloopRoleModelDefaults,
-  setCliModelDefault,
-  setSpecialistModelDefault,
-  setMultiloopRoleModelDefault,
-  specialistActions,
-  setSpecialistOrder,
   agentCliOptions,
-  agentCliStatus,
-  agentCliError,
   agentSpawnPermissionPreset,
   setAgentSpawnPermissionPreset,
   handleSelectSpecialist,
@@ -659,7 +531,6 @@ export default function WorkspaceTopBar({
   addNewMultiloopAgent,
   addNewCliAgent,
   addNewTerminal,
-  setGeneralAgentCli,
   conversationSpawnAvailable,
   onSpawnConversationAgent,
   onOpenTerminalInNewChat,
@@ -697,65 +568,6 @@ export default function WorkspaceTopBar({
   // opencode/custom agents read correctly instead of falling back to "Claude Code".
   const cliLabelFor = (cli: AgentCli): string =>
     agentCliOptions.find((option) => option.value === cli)?.label ?? cli
-  // "Claude Code · Opus" for tooltips: the model's friendly label when the
-  // catalog knows it, the raw id otherwise, nothing when the CLI default runs.
-  const cliWithModelLabel = (cli: AgentCli, model: string | undefined): string => {
-    const cliLabel = cliLabelFor(cli)
-    if (!model) return cliLabel
-    const option = agentCliOptions.find((entry) => entry.value === cli)
-    const modelLabel = option?.modelSelection?.options.find((entry) => entry.id === model)?.label ?? model
-    return `${cliLabel} · ${modelLabel}`
-  }
-  // Drag-to-reorder state for the specialist spawn list. Ephemeral: the dragged
-  // row and the row it is currently hovering, used only to paint the drop target.
-  const [draggingSpecialistId, setDraggingSpecialistId] = React.useState<SpecialistActionId | null>(null)
-  const [dragOverSpecialistId, setDragOverSpecialistId] = React.useState<SpecialistActionId | null>(null)
-  // Commit a drop: move the dragged specialist to the target's position and
-  // persist the full id sequence. No-ops when source/target match or are stale.
-  const reorderSpecialist = (sourceId: SpecialistActionId, targetId: SpecialistActionId): void => {
-    if (sourceId === targetId) return
-    const ids = specialistActions.map((action) => action.id)
-    const from = ids.indexOf(sourceId)
-    const to = ids.indexOf(targetId)
-    if (from === -1 || to === -1) return
-    ids.splice(from, 1)
-    ids.splice(to, 0, sourceId)
-    setSpecialistOrder(ids)
-  }
-  // The per-row CLI chip flyout lives inside the spawn menu's scroll container,
-  // which clips overflow — with the full model list it would be cut off. The menu
-  // surface is portaled to <body>, so the flyout is not a descendant of the menu
-  // root and can't inherit positioning from it. Instead position the open flyout
-  // `fixed` by writing coordinates straight onto its node: it escapes the clip and
-  // floats on top, anchored to its row (mirroring the old right-8 / top-32 offsets)
-  // and flips above the row when the list would run past the viewport bottom.
-  React.useLayoutEffect(() => {
-    if (!chipPopoverForRole) return
-    const apply = () => {
-      const surface = document.querySelector<HTMLElement>('[data-chip-popover="true"]')
-      const anchor = surface?.parentElement
-      if (!surface || !anchor) return
-      const rect = anchor.getBoundingClientRect()
-      const openUp = window.innerHeight - rect.top - 32 < surface.offsetHeight + 8
-      surface.style.position = 'fixed'
-      surface.style.left = 'auto'
-      surface.style.right = `${Math.max(8, Math.round(window.innerWidth - rect.right + 8))}px`
-      if (openUp) {
-        surface.style.top = 'auto'
-        surface.style.bottom = `${Math.round(window.innerHeight - rect.bottom + 32)}px`
-      } else {
-        surface.style.bottom = 'auto'
-        surface.style.top = `${Math.round(rect.top + 32)}px`
-      }
-    }
-    apply()
-    window.addEventListener('resize', apply)
-    window.addEventListener('scroll', apply, true)
-    return () => {
-      window.removeEventListener('resize', apply)
-      window.removeEventListener('scroll', apply, true)
-    }
-  }, [chipPopoverForRole, agentCliOptions.length])
   return (
       <div
         className="flex h-[48px] shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-3 transition-colors"
@@ -1041,92 +853,6 @@ export default function WorkspaceTopBar({
             const triggerCliOption =
               agentCliOptions.find((option) => option.value === triggerCli)
               ?? { value: triggerCli, label: cliLabelFor(triggerCli) }
-            const menuQuery = agentMenuQuery.trim().toLowerCase()
-            const filteredSpecialists = menuQuery
-              ? specialistActions.filter((action) =>
-                  action.label.toLowerCase().includes(menuQuery)
-                  || action.shortLabel.toLowerCase().includes(menuQuery)
-                  || action.description.toLowerCase().includes(menuQuery)
-                )
-              : specialistActions
-            // Reordering only makes sense against the full, unfiltered roster:
-            // a search-filtered list has gaps that make drop positions ambiguous.
-            const specialistDragEnabled = !menuQuery
-            const filteredMultiloop = menuQuery
-              ? MULTILOOP_ROLES.filter((soul) =>
-                  soul.label.toLowerCase().includes(menuQuery)
-                  || soul.shortLabel.toLowerCase().includes(menuQuery)
-                )
-              : MULTILOOP_ROLES
-            const visibleItems = multiloopLaunchMenu ? filteredMultiloop : filteredSpecialists
-            const safeHighlight = visibleItems.length === 0
-              ? 0
-              : Math.min(agentMenuHighlight, visibleItems.length - 1)
-            const quickTerminalVisible = !multiloopLaunchMenu && (!menuQuery || 'terminal'.includes(menuQuery))
-            const quickGeneralVisible = !multiloopLaunchMenu && (!menuQuery || 'general agent'.includes(menuQuery))
-            // Single conversation-agent quick row (standard workspaces with an
-            // available provider/model). Non-roving like the other quick rows;
-            // the model itself is chosen later in the chat composer.
-            const quickConversationVisible =
-              conversationSpawnAvailable && (!menuQuery || 'conversation agent'.includes(menuQuery))
-            const hasQuickMatches = quickTerminalVisible || quickGeneralVisible || quickConversationVisible
-            const hasAnyMatches = hasQuickMatches || visibleItems.length > 0
-            const cycleCli = (current: AgentCli): AgentCli => {
-              if (agentCliOptions.length === 0) return current
-              const index = agentCliOptions.findIndex((option) => option.value === current)
-              const next = agentCliOptions[(index + 1) % agentCliOptions.length]
-              return next?.value ?? current
-            }
-            const onSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-              if (event.key === 'ArrowDown') {
-                event.preventDefault()
-                setAgentMenuHighlight((index) =>
-                  visibleItems.length === 0 ? 0 : Math.min(index + 1, visibleItems.length - 1)
-                )
-                return
-              }
-              if (event.key === 'ArrowUp') {
-                event.preventDefault()
-                setAgentMenuHighlight((index) => Math.max(index - 1, 0))
-                return
-              }
-              if (event.key === 'Enter') {
-                event.preventDefault()
-                const item = visibleItems[safeHighlight]
-                if (!item) return
-                if (multiloopLaunchMenu) {
-                  const role = (item as MultiloopRoleDescriptor).role
-                  handleSelectMultiloopRole(role, resolvePickerCli(multiloopRoleCliDefaults[role] ?? lastSelectedCli))
-                } else {
-                  const id = (item as SpecialistAction).id
-                  handleSelectSpecialist(id, resolvePickerCli(specialistCliDefaults[id] ?? lastSelectedCli))
-                }
-                return
-              }
-              if (event.key === 'Escape') {
-                event.preventDefault()
-                if (chipPopoverForRole) {
-                  setChipPopoverForRole(null)
-                } else {
-                  setSpecialistMenuOpen(false)
-                }
-                return
-              }
-              if ((event.altKey || event.metaKey) && (event.key === 'm' || event.key === 'M')) {
-                // Cycle the CLI for the highlighted row only — per agent, not global.
-                event.preventDefault()
-                const item = visibleItems[safeHighlight]
-                if (!item) return
-                if (multiloopLaunchMenu) {
-                  const role = (item as MultiloopRoleDescriptor).role
-                  setMultiloopRoleCliDefault(role, cycleCli(multiloopRoleCliDefaults[role] ?? lastSelectedCli))
-                } else {
-                  const id = (item as SpecialistAction).id
-                  setSpecialistCliDefault(id, cycleCli(specialistCliDefaults[id] ?? lastSelectedCli))
-                }
-                return
-              }
-            }
             return (
             <div ref={specialistMenuRef} className="relative inline-flex">
               {/*
@@ -1203,454 +929,23 @@ export default function WorkspaceTopBar({
                     </Tooltip>
                   )}
                 >
-                <div data-spawn-panel="true" className="w-[320px] overflow-hidden">
-                  <div className="flex items-center gap-2 border-b border-[color:var(--border-subtle)] px-2.5 py-2">
-                    <svg className="icon-sm shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                      <circle cx="9" cy="9" r="5" stroke="currentColor" strokeWidth="1.6" />
-                      <path d="M13 13l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                    </svg>
-                    <input
-                      ref={agentMenuSearchRef}
-                      value={agentMenuQuery}
-                      onChange={(event) => {
-                        setAgentMenuQuery(event.currentTarget.value)
-                        setAgentMenuHighlight(0)
-                      }}
-                      onKeyDown={onSearchKeyDown}
-                      placeholder={multiloopLaunchMenu ? 'Spawn role…' : 'Spawn agent…'}
-                      className="min-w-0 flex-1 bg-transparent text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] focus:outline-none"
-                      aria-label="Filter agents"
-                    />
-                  </div>
-
-                  {agentCliStatus === 'loading' ? (
-                    <div className="px-3 py-1.5 text-[11px] text-[color:var(--text-disabled)]" role="status">
-                      Loading installed agents…
-                    </div>
-                  ) : agentCliStatus === 'error' ? (
-                    <div className="px-3 py-1.5 text-[11px] text-[color:var(--text-muted)]" role="status">
-                      {agentCliError ?? 'Could not load agent plugins.'} Showing built-in agents.
-                    </div>
-                  ) : agentCliOptions.length === 0 ? (
-                    <div className="px-3 py-1.5 text-[11px] text-[color:var(--text-muted)]" role="status">
-                      No agent plugins installed.
-                    </div>
-                  ) : null}
-
-                  {hasQuickMatches ? (
-                    <div className="py-1">
-                      {quickTerminalVisible ? (() => {
-                        const terminalChipOpen = chipPopoverForRole?.kind === 'terminal'
-                        return (
-                          <div className="relative">
-                            <Tooltip content={withShortcut('Open a plain terminal · right-click for more', shortcutFor('terminal.new'))} placement="bottom" wrapperClassName="block w-full">
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  addNewTerminal()
-                                  setSpecialistMenuOpen(false)
-                                }}
-                                onContextMenu={(event) => {
-                                  event.preventDefault()
-                                  setChipPopoverForRole((current) => (current?.kind === 'terminal' ? null : { kind: 'terminal' }))
-                                }}
-                                className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[rgba(92,124,255,0.05)] hover:text-[color:var(--text-strong)]"
-                              >
-                                <TerminalSessionIcon className="h-4 w-4 text-[color:var(--text-muted)]" />
-                                <span className="truncate text-[13px]">Terminal</span>
-                                <span aria-hidden="true" />
-                              </button>
-                            </Tooltip>
-                            {terminalChipOpen ? (
-                              // primitive-duplication-allow: nested chip menu inside the Popover-managed spawn menu, matching the General Agent row; the outer Popover owns outside-click and focus restoration.
-                              <div
-                                role="menu"
-                                data-chip-popover="true"
-                                aria-label="Terminal actions"
-                                // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                className={`fixed z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
-                              >
-                                <OpenInNewChatItem
-                                  onSelect={() => {
-                                    onOpenTerminalInNewChat()
-                                    setChipPopoverForRole(null)
-                                  }}
-                                />
-                              </div>
-                            ) : null}
-                          </div>
-                        )
-                      })() : null}
-                      {quickGeneralVisible ? (() => {
-                        const generalCli = resolvePickerCli(lastSelectedCli)
-                        const generalChipOpen = chipPopoverForRole?.kind === 'general'
-                        return (
-                          <div className="relative">
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => {
-                                addNewCliAgent(generalCli, 'General Agent')
-                                setSpecialistMenuOpen(false)
-                              }}
-                              onContextMenu={(event) => {
-                                event.preventDefault()
-                                setChipPopoverForRole((current) => (current?.kind === 'general' ? null : { kind: 'general' }))
-                              }}
-                              className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[rgba(92,124,255,0.05)] hover:text-[color:var(--text-strong)]"
-                            >
-                              <CliIcon cli={generalCli} className="h-4 w-4 text-[color:var(--text-muted)]" />
-                              <span className="truncate text-[13px]">General Agent</span>
-                              <Tooltip placement="bottom" content={`Agent CLI: ${cliWithModelLabel(generalCli, resolveCliModel(generalCli, undefined, cliModelDefaults))} · right-click or click to change`}>
-                                <span
-                                  role="button"
-                                  tabIndex={-1}
-                                  aria-label={`Agent CLI: ${cliWithModelLabel(generalCli, resolveCliModel(generalCli, undefined, cliModelDefaults))}`}
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    setChipPopoverForRole((current) => (current?.kind === 'general' ? null : { kind: 'general' }))
-                                  }}
-                                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-disabled)] transition-colors hover:text-[color:var(--text-strong)]"
-                                >
-                                  <CliIcon cli={generalCli} className="icon-sm" />
-                                </span>
-                              </Tooltip>
-                            </button>
-                            {generalChipOpen ? (
-                              // primitive-duplication-allow: nested chip menu inside the Popover-managed spawn menu, matching the specialist rows; the outer Popover owns outside-click and focus restoration.
-                              <div
-                                role="menu"
-                                data-chip-popover="true"
-                                aria-label="General Agent actions"
-                                // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                className={`fixed z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
-                              >
-                                <OpenInNewChatItem
-                                  onSelect={() => {
-                                    onOpenGeneralInNewChat(generalCli)
-                                    setChipPopoverForRole(null)
-                                  }}
-                                />
-                                <div className="my-1 h-px bg-[color:var(--border-subtle)]" role="separator" />
-                                <CliModelListbox
-                                  ariaLabel="Agent CLI for General Agent"
-                                  options={agentCliOptions}
-                                  currentCli={generalCli}
-                                  effectiveModelFor={(cli) => resolveCliModel(cli, undefined, cliModelDefaults)}
-                                  onSelectCli={(cli) => {
-                                    setGeneralAgentCli(cli)
-                                    setChipPopoverForRole(null)
-                                  }}
-                                  onSelectModel={(cli, model) => {
-                                    setGeneralAgentCli(cli)
-                                    setCliModelDefault(cli, model)
-                                    setChipPopoverForRole(null)
-                                  }}
-                                />
-                              </div>
-                            ) : null}
-                          </div>
-                        )
-                      })() : null}
-                      {quickConversationVisible ? (() => {
-                        const conversationChipOpen = chipPopoverForRole?.kind === 'conversation'
-                        return (
-                          <div className="relative">
-                            <Tooltip content="Open a chat agent — pick the model in the composer · right-click for more" placement="bottom" wrapperClassName="block w-full">
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => onSpawnConversationAgent()}
-                                onContextMenu={(event) => {
-                                  event.preventDefault()
-                                  setChipPopoverForRole((current) => (current?.kind === 'conversation' ? null : { kind: 'conversation' }))
-                                }}
-                                className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[rgba(92,124,255,0.05)] hover:text-[color:var(--text-strong)]"
-                              >
-                                <ConversationProviderIcon className="h-4 w-4 text-[color:var(--text-muted)]" />
-                                <span className="truncate text-[13px]">Conversation agent</span>
-                                <span aria-hidden="true" />
-                              </button>
-                            </Tooltip>
-                            {conversationChipOpen ? (
-                              // primitive-duplication-allow: nested chip menu inside the Popover-managed spawn menu, matching the General Agent row; the outer Popover owns outside-click and focus restoration.
-                              <div
-                                role="menu"
-                                data-chip-popover="true"
-                                aria-label="Conversation agent actions"
-                                // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                className={`fixed z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
-                              >
-                                <OpenInNewChatItem
-                                  onSelect={() => {
-                                    onOpenConversationInNewChat()
-                                    setChipPopoverForRole(null)
-                                  }}
-                                />
-                              </div>
-                            ) : null}
-                          </div>
-                        )
-                      })() : null}
-                    </div>
-                  ) : null}
-
-                  {!hasAnyMatches ? (
-                    <div className="px-3 py-5 text-center text-[11px] text-[color:var(--text-disabled)]">
-                      No matches
-                    </div>
-                  ) : visibleItems.length === 0 ? null : (
-                    <div data-spawn-scroll="true" className={`max-h-[340px] overflow-y-auto py-1 ${hasQuickMatches ? 'border-t border-[color:var(--border-subtle)]' : ''}`}>
-                      {multiloopLaunchMenu
-                        ? filteredMultiloop.map((soul, index) => {
-                            const highlighted = index === safeHighlight
-                            const boundCli = resolvePickerCli(multiloopRoleCliDefaults[soul.role] ?? lastSelectedCli)
-                            const boundModel = resolveSurfaceModel(boundCli, multiloopRoleModelDefaults[soul.role])
-                            const popoverOpen =
-                              chipPopoverForRole?.kind === 'multiloop'
-                              && chipPopoverForRole.role === soul.role
-                            return (
-                              <div key={soul.role} className="relative">
-                                <button
-                                  type="button"
-                                  role="menuitemradio"
-                                  aria-checked={highlighted}
-                                  onClick={() => handleSelectMultiloopRole(soul.role, boundCli)}
-                                  onContextMenu={(event) => {
-                                    event.preventDefault()
-                                    setAgentMenuHighlight(index)
-                                    setChipPopoverForRole({ kind: 'multiloop', role: soul.role })
-                                  }}
-                                  onMouseEnter={() => setAgentMenuHighlight(index)}
-                                  className={`grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pr-2 text-left transition-colors ${
-                                    highlighted
-                                      ? 'bg-[color:var(--accent-primary-soft)] pl-[7px] shadow-[inset_3px_0_0_var(--accent-primary)] text-[color:var(--text-strong)]'
-                                      : 'pl-2.5 text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.05)]'
-                                  }`}
-                                >
-                                  <SpecialistActionIcon
-                                    icon={soul.icon}
-                                    className={`h-4 w-4 ${highlighted ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'}`}
-                                  />
-                                  <span className="truncate text-[13px]">{soul.label}</span>
-                                  <Tooltip
-                                    placement="bottom"
-                                    content={`Agent CLI: ${cliWithModelLabel(boundCli, boundModel)} · click to change`}
-                                  >
-                                    <span
-                                      role="button"
-                                      tabIndex={-1}
-                                      aria-label={`Agent CLI: ${cliWithModelLabel(boundCli, boundModel)}`}
-                                      onClick={(event) => {
-                                        event.stopPropagation()
-                                        setAgentMenuHighlight(index)
-                                        setChipPopoverForRole((current) =>
-                                          current?.kind === 'multiloop' && current.role === soul.role
-                                            ? null
-                                            : { kind: 'multiloop', role: soul.role }
-                                        )
-                                      }}
-                                      className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
-                                        highlighted
-                                          ? 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
-                                          : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-strong)]'
-                                      }`}
-                                    >
-                                      <CliIcon cli={boundCli} className="icon-sm" />
-                                    </span>
-                                  </Tooltip>
-                                </button>
-                                {popoverOpen ? (
-                                  <div
-                                    data-chip-popover="true"
-                                    // primitive-duplication-allow: nested chip-listbox inside the Popover-managed specialist menu;
-                                    // anchored to a row-local `<div className="relative">` with no separate outside-click handler.
-                                    // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                    className={`fixed z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
-                                  >
-                                    <CliModelListbox
-                                      ariaLabel={`Agent CLI for ${soul.label}`}
-                                      options={agentCliOptions}
-                                      currentCli={boundCli}
-                                      effectiveModelFor={(cli) =>
-                                        resolveSurfaceModel(cli, multiloopRoleModelDefaults[soul.role])}
-                                      onSelectCli={(cli) => {
-                                        setMultiloopRoleCliDefault(soul.role, cli)
-                                        setChipPopoverForRole(null)
-                                      }}
-                                      onSelectModel={(cli, model) => {
-                                        setMultiloopRoleCliDefault(soul.role, cli)
-                                        setMultiloopRoleModelDefault(soul.role, model ? { cli, model } : null)
-                                        setChipPopoverForRole(null)
-                                      }}
-                                    />
-                                  </div>
-                                ) : null}
-                              </div>
-                            )
-                          })
-                        : filteredSpecialists.map((action, index) => {
-                            const highlighted = index === safeHighlight
-                            const boundCli = resolvePickerCli(specialistCliDefaults[action.id] ?? lastSelectedCli)
-                            const boundModel = resolveSurfaceModel(boundCli, specialistModelDefaults[action.id])
-                            const popoverOpen =
-                              chipPopoverForRole?.kind === 'specialist'
-                              && chipPopoverForRole.id === action.id
-                            const dragging = draggingSpecialistId === action.id
-                            const dropTarget =
-                              specialistDragEnabled
-                              && dragOverSpecialistId === action.id
-                              && draggingSpecialistId !== null
-                              && draggingSpecialistId !== action.id
-                            return (
-                              <div
-                                key={action.id}
-                                className={`relative ${dragging ? 'opacity-40' : ''} ${
-                                  dropTarget ? 'shadow-[inset_0_2px_0_var(--accent-primary)]' : ''
-                                }`}
-                                draggable={specialistDragEnabled}
-                                onDragStart={(event) => {
-                                  setDraggingSpecialistId(action.id)
-                                  event.dataTransfer.effectAllowed = 'move'
-                                  event.dataTransfer.setData('text/plain', action.id)
-                                }}
-                                onDragOver={(event) => {
-                                  if (!specialistDragEnabled || draggingSpecialistId === null) return
-                                  event.preventDefault()
-                                  event.dataTransfer.dropEffect = 'move'
-                                  if (dragOverSpecialistId !== action.id) setDragOverSpecialistId(action.id)
-                                }}
-                                onDragLeave={() => {
-                                  setDragOverSpecialistId((current) => (current === action.id ? null : current))
-                                }}
-                                onDrop={(event) => {
-                                  event.preventDefault()
-                                  if (draggingSpecialistId) reorderSpecialist(draggingSpecialistId, action.id)
-                                  setDraggingSpecialistId(null)
-                                  setDragOverSpecialistId(null)
-                                }}
-                                onDragEnd={() => {
-                                  setDraggingSpecialistId(null)
-                                  setDragOverSpecialistId(null)
-                                }}
-                              >
-                                <button
-                                  type="button"
-                                  role="menuitemradio"
-                                  aria-checked={highlighted}
-                                  onClick={() => handleSelectSpecialist(action.id, boundCli)}
-                                  onContextMenu={(event) => {
-                                    event.preventDefault()
-                                    setAgentMenuHighlight(index)
-                                    setChipPopoverForRole({ kind: 'specialist', id: action.id })
-                                  }}
-                                  onMouseEnter={() => setAgentMenuHighlight(index)}
-                                  className={`grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pr-2 text-left transition-colors ${
-                                    dragging ? 'cursor-grabbing' : ''
-                                  } ${
-                                    highlighted
-                                      ? 'bg-[color:var(--accent-primary-soft)] pl-[7px] shadow-[inset_3px_0_0_var(--accent-primary)] text-[color:var(--text-strong)]'
-                                      : 'pl-2.5 text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.05)]'
-                                  }`}
-                                >
-                                  <SpecialistActionIcon
-                                    icon={action.icon}
-                                    className={`h-4 w-4 ${highlighted ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'}`}
-                                  />
-                                  <span className="truncate text-[13px]">{action.shortLabel}</span>
-                                  <Tooltip
-                                    placement="bottom"
-                                    content={`Agent CLI: ${cliWithModelLabel(boundCli, boundModel)} · click to change`}
-                                  >
-                                    <span
-                                      role="button"
-                                      tabIndex={-1}
-                                      aria-label={`Agent CLI: ${cliWithModelLabel(boundCli, boundModel)}`}
-                                      onClick={(event) => {
-                                        event.stopPropagation()
-                                        setAgentMenuHighlight(index)
-                                        setChipPopoverForRole((current) =>
-                                          current?.kind === 'specialist' && current.id === action.id
-                                            ? null
-                                            : { kind: 'specialist', id: action.id }
-                                        )
-                                      }}
-                                      className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
-                                        highlighted
-                                          ? 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
-                                          : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-strong)]'
-                                      }`}
-                                    >
-                                      <CliIcon cli={boundCli} className="icon-sm" />
-                                    </span>
-                                  </Tooltip>
-                                </button>
-                                {popoverOpen ? (
-                                  <div
-                                    role="menu"
-                                    data-chip-popover="true"
-                                    aria-label={`${action.label} actions`}
-                                    // primitive-duplication-allow: nested chip menu inside the Popover-managed specialist menu;
-                                    // anchored to a row-local `<div className="relative">` with no separate outside-click handler.
-                                    // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                    className={`fixed z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
-                                  >
-                                    <OpenInNewChatItem
-                                      onSelect={() => {
-                                        onOpenSpecialistInNewChat(action.id, boundCli)
-                                        setChipPopoverForRole(null)
-                                      }}
-                                    />
-                                    <div className="my-1 h-px bg-[color:var(--border-subtle)]" role="separator" />
-                                    <CliModelListbox
-                                      ariaLabel={`Agent CLI for ${action.label}`}
-                                      options={agentCliOptions}
-                                      currentCli={boundCli}
-                                      effectiveModelFor={(cli) =>
-                                        resolveSurfaceModel(cli, specialistModelDefaults[action.id])}
-                                      onSelectCli={(cli) => {
-                                        setSpecialistCliDefault(action.id, cli)
-                                        setChipPopoverForRole(null)
-                                      }}
-                                      onSelectModel={(cli, model) => {
-                                        setSpecialistCliDefault(action.id, cli)
-                                        setSpecialistModelDefault(action.id, model ? { cli, model } : null)
-                                        setChipPopoverForRole(null)
-                                      }}
-                                    />
-                                  </div>
-                                ) : null}
-                              </div>
-                            )
-                          })}
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-1 border-t border-[color:var(--border-subtle)] px-2 py-1.5">
-                    {AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
-                      const active = option.value === agentSpawnPermissionPreset
-                      const isBypass = option.value === 'bypass_all'
-                      return (
-                        <Tooltip key={option.value} content={option.title} placement="bottom">
-                          <button
-                            type="button"
-                            onClick={() => setAgentSpawnPermissionPreset(option.value)}
-                            className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
-                              active
-                                ? isBypass
-                                  ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn)]'
-                                  : 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-                                : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]'
-                            }`}
-                          >
-                            {option.value === 'default' ? 'Default' : option.value === 'auto_workspace' ? 'Auto' : 'Bypass'}
-                          </button>
-                        </Tooltip>
-                      )
-                    })}
-                  </div>
-                </div>
+                  <SpawnAgentMenu
+                    multiloopLaunchMenu={multiloopLaunchMenu}
+                    conversationSpawnAvailable={conversationSpawnAvailable}
+                    agentSpawnPermissionPreset={agentSpawnPermissionPreset}
+                    onChangeAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
+                    onSpawnTerminal={addNewTerminal}
+                    onSpawnGeneral={(cli) => addNewCliAgent(cli, 'General Agent')}
+                    onSpawnConversation={onSpawnConversationAgent}
+                    onSpawnSpecialist={handleSelectSpecialist}
+                    onSpawnMultiloopRole={handleSelectMultiloopRole}
+                    showOpenInNewChat
+                    onOpenTerminalInNewChat={onOpenTerminalInNewChat}
+                    onOpenGeneralInNewChat={onOpenGeneralInNewChat}
+                    onOpenConversationInNewChat={onOpenConversationInNewChat}
+                    onOpenSpecialistInNewChat={onOpenSpecialistInNewChat}
+                    onClose={() => setSpecialistMenuOpen(false)}
+                  />
                 </Popover>
               </div>
             </div>

@@ -1,5 +1,3 @@
-import { app } from 'electron'
-
 const DIAGNOSTIC_SLOW_IPC_MS = 250
 
 type MainDiagnosticsOptions = {
@@ -8,7 +6,7 @@ type MainDiagnosticsOptions = {
 
 export function createMainDiagnostics({ enabled }: MainDiagnosticsOptions) {
   function logMainPerfEvent(scope: string, event: string, payload: Record<string, unknown>): void {
-    if (app.isPackaged && !enabled) return
+    if (!enabled) return
     console.info(`[${scope}] ${event}`, payload)
   }
 

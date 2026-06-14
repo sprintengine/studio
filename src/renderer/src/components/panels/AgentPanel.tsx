@@ -64,22 +64,28 @@ export default function AgentPanel({
   const agent = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
   )
-  const workspace = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId) ?? null
+  const workspaceMode = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.mode
   )
-  const sprintEngineRuntimeAgent = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId] ?? null
+  const workspaceName = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.name
+  )
+  const sprintEngineRuntimeRole = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId]?.role
+  )
+  const sprintEngineRuntimeStatus = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId]?.status
   )
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const label = agent?.name ?? agentId
-  const isSprintEngineAgent = workspace?.mode === 'sprintengine' && Boolean(sprintEngineRuntimeAgent)
+  const isSprintEngineAgent = workspaceMode === 'sprintengine' && Boolean(sprintEngineRuntimeRole)
   const sprintEngineTerminalBlocked = MULTICODE_DISABLE_SPRINTENGINE_TERMINALS && isSprintEngineAgent
   const runtimeKind = resolveAgentRuntimeKind(agent, {
     isSprintEngineAgent,
-    workspaceMode: workspace?.mode,
+    workspaceMode,
   })
   const isConversationRuntime = runtimeKind === 'conversation'
   const cli = agent?.cli
@@ -94,7 +100,7 @@ export default function AgentPanel({
   const hasStarted =
     !agentCliUnavailable
     && (Boolean(sessionId) || (!sprintEngineTerminalBlocked && (!isSprintEngineAgent || Boolean(agent?.cliStartRequested))))
-  const needsInput = sprintEngineRuntimeAgent?.status === 'needs_input'
+  const needsInput = sprintEngineRuntimeStatus === 'needs_input'
   const cliShellTone = needsInput
     ? 'border border-[color:var(--tone-warn)] bg-[color:var(--bg-surface-raised)] ring-1 ring-[color:var(--tone-warn-soft)]'
     : ''
@@ -107,7 +113,7 @@ export default function AgentPanel({
         title: `${label} was not started`,
         message: `Agent CLI "${cli}" is unavailable. Reinstall or re-enable the plugin before launching this agent.`,
         workspaceId,
-        workspaceName: workspace?.name,
+        workspaceName,
         agentId,
       })
       return
@@ -119,7 +125,7 @@ export default function AgentPanel({
         title: `${label} was not started`,
         message: 'Agent terminal is missing its CLI selection.',
         workspaceId,
-        workspaceName: workspace?.name,
+        workspaceName,
         agentId,
       })
       return
@@ -136,7 +142,7 @@ export default function AgentPanel({
     })
   }
 
-  const startLabel = sprintEngineRuntimeAgent?.role === 'architect' ? 'Spawn Architect' : `Spawn ${label}`
+  const startLabel = sprintEngineRuntimeRole === 'architect' ? 'Spawn Architect' : `Spawn ${label}`
 
   if (isConversationRuntime) {
     return (

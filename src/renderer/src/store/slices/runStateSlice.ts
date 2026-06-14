@@ -39,6 +39,7 @@ import {
   sprintEngineRunSettingsKey,
 } from './settingsSlice'
 import type {
+  AgentState,
   AgentId,
   AppSettings,
   MultiloopAutoPendingSpawn,
@@ -324,6 +325,67 @@ function isDefaultSprintEngineAgentName(name: string | undefined, fallbackLabel:
   return !name || name === fallbackLabel
 }
 
+function agentExecutionsEqual(
+  left: AgentState['execution'] | undefined,
+  right: AgentState['execution'] | undefined
+): boolean {
+  return left?.mode === right?.mode
+    && left?.worktreeId === right?.worktreeId
+    && left?.cwd === right?.cwd
+}
+
+function agentConversationsEqual(
+  left: AgentState['conversation'] | undefined,
+  right: AgentState['conversation'] | undefined
+): boolean {
+  return left?.providerId === right?.providerId
+    && left?.modelId === right?.modelId
+}
+
+function agentStatesEqual(left: AgentState, right: AgentState): boolean {
+  return left.id === right.id
+    && left.name === right.name
+    && left.status === right.status
+    && agentExecutionsEqual(left.execution, right.execution)
+    && left.messages === right.messages
+    && left.streamBuffer === right.streamBuffer
+    && left.runtimeKind === right.runtimeKind
+    && agentConversationsEqual(left.conversation, right.conversation)
+    && left.cliSessionId === right.cliSessionId
+    && left.cliStartRequested === right.cliStartRequested
+    && left.cliRestartNonce === right.cliRestartNonce
+    && left.cliHasLaunched === right.cliHasLaunched
+    && left.cliOnboardingPromptSent === right.cliOnboardingPromptSent
+    && left.cliResumeAvailable === right.cliResumeAvailable
+    && left.cliLastExitCode === right.cliLastExitCode
+    && left.cliLastExitedAt === right.cliLastExitedAt
+    && left.cli === right.cli
+    && left.cliModel === right.cliModel
+    && left.cliPermissionPreset === right.cliPermissionPreset
+    && left.cliStartupPrompt === right.cliStartupPrompt
+    && left.kind === right.kind
+    && left.specialistId === right.specialistId
+    && left.multiloopRole === right.multiloopRole
+}
+
+function reuseAgentIfUnchanged(current: AgentState | undefined, next: AgentState): AgentState {
+  return current && agentStatesEqual(current, next) ? current : next
+}
+
+function reuseAgentsMapIfUnchanged(
+  currentAgents: Workspace['agents'],
+  nextAgents: Workspace['agents']
+): Workspace['agents'] {
+  const currentIds = Object.keys(currentAgents)
+  const nextIds = Object.keys(nextAgents)
+  if (currentIds.length !== nextIds.length) return nextAgents
+  for (let index = 0; index < nextIds.length; index += 1) {
+    const id = nextIds[index]
+    if (currentIds[index] !== id || currentAgents[id] !== nextAgents[id]) return nextAgents
+  }
+  return currentAgents
+}
+
 export function reconcileSprintEngineAgents(
   currentAgents: Workspace['agents'],
   sprintEngineState: SprintEngineState | null
@@ -337,9 +399,10 @@ export function reconcileSprintEngineAgents(
       const nextName = isDefaultSprintEngineAgentName(current?.name, agent.label)
         ? pickWorkspaceAgentName({ ...currentAgents, ...nextAgents })
         : current?.name ?? agent.label
-      const nextAgent = current
+      const normalizedAgent = current
         ? normalizeAgentState({ ...current, name: nextName, kind: 'sprintengine' as const }, 'claude-code')
         : { ...defaultAgent(agent.id, nextName, 'sprintengine'), cli: 'claude-code' as const }
+      const nextAgent = reuseAgentIfUnchanged(current, normalizedAgent)
       nextAgents[agent.id] = nextAgent
       return [agent.id, nextAgent]
     })
@@ -348,21 +411,21 @@ export function reconcileSprintEngineAgents(
   const specialistAgents = Object.fromEntries(
     Object.entries(currentAgents).filter(([id, agent]) =>
       (agent.kind === 'specialist' || agent.kind === 'watchtower') && !rosterAgents[id]
-    ).map(([id, agent]) => [id, normalizeAgentState(agent)])
+    ).map(([id, agent]) => [id, reuseAgentIfUnchanged(agent, normalizeAgentState(agent))])
   )
   const transientSprintEngineAgents = Object.fromEntries(
     Object.entries(currentAgents).filter(([id, agent]) =>
       agent.kind === 'sprintengine'
       && !rosterAgents[id]
       && Boolean(agent.cliStartRequested || agent.cliHasLaunched || agent.cliSessionId)
-    ).map(([id, agent]) => [id, normalizeAgentState(agent, 'claude-code')])
+    ).map(([id, agent]) => [id, reuseAgentIfUnchanged(agent, normalizeAgentState(agent, 'claude-code'))])
   )
 
-  return {
+  return reuseAgentsMapIfUnchanged(currentAgents, {
     ...specialistAgents,
     ...transientSprintEngineAgents,
     ...rosterAgents,
-  }
+  })
 }
 
 export function migrateSprintEngineAgentNames(ws: Workspace): Workspace {

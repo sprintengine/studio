@@ -112,6 +112,7 @@ async function main(): Promise<void> {
     await assertSprintEngineConcurrentSpawnFailureKeepsReservedRun(runtimeModule)
     await assertSprintEngineSpawnDerivesFallbackAgentIdBeforeMcpSync(runtimeModule)
     await assertTerminalReattachUsesReplayChannel(runtimeModule)
+    await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
     await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
   } finally {
     moduleWithLoad._load = originalLoad
@@ -457,6 +458,60 @@ async function assertTerminalReattachUsesReplayChannel(runtimeModule: RuntimeMod
       mockSender.sent.some((event) => event.channel === 'terminal:data:session_replay'),
       false,
       'reattached retained output must not be delivered as live terminal data'
+    )
+  } finally {
+    await runtime.shutdown()
+  }
+}
+
+async function assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-hidden-replay-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+
+  try {
+    const hiddenSpawn = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_hidden_replay',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      kind: 'terminal',
+      shellOnly: true,
+      visible: false,
+    })
+    assert.equal(hiddenSpawn.ok, true, JSON.stringify(hiddenSpawn))
+    assert.equal(mockPty.spawnCalls.length, 1)
+
+    mockPty.spawnCalls[0]?.process.emitData('hidden terminal output\r\n')
+    await delay(20)
+    assert.equal(
+      mockSender.sent.some((event) => event.channel === 'terminal:data:session_hidden_replay'),
+      false,
+      'hidden terminal output must not fan out over live terminal:data IPC'
+    )
+
+    mockSender.sent = []
+    const reattach = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_hidden_replay',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      resume: true,
+      kind: 'terminal',
+      shellOnly: true,
+      visible: true,
+    })
+
+    assert.equal(reattach.ok, true, JSON.stringify(reattach))
+    assert.deepEqual(
+      mockSender.sent.filter((event) => event.channel === 'terminal:replay:session_hidden_replay'),
+      [{ channel: 'terminal:replay:session_hidden_replay', payload: 'hidden terminal output\r\n' }]
     )
   } finally {
     await runtime.shutdown()

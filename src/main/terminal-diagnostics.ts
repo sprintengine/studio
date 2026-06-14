@@ -34,7 +34,7 @@ export function createTerminalDiagnostics({ enabled, logMainPerfEvent }: Termina
     chunkCount: number,
     byteCount: number
   ): void {
-    if (!session || chunkCount === 0) return
+    if (!session || !enabled || chunkCount === 0) return
 
     const now = Date.now()
     const stats = terminalBatchDiagnostics.get(session.sessionId) ?? {

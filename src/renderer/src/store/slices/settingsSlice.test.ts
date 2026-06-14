@@ -24,6 +24,7 @@ import {
   getSpecialistAction,
   orderSpecialistActions,
 } from '../../specialists/specialistActions'
+import { createInitialSprintEngineState } from '../../utils/sprintengine'
 
 const workspaceWithMemoryRoot = {
   folderPath: '/Users/example/project',
@@ -318,14 +319,11 @@ const permissionCarrier = {
         teamDirectoryPath: '/Users/example/project/.multi-code/sprintengine/run',
         statePath: sprintEngineRunPath,
       },
-      sprintEngineState: {
+      sprintEngineState: createInitialSprintEngineState({
         name: 'run',
         goal: 'Test permission propagation',
         roleCounts: { architect: 1 },
-        sprintEngineAgents: {
-          architect: { role: 'architect', status: 'idle', currentTaskId: null },
-        },
-      },
+      }),
       sprintEngineAutoState: {
         desiredMode: 'manual',
         runtimeState: 'idle',
