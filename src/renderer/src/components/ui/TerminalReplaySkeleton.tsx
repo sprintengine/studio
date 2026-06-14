@@ -1,5 +1,4 @@
 import React from 'react'
-import { Skeleton } from './Skeleton'
 
 /**
  * Terminal-shaped placeholder shown while retained scrollback is being
@@ -7,10 +6,14 @@ import { Skeleton } from './Skeleton'
  * short prompt-sized blocks followed by varied line widths — on the terminal
  * ground so the reveal of real content is visually continuous.
  *
+ * Intentionally static (no shimmer): a cold workspace switch can mount several
+ * terminals at once, and an animation per block adds compositor cost at the
+ * exact moment the mount is busiest. The quiet ghost-lines read as "content is
+ * coming" without that cost.
+ *
  * The skeleton is decorative (`aria-hidden`); the terminal element underneath
  * remains the focus/interaction target. A single concise `role="status"` label
  * announces the restore for screen readers instead of repeating per row.
- * Shimmer respects reduced-motion automatically through `.skeleton-shimmer`.
  */
 
 // Prompt-block width + a sequence of line-fragment widths per row. Widths are
@@ -30,6 +33,12 @@ const REPLAY_SKELETON_ROWS: ReadonlyArray<{ prompt: string; lines: string[] }> =
   { prompt: 'w-10', lines: ['w-[42%]', 'w-[26%]'] },
 ]
 
+function GhostLine({ widthClass }: { widthClass: string }) {
+  return (
+    <div className={`h-[10px] ${widthClass} rounded-sm bg-[color:var(--skeleton-shimmer-high)]`} />
+  )
+}
+
 export function TerminalReplaySkeleton() {
   return (
     <div className="pointer-events-none absolute inset-0 z-[5] overflow-hidden bg-[color:var(--terminal-bg,var(--bg-app))] p-2 pb-4">
@@ -39,12 +48,9 @@ export function TerminalReplaySkeleton() {
       <div aria-hidden="true" className="flex flex-col gap-[7px]">
         {REPLAY_SKELETON_ROWS.map((row, rowIndex) => (
           <div key={rowIndex} className="flex items-center gap-2">
-            <Skeleton className={`h-[10px] ${row.prompt} rounded-sm bg-[color:var(--skeleton-shimmer-high)]`} />
+            <GhostLine widthClass={row.prompt} />
             {row.lines.map((line, lineIndex) => (
-              <Skeleton
-                key={lineIndex}
-                className={`h-[10px] ${line} rounded-sm bg-[color:var(--skeleton-shimmer-high)]`}
-              />
+              <GhostLine key={lineIndex} widthClass={line} />
             ))}
           </div>
         ))}

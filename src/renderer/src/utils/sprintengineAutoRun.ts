@@ -602,8 +602,14 @@ export function getSprintEngineAssignedAgentIds(sprintEngineState: SprintEngineS
     ) {
       assigned.add(task.ownerAgentId)
     }
-    for (const claim of getActiveSprintEngineAutoRunGateClaims(task, sprintEngineState.tasks)) {
-      assigned.add(claim.claimedBy)
+    for (const gate of task.qualityGates ?? []) {
+      if (gate.status !== 'in_progress') continue
+      for (let index = gate.attempts.length - 1; index >= 0; index -= 1) {
+        const attempt = gate.attempts[index]
+        if (attempt.status !== 'in_progress' || typeof attempt.claimedBy !== 'string' || !attempt.claimedBy) continue
+        assigned.add(attempt.claimedBy)
+        break
+      }
     }
   }
   for (const [agentId, runtimeAgent] of Object.entries(sprintEngineState.sprintEngineAgents)) {
@@ -905,7 +911,11 @@ export function planSprintEngineDispatch(input: {
   }
 
   const wakeTasks = getSprintEngineWakeCandidateTasks(sprintEngineState)
-  const assignedAgentIds = getSprintEngineAssignedAgentIds(sprintEngineState)
+  let assignedAgentIds: Set<string> | null = null
+  const getAssignedAgentIdsForWake = (): ReadonlySet<string> => {
+    assignedAgentIds ??= getSprintEngineAssignedAgentIds(sprintEngineState)
+    return assignedAgentIds
+  }
 
   if (include('task_wake') && input.idleAgentIds.size > 0 && wakeTasks.length > 0) {
     const readyTaskIds = new Set(wakeTasks.map((task) => task.id))
@@ -920,7 +930,7 @@ export function planSprintEngineDispatch(input: {
       if (engagedAgentIds.has(agentId)) continue
       const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
       if (!runtimeAgent) continue
-      if (!isSprintEngineAgentAvailableForWake(sprintEngineState, agentId, assignedAgentIds)) {
+      if (!isSprintEngineAgentAvailableForWake(sprintEngineState, agentId, getAssignedAgentIdsForWake())) {
         plan.skips.push({
           event: 'continuation-prompt-skipped-agent-assigned',
           data: { agentId, role: runtimeAgent.role, status: runtimeAgent.status, currentTaskId: runtimeAgent.currentTaskId ?? null },
@@ -1004,7 +1014,7 @@ export function planSprintEngineDispatch(input: {
           if (usedIdleAgentIds.has(candidateId) || engagedAgentIds.has(candidateId)) return false
           const runtimeAgent = sprintEngineState.sprintEngineAgents[candidateId]
           return runtimeAgent?.role === gate.role
-            && isSprintEngineAgentAvailableForWake(sprintEngineState, candidateId, assignedAgentIds)
+            && isSprintEngineAgentAvailableForWake(sprintEngineState, candidateId, getAssignedAgentIdsForWake())
         })
         if (!agentId) continue
         const key = continuationMessageKey(workspace, `${task.id}:${gate.id}`, agentId)
@@ -1038,7 +1048,7 @@ export function planSprintEngineDispatch(input: {
     for (const agentId of input.idleAgentIds) {
       const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
       if (!runtimeAgent) continue
-      if (!isSprintEngineAgentAvailableForWake(sprintEngineState, agentId, assignedAgentIds)) {
+      if (!isSprintEngineAgentAvailableForWake(sprintEngineState, agentId, getAssignedAgentIdsForWake())) {
         plan.skips.push({
           event: 'restart-skipped-agent-assigned',
           data: { agentId, role: runtimeAgent.role, status: runtimeAgent.status, currentTaskId: runtimeAgent.currentTaskId ?? null },
