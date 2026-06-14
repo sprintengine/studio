@@ -60,16 +60,17 @@ export function registerDiagnosticsIpc(
     // working set). process.pid here is the Browser process, matching that entry's
     // pid so the collector merges it onto the right row.
     const heap = process.memoryUsage()
-    const metrics = app.getAppMetrics() as unknown as RawProcessMetric[]
-    // Refresh thread counts off the hot path (throttled, async); attach the
-    // current cache to this snapshot.
-    maybeRefreshThreadCounts(metrics.map((metric) => metric.pid).filter((pid) => Number.isInteger(pid)))
-    return collectProcessMetrics(
-      () => metrics,
+    // collectProcessMetrics owns the (safely guarded) getAppMetrics call; attach
+    // the current thread-count cache, then refresh it off the hot path for the
+    // next poll using the pids it actually returned.
+    const snapshot = collectProcessMetrics(
+      () => app.getAppMetrics() as unknown as RawProcessMetric[],
       Date.now(),
       { pid: process.pid, heapUsedBytes: heap.heapUsed, heapTotalBytes: heap.heapTotal },
       threadCountCache
     )
+    maybeRefreshThreadCounts(snapshot.processes.map((metric) => metric.pid).filter((pid) => Number.isInteger(pid)))
+    return snapshot
   })
 
   ipcMain.handle('diagnostics:open-window', () => {

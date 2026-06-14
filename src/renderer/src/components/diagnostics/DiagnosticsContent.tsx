@@ -433,7 +433,8 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             <p className="text-[color:var(--text-muted)]">Process metrics unavailable.</p>
           )}
           <p className="mt-1 text-[10px] text-[color:var(--text-subtle)]">
-            CPU % is the rolling share since the previous sample. Thread/FD counts are not collected in this build.
+            CPU % is the rolling share since the previous sample. Thread counts are sampled from the OS off the
+            poll path (refreshed every few seconds); FD counts are not collected in this build.
           </p>
         </section>
 

@@ -99,13 +99,14 @@ export function formatDiagnosticsReport(input: {
   if (metrics && metrics.processes.length > 0) {
     sections.push(
       table(
-        ['Kind', 'PID', 'Type', 'CPU %', 'RSS', 'JS heap (used/total)'],
+        ['Kind', 'PID', 'Type', 'CPU %', 'RSS', 'Threads', 'JS heap (used/total)'],
         metrics.processes.map((process) => [
           process.kind,
           String(process.pid),
           process.name ? `${process.type} · ${process.name}` : process.type,
           process.cpuPercent.toFixed(1),
           formatBytes(process.memoryBytes),
+          process.threads !== undefined ? String(process.threads) : '—',
           process.heapUsedBytes !== undefined && process.heapTotalBytes !== undefined
             ? `${formatBytes(process.heapUsedBytes)} / ${formatBytes(process.heapTotalBytes)}`
             : '—',

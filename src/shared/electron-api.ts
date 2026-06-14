@@ -562,9 +562,10 @@ export type TerminalSessionSnapshot = {
 // process type to the role operators reason about: 'main' (Browser),
 // 'renderer' (Tab), plus 'gpu' and 'utility'. `cpuPercent` is the rolling CPU
 // share since the previous getAppMetrics() call, so it is only meaningful when
-// the diagnostics panel samples on an interval. `threads`/`fileDescriptors` are
-// optional: the MVP leaves them undefined (Electron does not expose them and
-// per-poll ps/lsof would add the overhead the panel exists to measure).
+// the diagnostics panel samples on an interval. `threads` is populated from a
+// throttled, off-poll OS sample (macOS `ps -M`, Linux /proc) — not on the 1s
+// poll, since per-poll ps/lsof would add the overhead the panel exists to
+// measure. `fileDescriptors` remains undefined (same per-poll-cost reason).
 export type ProcessMetricKind = 'main' | 'renderer' | 'gpu' | 'utility' | 'other'
 
 export type ProcessMetricSample = {
