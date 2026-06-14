@@ -73,6 +73,7 @@ import { isAgentTabVisible, type AgentTerminalRevealPolicy } from '../../utils/m
 import {
   refreshSprintEngineWorkspaceProjection,
 } from '../../utils/sprintengineProjectionRefresh'
+import { registerTimer } from '../../utils/diagnostics/timerRegistry'
 import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
 import {
   deriveSprintEngineAutomationDesiredMode,
@@ -2331,13 +2332,17 @@ export default function SprintEngineAutoRunSupervisor() {
       }
     }
 
-    void tick()
-    const interval = window.setInterval(() => {
-      void tick()
-    }, AUTO_RUN_POLL_MS)
+    const timer = registerTimer('SprintEngine auto-run poll', AUTO_RUN_POLL_MS)
+    const runTick = () => {
+      const startedAt = performance.now()
+      void Promise.resolve(tick()).finally(() => timer.recordTick(performance.now() - startedAt))
+    }
+    runTick()
+    const interval = window.setInterval(runTick, AUTO_RUN_POLL_MS)
 
     return () => {
       disposed = true
+      timer.unregister()
       window.clearInterval(interval)
     }
   }, [])

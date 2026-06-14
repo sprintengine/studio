@@ -28,6 +28,7 @@ import {
   type MultiloopAutoRunCandidate,
 } from '../../utils/multiloopAutoRun'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
+import { registerTimer } from '../../utils/diagnostics/timerRegistry'
 
 const AUTO_RUN_POLL_MS = 2000
 const INACTIVE_AUTO_RUN_POLL_MS = 15000
@@ -597,13 +598,17 @@ export default function MultiloopAutoRunSupervisor() {
       }
     }
 
-    void tick()
-    const interval = window.setInterval(() => {
-      void tick()
-    }, AUTO_RUN_POLL_MS)
+    const timer = registerTimer('Multiloop auto-run poll', AUTO_RUN_POLL_MS)
+    const runTick = () => {
+      const startedAt = performance.now()
+      void Promise.resolve(tick()).finally(() => timer.recordTick(performance.now() - startedAt))
+    }
+    runTick()
+    const interval = window.setInterval(runTick, AUTO_RUN_POLL_MS)
 
     return () => {
       disposed = true
+      timer.unregister()
       window.clearInterval(interval)
     }
   }, [])

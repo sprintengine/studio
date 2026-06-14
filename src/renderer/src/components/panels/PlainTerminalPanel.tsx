@@ -9,6 +9,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createXtermOutputQueue, createXtermReplayGate, type XtermReplayState } from '../../utils/xtermOutputQueue'
+import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
@@ -75,6 +76,7 @@ export default function PlainTerminalPanel({
       scrollback: TERMINAL_RECENT_SCROLLBACK_LINES,
     })
     const unbindTerminalTheme = bindTerminalTheme(term)
+    registerTerminalInstance(sessionId, term)
     const fitAddon = new FitAddon()
     const terminalDiagnostics = createTerminalDiagnostics({
       scope: 'PlainTerminalPanel',
@@ -301,6 +303,7 @@ export default function PlainTerminalPanel({
       replayGate.dispose()
       outputQueue.dispose()
       unbindTerminalTheme()
+      unregisterTerminalInstance(sessionId)
       term.dispose()
       if (killOnUnmount || shouldKillOnUnmount?.(sessionId)) {
         void window.api.terminalKill(sessionId).catch(() => {})

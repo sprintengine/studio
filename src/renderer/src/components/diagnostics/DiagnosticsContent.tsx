@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { ProcessMetricKind, ProcessMetricsSnapshot } from '../../../../shared/electron-api'
 import { Select } from '../ui/Select'
 import { useTerminalSessions } from '../../hooks/useTerminalSessions'
@@ -37,6 +37,22 @@ import {
   readRendererHeap,
   setMetricsBaseline,
 } from '../../utils/diagnostics/metricsHistoryStore'
+import { diffIpcSnapshots, type IpcThroughput } from '../../utils/diagnostics/ipcThroughputStore'
+import {
+  getTerminalWriteSamples,
+  subscribeTerminalWrites,
+  summarizeTerminalThroughput,
+} from '../../utils/diagnostics/terminalThroughputStore'
+import {
+  collectScrollbackFootprint,
+  subscribeTerminalInstances,
+} from '../../utils/diagnostics/terminalInstanceRegistry'
+import {
+  getTimerRegistrations,
+  subscribeTimers,
+  summarizeTimers,
+} from '../../utils/diagnostics/timerRegistry'
+import type { IpcStatsSnapshot } from '../../../../shared/electron-api'
 
 // Poll process metrics once a second while the panel is mounted. Both surfaces
 // (overlay + standalone window) mount this only while visible, so this interval
@@ -198,6 +214,8 @@ export default function DiagnosticsContent({ headerActions }: Props) {
   const [copied, setCopied] = useState(false)
   // Bumped whenever the baseline is set/cleared so the trend memo recomputes.
   const [baselineNonce, setBaselineNonce] = useState(0)
+  const [ipcThroughput, setIpcThroughput] = useState<IpcThroughput | null>(null)
+  const prevIpcRef = useRef<IpcStatsSnapshot | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -213,6 +231,13 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           appendMetricsSample(deriveMetricsSample(snapshot, readRendererHeap()))
         })
         .catch(() => {})
+      // IPC counters are synchronous preload state; diff against the previous
+      // snapshot to get per-second rates. Guarded for older preloads.
+      const ipcSnapshot = window.api.diagnosticsGetIpcStats?.()
+      if (ipcSnapshot && !cancelled) {
+        setIpcThroughput(diffIpcSnapshots(prevIpcRef.current, ipcSnapshot))
+        prevIpcRef.current = ipcSnapshot
+      }
     }
     poll()
     const id = window.setInterval(poll, PROCESS_METRICS_POLL_MS)
@@ -227,13 +252,18 @@ export default function DiagnosticsContent({ headerActions }: Props) {
   useEffect(() => startLongTaskObserver(), [])
 
   useEffect(() => subscribeReplayProfiles(() => setProfiles(getReplayProfiles())), [])
-  // Re-render on perf-event / long-task arrivals between polls so spikes show
-  // promptly rather than waiting for the next 1s tick.
+  // Re-render on perf-event / long-task / timer / terminal arrivals between polls
+  // so spikes show promptly rather than waiting for the next 1s tick.
   useEffect(() => subscribePerfEvents(() => setNow(Date.now())), [])
   useEffect(() => subscribeLongTasks(() => setNow(Date.now())), [])
+  useEffect(() => subscribeTimers(() => setNow(Date.now())), [])
+  useEffect(() => subscribeTerminalWrites(() => setNow(Date.now())), [])
+  useEffect(() => subscribeTerminalInstances(() => setNow(Date.now())), [])
 
   const perfRollup = useMemo(() => aggregatePerfEvents(getPerfEventSamples(), { now }), [now])
   const longTaskSummary = useMemo(() => summarizeLongTasks(getLongTaskSamples(), { now }), [now])
+  const timerRows = useMemo(() => summarizeTimers(getTimerRegistrations()), [now])
+  const scrollback = useMemo(() => collectScrollbackFootprint(), [now])
   const metricsTrend = useMemo(() => {
     const history = getMetricsHistory()
     return {
@@ -259,6 +289,15 @@ export default function DiagnosticsContent({ headerActions }: Props) {
     [aggregation.rows, sortKey]
   )
 
+  // Terminals that are runtime-visible while their workspace is off-screen — the
+  // set whose write throughput is "wasted" rendering work.
+  const terminalThroughput = useMemo(() => {
+    const hiddenSessionIds = new Set(
+      aggregation.rows.filter((row) => row.hiddenButVisible).map((row) => row.sessionId)
+    )
+    return summarizeTerminalThroughput(getTerminalWriteSamples(), { hiddenSessionIds, now })
+  }, [aggregation.rows, now])
+
   const handleCopy = () => {
     // Snapshot `now` at copy time so the report's relative timestamps match what
     // the user saw when they clicked.
@@ -269,6 +308,10 @@ export default function DiagnosticsContent({ headerActions }: Props) {
       perfEvents: perfRollup,
       longTasks: longTaskSummary,
       metricsTrend,
+      ipc: ipcThroughput,
+      terminalThroughput,
+      scrollback,
+      timers: timerRows,
       now: Date.now(),
     })
     void window.api
@@ -297,7 +340,6 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             onClick={handleToggleBaseline}
             className="rounded px-2 py-1 text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--border-strong)]"
             aria-label={metricsTrend.baseline ? 'Clear memory baseline' : 'Mark current metrics as baseline'}
-            title="Freeze the current metrics as a baseline and show live deltas against it"
           >
             {metricsTrend.baseline ? 'Clear baseline' : 'Mark baseline'}
           </button>
@@ -612,6 +654,94 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             </table>
           ) : (
             <p className="text-[color:var(--text-muted)]">No terminal sessions.</p>
+          )}
+        </section>
+
+        {/* Active timers / supervisors */}
+        <section>
+          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
+            Active timers / supervisors ({timerRows.length})
+          </h2>
+          {timerRows.length > 0 ? (
+            <table className="w-full border-collapse">
+              <thead>
+                <tr>
+                  <Th>Label</Th>
+                  <Th numeric>Cadence ms</Th>
+                  <Th numeric>Ticks</Th>
+                  <Th numeric>Avg ms</Th>
+                  <Th numeric>Max ms</Th>
+                  <Th numeric>Last tick</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {timerRows.map((row) => (
+                  <tr key={row.label} className="border-b border-[color:var(--border-subtle)]">
+                    <Td>{row.label}</Td>
+                    <Td numeric>{row.cadenceMs}</Td>
+                    <Td numeric>{row.tickCount}</Td>
+                    <Td numeric>{msOrDash(row.avgMs)}</Td>
+                    <Td numeric>{msOrDash(row.maxMs)}</Td>
+                    <Td numeric>{formatRelativeMsAgo(row.lastTickAt, now) || '—'}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-[color:var(--text-muted)]">No registered recurring timers.</p>
+          )}
+        </section>
+
+        {/* Terminal scrollback + write throughput */}
+        <section>
+          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">Terminal subsystem</h2>
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px] tabular-nums text-[color:var(--text-default)]">
+            <span>
+              Scrollback: <strong>{scrollback.instanceCount}</strong> instances ·{' '}
+              {scrollback.totalLines.toLocaleString()} lines · ~{formatBytes(scrollback.estimatedBytes)} est.
+            </span>
+            <span>Write total {formatBytes(terminalThroughput.totalBytesPerSec)}/s</span>
+            <span className={terminalThroughput.hiddenBytesPerSec > 0 ? 'text-[color:var(--tone-error)]' : ''}>
+              hidden {formatBytes(terminalThroughput.hiddenBytesPerSec)}/s
+            </span>
+            <span>visible {formatBytes(terminalThroughput.visibleBytesPerSec)}/s</span>
+          </div>
+        </section>
+
+        {/* IPC throughput */}
+        <section>
+          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
+            IPC throughput {ipcThroughput ? `(${ipcThroughput.channels.length} channels)` : ''}
+          </h2>
+          {ipcThroughput && ipcThroughput.channels.length > 0 ? (
+            <table className="w-full border-collapse">
+              <thead>
+                <tr>
+                  <Th>Channel</Th>
+                  <Th numeric>Calls/s</Th>
+                  <Th numeric>Out/s</Th>
+                  <Th numeric>Events/s</Th>
+                  <Th numeric>In/s</Th>
+                  <Th numeric>Total calls</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {ipcThroughput.channels.slice(0, 12).map((channel) => (
+                  <tr key={channel.name} className="border-b border-[color:var(--border-subtle)]">
+                    <Td title={channel.name}>{channel.name}</Td>
+                    <Td numeric>{channel.callsPerSec}</Td>
+                    <Td numeric>{formatBytes(channel.outBytesPerSec)}</Td>
+                    <Td numeric>{channel.inEventsPerSec}</Td>
+                    <Td numeric>{formatBytes(channel.inBytesPerSec)}</Td>
+                    <Td numeric>{channel.totalCalls}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-[color:var(--text-muted)]">
+              IPC accounting is active only when diagnostics is enabled (dev or MULTICODE_DIAGNOSTICS=1).
+            </p>
           )}
         </section>
 

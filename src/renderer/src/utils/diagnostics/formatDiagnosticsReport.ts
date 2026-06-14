@@ -5,6 +5,10 @@ import type { ReplayProfileEntry } from './replayProfileStore'
 import type { PerfEventRollupRow } from './perfEventStore'
 import type { LongTaskSummary } from './longTaskStore'
 import { diffMetricsSamples, type GrowthRates, type MetricsSample } from './metricsHistoryStore'
+import type { IpcThroughput } from './ipcThroughputStore'
+import type { TerminalThroughput } from './terminalThroughputStore'
+import type { ScrollbackFootprint } from './terminalInstanceRegistry'
+import type { TimerRegistrationRow } from './timerRegistry'
 
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
@@ -68,9 +72,13 @@ export function formatDiagnosticsReport(input: {
   perfEvents?: readonly PerfEventRollupRow[]
   longTasks?: LongTaskSummary | null
   metricsTrend?: MetricsTrendReport | null
+  ipc?: IpcThroughput | null
+  terminalThroughput?: TerminalThroughput | null
+  scrollback?: ScrollbackFootprint | null
+  timers?: readonly TimerRegistrationRow[]
   now: number
 }): string {
-  const { aggregation, metrics, profiles, perfEvents, longTasks, metricsTrend, now } = input
+  const { aggregation, metrics, profiles, perfEvents, longTasks, metricsTrend, ipc, terminalThroughput, scrollback, timers, now } = input
   const totals = aggregation.totals
 
   const sections: string[] = []
@@ -191,6 +199,65 @@ export function formatDiagnosticsReport(input: {
           msOrDash(row.maxMs),
           msOrDash(row.lastMs),
         ])
+      )
+    )
+  }
+
+  if (timers && timers.length > 0) {
+    sections.push('## Active timers / supervisors')
+    sections.push(
+      table(
+        ['Label', 'Cadence ms', 'Ticks', 'Avg ms', 'Max ms', 'Last tick'],
+        timers.map((row) => [
+          row.label,
+          String(row.cadenceMs),
+          String(row.tickCount),
+          msOrDash(row.avgMs),
+          msOrDash(row.maxMs),
+          lastOutput(row.lastTickAt, now),
+        ])
+      )
+    )
+  }
+
+  if (scrollback) {
+    sections.push('## Terminal scrollback footprint')
+    sections.push(
+      [
+        `Instances: ${scrollback.instanceCount}`,
+        `Total scrollback lines: ${scrollback.totalLines.toLocaleString()}`,
+        `Estimated memory: ~${formatBytes(scrollback.estimatedBytes)} (rough: lines × cols × cell)`,
+      ].join('\n')
+    )
+  }
+
+  if (terminalThroughput) {
+    sections.push('## Terminal write throughput')
+    sections.push(
+      [
+        `Window: last ${Math.round(terminalThroughput.windowMs / 1000)}s`,
+        `Total: ${formatBytes(terminalThroughput.totalBytesPerSec)}/s`,
+        `Hidden (rendering off-screen): ${formatBytes(terminalThroughput.hiddenBytesPerSec)}/s`,
+        `Visible: ${formatBytes(terminalThroughput.visibleBytesPerSec)}/s`,
+      ].join('\n')
+    )
+  }
+
+  if (ipc && ipc.channels.length > 0) {
+    sections.push('## IPC throughput (per channel)')
+    sections.push(
+      table(
+        ['Channel', 'Calls/s', 'Out/s', 'Events/s', 'In/s', 'Total calls'],
+        ipc.channels
+          .slice(0, 15)
+          .map((channel) => [
+            channel.name,
+            String(channel.callsPerSec),
+            formatBytes(channel.outBytesPerSec),
+            String(channel.inEventsPerSec),
+            formatBytes(channel.inBytesPerSec),
+            String(channel.totalCalls),
+          ])
       )
     )
   }

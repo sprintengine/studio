@@ -1,5 +1,6 @@
 import { contextBridge } from 'electron'
 import type { ElectronApi } from '../shared/electron-api'
+import { instrumentApi, snapshotIpcStats } from './ipcStats'
 import { appMenuApi } from './api/app-menu'
 import { authApi } from './api/auth'
 import { automationApi } from './api/automation'
@@ -27,10 +28,14 @@ import { windowApi } from './api/window'
 import { workspaceBackupApi } from './api/workspace-backup'
 import { workspaceSyncApi } from './api/workspace-sync'
 
+const diagnosticsEnabled =
+  process.env.NODE_ENV === 'development' || process.env.MULTICODE_DIAGNOSTICS === '1'
+
 const api = {
   platform: process.platform,
   isDevelopment: process.env.NODE_ENV === 'development',
   isDiagnosticsEnabled: process.env.MULTICODE_DIAGNOSTICS === '1',
+  diagnosticsGetIpcStats: snapshotIpcStats,
   ...windowApi,
   ...authApi,
   ...automationApi,
@@ -59,4 +64,6 @@ const api = {
   ...workspaceSyncApi,
 } satisfies ElectronApi
 
-contextBridge.exposeInMainWorld('api', api)
+// Wrap the whole surface for IPC accounting only when diagnostics is enabled, so
+// there is zero per-call overhead in normal runs. instrumentApi preserves shape.
+contextBridge.exposeInMainWorld('api', diagnosticsEnabled ? instrumentApi(api) : api)

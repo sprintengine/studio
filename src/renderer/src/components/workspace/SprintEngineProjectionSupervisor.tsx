@@ -3,6 +3,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
   refreshSprintEngineWorkspaceProjection,
 } from '../../utils/sprintengineProjectionRefresh'
+import { registerTimer } from '../../utils/diagnostics/timerRegistry'
 
 // Paired with the auto-run cadence. The reader now short-circuits via a cheap
 // mtime:size token, so an unchanged projection costs a single stat() with no
@@ -64,13 +65,17 @@ export default function SprintEngineProjectionSupervisor({ activeWorkspaceId, wo
       }
     }
 
-    void tick()
-    const interval = window.setInterval(() => {
-      void tick()
-    }, SPRINT_ENGINE_PROJECTION_ACTIVE_POLL_MS)
+    const timer = registerTimer('SprintEngine projection poll', SPRINT_ENGINE_PROJECTION_ACTIVE_POLL_MS)
+    const runTick = () => {
+      const startedAt = performance.now()
+      void Promise.resolve(tick()).finally(() => timer.recordTick(performance.now() - startedAt))
+    }
+    runTick()
+    const interval = window.setInterval(runTick, SPRINT_ENGINE_PROJECTION_ACTIVE_POLL_MS)
 
     return () => {
       disposed = true
+      timer.unregister()
       window.clearInterval(interval)
     }
   }, [activeWorkspaceId, workspaceKey])

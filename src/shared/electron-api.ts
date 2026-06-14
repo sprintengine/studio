@@ -588,6 +588,22 @@ export type ProcessMetricsSnapshot = {
   processes: ProcessMetricSample[]
 }
 
+// Per-api-method IPC accounting, accumulated in the preload (see preload/ipcStats).
+// Counts are monotonic since process start; the renderer diffs consecutive
+// snapshots to derive per-second rates.
+export type IpcChannelStat = {
+  name: string
+  calls: number
+  outBytes: number
+  inEvents: number
+  inBytes: number
+}
+
+export type IpcStatsSnapshot = {
+  sampledAt: number
+  channels: IpcChannelStat[]
+}
+
 export type TerminalSpawnResult =
   | { ok: true; sessionId: string }
   | { ok: false; sessionId: string; message: string; exitCode: number }
@@ -1678,6 +1694,9 @@ export type ElectronApi = {
   onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
   onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void) => () => void
   diagnosticsGetProcessMetrics: () => Promise<ProcessMetricsSnapshot>
+  // Synchronous: returns the preload's accumulated IPC counters (empty channels
+  // when diagnostics is disabled, since instrumentation is skipped entirely).
+  diagnosticsGetIpcStats: () => IpcStatsSnapshot
   diagnosticsOpenWindow: () => Promise<void>
   onAppMenuCommand: (cb: (command: string) => void) => () => void
   updateAppMenuAccelerators: (updates: AppMenuAcceleratorUpdate[]) => Promise<AppMenuAcceleratorUpdateResult>
