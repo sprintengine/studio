@@ -221,6 +221,19 @@ export function resolveCliModel(
   return fallback || undefined
 }
 
+// Effective model for a per-surface picker (specialist row, Multiloop role): the
+// surface's own (cli, model) override when it matches the bound CLI, else no
+// model — the CLI's own default, no flag. Deliberately does NOT fall back to the
+// app-level `cliModelDefaults`: that store belongs to the General Agent and must
+// not bleed into specialist/role spawns, or picking the bare "Claude Code" row
+// (which clears the override) would silently inherit the General Agent's model.
+export function resolveSurfaceModel(
+  cli: AgentCli,
+  override: AgentCliModelSelection | null | undefined,
+): string | undefined {
+  return resolveCliModel(cli, override, undefined)
+}
+
 export function buildCliRuntimeOptions(
   cliRuntimes: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>> | undefined,
 ): AgentCliCatalogOption[] {

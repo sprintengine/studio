@@ -16,6 +16,12 @@ export type SprintEngineBacklogLinkOpenPorts = {
   workspaces: ReadonlyArray<Workspace>
   setActiveWorkspace(workspaceId: string): void
   openRunSummaryOverlay(workspaceId: string): void
+  mountWorkspaceForRun?(input: {
+    workspaceRoot: string
+    statePath: string
+    teamSlug: string
+    link: BacklogItemLink
+  }): Promise<Workspace | null> | Workspace | null
   publishDiagnostic?(input: {
     level: 'info' | 'warning' | 'error'
     source: string
@@ -161,10 +167,34 @@ export async function openSprintEngineBacklogLink(
   }
 
   const targetKey = pathKey(statePath)
-  const workspace = input.ports.workspaces.find((candidate) =>
+  let workspace = input.ports.workspaces.find((candidate) =>
     candidate.sprintEngineContext?.statePath
     && pathKey(candidate.sprintEngineContext.statePath) === targetKey
   )
+
+  if (!workspace && input.ports.mountWorkspaceForRun) {
+    try {
+      workspace = await input.ports.mountWorkspaceForRun({
+        workspaceRoot: input.workspaceRoot,
+        statePath,
+        teamSlug: teamSlugFromStatePath(statePath) ?? input.link.target.id,
+        link: input.link,
+      }) ?? undefined
+    } catch (error) {
+      await input.ports.publishDiagnostic?.({
+        level: 'warning',
+        source: 'sprintengine',
+        title: 'Sprint Engine run unavailable',
+        message: 'Could not mount this Sprint Engine run as a workspace.',
+        details: [
+          statePath,
+          error instanceof Error ? error.message : String(error),
+        ].filter(Boolean).join('\n'),
+        workspaceId: input.workspaceId,
+      })
+      return false
+    }
+  }
 
   if (!workspace) {
     await input.ports.publishDiagnostic?.({

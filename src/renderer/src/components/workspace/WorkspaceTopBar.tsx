@@ -22,7 +22,7 @@ import type {
   SprintEngineCliPermissionPreset,
   Workspace,
 } from '../../types/workspace'
-import { resolveAvailableAgentCli, resolveCliModel, type AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
+import { resolveAvailableAgentCli, resolveCliModel, resolveSurfaceModel, type AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
 import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getHighlightSwatch, getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
@@ -722,29 +722,40 @@ export default function WorkspaceTopBar({
     ids.splice(to, 0, sourceId)
     setSpecialistOrder(ids)
   }
-  // The per-row CLI chip popover is absolutely positioned inside the spawn
-  // menu's scroll container, which clips overflow. For rows near the bottom it
-  // would open downward into the clip and extend the scrollbar, so flip it to
-  // open upward when there isn't room below within the scroller (or panel for
-  // the quick rows that sit above the list).
-  const [chipPopoverPlacement, setChipPopoverPlacement] = React.useState<'down' | 'up'>('down')
+  // The per-row CLI chip flyout lives inside the spawn menu's scroll container,
+  // which clips overflow — with the full model list it would be cut off. The menu
+  // surface is portaled to <body>, so the flyout is not a descendant of the menu
+  // root and can't inherit positioning from it. Instead position the open flyout
+  // `fixed` by writing coordinates straight onto its node: it escapes the clip and
+  // floats on top, anchored to its row (mirroring the old right-8 / top-32 offsets)
+  // and flips above the row when the list would run past the viewport bottom.
   React.useLayoutEffect(() => {
-    if (!chipPopoverForRole) {
-      setChipPopoverPlacement('down')
-      return
+    if (!chipPopoverForRole) return
+    const apply = () => {
+      const surface = document.querySelector<HTMLElement>('[data-chip-popover="true"]')
+      const anchor = surface?.parentElement
+      if (!surface || !anchor) return
+      const rect = anchor.getBoundingClientRect()
+      const openUp = window.innerHeight - rect.top - 32 < surface.offsetHeight + 8
+      surface.style.position = 'fixed'
+      surface.style.left = 'auto'
+      surface.style.right = `${Math.max(8, Math.round(window.innerWidth - rect.right + 8))}px`
+      if (openUp) {
+        surface.style.top = 'auto'
+        surface.style.bottom = `${Math.round(window.innerHeight - rect.bottom + 32)}px`
+      } else {
+        surface.style.bottom = 'auto'
+        surface.style.top = `${Math.round(rect.top + 32)}px`
+      }
     }
-    const root = specialistMenuRef.current
-    const surface = root?.querySelector<HTMLElement>('[data-chip-popover="true"]')
-    const anchor = surface?.parentElement
-    if (!surface || !anchor) return
-    const bounds =
-      surface.closest<HTMLElement>('[data-spawn-scroll="true"]')
-      ?? surface.closest<HTMLElement>('[data-spawn-panel="true"]')
-    const boundsBottom = bounds ? bounds.getBoundingClientRect().bottom : window.innerHeight
-    const spaceBelow = boundsBottom - anchor.getBoundingClientRect().bottom
-    setChipPopoverPlacement(spaceBelow < surface.offsetHeight + 8 ? 'up' : 'down')
-  }, [chipPopoverForRole, specialistMenuRef, agentCliOptions.length])
-  const chipPopoverPositionClass = chipPopoverPlacement === 'up' ? 'bottom-[32px]' : 'top-[32px]'
+    apply()
+    window.addEventListener('resize', apply)
+    window.addEventListener('scroll', apply, true)
+    return () => {
+      window.removeEventListener('resize', apply)
+      window.removeEventListener('scroll', apply, true)
+    }
+  }, [chipPopoverForRole, agentCliOptions.length])
   return (
       <div
         className="flex h-[48px] shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-3 transition-colors"
@@ -1258,7 +1269,7 @@ export default function WorkspaceTopBar({
                                 data-chip-popover="true"
                                 aria-label="Terminal actions"
                                 // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
+                                className={`fixed z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                               >
                                 <OpenInNewChatItem
                                   onSelect={() => {
@@ -1313,7 +1324,7 @@ export default function WorkspaceTopBar({
                                 data-chip-popover="true"
                                 aria-label="General Agent actions"
                                 // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
+                                className={`fixed z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                               >
                                 <OpenInNewChatItem
                                   onSelect={() => {
@@ -1369,7 +1380,7 @@ export default function WorkspaceTopBar({
                                 data-chip-popover="true"
                                 aria-label="Conversation agent actions"
                                 // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
+                                className={`fixed z-50 w-[180px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                               >
                                 <OpenInNewChatItem
                                   onSelect={() => {
@@ -1395,7 +1406,7 @@ export default function WorkspaceTopBar({
                         ? filteredMultiloop.map((soul, index) => {
                             const highlighted = index === safeHighlight
                             const boundCli = resolvePickerCli(multiloopRoleCliDefaults[soul.role] ?? lastSelectedCli)
-                            const boundModel = resolveCliModel(boundCli, multiloopRoleModelDefaults[soul.role], cliModelDefaults)
+                            const boundModel = resolveSurfaceModel(boundCli, multiloopRoleModelDefaults[soul.role])
                             const popoverOpen =
                               chipPopoverForRole?.kind === 'multiloop'
                               && chipPopoverForRole.role === soul.role
@@ -1456,14 +1467,14 @@ export default function WorkspaceTopBar({
                                     // primitive-duplication-allow: nested chip-listbox inside the Popover-managed specialist menu;
                                     // anchored to a row-local `<div className="relative">` with no separate outside-click handler.
                                     // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                    className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
+                                    className={`fixed z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                                   >
                                     <CliModelListbox
                                       ariaLabel={`Agent CLI for ${soul.label}`}
                                       options={agentCliOptions}
                                       currentCli={boundCli}
                                       effectiveModelFor={(cli) =>
-                                        resolveCliModel(cli, multiloopRoleModelDefaults[soul.role], cliModelDefaults)}
+                                        resolveSurfaceModel(cli, multiloopRoleModelDefaults[soul.role])}
                                       onSelectCli={(cli) => {
                                         setMultiloopRoleCliDefault(soul.role, cli)
                                         setChipPopoverForRole(null)
@@ -1482,7 +1493,7 @@ export default function WorkspaceTopBar({
                         : filteredSpecialists.map((action, index) => {
                             const highlighted = index === safeHighlight
                             const boundCli = resolvePickerCli(specialistCliDefaults[action.id] ?? lastSelectedCli)
-                            const boundModel = resolveCliModel(boundCli, specialistModelDefaults[action.id], cliModelDefaults)
+                            const boundModel = resolveSurfaceModel(boundCli, specialistModelDefaults[action.id])
                             const popoverOpen =
                               chipPopoverForRole?.kind === 'specialist'
                               && chipPopoverForRole.id === action.id
@@ -1583,7 +1594,7 @@ export default function WorkspaceTopBar({
                                     // primitive-duplication-allow: nested chip menu inside the Popover-managed specialist menu;
                                     // anchored to a row-local `<div className="relative">` with no separate outside-click handler.
                                     // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                                    className={`absolute right-2 ${chipPopoverPositionClass} z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
+                                    className={`fixed z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]`}
                                   >
                                     <OpenInNewChatItem
                                       onSelect={() => {
@@ -1597,7 +1608,7 @@ export default function WorkspaceTopBar({
                                       options={agentCliOptions}
                                       currentCli={boundCli}
                                       effectiveModelFor={(cli) =>
-                                        resolveCliModel(cli, specialistModelDefaults[action.id], cliModelDefaults)}
+                                        resolveSurfaceModel(cli, specialistModelDefaults[action.id])}
                                       onSelectCli={(cli) => {
                                         setSpecialistCliDefault(action.id, cli)
                                         setChipPopoverForRole(null)

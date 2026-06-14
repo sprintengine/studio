@@ -2,6 +2,7 @@ import type {
   AgentCli,
   AppSettings,
   SprintEngineAutomationDesiredMode,
+  SprintEngineRunSettings,
   SprintEngineWorkspaceContext,
   Workspace,
   WorkspaceId,
@@ -43,7 +44,9 @@ import {
   normalizeCliPermissionPreset,
   normalizeRecentWorkspaceFolders,
   normalizeSearchExcludes,
+  normalizeSprintEngineRunSettings,
   normalizeUsageTelemetrySettings,
+  sprintEngineRunSettingsKey,
 } from './settingsSlice'
 import { normalizeWorkspaceFileExplorerState, normalizeWorkspaceMode } from './workspacesSlice'
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
@@ -51,7 +54,7 @@ import { clearSprintEngineAgentLaunchState, mapMigrationWorkspaces } from './nor
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 60
+export const WORKSPACE_STORE_VERSION = 61
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -103,6 +106,73 @@ function repairSprintEngineAutomationLifecycleState(workspace: Workspace): Works
     sprintEngineAutoState: {
       ...sprintEngineAutoState,
       pendingSpawns: [],
+    },
+  }
+}
+
+function sprintEngineRunSettingsFromWorkspace(
+  workspace: Workspace,
+  fallbackPermissionPreset: SprintEngineRunSettings['cliPermissionPreset'],
+): SprintEngineRunSettings {
+  const autoState = normalizeSprintEngineAutoState(workspace.sprintEngineAutoState)
+  return {
+    keepDoneAgentTerminals: autoState.keepDoneAgentTerminals,
+    cliPermissionPreset: autoState.cliPermissionPreset === 'default'
+      ? fallbackPermissionPreset
+      : autoState.cliPermissionPreset,
+    maxConcurrentAgents: autoState.maxConcurrentAgents,
+  }
+}
+
+function hasPersistableSprintEngineRunSettings(runSettings: SprintEngineRunSettings): boolean {
+  return runSettings.cliPermissionPreset !== undefined && runSettings.cliPermissionPreset !== 'default'
+    || runSettings.keepDoneAgentTerminals === true
+    || (
+      typeof runSettings.maxConcurrentAgents === 'number'
+      && Number.isFinite(runSettings.maxConcurrentAgents)
+      && runSettings.maxConcurrentAgents !== 3
+    )
+}
+
+function applySprintEngineRunSettingsToWorkspace(
+  workspace: Workspace,
+  runSettings: SprintEngineRunSettings | undefined,
+): Workspace {
+  if (!runSettings) return workspace
+  return {
+    ...workspace,
+    sprintEngineAutoState: normalizeSprintEngineAutoState({
+      ...workspace.sprintEngineAutoState,
+      ...runSettings,
+    }),
+  }
+}
+
+export function hydrateSprintEngineLocalRunSettings(
+  workspaces: Workspace[],
+  appSettings: AppSettings,
+): { workspaces: Workspace[]; appSettings: AppSettings } {
+  const runSettings = normalizeSprintEngineRunSettings(appSettings.sprintEngineRunSettings)
+  const fallbackPermissionPreset = appSettings.lastAgentSpawnPermissionPreset
+
+  for (const workspace of workspaces) {
+    if (!workspace.sprintEngineState) continue
+    const key = sprintEngineRunSettingsKey(workspace.sprintEngineContext?.statePath)
+    if (!key || runSettings[key]) continue
+    const derivedRunSettings = sprintEngineRunSettingsFromWorkspace(workspace, fallbackPermissionPreset)
+    if (hasPersistableSprintEngineRunSettings(derivedRunSettings)) {
+      runSettings[key] = derivedRunSettings
+    }
+  }
+
+  return {
+    workspaces: workspaces.map((workspace) => {
+      const key = sprintEngineRunSettingsKey(workspace.sprintEngineContext?.statePath)
+      return applySprintEngineRunSettingsToWorkspace(workspace, key ? runSettings[key] : undefined)
+    }),
+    appSettings: {
+      ...appSettings,
+      sprintEngineRunSettings: runSettings,
     },
   }
 }
@@ -872,6 +942,20 @@ export function migratePersistedWorkspaceState(
       const next = stripSprintEnginesNavFromLayout(ws.layoutModel)
       return next === ws.layoutModel ? ws : { ...ws, layoutModel: next as Workspace['layoutModel'] }
     })
+  }
+  if (version < 61) {
+    // Sprint Engine run permissions are local operator preferences. Older
+    // workspaces kept them only on workspace auto-state, while mounted Backlog
+    // runs could keep the factory default even after the app-level default was
+    // changed. Seed a local per-run settings map by run.yaml path, then hydrate
+    // each saved Sprint Engine workspace from it.
+    const current = migrationState
+    const hydrated = hydrateSprintEngineLocalRunSettings(
+      current.workspaces,
+      normalizeAppSettings(current.appSettings, current.workspaces),
+    )
+    current.workspaces = hydrated.workspaces
+    current.appSettings = hydrated.appSettings
   }
 
   return state as never

@@ -13,6 +13,7 @@ import type {
   AgentConversationRuntime,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
+  SprintEngineRunSettings,
   SprintEngineRoleSettings,
   SprintEngineSavedRoster,
   SkillPackEntry,
@@ -600,6 +601,40 @@ export function normalizeSprintEngineRoleSettings(value: unknown): SprintEngineR
   }
 }
 
+export function sprintEngineRunSettingsKey(statePath: string | null | undefined): string {
+  return typeof statePath === 'string'
+    ? statePath.trim().replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
+    : ''
+}
+
+function normalizeSprintEngineMaxConcurrentAgents(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  return Math.max(1, Math.min(10, Math.floor(value)))
+}
+
+export function normalizeSprintEngineRunSettings(value: unknown): Record<string, SprintEngineRunSettings> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const result: Record<string, SprintEngineRunSettings> = {}
+  for (const [rawKey, rawEntry] of Object.entries(value as Record<string, unknown>)) {
+    const key = sprintEngineRunSettingsKey(rawKey)
+    if (!key || !rawEntry || typeof rawEntry !== 'object' || Array.isArray(rawEntry)) continue
+    const candidate = rawEntry as Partial<SprintEngineRunSettings>
+    const next: SprintEngineRunSettings = {}
+    if ('cliPermissionPreset' in candidate) {
+      next.cliPermissionPreset = normalizeCliPermissionPreset(candidate.cliPermissionPreset)
+    }
+    if (typeof candidate.keepDoneAgentTerminals === 'boolean') {
+      next.keepDoneAgentTerminals = candidate.keepDoneAgentTerminals
+    }
+    const maxConcurrentAgents = normalizeSprintEngineMaxConcurrentAgents(candidate.maxConcurrentAgents)
+    if (maxConcurrentAgents !== undefined) {
+      next.maxConcurrentAgents = maxConcurrentAgents
+    }
+    if (Object.keys(next).length > 0) result[key] = next
+  }
+  return result
+}
+
 function normalizeSprintEngineSavedRoster(value: unknown): SprintEngineSavedRoster | null {
   if (!value || typeof value !== 'object') return null
   const candidate = value as Partial<SprintEngineSavedRoster>
@@ -647,6 +682,7 @@ export const defaultAppSettings = (): AppSettings => ({
   multiloopRoleModelDefaults: {},
   specialistOrder: [],
   sprintEngineRoleSettings: defaultSprintEngineRoleSettings(),
+  sprintEngineRunSettings: {},
   searchExcludes: [],
   projectKnowledgeRoots: {},
   recentWorkspaceFolders: [],
@@ -680,6 +716,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     multiloopRoleModelDefaults: normalizeCliModelSelections(settings?.multiloopRoleModelDefaults),
     specialistOrder: normalizeSpecialistOrder(settings?.specialistOrder),
     sprintEngineRoleSettings: normalizeSprintEngineRoleSettings(settings?.sprintEngineRoleSettings),
+    sprintEngineRunSettings: normalizeSprintEngineRunSettings(settings?.sprintEngineRunSettings),
     searchExcludes: normalizeSearchExcludes(settings?.searchExcludes),
     projectKnowledgeRoots: normalizeProjectKnowledgeRoots(settings?.projectKnowledgeRoots, workspaces),
     recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
@@ -921,7 +958,21 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
 
     setLastAgentSpawnPermissionPreset: (preset) =>
       set((state) => {
-        state.appSettings.lastAgentSpawnPermissionPreset = normalizeCliPermissionPreset(preset)
+        const nextPreset = normalizeCliPermissionPreset(preset)
+        state.appSettings.lastAgentSpawnPermissionPreset = nextPreset
+        const runSettings = normalizeSprintEngineRunSettings(state.appSettings.sprintEngineRunSettings)
+        state.appSettings.sprintEngineRunSettings = runSettings
+        const changedAt = Date.now()
+        for (const workspace of state.workspaces) {
+          if (!workspace.sprintEngineState || !workspace.sprintEngineAutoState) continue
+          const key = sprintEngineRunSettingsKey(workspace.sprintEngineContext?.statePath)
+          if (!key || runSettings[key]) continue
+          workspace.sprintEngineAutoState = {
+            ...workspace.sprintEngineAutoState,
+            cliPermissionPreset: nextPreset,
+            changedAt,
+          }
+        }
       }),
 
     setSpecialistCliDefault: (specialistId, cli) =>

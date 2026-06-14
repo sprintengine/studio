@@ -1488,6 +1488,33 @@ function SprintEngineBoardPanelContent({
  return `${cliLabel} · ${modelLabel}`
  }
 
+ // The CLI a member is configured to launch with: its own saved CLI, else the
+ // role's default, else the last-used CLI. Drives the roster row's right-click
+ // runtime picker, which shares the spawn dialog's CLI/model semantics.
+ const agentRuntimeCli = (agentId: string): AgentCli => {
+   const agent = agents[agentId]
+   if (agent?.cli) return agent.cli
+   // Roster roles are the open SprintEngineRoleId space; the default lookup
+   // keys on bundled roles and falls back for anything unknown.
+   const role = rosterById[agentId]?.role as SprintEngineRole | undefined
+   return role ? addMemberRoleDefaultCli(role) : lastSelectedCli
+ }
+
+ // Current model for a given CLI in the picker: the member's configured model
+ // when the CLI matches its runtime, otherwise that CLI's saved default.
+ const effectiveModelForAgent = (agentId: string, cli: AgentCli): string | undefined =>
+   cli === agentRuntimeCli(agentId) ? agents[agentId]?.cliModel : cliModelDefaults[cli]
+
+ // Persist a runtime choice onto the member record (applied on next launch,
+ // and immediately reflected in the row's CLI summary). Mirrors the add-member
+ // dialog: picking a CLI resets to that CLI's default model.
+ const selectAgentCli = (agentId: string, cli: AgentCli) => {
+   updateAgent(workspaceId, agentId, { cli, cliModel: cliModelDefaults[cli] })
+ }
+ const selectAgentModel = (agentId: string, cli: AgentCli, model: string | null) => {
+   updateAgent(workspaceId, agentId, { cli, cliModel: model ?? undefined })
+ }
+
  // Kill = stop the app-owned terminal process and release Sprint Engine
  // claims (main-process teardown sends agent.leave). Never removes the
  // canonical roster member, and says so.
@@ -2040,6 +2067,11 @@ function SprintEngineBoardPanelContent({
  addMemberOptions={addMemberOptions}
  isAgentTerminalLive={isAgentTerminalLive}
  runtimeSummaryFor={runtimeSummaryFor}
+ cliOptions={cliOptions}
+ agentRuntimeCli={agentRuntimeCli}
+ effectiveModelForAgent={effectiveModelForAgent}
+ onSelectAgentCli={selectAgentCli}
+ onSelectAgentModel={selectAgentModel}
  onOpenAgent={openAgentTerminal}
  onSpawnAgent={openSpawnDialog}
  onRestartAgent={(agentId) => {

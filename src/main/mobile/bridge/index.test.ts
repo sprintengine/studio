@@ -15,7 +15,7 @@ installPgStubForMultiauthMemoryStoreTests()
 void main()
 
 async function main(): Promise<void> {
-  await assertDesktopPairingDisplayUsesCurrentRelayPayload()
+  await assertDesktopPairingDisplayUsesManualRelayCode()
   await assertDesktopPairingDisplayRejectsLegacyRelayChallenge()
   await assertAuthenticatedRelayTransportDispatchesAndFailsClosed()
   await assertOversizedSnapshotRequestFailsWithoutTruncatedSuccess()
@@ -26,7 +26,7 @@ async function main(): Promise<void> {
   await assertDesktopRevocationUpdatesRelayAuthority()
 }
 
-async function assertDesktopPairingDisplayUsesCurrentRelayPayload(): Promise<void> {
+async function assertDesktopPairingDisplayUsesManualRelayCode(): Promise<void> {
   const fixture = await writeSprintEngineFixture()
   const relay = new PairingChallengeRelayTransport()
   const bridge = new MobileBridge(
@@ -49,17 +49,7 @@ async function assertDesktopPairingDisplayUsesCurrentRelayPayload(): Promise<voi
   const challenge = await bridge.requestPairingCode()
   bridge.shutdown()
 
-  const displayedValue = new URL(challenge.pairingCode)
-  assert.equal(displayedValue.searchParams.get('mobileControlProtocolVersion'), '1')
-  assert.equal(displayedValue.searchParams.get('pairingChallengeId'), 'pcha_current')
-  assert.equal(displayedValue.searchParams.get('relayUrl'), 'https://relay.test')
-  assert.equal(displayedValue.searchParams.get('pairingSecret'), 'psec_current')
-  assert.equal(displayedValue.searchParams.get('secret'), null)
-  assert.equal(displayedValue.searchParams.get('expiresAt'), new Date(now.getTime() + 60_000).toISOString())
-  assert.equal(displayedValue.searchParams.get('desktopName'), 'Relay desktop')
-  assert.equal(displayedValue.searchParams.get('desktopInstanceId'), 'desktop-instance-current')
-  assert.equal(displayedValue.searchParams.get('desktopRelaySessionId'), 'drs_desktop_1')
-  assert.equal(challenge.pairingCode.includes('psec_current'), true)
+  assert.equal(challenge.pairingCode, '123456')
   assert.notEqual(challenge.pairingCode, challenge.pairingUri)
   assert.equal(challenge.pairingUri.includes('pairingSecret=psec_current'), true)
 }
@@ -510,6 +500,7 @@ class PairingChallengeRelayTransport extends FakeRelayTransport {
 
     return {
       pairingChallengeId: 'pcha_current',
+      manualPairingCode: '123456',
       pairingUri: [
         'multicode://mobile/pair?',
         new URLSearchParams({
@@ -588,13 +579,15 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
     this.requestedScopes = this.enqueueOwnDeviceRevoke
       ? ['relay:artifact:review', 'relay:device:revoke']
       : ['relay:artifact:review']
-    const { AuthService, MemoryAuthStore } = require('../../../../../multiauth/src/auth') as {
+    const { AuthService } = require('../../../../../multiauth/src/auth') as {
       AuthService: new (input: Record<string, unknown>) => RelayServiceBackedTransport['auth']
-      MemoryAuthStore: new () => unknown
     }
-    const { MemoryRelayStore, RelayService } = require('../../../../../multiauth/src/relay') as {
-      MemoryRelayStore: new () => unknown
+    const { RelayService } = require('../../../../../multiauth/src/relay') as {
       RelayService: new (input: Record<string, unknown>) => RelayServiceBackedTransport['relay']
+    }
+    const { MemoryAuthStore, MemoryRelayStore } = require('../../../../../multiauth/tests/support/memory-stores') as {
+      MemoryAuthStore: new () => unknown
+      MemoryRelayStore: new () => unknown
     }
     const authStore = new MemoryAuthStore()
     this.auth = new AuthService({

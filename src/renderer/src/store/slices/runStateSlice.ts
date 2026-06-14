@@ -33,7 +33,11 @@ import {
   ensureMultiloopLayoutModel,
   sprintEngineTabsLayoutModel,
 } from './layoutSlice'
-import { normalizeCliPermissionPreset } from './settingsSlice'
+import {
+  normalizeCliPermissionPreset,
+  normalizeSprintEngineRunSettings,
+  sprintEngineRunSettingsKey,
+} from './settingsSlice'
 import type {
   AgentId,
   AppSettings,
@@ -49,6 +53,7 @@ import type {
   SprintEngineCliPermissionPreset,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
+  SprintEngineRunSettings,
   SprintEngineState,
   SprintEngineWorkspaceContext,
   Workspace,
@@ -426,6 +431,39 @@ export type RunStateSlice = RunStateSliceState & RunStateSliceActions
 type RunStateSliceCarrier = { workspaces: Workspace[]; appSettings?: AppSettings }
 type RunStateSliceSet = (mutator: (state: RunStateSliceCarrier) => void) => void
 
+function sprintEngineRunSettingsForWorkspace(
+  state: RunStateSliceCarrier,
+  workspace: Workspace,
+): SprintEngineRunSettings | undefined {
+  const key = sprintEngineRunSettingsKey(workspace.sprintEngineContext?.statePath)
+  if (!key || !state.appSettings) return undefined
+  return normalizeSprintEngineRunSettings(state.appSettings.sprintEngineRunSettings)[key]
+}
+
+function applySprintEngineRunSettings(
+  autoState: SprintEngineAutoState,
+  runSettings: SprintEngineRunSettings | undefined,
+): SprintEngineAutoState {
+  return runSettings ? normalizeSprintEngineAutoState({ ...autoState, ...runSettings }) : autoState
+}
+
+function rememberSprintEngineRunSettings(
+  state: RunStateSliceCarrier,
+  workspace: Workspace,
+  patch: SprintEngineRunSettings,
+): void {
+  const key = sprintEngineRunSettingsKey(workspace.sprintEngineContext?.statePath)
+  if (!key || !state.appSettings) return
+  const current = normalizeSprintEngineRunSettings(state.appSettings.sprintEngineRunSettings)
+  state.appSettings.sprintEngineRunSettings = {
+    ...current,
+    [key]: {
+      ...(current[key] ?? {}),
+      ...patch,
+    },
+  }
+}
+
 function sprintEngineAutomationEventReason(event: SprintEngineAutomationEvent): string | null {
   switch (event.type) {
     case 'runner_paused':
@@ -475,8 +513,11 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
           normalized
         )
         ws.agents = reconcileSprintEngineAgents(ws.agents, normalized)
-        ws.sprintEngineAutoState = normalized
+        const autoState = normalized
           ? normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
+          : defaultSprintEngineAutoState()
+        ws.sprintEngineAutoState = normalized
+          ? applySprintEngineRunSettings(autoState, sprintEngineRunSettingsForWorkspace(state, ws))
           : defaultSprintEngineAutoState()
       }),
 
@@ -551,29 +592,37 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         ws.sprintEngineAutoState = {
           ...current,
           keepDoneAgentTerminals,
+          changedAt: Date.now(),
         }
+        rememberSprintEngineRunSettings(state, ws, { keepDoneAgentTerminals })
       }),
 
     setSprintEngineCliPermissionPreset: (workspaceId, cliPermissionPreset) =>
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
+        const nextPreset = normalizeCliPermissionPreset(cliPermissionPreset)
         const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
         ws.sprintEngineAutoState = {
           ...current,
-          cliPermissionPreset,
+          cliPermissionPreset: nextPreset,
+          changedAt: Date.now(),
         }
+        rememberSprintEngineRunSettings(state, ws, { cliPermissionPreset: nextPreset })
       }),
 
     setSprintEngineMaxConcurrentAgents: (workspaceId, maxConcurrentAgents) =>
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
+        const nextMaxConcurrentAgents = Math.max(1, Math.min(10, Math.floor(maxConcurrentAgents)))
         const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
         ws.sprintEngineAutoState = {
           ...current,
-          maxConcurrentAgents: Math.max(1, Math.min(10, Math.floor(maxConcurrentAgents))),
+          maxConcurrentAgents: nextMaxConcurrentAgents,
+          changedAt: Date.now(),
         }
+        rememberSprintEngineRunSettings(state, ws, { maxConcurrentAgents: nextMaxConcurrentAgents })
       }),
 
     setSprintEngineAutoPendingSpawns: (workspaceId, pendingSpawns) =>

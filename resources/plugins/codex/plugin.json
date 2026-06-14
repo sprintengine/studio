@@ -41,8 +41,7 @@
     "argv": [
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
-      "resume",
-      { "spreadIf": "modelArgs" }
+      "resume"
     ]
   },
   "promptInjection": {

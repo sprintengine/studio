@@ -10,7 +10,7 @@ import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
-import { resolveAvailableAgentCli, resolveCliModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
+import { resolveAvailableAgentCli, resolveCliModel, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import {
@@ -1081,7 +1081,7 @@ export default function WorkspaceManager() {
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: cliForSpawn,
-      cliModel: resolveCliModel(cliForSpawn, specialistModelDefaults[specialist.id], cliModelDefaults),
+      cliModel: resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id]),
       cliPermissionPreset: agentSpawnPermissionPreset,
       kind: 'specialist',
       specialistId: specialist.id,
@@ -1144,7 +1144,7 @@ export default function WorkspaceManager() {
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: cliForSpawn,
-      cliModel: resolveCliModel(cliForSpawn, multiloopRoleModelDefaults[soul.role], cliModelDefaults),
+      cliModel: resolveSurfaceModel(cliForSpawn, multiloopRoleModelDefaults[soul.role]),
       cliPermissionPreset: agentSpawnPermissionPreset,
       kind: 'multiloop',
       specialistId: undefined,
@@ -1250,7 +1250,7 @@ export default function WorkspaceManager() {
         agentPatch: {
           name: tabName,
           cli: cliForSpawn,
-          cliModel: resolveCliModel(cliForSpawn, specialistModelDefaults[specialist.id], cliModelDefaults),
+          cliModel: resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id]),
           cliPermissionPreset: agentSpawnPermissionPreset,
           kind: 'specialist',
           specialistId: specialist.id,

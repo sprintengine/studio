@@ -19,7 +19,11 @@ import {
   guidedBriefLayoutModel,
   normalizeGuidedBriefState,
 } from './guidedBriefSlice'
-import { normalizeRecentWorkspaceFolders } from './settingsSlice'
+import {
+  normalizeRecentWorkspaceFolders,
+  normalizeSprintEngineRunSettings,
+  sprintEngineRunSettingsKey,
+} from './settingsSlice'
 import {
   workspaceSyncClient,
   type WorkspaceActiveChangedApply,
@@ -954,6 +958,28 @@ export function createWorkspacesSlice(
           options?.seedAgent && (options.seedAgent.tabName || options.seedAgent.terminal)
             ? applySoloChatSeed(baseStandardLayout, options.seedAgent)
             : baseStandardLayout
+        const sprintEngineContext = deps.normalizeSprintEngineWorkspaceContext(
+          options?.sprintEngineContext,
+          folderPath,
+          sprintEngineState
+        )
+        const multiloopContext = deps.normalizeMultiloopWorkspaceContext(
+          options?.multiloopContext,
+          folderPath,
+          multiloopState
+        )
+        const savedSprintEngineRunSettings = sprintEngineContext
+          ? normalizeSprintEngineRunSettings(state.appSettings.sprintEngineRunSettings)[
+            sprintEngineRunSettingsKey(sprintEngineContext.statePath)
+          ]
+          : undefined
+        const sprintEngineAutoState = sprintEngineState
+          ? deps.normalizeSprintEngineAutoState({
+            cliPermissionPreset: state.appSettings.lastAgentSpawnPermissionPreset,
+            ...savedSprintEngineRunSettings,
+            ...(options?.sprintEngineAutoState ?? {}),
+          })
+          : deps.normalizeSprintEngineAutoState(options?.sprintEngineAutoState)
         const newWorkspace: Workspace = {
           id,
           name: workspaceName,
@@ -968,16 +994,8 @@ export function createWorkspacesSlice(
                   : 'standard',
           folderPath,
           folderMissing: false,
-          sprintEngineContext: deps.normalizeSprintEngineWorkspaceContext(
-            options?.sprintEngineContext,
-            folderPath,
-            sprintEngineState
-          ),
-          multiloopContext: deps.normalizeMultiloopWorkspaceContext(
-            options?.multiloopContext,
-            folderPath,
-            multiloopState
-          ),
+          sprintEngineContext,
+          multiloopContext,
           templateId: template.id,
           layoutModel: isMultiloop
             ? deps.multiloopTabsLayoutModel()
@@ -996,7 +1014,7 @@ export function createWorkspacesSlice(
           guidedBriefState,
           sprintEngineRoleCliDefaults,
           ...(initialSpawnAgentIds.length > 0 ? { sprintEngineInitialSpawnAgentIds: initialSpawnAgentIds } : {}),
-          sprintEngineAutoState: deps.normalizeSprintEngineAutoState(options?.sprintEngineAutoState),
+          sprintEngineAutoState,
           multiloopAutoState: deps.normalizeMultiloopAutoState(options?.multiloopAutoState),
           createdAt: Date.now(),
         }

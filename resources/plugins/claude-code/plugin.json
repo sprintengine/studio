@@ -47,7 +47,6 @@
     "argv": [
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
-      { "spreadIf": "modelArgs" },
       "--resume",
       "{{sessionId}}",
       { "valueIf": "prompt", "value": "{{prompt}}" }

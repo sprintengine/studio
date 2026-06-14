@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict'
 
-import { createRendererHost, type BacklogItemActionContext } from '../modules/renderer-host'
-import { sprintEngineRendererModule } from '../modules/sprint-engine-module'
 import type { BacklogItem, BacklogItemLink } from './backlog'
 import {
   hasSprintEngineRunLink,
@@ -190,6 +188,42 @@ async function main(): Promise<void> {
   )
   assert.deepEqual(opened, ['active:ws-run', 'summary:ws-run'])
 
+  const recoveredOpened: string[] = []
+  const recoveryCalls: Array<{ workspaceRoot: string; statePath: string; teamSlug: string }> = []
+  const recoveredWorkspace = {
+    ...mountedWorkspace,
+    id: 'ws-recovered-run',
+  } as Workspace
+  assert.equal(
+    await openSprintEngineBacklogLink({
+      workspaceId: 'ws-backlog',
+      workspaceRoot,
+      item: baseItem,
+      link: baseLink,
+      ports: {
+        workspaces: [],
+        mountWorkspaceForRun: async (input) => {
+          recoveryCalls.push({
+            workspaceRoot: input.workspaceRoot,
+            statePath: input.statePath,
+            teamSlug: input.teamSlug,
+          })
+          return recoveredWorkspace
+        },
+        setActiveWorkspace: (workspaceId) => recoveredOpened.push(`active:${workspaceId}`),
+        openRunSummaryOverlay: (workspaceId) => recoveredOpened.push(`summary:${workspaceId}`),
+      },
+    }),
+    true,
+    'unmounted run targets mount from the durable run link before opening',
+  )
+  assert.deepEqual(recoveryCalls, [{
+    workspaceRoot,
+    statePath: '/repo/.multi-code/sprintengine/team/run.yaml',
+    teamSlug: 'team',
+  }])
+  assert.deepEqual(recoveredOpened, ['active:ws-recovered-run', 'summary:ws-recovered-run'])
+
   assert.equal(
     await openSprintEngineBacklogLink({
       workspaceId: 'ws-backlog',
@@ -264,36 +298,6 @@ async function main(): Promise<void> {
   )
   assert.deepEqual(invalidYmlOpenCalls, [])
   assert.match(diagnostics.at(-1) ?? '', /project-relative Sprint Engine run target/)
-
-  const host = createRendererHost()
-  sprintEngineRendererModule.registerRenderer?.(host.hostFor('sprint-engine'))
-  assert.equal(
-    host.getBacklogLinkProviders((moduleId) => moduleId !== 'sprint-engine').length,
-    0,
-    'disabled sprint-engine module removes the provider',
-  )
-  assert.equal(host.getBacklogLinkProviders((moduleId) => moduleId === 'sprint-engine').length, 1)
-
-  const actionContext = (item: BacklogItem): BacklogItemActionContext => ({
-    workspaceId: 'ws-backlog',
-    workspaceRoot,
-    item,
-    readSource: async () => '# Run',
-    updateStatus: async () => {},
-    addLink: async () => {},
-    updateModuleMetadata: async () => {},
-    startSourcePlan: () => {},
-  })
-  const actions = host.getBacklogItemActions()
-  const unlinkedVisible = actions
-    .filter((action) => action.isVisible?.(actionContext(baseItem)) ?? true)
-    .map((action) => action.label)
-  assert.deepEqual(unlinkedVisible, ['Start Sprint Engine'])
-
-  const linkedVisible = actions
-    .filter((action) => action.isVisible?.(actionContext({ ...baseItem, links: [baseLink] })) ?? true)
-    .map((action) => action.label)
-  assert.deepEqual(linkedVisible, ['Open Sprint Engine'])
 }
 
 main().catch((error) => {

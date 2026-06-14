@@ -12,10 +12,12 @@ import {
   normalizeCliPermissionPreset,
   normalizeKeybindingSettings,
   normalizeModuleSettings,
+  normalizeSprintEngineRunSettings,
   moduleSettingsNamespace,
   normalizeRecentWorkspaceFolders,
   normalizeSearchExcludes,
   normalizeSpecialistOrder,
+  sprintEngineRunSettingsKey,
 } from './settingsSlice'
 import {
   buildSpecialistSoulStartupPrompt,
@@ -29,6 +31,23 @@ const workspaceWithMemoryRoot = {
     relativeRoot: 'knowledge',
   },
 } as Workspace
+
+function standardLayoutForSettingsTest(): Workspace['layoutModel'] {
+  return {
+    global: { tabSetEnableDrop: true, tabEnableClose: false },
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [
+        {
+          type: 'tabset',
+          weight: 100,
+          children: [{ type: 'tab', name: 'Editor', component: 'editor' }],
+        },
+      ],
+    },
+  }
+}
 
 const normalized = normalizeAppSettings(
   {
@@ -179,6 +198,45 @@ assert.deepEqual(
 assert.equal(normalizeCliPermissionPreset('auto_workspace'), 'auto_workspace')
 assert.equal(normalizeCliPermissionPreset('bypass_all'), 'bypass_all')
 assert.equal(normalizeCliPermissionPreset('bad' as never), 'default')
+assert.equal(
+  sprintEngineRunSettingsKey('/Users/example/Project/.multi-code\\sprintengine/run.yaml/'),
+  '/users/example/project/.multi-code/sprintengine/run.yaml',
+)
+assert.deepEqual(
+  normalizeSprintEngineRunSettings({
+    ' /Users/example/Project/.multi-code\\sprintengine/run.yaml/ ': {
+      cliPermissionPreset: 'bypass_all',
+      keepDoneAgentTerminals: true,
+      maxConcurrentAgents: 99,
+    },
+    '/Users/example/bad/run.yaml': { maxConcurrentAgents: 'many' },
+    '': { cliPermissionPreset: 'bypass_all' },
+  }),
+  {
+    '/users/example/project/.multi-code/sprintengine/run.yaml': {
+      cliPermissionPreset: 'bypass_all',
+      keepDoneAgentTerminals: true,
+      maxConcurrentAgents: 10,
+    },
+  },
+)
+assert.deepEqual(
+  normalizeAppSettings(
+    {
+      sprintEngineRunSettings: {
+        '/Users/example/Project/.multi-code/sprintengine/run.yaml': {
+          cliPermissionPreset: 'auto_workspace',
+        },
+      },
+    },
+    [],
+  ).sprintEngineRunSettings,
+  {
+    '/users/example/project/.multi-code/sprintengine/run.yaml': {
+      cliPermissionPreset: 'auto_workspace',
+    },
+  },
+)
 
 // CLI model defaults: trimmed, empty entries dropped, per-surface overrides
 // keep only well-formed { cli, model } pairs.
@@ -239,6 +297,82 @@ assert.equal(carrier.settingsOverlay.initialTab, 'integrations')
 assert.equal(typeof carrier.settingsOverlay.checkForUpdatesRequestId, 'number')
 slice.closeSettingsOverlay()
 assert.deepEqual(carrier.settingsOverlay, { open: false, initialTab: null, checkForUpdatesRequestId: null })
+
+const sprintEngineRunPath = '/Users/example/project/.multi-code/sprintengine/run/run.yaml'
+const permissionCarrier = {
+  workspaces: [
+    {
+      id: 'ws-sprint-permission',
+      name: 'Sprint Permission',
+      mode: 'sprintengine',
+      folderPath: '/Users/example/project',
+      templateId: 'sprintengine-mode',
+      agents: {},
+      layoutModel: standardLayoutForSettingsTest(),
+      worktreeState: { containerPath: null, entries: {}, updatedAt: null },
+      memory: { relativeRoot: null },
+      editorState: { openFiles: [], activeFilePath: null },
+      sprintEngineContext: {
+        teamName: 'run',
+        teamSlug: 'run',
+        teamDirectoryPath: '/Users/example/project/.multi-code/sprintengine/run',
+        statePath: sprintEngineRunPath,
+      },
+      sprintEngineState: {
+        name: 'run',
+        goal: 'Test permission propagation',
+        roleCounts: { architect: 1 },
+        sprintEngineAgents: {
+          architect: { role: 'architect', status: 'idle', currentTaskId: null },
+        },
+      },
+      sprintEngineAutoState: {
+        desiredMode: 'manual',
+        runtimeState: 'idle',
+        keepDoneAgentTerminals: false,
+        cliPermissionPreset: 'default',
+        maxConcurrentAgents: 3,
+        pendingSpawns: [],
+        deliveredAgentNotificationEventKeys: [],
+      },
+      multiloopState: null,
+      multiloopAutoState: {
+        enabled: false,
+        cliPermissionPreset: 'default',
+        maxConcurrentAgents: 1,
+        coordinatorAutoSpawnKey: null,
+        pendingSpawns: [],
+      },
+      createdAt: 1,
+    } as Workspace,
+  ],
+  appSettings: defaultAppSettings(),
+  settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
+  runSummaryOverlay: { open: false, workspaceId: null },
+  sidebarCollapsed: false,
+  sprintEnginesAsideOpen: false,
+}
+const permissionSlice = createSettingsSlice((mutator) => mutator(permissionCarrier))
+permissionSlice.setLastAgentSpawnPermissionPreset('bypass_all')
+assert.equal(permissionCarrier.appSettings.lastAgentSpawnPermissionPreset, 'bypass_all')
+assert.equal(
+  permissionCarrier.workspaces[0].sprintEngineAutoState?.cliPermissionPreset,
+  'bypass_all',
+  'app default updates Sprint Engine runs that do not have a local override',
+)
+permissionCarrier.appSettings.sprintEngineRunSettings = {
+  [sprintEngineRunSettingsKey(sprintEngineRunPath)]: { cliPermissionPreset: 'default' },
+}
+permissionCarrier.workspaces[0].sprintEngineAutoState = {
+  ...permissionCarrier.workspaces[0].sprintEngineAutoState!,
+  cliPermissionPreset: 'default',
+}
+permissionSlice.setLastAgentSpawnPermissionPreset('auto_workspace')
+assert.equal(
+  permissionCarrier.workspaces[0].sprintEngineAutoState?.cliPermissionPreset,
+  'default',
+  'app default does not overwrite a Sprint Engine run with a local override',
+)
 
 const store = useWorkspaceStore.getState()
 store.setSearchExcludes([' dist ', '!coverage', 'dist'])
