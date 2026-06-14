@@ -5,7 +5,11 @@ import {
 } from '../../../utils/sprintengine'
 import { basename, isAbsoluteFilePath, joinFilePath, parentPath } from '../../../utils/paths'
 import { focusOrAddFileTab } from '../../../utils/modelRegistry'
-import type { ArtifactActionState, TaskInputActionState } from '../sprintEngineInspector'
+import type {
+  ArtifactActionState,
+  TaskCommentActionState,
+  TaskInputActionState,
+} from '../sprintEngineInspector'
 import type { SprintEngineArtifact } from '../../../types/workspace'
 
 const artifactEditorPathHelpers = {
@@ -46,6 +50,12 @@ type WindowApi = {
   resolveSprintEngineTaskInput: (
     input: { statePath: string; taskId: string; resolution: string; complete?: boolean },
   ) => Promise<{ ok: true; data: unknown } | { ok: false; message: string }>
+  commentSprintEngineTask: (
+    input: { statePath: string; taskId: string; body: string },
+  ) => Promise<{ ok: true; data: unknown } | { ok: false; message: string }>
+  setSprintEngineTaskStatus: (
+    input: { statePath: string; taskId: string; status: string },
+  ) => Promise<{ ok: true; data: unknown } | { ok: false; message: string }>
   pathExists: (path: string) => Promise<boolean>
   readfile: (path: string) => Promise<string>
 }
@@ -62,6 +72,7 @@ export type SprintEngineBoardArtifactActionsInput = {
   teamName: string | undefined
   setArtifactActions: React.Dispatch<React.SetStateAction<Record<string, ArtifactActionState>>>
   setTaskInputActions: React.Dispatch<React.SetStateAction<Record<string, TaskInputActionState>>>
+  setTaskCommentActions: React.Dispatch<React.SetStateAction<Record<string, TaskCommentActionState>>>
   setPreviewedArtifact: React.Dispatch<React.SetStateAction<SprintEnginePreviewedArtifact | null>>
   previewedArtifact: SprintEnginePreviewedArtifact | null
   setRequestChangesDialog: React.Dispatch<
@@ -92,6 +103,18 @@ export type SprintEngineBoardArtifactActions = {
    * completes the task. Resolves to `true` on success so the composer can clear.
    */
   resolveTaskInput: (taskId: string, resolution: string, complete: boolean) => Promise<boolean>
+  /**
+   * Post a comment on a task, optionally sending it back for rework. Comment
+   * lands via `sprintengine.task.comment`; `reopenForRework` additionally sets
+   * the task to `changes_requested` (`sprintengine.task.status`), which moves it
+   * into a claimable column so the auto-runner re-dispatches the owner role.
+   * Resolves `true` only when every requested mutation succeeded.
+   */
+  postTaskComment: (
+    taskId: string,
+    body: string,
+    options: { reopenForRework: boolean },
+  ) => Promise<boolean>
 }
 
 /**
@@ -115,6 +138,7 @@ export function useSprintEngineBoardArtifactActions(
     teamName,
     setArtifactActions,
     setTaskInputActions,
+    setTaskCommentActions,
     setPreviewedArtifact,
     previewedArtifact,
     setRequestChangesDialog,
@@ -154,6 +178,21 @@ export function useSprintEngineBoardArtifactActions(
       })
     },
     [setTaskInputActions],
+  )
+
+  const setTaskCommentAction = useCallback(
+    (taskId: string, state: TaskCommentActionState | null) => {
+      setTaskCommentActions((current) => {
+        const next = { ...current }
+        if (state) {
+          next[taskId] = state
+        } else {
+          delete next[taskId]
+        }
+        return next
+      })
+    },
+    [setTaskCommentActions],
   )
 
   const requireArtifactStatePath = useCallback((): string | null => {
@@ -419,6 +458,86 @@ export function useSprintEngineBoardArtifactActions(
     [requireArtifactStatePath, setTaskInputAction, applyMutationResultProjection, api],
   )
 
+  // Add a comment to any task, optionally sending it back for rework. Both are
+  // authenticated Sprint Engine mutations (`task.comment`, then `task.status
+  // changes_requested`); the supervisor's actor id is attached in main. When
+  // rework is requested and only the comment lands, the comment is still
+  // reflected and the partial failure is surfaced rather than hidden.
+  const postTaskComment = useCallback(
+    async (
+      taskId: string,
+      body: string,
+      options: { reopenForRework: boolean },
+    ): Promise<boolean> => {
+      const trimmed = body.trim()
+      if (!trimmed) {
+        setTaskCommentAction(taskId, { status: 'error', message: 'A comment is required.' })
+        return false
+      }
+      const ensuredStatePath = requireArtifactStatePath()
+      if (!ensuredStatePath) {
+        setTaskCommentAction(taskId, {
+          status: 'error',
+          message: 'This Sprint Engine workspace is missing its selected team context.',
+        })
+        return false
+      }
+
+      setTaskCommentAction(taskId, {
+        status: 'pending',
+        message: options.reopenForRework ? 'Posting comment and sending back…' : 'Posting comment…',
+      })
+      try {
+        const commentResult = await api.commentSprintEngineTask({
+          statePath: ensuredStatePath,
+          taskId,
+          body: trimmed,
+        })
+        if (!commentResult.ok) {
+          setTaskCommentAction(taskId, {
+            status: 'error',
+            message: commentResult.message || 'Sprint Engine rejected the comment.',
+          })
+          return false
+        }
+
+        if (options.reopenForRework) {
+          const statusResult = await api.setSprintEngineTaskStatus({
+            statePath: ensuredStatePath,
+            taskId,
+            status: 'changes_requested',
+          })
+          if (!statusResult.ok) {
+            // The comment landed; reflect it and report the partial failure.
+            await applyMutationResultProjection(commentResult)
+            setTaskCommentAction(taskId, {
+              status: 'error',
+              message: `Comment posted, but sending back for rework failed: ${
+                statusResult.message || 'Sprint Engine rejected the status change.'
+              }`,
+            })
+            return false
+          }
+          await applyMutationResultProjection(statusResult)
+          setTaskCommentAction(taskId, {
+            status: 'success',
+            message: 'Comment posted — sent back for rework.',
+          })
+          return true
+        }
+
+        await applyMutationResultProjection(commentResult)
+        setTaskCommentAction(taskId, { status: 'success', message: 'Comment added.' })
+        return true
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to post comment.'
+        setTaskCommentAction(taskId, { status: 'error', message })
+        return false
+      }
+    },
+    [requireArtifactStatePath, setTaskCommentAction, applyMutationResultProjection, api],
+  )
+
   return {
     setArtifactAction,
     requireArtifactStatePath,
@@ -430,5 +549,6 @@ export function useSprintEngineBoardArtifactActions(
     cancelRequestArtifactChangesDialog,
     submitRequestArtifactChanges,
     resolveTaskInput,
+    postTaskComment,
   }
 }

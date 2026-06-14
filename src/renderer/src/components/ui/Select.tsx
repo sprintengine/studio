@@ -12,13 +12,21 @@
 // All chrome is token-only; no inline hex literals.
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Popover } from './Popover'
-import { FOCUS_RING_CLASS } from './tokens'
+import { FOCUS_RING_CLASS, TONE_COLOR_VAR, TONE_SOFT_VAR, type Tone } from './tokens'
 
 export type SelectItem<V extends string = string> = {
   value: V
   label: string
   disabled?: boolean
+  /** Semantic emphasis for a risky or notable choice (e.g. warn for a bypass
+   *  preset). When set, the trigger reflects the selected item's tone and the
+   *  option label carries the tone color in the listbox. */
+  tone?: Tone
 }
+
+// 'neutral' carries no emphasis, so it is treated as untoned everywhere.
+const toneOf = (item: SelectItem | null): Exclude<Tone, 'neutral'> | null =>
+  item?.tone && item.tone !== 'neutral' ? item.tone : null
 
 type SelectProps<V extends string = string> = {
   /** Required accessible name. Icon-only triggers must expose a label. */
@@ -57,6 +65,7 @@ export function Select<V extends string = string>({
     () => items.find((item) => item.value === value) ?? null,
     [items, value],
   )
+  const selectedTone = toneOf(selectedItem)
 
   const openMenu = useCallback(() => {
     if (disabled) return
@@ -216,11 +225,13 @@ export function Select<V extends string = string>({
           disabled={disabled}
           onClick={() => (open ? close(false) : openMenu())}
           onKeyDown={onKey}
+          style={selectedTone ? { backgroundColor: TONE_SOFT_VAR[selectedTone] } : undefined}
           className={[
             'interactive inline-flex h-7 w-full min-w-[140px] items-center justify-between gap-2',
-            'rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]',
-            'px-2 text-left text-[12px]',
-            'text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)]',
+            'rounded-[5px] border px-2 text-left text-[12px]',
+            selectedTone
+              ? 'border-transparent'
+              : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)]',
             'disabled:cursor-not-allowed disabled:opacity-45',
             FOCUS_RING_CLASS,
           ].join(' ')}
@@ -228,8 +239,9 @@ export function Select<V extends string = string>({
           <span
             className={[
               'min-w-0 flex-1 truncate',
-              selectedItem ? '' : 'text-[color:var(--text-muted)]',
+              !selectedItem ? 'text-[color:var(--text-muted)]' : '',
             ].join(' ')}
+            style={selectedTone ? { color: TONE_COLOR_VAR[selectedTone] } : undefined}
           >
             {selectedItem ? selectedItem.label : placeholder}
           </span>
@@ -256,6 +268,7 @@ export function Select<V extends string = string>({
           {items.map((item, index) => {
             const selected = item.value === value
             const active = index === activeIndex && !item.disabled
+            const itemTone = toneOf(item)
             return (
               <li
                 key={item.value}
@@ -277,7 +290,12 @@ export function Select<V extends string = string>({
                   active ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]',
                 ].join(' ')}
               >
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                <span
+                  className="min-w-0 flex-1 truncate"
+                  style={itemTone ? { color: TONE_COLOR_VAR[itemTone] } : undefined}
+                >
+                  {item.label}
+                </span>
                 {selected ? (
                   <svg
                     width="10"

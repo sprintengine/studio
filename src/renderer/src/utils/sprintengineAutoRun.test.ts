@@ -4360,14 +4360,16 @@ function testDispatchAndContinuationPromptsWorkForRegistryKeyedRoles(): void {
 
 function testGetArchitectActionableNeedsInputTasksFiltersByKind(): void {
   const tasks: SprintEngineTask[] = [
-    task({ id: 'T1', status: 'needs_input', needsInput: { kind: 'architect' } as SprintEngineTask['needsInput'] }),
-    task({ id: 'T2', status: 'needs_input', needsInput: { kind: 'user' } as SprintEngineTask['needsInput'] }),
-    task({ id: 'T3', status: 'needs_input', needsInput: { kind: 'verification' } as unknown as SprintEngineTask['needsInput'] }),
+    task({ id: 'T1', status: 'needs_input', needsInput: { kind: 'architect', reason: 'task_scope' } as SprintEngineTask['needsInput'] }),
+    task({ id: 'T2', status: 'needs_input', needsInput: { kind: 'user', reason: 'verification' } as SprintEngineTask['needsInput'] }),
+    task({ id: 'T3', status: 'needs_input', needsInput: { kind: 'architect', reason: 'verification' } as SprintEngineTask['needsInput'] }),
     task({ id: 'T4', status: 'in_progress' }),
   ]
   const state = sprintEngineStateFixture({ tasks })
   const filtered = getArchitectActionableNeedsInputTasks(state).map((task) => task.id)
-  assert.deepEqual(filtered.sort(), ['T1', 'T3'], 'architect-routed kinds include architect/artifact/tooling/verification/other')
+  // Architect-routed (kind === 'architect') tasks are actionable regardless of
+  // reason; user-routed (T2) and non-needs_input (T4) are not.
+  assert.deepEqual(filtered.sort(), ['T1', 'T3'], 'architect-routed tasks are actionable regardless of reason')
 }
 
 function testRunBlockedOnExternalInputDetectsBlockedDependencyTail(): void {
@@ -4379,7 +4381,7 @@ function testRunBlockedOnExternalInputDetectsBlockedDependencyTail(): void {
     ownerAgentId: 'tester',
     dependsOn: ['T22'],
     needsInput: {
-      kind: 'external_validation',
+      kind: 'user',
       reason: 'verification',
       question: 'Needs a physical mobile pairing session.',
     },
@@ -4423,7 +4425,7 @@ function testDescribeExternalInputBlockNamesBlockingTask(): void {
     role: 'tester',
     ownerAgentId: 'tester',
     needsInput: {
-      kind: 'external_validation',
+      kind: 'user',
       reason: 'verification',
       question: 'Needs a physical mobile pairing session.',
     },
@@ -4459,7 +4461,7 @@ function testRunBlockedOnExternalInputKeepsAutoRunWhenWorkExists(): void {
     role: 'tester',
     ownerAgentId: 'tester',
     needsInput: {
-      kind: 'external_validation',
+      kind: 'user',
       reason: 'verification',
       question: 'Needs device validation.',
     },
@@ -4497,7 +4499,7 @@ function testRunBlockedOnExternalInputKeepsAutoRunWithActiveDispatch(): void {
     role: 'tester',
     ownerAgentId: 'tester',
     needsInput: {
-      kind: 'external_validation',
+      kind: 'user',
       reason: 'verification',
       question: 'Needs device validation.',
     },
@@ -4543,7 +4545,7 @@ function testRunBlockedOnExternalInputKeepsAutoRunWithReadyApproval(): void {
     role: 'tester',
     ownerAgentId: 'tester',
     needsInput: {
-      kind: 'external_validation',
+      kind: 'user',
       reason: 'verification',
       question: 'Needs device validation.',
     },

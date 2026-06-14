@@ -63,6 +63,14 @@ export type TaskInputActionState = {
   message: string
 }
 
+// Per-task transient state for the inspector comment composer (add a comment,
+// or comment + send back for rework). Keyed by taskId; same shape as the
+// needs-input action state.
+export type TaskCommentActionState = {
+  status: 'pending' | 'success' | 'error'
+  message: string
+}
+
 export function runtimeStatusTone(status: string): Tone {
   switch (status) {
     case 'running':

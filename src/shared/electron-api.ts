@@ -986,6 +986,17 @@ export type SprintEngineTaskResolveInput = {
   complete?: boolean
 }
 
+export type SprintEngineTaskStatusSetInput = {
+  statePath: string
+  taskId: string
+  // A value from the engine's task-status vocabulary (todo, in_progress,
+  // changes_requested, review, testing, product, needs_input, done, canceled).
+  // The backend rejects illegal transitions (e.g. done with open gates), so the
+  // renderer only sends gate-legal targets — today `changes_requested`, which
+  // sends a task back for rework and lands it in a claimable column for re-pickup.
+  status: string
+}
+
 export type SprintEngineStateInitializeInput = {
   statePath: string
   name: string
@@ -1593,6 +1604,7 @@ export type ElectronApi = {
   createSprintEngineTask: (input: SprintEngineTaskCreateInput) => Promise<SprintEngineArtifactCommandResult>
   commentSprintEngineTask: (input: SprintEngineTaskCommentInput) => Promise<SprintEngineArtifactCommandResult>
   resolveSprintEngineTaskInput: (input: SprintEngineTaskResolveInput) => Promise<SprintEngineArtifactCommandResult>
+  setSprintEngineTaskStatus: (input: SprintEngineTaskStatusSetInput) => Promise<SprintEngineArtifactCommandResult>
   setSprintEngineRunnerMode: (input: SprintEngineRunnerSetInput) => Promise<SprintEngineArtifactCommandResult>
   replenishSprintEngineRoster: (input: SprintEngineRosterReplenishInput) => Promise<SprintEngineArtifactCommandResult>
   addSprintEngineRosterMember: (input: SprintEngineRosterAddInput) => Promise<SprintEngineArtifactCommandResult>

@@ -254,11 +254,8 @@ async function seedEntitlements() {
     plan: { code: 'pro', status: 'active' },
     features: {
       'multicode.sprintengine': true,
-      'multicode.max_agent_slots': 12,
     },
-    limits: {
-      'multicode.max_agent_slots': 12,
-    },
+    limits: {},
     issuedAt: now.toISOString(),
     expiresAt,
   }

@@ -99,6 +99,7 @@ import {
   sprintEngineInboxRowLifecycle,
   type ArtifactActionState,
   type TaskInputActionState,
+  type TaskCommentActionState,
   type RuntimeAgentView,
   type SprintEngineInspectorSelection,
 } from './sprintEngineInspector'
@@ -2182,6 +2183,92 @@ function TaskOpenFeedbackComments({ comments }: { comments: SprintEngineTaskComm
   )
 }
 
+// "Send back for rework" only makes sense once a task has moved past active
+// implementation — when it's under/through review or already done. For todo /
+// ready / in_progress it's either not started or already being worked; for
+// needs_input the resolve composer owns the resume path; changes_requested is
+// already there. Re-routing those would be a no-op or fight the gate model.
+function taskCanBeSentBackForRework(status: SprintEngineTask['status']): boolean {
+  return status === 'review' || status === 'testing' || status === 'product' || status === 'done'
+}
+
+// Add-a-comment surface for the task inspector. A plain composer (not a warn
+// callout — it carries no attention state), available on every task. The
+// comment is recorded on the task for the working agent to read. When the task
+// has moved past active implementation (`canSendBack`), a secondary action
+// posts the comment and sends the task back for rework — set to
+// `changes_requested`, which lands it in a claimable column so the auto-runner
+// re-dispatches the owner role. "Resume"-style re-routing for a *blocked* task
+// lives in TaskInputResponsePrompt instead; this surface is everyday annotation.
+function TaskCommentComposer({
+  taskId,
+  canSendBack,
+  action,
+  onPostTaskComment,
+}: {
+  taskId: string
+  canSendBack: boolean
+  action: TaskCommentActionState | undefined
+  onPostTaskComment: (taskId: string, body: string, options: { reopenForRework: boolean }) => Promise<boolean>
+}) {
+  const [body, setBody] = useState('')
+  const fieldId = useId()
+  const pending = action?.status === 'pending'
+  const canSubmit = body.trim().length > 0 && !pending
+
+  const submit = async (reopenForRework: boolean) => {
+    if (body.trim().length === 0 || pending) return
+    const ok = await onPostTaskComment(taskId, body, { reopenForRework })
+    if (ok) setBody('')
+  }
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault()
+      void submit(false)
+    }
+  }
+
+  const messageToneClass =
+    action?.status === 'error'
+      ? 'text-[color:var(--tone-error)]'
+      : action?.status === 'success'
+        ? 'text-[color:var(--tone-good)]'
+        : 'text-[color:var(--text-muted)]'
+
+  return (
+    <div>
+      <div className="mb-2 text-[11px] font-semibold text-[color:var(--text-muted)]">Add comment</div>
+      <label htmlFor={fieldId} className="sr-only">
+        Add a comment for the agent
+      </label>
+      <textarea
+        id={fieldId}
+        value={body}
+        onChange={(event) => setBody(event.target.value)}
+        onKeyDown={handleKeyDown}
+        disabled={pending}
+        rows={3}
+        placeholder="Add a comment for the agent… (⌘/Ctrl+Enter to comment)"
+        className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[13px] leading-5 text-[color:var(--text-strong)] outline-none interactive transition-colors placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus:ring-1 focus:ring-[color:var(--accent-primary-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+      />
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <PrimaryButton onClick={() => void submit(false)} disabled={!canSubmit}>
+          Comment
+        </PrimaryButton>
+        {canSendBack ? (
+          <GhostButton onClick={() => void submit(true)} disabled={!canSubmit}>
+            Comment &amp; send back for rework
+          </GhostButton>
+        ) : null}
+      </div>
+      {action ? (
+        <div className={`mt-2 text-[12px] leading-5 ${messageToneClass}`}>{action.message}</div>
+      ) : null}
+    </div>
+  )
+}
+
 function AgentWorkedOnTasksList({
   worked,
   onSelectTask,
@@ -2652,12 +2739,14 @@ export function SprintEngineInspectorPanel({
   selectedTaskArtifactBlockers,
   artifactActions,
   taskInputActions,
+  taskCommentActions,
   onClose,
   onSelectTask,
   onOpenArtifact,
   onApproveArtifact,
   onRequestArtifactChanges,
   onResolveTaskInput,
+  onPostTaskComment,
   onBackFromArtifact,
   onPopOutArtifact,
   onSpawnAgent,
@@ -2678,12 +2767,14 @@ export function SprintEngineInspectorPanel({
   selectedTaskArtifactBlockers: ReturnType<typeof getSprintEngineArtifactDependencyBlockers>
   artifactActions: Record<string, ArtifactActionState>
   taskInputActions: Record<string, TaskInputActionState>
+  taskCommentActions: Record<string, TaskCommentActionState>
   onClose: () => void
   onSelectTask: (taskId: string) => void
   onOpenArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
   onApproveArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
   onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
   onResolveTaskInput: (taskId: string, resolution: string, complete: boolean) => Promise<boolean>
+  onPostTaskComment: (taskId: string, body: string, options: { reopenForRework: boolean }) => Promise<boolean>
   onBackFromArtifact: () => void
   onPopOutArtifact: () => void
   onSpawnAgent: (agentId: string) => void
@@ -2872,6 +2963,7 @@ export function SprintEngineInspectorPanel({
         selectedTaskArtifactBlockers={selectedTaskArtifactBlockers}
         artifactActions={artifactActions}
         taskInputAction={taskInputActions[selectedTask.id]}
+        taskCommentAction={taskCommentActions[selectedTask.id]}
         tasksById={tasksById}
         runtimeAgents={runtimeAgents}
         onSelectTask={onSelectTask}
@@ -2879,6 +2971,7 @@ export function SprintEngineInspectorPanel({
         onApproveArtifact={onApproveArtifact}
         onRequestArtifactChanges={onRequestArtifactChanges}
         onResolveTaskInput={onResolveTaskInput}
+        onPostTaskComment={onPostTaskComment}
         onOpenAgentTerminal={onOpenAgentTerminal}
       />
     </div>
@@ -2893,6 +2986,7 @@ function SprintEngineTaskBody({
   selectedTaskArtifactBlockers,
   artifactActions,
   taskInputAction,
+  taskCommentAction,
   tasksById,
   runtimeAgents,
   onSelectTask,
@@ -2900,6 +2994,7 @@ function SprintEngineTaskBody({
   onApproveArtifact,
   onRequestArtifactChanges,
   onResolveTaskInput,
+  onPostTaskComment,
   onOpenAgentTerminal,
 }: {
   selectedTask: SprintEngineTask
@@ -2909,6 +3004,7 @@ function SprintEngineTaskBody({
   selectedTaskArtifactBlockers: ReturnType<typeof getSprintEngineArtifactDependencyBlockers>
   artifactActions: Record<string, ArtifactActionState>
   taskInputAction: TaskInputActionState | undefined
+  taskCommentAction: TaskCommentActionState | undefined
   tasksById: Record<string, SprintEngineTask>
   runtimeAgents: RuntimeAgentView[]
   onSelectTask: (taskId: string) => void
@@ -2916,6 +3012,7 @@ function SprintEngineTaskBody({
   onApproveArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
   onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
   onResolveTaskInput: (taskId: string, resolution: string, complete: boolean) => Promise<boolean>
+  onPostTaskComment: (taskId: string, body: string, options: { reopenForRework: boolean }) => Promise<boolean>
   onOpenAgentTerminal: (agentId: string) => void
 }) {
   const openIssues = getOpenSprintEngineFeedbackIssues(selectedTask.feedback)
@@ -2950,6 +3047,12 @@ function SprintEngineTaskBody({
         onJumpToFindings={onJumpToFindings}
       />
       <TaskOpenFeedbackComments comments={openFeedbackComments} />
+      <TaskCommentComposer
+        taskId={selectedTask.id}
+        canSendBack={taskCanBeSentBackForRework(selectedTask.status)}
+        action={taskCommentAction}
+        onPostTaskComment={onPostTaskComment}
+      />
     </>
   )
 

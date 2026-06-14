@@ -3,7 +3,7 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { focusOrAddFileTab } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { InboxRow } from '../ui'
+import { InboxRow, Skeleton } from '../ui'
 
 interface Props {
   workspaceId: string
@@ -141,7 +141,19 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
   }
 
   if (checkingFolder) {
-    return <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] text-[12px] text-[color:var(--text-disabled)]">Checking workspace...</div>
+    // The folder is being verified on disk; mirror the resting search chrome
+    // (input bar over an empty body) so the brief check reads as a quiet load
+    // rather than a "Checking workspace…" message.
+    return (
+      <div className="flex h-full flex-col bg-[color:var(--bg-app)]">
+        <span role="status" className="sr-only">
+          Loading workspace…
+        </span>
+        <div aria-hidden="true" className="border-b border-[color:var(--border-default)] px-3 py-3">
+          <Skeleton className="h-8 w-full rounded-md bg-[color:var(--skeleton-shimmer-high)]" />
+        </div>
+      </div>
+    )
   }
 
   if (folderMissing || !folderReadyPath) {

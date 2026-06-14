@@ -825,7 +825,7 @@ function entitlementValue(snapshot: EntitlementSnapshot, featureKey: string): Fe
 }
 
 function isAllowedDuringDesktopGrace(featureKey: string): boolean {
-  return featureKey === 'multicode.sprintengine' || featureKey === 'multicode.max_agent_slots'
+  return featureKey === 'multicode.sprintengine'
 }
 
 function allowed(

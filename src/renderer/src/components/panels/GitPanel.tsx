@@ -7,7 +7,7 @@ import { isImageFile } from '../../utils/files'
 import { basename, samePath, trimPath } from '../../utils/paths'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { IconButton, InboxRow, Select, StatusDot, Tooltip, type Tone } from '../ui'
+import { IconButton, InboxRow, Select, Skeleton, StatusDot, Tooltip, type Tone } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { GitGraphView, type GitCommitActions, type GitGraphState } from './GitGraphView'
 
@@ -236,7 +236,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     [activeScopeId, scopeOptions]
   )
   const activeRootPath = activeScope?.path ?? folderPath
-  const { repoRoot, status, refresh } = useGitStatus(activeRootPath)
+  const { repoRoot, status, repoState, refresh } = useGitStatus(activeRootPath)
   const [branches, setBranches] = useState<GitBranchSnapshot | null>(null)
   const [graph, setGraph] = useState<GitGraphState>({ status: 'loading' })
   const [loadingMoreGraph, setLoadingMoreGraph] = useState(false)
@@ -824,6 +824,14 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     )
   }
 
+  // `repoRoot` is null both while we are still resolving the repository and when
+  // the folder genuinely is not a repo. Only the resolved `not-git` state should
+  // show the "not a Git repository" copy — during resolution we show the
+  // skeleton so the panel never flashes a misleading verdict on refresh.
+  if (repoState === 'idle' || repoState === 'loading') {
+    return <GitPanelSkeleton />
+  }
+
   if (!repoRoot) {
     return (
       <div className="flex h-full items-center justify-center bg-[color:var(--bg-surface)] px-6 text-center text-[12px] text-[color:var(--text-disabled)]">
@@ -1002,6 +1010,42 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             terminalId={`git-${workspaceId}-${terminalIdPart(activeScope?.id ?? repoRoot)}`}
           />
         )}
+      </div>
+    </div>
+  )
+}
+
+// Mirrors the resting panel chrome (status header, control row, change list) so
+// repository resolution reads as a quiet load rather than a content flash. The
+// resting block colour is the raised surface; the shared shimmer sweeps it.
+function GitPanelSkeleton(): JSX.Element {
+  return (
+    <div className="flex h-full flex-col overflow-hidden bg-[color:var(--bg-surface)]">
+      <span role="status" className="sr-only">
+        Loading Git status…
+      </span>
+      <div aria-hidden="true" className="border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]">
+        <div className="flex h-8 items-center justify-between gap-2 px-3">
+          <div className="flex min-w-0 items-center gap-1.5">
+            {/* design-tokens-allow: skeleton placeholder for the scope StatusDot, not a live status dot */}
+            <Skeleton className="h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--skeleton-shimmer-high)]" />
+            <Skeleton className="h-3 w-28 rounded bg-[color:var(--skeleton-shimmer-high)]" />
+          </div>
+          <Skeleton className="h-5 w-5 shrink-0 rounded bg-[color:var(--skeleton-shimmer-high)]" />
+        </div>
+        <div className="flex items-center gap-2 px-3 pb-2">
+          <Skeleton className="h-7 flex-1 rounded-md bg-[color:var(--skeleton-shimmer-high)]" />
+          <Skeleton className="h-7 flex-1 rounded-md bg-[color:var(--skeleton-shimmer-high)]" />
+        </div>
+      </div>
+      <div aria-hidden="true" className="flex-1 px-3 py-2">
+        {[72, 58, 84, 46, 66].map((width, index) => (
+          <div key={index} className="flex items-center gap-2 py-1.5">
+            {/* design-tokens-allow: skeleton placeholder for a change-row StatusDot, not a live status dot */}
+            <Skeleton className="h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--skeleton-shimmer-high)]" />
+            <Skeleton className="h-3 rounded bg-[color:var(--skeleton-shimmer-high)]" style={{ width: `${width}%` }} />
+          </div>
+        ))}
       </div>
     </div>
   )

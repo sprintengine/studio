@@ -95,6 +95,7 @@ import {
  runtimeStatusLabel,
  type ArtifactActionState,
  type TaskInputActionState,
+ type TaskCommentActionState,
  type SprintEngineInspectorSelection,
 } from './sprintEngineInspector'
 import { SprintEngineInspectorPanel } from './SprintEngineInspectorPanel'
@@ -118,6 +119,7 @@ const sprintEngineCliPermissionOptions: Array<{
  value: SprintEngineCliPermissionPreset
  label: string
  title: string
+ tone?: Tone
 }> = [
  {
  value: 'default',
@@ -133,6 +135,9 @@ const sprintEngineCliPermissionOptions: Array<{
  value: 'bypass_all',
  label: 'Bypass permissions',
  title: 'Skip CLI permission prompts. Use only in repos and environments you trust.',
+ // Warn tone mirrors the Agent Picker's Bypass chip so the risky preset reads
+ // the same in both surfaces.
+ tone: 'warn',
  },
 ]
 
@@ -489,7 +494,7 @@ export function SprintEngineSettingsPopover({
  <Section title="CLI permissions" level={3} inset={true}>
  <Select<SprintEngineCliPermissionPreset>
  ariaLabel="CLI permission preset"
- items={sprintEngineCliPermissionOptions.map(({ value, label }) => ({ value, label }))}
+ items={sprintEngineCliPermissionOptions.map(({ value, label, tone }) => ({ value, label, tone }))}
  value={cliPermissionPreset}
  onChange={onUpdateCliPreset}
  className="w-full"
@@ -569,7 +574,6 @@ function SprintEngineBoardPanelContent({
  folderPath: savedFolderPath,
  folderReadyPath,
  folderMissing,
- checkingFolder,
  message: folderStatusMessage,
  checkedPath: folderCheckedPath,
  recheckFolder,
@@ -646,6 +650,7 @@ function SprintEngineBoardPanelContent({
  const [pendingAutomationMode, setPendingAutomationMode] = useState<SprintEngineAutomationMode | null>(null)
  const [artifactActions, setArtifactActions] = useState<Record<string, ArtifactActionState>>({})
  const [taskInputActions, setTaskInputActions] = useState<Record<string, TaskInputActionState>>({})
+ const [taskCommentActions, setTaskCommentActions] = useState<Record<string, TaskCommentActionState>>({})
  const [syncState, setSyncState] = useState<SyncState>({
  status: 'idle',
  message: 'Waiting for a Sprint Engine workspace folder.',
@@ -1027,12 +1032,14 @@ function SprintEngineBoardPanelContent({
  cancelRequestArtifactChangesDialog,
  submitRequestArtifactChanges,
  resolveTaskInput,
+ postTaskComment,
  } = useSprintEngineBoardArtifactActions({
  workspaceId,
  statePath: sprintEngineContext?.statePath,
  teamName: sprintEngineContext?.teamName,
  setArtifactActions,
  setTaskInputActions,
+ setTaskCommentActions,
  setPreviewedArtifact,
  previewedArtifact,
  setRequestChangesDialog,
@@ -1044,13 +1051,16 @@ function SprintEngineBoardPanelContent({
  api: window.api,
  })
 
- const folderStatusBanner = savedFolderPath && !folderPath ? (
+ // Only the actionable "folder missing" state earns a banner. The transient
+ // on-disk check that precedes it stays silent — the board area below renders
+ // its normal idle state during the brief verification rather than flashing a
+ // "Checking workspace folder…" message on every refresh.
+ const folderStatusBanner = folderMissing && savedFolderPath ? (
  <div className="border-b border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] px-4 py-2 text-[12px] text-[color:var(--text-muted)]">
  <div className="flex flex-wrap items-center justify-between gap-3">
  <span className="min-w-0 truncate">
- {checkingFolder ? 'Checking workspace folder...' : `Saved folder is missing: ${savedFolderPath}`}
+ {`Saved folder is missing: ${savedFolderPath}`}
  </span>
- {folderMissing ? (
  <span className="flex shrink-0 items-center gap-2">
  <button
  onClick={() => void recheckFolder()}
@@ -1065,7 +1075,6 @@ function SprintEngineBoardPanelContent({
  Relink
  </button>
  </span>
- ) : null}
  </div>
  </div>
  ) : null
@@ -1164,12 +1173,14 @@ function SprintEngineBoardPanelContent({
  selectedTaskArtifactBlockers={selectedTaskArtifactBlockers}
  artifactActions={artifactActions}
  taskInputActions={taskInputActions}
+ taskCommentActions={taskCommentActions}
  onClose={closeInspector}
  onSelectTask={setSelectedTaskId}
  onOpenArtifact={openArtifact}
  onApproveArtifact={approveArtifact}
  onRequestArtifactChanges={requestArtifactChanges}
  onResolveTaskInput={resolveTaskInput}
+ onPostTaskComment={postTaskComment}
  onBackFromArtifact={() => setPreviewedArtifact(null)}
  onPopOutArtifact={popOutPreviewedArtifact}
  onSpawnAgent={openSpawnDialog}

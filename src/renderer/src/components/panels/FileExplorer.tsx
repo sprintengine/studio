@@ -10,6 +10,7 @@ import { fileExplorerSelectionFromVerticalRange, fileExplorerSelectionRange } fr
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { setFileDropData } from '../../utils/terminalDrop'
 import { IconButton } from '../ui/Buttons'
+import { Skeleton } from '../ui/Skeleton'
 import { Tooltip } from '../ui/Tooltip'
 import { Toast } from '../ui/Toast'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -2019,6 +2020,42 @@ function ExplorerTree({
   )
 }
 
+// Tree-shaped placeholder shown while the saved folder is being verified on
+// disk. The staggered indents and chevron/icon/label rhythm match the resting
+// tree so the check reads as a quiet load instead of a "Checking…" message.
+const FILE_EXPLORER_SKELETON_ROWS: { indent: number; width: number }[] = [
+  { indent: 0, width: 52 },
+  { indent: 1, width: 64 },
+  { indent: 1, width: 44 },
+  { indent: 2, width: 58 },
+  { indent: 0, width: 48 },
+  { indent: 1, width: 70 },
+  { indent: 1, width: 40 },
+  { indent: 0, width: 56 },
+]
+
+function FileExplorerSkeleton(): JSX.Element {
+  return (
+    <div className="py-1">
+      <span role="status" className="sr-only">
+        Loading files…
+      </span>
+      <div aria-hidden="true">
+        {FILE_EXPLORER_SKELETON_ROWS.map((row, index) => (
+          <div
+            key={index}
+            className="flex items-center gap-1.5 py-1 pr-3"
+            style={{ paddingLeft: 12 + row.indent * 14 }}
+          >
+            <Skeleton className="h-3.5 w-3.5 shrink-0 rounded bg-[color:var(--skeleton-shimmer-high)]" />
+            <Skeleton className="h-3 rounded bg-[color:var(--skeleton-shimmer-high)]" style={{ width: `${row.width}%` }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 interface Props {
   workspaceId: string
   onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
@@ -2160,9 +2197,7 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
             onStartFuturePlan={onStartFuturePlan}
           />
         ) : checkingFolder ? (
-          <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[color:var(--text-disabled)]">
-            Checking workspace folder...
-          </div>
+          <FileExplorerSkeleton />
         ) : folderMissing && folderPath ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-5 text-center text-[color:var(--text-disabled)]">
             <p className="text-[12px]">Saved folder is missing.</p>
