@@ -4,10 +4,10 @@ import {
   refreshSprintEngineWorkspaceProjection,
 } from '../../utils/sprintengineProjectionRefresh'
 
-// Paired with the auto-run cadence: the active projection read does a
-// main-process JSON.parse plus a renderer-side JSON.stringify of the full
-// projection (large on a busy run) every tick. 4s halves that recurring cost;
-// a background runner does not need its board reflected within 2s.
+// Paired with the auto-run cadence. The reader now short-circuits via a cheap
+// mtime:size token, so an unchanged projection costs a single stat() with no
+// read/parse/IPC payload; only changed projections pay the full read+normalize.
+// 4s active / 15s inactive keeps the board fresh without busy work on idle runs.
 const SPRINT_ENGINE_PROJECTION_ACTIVE_POLL_MS = 4000
 const SPRINT_ENGINE_PROJECTION_INACTIVE_POLL_MS = 15000
 
@@ -17,7 +17,7 @@ type Props = {
 }
 
 export default function SprintEngineProjectionSupervisor({ activeWorkspaceId, workspaceIds }: Props) {
-  const signaturesByWorkspace = useRef(new Map<string, string>())
+  const tokensByWorkspace = useRef(new Map<string, string>())
   const lastInactiveRefreshByWorkspace = useRef(new Map<string, number>())
   const tickInProgress = useRef(false)
   const workspaceKey = workspaceIds.join('\n')
@@ -31,8 +31,8 @@ export default function SprintEngineProjectionSupervisor({ activeWorkspaceId, wo
 
       try {
         const refreshWorkspaceIds = new Set(workspaceIds)
-        signaturesByWorkspace.current.forEach((_, workspaceId) => {
-          if (!refreshWorkspaceIds.has(workspaceId)) signaturesByWorkspace.current.delete(workspaceId)
+        tokensByWorkspace.current.forEach((_, workspaceId) => {
+          if (!refreshWorkspaceIds.has(workspaceId)) tokensByWorkspace.current.delete(workspaceId)
         })
         lastInactiveRefreshByWorkspace.current.forEach((_, workspaceId) => {
           if (!refreshWorkspaceIds.has(workspaceId)) lastInactiveRefreshByWorkspace.current.delete(workspaceId)
@@ -55,7 +55,7 @@ export default function SprintEngineProjectionSupervisor({ activeWorkspaceId, wo
 
           await refreshSprintEngineWorkspaceProjection({
             workspace,
-            signatures: signaturesByWorkspace.current,
+            tokens: tokensByWorkspace.current,
             cause: 'supervisor',
           })
         }

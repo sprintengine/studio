@@ -1132,8 +1132,17 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
     async readProjection(payload) {
       try {
         const state = validateSprintEngineStatePath(payload?.statePath)
-        const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
-        return { ok: true, data: JSON.parse(projectionContent) }
+        const projectionPath = join(state.teamDirectory, 'projection.json')
+        // Cheap change-detection: stat the file and fingerprint it as mtime:size.
+        // If the caller's last-seen token matches, the projection has not changed
+        // since they read it, so we skip the read + parse + IPC payload entirely.
+        const stats = await stat(projectionPath)
+        const token = `${stats.mtimeMs}:${stats.size}`
+        if (payload?.knownToken && payload.knownToken === token) {
+          return { ok: true, data: null, token, unchanged: true }
+        }
+        const projectionContent = await readFile(projectionPath, 'utf8')
+        return { ok: true, data: JSON.parse(projectionContent), token }
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }

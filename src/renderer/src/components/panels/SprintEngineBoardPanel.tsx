@@ -994,7 +994,7 @@ function SprintEngineBoardPanelContent({
  try {
  const result = await refreshSprintEngineWorkspaceProjection({
  workspace,
- signatures: new Map(),
+ tokens: new Map(),
  cause: 'manual',
  force: true,
  })
@@ -1405,7 +1405,7 @@ function SprintEngineBoardPanelContent({
  if (workspace) {
  void refreshSprintEngineWorkspaceProjection({
  workspace,
- signatures: new Map(),
+ tokens: new Map(),
  cause: 'manual',
  force: true,
  })

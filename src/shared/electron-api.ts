@@ -881,7 +881,10 @@ export type SprintEngineArtifactCommandResult =
   | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
 
 export type SprintEngineProjectionReadResult =
-  | { ok: true; data: unknown }
+  // `token` is a cheap file-change fingerprint (mtime:size) the caller can pass
+  // back as `knownToken` to skip re-reading an unchanged projection. When the
+  // token matches, `unchanged` is true and `data` is null (no read/parse done).
+  | { ok: true; data: unknown; token?: string; unchanged?: boolean }
   | { ok: false; message: string }
 
 export type SprintEngineRegistryRolesReadInput = {
@@ -1562,7 +1565,7 @@ export type ElectronApi = {
   setSprintEngineRunnerMode: (input: SprintEngineRunnerSetInput) => Promise<SprintEngineArtifactCommandResult>
   replenishSprintEngineRoster: (input: SprintEngineRosterReplenishInput) => Promise<SprintEngineArtifactCommandResult>
   addSprintEngineRosterMember: (input: SprintEngineRosterAddInput) => Promise<SprintEngineArtifactCommandResult>
-  readSprintEngineProjection: (statePath: string) => Promise<SprintEngineProjectionReadResult>
+  readSprintEngineProjection: (statePath: string, knownToken?: string) => Promise<SprintEngineProjectionReadResult>
   readSprintEngineRegistryRoles: (input: SprintEngineRegistryRolesReadInput) => Promise<SprintEngineMcpReadResult>
   readSprintEngineRegistryRole: (input: SprintEngineRegistryRoleReadInput) => Promise<SprintEngineMcpReadResult>
   /** Install third-party Sprint Engine roles from a folder into the user-global registry. */

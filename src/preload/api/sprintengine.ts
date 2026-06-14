@@ -77,9 +77,10 @@ export const sprintEngineApi = {
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:roster:add', input),
   readSprintEngineProjection: (
-    statePath: string
+    statePath: string,
+    knownToken?: string
   ): Promise<SprintEngineProjectionReadResult> =>
-    ipcRenderer.invoke('sprintengine:projection:read', { statePath }),
+    ipcRenderer.invoke('sprintengine:projection:read', { statePath, knownToken }),
   readSprintEngineRegistryRoles: (
     input: SprintEngineRegistryRolesReadInput
   ): Promise<SprintEngineMcpReadResult> =>
