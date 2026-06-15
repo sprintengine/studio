@@ -8,7 +8,7 @@ import { openDiffWindow } from '../auxWindows/openDiffWindow'
 import { basename, samePath, trimPath } from '../../utils/paths'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { IconButton, InboxRow, Select, Skeleton, StatusDot, Tooltip, type Tone } from '../ui'
+import { IconButton, InboxRow, LifecycleGlyph, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { GitGraphView, type GitCommitActions, type GitGraphState } from './GitGraphView'
 
@@ -106,6 +106,22 @@ function RefreshGitIcon() {
   )
 }
 
+// Incoming (down = pull) / outgoing (up = push) arrow, matching the IDE sync
+// idiom. Pairs with the count + accessible label on its button.
+function SyncArrowIcon({ direction }: { direction: 'up' | 'down' }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-xs" fill="none">
+      <path
+        d={direction === 'down' ? 'M8 3.25v9.5m0 0 3.25-3.25M8 12.75 4.75 9.5' : 'M8 12.75v-9.5m0 0 3.25 3.25M8 3.25 4.75 6.5'}
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function GitActionIcon({ kind }: { kind: GitActionIconKind }) {
   if (kind === 'stage') {
     return (
@@ -186,11 +202,14 @@ function resolveReviewDiffTarget(branches: GitBranchSnapshot | null, activeScope
   return { baseRef: 'HEAD~1', reason: 'using HEAD~1' }
 }
 
-function scopeAppearanceTone(label: string): Tone {
-  if (label === 'Missing' || label === 'Prunable') return 'error'
-  if (label === 'Locked') return 'warn'
-  if (label === 'Ready') return 'good'
-  return 'neutral'
+// Scope health is earned, not decorated: a healthy checkout shows no mark (the
+// old always-on green "Ready" dot was noise). Only the exceptional states surface
+// a shape-coded glyph, matching the worktree list.
+function scopeHealthGlyph(label: string): { state: LifecycleState; label: string } | null {
+  if (label === 'Missing') return { state: 'failed', label: 'Missing' }
+  if (label === 'Prunable') return { state: 'archived', label: 'Prunable' }
+  if (label === 'Locked') return { state: 'paused', label: 'Locked' }
+  return null
 }
 
 function splitGitPath(relativePath: string): { directory: string; filename: string } {
@@ -220,12 +239,14 @@ function pushedCommitMessage(result: GitCommandResult): string {
   return `Pushed ${result.pushedCommitCount} commits.`
 }
 
-function syncStatusLabel(branches: GitBranchSnapshot | null): string {
+// Resting sync text only. Divergence (ahead/behind) is carried by the Pull/Push
+// affordances so the count never appears twice; this line states the calm states
+// the buttons can't (checking / no upstream / in sync).
+function branchSyncSummary(branches: GitBranchSnapshot | null, hasUpstream: boolean): string {
   if (!branches) return 'Checking branch'
-  if (branches.ahead && branches.behind) return `Ahead ${branches.ahead}, behind ${branches.behind}`
-  if (branches.ahead) return `Ahead ${branches.ahead}`
-  if (branches.behind) return `Behind ${branches.behind}`
-  return 'Up to date'
+  if (!hasUpstream) return 'No upstream'
+  if (!branches.ahead && !branches.behind) return 'Up to date'
+  return ''
 }
 
 export default function GitPanel({ workspaceId }: { workspaceId: string }) {
@@ -448,6 +469,13 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const activeScopeLabel = activeScope?.label ?? 'Current checkout'
   const activeScopePath = repoRoot ?? activeRootPath ?? ''
   const activeScopeAppearance = getGitScopeStatusAppearance(activeScope)
+  const scopeHealth = scopeHealthGlyph(activeScopeAppearance.label)
+  const currentBranchInfo = branchOptions.find((branch) => branch.current) ?? null
+  const upstreamLabel = currentBranchInfo?.upstream ?? null
+  const hasUpstream = Boolean(upstreamLabel)
+  const ahead = branches?.ahead ?? 0
+  const behind = branches?.behind ?? 0
+  const syncSummary = branchSyncSummary(branches, hasUpstream)
   const reviewDiffTarget = useMemo(
     () => resolveReviewDiffTarget(branches, activeScope),
     [activeScope, branches]
@@ -860,74 +888,116 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[color:var(--bg-surface)] text-[color:var(--text-default)]">
       {/*
-       * Contextual header, aligned with FileExplorer / Knowledge Graph: the
-       * active scope + sync state sit on the left as the panel's identity, the
-       * primary action (fetch/refresh) on the right, and the scope/branch
-       * selects form the control row below. The nav rail already names the
-       * panel, so there is no redundant "Git" title bar.
+       * Contextual header. Sync state reads (and acts) like an editor's
+       * branch+sync widget: scope health only shows when the checkout
+       * is unhealthy (otherwise no mark), ahead/behind are the Pull/Push
+       * affordances rather than dead text, and the dropdowns below are captioned
+       * (GitHub Desktop) so "Branch" / "Worktree" read without guessing. The nav
+       * rail already names the panel, so there is no redundant "Git" title bar.
        */}
       <div className="border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]">
         <div className="flex h-8 shrink-0 items-center justify-between gap-2 px-3">
-          <div
-            className="flex min-w-0 items-center gap-1.5 text-[11px] text-[color:var(--text-subtle)]"
-            title={activeScopePath}
-          >
-            <StatusDot tone={scopeAppearanceTone(activeScopeAppearance.label)} label={activeScopeAppearance.label} />
-            <span className="min-w-0 truncate text-[color:var(--text-default)]">{activeScopeAppearance.label}</span>
-            <span className="shrink-0 text-[color:var(--text-disabled)]" aria-hidden="true">·</span>
-            <span className="min-w-0 truncate">{syncStatusLabel(branches)}</span>
+          <div className="flex min-w-0 items-center gap-1.5 text-[11px]" title={activeScopePath}>
+            {scopeHealth ? (
+              <span className="flex min-w-0 items-center gap-1 text-[color:var(--text-default)]">
+                <LifecycleGlyph state={scopeHealth.state} live={false} label={scopeHealth.label} />
+                <span className="truncate">{scopeHealth.label}</span>
+              </span>
+            ) : syncSummary ? (
+              <span className="min-w-0 truncate text-[color:var(--text-subtle)]">{syncSummary}</span>
+            ) : null}
           </div>
-          <Tooltip content="Fetch remotes and refresh Git status" placement="bottom">
-            <IconButton
-              aria-label="Fetch remotes and refresh Git status"
-              onClick={() => void handleFetch()}
-              disabled={Boolean(busy)}
-            >
-              <RefreshGitIcon />
-            </IconButton>
-          </Tooltip>
-        </div>
-        <div className="space-y-1 px-3 pb-2">
-          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2" title={activeScopePath}>
-            <Select<string>
-              ariaLabel="Git scope"
-              items={
-                scopeOptions.length === 0
-                  ? [{ value: 'main', label: 'Current checkout' }]
-                  : scopeOptions.map((scope) => ({
-                      value: scope.id,
-                      label: scope.label,
-                      disabled: scope.missing || scope.locked || scope.prunable,
-                    }))
-              }
-              value={activeScope?.id ?? 'main'}
-              onChange={(next) => setActiveScopeId(next)}
-              disabled={Boolean(busy) || scopeOptions.length <= 1}
-              className="w-full"
-            />
-            <Tooltip content={activeScope?.kind === 'worktree' ? `Review diff against ${reviewDiffTarget.baseRef}` : 'Select a worktree to review its diff'} placement="bottom">
-              <button
-                type="button"
-                onClick={() => void handleReviewDiff()}
-                disabled={Boolean(busy) || activeScope?.kind !== 'worktree' || !repoRoot}
-                className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
+          <div className="flex shrink-0 items-center gap-1">
+            {behind > 0 ? (
+              <Tooltip content={`Pull ${behind} commit${behind === 1 ? '' : 's'}${upstreamLabel ? ` from ${upstreamLabel}` : ''}`} placement="bottom">
+                <button
+                  type="button"
+                  onClick={() => void handlePull()}
+                  disabled={Boolean(busy)}
+                  className="flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-semibold tabular-nums text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:opacity-35"
+                >
+                  <SyncArrowIcon direction="down" />
+                  Pull {behind}
+                </button>
+              </Tooltip>
+            ) : null}
+            {ahead > 0 ? (
+              <Tooltip content={`Push ${ahead} commit${ahead === 1 ? '' : 's'}${upstreamLabel ? ` to ${upstreamLabel}` : ''}`} placement="bottom">
+                <button
+                  type="button"
+                  onClick={() => void handlePush()}
+                  disabled={Boolean(busy)}
+                  className="flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-semibold tabular-nums text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:opacity-35"
+                >
+                  <SyncArrowIcon direction="up" />
+                  Push {ahead}
+                </button>
+              </Tooltip>
+            ) : null}
+            <Tooltip content="Fetch remotes and refresh Git status" placement="bottom">
+              <IconButton
+                aria-label="Fetch remotes and refresh Git status"
+                onClick={() => void handleFetch()}
+                disabled={Boolean(busy)}
               >
-                Review diff
-              </button>
+                <RefreshGitIcon />
+              </IconButton>
             </Tooltip>
           </div>
-          <Select<string>
-            ariaLabel="Current branch"
-            items={
-              branchOptions.length === 0
-                ? [{ value: '', label: branches?.current ?? 'detached' }]
-                : branchOptions.map((branch) => ({ value: branch.name, label: branch.name }))
-            }
-            value={branches?.current ?? ''}
-            onChange={(next) => void handleSwitchBranch(next)}
-            disabled={Boolean(busy) || branchOptions.length === 0}
-            className="w-full"
-          />
+        </div>
+        <div className="space-y-1 px-3 pb-2">
+          <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
+            <span className="text-[11px] text-[color:var(--text-subtle)]">Branch</span>
+            <Select<string>
+              ariaLabel="Current branch"
+              items={
+                branchOptions.length === 0
+                  ? [{ value: '', label: branches?.current ?? 'detached' }]
+                  : branchOptions.map((branch) => ({ value: branch.name, label: branch.name }))
+              }
+              value={branches?.current ?? ''}
+              onChange={(next) => void handleSwitchBranch(next)}
+              disabled={Boolean(busy) || branchOptions.length === 0}
+              className="w-full"
+            />
+          </div>
+          {/*
+           * The worktree picker chooses which checkout the Changes / Log /
+           * Terminal tabs operate on, so it only earns space when extra worktrees
+           * exist and the user isn't already on the Worktrees tab (which manages
+           * them all). "Review changes" rides alongside it and appears only on a
+           * worktree scope, where comparing the branch against its base is the
+           * point — never as a permanently greyed-out button.
+           */}
+          {worktreeCount > 0 && activeView !== 'worktrees' ? (
+            <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2" title={activeScopePath}>
+              <span className="text-[11px] text-[color:var(--text-subtle)]">Worktree</span>
+              <Select<string>
+                ariaLabel="Active worktree"
+                items={scopeOptions.map((scope) => ({
+                  value: scope.id,
+                  label: scope.label,
+                  disabled: scope.missing || scope.locked || scope.prunable,
+                }))}
+                value={activeScope?.id ?? 'main'}
+                onChange={(next) => setActiveScopeId(next)}
+                disabled={Boolean(busy)}
+                className="w-full"
+              />
+              {activeScope?.kind === 'worktree' ? (
+                <Tooltip content={`Review this branch's changes against ${reviewDiffTarget.baseRef}`} placement="bottom">
+                  <button
+                    type="button"
+                    onClick={() => void handleReviewDiff()}
+                    disabled={Boolean(busy) || !repoRoot}
+                    className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:opacity-35"
+                  >
+                    Review changes
+                  </button>
+                </Tooltip>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -1044,16 +1114,12 @@ function GitPanelSkeleton(): JSX.Element {
       </span>
       <div aria-hidden="true" className="border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]">
         <div className="flex h-8 items-center justify-between gap-2 px-3">
-          <div className="flex min-w-0 items-center gap-1.5">
-            {/* design-tokens-allow: skeleton placeholder for the scope StatusDot, not a live status dot */}
-            <Skeleton className="h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--skeleton-shimmer-high)]" />
-            <Skeleton className="h-3 w-28 rounded bg-[color:var(--skeleton-shimmer-high)]" />
-          </div>
+          <Skeleton className="h-3 w-24 rounded bg-[color:var(--skeleton-shimmer-high)]" />
           <Skeleton className="h-5 w-5 shrink-0 rounded bg-[color:var(--skeleton-shimmer-high)]" />
         </div>
-        <div className="flex items-center gap-2 px-3 pb-2">
-          <Skeleton className="h-7 flex-1 rounded-md bg-[color:var(--skeleton-shimmer-high)]" />
-          <Skeleton className="h-7 flex-1 rounded-md bg-[color:var(--skeleton-shimmer-high)]" />
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 px-3 pb-2">
+          <Skeleton className="h-3 w-10 rounded bg-[color:var(--skeleton-shimmer-high)]" />
+          <Skeleton className="h-7 rounded-md bg-[color:var(--skeleton-shimmer-high)]" />
         </div>
       </div>
       <div aria-hidden="true" className="flex-1 px-3 py-2">
