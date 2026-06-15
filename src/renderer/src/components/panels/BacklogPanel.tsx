@@ -16,8 +16,11 @@ import {
   useConfirmDialog,
   type SelectItem,
 } from '../ui'
+import { useShallow } from 'zustand/react/shallow'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
+import { useSharedBacklogScan } from '../../hooks/useSharedBacklogScan'
+import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import { renderMarkdown } from '../../utils/markdown'
 import { basename } from '../../utils/paths'
@@ -28,20 +31,15 @@ import {
   backlogRootPath,
   nextArchiveRelativePath,
   normalizeRelativePath,
-  scanBacklog,
   stableBacklogObjectId,
   type BacklogCriticality,
   type BacklogDifficulty,
-  type BacklogFilesystemAdapter,
   type BacklogHighlight,
   type BacklogItem,
   type BacklogItemStatus,
   type BacklogScanResult,
 } from '../../utils/backlog'
 import { getHighlightSwatch } from '../../utils/highlight'
-import {
-  hydrateBacklogScanResult,
-} from '../../utils/backlogObjects'
 import { providerForBacklogLink } from '../../utils/backlogLinks'
 import {
   matchWorkspaceForBacklogRunLink,
@@ -137,10 +135,27 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   const folderPath = useWorkspaceStore(
     (state) => state.workspaces.find((workspace) => workspace.id === workspaceId)?.folderPath ?? null,
   )
-  // The full workspace list (stable ref from the store) so a Backlog row linked
-  // to a Sprint Engine run can read that run's live AutoRun state and show the
-  // real runner status instead of a coarse, always-spinning `in_progress`.
-  const workspaces = useWorkspaceStore((state) => state.workspaces)
+  // Only the Sprint Engine workspaces (mode or mounted run context), not the
+  // whole workspace list, so a Backlog row linked to a Sprint Engine run can
+  // read that run's live AutoRun state. Narrowed + useShallow so a projection
+  // tick on an unrelated workspace — or any non-Sprint-Engine workspace change —
+  // does not re-render the entire panel (and its 48 rows) every 4s. useShallow
+  // compares the filtered array element-by-element against the live store
+  // workspace refs: an unchanged Sprint Engine set stays referentially equal and
+  // skips the render; a real run tick changes one ref and re-renders. See
+  // backlog/2026-06-14-backlog-workspace-render-performance.md (Task 1).
+  const sprintEngineWorkspaces = useWorkspaceStore(
+    useShallow((state) =>
+      state.workspaces.filter(
+        (workspace) => workspace.mode === 'sprintengine' || Boolean(workspace.sprintEngineContext),
+      ),
+    ),
+  )
+  // Just this workspace's agents (the send-to-agent targets), not the whole
+  // workspace array — a different narrow selector for a different consumer.
+  const workspaceAgents = useWorkspaceStore(
+    (state) => state.workspaces.find((workspace) => workspace.id === workspaceId)?.agents,
+  )
   const openFile = useWorkspaceStore((state) => state.openFile)
   const remapOpenFiles = useWorkspaceStore((state) => state.remapOpenFiles)
   const removeOpenFilesForPath = useWorkspaceStore((state) => state.removeOpenFilesForPath)
@@ -148,18 +163,16 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   const dialog = useConfirmDialog()
   const now = useRelativeNow()
 
-  const adapter = useMemo<BacklogFilesystemAdapter>(
-    () => ({
-      pathExists: (path) => window.api.pathExists(path),
-      readdir: (path) => window.api.readdir(path),
-      readfile: (path) => window.api.readfile(path),
-      statPath: (path) => window.api.statPath(path),
-    }),
-    [],
-  )
+  // Render-count diagnostics (gated by perfDiagnosticsEnabled, no-op in prod
+  // unless diagnostics are on). Feeds the existing perf-event rollup so renders/
+  // min is visible in the Diagnostics panel — the before/after evidence for the
+  // re-render fan-out fix. See backlog item Task 0.
+  const renderCountRef = useRef(0)
+  useEffect(() => {
+    renderCountRef.current += 1
+    logPerfEvent('BacklogPanel', 'render', { count: renderCountRef.current, workspaceId })
+  })
 
-  const [scan, setScan] = useState<BacklogScanResult | null>(null)
-  const [loading, setLoading] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [view, setView] = useState<BacklogView>('all')
@@ -181,70 +194,21 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // fetched on every flyout open so a dead session shows as disabled.
   const [agentSessions, setAgentSessions] = useState<TerminalSessionSnapshot[] | null>(null)
 
-  // Guards against a stale async scan (folder switch / rapid refresh) clobbering
-  // a newer result.
-  const scanTokenRef = useRef(0)
+  // Backlog scan data is shared across every workspace on the same project
+  // folder (useSharedBacklogScan): N panels on one project run ONE scan and
+  // share one result/refresh instead of each instance scanning the identical
+  // folder. `runScan` keeps the name every mutation call site uses; it now
+  // refreshes the shared entry, so a mutation in any panel updates every panel
+  // on that folder. Per-workspace view state (search/sort/selection) stays local.
+  const { scan, loading, refresh: runScan } = useSharedBacklogScan(folderPath)
 
-  const runScan = useCallback(async (): Promise<BacklogScanResult | null> => {
-    // Bump the token first so any in-flight scan for a previous folder is
-    // invalidated even when the folder just became unavailable — otherwise a
-    // late scan for the old workspace could repopulate stale results.
-    const token = ++scanTokenRef.current
-    if (!folderPath) {
-      setScan(null)
-      setSelectedId(null)
-      setShowDetailInSingle(false)
-      setLoading(false)
-      return null
-    }
-    setLoading(true)
-    try {
-      const scanned = await scanBacklog(folderPath, adapter)
-      let metadataError: string | null = null
-      const ensured = await window.api.ensureBacklogObjectRecords(folderPath, scanned.items.map(backlogRecordInput)).catch((error) => {
-        metadataError = error instanceof Error ? error.message : String(error)
-        return null
-      })
-      let result = scanned
-      if (ensured?.ok) {
-        result = hydrateBacklogScanResult(scanned, ensured.store)
-      } else if (ensured && !ensured.ok) {
-        const errors = [
-          ...scanned.errors,
-          { relativePath: '.multi-code/backlog/items.json', message: ensured.message },
-        ]
-        result = scanned.items.length > 0
-          ? { state: 'partial', items: scanned.items, errors }
-          : { state: 'error', items: [], errors }
-      } else if (metadataError) {
-        const errors = [
-          ...scanned.errors,
-          { relativePath: '.multi-code/backlog/items.json', message: metadataError },
-        ]
-        result = scanned.items.length > 0
-          ? { state: 'partial', items: scanned.items, errors }
-          : { state: 'error', items: [], errors }
-      }
-      if (token !== scanTokenRef.current) return null
-      setScan(result)
-      return result
-    } catch (error) {
-      if (token !== scanTokenRef.current) return null
-      const errorResult: BacklogScanResult = {
-        state: 'error',
-        items: [],
-        errors: [{ relativePath: 'backlog/', message: error instanceof Error ? error.message : String(error) }],
-      }
-      setScan(errorResult)
-      return errorResult
-    } finally {
-      if (token === scanTokenRef.current) setLoading(false)
-    }
-  }, [adapter, folderPath])
-
+  // The shared store returns scan=null for a missing folder; mirror the old
+  // behavior of clearing the local selection/detail view in that case.
   useEffect(() => {
-    void runScan()
-  }, [runScan])
+    if (folderPath) return
+    setSelectedId(null)
+    setShowDetailInSingle(false)
+  }, [folderPath])
 
   const items = scan?.items ?? []
 
@@ -277,7 +241,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     for (const item of filtered) {
       const link = sprintEngineRunLinkForItem(item)
       if (!link) continue
-      const workspace = matchWorkspaceForBacklogRunLink(workspaces, folderPath, link)
+      const workspace = matchWorkspaceForBacklogRunLink(sprintEngineWorkspaces, folderPath, link)
       if (!workspace) continue
       const liveGlyph = deriveSprintEngineRunGlyph({
         sprintEngineState: workspace.sprintEngineState,
@@ -286,7 +250,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       if (liveGlyph) map.set(item.id, liveGlyph)
     }
     return map
-  }, [filtered, workspaces, folderPath])
+  }, [filtered, sprintEngineWorkspaces, folderPath])
 
   // Keep selection valid across rescans/filters; select-by-id is preserved when
   // the item survives, otherwise selection clears.
@@ -757,13 +721,12 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // Agents of this workspace that own a CLI terminal session — the send-to-agent
   // targets. Liveness comes from terminalList(), fetched when the flyout opens.
   const agentTargets = useMemo(() => {
-    const workspace = workspaces.find((candidate) => candidate.id === workspaceId)
-    if (!workspace) return []
-    return Object.values(workspace.agents).filter(
+    if (!workspaceAgents) return []
+    return Object.values(workspaceAgents).filter(
       (agent): agent is typeof agent & { cliSessionId: string } =>
         typeof agent.cliSessionId === 'string' && agent.cliSessionId.length > 0,
     )
-  }, [workspaces, workspaceId])
+  }, [workspaceAgents])
 
   const refreshAgentSessions = useCallback(() => {
     setAgentSessions(null)
@@ -1430,16 +1393,6 @@ function uniquePlanFileName(baseName: string, existingRelativeLower: Set<string>
     index += 1
   }
   return candidate
-}
-
-function backlogRecordInput(item: BacklogItem) {
-  return {
-    relativePath: item.relativePath,
-    status: item.status,
-    type: item.type,
-    difficulty: item.difficulty,
-    criticality: item.criticality,
-  }
 }
 
 function assertBacklogMutation(result: { ok: boolean; message?: string }): void {

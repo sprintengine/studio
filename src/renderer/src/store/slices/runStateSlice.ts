@@ -494,6 +494,41 @@ export type RunStateSlice = RunStateSliceState & RunStateSliceActions
 type RunStateSliceCarrier = { workspaces: Workspace[]; appSettings?: AppSettings }
 type RunStateSliceSet = (mutator: (state: RunStateSliceCarrier) => void) => void
 
+// Structural equality used to detect no-op Sprint Engine projection writes so
+// `setSprintEngineState` can leave the Immer draft untouched and preserve the
+// `workspaces` array (and per-workspace) reference identity. Every value
+// compared here is a normalized, JSON-serializable projection structure, so a
+// recursive key/element walk is sufficient and avoids JSON.stringify key-order
+// fragility. Safe on Immer drafts (array drafts pass `Array.isArray`).
+function isDeepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) {
+    return false
+  }
+  const aArray = Array.isArray(a)
+  const bArray = Array.isArray(b)
+  if (aArray !== bArray) return false
+  if (aArray && bArray) {
+    const arrA = a as unknown[]
+    const arrB = b as unknown[]
+    if (arrA.length !== arrB.length) return false
+    for (let i = 0; i < arrA.length; i += 1) {
+      if (!isDeepEqual(arrA[i], arrB[i])) return false
+    }
+    return true
+  }
+  const objA = a as Record<string, unknown>
+  const objB = b as Record<string, unknown>
+  const keysA = Object.keys(objA)
+  const keysB = Object.keys(objB)
+  if (keysA.length !== keysB.length) return false
+  for (const key of keysA) {
+    if (!Object.prototype.hasOwnProperty.call(objB, key)) return false
+    if (!isDeepEqual(objA[key], objB[key])) return false
+  }
+  return true
+}
+
 function sprintEngineRunSettingsForWorkspace(
   state: RunStateSliceCarrier,
   workspace: Workspace,
@@ -568,20 +603,41 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
         const normalized = normalizeSprintEngineState(sprintEngineState)
-        ws.sprintEngineState = normalized
-        ws.mode = normalized ? 'sprintengine' : 'standard'
-        ws.sprintEngineContext = normalizeSprintEngineWorkspaceContext(
+        const nextMode = normalized ? 'sprintengine' : 'standard'
+        const nextContext = normalizeSprintEngineWorkspaceContext(
           ws.sprintEngineContext,
           ws.folderPath,
           normalized
         )
-        ws.agents = reconcileSprintEngineAgents(ws.agents, normalized)
-        const autoState = normalized
-          ? normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
+        // `reconcileSprintEngineAgents` reuses the current map reference when the
+        // roster is unchanged, but returns a fresh `{}` whenever `normalized` is
+        // null. Funnel both through `reuseAgentsMapIfUnchanged` so an unchanged
+        // (including already-empty) map keeps its identity and the referential
+        // check below is exact and cheap — no deep walk over agent buffers.
+        const nextAgents = reuseAgentsMapIfUnchanged(
+          ws.agents,
+          reconcileSprintEngineAgents(ws.agents, normalized)
+        )
+        const nextAutoState = normalized
+          ? applySprintEngineRunSettings(
+              normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
+              sprintEngineRunSettingsForWorkspace(state, ws)
+            )
           : defaultSprintEngineAutoState()
-        ws.sprintEngineAutoState = normalized
-          ? applySprintEngineRunSettings(autoState, sprintEngineRunSettingsForWorkspace(state, ws))
-          : defaultSprintEngineAutoState()
+
+        // Skip no-op projection writes. The Sprint Engine projection supervisor
+        // polls every ~4s and re-applies a logically identical state on most
+        // ticks; mutating the Immer draft there produces a fresh `workspaces`
+        // array reference and fans a re-render out to every component subscribed
+        // to the array. Assign each field only when it actually changed so the
+        // draft (and therefore the array) stays untouched on no-op ticks, and so
+        // per-field `useShallow` selectors also stay stable when only some
+        // fields move.
+        if (!isDeepEqual(ws.sprintEngineState, normalized)) ws.sprintEngineState = normalized
+        if (ws.mode !== nextMode) ws.mode = nextMode
+        if (!isDeepEqual(ws.sprintEngineContext, nextContext)) ws.sprintEngineContext = nextContext
+        if (ws.agents !== nextAgents) ws.agents = nextAgents
+        if (!isDeepEqual(ws.sprintEngineAutoState, nextAutoState)) ws.sprintEngineAutoState = nextAutoState
       }),
 
     setMultiloopState: (workspaceId, multiloopState) =>

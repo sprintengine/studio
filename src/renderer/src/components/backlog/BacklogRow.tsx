@@ -1,3 +1,5 @@
+import { memo } from 'react'
+
 import { LifecycleGlyph, StarGlyph, Tooltip, type LifecycleState } from '../ui'
 import type {
   BacklogCriticality,
@@ -63,7 +65,12 @@ export type BacklogRunGlyph = SprintEngineRunGlyph
 // title, then the triage column (size + criticality) the eye can scan straight
 // down. Supporting line: the real excerpt (title already stripped), or the path
 // when a capture has no body yet, with how long ago it was touched on the right.
-export function BacklogRowContent({
+// React.memo so a panel re-render (e.g. a Sprint Engine projection tick) only
+// reconciles rows whose props actually changed. `item` is referentially stable
+// between scans, `now` ticks every 30s, and `runGlyph` is undefined for the
+// common no-run-link row — so the default shallow comparison lets unchanged
+// rows skip rendering entirely. See backlog item Task 2.
+export const BacklogRowContent = memo(function BacklogRowContent({
   item,
   now,
   runGlyph,
@@ -113,7 +120,7 @@ export function BacklogRowContent({
       </div>
     </>
   )
-}
+})
 
 // Size reads as the t-shirt token itself (XS/S/M/L/XL) — text is the signal, so
 // it never depends on color. Right-aligned, fixed-width, tabular so the column

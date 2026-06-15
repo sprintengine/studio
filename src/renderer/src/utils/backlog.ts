@@ -128,6 +128,10 @@ type ParsedBacklogFrontmatter = {
 }
 
 const BACKLOG_FOLDER = 'backlog'
+// Bounded fan-out for the per-file read+stat pass in scanBacklog. High enough to
+// hide IPC round-trip latency across dozens of items, low enough not to flood the
+// main process / filesystem with simultaneous reads on large backlogs.
+const BACKLOG_SCAN_CONCURRENCY = 12
 const ARCHIVED_PREFIX = 'backlog/archived/'
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/
 const SOURCE_EXTENSION_RE = /\.(md|html?)$/i
@@ -180,23 +184,49 @@ export async function scanBacklog(
     }
   }
 
-  const items: BacklogItem[] = []
-  for (const filePath of files.sort(comparePaths)) {
-    const relativePath = workspaceRelativePath(workspaceRoot, filePath)
-    if (!relativePath || !isBacklogRelativePath(relativePath)) continue
+  // Read + stat each file through a bounded-concurrency pool instead of one
+  // sequential round-trip at a time. Each slot is read in parallel via the
+  // shared `nextIndex` cursor, but results are written back into a
+  // position-indexed array so the final list keeps the deterministic
+  // path-sorted order and the same per-file error isolation as before — an
+  // unreadable file becomes a BacklogScanError, never a thrown scan.
+  const sortedFiles = files.sort(comparePaths)
+  const slotResults: Array<{ item: BacklogItem } | { error: BacklogScanError } | null> =
+    new Array(sortedFiles.length).fill(null)
 
-    try {
-      const [sourceContent, stats] = await Promise.all([fs.readfile(filePath), fs.statPath(filePath)])
-      if (!stats.isFile) continue
-      items.push(createBacklogItem({
-        path: filePath,
-        relativePath,
-        sourceContent,
-        stats,
-      }))
-    } catch (error) {
-      errors.push({ relativePath: normalizeRelativePath(relativePath), message: errorMessage(error) })
+  let nextIndex = 0
+  const readSlot = async (): Promise<void> => {
+    while (true) {
+      const index = nextIndex
+      nextIndex += 1
+      if (index >= sortedFiles.length) return
+
+      const filePath = sortedFiles[index]
+      const relativePath = workspaceRelativePath(workspaceRoot, filePath)
+      if (!relativePath || !isBacklogRelativePath(relativePath)) continue
+
+      try {
+        const [sourceContent, stats] = await Promise.all([fs.readfile(filePath), fs.statPath(filePath)])
+        if (!stats.isFile) continue
+        slotResults[index] = {
+          item: createBacklogItem({ path: filePath, relativePath, sourceContent, stats }),
+        }
+      } catch (error) {
+        slotResults[index] = {
+          error: { relativePath: normalizeRelativePath(relativePath), message: errorMessage(error) },
+        }
+      }
     }
+  }
+
+  const workerCount = Math.min(BACKLOG_SCAN_CONCURRENCY, sortedFiles.length)
+  await Promise.all(Array.from({ length: workerCount }, () => readSlot()))
+
+  const items: BacklogItem[] = []
+  for (const slot of slotResults) {
+    if (!slot) continue
+    if ('item' in slot) items.push(slot.item)
+    else errors.push(slot.error)
   }
 
   if (items.length === 0 && errors.length === 0) return { state: 'empty-folder', items: [], errors: [] }

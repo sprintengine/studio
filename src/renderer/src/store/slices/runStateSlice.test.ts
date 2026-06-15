@@ -286,4 +286,83 @@ assert.equal(
   'new Sprint Engine workspaces inherit the app-level permission default when no run override exists',
 )
 
+// Task 3 — no-op `setSprintEngineState` writes must not churn the `workspaces`
+// array reference (which fans a re-render out to every subscriber). A logically
+// identical projection re-apply leaves the reference equal; a real change moves
+// it.
+const noopWorkspaceId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'No-op Projection',
+  folderPath: '/repo/noop',
+})
+useWorkspaceStore.getState().setSprintEngineState(noopWorkspaceId, sprintState)
+const afterFirstSet = useWorkspaceStore.getState().workspaces
+const noopWorkspaceAfterFirstSet = afterFirstSet.find((workspace) => workspace.id === noopWorkspaceId)
+assert.ok(noopWorkspaceAfterFirstSet?.sprintEngineState, 'sprint engine state should be applied')
+
+// Re-apply the identical state: array, workspace object, and nested projection
+// fields must all keep their identity so `useShallow`/array selectors skip.
+useWorkspaceStore.getState().setSprintEngineState(noopWorkspaceId, sprintState)
+const afterIdenticalSet = useWorkspaceStore.getState().workspaces
+assert.equal(
+  afterIdenticalSet,
+  afterFirstSet,
+  'identical setSprintEngineState must preserve the workspaces array reference',
+)
+const noopWorkspaceAfterIdenticalSet = afterIdenticalSet.find((workspace) => workspace.id === noopWorkspaceId)
+assert.equal(
+  noopWorkspaceAfterIdenticalSet,
+  noopWorkspaceAfterFirstSet,
+  'identical setSprintEngineState must preserve the workspace object reference',
+)
+assert.equal(
+  noopWorkspaceAfterIdenticalSet?.sprintEngineState,
+  noopWorkspaceAfterFirstSet?.sprintEngineState,
+  'identical setSprintEngineState must preserve sprintEngineState identity',
+)
+assert.equal(
+  noopWorkspaceAfterIdenticalSet?.agents,
+  noopWorkspaceAfterFirstSet?.agents,
+  'identical setSprintEngineState must preserve the agents map identity',
+)
+
+// A real change must move the array reference and update the projection.
+const changedSprintState = createInitialSprintEngineState({
+  goal: 'Changed projection goal',
+  name: 'Run State Team',
+  roleCounts: { frontend: 1, tester: 1 },
+})
+useWorkspaceStore.getState().setSprintEngineState(noopWorkspaceId, changedSprintState)
+const afterChangedSet = useWorkspaceStore.getState().workspaces
+assert.notEqual(
+  afterChangedSet,
+  afterIdenticalSet,
+  'a changed setSprintEngineState must produce a new workspaces array reference',
+)
+assert.equal(
+  afterChangedSet.find((workspace) => workspace.id === noopWorkspaceId)?.sprintEngineState?.goal,
+  'Changed projection goal',
+  'a changed setSprintEngineState must apply the new projection',
+)
+
+// Clearing the projection (normalized === null) must also move the reference and
+// reset mode to standard.
+useWorkspaceStore.getState().setSprintEngineState(noopWorkspaceId, null)
+const afterClearSet = useWorkspaceStore.getState().workspaces
+assert.notEqual(
+  afterClearSet,
+  afterChangedSet,
+  'clearing setSprintEngineState must produce a new workspaces array reference',
+)
+const noopWorkspaceAfterClear = afterClearSet.find((workspace) => workspace.id === noopWorkspaceId)
+assert.equal(noopWorkspaceAfterClear?.sprintEngineState, null, 'cleared projection should be null')
+assert.equal(noopWorkspaceAfterClear?.mode, 'standard', 'cleared projection should reset mode to standard')
+
+// Re-clearing an already-cleared projection is itself a no-op.
+useWorkspaceStore.getState().setSprintEngineState(noopWorkspaceId, null)
+assert.equal(
+  useWorkspaceStore.getState().workspaces,
+  afterClearSet,
+  're-clearing an already-standard workspace must preserve the workspaces array reference',
+)
+
 console.log('runStateSlice.test.ts: ok')

@@ -318,6 +318,70 @@ run('read failures surface the failing project-relative path', async () => {
   assert.deepEqual(result.errors.map((error) => error.relativePath), ['backlog/broken.md'])
 })
 
+run('scan reads files through a bounded-concurrency pool and preserves sorted order', async () => {
+  const fileCount = 30
+  const names = Array.from({ length: fileCount }, (_, index) => `item-${String(index).padStart(2, '0')}.md`)
+  const entries: Record<string, FixtureEntry> = {
+    '/repo': { kind: 'dir', children: ['backlog'] },
+    '/repo/backlog': { kind: 'dir', children: names },
+  }
+  for (const name of names) entries[`/repo/backlog/${name}`] = file(`# ${name}`)
+
+  let active = 0
+  let maxActive = 0
+  class PoolFs extends FixtureBacklogFs {
+    override async readfile(path: string): Promise<string> {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      // Stagger completion so earlier-started reads can finish after later ones:
+      // this proves the result order comes from the path sort, not read timing.
+      const index = Number(/item-(\d+)\.md$/.exec(normalize(path))?.[1] ?? '0')
+      await new Promise((resolve) => setTimeout(resolve, (fileCount - index) % 5))
+      active -= 1
+      return super.readfile(path)
+    }
+  }
+  const fs = new PoolFs(
+    new Map(Object.entries(entries).map(([key, value]) => [normalize(key), value as FixtureEntry])),
+  )
+
+  const result = await scanBacklog('/repo', fs)
+  assert.equal(result.state, 'ready')
+  // Output stays deterministically path-sorted regardless of read finish order.
+  assert.deepEqual(
+    result.items.map((item) => item.relativePath),
+    names.map((name) => `backlog/${name}`),
+  )
+  // Reads run in parallel (peak > 1) but never exceed the pool bound of 12.
+  assert.ok(maxActive > 1, `expected concurrent reads, saw peak ${maxActive}`)
+  assert.equal(maxActive, 12, `expected pool bounded at 12, saw peak ${maxActive}`)
+})
+
+run('a single unreadable file is isolated and does not fail the parallel scan', async () => {
+  const names = Array.from({ length: 20 }, (_, index) => `item-${String(index).padStart(2, '0')}.md`)
+  const entries: Record<string, FixtureEntry> = {
+    '/repo': { kind: 'dir', children: ['backlog'] },
+    '/repo/backlog': { kind: 'dir', children: names },
+  }
+  for (const name of names) entries[`/repo/backlog/${name}`] = file(`# ${name}`)
+
+  class PartialFailFs extends FixtureBacklogFs {
+    override async readfile(path: string): Promise<string> {
+      if (normalize(path).endsWith('/item-07.md')) throw new Error('Cannot read plan')
+      return super.readfile(path)
+    }
+  }
+  const fs = new PartialFailFs(
+    new Map(Object.entries(entries).map(([key, value]) => [normalize(key), value as FixtureEntry])),
+  )
+
+  const result = await scanBacklog('/repo', fs)
+  assert.equal(result.state, 'partial')
+  assert.equal(result.items.length, names.length - 1)
+  assert.ok(!result.items.some((item) => item.relativePath === 'backlog/item-07.md'))
+  assert.deepEqual(result.errors.map((error) => error.relativePath), ['backlog/item-07.md'])
+})
+
 run('archive helper chooses collision-safe names', () => {
   assert.equal(
     nextArchiveRelativePath('backlog/product-plan.md', [
