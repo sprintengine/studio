@@ -82,6 +82,23 @@ const initialSpawnCleaned = normalizeWorkspaceForPartialize(baseWorkspace({
 }))
 assert.equal(initialSpawnCleaned.sprintEngineInitialSpawnAgentIds, undefined)
 
+// The Sprint Engine projection is a disk-backed cache (projection.json), so it
+// is dropped from the persisted registry to avoid the 4s projection-poll write
+// storm. Durable identity (mode) is still derived from the live state before it
+// is stripped, so a Sprint Engine workspace stays classified as 'sprintengine'.
+const projectionCleaned = normalizeWorkspaceForPartialize(baseWorkspace({
+  mode: 'sprintengine',
+  sprintEngineContext: { statePath: '/p/.sprintengine/state', teamSlug: 'core' } as unknown as Workspace['sprintEngineContext'],
+  sprintEngineState: {
+    goal: 'Ship it',
+    tasks: [{ id: 'T1', status: 'done' }],
+    artifacts: [{ id: 'A1' }],
+  } as unknown as Workspace['sprintEngineState'],
+}))
+assert.equal(projectionCleaned.sprintEngineState, null)
+assert.equal(projectionCleaned.mode, 'sprintengine')
+assert.notEqual(projectionCleaned.sprintEngineContext, null)
+
 // normalizeWorkspaceForPartialize zeros the in-memory stream buffer + status on agents
 // that survive a save so they cold-load idle instead of streaming.
 const withAgent = baseWorkspace({

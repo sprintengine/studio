@@ -331,6 +331,9 @@ export default function WorkspaceManager() {
   const reconciledLaunchFlagsRef = useRef(false)
   const workspaceLayoutLastFocusedAtRef = useRef<Record<string, number>>({})
   const workspaceLayoutRetentionReasonsRef = useRef<Record<string, WorkspaceLayoutRetentionReason>>({})
+  // Last terminal-visibility we pushed to main per session, so the painting
+  // effect only fires an IPC call on an actual transition.
+  const appliedTerminalVisibilityRef = useRef<Map<string, boolean>>(new Map())
   const collapsedStaleDetachedWindowsRef = useRef(false)
   const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel
   const commandDispatcherRef = useRef(new RendererCommandDispatcher())
@@ -728,6 +731,37 @@ export default function WorkspaceManager() {
     // parked behind it run their deferred fit now (terminalFitScheduler.ts).
     window.dispatchEvent(new Event(WORKSPACE_LAYER_REVEAL_EVENT))
   }, [windowActiveWorkspaceId])
+
+  // Drive per-terminal paint visibility from the layer state. Active + warm
+  // layers paint live (so flicking between the recently-used pool is instant);
+  // cold layers (mounted but beyond the warm set — the workspaces you forgot
+  // about) stop painting. The agent PTY keeps running and is supervised either
+  // way: `visible` only gates whether main forwards output to the renderer's
+  // xterm, so this trades nothing but wasted off-screen rendering. On reveal,
+  // main re-sends the retained replay and the terminal resyncs. Only sessions
+  // routed to THIS window are touched; a workspace lives in exactly one window,
+  // so windows never fight over a session's visibility.
+  useEffect(() => {
+    const paintingWorkspaceIds = new Set<string>(warmHiddenWorkspaceIdSet)
+    if (windowActiveWorkspaceId) paintingWorkspaceIds.add(windowActiveWorkspaceId)
+
+    const applied = appliedTerminalVisibilityRef.current
+    const liveSessionIds = new Set<string>()
+    for (const session of terminalSessions) {
+      const workspaceId = session.workspaceId
+      if (typeof workspaceId !== 'string' || !visibleWorkspaceIdSet.has(workspaceId)) continue
+      liveSessionIds.add(session.sessionId)
+      const shouldPaint = paintingWorkspaceIds.has(workspaceId)
+      if (applied.get(session.sessionId) === shouldPaint) continue
+      applied.set(session.sessionId, shouldPaint)
+      void window.api.terminalSetVisible(session.sessionId, shouldPaint).catch(() => {})
+    }
+    // Forget sessions that unmounted or moved to another window; their own
+    // TerminalView teardown already set them hidden on the main side.
+    for (const sessionId of [...applied.keys()]) {
+      if (!liveSessionIds.has(sessionId)) applied.delete(sessionId)
+    }
+  }, [terminalSessions, warmHiddenWorkspaceIdSet, windowActiveWorkspaceId, visibleWorkspaceIdSet])
 
   useEffect(() => {
     const now = Date.now()

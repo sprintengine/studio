@@ -1,7 +1,7 @@
 import type { TerminalSession } from './terminal-session'
 import type { SessionActivity } from '../shared/electron-api'
 
-type TerminalDiagnosticCause = 'timer' | 'exit' | 'dispose'
+type TerminalDiagnosticCause = 'timer' | 'exit' | 'dispose' | 'visibility'
 
 type TerminalDiagnosticsOptions = {
   enabled: boolean

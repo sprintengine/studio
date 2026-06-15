@@ -81,6 +81,15 @@ export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace
   return {
     ...launchSafeWorkspace,
     mode: normalizeWorkspaceMode(launchSafeWorkspace.mode, launchSafeWorkspace.sprintEngineState, launchSafeWorkspace.multiloopState),
+    // The Sprint Engine projection is a cache of the on-disk projection.json
+    // (the source of truth), re-read by SprintEngineProjectionSupervisor on its
+    // first tick after mount for every Sprint Engine workspace. Persisting it
+    // made the 4s projection poll serialize the full tasks+artifacts blob into
+    // localStorage on every run-progress update — the persist write-storm behind
+    // the renderer heap spikes. Drop it from the persisted registry so only
+    // durable identity (sprintEngineContext/mode) survives a restart; the live
+    // projection rehydrates from disk within one supervisor tick.
+    sprintEngineState: null,
     guidedBriefState: normalizeGuidedBriefState(launchSafeWorkspace.guidedBriefState),
     memory: normalizeWorkspaceMemoryConfig(launchSafeWorkspace.memory),
     fileExplorerState: normalizeWorkspaceFileExplorerState(launchSafeWorkspace.fileExplorerState),

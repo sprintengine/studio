@@ -362,7 +362,36 @@ function broadcastTerminalSessionsChanged(): void {
 function setTerminalVisible(sessionId: string, visible: boolean): void {
   const session = terminals.get(sessionId)
   if (!session || session.isDisposed) return
+  // While a terminal is hidden the agent keeps running and we keep appending to
+  // the retained replay buffer, but we stop forwarding output to its (frozen)
+  // renderer xterm (see terminal-output-buffer flush gate). On becoming visible
+  // again the xterm is stale, so re-send the retained window and let the renderer
+  // reset + replay to resync. This is the cold-layer reveal path; warm/active
+  // layers never go hidden so they never pay this.
+  const becameVisible = visible && session.visible === false
+  if (becameVisible) {
+    // Drop any batch buffered-but-not-forwarded while hidden: it is already in
+    // the retained replay we are about to send, so forwarding it after the
+    // replay would duplicate the tail.
+    terminalOutput.flush(sessionId, 'visibility')
+  }
   recordTerminalVisibility(session, visible)
+  if (becameVisible) {
+    const replay = materializeTerminalReplay(session)
+    if (replay) {
+      sendTerminalEvent(session.sender, `terminal:replay:${sessionId}`, replay)
+      logMainPerfEvent('TerminalRuntime', 'terminal-replay-sent', {
+        sessionId,
+        workspaceId: session.workspaceId,
+        agentId: session.agentId,
+        terminalId: session.terminalId,
+        kind: session.kind,
+        replayChars: replay.length,
+        replayBytes: Buffer.byteLength(replay, 'utf8'),
+        cause: 'revisible',
+      })
+    }
+  }
   broadcastTerminalSessionsChanged()
 }
 

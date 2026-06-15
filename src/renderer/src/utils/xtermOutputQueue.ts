@@ -187,6 +187,13 @@ export function createXtermOutputQueue(
       trimQueue()
       scheduleDrain()
     },
+    clear: () => {
+      // Drop everything queued-but-not-yet-written without tearing the queue
+      // down (used when a hidden terminal is revealed and resynced via replay).
+      queue.length = 0
+      queuedChars = 0
+      throttled = false
+    },
     dispose: () => {
       disposed = true
       queue.length = 0
@@ -205,6 +212,11 @@ export function createXtermReplayGate(
   let awaitingReplay = false
   let replaying = false
   let replayHandled = false
+  // True once this terminal has shown content. Unlike the per-reattach counters
+  // below, it persists across a hide/reveal cycle within the same gate instance
+  // so handleReplay can tell an initial attach (empty xterm, no reset) from a
+  // revisible resync (stale xterm, reset before replay).
+  let revealedOnce = false
 
   // Chunked replay drain state.
   let replayChunks: string[] = []
@@ -299,6 +311,7 @@ export function createXtermReplayGate(
         // settle rather than after every chunk.
         if (firstContentAt === 0) {
           firstContentAt = performance.now()
+          revealedOnce = true
           term.scrollToBottom()
           emitState('ready', true)
         }
@@ -335,12 +348,25 @@ export function createXtermReplayGate(
       if (disposed || replaying || replayHandled || !awaitingReplay) return
       awaitingReplay = false
       firstContentAt = performance.now()
+      revealedOnce = true
       emitState('ready', true)
       flushLiveBuffer()
       emitProfile('finish-wait')
     },
     handleReplay: (data: string) => {
       if (disposed || !data) return
+      // A replay that arrives when we are NOT awaiting one, on a terminal that
+      // has already shown content, is a revisible resync: the main process
+      // re-sent the retained window because this hidden terminal became visible
+      // again. Reset the stale screen + scrollback and drop any queued/buffered
+      // output so the window is applied exactly once (no duplicated pre-hide
+      // content). An initial attach (awaitingReplay) writes onto an empty xterm
+      // and must NOT reset.
+      if (!awaitingReplay && revealedOnce) {
+        term.reset()
+        outputQueue.clear()
+        liveBuffer.length = 0
+      }
       awaitingReplay = false
       replaying = true
       replayHandled = true

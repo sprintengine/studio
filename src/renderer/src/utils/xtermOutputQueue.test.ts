@@ -22,6 +22,7 @@ function main(): void {
   assertLiveOutputIsBufferedUntilMultiChunkReplaySettles()
   assertEmptyReplayReleaseFlushesLiveOutput()
   assertDisposeCancelsRemainingReplayChunks()
+  assertRevisibleReplayResetsBeforeReplayingButInitialDoesNot()
   console.log('xtermOutputQueue.test.ts: ok')
 }
 
@@ -182,6 +183,36 @@ function assertDisposeCancelsRemainingReplayChunks(): void {
   queue.dispose()
 }
 
+// A hidden terminal that becomes visible again gets a fresh retained-window
+// replay from main. The gate must reset the stale screen before replaying it
+// (so pre-hide content is not duplicated) — but ONLY on this resync, never on
+// the initial attach which writes onto an empty xterm.
+function assertRevisibleReplayResetsBeforeReplayingButInitialDoesNot(): void {
+  const writes: string[] = []
+  const term = createTerminal(writes)
+  const queue = createXtermOutputQueue(term, { recordWrite: () => {} })
+  const gate = createXtermReplayGate(term, queue, {})
+
+  // Initial attach: awaiting → replay onto an empty terminal, no reset.
+  gate.beginReplayWait()
+  gate.handleReplay('first-window\n')
+  assert.ok(!writes.includes('[reset]'), 'initial attach must not reset the terminal')
+  assert.ok(writes.includes('first-window\n'))
+
+  // Revisible resync: a replay arrives with no preceding beginReplayWait, on a
+  // terminal that has already revealed content. It must reset first, then write
+  // the new window exactly once.
+  const resetAt = writes.length
+  gate.handleReplay('second-window\n')
+  const afterResync = writes.slice(resetAt)
+  assert.ok(afterResync.includes('[reset]'), 'revisible resync must reset before replaying')
+  assert.equal(afterResync.indexOf('[reset]') < afterResync.indexOf('second-window\n'), true)
+  // The pre-hide window is not re-written after the reset.
+  assert.ok(!afterResync.includes('first-window\n'))
+  gate.dispose()
+  queue.dispose()
+}
+
 function createTerminal(writes: string[]): Terminal {
   return {
     write: (data: string, callback?: () => void) => {
@@ -190,6 +221,9 @@ function createTerminal(writes: string[]): Terminal {
     },
     scrollToBottom: () => {
       writes.push('[scroll-bottom]')
+    },
+    reset: () => {
+      writes.push('[reset]')
     },
   } as unknown as Terminal
 }

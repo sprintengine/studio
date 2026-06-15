@@ -1,7 +1,7 @@
 import type { WebContents } from 'electron'
 import type { TerminalSession } from './terminal-session'
 
-type TerminalOutputCause = 'timer' | 'exit' | 'dispose'
+type TerminalOutputCause = 'timer' | 'exit' | 'dispose' | 'visibility'
 
 type TerminalOutputBufferOptions = {
   getSession(sessionId: string): TerminalSession | undefined

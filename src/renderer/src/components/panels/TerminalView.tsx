@@ -16,7 +16,7 @@ import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
-import { createXtermOutputQueue, createXtermReplayGate, type XtermReplayState } from '../../utils/xtermOutputQueue'
+import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
@@ -140,9 +140,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     containerRef.current?.focus()
   })
   const [isFileDragOver, setIsFileDragOver] = useState(false)
-  // Drives the terminal-shaped skeleton while retained scrollback is restored
-  // on a cold workspace switch; cleared once the first content is on screen.
-  const [replayVisible, setReplayVisible] = useState(true)
   // A failed file-link click or file drop, anchored to the pointer that raised
   // it so the error surfaces next to the cursor instead of a corner toast.
   const [clickError, setClickError] = useState<{ message: string; x: number; y: number } | null>(
@@ -451,10 +448,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     })
     const replayGate = createXtermReplayGate(term, outputQueue, {
       recordWrite: terminalDiagnostics.recordOutputWrite,
-      onReplayStateChange: (state: XtermReplayState) => {
-        if (disposed) return
-        setReplayVisible(state.visible)
-      },
       onReplayProfile: (profile) => {
         logPerfEvent('TerminalView', 'terminal-replay-profile', {
           sessionId,
@@ -903,7 +896,11 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       onDrop={(event) => void handleDrop(event)}
       className="terminal-focus-ring absolute inset-0 overflow-hidden p-2 pb-4 cursor-text"
     >
-      {!replayVisible || (folderBlocked && checkingFolder) ? <TerminalReplaySkeleton /> : null}
+      {/* No replay skeleton on terminals: an xterm renders its own content
+          progressively (and a revealed cold terminal resyncs in place), so a
+          skeleton there just reads as a flash. Keep it only for the genuine
+          pre-launch folder-verification wait. */}
+      {folderBlocked && checkingFolder ? <TerminalReplaySkeleton /> : null}
       {isFileDragOver ? (
         <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]" />
       ) : null}
