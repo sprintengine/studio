@@ -163,7 +163,35 @@ export type PluginManifest = {
   souls?: PluginSoulsSpec
   modelSelection?: PluginModelSelectionSpec
   skillIntegration?: PluginSkillIntegration
+  detect?: PluginDetectSpec
+  install?: PluginInstallSpec
 }
+
+// Platform keys for install metadata. `wsl` is a logical target used when the
+// CLI runtime is configured to run through WSL on Windows; it is not a
+// `process.platform` value.
+export type PluginInstallPlatform = 'darwin' | 'linux' | 'win32' | 'wsl'
+
+// How to confirm a CLI is installed and read its version. `versionArgs`
+// defaults to `['--version']` when omitted.
+export type PluginDetectSpec = {
+  versionArgs?: string[]
+}
+
+// One installable path for a CLI on a given platform. `shell` is run in the
+// platform's shell (POSIX `bash -lc` for darwin/linux/wsl, PowerShell for
+// win32). `requires`, when set, names a binary that must be on PATH for the
+// method to be offered (e.g. `npm`, `brew`).
+export type PluginInstallMethod = {
+  id: string
+  label: string
+  shell: string
+  recommended?: boolean
+  requires?: string
+}
+
+export type PluginInstallSpec = Partial<Record<PluginInstallPlatform, PluginInstallMethod[]>>
+
 
 export type ConversationProviderType = 'model-provider' | 'agent-harness'
 

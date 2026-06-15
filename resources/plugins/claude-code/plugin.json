@@ -76,6 +76,70 @@
       "nativeSlashCommand": true
     }
   },
+  "detect": {
+    "versionArgs": ["--version"]
+  },
+  "install": {
+    "darwin": [
+      {
+        "id": "official",
+        "label": "Official installer (recommended)",
+        "shell": "curl -fsSL https://claude.ai/install.sh | bash",
+        "recommended": true,
+        "requires": "curl"
+      },
+      {
+        "id": "npm",
+        "label": "npm (requires Node.js)",
+        "shell": "npm install -g @anthropic-ai/claude-code",
+        "requires": "npm"
+      }
+    ],
+    "linux": [
+      {
+        "id": "official",
+        "label": "Official installer (recommended)",
+        "shell": "curl -fsSL https://claude.ai/install.sh | bash",
+        "recommended": true,
+        "requires": "curl"
+      },
+      {
+        "id": "npm",
+        "label": "npm (requires Node.js)",
+        "shell": "npm install -g @anthropic-ai/claude-code",
+        "requires": "npm"
+      }
+    ],
+    "wsl": [
+      {
+        "id": "official",
+        "label": "Official installer in WSL (recommended)",
+        "shell": "curl -fsSL https://claude.ai/install.sh | bash",
+        "recommended": true,
+        "requires": "curl"
+      },
+      {
+        "id": "npm",
+        "label": "npm in WSL (requires Node.js)",
+        "shell": "npm install -g @anthropic-ai/claude-code",
+        "requires": "npm"
+      }
+    ],
+    "win32": [
+      {
+        "id": "official",
+        "label": "Official installer (recommended)",
+        "shell": "irm https://claude.ai/install.ps1 | iex",
+        "recommended": true
+      },
+      {
+        "id": "npm",
+        "label": "npm (requires Node.js)",
+        "shell": "npm install -g @anthropic-ai/claude-code",
+        "requires": "npm"
+      }
+    ]
+  },
   "capabilities": {
     "resumeSession": true,
     "sessionIdFromCaller": true,
