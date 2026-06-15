@@ -726,6 +726,11 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
   }
 }
 
+// First-run surface for opening files. Defaults to the external pop-up window;
+// it is sticky thereafter (docking a file back flips it to workspace tabs).
+// Flip this one constant to make tabs the out-of-the-box default instead.
+export const DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW = true
+
 export interface SettingsSliceState {
   appSettings: AppSettings
   settingsOverlay: SettingsOverlayState
@@ -735,11 +740,17 @@ export interface SettingsSliceState {
   // App-level (not per-workspace layout) because the aside surveys every
   // workspace and must survive workspace switches.
   sprintEnginesAsideOpen: boolean
+  // Sticky "where do files open" preference. When true, opening a file routes to
+  // the external editor window (a tabbed pop-up) instead of a workspace tab.
+  // Set by user action — popping a tab out turns it on, docking a file back
+  // turns it off — and remembered so the next file reuses the last surface.
+  openFilesInExternalWindow: boolean
 }
 
 export interface SettingsSliceActions {
   setSidebarCollapsed: (collapsed: boolean) => void
   setSprintEnginesAsideOpen: (open: boolean) => void
+  setOpenFilesInExternalWindow: (enabled: boolean) => void
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
   openRunSummaryOverlay: (workspaceId: string) => void
@@ -805,6 +816,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     runSummaryOverlay: { open: false, workspaceId: null },
     sidebarCollapsed: false,
     sprintEnginesAsideOpen: false,
+    openFilesInExternalWindow: DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW,
 
     setSidebarCollapsed: (collapsed) =>
       set((state) => {
@@ -814,6 +826,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setSprintEnginesAsideOpen: (open) =>
       set((state) => {
         state.sprintEnginesAsideOpen = open
+      }),
+
+    setOpenFilesInExternalWindow: (enabled) =>
+      set((state) => {
+        state.openFilesInExternalWindow = enabled
       }),
 
     openSettingsOverlay: (opts) =>

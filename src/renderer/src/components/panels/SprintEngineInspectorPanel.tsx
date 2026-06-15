@@ -1362,7 +1362,7 @@ function TaskInputResponsePrompt({
           <span className="font-normal text-[color:var(--text-muted)]">· {reasonLabel}</span>
         ) : null}
       </div>
-      <div className="mt-1.5 text-[13px] leading-6 text-[color:var(--text-default)] [overflow-wrap:anywhere]">
+      <div className="mt-1.5 whitespace-pre-line text-[13px] leading-6 text-[color:var(--text-default)] [overflow-wrap:anywhere]">
         {question || fallback}
       </div>
       {reportedBy ? (

@@ -445,6 +445,9 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
     diff_evidence = normalize_diff_evidence(ev.get("diffs"), task_id)
     if diff_evidence:
         task["evidence"]["diffs"] = diff_evidence
+    commit_evidence = unique_strings([str(i).strip() for i in ev.get("commits", []) if str(i).strip()])
+    if commit_evidence:
+        task["evidence"]["commits"] = commit_evidence
     if "productFacing" in raw:
         task["productFacing"] = bool(raw.get("productFacing"))
     if "producesImplementation" in raw:

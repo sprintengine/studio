@@ -143,6 +143,8 @@ export interface WorkspaceStore extends PluginsSlice {
   setSidebarCollapsed: (collapsed: boolean) => void
   sprintEnginesAsideOpen: boolean
   setSprintEnginesAsideOpen: (open: boolean) => void
+  openFilesInExternalWindow: boolean
+  setOpenFilesInExternalWindow: (enabled: boolean) => void
   settingsOverlay: {
     open: boolean
     initialTab: string | null
@@ -446,6 +448,7 @@ type SettingsEnvelopeState = {
   appSettings: unknown
   sidebarCollapsed: unknown
   sprintEnginesAsideOpen: unknown
+  openFilesInExternalWindow: unknown
 }
 
 let lastWrittenRegistrySerialized: string | null = null
@@ -531,6 +534,7 @@ function extractSettingsFields(state: Record<string, unknown>): SettingsEnvelope
     appSettings: state.appSettings,
     sidebarCollapsed: state.sidebarCollapsed,
     sprintEnginesAsideOpen: state.sprintEnginesAsideOpen,
+    openFilesInExternalWindow: state.openFilesInExternalWindow,
   }
 }
 
@@ -563,6 +567,7 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
         appSettings: s.appSettings,
         sidebarCollapsed: s.sidebarCollapsed,
         sprintEnginesAsideOpen: s.sprintEnginesAsideOpen,
+        openFilesInExternalWindow: s.openFilesInExternalWindow,
         workspaces: retainedWorkspaces,
         activeWorkspaceId: retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
         workspaceWindows: normalizeWorkspaceWindows(
@@ -583,6 +588,7 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
     appSettings: s.appSettings,
     sidebarCollapsed: s.sidebarCollapsed,
     sprintEnginesAsideOpen: s.sprintEnginesAsideOpen,
+    openFilesInExternalWindow: s.openFilesInExternalWindow,
     ...partializeRegistryFields(s),
   }
 }

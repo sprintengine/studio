@@ -433,6 +433,8 @@ def test_task_publish_records_implementation_summary_and_routes_to_next_phase(tm
     )
 
     assert payload["nextStatus"] == "review"
+    assert payload["committed"] is False
+    assert payload["commitSha"] is None
     assert payload["nextCommand"] == "sprintengine join --role developer --id developer-fixture --watch"
     assert "Auto Mode is on" in payload["nextAction"]
     assert payload["comment"]["type"] == "implementation_summary"

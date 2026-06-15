@@ -49,7 +49,7 @@ import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/ag
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
-import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, revealNavRailComponent, togglePanelRailComponent } from '../../utils/modelRegistry'
+import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, revealNavRailComponent, togglePanelRailComponent } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -190,6 +190,17 @@ export default function WorkspaceManager() {
   // App-automation MCP mutations delegate to the primary window so they run the
   // same store actions as the UI (see src/main/automation/).
   useAutomationRequests(workspaceWindowId)
+  // Dock-back from the external editor window: the window owning that workspace's
+  // FlexLayout model reopens the file as a tab and flips the sticky preference
+  // back to tabs; windows that do not own the workspace no-op.
+  useEffect(() => {
+    if (typeof window.api.onDockFileToWorkspace !== 'function') return
+    return window.api.onDockFileToWorkspace(({ workspaceId, path, name }) => {
+      if (focusOrAddFileTab(workspaceId, path, name)) {
+        useWorkspaceStore.getState().setOpenFilesInExternalWindow(false)
+      }
+    })
+  }, [])
   const workspaces = useWorkspaceStore(useShallow((s) => selectWorkspaceManagerWorkspaces(s.workspaces)))
   const workspaceWindows = useWorkspaceStore((s) => s.workspaceWindows)
   const primaryWorkspaceWindowId = useWorkspaceStore((s) => s.primaryWorkspaceWindowId)

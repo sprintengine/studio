@@ -37,7 +37,7 @@ import type { McpSettings } from '../../types/workspace'
 import { CursorErrorPopover } from '../ui/CursorErrorPopover'
 import { workspaceSyncClient } from '../../store/workspaceSyncClient'
 import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../shared/terminal-history'
-import { focusOrAddFileTab } from '../../utils/modelRegistry'
+import { openFileSurface } from '../../utils/openFileSurface'
 
 interface Props {
   workspaceId: string
@@ -404,8 +404,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       pathExists: (path) => window.api.pathExists(path),
       openFile: async ({ resolvedPath, name, line, column }) => {
         const content = isImageFile(resolvedPath) ? '' : await window.api.readfile(resolvedPath)
-        currentContext().openFile(workspaceId, resolvedPath, name, content)
-        focusOrAddFileTab(workspaceId, resolvedPath, name)
+        openFileSurface({ workspaceId, path: resolvedPath, name, content })
         const dispatchFocus = () => {
           window.dispatchEvent(new CustomEvent('multicode:focus-editor', {
             detail: {

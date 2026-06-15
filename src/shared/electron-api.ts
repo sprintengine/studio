@@ -914,6 +914,15 @@ export type AuxWindowRetargetPayload = {
   params: Record<string, string>
 }
 
+// Dock-back: the external editor window asks the owning workspace window to
+// reopen a file as a normal editor tab. Broadcast to all windows; the one whose
+// model owns the workspace handles it (others no-op).
+export type DockFileToWorkspaceInput = {
+  workspaceId: string
+  path: string
+  name: string
+}
+
 export type OpenExternalResult =
   | { ok: true }
   | { ok: false; message: string }
@@ -1479,6 +1488,8 @@ export type ElectronApi = {
   createWorkspaceWindow: (input: CreateWorkspaceWindowInput) => Promise<CreateWorkspaceWindowResult>
   openAuxWindow: (input: OpenAuxWindowInput) => Promise<OpenAuxWindowResult>
   onAuxWindowRetarget: (cb: (payload: AuxWindowRetargetPayload) => void) => () => void
+  dockFileToWorkspace: (input: DockFileToWorkspaceInput) => Promise<void>
+  onDockFileToWorkspace: (cb: (input: DockFileToWorkspaceInput) => void) => () => void
   confirmWindowClose: () => Promise<void>
   openExternal: (url: string) => Promise<OpenExternalResult>
   onWindowStateChanged: (cb: (state: WindowState) => void) => () => void

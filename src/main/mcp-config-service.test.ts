@@ -76,6 +76,24 @@ async function main(): Promise<void> {
   assert.match(codexConfig, /\[mcp_servers\.figma\]/)
   assert.match(codexConfig, /bearer_token_env_var = "FIGMA_OAUTH_TOKEN"/)
 
+  const codexFileConflictRoot = join(temp, 'codex-file-conflict-workspace')
+  await mkdir(codexFileConflictRoot, { recursive: true })
+  await writeFile(join(codexFileConflictRoot, '.codex'), '', 'utf-8')
+  const codexFileConflictResult = service.sync({
+    workspaceRoot: codexFileConflictRoot,
+    settings: codexSettings,
+    clients: ['codex'],
+  })
+  assert.equal(codexFileConflictResult.ok, false)
+  assert.equal(
+    codexFileConflictResult.ok === false
+      && codexFileConflictResult.message.includes('.codex')
+      && codexFileConflictResult.message.includes('directory')
+      && codexFileConflictResult.message.includes('file'),
+    true,
+    `Codex config parent file conflict should be reported as an actionable sync failure, got: ${JSON.stringify(codexFileConflictResult)}`
+  )
+
   const claudePath = join(workspaceRoot, '.mcp.json')
   await writeFile(
     claudePath,

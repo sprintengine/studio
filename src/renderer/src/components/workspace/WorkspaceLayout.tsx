@@ -20,6 +20,7 @@ import {
 import 'flexlayout-react/style/combined.css'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import {
   isSessionFailed,
@@ -899,11 +900,33 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
             event.dataTransfer.setData('text/plain', node.getName())
           }
         : undefined
+      // Dragging a file-editor tab out of the app window pops the file into the
+      // external editor window and flips the sticky preference to pop-up mode.
+      // Drops inside the window fall through to FlexLayout's own tab handling.
+      const handleTabDragEnd = canDragOut && node.getComponent() === 'file-editor'
+        ? (event: React.DragEvent<HTMLSpanElement>) => {
+            const left = window.screenX
+            const top = window.screenY
+            const outside =
+              event.screenX < left
+              || event.screenX > left + window.outerWidth
+              || event.screenY < top
+              || event.screenY > top + window.outerHeight
+            if (!outside) return
+            const config = node.getConfig() as { filePath?: string } | undefined
+            const filePath = config?.filePath
+            if (!filePath) return
+            void openExternalFileWindow({ workspaceId, path: filePath, name: node.getName() })
+            useWorkspaceStore.getState().setOpenFilesInExternalWindow(true)
+            node.getModel().doAction(Actions.deleteTab(node.getId()))
+          }
+        : undefined
       const tabContent = (
         <span
           className="min-w-0 truncate"
           draggable={canDragOut}
           onDragStart={handleTabDragStart}
+          onDragEnd={handleTabDragEnd}
           onContextMenu={(event) => void showTabContextMenu(event, node)}
           onDoubleClick={canRenameTab ? (event) => startRename(event, node) : undefined}
         >

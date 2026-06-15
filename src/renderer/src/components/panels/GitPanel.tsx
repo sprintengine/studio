@@ -2,9 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitStatus } from '../../hooks/useGitStatus'
 import { getGitScopeStatusAppearance, getGitStatusAppearance } from '../../utils/gitStatusAppearance'
-import { focusOrAddFileTab, focusOrAddGitConflictTab, focusOrAddTerminalTab } from '../../utils/modelRegistry'
+import { focusOrAddGitConflictTab, focusOrAddTerminalTab } from '../../utils/modelRegistry'
 import { isImageFile } from '../../utils/files'
 import { openDiffWindow } from '../auxWindows/openDiffWindow'
+import { openFileSurface } from '../../utils/openFileSurface'
 import { basename, samePath, trimPath } from '../../utils/paths'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
@@ -268,7 +269,6 @@ function gitRepoCacheKey(repoRoot: string): string {
 export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId) ?? null)
   const folderPath = workspace?.folderPath ?? null
-  const openFile = useWorkspaceStore((s) => s.openFile)
   const mainGit = useGitStatus(folderPath)
   const mainRepoRoot = mainGit.repoRoot
   const [scopeOptions, setScopeOptions] = useState<GitScopeOption[]>([])
@@ -897,8 +897,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       }
     }
 
-    openFile(workspaceId, entry.path, name, content)
-    focusOrAddFileTab(workspaceId, entry.path, name)
+    openFileSurface({ workspaceId, path: entry.path, name, content })
   }
 
   if (!folderPath) {

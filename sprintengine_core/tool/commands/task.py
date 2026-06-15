@@ -664,6 +664,7 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
         summary_data = parse_json_object_arg(getattr(args, "summary_data_json", None), "--summary-data-json")
         refresh_task_diff_evidence(state, args.state, task, str(actor), args.path or [])
+        commit_sha = commit_task_changes_if_needed(state, args.state, task, str(actor))
         set_implementer_actual_difficulty(
             task,
             getattr(args, "actual_difficulty_pct", None),
@@ -680,6 +681,8 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
             "nextStatus": result["nextStatus"],
             "previousStatus": result["previousStatus"],
             "clearedAgents": result["clearedAgents"],
+            "committed": bool(commit_sha),
+            "commitSha": commit_sha,
             "event": event,
             **(continuation or {}),
         }

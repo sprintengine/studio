@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { dirname, delimiter, isAbsolute, join } from 'path'
 
@@ -483,11 +483,10 @@ function syncForFormat(input: SyncForFormatInput): {
 } {
   const format = input.plugin.mcpConfig!.format
   switch (format) {
-    case 'codex':
-      return {
-        targets: [syncCodex(input)],
-        issues: [],
-      }
+    case 'codex': {
+      const result = syncCodex(input)
+      return { targets: [result.target], issues: result.issues }
+    }
     case 'claude-code': {
       const result = syncClaude(input)
       return { targets: [result.target], issues: result.issues }
@@ -511,23 +510,28 @@ function syncForFormat(input: SyncForFormatInput): {
   }
 }
 
-function syncCodex(input: SyncForFormatInput): McpSyncTarget {
+function syncCodex(input: SyncForFormatInput): {
+  target: McpSyncTarget
+  issues: McpValidationIssue[]
+} {
   const { plugin, servers, knownServerIds, workspaceRoot, write, context, client } = input
   const scope: McpScope = servers.some((server) => server.scope === 'user') ? 'user' : 'workspace'
   const resolved = resolveMcpTargetPath(plugin.mcpConfig!, scope, workspaceRoot, context.homeDir)
+  const serverIds = servers.map((server) => server.id)
   if (!resolved) {
-    return { client, path: '', serverIds: servers.map((server) => server.id) }
+    return { target: { client, path: '', serverIds }, issues: [] }
   }
+  const target = { client, path: resolved, serverIds }
   if (write && (servers.length > 0 || knownServerIds.length > 0)) {
-    const previous = existsSync(resolved) ? readFileSync(resolved, 'utf8') : ''
-    mkdirSync(dirname(resolved), { recursive: true })
+    const prepared = prepareWritableConfigFile(resolved, client)
+    if (!prepared.ok) return { target, issues: [prepared.issue] }
     writeFileSync(
       resolved,
-      servers.length ? replaceManagedBlock(previous, renderCodexManagedBlock(servers)) : removeCodexManagedServers(previous, knownServerIds),
+      servers.length ? replaceManagedBlock(prepared.previous, renderCodexManagedBlock(servers)) : removeCodexManagedServers(prepared.previous, knownServerIds),
       'utf8'
     )
   }
-  return { client, path: resolved, serverIds: servers.map((server) => server.id) }
+  return { target, issues: [] }
 }
 
 function syncClaude(input: SyncForFormatInput): {
@@ -551,11 +555,17 @@ function syncClaude(input: SyncForFormatInput): {
     }
   }
   if (write && (workspaceServers.length > 0 || knownServerIds.length > 0)) {
-    mkdirSync(dirname(path), { recursive: true })
+    const prepared = prepareWritableConfigFile(path, client)
+    if (!prepared.ok) {
+      return {
+        target: { client, path, serverIds: workspaceServers.map((server) => server.id) },
+        issues: [...issues, prepared.issue],
+      }
+    }
     let existing: Record<string, unknown> = {}
-    if (existsSync(path)) {
+    if (prepared.existed) {
       try {
-        existing = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+        existing = JSON.parse(prepared.previous) as Record<string, unknown>
       } catch {
         issues.push({
           level: 'error',
@@ -583,6 +593,48 @@ function syncClaude(input: SyncForFormatInput): {
   return {
     target: { client, path, serverIds: workspaceServers.map((server) => server.id) },
     issues,
+  }
+}
+
+type WritableConfigFileResult =
+  | { ok: true, previous: string, existed: boolean }
+  | { ok: false, issue: McpValidationIssue }
+
+function prepareWritableConfigFile(path: string, client: McpClientTarget): WritableConfigFileResult {
+  const directory = dirname(path)
+  try {
+    if (existsSync(directory) && !statSync(directory).isDirectory()) {
+      return {
+        ok: false,
+        issue: {
+          level: 'error',
+          client,
+          message: `Cannot sync MCP config for ${client}: expected ${directory} to be a directory, but it is a file. Rename or remove that file, or disable MCP sync for this CLI.`,
+        },
+      }
+    }
+    mkdirSync(directory, { recursive: true })
+    if (!existsSync(path)) return { ok: true, previous: '', existed: false }
+    if (statSync(path).isDirectory()) {
+      return {
+        ok: false,
+        issue: {
+          level: 'error',
+          client,
+          message: `Cannot sync MCP config for ${client}: expected ${path} to be a config file, but it is a directory. Rename or remove that directory, or disable MCP sync for this CLI.`,
+        },
+      }
+    }
+    return { ok: true, previous: readFileSync(path, 'utf8'), existed: true }
+  } catch (error) {
+    return {
+      ok: false,
+      issue: {
+        level: 'error',
+        client,
+        message: `Cannot sync MCP config for ${client} at ${path}: ${error instanceof Error ? error.message : 'Unknown filesystem error.'}`,
+      },
+    }
   }
 }
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { focusOrAddFileTab } from '../../utils/modelRegistry'
+import { openFileSurface } from '../../utils/openFileSurface'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { InboxRow, Skeleton } from '../ui'
 
@@ -41,7 +41,6 @@ function highlightLine(lineText: string, matchText: string) {
 
 export default function ContentSearchPanel({ workspaceId }: Props) {
   const { folderReadyPath, folderMissing, checkingFolder } = useWorkspaceFolderStatus(workspaceId)
-  const openFile = useWorkspaceStore((s) => s.openFile)
   const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? [])
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ContentSearchEntry[]>([])
@@ -133,8 +132,7 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
   const openResult = async (entry: ContentSearchEntry) => {
     try {
       const content = await window.api.readfile(entry.path)
-      openFile(workspaceId, entry.path, entry.name, content)
-      focusOrAddFileTab(workspaceId, entry.path, entry.name)
+      openFileSurface({ workspaceId, path: entry.path, name: entry.name, content })
     } catch (openError) {
       setError(openError instanceof Error ? openError.message : String(openError))
     }

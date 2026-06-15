@@ -6,6 +6,7 @@ import { writeAuxWindowBounds } from './auxWindowPlacement'
 // scripts/check-bundle-budget.mjs), so the diff viewer loads behind React.lazy
 // just like EditorPanel does in the workspace shell.
 const DiffViewerWindow = lazy(() => import('./DiffViewerWindow'))
+const ExternalEditorWindow = lazy(() => import('./ExternalEditorWindow'))
 
 function AuxLoading() {
   return (
@@ -37,11 +38,16 @@ function readInitialParams(): { kind: AuxWindowKind; params: AuxWindowParams } |
 export default function AuxWindowApp() {
   const [descriptor] = useState(readInitialParams)
   const [params, setParams] = useState<AuxWindowParams>(descriptor?.params ?? {})
+  // Bumps on every retarget (even a repeat of the same params) so the file
+  // window can re-focus/append a tab without the params object having changed.
+  const [retargetNonce, setRetargetNonce] = useState(0)
 
   useEffect(() => {
     if (!descriptor) return
     return window.api.onAuxWindowRetarget((payload) => {
-      if (payload.kind === descriptor.kind) setParams(payload.params)
+      if (payload.kind !== descriptor.kind) return
+      setParams(payload.params)
+      setRetargetNonce((n) => n + 1)
     })
   }, [descriptor])
 
@@ -84,10 +90,15 @@ export default function AuxWindowApp() {
     )
   }
 
-  // `file` kind (external editor) is wired in a later slice.
+  // External editor window: a singleton tabbed Monaco host. It is NOT remounted
+  // per file (that would drop the other open tabs) — the incoming file + nonce
+  // drive tab add/focus inside the component.
+  const incoming = params.filePath
+    ? { filePath: params.filePath, fileName: params.fileName ?? params.filePath, workspaceId: params.workspaceId ?? '' }
+    : null
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-[color:var(--bg-app)] text-[13px] text-[color:var(--text-disabled)]">
-      External file editor coming soon.
-    </div>
+    <Suspense fallback={<AuxLoading />}>
+      <ExternalEditorWindow incoming={incoming} nonce={retargetNonce} />
+    </Suspense>
   )
 }

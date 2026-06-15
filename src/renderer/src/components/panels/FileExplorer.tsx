@@ -7,6 +7,7 @@ import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { isImageFile } from '../../utils/files'
 import { openDiffWindow } from '../auxWindows/openDiffWindow'
+import { openFileSurface } from '../../utils/openFileSurface'
 import { fileExplorerSelectionFromVerticalRange, fileExplorerSelectionRange } from '../../utils/fileExplorerSelection'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { setFileDropData } from '../../utils/terminalDrop'
@@ -2088,7 +2089,6 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
     recheckFolder,
   } = useWorkspaceFolderStatus(workspaceId)
   const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
-  const openFile = useWorkspaceStore((s) => s.openFile)
   const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? EMPTY_SEARCH_EXCLUDES)
   const activeFilePath = useWorkspaceStore(
     (s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.editorState?.activeFilePath ?? null
@@ -2113,19 +2113,17 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
   }
 
   const handleOpenFile = async (path: string, name: string) => {
-    if (isImageFile(path || name)) {
-      openFile(workspaceId, path, name, '')
-      focusOrAddFileTab(workspaceId, path, name)
-      return
+    let content = ''
+    if (!isImageFile(path || name)) {
+      try {
+        content = await window.api.readfile(path)
+      } catch {
+        content = ''
+      }
     }
-
-    try {
-      const content = await window.api.readfile(path)
-      openFile(workspaceId, path, name, content)
-    } catch {
-      openFile(workspaceId, path, name, '')
-    }
-    focusOrAddFileTab(workspaceId, path, name)
+    // Routes to the external editor pop-up or a workspace tab per the sticky
+    // openFilesInExternalWindow preference.
+    openFileSurface({ workspaceId, path, name, content })
   }
 
   const requestCreateEntry = (kind: 'file' | 'dir') => {

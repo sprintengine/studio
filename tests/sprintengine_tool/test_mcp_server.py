@@ -314,6 +314,8 @@ def test_mcp_help_returns_versioned_agent_workflow_without_state_path() -> None:
     assert "sprintengine.gate.verdict" in result["markdown"]
     assert "sprintengine.task.request_changes" in result["markdown"]
     assert "outside an active gate" in result["markdown"]
+    assert "task.publish commits task-scoped changes under the git commit lock" in result["markdown"]
+    assert "sprintengine.vcs.commit" in result["markdown"]
 
 
 def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() -> None:

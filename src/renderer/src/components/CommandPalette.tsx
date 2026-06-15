@@ -3,7 +3,8 @@ import { LAYOUT_TEMPLATES } from '../layouts/templates'
 import { SPECIALIST_ACTIONS } from '../specialists/specialistActions'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type { SpecialistActionId, Workspace, WorkspaceId, WorkspaceWindowId } from '../types/workspace'
-import { focusOrAddComponentTab, focusOrAddFileTab, revealNavRailComponent, togglePanelRailComponent } from '../utils/modelRegistry'
+import { focusOrAddComponentTab, revealNavRailComponent, togglePanelRailComponent } from '../utils/modelRegistry'
+import { openFileSurface } from '../utils/openFileSurface'
 import {
   getEffectiveKeybindingLabel,
   getSpecialistCommandId,
@@ -240,7 +241,7 @@ export default function CommandPalette({
             description: file.path,
             run: () => {
               setActiveFile(activeWorkspaceId, file.path)
-              focusOrAddFileTab(activeWorkspaceId, file.path, file.name)
+              openFileSurface({ workspaceId: activeWorkspaceId, path: file.path, name: file.name })
               onClose()
             },
           }))

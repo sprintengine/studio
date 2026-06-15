@@ -3,6 +3,7 @@ import type {
   AuxWindowRetargetPayload,
   CreateWorkspaceWindowInput,
   CreateWorkspaceWindowResult,
+  DockFileToWorkspaceInput,
   ElectronApi,
   OpenAuxWindowInput,
   OpenAuxWindowResult,
@@ -25,6 +26,14 @@ export const windowApi = {
   onAuxWindowRetarget: (cb: (payload: AuxWindowRetargetPayload) => void): (() => void) => {
     const ch = 'aux:retarget'
     const handler = (_: IpcRendererEvent, payload: AuxWindowRetargetPayload) => cb(payload)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
+  dockFileToWorkspace: (input: DockFileToWorkspaceInput): Promise<void> =>
+    ipcRenderer.invoke('window:dock-file', input),
+  onDockFileToWorkspace: (cb: (input: DockFileToWorkspaceInput) => void): (() => void) => {
+    const ch = 'workspace:dock-file'
+    const handler = (_: IpcRendererEvent, input: DockFileToWorkspaceInput) => cb(input)
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
@@ -60,6 +69,8 @@ export const windowApi = {
   | 'createWorkspaceWindow'
   | 'openAuxWindow'
   | 'onAuxWindowRetarget'
+  | 'dockFileToWorkspace'
+  | 'onDockFileToWorkspace'
   | 'confirmWindowClose'
   | 'openExternal'
   | 'onWindowStateChanged'

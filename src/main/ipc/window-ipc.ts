@@ -134,6 +134,24 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
     }
   })
 
+  ipcMain.handle('window:dock-file', (event, input: {
+    workspaceId?: unknown
+    path?: unknown
+    name?: unknown
+  }) => {
+    const workspaceId = typeof input?.workspaceId === 'string' ? input.workspaceId : ''
+    const path = typeof input?.path === 'string' ? input.path : ''
+    const name = typeof input?.name === 'string' ? input.name : ''
+    if (!workspaceId || !path || !name) return
+    // Broadcast to every other window; only the one whose model owns the
+    // workspace acts on it (others no-op), so we avoid tracking window ownership.
+    const sender = BrowserWindow.fromWebContents(event.sender)
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win === sender || win.isDestroyed()) continue
+      win.webContents.send('workspace:dock-file', { workspaceId, path, name })
+    }
+  })
+
   ipcMain.handle('window:open-aux-window', (_event, input: {
     kind?: unknown
     singletonKey?: unknown
