@@ -210,7 +210,9 @@ function useWorkspaceSyncContext(): SyncContext {
 }
 
 export default function DiagnosticsContent({ headerActions }: Props) {
-  const sessions = useTerminalSessions()
+  // Diagnostics renders live per-terminal fields the dedup signature omits
+  // (retainedOutputBytes, visible, lastOutputAt), so it opts into every broadcast.
+  const sessions = useTerminalSessions({ live: true })
   const { workspaceNames, activeWorkspaceIds } = useWorkspaceSyncContext()
 
   const [metrics, setMetrics] = useState<ProcessMetricsSnapshot | null>(null)

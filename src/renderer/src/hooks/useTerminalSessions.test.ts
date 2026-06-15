@@ -6,6 +6,7 @@ import {
   deriveWorkspaceTerminalActivity,
   describeExecutionTerminal,
   findLiveSession,
+  getTerminalSessionsSignature,
   isLiveTerminal,
   pickAgentTabRecency,
   pickTerminalTabRecency,
@@ -16,6 +17,7 @@ void main()
 
 async function main(): Promise<void> {
   assertProcessAliveHelpersUseLivenessOnly()
+  assertSignatureIgnoresOutputTimingButTracksActivity()
   assertWorkspaceDisplayActivityPriority()
   assertWorkspaceTerminalActivityPriorityAndPersistedRecency()
   assertTerminalTabRecencyPrefersLastOutputAt()
@@ -23,6 +25,42 @@ async function main(): Promise<void> {
   await assertStaleLaunchFlagsClearWithoutLosingRecency()
   await assertClaudeSessionIdentitySurvivesStartupReconciliation()
   await assertClaudeCodeSessionIdentitySurvivesStartupReconciliation()
+}
+
+// The hook dedupes broadcasts by this signature: a snapshot that only bumps
+// lastOutputAt must be considered unchanged (no re-render), while an activity or
+// lifecycle change must produce a different signature (re-render).
+function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
+  const base = [
+    session({ sessionId: 'a', activity: { kind: 'working', since: 1 }, lastOutputAt: 100 }),
+    session({ sessionId: 'b', activity: { kind: 'idle', since: 2 }, lastOutputAt: 200 }),
+  ]
+  // Same sessions, only lastOutputAt advanced -> identical signature.
+  const outputOnly = [
+    session({ sessionId: 'a', activity: { kind: 'working', since: 1 }, lastOutputAt: 999 }),
+    session({ sessionId: 'b', activity: { kind: 'idle', since: 2 }, lastOutputAt: 888 }),
+  ]
+  assert.equal(getTerminalSessionsSignature(base), getTerminalSessionsSignature(outputOnly))
+
+  // Order-independent: the signature sorts by sessionId first.
+  assert.equal(
+    getTerminalSessionsSignature(base),
+    getTerminalSessionsSignature([base[1], base[0]])
+  )
+
+  // An activity-kind transition changes the signature.
+  const activityChanged = [
+    session({ sessionId: 'a', activity: { kind: 'idle', since: 1 }, lastOutputAt: 100 }),
+    session({ sessionId: 'b', activity: { kind: 'idle', since: 2 }, lastOutputAt: 200 }),
+  ]
+  assert.notEqual(getTerminalSessionsSignature(base), getTerminalSessionsSignature(activityChanged))
+
+  // A lifecycle change (process death) changes the signature.
+  const exited = [
+    session({ sessionId: 'a', processAlive: false, activity: { kind: 'working', since: 1 } }),
+    session({ sessionId: 'b', activity: { kind: 'idle', since: 2 } }),
+  ]
+  assert.notEqual(getTerminalSessionsSignature(base), getTerminalSessionsSignature(exited))
 }
 
 function assertProcessAliveHelpersUseLivenessOnly(): void {

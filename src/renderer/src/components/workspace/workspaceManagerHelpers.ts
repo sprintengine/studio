@@ -167,28 +167,8 @@ export function buildSidebarWorkspaceOrder(
   return order
 }
 
-export function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]): string {
-  return [...sessions]
-    .sort((a, b) => a.sessionId.localeCompare(b.sessionId))
-    .map((session) =>
-      [
-        session.sessionId,
-        session.processAlive ? '1' : '0',
-        session.activity.kind,
-        session.kind,
-        session.workspaceId ?? '',
-        session.agentId ?? '',
-        session.terminalId ?? '',
-        session.cli ?? '',
-        session.cwd ?? '',
-        session.sprintEngineStatePath ?? '',
-        session.executionMode ?? '',
-        session.worktreeId ?? '',
-        session.worktreePath ?? '',
-      ].join(''),
-    )
-    .join('')
-}
+// getTerminalSessionsSignature moved to ../../hooks/useTerminalSessions to avoid
+// an import cycle (the hook now uses it internally to dedupe no-op broadcasts).
 
 export function toProjectRelativeStatePath(
   path: string | null | undefined,

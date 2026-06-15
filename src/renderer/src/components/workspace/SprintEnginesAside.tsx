@@ -1,11 +1,12 @@
 import { useMemo } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 
 import { CloseIconButton, InboxRow, LifecycleGlyph, PanelHeader } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { getWorkspaceActivity } from './workspaceManagerHelpers'
 import { deriveWorkspaceRunGlyph } from '../../utils/workspaceRunGlyph'
-import { buildSprintEngineNavRows } from '../../utils/sprintEnginesNav'
+import { buildSprintEngineNavRows, isSprintEngineWorkspace } from '../../utils/sprintEnginesNav'
 import type { WorkspaceId } from '../../types/workspace'
 
 type SprintEnginesAsideProps = {
@@ -37,15 +38,24 @@ export default function SprintEnginesAside({
   onSelectWorkspace,
   onClose,
 }: SprintEnginesAsideProps) {
-  const workspaces = useWorkspaceStore((state) => state.workspaces)
+  // The aside only ever shows Sprint Engine workspaces, so subscribe to just
+  // those (the same useShallow pattern as BacklogPanel Task 1). With Task 3's
+  // no-op guard keeping unchanged workspace refs stable, an unrelated workspace's
+  // projection tick — or any non-Sprint-Engine change — leaves this slice
+  // shallow-equal and does not re-render the global aside. terminalSessions is
+  // already dedup-stable (useTerminalSessions Task 9), so output-timing churn
+  // alone no longer re-renders it either.
+  const sprintEngineWorkspaces = useWorkspaceStore(
+    useShallow((state) => state.workspaces.filter((workspace) => isSprintEngineWorkspace(workspace))),
+  )
   const terminalSessions = useTerminalSessions()
 
   const rows = useMemo(
     () =>
-      buildSprintEngineNavRows(workspaces, (workspace) =>
+      buildSprintEngineNavRows(sprintEngineWorkspaces, (workspace) =>
         deriveWorkspaceRunGlyph(workspace, getWorkspaceActivity(workspace, terminalSessions)),
       ),
-    [workspaces, terminalSessions],
+    [sprintEngineWorkspaces, terminalSessions],
   )
 
   return (

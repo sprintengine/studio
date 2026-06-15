@@ -1,27 +1,72 @@
 import { useEffect, useMemo, useState } from 'react'
 
-export function useTerminalSessions(): TerminalSessionSnapshot[] {
+// Signature of the session fields a consumer actually renders. Deliberately
+// excludes high-frequency noise (notably lastOutputAt), so a broadcast that only
+// bumps output timing is treated as unchanged. Shared with WorkspaceManager's
+// session dedup and used inside useTerminalSessions to suppress no-op re-renders.
+export function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]): string {
+  return [...sessions]
+    .sort((a, b) => a.sessionId.localeCompare(b.sessionId))
+    .map((session) =>
+      [
+        session.sessionId,
+        session.processAlive ? '1' : '0',
+        session.activity.kind,
+        session.kind,
+        session.workspaceId ?? '',
+        session.agentId ?? '',
+        session.terminalId ?? '',
+        session.cli ?? '',
+        session.cwd ?? '',
+        session.sprintEngineStatePath ?? '',
+        session.executionMode ?? '',
+        session.worktreeId ?? '',
+        session.worktreePath ?? '',
+      ].join(''),
+    )
+    .join('')
+}
+
+export type UseTerminalSessionsOptions = {
+  // Opt out of signature dedup and apply every broadcast. Use for surfaces that
+  // render high-frequency fields the signature deliberately omits — notably the
+  // Diagnostics terminal table (retainedOutputBytes, visible, lastOutputAt).
+  // Default (false) suppresses no-op re-renders for the common case.
+  live?: boolean
+}
+
+export function useTerminalSessions(options?: UseTerminalSessionsOptions): TerminalSessionSnapshot[] {
+  const live = options?.live ?? false
   const [sessions, setSessions] = useState<TerminalSessionSnapshot[]>([])
 
   useEffect(() => {
     let disposed = false
+    // terminal:sessions-changed is broadcast on every activity transition; many
+    // carry no change to fields we render. Skip the state update when the
+    // meaningful signature is unchanged so consumers keep a stable array
+    // reference and do not re-render on no-op churn. Initial state [] -> ''.
+    // `live` consumers bypass this and see every broadcast.
+    let signature = ''
 
-    void window.api
-      .terminalList()
-      .then((next) => {
-        if (!disposed) setSessions(next)
-      })
-      .catch(() => {})
+    const apply = (next: TerminalSessionSnapshot[]) => {
+      if (disposed) return
+      if (!live) {
+        const nextSignature = getTerminalSessionsSignature(next)
+        if (nextSignature === signature) return
+        signature = nextSignature
+      }
+      setSessions(next)
+    }
 
-    const unsubscribe = window.api.onTerminalSessionsChanged((next) => {
-      if (!disposed) setSessions(next)
-    })
+    void window.api.terminalList().then(apply).catch(() => {})
+
+    const unsubscribe = window.api.onTerminalSessionsChanged(apply)
 
     return () => {
       disposed = true
       unsubscribe()
     }
-  }, [])
+  }, [live])
 
   return sessions
 }

@@ -18,6 +18,7 @@ import { getRendererHost, selectModuleEnabled } from '../../modules'
 import {
   deriveWorkspaceLastOutputAt,
   deriveWorkspaceTerminalActivity,
+  getTerminalSessionsSignature,
 } from '../../hooks/useTerminalSessions'
 import { useAppTheme } from '../../hooks/useAppTheme'
 import { useAutomationRequests } from '../../hooks/useAutomationRequests'
@@ -69,7 +70,6 @@ import {
   buildMultiloopSpawnPrompt,
   buildSidebarWorkspaceOrder,
   getSessionItems,
-  getTerminalSessionsSignature,
   getWorkspaceActivity,
   uniqueAgentName,
   type WorkspaceActivity,
