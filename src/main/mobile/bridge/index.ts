@@ -395,7 +395,7 @@ function shouldReplaceStoredRelayUrl(value: string | null): boolean {
   try {
     const url = new URL(value)
     return (
-      (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '192.168.0.35') &&
+      (url.hostname === 'localhost' || url.hostname === '127.0.0.1') &&
       (url.port === '3000' || url.port === '')
     )
   } catch {

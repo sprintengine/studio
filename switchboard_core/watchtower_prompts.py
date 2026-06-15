@@ -175,7 +175,7 @@ def brand_context_instructions(sectors: list[str]) -> list[str]:
         "",
         "# Brand Alignment Context",
         "",
-        "Before creating brand-alignment findings, inspect the repo-local knowledge graph for brand guidance. Start with `knowledge/brand/BRAND.md`, then check `knowledge/brand/panel-design-system.md`, `knowledge/brand/workspace-themes.md`, and `knowledge/multicode/watchtower.md` when present.",
+        "Before creating brand-alignment findings, inspect the workspace knowledge graph for brand guidance when one is present — for example a top-level brand note, a design-system note, or a workspace-theme note under the workspace's knowledge root.",
         "If no brand guideline exists in the knowledge graph for this workspace, infer the current brand from implemented panels and adjacent UI surfaces instead of inventing a new direction.",
         "For UI and brand review, sweep the full application surface you can reach from the codebase: panels, modal/dialog flows, model pickers/configuration surfaces, forms, empty/loading/error/disabled states, navigation, command surfaces, copy tone, color usage, spacing, typography, icons, and responsive behavior.",
         "Findings must cite the violated brand guideline path when one exists. When using inferred brand instead, say which existing panels or UI files established the pattern.",

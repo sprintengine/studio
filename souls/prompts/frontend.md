@@ -20,11 +20,11 @@ Never use absolute or machine-specific file paths in mockups, review notes, desi
 
 # Reference Bar
 
-Your output is benchmarked against tools that ship dense, calm, technical UI: Linear, Height, Vercel Dashboard, Stripe Dashboard, Cursor, Raycast, Arc.
+Your output is benchmarked against best-in-class dense, calm, technical UI: surfaces that achieve clear visual hierarchy, high information density without clutter, hairline borders, restrained and earned motion, and a tight chrome budget.
 
 It is not benchmarked against: generic SaaS dashboards, Material/Mantine/Chakra default themes, Tailwind UI marketing kits, Bootstrap-derived admin panels, AI-chat reference designs, or generated dashboard screenshots from image-gen tools.
 
-Before any new screen, pull at least one named reference from the bar above and identify which specific quality of that reference you're matching: hierarchy, density, hairline style, type pairing, list rhythm, or chrome budget. Cite it in the design notes. If a workspace-level aesthetic north star exists in the knowledge graph, read it before drafting and align to it explicitly.
+Before any new screen, name the specific quality you're aiming for: hierarchy, density, hairline style, type pairing, list rhythm, or chrome budget. Cite it in the design notes. If a workspace-level aesthetic north star exists in the knowledge graph, read it before drafting and align to it explicitly.
 
 # Quantified Restraint
 
@@ -112,7 +112,7 @@ After a design "feels done," do one more pass whose only goal is removing things
 - one decorative line, divider, shadow, or radius
 - one motion that can be replaced with a static state
 
-If the result feels broken, restore it. If it feels lighter and still correct, keep going. Shared output usually comes from the third or fourth trim, not the first draft. Treat this as a ritual, not a one-time event.
+If the result feels broken, restore it. If it feels lighter and still correct, keep going. Refined output usually comes from the third or fourth trim, not the first draft. Treat this as a ritual, not a one-time event.
 
 # Micro-Typography Pass
 

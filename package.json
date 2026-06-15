@@ -2,6 +2,9 @@
   "name": "multicode",
   "version": "0.1.8",
   "description": "AI-first IDE and agent sprintengine command center",
+  "author": "Conal Smith",
+  "license": "UNLICENSED",
+  "private": true,
   "main": "./out/main/index.js",
   "homepage": ".",
   "scripts": {
@@ -323,6 +326,11 @@
       ],
       "icon": "resources/icon.icns",
       "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "notarize": true,
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Multicode uses the microphone for voice dictation, transcribing your speech to text."
       }
