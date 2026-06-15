@@ -249,6 +249,22 @@ function branchSyncSummary(branches: GitBranchSnapshot | null, hasUpstream: bool
   return ''
 }
 
+// Per-repo-root caches of the last loaded branches / commit graph / worktree
+// scopes. Module-level so they survive a GitPanel unmount: switching workspaces
+// within the same repo seeds these synchronously for an instant render, then the
+// normal background refresh reconciles — instead of flashing the empty/loading
+// state on every mount (the "Git loads again on switch" complaint). Only
+// useGitStatus's status snapshot was shared before; these three were not.
+// Cached values are shown immediately but never treated as truth: every mount
+// still kicks a fresh fetch that overwrites both state and cache.
+const gitBranchCache = new Map<string, GitBranchSnapshot>()
+const gitGraphCache = new Map<string, { state: GitGraphState; limit: number }>()
+const gitWorktreeScopeCache = new Map<string, GitScopeOption[]>()
+
+function gitRepoCacheKey(repoRoot: string): string {
+  return repoRoot.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
+}
+
 export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId) ?? null)
   const folderPath = workspace?.folderPath ?? null
@@ -329,15 +345,23 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           })
       )
 
-      setScopeOptions([mainScope, ...worktreeScopes])
+      const scopes = [mainScope, ...worktreeScopes]
+      setScopeOptions(scopes)
+      gitWorktreeScopeCache.set(gitRepoCacheKey(mainRepoRoot), scopes)
     } catch {
       setScopeOptions([fallbackMainScope])
     }
   }, [mainRepoRoot])
 
   useEffect(() => {
+    // Seed worktree scopes from the per-repo cache for an instant render when
+    // returning to a repo we've already enumerated, then refresh in background.
+    if (mainRepoRoot) {
+      const cached = gitWorktreeScopeCache.get(gitRepoCacheKey(mainRepoRoot))
+      if (cached) setScopeOptions(cached)
+    }
     void refreshWorktreeScopes()
-  }, [refreshWorktreeScopes])
+  }, [mainRepoRoot, refreshWorktreeScopes])
 
   useEffect(() => {
     if (scopeOptions.length === 0) return
@@ -358,7 +382,9 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
 
     try {
-      setBranches(await window.api.getGitBranches(repoRoot))
+      const next = await window.api.getGitBranches(repoRoot)
+      setBranches(next)
+      gitBranchCache.set(gitRepoCacheKey(repoRoot), next)
     } catch {
       setBranches(null)
     }
@@ -376,7 +402,9 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     if (showLoading) setGraph({ status: 'loading' })
     try {
       const snapshot = await window.api.getGitCommitGraph(repoRoot, { limit: graphLimitRef.current })
-      setGraph({ status: 'ready', snapshot })
+      const nextGraph: GitGraphState = { status: 'ready', snapshot }
+      setGraph(nextGraph)
+      gitGraphCache.set(gitRepoCacheKey(repoRoot), { state: nextGraph, limit: graphLimitRef.current })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setGraph({
@@ -423,9 +451,21 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   useEffect(() => {
     // Reset graph pagination whenever the scope/repo changes.
     graphLimitRef.current = GIT_GRAPH_PAGE_SIZE
+    // Seed branches + graph from the per-repo cache so a repo we've loaded
+    // before renders instantly; then refresh in the background, skipping the
+    // graph loading flash when we already showed a cached graph.
+    const cachedGraph = repoRoot ? gitGraphCache.get(gitRepoCacheKey(repoRoot)) : undefined
+    if (repoRoot) {
+      const cachedBranches = gitBranchCache.get(gitRepoCacheKey(repoRoot))
+      if (cachedBranches) setBranches(cachedBranches)
+      if (cachedGraph) {
+        setGraph(cachedGraph.state)
+        graphLimitRef.current = cachedGraph.limit
+      }
+    }
     void refreshBranches()
-    void refreshGraph()
-  }, [refreshBranches, refreshGraph])
+    void refreshGraph(!cachedGraph)
+  }, [repoRoot, refreshBranches, refreshGraph])
 
   useEffect(() => {
     if (!repoRoot) return
