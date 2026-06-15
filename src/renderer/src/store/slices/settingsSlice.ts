@@ -1,3 +1,4 @@
+import { nanoid } from 'nanoid'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
 import type {
   AgentCli,
@@ -15,6 +16,7 @@ import type {
   SprintEngineRoleCounts,
   SprintEngineRunSettings,
   SprintEngineRoleSettings,
+  SprintEngineRosterTeam,
   SprintEngineSavedRoster,
   SkillPackEntry,
   SkillPackHarness,
@@ -562,7 +564,7 @@ export function normalizeModuleSettings(value: unknown): Record<string, Record<s
 const PROTECTED_SPRINT_ENGINE_ROLE_ID = 'architect'
 
 export function defaultSprintEngineRoleSettings(): SprintEngineRoleSettings {
-  return { enabled: {} }
+  return { enabled: {}, savedTeams: [], lastSelectedTeamId: null }
 }
 
 function normalizeRoleEnabledRecord(value: unknown): Record<SprintEngineRoleId, boolean> {
@@ -580,10 +582,58 @@ function normalizeRoleEnabledRecord(value: unknown): Record<SprintEngineRoleId, 
 export function normalizeSprintEngineRoleSettings(value: unknown): SprintEngineRoleSettings {
   if (!value || typeof value !== 'object') return defaultSprintEngineRoleSettings()
   const candidate = value as Partial<SprintEngineRoleSettings>
+  const savedRoster = normalizeSprintEngineSavedRoster(candidate.savedRoster)
+  const teams = normalizeSprintEngineRosterTeams(candidate.savedTeams)
+  // Migrate a legacy single saved roster into a named team so existing users
+  // keep their saved config as a selectable team the first time they load.
+  if (teams.length === 0 && savedRoster) {
+    teams.push({
+      id: nanoid(),
+      name: 'Saved roster',
+      roleCounts: savedRoster.roleCounts,
+      roleCliDefaults: savedRoster.roleCliDefaults,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+  }
+  const lastSelectedTeamId =
+    typeof candidate.lastSelectedTeamId === 'string'
+      && teams.some((team) => team.id === candidate.lastSelectedTeamId)
+      ? candidate.lastSelectedTeamId
+      : null
   return {
     enabled: normalizeRoleEnabledRecord(candidate.enabled),
-    savedRoster: normalizeSprintEngineSavedRoster(candidate.savedRoster),
+    savedRoster,
+    savedTeams: teams,
+    lastSelectedTeamId,
   }
+}
+
+function normalizeSprintEngineRosterTeams(value: unknown): SprintEngineRosterTeam[] {
+  if (!Array.isArray(value)) return []
+  const result: SprintEngineRosterTeam[] = []
+  const seenIds = new Set<string>()
+  for (const rawEntry of value) {
+    if (!rawEntry || typeof rawEntry !== 'object') continue
+    const candidate = rawEntry as Partial<SprintEngineRosterTeam>
+    const name = typeof candidate.name === 'string' ? candidate.name.trim() : ''
+    if (!name) continue
+    let id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
+    if (!id || seenIds.has(id)) id = nanoid()
+    seenIds.add(id)
+    const now = Date.now()
+    const createdAt = typeof candidate.createdAt === 'number' && Number.isFinite(candidate.createdAt) ? candidate.createdAt : now
+    const updatedAt = typeof candidate.updatedAt === 'number' && Number.isFinite(candidate.updatedAt) ? candidate.updatedAt : createdAt
+    result.push({
+      id,
+      name,
+      roleCounts: normalizeSavedSprintEngineRoleCounts(candidate.roleCounts),
+      roleCliDefaults: normalizeCliDefaults(candidate.roleCliDefaults) as SprintEngineRoleCliDefaults,
+      createdAt,
+      updatedAt,
+    })
+  }
+  return result
 }
 
 export function sprintEngineRunSettingsKey(statePath: string | null | undefined): string {
@@ -781,6 +831,19 @@ export interface SettingsSliceActions {
   resetAllKeybindings: () => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
   setSprintEngineSavedRoster: (roster: SprintEngineSavedRoster | null) => void
+  /**
+   * Create or update a named roster team. When `id` is supplied and matches an
+   * existing team, that team is updated in place; otherwise a new team is added.
+   * Returns the team id (empty string if the name was blank).
+   */
+  saveSprintEngineRosterTeam: (input: {
+    id?: string
+    name: string
+    roleCounts: SprintEngineRoleCounts
+    roleCliDefaults: SprintEngineRoleCliDefaults
+  }) => string
+  deleteSprintEngineRosterTeam: (id: string) => void
+  setSprintEngineLastSelectedTeam: (id: string | null) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   /**
    * Write one value in a module's settings namespace (`module:<moduleId>`).
@@ -1084,6 +1147,76 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.sprintEngineRoleSettings = {
           ...current,
           savedRoster: roster ? normalizeSprintEngineSavedRoster(roster) : null,
+        }
+      }),
+
+    saveSprintEngineRosterTeam: (input) => {
+      const name = input.name.trim()
+      if (!name) return ''
+      const roster = normalizeSprintEngineSavedRoster({
+        roleCounts: input.roleCounts,
+        roleCliDefaults: input.roleCliDefaults,
+      }) ?? { roleCounts: { architect: 1 } as SprintEngineRoleCounts, roleCliDefaults: {} }
+      const id = input.id?.trim() || nanoid()
+      const now = Date.now()
+      set((state) => {
+        const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
+        const teams = [...(current.savedTeams ?? [])]
+        const existingIndex = teams.findIndex((team) => team.id === id)
+        if (existingIndex >= 0) {
+          teams[existingIndex] = {
+            ...teams[existingIndex],
+            name,
+            roleCounts: roster.roleCounts,
+            roleCliDefaults: roster.roleCliDefaults,
+            updatedAt: now,
+          }
+        } else {
+          teams.push({
+            id,
+            name,
+            roleCounts: roster.roleCounts,
+            roleCliDefaults: roster.roleCliDefaults,
+            createdAt: now,
+            updatedAt: now,
+          })
+        }
+        state.appSettings.sprintEngineRoleSettings = {
+          ...current,
+          savedTeams: teams,
+          lastSelectedTeamId: id,
+          // Keep the legacy default in sync so run-mount CLI defaults stay meaningful.
+          savedRoster: roster,
+        }
+      })
+      return id
+    },
+
+    deleteSprintEngineRosterTeam: (id) =>
+      set((state) => {
+        const teamId = id.trim()
+        if (!teamId) return
+        const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
+        const teams = (current.savedTeams ?? []).filter((team) => team.id !== teamId)
+        state.appSettings.sprintEngineRoleSettings = {
+          ...current,
+          savedTeams: teams,
+          lastSelectedTeamId: current.lastSelectedTeamId === teamId ? null : current.lastSelectedTeamId,
+        }
+      }),
+
+    setSprintEngineLastSelectedTeam: (id) =>
+      set((state) => {
+        const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
+        const teamId = id?.trim() || null
+        const team = teamId ? (current.savedTeams ?? []).find((entry) => entry.id === teamId) ?? null : null
+        state.appSettings.sprintEngineRoleSettings = {
+          ...current,
+          lastSelectedTeamId: team ? team.id : null,
+          // Mirror the picked team into the legacy default for run-mount fallback.
+          savedRoster: team
+            ? { roleCounts: team.roleCounts, roleCliDefaults: team.roleCliDefaults }
+            : current.savedRoster,
         }
       }),
 

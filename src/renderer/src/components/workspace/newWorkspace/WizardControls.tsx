@@ -13,6 +13,7 @@ import type {
   SprintEngineRoleId,
   SprintEngineRoleModelOverrides,
   SprintEngineRoleRegistry,
+  SprintEngineRosterTeam,
 } from '../../../types/workspace'
 import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAutomation'
 import { Field, Select } from '../../ui'
@@ -149,6 +150,12 @@ export function RosterAndRunSettings({
   rosterCountLabel,
   saveRoster,
   onChangeSaveRoster,
+  teams,
+  selectedTeamId,
+  onSelectTeam,
+  onSaveTeam,
+  onUpdateTeam,
+  onDeleteTeam,
   automationMode,
   onChangeAutomationMode,
   cliPermissionPreset,
@@ -182,6 +189,15 @@ export function RosterAndRunSettings({
   // saved-roster preference to set.
   saveRoster?: boolean
   onChangeSaveRoster?: (save: boolean) => void
+  // Named roster teams. When `onSelectTeam` is provided, a team picker is shown
+  // above the roster and a "save as team" affordance replaces the plain default
+  // checkbox. Omitted by the Guided Brief handoff.
+  teams?: SprintEngineRosterTeam[]
+  selectedTeamId?: string | null
+  onSelectTeam?: (id: string | null) => void
+  onSaveTeam?: (name: string) => void
+  onUpdateTeam?: (id: string, name: string) => void
+  onDeleteTeam?: (id: string) => void
   automationMode: SprintEngineAutomationMode
   onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
   cliPermissionPreset: SprintEngineCliPermissionPreset
@@ -201,6 +217,13 @@ export function RosterAndRunSettings({
             {rosterCountLabel ?? `${totalAgents} specialist${totalAgents === 1 ? '' : 's'}`}
           </span>
         </div>
+        {onSelectTeam && (teams?.length ?? 0) > 0 ? (
+          <RosterTeamPicker
+            teams={teams ?? []}
+            selectedTeamId={selectedTeamId ?? null}
+            onSelectTeam={onSelectTeam}
+          />
+        ) : null}
         <SprintEngineRosterTable
           roleCounts={roleCounts}
           roleCliDefaults={roleCliDefaults}
@@ -217,7 +240,15 @@ export function RosterAndRunSettings({
           spawnAtStartLocked={spawnAtStartLocked}
           onSetSpawnAtStart={onSetSpawnAtStart}
           footer={
-            onChangeSaveRoster ? (
+            onSaveTeam ? (
+              <SaveRosterTeamRow
+                teams={teams ?? []}
+                selectedTeamId={selectedTeamId ?? null}
+                onSaveTeam={onSaveTeam}
+                onUpdateTeam={onUpdateTeam}
+                onDeleteTeam={onDeleteTeam}
+              />
+            ) : onChangeSaveRoster ? (
               <SaveRosterDefaultRow checked={saveRoster ?? false} onChange={onChangeSaveRoster} />
             ) : null
           }
@@ -297,5 +328,139 @@ function SaveRosterDefaultRow({
       />
       Save as the default roster for new workspaces
     </label>
+  )
+}
+
+const CUSTOM_TEAM_VALUE = '__custom__'
+
+// Picker that loads a saved roster team into the wizard. Sits above the role
+// table so choosing a team rewrites the rows below it. The "Custom roster"
+// entry represents an unsaved, hand-tuned config.
+function RosterTeamPicker({
+  teams,
+  selectedTeamId,
+  onSelectTeam,
+}: {
+  teams: SprintEngineRosterTeam[]
+  selectedTeamId: string | null
+  onSelectTeam: (id: string | null) => void
+}) {
+  const items = [
+    { value: CUSTOM_TEAM_VALUE, label: 'Custom roster' },
+    ...teams.map((team) => ({ value: team.id, label: team.name })),
+  ]
+  return (
+    <div className="flex items-center gap-2">
+      <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">Team</span>
+      <Select
+        ariaLabel="Roster team"
+        items={items}
+        value={selectedTeamId ?? CUSTOM_TEAM_VALUE}
+        onChange={(value) => onSelectTeam(value === CUSTOM_TEAM_VALUE ? null : value)}
+        placeholder={teams.length ? 'Pick a team…' : 'No saved teams yet'}
+      />
+    </div>
+  )
+}
+
+// Footer affordance for saving the current roster as a named team. When a team
+// is already selected it also offers to update or delete it, so the picker
+// above stays the single source for switching between saved teams.
+function SaveRosterTeamRow({
+  teams,
+  selectedTeamId,
+  onSaveTeam,
+  onUpdateTeam,
+  onDeleteTeam,
+}: {
+  teams: SprintEngineRosterTeam[]
+  selectedTeamId: string | null
+  onSaveTeam: (name: string) => void
+  onUpdateTeam?: (id: string, name: string) => void
+  onDeleteTeam?: (id: string) => void
+}) {
+  const [adding, setAdding] = React.useState(false)
+  const [name, setName] = React.useState('')
+  const selectedTeam = selectedTeamId ? teams.find((team) => team.id === selectedTeamId) ?? null : null
+
+  const submit = () => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    onSaveTeam(trimmed)
+    setName('')
+    setAdding(false)
+  }
+
+  if (adding) {
+    return (
+      <div className="flex items-center gap-2 border-l-2 border-transparent px-3 py-2.5">
+        <input
+          autoFocus
+          type="text"
+          value={name}
+          placeholder="Team name (e.g. Lightweight)"
+          onChange={(event) => setName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              submit()
+            } else if (event.key === 'Escape') {
+              event.preventDefault()
+              setAdding(false)
+              setName('')
+            }
+          }}
+          className="h-7 min-w-0 flex-1 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 text-[12px] text-[color:var(--text-default)] outline-none focus:border-[color:var(--accent-primary)]"
+        />
+        <button
+          type="button"
+          onClick={submit}
+          disabled={!name.trim()}
+          className="h-7 shrink-0 rounded-[5px] bg-[color:var(--accent-primary)] px-2.5 text-[12px] font-semibold text-[color:var(--bg-app)] transition-colors hover:bg-[color:var(--accent-primary-hover)] disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setAdding(false)
+            setName('')
+          }}
+          className="h-7 shrink-0 rounded-[5px] px-2 text-[12px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
+        >
+          Cancel
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-l-2 border-transparent px-3 py-2.5 text-[12px]">
+      <button
+        type="button"
+        onClick={() => setAdding(true)}
+        className="text-[color:var(--accent-primary)] transition-colors hover:text-[color:var(--accent-primary-hover)]"
+      >
+        Save as new team…
+      </button>
+      {selectedTeam && onUpdateTeam ? (
+        <button
+          type="button"
+          onClick={() => onUpdateTeam(selectedTeam.id, selectedTeam.name)}
+          className="text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
+        >
+          Update “{selectedTeam.name}”
+        </button>
+      ) : null}
+      {selectedTeam && onDeleteTeam ? (
+        <button
+          type="button"
+          onClick={() => onDeleteTeam(selectedTeam.id)}
+          className="text-[color:var(--tone-error)] transition-colors hover:opacity-80"
+        >
+          Delete
+        </button>
+      ) : null}
+    </div>
   )
 }

@@ -532,6 +532,70 @@ assert.deepEqual(
   'saved roster normalization trims CLI defaults and drops blank values',
 )
 
+// A legacy single saved roster migrates into a selectable named team so users
+// keep their saved config when teams ship.
+assert.equal(
+  normalizedSavedRoster.sprintEngineRoleSettings.savedTeams?.length,
+  1,
+  'legacy savedRoster migrates into one named team',
+)
+assert.equal(
+  normalizedSavedRoster.sprintEngineRoleSettings.savedTeams?.[0]?.name,
+  'Saved roster',
+  'migrated team gets a default name',
+)
+
+// --- Named roster teams --------------------------------------------------
+const teamStore = useWorkspaceStore.getState()
+const lightweightId = teamStore.saveSprintEngineRosterTeam({
+  name: 'Lightweight',
+  roleCounts: { architect: 1, developer: 1 },
+  roleCliDefaults: { architect: 'claude-code', developer: 'codex' },
+})
+assert.ok(lightweightId, 'saving a team returns an id')
+const afterSave = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
+const teamCountAfterSave = afterSave.savedTeams?.length ?? 0
+assert.equal(afterSave.lastSelectedTeamId, lightweightId, 'saving selects the new team')
+const savedLightweight = afterSave.savedTeams?.find((team) => team.id === lightweightId)
+assert.equal(savedLightweight?.name, 'Lightweight', 'team name persists')
+
+// Saving with the same id updates the team in place rather than adding a new one.
+teamStore.saveSprintEngineRosterTeam({
+  id: lightweightId,
+  name: 'Lightweight v2',
+  roleCounts: { architect: 1, developer: 2 },
+  roleCliDefaults: { architect: 'claude-code' },
+})
+const afterUpdate = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
+assert.equal(afterUpdate.savedTeams?.length, teamCountAfterSave, 'updating a team does not add a duplicate')
+const updatedLightweight = afterUpdate.savedTeams?.find((team) => team.id === lightweightId)
+assert.equal(updatedLightweight?.name, 'Lightweight v2', 'team name updates in place')
+assert.deepEqual(
+  updatedLightweight?.roleCounts,
+  { architect: 1, developer: 2 },
+  'team role counts update in place',
+)
+
+// A blank name is rejected.
+assert.equal(
+  teamStore.saveSprintEngineRosterTeam({
+    name: '   ',
+    roleCounts: { architect: 1 },
+    roleCliDefaults: {},
+  }),
+  '',
+  'a blank team name is rejected',
+)
+
+// Deleting the selected team clears the selection.
+teamStore.deleteSprintEngineRosterTeam(lightweightId)
+const afterDelete = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
+assert.ok(
+  !afterDelete.savedTeams?.some((team) => team.id === lightweightId),
+  'deleting removes the team',
+)
+assert.equal(afterDelete.lastSelectedTeamId, null, 'deleting the selected team clears selection')
+
 // --- Specialist menu ordering --------------------------------------------
 // Normalization keeps only known specialist ids, drops duplicates, and ignores
 // junk so a stale or hand-edited settings file is always safe to load.
