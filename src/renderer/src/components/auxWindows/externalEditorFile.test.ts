@@ -68,6 +68,7 @@ async function testTextFilesUseTextReaderAndDirtyTracking(): Promise<void> {
     loading: false,
     error: null,
   })
+  assert.equal(buffer.kind, 'text')
   assert.equal(isExternalFileBufferDirty(buffer), false)
   assert.equal(isExternalFileBufferDirty({ ...buffer, value: '# Changed' }), true)
 }

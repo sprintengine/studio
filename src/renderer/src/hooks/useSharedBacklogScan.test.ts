@@ -181,12 +181,16 @@ run('a scan that finishes after teardown does not repopulate a dead entry', asyn
 run('watcher: starts per project, refreshes on event, disposes on last unsubscribe', async () => {
   reset()
   let watchedPath: string | null = null
-  let emit: (() => void) | null = null
+  let watcherRegistered = false
+  let emit = (): void => {
+    throw new Error('expected backlog watcher callback to be registered')
+  }
   let stopCalls = 0
   ;(globalThis as unknown as { window: unknown }).window = {
     api: {
       watchPath: async (path: string, cb: () => void) => {
         watchedPath = path
+        watcherRegistered = true
         emit = cb
         return async () => {
           stopCalls += 1
@@ -208,7 +212,8 @@ run('watcher: starts per project, refreshes on event, disposes on last unsubscri
     assert.equal(watchedPath, '/project/backlog', 'watches the project backlog/ directory')
     assert.equal(calls['/project'], 1)
 
-    emit?.() // an external file change
+    assert.equal(watcherRegistered, true)
+    emit() // an external file change
     await new Promise((resolve) => setTimeout(resolve, 400)) // past the debounce
     await flush('/project')
     assert.equal(calls['/project'], 2, 'a watch event triggered a shared re-scan')

@@ -14,9 +14,9 @@ function run(name: string, body: () => void): void {
 run('registers, records ticks, and computes avg/max sorted by cost', () => {
   const cheap = registerTimer('cheap-loop', 4000, 1000)
   const spiky = registerTimer('spiky-loop', 4000, 1000)
-  cheap.recordTick(2, 1100)
-  cheap.recordTick(4, 1200)
-  spiky.recordTick(100, 1300)
+  cheap.recordTick(2)
+  cheap.recordTick(4)
+  spiky.recordTick(100)
 
   const rows = summarizeTimers(getTimerRegistrations())
   assert.equal(rows[0].label, 'spiky-loop', 'highest avg cost first')
