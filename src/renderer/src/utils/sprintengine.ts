@@ -12,6 +12,7 @@ import type {
   SprintEngineProjectionSource,
   SprintEngineQualityGate,
   SprintEngineQualityGateAttempt,
+  SprintEngineQualityGateAttemptStatus,
   SprintEngineQualityGatePhase,
   SprintEngineQualityGateStatus,
   SprintEngineQualityGateSummary,
@@ -200,6 +201,8 @@ export const sprintEngineQualityGateStatusLabels: Record<SprintEngineQualityGate
   changes_requested: 'Changes Requested',
   blocked: 'Blocked',
   skipped: 'Skipped',
+  released: 'Released',
+  superseded: 'Superseded',
 }
 
 export const sprintEngineTaskCommentTypeLabels: Record<SprintEngineTaskCommentType, string> = {
@@ -261,15 +264,28 @@ function isSprintEngineQualityGatePhase(value: unknown): value is SprintEngineQu
   return value === 'review' || value === 'testing' || value === 'product'
 }
 
+const sprintEngineQualityGateStatuses: readonly SprintEngineQualityGateStatus[] = [
+  'pending',
+  'in_progress',
+  'approved',
+  'changes_requested',
+  'blocked',
+  'skipped',
+  'released',
+  'superseded',
+]
+
+const sprintEngineQualityGateAttemptStatuses: readonly SprintEngineQualityGateAttemptStatus[] = [
+  ...sprintEngineQualityGateStatuses,
+  'failed',
+]
+
 function isSprintEngineQualityGateStatus(value: unknown): value is SprintEngineQualityGateStatus {
-  return (
-    value === 'pending'
-    || value === 'in_progress'
-    || value === 'approved'
-    || value === 'changes_requested'
-    || value === 'blocked'
-    || value === 'skipped'
-  )
+  return sprintEngineQualityGateStatuses.includes(value as SprintEngineQualityGateStatus)
+}
+
+function isSprintEngineQualityGateAttemptStatus(value: unknown): value is SprintEngineQualityGateAttemptStatus {
+  return sprintEngineQualityGateAttemptStatuses.includes(value as SprintEngineQualityGateAttemptStatus)
 }
 
 function isSprintEngineTaskCommentType(value: unknown): value is SprintEngineTaskCommentType {
@@ -1034,7 +1050,7 @@ function normalizeSprintEngineQualityGateAttempts(input: unknown): SprintEngineQ
     if (!attempt || typeof attempt !== 'object') return []
     const record = attempt as Record<string, unknown>
     const id = optionalTrimmedString(record.id) ?? `attempt-${index + 1}`
-    const status = isSprintEngineQualityGateStatus(record.status) ? record.status : undefined
+    const status = isSprintEngineQualityGateAttemptStatus(record.status) ? record.status : undefined
     const actor = optionalTrimmedString(record.actor)
     const role = normalizeSprintEngineRoleId(record.role)
     const claimedBy = optionalTrimmedString(record.claimedBy)

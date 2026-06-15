@@ -95,6 +95,7 @@ import {
   formatTaskSyncStatusLabel,
   formatTimestamp,
   getMobileArtifactDecision,
+  sprintEngineGateAttemptVisualState,
   sprintEngineInboxRowSupporting,
   sprintEngineInboxRowLifecycle,
   type ArtifactActionState,
@@ -170,23 +171,23 @@ function GateAttemptGlyph({
   attempt: SprintEngineQualityGateAttempt
   className?: string
 }) {
-  const inFlight = Boolean(attempt.startedAt) && !attempt.completedAt
-  const verdict = inFlight ? 'in_flight' : (attempt.verdict ?? attempt.status ?? 'in_flight')
+  const state = sprintEngineGateAttemptVisualState(attempt)
 
-  if (verdict === 'approved') {
+  if (state === 'approved') {
     return <CompletedCheckGlyph className={className} label="approved" />
   }
 
-  if (verdict === 'changes_requested') {
+  if (state === 'changes_requested' || state === 'failed') {
+    const label = state === 'failed' ? 'failed' : 'changes requested'
     return (
       <svg
         className={className}
         viewBox="0 0 12 12"
         fill="none"
         role="img"
-        aria-label="changes requested"
+        aria-label={label}
       >
-        <title>changes requested</title>
+        <title>{label}</title>
         <path
           d="M9.2 6.4 a3.2 3.2 0 1 1 -1.1 -2.4"
           stroke="currentColor"
@@ -204,7 +205,7 @@ function GateAttemptGlyph({
     )
   }
 
-  if (verdict === 'blocked') {
+  if (state === 'blocked') {
     return (
       <svg className={className} viewBox="0 0 12 12" fill="none" role="img" aria-label="blocked">
         <title>blocked</title>
@@ -219,10 +220,30 @@ function GateAttemptGlyph({
     )
   }
 
-  // In-flight (open attempt, no verdict yet): the live Spinner — the reviewer is
-  // working right now. This is the only "working" mark on the gate row (the row
-  // no longer carries a leading dot or a status word), so it's the single motion.
-  return <Spinner size={12} label="in review" />
+  if (state === 'released' || state === 'superseded') {
+    const label = state === 'released' ? 'released' : 'superseded'
+    return (
+      <svg className={className} viewBox="0 0 12 12" fill="none" role="img" aria-label={label}>
+        <title>{label}</title>
+        <circle cx="6" cy="6" r="3.5" stroke="currentColor" strokeWidth="1.3" />
+        <path d="M3.7 6 H8.3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    )
+  }
+
+  if (state === 'in_flight') {
+    // In-flight (open attempt, no verdict yet): the live Spinner — the reviewer is
+    // working right now. This is the only "working" mark on the gate row (the row
+    // no longer carries a leading dot or a status word), so it's the single motion.
+    return <Spinner size={12} label="in review" />
+  }
+
+  return (
+    <svg className={className} viewBox="0 0 12 12" fill="none" role="img" aria-label="unknown outcome">
+      <title>unknown outcome</title>
+      <circle cx="6" cy="6" r="3.5" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  )
 }
 
 // Status glyph for a gate with no attempts yet, so a pending/just-started gate
@@ -230,6 +251,16 @@ function GateAttemptGlyph({
 function GateStatusGlyph({ status }: { status: SprintEngineQualityGate['status'] }) {
   if (status === 'in_progress') {
     return <Spinner size={12} label="in progress" />
+  }
+  if (status === 'released' || status === 'superseded') {
+    const label = status === 'released' ? 'released' : 'superseded'
+    return (
+      <svg className="icon-xs text-[color:var(--text-disabled)]" viewBox="0 0 12 12" fill="none" role="img" aria-label={label}>
+        <title>{label}</title>
+        <circle cx="6" cy="6" r="3.5" stroke="currentColor" strokeWidth="1.3" />
+        <path d="M3.7 6 H8.3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    )
   }
   if (status === 'skipped') {
     return (
@@ -249,10 +280,9 @@ function GateStatusGlyph({ status }: { status: SprintEngineQualityGate['status']
 }
 
 function gateAttemptToneClass(attempt: SprintEngineQualityGateAttempt): string {
-  const inFlight = Boolean(attempt.startedAt) && !attempt.completedAt
-  if (inFlight) return 'text-[color:var(--text-muted)]'
-  const verdict = attempt.verdict ?? attempt.status
-  if (verdict === 'changes_requested' || verdict === 'blocked') {
+  const state = sprintEngineGateAttemptVisualState(attempt)
+  if (state === 'in_flight') return 'text-[color:var(--text-muted)]'
+  if (state === 'changes_requested' || state === 'failed' || state === 'blocked') {
     return 'text-[color:var(--tone-warn)]'
   }
   return 'text-[color:var(--text-disabled)]'

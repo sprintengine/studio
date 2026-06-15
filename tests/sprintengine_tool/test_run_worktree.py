@@ -187,7 +187,7 @@ def test_task_publish_commits_task_paths_before_routing(tmp_path) -> None:
     assert committed == ["src/feature.ts"]
     status = _git(worktree, "status", "--porcelain").stdout
     assert "unrelated.txt" in status
-    persisted = read_state(fixture.state_path)["tasks"][0]
+    persisted = next(task for task in read_state(fixture.state_path)["tasks"] if task.get("id") == "T1")
     assert result["commitSha"] in persisted["evidence"]["commits"]
 
 
@@ -197,7 +197,8 @@ def test_mcp_task_publish_commits_task_paths_before_routing(tmp_path) -> None:
     fixture = _worktree_team(workspace, "alpha")
     fixture.cli.run("init", "--goal", "Build alpha", "--use-worktrees", "true", "--agent", "developer:developer-1")
     fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature.ts", "--no-quality-gates")
-    fixture.cli.run("task", "claim", "--task-id", "T1", "--id", "developer-1")
+    status = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "in_progress", "--id", "developer-1")
+    assert status["task"]["status"] == "in_progress"
 
     worktree = _worktree_dir(fixture)
     (worktree / "src").mkdir(parents=True, exist_ok=True)
@@ -226,7 +227,7 @@ def test_mcp_task_publish_commits_task_paths_before_routing(tmp_path) -> None:
     assert committed == ["src/feature.ts"]
     status = _git(worktree, "status", "--porcelain").stdout
     assert "unrelated.txt" in status
-    persisted = read_state(fixture.state_path)["tasks"][0]
+    persisted = next(task for task in read_state(fixture.state_path)["tasks"] if task.get("id") == "T1")
     assert published["result"]["commitSha"] in persisted["evidence"]["commits"]
 
 

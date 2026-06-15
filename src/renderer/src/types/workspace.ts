@@ -120,10 +120,14 @@ export type SprintEngineQualityGateStatus =
   | 'changes_requested'
   | 'blocked'
   | 'skipped'
+  | 'released'
+  | 'superseded'
+
+export type SprintEngineQualityGateAttemptStatus = SprintEngineQualityGateStatus | 'failed'
 
 export type SprintEngineQualityGateAttempt = {
   id?: string
-  status?: SprintEngineQualityGateStatus
+  status?: SprintEngineQualityGateAttemptStatus
   actor?: string
   role?: SprintEngineRoleId
   claimedBy?: string

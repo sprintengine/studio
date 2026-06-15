@@ -16,6 +16,7 @@
 
 import type {
   SprintEngineArtifact,
+  SprintEngineQualityGateAttempt,
   SprintEngineRoleId,
   SprintEngineTask,
 } from '../../types/workspace'
@@ -45,6 +46,30 @@ export type SprintEngineInspectorSelection =
       kind: 'artifact-preview'
       artifact: { id: string; path: string; name: string; content: string }
     }
+
+export type SprintEngineGateAttemptVisualState =
+  | 'approved'
+  | 'changes_requested'
+  | 'failed'
+  | 'blocked'
+  | 'released'
+  | 'superseded'
+  | 'in_flight'
+  | 'unknown'
+
+export function sprintEngineGateAttemptVisualState(
+  attempt: SprintEngineQualityGateAttempt,
+): SprintEngineGateAttemptVisualState {
+  const status = attempt.verdict ?? attempt.status
+  if (status === 'approved') return 'approved'
+  if (status === 'changes_requested') return 'changes_requested'
+  if (status === 'failed') return 'failed'
+  if (status === 'blocked') return 'blocked'
+  if (status === 'released') return 'released'
+  if (status === 'superseded') return 'superseded'
+  if (Boolean(attempt.startedAt) && !attempt.completedAt) return 'in_flight'
+  return 'unknown'
+}
 
 export type ArtifactActionKind = 'open' | 'approve' | 'requestChanges'
 

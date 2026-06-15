@@ -46,6 +46,7 @@ import {
   sprintEngineRunAwaitsHumanInput,
 } from './sprintengine'
 import { taskGraphEdgeStyle, taskGraphEndEdgeStyle } from '../components/panels/sprintEngineTaskGraph'
+import { sprintEngineGateAttemptVisualState } from '../components/panels/sprintEngineInspector'
 import {
   BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES,
   BUNDLED_SPRINT_ENGINE_BOARD_ROLE_SUMMARIES,
@@ -1758,6 +1759,119 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
   assert.equal(attempt?.claimedBy, 'code_reviewer-1', 'claimedBy survives normalization')
   assert.equal(attempt?.role, 'code_reviewer', 'role survives normalization')
   assert.equal(attempt?.summary, 'Reviewed evidence; LGTM.', 'summary survives normalization')
+}
+
+// Released/superseded/failed gate attempts are closed states. The inspector
+// glyph trail must not fall back to a live spinner just because the value is
+// not one of the ordinary gate rollup statuses.
+{
+  const projection = fakeProjection({
+    tasks: [
+      {
+        id: 'T1',
+        title: 'Reviewed task',
+        role: 'developer',
+        status: 'testing',
+        stateStatus: 'testing',
+        ownerAgentId: null,
+        dependsOn: [],
+        ownedPaths: [],
+        acceptanceCriteria: [],
+        implementationNotes: [],
+        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+        notes: [],
+        comments: [],
+        startedAt: null,
+        completedAt: null,
+        activity: [],
+        qualityGates: [
+          {
+            id: 'code_reviewer',
+            phase: 'review',
+            role: 'code_reviewer',
+            status: 'approved',
+            required: true,
+            allowSelfReview: true,
+            attempts: [
+              {
+                id: 'GA-001',
+                status: 'released',
+                role: 'code_reviewer',
+                claimedBy: 'code_reviewer',
+                startedAt: '2026-06-14T21:55:58Z',
+                completedAt: '2026-06-14T22:09:47Z',
+              },
+              {
+                id: 'GA-002',
+                status: 'approved',
+                role: 'code_reviewer',
+                claimedBy: 'code_reviewer',
+                startedAt: '2026-06-14T22:15:11Z',
+                completedAt: '2026-06-14T22:18:45Z',
+                verdict: 'approved',
+                summary: 'Approved.',
+              },
+            ],
+          },
+          {
+            id: 'spec_reviewer',
+            phase: 'review',
+            role: 'spec_reviewer',
+            status: 'pending',
+            required: true,
+            allowSelfReview: true,
+            attempts: [
+              {
+                id: 'GA-001',
+                status: 'superseded',
+                role: 'spec_reviewer',
+                claimedBy: 'spec_reviewer',
+                startedAt: '2026-06-14T21:55:58Z',
+                completedAt: '2026-06-14T22:09:47Z',
+              },
+            ],
+          },
+          {
+            id: 'nuclear_reviewer',
+            phase: 'review',
+            role: 'nuclear_reviewer',
+            status: 'changes_requested',
+            required: true,
+            allowSelfReview: true,
+            attempts: [
+              {
+                id: 'GA-001',
+                status: 'failed',
+                role: 'nuclear_reviewer',
+                claimedBy: 'nuclear_reviewer',
+                startedAt: '2026-06-14T21:55:58Z',
+                completedAt: '2026-06-14T22:09:47Z',
+                verdict: 'failed',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  })
+  const state = normalizeSprintEngineProjection(projection)
+  assert.ok(state, 'projection normalizes')
+  const gates = state!.tasks[0]!.qualityGates!
+  assert.deepEqual(
+    gates[0]!.attempts.map((attempt) => sprintEngineGateAttemptVisualState(attempt)),
+    ['released', 'approved'],
+    'released attempts render as closed before later approval',
+  )
+  assert.equal(
+    sprintEngineGateAttemptVisualState(gates[1]!.attempts[0]!),
+    'superseded',
+    'superseded attempts render as closed',
+  )
+  assert.equal(
+    sprintEngineGateAttemptVisualState(gates[2]!.attempts[0]!),
+    'failed',
+    'failed attempts render as closed warning states',
+  )
 }
 
 // getSprintEngineTasksReviewedByAgent matches by claimedBy (and actor for legacy
