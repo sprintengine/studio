@@ -5,6 +5,7 @@ import { join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
 import { buildAgentShellCommand, pluginIdForCli, renderAgentLaunchArgv, resolveCliRuntimeSettings } from './agent-launch-render'
 import { withMulticodeCliPath } from './cli-install'
+import { ensureManagedRuntimeShims, getManagedPython, withManagedRuntimePath } from './managed-runtime'
 
 export type ShellLaunchConfig = {
   command: string
@@ -24,7 +25,15 @@ export function getTerminalEnv(): Record<string, string> {
   delete env.ELECTRON_RUN_AS_NODE
   env.TERM = env.TERM || 'xterm-256color'
 
-  return withMulticodeCliPath(env)
+  // Surface CLIs installed into the managed npm prefix (e.g. Codex) on PATH so
+  // launched agent sessions can find them. The shims themselves stay out of the
+  // user shell — they exist for our install commands, not interactive use.
+  const shims = ensureManagedRuntimeShims()
+  const withManagedBins = shims
+    ? withManagedRuntimePath(env, shims.prefixBinDir, process.platform)
+    : env
+
+  return withMulticodeCliPath(withManagedBins)
 }
 
 function withSprintEngineEnv(
@@ -37,10 +46,20 @@ function withSprintEngineEnv(
 ): Record<string, string> {
   const bundledToolPath = getBundledSprintEngineToolPath()
   const soulsRoot = getBundledSoulsRoot()
+  // Expose the bundled CPython to the tool shims, but only when we actually have
+  // a managed interpreter (bundled runtime or operator override). When we'd fall
+  // back to a repo `.venv` or system Python, leave MULTICODE_PYTHON unset so the
+  // shims keep their existing dev-friendly `$PWD/.venv → python3` behavior.
+  const managedPython = getManagedPython(cwd)
+  const managedPythonEnv: Record<string, string> =
+    managedPython.source === 'bundled' || managedPython.source === 'override'
+      ? { MULTICODE_PYTHON: managedPython.command }
+      : {}
   const nextEnv = {
     ...env,
     SPRINTENGINE_REPO_TOOL_PATH: join(cwd, '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
     SPRINTENGINE_REPO_WRAPPER_PATH: join(cwd, 'scripts', 'sprintengine_tool.py'),
+    ...managedPythonEnv,
     ...(bundledToolPath ? { MULTICODE_SPRINTENGINE_TOOL_PATH: bundledToolPath } : {}),
     ...(soulsRoot ? { MULTICODE_SOULS_ROOT: soulsRoot } : {}),
     ...(sprintEngineStatePath ? { SPRINTENGINE_STATE_PATH: sprintEngineStatePath } : {}),
@@ -89,7 +108,8 @@ function ensurePosixToolShimDirectory(): string | null {
         'elif [[ -n "${MULTICODE_SPRINTENGINE_TOOL_PATH:-}" && -f "$MULTICODE_SPRINTENGINE_TOOL_PATH" ]]; then tool_path="$MULTICODE_SPRINTENGINE_TOOL_PATH";',
         'else echo "Sprint Engine tool not found" >&2; exit 127; fi',
         'python_exe="python3"',
-        'if [[ -x "$PWD/.venv/bin/python" ]]; then python_exe="$PWD/.venv/bin/python";',
+        'if [[ -n "${MULTICODE_PYTHON:-}" && -x "$MULTICODE_PYTHON" ]]; then python_exe="$MULTICODE_PYTHON";',
+        'elif [[ -x "$PWD/.venv/bin/python" ]]; then python_exe="$PWD/.venv/bin/python";',
         'elif [[ -x "$PWD/.venv/Scripts/python.exe" ]]; then python_exe="$PWD/.venv/Scripts/python.exe"; fi',
         'exec "$python_exe" "$tool_path" "$@"',
         '',
@@ -103,7 +123,8 @@ function ensurePosixToolShimDirectory(): string | null {
         '#!/usr/bin/env bash',
         'set -euo pipefail',
         'python_exe="python3"',
-        'if [[ -x "$PWD/.venv/bin/python" ]]; then python_exe="$PWD/.venv/bin/python";',
+        'if [[ -n "${MULTICODE_PYTHON:-}" && -x "$MULTICODE_PYTHON" ]]; then python_exe="$MULTICODE_PYTHON";',
+        'elif [[ -x "$PWD/.venv/bin/python" ]]; then python_exe="$PWD/.venv/bin/python";',
         'elif [[ -x "$PWD/.venv/Scripts/python.exe" ]]; then python_exe="$PWD/.venv/Scripts/python.exe"; fi',
         'if [[ -n "${MULTICODE_SOULS_ROOT:-}" ]]; then',
         '  export PYTHONPATH="$MULTICODE_SOULS_ROOT:${PYTHONPATH:-}"',
@@ -143,6 +164,8 @@ function ensureWindowsSprintEngineShimDirectory(): string | null {
         'exit /b 127',
         ':run',
         'set "PYTHON_EXE="',
+        'if defined MULTICODE_PYTHON if exist "%MULTICODE_PYTHON%" set "PYTHON_EXE=%MULTICODE_PYTHON%"',
+        'if defined PYTHON_EXE goto run_python',
         'if exist ".venv\\Scripts\\python.exe" set "PYTHON_EXE=.venv\\Scripts\\python.exe"',
         'if defined PYTHON_EXE goto run_python',
         'if "%SPRINTENGINE_REPO_WRAPPER_PATH%"=="" goto global_python',
@@ -167,6 +190,8 @@ function ensureWindowsSprintEngineShimDirectory(): string | null {
         '@echo off',
         'setlocal',
         'set "PYTHON_EXE="',
+        'if defined MULTICODE_PYTHON if exist "%MULTICODE_PYTHON%" set "PYTHON_EXE=%MULTICODE_PYTHON%"',
+        'if defined PYTHON_EXE goto run_python',
         'if exist ".venv\\Scripts\\python.exe" set "PYTHON_EXE=.venv\\Scripts\\python.exe"',
         'if defined PYTHON_EXE goto run_python',
         'for /f "delims=" %%P in (\'where python 2^>nul\') do if not defined PYTHON_EXE if /I not "%%~dpP"=="%LOCALAPPDATA%\\Microsoft\\WindowsApps\\" set "PYTHON_EXE=%%P"',
@@ -388,7 +413,8 @@ function buildSprintEngineShellBootstrap(
       'elif [ -n "${MULTICODE_SPRINTENGINE_TOOL_PATH:-}" ] && [ -f "$MULTICODE_SPRINTENGINE_TOOL_PATH" ]; then tool_path="$MULTICODE_SPRINTENGINE_TOOL_PATH";',
       'else echo "Sprint Engine tool not found" >&2; return 127; fi;',
       'local python_exe="python3";',
-      'if [ -x "$PWD/.venv/bin/python" ]; then python_exe="$PWD/.venv/bin/python";',
+      'if [ -n "${MULTICODE_PYTHON:-}" ] && [ -x "$MULTICODE_PYTHON" ]; then python_exe="$MULTICODE_PYTHON";',
+      'elif [ -x "$PWD/.venv/bin/python" ]; then python_exe="$PWD/.venv/bin/python";',
       'elif [ -x "$PWD/.venv/Scripts/python.exe" ]; then python_exe="$PWD/.venv/Scripts/python.exe"; fi;',
       '"$python_exe" "$tool_path" "$@";',
       '}',
@@ -397,7 +423,8 @@ function buildSprintEngineShellBootstrap(
     [
       'souls() {',
       'local python_exe="python3";',
-      'if [ -x "$PWD/.venv/bin/python" ]; then python_exe="$PWD/.venv/bin/python";',
+      'if [ -n "${MULTICODE_PYTHON:-}" ] && [ -x "$MULTICODE_PYTHON" ]; then python_exe="$MULTICODE_PYTHON";',
+      'elif [ -x "$PWD/.venv/bin/python" ]; then python_exe="$PWD/.venv/bin/python";',
       'elif [ -x "$PWD/.venv/Scripts/python.exe" ]; then python_exe="$PWD/.venv/Scripts/python.exe"; fi;',
       'if [ -n "${MULTICODE_SOULS_ROOT:-}" ]; then PYTHONPATH="$MULTICODE_SOULS_ROOT:${PYTHONPATH:-}" "$python_exe" -m souls "$@";',
       'else "$python_exe" -m souls "$@"; fi;',

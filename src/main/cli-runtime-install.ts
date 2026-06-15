@@ -14,6 +14,11 @@ import type {
   PluginManifest,
 } from '../shared/plugin-manifest'
 import { getPluginManifest } from './plugin-registry-instance'
+import {
+  currentRuntimeEnv,
+  ensureManagedRuntimeShims,
+  withManagedRuntimePath,
+} from './managed-runtime'
 
 // Exit code our probe scripts use to signal "binary not found on PATH" so we
 // can distinguish a missing CLI from a CLI that exists but whose --version
@@ -149,10 +154,14 @@ export function parseProbeOutput(
   return { installed: true, version, resolvedPath }
 }
 
-function runDescriptor(desc: SpawnDescriptor, onData?: (chunk: string) => void): Promise<RunOutcome> {
+function runDescriptor(
+  desc: SpawnDescriptor,
+  onData?: (chunk: string) => void,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<RunOutcome> {
   return new Promise((resolve) => {
     const child = spawn(desc.file, desc.args, {
-      env: process.env,
+      env,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -182,9 +191,27 @@ function resolveBinary(manifest: PluginManifest, runtime?: Partial<CliRuntimeSet
   return override || manifest.binary
 }
 
+// Builds the environment used to run install commands (and the post-install
+// re-detect): the managed `node`/`npm` shims and the writable npm prefix bin
+// are prepended to PATH so npm-based installs (e.g. Codex) work with no user
+// Node, and the freshly installed binary is discoverable on the next probe.
+// Returns null when no managed runtime is vendored, so callers fall back to the
+// user's own PATH unchanged.
+function managedInstallEnv(): Record<string, string> | null {
+  const runtimeEnv = currentRuntimeEnv()
+  const shims = ensureManagedRuntimeShims(runtimeEnv)
+  if (!shims) return null
+  const base = Object.fromEntries(
+    Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  )
+  const withShims = withManagedRuntimePath(base, shims.shimDir, runtimeEnv.platform)
+  return withManagedRuntimePath(withShims, shims.prefixBinDir, runtimeEnv.platform)
+}
+
 export async function detectCli(
   cli: AgentCli,
   runtime?: Partial<CliRuntimeSettings>,
+  env?: NodeJS.ProcessEnv,
 ): Promise<CliDetectResult> {
   const manifest = getPluginManifest(cli)
   const useWsl = runtime?.useWsl ?? false
@@ -203,7 +230,7 @@ export async function detectCli(
   const target = resolveInstallPlatform(process.platform, useWsl)
   const versionArgs = manifest.detect?.versionArgs ?? ['--version']
   try {
-    const outcome = await runDescriptor(buildProbeDescriptor({ binary, versionArgs, target }))
+    const outcome = await runDescriptor(buildProbeDescriptor({ binary, versionArgs, target }), undefined, env)
     const parsed = parseProbeOutput(outcome.code, outcome.stdout)
     return {
       cli,
@@ -315,9 +342,19 @@ export async function installCli(
     onData?.(chunk)
   }
 
+  // Run the install (and the re-detect below) with the managed node/npm on
+  // PATH so npm-based installers work without a user Node and the resulting
+  // binary is discoverable. Falls back to the user's PATH when no managed
+  // runtime is vendored.
+  const installEnv = managedInstallEnv() ?? undefined
+
   let runError: string | null = null
   try {
-    const outcome = await runDescriptor(buildInstallDescriptor({ shell: method.shell, target }), capture)
+    const outcome = await runDescriptor(
+      buildInstallDescriptor({ shell: method.shell, target }),
+      capture,
+      installEnv,
+    )
     if (outcome.code !== 0) {
       runError = `Install command exited with code ${outcome.code}.`
     }
@@ -327,7 +364,7 @@ export async function installCli(
 
   // Re-detect regardless of exit code: some installers report a non-zero exit
   // while still placing the binary (e.g. PATH advisories).
-  const detected = await detectCli(input.cli, runtime)
+  const detected = await detectCli(input.cli, runtime, installEnv)
   const ok = detected.installed && runError === null
   return {
     ok,

@@ -1,9 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { randomBytes } from 'crypto'
-import { existsSync } from 'fs'
 import http from 'http'
-import { join, resolve } from 'path'
+import { resolve } from 'path'
 import { findSprintEngineRuntimeRoot } from './mcp-config-service'
+import { getManagedPython } from './managed-runtime'
 
 export type SprintEngineMcpHubInfo = {
   url: string
@@ -429,11 +429,8 @@ function runRegistrationKey(input: SprintEngineMcpRunRegistrationInput): string 
 }
 
 function defaultPythonCommand(runtimeRoot: string): string {
-  const venvPython = process.platform === 'win32'
-    ? join(runtimeRoot, '.venv', 'Scripts', 'python.exe')
-    : join(runtimeRoot, '.venv', 'bin', 'python')
-  if (existsSync(venvPython)) return venvPython
-  return process.platform === 'win32' ? 'python' : 'python3'
+  // Bundled CPython first, then the runtime root's `.venv` (dev), then system.
+  return getManagedPython(runtimeRoot).command
 }
 
 function postJson<T>(url: string, authToken: string, payload: Record<string, unknown>): Promise<T> {

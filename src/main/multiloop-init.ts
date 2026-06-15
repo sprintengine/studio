@@ -5,6 +5,7 @@ import { spawn } from 'child_process'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { MultiloopInitInput, MultiloopInitResult } from '../shared/electron-api'
 import { isMissingPathError } from './filesystem-workspace'
+import { getManagedPython } from './managed-runtime'
 
 function getBundledMultiloopToolPath(): string | null {
   if (app.isPackaged) {
@@ -23,12 +24,9 @@ function getBundledMultiloopToolPath(): string | null {
 }
 
 function getMultiloopPythonExecutable(toolPath: string): string {
+  // Bundled CPython first, then the tool's repo `.venv` (dev), then system.
   const repoRoot = dirname(dirname(toolPath))
-  const venvPython = process.platform === 'win32'
-    ? join(repoRoot, '.venv', 'Scripts', 'python.exe')
-    : join(repoRoot, '.venv', 'bin', 'python')
-  if (existsSync(venvPython)) return venvPython
-  return process.platform === 'win32' ? 'python' : 'python3'
+  return getManagedPython(repoRoot).command
 }
 
 function quoteSh(value: string): string {
