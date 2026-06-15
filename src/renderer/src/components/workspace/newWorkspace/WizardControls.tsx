@@ -217,7 +217,7 @@ export function RosterAndRunSettings({
             {rosterCountLabel ?? `${totalAgents} specialist${totalAgents === 1 ? '' : 's'}`}
           </span>
         </div>
-        {onSelectTeam && (teams?.length ?? 0) > 0 ? (
+        {onSelectTeam && !countDisabled && (teams?.length ?? 0) > 0 ? (
           <RosterTeamPicker
             teams={teams ?? []}
             selectedTeamId={selectedTeamId ?? null}

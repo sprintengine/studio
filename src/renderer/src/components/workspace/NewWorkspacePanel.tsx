@@ -913,6 +913,9 @@ export default function NewWorkspacePanel({
     }
     const cliSelection = cliSelectionForExistingSprintEngineTeam(team, folderPath, workspaces, seRoleCliDefaults)
     setSeExistingTeam(team)
+    // A canonical team's roster comes from projection state, not a saved preset;
+    // detach the preset picker so its Update/Delete affordances aren't stale.
+    setSeSelectedTeamId(null)
     setSeTeamName(team.displayName)
     setSeGoal(team.state.goal)
     setSeRoleCounts(team.state.roleCounts)

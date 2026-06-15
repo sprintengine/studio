@@ -544,6 +544,30 @@ assert.equal(
   'Saved roster',
   'migrated team gets a default name',
 )
+assert.equal(
+  normalizedSavedRoster.sprintEngineRoleSettings.lastSelectedTeamId,
+  normalizedSavedRoster.sprintEngineRoleSettings.savedTeams?.[0]?.id,
+  'the migrated team is pre-selected so legacy users open on their roster',
+)
+
+// Once a savedTeams key exists (even empty), the legacy roster must NOT be
+// re-migrated — otherwise a user who deletes their last team would see it
+// resurrected on the next normalize/reload.
+const normalizedAfterDeleteAll = normalizeAppSettings(
+  {
+    sprintEngineRoleSettings: {
+      enabled: {},
+      savedTeams: [],
+      savedRoster: { roleCounts: { architect: 1 }, roleCliDefaults: { architect: 'codex' } },
+    },
+  },
+  [],
+)
+assert.equal(
+  normalizedAfterDeleteAll.sprintEngineRoleSettings.savedTeams?.length,
+  0,
+  'an explicit empty savedTeams list is not re-migrated from the legacy roster',
+)
 
 // --- Named roster teams --------------------------------------------------
 const teamStore = useWorkspaceStore.getState()

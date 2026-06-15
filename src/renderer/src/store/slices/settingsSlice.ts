@@ -586,9 +586,14 @@ export function normalizeSprintEngineRoleSettings(value: unknown): SprintEngineR
   const teams = normalizeSprintEngineRosterTeams(candidate.savedTeams)
   // Migrate a legacy single saved roster into a named team so existing users
   // keep their saved config as a selectable team the first time they load.
-  if (teams.length === 0 && savedRoster) {
+  // Gate on the absence of a `savedTeams` key (the legacy signal) rather than an
+  // empty list, so a user who deletes their last team doesn't see it resurrected
+  // on the next normalize/reload.
+  let migratedTeamId: string | null = null
+  if (!Array.isArray(candidate.savedTeams) && teams.length === 0 && savedRoster) {
+    migratedTeamId = nanoid()
     teams.push({
-      id: nanoid(),
+      id: migratedTeamId,
       name: 'Saved roster',
       roleCounts: savedRoster.roleCounts,
       roleCliDefaults: savedRoster.roleCliDefaults,
@@ -600,7 +605,9 @@ export function normalizeSprintEngineRoleSettings(value: unknown): SprintEngineR
     typeof candidate.lastSelectedTeamId === 'string'
       && teams.some((team) => team.id === candidate.lastSelectedTeamId)
       ? candidate.lastSelectedTeamId
-      : null
+      // Pre-select the just-migrated team so legacy users open on their roster
+      // rather than a "Custom" entry.
+      : migratedTeamId
   return {
     enabled: normalizeRoleEnabledRecord(candidate.enabled),
     savedRoster,
