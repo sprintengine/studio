@@ -364,6 +364,38 @@ async function testMcpFanOutWarningDoesNotReportCleanSuccess(): Promise<void> {
   })
 }
 
+async function testLocalInstallRejectsSignedComponentDigestMismatchBeforeWrites(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const components: BundleComponents = { mcp: { path: 'mcp.json' }, module: { path: 'module' } }
+    const bundle = await createBundle(temp, components)
+    await writeJson(join(bundle, 'mcp.json'), {
+      servers: [
+        {
+          id: 'bundle-mcp',
+          name: 'Tampered MCP',
+          transport: 'stdio',
+          command: 'node',
+          args: ['-e', 'console.log("tampered")'],
+          clients: ['codex'],
+          scope: 'workspace',
+          riskLevel: 'local-command',
+        },
+      ],
+    })
+    const { input, services, workspaceRoot, moduleRoot } = await installInput(temp, bundle)
+
+    const result = await installMarketplacePlugin(input, services)
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.match(result.message, /component digests/i)
+    assert.equal(result.installed, undefined)
+    assert.ok(result.issues?.some((issue) => /digest does not match/.test(issue.message)))
+    assert.equal(existsSync(join(workspaceRoot, '.codex', 'config.toml')), false)
+    assert.equal(existsSync(moduleRoot), false)
+  })
+}
+
 async function testMcpSkillBundleIsVisibleAndLaunchesTerminalWithInstalledMcp(): Promise<void> {
   await withTempDir(async (temp) => {
     const components: BundleComponents = {
@@ -477,6 +509,7 @@ async function testPartialFailureReportsInstalledComponents(): Promise<void> {
 async function main(): Promise<void> {
   await testInstallsEveryComponentThroughRealPaths()
   await testMcpFanOutWarningDoesNotReportCleanSuccess()
+  await testLocalInstallRejectsSignedComponentDigestMismatchBeforeWrites()
   await testMcpSkillBundleIsVisibleAndLaunchesTerminalWithInstalledMcp()
   await testInvalidBundleSignatureRejectsBeforeWrites()
   await testPartialFailureReportsInstalledComponents()

@@ -20,6 +20,7 @@ import type {
 } from '../../shared/marketplace'
 import { MARKETPLACE_COMPONENT_KINDS, parseMarketplacePluginManifest } from '../../shared/marketplace'
 import { parseThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
+import { marketplaceComponentDigestMismatchIssuesSync } from '../../../packages/module-sdk/src/plugin-component-digests'
 import { installPluginFolder as installCliPluginFolder } from '../plugin-install'
 import { validateManifestSource } from '../plugin-registry'
 import { getPluginRegistryUserRoot, reloadPluginRegistry } from '../plugin-registry-instance'
@@ -126,6 +127,17 @@ async function buildInstallPlan(
     return failure('Plugin bundle is unsigned and cannot be installed.', undefined, [{ path: 'signature', message: 'signature is required.' }], {
       trust: trust.status,
       loadEligible: false,
+    })
+  }
+
+  const digestMismatch = marketplaceComponentDigestMismatchIssuesSync(bundleRoot.path, manifestResult.manifest, {
+    bytesLabel: 'current bytes',
+    blockedFileMessage: (path) => `component file "${path}" cannot be installed from marketplace bundles.`,
+  })
+  if (digestMismatch.length > 0) {
+    return failure('Plugin bundle component digests do not match its signed manifest.', undefined, digestMismatch, {
+      trust: trust.status,
+      loadEligible: isLoadEligible(trust.status),
     })
   }
 
