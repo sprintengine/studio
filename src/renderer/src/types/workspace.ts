@@ -1094,9 +1094,27 @@ export type SprintEngineSavedRoster = {
   roleCliDefaults: SprintEngineRoleCliDefaults
 }
 
+// A named, reusable roster preset ("team"). Lets users keep several rosters —
+// e.g. a lightweight two-agent team and a heavyweight full-review team — and
+// pick one when creating a workspace instead of reconfiguring every time.
+export type SprintEngineRosterTeam = {
+  id: string
+  name: string
+  roleCounts: SprintEngineRoleCounts
+  roleCliDefaults: SprintEngineRoleCliDefaults
+  createdAt: number
+  updatedAt: number
+}
+
 export type SprintEngineRoleSettings = {
   enabled: Record<SprintEngineRoleId, boolean>
+  // Legacy single-roster default, retained for migration and as the run-mount
+  // CLI-default fallback. New saves go through `savedTeams`.
   savedRoster?: SprintEngineSavedRoster | null
+  // Named roster presets the user can pick from.
+  savedTeams?: SprintEngineRosterTeam[]
+  // The team most recently selected/saved, used to seed the new-workspace wizard.
+  lastSelectedTeamId?: string | null
 }
 export type MultiloopRole =
   | 'coordinator'

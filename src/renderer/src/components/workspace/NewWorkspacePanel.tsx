@@ -27,6 +27,7 @@ import type {
   SprintEngineSourcePlanKind,
   SprintEngineState,
   SprintEngineSavedRoster,
+  SprintEngineRosterTeam,
   SprintEngineWorkspaceContext,
   WorkspaceMode,
   Workspace,
@@ -345,8 +346,18 @@ export default function NewWorkspacePanel({
     (s) => s.setLastAgentSpawnPermissionPreset,
   )
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
-  const setSprintEngineSavedRoster = useWorkspaceStore((s) => s.setSprintEngineSavedRoster)
+  const saveSprintEngineRosterTeam = useWorkspaceStore((s) => s.saveSprintEngineRosterTeam)
+  const deleteSprintEngineRosterTeam = useWorkspaceStore((s) => s.deleteSprintEngineRosterTeam)
+  const setSprintEngineLastSelectedTeam = useWorkspaceStore((s) => s.setSprintEngineLastSelectedTeam)
+  const sprintEngineTeams = sprintEngineRoleSettings.savedTeams ?? []
   const savedSprintEngineRoster = sprintEngineRoleSettings.savedRoster ?? null
+  // Seed the wizard from the most recently selected team when one exists, else
+  // fall back to the legacy single saved roster.
+  const initialSprintEngineTeam =
+    sprintEngineTeams.find((team) => team.id === sprintEngineRoleSettings.lastSelectedTeamId) ?? null
+  const initialSprintEngineRoster: SprintEngineSavedRoster | null = initialSprintEngineTeam
+    ? { roleCounts: initialSprintEngineTeam.roleCounts, roleCliDefaults: initialSprintEngineTeam.roleCliDefaults }
+    : savedSprintEngineRoster
 
   const initialFuturePlan = initialState?.futurePlanSource ?? null
   const initialMode: CreationMode =
@@ -410,10 +421,14 @@ export default function NewWorkspacePanel({
   const [seTeamNameTouched, setSeTeamNameTouched] = useState(Boolean(initialFuturePlan))
   const [seGoal, setSeGoal] = useState(initialFuturePlan?.goal ?? '')
   const [seRoleCounts, setSeRoleCounts] = useState<SprintEngineRoleCounts>(
-    () => sprintEngineRoleCountsFromSavedRoster(savedSprintEngineRoster),
+    () => sprintEngineRoleCountsFromSavedRoster(initialSprintEngineRoster),
   )
   const [seRoleCliDefaults, setSeRoleCliDefaults] = useState<Required<SprintEngineRoleCliDefaults>>(
-    () => sprintEngineRoleCliDefaultsFromSavedRoster(savedSprintEngineRoster),
+    () => sprintEngineRoleCliDefaultsFromSavedRoster(initialSprintEngineRoster),
+  )
+  // Which saved team is currently loaded; null means a hand-tuned ("Custom") roster.
+  const [seSelectedTeamId, setSeSelectedTeamId] = useState<string | null>(
+    () => initialSprintEngineTeam?.id ?? null,
   )
   const [seAgentCliOverrides, setSeAgentCliOverrides] = useState<Record<AgentId, AgentCli>>({})
   // Explicit per-role launch model (string = explicit id, null = explicit CLI
@@ -421,7 +436,6 @@ export default function NewWorkspacePanel({
   const [seRoleModelOverrides, setSeRoleModelOverrides] = useState<SprintEngineRoleModelOverrides>({})
   // Roles marked "Start now": their agents spawn when the workspace opens.
   const [seSpawnAtStartRoles, setSeSpawnAtStartRoles] = useState<Partial<Record<SprintEngineRoleId, boolean>>>({})
-  const [seSaveRosterPreference, setSeSaveRosterPreference] = useState(false)
   const [seRoleRegistry, setSeRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
   const [seRoleRegistryStatus, setSeRoleRegistryStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
   const [seStartRunner, setSeStartRunner] = useState(false)
@@ -897,6 +911,9 @@ export default function NewWorkspacePanel({
     }
     const cliSelection = cliSelectionForExistingSprintEngineTeam(team, folderPath, workspaces, seRoleCliDefaults)
     setSeExistingTeam(team)
+    // A canonical team's roster comes from projection state, not a saved preset;
+    // detach the preset picker so its Update/Delete affordances aren't stale.
+    setSeSelectedTeamId(null)
     setSeTeamName(team.displayName)
     setSeGoal(team.state.goal)
     setSeRoleCounts(team.state.roleCounts)
@@ -1086,12 +1103,47 @@ export default function NewWorkspacePanel({
     setLastAgentSpawnPermissionPreset(cliPermissionPreset)
   }
 
-  const persistSprintEngineRosterPreference = () => {
-    if (!seSaveRosterPreference) return
-    setSprintEngineSavedRoster({
+  // Load a saved team into the wizard rows, or detach to a custom roster when
+  // id is null. Mirrors setRoleCount's resets so a freshly loaded team starts clean.
+  const handleSelectSprintEngineTeam = (id: string | null) => {
+    if (!id) {
+      setSeSelectedTeamId(null)
+      setSprintEngineLastSelectedTeam(null)
+      return
+    }
+    const team = sprintEngineTeams.find((entry) => entry.id === id)
+    if (!team) return
+    setSeExistingTeam(null)
+    setSeAgentCliOverrides({})
+    setSeRoleModelOverrides({})
+    setSeRoleCounts(cloneSprintEngineRoleCounts(team.roleCounts))
+    setSeRoleCliDefaults(sprintEngineRoleCliDefaultsFromSavedRoster(team))
+    setSeSelectedTeamId(team.id)
+    setSprintEngineLastSelectedTeam(team.id)
+  }
+
+  const handleSaveSprintEngineTeam = (name: string) => {
+    const id = saveSprintEngineRosterTeam({
+      name,
       roleCounts: cloneSprintEngineRoleCounts(visibleSprintEngineRoleCounts),
       roleCliDefaults: { ...seRoleCliDefaults },
     })
+    if (id) setSeSelectedTeamId(id)
+  }
+
+  const handleUpdateSprintEngineTeam = (id: string, name: string) => {
+    saveSprintEngineRosterTeam({
+      id,
+      name,
+      roleCounts: cloneSprintEngineRoleCounts(visibleSprintEngineRoleCounts),
+      roleCliDefaults: { ...seRoleCliDefaults },
+    })
+    setSeSelectedTeamId(id)
+  }
+
+  const handleDeleteSprintEngineTeam = (id: string) => {
+    deleteSprintEngineRosterTeam(id)
+    if (seSelectedTeamId === id) setSeSelectedTeamId(null)
   }
 
   const handleCreate = async () => {
@@ -1232,7 +1284,6 @@ export default function NewWorkspacePanel({
         triggerSelectedSkillPackInstalls(folderPath)
         onCreate(args)
         persistLastPermissionPreset()
-        persistSprintEngineRosterPreference()
         return
       }
 
@@ -1309,7 +1360,6 @@ export default function NewWorkspacePanel({
           )
           triggerSelectedSkillPackInstalls(folderPath)
           persistLastPermissionPreset()
-          persistSprintEngineRosterPreference()
           onClose()
         } catch (error) {
           if (error instanceof SprintEnginePlanSourcedError) {
@@ -1343,7 +1393,6 @@ export default function NewWorkspacePanel({
       triggerSelectedSkillPackInstalls(folderPath)
       onCreate(args)
       persistLastPermissionPreset()
-      persistSprintEngineRosterPreference()
       return
     }
 
@@ -1770,8 +1819,12 @@ export default function NewWorkspacePanel({
               hasExistingTeam={seExistingTeam != null}
               existingTeamName={seExistingTeam?.displayName ?? null}
               createError={sePlanError}
-              saveRoster={seSaveRosterPreference}
-              onChangeSaveRoster={setSeSaveRosterPreference}
+              teams={sprintEngineTeams}
+              selectedTeamId={seSelectedTeamId}
+              onSelectTeam={handleSelectSprintEngineTeam}
+              onSaveTeam={handleSaveSprintEngineTeam}
+              onUpdateTeam={handleUpdateSprintEngineTeam}
+              onDeleteTeam={handleDeleteSprintEngineTeam}
             />
           ) : null}
 
@@ -3087,8 +3140,12 @@ function SprintEngineRosterStep(props: {
   hasExistingTeam: boolean
   existingTeamName: string | null
   createError: string | null
-  saveRoster: boolean
-  onChangeSaveRoster: (save: boolean) => void
+  teams: SprintEngineRosterTeam[]
+  selectedTeamId: string | null
+  onSelectTeam: (id: string | null) => void
+  onSaveTeam: (name: string) => void
+  onUpdateTeam: (id: string, name: string) => void
+  onDeleteTeam: (id: string) => void
 }) {
   const {
     access,
@@ -3118,8 +3175,12 @@ function SprintEngineRosterStep(props: {
     hasExistingTeam,
     existingTeamName,
     createError,
-    saveRoster,
-    onChangeSaveRoster,
+    teams,
+    selectedTeamId,
+    onSelectTeam,
+    onSaveTeam,
+    onUpdateTeam,
+    onDeleteTeam,
   } = props
 
   if (!access.allowed) {
@@ -3157,8 +3218,12 @@ function SprintEngineRosterStep(props: {
         onSetSpawnAtStart={onSetRoleSpawnAtStart}
         totalAgents={totalAgents}
         rosterCountLabel={registryStatus === 'loading' ? 'Loading roles' : undefined}
-        saveRoster={saveRoster}
-        onChangeSaveRoster={onChangeSaveRoster}
+        teams={teams}
+        selectedTeamId={selectedTeamId}
+        onSelectTeam={onSelectTeam}
+        onSaveTeam={onSaveTeam}
+        onUpdateTeam={onUpdateTeam}
+        onDeleteTeam={onDeleteTeam}
         automationMode={automationMode}
         onChangeAutomationMode={onChangeAutomationMode}
         cliPermissionPreset={cliPermissionPreset}
