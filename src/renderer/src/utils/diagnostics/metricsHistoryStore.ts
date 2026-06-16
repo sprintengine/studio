@@ -1,4 +1,4 @@
-import type { ProcessMetricsSnapshot } from '../../../../shared/electron-api'
+import type { ProcessMetricsSnapshot, SystemMemorySample } from '../../../../shared/electron-api'
 
 // Renderer-local rolling history of process metrics, appended once per poll. Two
 // things the point-in-time snapshot can't give: a short time-series (sparklines)
@@ -23,6 +23,9 @@ export type MetricsSample = {
   totalRssBytes: number
   rendererHeapUsedBytes: number | null
   rendererHeapTotalBytes: number | null
+  // OS-wide memory at sample time (the real OOM predictor on a shared machine).
+  // Null until the first out-of-band system-memory sample lands in the snapshot.
+  systemMemory: SystemMemorySample | null
 }
 
 export type MetricsDiff = {
@@ -32,6 +35,21 @@ export type MetricsDiff = {
   mainRssBytes: number
   totalRssBytes: number
   rendererHeapUsedBytes: number | null
+}
+
+// Running maxima since the panel opened (or since the last reset), updated on
+// every appended sample and never bounded by the rolling-history window. This is
+// the "catch the spike that already got reclaimed" signal: a point-in-time RSS
+// can read low while a recent peak is what actually triggered an OOM.
+export type MetricsPeaks = {
+  totalRssBytes: number
+  childRssBytes: number
+  // Null until a sample carrying system memory is seen.
+  systemUsedBytes: number | null
+  systemPressure: number | null
+  // When the total-RSS / system-pressure peaks were observed (for context).
+  totalRssAt: number | null
+  systemPressureAt: number | null
 }
 
 export type GrowthRates = {
@@ -81,6 +99,7 @@ export function deriveMetricsSample(
     totalRssBytes,
     rendererHeapUsedBytes: heap?.usedBytes ?? null,
     rendererHeapTotalBytes: heap?.totalBytes ?? null,
+    systemMemory: snapshot.systemMemory ?? null,
   }
 }
 
@@ -128,11 +147,54 @@ const samples: MetricsSample[] = []
 let baseline: MetricsSample | null = null
 const listeners = new Set<() => void>()
 
+function emptyPeaks(): MetricsPeaks {
+  return {
+    totalRssBytes: 0,
+    childRssBytes: 0,
+    systemUsedBytes: null,
+    systemPressure: null,
+    totalRssAt: null,
+    systemPressureAt: null,
+  }
+}
+
+let peaks: MetricsPeaks = emptyPeaks()
+
+function updatePeaks(sample: MetricsSample): void {
+  if (sample.totalRssBytes > peaks.totalRssBytes) {
+    peaks.totalRssBytes = sample.totalRssBytes
+    peaks.totalRssAt = sample.sampledAt
+  }
+  if (sample.childRssBytes > peaks.childRssBytes) {
+    peaks.childRssBytes = sample.childRssBytes
+  }
+  const sys = sample.systemMemory
+  if (sys) {
+    if (peaks.systemUsedBytes === null || sys.usedBytes > peaks.systemUsedBytes) {
+      peaks.systemUsedBytes = sys.usedBytes
+    }
+    if (peaks.systemPressure === null || sys.pressure > peaks.systemPressure) {
+      peaks.systemPressure = sys.pressure
+      peaks.systemPressureAt = sample.sampledAt
+    }
+  }
+}
+
 export function appendMetricsSample(sample: MetricsSample): void {
   samples.push(sample)
   if (samples.length > METRICS_HISTORY_LIMIT) {
     samples.splice(0, samples.length - METRICS_HISTORY_LIMIT)
   }
+  updatePeaks(sample)
+  for (const listener of listeners) listener()
+}
+
+export function getMetricsPeaks(): MetricsPeaks {
+  return { ...peaks }
+}
+
+export function resetMetricsPeaks(): void {
+  peaks = emptyPeaks()
   for (const listener of listeners) listener()
 }
 

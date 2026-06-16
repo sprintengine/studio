@@ -4,9 +4,11 @@ import type {
   DiagnosticLogInput,
   ProcessMetricSample,
   ProcessMetricsSnapshot,
+  SystemMemorySample,
 } from '../../shared/electron-api'
 import { CHILD_PROCESS_SAMPLE_THROTTLE_MS, sampleChildProcessMetrics } from '../child-process-metrics'
 import { collectProcessMetrics, type RawProcessMetric } from '../process-metrics'
+import { sampleSystemMemory, SYSTEM_MEMORY_SAMPLE_THROTTLE_MS } from '../system-memory'
 import { sampleThreadCounts, THREAD_SAMPLE_THROTTLE_MS } from '../thread-counts'
 
 // Thread counts come from the OS (getAppMetrics has none), which on macOS means a
@@ -21,6 +23,9 @@ let threadCountSampleInFlight = false
 let childProcessMetricCache: readonly ProcessMetricSample[] = []
 let childProcessMetricSampledAt = 0
 let childProcessMetricSampleInFlight = false
+let systemMemoryCache: SystemMemorySample | undefined
+let systemMemorySampledAt = 0
+let systemMemorySampleInFlight = false
 
 function maybeRefreshThreadCounts(pids: readonly number[]): void {
   if (threadCountSampleInFlight) return
@@ -36,6 +41,23 @@ function maybeRefreshThreadCounts(pids: readonly number[]): void {
     })
     .finally(() => {
       threadCountSampleInFlight = false
+    })
+}
+
+function maybeRefreshSystemMemory(): void {
+  if (systemMemorySampleInFlight) return
+  if (Date.now() - systemMemorySampledAt < SYSTEM_MEMORY_SAMPLE_THROTTLE_MS) return
+  systemMemorySampleInFlight = true
+  void sampleSystemMemory()
+    .then((sample) => {
+      systemMemoryCache = sample
+      systemMemorySampledAt = Date.now()
+    })
+    .catch(() => {
+      // Best-effort: keep the last good system memory sample on failure.
+    })
+    .finally(() => {
+      systemMemorySampleInFlight = false
     })
 }
 
@@ -98,7 +120,8 @@ export function registerDiagnosticsIpc(
       .filter((pid) => Number.isInteger(pid))
     maybeRefreshThreadCounts(electronPids)
     maybeRefreshChildProcessMetrics(electronPids)
-    return snapshot
+    maybeRefreshSystemMemory()
+    return { ...snapshot, systemMemory: systemMemoryCache }
   })
 
   ipcMain.handle('diagnostics:open-window', () => {

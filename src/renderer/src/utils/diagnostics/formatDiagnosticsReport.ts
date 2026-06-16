@@ -5,7 +5,7 @@ import type { ReplayProfileEntry } from './replayProfileStore'
 import type { PerfEventRollupRow } from './perfEventStore'
 import type { LongTaskSummary } from './longTaskStore'
 import type { FrameStatsSummary } from './frameStatsStore'
-import { diffMetricsSamples, type GrowthRates, type MetricsSample } from './metricsHistoryStore'
+import { diffMetricsSamples, type GrowthRates, type MetricsPeaks, type MetricsSample } from './metricsHistoryStore'
 import type { IpcThroughput } from './ipcThroughputStore'
 import type { TerminalThroughput } from './terminalThroughputStore'
 import type { ScrollbackFootprint } from './terminalInstanceRegistry'
@@ -63,6 +63,8 @@ export type MetricsTrendReport = {
   current: MetricsSample | null
   baseline: MetricsSample | null
   growth: GrowthRates
+  // Session-long high-water marks; omitted by callers that don't track them.
+  peaks?: MetricsPeaks | null
 }
 
 export function formatDiagnosticsReport(input: {
@@ -120,13 +122,27 @@ export function formatDiagnosticsReport(input: {
   if (metricsTrend && metricsTrend.current) {
     const { current, baseline, growth } = metricsTrend
     sections.push('## Memory trend')
+    const sys = current.systemMemory
     const lines = [
       `Total RSS: ${formatBytes(current.totalRssBytes)} · renderer ${formatBytes(current.rendererRssBytes)} · main ${formatBytes(current.mainRssBytes)} · gpu ${formatBytes(current.gpuRssBytes)} · children ${formatBytes(current.childRssBytes)}`,
+      sys
+        ? `System memory: ${formatBytes(sys.usedBytes)} / ${formatBytes(sys.totalBytes)} used (${Math.round(sys.pressure * 100)}% pressure) · available ${formatBytes(sys.availableBytes)}${sys.compressedBytes > 0 ? ` · compressed ${formatBytes(sys.compressedBytes)}` : ''}${sys.swapUsedBytes > 0 ? ` · swap ${formatBytes(sys.swapUsedBytes)}` : ''}`
+        : 'System memory: unavailable',
       current.rendererHeapUsedBytes !== null
         ? `Renderer JS heap: ${formatBytes(current.rendererHeapUsedBytes)} used${current.rendererHeapTotalBytes !== null ? ` / ${formatBytes(current.rendererHeapTotalBytes)}` : ''}`
         : 'Renderer JS heap: unavailable',
       `Growth (last ${Math.round(growth.windowMs / 1000)}s, ${growth.sampleCount} samples): RSS ${bytesPerMin(growth.rssBytesPerMin)}, heap ${bytesPerMin(growth.heapBytesPerMin)}`,
     ]
+    if (metricsTrend.peaks && metricsTrend.peaks.totalRssBytes > 0) {
+      const peaks = metricsTrend.peaks
+      const peakSystem =
+        peaks.systemPressure !== null
+          ? ` · OS pressure ${Math.round(peaks.systemPressure * 100)}%${peaks.systemUsedBytes !== null ? ` (${formatBytes(peaks.systemUsedBytes)} used)` : ''}`
+          : ''
+      lines.push(
+        `Peak this session: total RSS ${formatBytes(peaks.totalRssBytes)}${peaks.totalRssAt ? ` (${lastOutput(peaks.totalRssAt, now)})` : ''} · children ${formatBytes(peaks.childRssBytes)}${peakSystem}`
+      )
+    }
     if (baseline) {
       const diff = diffMetricsSamples(baseline, current)
       lines.push(

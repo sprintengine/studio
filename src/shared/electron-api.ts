@@ -638,11 +638,30 @@ export type ProcessMetricSample = {
   heapTotalBytes?: number
 }
 
+// OS-wide memory, sampled out-of-band (getAppMetrics only covers Electron's own
+// processes). This is what actually predicts macOS "out of application memory"
+// — system exhaustion across every app — and the input the pressure-aware
+// evictor keys off. `availableBytes`/`pressure` are best-effort approximations;
+// `source` records how they were derived ('vm_stat' macOS, 'proc' linux, 'os'
+// fallback).
+export type SystemMemorySample = {
+  totalBytes: number
+  availableBytes: number
+  usedBytes: number
+  compressedBytes: number
+  swapUsedBytes: number
+  // 0..1 proxy: 1 - available/total.
+  pressure: number
+  source: 'vm_stat' | 'proc' | 'os'
+}
+
 export type ProcessMetricsSnapshot = {
   sampledAt: number
   // Best-effort: empty when app.getAppMetrics() is unavailable in the current
   // runtime rather than throwing, so the panel degrades to "unavailable".
   processes: ProcessMetricSample[]
+  // Best-effort: omitted until the first out-of-band sample lands.
+  systemMemory?: SystemMemorySample
 }
 
 // Per-api-method IPC accounting, accumulated in the preload (see preload/ipcStats).

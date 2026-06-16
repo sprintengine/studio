@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ProcessMetricKind, ProcessMetricsSnapshot } from '../../../../shared/electron-api'
 import { Select } from '../ui/Select'
+import { Tabs, TabPanel, type TabItem } from '../ui/Tabs'
 import { useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import {
@@ -40,6 +41,7 @@ import {
   deriveMetricsSample,
   getMetricsBaseline,
   getMetricsHistory,
+  getMetricsPeaks,
   readRendererHeap,
   setMetricsBaseline,
 } from '../../utils/diagnostics/metricsHistoryStore'
@@ -212,6 +214,50 @@ function useWorkspaceSyncContext(): SyncContext {
   return context
 }
 
+type DiagnosticTabId = 'dashboard' | 'memory' | 'rendering' | 'terminals' | 'subsystems'
+
+const DIAGNOSTIC_TABS: TabItem<DiagnosticTabId>[] = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'memory', label: 'Memory' },
+  { id: 'rendering', label: 'Rendering' },
+  { id: 'terminals', label: 'Terminals' },
+  { id: 'subsystems', label: 'Subsystems' },
+]
+
+const DIAGNOSTIC_TAB_STORAGE_KEY = 'multicode.diagnostics.activeTab'
+
+function isDiagnosticTabId(value: string | null): value is DiagnosticTabId {
+  return value !== null && DIAGNOSTIC_TABS.some((tab) => tab.id === value)
+}
+
+// One headline stat block for the Dashboard grid. `tone` flips to the error
+// color so an at-risk metric reads as red without the operator parsing numbers.
+function DashboardCard({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string
+  value: string
+  detail?: React.ReactNode
+  tone?: 'warn'
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 rounded border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
+      <span className="text-[10px] text-[color:var(--text-muted)]">{label}</span>
+      <span
+        className={`text-[15px] font-semibold tabular-nums ${
+          tone === 'warn' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-strong)]'
+        }`}
+      >
+        {value}
+      </span>
+      {detail ? <span className="text-[10px] tabular-nums text-[color:var(--text-muted)]">{detail}</span> : null}
+    </div>
+  )
+}
+
 export default function DiagnosticsContent({ headerActions }: Props) {
   // Diagnostics renders live per-terminal fields the dedup signature omits
   // (retainedOutputBytes, visible, lastOutputAt), so it opts into every broadcast.
@@ -227,6 +273,24 @@ export default function DiagnosticsContent({ headerActions }: Props) {
   const [baselineNonce, setBaselineNonce] = useState(0)
   const [ipcThroughput, setIpcThroughput] = useState<IpcThroughput | null>(null)
   const prevIpcRef = useRef<IpcStatsSnapshot | null>(null)
+  const tabsIdPrefix = useId()
+  const [activeTab, setActiveTab] = useState<DiagnosticTabId>(() => {
+    try {
+      const stored = window.localStorage.getItem(DIAGNOSTIC_TAB_STORAGE_KEY)
+      if (isDiagnosticTabId(stored)) return stored
+    } catch {
+      // localStorage can throw in restricted contexts; fall back to the default.
+    }
+    return 'dashboard'
+  })
+  const handleTabChange = (id: DiagnosticTabId) => {
+    setActiveTab(id)
+    try {
+      window.localStorage.setItem(DIAGNOSTIC_TAB_STORAGE_KEY, id)
+    } catch {
+      // Persisting the last-active tab is best-effort.
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -299,6 +363,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
       current: history.length > 0 ? history[history.length - 1] : null,
       baseline: getMetricsBaseline(),
       growth: computeGrowthRates(history, { now }),
+      peaks: getMetricsPeaks(),
     }
     // baselineNonce participates so a baseline set/clear refreshes the diff.
   }, [now, baselineNonce])
@@ -403,7 +468,105 @@ export default function DiagnosticsContent({ headerActions }: Props) {
         />
       </div>
 
-      <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-3">
+      <Tabs
+        ariaLabel="Diagnostics sections"
+        items={DIAGNOSTIC_TABS}
+        value={activeTab}
+        onChange={handleTabChange}
+        idPrefix={tabsIdPrefix}
+        className="shrink-0 px-4"
+      />
+
+      <div className="flex flex-1 flex-col overflow-y-auto px-4 py-3">
+        {/* Dashboard — headline health at a glance */}
+        <TabPanel
+          idPrefix={tabsIdPrefix}
+          tabId="dashboard"
+          active={activeTab === 'dashboard'}
+          className="flex flex-col gap-3"
+        >
+          {metricsTrend.current ? (
+            (() => {
+              const c = metricsTrend.current
+              const sys = c.systemMemory
+              const peaks = metricsTrend.peaks
+              const growth = metricsTrend.growth
+              const cpu = Math.round((c.rendererCpuPercent + c.mainCpuPercent) * 10) / 10
+              return (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                  <DashboardCard
+                    label="OS memory pressure"
+                    value={sys ? `${Math.round(sys.pressure * 100)}%` : '—'}
+                    tone={sys && sys.pressure >= 0.7 ? 'warn' : undefined}
+                    detail={sys ? `${formatBytes(sys.usedBytes)} / ${formatBytes(sys.totalBytes)} used` : 'sampling…'}
+                  />
+                  <DashboardCard
+                    label="Total RSS"
+                    value={formatBytes(c.totalRssBytes)}
+                    detail={`renderer ${formatBytes(c.rendererRssBytes)} · main ${formatBytes(c.mainRssBytes)} · children ${formatBytes(c.childRssBytes)}`}
+                  />
+                  <DashboardCard
+                    label="Growth (RSS)"
+                    value={formatPerMin(growth.rssBytesPerMin)}
+                    tone={(growth.rssBytesPerMin ?? 0) > 0 ? 'warn' : undefined}
+                    detail={`over ${Math.round(growth.windowMs / 1000)}s · ${growth.sampleCount} samples`}
+                  />
+                  <DashboardCard
+                    label="Peak this session"
+                    value={peaks && peaks.totalRssBytes > 0 ? formatBytes(peaks.totalRssBytes) : '—'}
+                    tone={peaks && peaks.systemPressure !== null && peaks.systemPressure >= 0.7 ? 'warn' : undefined}
+                    detail={
+                      peaks && peaks.systemPressure !== null
+                        ? `OS pressure ${Math.round(peaks.systemPressure * 100)}%`
+                        : peaks && peaks.totalRssAt
+                          ? formatRelativeMsAgo(peaks.totalRssAt, now) || 'just now'
+                          : undefined
+                    }
+                  />
+                  <DashboardCard
+                    label="CPU"
+                    value={`${cpu}%`}
+                    detail={`renderer ${c.rendererCpuPercent}% · main ${c.mainCpuPercent}%`}
+                  />
+                  <DashboardCard
+                    label="Rendering"
+                    value={frameStats.fps !== null ? `${frameStats.fps} fps` : '—'}
+                    tone={frameStats.fps !== null && frameStats.fps < 50 ? 'warn' : undefined}
+                    detail={`${frameStats.longFrameCount} long frames (${frameStats.longFramePercent}%)`}
+                  />
+                  <DashboardCard
+                    label="Main-thread stalls"
+                    value={String(longTaskSummary.count)}
+                    tone={longTaskSummary.count > 0 ? 'warn' : undefined}
+                    detail={`${longTaskSummary.totalBlockingMs} ms blocking / ${Math.round(longTaskSummary.windowMs / 1000)}s`}
+                  />
+                  <DashboardCard
+                    label="Terminals"
+                    value={`${totals.liveTerminalCount} live`}
+                    tone={totals.hiddenButVisibleCount > 0 ? 'warn' : undefined}
+                    detail={`${totals.visibleTerminalCount} visible · ${totals.hiddenButVisibleCount} hidden+visible`}
+                  />
+                  <DashboardCard
+                    label="Warnings"
+                    value={String(totals.warningCount)}
+                    tone={totals.warningCount > 0 ? 'warn' : undefined}
+                    detail={totals.warningCount > 0 ? 'see Terminals tab' : 'none'}
+                  />
+                </div>
+              )
+            })()
+          ) : (
+            <p className="text-[color:var(--text-muted)]">Collecting samples…</p>
+          )}
+        </TabPanel>
+
+        {/* Memory */}
+        <TabPanel
+          idPrefix={tabsIdPrefix}
+          tabId="memory"
+          active={activeTab === 'memory'}
+          className="flex flex-col gap-4"
+        >
         {/* Process metrics */}
         <section>
           <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">Processes</h2>
@@ -459,6 +622,31 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                   <span>renderer JS heap {formatBytes(metricsTrend.current.rendererHeapUsedBytes)}</span>
                 )}
               </div>
+              {metricsTrend.current.systemMemory && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
+                  <span>
+                    System memory{' '}
+                    <strong
+                      className={
+                        metricsTrend.current.systemMemory.pressure >= 0.7
+                          ? 'text-[color:var(--tone-error)]'
+                          : ''
+                      }
+                    >
+                      {formatBytes(metricsTrend.current.systemMemory.usedBytes)} /{' '}
+                      {formatBytes(metricsTrend.current.systemMemory.totalBytes)}
+                    </strong>{' '}
+                    ({Math.round(metricsTrend.current.systemMemory.pressure * 100)}% pressure)
+                  </span>
+                  <span>available {formatBytes(metricsTrend.current.systemMemory.availableBytes)}</span>
+                  {metricsTrend.current.systemMemory.compressedBytes > 0 && (
+                    <span>compressed {formatBytes(metricsTrend.current.systemMemory.compressedBytes)}</span>
+                  )}
+                  {metricsTrend.current.systemMemory.swapUsedBytes > 0 && (
+                    <span>swap {formatBytes(metricsTrend.current.systemMemory.swapUsedBytes)}</span>
+                  )}
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-[color:var(--text-subtle)]">
                 <span className="flex items-center gap-1 text-[color:var(--text-muted)]">
                   renderer
@@ -485,6 +673,19 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                 <span>heap {formatPerMin(metricsTrend.growth.heapBytesPerMin)}</span>
                 <span className="text-[color:var(--text-subtle)]">{metricsTrend.growth.sampleCount} samples</span>
               </div>
+              {metricsTrend.peaks && metricsTrend.peaks.totalRssBytes > 0 && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums text-[color:var(--text-muted)]">
+                  <span>Peak this session: total RSS {formatBytes(metricsTrend.peaks.totalRssBytes)}</span>
+                  <span>children {formatBytes(metricsTrend.peaks.childRssBytes)}</span>
+                  {metricsTrend.peaks.systemPressure !== null && (
+                    <span
+                      className={metricsTrend.peaks.systemPressure >= 0.7 ? 'text-[color:var(--tone-error)]' : ''}
+                    >
+                      OS pressure {Math.round(metricsTrend.peaks.systemPressure * 100)}%
+                    </span>
+                  )}
+                </div>
+              )}
               {metricsTrend.baseline && (
                 <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums text-[color:var(--text-strong)]">
                   {(() => {
@@ -513,6 +714,15 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           )}
         </section>
 
+        </TabPanel>
+
+        {/* Rendering */}
+        <TabPanel
+          idPrefix={tabsIdPrefix}
+          tabId="rendering"
+          active={activeTab === 'rendering'}
+          className="flex flex-col gap-4"
+        >
         {/* Long tasks */}
         <section>
           <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
@@ -595,6 +805,15 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           )}
         </section>
 
+        </TabPanel>
+
+        {/* Terminals */}
+        <TabPanel
+          idPrefix={tabsIdPrefix}
+          tabId="terminals"
+          active={activeTab === 'terminals'}
+          className="flex flex-col gap-4"
+        >
         {/* Workspace rollups */}
         <section>
           <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
@@ -731,6 +950,15 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           )}
         </section>
 
+        </TabPanel>
+
+        {/* Subsystems */}
+        <TabPanel
+          idPrefix={tabsIdPrefix}
+          tabId="subsystems"
+          active={activeTab === 'subsystems'}
+          className="flex flex-col gap-4"
+        >
         {/* Active timers / supervisors */}
         <section>
           <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
@@ -863,6 +1091,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             </p>
           )}
         </section>
+        </TabPanel>
       </div>
     </div>
   )

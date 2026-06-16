@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import type { ProcessMetricsSnapshot, TerminalSessionSnapshot } from '../../../../shared/electron-api'
 import { aggregateDiagnostics } from './aggregateDiagnostics'
-import { formatBytes, formatDiagnosticsReport } from './formatDiagnosticsReport'
+import { formatBytes, formatDiagnosticsReport, type MetricsTrendReport } from './formatDiagnosticsReport'
+import { deriveMetricsSample } from './metricsHistoryStore'
 import type { ReplayProfileEntry } from './replayProfileStore'
 
 function run(name: string, body: () => void): void {
@@ -95,6 +96,71 @@ run('report carries every section and key totals', () => {
   assert.match(report, /Browser/)
   // Replay profile row present.
   assert.match(report, /Nova/)
+})
+
+run('memory trend renders the system-memory line with pressure when present', () => {
+  const aggregation = aggregateDiagnostics({
+    sessions: [],
+    activeWorkspaceIds: new Set<string>(),
+    workspaceNames: new Map<string, string>(),
+    now: NOW,
+  })
+  const current = deriveMetricsSample(
+    {
+      sampledAt: NOW,
+      processes: [{ pid: 1, kind: 'main', type: 'Browser', cpuPercent: 1, memoryBytes: 200 * MIB }],
+      systemMemory: {
+        totalBytes: 16 * 1024 * MIB,
+        availableBytes: 4 * 1024 * MIB,
+        usedBytes: 12 * 1024 * MIB,
+        compressedBytes: 5 * 1024 * MIB,
+        swapUsedBytes: 1024 * MIB,
+        pressure: 0.75,
+        source: 'vm_stat',
+      },
+    },
+    null,
+  )
+  const metricsTrend: MetricsTrendReport = {
+    current,
+    baseline: null,
+    growth: { windowMs: 120_000, sampleCount: 2, rssBytesPerMin: 0, heapBytesPerMin: null },
+    peaks: {
+      totalRssBytes: 9000 * MIB,
+      childRssBytes: 4000 * MIB,
+      systemUsedBytes: 14 * 1024 * MIB,
+      systemPressure: 0.9,
+      totalRssAt: NOW - 30_000,
+      systemPressureAt: NOW - 30_000,
+    },
+  }
+  const report = formatDiagnosticsReport({ aggregation, metrics: null, profiles: [], metricsTrend, now: NOW })
+  assert.match(report, /## Memory trend/)
+  assert.match(report, /System memory: .* used \(75% pressure\)/)
+  assert.match(report, /compressed/)
+  assert.match(report, /swap/)
+  // Session high-water mark surfaces even though `current` is lower.
+  assert.match(report, /Peak this session: total RSS .* · OS pressure 90%/)
+})
+
+run('memory trend shows system memory unavailable when the sample lacks it', () => {
+  const aggregation = aggregateDiagnostics({
+    sessions: [],
+    activeWorkspaceIds: new Set<string>(),
+    workspaceNames: new Map<string, string>(),
+    now: NOW,
+  })
+  const current = deriveMetricsSample(
+    { sampledAt: NOW, processes: [{ pid: 1, kind: 'main', type: 'Browser', cpuPercent: 1, memoryBytes: 200 * MIB }] },
+    null,
+  )
+  const metricsTrend: MetricsTrendReport = {
+    current,
+    baseline: null,
+    growth: { windowMs: 120_000, sampleCount: 2, rssBytesPerMin: 0, heapBytesPerMin: null },
+  }
+  const report = formatDiagnosticsReport({ aggregation, metrics: null, profiles: [], metricsTrend, now: NOW })
+  assert.match(report, /System memory: unavailable/)
 })
 
 run('report degrades cleanly with no processes and no profiles', () => {
