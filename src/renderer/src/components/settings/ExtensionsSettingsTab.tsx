@@ -4,14 +4,15 @@ import type { ModuleEnablementOverrides, ThirdPartyModuleListResult } from '../.
 import type { SkillPackEntry } from '../../../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../../../shared/plugin-manifest'
 import type { McpServerConfig } from '../../types/workspace'
-import { InlineNotice, Spinner, StatusDot } from '../ui'
-import { SettingsRow, SettingsSectionTitle } from './SettingsAtoms'
+import { InlineNotice, Spinner, StatusDot, TabPanel, Tabs } from '../ui'
+import { SettingsRow } from './SettingsAtoms'
 import { TRUST_PRESENTATION } from './ThirdPartyModuleList'
 import {
   deriveInstalledExtensions,
   type ExtensionsInstalledView,
   type InstalledExtension,
   type LoadedSource,
+  type SourceNotice,
 } from './extensionsInstalled'
 
 // Settings → Extensions: the aggregated read-only inventory of everything
@@ -92,6 +93,10 @@ export function ExtensionsSettingsTab({
     void loadSkillPacks()
   }, [loadSkillPacks])
 
+  // Single sub-tab for now; the Browse storefront (a later phase) appends a
+  // second tab here. Installed is the default/selected tab.
+  const [subTab, setSubTab] = useState<ExtensionsSubTab>('installed')
+
   const view = deriveInstalledExtensions({
     mcpServers,
     modules,
@@ -100,6 +105,11 @@ export function ExtensionsSettingsTab({
     clis,
   })
 
+  // Count rides the tab label: real total when populated, 0 when cleanly empty,
+  // and absent while loading or degraded (no honest count to show yet).
+  const installedCount =
+    view.status === 'ready' ? view.total : view.status === 'empty' ? 0 : undefined
+
   return (
     <div
       role="tabpanel"
@@ -107,7 +117,31 @@ export function ExtensionsSettingsTab({
       aria-labelledby="settings-tab-extensions"
       className="space-y-4"
     >
-      <InstalledView view={view} />
+      <Tabs<ExtensionsSubTab>
+        ariaLabel="Extensions views"
+        idPrefix={EXTENSIONS_SUBTAB_PREFIX}
+        items={[{ id: 'installed', label: 'Installed', count: installedCount }]}
+        value={subTab}
+        onChange={setSubTab}
+      />
+      <TabPanel idPrefix={EXTENSIONS_SUBTAB_PREFIX} tabId="installed" active={subTab === 'installed'}>
+        <InstalledView view={view} />
+      </TabPanel>
+    </div>
+  )
+}
+
+type ExtensionsSubTab = 'installed'
+const EXTENSIONS_SUBTAB_PREFIX = 'extensions-views'
+
+function NoticeList({ notices }: { notices: SourceNotice[] }) {
+  return (
+    <div className="space-y-2">
+      {notices.map((notice) => (
+        <InlineNotice key={`${notice.kind}:${notice.message}`} tone={notice.tone}>
+          {notice.message}
+        </InlineNotice>
+      ))}
     </div>
   )
 }
@@ -130,45 +164,42 @@ function InstalledView({ view }: { view: ExtensionsInstalledView }) {
     )
   }
 
+  // Degraded: zero rows but a source failed/was unavailable. Show only the
+  // notices that explain why — never the "nothing installed" copy beneath them.
+  if (view.status === 'degraded') {
+    return <NoticeList notices={view.notices} />
+  }
+
+  if (view.status === 'empty') {
+    return (
+      <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
+        Nothing installed yet. Add MCP servers, skill packs, agent CLIs, or modules from their settings tabs and they
+        appear here.
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-5">
-      <SettingsSectionTitle count={view.status === 'ready' ? view.total : 0}>Installed</SettingsSectionTitle>
-
-      {view.notices.length > 0 ? (
-        <div className="space-y-2">
-          {view.notices.map((notice) => (
-            <InlineNotice key={`${notice.kind}:${notice.message}`} tone={notice.tone}>
-              {notice.message}
-            </InlineNotice>
-          ))}
-        </div>
-      ) : null}
-
-      {view.status === 'empty' ? (
-        <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Nothing installed yet. Add MCP servers, skill packs, agent CLIs, or modules from their settings tabs and they
-          appear here.
-        </div>
-      ) : (
-        <div className="space-y-5">
-          {view.groups.map((group) => (
-            <section key={group.kind} className="space-y-2">
-              <div className="flex items-center gap-3">
-                <span className="text-[12px] font-medium text-[color:var(--text-muted)]">{group.label}</span>
-                <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
-                <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-subtle)]">
-                  {group.items.length}
-                </span>
-              </div>
-              <div className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
-                {group.items.map((item) => (
-                  <InstalledRow key={item.key} item={item} />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
+      {view.notices.length > 0 ? <NoticeList notices={view.notices} /> : null}
+      <div className="space-y-5">
+        {view.groups.map((group) => (
+          <section key={group.kind} className="space-y-2">
+            <div className="flex items-center gap-3">
+              <span className="text-[12px] font-medium text-[color:var(--text-muted)]">{group.label}</span>
+              <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
+              <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-subtle)]">
+                {group.items.length}
+              </span>
+            </div>
+            <div className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
+              {group.items.map((item) => (
+                <InstalledRow key={item.key} item={item} />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
     </div>
   )
 }

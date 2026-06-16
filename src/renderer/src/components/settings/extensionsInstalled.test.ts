@@ -146,13 +146,38 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
   assert.equal(view.notices.length, 0)
 }
 
-// --- empty state -----------------------------------------------------------
+// --- empty state (only a clean, fully-loaded zero-row result) --------------
 
 {
+  // All three IPC sources ok with zero rows, no MCP servers, nothing rejected.
   const view = deriveInstalledExtensions(input())
   assert.equal(view.status, 'empty')
-  if (view.status !== 'empty') throw new Error('unreachable')
-  assert.equal(view.notices.length, 0)
+}
+
+{
+  // Zero rows but skill packs were unavailable (no workspace): NOT empty — a
+  // degraded state, so "Nothing installed yet" never renders under a notice.
+  const view = deriveInstalledExtensions(
+    input({
+      skillPacks: { status: 'unavailable', reason: 'Open a workspace to see its installed skill packs.' },
+    }),
+  )
+  assert.equal(view.status, 'degraded')
+  if (view.status !== 'degraded') throw new Error('unreachable')
+  assert.deepEqual(view.notices.map((n) => `${n.kind}:${n.tone}`), ['skill-pack:warn'])
+}
+
+{
+  // Zero rows but a module folder was rejected: degraded, not empty.
+  const view = deriveInstalledExtensions(
+    input({
+      modules: {
+        status: 'ok',
+        value: modulesResult([], [{ path: 'mods/bad', issues: [{ path: '.', message: 'bad manifest' }] }]),
+      },
+    }),
+  )
+  assert.equal(view.status, 'degraded')
 }
 
 // --- failed / unavailable sources surface as notices, never empty ----------
@@ -178,8 +203,8 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
 }
 
 {
-  // Everything failed and no MCP servers: still 'empty' (not a silent blank) but
-  // carrying the error notices so the failure is visible.
+  // Everything failed and no MCP servers: a degraded state (never a silent
+  // blank or a misleading "nothing installed"), carrying every error notice.
   const view = deriveInstalledExtensions(
     input({
       skillPacks: { status: 'error', message: 'boom' },
@@ -187,8 +212,8 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
       modules: { status: 'error', message: 'boom' },
     }),
   )
-  assert.equal(view.status, 'empty')
-  if (view.status !== 'empty') throw new Error('unreachable')
+  assert.equal(view.status, 'degraded')
+  if (view.status !== 'degraded') throw new Error('unreachable')
   assert.equal(view.notices.filter((n) => n.tone === 'error').length, 3)
 }
 

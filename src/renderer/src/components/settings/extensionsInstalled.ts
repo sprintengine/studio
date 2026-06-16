@@ -91,9 +91,14 @@ export type ExtensionsInstalledView =
   // Every IPC-backed source predates this build and there are no MCP servers:
   // nothing can be listed and it is not the user's empty state.
   | { status: 'unsupported' }
-  // Loaded, nothing installed. Notices still carry any unavailable/failed
-  // sources so "empty" never masks a failure.
-  | { status: 'empty'; notices: SourceNotice[] }
+  // Loaded cleanly with zero rows and nothing wrong — the genuine empty state.
+  // Carries no notices, so "Nothing installed yet" only ever shows when there is
+  // truly nothing to report.
+  | { status: 'empty' }
+  // Zero rows but at least one source failed, was unavailable, or rejected a
+  // folder. The notices explain why nothing is shown; we never render the
+  // "nothing installed" copy under a problem notice.
+  | { status: 'degraded'; notices: SourceNotice[] }
   | { status: 'ready'; groups: InstalledExtensionGroup[]; total: number; notices: SourceNotice[] }
 
 function sourceLabel(source: string | undefined): string {
@@ -237,7 +242,13 @@ export function deriveInstalledExtensions(input: ExtensionsInstalledInput): Exte
     if (allUnsupported && input.mcpServers.length === 0) {
       return { status: 'unsupported' }
     }
-    return { status: 'empty', notices }
+    // Only a clean, fully-loaded zero-row result is the user's empty state. If any
+    // source failed, was unavailable, or rejected a folder, surface those notices
+    // as a degraded state instead of the misleading "nothing installed" copy.
+    if (notices.length === 0) {
+      return { status: 'empty' }
+    }
+    return { status: 'degraded', notices }
   }
 
   return { status: 'ready', groups, total, notices }
