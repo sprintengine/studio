@@ -1,0 +1,305 @@
+import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { buildSync } from 'esbuild'
+
+import { parseThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
+import type { MarketplacePluginEntry } from '../../shared/marketplace'
+import { classifySignedManifestTrust, verifyModuleSignature } from '../modules/module-signature'
+import {
+  generateModuleSigningKeyPair,
+  publicKeyFingerprint,
+  signManifest,
+} from '../../../packages/module-sdk/src/signing'
+import {
+  downloadMarketplacePluginBundle,
+  type MarketplacePluginDownloadFetch,
+} from './plugin-download'
+
+const SOURCE_URL = 'https://github.com/multicode-labs/marketplace/tree/main/plugins/downloaded-plugin'
+const API_ROOT = 'https://api.github.com/repos/multicode-labs/marketplace/contents/plugins/downloaded-plugin?ref=main'
+const API_MCP = 'https://api.github.com/repos/multicode-labs/marketplace/contents/plugins/downloaded-plugin/mcp?ref=main'
+const RAW_PLUGIN = 'https://raw.example.test/downloaded-plugin/plugin.json'
+const RAW_MCP = 'https://raw.example.test/downloaded-plugin/mcp/server.json'
+
+type BundleFixture = {
+  entry: MarketplacePluginEntry
+  manifest: Record<string, unknown>
+  fingerprint: string
+}
+
+async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), 'mc-marketplace-download-'))
+  try {
+    return await fn(dir)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+}
+
+function jsonResponse(value: unknown, init: ResponseInit = {}): Response {
+  return new Response(`${JSON.stringify(value)}\n`, {
+    status: 200,
+    headers: { 'content-type': 'application/json', ...(init.headers ?? {}) },
+    ...init,
+  })
+}
+
+function textResponse(value: string, init: ResponseInit = {}): Response {
+  return new Response(value, { status: 200, ...init })
+}
+
+function mcpComponentSource(): string {
+  return `${JSON.stringify({
+    servers: [
+      {
+        id: 'downloaded-mcp',
+        name: 'Downloaded MCP',
+        transport: 'stdio',
+        command: 'node',
+        args: ['-e', 'console.log("downloaded mcp")'],
+        clients: ['codex'],
+        scope: 'workspace',
+        source: 'bundled',
+        riskLevel: 'local-command',
+      },
+    ],
+  }, null, 2)}\n`
+}
+
+function createFixture(overrides: Record<string, unknown> = {}): BundleFixture {
+  const keyPair = generateModuleSigningKeyPair()
+  const unsigned = {
+    id: 'downloaded-plugin',
+    displayName: 'Downloaded Plugin',
+    version: 1,
+    publisher: 'Multicode Labs',
+    category: 'Testing',
+    summary: 'Downloaded marketplace plugin.',
+    defaultEnabled: false,
+    source: 'third-party',
+    permissions: ['network'],
+    components: {
+      mcp: { path: 'mcp/server.json' },
+    },
+    ...overrides,
+  }
+  const signature = signManifest(unsigned, keyPair.privateKeyPem)
+  const manifest = { ...unsigned, signature }
+  return {
+    manifest,
+    fingerprint: publicKeyFingerprint(signature.publicKey) ?? '',
+    entry: {
+      id: 'downloaded-plugin',
+      name: 'Downloaded Plugin',
+      publisher: { name: 'Multicode Labs', verified: true },
+      summary: 'Downloaded marketplace plugin.',
+      category: 'Testing',
+      icon: 'icons/downloaded.svg',
+      latest: 1,
+      source: SOURCE_URL,
+      provides: ['mcp'],
+      signature,
+    },
+  }
+}
+
+function createGithubFetcher(pluginJson: string, mcpJson = mcpComponentSource()): {
+  fetcher: MarketplacePluginDownloadFetch
+  requests: string[]
+} {
+  const requests: string[] = []
+  const fetcher: MarketplacePluginDownloadFetch = async (url) => {
+    requests.push(url)
+    if (url === API_ROOT) {
+      return jsonResponse([
+        { type: 'file', path: 'plugins/downloaded-plugin/plugin.json', download_url: RAW_PLUGIN },
+        { type: 'dir', path: 'plugins/downloaded-plugin/mcp', url: API_MCP },
+      ])
+    }
+    if (url === API_MCP) {
+      return jsonResponse([
+        { type: 'file', path: 'plugins/downloaded-plugin/mcp/server.json', download_url: RAW_MCP },
+      ])
+    }
+    if (url === RAW_PLUGIN) return textResponse(pluginJson)
+    if (url === RAW_MCP) return textResponse(mcpJson)
+    return new Response('not found', { status: 404 })
+  }
+  return { fetcher, requests }
+}
+
+async function testVerifiedFirstPartyDownloadStagesBundle(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const fixture = createFixture()
+    const { fetcher, requests } = createGithubFetcher(`${JSON.stringify(fixture.manifest, null, 2)}\n`)
+
+    const result = await downloadMarketplacePluginBundle({
+      entry: fixture.entry,
+      trustContext: {
+        trustedModules: new Map(),
+        trustedKeyFingerprints: new Set([fixture.fingerprint]),
+      },
+      stagingRoot: join(dir, 'staging'),
+      fetcher,
+    })
+
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+    assert.equal(result.classification, 'verified')
+    assert.equal(result.trust.status, 'trusted')
+    assert.equal(result.loadEligible, true)
+    assert.equal(result.manifest.id, 'downloaded-plugin')
+    assert.equal(existsSync(join(result.stagedBundlePath, 'plugin.json')), true)
+    assert.equal(existsSync(join(result.stagedBundlePath, 'mcp', 'server.json')), true)
+    assert.deepEqual(requests, [API_ROOT, RAW_PLUGIN, API_MCP, RAW_MCP])
+  })
+}
+
+async function testSignedUntrustedPublisherStagesAsCommunity(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const fixture = createFixture()
+    const { fetcher } = createGithubFetcher(`${JSON.stringify(fixture.manifest, null, 2)}\n`)
+
+    const result = await downloadMarketplacePluginBundle({
+      entry: fixture.entry,
+      trustContext: { trustedModules: new Map() },
+      stagingRoot: join(dir, 'staging'),
+      fetcher,
+    })
+
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+    assert.equal(result.classification, 'community')
+    assert.equal(result.trust.status, 'signed')
+    assert.equal(result.loadEligible, false)
+  })
+}
+
+async function testTamperedPluginSignatureBlocksAndRemovesStage(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const fixture = createFixture()
+    const tampered = { ...fixture.manifest, displayName: 'Tampered Plugin' }
+    const { fetcher } = createGithubFetcher(`${JSON.stringify(tampered, null, 2)}\n`)
+    const stagingRoot = join(dir, 'staging')
+
+    const result = await downloadMarketplacePluginBundle({
+      entry: fixture.entry,
+      trustContext: { trustedModules: new Map() },
+      stagingRoot,
+      fetcher,
+    })
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.classification, 'invalid')
+    assert.equal(result.trust?.status, 'invalid')
+    assert.match(result.message, /signature is invalid/i)
+    assert.deepEqual(await readdir(stagingRoot), [])
+  })
+}
+
+async function testUnsignedPluginClassifiesButDoesNotExposeStage(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const fixture = createFixture()
+    const { signature: _signature, ...unsigned } = fixture.manifest
+    const { fetcher } = createGithubFetcher(`${JSON.stringify(unsigned, null, 2)}\n`)
+    const stagingRoot = join(dir, 'staging')
+
+    const result = await downloadMarketplacePluginBundle({
+      entry: fixture.entry,
+      trustContext: { trustedModules: new Map() },
+      stagingRoot,
+      fetcher,
+    })
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.classification, 'unsigned')
+    assert.equal(result.trust?.status, 'unsigned')
+    assert.match(result.message, /unsigned/i)
+    assert.deepEqual(await readdir(stagingRoot), [])
+  })
+}
+
+async function testRejectsNonHttpsSourceBeforeFetch(): Promise<void> {
+  const fixture = createFixture()
+  let fetched = false
+  const result = await downloadMarketplacePluginBundle({
+    entry: { ...fixture.entry, source: 'http://example.com/plugins/downloaded-plugin' },
+    trustContext: { trustedModules: new Map() },
+    fetcher: async () => {
+      fetched = true
+      return textResponse('unexpected')
+    },
+  })
+
+  assert.equal(result.ok, false)
+  assert.match(result.message, /HTTPS/)
+  assert.equal(fetched, false)
+}
+
+function testCliAndAppRejectSameTamperedModuleBytes(): void {
+  const workDir = mkdtempSync(join(tmpdir(), 'mc-marketplace-cli-verify-'))
+  try {
+    const cliBundle = join(workDir, 'multicode-module.cjs')
+    buildSync({
+      entryPoints: [join(process.cwd(), 'packages/module-sdk/src/cli.ts')],
+      bundle: true,
+      platform: 'node',
+      format: 'cjs',
+      outfile: cliBundle,
+    })
+
+    const moduleDir = join(workDir, 'module')
+    mkdirSync(moduleDir)
+    writeFileSync(
+      join(moduleDir, 'manifest.json'),
+      JSON.stringify({
+        id: 'marketplace-download-fixture',
+        displayName: 'Marketplace Download Fixture',
+        version: 1,
+        permissions: ['network'],
+      }, null, 2)
+    )
+    const keyPath = join(workDir, 'signing.key')
+    assert.equal(spawnSync(process.execPath, [cliBundle, 'keygen', '--out', keyPath], { encoding: 'utf8' }).status, 0)
+    assert.equal(spawnSync(process.execPath, [cliBundle, 'sign', moduleDir, '--key', keyPath], { encoding: 'utf8' }).status, 0)
+
+    const manifestPath = join(moduleDir, 'manifest.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>
+    manifest.displayName = 'Tampered Download Fixture'
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
+
+    const cliVerify = spawnSync(process.execPath, [cliBundle, 'verify', moduleDir], { encoding: 'utf8' })
+    assert.equal(cliVerify.status, 1)
+    assert.match(cliVerify.stderr, /INVALID signature/)
+
+    const parsed = parseThirdPartyModuleManifest(readFileSync(manifestPath, 'utf8'))
+    assert.equal(parsed.ok, true)
+    if (!parsed.ok) return
+    assert.equal(verifyModuleSignature(parsed.manifest).valid, false)
+    assert.equal(classifySignedManifestTrust(parsed.manifest, { trustedModules: new Map() }).status, 'invalid')
+  } finally {
+    rmSync(workDir, { recursive: true, force: true })
+  }
+}
+
+async function main(): Promise<void> {
+  await testVerifiedFirstPartyDownloadStagesBundle()
+  await testSignedUntrustedPublisherStagesAsCommunity()
+  await testTamperedPluginSignatureBlocksAndRemovesStage()
+  await testUnsignedPluginClassifiesButDoesNotExposeStage()
+  await testRejectsNonHttpsSourceBeforeFetch()
+  testCliAndAppRejectSameTamperedModuleBytes()
+  console.log('marketplace plugin download tests passed')
+}
+
+void main().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})
