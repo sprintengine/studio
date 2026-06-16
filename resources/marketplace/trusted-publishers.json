@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "publishers": [
+    {
+      "name": "Multicode Labs",
+      "verified": true,
+      "publicKey": "MCowBQYDK2VwAyEAx0cCIXxLY/Nqww0aKzjjiT3uGrrsddHFVbc4oQa2QA0=",
+      "fingerprint": "f79178829ceeb7789892082d4cc9e4cc2065e2e2b342eb5ea10d263d0df6ad2f",
+      "scope": "First-party seed marketplace plugins under resources/marketplace/plugins"
+    }
+  ]
+}

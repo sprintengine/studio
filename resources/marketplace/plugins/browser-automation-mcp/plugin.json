@@ -1,0 +1,24 @@
+{
+  "id": "browser-automation-mcp",
+  "displayName": "Browser Automation MCP",
+  "version": 1,
+  "publisher": "Multicode Labs",
+  "category": "Testing",
+  "summary": "Installs the Playwright MCP server for browser inspection, UI automation, and end-to-end debugging.",
+  "defaultEnabled": false,
+  "source": "third-party",
+  "permissions": [
+    "network",
+    "process:spawn"
+  ],
+  "components": {
+    "mcp": {
+      "path": "mcp/server.json"
+    }
+  },
+  "signature": {
+    "algorithm": "ed25519",
+    "publicKey": "MCowBQYDK2VwAyEAx0cCIXxLY/Nqww0aKzjjiT3uGrrsddHFVbc4oQa2QA0=",
+    "signature": "ZwL5A51rlXDPFXWSmCdF4x/LIw827Rc1DJ39M55Omi2LNGY9etooQOzzn3t/LuBAVnFxKKOEojgLQkja+8qkCQ=="
+  }
+}

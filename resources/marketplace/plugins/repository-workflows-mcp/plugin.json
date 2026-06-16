@@ -1,0 +1,23 @@
+{
+  "id": "repository-workflows-mcp",
+  "displayName": "Repository Workflows MCP",
+  "version": 1,
+  "publisher": "Multicode Labs",
+  "category": "Code Hosting",
+  "summary": "Installs the GitHub remote MCP endpoint for repository, pull request, and Actions workflows.",
+  "defaultEnabled": false,
+  "source": "third-party",
+  "permissions": [
+    "network"
+  ],
+  "components": {
+    "mcp": {
+      "path": "mcp/server.json"
+    }
+  },
+  "signature": {
+    "algorithm": "ed25519",
+    "publicKey": "MCowBQYDK2VwAyEAx0cCIXxLY/Nqww0aKzjjiT3uGrrsddHFVbc4oQa2QA0=",
+    "signature": "oTAgYNdETM3hnceJVj+t4ch4G/s/bOTDpxjsXUYGBjzmEtNRqXjKnNxuEptTfUpKFhkkvgdOFbpDVMJHayfbCA=="
+  }
+}

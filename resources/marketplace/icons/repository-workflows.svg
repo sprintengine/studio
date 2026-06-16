@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Multicode marketplace seed icon">
+  <rect width="128" height="128" rx="22" fill="#101820"/>
+  <path d="M24 32h80v64H24z" fill="#172632" stroke="#31495a" stroke-width="4"/>
+  <path d="M44 76V52m0 0h32m0 0v24" fill="none" stroke="#73a7ff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="44" cy="82" r="8" fill="#d7e6ff"/>
+  <circle cx="44" cy="48" r="8" fill="#d7e6ff"/>
+  <circle cx="76" cy="82" r="8" fill="#d7e6ff"/>
+  <circle cx="100" cy="28" r="10" fill="#73a7ff"/>
+</svg>

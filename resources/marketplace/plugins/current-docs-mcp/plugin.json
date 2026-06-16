@@ -1,0 +1,24 @@
+{
+  "id": "current-docs-mcp",
+  "displayName": "Current Docs MCP",
+  "version": 1,
+  "publisher": "Multicode Labs",
+  "category": "Documentation",
+  "summary": "Installs the Context7 MCP server for current library documentation lookup.",
+  "defaultEnabled": false,
+  "source": "third-party",
+  "permissions": [
+    "network",
+    "process:spawn"
+  ],
+  "components": {
+    "mcp": {
+      "path": "mcp/server.json"
+    }
+  },
+  "signature": {
+    "algorithm": "ed25519",
+    "publicKey": "MCowBQYDK2VwAyEAx0cCIXxLY/Nqww0aKzjjiT3uGrrsddHFVbc4oQa2QA0=",
+    "signature": "5bLbBdLI7q4VGBLKDZjCwimkdyhhfLNmL+jtzHMxHyE0o1hi1kf6BshEworpnCOpilP3570PKdS8SRDISl1QAQ=="
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "plugins": [
+    {
+      "id": "browser-automation-mcp",
+      "name": "Browser Automation MCP",
+      "publisher": {
+        "name": "Multicode Labs",
+        "verified": true
+      },
+      "summary": "Installs the Playwright MCP server for browser inspection, UI automation, and end-to-end debugging.",
+      "category": "Testing",
+      "icon": "icons/browser-automation.svg",
+      "latest": 1,
+      "source": "https://github.com/multicode-labs/marketplace/tree/main/plugins/browser-automation-mcp",
+      "provides": [
+        "mcp"
+      ],
+      "signature": {
+        "algorithm": "ed25519",
+        "publicKey": "MCowBQYDK2VwAyEAx0cCIXxLY/Nqww0aKzjjiT3uGrrsddHFVbc4oQa2QA0=",
+        "signature": "ZwL5A51rlXDPFXWSmCdF4x/LIw827Rc1DJ39M55Omi2LNGY9etooQOzzn3t/LuBAVnFxKKOEojgLQkja+8qkCQ=="
+      }
+    },
+    {
+      "id": "repository-workflows-mcp",
+      "name": "Repository Workflows MCP",
+      "publisher": {
+        "name": "Multicode Labs",
+        "verified": true
+      },
+      "summary": "Installs the GitHub remote MCP endpoint for repository, pull request, and Actions workflows.",
+      "category": "Code Hosting",
+      "icon": "icons/repository-workflows.svg",
+      "latest": 1,
+      "source": "https://github.com/multicode-labs/marketplace/tree/main/plugins/repository-workflows-mcp",
+      "provides": [
+        "mcp"
+      ],
+      "signature": {
+        "algorithm": "ed25519",
+        "publicKey": "MCowBQYDK2VwAyEAx0cCIXxLY/Nqww0aKzjjiT3uGrrsddHFVbc4oQa2QA0=",
+        "signature": "oTAgYNdETM3hnceJVj+t4ch4G/s/bOTDpxjsXUYGBjzmEtNRqXjKnNxuEptTfUpKFhkkvgdOFbpDVMJHayfbCA=="
+      }
+    },
+    {
+      "id": "current-docs-mcp",
+      "name": "Current Docs MCP",
+      "publisher": {
+        "name": "Multicode Labs",
+        "verified": true
+      },
+      "summary": "Installs the Context7 MCP server for current library documentation lookup.",
+      "category": "Documentation",
+      "icon": "icons/current-docs.svg",
+      "latest": 1,
+      "source": "https://github.com/multicode-labs/marketplace/tree/main/plugins/current-docs-mcp",
+      "provides": [
+        "mcp"
+      ],
+      "signature": {
+        "algorithm": "ed25519",
+        "publicKey": "MCowBQYDK2VwAyEAx0cCIXxLY/Nqww0aKzjjiT3uGrrsddHFVbc4oQa2QA0=",
+        "signature": "5bLbBdLI7q4VGBLKDZjCwimkdyhhfLNmL+jtzHMxHyE0o1hi1kf6BshEworpnCOpilP3570PKdS8SRDISl1QAQ=="
+      }
+    },
+    {
+      "id": "api-reference-mcp",
+      "name": "API Reference MCP",
+      "publisher": {
+        "name": "Multicode Labs",
+        "verified": true
+      },
+      "summary": "Installs the official OpenAI Docs MCP endpoint for API, Codex, and ChatGPT integration lookup.",
+      "category": "Documentation",
+      "icon": "icons/api-reference.svg",
+      "latest": 1,
+      "source": "https://github.com/multicode-labs/marketplace/tree/main/plugins/api-reference-mcp",
+      "provides": [
+        "mcp"
+      ],
+      "signature": {
+        "algorithm": "ed25519",
+        "publicKey": "MCowBQYDK2VwAyEAx0cCIXxLY/Nqww0aKzjjiT3uGrrsddHFVbc4oQa2QA0=",
+        "signature": "sf4fZAs4U0EqdTbynDPKUXTiJs2HvVYD9BV+TctxcVKrIlEaFTWb52Y4SgQ1y8t9xLxkqU0sHnQ5Vrsr5t5UAA=="
+      }
+    }
+  ]
+}
