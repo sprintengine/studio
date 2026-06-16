@@ -6,8 +6,10 @@ import {
   SprintEngineArtifactsToken,
   SprintEngineMcpHubToken,
   TerminalRuntimeToken,
+  WorkspaceServiceToken,
 } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
+import { createModuleWorkspaceService } from './module-workspace-service'
 
 // The agent runtime is the irreducible core: terminals + the BYO-CLI launch
 // path are what every other orchestration module sits on. It is `core: true`, so
@@ -46,6 +48,14 @@ export function createAgentRuntimeModule(services: AppServices): CapabilityModul
       host.provideService(SprintEngineArtifactsToken, () => services.sprintEngineArtifacts)
       host.provideService(MulticodeAuthToken, () => services.multicodeAuth)
       host.provideService(SprintEngineMcpHubToken, () => services.sprintEngineMcpHub)
+      // Programmatic workspace creation, routed through the same renderer
+      // delegate + workspace-sync confirmation the automation tool uses.
+      host.provideService(WorkspaceServiceToken, () =>
+        createModuleWorkspaceService({
+          delegateToRenderer: (request) => services.automationDelegate.request(request),
+          getWorkspaceSyncSnapshot: () => services.workspaceSyncService.getSnapshot(),
+        })
+      )
     },
   }
 }

@@ -286,6 +286,10 @@ export type PluginRegistryListResult =
   | { ok: true; plugins: PluginRegistryListEntry[] }
   | { ok: false; message: string }
 
+export type PluginInstallResult =
+  | { ok: true; id: string; kind: 'cli' | 'provider'; displayName: string }
+  | { ok: false; message: string; issues?: Array<{ path: string; message: string }> }
+
 export type ConversationProviderListResult =
   | { ok: true; providers: ConversationProviderListEntry[] }
   | { ok: false; message: string }
@@ -1577,6 +1581,8 @@ export type ElectronApi = {
     input: { workspaceRoot: string | null; skillId: string }
   ) => Promise<BuiltinSkillInstallResult>
   pluginsList: () => Promise<PluginRegistryListResult>
+  installPluginFolder: (srcDir: string) => Promise<PluginInstallResult>
+  reloadPlugins: () => Promise<PluginRegistryListResult>
   conversationProvidersList: () => Promise<ConversationProviderListResult>
   conversationProviderModels: (input: ConversationProviderModelsInput) => Promise<ConversationProviderModelsResult>
   conversationProviderTest: (input: ConversationProviderTestInput) => Promise<ConversationProviderTestResult>

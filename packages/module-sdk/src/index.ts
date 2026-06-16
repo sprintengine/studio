@@ -191,6 +191,37 @@ export type MainHost = {
 /** The export contract of `entry.main`: `export function registerMain(host) { … }`. */
 export type RegisterMain = (host: MainHost) => void
 
+// ── Workspace service (host-provided, consumed via the service bridge) ────────
+
+export type WorkspaceCreateInput = {
+  /** Workspace display name. */
+  name?: string
+  /** Absolute folder to open in the workspace. */
+  folderPath?: string
+  /** Layout template id; defaults to the standard template when omitted. */
+  templateId?: string
+}
+
+export type WorkspaceCreateResult =
+  | { ok: true; workspaceId: string }
+  | { ok: false; code: string; message: string }
+
+/**
+ * Programmatic workspace creation, provided by the app core. A creation runs
+ * the same renderer flow the UI uses and is confirmed on the workspace-sync bus
+ * before it resolves, so the returned id is always a real, observed workspace.
+ */
+export type WorkspaceService = {
+  create(input: WorkspaceCreateInput): Promise<WorkspaceCreateResult>
+}
+
+/**
+ * Resolve with `host.requireService(WorkspaceServiceToken)` from a module's
+ * `entry.main`. Always available — provided by the always-on agent-runtime core.
+ */
+export const WorkspaceServiceToken: ServiceToken<WorkspaceService> =
+  createServiceToken<WorkspaceService>('core.workspace')
+
 // ── Renderer host (entry.renderer) ───────────────────────────────────────────
 
 /**
@@ -402,6 +433,7 @@ export type CommandAvailability =
   | 'sprintEngineEnabled'
   | 'gitPanelActive'
   | 'terminalActive'
+  | 'diagnosticsEnabled'
 
 /**
  * A command contributed by a module. The registered id is namespaced
@@ -472,3 +504,35 @@ export {
   type ThirdPartyManifestIssue,
   type ThirdPartyManifestResult,
 } from './manifest-validate.js'
+
+// ── BYO-CLI plugin authoring (kind: 'cli') ───────────────────────────────────
+// A CLI plugin is a separate artifact from a capability module: a `plugin.json`
+// dropped into ~/.multicode/plugins/<id>/ that teaches Multicode a new agent
+// CLI. Pure validator + types, safe in any runtime.
+
+export {
+  parseCliPluginManifest,
+  validateCliPluginManifest,
+  type CliArgvToken,
+  type CliCapabilities,
+  type CliCompletionMode,
+  type CliCompletionSpec,
+  type CliLaunchSpec,
+  type CliManifestIssue,
+  type CliManifestResult,
+  type CliMcpConfigFormat,
+  type CliMcpConfigSpec,
+  type CliModelOption,
+  type CliModelSelectionSpec,
+  type CliPermissionPreset,
+  type CliPluginManifest,
+  type CliPromptInjection,
+  type CliPromptInjectionMode,
+  type CliReadinessSignal,
+  type CliResumeSpec,
+  type CliSkillIntegration,
+  type CliSkillSupport,
+  type CliSoulsSpec,
+  type CliVariableDecl,
+  type CliVariableType,
+} from './cli-manifest.js'

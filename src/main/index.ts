@@ -3,6 +3,7 @@ import { MODULE_NOTIFICATIONS_EVENT_CHANNEL } from '../shared/modules/notificati
 import { parseAuthCallbackFromArgv } from './auth-service'
 import { registerAppLifecycle } from './app-lifecycle'
 import { createAppServices } from './app-services'
+import { ensureExtensionFolders } from './extension-folders'
 import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
 import { createAgentRuntimeModule } from './modules/agent-runtime-module'
@@ -15,6 +16,11 @@ import { registerCoreIpc } from './register-core-ipc'
 import { registerWorkflowIpc } from './register-workflow-ipc'
 
 configureDevUserData()
+
+// Make the drop-in extension roots discoverable on a fresh (packaged) install:
+// create ~/.multicode/{modules,plugins} and seed each with a README describing
+// what to drop there. Best-effort — never block startup on it.
+const extensionFolders = ensureExtensionFolders()
 
 const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
 const services = createAppServices(MULTICODE_DIAGNOSTICS)
@@ -62,6 +68,10 @@ registerThirdPartyRendererEntryIpc(moduleLoad.kernel.hostFor('@host'), {
     }),
 })
 if (MULTICODE_DIAGNOSTICS) {
+  console.info('[modules] extension roots:', extensionFolders.moduleRoot, extensionFolders.pluginRoot)
+  if (extensionFolders.errors.length > 0) {
+    console.warn('[modules] extension folder setup errors:', extensionFolders.errors)
+  }
   console.info(
     '[modules] loaded:', moduleLoad.report.loaded,
     'manifest-only:', moduleLoad.report.manifestOnly,

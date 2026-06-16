@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.0 — 2026-06-15
+
+BYO-CLI plugin authoring and programmatic workspace creation.
+
+- New CLI plugin authoring surface: `CliPluginManifest` (the `plugin.json`
+  contract for adding an agent CLI), `validateCliPluginManifest` /
+  `parseCliPluginManifest` (pure structural pre-flight validator that agrees
+  with the app's loader), and the supporting token types (`CliLaunchSpec`,
+  `CliResumeSpec`, `CliPromptInjection`, `CliCompletionSpec`, `CliCapabilities`,
+  `CliMcpConfigSpec`, `CliModelSelectionSpec`, `CliSkillIntegration`, …). A CLI
+  plugin is a folder dropped into `~/.multicode/plugins/<id>/`, or installed
+  from Settings → Agents → "Install CLI from folder".
+- New `WorkspaceService` + `WorkspaceServiceToken`: resolve with
+  `host.requireService(WorkspaceServiceToken)` from `entry.main` to create a
+  workspace programmatically. The creation runs the same renderer flow as the
+  UI and is confirmed on the workspace-sync bus before it resolves.
+- `CommandAvailability` mirror synced with the app (`diagnosticsEnabled`).
+
 ## 0.2.0 — 2026-06-11
 
 Signing toolchain for module authors.

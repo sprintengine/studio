@@ -644,6 +644,8 @@ export default function SettingsPanel({
   const [roleRegistryMessage, setRoleRegistryMessage] = useState<string | null>(null)
   const [roleInstallPending, setRoleInstallPending] = useState(false)
   const [roleInstallMessage, setRoleInstallMessage] = useState<RoleInstallMessage>(null)
+  const [cliInstallPending, setCliInstallPending] = useState(false)
+  const [cliInstallMessage, setCliInstallMessage] = useState<RoleInstallMessage>(null)
   const [userRoles, setUserRoles] = useState<Array<{ id: string; label: string; summary?: string }>>([])
   const [globalInstallPending, setGlobalInstallPending] = useState(false)
   const [globalInstallMessage, setGlobalInstallMessage] = useState<RoleInstallMessage>(null)
@@ -1267,6 +1269,42 @@ export default function SettingsPanel({
     }
   }, [activeSprintEngineRoot, loadSprintEngineRoles])
 
+  const installCliFromFolder = useCallback(async () => {
+    if (typeof window.api.installPluginFolder !== 'function') {
+      setCliInstallMessage({ tone: 'warn', text: 'Installing CLI plugins is not supported by this build.' })
+      return
+    }
+    setCliInstallPending(true)
+    setCliInstallMessage(null)
+    try {
+      const folder = await window.api.openDir()
+      if (!folder) {
+        setCliInstallMessage(null)
+        return
+      }
+      const result = await window.api.installPluginFolder(folder)
+      if (!result.ok) {
+        const detail = result.issues?.length
+          ? ` (${result.issues.map((issue) => issue.message).join('; ')})`
+          : ''
+        setCliInstallMessage({ tone: 'error', text: `${result.message}${detail}` })
+        return
+      }
+      setCliInstallMessage({
+        tone: 'accent',
+        text: `Installed "${result.displayName}". It's available to assign to agents now.`,
+      })
+      await refreshPluginCatalog()
+    } catch (error) {
+      setCliInstallMessage({
+        tone: 'error',
+        text: error instanceof Error ? error.message : 'CLI folder install failed.',
+      })
+    } finally {
+      setCliInstallPending(false)
+    }
+  }, [refreshPluginCatalog])
+
   const loadUserRoles = useCallback(async () => {
     if (typeof window.api.listUserSprintEngineRoles !== 'function') return
     try {
@@ -1585,9 +1623,35 @@ export default function SettingsPanel({
         >
           <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
             Installed plugins define which agent CLIs are available. These fields only override how each
-            one is invoked — they don't install or create CLIs. Leave a command blank to use the plugin's
-            bundled binary, or enter a full executable path if the CLI is not on PATH.
+            one is invoked. Leave a command blank to use the plugin's bundled binary, or enter a full
+            executable path if the CLI is not on PATH.
           </p>
+
+          <div className="space-y-2">
+            <SettingsSectionTitle
+              action={
+                <GhostButton
+                  size="md"
+                  onClick={() => void installCliFromFolder()}
+                  disabled={cliInstallPending}
+                  className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                >
+                  {cliInstallPending ? 'Installing' : 'Install CLI from folder'}
+                </GhostButton>
+              }
+            >
+              Add a CLI
+            </SettingsSectionTitle>
+            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+              Install a plugin folder (a <span className="font-mono text-[color:var(--text-default)]">plugin.json</span>{' '}
+              describing how to launch the CLI) to add a new agent CLI, or drop one into{' '}
+              <span className="font-mono text-[color:var(--text-default)]">~/.multicode/plugins</span>. See the README
+              there, or author against <span className="font-mono text-[color:var(--text-default)]">@multicode/module-sdk</span>.
+            </p>
+            {cliInstallMessage ? (
+              <MessageBlock tone={cliInstallMessage.tone}>{cliInstallMessage.text}</MessageBlock>
+            ) : null}
+          </div>
 
           {pluginCatalogStatus === 'loading' && installedPluginRows.length === 0 ? (
             <MessageBlock tone="neutral">Loading installed agent plugins…</MessageBlock>
