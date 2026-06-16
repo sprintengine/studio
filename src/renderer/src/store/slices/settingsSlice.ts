@@ -649,7 +649,7 @@ export const defaultAppSettings = (): AppSettings => ({
     codex: { command: 'codex', useWsl: false },
     'claude-code': {
       command: 'claude',
-      useWsl: typeof window !== 'undefined' && window.api?.platform === 'win32',
+      useWsl: false,
     },
   },
   keybindings: defaultKeybindingSettings(),

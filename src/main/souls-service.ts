@@ -2,6 +2,7 @@ import { spawn } from 'child_process'
 import { existsSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import type { MultiloopRole, SoulPromptResult, SpecialistActionId } from '../shared/electron-api'
+import { getManagedPython, managedPythonSpawnEnv, type ResolvedPython } from './managed-runtime'
 
 const specialistSoulRoles: Record<SpecialistActionId, string> = {
   architect: 'architect',
@@ -48,17 +49,15 @@ function findRepositoryRoot(): string {
   return process.cwd()
 }
 
-function findPythonExecutable(repoRoot: string): string {
-  const posixVenv = join(repoRoot, '.venv', 'bin', 'python')
-  if (existsSync(posixVenv)) return posixVenv
-  const windowsVenv = join(repoRoot, '.venv', 'Scripts', 'python.exe')
-  if (existsSync(windowsVenv)) return windowsVenv
-  return process.platform === 'win32' ? 'python' : 'python3'
+function findPythonExecutable(repoRoot: string): ResolvedPython {
+  // Bundled CPython first, then the repo's own `.venv` (dev), then system Python.
+  return getManagedPython(repoRoot)
 }
 
 async function runSoulsCli(args: string[]): Promise<SoulsCliResult> {
   const repoRoot = findRepositoryRoot()
-  const python = findPythonExecutable(repoRoot)
+  const resolvedPython = findPythonExecutable(repoRoot)
+  const python = resolvedPython.command
   const existingPythonPath = process.env['PYTHONPATH']
   const pathSeparator = process.platform === 'win32' ? ';' : ':'
 
@@ -67,10 +66,10 @@ async function runSoulsCli(args: string[]): Promise<SoulsCliResult> {
     try {
       child = spawn(python, ['-m', 'souls', ...args], {
         cwd: repoRoot,
-        env: {
+        env: managedPythonSpawnEnv({
           ...process.env,
           PYTHONPATH: existingPythonPath ? `${repoRoot}${pathSeparator}${existingPythonPath}` : repoRoot,
-        },
+        }, resolvedPython.source),
         stdio: ['ignore', 'pipe', 'pipe'],
       })
     } catch (error) {

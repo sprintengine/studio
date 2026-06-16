@@ -1,9 +1,11 @@
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useMemo, useRef } from 'react'
 
 import MulticodeWordmark from '../brand/MulticodeWordmark'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { PrimaryButton } from '../ui'
+import { GhostButton, PrimaryButton } from '../ui'
 import { ModuleProfilePicker, ModuleToggleList } from '../settings/ModuleControls'
+import { CliInstallControl } from '../settings/CliInstallControl'
+import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 
 // First-run onboarding (Phase 9). A guided, branded sequence for a fresh install:
 //   welcome → modules (choose plugins) → workspace (NewWorkspacePanel)
@@ -24,8 +26,9 @@ export default function OnboardingFlow() {
   const titleId = useId()
   const surfaceRef = useRef<HTMLDivElement>(null)
 
-  // This component only renders the welcome + modules steps.
-  const visible = step === 'welcome' || step === 'modules'
+  // This component renders the welcome, modules, and cli steps as an overlay;
+  // the workspace step is the existing NewWorkspacePanel.
+  const visible = step === 'welcome' || step === 'modules' || step === 'cli'
 
   useEffect(() => {
     if (!visible) return undefined
@@ -54,7 +57,7 @@ export default function OnboardingFlow() {
       >
         {step === 'welcome' ? (
           <WelcomeStep titleId={titleId} onContinue={advanceOnboarding} />
-        ) : (
+        ) : step === 'modules' ? (
           <ModulesStep
             titleId={titleId}
             overrides={overrides}
@@ -62,6 +65,8 @@ export default function OnboardingFlow() {
             onToggle={setModuleEnabled}
             onContinue={advanceOnboarding}
           />
+        ) : (
+          <CliStep titleId={titleId} onContinue={advanceOnboarding} />
         )}
       </div>
     </div>
@@ -125,6 +130,76 @@ function ModulesStep({
         <PrimaryButton size="md" onClick={onContinue}>
           Continue
         </PrimaryButton>
+      </div>
+    </>
+  )
+}
+
+function CliStep({ titleId, onContinue }: { titleId: string; onContinue: () => void }) {
+  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
+  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
+  const refreshPluginCatalog = useWorkspaceStore((s) => s.refreshPluginCatalog)
+  const rows = useMemo(() => orderInstalledPlugins(pluginCatalogEntries), [pluginCatalogEntries])
+
+  return (
+    <>
+      <div className="border-b border-[color:var(--border-subtle)] px-6 py-5">
+        <h2 id={titleId} className="text-[15px] font-semibold text-[color:var(--text-strong)]">
+          Set up an agent CLI
+        </h2>
+        <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+          Multicode runs coding agents through a CLI like Claude or Codex. Install one now, or skip and
+          configure your own command later in Settings.
+        </p>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-6 py-3">
+        {rows.length === 0 ? (
+          <p className="py-6 text-center text-[12px] text-[color:var(--text-muted)]">
+            No agent CLIs are available to install.
+          </p>
+        ) : (
+          <div className="divide-y divide-[color:var(--border-subtle)]">
+            {rows.map((plugin) => {
+              const override = cliRuntimeForPlugin(plugin.id, cliRuntimes)
+              return (
+                <CliInstallControl
+                  key={plugin.id}
+                  cli={plugin.id}
+                  displayName={plugin.displayName}
+                  binary={plugin.binary}
+                  command={override.command}
+                  useWsl={override.useWsl}
+                  onInstalled={(result) => {
+                    if (result.resolvedPath && !override.command) {
+                      setCliRuntime(plugin.id, { command: result.resolvedPath, useWsl: override.useWsl })
+                    }
+                    void refreshPluginCatalog()
+                  }}
+                />
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-3 border-t border-[color:var(--border-subtle)] px-6 py-4">
+        <span className="text-[11px] text-[color:var(--text-subtle)]">
+          You can change this anytime in Settings → Agents.
+        </span>
+        <div className="flex items-center gap-2">
+          <GhostButton
+            size="md"
+            onClick={onContinue}
+            className="text-[color:var(--text-muted)]"
+          >
+            Skip for now
+          </GhostButton>
+          <PrimaryButton size="md" onClick={onContinue}>
+            Continue
+          </PrimaryButton>
+        </div>
       </div>
     </>
   )

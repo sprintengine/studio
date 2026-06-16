@@ -6,6 +6,7 @@ import { authApi } from './api/auth'
 import { automationApi } from './api/automation'
 import { backlogApi } from './api/backlog'
 import { builtinSkillsApi } from './api/builtinSkills'
+import { cliRuntimeApi } from './api/cli-runtime'
 import { clipboardApi } from './api/clipboard'
 import { conversationApi } from './api/conversation'
 import { filesystemApi } from './api/filesystem'
@@ -42,6 +43,7 @@ const api = {
   ...backlogApi,
   ...builtinSkillsApi,
   ...clipboardApi,
+  ...cliRuntimeApi,
   ...mobileBridgeApi,
   ...filesystemApi,
   ...soulsApi,

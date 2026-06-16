@@ -82,7 +82,7 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
     id: 'dark',
     label: 'Dark',
     resolved: 'dark',
-    description: 'Shared neutral ink',
+    description: 'Calm neutral ink',
     swatches: {
       bgApp: '#08080c',
       bgSurface: '#0c0c10',
