@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -50,6 +50,10 @@ function jsonResponse(value: unknown, init: ResponseInit = {}): Response {
 }
 
 function textResponse(value: string, init: ResponseInit = {}): Response {
+  return new Response(value, { status: 200, ...init })
+}
+
+function bytesResponse(value: Uint8Array, init: ResponseInit = {}): Response {
   return new Response(value, { status: 200, ...init })
 }
 
@@ -108,7 +112,7 @@ function createFixture(overrides: Record<string, unknown> = {}): BundleFixture {
   }
 }
 
-function createGithubFetcher(pluginJson: string, mcpJson = mcpComponentSource()): {
+function createGithubFetcher(pluginJson: string, mcpJson: string | Uint8Array = mcpComponentSource()): {
   fetcher: MarketplacePluginDownloadFetch
   requests: string[]
 } {
@@ -127,7 +131,7 @@ function createGithubFetcher(pluginJson: string, mcpJson = mcpComponentSource())
       ])
     }
     if (url === RAW_PLUGIN) return textResponse(pluginJson)
-    if (url === RAW_MCP) return textResponse(mcpJson)
+    if (url === RAW_MCP) return typeof mcpJson === 'string' ? textResponse(mcpJson) : bytesResponse(mcpJson)
     return new Response('not found', { status: 404 })
   }
   return { fetcher, requests }
@@ -177,6 +181,26 @@ async function testSignedUntrustedPublisherStagesAsCommunity(): Promise<void> {
     assert.equal(result.classification, 'community')
     assert.equal(result.trust.status, 'signed')
     assert.equal(result.loadEligible, false)
+  })
+}
+
+async function testDownloadedComponentBytesArePreserved(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const fixture = createFixture()
+    const binaryComponent = new Uint8Array([0x00, 0xff, 0xfe, 0x41, 0xc3, 0x28, 0x7f])
+    const { fetcher } = createGithubFetcher(`${JSON.stringify(fixture.manifest, null, 2)}\n`, binaryComponent)
+
+    const result = await downloadMarketplacePluginBundle({
+      entry: fixture.entry,
+      trustContext: { trustedModules: new Map() },
+      stagingRoot: join(dir, 'staging'),
+      fetcher,
+    })
+
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+    const staged = await readFile(join(result.stagedBundlePath, 'mcp', 'server.json'))
+    assert.deepEqual(staged, Buffer.from(binaryComponent))
   })
 }
 
@@ -292,6 +316,7 @@ function testCliAndAppRejectSameTamperedModuleBytes(): void {
 async function main(): Promise<void> {
   await testVerifiedFirstPartyDownloadStagesBundle()
   await testSignedUntrustedPublisherStagesAsCommunity()
+  await testDownloadedComponentBytesArePreserved()
   await testTamperedPluginSignatureBlocksAndRemovesStage()
   await testUnsignedPluginClassifiesButDoesNotExposeStage()
   await testRejectsNonHttpsSourceBeforeFetch()

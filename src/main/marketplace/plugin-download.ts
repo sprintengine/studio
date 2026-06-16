@@ -310,15 +310,14 @@ async function downloadFile(
   state: DownloadState
 ): Promise<void> {
   if (state.files >= limits.maxFiles) throw new Error(`Plugin bundle contains more than ${limits.maxFiles} files.`)
-  const body = await fetchText(url, fetcher, timeoutMs, { accept: '*/*' }, limits.maxFileBytes)
-  const bytes = Buffer.byteLength(body, 'utf8')
-  if (state.bytes + bytes > limits.maxTotalBytes) {
+  const body = await fetchBytes(url, fetcher, timeoutMs, { accept: '*/*' }, limits.maxFileBytes)
+  if (state.bytes + body.byteLength > limits.maxTotalBytes) {
     throw new Error(`Plugin bundle exceeds ${limits.maxTotalBytes} bytes.`)
   }
   await mkdir(dirname(destination), { recursive: true })
-  await writeFile(destination, body, 'utf8')
+  await writeFile(destination, body)
   state.files += 1
-  state.bytes += bytes
+  state.bytes += body.byteLength
 }
 
 async function fetchText(
@@ -328,6 +327,16 @@ async function fetchText(
   headers: Record<string, string>,
   maxBytes: number
 ): Promise<string> {
+  return (await fetchBytes(url, fetcher, timeoutMs, headers, maxBytes)).toString('utf8')
+}
+
+async function fetchBytes(
+  url: string,
+  fetcher: MarketplacePluginDownloadFetch,
+  timeoutMs: number | undefined,
+  headers: Record<string, string>,
+  maxBytes: number
+): Promise<Buffer> {
   const parsed = parseHttpsUrl(url)
   if (!parsed.ok) throw new Error(parsed.message)
   const controller = new AbortController()
@@ -337,8 +346,8 @@ async function fetchText(
     if (!response.ok) {
       throw new DownloadHttpError(`Marketplace plugin download failed with HTTP ${response.status}.`, response.status)
     }
-    const body = await response.text()
-    if (Buffer.byteLength(body, 'utf8') > maxBytes) throw new Error(`Downloaded file exceeds ${maxBytes} bytes.`)
+    const body = Buffer.from(await response.arrayBuffer())
+    if (body.byteLength > maxBytes) throw new Error(`Downloaded file exceeds ${maxBytes} bytes.`)
     return body
   } finally {
     clearTimeout(timeout)
