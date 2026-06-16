@@ -27,7 +27,6 @@ import type {
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
   SprintEngineRoleModelOverrides,
-  SprintEngineSavedRoster,
   AgentCli,
   AgentCliModelSelection,
   AgentConversationRuntime,
@@ -209,7 +208,6 @@ export interface WorkspaceStore extends PluginsSlice {
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
-  setSprintEngineSavedRoster: (roster: SprintEngineSavedRoster | null) => void
   saveSprintEngineRosterTeam: (input: {
     id?: string
     name: string

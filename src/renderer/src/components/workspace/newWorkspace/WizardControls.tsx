@@ -148,8 +148,6 @@ export function RosterAndRunSettings({
   onSetSpawnAtStart,
   totalAgents,
   rosterCountLabel,
-  saveRoster,
-  onChangeSaveRoster,
   teams,
   selectedTeamId,
   onSelectTeam,
@@ -184,14 +182,9 @@ export function RosterAndRunSettings({
   // Lets the Sprint Engine step show "Loading roles" while the registry resolves;
   // omit to show the plain specialist count.
   rosterCountLabel?: string
-  // When the handler is provided, a "save as default" affordance is hung off the
-  // bottom of the roster. Omitted by the Guided Brief handoff, which has no
-  // saved-roster preference to set.
-  saveRoster?: boolean
-  onChangeSaveRoster?: (save: boolean) => void
-  // Named roster teams. When `onSelectTeam` is provided, a team picker is shown
-  // above the roster and a "save as team" affordance replaces the plain default
-  // checkbox. Omitted by the Guided Brief handoff.
+  // Named roster teams. When `onSelectTeam`/`onSaveTeam` are provided, a team
+  // picker is shown above the roster and a "save as team" affordance hangs off
+  // the bottom. Omitted by the Guided Brief handoff, which has no roster preset.
   teams?: SprintEngineRosterTeam[]
   selectedTeamId?: string | null
   onSelectTeam?: (id: string | null) => void
@@ -248,8 +241,6 @@ export function RosterAndRunSettings({
                 onUpdateTeam={onUpdateTeam}
                 onDeleteTeam={onDeleteTeam}
               />
-            ) : onChangeSaveRoster ? (
-              <SaveRosterDefaultRow checked={saveRoster ?? false} onChange={onChangeSaveRoster} />
             ) : null
           }
         />
@@ -305,29 +296,6 @@ export function RosterAndRunSettings({
         </div>
       </div>
     </>
-  )
-}
-
-// Quiet "make this the default" affordance that hangs off the bottom of the
-// roster, hairline-divided below the role rows. It deliberately reads as a
-// trailing action on the list it persists — not as a separate card above it.
-function SaveRosterDefaultRow({
-  checked,
-  onChange,
-}: {
-  checked: boolean
-  onChange: (checked: boolean) => void
-}) {
-  return (
-    <label className="flex cursor-pointer items-center gap-2.5 border-l-2 border-transparent px-3 py-2.5 text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)]">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="h-3.5 w-3.5 shrink-0 accent-[color:var(--accent-primary)]"
-      />
-      Save as the default roster for new workspaces
-    </label>
   )
 }
 

@@ -837,7 +837,6 @@ export interface SettingsSliceActions {
   resetCommandKeybindings: (commandId: string) => void
   resetAllKeybindings: () => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
-  setSprintEngineSavedRoster: (roster: SprintEngineSavedRoster | null) => void
   /**
    * Create or update a named roster team. When `id` is supplied and matches an
    * existing team, that team is updated in place; otherwise a new team is added.
@@ -1145,15 +1144,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
             ...current.enabled,
             [id]: enabled,
           },
-        }
-      }),
-
-    setSprintEngineSavedRoster: (roster) =>
-      set((state) => {
-        const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
-        state.appSettings.sprintEngineRoleSettings = {
-          ...current,
-          savedRoster: roster ? normalizeSprintEngineSavedRoster(roster) : null,
         }
       }),
 

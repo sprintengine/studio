@@ -494,21 +494,6 @@ assert.equal(
   'normalization preserves other disabled roles',
 )
 
-store.setSprintEngineSavedRoster({
-  roleCounts: { architect: 1, developer: 2, tester: 1 },
-  roleCliDefaults: { architect: 'codex', developer: 'claude-code', tester: 'opencode' },
-})
-assert.deepEqual(
-  useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.savedRoster?.roleCounts,
-  { architect: 1, developer: 2, tester: 1 },
-  'saved Sprint Engine roster counts persist when explicitly saved',
-)
-assert.deepEqual(
-  useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.savedRoster?.roleCliDefaults,
-  { architect: 'codex', developer: 'claude-code', tester: 'opencode' },
-  'saved Sprint Engine role CLI defaults persist when explicitly saved',
-)
-
 const normalizedSavedRoster = normalizeAppSettings(
   {
     sprintEngineRoleSettings: {
@@ -582,6 +567,12 @@ const teamCountAfterSave = afterSave.savedTeams?.length ?? 0
 assert.equal(afterSave.lastSelectedTeamId, lightweightId, 'saving selects the new team')
 const savedLightweight = afterSave.savedTeams?.find((team) => team.id === lightweightId)
 assert.equal(savedLightweight?.name, 'Lightweight', 'team name persists')
+// savedRoster mirrors the active team so the run-mount CLI-default fallback stays meaningful.
+assert.deepEqual(
+  afterSave.savedRoster?.roleCliDefaults,
+  { architect: 'claude-code', developer: 'codex' },
+  'saving a team mirrors its CLI defaults into savedRoster',
+)
 
 // Saving with the same id updates the team in place rather than adding a new one.
 teamStore.saveSprintEngineRosterTeam({
