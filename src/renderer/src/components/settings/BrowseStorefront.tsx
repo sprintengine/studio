@@ -218,6 +218,10 @@ export function BrowseStorefront({
             </div>
             {selected ? (
               <PluginDetailPanel
+                // Key by plugin id so switching the selected plugin remounts the
+                // panel: a verify/install in flight for the previous plugin can't
+                // resolve onto the new plugin's flow state (stale-closure race).
+                key={selected.id}
                 plugin={selected}
                 registryUrl={registryUrl}
                 workspaceRoot={workspaceRoot}
