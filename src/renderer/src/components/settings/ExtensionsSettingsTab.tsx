@@ -6,6 +6,7 @@ import type { PluginRegistryListEntry } from '../../../../shared/plugin-manifest
 import type { McpServerConfig } from '../../types/workspace'
 import { InlineNotice, Spinner, StatusDot, TabPanel, Tabs } from '../ui'
 import { SettingsRow } from './SettingsAtoms'
+import { BrowseStorefront } from './BrowseStorefront'
 import { TRUST_PRESENTATION } from './ThirdPartyModuleList'
 import {
   deriveInstalledExtensions,
@@ -93,8 +94,8 @@ export function ExtensionsSettingsTab({
     void loadSkillPacks()
   }, [loadSkillPacks])
 
-  // Single sub-tab for now; the Browse storefront (a later phase) appends a
-  // second tab here. Installed is the default/selected tab.
+  // Installed is the default/selected sub-tab; Browse is the read-only
+  // storefront over the first-party registry.
   const [subTab, setSubTab] = useState<ExtensionsSubTab>('installed')
 
   const view = deriveInstalledExtensions({
@@ -120,18 +121,24 @@ export function ExtensionsSettingsTab({
       <Tabs<ExtensionsSubTab>
         ariaLabel="Extensions views"
         idPrefix={EXTENSIONS_SUBTAB_PREFIX}
-        items={[{ id: 'installed', label: 'Installed', count: installedCount }]}
+        items={[
+          { id: 'installed', label: 'Installed', count: installedCount },
+          { id: 'browse', label: 'Browse' },
+        ]}
         value={subTab}
         onChange={setSubTab}
       />
       <TabPanel idPrefix={EXTENSIONS_SUBTAB_PREFIX} tabId="installed" active={subTab === 'installed'}>
         <InstalledView view={view} />
       </TabPanel>
+      <TabPanel idPrefix={EXTENSIONS_SUBTAB_PREFIX} tabId="browse" active={subTab === 'browse'}>
+        <BrowseStorefront />
+      </TabPanel>
     </div>
   )
 }
 
-type ExtensionsSubTab = 'installed'
+type ExtensionsSubTab = 'installed' | 'browse'
 const EXTENSIONS_SUBTAB_PREFIX = 'extensions-views'
 
 function NoticeList({ notices }: { notices: SourceNotice[] }) {
