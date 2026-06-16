@@ -6,10 +6,8 @@ import type {
   MarketplacePluginInstallResult,
   MarketplacePluginInstalledComponent,
   McpClientTarget,
-  McpRiskLevel,
   McpServerConfig,
   McpSettings,
-  McpTransport,
   SkillPackHarness,
 } from '../../shared/electron-api'
 import type {
@@ -23,7 +21,7 @@ import { parseThirdPartyModuleManifest } from '../../shared/modules/third-party-
 import { installPluginFolder as installCliPluginFolder } from '../plugin-install'
 import { validateManifestSource } from '../plugin-registry'
 import { getPluginRegistryUserRoot, reloadPluginRegistry } from '../plugin-registry-instance'
-import type { McpConfigService } from '../mcp-config-service'
+import { normalizeMcpClients, normalizeMcpServerConfig, type McpConfigService } from '../mcp-config-service'
 import type { SkillPackService } from '../skill-pack-service'
 import { classifyModuleTrust, isLoadEligible, type ModuleTrust, type ModuleTrustContext } from './module-signature'
 import { defaultUserModuleRoot, installModuleFolder as installCapabilityModuleFolder } from './user-module-registry'
@@ -197,12 +195,11 @@ function installMcpComponent(
       ...Object.fromEntries(component.servers.map((server) => [server.id, server])),
     },
   }
-  const clients = uniqueStrings(
+  const clients = normalizeMcpClients(
     input.mcpClients?.length
       ? input.mcpClients
-      : component.servers.flatMap((server) => server.clients),
-    DEFAULT_MCP_CLIENTS
-  ) as McpClientTarget[]
+      : component.servers.flatMap((server) => server.clients) as McpClientTarget[]
+  )
   const result = service.sync({ workspaceRoot, settings: nextSettings, clients, write: true })
   if (!result.ok) {
     return componentFailure('mcp', result.message, installed, mcpIssuesToMarketplaceIssues(result.issues))
@@ -465,43 +462,17 @@ function normalizeMcpServer(
     return null
   }
 
-  const id = sanitizeMcpId(value.id)
-  if (!id) issues.push({ path: `${path}.id`, message: 'MCP server id is required.' })
-  const name = typeof value.name === 'string' && value.name.trim() ? value.name.trim() : id
-  if (!name) issues.push({ path: `${path}.name`, message: 'MCP server name is required.' })
-
-  const transport = normalizeTransport(value.transport)
-  if (!transport) issues.push({ path: `${path}.transport`, message: 'transport must be stdio, http, or sse.' })
-
-  const command = typeof value.command === 'string' && value.command.trim() ? value.command.trim() : undefined
-  const url = typeof value.url === 'string' && value.url.trim() ? value.url.trim() : undefined
-  if (transport === 'stdio' && !command) issues.push({ path: `${path}.command`, message: 'stdio MCP servers require command.' })
-  if ((transport === 'http' || transport === 'sse') && !url) issues.push({ path: `${path}.url`, message: `${transport} MCP servers require url.` })
-
-  if (!id || !name || !transport) return null
-
-  return {
-    id,
-    name,
-    category: optionalString(value.category),
-    description: optionalString(value.description),
-    transport,
-    command,
-    args: stringArray(value.args),
-    url,
-    env: stringRecord(value.env),
-    envVarNames: stringArray(value.envVarNames),
-    headers: stringRecord(value.headers),
+  const server = normalizeMcpServerConfig(value, {
     enabled: true,
-    required: value.required === true,
-    clients: uniqueStrings(value.clients, fallbackClients) as McpClientTarget[],
-    scope: value.scope === 'user' ? 'user' : 'workspace',
+    clients: fallbackClients,
+    scope: 'workspace',
     source: 'custom',
-    riskLevel: normalizeRiskLevel(value.riskLevel, transport),
-    auth: optionalString(value.auth),
-    capabilities: stringArray(value.capabilities),
-    sourceUrl: optionalString(value.sourceUrl),
+  })
+  if (!server) {
+    issues.push({ path, message: 'MCP server is invalid.' })
+    return null
   }
+  return server
 }
 
 async function resolveBundleRoot(path: string): Promise<{ ok: true; path: string } | { ok: false; message: string }> {
@@ -577,47 +548,6 @@ function isInsideOrEqual(parent: string, child: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function sanitizeMcpId(value: unknown): string {
-  return typeof value === 'string'
-    ? value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
-    : ''
-}
-
-function normalizeTransport(value: unknown): McpTransport | null {
-  return value === 'stdio' || value === 'http' || value === 'sse' ? value : null
-}
-
-function normalizeRiskLevel(value: unknown, transport: McpTransport): McpRiskLevel {
-  if (value === 'low' || value === 'network' || value === 'local-command' || value === 'secrets') return value
-  return transport === 'stdio' ? 'local-command' : 'network'
-}
-
-function uniqueStrings(value: unknown, fallback: readonly string[]): string[] {
-  const items = Array.isArray(value) ? value : fallback
-  const strings = items
-    .filter((item): item is string => typeof item === 'string')
-    .map((item) => item.trim())
-    .filter(Boolean)
-  return Array.from(new Set(strings.length > 0 ? strings : fallback))
-}
-
-function stringArray(value: unknown): string[] | undefined {
-  const items = uniqueStrings(value, [])
-  return items.length ? items : undefined
-}
-
-function stringRecord(value: unknown): Record<string, string> | undefined {
-  if (!isRecord(value)) return undefined
-  const entries = Object.entries(value)
-    .filter((entry): entry is [string, string] => Boolean(entry[0].trim()) && typeof entry[1] === 'string')
-    .map(([key, item]) => [key.trim(), item] as const)
-  return entries.length ? Object.fromEntries(entries) : undefined
-}
-
-function optionalString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
 function mcpIssuesToMarketplaceIssues(

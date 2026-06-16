@@ -11,6 +11,7 @@ import type {
   McpCatalogResult,
   McpCatalogServer,
   McpClientTarget,
+  McpRiskLevel,
   McpScope,
   McpServerConfig,
   McpSettings,
@@ -63,6 +64,14 @@ export type McpManagedSprintEngineRemoveInput = {
   clients?: McpClientTarget[]
 }
 
+export type McpServerNormalizationOptions = {
+  clients?: McpClientTarget[]
+  enabled?: boolean
+  scope?: McpScope
+  source?: 'bundled' | 'custom'
+  riskLevel?: McpRiskLevel
+}
+
 type SyncContext = {
   lookupPlugin: PluginLookup
   homeDir: () => string
@@ -111,7 +120,7 @@ function findCatalogPath(): string | null {
 function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult {
   const managedServer = buildManagedSprintEngineServer(input)
   const settings = normalizeSettings(input.settings, managedServer)
-  const clients = normalizeClients(input.clients)
+  const clients = normalizeMcpClients(input.clients)
   const issues: McpValidationIssue[] = []
   if (!settings.syncEnabled && !managedServer) {
     return { ok: true, targets: [], issues }
@@ -188,7 +197,7 @@ function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult
 }
 
 function removeManagedSprintEngineConfig(input: McpManagedSprintEngineRemoveInput, context: SyncContext): McpSyncResult {
-  const clients = normalizeClients(input.clients)
+  const clients = normalizeMcpClients(input.clients)
   const issues: McpValidationIssue[] = []
   if (!input.workspaceRoot || !existsSync(input.workspaceRoot)) {
     return { ok: false, message: 'Workspace root does not exist.', issues }
@@ -217,17 +226,33 @@ function removeManagedSprintEngineConfig(input: McpManagedSprintEngineRemoveInpu
   return { ok: true, targets, issues }
 }
 
-function normalizeClients(value: McpClientTarget[] | undefined): McpClientTarget[] {
+export function normalizeMcpClients(value: McpClientTarget[] | undefined): McpClientTarget[] {
   const clients = (value ?? ['codex', 'claude-code'])
     .map((client) => sanitizeId(client))
     .filter(Boolean)
   return Array.from(new Set(clients))
 }
 
+export function normalizeMcpServerConfig(
+  value: unknown,
+  options: McpServerNormalizationOptions = {}
+): McpServerConfig | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const candidate = value as Partial<McpServerConfig>
+  return normalizeServer({
+    ...candidate,
+    enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : options.enabled ?? true,
+    clients: Array.isArray(candidate.clients) ? candidate.clients : options.clients,
+    scope: candidate.scope ?? options.scope ?? 'workspace',
+    source: candidate.source ?? options.source ?? 'custom',
+    riskLevel: candidate.riskLevel ?? options.riskLevel,
+  } as McpServerConfig)
+}
+
 function buildManagedSprintEngineServer(input: McpSyncInput): McpServerConfig | null {
   const managed = input.managedSprintEngine
   if (!managed?.statePath?.trim()) return null
-  const clients = normalizeClients(input.clients)
+  const clients = normalizeMcpClients(input.clients)
   if (managed.http?.url?.trim()) {
     return {
       id: MANAGED_SPRINTENGINE_MCP_SERVER_ID,
@@ -332,7 +357,7 @@ function normalizeSettings(settings: McpSettings | undefined, managedServer?: Mc
 function normalizeServer(server: McpServerConfig): McpServerConfig | null {
   const id = sanitizeId(server.id)
   if (!id) return null
-  const clients = normalizeClients(server.clients)
+  const clients = normalizeMcpClients(server.clients)
   if (clients.length === 0) return null
   const transport = server.transport === 'http' || server.transport === 'sse' ? server.transport : 'stdio'
   if (transport === 'stdio' && !server.command?.trim()) return null
@@ -370,7 +395,7 @@ function normalizeCatalogServer(value: unknown): McpCatalogServer | null {
   const candidate = value as Partial<McpCatalogServer>
   return {
     ...server,
-    defaultClients: normalizeClients(candidate.defaultClients ?? server.clients),
+    defaultClients: normalizeMcpClients(candidate.defaultClients ?? server.clients),
     recommendedScope: candidate.recommendedScope === 'user' ? 'user' : 'workspace',
     setupNotes: typeof candidate.setupNotes === 'string' ? candidate.setupNotes : undefined,
   }
