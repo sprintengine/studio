@@ -98,6 +98,7 @@ function verify(overrides: Partial<MarketplacePluginVerifyResult> = {}): Marketp
 }
 
 {
+  // A reachable failure with no signature re-classification stays retryable.
   const failed: MarketplacePluginRegistryInstallResult = {
     ok: false,
     message: 'Could not write skill files.',
@@ -108,6 +109,41 @@ function verify(overrides: Partial<MarketplacePluginVerifyResult> = {}): Marketp
   if (state.status !== 'error') throw new Error('unreachable')
   assert.equal(state.message, 'Could not write skill files.')
   assert.deepEqual(state.issues, ['permission denied'])
+}
+
+{
+  // The install lifecycle can re-verify at its final download step and report an
+  // invalid signature: that is a hard block (no retry), not a retryable error.
+  const invalid: MarketplacePluginRegistryInstallResult = {
+    ok: false,
+    classification: 'invalid',
+    message: 'Downloaded plugin bundle signature is invalid.',
+    issues: [{ path: 'signature', message: 'Invalid signature.' }],
+  }
+  const state = summarizeInstallResult(invalid)
+  assert.equal(state.status, 'blocked', 'invalid install result hard-blocks')
+  if (state.status !== 'blocked') throw new Error('unreachable')
+  assert.equal(state.classification, 'invalid')
+  assert.match(state.message, /invalid/i)
+  assert.deepEqual(state.issues, ['Invalid signature.'])
+  // No install/retry affordance is offered on the hard block.
+  assert.equal(deriveInstallView(state).action, null)
+}
+
+{
+  // Same hard block when the install step reports an unsigned bundle, with a
+  // fallback message when the lifecycle omits one.
+  const unsigned: MarketplacePluginRegistryInstallResult = {
+    ok: false,
+    classification: 'unsigned',
+    message: '',
+  }
+  const state = summarizeInstallResult(unsigned)
+  assert.equal(state.status, 'blocked', 'unsigned install result hard-blocks')
+  if (state.status !== 'blocked') throw new Error('unreachable')
+  assert.equal(state.classification, 'unsigned')
+  assert.ok(state.message.length > 0, 'falls back to a default unsigned message')
+  assert.equal(deriveInstallView(state).action, null)
 }
 
 // --- deriveInstallView: all seven states -----------------------------------

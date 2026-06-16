@@ -73,10 +73,22 @@ export function classifyVerification(verify: MarketplacePluginVerifyResult): Ver
 }
 
 // Map an install-entry result to a terminal flow state. A successful install is
-// `installed` (carrying whether it replaced a prior version); any failure is
-// `error` with the lifecycle's message + issue detail (never a fake success).
+// `installed` (carrying whether it replaced a prior version). A failure that the
+// lifecycle re-classifies as unsigned/invalid at its final download/verify step
+// is a hard `blocked` with no retry affordance — the same supply-chain rule as
+// preview-time classification (classifyVerification). Any other failure is a
+// retryable `error` with the lifecycle's message + issue detail (never a fake
+// success).
 export function summarizeInstallResult(result: MarketplacePluginRegistryInstallResult): InstallFlowState {
   if (result.ok) return { status: 'installed', updated: result.updated }
+  if (result.classification === 'unsigned' || result.classification === 'invalid') {
+    return {
+      status: 'blocked',
+      classification: result.classification,
+      message: result.message || blockedFallbackMessage(result.classification),
+      issues: result.issues?.map((issue) => issue.message),
+    }
+  }
   return {
     status: 'error',
     message: result.message || 'The install could not be completed.',
