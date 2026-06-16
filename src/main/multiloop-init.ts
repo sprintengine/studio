@@ -5,7 +5,7 @@ import { spawn } from 'child_process'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { MultiloopInitInput, MultiloopInitResult } from '../shared/electron-api'
 import { isMissingPathError } from './filesystem-workspace'
-import { getManagedPython } from './managed-runtime'
+import { getManagedPython, managedPythonSpawnEnv, type ResolvedPython } from './managed-runtime'
 
 function getBundledMultiloopToolPath(): string | null {
   if (app.isPackaged) {
@@ -23,10 +23,10 @@ function getBundledMultiloopToolPath(): string | null {
   return candidates.find((candidate) => existsSync(candidate)) ?? null
 }
 
-function getMultiloopPythonExecutable(toolPath: string): string {
+function getMultiloopPythonExecutable(toolPath: string): ResolvedPython {
   // Bundled CPython first, then the tool's repo `.venv` (dev), then system.
   const repoRoot = dirname(dirname(toolPath))
-  return getManagedPython(repoRoot).command
+  return getManagedPython(repoRoot)
 }
 
 function quoteSh(value: string): string {
@@ -40,7 +40,7 @@ async function installMultiloopWorkspaceCli(workspaceRoot: string): Promise<void
   }
 
   const toolRoot = dirname(dirname(toolPath))
-  const pythonExecutable = getMultiloopPythonExecutable(toolPath)
+  const pythonExecutable = getMultiloopPythonExecutable(toolPath).command
   const scriptDirectory = join(workspaceRoot, 'scripts')
   await mkdir(scriptDirectory, { recursive: true })
 
@@ -160,15 +160,16 @@ function runMultiloopInitTool(
     }
 
     const repoRoot = dirname(dirname(toolPath))
+    const resolvedPython = getMultiloopPythonExecutable(toolPath)
     const child = spawn(
-      getMultiloopPythonExecutable(toolPath),
+      resolvedPython.command,
       [toolPath, '--state', statePath, 'init', '--name', loopName, '--final-goal', finalGoal],
       {
         cwd: workspaceRoot,
-        env: {
+        env: managedPythonSpawnEnv({
           ...process.env,
           PYTHONPATH: [repoRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
-        },
+        }, resolvedPython.source),
         windowsHide: true,
       }
     )

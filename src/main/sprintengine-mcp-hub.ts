@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto'
 import http from 'http'
 import { resolve } from 'path'
 import { findSprintEngineRuntimeRoot } from './mcp-config-service'
-import { getManagedPython } from './managed-runtime'
+import { getManagedPython, managedPythonSpawnEnv } from './managed-runtime'
 
 export type SprintEngineMcpHubInfo = {
   url: string
@@ -224,13 +224,13 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
     logHubDiagnostic('starting', {})
     child = spawnProcess(python, ['-m', 'sprintengine_mcp', '--http', '--port', '0'], {
       cwd: root,
-      env: {
+      env: managedPythonSpawnEnv({
         ...process.env,
         PYTHONPATH: [root, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
         SPRINTENGINE_MCP_USER_ID: 'multicode-app',
         SPRINTENGINE_MCP_USER_AUTHORIZED: '1',
         SPRINTENGINE_MCP_HTTP_TOKEN: adminToken,
-      },
+      }, getManagedPython(root).source),
     })
 
     return await new Promise<SprintEngineMcpHubInfo>((resolve, reject) => {

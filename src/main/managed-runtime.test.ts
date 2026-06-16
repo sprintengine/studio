@@ -6,6 +6,7 @@ import {
   bundledPythonPath,
   managedNodeBinary,
   managedNodeEnv,
+  managedPythonSpawnEnv,
   resolveManagedPython,
   withManagedRuntimePath,
   type RuntimeEnv,
@@ -141,6 +142,25 @@ function makeEnv(overrides: Partial<RuntimeEnv> & { present?: string[] } = {}): 
   // platform-dependent at runtime; assert structure rather than separator).
   const env = withManagedRuntimePath({ Path: 'C:\\Windows' }, 'C:\\shim', 'win32')
   assert.ok(env.Path?.startsWith('C:\\shim'), 'prepends shim dir on windows Path key')
+}
+
+// --- bundled python env sanitization ---------------------------------------
+
+{
+  const env = { PATH: '/usr/bin', PYTHONHOME: '/opt/pyenv', PYTHONSTARTUP: '/x', PYTHONPATH: '/repo' }
+  const sanitized = managedPythonSpawnEnv(env, 'bundled')
+  assert.equal(sanitized.PYTHONHOME, undefined, 'bundled strips PYTHONHOME')
+  assert.equal(sanitized.PYTHONSTARTUP, undefined, 'bundled strips PYTHONSTARTUP')
+  assert.equal(sanitized.PYTHONPATH, '/repo', 'bundled keeps PYTHONPATH')
+  assert.equal(sanitized.PATH, '/usr/bin', 'bundled keeps PATH')
+  assert.equal(env.PYTHONHOME, '/opt/pyenv', 'does not mutate the source env')
+}
+
+for (const source of ['venv', 'system', 'override'] as const) {
+  const env = { PYTHONHOME: '/opt/pyenv' }
+  const out = managedPythonSpawnEnv(env, source)
+  assert.equal(out.PYTHONHOME, '/opt/pyenv', `${source} leaves PYTHONHOME untouched`)
+  assert.equal(out, env, `${source} returns the env unchanged (no copy)`)
 }
 
 console.log('managed-runtime.test.ts ok')

@@ -18,7 +18,7 @@
 // Linux, and modern Windows.
 
 import { spawnSync } from 'node:child_process'
-import { createWriteStream, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { cpSync, createWriteStream, existsSync, mkdirSync, rmSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -138,21 +138,15 @@ async function fetchNpm(tmp) {
   const archive = join(tmp, `npm-${NPM_VERSION}.tgz`)
   await download(url, archive)
   // The tarball extracts to `package/`; relocate it to resources/runtime/npm.
+  // Use fs.cpSync rather than shelling out to cp/move so it works the same on
+  // every OS and across volumes (the OS tempdir is frequently on a different
+  // volume than the checkout, where a Windows directory `move` would fail).
   const stage = join(tmp, 'npm-stage')
   extractTarGz(archive, stage)
   const npmDest = join(RUNTIME_DIR, 'npm')
   rmSync(npmDest, { recursive: true, force: true })
   mkdirSync(dirname(npmDest), { recursive: true })
-  const result = spawnSync(
-    process.platform === 'win32' ? 'cmd' : 'cp',
-    process.platform === 'win32'
-      ? ['/c', 'move', join(stage, 'package'), npmDest]
-      : ['-R', join(stage, 'package'), npmDest],
-    { stdio: 'inherit' },
-  )
-  if (result.status !== 0) {
-    throw new Error(`failed to stage npm into ${npmDest} (exit ${result.status ?? 'signal'})`)
-  }
+  cpSync(join(stage, 'package'), npmDest, { recursive: true })
   const cli = join(npmDest, 'bin', 'npm-cli.js')
   if (!existsSync(cli)) throw new Error(`npm-cli.js not found after extraction: ${cli}`)
 }

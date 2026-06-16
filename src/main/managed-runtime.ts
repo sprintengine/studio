@@ -194,6 +194,22 @@ export function getManagedPython(repoRoot?: string): ResolvedPython {
   return resolveManagedPython(currentRuntimeEnv(), repoRoot)
 }
 
+/**
+ * Sanitizes a spawn environment for the bundled CPython. python-build-standalone
+ * is relocatable and locates its stdlib relative to the executable, but a stray
+ * `PYTHONHOME` (set by pyenv/conda/homebrew users) overrides that and points the
+ * interpreter at a foreign stdlib — a hard startup failure. We strip it (and
+ * `PYTHONSTARTUP`) only for the bundled interpreter; for venv/system Python the
+ * user's environment is left untouched.
+ */
+export function managedPythonSpawnEnv<T extends NodeJS.ProcessEnv>(base: T, source: PythonSource): T {
+  if (source !== 'bundled') return base
+  const next = { ...base }
+  delete next.PYTHONHOME
+  delete next.PYTHONSTARTUP
+  return next
+}
+
 // --- managed Node / npm for CLI installs -----------------------------------
 //
 // Agent CLIs such as Codex install via `npm install -g`. We run npm on
@@ -235,54 +251,61 @@ export function ensureManagedRuntimeShims(env: RuntimeEnv = currentRuntimeEnv())
   const npmCli = bundledNpmCliPath(env)
   if (!npmCli) return null
 
-  const node = managedNodeBinary(env)
-  const shimDir = getManagedRuntimeShimDir(env.platform)
-  const prefixDir = getManagedNpmPrefixDir(env.platform)
-  // npm places global bins directly under <prefix> on Windows and <prefix>/bin
-  // on POSIX — mirror that so callers can put the right dir on PATH.
-  const prefixBinDir = env.platform === 'win32' ? prefixDir : join(prefixDir, 'bin')
+  // Never let shim-writing failures (read-only home, AV lock, quota) bubble:
+  // this runs on the terminal-launch hot path, mirroring the try/catch in the
+  // Sprint Engine shim writers.
+  try {
+    const node = managedNodeBinary(env)
+    const shimDir = getManagedRuntimeShimDir(env.platform)
+    const prefixDir = getManagedNpmPrefixDir(env.platform)
+    // npm places global bins directly under <prefix> on Windows and <prefix>/bin
+    // on POSIX — mirror that so callers can put the right dir on PATH.
+    const prefixBinDir = env.platform === 'win32' ? prefixDir : join(prefixDir, 'bin')
 
-  mkdirSync(shimDir, { recursive: true })
-  mkdirSync(prefixBinDir, { recursive: true })
+    mkdirSync(shimDir, { recursive: true })
+    mkdirSync(prefixBinDir, { recursive: true })
 
-  if (env.platform === 'win32') {
-    writeFileSync(
-      join(shimDir, 'node.cmd'),
-      ['@echo off', 'set ELECTRON_RUN_AS_NODE=1', `"${node}" %*`, ''].join('\r\n'),
-      'utf8',
-    )
-    writeFileSync(
-      join(shimDir, 'npm.cmd'),
-      [
-        '@echo off',
-        'set ELECTRON_RUN_AS_NODE=1',
-        `"${node}" "${npmCli}" --prefix "${prefixDir}" %*`,
-        '',
-      ].join('\r\n'),
-      'utf8',
-    )
-  } else {
-    const nodeShim = join(shimDir, 'node')
-    writeFileSync(
-      nodeShim,
-      ['#!/usr/bin/env bash', `exec env ELECTRON_RUN_AS_NODE=1 ${shellQuote(node)} "$@"`, ''].join('\n'),
-      { encoding: 'utf8', mode: 0o755 },
-    )
-    chmodSync(nodeShim, 0o755)
-    const npmShim = join(shimDir, 'npm')
-    writeFileSync(
-      npmShim,
-      [
-        '#!/usr/bin/env bash',
-        `exec env ELECTRON_RUN_AS_NODE=1 ${shellQuote(node)} ${shellQuote(npmCli)} --prefix ${shellQuote(prefixDir)} "$@"`,
-        '',
-      ].join('\n'),
-      { encoding: 'utf8', mode: 0o755 },
-    )
-    chmodSync(npmShim, 0o755)
+    if (env.platform === 'win32') {
+      writeFileSync(
+        join(shimDir, 'node.cmd'),
+        ['@echo off', 'set ELECTRON_RUN_AS_NODE=1', `"${node}" %*`, ''].join('\r\n'),
+        'utf8',
+      )
+      writeFileSync(
+        join(shimDir, 'npm.cmd'),
+        [
+          '@echo off',
+          'set ELECTRON_RUN_AS_NODE=1',
+          `"${node}" "${npmCli}" --prefix "${prefixDir}" %*`,
+          '',
+        ].join('\r\n'),
+        'utf8',
+      )
+    } else {
+      const nodeShim = join(shimDir, 'node')
+      writeFileSync(
+        nodeShim,
+        ['#!/usr/bin/env bash', `exec env ELECTRON_RUN_AS_NODE=1 ${shellQuote(node)} "$@"`, ''].join('\n'),
+        { encoding: 'utf8', mode: 0o755 },
+      )
+      chmodSync(nodeShim, 0o755)
+      const npmShim = join(shimDir, 'npm')
+      writeFileSync(
+        npmShim,
+        [
+          '#!/usr/bin/env bash',
+          `exec env ELECTRON_RUN_AS_NODE=1 ${shellQuote(node)} ${shellQuote(npmCli)} --prefix ${shellQuote(prefixDir)} "$@"`,
+          '',
+        ].join('\n'),
+        { encoding: 'utf8', mode: 0o755 },
+      )
+      chmodSync(npmShim, 0o755)
+    }
+
+    return { shimDir, prefixBinDir }
+  } catch {
+    return null
   }
-
-  return { shimDir, prefixBinDir }
 }
 
 function shellQuote(value: string): string {
