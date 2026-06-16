@@ -59,6 +59,24 @@ function offlineResult(plugins: MarketplacePluginEntry[]): MarketplaceRegistryRe
   }
 }
 
+// The default hosted registry URL 404s in shipped builds, so the main process
+// falls back to the packaged seed: ok + state 'offline' but source 'seed' and
+// stale:false. The view-model must still render the cards (so the default
+// Browse → card → Install path reaches an install affordance) while disclosing
+// that the data is the bundled fallback, not the live registry.
+function seedResult(plugins: MarketplacePluginEntry[]): MarketplaceRegistryReadResult {
+  return {
+    ok: true,
+    state: 'offline',
+    registryUrl: 'https://example.com/marketplace.json',
+    source: 'seed',
+    stale: false,
+    fetchedAt: '2026-06-16T00:00:00Z',
+    marketplace: index(plugins),
+    message: 'Marketplace registry fetch failed with HTTP 404. Showing packaged marketplace registry seed.',
+  }
+}
+
 function failResult(
   state: 'fetch-error' | 'invalid-schema' | 'offline',
   message: string,
@@ -141,6 +159,17 @@ assert.equal(deriveBrowseView({ status: 'unsupported' }, '').status, 'unsupporte
   assert.equal(view.status, 'ready')
   if (view.status !== 'ready') throw new Error('unreachable')
   assert.ok(view.staleNotice && /Offline/.test(view.staleNotice))
+  assert.equal(view.total, 1)
+}
+
+{
+  // Default-path C6 scenario: hosted registry 404s, main process serves the
+  // packaged seed. Cards still render (Browse → card → Install reachable) and
+  // the seed-source notice is surfaced so the fallback is never silent.
+  const view = deriveBrowseView(result(seedResult([plugin()])), '')
+  assert.equal(view.status, 'ready')
+  if (view.status !== 'ready') throw new Error('unreachable')
+  assert.ok(view.staleNotice && /packaged marketplace registry seed/.test(view.staleNotice))
   assert.equal(view.total, 1)
 }
 
