@@ -44,6 +44,8 @@ import {
 import { createTerminalDiagnostics } from './terminal-diagnostics'
 import { createTerminalOutputBuffer } from './terminal-output-buffer'
 import { createTerminalMobileCommandService } from './terminal-mobile-command-service'
+import { planReapSweep, type SweepCandidate } from './terminal-reap-sweep'
+import { probeSubtreesForLiveProcesses } from './terminal-subtree-probe'
 
 type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
@@ -462,7 +464,10 @@ let staleTerminalSweepTimer: ReturnType<typeof setInterval> | undefined
 function startStaleTerminalSweep(): void {
   if (staleTerminalSweepTimer) clearInterval(staleTerminalSweepTimer)
   staleTerminalSweepTimer = setInterval(() => {
+    // 24h coarse backstop (catches anything ancient), then the Phase 1 policy
+    // sweep that suspends idle agents outside the hot set within a session.
     reapStaleTerminals()
+    void runIdleAgentReapSweep().catch(() => {})
   }, STALE_TERMINAL_SWEEP_INTERVAL_MS)
   staleTerminalSweepTimer.unref?.()
 }
@@ -499,6 +504,50 @@ export function reapStaleTerminals(now = Date.now()): string[] {
     disposeTerminal(sessionId)
   }
   return staleSessionIds
+}
+
+// Phase 1 in-session reaper: suspend idle agent terminals that have fallen out
+// of the recency hot set, so a long session doesn't accumulate dozens of idle
+// agents holding GBs. The destructive decision lives in the pure, tested policy
+// (`terminal-reap-policy` / `terminal-reap-sweep`); this only maps the live
+// sessions into candidates and disposes what the policy clears. `disposeTerminal`
+// preserves agent launch flags, so a suspended Claude relaunches with --resume.
+// Async because the safety probe shells out to `ps`/`lsof`.
+export async function runIdleAgentReapSweep(now = Date.now()): Promise<string[]> {
+  const candidates: SweepCandidate[] = [...terminals.values()].map((session) => ({
+    sessionId: session.sessionId,
+    workspaceId: session.workspaceId ?? null,
+    kind: session.kind,
+    cli: session.cli ?? null,
+    activityKind: session.activity.kind,
+    visible: session.visible ?? false,
+    processAlive: isTerminalProcessAlive(session),
+    lastSeenAt: getTerminalLastSeenAt(session),
+    rootPid: session.process.pid,
+  }))
+
+  const decision = await planReapSweep(
+    candidates,
+    { probeSubtrees: (rootPids) => probeSubtreesForLiveProcesses(rootPids) },
+    { now }
+  )
+
+  for (const sessionId of decision.reapableSessionIds) {
+    const session = terminals.get(sessionId)
+    if (!session || session.isDisposed) continue
+    logMainPerfEvent('TerminalRuntime', 'terminal-idle-suspended', {
+      sessionId,
+      kind: session.kind,
+      workspaceId: session.workspaceId,
+      agentId: session.agentId,
+      cli: session.cli,
+      lastSeenAt: getTerminalLastSeenAt(session),
+      unseenMs: now - getTerminalLastSeenAt(session),
+      hotWorkspaceIds: decision.hotWorkspaceIds,
+    })
+    disposeTerminal(sessionId)
+  }
+  return decision.reapableSessionIds
 }
 
 async function shutdownTerminalRuntime(): Promise<void> {
