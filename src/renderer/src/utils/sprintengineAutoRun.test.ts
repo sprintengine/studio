@@ -659,8 +659,8 @@ async function testAutoApprovalAppliesReturnedProjectionWithoutDiskFallback(): P
 
   assert.equal(
     lastContentByWorkspace.current.get(workspace.id),
-    JSON.stringify(mutatedProjection),
-    'projection-watcher signature is kept in sync so disk re-read does not re-apply the same state'
+    undefined,
+    'projection token is cleared so the next poll records the authoritative disk token'
   )
   assert.equal(cooldown.current.size, 1, 'cooldown key is reserved before the IPC call to prevent re-issue')
 }
