@@ -41,6 +41,7 @@ import { KeyboardShortcutsTab } from './KeyboardShortcutsTab'
 import MobileSettingsTab from './MobileSettingsTab'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
+import { ExtensionsSettingsTab } from './ExtensionsSettingsTab'
 import {
   McpBrandIcon,
   McpCatalogTile,
@@ -135,6 +136,7 @@ type SettingsTabId =
   | 'mobile'
   | 'voice-dictation'
   | 'telemetry'
+  | 'extensions'
 
 // Declared in rail order: the flat order of this array (filtered to visible
 // tabs, then module sections appended) drives index-based roving focus, so it
@@ -156,6 +158,9 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
   { id: 'mobile', label: 'Mobile', description: 'Phone pairing and relay' },
   { id: 'voice-dictation', label: 'Voice dictation', description: 'Transcription server and model' },
   { id: 'learn', label: 'Learn', description: 'Tips and lessons' },
+  // Rendered in the trailing "Extensions" rail group (see railGroups), ahead of
+  // any module-contributed sections — not in settingsTabGroups.
+  { id: 'extensions', label: 'Extensions', description: 'Installed plugins and extensions' },
 ]
 
 // Rail groups (sentence-case micro labels). Module-contributed sections render
@@ -201,6 +206,7 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     || value === 'mobile'
     || value === 'voice-dictation'
     || value === 'telemetry'
+    || value === 'extensions'
   )
 }
 
@@ -1383,6 +1389,14 @@ export default function SettingsPanel({
   // renders in the same order, so arrow keys move in visual order.
   const tabIndexById = new Map(visibleSettingsTabs.map((tab, index) => [tab.id, index] as const))
   const moduleSectionTabs = visibleSettingsTabs.filter((tab) => tab.moduleSection)
+  // The built-in Extensions (marketplace) tab leads the trailing "Extensions"
+  // rail group, with any module-contributed sections after it — one coherent
+  // group rather than a duplicate header.
+  const extensionsBuiltInTab = visibleSettingsTabs.find((tab) => tab.id === 'extensions')
+  const extensionsGroupTabs = [
+    ...(extensionsBuiltInTab ? [extensionsBuiltInTab] : []),
+    ...moduleSectionTabs,
+  ]
   const railGroups = [
     ...settingsTabGroups
       .map((group) => ({
@@ -1392,7 +1406,7 @@ export default function SettingsPanel({
           .filter((tab): tab is SettingsTabDescriptor => tab !== undefined),
       }))
       .filter((group) => group.tabs.length > 0),
-    ...(moduleSectionTabs.length > 0 ? [{ label: 'Extensions', tabs: moduleSectionTabs }] : []),
+    ...(extensionsGroupTabs.length > 0 ? [{ label: 'Extensions', tabs: extensionsGroupTabs }] : []),
   ]
 
   const sidebarNode = (
@@ -2498,6 +2512,14 @@ export default function SettingsPanel({
             />
           </div>
         </div>
+      ) : null}
+
+      {activeSettingsTab === 'extensions' ? (
+        <ExtensionsSettingsTab
+          mcpServers={Object.values(mcpSettings.servers)}
+          moduleOverrides={moduleEnablement}
+          workspaceRoot={activeProjectRoot}
+        />
       ) : null}
 
       {activeTab.moduleSection ? (
