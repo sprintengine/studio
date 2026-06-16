@@ -1,18 +1,21 @@
 # First-Party Marketplace Seed Registry
 
 This directory is the source registry content for the curated first-party
-marketplace seed set.
+marketplace seed set. When published to `multicode-labs/marketplace`, this
+directory is the repository root.
 
 - Local registry path: `resources/marketplace/marketplace.json`
 - Seed plugin bundles: `resources/marketplace/plugins/<plugin-id>/`
 - First-party icon assets: `resources/marketplace/icons/`
 - Publisher public keys: `resources/marketplace/trusted-publishers.json`
+- Publish CI root workflow:
+  `resources/marketplace/.github/workflows/marketplace-registry.yml`
 - Remote publication target for the T2.1 `RegistryClient` default:
   `https://raw.githubusercontent.com/multicode-labs/marketplace/main/marketplace.json`
 
-T4.2 publish CI should publish this directory as the `multicode-labs/marketplace`
-repository root, keeping `marketplace.json`, `plugins/`, `icons/`, and
-`trusted-publishers.json` at the same relative paths.
+Publishing keeps `marketplace.json`, `plugins/`, `icons/`,
+`trusted-publishers.json`, and `.github/workflows/marketplace-registry.yml` at
+the same relative paths.
 
 ## Seed Plugins
 
@@ -32,10 +35,16 @@ trusted when that fingerprint is accepted.
 
 ## Verification
 
-Run this from the repo root:
+Run this from the Multicode app repo root to validate the local seed registry:
 
 ```bash
 npm run verify:marketplace-registry
+```
+
+When validating a standalone registry checkout, pass that checkout as the root:
+
+```bash
+npm run verify:marketplace-registry -- --root ../marketplace
 ```
 
 The verifier uses the shared marketplace schema validator for `marketplace.json`
@@ -44,3 +53,11 @@ authoring CLI path used before publish. It also checks that verified publisher
 signatures resolve to `trusted-publishers.json`, registry entries match their
 signed `plugin.json`, icons exist, MCP components parse, and no key material is
 committed.
+
+The published registry workflow checks out the Multicode app validation tooling
+and runs:
+
+```bash
+npm run verify:marketplace-registry -- --root "$GITHUB_WORKSPACE/registry"
+npm run test:marketplace-publish
+```

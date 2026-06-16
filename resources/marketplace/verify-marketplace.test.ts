@@ -9,6 +9,7 @@ import { buildSync } from 'esbuild'
 const workDir = mkdtempSync(join(tmpdir(), 'multicode-marketplace-publish-'))
 const verifierBundle = join(process.cwd(), 'node_modules', '.cache', 'multicode', 'marketplace-registry-verify-for-test.cjs')
 const seedRoot = join(process.cwd(), 'resources', 'marketplace')
+const registryWorkflowPath = join(seedRoot, '.github', 'workflows', 'marketplace-registry.yml')
 
 mkdirSync(join(process.cwd(), 'node_modules', '.cache', 'multicode'), { recursive: true })
 buildSync({
@@ -79,10 +80,27 @@ function testTamperedPluginFailsThroughCliVerify(): void {
   assert.match(result.stderr, /INVALID signature/)
 }
 
+function testPublishScriptsTargetRegistryRoot(): void {
+  const appPackage = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as {
+    scripts?: Record<string, string>
+  }
+  const verifyScript = appPackage.scripts?.['verify:marketplace-registry'] ?? ''
+  assert.match(verifyScript, /verify-marketplace\.ts/)
+  assert.doesNotMatch(verifyScript, /--root resources\/marketplace/)
+
+  const workflow = readFileSync(registryWorkflowPath, 'utf8')
+  assert.match(workflow, /marketplace\.json/)
+  assert.match(workflow, /plugins\/\*\*/)
+  assert.match(workflow, /trusted-publishers\.json/)
+  assert.match(workflow, /--root "\$GITHUB_WORKSPACE\/registry"/)
+  assert.doesNotMatch(workflow, /resources\/marketplace/)
+}
+
 try {
   testSampleRegistryPasses()
   testSchemaInvalidRegistryFailsClearly()
   testTamperedPluginFailsThroughCliVerify()
+  testPublishScriptsTargetRegistryRoot()
   console.log('marketplace publish validation tests passed')
 } finally {
   rmSync(workDir, { recursive: true, force: true })

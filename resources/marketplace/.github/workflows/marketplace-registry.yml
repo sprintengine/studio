@@ -1,0 +1,59 @@
+name: Marketplace Registry
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/marketplace-registry.yml
+      - icons/**
+      - marketplace.json
+      - plugins/**
+      - trusted-publishers.json
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/marketplace-registry.yml
+      - icons/**
+      - marketplace.json
+      - plugins/**
+      - trusted-publishers.json
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Marketplace Registry
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout registry
+        uses: actions/checkout@v4
+        with:
+          path: registry
+
+      - name: Checkout Multicode validation tooling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.MULTICODE_APP_REPOSITORY || 'multicode-labs/multicode' }}
+          ref: ${{ vars.MULTICODE_APP_REF || 'main' }}
+          path: multicode
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: multicode/package-lock.json
+
+      - name: Install validation dependencies
+        working-directory: multicode
+        run: npm ci
+
+      - name: Validate registry root and plugin signatures
+        working-directory: multicode
+        run: npm run verify:marketplace-registry -- --root "$GITHUB_WORKSPACE/registry"
+
+      - name: Exercise valid and tampered submissions
+        working-directory: multicode
+        run: npm run test:marketplace-publish
