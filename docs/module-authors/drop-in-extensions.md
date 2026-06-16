@@ -53,8 +53,8 @@ is **not** a capability module — it is a declarative `plugin.json` describing
 how to launch, resume, inject prompts into, and detect completion for a CLI.
 
 - The authoring contract is `CliPluginManifest` in `@multicode/module-sdk`;
-  `validateCliPluginManifest` is a pure pre-flight validator that agrees with
-  the app's loader.
+  `validateCliPluginManifest` is the **same validator the app runs** on load
+  (the app imports it from the SDK), so a manifest it accepts will load.
 - Worked examples: [`../2026-05-16-plugin-manifests-worked-examples.md`](../2026-05-16-plugin-manifests-worked-examples.md);
   design rationale: [`../2026-05-16-byo-cli-plugin-system.md`](../2026-05-16-byo-cli-plugin-system.md).
 - Install by dropping the folder into `~/.multicode/plugins/<id>/`, or from

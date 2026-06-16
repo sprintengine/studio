@@ -7,10 +7,13 @@
 // containing folder name; a user plugin with the same id as a bundled CLI
 // overrides the bundled one.
 //
-// This module mirrors the shape the running app validates (the app remains the
-// final authority and re-validates on load and install). `validateCliPluginManifest`
-// is a pure pre-flight check authors can run in their own tooling — no Node or
-// DOM APIs, safe in any runtime.
+// This is the SINGLE SOURCE OF TRUTH for CLI manifest validation: the running
+// Multicode app validates a plugin.json by delegating to validateCliPluginManifest
+// here (src/main/plugin-manifest-validate.ts imports it directly from the SDK
+// source, the same way the third-party module manifest validator is shared), so
+// the published authoring contract and the app's loader cannot drift. It is pure
+// (no Node or DOM APIs), safe in any runtime, and runnable as a pre-flight check
+// in an author's own tooling.
 
 // ── Manifest shape ───────────────────────────────────────────────────────────
 
@@ -107,14 +110,29 @@ export type CliModelSelectionSpec = {
 }
 
 export type CliSkillSupport = 'native' | 'prompt-shim' | 'unsupported'
+export type CliSkillInstallScope = 'workspace' | 'user'
+export type CliSkillFormat = 'agent-skills-v1' | 'claude-code' | 'codex' | 'opencode' | 'generic'
+
+export type CliSkillInstallTarget = {
+  scope: CliSkillInstallScope
+  path: string
+  format: CliSkillFormat
+  restartRequired?: boolean
+}
+
+export type CliSkillInvocation = {
+  fileDropTemplate?: string
+  explicitTemplate?: string
+  nativeSlashCommand?: boolean
+  explicitMention?: boolean
+  implicitInvocation?: boolean
+}
 
 export type CliSkillIntegration = {
   support: CliSkillSupport
   harnessId: string
-  // Deep install-target/invocation validation happens in the app; authors can
-  // pass these through and the app verifies them on load.
-  installTargets?: unknown[]
-  invocation?: Record<string, unknown>
+  installTargets?: CliSkillInstallTarget[]
+  invocation?: CliSkillInvocation
 }
 
 export type CliSoulsSpec = {
@@ -159,6 +177,13 @@ const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$/
 const INJECTION_MODES: CliPromptInjectionMode[] = ['positional-arg', 'stdin-pipe', 'send-after-ready', 'file']
 const COMPLETION_MODES: CliCompletionMode[] = ['process-exit', 'output-sentinel', 'mcp-signal', 'idle-at-prompt']
 const MCP_FORMATS: CliMcpConfigFormat[] = ['claude-code', 'codex', 'opencode', 'generic']
+const VARIABLE_TYPES: CliVariableType[] = ['string', 'enum', 'boolean', 'number']
+const SKILL_SUPPORTS: CliSkillSupport[] = ['native', 'prompt-shim', 'unsupported']
+const SKILL_INSTALL_SCOPES = ['workspace', 'user'] as const
+const SKILL_FORMATS = ['agent-skills-v1', 'claude-code', 'codex', 'opencode', 'generic'] as const
+// Fields that only belong on provider manifests (kind: 'provider'); a CLI
+// manifest carrying any of them is malformed. Mirrors the app's loader.
+const PROVIDER_ONLY_FIELDS = ['providerType', 'models', 'auth', 'adapter', 'openaiCompatible', 'signature'] as const
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -180,6 +205,11 @@ export function validateCliPluginManifest(value: unknown): CliManifestResult {
   if (value.kind !== undefined && value.kind !== 'cli') {
     issues.push({ path: 'kind', message: "kind must be 'cli' when present (provider manifests are validated separately)." })
   }
+  for (const field of PROVIDER_ONLY_FIELDS) {
+    if (field in value) {
+      issues.push({ path: field, message: `${field} is only valid on provider manifests with kind "provider".` })
+    }
+  }
 
   requireString(value, 'id', issues, ID_PATTERN)
   requireString(value, 'displayName', issues)
@@ -198,6 +228,8 @@ export function validateCliPluginManifest(value: unknown): CliManifestResult {
   validateCompletion(value.completion, 'completion', issues)
   if (value.mcpConfig !== undefined) validateMcpConfig(value.mcpConfig, issues)
   validateCapabilities(value.capabilities, issues)
+  if (value.variables !== undefined) validateVariables(value.variables, issues)
+  if (value.souls !== undefined) validateSouls(value.souls, issues)
   if (value.modelSelection !== undefined) validateModelSelection(value.modelSelection, issues)
   if (value.skillIntegration !== undefined) validateSkillIntegration(value.skillIntegration, issues)
 
@@ -409,19 +441,153 @@ function validateModelSelection(value: unknown, issues: CliManifestIssue[]): voi
   }
 }
 
+function validateVariables(value: unknown, issues: CliManifestIssue[]): void {
+  if (!isObject(value)) {
+    issues.push({ path: 'variables', message: 'variables must be an object.' })
+    return
+  }
+  for (const [name, decl] of Object.entries(value)) {
+    const path = `variables.${name}`
+    if (!isObject(decl)) {
+      issues.push({ path, message: 'Variable declaration must be an object.' })
+      continue
+    }
+    if (typeof decl.type !== 'string' || !(VARIABLE_TYPES as readonly string[]).includes(decl.type)) {
+      issues.push({ path: `${path}.type`, message: `type must be one of: ${VARIABLE_TYPES.join(', ')}.` })
+    }
+    if (typeof decl.label !== 'string') {
+      issues.push({ path: `${path}.label`, message: 'label must be a string.' })
+    }
+    if (decl.type === 'enum') {
+      if (!Array.isArray(decl.options) || decl.options.length === 0) {
+        issues.push({ path: `${path}.options`, message: 'enum variables require a non-empty options array.' })
+      } else if (decl.options.some((option) => typeof option !== 'string')) {
+        issues.push({ path: `${path}.options`, message: 'enum options must be strings.' })
+      }
+    }
+  }
+}
+
+function validateSouls(value: unknown, issues: CliManifestIssue[]): void {
+  if (!isObject(value)) {
+    issues.push({ path: 'souls', message: 'souls must be an object when present.' })
+    return
+  }
+  if (typeof value.directory !== 'string' || value.directory.length === 0) {
+    issues.push({ path: 'souls.directory', message: 'souls.directory must be a non-empty string.' })
+  }
+}
+
 function validateSkillIntegration(value: unknown, issues: CliManifestIssue[]): void {
   if (!isObject(value)) {
     issues.push({ path: 'skillIntegration', message: 'skillIntegration must be an object when present.' })
     return
   }
-  const supports: CliSkillSupport[] = ['native', 'prompt-shim', 'unsupported']
-  if (typeof value.support !== 'string' || !supports.includes(value.support as CliSkillSupport)) {
-    issues.push({ path: 'skillIntegration.support', message: `skillIntegration.support must be one of: ${supports.join(', ')}.` })
+  if (typeof value.support !== 'string' || !SKILL_SUPPORTS.includes(value.support as CliSkillSupport)) {
+    issues.push({ path: 'skillIntegration.support', message: `skillIntegration.support must be one of: ${SKILL_SUPPORTS.join(', ')}.` })
   }
   requireString(value, 'harnessId', issues, ID_PATTERN, 'skillIntegration')
-  if (value.support === 'native' && (!Array.isArray(value.installTargets) || value.installTargets.length === 0)) {
-    issues.push({ path: 'skillIntegration.installTargets', message: 'native skillIntegration requires at least one install target.' })
+
+  if (value.support === 'native') {
+    if (!Array.isArray(value.installTargets) || value.installTargets.length === 0) {
+      issues.push({ path: 'skillIntegration.installTargets', message: 'native skillIntegration requires at least one install target.' })
+    } else {
+      value.installTargets.forEach((target, index) =>
+        validateSkillInstallTarget(target, `skillIntegration.installTargets[${index}]`, issues)
+      )
+    }
+  } else if (value.installTargets !== undefined) {
+    issues.push({ path: 'skillIntegration.installTargets', message: 'installTargets are only valid when skillIntegration.support is "native".' })
   }
+
+  if (value.invocation !== undefined) validateSkillInvocation(value.invocation, issues)
+}
+
+function validateSkillInstallTarget(value: unknown, path: string, issues: CliManifestIssue[]): void {
+  if (!isObject(value)) {
+    issues.push({ path, message: 'Skill install target must be an object.' })
+    return
+  }
+  if (typeof value.scope !== 'string' || !(SKILL_INSTALL_SCOPES as readonly string[]).includes(value.scope)) {
+    issues.push({ path: `${path}.scope`, message: `scope must be one of: ${SKILL_INSTALL_SCOPES.join(', ')}.` })
+  }
+  if (typeof value.format !== 'string' || !(SKILL_FORMATS as readonly string[]).includes(value.format)) {
+    issues.push({ path: `${path}.format`, message: `format must be one of: ${SKILL_FORMATS.join(', ')}.` })
+  }
+  if (value.restartRequired !== undefined && typeof value.restartRequired !== 'boolean') {
+    issues.push({ path: `${path}.restartRequired`, message: 'restartRequired must be a boolean when present.' })
+  }
+  if (typeof value.path !== 'string' || value.path.length === 0) {
+    issues.push({ path: `${path}.path`, message: 'path must be a non-empty string template.' })
+    return
+  }
+  if (!value.path.includes('{{skillId}}')) {
+    issues.push({ path: `${path}.path`, message: 'path must include {{skillId}} so each skill has its own directory.' })
+  }
+  validateTemplateVariables(value.path, `${path}.path`, ['workspaceRoot', 'home', 'skillId'], issues)
+  if (value.path.includes('\0')) {
+    issues.push({ path: `${path}.path`, message: 'path must not contain NUL bytes.' })
+  }
+  if (value.scope === 'workspace' && !isWorkspaceSkillPathTemplate(value.path)) {
+    issues.push({ path: `${path}.path`, message: 'workspace skill paths must be relative or start with {{workspaceRoot}}/.' })
+  }
+  if (value.scope === 'user' && !value.path.startsWith('{{home}}/')) {
+    issues.push({ path: `${path}.path`, message: 'user skill paths must start with {{home}}/.' })
+  }
+}
+
+function validateSkillInvocation(value: unknown, issues: CliManifestIssue[]): void {
+  if (!isObject(value)) {
+    issues.push({ path: 'skillIntegration.invocation', message: 'invocation must be an object when present.' })
+    return
+  }
+  for (const [key, template] of Object.entries({
+    fileDropTemplate: value.fileDropTemplate,
+    explicitTemplate: value.explicitTemplate,
+  })) {
+    if (template === undefined) continue
+    if (typeof template !== 'string' || template.length === 0) {
+      issues.push({ path: `skillIntegration.invocation.${key}`, message: `${key} must be a non-empty string.` })
+      continue
+    }
+    validateTemplateVariables(template, `skillIntegration.invocation.${key}`, ['skillId', 'skillName', 'path'], issues)
+  }
+  for (const key of ['nativeSlashCommand', 'explicitMention', 'implicitInvocation'] as const) {
+    if (key in value && typeof value[key] !== 'boolean') {
+      issues.push({ path: `skillIntegration.invocation.${key}`, message: `${key} must be a boolean when present.` })
+    }
+  }
+}
+
+function validateTemplateVariables(
+  template: string,
+  path: string,
+  allowed: readonly string[],
+  issues: CliManifestIssue[]
+): void {
+  const variablePattern = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g
+  let match: RegExpExecArray | null
+  while ((match = variablePattern.exec(template)) !== null) {
+    const name = match[1]
+    if (!allowed.includes(name)) {
+      issues.push({
+        path,
+        message: `Unsupported template variable {{${name}}}. Allowed variables: ${allowed.map((item) => `{{${item}}}`).join(', ')}.`,
+      })
+    }
+  }
+}
+
+function isSafeRelativePath(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0) return false
+  if (value.includes('\0') || value.includes('\\') || value.startsWith('/')) return false
+  return !value.split('/').some((segment) => segment === '..' || segment === '.' || segment.length === 0)
+}
+
+function isWorkspaceSkillPathTemplate(value: string): boolean {
+  if (value.startsWith('{{workspaceRoot}}/')) return !value.includes('/../') && !value.endsWith('/..')
+  if (value.startsWith('/') || value.startsWith('{{home}}/')) return false
+  return isSafeRelativePath(value.replace(/\{\{skillId\}\}/g, 'skill'))
 }
 
 function requireString(

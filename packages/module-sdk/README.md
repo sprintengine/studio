@@ -119,9 +119,10 @@ const result = validateCliPluginManifest(JSON.parse(pluginJson))
 if (!result.ok) console.error(result.issues) // [{ path, message }, …]
 ```
 
-`validateCliPluginManifest` is pure (no Node/DOM) and mirrors the app's loader,
-so a manifest it accepts is loadable by Multicode (the app re-validates on load
-and additionally checks deep skill/template details). See
+`validateCliPluginManifest` is pure (no Node/DOM) and is **the same validator the
+Multicode app runs** when it loads a `plugin.json` (the app imports it from this
+package), so a manifest it accepts is loadable by Multicode — the authoring
+contract and the loader cannot drift. See
 `docs/2026-05-16-plugin-manifests-worked-examples.md` in the repository for
 worked `plugin.json` examples.
 

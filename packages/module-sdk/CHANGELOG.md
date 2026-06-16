@@ -6,12 +6,17 @@ BYO-CLI plugin authoring and programmatic workspace creation.
 
 - New CLI plugin authoring surface: `CliPluginManifest` (the `plugin.json`
   contract for adding an agent CLI), `validateCliPluginManifest` /
-  `parseCliPluginManifest` (pure structural pre-flight validator that agrees
-  with the app's loader), and the supporting token types (`CliLaunchSpec`,
+  `parseCliPluginManifest`, and the supporting token types (`CliLaunchSpec`,
   `CliResumeSpec`, `CliPromptInjection`, `CliCompletionSpec`, `CliCapabilities`,
-  `CliMcpConfigSpec`, `CliModelSelectionSpec`, `CliSkillIntegration`, …). A CLI
-  plugin is a folder dropped into `~/.multicode/plugins/<id>/`, or installed
-  from Settings → Agents → "Install CLI from folder".
+  `CliMcpConfigSpec`, `CliModelSelectionSpec`, `CliSkillIntegration`,
+  `CliSkillInstallTarget`, `CliSkillInvocation`, …). A CLI plugin is a folder
+  dropped into `~/.multicode/plugins/<id>/`, or installed from
+  Settings → Agents → "Install CLI from folder".
+- `validateCliPluginManifest` is the **single source of truth** for CLI
+  manifest validation: the Multicode app loads a `plugin.json` by delegating to
+  it (no separate in-app copy), so the authoring contract and the loader cannot
+  drift. As part of consolidating the two former copies, `version` is now
+  required to be a positive integer (the app previously accepted any number).
 - New `WorkspaceService` + `WorkspaceServiceToken`: resolve with
   `host.requireService(WorkspaceServiceToken)` from `entry.main` to create a
   workspace programmatically. The creation runs the same renderer flow as the
