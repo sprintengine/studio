@@ -3,6 +3,7 @@ import type { TerminalSessionSnapshot } from '../../shared/electron-api'
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
 import type { Workspace } from '../../renderer/src/types/workspace'
 import type { McpToolRegistration, McpToolResult } from './mcp-socket-server'
+import { createWorkspaceConfirmed } from '../workspace-create'
 
 // The v1 automation tool surface: workspace.create / workspace.list /
 // workspace.status / agent.launch / agent.status. Reads answer from main's
@@ -15,7 +16,6 @@ import type { McpToolRegistration, McpToolResult } from './mcp-socket-server'
 // placeholder name/template). Read projections disclose that honestly.
 const ROUTING_PLACEHOLDER_TEMPLATE_ID = 'workspace-sync-routing-placeholder'
 
-const CREATE_CONFIRM_TIMEOUT_MS = 7_000
 const LAUNCH_CONFIRM_TIMEOUT_MS = 20_000
 const CONFIRM_POLL_INTERVAL_MS = 150
 
@@ -149,21 +149,21 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     handler: async (args) => {
       const invalid = firstInvalidOptionalString(args, ['name', 'folderPath', 'templateId'])
       if (invalid) return invalid
-      const delegated = await backends.delegateToRenderer({
-        kind: 'workspace.create',
-        name: optionalString(args.name),
-        folderPath: optionalString(args.folderPath),
-        templateId: optionalString(args.templateId),
-      })
-      if (!delegated.ok) return failure(delegated.code, delegated.message)
-      const confirmed = await waitFor(CREATE_CONFIRM_TIMEOUT_MS, () => findWorkspace(delegated.workspaceId))
-      if (!confirmed) {
-        return failure(
-          'bus_confirmation_timeout',
-          `The renderer created workspace "${delegated.workspaceId}" but it was not observed on the workspace-sync bus within ${CREATE_CONFIRM_TIMEOUT_MS}ms; treat the creation as unverified.`
-        )
-      }
-      return success({ workspace: workspaceProjection(confirmed) })
+      const outcome = await createWorkspaceConfirmed(
+        {
+          name: optionalString(args.name),
+          folderPath: optionalString(args.folderPath),
+          templateId: optionalString(args.templateId),
+        },
+        {
+          delegateToRenderer: (request) => backends.delegateToRenderer(request),
+          getWorkspaceSyncSnapshot: () => backends.getWorkspaceSyncSnapshot(),
+          now,
+          sleep,
+        }
+      )
+      if (!outcome.ok) return failure(outcome.code, outcome.message)
+      return success({ workspace: workspaceProjection(outcome.workspace) })
     },
   }
 
