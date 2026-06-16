@@ -556,6 +556,9 @@ export type TerminalSpawnMetadata = {
   kind?: TerminalKind
   workspaceId?: string
   agentId?: string
+  // Agent display name, exposed to the session as MULTICODE_AGENT_NAME for the
+  // typed-handoff Backlog link label. See agentIdentityEnv (terminal-launch).
+  agentName?: string
   terminalId?: string
   executionMode?: AgentExecutionMode
   worktreeId?: string
@@ -1449,7 +1452,10 @@ export type BacklogHighlightPayload = {
 export type BacklogItemLinkPayload = {
   id: string
   moduleId: string
-  type: 'execution' | 'issue' | 'review' | 'artifact' | 'external'
+  // `agent` is lifecycle-neutral: unlike `execution`, an active agent link
+  // never drives item status (see nextBacklogItemStatusFromLinks). It records
+  // which agent terminal is working the item, for two-way navigation.
+  type: 'execution' | 'issue' | 'review' | 'artifact' | 'external' | 'agent'
   label: string
   target: {
     kind: string

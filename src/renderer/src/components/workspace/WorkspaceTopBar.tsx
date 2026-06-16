@@ -24,7 +24,7 @@ import { resolveAvailableAgentCli, type AgentCliCatalogOption } from './newWorks
 import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getHighlightSwatch, getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
-import { NotificationsPopover } from './topbar/NotificationsPopover'
+import { NotificationsPopover, type NotificationRowAction } from './topbar/NotificationsPopover'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
   getEffectiveKeybindingLabel,
@@ -428,6 +428,8 @@ export type WorkspaceTopBarProps = {
   markNotificationRead: (id: string) => void
   markAllNotificationsRead: () => void
   clearNotifications: () => void
+  /** Resolve a notification's Open action(s); empty when no deep-link or reveal is possible. */
+  resolveNotificationActions: (notification: AppNotification) => NotificationRowAction[]
 
   /** Voice dictation (gated on the voice-dictation module). */
   voiceDictationEnabled: boolean
@@ -510,6 +512,7 @@ export default function WorkspaceTopBar({
   markNotificationRead,
   markAllNotificationsRead,
   clearNotifications,
+  resolveNotificationActions,
   voiceDictationEnabled,
   voiceRecording,
   voiceTranscribing,
@@ -806,6 +809,7 @@ export default function WorkspaceTopBar({
                 onMarkAllRead={markAllNotificationsRead}
                 onClear={clearNotifications}
                 onOpenLogs={() => void window.api.openDiagnosticsLogsFolder()}
+                resolveActions={resolveNotificationActions}
               />
             </Popover>
           </div>

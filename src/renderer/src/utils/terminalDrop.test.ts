@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import type { SkillPackHarness } from '../../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
 import {
+  backlogItemDropDescriptor,
   backlogSkillInvocationForDrop,
   backlogSlashCommandForDrop,
   formatDroppedPathsForTerminal,
@@ -490,8 +491,80 @@ async function testWorkspaceMismatchRejectsBeforeWrite(): Promise<void> {
   assert.deepEqual(writes, [])
 }
 
+// The link-recording gate: only a single backlog/ file handed to an agent
+// session that carries an agent id yields a recordable handoff descriptor.
+function testBacklogItemDropDescriptorGate(): void {
+  assert.deepEqual(
+    backlogItemDropDescriptor(
+      backlogPayload('/repo/backlog/item.md'),
+      agentSession({ agentId: 'agent-7' }),
+    ),
+    { relativePath: 'backlog/item.md', agentId: 'agent-7', workspaceRoot: '/repo' },
+  )
+  // No agent id to link to → not a recordable handoff (but a paste still works).
+  assert.equal(
+    backlogItemDropDescriptor(backlogPayload('/repo/backlog/item.md'), agentSession()),
+    null,
+  )
+  // Worktree agent: plain-path paste only, never a link (would fork the store).
+  assert.equal(
+    backlogItemDropDescriptor(
+      backlogPayload('/repo/backlog/item.md'),
+      agentSession({ agentId: 'agent-7', executionMode: 'worktree', worktreePath: '/repo/.worktrees/a' }),
+    ),
+    null,
+  )
+  // Plain terminal (not an agent).
+  assert.equal(
+    backlogItemDropDescriptor(backlogPayload('/repo/backlog/item.md'), session({ agentId: 'agent-7' })),
+    null,
+  )
+  // Non-backlog path.
+  assert.equal(
+    backlogItemDropDescriptor(backlogPayload('/repo/src/main.ts'), agentSession({ agentId: 'agent-7' })),
+    null,
+  )
+  // Multi-file drop is not a single-item handoff.
+  assert.equal(
+    backlogItemDropDescriptor(
+      {
+        version: 1,
+        workspaceId: 'workspace-1',
+        rootPath: '/repo',
+        files: [
+          { path: '/repo/backlog/a.md', name: 'a.md' },
+          { path: '/repo/backlog/b.md', name: 'b.md' },
+        ],
+      },
+      agentSession({ agentId: 'agent-7' }),
+    ),
+    null,
+  )
+}
+
+// A successful send to an agent session carries the handoff descriptor so the
+// caller can record the item ↔ agent link on both sides.
+async function testHandoffDescriptorRidesResult(): Promise<void> {
+  const liveAgent = agentSession({ agentId: 'agent-7', cwd: '/repo', pathStyle: 'posix' })
+  installWindowApiStub({ sessions: [liveAgent], backlogSkillHarnesses: ['claude'], plugins: pluginEntries })
+
+  const sent = await sendFileDropToTerminal({
+    payload: backlogPayload('/repo/backlog/item.md'),
+    sessionId: 'session-1',
+    workspaceId: 'workspace-1',
+  })
+
+  assert.deepEqual(sent, {
+    ok: true,
+    text: '/backlog backlog/item.md',
+    backlog: { relativePath: 'backlog/item.md', agentId: 'agent-7', workspaceRoot: '/repo' },
+  })
+}
+
 void testSlashCapableAgentGetsBacklogCommand()
   .then(testNonSlashAgentGetsQuotedRelativePath)
   .then(testWorktreeSessionGetsPlainPathNeverBacklog)
   .then(testDeadSessionReturnsExplicitError)
   .then(testWorkspaceMismatchRejectsBeforeWrite)
+  .then(() => { testBacklogItemDropDescriptorGate() })
+  .then(testHandoffDescriptorRidesResult)

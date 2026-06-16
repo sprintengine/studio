@@ -25,6 +25,7 @@ export type TerminalSpawnPayload = {
   kind?: TerminalKind
   workspaceId?: string
   agentId?: string
+  agentName?: string
   terminalId?: string
   executionMode?: AgentExecutionMode
   worktreeId?: string

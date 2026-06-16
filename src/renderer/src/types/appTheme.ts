@@ -24,6 +24,7 @@ export type AppTheme =
   | 'dark'
   | 'light'
   | 'vellum'
+  | 'herbarium'
   | 'verdigris'
   | 'slate'
   | 'conifer'
@@ -130,6 +131,19 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
       bgSurfaceRaised: '#142018',
       accent: '#c05038',
       textStrong: '#e0e8d4',
+    },
+  },
+  {
+    id: 'herbarium',
+    label: 'Herbarium',
+    resolved: 'herbarium',
+    description: 'Sage-green parchment, warm cards',
+    swatches: {
+      bgApp: '#d4dcc0',
+      bgSurface: '#f4ece0',
+      bgSurfaceRaised: '#fcf4e8',
+      accent: '#b04428',
+      textStrong: '#242818',
     },
   },
   {

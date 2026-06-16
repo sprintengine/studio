@@ -10,6 +10,7 @@ import {
   getMultiloopTasksForMilestone,
 } from '../../utils/multiloop'
 import { isStarred } from '../../utils/highlight'
+import { findWorkspaceForAgent } from '../../utils/agentLocation'
 import { sortWorkspacesByActivity } from '../../utils/workspaceRecency'
 import {
   deriveWorkspaceDisplayActivity,
@@ -68,7 +69,16 @@ export function getSessionItems(
   return terminalSessions
     .filter((session) => isLiveTerminal(session) && typeof session.workspaceId === 'string')
     .flatMap((session): SessionItem[] => {
-      const workspace = workspaces.find((candidate) => candidate.id === session.workspaceId)
+      // Agent terminals can be moved between workspaces after spawn, but the PTY
+      // session keeps its spawn-time workspaceId. Resolve an agent's *current*
+      // workspace by id (the store is the source of truth) and only fall back to
+      // the session's recorded workspace; otherwise a moved agent would open and
+      // mutate state in the workspace it left.
+      const workspace =
+        (session.kind === 'agent' && session.agentId
+          ? findWorkspaceForAgent(workspaces, session.agentId)
+          : null)
+        ?? workspaces.find((candidate) => candidate.id === session.workspaceId)
       if (!workspace) return []
 
       if (session.kind === 'agent') {

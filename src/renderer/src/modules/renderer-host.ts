@@ -5,7 +5,12 @@ import { resolveModuleEnablement } from '../../../shared/modules/resolve'
 import { COMMAND_REGISTRY } from '../commands/commandRegistry'
 import { collapseDuplicateKeybindings } from '../commands/keybindings'
 import type { CommandAvailability, CommandContribution, CommandScope } from '../commands/types'
-import type { FuturePlanWorkspaceSource, LayoutTemplate } from '../types/workspace'
+import type {
+  AppNotification,
+  DiagnosticSource,
+  FuturePlanWorkspaceSource,
+  LayoutTemplate,
+} from '../types/workspace'
 import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLink } from '../utils/backlog'
 import type {
   WorkspaceActivityKind,
@@ -116,6 +121,37 @@ export type BacklogLinkProvider = {
   openLink?(input: BacklogLinkProviderInput): Promise<void | boolean>
 }
 
+// A deep-link action a module contributes for its own notifications. Mirrors
+// registerBacklogItemAction: the provider is keyed by the notification `source`
+// it owns, enablement-gated, and returns serializable-data-driven actions. An
+// action's run() composes shell capabilities (revealWorkspace) — the
+// notification record itself never carries a callback (it persists to
+// localStorage). The shell supplies a generic workspace-reveal fallback when no
+// provider matches, so Open works for every workspace type; a provider only
+// adds deeper focus on top.
+export type NotificationActionContext = {
+  notification: AppNotification
+  /** Shell capability: switch the active workspace in the current window. */
+  revealWorkspace(workspaceId: string): void
+}
+
+export type NotificationAction = {
+  id: string
+  label: string
+  isVisible?(context: NotificationActionContext): boolean
+  run(context: NotificationActionContext): void | Promise<void>
+}
+
+export type NotificationActionProvider = {
+  /** The notification source this provider owns (e.g. 'sprintengine'). */
+  source: DiagnosticSource
+  resolveActions(context: NotificationActionContext): NotificationAction[]
+}
+
+export type RegisteredNotificationActionProvider = NotificationActionProvider & {
+  moduleId: string
+}
+
 // A command contributed by a module. Unlike shell CommandDefinitions, module
 // commands carry their handler callback directly — handlerPath indirection is
 // a shell-internal idiom. The registered command id is namespaced
@@ -180,6 +216,7 @@ export type RendererHost = {
   registerWorkspaceType(definition: WorkspaceTypeDefinition): void
   registerBacklogItemAction(action: BacklogItemAction): void
   registerBacklogLinkProvider(provider: BacklogLinkProvider): void
+  registerNotificationActionProvider(provider: NotificationActionProvider): void
   registerCommand(definition: ModuleCommandDefinition): void
   registerSettingsSection(definition: SettingsSectionDefinition): void
 }
@@ -199,6 +236,9 @@ export type RendererKernel = {
   getWorkspaceTypeModule(id: string): string | undefined
   getBacklogItemActions(): RegisteredBacklogItemAction[]
   getBacklogLinkProviders(moduleEnabled?: (moduleId: string) => boolean): BacklogLinkProvider[]
+  getNotificationActionProviders(
+    moduleEnabled?: (moduleId: string) => boolean
+  ): RegisteredNotificationActionProvider[]
   getModuleCommand(commandId: string): RegisteredModuleCommand | undefined
   getModuleCommands(moduleEnabled?: (moduleId: string) => boolean): RegisteredModuleCommand[]
   /**
@@ -226,6 +266,7 @@ export function createRendererHost(): RendererKernel {
   const workspaceTypes = new Map<string, RegisteredWorkspaceTypeDefinition>()
   const backlogItemActions = new Map<string, RegisteredBacklogItemAction>()
   const backlogLinkProviders = new Map<string, BacklogLinkProvider>()
+  const notificationActionProviders = new Map<DiagnosticSource, RegisteredNotificationActionProvider>()
   const moduleCommands = new Map<string, RegisteredModuleCommand>()
   const settingsSections = new Map<string, RegisteredSettingsSection>()
   const enabledModuleCommands = (moduleEnabled?: (moduleId: string) => boolean): RegisteredModuleCommand[] =>
@@ -280,6 +321,15 @@ export function createRendererHost(): RendererKernel {
           for (const targetKind of provider.targetKinds) {
             backlogLinkProviders.set(targetKind, provider)
           }
+        },
+        registerNotificationActionProvider(provider) {
+          if (notificationActionProviders.has(provider.source)) {
+            const owner = notificationActionProviders.get(provider.source)
+            throw new Error(
+              `Notification action provider for source "${provider.source}" is already registered by module "${owner?.moduleId}".`
+            )
+          }
+          notificationActionProviders.set(provider.source, { ...provider, moduleId })
         },
         registerCommand(definition) {
           if (definition.id.trim().length === 0) {
@@ -361,6 +411,11 @@ export function createRendererHost(): RendererKernel {
         const moduleOrder = a.moduleId.localeCompare(b.moduleId)
         return moduleOrder === 0 ? a.targetKinds.join('\0').localeCompare(b.targetKinds.join('\0')) : moduleOrder
       })
+    },
+    getNotificationActionProviders(moduleEnabled) {
+      return [...notificationActionProviders.values()]
+        .filter((provider) => !moduleEnabled || moduleEnabled(provider.moduleId))
+        .sort((a, b) => a.source.localeCompare(b.source))
     },
     getModuleCommand(commandId) {
       return moduleCommands.get(commandId)

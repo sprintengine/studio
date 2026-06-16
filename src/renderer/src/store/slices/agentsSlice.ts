@@ -73,6 +73,7 @@ export const defaultAgent = (id: AgentId, name = id, kind: AgentKind = 'general'
   kind,
   specialistId: undefined,
   multiloopRole: undefined,
+  backlogItemRef: undefined,
 })
 
 export const defaultEditorState = (): EditorState => ({

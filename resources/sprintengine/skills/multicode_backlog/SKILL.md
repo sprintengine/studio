@@ -58,4 +58,30 @@ When a user drags a `backlog/...` item into a terminal and asks you to work it d
    If `node` is unavailable, apply the same algorithm with any runtime (normalize slashes, lowercase, FNV-1a 32-bit from `2166136261` with multiplier `16777619`, formatted `backlog_${(hash >>> 0).toString(36)}`) — execute it, do not estimate. Use the real current time for timestamps.
 5. Do not edit markdown frontmatter just to change status. The object store is the source of truth for Backlog lifecycle once present.
 
+## Recording The Working Agent
+
+When you pick up a Backlog item by **typing** (e.g. "work on `backlog/foo.md`") rather than dragging it onto your terminal, the app cannot observe the handoff, so record it yourself — this is what lets the Backlog panel link the item to you and shows the Backlog glyph on your terminal.
+
+Do this only when your terminal exposes the agent-identity environment variables (set by Multicode when it launches an agent terminal):
+
+- `MULTICODE_WORKSPACE_ID` and `MULTICODE_AGENT_ID` — required; the durable identity.
+- `MULTICODE_AGENT_NAME` — optional; the display name for the link label.
+
+If `MULTICODE_AGENT_ID` is empty or unset, skip this entirely (you are not a Multicode-launched agent terminal). Never invent the values.
+
+When they are present, at the same moment you set the item `in_progress`, upsert a single link into the item's `links` array in `.multi-code/backlog/items.json`, keyed by its fixed `id` (replace the existing entry if present; leave all other links and fields untouched):
+
+```json
+{
+  "id": "agent-runtime:working-agent",
+  "moduleId": "agent-runtime",
+  "type": "agent",
+  "label": "Agent: <MULTICODE_AGENT_NAME, or MULTICODE_AGENT_ID if the name is unset>",
+  "target": { "kind": "agent.terminal", "id": "<MULTICODE_WORKSPACE_ID>/<MULTICODE_AGENT_ID>" },
+  "updatedAt": "<real current ISO-8601 timestamp>"
+}
+```
+
+The fixed `id` makes this idempotent and most-recent-agent-wins per item. The `agent` link type is lifecycle-neutral: it records who is working the item and never changes item status, so the `status` you set (`in_progress`, later `completed`, …) stays authoritative. Do not add this link for worktree-isolated work — a worktree edits its own copy of the object store and would fork the link.
+
 </supporting-info>

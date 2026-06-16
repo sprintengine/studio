@@ -89,4 +89,30 @@ To update an item's record in `.multi-code/backlog/items.json`:
 
    If `node` is unavailable, use any runtime to apply the same algorithm (normalize slashes, lowercase, FNV-1a 32-bit starting from `2166136261` with multiplier `16777619`, formatted as `backlog_${(hash >>> 0).toString(36)}`) — but execute it, do not estimate. Use the real current time for `updatedAt`/`createdAt`, never a placeholder.
 
+## Recording The Working Agent
+
+When you pick up an item by **typing** its path (rather than dragging it onto your terminal), the app cannot observe the handoff, so record it yourself — this is what links the item to you in the Backlog panel and shows the Backlog glyph on your terminal. The drag-drop and "Send to agent" paths already do this automatically; this step is only for typed pickup.
+
+Do this **only** when your terminal exposes the agent-identity environment variables Multicode sets when it launches an agent terminal:
+
+- `MULTICODE_WORKSPACE_ID` and `MULTICODE_AGENT_ID` — required; the durable identity.
+- `MULTICODE_AGENT_NAME` — optional; the display name for the link label.
+
+If `MULTICODE_AGENT_ID` is empty or unset, skip this (you are not a Multicode-launched agent terminal). Never invent the values, and skip it for worktree-isolated work (a worktree edits its own copy of the object store and would fork the link).
+
+When they are present, in the same object-store edit where you set `in_progress`, upsert one link into the item record's `links` array, keyed by its fixed `id` — replace the existing entry if present, leave every other link and field untouched (this is the one case where you modify `links`):
+
+```json
+{
+  "id": "agent-runtime:working-agent",
+  "moduleId": "agent-runtime",
+  "type": "agent",
+  "label": "Agent: <MULTICODE_AGENT_NAME, or MULTICODE_AGENT_ID if the name is unset>",
+  "target": { "kind": "agent.terminal", "id": "<MULTICODE_WORKSPACE_ID>/<MULTICODE_AGENT_ID>" },
+  "updatedAt": "<real current ISO-8601 timestamp>"
+}
+```
+
+The fixed `id` keeps this idempotent and most-recent-agent-wins per item. The `agent` link type is lifecycle-neutral — it records who is working the item and never changes item status, so the `status` you set stays authoritative.
+
 </supporting-info>

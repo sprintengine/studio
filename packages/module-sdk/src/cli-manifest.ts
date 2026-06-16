@@ -112,9 +112,17 @@ export type CliModelSelectionSpec = {
 // Declares that the CLI can be launched matching the host's light/dark color
 // scheme. `args` are substituted templates spread into launch/resume argv as
 // `themeArgs`, with `{{colorScheme}}` resolving to 'light' or 'dark'
-// (e.g. ["--settings", "{\"theme\":\"{{colorScheme}}\"}"]).
+// (e.g. ["--settings", "{\"theme\":\"{{colorScheme}}\"}"] for Claude Code).
+//
+// `schemes` is for CLIs that have no literal "light"/"dark" value and instead
+// take a named theme per scheme. When set, the active scheme resolves through
+// this map and is exposed to `args` as `{{themeName}}`
+// (e.g. Codex's syntect theme names: ["-c", "tui.theme=\"{{themeName}}\""] with
+// { light: "catppuccin-latte", dark: "catppuccin-mocha" }). A scheme absent
+// from the map renders no theme args, so the CLI keeps its own detection.
 export type CliThemeSelectionSpec = {
   args: string[]
+  schemes?: { light: string; dark: string }
 }
 
 export type CliSkillSupport = 'native' | 'prompt-shim' | 'unsupported'
@@ -429,6 +437,18 @@ function validateThemeSelection(value: unknown, issues: CliManifestIssue[]): voi
   }
   if (!Array.isArray(value.args) || value.args.length === 0 || value.args.some((arg) => typeof arg !== 'string')) {
     issues.push({ path: 'themeSelection.args', message: 'themeSelection.args must be a non-empty array of string templates.' })
+  }
+  if (value.schemes !== undefined) {
+    if (!isObject(value.schemes)) {
+      issues.push({ path: 'themeSelection.schemes', message: 'themeSelection.schemes must be an object mapping "light" and "dark" to theme names.' })
+    } else {
+      for (const scheme of ['light', 'dark'] as const) {
+        const name = (value.schemes as Record<string, unknown>)[scheme]
+        if (typeof name !== 'string' || name.length === 0) {
+          issues.push({ path: `themeSelection.schemes.${scheme}`, message: `themeSelection.schemes.${scheme} must be a non-empty string when schemes is present.` })
+        }
+      }
+    }
   }
 }
 

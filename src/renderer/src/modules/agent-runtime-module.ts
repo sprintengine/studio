@@ -1,4 +1,45 @@
 import type { RendererModule } from './renderer-host'
+import {
+  agentLinkForItem,
+  hasAgentLink,
+  openAgentBacklogLink,
+  resolveAgentBacklogLink,
+  AGENT_RUNTIME_MODULE_ID,
+  AGENT_TERMINAL_TARGET_KIND,
+  type AgentBacklogLinkOpenPorts,
+} from '../utils/agentBacklogLinks'
+
+// Activate the agent's workspace, then focus (or add) its terminal tab. Mirrors
+// MultiloopAutoRunSupervisor.revealMultiloopAgentTerminal: the mounted model is
+// tried first; if the workspace was just activated and its model isn't mounted
+// yet, the persisted layout model is mutated so the tab is present on mount.
+async function agentBacklogOpenPorts(): Promise<AgentBacklogLinkOpenPorts> {
+  const [{ useWorkspaceStore }, { publishDiagnostic }, { focusOrAddAgentTab, ensureAgentTabInLayoutModel }, { findWorkspaceForAgent }] =
+    await Promise.all([
+      import('../store/workspaceStore'),
+      import('../utils/diagnostics'),
+      import('../utils/modelRegistry'),
+      import('../utils/agentLocation'),
+    ])
+  return {
+    focusAgent: ({ agentId, agentName }) => {
+      const store = useWorkspaceStore.getState()
+      // Live lookup: find the workspace that currently holds the agent, so a
+      // moved agent is still reachable from its (stale-workspace) link.
+      const workspace = findWorkspaceForAgent(store.workspaces, agentId)
+      if (!workspace) return false
+      store.setActiveWorkspace(workspace.id)
+      if (focusOrAddAgentTab(workspace.id, agentId, agentName)) return true
+      try {
+        store.updateLayout(workspace.id, ensureAgentTabInLayoutModel(workspace.layoutModel, agentId, agentName))
+        return true
+      } catch {
+        return false
+      }
+    },
+    publishDiagnostic,
+  }
+}
 
 // Agent runtime — the irreducible core (terminals, the BYO-CLI launch path, the
 // agent session runtime). It is `core: true`, so the resolver always keeps it
@@ -7,6 +48,12 @@ import type { RendererModule } from './renderer-host'
 // the agents/runState store slices) are always present, so it registers no
 // gated panels with the host — its manifest exists to anchor the dependency
 // graph and present the core in the chooser.
+//
+// It does own the `agent.terminal` Backlog link kind: when a Backlog item is
+// handed to an agent terminal, the item records which agent is working it and
+// the agent records the item (AgentState.backlogItemRef). Both directions
+// navigate through the always-on core so the link never goes dark on a module
+// toggle.
 export const agentRuntimeRendererModule: RendererModule = {
   manifest: {
     id: 'agent-runtime',
@@ -18,5 +65,42 @@ export const agentRuntimeRendererModule: RendererModule = {
       'Terminals, the BYO-CLI launch path, and the agent session runtime every other capability builds on. Always on.',
     defaultEnabled: true,
     core: true,
+  },
+  registerRenderer(host) {
+    host.registerBacklogLinkProvider({
+      moduleId: AGENT_RUNTIME_MODULE_ID,
+      targetKinds: [AGENT_TERMINAL_TARGET_KIND],
+      resolveLinkStatus: async (input) => {
+        const { useWorkspaceStore } = await import('../store/workspaceStore')
+        return resolveAgentBacklogLink({
+          ...input,
+          workspaces: useWorkspaceStore.getState().workspaces,
+        })
+      },
+      openLink: async (input) => openAgentBacklogLink({
+        ...input,
+        ports: await agentBacklogOpenPorts(),
+      }),
+    })
+    // The discoverable click path to the working agent; the links-list row in
+    // the detail pane is the secondary control. Ordered after Sprint Engine's
+    // actions (order 10) so a run-linked item keeps "Open Sprint Engine"
+    // primary.
+    host.registerBacklogItemAction({
+      id: 'agent-runtime.open-agent',
+      label: 'Open agent',
+      category: 'execute',
+      order: 20,
+      isVisible: ({ item }) => item.status !== 'archived' && hasAgentLink(item),
+      async run(context) {
+        const link = agentLinkForItem(context.item)
+        if (!link) return
+        await openAgentBacklogLink({
+          ...context,
+          link,
+          ports: await agentBacklogOpenPorts(),
+        })
+      },
+    })
   },
 }

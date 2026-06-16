@@ -15,6 +15,7 @@ import { createAgentStreamWatcher } from './agent-stream-watcher'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   cleanupTerminalStartupScript,
+  applyAgentIdentityEnv,
   getPlainShellLaunchConfig,
   getShellLaunchConfig,
   getTerminalEnv,
@@ -1419,6 +1420,7 @@ async function spawnTerminalFromIpc(
     kind,
     workspaceId,
     agentId,
+    agentName,
     terminalId,
     executionMode,
     worktreeId,
@@ -1629,7 +1631,11 @@ async function spawnTerminalFromIpc(
         cols: initialSize.cols,
         rows: initialSize.rows,
         cwd: launchCwd ?? workingDirectory,
-        env: env ?? getTerminalEnv(),
+        // Expose this agent's identity so a typed Backlog handoff can record the
+        // item ↔ agent link. Strips any inherited identity first, so plain
+        // terminals carry none and a moved/relaunched session never keeps a
+        // stale id.
+        env: applyAgentIdentityEnv(env ?? getTerminalEnv(), { workspaceId, agentId, agentName }),
       })
       const startedAt = Date.now()
       const terminalSession: TerminalSession = {

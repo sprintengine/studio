@@ -26,6 +26,8 @@ import { renderMarkdown } from '../../utils/markdown'
 import { basename } from '../../utils/paths'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
 import { sendFileDropToTerminal, setFileDropData, type FileDropPayload } from '../../utils/terminalDrop'
+import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
+import { consumePendingBacklogReveal, subscribeBacklogReveal } from '../../utils/backlogReveal'
 import {
   backlogPreviewMarkdown,
   backlogRootPath,
@@ -279,6 +281,43 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     observer.observe(node)
     return () => observer.disconnect()
   }, [])
+
+  // Reverse navigation from an agent terminal's Backlog glyph: select the
+  // requested item. The glyph often reveals this panel cold, so resolution is
+  // deferred to a `pendingReveal` that is matched once the scan loads (below),
+  // rather than dropped if the scan isn't ready when the signal arrives. The
+  // initial value drains the latch for a reveal dispatched before mount.
+  const [pendingReveal, setPendingReveal] = useState<string | null>(() =>
+    consumePendingBacklogReveal(workspaceId),
+  )
+  useEffect(() => {
+    return subscribeBacklogReveal((detail) => {
+      if (detail.workspaceId !== workspaceId) return
+      consumePendingBacklogReveal(workspaceId)
+      setPendingReveal(detail.relativePath)
+    })
+  }, [workspaceId])
+  useEffect(() => {
+    if (!pendingReveal) return
+    const wanted = pendingReveal.replace(/\\/g, '/').toLowerCase()
+    const item = items.find(
+      (candidate) => candidate.relativePath.replace(/\\/g, '/').toLowerCase() === wanted,
+    )
+    if (item) {
+      // `selected` derives from `filtered`, so reset search and the lens (to the
+      // item's own view if archived, else all) to keep the row visible in the
+      // list beside its detail.
+      setPendingReveal(null)
+      setSearch('')
+      setView(item.status === 'archived' ? 'archived' : 'all')
+      setSelectedId(item.id)
+      setShowDetailInSingle(true)
+    } else if (items.length > 0) {
+      // Scan is loaded and the item isn't here (e.g. just deleted): give up
+      // quietly — the panel is at least open. An empty scan keeps waiting.
+      setPendingReveal(null)
+    }
+  }, [pendingReveal, items])
 
   const selectAt = useCallback(
     (index: number) => {
@@ -754,6 +793,18 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         }
         const result = await sendFileDropToTerminal({ payload, sessionId, workspaceId })
         if (!result.ok) throw new Error(result.message)
+        // Record the item ↔ agent link on both sides (same as the drag-drop
+        // handoff). The scanned title is passed through so the agent glyph's
+        // tooltip matches the panel without re-deriving from the path.
+        if (result.backlog) {
+          void recordBacklogAgentHandoff({
+            workspaceId,
+            workspaceRoot: result.backlog.workspaceRoot,
+            agentId: result.backlog.agentId,
+            relativePath: result.backlog.relativePath,
+            title: item.title,
+          })
+        }
       }),
     [folderPath, runAction, workspaceId],
   )

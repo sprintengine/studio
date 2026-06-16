@@ -46,6 +46,7 @@ async function main(): Promise<void> {
   testThemeArgsSpread()
   testThemeIgnoredWithoutThemeSelection()
   testThemeArgsOnResume()
+  testThemeSchemesMapping()
 
   console.log('plugin-render tests passed')
 }
@@ -347,6 +348,32 @@ function testThemeArgsOnResume(): void {
   })
   const resumed = renderPluginResume(manifest, { sessionId: 'exec_9', colorScheme: 'dark' })
   assert.deepEqual(resumed?.argv, ['test', '--settings', '{"theme":"dark"}', '--resume', 'exec_9'])
+}
+
+function testThemeSchemesMapping(): void {
+  // Codex has no literal light/dark value; it takes a named syntax theme. The
+  // scheme resolves through `schemes` and is exposed to args as {{themeName}}.
+  const manifest = baseManifest({
+    themeSelection: {
+      args: ['-c', 'tui.theme="{{themeName}}"'],
+      schemes: { light: 'catppuccin-latte', dark: 'catppuccin-mocha' },
+    },
+    launch: { argv: ['{{binary}}', { spreadIf: 'themeArgs' }, '{{prompt}}'] },
+  })
+
+  const light = renderPluginLaunch(manifest, { prompt: 'hi', colorScheme: 'light' })
+  assert.deepEqual(light.argv, ['test', '-c', 'tui.theme="catppuccin-latte"', 'hi'])
+
+  const dark = renderPluginLaunch(manifest, { prompt: 'hi', colorScheme: 'dark' })
+  assert.deepEqual(dark.argv, ['test', '-c', 'tui.theme="catppuccin-mocha"', 'hi'])
+
+  // No scheme reported → no theme args; Codex keeps its own detection.
+  const none = renderPluginLaunch(manifest, { prompt: 'hi' })
+  assert.deepEqual(none.argv, ['test', 'hi'])
+
+  // A scheme the map doesn't cover renders nothing rather than a broken arg.
+  const unmapped = renderPluginLaunch(manifest, { prompt: 'hi', colorScheme: 'sepia' })
+  assert.deepEqual(unmapped.argv, ['test', 'hi'])
 }
 
 main().catch((err) => {

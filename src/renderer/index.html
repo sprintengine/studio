@@ -39,7 +39,7 @@
           // pre-paint guard. Light-surface themes each pre-paint their own warm
           // or cool canvas so a light theme never flashes the dark ink scale;
           // everything else falls through to the dark ink scale.
-          var prePaint = { light: '#f6f6f4', vellum: '#e8e0d0' }
+          var prePaint = { light: '#f6f6f4', vellum: '#e8e0d0', herbarium: '#d4dcc0' }
           document.documentElement.style.backgroundColor = prePaint[theme] || '#08090b'
         } catch (e) {
           document.documentElement.setAttribute('data-theme', 'dark')

@@ -15,6 +15,7 @@ import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import { resolveAvailableAgentCli, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
+import type { NotificationActionContext } from '../../modules/renderer-host'
 import {
   deriveWorkspaceLastOutputAt,
   deriveWorkspaceTerminalActivity,
@@ -36,6 +37,7 @@ import {
 import type {
   AgentCli,
   AgentCliModelSelection,
+  AppNotification,
   FuturePlanWorkspaceSource,
   LayoutTemplate,
   MultiloopRole,
@@ -271,6 +273,46 @@ export default function WorkspaceManager() {
   const markNotificationRead = useNotificationStore((s) => s.markRead)
   const markAllNotificationsRead = useNotificationStore((s) => s.markAllRead)
   const clearNotifications = useNotificationStore((s) => s.clearAll)
+
+  // Resolve a notification's Open action(s). Two layers (see
+  // backlog/2026-06-14-notification-open-action-deep-link.md): the owning
+  // module's registered provider can return a deep-focus action (e.g. open the
+  // Sprint Engine task), and the shell guarantees a generic workspace-reveal
+  // fallback for any notification that names a workspace. Open is offered only
+  // when at least that baseline is possible (a workspaceId is present); a
+  // notification with no workspace gets no Open. Provider modules that are
+  // disabled drop out, exactly like Backlog item actions.
+  const resolveNotificationActions = useCallback(
+    (notification: AppNotification) => {
+      const workspaceId = notification.workspaceId
+      if (!workspaceId) return []
+      const context: NotificationActionContext = {
+        notification,
+        revealWorkspace: (id) => setActiveWorkspaceForWindow(workspaceWindowId, id),
+      }
+      const providerActions = getRendererHost()
+        .getNotificationActionProviders((moduleId) => selectModuleEnabled(moduleEnablement, moduleId))
+        .filter((provider) => provider.source === notification.source)
+        .flatMap((provider) => provider.resolveActions(context))
+        .filter((action) => (action.isVisible ? action.isVisible(context) : true))
+      const actions =
+        providerActions.length > 0
+          ? providerActions
+          : [
+              {
+                id: 'reveal-workspace',
+                label: 'Open',
+                run: (ctx: NotificationActionContext) => ctx.revealWorkspace(workspaceId),
+              },
+            ]
+      return actions.map((action) => ({
+        id: action.id,
+        label: action.label,
+        run: () => action.run(context),
+      }))
+    },
+    [moduleEnablement, setActiveWorkspaceForWindow, workspaceWindowId]
+  )
 
   const currentWorkspaceWindow = useMemo(
     () => workspaceWindows.find((windowState) => windowState.id === workspaceWindowId)
@@ -1982,6 +2024,7 @@ export default function WorkspaceManager() {
         markNotificationRead={markNotificationRead}
         markAllNotificationsRead={markAllNotificationsRead}
         clearNotifications={clearNotifications}
+        resolveNotificationActions={resolveNotificationActions}
         voiceDictationEnabled={voiceDictationEnabled}
         voiceRecording={voiceDictation.recording}
         voiceTranscribing={voiceDictation.transcribing}

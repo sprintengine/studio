@@ -261,6 +261,8 @@ async function publishArtifactApprovalWarning(
     workspaceId: workspace.id,
     workspaceName: workspace.name,
     taskId: artifact.taskId || undefined,
+    // Lets the notification's Open action deep-link to the producing task.
+    navigationTarget: artifact.taskId ? { kind: 'task', ref: artifact.taskId } : undefined,
   })
 }
 
@@ -298,6 +300,8 @@ async function publishAutoApprovalDiagnostic(
     agentId: input.agentId,
     taskId: input.taskId,
     sessionId: input.sessionId,
+    // Lets the notification's Open action deep-link to the task it is about.
+    navigationTarget: input.taskId ? { kind: 'task', ref: input.taskId } : undefined,
   })
 }
 

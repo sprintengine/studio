@@ -53,7 +53,10 @@ export type BacklogItemLinkStatus = 'active' | 'completed' | 'failed' | 'unknown
 export type BacklogItemLink = {
   id: string
   moduleId: string
-  type: 'execution' | 'issue' | 'review' | 'artifact' | 'external'
+  // `agent` is lifecycle-neutral: unlike `execution`, an active agent link
+  // never drives item status (see nextBacklogItemStatusFromLinks). It records
+  // which agent terminal is working the item, for two-way navigation.
+  type: 'execution' | 'issue' | 'review' | 'artifact' | 'external' | 'agent'
   label: string
   target: {
     kind: string

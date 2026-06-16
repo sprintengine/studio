@@ -152,6 +152,32 @@ matches links for the current workspace run and persists link/item completion
 through `addOrUpdateBacklogLink`. Failed reads or writes warn and leave Backlog
 status unchanged.
 
+## Agent Terminal Links
+
+The always-on `agent-runtime` core module owns the built-in `agent.terminal`
+provider — the bidirectional link between a Backlog item and the agent terminal
+working it. These links use the dedicated `agent` link **type**, which is
+lifecycle-neutral: like all non-execution links it never moves item status, so a
+live agent terminal cannot flip a `completed` item back to `in_progress`.
+Completion authority stays with the Backlog item status (set by the backlog
+skill), never the terminal's liveness.
+
+The link is written at the handoff moment — dragging a `backlog/...` file into an
+agent terminal, or the row "Send to agent" action. The link target id is the
+composite `<workspaceId>/<agentId>`, the only durable navigation key (PTY and CLI
+session ids are reaped or change across relaunch). A fixed link id means
+re-handing an item to a different agent replaces the link rather than
+accumulating stale ones. Worktree agents are excluded — they receive plain-path
+pastes and must not fork the Backlog object store.
+
+Resolve reports `active` when the agent's workspace is open and the agent still
+exists; otherwise `unknown` with a visible reason. Opening activates the agent's
+workspace and focuses its terminal tab, exposed both as the detail-pane link row
+and an `Open agent` item action. The reverse direction (a glyph on the agent
+terminal that selects the item in the Backlog panel) is driven by
+`AgentState.backlogItemRef` and a dedicated reveal latch, internal to the app
+rather than part of this plugin contract.
+
 ## Permissions
 
 Bundled modules are first-party. Third-party capability modules declare

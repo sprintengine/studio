@@ -16,7 +16,9 @@ import {
   isAgentCliMissing,
   selectAgentCliCatalog,
 } from '../workspace/newWorkspace/cliRuntimeOptions'
-import { PrimaryButton } from '../ui'
+import { PrimaryButton, Tooltip } from '../ui'
+import { revealNavRailComponent } from '../../utils/modelRegistry'
+import { dispatchBacklogReveal } from '../../utils/backlogReveal'
 
 const TerminalView = React.lazy(() => import('./TerminalView'))
 const AgentChatView = React.lazy(() => import('./AgentChatView'))
@@ -152,9 +154,44 @@ export default function AgentPanel({
     )
   }
 
+  // The Backlog item this agent was handed, if any. Powers the glyph that
+  // navigates back to it: reveal the Backlog panel, then latch the item so the
+  // panel selects it whether it was already open or mounts on reveal.
+  const backlogItemRef = agent?.backlogItemRef
+  const openLinkedBacklogItem = () => {
+    if (!backlogItemRef) return
+    revealNavRailComponent(workspaceId, 'backlog', 'Backlog')
+    dispatchBacklogReveal({ workspaceId, relativePath: backlogItemRef.relativePath })
+  }
+
   return (
     <div className={`flex h-full flex-col bg-[color:var(--bg-surface)] font-mono text-[12px] text-[color:var(--text-default)] ${cliShellTone}`}>
       <div className={`relative flex-1 overflow-hidden bg-[color:var(--bg-app)] ${needsInput ? 'shadow-[inset_0_1px_0_var(--tone-warn-soft)]' : ''}`}>
+        {hasStarted && backlogItemRef ? (
+          // The positioning lives on this wrapper, not the button: Tooltip wraps
+          // its child in a `position: relative` span, so an `absolute` button
+          // would anchor to that zero-size span (off-screen) instead of the
+          // terminal surface.
+          <div className="absolute right-2 top-2 z-30">
+            <Tooltip content={`Open Backlog item: ${backlogItemRef.title}`} placement="bottom">
+              <button
+                type="button"
+                onClick={openLinkedBacklogItem}
+                aria-label={`Open Backlog item: ${backlogItemRef.title}`}
+                className="interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] shadow-sm transition-colors hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+              >
+                {/* Matches the Backlog rail glyph (PanelRail) so the iconography
+                    reads as "the Backlog" at a glance. */}
+                <svg viewBox="0 0 16 16" fill="none" className="h-[15px] w-[15px]" aria-hidden="true">
+                  <path d="M6 4.5h7M6 8h7M6 11.5h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                  <circle cx="3" cy="4.5" r="1" fill="currentColor" />
+                  <circle cx="3" cy="8" r="1" fill="currentColor" />
+                  <circle cx="3" cy="11.5" r="1" fill="currentColor" />
+                </svg>
+              </button>
+            </Tooltip>
+          </div>
+        ) : null}
         {hasStarted ? (
           <React.Suspense fallback={null}>
             <TerminalView

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 
 import { createRendererHost, type WorkspaceTypeDefinition } from './renderer-host'
-import type { LayoutTemplate } from '../types/workspace'
+import type { NotificationActionContext } from './renderer-host'
+import type { AppNotification, LayoutTemplate } from '../types/workspace'
 
 const template: LayoutTemplate = {
   id: 'workspace-type-test',
@@ -289,3 +290,83 @@ assert.deepEqual(
 )
 
 console.log('renderer host settings section tests passed')
+
+// --- Notification action providers ---
+
+function notification(overrides: Partial<AppNotification> = {}): AppNotification {
+  return {
+    id: 'n1',
+    timestamp: '2026-06-16T00:00:00.000Z',
+    level: 'warning',
+    source: 'sprintengine',
+    title: 'Needs input',
+    message: 'A task is waiting.',
+    read: false,
+    workspaceId: 'ws-1',
+    ...overrides,
+  }
+}
+
+const notificationHost = createRendererHost()
+let revealed: string | null = null
+const context: NotificationActionContext = {
+  notification: notification({ navigationTarget: { kind: 'task', ref: 'T-7' } }),
+  revealWorkspace: (id) => {
+    revealed = id
+  },
+}
+
+notificationHost.hostFor('sprint-engine').registerNotificationActionProvider({
+  source: 'sprintengine',
+  resolveActions: ({ notification: entry, revealWorkspace }) => {
+    const target = entry.navigationTarget
+    if (!entry.workspaceId || target?.kind !== 'task' || !target.ref) return []
+    return [
+      {
+        id: 'open-task',
+        label: 'Open',
+        run: () => revealWorkspace(entry.workspaceId as string),
+      },
+    ]
+  },
+})
+
+assert.throws(
+  () =>
+    notificationHost.hostFor('other').registerNotificationActionProvider({
+      source: 'sprintengine',
+      resolveActions: () => [],
+    }),
+  /Notification action provider for source "sprintengine" is already registered by module "sprint-engine"/,
+  'one provider per source — a duplicate source registration fails clearly',
+)
+
+const providers = notificationHost.getNotificationActionProviders()
+assert.equal(providers.length, 1, 'the registered provider is returned')
+assert.equal(providers[0]?.moduleId, 'sprint-engine', 'the provider records its owning module')
+
+const actions = providers[0]!.resolveActions(context)
+assert.deepEqual(
+  actions.map((action) => action.id),
+  ['open-task'],
+  'resolveActions surfaces the deep-link action for a task-targeted notification',
+)
+actions[0]!.run(context)
+assert.equal(revealed, 'ws-1', 'running the action composes the shell revealWorkspace capability')
+
+assert.deepEqual(
+  providers[0]!.resolveActions({
+    notification: notification({ navigationTarget: undefined }),
+    revealWorkspace: () => {},
+  }),
+  [],
+  'a notification with no task target yields no provider action (shell reveal fallback covers it)',
+)
+
+assert.deepEqual(
+  notificationHost.getNotificationActionProviders((moduleId) => moduleId !== 'sprint-engine'),
+  [],
+  'a disabled module\'s provider is filtered out reactively',
+)
+
+console.log('renderer host notification action provider tests passed')

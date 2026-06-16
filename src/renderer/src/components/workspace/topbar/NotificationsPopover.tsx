@@ -86,18 +86,30 @@ function NotificationSeverityGlyph({ level }: { level: DiagnosticLevel }) {
   )
 }
 
+// A resolved, ready-to-run Open action for one notification. The shell builds
+// these (workspace reveal + any module deep-focus); the popover stays pure and
+// only renders + triggers them.
+export type NotificationRowAction = {
+  id: string
+  label: string
+  run: () => void | Promise<void>
+}
+
 export function NotificationsPopover({
   notifications,
   onMarkRead,
   onMarkAllRead,
   onClear,
   onOpenLogs,
+  resolveActions,
 }: {
   notifications: AppNotification[]
   onMarkRead: (id: string) => void
   onMarkAllRead: () => void
   onClear: () => void
   onOpenLogs: () => void
+  /** Resolve a notification's Open action(s); empty when none is possible. */
+  resolveActions?: (notification: AppNotification) => NotificationRowAction[]
 }) {
   const [copyErrorId, setCopyErrorId] = useState<string | null>(null)
   // View-only severity filter. Empty = show everything; otherwise show only the
@@ -232,7 +244,9 @@ export function NotificationsPopover({
               >
                 {DAY_BUCKET_LABEL[group.bucket]}
               </div>
-              {group.items.map((notification) => (
+              {group.items.map((notification) => {
+                const rowActions = resolveActions?.(notification) ?? []
+                return (
                 <div
                   key={notification.id}
                   role="menuitem"
@@ -264,6 +278,19 @@ export function NotificationsPopover({
                         </div>
                       ) : null}
                       <div className="mt-2 flex items-center gap-1.5">
+                        {rowActions.map((action) => (
+                          <button
+                            key={action.id}
+                            type="button"
+                            onClick={() => {
+                              onMarkRead(notification.id)
+                              void action.run()
+                            }}
+                            className="rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-[11px] font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                          >
+                            {action.label}
+                          </button>
+                        ))}
                         <button
                           type="button"
                           onClick={() => void copyNotification(notification)}
@@ -293,7 +320,8 @@ export function NotificationsPopover({
                     </div>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           ))}
         </div>

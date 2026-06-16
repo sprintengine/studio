@@ -17,8 +17,17 @@ export type FileDropPayload = {
   }>
 }
 
+// Identifies a drop that handed a single backlog/ item to an agent terminal, so
+// the caller can record the Backlog item ↔ agent link on both sides. Present
+// only for real handoffs (see backlogItemDropDescriptor for the gating).
+export type BacklogDropDescriptor = {
+  relativePath: string
+  agentId: string
+  workspaceRoot: string
+}
+
 export type TerminalDropResult =
-  | { ok: true; text: string }
+  | { ok: true; text: string; backlog?: BacklogDropDescriptor }
   | { ok: false; message: string }
 
 export function setFileDropData(
@@ -100,17 +109,50 @@ export async function sendFileDropToTerminal(input: {
   )
   if (!session) return { ok: false, message: 'Terminal session is no longer running.' }
 
+  // Same gating as the skill invocation, but recorded even when the paste falls
+  // back to a plain path (unsupported CLI) — a handoff is a handoff.
+  const backlog = backlogItemDropDescriptor(payload, session) ?? undefined
+
   const skillInvocation = await resolveBacklogSkillInvocation(payload, session)
   if (skillInvocation) {
     await window.api.terminalWrite(input.sessionId, bracketedPaste(skillInvocation))
-    return { ok: true, text: skillInvocation }
+    return { ok: true, text: skillInvocation, ...(backlog ? { backlog } : {}) }
   }
 
   const text = formatDroppedPathsForTerminal(payload, session)
   if (!text) return { ok: false, message: 'No valid file path was available to drop.' }
 
   await window.api.terminalWrite(input.sessionId, bracketedPaste(text))
-  return { ok: true, text }
+  return { ok: true, text, ...(backlog ? { backlog } : {}) }
+}
+
+// The backlog/ relative path for a single-file drop onto an agent terminal, or
+// null. Shared by the skill-invocation gate and the link-recording descriptor.
+// Excludes non-agent sessions, worktree agents (they keep plain-path pastes and
+// must not fork the object store), multi-file drops, directories, and
+// non-backlog paths.
+function backlogDropRelativePath(
+  payload: FileDropPayload,
+  session: TerminalSessionSnapshot,
+): string | null {
+  if (session.kind !== 'agent') return null
+  if (session.executionMode === 'worktree' || session.worktreePath) return null
+  if (payload.files.length !== 1) return null
+  const [file] = payload.files
+  if (file.isDir || !isSafeDroppedPath(file.path)) return null
+  return backlogRelativePath(payload.rootPath, file.path)
+}
+
+// The Backlog item + agent identity for a drop that hands a single backlog/ file
+// to an agent terminal session, for recording the item ↔ agent link. Null
+// unless the path qualifies AND the session carries an agent id to link to.
+export function backlogItemDropDescriptor(
+  payload: FileDropPayload,
+  session: TerminalSessionSnapshot,
+): BacklogDropDescriptor | null {
+  const relativePath = backlogDropRelativePath(payload, session)
+  if (!relativePath || !session.agentId) return null
+  return { relativePath, agentId: session.agentId, workspaceRoot: payload.rootPath }
 }
 
 // A single backlog/ item dropped into a supported agent terminal pastes the
@@ -232,13 +274,10 @@ async function resolveBacklogSkillInvocation(
 }
 
 function isBacklogSkillDropCandidate(payload: FileDropPayload, session: TerminalSessionSnapshot): boolean {
-  if (session.kind !== 'agent') return false
-  if (session.executionMode === 'worktree' || session.worktreePath) return false
-  if (payload.files.length !== 1) return false
-  const [file] = payload.files
-  if (file.isDir || !isSafeDroppedPath(file.path)) return false
-  const relativePath = backlogRelativePath(payload.rootPath, file.path)
-  return Boolean(relativePath) && !relativePath!.includes("'")
+  const relativePath = backlogDropRelativePath(payload, session)
+  // The single-quote guard is a skill-invocation concern (the quoted-path
+  // template); link recording accepts the path regardless.
+  return relativePath !== null && !relativePath.includes("'")
 }
 
 function hasInstalledNativeSkillTarget(

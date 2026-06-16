@@ -6,6 +6,7 @@ import { basename } from '../utils/paths'
 import { slugifySprintEngineName } from '../utils/sprintengineStateFile'
 import { markdownTitle } from '../components/workspace/newWorkspace/helpers'
 import { normalizeSprintEngineProjection } from '../utils/sprintengine'
+import { dispatchRevealTarget } from '../utils/revealTarget'
 import {
   hasSprintEngineRunLink,
   openSprintEngineBacklogLink,
@@ -152,6 +153,30 @@ export const sprintEngineRendererModule: RendererModule = {
         ...input,
         ports: await sprintEngineBacklogOpenPorts(),
       }),
+    })
+    // Deep-link from a Sprint Engine notification to the task it is about. The
+    // shell already reveals the workspace (its generic fallback); this provider
+    // adds the board-task focus on top when the notification carries a
+    // `{ kind: 'task' }` navigation target. With no task target it returns
+    // nothing and the shell's workspace-reveal fallback still gives the user an
+    // Open.
+    host.registerNotificationActionProvider({
+      source: 'sprintengine',
+      resolveActions: ({ notification, revealWorkspace }) => {
+        const workspaceId = notification.workspaceId
+        const target = notification.navigationTarget
+        if (!workspaceId || target?.kind !== 'task' || !target.ref) return []
+        return [
+          {
+            id: 'sprint-engine.open-task',
+            label: 'Open',
+            run: () => {
+              revealWorkspace(workspaceId)
+              dispatchRevealTarget({ workspaceId, target })
+            },
+          },
+        ]
+      },
     })
     host.registerBacklogItemAction({
       id: 'sprint-engine.start-from-backlog',

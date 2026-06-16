@@ -1303,10 +1303,10 @@ function ConflictGroup({
             <span className="flex min-w-0 items-baseline font-mono">
               {pathParts.directory ? (
                 <>
-                  <span className="min-w-0 shrink truncate opacity-60 [direction:rtl]">
+                  <span className="min-w-0 shrink truncate text-[color:var(--text-muted)] [direction:rtl]">
                     {pathParts.directory}
                   </span>
-                  <span className="shrink-0 opacity-60">/</span>
+                  <span className="shrink-0 text-[color:var(--text-muted)]">/</span>
                 </>
               ) : null}
               <span className={`min-w-0 max-w-full shrink-0 truncate font-semibold ${appearance.textClass}`}>{pathParts.filename}</span>
@@ -1413,10 +1413,10 @@ function ChangeGroup({
                 <span className="flex min-w-0 items-baseline font-mono">
                   {pathParts.directory ? (
                     <>
-                      <span className="min-w-0 shrink truncate opacity-60 [direction:rtl]">
+                      <span className="min-w-0 shrink truncate text-[color:var(--text-muted)] [direction:rtl]">
                         {pathParts.directory}
                       </span>
-                      <span className="shrink-0 opacity-60">/</span>
+                      <span className="shrink-0 text-[color:var(--text-muted)]">/</span>
                     </>
                   ) : null}
                   <span className={`min-w-0 max-w-full shrink-0 truncate ${appearance.textClass}`}>

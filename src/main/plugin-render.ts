@@ -95,10 +95,24 @@ function buildVariableScope(
   // Rendered only when the host reported a color scheme AND the manifest declares
   // themeSelection; otherwise empty, so a CLI without theme support — or before
   // the renderer has pushed a scheme — keeps its own configured theme.
+  //
+  // When the manifest provides a `schemes` map (for CLIs with no literal
+  // "light"/"dark" value, e.g. Codex's named syntax themes), the active scheme
+  // resolves through it and is exposed as `{{themeName}}`. Without a map, the
+  // templates substitute `{{colorScheme}}` directly. A scheme that the map
+  // doesn't cover yields no theme args — better to let the CLI keep its own
+  // detection than to force a wrong or empty theme.
   const colorScheme = context.colorScheme?.trim()
-  const themeArgTemplates = manifest.themeSelection?.args
-  if (colorScheme && themeArgTemplates && themeArgTemplates.length > 0) {
+  const themeSelection = manifest.themeSelection
+  const themeArgTemplates = themeSelection?.args
+  const themeName = themeSelection?.schemes
+    ? colorScheme === 'light' || colorScheme === 'dark'
+      ? themeSelection.schemes[colorScheme]
+      : undefined
+    : colorScheme
+  if (colorScheme && themeName && themeArgTemplates && themeArgTemplates.length > 0) {
     scope.set('colorScheme', colorScheme)
+    scope.set('themeName', themeName)
     scope.set(
       'themeArgs',
       themeArgTemplates.map((template) => substituteString(template, scope))

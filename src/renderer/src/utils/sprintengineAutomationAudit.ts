@@ -38,6 +38,7 @@ export function auditSprintEngineManualModeTransition(input: {
     workspaceId: input.workspaceId,
     ...(input.workspaceName ? { workspaceName: input.workspaceName } : {}),
     ...(input.taskId ? { taskId: input.taskId } : {}),
+    ...(input.taskId ? { navigationTarget: { kind: 'task', ref: input.taskId } } : {}),
     ...(input.agentId ? { agentId: input.agentId } : {}),
   })
 }
@@ -69,6 +70,7 @@ export function auditSprintEngineLifecycleTransition(input: {
     workspaceId: input.workspaceId,
     ...(input.workspaceName ? { workspaceName: input.workspaceName } : {}),
     ...(input.taskId ? { taskId: input.taskId } : {}),
+    ...(input.taskId ? { navigationTarget: { kind: 'task', ref: input.taskId } } : {}),
     ...(input.agentId ? { agentId: input.agentId } : {}),
   })
 }

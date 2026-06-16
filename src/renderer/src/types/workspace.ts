@@ -1557,6 +1557,17 @@ export type DiagnosticSource =
   | 'voice'
   | 'workspace'
 
+// A typed, serializable deep-focus target for a notification's Open action. The
+// shell treats it as opaque (it only knows how to reveal the workspace); the
+// owning module interprets `kind`/`ref` (e.g. Sprint Engine resolves
+// `{ kind: 'task', ref: <taskId> }` to its board selection). Must stay plain
+// data — notifications persist to localStorage, so this never carries a
+// callback.
+export type NotificationNavigationTarget = {
+  kind: string
+  ref: string
+}
+
 export type DiagnosticLogInput = {
   level: DiagnosticLevel
   source: DiagnosticSource
@@ -1568,6 +1579,7 @@ export type DiagnosticLogInput = {
   agentId?: string
   taskId?: string
   sessionId?: string
+  navigationTarget?: NotificationNavigationTarget
 }
 
 export type DiagnosticLogEntry = DiagnosticLogInput & {
@@ -1624,6 +1636,19 @@ export type AgentState = {
   kind?: AgentKind
   specialistId?: SpecialistActionId
   multiloopRole?: MultiloopRole
+  // The Backlog item this agent was last handed (drag-drop or send-to-agent).
+  // Powers the top-right glyph on the agent terminal that navigates back to the
+  // item. Latest-wins: one ref per agent, mirroring the most-recent-wins
+  // fixed link id on the Backlog item side. Undefined when no item was handed.
+  backlogItemRef?: AgentBacklogItemRef
+}
+
+export type AgentBacklogItemRef = {
+  // Project-root-relative `backlog/...` path; the select key for reverse nav.
+  relativePath: string
+  // Item title, kept so the glyph's tooltip/accessible name needs no file read.
+  title: string
+  linkedAt: number
 }
 
 export type AgentConfig = {

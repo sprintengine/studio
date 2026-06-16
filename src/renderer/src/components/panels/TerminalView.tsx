@@ -27,6 +27,7 @@ import {
   pasteDroppedCommitIntoTerminal,
   pasteDroppedFilesIntoTerminal,
 } from '../../utils/terminalDrop'
+import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
 import { MONO_FONT_STACK, waitForMonoFontReady } from '../../utils/fonts'
 import { isImageFile } from '../../utils/files'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
@@ -683,6 +684,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           kind: 'agent',
           workspaceId,
           agentId,
+          agentName: finalAgent.name,
           executionMode: executionRoot.mode,
           worktreeId: executionRoot.worktreeId,
           worktreePath: executionRoot.worktreePath,
@@ -883,7 +885,22 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       message: error instanceof Error ? error.message : 'Could not drop the file into the terminal.',
     }))
 
-    if (!result.ok) showDropError(result.message)
+    if (!result.ok) {
+      showDropError(result.message)
+      return
+    }
+
+    // A backlog/ item handed to this agent: record the link on both sides so the
+    // item shows its working agent and this terminal shows its Backlog glyph.
+    // Best-effort and non-blocking — the paste already landed.
+    if (result.backlog) {
+      void recordBacklogAgentHandoff({
+        workspaceId,
+        workspaceRoot: result.backlog.workspaceRoot,
+        agentId: result.backlog.agentId,
+        relativePath: result.backlog.relativePath,
+      })
+    }
   }
 
   return (

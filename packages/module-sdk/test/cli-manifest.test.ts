@@ -68,6 +68,27 @@ test('parseCliPluginManifest surfaces JSON errors', () => {
   assert.match(result.issues[0].message, /Invalid JSON/)
 })
 
+test('accepts themeSelection with a light/dark schemes map', () => {
+  const result = validateCliPluginManifest({
+    ...VALID,
+    themeSelection: {
+      args: ['-c', 'tui.theme="{{themeName}}"'],
+      schemes: { light: 'catppuccin-latte', dark: 'catppuccin-mocha' },
+    },
+  })
+  assert.equal(result.ok, true, result.ok ? '' : JSON.stringify(result.issues))
+})
+
+test('rejects a themeSelection schemes map missing a scheme', () => {
+  const result = validateCliPluginManifest({
+    ...VALID,
+    themeSelection: { args: ['-c', 'tui.theme="{{themeName}}"'], schemes: { light: 'catppuccin-latte' } },
+  })
+  assert.equal(result.ok, false)
+  if (result.ok) return
+  assert.ok(result.issues.some((issue) => issue.path === 'themeSelection.schemes.dark'))
+})
+
 test('accepts the bundled codex plugin.json (app and SDK agree)', () => {
   // The validator must accept manifests the running app ships and loads.
   const source = readFileSync(

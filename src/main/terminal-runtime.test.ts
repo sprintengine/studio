@@ -113,6 +113,7 @@ async function main(): Promise<void> {
     await assertSprintEngineTeardownIsSessionObjectScoped(runtimeModule)
     await assertSprintEngineConcurrentSpawnFailureKeepsReservedRun(runtimeModule)
     await assertSprintEngineSpawnDerivesFallbackAgentIdBeforeMcpSync(runtimeModule)
+    await assertAgentSpawnExposesAgentIdentityEnv(runtimeModule)
     await assertTerminalReattachUsesReplayChannel(runtimeModule)
     await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
     await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
@@ -895,6 +896,70 @@ async function assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModul
       cleanupMcpConfig: true,
     }])
   } finally {
+    await runtime.shutdown()
+  }
+}
+
+// Phase 2 of the Backlog item ↔ agent link: a launched agent terminal carries
+// its durable identity (workspaceId + agentId) and name as MULTICODE_* env vars
+// so a typed handoff can record the same link the drag-drop path writes. Only
+// the values actually present are emitted.
+async function assertAgentSpawnExposesAgentIdentityEnv(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-identity-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  // Simulate the app's own process inheriting a stale identity (e.g. launched
+  // from inside an agent shell): it must never leak into spawned terminals.
+  const priorAgentId = process.env.MULTICODE_AGENT_ID
+  process.env.MULTICODE_AGENT_ID = 'stale-leak-from-app-process'
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
+  })
+
+  try {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_identity_env',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-42',
+      agentId: 'agent-7',
+      agentName: 'Fred Walsh',
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.equal(mockPty.spawnCalls.length, 1)
+    const env = (mockPty.spawnCalls[0]?.options.env ?? {}) as Record<string, string>
+    assert.equal(env.MULTICODE_WORKSPACE_ID, 'ws-42')
+    assert.equal(env.MULTICODE_AGENT_ID, 'agent-7', 'agent identity overrides any stale inherited id')
+    assert.equal(env.MULTICODE_AGENT_NAME, 'Fred Walsh')
+
+    // No agent identity passed → identity vars are stripped, including the stale
+    // value inherited from the app process, so a plain terminal claims none.
+    mockPty.spawnCalls = []
+    const plain = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_identity_env_plain',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      kind: 'terminal',
+      terminalId: 'term-1',
+      shellOnly: true,
+    })
+    assert.equal(plain.ok, true, JSON.stringify(plain))
+    const plainEnv = (mockPty.spawnCalls[0]?.options.env ?? {}) as Record<string, string>
+    assert.equal(plainEnv.MULTICODE_AGENT_ID, undefined, 'stale inherited identity must not leak into plain terminals')
+    assert.equal(plainEnv.MULTICODE_WORKSPACE_ID, undefined)
+  } finally {
+    if (priorAgentId === undefined) delete process.env.MULTICODE_AGENT_ID
+    else process.env.MULTICODE_AGENT_ID = priorAgentId
     await runtime.shutdown()
   }
 }

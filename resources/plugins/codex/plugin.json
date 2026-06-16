@@ -28,11 +28,16 @@
     ],
     "allowCustomId": true
   },
+  "themeSelection": {
+    "args": ["-c", "tui.theme=\"{{themeName}}\""],
+    "schemes": { "light": "catppuccin-latte", "dark": "catppuccin-mocha" }
+  },
   "launch": {
     "argv": [
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
       { "spreadIf": "modelArgs" },
+      { "spreadIf": "themeArgs" },
       { "valueIf": "prompt", "value": "{{prompt}}" }
     ]
   },
@@ -41,6 +46,7 @@
     "argv": [
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
+      { "spreadIf": "themeArgs" },
       "resume"
     ]
   },

@@ -152,8 +152,17 @@ export type PluginModelSelectionSpec = {
 // Rendered only when the host has reported a scheme AND the manifest opts in, so
 // CLIs without themeSelection keep their own configured theme. Mirrors the
 // `modelSelection` → `modelArgs` pattern.
+//
+// `schemes` maps each scheme to a CLI-specific theme name for CLIs that have no
+// literal light/dark value and instead take a named theme. When set, the active
+// scheme resolves through it and is exposed to `args` as `{{themeName}}`
+// (e.g. Codex: ["-c", "tui.theme=\"{{themeName}}\""] with
+// { light: "catppuccin-latte", dark: "catppuccin-mocha" } — Codex's adaptive
+// default light/dark syntax themes). A scheme missing from the map renders no
+// theme args, so the CLI falls back to its own detection.
 export type PluginThemeSelectionSpec = {
   args: string[]
+  schemes?: { light: string; dark: string }
 }
 
 export type PluginManifest = {

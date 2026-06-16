@@ -38,6 +38,7 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { useTerminalSessions } from '../../hooks/useTerminalSessions'
 import type {
  AgentCli,
+ NotificationNavigationTarget,
  SprintEngineArtifact,
  SprintEngineAutomationMode,
  SprintEngineAutomationRuntimeState,
@@ -50,6 +51,7 @@ import type {
  SprintEngineTaskBoardColumn,
  Workspace,
 } from '../../types/workspace'
+import { consumePendingRevealTarget, subscribeRevealTarget } from '../../utils/revealTarget'
 import { SprintEngineRoleIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { selectAgentCliCatalog } from '../workspace/newWorkspace/cliRuntimeOptions'
@@ -1266,6 +1268,29 @@ function SprintEngineBoardPanelContent({
  setSelectedArtifactId(null)
  setSelectedTaskId(taskId)
  }
+
+ // Deep-link from a notification's Open action (see the Sprint Engine
+ // notification-action provider). The shell reveals the workspace; this board
+ // focuses the task. A target may arrive before this board mounted/subscribed,
+ // so we drain the pending latch on mount AND handle the live event — refreshed
+ // through a ref so re-renders don't churn the window listener. A target naming
+ // a task that isn't in this run is ignored rather than clearing the selection.
+ const revealTargetHandlerRef = useRef<(target: NotificationNavigationTarget) => void>(() => {})
+ revealTargetHandlerRef.current = (target) => {
+ if (target.kind !== 'task') return
+ if (!sprintEngineState.tasks.some((task) => task.id === target.ref)) return
+ showAutomationRuntimeTask(target.ref)
+ }
+ useEffect(() => {
+ const pending = consumePendingRevealTarget(workspaceId)
+ if (pending) revealTargetHandlerRef.current(pending)
+ return subscribeRevealTarget((detail) => {
+ if (detail.workspaceId !== workspaceId) return
+ // Clear the latch so the mount-drain path can't re-fire the same target.
+ consumePendingRevealTarget(workspaceId)
+ revealTargetHandlerRef.current(detail.target)
+ })
+ }, [workspaceId])
 
  const resumeAutomation = automationRuntimeState === 'paused'
   || automationRuntimeState === 'blocked'

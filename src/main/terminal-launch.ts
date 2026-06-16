@@ -37,6 +37,46 @@ export function getTerminalEnv(): Record<string, string> {
   return withMulticodeCliPath(withManagedBins)
 }
 
+// Per-agent identity exposed to the launched session so a typed handoff ("work
+// on backlog/foo.md") can record the same Backlog item ↔ agent link the
+// drag-drop path writes. The durable key is workspaceId + agentId (never the
+// PTY/CLI session id, which is reaped or changes across relaunch); the name is
+// for the link label. Only non-empty values are emitted, so a plain terminal or
+// an identity-less launch adds nothing. Mirrors how `withSprintEngineEnv` places
+// MULTICODE_* values directly on the session env record.
+export function agentIdentityEnv(input: {
+  workspaceId?: string
+  agentId?: string
+  agentName?: string
+}): Record<string, string> {
+  const workspaceId = input.workspaceId?.trim()
+  const agentId = input.agentId?.trim()
+  const agentName = input.agentName?.trim()
+  return {
+    ...(workspaceId ? { MULTICODE_WORKSPACE_ID: workspaceId } : {}),
+    ...(agentId ? { MULTICODE_AGENT_ID: agentId } : {}),
+    ...(agentName ? { MULTICODE_AGENT_NAME: agentName } : {}),
+  }
+}
+
+// The identity vars `agentIdentityEnv` owns. Cleared from a base env before the
+// session's own identity is applied, so a stale `MULTICODE_AGENT_ID` inherited
+// by the app's own process (e.g. the app launched from inside an agent shell)
+// never leaks into a plain terminal or the wrong agent.
+const AGENT_IDENTITY_ENV_KEYS = ['MULTICODE_WORKSPACE_ID', 'MULTICODE_AGENT_ID', 'MULTICODE_AGENT_NAME'] as const
+
+// Apply this session's agent identity onto a base env: strip any inherited
+// identity first (no leak), then set this session's values. A non-agent launch
+// passes no ids, so the result simply carries no identity.
+export function applyAgentIdentityEnv(
+  baseEnv: Record<string, string>,
+  input: { workspaceId?: string; agentId?: string; agentName?: string }
+): Record<string, string> {
+  const next = { ...baseEnv }
+  for (const key of AGENT_IDENTITY_ENV_KEYS) delete next[key]
+  return { ...next, ...agentIdentityEnv(input) }
+}
+
 function withSprintEngineEnv(
   env: Record<string, string>,
   cwd: string,
