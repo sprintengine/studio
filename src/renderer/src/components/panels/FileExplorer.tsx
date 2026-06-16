@@ -415,6 +415,24 @@ function hasExplorerMovePayload(dataTransfer: DataTransfer): boolean {
   return Array.from(dataTransfer.types).includes(MULTICODE_EXPLORER_MOVE_MIME)
 }
 
+// True for OS-level file drags (Finder, desktop, browser). The browser only adds
+// the read-only `Files` type for native drags, so this never matches an in-app
+// explorer move, which carries MULTICODE_EXPLORER_MOVE_MIME instead.
+function hasNativeFileDrop(dataTransfer: DataTransfer): boolean {
+  return Array.from(dataTransfer.types).includes('Files')
+}
+
+// `dataTransfer.files` is only populated on drop, not during dragover. Resolve
+// each entry to a real disk path via Electron's getPathForFile bridge.
+function collectNativeDropPaths(dataTransfer: DataTransfer): string[] {
+  return Array.from(dataTransfer.files)
+    .map((file) => {
+      const path = window.api.getPathForFile(file) || (file as File & { path?: unknown }).path
+      return typeof path === 'string' && path.trim() ? path : null
+    })
+    .filter((path): path is string => Boolean(path))
+}
+
 function parentDirectoriesForPath(rootPath: string, filePath: string): string[] {
   if (!isPathOrChild(filePath, rootPath) || filePath === rootPath) return []
 
@@ -705,6 +723,7 @@ function ExplorerTree({
   const [searchDiagnostics, setSearchDiagnostics] = useState<FileSearchDiagnostics | null>(null)
   const [renameDraft, setRenameDraft] = useState<RenameDraft | null>(null)
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null)
+  const [rootDropActive, setRootDropActive] = useState(false)
   const [errorToast, setErrorToast] = useState<string | null>(null)
   const refreshTimeoutRef = useRef<number | null>(null)
   const searchTimeoutRef = useRef<number | null>(null)
@@ -1392,21 +1411,75 @@ function ExplorerTree({
     }
   }
 
-  const handleFolderDragOver = (event: React.DragEvent<HTMLDivElement>, entry: Entry) => {
-    if (!entry.isDir || entry.gitDeleted) return
-    if (!hasExplorerMovePayload(event.dataTransfer) && !activeMoveDragRef.current) return
-
-    const payload = readMoveDragPayload(event.dataTransfer)
-    if (!payload || !canDropMovePayload(payload, entry.path)) {
-      event.dataTransfer.dropEffect = 'none'
-      setDropTargetPath(null)
+  // Copy OS files/folders dropped from Finder (etc.) into a directory in the
+  // tree. Each copy is independent so one name collision does not abort the rest.
+  const copyExternalFilesIntoDirectory = async (sourcePaths: string[], targetDir: string) => {
+    if (!sourcePaths.length) return
+    if (typeof window.api.copyPathInto !== 'function') {
+      showError('Copying files into the explorer is not supported in this build.')
       return
     }
 
-    event.preventDefault()
-    event.stopPropagation()
-    event.dataTransfer.dropEffect = 'move'
-    setDropTargetPath(entry.path)
+    const copiedPaths: string[] = []
+    const errors: string[] = []
+    for (const sourcePath of sourcePaths) {
+      try {
+        copiedPaths.push(await window.api.copyPathInto(sourcePath, targetDir))
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error))
+      }
+    }
+
+    if (errors.length) {
+      showError(errors.join('\n'))
+    }
+
+    setExpandedPaths((current) => ({ ...current, [targetDir]: true }))
+    await refreshParentDirectory(targetDir)
+    if (isSearching) {
+      applySearchResponse(await searchFiles(
+        rootPath,
+        latestSearchQueryRef.current,
+        latestGitStatusRef.current,
+        latestSearchExcludesRef.current
+      ))
+    }
+
+    if (copiedPaths.length) {
+      selectionAnchorPathRef.current = copiedPaths[0]
+      setSelectedPath(copiedPaths[0])
+      setSelectedPaths(new Set(copiedPaths))
+      focusTree()
+    }
+    void refreshGitStatus()
+  }
+
+  const handleFolderDragOver = (event: React.DragEvent<HTMLDivElement>, entry: Entry) => {
+    if (!entry.isDir || entry.gitDeleted) return
+
+    // In-app move takes precedence over an external copy.
+    if (hasExplorerMovePayload(event.dataTransfer) || activeMoveDragRef.current) {
+      const payload = readMoveDragPayload(event.dataTransfer)
+      if (!payload || !canDropMovePayload(payload, entry.path)) {
+        event.dataTransfer.dropEffect = 'none'
+        setDropTargetPath(null)
+        return
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+      event.dataTransfer.dropEffect = 'move'
+      setDropTargetPath(entry.path)
+      return
+    }
+
+    if (hasNativeFileDrop(event.dataTransfer)) {
+      event.preventDefault()
+      event.stopPropagation()
+      event.dataTransfer.dropEffect = 'copy'
+      setRootDropActive(false)
+      setDropTargetPath(entry.path)
+    }
   }
 
   const handleFolderDragLeave = (event: React.DragEvent<HTMLDivElement>, entry: Entry) => {
@@ -1417,6 +1490,15 @@ function ExplorerTree({
 
   const handleFolderDrop = (event: React.DragEvent<HTMLDivElement>, entry: Entry) => {
     if (!entry.isDir || entry.gitDeleted) return
+
+    if (hasNativeFileDrop(event.dataTransfer) && !hasExplorerMovePayload(event.dataTransfer) && !activeMoveDragRef.current) {
+      event.preventDefault()
+      event.stopPropagation()
+      setDropTargetPath(null)
+      void copyExternalFilesIntoDirectory(collectNativeDropPaths(event.dataTransfer), entry.path)
+      return
+    }
+
     const payload = readMoveDragPayload(event.dataTransfer)
     if (!payload || !canDropMovePayload(payload, entry.path)) return
 
@@ -1429,6 +1511,33 @@ function ExplorerTree({
   const handleDragEnd = () => {
     activeMoveDragRef.current = null
     setDropTargetPath(null)
+    setRootDropActive(false)
+  }
+
+  // Drops on empty space or a non-folder row fall through to here and copy into
+  // the workspace root. Folder rows stop propagation, so this never double-fires.
+  const handleRootDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    if (hasExplorerMovePayload(event.dataTransfer) || activeMoveDragRef.current) return
+    if (!hasNativeFileDrop(event.dataTransfer)) return
+
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+    setDropTargetPath(null)
+    setRootDropActive(true)
+  }
+
+  const handleRootDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return
+    setRootDropActive(false)
+  }
+
+  const handleRootDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    if (hasExplorerMovePayload(event.dataTransfer) || activeMoveDragRef.current) return
+    if (!hasNativeFileDrop(event.dataTransfer)) return
+
+    event.preventDefault()
+    setRootDropActive(false)
+    void copyExternalFilesIntoDirectory(collectNativeDropPaths(event.dataTransfer), rootPath)
   }
 
   const showContextMenu = async (event: React.MouseEvent, entry?: Entry) => {
@@ -1934,7 +2043,12 @@ function ExplorerTree({
         onKeyDown={(event) => void handleKeyDown(event)}
         onContextMenu={(event) => void showContextMenu(event)}
         onMouseDown={beginBackgroundDragSelection}
-        className="flex min-h-full flex-col gap-px rounded-md px-1 py-1.5 outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]"
+        onDragOver={handleRootDragOver}
+        onDragLeave={handleRootDragLeave}
+        onDrop={handleRootDrop}
+        className={`flex min-h-full flex-col gap-px rounded-md px-1 py-1.5 outline-none focus:ring-1 focus:ring-[color:var(--border-strong)] ${
+          rootDropActive ? 'ring-1 ring-inset ring-[color:var(--accent-primary)]' : ''
+        }`}
       >
         {activeRows.map(({ entry, depth }) => {
           const isSelected = selectedPaths.has(entry.path)
