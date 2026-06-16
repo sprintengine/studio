@@ -135,10 +135,71 @@ function validateRefName(name: string, kind: 'branch' | 'tag'): GitCommandResult
   return null
 }
 
+function validateMergeTarget(ref: string): GitCommandResult | null {
+  const trimmed = ref.trim()
+  if (!trimmed) return { ok: false, stdout: '', stderr: '', message: 'Choose a branch or commit to merge.' }
+  if (trimmed.startsWith('-')) {
+    return { ok: false, stdout: '', stderr: '', message: 'Merge targets cannot start with a dash.' }
+  }
+  return null
+}
+
 /** Tracked, uncommitted modifications block a detaching checkout to avoid silent carry-over. */
 async function hasUncommittedTrackedChanges(repoRoot: string): Promise<boolean> {
   const result = await runGitCommand(repoRoot, ['status', '--porcelain=v1', '--untracked-files=no'])
   return result.ok && result.stdout.trim().length > 0
+}
+
+async function getCurrentBranchName(repoRoot: string): Promise<string | null> {
+  const result = await runGitCommand(repoRoot, ['symbolic-ref', '--short', '-q', 'HEAD'])
+  if (!result.ok) return null
+  return result.stdout.trim() || null
+}
+
+export async function mergeGitRef(repoRoot: string, ref: string): Promise<GitCommandResult> {
+  const target = ref.trim()
+  const invalid = validateMergeTarget(target)
+  if (invalid) return invalid
+
+  const currentBranch = await getCurrentBranchName(repoRoot)
+  if (!currentBranch) {
+    return {
+      ok: false,
+      stdout: '',
+      stderr: '',
+      message: 'Cannot merge while HEAD is detached. Check out a branch first.',
+    }
+  }
+
+  if (target === currentBranch || target === `refs/heads/${currentBranch}`) {
+    return {
+      ok: false,
+      stdout: '',
+      stderr: '',
+      message: 'Choose a different branch or commit to merge.',
+    }
+  }
+
+  if (await hasUncommittedTrackedChanges(repoRoot)) {
+    return {
+      ok: false,
+      stdout: '',
+      stderr: '',
+      message: 'Commit, stash, or discard your tracked changes before merging.',
+    }
+  }
+
+  const resolved = await runGitCommand(repoRoot, ['rev-parse', '--verify', '--quiet', `${target}^{commit}`])
+  if (!resolved.ok) {
+    return {
+      ok: false,
+      stdout: resolved.stdout,
+      stderr: resolved.stderr,
+      message: `Cannot find branch or commit "${target}".`,
+    }
+  }
+
+  return runGitCommand(repoRoot, ['merge', '--no-edit', target])
 }
 
 export async function checkoutGitCommit(repoRoot: string, commitHash: string): Promise<GitCommandResult> {

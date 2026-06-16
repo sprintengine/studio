@@ -11,7 +11,7 @@ import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
 import { IconButton, InboxRow, LifecycleGlyph, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
-import { GitGraphView, type GitCommitActions, type GitGraphState } from './GitGraphView'
+import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
 
 // Status is conveyed by colour-coded filename text (see getGitStatusAppearance);
 // this supplies the non-visual equivalent for the row's accessible name, since
@@ -740,6 +740,54 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     )
   }
 
+  const handleMergeTarget = async (target: GitMergeTarget) => {
+    if (!repoRoot) return
+    if (typeof window.api.mergeGitRef !== 'function') {
+      setMessage({ tone: 'error', text: 'Restart the app to enable Git merge.' })
+      return
+    }
+    const currentBranch = branches?.current
+    if (!currentBranch) {
+      setMessage({ tone: 'error', text: 'Check out a branch before merging.' })
+      return
+    }
+
+    const subject = target.kind === 'commit'
+      ? (
+        <>
+          commit <span className="font-mono">{target.commit.shortHash}</span>
+        </>
+      )
+      : (
+        <>
+          <span className="font-mono">{target.label}</span>
+        </>
+      )
+    const confirmed = await dialog.confirm({
+      title: `Merge into ${currentBranch}?`,
+      body: (
+        <>
+          This merges {subject} into <span className="font-mono">{currentBranch}</span> in {activeScopeLabel}. If Git
+          reports conflicts, Multicode will leave the merge state in the working tree for you to resolve.
+          <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
+        </>
+      ),
+      confirmLabel: 'Merge',
+    })
+    if (!confirmed) return
+
+    const result = await runAction(
+      'Merging',
+      () => window.api.mergeGitRef(repoRoot, target.ref),
+      target.kind === 'commit'
+        ? `Merged ${target.commit.shortHash} into ${currentBranch}.`
+        : `Merged ${target.label} into ${currentBranch}.`
+    )
+    if (result && !result.ok) {
+      await refreshAll()
+    }
+  }
+
   const handleCheckoutCommit = async (commit: GitGraphCommit) => {
     if (!repoRoot) return
     const confirmed = await dialog.confirm({
@@ -806,6 +854,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   }
 
   const commitActions: GitCommitActions = {
+    merge: (target) => void handleMergeTarget(target),
     checkout: (commit) => void handleCheckoutCommit(commit),
     createBranch: (commit) => void handleCreateBranchFromCommit(commit),
     createTag: (commit) => void handleCreateTagFromCommit(commit),

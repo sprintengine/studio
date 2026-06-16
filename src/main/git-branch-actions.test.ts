@@ -8,6 +8,7 @@ import {
   checkoutGitCommitAsBranch,
   createGitBranchFromCommit,
   createGitTagFromCommit,
+  mergeGitRef,
   pullGitBranchWithStash,
 } from './git-branch-actions'
 
@@ -15,7 +16,82 @@ void main()
 
 async function main(): Promise<void> {
   await assertPullMergesDivergentBranches()
+  await assertMergeAction()
   await assertCommitActions()
+}
+
+async function assertMergeAction(): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), 'multicode-git-merge-action-'))
+  const repo = join(root, 'repo')
+
+  try {
+    git(root, ['init', '--initial-branch=main', repo])
+    configureRepo(repo)
+    writeFileSync(join(repo, 'file.txt'), 'base\n')
+    git(repo, ['add', 'file.txt'])
+    git(repo, ['commit', '-m', 'base'])
+    const baseCommit = git(repo, ['rev-parse', 'HEAD']).trim()
+
+    const empty = await mergeGitRef(repo, '   ')
+    assert.equal(empty.ok, false)
+    assert.equal(empty.message, 'Choose a branch or commit to merge.')
+
+    const current = await mergeGitRef(repo, 'main')
+    assert.equal(current.ok, false)
+    assert.equal(current.message, 'Choose a different branch or commit to merge.')
+
+    git(repo, ['switch', '-c', 'feature'])
+    writeFileSync(join(repo, 'feature.txt'), 'feature\n')
+    git(repo, ['add', 'feature.txt'])
+    git(repo, ['commit', '-m', 'feature'])
+    const featureCommit = git(repo, ['rev-parse', 'HEAD']).trim()
+    git(repo, ['switch', 'main'])
+
+    const mergedBranch = await mergeGitRef(repo, 'feature')
+    assert.equal(mergedBranch.ok, true, mergedBranch.message ?? mergedBranch.stderr)
+    assert.equal(git(repo, ['rev-parse', 'HEAD']).trim(), featureCommit)
+    assert.equal(git(repo, ['show', 'HEAD:feature.txt']).trim(), 'feature')
+
+    git(repo, ['switch', '-c', 'side'])
+    writeFileSync(join(repo, 'side.txt'), 'side\n')
+    git(repo, ['add', 'side.txt'])
+    git(repo, ['commit', '-m', 'side'])
+    git(repo, ['switch', 'main'])
+    writeFileSync(join(repo, 'main.txt'), 'main\n')
+    git(repo, ['add', 'main.txt'])
+    git(repo, ['commit', '-m', 'main'])
+
+    const mergedDivergent = await mergeGitRef(repo, 'side')
+    assert.equal(mergedDivergent.ok, true, mergedDivergent.message ?? mergedDivergent.stderr)
+    assert.match(git(repo, ['log', '--oneline', '--merges', '-1']), /Merge /)
+    assert.equal(git(repo, ['status', '--porcelain=v1']).trim(), '')
+
+    git(repo, ['switch', '-c', 'hash-source'])
+    writeFileSync(join(repo, 'hash.txt'), 'hash\n')
+    git(repo, ['add', 'hash.txt'])
+    git(repo, ['commit', '-m', 'hash source'])
+    const hashSourceCommit = git(repo, ['rev-parse', 'HEAD']).trim()
+    git(repo, ['switch', 'main'])
+
+    const mergedCommit = await mergeGitRef(repo, hashSourceCommit)
+    assert.equal(mergedCommit.ok, true, mergedCommit.message ?? mergedCommit.stderr)
+    assert.equal(git(repo, ['show', 'HEAD:hash.txt']).trim(), 'hash')
+
+    writeFileSync(join(repo, 'file.txt'), 'dirty\n')
+    const dirty = await mergeGitRef(repo, 'side')
+    assert.equal(dirty.ok, false)
+    assert.match(dirty.message ?? '', /tracked changes/)
+    git(repo, ['checkout', '--', 'file.txt'])
+
+    git(repo, ['checkout', baseCommit])
+    const detached = await mergeGitRef(repo, 'side')
+    assert.equal(detached.ok, false)
+    assert.match(detached.message ?? '', /detached/)
+
+    console.log('ok - merge action: branch, commit, divergent merge, dirty guard, detached guard')
+  } finally {
+    rmSync(root, { force: true, recursive: true })
+  }
 }
 
 async function assertCommitActions(): Promise<void> {

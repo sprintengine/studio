@@ -37,6 +37,7 @@ export {
   createGitBranchFromCommit,
   createGitTagFromCommit,
   fetchGitRemotes,
+  mergeGitRef,
   pullGitBranchWithStash,
   pushGitBranch,
   switchGitBranch,

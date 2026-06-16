@@ -1695,6 +1695,7 @@ export type ElectronApi = {
   fetchGitRemotes: (repoRoot: string) => Promise<GitCommandResult>
   pullGitBranchWithStash: (repoRoot: string) => Promise<GitCommandResult>
   switchGitBranch: (repoRoot: string, branchName: string) => Promise<GitCommandResult>
+  mergeGitRef: (repoRoot: string, ref: string) => Promise<GitCommandResult>
   checkoutGitCommit: (repoRoot: string, commitHash: string) => Promise<GitCommandResult>
   createGitBranchFromCommit: (repoRoot: string, branchName: string, commitHash: string) => Promise<GitCommandResult>
   checkoutGitCommitAsBranch: (repoRoot: string, branchName: string, commitHash: string) => Promise<GitCommandResult>

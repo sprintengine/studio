@@ -9,7 +9,15 @@ export type GitGraphState =
   | { status: 'ready'; snapshot: GitGraphSnapshot }
   | { status: 'error'; message: string }
 
+export type GitMergeTarget = {
+  ref: string
+  label: string
+  kind: 'branch' | 'remote' | 'commit'
+  commit: GitGraphCommit
+}
+
 export interface GitCommitActions {
+  merge: (target: GitMergeTarget) => void
   checkout: (commit: GitGraphCommit) => void
   createBranch: (commit: GitGraphCommit) => void
   createTag: (commit: GitGraphCommit) => void
@@ -79,6 +87,49 @@ function visibleRefs(commit: GitGraphCommit): VisibleRef[] {
     if (!seen.has(label)) seen.set(label, { label, isTag })
   }
   return [...seen.values()].slice(0, 4)
+}
+
+type GitSnapshotRef = GitGraphSnapshot['refs'][number]
+
+function isMergeableBranchRef(ref: GitSnapshotRef, currentBranch: string | null, headHash: string | null): boolean {
+  if (!currentBranch) return false
+  if (ref.hash === headHash) return false
+  if (ref.name === 'HEAD' || ref.name.endsWith('/HEAD')) return false
+  if (ref.type !== 'head' && ref.type !== 'remote') return false
+  return ref.name !== currentBranch
+}
+
+function mergeTargetsForCommit({
+  commit,
+  refs,
+  currentBranch,
+  headHash,
+}: {
+  commit: GitGraphCommit
+  refs: GitSnapshotRef[]
+  currentBranch: string | null
+  headHash: string | null
+}): GitMergeTarget[] {
+  if (!currentBranch) return []
+
+  const branchTargets = refs
+    .filter((ref) => isMergeableBranchRef(ref, currentBranch, headHash))
+    .map((ref): GitMergeTarget => ({
+      ref: ref.name,
+      label: ref.name,
+      kind: ref.type === 'remote' ? 'remote' : 'branch',
+      commit,
+    }))
+
+  if (branchTargets.length > 0) return branchTargets.slice(0, 4)
+  if (commit.hash === headHash) return []
+
+  return [{
+    ref: commit.hash,
+    label: commit.shortHash,
+    kind: 'commit',
+    commit,
+  }]
 }
 
 function GitGraphGutter({
@@ -168,7 +219,12 @@ const KEBAB_GLYPH = (
   </svg>
 )
 
-function buildCommitMenuItems(commit: GitGraphCommit, actions: GitCommitActions): OverflowMenuItem[] {
+function buildCommitMenuItems(
+  commit: GitGraphCommit,
+  actions: GitCommitActions,
+  mergeTargets: GitMergeTarget[],
+  currentBranch: string | null
+): OverflowMenuItem[] {
   const items: OverflowMenuItem[] = [
     { id: 'checkout', label: 'Checkout this commit', onSelect: () => actions.checkout(commit) },
     { id: 'branch', label: 'New branch from here…', onSelect: () => actions.createBranch(commit) },
@@ -179,6 +235,16 @@ function buildCommitMenuItems(commit: GitGraphCommit, actions: GitCommitActions)
   ]
   if (commit.commitWebUrl) {
     items.push({ id: 'github', label: 'Open on GitHub', onSelect: () => actions.openOnGitHub(commit) })
+  }
+  if (currentBranch && mergeTargets.length > 0) {
+    const mergeItems = mergeTargets.map((target) => ({
+      id: `merge-${target.ref}`,
+      label: target.kind === 'commit'
+        ? `Merge commit into ${currentBranch}`
+        : `Merge ${target.label} into ${currentBranch}`,
+      onSelect: () => actions.merge(target),
+    }))
+    return [...mergeItems, { kind: 'separator', id: 'merge-sep' }, ...items]
   }
   return items
 }
@@ -191,6 +257,7 @@ function GitGraphCommitRow({
   columns,
   isHead,
   currentBranch,
+  mergeTargets,
   highlight,
   active,
   actions,
@@ -204,6 +271,7 @@ function GitGraphCommitRow({
   columns: number
   isHead: boolean
   currentBranch: string | null
+  mergeTargets: GitMergeTarget[]
   highlight: Set<string>
   active: boolean
   actions: GitCommitActions
@@ -282,7 +350,7 @@ function GitGraphCommitRow({
       <span className="flex shrink-0 items-center pr-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
         <OverflowMenu
           ariaLabel={`Commit ${commit.shortHash} actions`}
-          items={buildCommitMenuItems(commit, actions)}
+          items={buildCommitMenuItems(commit, actions, mergeTargets, currentBranch)}
           align="end"
           trigger={(open) => {
             openMenuRef.current = open
@@ -350,6 +418,15 @@ export function GitGraphView({
   const commitsByHash = useMemo(() => {
     const map = new Map<string, GitGraphCommit>()
     snapshot?.commits.forEach((commit) => map.set(commit.hash, commit))
+    return map
+  }, [snapshot])
+  const refsByHash = useMemo(() => {
+    const map = new Map<string, GitSnapshotRef[]>()
+    snapshot?.refs.forEach((ref) => {
+      const refs = map.get(ref.hash) ?? []
+      refs.push(ref)
+      map.set(ref.hash, refs)
+    })
     return map
   }, [snapshot])
   const activeHash = hoveredHash ?? selectedHash
@@ -424,6 +501,12 @@ export function GitGraphView({
               columns={layout.columns}
               isHead={snapshot.headHash === row.hash}
               currentBranch={currentBranch}
+              mergeTargets={mergeTargetsForCommit({
+                commit,
+                refs: refsByHash.get(commit.hash) ?? [],
+                currentBranch,
+                headHash: snapshot.headHash,
+              })}
               highlight={highlight}
               active={selectedHash === row.hash}
               actions={actions}

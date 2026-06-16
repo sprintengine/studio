@@ -62,6 +62,8 @@ export const gitApi = {
     ipcRenderer.invoke('git:pull-with-stash', repoRoot),
   switchGitBranch: (repoRoot: string, branchName: string): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:switch-branch', repoRoot, branchName),
+  mergeGitRef: (repoRoot: string, ref: string): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:merge-ref', repoRoot, ref),
   checkoutGitCommit: (repoRoot: string, commitHash: string): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:checkout-commit', repoRoot, commitHash),
   createGitBranchFromCommit: (repoRoot: string, branchName: string, commitHash: string): Promise<GitCommandResult> =>
@@ -111,6 +113,7 @@ export const gitApi = {
   | 'fetchGitRemotes'
   | 'pullGitBranchWithStash'
   | 'switchGitBranch'
+  | 'mergeGitRef'
   | 'checkoutGitCommit'
   | 'createGitBranchFromCommit'
   | 'checkoutGitCommitAsBranch'

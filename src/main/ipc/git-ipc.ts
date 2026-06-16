@@ -20,6 +20,7 @@ import {
   getGitRepoRoot,
   getGitStatus,
   listGitWorktrees,
+  mergeGitRef,
   pullGitBranchWithStash,
   pruneGitWorktrees,
   removeGitWorktree,
@@ -133,6 +134,10 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
 
   ipcMain.handle('git:switch-branch', async (_, repoRoot: string, branchName: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'switch-branch', { repoRoot, branchName }, () => switchGitBranch(repoRoot, branchName))
+  })
+
+  ipcMain.handle('git:merge-ref', async (_, repoRoot: string, ref: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'merge-ref', { repoRoot, ref }, () => mergeGitRef(repoRoot, ref))
   })
 
   ipcMain.handle('git:checkout-commit', async (_, repoRoot: string, commitHash: string) => {
