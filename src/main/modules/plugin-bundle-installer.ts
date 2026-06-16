@@ -31,7 +31,7 @@ const DEFAULT_SKILL_HARNESSES: SkillPackHarness[] = ['agents']
 
 type ComponentPath = { kind: MarketplaceComponentKind; path: string }
 
-type MarketplacePluginInstallerServices = {
+export type MarketplacePluginInstallerServices = {
   trustContext: () => ModuleTrustContext
   mcpConfigService: McpConfigService
   skillPackService: SkillPackService
@@ -221,6 +221,8 @@ function installMcpComponent(
     installed: {
       kind: 'mcp',
       id: component.servers.map((server) => server.id).join(','),
+      serverIds: component.servers.map((server) => server.id),
+      servers: component.servers,
       message: `Synced ${component.servers.length} MCP server${component.servers.length === 1 ? '' : 's'}.`,
     },
     mcpSettings: nextSettings,
@@ -266,6 +268,8 @@ async function installSkillComponent(
     installed: {
       kind: 'skills',
       id: listedEntry.id,
+      installedDirName,
+      harnesses: listedEntry.harnesses,
       message: `Installed for ${listedEntry.harnesses.join(', ') || 'configured harnesses'}.`,
     },
   }

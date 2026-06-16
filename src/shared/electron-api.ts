@@ -38,7 +38,7 @@ import type {
 import type { RoleInstallResult, UserRoleListResult } from './sprintengine/role-manifest'
 import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
 import type { ConversationProviderListEntry, ConversationProviderModel, PluginRegistryListEntry } from './plugin-manifest'
-import type { MarketplaceComponentKind, MarketplaceIndex, MarketplaceManifestIssue } from './marketplace/manifest'
+import type { MarketplaceComponentKind, MarketplaceIndex, MarketplaceManifestIssue, MarketplacePluginEntry } from './marketplace/manifest'
 import type {
   ConversationEvent,
   ConversationInterruptInput,
@@ -300,10 +300,29 @@ export type MarketplacePluginInstallInput = {
   skillHarnesses?: SkillPackHarness[]
 }
 
+export type MarketplacePluginRegistryInstallInput = Omit<MarketplacePluginInstallInput, 'localFolder'> & {
+  entry: MarketplacePluginEntry
+  trustGranted?: boolean
+}
+
+export type MarketplacePluginUninstallInput = {
+  pluginId: string
+  workspaceRoot?: string
+  mcpSettings?: McpSettings
+  mcpClients?: McpClientTarget[]
+  skillHarnesses?: SkillPackHarness[]
+}
+
+export type MarketplacePluginTrustClassification = 'verified' | 'community' | 'unsigned' | 'invalid'
+
 export type MarketplacePluginInstalledComponent = {
   kind: MarketplaceComponentKind
   id: string
   message?: string
+  serverIds?: string[]
+  servers?: McpServerConfig[]
+  harnesses?: SkillPackHarness[]
+  installedDirName?: string
 }
 
 export type MarketplacePluginInstallResult =
@@ -325,6 +344,32 @@ export type MarketplacePluginInstallResult =
       installed?: MarketplacePluginInstalledComponent[]
       trust?: ModuleTrustStatus
       loadEligible?: boolean
+    }
+
+export type MarketplacePluginRegistryInstallResult =
+  | (Extract<MarketplacePluginInstallResult, { ok: true }> & {
+      classification: Extract<MarketplacePluginTrustClassification, 'verified' | 'community'>
+      sourceUrl: string
+      updated: boolean
+    })
+  | (Extract<MarketplacePluginInstallResult, { ok: false }> & {
+      classification?: MarketplacePluginTrustClassification
+      sourceUrl?: string
+      updated?: boolean
+    })
+
+export type MarketplacePluginUninstallResult =
+  | {
+      ok: true
+      id: string
+      removed: MarketplacePluginInstalledComponent[]
+      mcpSettings?: McpSettings
+    }
+  | {
+      ok: false
+      message: string
+      removed?: MarketplacePluginInstalledComponent[]
+      mcpSettings?: McpSettings
     }
 
 export type MarketplaceRegistryState = 'ok' | 'empty' | 'offline' | 'fetch-error' | 'invalid-schema'
@@ -1705,6 +1750,9 @@ export type ElectronApi = {
   readMarketplaceRegistry: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceRegistryReadResult>
   installPluginFolder: (srcDir: string) => Promise<PluginInstallResult>
   installMarketplacePluginFolder: (input: MarketplacePluginInstallInput) => Promise<MarketplacePluginInstallResult>
+  installMarketplacePluginFromRegistry: (input: MarketplacePluginRegistryInstallInput) => Promise<MarketplacePluginRegistryInstallResult>
+  updateMarketplacePluginFromRegistry: (input: MarketplacePluginRegistryInstallInput) => Promise<MarketplacePluginRegistryInstallResult>
+  uninstallMarketplacePlugin: (input: MarketplacePluginUninstallInput) => Promise<MarketplacePluginUninstallResult>
   reloadPlugins: () => Promise<PluginRegistryListResult>
   conversationProvidersList: () => Promise<ConversationProviderListResult>
   conversationProviderModels: (input: ConversationProviderModelsInput) => Promise<ConversationProviderModelsResult>
