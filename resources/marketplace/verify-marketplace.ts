@@ -1,132 +1,312 @@
-import assert from 'node:assert/strict'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+
+import { buildSync } from 'esbuild'
 
 import { normalizeMcpServerConfig } from '../../src/main/mcp-config-service'
-import { classifyModuleTrust, verifyModuleSignature } from '../../src/main/modules/module-signature'
 import {
+  MARKETPLACE_COMPONENT_KINDS,
   parseMarketplaceIndex,
   parseMarketplacePluginManifest,
   type MarketplaceComponentKind,
+  type MarketplaceManifestIssue,
+  type MarketplacePluginManifest,
 } from '../../src/shared/marketplace'
+
+type TrustedPublisher = {
+  name: string
+  verified: boolean
+  publicKey: string
+  fingerprint: string
+}
 
 type TrustedPublishers = {
   schemaVersion: 1
-  publishers: Array<{
-    name: string
-    verified: boolean
-    publicKey: string
-    fingerprint: string
-  }>
+  publishers: TrustedPublisher[]
 }
 
-type McpCatalog = {
-  servers: Array<{
-    id: string
-    transport: string
-    command?: string
-    args?: string[]
-    url?: string
-    riskLevel?: string
-  }>
+type VerifyOptions = {
+  root: string
+  cli?: string
 }
 
-const marketplaceRoot = join(process.cwd(), 'resources', 'marketplace')
-const marketplacePath = join(marketplaceRoot, 'marketplace.json')
-const trustedPublishersPath = join(marketplaceRoot, 'trusted-publishers.json')
-const catalogPath = join(process.cwd(), 'resources', 'mcps', 'catalog.json')
+type VerificationIssue = {
+  path: string
+  message: string
+}
+
+type CliVerifyResult = {
+  ok: boolean
+  fingerprint?: string
+  stdout: string
+  stderr: string
+  status: number | null
+}
+
+function parseArgs(args: string[]): VerifyOptions {
+  let root: string | undefined
+  let cli: string | undefined
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    switch (arg) {
+      case '--root':
+        root = args[++index]
+        break
+      case '--cli':
+        cli = args[++index]
+        break
+      case '--help':
+      case '-h':
+        console.log('Usage: node marketplace-registry-verify.cjs [--root <marketplace-root>] [--cli <multicode-module-cli.cjs>]')
+        process.exit(0)
+      default:
+        throw new Error(`Unknown argument: ${arg}`)
+    }
+  }
+  return {
+    root: resolve(root ?? defaultMarketplaceRoot()),
+    ...(cli ? { cli: resolve(cli) } : {}),
+  }
+}
+
+function defaultMarketplaceRoot(): string {
+  const repoSeedRoot = join(process.cwd(), 'resources', 'marketplace')
+  if (existsSync(join(repoSeedRoot, 'marketplace.json'))) return repoSeedRoot
+  return process.cwd()
+}
 
 function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, 'utf8')) as T
 }
 
-function componentKinds(components: Record<string, unknown>): MarketplaceComponentKind[] {
-  return Object.keys(components).sort() as MarketplaceComponentKind[]
+function issue(path: string, message: string): VerificationIssue {
+  return { path, message }
 }
 
-function assertNoKeyMaterial(path: string): void {
+function formatValidatorIssues(prefix: string, issues: MarketplaceManifestIssue[]): VerificationIssue[] {
+  return issues.map((entry) => issue(entry.path ? `${prefix}.${entry.path}` : prefix, entry.message))
+}
+
+function isInsideOrEqual(parent: string, candidate: string): boolean {
+  const rel = relative(parent, candidate)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}
+
+function componentKinds(manifest: MarketplacePluginManifest): MarketplaceComponentKind[] {
+  return MARKETPLACE_COMPONENT_KINDS.filter((kind) => manifest.components[kind] !== undefined)
+}
+
+function assertNoKeyMaterial(path: string, root: string, issues: VerificationIssue[]): void {
   for (const entry of readdirSync(path, { withFileTypes: true })) {
     const child = join(path, entry.name)
     if (entry.isDirectory()) {
-      assertNoKeyMaterial(child)
+      assertNoKeyMaterial(child, root, issues)
       continue
     }
-    assert.equal(entry.name.endsWith('.key') || entry.name.endsWith('.pem'), false, `${child} must not store private key material`)
+    if (entry.name.endsWith('.key') || entry.name.endsWith('.pem')) {
+      issues.push(issue(relative(root, child), 'private key material must not be committed to the marketplace registry.'))
+    }
   }
 }
 
-const trustedPublishers = readJson<TrustedPublishers>(trustedPublishersPath)
-assert.equal(trustedPublishers.schemaVersion, 1)
-const trustedFingerprints = new Set(trustedPublishers.publishers.map((publisher) => publisher.fingerprint))
-assert.ok(trustedFingerprints.size > 0, 'at least one trusted publisher fingerprint is required')
-
-const catalog = readJson<McpCatalog>(catalogPath)
-const catalogById = new Map(catalog.servers.map((server) => [server.id, server]))
-
-const marketplaceResult = parseMarketplaceIndex(readFileSync(marketplacePath, 'utf8'))
-assert.equal(marketplaceResult.ok, true)
-if (!marketplaceResult.ok) throw new Error('marketplace.json did not validate')
-
-const { marketplace } = marketplaceResult
-assert.equal(marketplace.schemaVersion, 1)
-assert.ok(marketplace.plugins.length >= 3 && marketplace.plugins.length <= 4, 'marketplace must contain 3-4 seed plugins')
-assert.equal(new Set(marketplace.plugins.map((plugin) => plugin.id)).size, marketplace.plugins.length, 'plugin ids must be unique')
-
-for (const entry of marketplace.plugins) {
-  assert.equal(entry.publisher.name, 'Multicode Labs', `${entry.id} publisher name`)
-  assert.equal(entry.publisher.verified, true, `${entry.id} must be first-party verified`)
-  assert.equal(entry.latest, 1, `${entry.id} seed version`)
-  assert.deepEqual(entry.provides, ['mcp'], `${entry.id} should only advertise its MCP component`)
-  assert.match(entry.source, /^https:\/\/github\.com\/multicode-labs\/marketplace\/tree\/main\/plugins\//)
-  assert.equal(existsSync(join(marketplaceRoot, entry.icon)), true, `${entry.id} icon must exist`)
-
-  const pluginRoot = join(marketplaceRoot, 'plugins', entry.id)
-  const pluginManifestPath = join(pluginRoot, 'plugin.json')
-  const manifestResult = parseMarketplacePluginManifest(readFileSync(pluginManifestPath, 'utf8'))
-  assert.equal(manifestResult.ok, true, `${entry.id} plugin.json must validate`)
-  if (!manifestResult.ok) throw new Error(`${entry.id} plugin.json did not validate`)
-
-  const { manifest } = manifestResult
-  assert.equal(manifest.id, entry.id)
-  assert.equal(manifest.displayName, entry.name)
-  assert.equal(manifest.version, entry.latest)
-  assert.deepEqual(entry.signature, manifest.signature, `${entry.id} index signature must match plugin signature`)
-  assert.deepEqual(componentKinds(manifest.components), entry.provides)
-
-  const signature = verifyModuleSignature(manifest)
-  assert.equal(signature.valid, true, `${entry.id} signature must verify`)
-  assert.ok(signature.fingerprint, `${entry.id} signature fingerprint is required`)
-  assert.equal(trustedFingerprints.has(signature.fingerprint), true, `${entry.id} signer must be a trusted first-party publisher`)
-  assert.equal(
-    classifyModuleTrust(manifest, {
-      trustedModules: new Map(),
-      trustedKeyFingerprints: trustedFingerprints,
-    }).status,
-    'trusted',
-    `${entry.id} should classify as trusted when first-party publisher keys are accepted`
-  )
-
-  const componentPath = manifest.components.mcp?.path
-  assert.ok(componentPath, `${entry.id} must carry an MCP component`)
-  const mcpComponent = readJson<{ servers: unknown[] }>(join(pluginRoot, componentPath))
-  assert.ok(Array.isArray(mcpComponent.servers), `${entry.id} MCP component must declare servers[]`)
-  assert.equal(mcpComponent.servers.length, 1, `${entry.id} should wrap one bundled MCP server`)
-  const server = normalizeMcpServerConfig(mcpComponent.servers[0], {
-    enabled: true,
-    clients: ['codex', 'claude-code'],
-    scope: 'workspace',
-    source: 'bundled',
+function ensureCliBundle(cliPath: string | undefined): string {
+  if (cliPath) {
+    if (!existsSync(cliPath)) throw new Error(`CLI bundle not found: ${cliPath}`)
+    return cliPath
+  }
+  const outfile = join(process.cwd(), 'node_modules', '.cache', 'multicode', 'multicode-module-marketplace-ci.cjs')
+  mkdirSync(dirname(outfile), { recursive: true })
+  buildSync({
+    entryPoints: [join(process.cwd(), 'packages', 'module-sdk', 'src', 'cli.ts')],
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    outfile,
   })
-  assert.ok(server, `${entry.id} MCP server must normalize through the app MCP parser`)
-  const catalogServer = catalogById.get(server.id)
-  assert.ok(catalogServer, `${entry.id} wraps bundled MCP server ${server.id}`)
-  assert.equal(server.transport, catalogServer.transport)
-  assert.deepEqual(server.args, catalogServer.args ?? [])
-  assert.equal(server.command, catalogServer.command)
-  assert.equal(server.url, catalogServer.url)
-  assert.equal(server.riskLevel, catalogServer.riskLevel)
+  return outfile
 }
 
-assertNoKeyMaterial(marketplaceRoot)
+function runPluginVerify(cliBundle: string, pluginRoot: string): CliVerifyResult {
+  const result = spawnSync(process.execPath, [cliBundle, 'plugin', 'verify', pluginRoot], {
+    encoding: 'utf8',
+  })
+  const stdout = result.stdout ?? ''
+  const stderr = result.stderr ?? ''
+  const fingerprint = stdout.match(/Signer fingerprint:\s*([a-f0-9]+)/i)?.[1]
+  return {
+    ok: result.status === 0,
+    ...(fingerprint ? { fingerprint } : {}),
+    stdout,
+    stderr,
+    status: result.status,
+  }
+}
 
-console.log(`marketplace seed registry verified (${marketplace.plugins.length} plugins)`)
+function readTrustedPublishers(root: string, issues: VerificationIssue[]): TrustedPublisher[] {
+  const path = join(root, 'trusted-publishers.json')
+  if (!existsSync(path)) return []
+  try {
+    const payload = readJson<TrustedPublishers>(path)
+    if (payload.schemaVersion !== 1 || !Array.isArray(payload.publishers)) {
+      issues.push(issue('trusted-publishers.json', 'must contain schemaVersion 1 and publishers[].'))
+      return []
+    }
+    return payload.publishers
+  } catch (error) {
+    issues.push(issue('trusted-publishers.json', error instanceof Error ? error.message : 'could not parse JSON.'))
+    return []
+  }
+}
+
+function validateMcpComponent(
+  root: string,
+  pluginRoot: string,
+  pluginId: string,
+  componentPath: string,
+  issues: VerificationIssue[]
+): void {
+  const path = join(pluginRoot, componentPath)
+  try {
+    const component = readJson<{ servers?: unknown[] }>(path)
+    if (!Array.isArray(component.servers) || component.servers.length === 0) {
+      issues.push(issue(`plugins/${pluginId}/${componentPath}`, 'MCP component must declare a non-empty servers[] array.'))
+      return
+    }
+    component.servers.forEach((server, index) => {
+      const normalized = normalizeMcpServerConfig(server, {
+        enabled: true,
+        clients: ['codex', 'claude-code'],
+        scope: 'workspace',
+        source: 'custom',
+      })
+      if (!normalized) {
+        issues.push(issue(`plugins/${pluginId}/${componentPath}.servers[${index}]`, 'MCP server must normalize through the app MCP parser.'))
+      }
+    })
+  } catch (error) {
+    issues.push(issue(relative(root, path), error instanceof Error ? error.message : 'could not parse MCP component JSON.'))
+  }
+}
+
+function validateEntrySource(entryId: string, source: string, issues: VerificationIssue[]): void {
+  try {
+    const parsed = new URL(source)
+    if (parsed.protocol !== 'https:') {
+      issues.push(issue(`plugins.${entryId}.source`, 'source must be an HTTPS URL.'))
+    }
+  } catch {
+    issues.push(issue(`plugins.${entryId}.source`, 'source must be a valid HTTPS URL.'))
+  }
+}
+
+function validateMarketplace(root: string, cliBundle: string): VerificationIssue[] {
+  const issues: VerificationIssue[] = []
+  const marketplacePath = join(root, 'marketplace.json')
+  const trustedPublishers = readTrustedPublishers(root, issues)
+  const trustedByFingerprint = new Map(trustedPublishers.map((publisher) => [publisher.fingerprint, publisher]))
+
+  if (!existsSync(marketplacePath)) {
+    return [issue('marketplace.json', 'file is required at the marketplace registry root.')]
+  }
+
+  const marketplaceResult = parseMarketplaceIndex(readFileSync(marketplacePath, 'utf8'))
+  if (!marketplaceResult.ok) {
+    return [...issues, ...formatValidatorIssues('marketplace.json', marketplaceResult.issues)]
+  }
+
+  const { marketplace } = marketplaceResult
+  const ids = new Set<string>()
+  for (const [index, entry] of marketplace.plugins.entries()) {
+    if (ids.has(entry.id)) issues.push(issue(`marketplace.json.plugins[${index}].id`, 'plugin ids must be unique.'))
+    ids.add(entry.id)
+
+    validateEntrySource(entry.id, entry.source, issues)
+
+    const iconPath = join(root, entry.icon)
+    if (!isInsideOrEqual(root, iconPath) || !existsSync(iconPath)) {
+      issues.push(issue(`marketplace.json.plugins[${index}].icon`, `icon path "${entry.icon}" must exist inside the registry.`))
+    }
+
+    const pluginRoot = join(root, 'plugins', entry.id)
+    const pluginManifestPath = join(pluginRoot, 'plugin.json')
+    if (!isInsideOrEqual(root, pluginRoot) || !existsSync(pluginManifestPath)) {
+      issues.push(issue(`plugins/${entry.id}/plugin.json`, 'plugin manifest is required.'))
+      continue
+    }
+
+    const cliResult = runPluginVerify(cliBundle, pluginRoot)
+    if (!cliResult.ok) {
+      issues.push(issue(
+        `plugins/${entry.id}/plugin.json`,
+        `multicode-module plugin verify failed (exit ${cliResult.status ?? 'unknown'}): ${(cliResult.stderr || cliResult.stdout).trim()}`
+      ))
+      continue
+    }
+
+    const manifestResult = parseMarketplacePluginManifest(readFileSync(pluginManifestPath, 'utf8'))
+    if (!manifestResult.ok) {
+      issues.push(...formatValidatorIssues(`plugins/${entry.id}/plugin.json`, manifestResult.issues))
+      continue
+    }
+    const { manifest } = manifestResult
+    if (entry.id !== manifest.id) issues.push(issue(`marketplace.json.plugins[${index}].id`, `expected ${manifest.id}, got ${entry.id}.`))
+    if (entry.name !== manifest.displayName) {
+      issues.push(issue(`marketplace.json.plugins[${index}].name`, `expected "${manifest.displayName}", got "${entry.name}".`))
+    }
+    if (entry.latest !== manifest.version) {
+      issues.push(issue(`marketplace.json.plugins[${index}].latest`, `expected ${manifest.version}, got ${entry.latest}.`))
+    }
+    const provides = componentKinds(manifest)
+    if (entry.provides.join(',') !== provides.join(',')) {
+      issues.push(issue(`marketplace.json.plugins[${index}].provides`, `expected ${provides.join(', ')}, got ${entry.provides.join(', ')}.`))
+    }
+    if (JSON.stringify(entry.signature) !== JSON.stringify(manifest.signature)) {
+      issues.push(issue(`marketplace.json.plugins[${index}].signature`, 'registry signature must match plugins/<id>/plugin.json signature.'))
+    }
+
+    if (entry.publisher.verified) {
+      const trustedPublisher = cliResult.fingerprint ? trustedByFingerprint.get(cliResult.fingerprint) : undefined
+      if (!trustedPublisher) {
+        issues.push(issue(
+          `marketplace.json.plugins[${index}].publisher.verified`,
+          'verified publishers must sign with a fingerprint listed in trusted-publishers.json.'
+        ))
+      } else if (!trustedPublisher.verified || trustedPublisher.name !== entry.publisher.name) {
+        issues.push(issue(
+          `marketplace.json.plugins[${index}].publisher.name`,
+          `verified publisher must match trusted-publishers.json entry for fingerprint ${cliResult.fingerprint}.`
+        ))
+      }
+    }
+
+    const mcpPath = manifest.components.mcp?.path
+    if (mcpPath) validateMcpComponent(root, pluginRoot, entry.id, mcpPath, issues)
+  }
+
+  assertNoKeyMaterial(root, root, issues)
+  return issues
+}
+
+function main(): void {
+  try {
+    const options = parseArgs(process.argv.slice(2))
+    const cliBundle = ensureCliBundle(options.cli)
+    const issues = validateMarketplace(options.root, cliBundle)
+    if (issues.length > 0) {
+      console.error(`Marketplace registry validation failed for ${options.root}:`)
+      for (const entry of issues) {
+        console.error(`  - ${entry.path}: ${entry.message}`)
+      }
+      process.exit(1)
+    }
+    const marketplace = parseMarketplaceIndex(readFileSync(join(options.root, 'marketplace.json'), 'utf8'))
+    const count = marketplace.ok ? marketplace.marketplace.plugins.length : 0
+    console.log(`marketplace registry verified (${count} plugins)`)
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  }
+}
+
+main()

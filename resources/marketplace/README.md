@@ -35,8 +35,12 @@ trusted when that fingerprint is accepted.
 Run this from the repo root:
 
 ```bash
-npx esbuild resources/marketplace/verify-marketplace.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/marketplace-seed-verify.cjs && node node_modules/.cache/multicode/marketplace-seed-verify.cjs
+npm run verify:marketplace-registry
 ```
 
-The verifier uses the shared marketplace schema validator plus the same
-ed25519 verification and trust-classification path used by the app.
+The verifier uses the shared marketplace schema validator for `marketplace.json`
+and delegates every plugin bundle to `multicode-module plugin verify`, the same
+authoring CLI path used before publish. It also checks that verified publisher
+signatures resolve to `trusted-publishers.json`, registry entries match their
+signed `plugin.json`, icons exist, MCP components parse, and no key material is
+committed.
