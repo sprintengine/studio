@@ -56,6 +56,10 @@ export type BrowseView =
   // Reached the registry and it failed (fetch-error / invalid-schema / threw).
   // Never a silent empty grid.
   | { status: 'error'; message: string; issues?: string[] }
+  // Offline with NO cached index to fall back on — a distinct warn/retry state,
+  // never collapsed into the generic error view (offline WITH a stale cache is
+  // instead a `ready` view carrying `staleNotice`).
+  | { status: 'offline'; message: string }
   // Registry reachable (or served from cache) but it lists no plugins.
   | { status: 'empty'; staleNotice?: string }
   // Plugins exist but the search query matched none.
@@ -99,6 +103,10 @@ export function deriveBrowseView(load: BrowseLoad, query: string): BrowseView {
 
   const result = load.result
   if (!result.ok) {
+    // Offline with no cache is its own state (warn + retry), not a hard error.
+    if (result.state === 'offline') {
+      return { status: 'offline', message: result.message || "Offline — can't reach the extensions registry." }
+    }
     const fallback =
       result.state === 'invalid-schema'
         ? "The extensions registry returned data this app can't read."

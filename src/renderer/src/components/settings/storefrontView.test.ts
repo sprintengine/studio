@@ -59,7 +59,10 @@ function offlineResult(plugins: MarketplacePluginEntry[]): MarketplaceRegistryRe
   }
 }
 
-function failResult(state: 'fetch-error' | 'invalid-schema', message: string): MarketplaceRegistryReadResult {
+function failResult(
+  state: 'fetch-error' | 'invalid-schema' | 'offline',
+  message: string,
+): MarketplaceRegistryReadResult {
   return { ok: false, state, registryUrl: 'https://example.com/marketplace.json', stale: false, message }
 }
 
@@ -103,6 +106,15 @@ assert.equal(deriveBrowseView({ status: 'unsupported' }, '').status, 'unsupporte
 {
   const view = deriveBrowseView(result(failResult('invalid-schema', 'bad schema')), '')
   assert.equal(view.status, 'error')
+}
+
+{
+  // Offline with NO cache (ok:false, state:'offline') is a DISTINCT offline
+  // state — not collapsed into the generic error view.
+  const view = deriveBrowseView(result(failResult('offline', 'Offline — no cached catalog.')), '')
+  assert.equal(view.status, 'offline')
+  if (view.status !== 'offline') throw new Error('unreachable')
+  assert.equal(view.message, 'Offline — no cached catalog.')
 }
 
 {

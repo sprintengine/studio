@@ -105,6 +105,12 @@ export function BrowseStorefront() {
         </InlineNotice>
       ) : null}
 
+      {view.status === 'offline' ? (
+        <InlineNotice tone="warn" action={retry}>
+          {view.message}
+        </InlineNotice>
+      ) : null}
+
       {view.status === 'error' ? (
         <InlineNotice tone="error" action={retry}>
           <div>{view.message}</div>
