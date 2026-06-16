@@ -44,9 +44,7 @@ import { ProviderSettingsTab } from './ProviderSettingsTab'
 import { ExtensionsSettingsTab } from './ExtensionsSettingsTab'
 import {
   McpBrandIcon,
-  McpCatalogTile,
-  McpInfoPanel,
-  groupMcpCatalog,
+  McpCatalogBrowser,
   mcpIconSlug,
   mcpServerFromCatalog,
 } from './McpCatalog'
@@ -641,7 +639,6 @@ export default function SettingsPanel({
   const [builtinSkillMessage, setBuiltinSkillMessage] = useState<string | null>(null)
   const [mcpCatalog, setMcpCatalog] = useState<McpCatalogServer[]>([])
   const [mcpMessage, setMcpMessage] = useState<string | null>(null)
-  const [selectedCatalogId, setSelectedCatalogId] = useState<string | null>(null)
   const [skillPackCatalog, setSkillPackCatalog] = useState<SkillPackCatalogEntry[]>([])
   const [skillPackMessage, setSkillPackMessage] = useState<string | null>(null)
   const [skillPackPendingId, setSkillPackPendingId] = useState<string | null>(null)
@@ -1099,10 +1096,6 @@ export default function SettingsPanel({
     githubTokenStatus !== null && (githubTokenEditing || !githubTokenStatus.configured)
 
   const activeTab = visibleSettingsTabs.find((tab) => tab.id === activeSettingsTab) ?? visibleSettingsTabs[0]
-  const groupedMcpCatalog = groupMcpCatalog(mcpCatalog)
-  const selectedCatalogServer = selectedCatalogId
-    ? mcpCatalog.find((server) => server.id === selectedCatalogId) ?? null
-    : null
   const activeMcpServers = Object.values(mcpSettings.servers).filter((server) => server.enabled)
   const registryRoles = orderedSprintEngineRoles(roleRegistry)
 
@@ -2003,42 +1996,11 @@ export default function SettingsPanel({
             )}
           </section>
 
-          <div className="flex gap-4 border-t border-[color:var(--border-subtle)] pt-4">
-            <section className="min-w-0 flex-1 space-y-4">
-              <SettingsSectionTitle count={mcpCatalog.length}>Bundled catalog</SettingsSectionTitle>
-              <div className="space-y-5">
-                {groupedMcpCatalog.map(([category, servers]) => (
-                  <div key={category} className="space-y-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-[12px] font-medium text-[color:var(--text-muted)]">{category}</span>
-                      <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
-                      <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-subtle)]">{servers.length}</span>
-                    </div>
-                    <div className={`grid grid-cols-2 gap-2 sm:grid-cols-3 ${selectedCatalogServer ? '' : 'lg:grid-cols-4'}`}>
-                      {servers.map((server) => (
-                        <McpCatalogTile
-                          key={server.id}
-                          server={server}
-                          installed={Boolean(mcpSettings.servers[server.id]?.enabled)}
-                          selected={selectedCatalogId === server.id}
-                          onToggle={() => toggleCatalogServer(server)}
-                          onInfo={() => setSelectedCatalogId((current) => current === server.id ? null : server.id)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-            {selectedCatalogServer ? (
-              <McpInfoPanel
-                server={selectedCatalogServer}
-                installed={Boolean(mcpSettings.servers[selectedCatalogServer.id]?.enabled)}
-                onToggle={() => toggleCatalogServer(selectedCatalogServer)}
-                onClose={() => setSelectedCatalogId(null)}
-              />
-            ) : null}
-          </div>
+          <McpCatalogBrowser
+            servers={mcpCatalog}
+            isInstalled={(id) => Boolean(mcpSettings.servers[id]?.enabled)}
+            onToggle={toggleCatalogServer}
+          />
 
           <details className="group space-y-3 border-t border-[color:var(--border-subtle)] pt-4 [&[open]]:space-y-3">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-[color:var(--text-strong)] focus:outline-none focus-visible:underline">
