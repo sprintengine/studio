@@ -36,9 +36,10 @@ export type MarketplacePluginComponents = {
   [K in MarketplaceComponentKind]?: MarketplaceComponent
 }
 
-export type MarketplacePluginManifest = CapabilityManifest & {
+export type MarketplacePluginManifest = Omit<CapabilityManifest, 'signature'> & {
   components: MarketplacePluginComponents
   permissions: CapabilityPermission[]
+  signature: ModuleSignature
 }
 
 export type MarketplacePublisher = {
@@ -149,11 +150,16 @@ export function validateMarketplacePluginManifest(value: unknown): MarketplacePl
 
   const components = validateComponents(value.components, issues)
   if (issues.length > 0 || !moduleResult.ok || !components) return { ok: false, issues }
+  const signature = moduleResult.manifest.signature
+  if (!signature) {
+    return { ok: false, issues: [{ path: 'signature', message: 'signature is required.' }] }
+  }
 
   return {
     ok: true,
     manifest: {
       ...moduleResult.manifest,
+      signature,
       components,
       permissions: moduleResult.manifest.permissions ?? [],
     },
