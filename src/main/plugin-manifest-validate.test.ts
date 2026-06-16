@@ -34,6 +34,8 @@ function without<K extends string>(base: Record<string, unknown>, key: K): Recor
 // Each invalid case isolates one rule. Both validators must reject all of them.
 const INVALID_CASES: Array<{ name: string; manifest: unknown }> = [
   { name: 'bad id', manifest: { ...VALID_CLI, id: 'Bad Id' } },
+  { name: 'empty publisher', manifest: { ...VALID_CLI, publisher: '' } },
+  { name: 'non-string publisher', manifest: { ...VALID_CLI, publisher: 7 } },
   { name: 'missing binary', manifest: without(VALID_CLI, 'binary') },
   { name: 'missing displayName', manifest: without(VALID_CLI, 'displayName') },
   { name: 'non-positive version', manifest: { ...VALID_CLI, version: 0 } },
@@ -44,6 +46,7 @@ const INVALID_CASES: Array<{ name: string; manifest: unknown }> = [
   { name: 'missing capabilities boolean', manifest: { ...VALID_CLI, capabilities: { resumeSession: true, sessionIdFromCaller: true, toolUse: true } } },
   { name: 'provider-only field present', manifest: { ...VALID_CLI, providerType: 'model-provider' } },
   { name: 'bad variable type', manifest: { ...VALID_CLI, variables: { x: { type: 'nope', label: 'X' } } } },
+  { name: 'empty model option label', manifest: { ...VALID_CLI, modelSelection: { args: ['--model', '{{model}}'], options: [{ id: 'm', label: '' }] } } },
   { name: 'native skill without install targets', manifest: { ...VALID_CLI, skillIntegration: { support: 'native', harnessId: 'demo' } } },
   {
     name: 'skill workspace path missing {{skillId}}',

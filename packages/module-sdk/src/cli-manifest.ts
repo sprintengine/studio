@@ -217,8 +217,9 @@ export function validateCliPluginManifest(value: unknown): CliManifestResult {
   if (typeof value.version !== 'number' || !Number.isInteger(value.version) || value.version < 1) {
     issues.push({ path: 'version', message: 'version must be a positive integer.' })
   }
-  if (value.publisher !== undefined && typeof value.publisher !== 'string') {
-    issues.push({ path: 'publisher', message: 'publisher must be a string when present.' })
+  if (value.publisher !== undefined) {
+    // Present ⇒ must be a non-empty string (matches the app's requireString).
+    requireString(value, 'publisher', issues)
   }
 
   validatePermissionPresets(value.permissionPresets, issues)
@@ -430,9 +431,8 @@ function validateModelSelection(value: unknown, issues: CliManifestIssue[]): voi
           return
         }
         requireString(option, 'id', issues, undefined, path)
-        if (option.label !== undefined && typeof option.label !== 'string') {
-          issues.push({ path: `${path}.label`, message: 'label must be a string when present.' })
-        }
+        // Present ⇒ non-empty string (matches the app's requireString).
+        if (option.label !== undefined) requireString(option, 'label', issues, undefined, path)
       })
     }
   }
