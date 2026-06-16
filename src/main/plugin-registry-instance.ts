@@ -81,6 +81,17 @@ export function getPluginRegistry(): PluginRegistry {
   return ensureRegistry()
 }
 
+/**
+ * Re-scan the bundled and user plugin roots so a plugin installed (or removed)
+ * while the app is running is reflected without a restart. Used by the
+ * `plugins:install-folder` / `plugins:reload` IPC after a drop-in change.
+ */
+export function reloadPluginRegistry(): PluginRegistryLoadReport {
+  const reg = ensureRegistry()
+  lastReport = reg.loadSync()
+  return lastReport
+}
+
 export function getPluginById(id: string): LoadedPlugin | undefined {
   return ensureRegistry().get(id)
 }

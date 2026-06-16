@@ -1,28 +1,41 @@
 import assert from 'node:assert/strict'
 
 import { createPluginsApi } from './plugins'
-import type { PluginRegistryListResult } from '../../shared/electron-api'
+import type { PluginInstallResult, PluginRegistryListResult } from '../../shared/electron-api'
 
 async function main(): Promise<void> {
-  const calls: string[] = []
-  const response: PluginRegistryListResult = {
+  const calls: Array<{ channel: string; args: unknown[] }> = []
+  const listResponse: PluginRegistryListResult = {
     ok: true,
     plugins: [
       { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex' },
       { id: 'opencode', displayName: 'OpenCode', source: 'user', version: 1, binary: 'opencode' },
     ],
   }
+  const installResponse: PluginInstallResult = { ok: true, id: 'opencode', kind: 'cli', displayName: 'OpenCode' }
 
   const api = createPluginsApi({
-    async invoke(channel) {
-      calls.push(channel)
-      return response
+    async invoke(channel: string, ...args: unknown[]) {
+      calls.push({ channel, args })
+      if (channel === 'plugins:install-folder') return installResponse
+      return listResponse
     },
-  })
+  } as unknown as Parameters<typeof createPluginsApi>[0])
 
-  const result = await api.pluginsList()
-  assert.deepEqual(calls, ['plugins:list'])
-  assert.deepEqual(result, response)
+  const list = await api.pluginsList()
+  assert.deepEqual(list, listResponse)
+
+  const installed = await api.installPluginFolder('/tmp/some-cli')
+  assert.deepEqual(installed, installResponse)
+
+  const reloaded = await api.reloadPlugins()
+  assert.deepEqual(reloaded, listResponse)
+
+  assert.deepEqual(
+    calls.map((call) => call.channel),
+    ['plugins:list', 'plugins:install-folder', 'plugins:reload']
+  )
+  assert.deepEqual(calls[1].args, ['/tmp/some-cli'])
 
   console.log('plugins-preload tests passed')
 }

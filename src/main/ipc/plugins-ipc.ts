@@ -1,10 +1,17 @@
 import type { IpcMain } from 'electron'
 
-import type { PluginRegistryListResult } from '../../shared/electron-api'
-import { listPluginRegistryEntries } from '../plugin-registry-instance'
+import type { PluginInstallResult, PluginRegistryListResult } from '../../shared/electron-api'
+import { installPluginFolder } from '../plugin-install'
+import {
+  getPluginRegistryUserRoot,
+  listPluginRegistryEntries,
+  reloadPluginRegistry,
+} from '../plugin-registry-instance'
 
 export type PluginIpcHandlers = {
   list(): PluginRegistryListResult
+  installFolder(srcDir: unknown): Promise<PluginInstallResult>
+  reload(): PluginRegistryListResult
 }
 
 export function createPluginIpcHandlers(): PluginIpcHandlers {
@@ -16,16 +23,59 @@ export function createPluginIpcHandlers(): PluginIpcHandlers {
         return { ok: false, message: formatError(err) }
       }
     },
+    async installFolder(srcDir: unknown): Promise<PluginInstallResult> {
+      if (typeof srcDir !== 'string' || srcDir.trim().length === 0) {
+        return { ok: false, message: 'No folder selected.' }
+      }
+      try {
+        const installed = await installPluginFolder(srcDir, getPluginRegistryUserRoot())
+        if (!installed.ok) return installed
+        // Pick the new plugin up immediately so the renderer's next list reflects it.
+        reloadPluginRegistry()
+        return { ok: true, id: installed.id, kind: installed.kind, displayName: installed.displayName }
+      } catch (err) {
+        return { ok: false, message: formatError(err) }
+      }
+    },
+    reload(): PluginRegistryListResult {
+      try {
+        reloadPluginRegistry()
+        return { ok: true, plugins: listPluginRegistryEntries() }
+      } catch (err) {
+        return { ok: false, message: formatError(err) }
+      }
+    },
   }
 }
 
 export function registerPluginIpc(
   ipcMain: IpcMain,
-  handlers: PluginIpcHandlers = createPluginIpcHandlers()
+  overrides: Partial<PluginIpcHandlers> = {}
 ): void {
+  const handlers: PluginIpcHandlers = { ...createPluginIpcHandlers(), ...overrides }
+
   ipcMain.handle('plugins:list', async (): Promise<PluginRegistryListResult> => {
     try {
       return handlers.list()
+    } catch (err) {
+      return { ok: false, message: formatError(err) }
+    }
+  })
+
+  ipcMain.handle(
+    'plugins:install-folder',
+    async (_event, srcDir: unknown): Promise<PluginInstallResult> => {
+      try {
+        return await handlers.installFolder(srcDir)
+      } catch (err) {
+        return { ok: false, message: formatError(err) }
+      }
+    }
+  )
+
+  ipcMain.handle('plugins:reload', async (): Promise<PluginRegistryListResult> => {
+    try {
+      return handlers.reload()
     } catch (err) {
       return { ok: false, message: formatError(err) }
     }

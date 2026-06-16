@@ -1,4 +1,5 @@
 import type { AppServices } from '../app-services'
+import type { ModuleWorkspaceService } from '../modules/module-workspace-service'
 import { createServiceToken } from './main-host'
 
 // Tokens for the shared services that capability modules consume across module
@@ -20,3 +21,7 @@ export const MulticodeAuthToken = createServiceToken<AppServices['multicodeAuth'
 export const SprintEngineMcpHubToken = createServiceToken<AppServices['sprintEngineMcpHub']>(
   'core.sprintengine-mcp-hub'
 )
+// Programmatic workspace creation for capability modules. The key MUST equal the
+// SDK's WorkspaceServiceToken ('core.workspace') so a module that imports the
+// token from @multicode/module-sdk resolves the instance the app provides here.
+export const WorkspaceServiceToken = createServiceToken<ModuleWorkspaceService>('core.workspace')

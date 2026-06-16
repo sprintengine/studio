@@ -79,6 +79,53 @@ install the module folder under `~/.multicode/modules/<id>/`. See
 `test-fixtures/external-project/` in the repository for a complete minimal
 module compiled against this package.
 
+## Programmatic workspace creation
+
+A module's `entry.main` can create a workspace through the always-on app core,
+the same operation the UI performs:
+
+```ts
+import { WorkspaceServiceToken, type RegisterMain } from '@multicode/module-sdk'
+
+export const registerMain: RegisterMain = (host) => {
+  host.registerIpc('my-module:new-scratch', async () => {
+    const workspaces = host.requireService(WorkspaceServiceToken)
+    const result = await workspaces.create({ name: 'Scratch', folderPath: '/abs/path' })
+    return result // { ok: true, workspaceId } | { ok: false, code, message }
+  })
+}
+```
+
+`create` resolves only after the new workspace is observed on the workspace-sync
+bus, so the returned id is always a real, confirmed workspace (or an explicit
+failure). The service is provided by the always-on `agent-runtime` core, so
+`requireService` never throws for it.
+
+## BYO-CLI plugins (adding an agent CLI)
+
+A **CLI plugin** is a different artifact from a capability module: a folder
+containing a `plugin.json` that teaches Multicode how to launch, resume, drive,
+and detect completion for a new agent CLI (claude-code, codex, opencode, and
+your own). Drop it into `~/.multicode/plugins/<id>/`, or install it from
+**Settings → Agents → "Install CLI from folder"**. The plugin id must equal the
+folder name; a user plugin with a bundled CLI's id overrides the bundled one.
+
+Author and pre-flight validate against the published contract:
+
+```ts
+import { validateCliPluginManifest, type CliPluginManifest } from '@multicode/module-sdk'
+
+const result = validateCliPluginManifest(JSON.parse(pluginJson))
+if (!result.ok) console.error(result.issues) // [{ path, message }, …]
+```
+
+`validateCliPluginManifest` is pure (no Node/DOM) and is **the same validator the
+Multicode app runs** when it loads a `plugin.json` (the app imports it from this
+package), so a manifest it accepts is loadable by Multicode — the authoring
+contract and the loader cannot drift. See
+`docs/2026-05-16-plugin-manifests-worked-examples.md` in the repository for
+worked `plugin.json` examples.
+
 ## Signing and packaging: the `multicode-module` CLI
 
 The package ships a `multicode-module` binary (run it with
