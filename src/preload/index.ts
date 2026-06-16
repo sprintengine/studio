@@ -12,6 +12,7 @@ import { conversationApi } from './api/conversation'
 import { filesystemApi } from './api/filesystem'
 import { gitApi } from './api/git'
 import { layoutTemplatesApi } from './api/layout-templates'
+import { marketplaceApi } from './api/marketplace'
 import { memoryActivityApi } from './api/memoryActivity'
 import { mcpApi } from './api/mcp'
 import { modulesApi } from './api/modules'
@@ -49,6 +50,7 @@ const api = {
   ...soulsApi,
   ...gitApi,
   ...layoutTemplatesApi,
+  ...marketplaceApi,
   ...memoryActivityApi,
   ...mcpApi,
   ...modulesApi,

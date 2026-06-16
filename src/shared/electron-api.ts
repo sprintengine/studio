@@ -38,6 +38,7 @@ import type {
 import type { RoleInstallResult, UserRoleListResult } from './sprintengine/role-manifest'
 import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
 import type { ConversationProviderListEntry, ConversationProviderModel, PluginRegistryListEntry } from './plugin-manifest'
+import type { MarketplaceComponentKind } from './marketplace/manifest'
 import type {
   ConversationEvent,
   ConversationInterruptInput,
@@ -53,6 +54,7 @@ import type {
   ConversationStopSessionInput,
 } from './conversation-runtime'
 import type {
+  ModuleTrustStatus,
   ThirdPartyModuleInstallResult,
   ThirdPartyModuleListResult,
   ThirdPartyModuleTrustResult,
@@ -289,6 +291,41 @@ export type PluginRegistryListResult =
 export type PluginInstallResult =
   | { ok: true; id: string; kind: 'cli' | 'provider'; displayName: string }
   | { ok: false; message: string; issues?: Array<{ path: string; message: string }> }
+
+export type MarketplacePluginInstallInput = {
+  localFolder: string
+  workspaceRoot?: string
+  mcpSettings?: McpSettings
+  mcpClients?: McpClientTarget[]
+  skillHarnesses?: SkillPackHarness[]
+}
+
+export type MarketplacePluginInstalledComponent = {
+  kind: MarketplaceComponentKind
+  id: string
+  message?: string
+}
+
+export type MarketplacePluginInstallResult =
+  | {
+      ok: true
+      id: string
+      displayName: string
+      version: number
+      trust: ModuleTrustStatus
+      loadEligible: boolean
+      installed: MarketplacePluginInstalledComponent[]
+      mcpSettings?: McpSettings
+    }
+  | {
+      ok: false
+      message: string
+      component?: MarketplaceComponentKind
+      issues?: Array<{ path: string; message: string }>
+      installed?: MarketplacePluginInstalledComponent[]
+      trust?: ModuleTrustStatus
+      loadEligible?: boolean
+    }
 
 export type ConversationProviderListResult =
   | { ok: true; providers: ConversationProviderListEntry[] }
@@ -1627,6 +1664,7 @@ export type ElectronApi = {
   ) => Promise<BuiltinSkillInstallResult>
   pluginsList: () => Promise<PluginRegistryListResult>
   installPluginFolder: (srcDir: string) => Promise<PluginInstallResult>
+  installMarketplacePluginFolder: (input: MarketplacePluginInstallInput) => Promise<MarketplacePluginInstallResult>
   reloadPlugins: () => Promise<PluginRegistryListResult>
   conversationProvidersList: () => Promise<ConversationProviderListResult>
   conversationProviderModels: (input: ConversationProviderModelsInput) => Promise<ConversationProviderModelsResult>
