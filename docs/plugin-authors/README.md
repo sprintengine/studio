@@ -78,15 +78,16 @@ secret manager. Do not add `.key` or `.pem` files to the registry.
 
 ## 3. Sign
 
-Sign after every change to `plugin.json`. Component file changes still need a
-fresh verify/pack pass; if you change component paths or manifest metadata,
-re-sign before submitting.
+Sign after every change to `plugin.json` or any declared component file. The
+sign command writes per-component file digests into `plugin.json` before adding
+the ed25519 signature, so component byte changes require a fresh signature.
 
 ```bash
 $MULTICODE_MODULE plugin sign plugins/acme-doc-search --key .private/acme-doc-search.key
 ```
 
-Signing writes the normalized signed manifest back to `plugin.json`.
+Signing writes the normalized signed manifest, including component file
+digests, back to `plugin.json`.
 
 ## 4. Verify
 
@@ -98,7 +99,8 @@ $MULTICODE_MODULE plugin verify plugins/acme-doc-search
 
 A valid plugin prints `plugin signature valid` and the signer fingerprint. If
 `plugin.json` changes after signing, verification fails with `INVALID
-signature`; re-sign before submitting.
+signature`; if a component file changes after signing, verification fails with a
+component digest mismatch. Re-sign before submitting.
 
 ## 5. Pack Locally
 
@@ -144,10 +146,10 @@ Example community entry:
 }
 ```
 
-Add the icon at `icons/acme-doc-search.svg`. Registry sources must be HTTPS
-URLs. Community submissions should use `publisher.verified: false`; Multicode
-will install them only after the user grants trust in the marketplace trust
-gate.
+Add the icon at `icons/acme-doc-search.svg`. Registry sources must use the
+canonical `https://github.com/multicode-labs/marketplace/tree/main/plugins/<id>`
+layout. Community submissions should use `publisher.verified: false`; Multicode
+will install them only after the user grants trust in the marketplace trust gate.
 
 Only first-party publishers with a fingerprint listed in
 `trusted-publishers.json` may set `publisher.verified: true`.
@@ -180,8 +182,11 @@ The validator checks:
 
 - `marketplace.json` with the shared marketplace index validator.
 - Every `plugins/<id>/plugin.json` with `multicode-module plugin verify`.
+- Signed component file digests against the committed bytes under
+  `plugins/<id>/`.
 - Registry entry id, name, version, provided components, and signature against
   the signed plugin manifest.
+- Registry entry source against the canonical `plugins/<id>` GitHub path.
 - Verified publisher fingerprints against `trusted-publishers.json`.
 - Icon paths, MCP component parseability, and absence of committed key material.
 

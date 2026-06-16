@@ -16,7 +16,8 @@
 // verifies), and sign writes that normalized manifest back to disk so the
 // signed bytes on disk are exactly what the app checks.
 
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
@@ -30,6 +31,7 @@ import {
   parseMarketplacePluginAuthoringManifest,
   parseMarketplacePluginManifest,
   validateMarketplacePluginAuthoringManifest,
+  type MarketplaceComponentFileDigest,
   type MarketplaceComponentKind,
   type MarketplaceManifestIssue,
   type MarketplacePluginAuthoringManifest,
@@ -69,10 +71,10 @@ plugin scaffold creates plugin.json plus component placeholders for mcp, skills,
 module, and cli by default. Pass --component repeatedly to scaffold only the
 kinds you want.
 
-plugin sign signs the normalized plugin.json bundle manifest. plugin pack
-validates plugin.json through the marketplace plugin validator, verifies the
-signature, checks declared component paths exist, and copies the bundle while
-excluding key material.`
+plugin sign writes component file digests into the normalized plugin.json bundle
+manifest before signing it. plugin pack validates plugin.json through the
+marketplace plugin validator, verifies the signature and component digests, and
+copies the bundle while excluding key material.`
 
 type CliIssue = ThirdPartyManifestIssue | MarketplaceManifestIssue
 
@@ -180,16 +182,103 @@ function parseComponentKinds(raw: unknown): MarketplaceComponentKind[] {
   return kinds
 }
 
-function assertPluginComponentsExist(pluginDir: string, components: MarketplacePluginComponents): void {
+function pathForManifest(path: string): string {
+  return path.split(/[\\/]+/).join('/')
+}
+
+function isPackExcludedComponentPath(path: string): boolean {
+  const segments = path.split('/')
+  const name = segments[segments.length - 1] ?? ''
+  return segments.includes('node_modules') || segments.includes('.git') || name.endsWith('.key') || name.endsWith('.pem')
+}
+
+function hashFile(path: string): string {
+  return createHash('sha256').update(readFileSync(path)).digest('hex')
+}
+
+function componentFileDigests(pluginDir: string, kind: MarketplaceComponentKind, componentPath: string): MarketplaceComponentFileDigest[] {
+  const absolutePath = join(pluginDir, componentPath)
+  if (!existsSync(absolutePath)) {
+    fail(`Plugin component paths are missing in ${pluginDir}:`, [
+      { path: `components.${kind}.path`, message: `declared path "${componentPath}" does not exist.` },
+    ])
+  }
+
+  const files: MarketplaceComponentFileDigest[] = []
   const issues: MarketplaceManifestIssue[] = []
+  const visit = (absoluteFilePath: string): void => {
+    const stat = statSync(absoluteFilePath)
+    const relPath = pathForManifest(relative(pluginDir, absoluteFilePath))
+    if (isPackExcludedComponentPath(relPath)) {
+      issues.push({
+        path: `components.${kind}.files`,
+        message: `component file "${relPath}" cannot be signed or packed.`,
+      })
+      return
+    }
+    if (stat.isDirectory()) {
+      for (const entry of readdirSync(absoluteFilePath).sort()) {
+        visit(join(absoluteFilePath, entry))
+      }
+      return
+    }
+    if (!stat.isFile()) {
+      issues.push({
+        path: `components.${kind}.files`,
+        message: `component path "${relPath}" must be a regular file or directory.`,
+      })
+      return
+    }
+    files.push({ path: relPath, sha256: hashFile(absoluteFilePath) })
+  }
+  visit(absolutePath)
+
+  if (issues.length > 0) fail(`Plugin component files are not packable in ${pluginDir}:`, issues)
+  if (files.length === 0) {
+    fail(`Plugin component paths are empty in ${pluginDir}:`, [
+      { path: `components.${kind}.files`, message: `declared path "${componentPath}" contains no files.` },
+    ])
+  }
+  return files.sort((a, b) => a.path.localeCompare(b.path))
+}
+
+function componentsWithComputedDigests(pluginDir: string, components: MarketplacePluginComponents): MarketplacePluginComponents {
+  const signedComponents: MarketplacePluginComponents = {}
   for (const kind of MARKETPLACE_COMPONENT_KINDS) {
     const component = components[kind]
     if (!component) continue
-    if (!existsSync(join(pluginDir, component.path))) {
-      issues.push({ path: `components.${kind}.path`, message: `declared path "${component.path}" does not exist.` })
+    signedComponents[kind] = {
+      path: component.path,
+      files: componentFileDigests(pluginDir, kind, component.path),
     }
   }
-  if (issues.length > 0) fail(`Plugin component paths are missing in ${pluginDir}:`, issues)
+  return signedComponents
+}
+
+function assertPluginComponentDigestsMatch(pluginDir: string, manifest: MarketplacePluginManifest): void {
+  const issues: MarketplaceManifestIssue[] = []
+  for (const kind of MARKETPLACE_COMPONENT_KINDS) {
+    const component = manifest.components[kind]
+    if (!component) continue
+    const actual = componentFileDigests(pluginDir, kind, component.path)
+    const actualByPath = new Map(actual.map((file) => [file.path, file.sha256]))
+    const expectedByPath = new Map((component.files ?? []).map((file) => [file.path, file.sha256]))
+
+    for (const expected of component.files ?? []) {
+      const digest = actualByPath.get(expected.path)
+      if (!digest) {
+        issues.push({ path: `components.${kind}.files`, message: `signed component file "${expected.path}" is missing.` })
+      } else if (digest !== expected.sha256) {
+        issues.push({ path: `components.${kind}.files.${expected.path}`, message: 'signed component file digest does not match current bytes.' })
+      }
+    }
+    for (const actualFile of actual) {
+      if (!expectedByPath.has(actualFile.path)) {
+        issues.push({ path: `components.${kind}.files`, message: `component file "${actualFile.path}" is not listed in signed digests.` })
+      }
+    }
+  }
+  if (issues.length > 0) fail(`Plugin component digests do not match ${pluginDir}:`, issues)
 }
 
 function uniqueSiblingPath(parent: string, name: string): string {
@@ -453,7 +542,7 @@ function pluginPack(args: string[]): void {
   if (!valid) {
     fail(`${manifest.id} has an INVALID signature. Re-sign the plugin before packing it.`)
   }
-  assertPluginComponentsExist(sourceDir, manifest.components)
+  assertPluginComponentDigestsMatch(sourceDir, manifest)
 
   const outDir = resolve(values.out ?? join('packed', manifest.id))
   if (existsSync(outDir) && !values.force) {
@@ -504,15 +593,20 @@ function pluginSign(args: string[]): void {
   const keyPath = resolve(values.key)
   if (!existsSync(keyPath)) fail(`Signing key not found: ${keyPath}`)
 
-  const { manifestPath, manifest } = readPluginAuthoringManifest(resolve(pluginDir))
+  const pluginRoot = resolve(pluginDir)
+  const { manifestPath, manifest } = readPluginAuthoringManifest(pluginRoot)
   const { signature: _prior, ...unsigned } = manifest
+  const unsignedWithDigests: MarketplacePluginAuthoringManifest = {
+    ...unsigned,
+    components: componentsWithComputedDigests(pluginRoot, unsigned.components),
+  }
   let signature
   try {
-    signature = signManifest(unsigned, readFileSync(keyPath, 'utf8'))
+    signature = signManifest(unsignedWithDigests, readFileSync(keyPath, 'utf8'))
   } catch (error) {
     fail(`Could not sign with ${keyPath}: ${error instanceof Error ? error.message : 'unknown error'}`)
   }
-  const signed: MarketplacePluginManifest = { ...unsigned, signature }
+  const signed: MarketplacePluginManifest = { ...unsignedWithDigests, signature }
   writeFileSync(manifestPath, JSON.stringify(signed, null, 2) + '\n')
   const { fingerprint } = verifyModuleSignature(signed)
   console.log(`Signed plugin ${manifest.id}; wrote normalized manifest to ${manifestPath}`)
@@ -530,7 +624,6 @@ function pluginVerify(args: string[]): void {
     fail(`${authoring.manifest.id} is unsigned. The app will refuse to install it; sign it with \`multicode-module plugin sign\`.`)
   }
   const { manifest } = readPluginManifest(sourceDir)
-  assertPluginComponentsExist(sourceDir, manifest.components)
   const { valid, fingerprint } = verifyModuleSignature(manifest)
   if (!valid) {
     fail(
@@ -538,6 +631,7 @@ function pluginVerify(args: string[]): void {
         'The app will refuse to install it. Re-sign the plugin.'
     )
   }
+  assertPluginComponentDigestsMatch(sourceDir, manifest)
   console.log(`${manifest.id}: plugin signature valid`)
   console.log(`Signer fingerprint: ${fingerprint}`)
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { generateKeyPairSync, sign } from 'node:crypto'
+import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import Module from 'node:module'
@@ -85,52 +85,33 @@ async function withElectronMock<T>(
   }
 }
 
-async function writeSkill(path: string): Promise<void> {
-  await mkdir(path, { recursive: true })
-  await writeFile(
-    join(path, 'SKILL.md'),
-    '---\nname: local-skill\ndescription: Local test skill.\n---\n# Local Skill\n\nInstall me.\n',
-    'utf8'
-  )
+function sha256Hex(source: string): string {
+  return createHash('sha256').update(Buffer.from(source, 'utf8')).digest('hex')
 }
 
-async function writeModule(path: string, id = 'bundle-module'): Promise<void> {
-  await writeJson(join(path, 'manifest.json'), {
-    id,
-    displayName: 'Bundle Module',
-    version: 1,
-    permissions: ['network'],
-  })
+function componentsWithDigests(components: BundleComponents, files: Map<string, string>): BundleComponents {
+  return Object.fromEntries(
+    Object.entries(components).map(([kind, component]) => {
+      const componentFiles = Array.from(files.entries())
+        .filter(([path]) => path === component.path || path.startsWith(`${component.path}/`))
+        .map(([path, source]) => ({ path, sha256: sha256Hex(source) }))
+        .sort((a, b) => a.path.localeCompare(b.path))
+      return [kind, { path: component.path, files: componentFiles }]
+    })
+  ) as BundleComponents
 }
 
-async function writeCli(path: string, id = 'bundle-cli'): Promise<void> {
-  await writeJson(join(path, 'plugin.json'), {
-    id,
-    displayName: 'Bundle CLI',
-    version: 1,
-    binary: 'node',
-    permissionPresets: {
-      default: { label: 'Default', args: [] },
-    },
-    launch: { argv: ['{{binary}}'] },
-    promptInjection: { mode: 'stdin-pipe' },
-    completion: { mode: 'process-exit' },
-    capabilities: {
-      resumeSession: false,
-      sessionIdFromCaller: false,
-      toolUse: false,
-      mcpServers: false,
-    },
-  })
-}
-
-function signedBundleManifest(components: BundleComponents, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function signedBundleManifest(
+  components: BundleComponents,
+  files: Map<string, string>,
+  overrides: Record<string, unknown> = {}
+): Record<string, unknown> {
   const unsigned = {
     id: 'bundle-plugin',
     displayName: 'Bundle Plugin',
     version: 1,
     permissions: ['network'],
-    components,
+    components: componentsWithDigests(components, files),
     ...overrides,
   }
   const dummySignature = { algorithm: 'ed25519' as const, publicKey: 'YWJj', signature: 'ZGVm' }
@@ -222,8 +203,9 @@ function createLocalSkillService(): SkillPackService {
 async function createBundle(root: string, components: BundleComponents): Promise<string> {
   const bundle = join(root, 'bundle')
   await mkdir(bundle, { recursive: true })
+  const files = new Map<string, string>()
   if (components.mcp) {
-    await writeJson(join(bundle, components.mcp.path), {
+    files.set(components.mcp.path, `${JSON.stringify({
       servers: [
         {
           id: 'bundle-mcp',
@@ -236,12 +218,48 @@ async function createBundle(root: string, components: BundleComponents): Promise
           riskLevel: 'local-command',
         },
       ],
-    })
+    }, null, 2)}\n`)
   }
-  if (components.skills) await writeSkill(join(bundle, components.skills.path))
-  if (components.module) await writeModule(join(bundle, components.module.path))
-  if (components.cli) await writeCli(join(bundle, components.cli.path))
-  await writeJson(join(bundle, 'plugin.json'), signedBundleManifest(components))
+  if (components.skills) {
+    files.set(
+      `${components.skills.path}/SKILL.md`,
+      '---\nname: local-skill\ndescription: Local test skill.\n---\n# Local Skill\n\nInstall me.\n'
+    )
+  }
+  if (components.module) {
+    files.set(`${components.module.path}/manifest.json`, `${JSON.stringify({
+      id: 'bundle-module',
+      displayName: 'Bundle Module',
+      version: 1,
+      permissions: ['network'],
+    }, null, 2)}\n`)
+  }
+  if (components.cli) {
+    files.set(`${components.cli.path}/plugin.json`, `${JSON.stringify({
+      id: 'bundle-cli',
+      displayName: 'Bundle CLI',
+      version: 1,
+      binary: 'node',
+      permissionPresets: {
+        default: { label: 'Default', args: [] },
+      },
+      launch: { argv: ['{{binary}}'] },
+      promptInjection: { mode: 'stdin-pipe' },
+      completion: { mode: 'process-exit' },
+      capabilities: {
+        resumeSession: false,
+        sessionIdFromCaller: false,
+        toolUse: false,
+        mcpServers: false,
+      },
+    }, null, 2)}\n`)
+  }
+  files.set('plugin.json', `${JSON.stringify(signedBundleManifest(components, files), null, 2)}\n`)
+  for (const [path, source] of files) {
+    const destination = join(bundle, path)
+    await mkdir(dirname(destination), { recursive: true })
+    await writeFile(destination, source, 'utf8')
+  }
   return bundle
 }
 

@@ -2,22 +2,28 @@
   "id": "api-reference-mcp",
   "displayName": "API Reference MCP",
   "version": 1,
-  "publisher": "Multicode Labs",
-  "category": "Documentation",
-  "summary": "Installs the official OpenAI Docs MCP endpoint for API, Codex, and ChatGPT integration lookup.",
   "defaultEnabled": false,
   "source": "third-party",
   "permissions": [
     "network"
   ],
+  "publisher": "Multicode Labs",
+  "category": "Documentation",
+  "summary": "Installs the official OpenAI Docs MCP endpoint for API, Codex, and ChatGPT integration lookup.",
   "components": {
     "mcp": {
-      "path": "mcp/server.json"
+      "path": "mcp/server.json",
+      "files": [
+        {
+          "path": "mcp/server.json",
+          "sha256": "9f6b4a9ab1cc52ef97f6000eccd6b773f1e7b9ab9b3c2c93f00c3aad71de14c3"
+        }
+      ]
     }
   },
   "signature": {
     "algorithm": "ed25519",
-    "publicKey": "MCowBQYDK2VwAyEAx0cCIXxLY/Nqww0aKzjjiT3uGrrsddHFVbc4oQa2QA0=",
-    "signature": "sf4fZAs4U0EqdTbynDPKUXTiJs2HvVYD9BV+TctxcVKrIlEaFTWb52Y4SgQ1y8t9xLxkqU0sHnQ5Vrsr5t5UAA=="
+    "publicKey": "MCowBQYDK2VwAyEAJ53RCVYIAvj+4HGLduBarxzTfqJvshh7+jyB200/PQM=",
+    "signature": "hnioAihVF93H+9R3jgTc73D9N6tKvfXxfE7rqMPjk54eK+/iGykBlM8YF3zx+fv09ZXzoQigLjQ0aPkdwYKeBA=="
   }
 }

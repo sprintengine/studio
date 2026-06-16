@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -24,6 +25,28 @@ type Fixture = {
   fingerprint: string
 }
 
+function mcpComponentSource(): string {
+  return `${JSON.stringify({
+    servers: [
+      {
+        id: 'preview-mcp',
+        name: 'Preview MCP',
+        transport: 'stdio',
+        command: 'node',
+        args: ['-e', 'console.log("preview mcp")'],
+        clients: ['codex'],
+        scope: 'workspace',
+        source: 'custom',
+        riskLevel: 'local-command',
+      },
+    ],
+  })}\n`
+}
+
+function sha256Hex(value: string): string {
+  return createHash('sha256').update(Buffer.from(value, 'utf8')).digest('hex')
+}
+
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), 'mc-marketplace-verify-'))
   try {
@@ -39,6 +62,7 @@ function createFixture(options: {
   publisherVerified?: boolean
 } = {}): Fixture {
   const keyPair = generateModuleSigningKeyPair()
+  const mcpSource = mcpComponentSource()
   const unsigned = {
     id: 'preview-plugin',
     displayName: 'Preview Plugin',
@@ -49,7 +73,7 @@ function createFixture(options: {
     defaultEnabled: false,
     ...(options.omitPermissions ? {} : { permissions: options.permissions ?? ['network'] }),
     components: {
-      mcp: { path: 'mcp/server.json' },
+      mcp: { path: 'mcp/server.json', files: [{ path: 'mcp/server.json', sha256: sha256Hex(mcpSource) }] },
     },
   }
   const validated = validateMarketplacePluginAuthoringManifest(unsigned)
@@ -78,23 +102,7 @@ function createFixture(options: {
 function createFetcher(pluginJson: string): MarketplacePluginDownloadFetch {
   return async (url) => {
     if (url === PLUGIN_JSON_URL) return new Response(pluginJson)
-    if (url === MCP_JSON_URL) {
-      return new Response(`${JSON.stringify({
-        servers: [
-          {
-            id: 'preview-mcp',
-            name: 'Preview MCP',
-            transport: 'stdio',
-            command: 'node',
-            args: ['-e', 'console.log("preview mcp")'],
-            clients: ['codex'],
-            scope: 'workspace',
-            source: 'custom',
-            riskLevel: 'local-command',
-          },
-        ],
-      })}\n`)
-    }
+    if (url === MCP_JSON_URL) return new Response(mcpComponentSource())
     return new Response('not found', { status: 404 })
   }
 }

@@ -5,10 +5,12 @@ import {
   parseMarketplaceIndex,
   parseMarketplacePluginManifest,
   validateMarketplaceIndex,
+  validateMarketplacePluginAuthoringManifest,
   validateMarketplacePluginManifest,
 } from './manifest'
 
 const VALID_SIGNATURE = { algorithm: 'ed25519' as const, publicKey: 'YWJj', signature: 'ZGVm' }
+const VALID_DIGEST = 'a'.repeat(64)
 
 const VALID_PLUGIN = {
   id: 'dev-helper',
@@ -20,10 +22,10 @@ const VALID_PLUGIN = {
   permissions: ['network', 'ipc:settings'],
   signature: VALID_SIGNATURE,
   components: {
-    mcp: { path: 'mcp/server.json' },
-    skills: { path: 'skills/pack.json' },
-    module: { path: 'module/manifest.json' },
-    cli: { path: 'cli/plugin.json' },
+    mcp: { path: 'mcp/server.json', files: [{ path: 'mcp/server.json', sha256: VALID_DIGEST }] },
+    skills: { path: 'skills/pack', files: [{ path: 'skills/pack/SKILL.md', sha256: VALID_DIGEST }] },
+    module: { path: 'module', files: [{ path: 'module/manifest.json', sha256: VALID_DIGEST }] },
+    cli: { path: 'cli', files: [{ path: 'cli/plugin.json', sha256: VALID_DIGEST }] },
   },
 }
 
@@ -72,9 +74,10 @@ function testValidPluginManifest(): void {
     assert.equal(result.manifest.source, 'third-party')
     assert.deepEqual(result.manifest.permissions, ['network', 'ipc:settings'])
     assert.equal(result.manifest.components.mcp?.path, 'mcp/server.json')
-    assert.equal(result.manifest.components.skills?.path, 'skills/pack.json')
-    assert.equal(result.manifest.components.module?.path, 'module/manifest.json')
-    assert.equal(result.manifest.components.cli?.path, 'cli/plugin.json')
+    assert.equal(result.manifest.components.skills?.path, 'skills/pack')
+    assert.equal(result.manifest.components.module?.path, 'module')
+    assert.equal(result.manifest.components.cli?.path, 'cli')
+    assert.deepEqual(result.manifest.components.mcp?.files, [{ path: 'mcp/server.json', sha256: VALID_DIGEST }])
   }
 }
 
@@ -89,10 +92,30 @@ function testPluginRejectsInvalidComponentCases(): void {
   assertRejectsAt({ ...VALID_PLUGIN, components: { mcp: {} } }, 'components.mcp.path')
   assertRejectsAt({ ...VALID_PLUGIN, components: { mcp: { path: '../escape.json' } } }, 'components.mcp.path')
   assertRejectsAt({ ...VALID_PLUGIN, components: { theme: { path: 'theme.json' } } }, 'components.theme')
+  assertRejectsAt({ ...VALID_PLUGIN, components: { mcp: { path: 'mcp/server.json' } } }, 'components.mcp.files')
+  assertRejectsAt(
+    { ...VALID_PLUGIN, components: { mcp: { path: 'mcp/server.json', files: [{ path: 'other/server.json', sha256: VALID_DIGEST }] } } },
+    'components.mcp.files[0].path'
+  )
+  assertRejectsAt(
+    { ...VALID_PLUGIN, components: { mcp: { path: 'mcp/server.json', files: [{ path: 'mcp/server.json', sha256: 'BAD' }] } } },
+    'components.mcp.files[0].sha256'
+  )
   assertRejectsAt(
     { ...VALID_PLUGIN, components: { mcp: { path: 'mcp/server.json', extra: true } } },
     'components.mcp.extra'
   )
+}
+
+function testPluginAuthoringManifestAllowsDraftWithoutDigests(): void {
+  const result = validateMarketplacePluginAuthoringManifest({
+    ...VALID_PLUGIN,
+    signature: undefined,
+    components: {
+      mcp: { path: 'mcp/server.json' },
+    },
+  })
+  assert.equal(result.ok, true)
 }
 
 function testPluginRejectsInvalidPermissionsThroughSdkValidator(): void {
@@ -171,6 +194,7 @@ function testParseMarketplaceInvalidJson(): void {
 testValidPluginManifest()
 testPluginMissingRequiredFields()
 testPluginRejectsInvalidComponentCases()
+testPluginAuthoringManifestAllowsDraftWithoutDigests()
 testPluginRejectsInvalidPermissionsThroughSdkValidator()
 testPluginRejectsInvalidSignatureThroughSdkValidator()
 testPluginCanonicalPayloadExcludesSignatureAndUnknownFields()

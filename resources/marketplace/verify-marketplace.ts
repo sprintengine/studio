@@ -194,6 +194,15 @@ function validateEntrySource(entryId: string, source: string, issues: Verificati
     const parsed = new URL(source)
     if (parsed.protocol !== 'https:') {
       issues.push(issue(`plugins.${entryId}.source`, 'source must be an HTTPS URL.'))
+      return
+    }
+    const segments = parsed.pathname.split('/').filter(Boolean)
+    const canonical = ['multicode-labs', 'marketplace', 'tree', 'main', 'plugins', entryId]
+    if (parsed.hostname !== 'github.com' || segments.length !== canonical.length || segments.some((segment, index) => segment !== canonical[index])) {
+      issues.push(issue(
+        `plugins.${entryId}.source`,
+        `source must be the canonical registry path https://github.com/multicode-labs/marketplace/tree/main/plugins/${entryId}.`
+      ))
     }
   } catch {
     issues.push(issue(`plugins.${entryId}.source`, 'source must be a valid HTTPS URL.'))

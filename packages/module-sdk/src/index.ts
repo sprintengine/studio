@@ -554,6 +554,7 @@ export {
   validateMarketplacePluginAuthoringManifest,
   validateMarketplacePluginManifest,
   type MarketplaceComponent,
+  type MarketplaceComponentFileDigest,
   type MarketplaceComponentKind,
   type MarketplaceManifestIssue,
   type MarketplacePluginAuthoringManifest,

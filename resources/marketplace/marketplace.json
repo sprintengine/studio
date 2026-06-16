@@ -18,8 +18,8 @@
       ],
       "signature": {
         "algorithm": "ed25519",
-        "publicKey": "MCowBQYDK2VwAyEAx0cCIXxLY/Nqww0aKzjjiT3uGrrsddHFVbc4oQa2QA0=",
-        "signature": "ZwL5A51rlXDPFXWSmCdF4x/LIw827Rc1DJ39M55Omi2LNGY9etooQOzzn3t/LuBAVnFxKKOEojgLQkja+8qkCQ=="
+        "publicKey": "MCowBQYDK2VwAyEAJ53RCVYIAvj+4HGLduBarxzTfqJvshh7+jyB200/PQM=",
+        "signature": "mkluCNuyHGQjQbxpFt1VDvz9cF3gcOO4hhwMqY7NnUIYBxV1vhjjMrft59G2AJ5nlHZ9q9v/cUjwWHgY8IlKAw=="
       }
     },
     {
@@ -39,8 +39,8 @@
       ],
       "signature": {
         "algorithm": "ed25519",
-        "publicKey": "MCowBQYDK2VwAyEAx0cCIXxLY/Nqww0aKzjjiT3uGrrsddHFVbc4oQa2QA0=",
-        "signature": "oTAgYNdETM3hnceJVj+t4ch4G/s/bOTDpxjsXUYGBjzmEtNRqXjKnNxuEptTfUpKFhkkvgdOFbpDVMJHayfbCA=="
+        "publicKey": "MCowBQYDK2VwAyEAJ53RCVYIAvj+4HGLduBarxzTfqJvshh7+jyB200/PQM=",
+        "signature": "q5Fq5bci2oJ33E51BLinAMBhLU672eb2R/71HiNU0C8IQOrKTLzk9SinXZ8pv4Eskeuv+LbQ8E+L7v5xMvN0BA=="
       }
     },
     {
@@ -60,8 +60,8 @@
       ],
       "signature": {
         "algorithm": "ed25519",
-        "publicKey": "MCowBQYDK2VwAyEAx0cCIXxLY/Nqww0aKzjjiT3uGrrsddHFVbc4oQa2QA0=",
-        "signature": "5bLbBdLI7q4VGBLKDZjCwimkdyhhfLNmL+jtzHMxHyE0o1hi1kf6BshEworpnCOpilP3570PKdS8SRDISl1QAQ=="
+        "publicKey": "MCowBQYDK2VwAyEAJ53RCVYIAvj+4HGLduBarxzTfqJvshh7+jyB200/PQM=",
+        "signature": "FLNJG9LwKQlu6U1u917bY0c/VV2Jz1M5tju9r7ZXbZf1ZZv2n5yBMWCFc3dX84YJTeayVWXHLpUx38ZqrVIYAw=="
       }
     },
     {
@@ -81,8 +81,8 @@
       ],
       "signature": {
         "algorithm": "ed25519",
-        "publicKey": "MCowBQYDK2VwAyEAx0cCIXxLY/Nqww0aKzjjiT3uGrrsddHFVbc4oQa2QA0=",
-        "signature": "sf4fZAs4U0EqdTbynDPKUXTiJs2HvVYD9BV+TctxcVKrIlEaFTWb52Y4SgQ1y8t9xLxkqU0sHnQ5Vrsr5t5UAA=="
+        "publicKey": "MCowBQYDK2VwAyEAJ53RCVYIAvj+4HGLduBarxzTfqJvshh7+jyB200/PQM=",
+        "signature": "hnioAihVF93H+9R3jgTc73D9N6tKvfXxfE7rqMPjk54eK+/iGykBlM8YF3zx+fv09ZXzoQigLjQ0aPkdwYKeBA=="
       }
     }
   ]

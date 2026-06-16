@@ -209,6 +209,8 @@ function testPluginScaffoldSignVerifyPackAndAppTrustFlowAccepts(): string {
   const parsed = parseMarketplacePluginManifest(diskBytes)
   assert.ok(parsed.ok, 'app parser must accept the plugin manifest the CLI wrote')
   if (!parsed.ok) return pluginDir
+  assert.equal(parsed.manifest.components.mcp?.files?.[0]?.path, 'mcp/server.json')
+  assert.equal(typeof parsed.manifest.components.mcp?.files?.[0]?.sha256, 'string')
   const { valid, fingerprint } = verifyModuleSignature(parsed.manifest)
   assert.equal(valid, true, 'app verify code must accept the CLI plugin signature')
   assert.equal(typeof fingerprint, 'string')
@@ -237,6 +239,20 @@ function testPluginScaffoldSignVerifyPackAndAppTrustFlowAccepts(): string {
   assert.equal(existsSync(join(outDir, 'cli', 'stale-plugin.key')), false, 'force pack must remove stale .key files')
   assert.equal(runCli(['plugin', 'verify', outDir]).status, 0)
   return pluginDir
+}
+
+function testPluginComponentTamperRejectedByCliVerify(signedPluginDir: string): void {
+  writeFileSync(join(signedPluginDir, 'mcp', 'server.json'), `${JSON.stringify({ servers: [] }, null, 2)}\n`)
+
+  const cliResult = runCli(['plugin', 'verify', signedPluginDir])
+  assert.equal(cliResult.status, 1)
+  assert.match(cliResult.stderr, /component digests/i)
+
+  const parsed = parseMarketplacePluginManifest(readFileSync(join(signedPluginDir, 'plugin.json'), 'utf8'))
+  assert.ok(parsed.ok)
+  if (!parsed.ok) return
+  assert.equal(verifyModuleSignature(parsed.manifest).valid, true, 'component-byte tampering does not mutate plugin.json')
+  assert.equal(classifySignedManifestTrust(parsed.manifest, { trustedModules: new Map() }).status, 'signed')
 }
 
 function testPluginTamperRejectedByBothPaths(signedPluginDir: string): void {
@@ -283,6 +299,7 @@ try {
   testPackRejectsInvalidManifests()
   testPackHappyPathExcludesKeyMaterial()
   const signedPluginDir = testPluginScaffoldSignVerifyPackAndAppTrustFlowAccepts()
+  testPluginComponentTamperRejectedByCliVerify(signedPluginDir)
   testPluginTamperRejectedByBothPaths(signedPluginDir)
   testPluginVerifyRejectsUnsigned()
   testPluginPackRejectsMissingComponent()

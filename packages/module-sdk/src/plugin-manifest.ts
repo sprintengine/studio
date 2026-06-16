@@ -3,7 +3,8 @@
 // A marketplace plugin is a thin bundle over existing Multicode primitives. It
 // reuses the capability module manifest validator and canonical signing payload
 // so the app and authoring CLI sign/verify the same normalized plugin.json
-// shape, including the bundle `components` declaration.
+// shape, including the bundle `components` declaration and signed component
+// file digests.
 
 import type { CapabilityManifest, CapabilityPermission, ModuleSignature } from './index.js'
 import {
@@ -16,8 +17,14 @@ export type MarketplaceComponentKind = 'mcp' | 'skills' | 'module' | 'cli'
 
 export const MARKETPLACE_COMPONENT_KINDS: readonly MarketplaceComponentKind[] = ['mcp', 'skills', 'module', 'cli']
 
+export type MarketplaceComponentFileDigest = {
+  path: string
+  sha256: string
+}
+
 export type MarketplaceComponent = {
   path: string
+  files?: MarketplaceComponentFileDigest[]
 }
 
 export type MarketplacePluginComponents = {
@@ -62,7 +69,78 @@ function pushSdkIssues(
   }
 }
 
-function validateComponents(value: unknown, issues: MarketplaceManifestIssue[]): MarketplacePluginComponents | undefined {
+function isSha256Hex(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
+}
+
+function componentFilePathBelongsToComponent(componentPath: string, filePath: string): boolean {
+  return filePath === componentPath || filePath.startsWith(`${componentPath}/`)
+}
+
+function validateComponentFileDigests(
+  value: unknown,
+  componentPath: string,
+  path: string,
+  issues: MarketplaceManifestIssue[],
+  required: boolean
+): MarketplaceComponentFileDigest[] | undefined {
+  if (value === undefined) {
+    if (required) issues.push({ path: `${path}.files`, message: 'component file digests are required.' })
+    return undefined
+  }
+  if (!Array.isArray(value)) {
+    issues.push({ path: `${path}.files`, message: 'component file digests must be an array.' })
+    return undefined
+  }
+  if (value.length === 0) {
+    issues.push({ path: `${path}.files`, message: 'component file digests must contain at least one file.' })
+    return undefined
+  }
+
+  const files: MarketplaceComponentFileDigest[] = []
+  const seenPaths = new Set<string>()
+  value.forEach((entry, index) => {
+    const entryPath = `${path}.files[${index}]`
+    if (!isObject(entry)) {
+      issues.push({ path: entryPath, message: 'component file digest must be an object.' })
+      return
+    }
+    for (const field of Object.keys(entry)) {
+      if (field !== 'path' && field !== 'sha256') {
+        issues.push({ path: `${entryPath}.${field}`, message: 'unsupported component file digest field.' })
+      }
+    }
+    if (!isSafeManifestRelativePath(entry.path)) {
+      issues.push({
+        path: `${entryPath}.path`,
+        message: 'file path must be a safe relative path inside the plugin bundle (no absolute paths or "..").',
+      })
+      return
+    }
+    if (!componentFilePathBelongsToComponent(componentPath, entry.path)) {
+      issues.push({ path: `${entryPath}.path`, message: 'file path must be inside the declared component path.' })
+      return
+    }
+    if (seenPaths.has(entry.path)) {
+      issues.push({ path: `${entryPath}.path`, message: 'component file digest paths must be unique.' })
+      return
+    }
+    if (!isSha256Hex(entry.sha256)) {
+      issues.push({ path: `${entryPath}.sha256`, message: 'sha256 must be a lowercase 64-character hex digest.' })
+      return
+    }
+    seenPaths.add(entry.path)
+    files.push({ path: entry.path, sha256: entry.sha256 })
+  })
+
+  return files.length > 0 ? files.sort((a, b) => a.path.localeCompare(b.path)) : undefined
+}
+
+function validateComponents(
+  value: unknown,
+  issues: MarketplaceManifestIssue[],
+  requireFileDigests: boolean
+): MarketplacePluginComponents | undefined {
   if (!isObject(value)) {
     issues.push({ path: 'components', message: 'components must be an object.' })
     return undefined
@@ -80,7 +158,7 @@ function validateComponents(value: unknown, issues: MarketplaceManifestIssue[]):
       continue
     }
     for (const field of Object.keys(component)) {
-      if (field !== 'path') {
+      if (field !== 'path' && field !== 'files') {
         issues.push({ path: `${path}.${field}`, message: 'unsupported component field.' })
       }
     }
@@ -91,7 +169,11 @@ function validateComponents(value: unknown, issues: MarketplaceManifestIssue[]):
       })
       continue
     }
-    components[kind as MarketplaceComponentKind] = { path: component.path }
+    const files = validateComponentFileDigests(component.files, component.path, path, issues, requireFileDigests)
+    components[kind as MarketplaceComponentKind] = {
+      path: component.path,
+      ...(files ? { files } : {}),
+    }
   }
 
   if (Object.keys(components).length === 0) {
@@ -116,7 +198,7 @@ function validateMarketplacePluginManifestBase(
     issues.push({ path: 'signature', message: 'signature is required.' })
   }
 
-  const components = validateComponents(value.components, issues)
+  const components = validateComponents(value.components, issues, requireSignature)
   if (issues.length > 0 || !moduleResult.ok || !components) return { ok: false, issues }
 
   return {

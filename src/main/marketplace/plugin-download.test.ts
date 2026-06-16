@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -75,7 +76,11 @@ function mcpComponentSource(): string {
   }, null, 2)}\n`
 }
 
-function createFixture(overrides: Record<string, unknown> = {}): BundleFixture {
+function sha256Hex(value: string | Uint8Array): string {
+  return createHash('sha256').update(typeof value === 'string' ? Buffer.from(value, 'utf8') : Buffer.from(value)).digest('hex')
+}
+
+function createFixture(overrides: Record<string, unknown> = {}, mcpJson: string | Uint8Array = mcpComponentSource()): BundleFixture {
   const keyPair = generateModuleSigningKeyPair()
   const unsigned = {
     id: 'downloaded-plugin',
@@ -88,7 +93,7 @@ function createFixture(overrides: Record<string, unknown> = {}): BundleFixture {
     source: 'third-party',
     permissions: ['network'],
     components: {
-      mcp: { path: 'mcp/server.json' },
+      mcp: { path: 'mcp/server.json', files: [{ path: 'mcp/server.json', sha256: sha256Hex(mcpJson) }] },
     },
     ...overrides,
   }
@@ -298,8 +303,8 @@ async function testSignedUntrustedPublisherStagesAsCommunity(): Promise<void> {
 
 async function testDownloadedComponentBytesArePreserved(): Promise<void> {
   await withTempDir(async (dir) => {
-    const fixture = createFixture()
     const binaryComponent = new Uint8Array([0x00, 0xff, 0xfe, 0x41, 0xc3, 0x28, 0x7f])
+    const fixture = createFixture({}, binaryComponent)
     const { fetcher } = createGithubFetcher(`${JSON.stringify(fixture.manifest, null, 2)}\n`, binaryComponent)
 
     const result = await downloadMarketplacePluginBundle({
@@ -313,6 +318,34 @@ async function testDownloadedComponentBytesArePreserved(): Promise<void> {
     if (!result.ok) return
     const staged = await readFile(join(result.stagedBundlePath, 'mcp', 'server.json'))
     assert.deepEqual(staged, Buffer.from(binaryComponent))
+  })
+}
+
+async function testDownloadedComponentDigestMismatchBlocksAndRemovesStage(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const fixture = createFixture()
+    const { fetcher } = createGithubFetcher(
+      `${JSON.stringify(fixture.manifest, null, 2)}\n`,
+      `${JSON.stringify({ servers: [] })}\n`
+    )
+    const stagingRoot = join(dir, 'staging')
+
+    const result = await downloadMarketplacePluginBundle({
+      entry: fixture.entry,
+      trustContext: {
+        trustedModules: new Map(),
+        trustedKeyFingerprints: new Set([fixture.fingerprint]),
+      },
+      stagingRoot,
+      fetcher,
+    })
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.classification, 'invalid')
+    assert.match(result.message, /component digests/i)
+    assert.ok(result.issues?.some((issue) => /digest/i.test(issue.message)))
+    assert.deepEqual(await readdir(stagingRoot), [])
   })
 }
 
@@ -432,6 +465,7 @@ async function main(): Promise<void> {
   await testGithubPathValidationDoesNotFallbackToPackagedSeedBundle()
   await testSignedUntrustedPublisherStagesAsCommunity()
   await testDownloadedComponentBytesArePreserved()
+  await testDownloadedComponentDigestMismatchBlocksAndRemovesStage()
   await testTamperedPluginSignatureBlocksAndRemovesStage()
   await testUnsignedPluginClassifiesButDoesNotExposeStage()
   await testRejectsNonHttpsSourceBeforeFetch()

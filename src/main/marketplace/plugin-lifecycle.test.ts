@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { generateKeyPairSync, sign, type KeyObject } from 'node:crypto'
+import { createHash, generateKeyPairSync, sign, type KeyObject } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -145,8 +145,28 @@ function signPayload(payload: string, signer: Signer): MarketplacePluginManifest
   }
 }
 
+function sha256Hex(source: string): string {
+  return createHash('sha256').update(Buffer.from(source, 'utf8')).digest('hex')
+}
+
+function componentsWithDigests(
+  components: BundleComponents,
+  files: Map<string, string>
+): MarketplacePluginManifest['components'] {
+  return Object.fromEntries(
+    Object.entries(components).map(([kind, component]) => {
+      const componentFiles = Array.from(files.entries())
+        .filter(([path]) => path === component.path || path.startsWith(`${component.path}/`))
+        .map(([path, source]) => ({ path, sha256: sha256Hex(source) }))
+        .sort((a, b) => a.path.localeCompare(b.path))
+      return [kind, { path: component.path, files: componentFiles }]
+    })
+  ) as MarketplacePluginManifest['components']
+}
+
 function signedPluginManifest(
   components: BundleComponents,
+  files: Map<string, string>,
   signer: Signer,
   version: number,
   overrides: Record<string, unknown> = {}
@@ -156,9 +176,7 @@ function signedPluginManifest(
     displayName: 'Registry Plugin',
     version,
     permissions: ['network'],
-    components: Object.fromEntries(
-      Object.entries(components).map(([kind, component]) => [kind, { path: component.path }])
-    ),
+    components: componentsWithDigests(components, files),
     ...overrides,
   }
   const dummySignature = signPayload('{}', signer)
@@ -196,10 +214,6 @@ async function writeBundle(root: string, folder: string, components: BundleCompo
 }> {
   const bundleRoot = join(root, folder)
   const files = new Map<string, string>()
-  const manifest = signedPluginManifest(components, signer, version)
-  const fingerprint = verifyModuleSignature(manifest).fingerprint!
-
-  files.set('plugin.json', `${JSON.stringify(manifest, null, 2)}\n`)
   if (components.mcp) {
     files.set(components.mcp.path, `${JSON.stringify({
       servers: [
@@ -215,8 +229,9 @@ async function writeBundle(root: string, folder: string, components: BundleCompo
           riskLevel: 'local-command',
         },
       ],
-    }, null, 2)}\n`)
+      }, null, 2)}\n`)
   }
+
   if (components.skills) {
     files.set(`${components.skills.path}/SKILL.md`, `---\nname: ${components.skills.name}\ndescription: ${components.skills.name} v${version}.\n---\n`)
   }
@@ -242,6 +257,10 @@ async function writeBundle(root: string, folder: string, components: BundleCompo
       },
     }, null, 2)}\n`)
   }
+
+  const manifest = signedPluginManifest(components, files, signer, version)
+  const fingerprint = verifyModuleSignature(manifest).fingerprint!
+  files.set('plugin.json', `${JSON.stringify(manifest, null, 2)}\n`)
 
   for (const [path, source] of files) {
     const destination = join(bundleRoot, path)
@@ -418,6 +437,36 @@ async function testCommunityBundleRequiresTrustGrant(): Promise<void> {
     if (!granted.ok) return
     assert.equal(granted.classification, 'community')
     assert.match(await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8'), /community-mcp/)
+  })
+}
+
+async function testDigestMismatchedRegistryInstallDoesNotFanOut(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const signer = generateKeyPairSync('ed25519')
+    const components: BundleComponents = { mcp: { path: 'mcp/server.json', id: 'tampered-mcp' } }
+    const bundle = await writeBundle(temp, 'tampered-plugin', components, signer, 1)
+    bundle.files.set(components.mcp!.path, `${JSON.stringify({ servers: [] }, null, 2)}\n`)
+    const folders = new Map([[ 'tampered-plugin', bundle.files ]])
+    const { services, workspaceRoot, receiptStorePath } = await createServices(
+      temp,
+      createGithubFetcher(folders),
+      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundle.fingerprint]) }
+    )
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+
+    const result = await lifecycle.installFromRegistry({
+      entry: bundle.entry,
+      workspaceRoot,
+      mcpSettings: { syncEnabled: false, servers: {} },
+      mcpClients: ['codex'],
+    })
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.classification, 'invalid')
+    assert.match(result.message, /component digests/i)
+    assert.equal(existsSync(join(workspaceRoot, '.codex', 'config.toml')), false)
+    assert.equal(existsSync(receiptStorePath), false)
   })
 }
 
@@ -649,6 +698,7 @@ async function testReceiptStoreValidationRejectsMalformedAndUnsafeState(): Promi
 async function main(): Promise<void> {
   await testVerifiedRegistryInstallFansOutAndRecordsReceipt()
   await testCommunityBundleRequiresTrustGrant()
+  await testDigestMismatchedRegistryInstallDoesNotFanOut()
   await testSkillPostInstallListingFailureRollsBackResidue()
   await testUpdateAndUninstallRemoveOldComponents()
   await testFailedUpdateRollsBackReplacementAndKeepsReceipt()

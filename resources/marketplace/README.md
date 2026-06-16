@@ -20,8 +20,9 @@ the same relative paths.
 ## Seed Plugins
 
 Each seed wraps one MCP server already present in `resources/mcps/catalog.json`.
-The plugin manifests are signed with ed25519 detached signatures and the
-private signing key is not stored in this repository.
+The plugin manifests are signed with ed25519 detached signatures over the
+normalized `plugin.json`, including per-component file digests. The private
+signing key is not stored in this repository.
 
 - `browser-automation-mcp` wraps the `playwright` MCP server.
 - `repository-workflows-mcp` wraps the `github` MCP server.
@@ -49,10 +50,11 @@ npm run verify:marketplace-registry -- --root ../marketplace
 
 The verifier uses the shared marketplace schema validator for `marketplace.json`
 and delegates every plugin bundle to `multicode-module plugin verify`, the same
-authoring CLI path used before publish. It also checks that verified publisher
-signatures resolve to `trusted-publishers.json`, registry entries match their
-signed `plugin.json`, icons exist, MCP components parse, and no key material is
-committed.
+authoring CLI path used before publish. It also checks signed component file
+digests, canonical `plugins/<id>` source URLs, verified publisher signatures
+against `trusted-publishers.json`, registry entries against their signed
+`plugin.json`, icons, MCP component parseability, and absence of committed key
+material.
 
 The published registry workflow checks out the Multicode app validation tooling
 and runs:

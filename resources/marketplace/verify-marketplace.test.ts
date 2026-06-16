@@ -80,6 +80,33 @@ function testTamperedPluginFailsThroughCliVerify(): void {
   assert.match(result.stderr, /INVALID signature/)
 }
 
+function testTamperedComponentFailsThroughCliVerify(): void {
+  const root = copySeedRegistry('tampered-component-registry')
+  const path = join(root, 'plugins', 'browser-automation-mcp', 'mcp', 'server.json')
+  const component = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+  component.servers = []
+  writeFileSync(path, `${JSON.stringify(component, null, 2)}\n`, 'utf8')
+
+  const result = runVerifier(root)
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /plugins\/browser-automation-mcp\/plugin\.json/)
+  assert.match(result.stderr, /multicode-module plugin verify failed/)
+  assert.match(result.stderr, /component digests/i)
+}
+
+function testEntrySourceOutsideCanonicalPathFails(): void {
+  const root = copySeedRegistry('evil-source-registry')
+  const path = join(root, 'marketplace.json')
+  const marketplace = JSON.parse(readFileSync(path, 'utf8')) as { plugins: Array<{ source?: string }> }
+  marketplace.plugins[0].source = 'https://github.com/example/evil-marketplace/tree/main/plugins/browser-automation-mcp'
+  writeFileSync(path, `${JSON.stringify(marketplace, null, 2)}\n`, 'utf8')
+
+  const result = runVerifier(root)
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /plugins\.browser-automation-mcp\.source/)
+  assert.match(result.stderr, /canonical registry path/)
+}
+
 function testPublishScriptsTargetRegistryRoot(): void {
   const appPackage = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as {
     scripts?: Record<string, string>
@@ -100,6 +127,8 @@ try {
   testSampleRegistryPasses()
   testSchemaInvalidRegistryFailsClearly()
   testTamperedPluginFailsThroughCliVerify()
+  testTamperedComponentFailsThroughCliVerify()
+  testEntrySourceOutsideCanonicalPathFails()
   testPublishScriptsTargetRegistryRoot()
   console.log('marketplace publish validation tests passed')
 } finally {

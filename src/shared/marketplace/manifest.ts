@@ -3,9 +3,9 @@
 // A marketplace plugin is a thin bundle over primitives Multicode already owns:
 // MCP configs, skill packs, capability modules, and agent CLI plugins. The
 // bundle manifest validator lives in the published SDK so authoring tools and
-// the app cannot drift on the signing-critical plugin.json shape. This module
-// re-exports that plugin contract and adds the marketplace.json registry index
-// contract used by the app.
+// the app cannot drift on the signing-critical plugin.json shape, including
+// component file digests. This module re-exports that plugin contract and adds
+// the marketplace.json registry index contract used by the app.
 
 import type { ModuleSignature } from '../modules/manifest'
 import {
@@ -36,6 +36,7 @@ export {
   validateMarketplacePluginAuthoringManifest,
   validateMarketplacePluginManifest,
   type MarketplaceComponent,
+  type MarketplaceComponentFileDigest,
   type MarketplaceComponentKind,
   type MarketplaceManifestIssue,
   type MarketplacePluginAuthoringManifest,

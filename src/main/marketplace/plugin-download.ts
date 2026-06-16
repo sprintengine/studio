@@ -1,5 +1,6 @@
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { dirname, isAbsolute, join, relative } from 'node:path'
 import { tmpdir } from 'node:os'
 
 import type {
@@ -186,6 +187,19 @@ export async function downloadMarketplacePluginBundle(
       }
     }
 
+    const digestMismatch = await componentDigestMismatchIssues(stage, manifest)
+    if (digestMismatch.length > 0) {
+      await rm(stage, { recursive: true, force: true })
+      return {
+        ok: false,
+        sourceUrl,
+        classification: 'invalid',
+        trust,
+        message: 'Downloaded plugin bundle component digests do not match its signed manifest.',
+        issues: digestMismatch,
+      }
+    }
+
     return {
       ok: true,
       sourceUrl,
@@ -345,11 +359,104 @@ async function downloadGenericPluginSource(
   if (!manifestResult.ok) return
 
   const base = new URL('.', pluginUrl)
-  for (const kind of componentKinds(manifestResult.manifest)) {
-    const relPath = manifestResult.manifest.components[kind]?.path
-    if (!relPath) continue
+  for (const relPath of componentDigestPaths(manifestResult.manifest)) {
     await downloadFile(new URL(relPath, base).toString(), join(stage, relPath), fetcher, timeoutMs, limits, state)
   }
+}
+
+function componentDigestPaths(manifest: MarketplacePluginManifest): string[] {
+  return Array.from(new Set(componentKinds(manifest).flatMap((kind) =>
+    manifest.components[kind]?.files?.map((file) => file.path) ?? []
+  ))).sort()
+}
+
+async function componentDigestMismatchIssues(
+  stage: string,
+  manifest: MarketplacePluginManifest
+): Promise<MarketplaceManifestIssue[]> {
+  const issues: MarketplaceManifestIssue[] = []
+  for (const kind of componentKinds(manifest)) {
+    const component = manifest.components[kind]
+    if (!component) continue
+    const actual = await componentFileDigests(stage, component.path, `components.${kind}`, issues)
+    const actualByPath = new Map(actual.map((file) => [file.path, file.sha256]))
+    const expectedByPath = new Map((component.files ?? []).map((file) => [file.path, file.sha256]))
+
+    for (const expected of component.files ?? []) {
+      const actualDigest = actualByPath.get(expected.path)
+      if (!actualDigest) {
+        issues.push({ path: `components.${kind}.files`, message: `signed component file "${expected.path}" is missing.` })
+      } else if (actualDigest !== expected.sha256) {
+        issues.push({ path: `components.${kind}.files.${expected.path}`, message: 'signed component file digest does not match downloaded bytes.' })
+      }
+    }
+    for (const actualFile of actual) {
+      if (!expectedByPath.has(actualFile.path)) {
+        issues.push({ path: `components.${kind}.files`, message: `component file "${actualFile.path}" is not listed in signed digests.` })
+      }
+    }
+  }
+  return issues
+}
+
+async function componentFileDigests(
+  stage: string,
+  componentPath: string,
+  issuePath: string,
+  issues: MarketplaceManifestIssue[]
+): Promise<Array<{ path: string; sha256: string }>> {
+  const absolutePath = join(stage, componentPath)
+  const files: Array<{ path: string; sha256: string }> = []
+  const visit = async (absoluteFilePath: string): Promise<void> => {
+    let entryStat
+    try {
+      entryStat = await stat(absoluteFilePath)
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        issues.push({ path: `${issuePath}.path`, message: `declared path "${componentPath}" does not exist.` })
+        return
+      }
+      throw error
+    }
+    const relPath = pathForManifest(relative(stage, absoluteFilePath))
+    if (!isInsideOrEqualPath(stage, absoluteFilePath) || isPackExcludedComponentPath(relPath)) {
+      issues.push({ path: `${issuePath}.files`, message: `component file "${relPath}" cannot be installed from marketplace bundles.` })
+      return
+    }
+    if (entryStat.isDirectory()) {
+      const entries = (await readdir(absoluteFilePath)).sort()
+      for (const entry of entries) {
+        await visit(join(absoluteFilePath, entry))
+      }
+      return
+    }
+    if (!entryStat.isFile()) {
+      issues.push({ path: `${issuePath}.files`, message: `component path "${relPath}" must be a regular file or directory.` })
+      return
+    }
+    files.push({ path: relPath, sha256: createHash('sha256').update(await readFile(absoluteFilePath)).digest('hex') })
+  }
+
+  await visit(absolutePath)
+  if (files.length === 0) {
+    issues.push({ path: `${issuePath}.files`, message: `declared path "${componentPath}" contains no files.` })
+  }
+  return files.sort((a, b) => a.path.localeCompare(b.path))
+}
+
+function pathForManifest(path: string): string {
+  return path.split(/[\\/]+/).join('/')
+}
+
+function isPackExcludedComponentPath(path: string): boolean {
+  const segments = path.split('/')
+  const name = segments[segments.length - 1] ?? ''
+  return segments.includes('node_modules') || segments.includes('.git') || name.endsWith('.key') || name.endsWith('.pem')
+}
+
+function isInsideOrEqualPath(parent: string, candidate: string): boolean {
+  const rel = relative(parent, candidate)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
 async function downloadFile(
@@ -483,4 +590,8 @@ class DownloadNetworkError extends Error {
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT'
 }
