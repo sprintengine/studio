@@ -421,6 +421,42 @@ async function testCommunityBundleRequiresTrustGrant(): Promise<void> {
   })
 }
 
+async function testSkillPostInstallListingFailureRollsBackResidue(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const signer = generateKeyPairSync('ed25519')
+    const components: BundleComponents = {
+      skills: { path: 'skills/registry-skill', name: 'registry-skill' },
+    }
+    const bundle = await writeBundle(temp, 'skill-plugin', components, signer, 1)
+    const folders = new Map([[ 'skill-plugin', bundle.files ]])
+    const { services, workspaceRoot, receiptStorePath } = await createServices(
+      temp,
+      createGithubFetcher(folders),
+      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundle.fingerprint]) }
+    )
+    services.skillPackService = {
+      ...services.skillPackService,
+      listInstalled: async () => ({ ok: true, installed: [] }),
+    }
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+
+    const result = await lifecycle.installFromRegistry({
+      entry: bundle.entry,
+      workspaceRoot,
+      mcpSettings: { syncEnabled: false, servers: {} },
+      skillHarnesses: ['agents'],
+    })
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.component, 'skills')
+    assert.match(result.message, /was not found after install/)
+    assert.deepEqual(result.installed?.map((component) => component.kind), ['skills'])
+    assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'registry-skill')), false)
+    assert.equal(existsSync(receiptStorePath), false)
+  })
+}
+
 async function testUpdateAndUninstallRemoveOldComponents(): Promise<void> {
   await withTempDir(async (temp) => {
     const signer = generateKeyPairSync('ed25519')
@@ -613,6 +649,7 @@ async function testReceiptStoreValidationRejectsMalformedAndUnsafeState(): Promi
 async function main(): Promise<void> {
   await testVerifiedRegistryInstallFansOutAndRecordsReceipt()
   await testCommunityBundleRequiresTrustGrant()
+  await testSkillPostInstallListingFailureRollsBackResidue()
   await testUpdateAndUninstallRemoveOldComponents()
   await testFailedUpdateRollsBackReplacementAndKeepsReceipt()
   await testReceiptStoreValidationRejectsMalformedAndUnsafeState()

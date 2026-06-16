@@ -251,16 +251,33 @@ async function installSkillComponent(
   })
   if (!result.ok) return componentFailure('skills', result.message, installed)
 
+  const installedDirName = result.installed.installedDirName ?? result.installed.id
+  const writtenSkillComponent: MarketplacePluginInstalledComponent = {
+    kind: 'skills',
+    id: result.installed.id,
+    installedDirName,
+    harnesses: result.installed.harnesses.length
+      ? result.installed.harnesses
+      : input.skillHarnesses?.length
+        ? input.skillHarnesses
+        : DEFAULT_SKILL_HARNESSES,
+    message: `Installed for ${result.installed.harnesses.join(', ') || 'configured harnesses'}.`,
+  }
   const listed = await service.listInstalled({ workspaceRoot })
   if (!listed.ok) {
-    return componentFailure('skills', `Skill component installed but could not be listed: ${listed.message}`, installed)
+    return componentFailure('skills', `Skill component installed but could not be listed: ${listed.message}`, [
+      ...installed,
+      writtenSkillComponent,
+    ])
   }
-  const installedDirName = result.installed.installedDirName ?? result.installed.id
   const listedEntry = listed.installed.find((entry) =>
     entry.id === result.installed.id || entry.installedDirName === installedDirName
   )
   if (!listedEntry) {
-    return componentFailure('skills', `Skill component "${installedDirName}" was not found after install.`, installed)
+    return componentFailure('skills', `Skill component "${installedDirName}" was not found after install.`, [
+      ...installed,
+      writtenSkillComponent,
+    ])
   }
 
   return {
