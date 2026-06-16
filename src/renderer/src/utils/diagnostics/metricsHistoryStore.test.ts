@@ -28,6 +28,8 @@ function snapshot(sampledAt: number): ProcessMetricsSnapshot {
       { pid: 2, kind: 'renderer', type: 'Tab', cpuPercent: 6, memoryBytes: 1000 * MIB },
       { pid: 3, kind: 'renderer', type: 'Tab', cpuPercent: 4, memoryBytes: 200 * MIB },
       { pid: 4, kind: 'gpu', type: 'GPU', cpuPercent: 2, memoryBytes: 70 * MIB },
+      { pid: 5, kind: 'agent', type: 'Child', name: 'Claude CLI', cpuPercent: 3, memoryBytes: 300 * MIB },
+      { pid: 6, kind: 'helper', type: 'Child', name: 'Playwright MCP', cpuPercent: 1, memoryBytes: 40 * MIB },
     ],
   }
 }
@@ -38,7 +40,8 @@ run('derives per-kind sums and total, folding multiple renderers', () => {
   assert.equal(sample.rendererRssBytes, 1200 * MIB)
   assert.equal(sample.mainRssBytes, 120 * MIB)
   assert.equal(sample.gpuRssBytes, 70 * MIB)
-  assert.equal(sample.totalRssBytes, 1390 * MIB)
+  assert.equal(sample.childRssBytes, 340 * MIB)
+  assert.equal(sample.totalRssBytes, 1730 * MIB)
   assert.equal(sample.rendererHeapUsedBytes, 500 * MIB)
 })
 

@@ -121,7 +121,7 @@ export function formatDiagnosticsReport(input: {
     const { current, baseline, growth } = metricsTrend
     sections.push('## Memory trend')
     const lines = [
-      `Total RSS: ${formatBytes(current.totalRssBytes)} · renderer ${formatBytes(current.rendererRssBytes)} · main ${formatBytes(current.mainRssBytes)} · gpu ${formatBytes(current.gpuRssBytes)}`,
+      `Total RSS: ${formatBytes(current.totalRssBytes)} · renderer ${formatBytes(current.rendererRssBytes)} · main ${formatBytes(current.mainRssBytes)} · gpu ${formatBytes(current.gpuRssBytes)} · children ${formatBytes(current.childRssBytes)}`,
       current.rendererHeapUsedBytes !== null
         ? `Renderer JS heap: ${formatBytes(current.rendererHeapUsedBytes)} used${current.rendererHeapTotalBytes !== null ? ` / ${formatBytes(current.rendererHeapTotalBytes)}` : ''}`
         : 'Renderer JS heap: unavailable',

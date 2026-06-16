@@ -46,7 +46,8 @@ export function collectProcessMetrics(
   // Per-pid OS thread counts, sampled out-of-band on a throttled cadence by the
   // IPC handler (getAppMetrics does not carry them). Optional so this stays
   // unit-testable and so the panel degrades to "—" when unavailable.
-  threadCounts?: ReadonlyMap<number, number>
+  threadCounts?: ReadonlyMap<number, number>,
+  childProcesses: readonly ProcessMetricSample[] = []
 ): ProcessMetricsSnapshot {
   let raw: RawProcessMetric[]
   try {
@@ -80,17 +81,26 @@ export function collectProcessMetrics(
       ...(heap ? { heapUsedBytes: heap.heapUsedBytes, heapTotalBytes: heap.heapTotalBytes } : {}),
     }
   })
+  processes.push(...childProcesses)
 
-  // Stable, scannable order: main first, then renderers, gpu, utility, other;
-  // ties broken by CPU share so the hottest process floats up within a kind.
+  // Stable, scannable order: Electron internals first, then spawned work. Ties
+  // are broken by CPU share and then RSS so hot or heavy children float up
+  // within their kind.
   const kindOrder: Record<ProcessMetricKind, number> = {
     main: 0,
     renderer: 1,
     gpu: 2,
     utility: 3,
-    other: 4,
+    agent: 4,
+    terminal: 5,
+    helper: 6,
+    other: 7,
   }
-  processes.sort((a, b) => kindOrder[a.kind] - kindOrder[b.kind] || b.cpuPercent - a.cpuPercent)
+  processes.sort((a, b) =>
+    kindOrder[a.kind] - kindOrder[b.kind]
+    || b.cpuPercent - a.cpuPercent
+    || b.memoryBytes - a.memoryBytes
+  )
 
   return { sampledAt: now, processes }
 }

@@ -19,6 +19,7 @@ export type MetricsSample = {
   mainCpuPercent: number
   mainRssBytes: number
   gpuRssBytes: number
+  childRssBytes: number
   totalRssBytes: number
   rendererHeapUsedBytes: number | null
   rendererHeapTotalBytes: number | null
@@ -53,6 +54,7 @@ export function deriveMetricsSample(
   let mainCpuPercent = 0
   let mainRssBytes = 0
   let gpuRssBytes = 0
+  let childRssBytes = 0
   let totalRssBytes = 0
   for (const process of snapshot.processes) {
     totalRssBytes += process.memoryBytes
@@ -64,6 +66,8 @@ export function deriveMetricsSample(
       mainRssBytes += process.memoryBytes
     } else if (process.kind === 'gpu') {
       gpuRssBytes += process.memoryBytes
+    } else if (process.kind === 'agent' || process.kind === 'terminal' || process.kind === 'helper') {
+      childRssBytes += process.memoryBytes
     }
   }
   return {
@@ -73,6 +77,7 @@ export function deriveMetricsSample(
     mainCpuPercent: Math.round(mainCpuPercent * 10) / 10,
     mainRssBytes,
     gpuRssBytes,
+    childRssBytes,
     totalRssBytes,
     rendererHeapUsedBytes: heap?.usedBytes ?? null,
     rendererHeapTotalBytes: heap?.totalBytes ?? null,

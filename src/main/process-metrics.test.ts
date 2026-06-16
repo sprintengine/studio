@@ -72,4 +72,24 @@ run('merges main heap usage onto the matching pid only', () => {
   assert.equal(byPid.get(200)!.heapUsedBytes, undefined, 'renderer pid is untouched')
 })
 
+run('includes supplied child process metrics in sorted snapshot', () => {
+  const raw: RawProcessMetric[] = [
+    { pid: 100, type: 'Browser', cpu: { percentCPUUsage: 1 }, memory: { workingSetSize: 1024 } },
+    { pid: 200, type: 'Tab', cpu: { percentCPUUsage: 5 }, memory: { workingSetSize: 1024 } },
+  ]
+  const snapshot = collectProcessMetrics(
+    () => raw,
+    NOW,
+    undefined,
+    undefined,
+    [
+      { pid: 300, kind: 'agent', type: 'Child', name: 'Claude CLI', cpuPercent: 2, memoryBytes: 300 * 1024 * 1024 },
+      { pid: 400, kind: 'helper', type: 'Child', name: 'Playwright MCP', cpuPercent: 1, memoryBytes: 40 * 1024 * 1024 },
+    ]
+  )
+
+  assert.deepEqual(snapshot.processes.map((process) => process.pid), [100, 200, 300, 400])
+  assert.equal(snapshot.processes.reduce((total, process) => total + process.memoryBytes, 0), (2 + 300 + 40) * 1024 * 1024)
+})
+
 console.log('process-metrics tests passed')

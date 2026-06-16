@@ -2,8 +2,10 @@ import { app, type IpcMain } from 'electron'
 import type {
   DiagnosticLogEntry,
   DiagnosticLogInput,
+  ProcessMetricSample,
   ProcessMetricsSnapshot,
 } from '../../shared/electron-api'
+import { CHILD_PROCESS_SAMPLE_THROTTLE_MS, sampleChildProcessMetrics } from '../child-process-metrics'
 import { collectProcessMetrics, type RawProcessMetric } from '../process-metrics'
 import { sampleThreadCounts, THREAD_SAMPLE_THROTTLE_MS } from '../thread-counts'
 
@@ -16,6 +18,9 @@ import { sampleThreadCounts, THREAD_SAMPLE_THROTTLE_MS } from '../thread-counts'
 let threadCountCache: ReadonlyMap<number, number> = new Map()
 let threadCountSampledAt = 0
 let threadCountSampleInFlight = false
+let childProcessMetricCache: readonly ProcessMetricSample[] = []
+let childProcessMetricSampledAt = 0
+let childProcessMetricSampleInFlight = false
 
 function maybeRefreshThreadCounts(pids: readonly number[]): void {
   if (threadCountSampleInFlight) return
@@ -31,6 +36,23 @@ function maybeRefreshThreadCounts(pids: readonly number[]): void {
     })
     .finally(() => {
       threadCountSampleInFlight = false
+    })
+}
+
+function maybeRefreshChildProcessMetrics(pids: readonly number[]): void {
+  if (childProcessMetricSampleInFlight) return
+  if (Date.now() - childProcessMetricSampledAt < CHILD_PROCESS_SAMPLE_THROTTLE_MS) return
+  childProcessMetricSampleInFlight = true
+  void sampleChildProcessMetrics(process.pid, pids)
+    .then((metrics) => {
+      childProcessMetricCache = metrics
+      childProcessMetricSampledAt = Date.now()
+    })
+    .catch(() => {
+      // Best-effort: keep the last good child process sample on failure.
+    })
+    .finally(() => {
+      childProcessMetricSampleInFlight = false
     })
 }
 
@@ -61,15 +83,21 @@ export function registerDiagnosticsIpc(
     // pid so the collector merges it onto the right row.
     const heap = process.memoryUsage()
     // collectProcessMetrics owns the (safely guarded) getAppMetrics call; attach
-    // the current thread-count cache, then refresh it off the hot path for the
-    // next poll using the pids it actually returned.
+    // the current OS-derived caches, then refresh them off the hot path for the
+    // next poll using the Electron pids it actually returned.
     const snapshot = collectProcessMetrics(
       () => app.getAppMetrics() as unknown as RawProcessMetric[],
       Date.now(),
       { pid: process.pid, heapUsedBytes: heap.heapUsed, heapTotalBytes: heap.heapTotal },
-      threadCountCache
+      threadCountCache,
+      childProcessMetricCache
     )
-    maybeRefreshThreadCounts(snapshot.processes.map((metric) => metric.pid).filter((pid) => Number.isInteger(pid)))
+    const electronPids = snapshot.processes
+      .filter((metric) => metric.type !== 'Child')
+      .map((metric) => metric.pid)
+      .filter((pid) => Number.isInteger(pid))
+    maybeRefreshThreadCounts(electronPids)
+    maybeRefreshChildProcessMetrics(electronPids)
     return snapshot
   })
 

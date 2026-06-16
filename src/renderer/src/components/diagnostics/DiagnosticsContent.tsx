@@ -76,6 +76,9 @@ const PROCESS_KIND_LABEL: Record<ProcessMetricKind, string> = {
   renderer: 'Renderer',
   gpu: 'GPU',
   utility: 'Utility',
+  agent: 'Agent',
+  terminal: 'Terminal',
+  helper: 'Helper',
   other: 'Other',
 }
 
@@ -435,8 +438,9 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             <p className="text-[color:var(--text-muted)]">Process metrics unavailable.</p>
           )}
           <p className="mt-1 text-[10px] text-[color:var(--text-subtle)]">
-            CPU % is the rolling share since the previous sample. Thread counts are sampled from the OS off the
-            poll path (refreshed every few seconds); FD counts are not collected in this build.
+            Total RSS includes Electron processes plus spawned agent, terminal, and helper children. CPU % is the
+            rolling share since the previous sample. Thread counts are sampled from the OS off the poll path
+            (refreshed every few seconds); FD counts are not collected in this build.
           </p>
         </section>
 
@@ -450,6 +454,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                 <span>renderer {formatBytes(metricsTrend.current.rendererRssBytes)}</span>
                 <span>main {formatBytes(metricsTrend.current.mainRssBytes)}</span>
                 <span>gpu {formatBytes(metricsTrend.current.gpuRssBytes)}</span>
+                <span>children {formatBytes(metricsTrend.current.childRssBytes)}</span>
                 {metricsTrend.current.rendererHeapUsedBytes !== null && (
                   <span>renderer JS heap {formatBytes(metricsTrend.current.rendererHeapUsedBytes)}</span>
                 )}
