@@ -4,21 +4,28 @@
 // popover body stays composable. Pure presentation — list and intent
 // callbacks in, IPC and store mutations stay in the parent.
 
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import type { AppNotification, DiagnosticLevel } from '../../../types/workspace'
-import { StatusDot } from '../../ui'
-import type { Tone } from '../../ui/tokens'
+import { LifecycleGlyph, type LifecycleState } from '../../ui'
 
 type RuntimeClipboardApi = {
   clipboardWriteText?: (text: string) => Promise<void>
 }
 
+// Severity reads by shape, not a colored dot (StatusDot is deprecated). Error
+// maps to the `failed` glyph (ring + "×", error tone) and warning to the
+// `needs_input` glyph (ring + "!", warn tone) — the same shape-coded vocabulary
+// the rest of the app shell uses. Info is the calm default and earns no mark.
+const LEVEL_GLYPH: Partial<Record<DiagnosticLevel, LifecycleState>> = {
+  error: 'failed',
+  warning: 'needs_input',
+}
+
 // Severity filters offered in the popover header. Info has no chip — it is the
-// calm default that shows when no filter is engaged. Tones match the per-row
-// status dot so the chip and the rows it reveals read as one vocabulary.
-const LEVEL_FILTERS: ReadonlyArray<{ level: DiagnosticLevel; label: string; tone: Tone }> = [
-  { level: 'error', label: 'Errors', tone: 'error' },
-  { level: 'warning', label: 'Warnings', tone: 'warn' },
+// calm default that shows when no filter is engaged.
+const LEVEL_FILTERS: ReadonlyArray<{ level: DiagnosticLevel; label: string }> = [
+  { level: 'error', label: 'Errors' },
+  { level: 'warning', label: 'Warnings' },
 ]
 
 const LEVEL_NOUN: Record<DiagnosticLevel, string> = {
@@ -27,8 +34,32 @@ const LEVEL_NOUN: Record<DiagnosticLevel, string> = {
   info: 'info',
 }
 
-function statusToneForLevel(level: DiagnosticLevel): Tone {
-  return level === 'error' ? 'error' : level === 'warning' ? 'warn' : 'accent'
+const LEVEL_NAME: Record<DiagnosticLevel, string> = {
+  error: 'Error',
+  warning: 'Warning',
+  info: 'Info',
+}
+
+// Recency buckets so the list reads like an inbox instead of one undivided wall
+// at Sprint Engine scale. Headings are spacing + a quiet label, never a card.
+type DayBucket = 'today' | 'yesterday' | 'earlier'
+const DAY_BUCKET_ORDER: DayBucket[] = ['today', 'yesterday', 'earlier']
+const DAY_BUCKET_LABEL: Record<DayBucket, string> = {
+  today: 'Today',
+  yesterday: 'Yesterday',
+  earlier: 'Earlier',
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+function notificationDayBucket(value: string, now: Date): DayBucket {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'earlier'
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const ts = date.getTime()
+  if (ts >= startOfToday) return 'today'
+  if (ts >= startOfToday - DAY_MS) return 'yesterday'
+  return 'earlier'
 }
 
 function formatNotificationTime(value: string): string {
@@ -41,6 +72,18 @@ async function writeClipboardText(text: string): Promise<void> {
   const api = window.api as typeof window.api & RuntimeClipboardApi
   if (typeof api.clipboardWriteText !== 'function') throw new Error('Clipboard API is unavailable.')
   await api.clipboardWriteText(text)
+}
+
+// A fixed-width leading slot keeps every title on one optical baseline whether
+// or not the row carries a severity glyph. Reserving the slot is alignment, not
+// decoration — info rows stay mark-free.
+function NotificationSeverityGlyph({ level }: { level: DiagnosticLevel }) {
+  const glyph = LEVEL_GLYPH[level]
+  return (
+    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden={glyph ? undefined : true}>
+      {glyph ? <LifecycleGlyph state={glyph} live={false} label={LEVEL_NAME[level]} /> : null}
+    </span>
+  )
 }
 
 export function NotificationsPopover({
@@ -70,6 +113,19 @@ export function NotificationsPopover({
       ? notifications
       : notifications.filter((notification) => activeLevels.includes(notification.level))
 
+  // Bucket by recency after filtering, preserving the incoming (newest-first)
+  // order within each group.
+  const groups = useMemo(() => {
+    const now = new Date()
+    const byBucket: Record<DayBucket, AppNotification[]> = { today: [], yesterday: [], earlier: [] }
+    for (const notification of visibleNotifications) {
+      byBucket[notificationDayBucket(notification.timestamp, now)].push(notification)
+    }
+    return DAY_BUCKET_ORDER.map((bucket) => ({ bucket, items: byBucket[bucket] })).filter(
+      (group) => group.items.length > 0
+    )
+  }, [visibleNotifications])
+
   const emptyMessage =
     notifications.length === 0
       ? 'No notifications'
@@ -98,6 +154,11 @@ export function NotificationsPopover({
     onMarkRead(notification.id)
   }
 
+  const openLogsForNotification = (notification: AppNotification) => {
+    onMarkRead(notification.id)
+    onOpenLogs()
+  }
+
   return (
     <div className="w-[480px] overflow-hidden">
       <div className="flex h-10 items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-3">
@@ -105,8 +166,9 @@ export function NotificationsPopover({
         <div className="flex shrink-0 items-center gap-1">
           {notifications.length > 0 ? (
             <>
-              {LEVEL_FILTERS.map(({ level, label, tone }) => {
+              {LEVEL_FILTERS.map(({ level, label }) => {
                 const active = activeLevels.includes(level)
+                const glyph = LEVEL_GLYPH[level]
                 return (
                   <button
                     key={level}
@@ -120,7 +182,7 @@ export function NotificationsPopover({
                         : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
                     }`}
                   >
-                    <StatusDot tone={tone} />
+                    {glyph ? <LifecycleGlyph state={glyph} live={false} /> : null}
                     {label}
                   </button>
                 )
@@ -160,69 +222,78 @@ export function NotificationsPopover({
         <div className="px-3 py-4 text-[13px] text-[color:var(--text-disabled)]">{emptyMessage}</div>
       ) : (
         <div className="max-h-[440px] overflow-y-auto p-1">
-          {visibleNotifications.map((notification) => (
-            <div
-              key={notification.id}
-              role="menuitem"
-              className={`rounded px-2.5 py-2.5 ${
-                notification.read
-                  ? 'text-[color:var(--text-muted)]'
-                  : 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-default)]'
-              }`}
-              onMouseEnter={() => {
-                if (!notification.read) onMarkRead(notification.id)
-              }}
-            >
-              <div className="flex items-start gap-2">
-                <StatusDot tone={statusToneForLevel(notification.level)} className="mt-1" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-center justify-between gap-3">
-                    <div className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
-                      {notification.title}
+          {groups.map((group) => (
+            // role="group" (not a <section> landmark) so the recency buckets are
+            // valid children of the popover's role="menu" surface.
+            <div key={group.bucket} role="group" aria-label={DAY_BUCKET_LABEL[group.bucket]}>
+              <div
+                aria-hidden="true"
+                className="px-2.5 pb-1 pt-2 text-[11px] font-medium text-[color:var(--text-muted)]"
+              >
+                {DAY_BUCKET_LABEL[group.bucket]}
+              </div>
+              {group.items.map((notification) => (
+                <div
+                  key={notification.id}
+                  role="menuitem"
+                  className={`rounded px-2.5 py-2.5 ${
+                    notification.read
+                      ? 'text-[color:var(--text-muted)]'
+                      : 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-default)]'
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    <NotificationSeverityGlyph level={notification.level} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center justify-between gap-3">
+                        <div className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+                          {notification.title}
+                        </div>
+                        <div className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-disabled)]">
+                          {formatNotificationTime(notification.timestamp)}
+                        </div>
+                      </div>
+                      <div className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                        {notification.message}
+                      </div>
+                      {notification.workspaceName || notification.agentId || notification.sessionId ? (
+                        <div className="mt-1 truncate font-mono text-[11px] text-[color:var(--text-disabled)]">
+                          {[notification.workspaceName, notification.agentId, notification.sessionId]
+                            .filter(Boolean)
+                            .join(' / ')}
+                        </div>
+                      ) : null}
+                      <div className="mt-2 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => void copyNotification(notification)}
+                          className="rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                        >
+                          Copy
+                        </button>
+                        {copyErrorId === notification.id ? (
+                          <span
+                            role="status"
+                            aria-live="polite"
+                            className="text-[11px] font-semibold text-[color:var(--tone-error)]"
+                          >
+                            Could not copy
+                          </span>
+                        ) : null}
+                        {notification.logPath ? (
+                          <button
+                            type="button"
+                            onClick={() => openLogsForNotification(notification)}
+                            className="rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                          >
+                            Open logs
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
-                    <div className="shrink-0 text-[11px] text-[color:var(--text-disabled)]">
-                      {formatNotificationTime(notification.timestamp)}
-                    </div>
-                  </div>
-                  <div className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
-                    {notification.message}
-                  </div>
-                  {notification.workspaceName || notification.agentId || notification.sessionId ? (
-                    <div className="mt-1 truncate font-mono text-[10px] text-[color:var(--text-disabled)]">
-                      {[notification.workspaceName, notification.agentId, notification.sessionId]
-                        .filter(Boolean)
-                        .join(' / ')}
-                    </div>
-                  ) : null}
-                  <div className="mt-2 flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => void copyNotification(notification)}
-                      className="rounded border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-                    >
-                      Copy
-                    </button>
-                    {copyErrorId === notification.id ? (
-                      <span
-                        role="status"
-                        aria-live="polite"
-                        className="text-[11px] font-semibold text-[color:var(--tone-error)]"
-                      >
-                        Could not copy
-                      </span>
-                    ) : null}
-                    {notification.logPath ? (
-                      <button
-                        type="button"
-                        onClick={onOpenLogs}
-                        className="rounded border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-                      >
-                        Open logs
-                      </button>
-                    ) : null}
                   </div>
                 </div>
-              </div>
+              ))}
             </div>
           ))}
         </div>
