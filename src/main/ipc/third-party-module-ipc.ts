@@ -8,6 +8,7 @@ import type {
   ThirdPartyModuleTrustResult,
   ThirdPartyModuleView,
 } from '../../shared/modules/manifest'
+import { readTrustedMarketplacePublisherFingerprintsSync } from '../marketplace/trusted-publishers'
 import { readModuleOverridesSync } from '../module-host/enablement-store'
 import { manifestFingerprint, type ModuleTrustContext } from '../modules/module-signature'
 import { readThirdPartyMainLaunchSnapshot, type ThirdPartyMainLaunchSnapshot } from '../modules/third-party-main-loader'
@@ -27,6 +28,7 @@ import { readTrustedModulesSync, setModuleTrust } from '../modules/trust-store'
 export function registerThirdPartyModuleIpc(ipcMain: IpcMain): void {
   const trustContext = (): ModuleTrustContext => ({
     trustedModules: readTrustedModulesSync(app.getPath('userData')),
+    trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync(),
   })
 
   ipcMain.handle('modules:third-party:list', async (): Promise<ThirdPartyModuleListResult> => {

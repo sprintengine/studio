@@ -4,10 +4,12 @@ import { parseAuthCallbackFromArgv } from './auth-service'
 import { registerAppLifecycle } from './app-lifecycle'
 import { createAppServices } from './app-services'
 import { ensureExtensionFolders } from './extension-folders'
+import { readTrustedMarketplacePublisherFingerprintsSync } from './marketplace/trusted-publishers'
 import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
 import { createAgentRuntimeModule } from './modules/agent-runtime-module'
 import { BUNDLED_MAIN_MODULES } from './modules'
+import type { ModuleTrustContext } from './modules/module-signature'
 import { readTrustedModulesSync } from './modules/trust-store'
 import { planThirdPartyMainModules, recordThirdPartyMainLaunchReport } from './modules/third-party-main-loader'
 import { registerThirdPartyRendererEntryIpc } from './modules/third-party-renderer-entries'
@@ -38,9 +40,7 @@ registerWorkflowIpc(ipcMain, services)
 // future-plans/2026-05-28-feature-level-pluggable-architecture.md.
 const moduleOverrides = readModuleEnablementOverrides()
 const thirdPartyMainLoad = planThirdPartyMainModules(
-  discoverUserModulesSync(defaultUserModuleRoot(), {
-    trustedModules: readTrustedModulesSync(app.getPath('userData')),
-  })
+  discoverUserModulesSync(defaultUserModuleRoot(), readModuleTrustContext())
 )
 const moduleLoad = loadMainModules({
   ipcMain,
@@ -63,9 +63,7 @@ recordThirdPartyMainLaunchReport(
 // store is re-read per request, so revoking trust takes effect immediately).
 registerThirdPartyRendererEntryIpc(moduleLoad.kernel.hostFor('@host'), {
   discoverModules: () =>
-    discoverUserModules(defaultUserModuleRoot(), {
-      trustedModules: readTrustedModulesSync(app.getPath('userData')),
-    }),
+    discoverUserModules(defaultUserModuleRoot(), readModuleTrustContext()),
 })
 if (MULTICODE_DIAGNOSTICS) {
   console.info('[modules] extension roots:', extensionFolders.moduleRoot, extensionFolders.pluginRoot)
@@ -91,6 +89,13 @@ function readModuleEnablementOverrides(): Record<string, boolean> {
     return readModuleOverridesSync(app.getPath('userData'))
   } catch {
     return {}
+  }
+}
+
+function readModuleTrustContext(): ModuleTrustContext {
+  return {
+    trustedModules: readTrustedModulesSync(app.getPath('userData')),
+    trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync(),
   }
 }
 

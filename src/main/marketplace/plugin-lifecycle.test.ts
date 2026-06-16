@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
+import type { IpcMain } from 'electron'
 
 import type {
   McpSettings,
@@ -14,8 +15,11 @@ import { canonicalManifestPayload, validateMarketplacePluginManifest } from '../
 import { canonicalManifestPayload as canonicalModulePayload, validateThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
 import type { PluginManifest, PluginMcpConfigFormat } from '../../shared/plugin-manifest'
 import { createMcpConfigService, type PluginLookup } from '../mcp-config-service'
+import { loadMainModules } from '../module-host/load-modules'
 import { classifyModuleTrust, verifyModuleSignature, type ModuleTrustContext } from '../modules/module-signature'
+import { planThirdPartyMainModules } from '../modules/third-party-main-loader'
 import { discoverUserModules } from '../modules/user-module-registry'
+import type { InstallPluginResult } from '../plugin-install'
 import type { SkillPackService } from '../skill-pack-service'
 import { createMarketplacePluginLifecycleService, type MarketplacePluginLifecycleServices } from './plugin-lifecycle'
 import type { MarketplacePluginDownloadFetch } from './plugin-download'
@@ -30,6 +34,16 @@ type BundleComponents = {
 type Signer = {
   publicKey: KeyObject
   privateKey: KeyObject
+}
+
+function createFakeIpcMain(): { ipcMain: IpcMain; handled: string[] } {
+  const handled: string[] = []
+  const ipcMain = {
+    handle(channel: string, _handler: unknown): void {
+      handled.push(channel)
+    },
+  } as unknown as IpcMain
+  return { ipcMain, handled }
 }
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -157,11 +171,12 @@ function signedPluginManifest(
   }
 }
 
-function signedModuleManifest(id: string, signer: Signer): Record<string, unknown> {
+function signedModuleManifest(id: string, signer: Signer, version = 1): Record<string, unknown> {
   const unsigned = {
     id,
     displayName: `${id} Module`,
-    version: 1,
+    version,
+    defaultEnabled: true,
     permissions: ['network'],
     entry: { main: 'main.cjs' },
   }
@@ -203,17 +218,17 @@ async function writeBundle(root: string, folder: string, components: BundleCompo
     }, null, 2)}\n`)
   }
   if (components.skills) {
-    files.set(`${components.skills.path}/SKILL.md`, `---\nname: ${components.skills.name}\ndescription: ${components.skills.name}.\n---\n`)
+    files.set(`${components.skills.path}/SKILL.md`, `---\nname: ${components.skills.name}\ndescription: ${components.skills.name} v${version}.\n---\n`)
   }
   if (components.module) {
-    files.set(`${components.module.path}/manifest.json`, `${JSON.stringify(signedModuleManifest(components.module.id, signer), null, 2)}\n`)
+    files.set(`${components.module.path}/manifest.json`, `${JSON.stringify(signedModuleManifest(components.module.id, signer, version), null, 2)}\n`)
     files.set(`${components.module.path}/main.cjs`, 'exports.registerMain = () => {}\n')
   }
   if (components.cli) {
     files.set(`${components.cli.path}/plugin.json`, `${JSON.stringify({
       id: components.cli.id,
       displayName: components.cli.id,
-      version: 1,
+      version,
       binary: 'node',
       permissionPresets: { default: { label: 'Default', args: [] } },
       launch: { argv: ['{{binary}}'] },
@@ -349,6 +364,17 @@ async function testVerifiedRegistryInstallFansOutAndRecordsReceipt(): Promise<vo
     const modules = await discoverUserModules(moduleRoot, services.trustContext())
     assert.equal(modules.modules[0]?.manifest.id, 'registry-module-v1')
     assert.equal(classifyModuleTrust(modules.modules[0].manifest, services.trustContext()).status, 'trusted')
+    const planned = planThirdPartyMainModules(modules)
+    const { ipcMain } = createFakeIpcMain()
+    const loaded = loadMainModules({
+      ipcMain,
+      modules: planned.modules,
+      ineligible: planned.ineligible,
+      launchErrors: planned.launchErrors,
+    })
+    assert.deepEqual(loaded.report.loaded, ['registry-module-v1'])
+    assert.deepEqual(loaded.report.errors, [])
+
     const receipts = JSON.parse(await readFile(receiptStorePath, 'utf8')) as { plugins: Record<string, unknown> }
     assert.ok(receipts.plugins['registry-plugin'])
   })
@@ -470,10 +496,126 @@ async function testUpdateAndUninstallRemoveOldComponents(): Promise<void> {
   })
 }
 
+async function testFailedUpdateRollsBackReplacementAndKeepsReceipt(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const signer = generateKeyPairSync('ed25519')
+    const v1 = await writeBundle(temp, 'plugin-v1', {
+      mcp: { path: 'mcp/server.json', id: 'registry-mcp' },
+      skills: { path: 'skills/registry-skill', name: 'registry-skill' },
+      module: { path: 'module', id: 'registry-module' },
+      cli: { path: 'cli', id: 'registry-cli' },
+    }, signer, 1)
+    const v2 = await writeBundle(temp, 'plugin-v2', {
+      mcp: { path: 'mcp/server.json', id: 'registry-mcp' },
+      skills: { path: 'skills/registry-skill', name: 'registry-skill' },
+      module: { path: 'module', id: 'registry-module' },
+      cli: { path: 'cli', id: 'registry-cli' },
+    }, signer, 2)
+    const folders = new Map([
+      ['plugin-v1', v1.files],
+      ['plugin-v2', v2.files],
+    ])
+    const { services, workspaceRoot, moduleRoot, pluginRoot, receiptStorePath } = await createServices(
+      temp,
+      createGithubFetcher(folders),
+      { trustedModules: new Map(), trustedKeyFingerprints: new Set([v1.fingerprint, v2.fingerprint]) }
+    )
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+    const installed = await lifecycle.installFromRegistry({
+      entry: v1.entry,
+      workspaceRoot,
+      mcpSettings: { syncEnabled: false, servers: {} },
+      mcpClients: ['codex'],
+      skillHarnesses: ['agents'],
+    })
+    assert.equal(installed.ok, true, JSON.stringify(installed))
+    if (!installed.ok) return
+
+    services.installPluginFolder = async (): Promise<InstallPluginResult> => ({
+      ok: false,
+      message: 'cli install exploded',
+      issues: [{ path: '', message: 'cli install exploded' }],
+    })
+
+    const updated = await lifecycle.updateFromRegistry({
+      entry: v2.entry,
+      workspaceRoot,
+      mcpSettings: installed.mcpSettings,
+      mcpClients: ['codex'],
+      skillHarnesses: ['agents'],
+    })
+    assert.equal(updated.ok, false)
+    if (updated.ok) return
+    assert.equal(updated.updated, true)
+    assert.match(updated.message, /cli install exploded/)
+
+    const codexConfig = await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8')
+    assert.match(codexConfig, /registry-mcp/)
+    assert.match(await readFile(join(workspaceRoot, '.agents', 'skills', 'registry-skill', 'SKILL.md'), 'utf8'), /registry-skill v1/)
+    const moduleManifest = JSON.parse(await readFile(join(moduleRoot, 'registry-module', 'manifest.json'), 'utf8')) as { version?: unknown }
+    assert.equal(moduleManifest.version, 1)
+    const cliManifest = JSON.parse(await readFile(join(pluginRoot, 'registry-cli', 'plugin.json'), 'utf8')) as { version?: unknown }
+    assert.equal(cliManifest.version, 1)
+
+    const receipts = JSON.parse(await readFile(receiptStorePath, 'utf8')) as {
+      plugins: Record<string, { version?: unknown }>
+    }
+    assert.equal(receipts.plugins['registry-plugin']?.version, 1)
+  })
+}
+
+async function testReceiptStoreValidationRejectsMalformedAndUnsafeState(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const { services, workspaceRoot, receiptStorePath, moduleRoot } = await createServices(
+      temp,
+      createGithubFetcher(new Map()),
+      { trustedModules: new Map() }
+    )
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+
+    await mkdir(dirname(receiptStorePath), { recursive: true })
+    await writeFile(receiptStorePath, '{ not json', 'utf8')
+    const malformed = await lifecycle.uninstall({
+      pluginId: 'registry-plugin',
+      workspaceRoot,
+      mcpSettings: { syncEnabled: false, servers: {} },
+    })
+    assert.equal(malformed.ok, false)
+    assert.match(malformed.message, /receipt store is invalid/)
+
+    const outsidePath = join(moduleRoot, '..', 'outside')
+    await mkdir(outsidePath, { recursive: true })
+    await writeFile(receiptStorePath, `${JSON.stringify({
+      schemaVersion: 1,
+      plugins: {
+        'registry-plugin': {
+          id: 'registry-plugin',
+          displayName: 'Registry Plugin',
+          version: 1,
+          sourceUrl: 'https://example.test/registry-plugin',
+          classification: 'verified',
+          installedAt: new Date().toISOString(),
+          components: [{ kind: 'module', id: '../outside' }],
+        },
+      },
+    }, null, 2)}\n`, 'utf8')
+    const unsafe = await lifecycle.uninstall({
+      pluginId: 'registry-plugin',
+      workspaceRoot,
+      mcpSettings: { syncEnabled: false, servers: {} },
+    })
+    assert.equal(unsafe.ok, false)
+    assert.match(unsafe.message, /components\[0\]\.id/)
+    assert.equal(existsSync(outsidePath), true)
+  })
+}
+
 async function main(): Promise<void> {
   await testVerifiedRegistryInstallFansOutAndRecordsReceipt()
   await testCommunityBundleRequiresTrustGrant()
   await testUpdateAndUninstallRemoveOldComponents()
+  await testFailedUpdateRollsBackReplacementAndKeepsReceipt()
+  await testReceiptStoreValidationRejectsMalformedAndUnsafeState()
   console.log('marketplace plugin lifecycle tests passed')
 }
 
