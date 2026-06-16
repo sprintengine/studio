@@ -25,8 +25,8 @@ import type {
   MultiloopWorkspaceContext,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
+  SprintEngineRoleCounts,
   SprintEngineRoleModelOverrides,
-  SprintEngineSavedRoster,
   AgentCli,
   AgentCliModelSelection,
   AgentConversationRuntime,
@@ -208,7 +208,14 @@ export interface WorkspaceStore extends PluginsSlice {
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
-  setSprintEngineSavedRoster: (roster: SprintEngineSavedRoster | null) => void
+  saveSprintEngineRosterTeam: (input: {
+    id?: string
+    name: string
+    roleCounts: SprintEngineRoleCounts
+    roleCliDefaults: SprintEngineRoleCliDefaults
+  }) => string
+  deleteSprintEngineRosterTeam: (id: string) => void
+  setSprintEngineLastSelectedTeam: (id: string | null) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   /** Write one value in a module's `module:<id>` settings namespace; `undefined` deletes the key. */
   setModuleSettingValue: (moduleId: string, key: string, value: unknown) => void

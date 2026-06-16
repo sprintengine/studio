@@ -29,6 +29,10 @@ __pycache__/
 pytest-run-*/
 tmp/
 
+# Vendored runtimes (CPython + npm) fetched at build time by
+# scripts/fetch-runtimes.mjs — large binaries, never committed.
+resources/runtime/
+
 # electron-vite temp config
 electron.vite.config.*.mjs
 

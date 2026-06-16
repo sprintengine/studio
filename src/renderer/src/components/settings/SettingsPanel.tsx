@@ -59,6 +59,7 @@ import { AutomationServerSettings } from './AutomationServerSettings'
 import { ProjectKnowledgeList } from './ProjectKnowledgeList'
 import CliIcon from '../CliIcon'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
+import { CliInstallControl } from './CliInstallControl'
 import MulticodeMark from '../brand/MulticodeMark'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
 
@@ -1716,6 +1717,20 @@ export default function SettingsPanel({
                         className={`${ROW_INPUT_CLASS} w-60`}
                       />
                     </SettingsRow>
+
+                    <CliInstallControl
+                      cli={plugin.id}
+                      displayName={plugin.displayName}
+                      binary={plugin.binary}
+                      command={override.command}
+                      useWsl={override.useWsl}
+                      onInstalled={(result) => {
+                        if (result.resolvedPath && !override.command) {
+                          setCliRuntime(plugin.id, { command: result.resolvedPath, useWsl: override.useWsl })
+                        }
+                        void refreshPluginCatalog()
+                      }}
+                    />
 
                     {isWindows && (
                       <CompoundSwitchRow

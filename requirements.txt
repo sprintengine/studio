@@ -8,3 +8,7 @@
 # back to the legacy non-PTY wrapper path and "View live" affordances are
 # hidden in the UI.
 ptyprocess>=0.7,<1; sys_platform != "win32"
+# PyYAML: hard runtime dependency of sprintengine_core (role registry + store).
+# sprintengine_core.store raises SystemExit when it is missing, so the bundled
+# CPython runtime must ship it.
+PyYAML>=6.0,<7
