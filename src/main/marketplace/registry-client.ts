@@ -10,10 +10,12 @@ import {
   validateMarketplaceIndex,
   type MarketplaceIndex,
 } from '../../shared/marketplace'
+import { findMarketplaceResourcePath } from './resources'
 
 export const DEFAULT_MARKETPLACE_REGISTRY_URL =
   'https://raw.githubusercontent.com/multicode-labs/marketplace/main/marketplace.json'
 export const MARKETPLACE_REGISTRY_CACHE_FILENAME = 'marketplace-registry-cache.json'
+export const MARKETPLACE_REGISTRY_SEED_FILENAME = 'marketplace.json'
 export const DEFAULT_MARKETPLACE_REGISTRY_TIMEOUT_MS = 15_000
 
 export type MarketplaceRegistryFetch = (url: string, init: RequestInit) => Promise<Response>
@@ -24,6 +26,8 @@ export type MarketplaceRegistryClientOptions = {
   fetcher?: MarketplaceRegistryFetch
   timeoutMs?: number
   now?: () => Date
+  packagedSeedPath?: string | null
+  usePackagedSeedFallback?: boolean
 }
 
 type RegistryCacheFile = {
@@ -44,6 +48,8 @@ export class MarketplaceRegistryClient {
   private readonly fetcher: MarketplaceRegistryFetch
   private readonly timeoutMs: number
   private readonly now: () => Date
+  private readonly packagedSeedPath: string | null | undefined
+  private readonly usePackagedSeedFallback: boolean
 
   constructor(options: MarketplaceRegistryClientOptions) {
     this.registryUrl = options.registryUrl ?? DEFAULT_MARKETPLACE_REGISTRY_URL
@@ -51,6 +57,8 @@ export class MarketplaceRegistryClient {
     this.fetcher = options.fetcher ?? defaultFetch
     this.timeoutMs = options.timeoutMs ?? DEFAULT_MARKETPLACE_REGISTRY_TIMEOUT_MS
     this.now = options.now ?? (() => new Date())
+    this.packagedSeedPath = options.packagedSeedPath
+    this.usePackagedSeedFallback = options.usePackagedSeedFallback ?? this.registryUrl.trim() === DEFAULT_MARKETPLACE_REGISTRY_URL
   }
 
   async read(input: MarketplaceRegistryReadInput = {}): Promise<MarketplaceRegistryReadResult> {
@@ -71,7 +79,7 @@ export class MarketplaceRegistryClient {
     try {
       response = await this.fetchWithTimeout(parsedUrl.url, cache, input.forceRefresh === true)
     } catch (error) {
-      return this.staleOrFailure('offline', registryUrl, cache, `Marketplace registry is offline. ${formatError(error)}`)
+      return this.staleSeedOrFailure('offline', registryUrl, cache, `Marketplace registry is offline. ${formatError(error)}`)
     }
 
     if (response.status === 304) {
@@ -96,8 +104,8 @@ export class MarketplaceRegistryClient {
 
     if (!response.ok) {
       const message = `Marketplace registry fetch failed with HTTP ${response.status}.`
-      if (isTransientStatus(response.status)) {
-        return this.staleOrFailure('fetch-error', registryUrl, cache, message, response.status)
+      if (response.status === 404 || isTransientStatus(response.status)) {
+        return this.staleSeedOrFailure('fetch-error', registryUrl, cache, message, response.status)
       }
       return {
         ok: false,
@@ -113,7 +121,7 @@ export class MarketplaceRegistryClient {
     try {
       source = await response.text()
     } catch (error) {
-      return this.staleOrFailure('offline', registryUrl, cache, `Marketplace registry response could not be read. ${formatError(error)}`)
+      return this.staleSeedOrFailure('offline', registryUrl, cache, `Marketplace registry response could not be read. ${formatError(error)}`)
     }
 
     const parsed = parseMarketplaceIndex(source)
@@ -184,13 +192,13 @@ export class MarketplaceRegistryClient {
     await writeFile(this.cachePath, `${JSON.stringify(cache, null, 2)}\n`, 'utf8')
   }
 
-  private staleOrFailure(
+  private async staleSeedOrFailure(
     failureState: 'offline' | 'fetch-error',
     registryUrl: string,
     cache: RegistryCacheFile | null,
     message: string,
     statusCode?: number
-  ): MarketplaceRegistryReadResult {
+  ): Promise<MarketplaceRegistryReadResult> {
     if (cache) {
       return {
         ok: true,
@@ -204,6 +212,8 @@ export class MarketplaceRegistryClient {
         message,
       }
     }
+    const seed = await this.readPackagedSeed(registryUrl, message)
+    if (seed) return seed
     return {
       ok: false,
       state: failureState,
@@ -212,6 +222,47 @@ export class MarketplaceRegistryClient {
       ...(statusCode ? { statusCode } : {}),
       message,
     }
+  }
+
+  private async readPackagedSeed(registryUrl: string, failureMessage: string): Promise<MarketplaceRegistryReadResult | null> {
+    const seedPath = this.resolvePackagedSeedPath()
+    if (!seedPath) return null
+
+    let source: string
+    try {
+      source = await readFile(seedPath, 'utf8')
+    } catch {
+      return null
+    }
+
+    const parsed = parseMarketplaceIndex(source)
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        state: 'invalid-schema',
+        registryUrl,
+        stale: false,
+        issues: parsed.issues,
+        message: 'Packaged marketplace registry seed is invalid.',
+      }
+    }
+
+    return {
+      ok: true,
+      state: 'offline',
+      registryUrl,
+      source: 'seed',
+      stale: false,
+      fetchedAt: this.now().toISOString(),
+      marketplace: parsed.marketplace,
+      message: `${failureMessage} Showing packaged marketplace registry seed.`,
+    }
+  }
+
+  private resolvePackagedSeedPath(): string | null {
+    if (!this.usePackagedSeedFallback) return null
+    if (this.packagedSeedPath !== undefined) return this.packagedSeedPath
+    return findMarketplaceResourcePath(MARKETPLACE_REGISTRY_SEED_FILENAME)
   }
 }
 

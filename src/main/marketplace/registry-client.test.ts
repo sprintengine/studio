@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import type { MarketplaceRegistryReadResult } from '../../shared/electron-api'
 import type { MarketplaceIndex } from '../../shared/marketplace'
 import { registerMarketplaceRegistryIpc } from '../ipc/marketplace-registry-ipc'
 import {
+  DEFAULT_MARKETPLACE_REGISTRY_URL,
   MarketplaceRegistryClient,
   type MarketplaceRegistryFetch,
 } from './registry-client'
+import { findMarketplaceResourcePath } from './resources'
 
 const REGISTRY_URL = 'https://example.com/marketplace.json'
 const VALID_SIGNATURE = { algorithm: 'ed25519' as const, publicKey: 'YWJj', signature: 'ZGVm' }
@@ -25,6 +27,10 @@ async function main(): Promise<void> {
   await testOfflineWithCacheServesStaleState()
   await testOfflineWithoutCacheIsExplicitFailure()
   await testFetchErrorIsDistinct()
+  await testLiveSuccessPrecedesPackagedSeed()
+  await testHttp404WithCacheServesStaleCacheBeforeSeed()
+  await testHttp404WithoutCacheFallsBackToPackagedSeed()
+  await testMarketplaceResourceResolutionOrder()
   await testInvalidSchemaDoesNotSilentlyUseCache()
   await testRejectsNonHttpsRegistryUrl()
   await testRegistryIpcChannel()
@@ -45,7 +51,7 @@ function validMarketplace(plugins: MarketplaceIndex['plugins'] = [validPlugin()]
   return { schemaVersion: 1, plugins }
 }
 
-function validPlugin(): MarketplaceIndex['plugins'][number] {
+function validPlugin(overrides: Partial<MarketplaceIndex['plugins'][number]> = {}): MarketplaceIndex['plugins'][number] {
   return {
     id: 'dev-helper',
     name: 'Dev Helper',
@@ -57,7 +63,13 @@ function validPlugin(): MarketplaceIndex['plugins'][number] {
     source: 'https://github.com/multicode-labs/marketplace/plugins/dev-helper',
     provides: ['mcp', 'skills'],
     signature: VALID_SIGNATURE,
+    ...overrides,
   }
+}
+
+async function writeMarketplace(path: string, marketplace: MarketplaceIndex): Promise<void> {
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, `${JSON.stringify(marketplace, null, 2)}\n`, 'utf8')
 }
 
 function jsonResponse(value: unknown, init: ResponseInit = {}): Response {
@@ -274,6 +286,165 @@ async function testFetchErrorIsDistinct(): Promise<void> {
     if (result.ok) return
     assert.equal(result.state, 'fetch-error')
     assert.equal(result.statusCode, 404)
+  })
+}
+
+async function testLiveSuccessPrecedesPackagedSeed(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const seedPath = join(dir, 'seed', 'marketplace.json')
+    await writeMarketplace(seedPath, validMarketplace([validPlugin({ id: 'seed-helper', name: 'Seed Helper' })]))
+    const networkMarketplace = validMarketplace([validPlugin({ id: 'network-helper', name: 'Network Helper' })])
+    const cachePath = join(dir, 'cache.json')
+    const client = new MarketplaceRegistryClient({
+      cachePath,
+      packagedSeedPath: seedPath,
+      fetcher: async () => jsonResponse(networkMarketplace, { headers: { etag: '"live"' } }),
+      now: () => new Date('2026-06-16T00:00:00.000Z'),
+    })
+
+    const result = await client.read()
+
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+    assert.equal(result.source, 'network')
+    assert.equal(result.state, 'ok')
+    assert.equal(result.marketplace.plugins[0].id, 'network-helper')
+
+    const cache = JSON.parse(await readFile(cachePath, 'utf8')) as { marketplace?: MarketplaceIndex }
+    assert.equal(cache.marketplace?.plugins[0]?.id, 'network-helper')
+  })
+}
+
+async function testHttp404WithCacheServesStaleCacheBeforeSeed(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const seedPath = join(dir, 'seed', 'marketplace.json')
+    await writeMarketplace(seedPath, validMarketplace([validPlugin({ id: 'seed-helper', name: 'Seed Helper' })]))
+    const cachedMarketplace = validMarketplace([validPlugin({ id: 'cached-helper', name: 'Cached Helper' })])
+    const responses = [
+      jsonResponse(cachedMarketplace, { headers: { etag: '"v1"' } }),
+      new Response('missing', { status: 404 }),
+    ]
+    const client = new MarketplaceRegistryClient({
+      cachePath: join(dir, 'cache.json'),
+      packagedSeedPath: seedPath,
+      fetcher: async () => {
+        const response = responses.shift()
+        assert.ok(response, 'test fetcher exhausted')
+        return response
+      },
+      now: () => new Date('2026-06-16T00:00:00.000Z'),
+    })
+
+    await client.read()
+    const result = await client.read()
+
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+    assert.equal(result.state, 'offline')
+    assert.equal(result.source, 'cache')
+    assert.equal(result.stale, true)
+    assert.equal(result.marketplace.plugins[0].id, 'cached-helper')
+    assert.match(result.message, /HTTP 404/)
+  })
+}
+
+async function testHttp404WithoutCacheFallsBackToPackagedSeed(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const seedPlugins = ['a', 'b', 'c', 'd'].map((id) =>
+      validPlugin({
+        id: `seed-${id}`,
+        name: `Seed ${id.toUpperCase()}`,
+        source: `https://github.com/multicode-labs/marketplace/plugins/seed-${id}`,
+      })
+    )
+    const seedPath = join(dir, 'seed', 'marketplace.json')
+    await writeMarketplace(seedPath, validMarketplace(seedPlugins))
+    const cachePath = join(dir, 'cache.json')
+    const client = new MarketplaceRegistryClient({
+      cachePath,
+      packagedSeedPath: seedPath,
+      fetcher: async () => new Response('missing', { status: 404 }),
+      now: () => new Date('2026-06-16T00:00:00.000Z'),
+    })
+
+    const result = await client.read()
+
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+    assert.equal(result.state, 'offline')
+    assert.equal(result.source, 'seed')
+    assert.equal(result.stale, false)
+    assert.equal(result.registryUrl, DEFAULT_MARKETPLACE_REGISTRY_URL)
+    assert.equal(result.fetchedAt, '2026-06-16T00:00:00.000Z')
+    assert.equal(result.marketplace.plugins.length, 4)
+    assert.match(result.message, /HTTP 404/)
+    assert.match(result.message, /packaged marketplace registry seed/i)
+    await assert.rejects(readFile(cachePath, 'utf8'), /ENOENT/)
+  })
+}
+
+async function testMarketplaceResourceResolutionOrder(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const resourcesPath = join(dir, 'resourcesPath')
+    const packagedCandidate = join(resourcesPath, 'marketplace', 'marketplace.json')
+    assert.equal(
+      findMarketplaceResourcePath('marketplace.json', {
+        isPackaged: true,
+        resourcesPath,
+        appPath: join(dir, 'app'),
+        exists: (candidate) => candidate === packagedCandidate,
+      }),
+      packagedCandidate
+    )
+
+    const appPath = join(dir, 'app')
+    const appCandidate = join(appPath, 'resources', 'marketplace', 'marketplace.json')
+    assert.equal(
+      findMarketplaceResourcePath('marketplace.json', {
+        isPackaged: true,
+        resourcesPath,
+        appPath,
+        exists: (candidate) => candidate === appCandidate,
+      }),
+      appCandidate
+    )
+
+    const cwd = join(dir, 'repo')
+    const cwdCandidate = join(cwd, 'resources', 'marketplace', 'marketplace.json')
+    assert.equal(
+      findMarketplaceResourcePath('marketplace.json', {
+        isPackaged: false,
+        cwd,
+        appPath: null,
+        dirname: join(cwd, 'out', 'main'),
+        exists: (candidate) => candidate === cwdCandidate,
+      }),
+      cwdCandidate
+    )
+
+    const dirname = join(cwd, 'out', 'main')
+    const dirnameCandidate = join(dirname, '..', '..', 'resources', 'marketplace', 'marketplace.json')
+    assert.equal(
+      findMarketplaceResourcePath('marketplace.json', {
+        isPackaged: false,
+        cwd,
+        appPath: null,
+        dirname,
+        exists: (candidate) => candidate === dirnameCandidate,
+      }),
+      dirnameCandidate
+    )
+
+    assert.equal(
+      findMarketplaceResourcePath('../marketplace.json', {
+        isPackaged: false,
+        cwd,
+        appPath: null,
+        dirname,
+        exists: () => true,
+      }),
+      null
+    )
   })
 }
 

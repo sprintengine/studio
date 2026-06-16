@@ -403,8 +403,8 @@ export type MarketplaceRegistryReadResult =
       ok: true
       state: 'offline'
       registryUrl: string
-      source: 'cache'
-      stale: true
+      source: 'cache' | 'seed'
+      stale: boolean
       fetchedAt: string
       etag?: string
       marketplace: MarketplaceIndex

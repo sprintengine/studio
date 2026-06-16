@@ -317,6 +317,13 @@
         ]
       },
       {
+        "from": "resources/marketplace",
+        "to": "marketplace",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
         "from": "resources/plugins",
         "to": "plugins",
         "filter": [

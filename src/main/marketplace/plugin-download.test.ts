@@ -164,6 +164,41 @@ async function testVerifiedFirstPartyDownloadStagesBundle(): Promise<void> {
   })
 }
 
+async function testUnavailableGithubSourceFallsBackToPackagedSeedBundle(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const fixture = createFixture()
+    const packagedBundle = join(dir, 'seed', 'plugins', 'downloaded-plugin')
+    mkdirSync(join(packagedBundle, 'mcp'), { recursive: true })
+    writeFileSync(join(packagedBundle, 'plugin.json'), `${JSON.stringify(fixture.manifest, null, 2)}\n`, 'utf8')
+    writeFileSync(join(packagedBundle, 'mcp', 'server.json'), mcpComponentSource(), 'utf8')
+
+    const requests: string[] = []
+    const result = await downloadMarketplacePluginBundle({
+      entry: fixture.entry,
+      trustContext: {
+        trustedModules: new Map(),
+        trustedKeyFingerprints: new Set([fixture.fingerprint]),
+      },
+      stagingRoot: join(dir, 'staging'),
+      fetcher: async (url) => {
+        requests.push(url)
+        return new Response('not found', { status: 404 })
+      },
+      packagedResourceResolver: (relativePath) =>
+        relativePath === 'plugins/downloaded-plugin' ? packagedBundle : null,
+    })
+
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+    assert.deepEqual(requests, [API_ROOT])
+    assert.equal(result.classification, 'verified')
+    assert.equal(result.trust.status, 'trusted')
+    assert.equal(result.sourceUrl, SOURCE_URL)
+    assert.equal(existsSync(join(result.stagedBundlePath, 'plugin.json')), true)
+    assert.equal(existsSync(join(result.stagedBundlePath, 'mcp', 'server.json')), true)
+  })
+}
+
 async function testSignedUntrustedPublisherStagesAsCommunity(): Promise<void> {
   await withTempDir(async (dir) => {
     const fixture = createFixture()
@@ -315,6 +350,7 @@ function testCliAndAppRejectSameTamperedModuleBytes(): void {
 
 async function main(): Promise<void> {
   await testVerifiedFirstPartyDownloadStagesBundle()
+  await testUnavailableGithubSourceFallsBackToPackagedSeedBundle()
   await testSignedUntrustedPublisherStagesAsCommunity()
   await testDownloadedComponentBytesArePreserved()
   await testTamperedPluginSignatureBlocksAndRemovesStage()

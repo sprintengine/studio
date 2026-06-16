@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -17,6 +17,7 @@ import {
   type ModuleTrust,
   type ModuleTrustContext,
 } from '../modules/module-signature'
+import { findMarketplaceResourcePath, type MarketplaceResourceResolver } from './resources'
 
 export const DEFAULT_MARKETPLACE_PLUGIN_STAGING_DIR = 'marketplace-plugin-staging'
 export const DEFAULT_MARKETPLACE_PLUGIN_DOWNLOAD_TIMEOUT_MS = 30_000
@@ -37,6 +38,7 @@ export type MarketplacePluginDownloadOptions = {
   maxFiles?: number
   maxFileBytes?: number
   maxTotalBytes?: number
+  packagedResourceResolver?: MarketplaceResourceResolver
 }
 
 export type MarketplacePluginDownloadResult =
@@ -99,6 +101,7 @@ export async function downloadMarketplacePluginBundle(
 
   const stagingRoot = options.stagingRoot ?? defaultMarketplacePluginStagingRoot()
   const fetcher = options.fetcher ?? defaultFetch
+  const packagedResourceResolver = options.packagedResourceResolver ?? findMarketplaceResourcePath
   const limits: DownloadLimits = {
     maxFiles: options.maxFiles ?? DEFAULT_MARKETPLACE_PLUGIN_MAX_FILES,
     maxFileBytes: options.maxFileBytes ?? DEFAULT_MARKETPLACE_PLUGIN_MAX_FILE_BYTES,
@@ -111,7 +114,17 @@ export async function downloadMarketplacePluginBundle(
     stage = await mkdtemp(join(stagingRoot, `${options.entry.id}-`))
     const github = parseGithubTreeSource(parsedSource.url)
     if (github) {
-      await downloadGithubTree(github, stage, fetcher, options.timeoutMs, limits)
+      try {
+        await downloadGithubTree(github, stage, fetcher, options.timeoutMs, limits)
+      } catch (error) {
+        const copiedSeedBundle = await copyPackagedMarketplacePluginBundle(
+          github,
+          options.entry.id,
+          stage,
+          packagedResourceResolver
+        )
+        if (!copiedSeedBundle) throw error
+      }
     } else {
       await downloadGenericPluginSource(parsedSource.url, stage, fetcher, options.timeoutMs, limits)
     }
@@ -195,6 +208,26 @@ function classifyMarketplaceTrust(entry: MarketplacePluginEntry, trust: ModuleTr
   if (trust.status === 'unsigned') return 'unsigned'
   if (entry.publisher.verified && trust.status === 'trusted') return 'verified'
   return 'community'
+}
+
+async function copyPackagedMarketplacePluginBundle(
+  source: GithubTreeSource,
+  entryId: string,
+  stage: string,
+  resolver: MarketplaceResourceResolver
+): Promise<boolean> {
+  const relativePath = packagedMarketplacePluginRelativePath(source, entryId)
+  if (!relativePath) return false
+  const packagedBundlePath = resolver(relativePath)
+  if (!packagedBundlePath) return false
+  await cp(packagedBundlePath, stage, { recursive: true, force: true })
+  return true
+}
+
+function packagedMarketplacePluginRelativePath(source: GithubTreeSource, entryId: string): string | null {
+  if (source.owner !== 'multicode-labs' || source.repo !== 'marketplace' || source.ref !== 'main') return null
+  const expectedPath = `plugins/${entryId}`
+  return source.path === expectedPath ? expectedPath : null
 }
 
 function classifyUnsignedManifest(source: string, trustContext: ModuleTrustContext): ModuleTrust | null {
