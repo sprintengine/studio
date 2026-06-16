@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ModuleEnablementOverrides, ThirdPartyModuleListResult } from '../../../../shared/modules/manifest'
 import type { SkillPackEntry } from '../../../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../../../shared/plugin-manifest'
-import type { McpServerConfig } from '../../types/workspace'
+import type { McpServerConfig, McpSettings } from '../../types/workspace'
 import { InlineNotice, Spinner, StatusDot, TabPanel, Tabs } from '../ui'
 import { SettingsRow } from './SettingsAtoms'
 import { BrowseStorefront } from './BrowseStorefront'
@@ -21,18 +21,25 @@ import {
 // agent CLIs, capability modules). This is the canonical inventory surface; the
 // per-primitive tabs (MCPs / Skill packs / Modules) remain the place to install,
 // trust, and toggle, so this view never duplicates those mutations and the two
-// can never disagree. The Browse storefront is a later phase and is not wired
-// here. The list-building lives in the DOM-free `extensionsInstalled` view-model
-// for unit coverage; this component only owns IPC loading and rendering.
+// can never disagree. The Browse sub-tab hosts the storefront + trust-gate
+// install flow; a successful install there calls `refreshInstalled` (and feeds
+// MCP servers back to the store via `onUpsertMcpServer`) so this inventory
+// reflects the new plugin without a reload. The list-building lives in the
+// DOM-free `extensionsInstalled` view-model for unit coverage; this component
+// only owns IPC loading and rendering.
 
 export function ExtensionsSettingsTab({
   mcpServers,
+  mcpSettings,
   moduleOverrides,
   workspaceRoot,
+  onUpsertMcpServer,
 }: {
   mcpServers: McpServerConfig[]
+  mcpSettings: McpSettings
   moduleOverrides: ModuleEnablementOverrides
   workspaceRoot: string | null
+  onUpsertMcpServer: (server: McpServerConfig) => void
 }) {
   const [modules, setModules] = useState<LoadedSource<ThirdPartyModuleListResult>>({ status: 'loading' })
   const [skillPacks, setSkillPacks] = useState<LoadedSource<SkillPackEntry[]>>({ status: 'loading' })
@@ -81,6 +88,16 @@ export function ExtensionsSettingsTab({
       setSkillPacks({ status: 'error', message: errorMessage(error, 'Could not list installed skill packs.') })
     }
   }, [workspaceRoot])
+
+  // After a Browse install succeeds, re-list every per-primitive source so the
+  // newly installed plugin's components appear in this inventory without a
+  // reload (AC4). MCP servers reflect via the store (onUpsertMcpServer) feeding
+  // the `mcpServers` prop; modules / CLIs / skill packs re-list from IPC here.
+  const refreshInstalled = useCallback(() => {
+    void loadModules()
+    void loadClis()
+    void loadSkillPacks()
+  }, [loadModules, loadClis, loadSkillPacks])
 
   useEffect(() => {
     void loadModules()
@@ -132,7 +149,12 @@ export function ExtensionsSettingsTab({
         <InstalledView view={view} />
       </TabPanel>
       <TabPanel idPrefix={EXTENSIONS_SUBTAB_PREFIX} tabId="browse" active={subTab === 'browse'}>
-        <BrowseStorefront />
+        <BrowseStorefront
+          workspaceRoot={workspaceRoot}
+          mcpSettings={mcpSettings}
+          onInstalled={refreshInstalled}
+          onUpsertMcpServer={onUpsertMcpServer}
+        />
       </TabPanel>
     </div>
   )

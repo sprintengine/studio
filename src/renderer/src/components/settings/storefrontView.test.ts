@@ -66,7 +66,11 @@ function failResult(
   return { ok: false, state, registryUrl: 'https://example.com/marketplace.json', stale: false, message }
 }
 
-const result = (r: MarketplaceRegistryReadResult): BrowseLoad => ({ status: 'result', result: r })
+// The trailing semicolon is load-bearing: an arrow with a parenthesized-object
+// body (`=> ({...})`) and no semicolon, followed by the bare `{ ... }` test
+// block below, makes `tsc` parse the object as arrow params (TS1003 cascade).
+// esbuild tolerates it; `tsc -b` (typecheck:tests) does not.
+const result = (r: MarketplaceRegistryReadResult): BrowseLoad => ({ status: 'result', result: r });
 
 // --- filter + group --------------------------------------------------------
 

@@ -1,25 +1,51 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
+import type { McpServerConfig, McpSettings } from '../../types/workspace'
 import { CloseIconButton, GhostButton, InboxSearchInput, InlineNotice, PrimaryButton, Spinner, StatusDot } from '../ui'
 import { SettingsSectionTitle } from './SettingsAtoms'
 import { mcpMonogram } from './McpCatalog'
+import { PermissionChips } from './ThirdPartyModuleList'
 import {
   type BrowseLoad,
   componentKindLabels,
   deriveBrowseView,
 } from './storefrontView'
+import {
+  classifyVerification,
+  deriveInstallView,
+  summarizeInstallResult,
+  type InstallFlowState,
+} from './installFlow'
 
-// Settings → Extensions → Browse: the read-only storefront over the first-party
-// registry. Data comes from the T2.1 RegistryClient (window.api.readMarketplace-
-// Registry) — the registry INDEX only, so the detail view shows real
-// components-carried and version and honestly defers permissions/version-history
-// to install time (the signed plugin.json is fetched and verified in Phase 3).
-// Install is NOT wired here: the detail action is a disabled "coming soon", never
-// a fake success, and there are no purchase/Buy affordances (D4). The state
-// machine + filtering live in the DOM-free `storefrontView` view-model.
+// Settings → Extensions → Browse: the storefront over the first-party registry.
+// The grid/detail data comes from the T2.1 RegistryClient (the registry INDEX
+// only, so cards show real components-carried + version). The detail panel hosts
+// the Phase-3 trust-gate install flow: clicking Install runs the T3.4
+// verifyMarketplacePlugin IPC (real download + ed25519-verify, no install), then
+// verified plugins install directly, signed community plugins show a trust prompt
+// populated with the REAL verified permissions before install, and unsigned/
+// invalid bundles hard-block with no install affordance. No permission is ever
+// fabricated (the index omits them; they come only from the verified signed
+// manifest), and there are no purchase/Buy affordances (D4). The browse state
+// machine lives in `storefrontView`; the install state machine lives in the
+// DOM-free `installFlow` view-model.
 
-export function BrowseStorefront() {
+export function BrowseStorefront({
+  workspaceRoot,
+  mcpSettings,
+  onInstalled,
+  onUpsertMcpServer,
+}: {
+  workspaceRoot: string | null
+  mcpSettings: McpSettings
+  // Re-list the Installed tab's IPC sources after a successful install so the
+  // new plugin's components appear without a reload (AC4).
+  onInstalled: () => void
+  // Push the install result's MCP servers into the workspace store so MCP
+  // components reflect in the Installed inventory (its rows read store servers).
+  onUpsertMcpServer: (server: McpServerConfig) => void
+}) {
   const [load, setLoad] = useState<BrowseLoad>({ status: 'loading' })
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -191,7 +217,15 @@ export function BrowseStorefront() {
               ))}
             </div>
             {selected ? (
-              <PluginDetailPanel plugin={selected} registryUrl={registryUrl} onClose={closeDetail} />
+              <PluginDetailPanel
+                plugin={selected}
+                registryUrl={registryUrl}
+                workspaceRoot={workspaceRoot}
+                mcpSettings={mcpSettings}
+                onInstalled={onInstalled}
+                onUpsertMcpServer={onUpsertMcpServer}
+                onClose={closeDetail}
+              />
             ) : null}
           </div>
         </>
@@ -276,13 +310,23 @@ function PluginCard({
 function PluginDetailPanel({
   plugin,
   registryUrl,
+  workspaceRoot,
+  mcpSettings,
+  onInstalled,
+  onUpsertMcpServer,
   onClose,
 }: {
   plugin: MarketplacePluginEntry
   registryUrl: string | null
+  workspaceRoot: string | null
+  mcpSettings: McpSettings
+  onInstalled: () => void
+  onUpsertMcpServer: (server: McpServerConfig) => void
   onClose: () => void
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
+  const [flow, setFlow] = useState<InstallFlowState>({ status: 'idle' })
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -295,10 +339,76 @@ function PluginDetailPanel({
   }, [onClose])
   useEffect(() => {
     headingRef.current?.focus()
+    // A fresh selection starts a fresh install flow — never inherit another
+    // plugin's verify/trust/blocked state.
+    setFlow({ status: 'idle' })
   }, [plugin.id])
 
   const trust = publisherTrust(plugin)
   const components = componentKindLabels(plugin.provides)
+  // MCP servers and skill packs install into the open workspace; modules and
+  // CLIs install to the user dirs. Block install with an honest hint when a
+  // workspace-scoped component has no workspace, rather than letting the click
+  // fail downstream.
+  const needsWorkspace = plugin.provides.some((kind) => kind === 'mcp' || kind === 'skills')
+  const workspaceBlocked = needsWorkspace && !workspaceRoot
+
+  const runInstall = useCallback(
+    async (trustGranted: boolean) => {
+      setFlow({ status: 'installing' })
+      try {
+        const result = await window.api.installMarketplacePluginFromRegistry({
+          entry: plugin,
+          trustGranted,
+          workspaceRoot: workspaceRoot ?? undefined,
+          mcpSettings,
+        })
+        if (result.ok) {
+          // Reflect installed MCP servers in the store so the Installed tab's
+          // MCP rows update without a reload; re-list the other primitives.
+          if (result.mcpSettings) {
+            for (const server of Object.values(result.mcpSettings.servers)) onUpsertMcpServer(server)
+          }
+          onInstalled()
+        }
+        setFlow(summarizeInstallResult(result))
+      } catch (error) {
+        setFlow({
+          status: 'error',
+          message: error instanceof Error ? error.message : 'The install could not be completed.',
+        })
+      }
+    },
+    [plugin, workspaceRoot, mcpSettings, onInstalled, onUpsertMcpServer],
+  )
+
+  const startInstall = useCallback(async () => {
+    if (typeof window.api.verifyMarketplacePlugin !== 'function') {
+      setFlow({ status: 'error', message: 'Installing extensions needs a newer app build. Update Multicode and restart.' })
+      return
+    }
+    setFlow({ status: 'verifying' })
+    let verify
+    try {
+      verify = await window.api.verifyMarketplacePlugin(plugin)
+    } catch (error) {
+      setFlow({ status: 'error', message: error instanceof Error ? error.message : 'Could not verify this extension.' })
+      return
+    }
+    const outcome = classifyVerification(verify)
+    if (outcome.kind === 'blocked') {
+      setFlow({ status: 'blocked', classification: outcome.classification, message: outcome.message, issues: outcome.issues })
+      return
+    }
+    if (outcome.kind === 'needs-trust') {
+      setFlow({ status: 'needs-trust', permissions: outcome.permissions })
+      return
+    }
+    // Verified: install directly, no trust prompt.
+    await runInstall(false)
+  }, [plugin, runInstall])
+
+  const installView = deriveInstallView(flow)
 
   return (
     <aside
@@ -343,14 +453,6 @@ function PluginDetailPanel({
         </ul>
       </div>
 
-      {/* Honest Phase-2 disclosure: the registry index does not carry the
-          permission list or changelog — those come from the signed plugin.json
-          that is fetched and verified at install (Phase 3), so we never fabricate
-          them here. */}
-      <p className="mt-3 border-l-2 border-[color:var(--border-strong)] pl-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">
-        Requested permissions and version history are shown when you install this extension.
-      </p>
-
       {plugin.source ? (
         <a
           href={plugin.source}
@@ -362,12 +464,80 @@ function PluginDetailPanel({
         </a>
       ) : null}
 
-      <div className="mt-4">
-        {/* Phase-2 guardrail: install lands in Phase 3. Disabled, never a fake
-            success. No purchase/Buy affordance anywhere (D4). */}
-        <PrimaryButton disabled size="md" className="h-9 w-full">
-          Install — coming soon
-        </PrimaryButton>
+      {/* Phase-3 trust-gate install flow. Permissions shown here come only from
+          the ed25519-verified signed manifest (via verifyMarketplacePlugin) and
+          are never fabricated; unsigned/invalid never reach an install affordance;
+          no purchase/Buy affordance anywhere (D4). */}
+      <div className="mt-4 space-y-2">
+        {installView.trustPrompt ? (
+          <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3">
+            <div className="text-[11px] font-semibold text-[color:var(--text-default)]">
+              Community extension — review the access it requests
+            </div>
+            <p className="mt-1 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+              This publisher isn’t verified. Trusting it lets its code run in Multicode with the app’s
+              access — requested access is install-time disclosure, not a runtime sandbox.
+            </p>
+            <div className="mt-2">
+              <PermissionChips permissions={installView.permissions ?? []} />
+            </div>
+          </div>
+        ) : null}
+
+        {installView.notice ? (
+          installView.notice.tone === 'good' ? (
+            // Success has no InlineNotice tone; mirror the Installed tab's
+            // StatusDot + text so the state is never colour-only.
+            <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]" role="status">
+              <StatusDot tone="good" />
+              <span>{installView.notice.message}</span>
+            </div>
+          ) : (
+            <InlineNotice tone={installView.notice.tone}>
+              <div>{installView.notice.message}</div>
+              {installView.notice.issues?.length ? (
+                <ul className="mt-1 list-disc pl-4">
+                  {installView.notice.issues.slice(0, 4).map((issue) => (
+                    <li key={issue}>{issue}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </InlineNotice>
+          )
+        ) : null}
+
+        {workspaceBlocked && !installView.busy ? (
+          <p className="text-[11px] leading-4 text-[color:var(--text-subtle)]">
+            Open a workspace to install this extension.
+          </p>
+        ) : null}
+
+        {installView.busy ? (
+          <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]" role="status">
+            <Spinner size={14} />
+            {installView.busyLabel}
+          </div>
+        ) : null}
+
+        {installView.action ? (
+          <div className={installView.trustPrompt ? 'flex gap-2' : ''}>
+            <PrimaryButton
+              size="md"
+              className="h-9 w-full"
+              disabled={workspaceBlocked}
+              onClick={() =>
+                void (installView.action?.kind === 'trust-install' ? runInstall(true) : startInstall())
+              }
+            >
+              {installView.action.label}
+            </PrimaryButton>
+            {installView.trustPrompt ? (
+              <GhostButton size="md" className="h-9" onClick={() => setFlow({ status: 'idle' })}>
+                Cancel
+              </GhostButton>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </aside>
   )

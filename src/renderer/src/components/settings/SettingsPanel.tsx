@@ -2479,8 +2479,10 @@ export default function SettingsPanel({
       {activeSettingsTab === 'extensions' ? (
         <ExtensionsSettingsTab
           mcpServers={Object.values(mcpSettings.servers)}
+          mcpSettings={mcpSettings}
           moduleOverrides={moduleEnablement}
           workspaceRoot={activeProjectRoot}
+          onUpsertMcpServer={upsertMcpServer}
         />
       ) : null}
 
