@@ -19,6 +19,7 @@ import { registerMemoryActivityIpc } from './ipc/memory-activity-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
 import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
 import { registerMarketplacePluginIpc } from './ipc/marketplace-plugin-ipc'
+import { registerMarketplaceRegistryIpc } from './ipc/marketplace-registry-ipc'
 import { registerModuleEnablementIpc } from './ipc/module-enablement-ipc'
 import { registerPluginIpc } from './ipc/plugins-ipc'
 import { registerSkillPackIpc } from './ipc/skill-pack-ipc'
@@ -87,6 +88,7 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
   registerGitHubTokenIpc(ipcMain, services.githubTokenStore)
   registerMenuDialogIpc(ipcMain)
   registerModuleEnablementIpc(ipcMain)
+  registerMarketplaceRegistryIpc(ipcMain)
   registerMarketplacePluginIpc(ipcMain, services)
   registerPluginIpc(ipcMain)
   registerConversationIpc(ipcMain)

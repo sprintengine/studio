@@ -38,7 +38,7 @@ import type {
 import type { RoleInstallResult, UserRoleListResult } from './sprintengine/role-manifest'
 import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
 import type { ConversationProviderListEntry, ConversationProviderModel, PluginRegistryListEntry } from './plugin-manifest'
-import type { MarketplaceComponentKind } from './marketplace/manifest'
+import type { MarketplaceComponentKind, MarketplaceIndex, MarketplaceManifestIssue } from './marketplace/manifest'
 import type {
   ConversationEvent,
   ConversationInterruptInput,
@@ -325,6 +325,45 @@ export type MarketplacePluginInstallResult =
       installed?: MarketplacePluginInstalledComponent[]
       trust?: ModuleTrustStatus
       loadEligible?: boolean
+    }
+
+export type MarketplaceRegistryState = 'ok' | 'empty' | 'offline' | 'fetch-error' | 'invalid-schema'
+
+export type MarketplaceRegistryReadInput = {
+  forceRefresh?: boolean
+}
+
+export type MarketplaceRegistryReadResult =
+  | {
+      ok: true
+      state: 'ok' | 'empty'
+      registryUrl: string
+      source: 'network' | 'cache'
+      stale: false
+      fetchedAt: string
+      etag?: string
+      notModified?: boolean
+      marketplace: MarketplaceIndex
+    }
+  | {
+      ok: true
+      state: 'offline'
+      registryUrl: string
+      source: 'cache'
+      stale: true
+      fetchedAt: string
+      etag?: string
+      marketplace: MarketplaceIndex
+      message: string
+    }
+  | {
+      ok: false
+      state: Exclude<MarketplaceRegistryState, 'ok' | 'empty'>
+      registryUrl: string
+      stale: false
+      message: string
+      statusCode?: number
+      issues?: MarketplaceManifestIssue[]
     }
 
 export type ConversationProviderListResult =
@@ -1663,6 +1702,7 @@ export type ElectronApi = {
     input: { workspaceRoot: string | null; skillId: string }
   ) => Promise<BuiltinSkillInstallResult>
   pluginsList: () => Promise<PluginRegistryListResult>
+  readMarketplaceRegistry: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceRegistryReadResult>
   installPluginFolder: (srcDir: string) => Promise<PluginInstallResult>
   installMarketplacePluginFolder: (input: MarketplacePluginInstallInput) => Promise<MarketplacePluginInstallResult>
   reloadPlugins: () => Promise<PluginRegistryListResult>
