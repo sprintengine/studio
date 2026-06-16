@@ -9,7 +9,8 @@ import {
 
 function testAdvanceWalksSequenceAndClamps(): void {
   assert.equal(advanceOnboardingStep('welcome'), 'modules')
-  assert.equal(advanceOnboardingStep('modules'), 'workspace')
+  assert.equal(advanceOnboardingStep('modules'), 'cli')
+  assert.equal(advanceOnboardingStep('cli'), 'workspace')
   assert.equal(advanceOnboardingStep('workspace'), 'complete')
   assert.equal(advanceOnboardingStep('complete'), 'complete', 'complete is terminal')
 }
@@ -17,12 +18,14 @@ function testAdvanceWalksSequenceAndClamps(): void {
 function testActiveUntilComplete(): void {
   assert.equal(isOnboardingActive('welcome'), true)
   assert.equal(isOnboardingActive('modules'), true)
+  assert.equal(isOnboardingActive('cli'), true)
   assert.equal(isOnboardingActive('workspace'), true)
   assert.equal(isOnboardingActive('complete'), false)
 }
 
 function testGuard(): void {
   assert.equal(isOnboardingStep('welcome'), true)
+  assert.equal(isOnboardingStep('cli'), true)
   assert.equal(isOnboardingStep('complete'), true)
   assert.equal(isOnboardingStep('nope'), false)
   assert.equal(isOnboardingStep(undefined), false)

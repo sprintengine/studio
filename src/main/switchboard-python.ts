@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'child_process'
 import { existsSync } from 'fs'
 import { dirname, join, resolve } from 'path'
+import { getManagedPython, managedPythonSpawnEnv, type ResolvedPython } from './managed-runtime'
 
 export type SwitchboardPythonCommandResult =
   | { ok: true; payload: Record<string, unknown> }
@@ -30,12 +31,9 @@ function findRepositoryRoot(): string {
   return process.cwd()
 }
 
-function findPythonExecutable(repoRoot: string): string {
-  const posixVenv = join(repoRoot, '.venv', 'bin', 'python')
-  if (existsSync(posixVenv)) return posixVenv
-  const windowsVenv = join(repoRoot, '.venv', 'Scripts', 'python.exe')
-  if (existsSync(windowsVenv)) return windowsVenv
-  return process.platform === 'win32' ? 'python' : 'python3'
+function findPythonExecutable(repoRoot: string): ResolvedPython {
+  // Bundled CPython first, then the repo's own `.venv` (dev), then system Python.
+  return getManagedPython(repoRoot)
 }
 
 function parseJsonPayload(output: string): Record<string, unknown> {
@@ -50,7 +48,8 @@ function parseJsonPayload(output: string): Record<string, unknown> {
 
 export async function runSwitchboardPythonJsonCommand(args: string[]): Promise<SwitchboardPythonCommandResult> {
   const repoRoot = findRepositoryRoot()
-  const python = findPythonExecutable(repoRoot)
+  const resolvedPython = findPythonExecutable(repoRoot)
+  const python = resolvedPython.command
 
   return new Promise((resolvePromise) => {
     const existingPythonPath = process.env['PYTHONPATH']
@@ -58,10 +57,10 @@ export async function runSwitchboardPythonJsonCommand(args: string[]): Promise<S
     try {
       child = spawn(python, ['-m', 'switchboard_core', ...args], {
         cwd: repoRoot,
-        env: {
+        env: managedPythonSpawnEnv({
           ...process.env,
           PYTHONPATH: existingPythonPath ? `${repoRoot}${process.platform === 'win32' ? ';' : ':'}${existingPythonPath}` : repoRoot,
-        },
+        }, resolvedPython.source),
         stdio: ['ignore', 'pipe', 'pipe'],
       })
       inFlightPythonChildren.add(child)

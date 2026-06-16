@@ -1,9 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { randomBytes } from 'crypto'
-import { existsSync } from 'fs'
 import http from 'http'
-import { join, resolve } from 'path'
+import { resolve } from 'path'
 import { findSprintEngineRuntimeRoot } from './mcp-config-service'
+import { getManagedPython, managedPythonSpawnEnv } from './managed-runtime'
 
 export type SprintEngineMcpHubInfo = {
   url: string
@@ -224,13 +224,13 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
     logHubDiagnostic('starting', {})
     child = spawnProcess(python, ['-m', 'sprintengine_mcp', '--http', '--port', '0'], {
       cwd: root,
-      env: {
+      env: managedPythonSpawnEnv({
         ...process.env,
         PYTHONPATH: [root, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
         SPRINTENGINE_MCP_USER_ID: 'multicode-app',
         SPRINTENGINE_MCP_USER_AUTHORIZED: '1',
         SPRINTENGINE_MCP_HTTP_TOKEN: adminToken,
-      },
+      }, getManagedPython(root).source),
     })
 
     return await new Promise<SprintEngineMcpHubInfo>((resolve, reject) => {
@@ -429,11 +429,8 @@ function runRegistrationKey(input: SprintEngineMcpRunRegistrationInput): string 
 }
 
 function defaultPythonCommand(runtimeRoot: string): string {
-  const venvPython = process.platform === 'win32'
-    ? join(runtimeRoot, '.venv', 'Scripts', 'python.exe')
-    : join(runtimeRoot, '.venv', 'bin', 'python')
-  if (existsSync(venvPython)) return venvPython
-  return process.platform === 'win32' ? 'python' : 'python3'
+  // Bundled CPython first, then the runtime root's `.venv` (dev), then system.
+  return getManagedPython(runtimeRoot).command
 }
 
 function postJson<T>(url: string, authToken: string, payload: Record<string, unknown>): Promise<T> {

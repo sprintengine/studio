@@ -73,6 +73,53 @@
       "implicitInvocation": true
     }
   },
+  "detect": {
+    "versionArgs": ["--version"]
+  },
+  "install": {
+    "darwin": [
+      {
+        "id": "brew",
+        "label": "Homebrew (recommended)",
+        "shell": "brew install codex",
+        "recommended": true,
+        "requires": "brew"
+      },
+      {
+        "id": "npm",
+        "label": "npm (requires Node.js)",
+        "shell": "npm install -g @openai/codex",
+        "requires": "npm"
+      }
+    ],
+    "linux": [
+      {
+        "id": "npm",
+        "label": "npm (requires Node.js)",
+        "shell": "npm install -g @openai/codex",
+        "recommended": true,
+        "requires": "npm"
+      }
+    ],
+    "wsl": [
+      {
+        "id": "npm",
+        "label": "npm in WSL (requires Node.js)",
+        "shell": "npm install -g @openai/codex",
+        "recommended": true,
+        "requires": "npm"
+      }
+    ],
+    "win32": [
+      {
+        "id": "npm",
+        "label": "npm (requires Node.js)",
+        "shell": "npm install -g @openai/codex",
+        "recommended": true,
+        "requires": "npm"
+      }
+    ]
+  },
   "capabilities": {
     "resumeSession": true,
     "sessionIdFromCaller": false,

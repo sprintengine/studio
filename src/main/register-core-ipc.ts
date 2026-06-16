@@ -4,6 +4,7 @@ import { registerAutomationIpc } from './ipc/automation-ipc'
 import { registerAppMenuIpc } from './app-menu'
 import { registerBacklogIpc } from './ipc/backlog-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
+import { registerCliRuntimeIpc } from './ipc/cli-runtime-ipc'
 import { registerClipboardIpc } from './ipc/clipboard-ipc'
 import { registerConversationIpc } from './ipc/conversation-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
@@ -49,6 +50,7 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
   registerAppMenuIpc(ipcMain)
   registerWorkspaceBackupIpc(ipcMain, services.workspaceBackupService)
   registerClipboardIpc(ipcMain)
+  registerCliRuntimeIpc(ipcMain)
   registerVoiceIpc(ipcMain)
   registerAuthIpc(ipcMain, services.multicodeAuth)
   registerBuiltinSkillsIpc(ipcMain, services.builtinSkillManager)
