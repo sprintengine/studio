@@ -79,7 +79,7 @@ function testValidPluginManifest(): void {
 }
 
 function testPluginMissingRequiredFields(): void {
-  for (const path of ['id', 'displayName', 'version', 'components']) {
+  for (const path of ['id', 'displayName', 'version', 'signature', 'components']) {
     assertRejectsAt(withoutField(VALID_PLUGIN, path), path)
   }
 }
@@ -97,6 +97,10 @@ function testPluginRejectsInvalidComponentCases(): void {
 
 function testPluginRejectsInvalidPermissionsThroughSdkValidator(): void {
   assertRejectsAt({ ...VALID_PLUGIN, permissions: ['network', ''] }, 'permissions[1]')
+}
+
+function testPluginRejectsInvalidSignatureThroughSdkValidator(): void {
+  assertRejectsAt({ ...VALID_PLUGIN, signature: { algorithm: 'rsa' } }, 'signature.algorithm')
 }
 
 function testPluginCanonicalPayloadExcludesSignatureAndUnknownFields(): void {
@@ -168,6 +172,7 @@ testValidPluginManifest()
 testPluginMissingRequiredFields()
 testPluginRejectsInvalidComponentCases()
 testPluginRejectsInvalidPermissionsThroughSdkValidator()
+testPluginRejectsInvalidSignatureThroughSdkValidator()
 testPluginCanonicalPayloadExcludesSignatureAndUnknownFields()
 testParsePluginInvalidJson()
 testValidMarketplaceIndex()

@@ -8,6 +8,7 @@
 import type { CapabilityManifest, ModuleSignature } from '../modules/manifest'
 import type { CapabilityPermission } from '../modules/permissions'
 import {
+  isSafeManifestRelativePath,
   validateThirdPartyModuleManifest as validateSdkThirdPartyModuleManifest,
   type ThirdPartyManifestIssue,
 } from '../../../packages/module-sdk/src/manifest-validate'
@@ -79,14 +80,6 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function isSafeRelativePath(value: unknown): value is string {
-  if (typeof value !== 'string' || value.length === 0) return false
-  if (value.includes('\0') || value.includes('\\')) return false
-  if (value.startsWith('/')) return false
-  const segments = value.split('/')
-  return !segments.some((segment) => segment === '..' || segment === '.' || segment.length === 0)
-}
-
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && !value.includes('\0')
 }
@@ -125,7 +118,7 @@ function validateComponents(value: unknown, issues: MarketplaceManifestIssue[]):
         issues.push({ path: `${path}.${field}`, message: 'unsupported component field.' })
       }
     }
-    if (!isSafeRelativePath(component.path)) {
+    if (!isSafeManifestRelativePath(component.path)) {
       issues.push({
         path: `${path}.path`,
         message: 'path must be a safe relative path inside the plugin bundle (no absolute paths or "..").',
@@ -150,6 +143,9 @@ export function validateMarketplacePluginManifest(value: unknown): MarketplacePl
 
   const moduleResult = validateSdkThirdPartyModuleManifest(value)
   if (!moduleResult.ok) pushSdkIssues(issues, moduleResult.issues)
+  if (value.signature === undefined) {
+    issues.push({ path: 'signature', message: 'signature is required.' })
+  }
 
   const components = validateComponents(value.components, issues)
   if (issues.length > 0 || !moduleResult.ok || !components) return { ok: false, issues }
