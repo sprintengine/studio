@@ -25,6 +25,7 @@ import { buildSync } from 'esbuild'
 import { BUNDLED_MODULE_IDS } from '../src/index.js'
 // App-side trust flow: the exact modules the Multicode app uses on install.
 import { parseThirdPartyModuleManifest } from '../../../src/shared/modules/third-party-manifest'
+import { parseMarketplacePluginManifest } from '../../../src/shared/marketplace'
 import { classifySignedManifestTrust, verifyModuleSignature } from '../../../src/main/modules/module-signature'
 
 const workDir = mkdtempSync(join(tmpdir(), 'multicode-cli-roundtrip-'))
@@ -187,6 +188,80 @@ function testPackHappyPathExcludesKeyMaterial(): void {
   assert.equal(runCli(['verify', outDir]).status, 0)
 }
 
+function testPluginScaffoldSignVerifyPackAndAppTrustFlowAccepts(): string {
+  const pluginDir = join(workDir, 'marketplace-plugin-fixture')
+  const scaffold = runCli(['plugin', 'scaffold', 'marketplace-plugin-fixture', '--out', pluginDir])
+  assert.equal(scaffold.status, 0, scaffold.stderr)
+  assert.ok(existsSync(join(pluginDir, 'plugin.json')))
+  assert.ok(existsSync(join(pluginDir, 'mcp', 'server.json')))
+  assert.ok(existsSync(join(pluginDir, 'skills', 'marketplace-plugin-fixture', 'SKILL.md')))
+  assert.ok(existsSync(join(pluginDir, 'module', 'manifest.json')))
+  assert.ok(existsSync(join(pluginDir, 'cli', 'plugin.json')))
+
+  const signed = runCli(['plugin', 'sign', pluginDir, '--key', keyPath])
+  assert.equal(signed.status, 0, signed.stderr)
+
+  const diskBytes = readFileSync(join(pluginDir, 'plugin.json'), 'utf8')
+  const parsed = parseMarketplacePluginManifest(diskBytes)
+  assert.ok(parsed.ok, 'app parser must accept the plugin manifest the CLI wrote')
+  if (!parsed.ok) return pluginDir
+  const { valid, fingerprint } = verifyModuleSignature(parsed.manifest)
+  assert.equal(valid, true, 'app verify code must accept the CLI plugin signature')
+  assert.equal(typeof fingerprint, 'string')
+  const trust = classifySignedManifestTrust(parsed.manifest, { trustedModules: new Map() })
+  assert.equal(trust.status, 'signed')
+
+  const verified = runCli(['plugin', 'verify', pluginDir])
+  assert.equal(verified.status, 0, verified.stderr)
+  assert.match(verified.stdout, /plugin signature valid/)
+  assert.ok(verified.stdout.includes(fingerprint!), 'CLI reports the same plugin signer fingerprint the app computes')
+
+  writeFileSync(join(pluginDir, 'leaked-plugin.key'), 'not really a key')
+  const outDir = join(workDir, 'packed-plugin-fixture')
+  const packed = runCli(['plugin', 'pack', pluginDir, '--out', outDir])
+  assert.equal(packed.status, 0, packed.stderr)
+  assert.ok(existsSync(join(outDir, 'plugin.json')))
+  assert.ok(existsSync(join(outDir, 'mcp', 'server.json')))
+  assert.equal(existsSync(join(outDir, 'leaked-plugin.key')), false, 'key files are never packed')
+  assert.equal(runCli(['plugin', 'verify', outDir]).status, 0)
+  return pluginDir
+}
+
+function testPluginTamperRejectedByBothPaths(signedPluginDir: string): void {
+  const manifestPath = join(signedPluginDir, 'plugin.json')
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>
+  manifest.displayName = 'Tampered Marketplace Plugin'
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
+
+  const cliResult = runCli(['plugin', 'verify', signedPluginDir])
+  assert.equal(cliResult.status, 1)
+  assert.match(cliResult.stderr, /INVALID signature/)
+
+  const parsed = parseMarketplacePluginManifest(readFileSync(manifestPath, 'utf8'))
+  assert.ok(parsed.ok)
+  if (!parsed.ok) return
+  assert.equal(verifyModuleSignature(parsed.manifest).valid, false)
+  assert.equal(classifySignedManifestTrust(parsed.manifest, { trustedModules: new Map() }).status, 'invalid')
+}
+
+function testPluginVerifyRejectsUnsigned(): void {
+  const pluginDir = join(workDir, 'unsigned-plugin-fixture')
+  assert.equal(runCli(['plugin', 'scaffold', 'unsigned-plugin-fixture', '--out', pluginDir, '--component', 'mcp']).status, 0)
+  const unsignedVerify = runCli(['plugin', 'verify', pluginDir])
+  assert.equal(unsignedVerify.status, 1)
+  assert.match(unsignedVerify.stderr, /unsigned/)
+}
+
+function testPluginPackRejectsMissingComponent(): void {
+  const pluginDir = join(workDir, 'missing-component-plugin-fixture')
+  assert.equal(runCli(['plugin', 'scaffold', 'missing-component-plugin-fixture', '--out', pluginDir, '--component', 'mcp']).status, 0)
+  assert.equal(runCli(['plugin', 'sign', pluginDir, '--key', keyPath]).status, 0)
+  rmSync(join(pluginDir, 'mcp', 'server.json'))
+  const packed = runCli(['plugin', 'pack', pluginDir])
+  assert.equal(packed.status, 1)
+  assert.match(packed.stderr, /declared path.*does not exist/)
+}
+
 try {
   testKeygen()
   const signedModuleDir = testCliSignThenAppTrustFlowAccepts()
@@ -195,6 +270,10 @@ try {
   testVerifyRejectsUnsigned()
   testPackRejectsInvalidManifests()
   testPackHappyPathExcludesKeyMaterial()
+  const signedPluginDir = testPluginScaffoldSignVerifyPackAndAppTrustFlowAccepts()
+  testPluginTamperRejectedByBothPaths(signedPluginDir)
+  testPluginVerifyRejectsUnsigned()
+  testPluginPackRejectsMissingComponent()
   console.log('multicode-module CLI round-trip tests passed')
 } finally {
   rmSync(workDir, { recursive: true, force: true })

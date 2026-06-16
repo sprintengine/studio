@@ -2,16 +2,21 @@
 //
 // A marketplace plugin is a thin bundle over primitives Multicode already owns:
 // MCP configs, skill packs, capability modules, and agent CLI plugins. The
-// bundle manifest reuses the module manifest validator/signing payload so the
-// app and authoring tooling cannot drift on trust-critical fields.
+// bundle manifest validator lives in the published SDK so authoring tools and
+// the app cannot drift on the signing-critical plugin.json shape. This module
+// re-exports that plugin contract and adds the marketplace.json registry index
+// contract used by the app.
 
-import type { CapabilityManifest, ModuleSignature } from '../modules/manifest'
-import type { CapabilityPermission } from '../modules/permissions'
+import type { ModuleSignature } from '../modules/manifest'
 import {
-  isSafeManifestRelativePath,
   validateThirdPartyModuleManifest as validateSdkThirdPartyModuleManifest,
   type ThirdPartyManifestIssue,
 } from '../../../packages/module-sdk/src/manifest-validate'
+import {
+  MARKETPLACE_COMPONENT_KINDS,
+  type MarketplaceComponentKind,
+  type MarketplaceManifestIssue,
+} from '../../../packages/module-sdk/src/plugin-manifest'
 
 export {
   canonicalManifestPayload,
@@ -24,23 +29,21 @@ export {
   type ThirdPartyManifestResult,
 } from '../../../packages/module-sdk/src/manifest-validate'
 
-export type MarketplaceComponentKind = 'mcp' | 'skills' | 'module' | 'cli'
-
-export const MARKETPLACE_COMPONENT_KINDS: readonly MarketplaceComponentKind[] = ['mcp', 'skills', 'module', 'cli']
-
-export type MarketplaceComponent = {
-  path: string
-}
-
-export type MarketplacePluginComponents = {
-  [K in MarketplaceComponentKind]?: MarketplaceComponent
-}
-
-export type MarketplacePluginManifest = Omit<CapabilityManifest, 'signature'> & {
-  components: MarketplacePluginComponents
-  permissions: CapabilityPermission[]
-  signature: ModuleSignature
-}
+export {
+  MARKETPLACE_COMPONENT_KINDS,
+  parseMarketplacePluginAuthoringManifest,
+  parseMarketplacePluginManifest,
+  validateMarketplacePluginAuthoringManifest,
+  validateMarketplacePluginManifest,
+  type MarketplaceComponent,
+  type MarketplaceComponentKind,
+  type MarketplaceManifestIssue,
+  type MarketplacePluginAuthoringManifest,
+  type MarketplacePluginAuthoringManifestResult,
+  type MarketplacePluginComponents,
+  type MarketplacePluginManifest,
+  type MarketplacePluginManifestResult,
+} from '../../../packages/module-sdk/src/plugin-manifest'
 
 export type MarketplacePublisher = {
   name: string
@@ -64,12 +67,6 @@ export type MarketplaceIndex = {
   schemaVersion: 1
   plugins: MarketplacePluginEntry[]
 }
-
-export type MarketplaceManifestIssue = { path: string; message: string }
-
-export type MarketplacePluginManifestResult =
-  | { ok: true; manifest: MarketplacePluginManifest }
-  | { ok: false; issues: MarketplaceManifestIssue[] }
 
 export type MarketplaceIndexResult =
   | { ok: true; marketplace: MarketplaceIndex }
@@ -95,88 +92,6 @@ function pushSdkIssues(
     const mappedPath = remap[issue.path] ?? issue.path
     issues.push({ path: pathPrefix ? `${pathPrefix}.${mappedPath}` : mappedPath, message: issue.message })
   }
-}
-
-function validateComponents(value: unknown, issues: MarketplaceManifestIssue[]): MarketplacePluginComponents | undefined {
-  if (!isObject(value)) {
-    issues.push({ path: 'components', message: 'components must be an object.' })
-    return undefined
-  }
-
-  const components: MarketplacePluginComponents = {}
-  for (const [kind, component] of Object.entries(value)) {
-    if (!COMPONENT_KIND_SET.has(kind)) {
-      issues.push({ path: `components.${kind}`, message: `component kind must be one of: ${MARKETPLACE_COMPONENT_KINDS.join(', ')}.` })
-      continue
-    }
-    const path = `components.${kind}`
-    if (!isObject(component)) {
-      issues.push({ path, message: 'component must be an object.' })
-      continue
-    }
-    for (const field of Object.keys(component)) {
-      if (field !== 'path') {
-        issues.push({ path: `${path}.${field}`, message: 'unsupported component field.' })
-      }
-    }
-    if (!isSafeManifestRelativePath(component.path)) {
-      issues.push({
-        path: `${path}.path`,
-        message: 'path must be a safe relative path inside the plugin bundle (no absolute paths or "..").',
-      })
-      continue
-    }
-    components[kind as MarketplaceComponentKind] = { path: component.path }
-  }
-
-  if (Object.keys(components).length === 0) {
-    issues.push({ path: 'components', message: 'components must declare at least one component.' })
-    return undefined
-  }
-  return components
-}
-
-export function validateMarketplacePluginManifest(value: unknown): MarketplacePluginManifestResult {
-  const issues: MarketplaceManifestIssue[] = []
-  if (!isObject(value)) {
-    return { ok: false, issues: [{ path: '', message: 'Plugin manifest must be a JSON object.' }] }
-  }
-
-  const moduleResult = validateSdkThirdPartyModuleManifest(value)
-  if (!moduleResult.ok) pushSdkIssues(issues, moduleResult.issues)
-  if (value.signature === undefined) {
-    issues.push({ path: 'signature', message: 'signature is required.' })
-  }
-
-  const components = validateComponents(value.components, issues)
-  if (issues.length > 0 || !moduleResult.ok || !components) return { ok: false, issues }
-  const signature = moduleResult.manifest.signature
-  if (!signature) {
-    return { ok: false, issues: [{ path: 'signature', message: 'signature is required.' }] }
-  }
-
-  return {
-    ok: true,
-    manifest: {
-      ...moduleResult.manifest,
-      signature,
-      components,
-      permissions: moduleResult.manifest.permissions ?? [],
-    },
-  }
-}
-
-export function parseMarketplacePluginManifest(source: string): MarketplacePluginManifestResult {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(source)
-  } catch (error) {
-    return {
-      ok: false,
-      issues: [{ path: '', message: `Invalid JSON: ${error instanceof Error ? error.message : 'parse error'}.` }],
-    }
-  }
-  return validateMarketplacePluginManifest(parsed)
 }
 
 function validatePublisher(value: unknown, path: string, issues: MarketplaceManifestIssue[]): MarketplacePublisher | undefined {
