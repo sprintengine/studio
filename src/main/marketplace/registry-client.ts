@@ -128,7 +128,7 @@ export class MarketplaceRegistryClient {
       }
     }
 
-    const etag = response.headers.get('etag') ?? cache?.etag
+    const etag = response.headers.get('etag') ?? undefined
     const fetchedAt = this.now().toISOString()
     await this.writeCache({
       schemaVersion: 1,

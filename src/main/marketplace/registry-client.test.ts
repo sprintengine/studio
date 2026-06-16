@@ -20,6 +20,7 @@ type FetchRequest = { url: string; init: RequestInit }
 async function main(): Promise<void> {
   await testFetchesValidRegistryAndCachesEtag()
   await testEtagNotModifiedServesCache()
+  await testFreshResponseWithoutEtagClearsCachedEtag()
   await testEmptyRegistryStateIsExplicit()
   await testOfflineWithCacheServesStaleState()
   await testOfflineWithoutCacheIsExplicitFailure()
@@ -136,6 +137,57 @@ async function testEtagNotModifiedServesCache(): Promise<void> {
     assert.equal(result.notModified, true)
     assert.equal(result.etag, '"v1"')
     assert.equal(requestHeaders(requests[1].init)['if-none-match'], '"v1"')
+  })
+}
+
+async function testFreshResponseWithoutEtagClearsCachedEtag(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const requests: FetchRequest[] = []
+    const v1 = validMarketplace()
+    const v2 = validMarketplace([
+      {
+        ...validPlugin(),
+        id: 'second-helper',
+        name: 'Second Helper',
+        source: 'https://github.com/multicode-labs/marketplace/plugins/second-helper',
+      },
+    ])
+    const responses = [
+      jsonResponse(v1, { headers: { etag: '"v1"' } }),
+      jsonResponse(v2),
+      jsonResponse(v2),
+    ]
+    const fetcher: MarketplaceRegistryFetch = async (url, init) => {
+      requests.push({ url, init })
+      const response = responses.shift()
+      assert.ok(response, 'test fetcher exhausted')
+      return response
+    }
+    const cachePath = join(dir, 'cache.json')
+    const client = new MarketplaceRegistryClient({
+      registryUrl: REGISTRY_URL,
+      cachePath,
+      fetcher,
+    })
+
+    await client.read()
+    const noEtag = await client.read({ forceRefresh: true })
+
+    assert.equal(noEtag.ok, true)
+    if (!noEtag.ok) return
+    assert.equal(noEtag.etag, undefined)
+    assert.equal(noEtag.marketplace.plugins[0].id, 'second-helper')
+
+    const cache = JSON.parse(await readFile(cachePath, 'utf8')) as {
+      etag?: string
+      marketplace?: MarketplaceIndex
+    }
+    assert.equal(cache.etag, undefined)
+    assert.equal(cache.marketplace?.plugins[0]?.id, 'second-helper')
+
+    await client.read()
+
+    assert.equal(requestHeaders(requests[2].init)['if-none-match'], undefined)
   })
 }
 
