@@ -5,7 +5,7 @@ import type { SkillPackEntry } from '../../../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../../../shared/plugin-manifest'
 import type { McpServerConfig } from '../../types/workspace'
 import { InlineNotice, Spinner, StatusDot } from '../ui'
-import { SettingsSectionTitle } from './SettingsAtoms'
+import { SettingsRow, SettingsSectionTitle } from './SettingsAtoms'
 import { TRUST_PRESENTATION } from './ThirdPartyModuleList'
 import {
   deriveInstalledExtensions,
@@ -160,11 +160,11 @@ function InstalledView({ view }: { view: ExtensionsInstalledView }) {
                   {group.items.length}
                 </span>
               </div>
-              <ul className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
+              <div className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
                 {group.items.map((item) => (
                   <InstalledRow key={item.key} item={item} />
                 ))}
-              </ul>
+              </div>
             </section>
           ))}
         </div>
@@ -173,24 +173,24 @@ function InstalledView({ view }: { view: ExtensionsInstalledView }) {
   )
 }
 
-// One inventory row. A single StatusDot encodes the row's decision-relevant
-// status — trust for capability modules, active/inactive for MCP servers — and
-// is always paired with its text label so status is never colour-only. Skill
-// packs and CLIs have no such axis (presence is the only state), so they carry
-// no dot. Module enablement is secondary and rides the meta line as plain text,
-// never a second competing dot.
+// One inventory row, composed from the canonical `SettingsRow` (label + help on
+// the left, a compact status on the right) so the Extensions surface shares the
+// one settings-row grammar rather than forking a second. The right-side control
+// slot carries the row's decision-relevant status — trust for capability
+// modules, active/inactive for MCP servers — as a StatusDot always paired with
+// its text label, so status is never colour-only. Skill packs and CLIs have no
+// such axis (presence is the only state), so they carry no dot. Module
+// enablement is secondary and rides the help meta line as plain text, never a
+// second competing dot.
 function InstalledRow({ item }: { item: InstalledExtension }) {
   const meta = [item.source, item.detail, moduleEnabledMeta(item)].filter(Boolean).join(' · ')
   return (
-    <li className="flex items-start justify-between gap-3 py-2.5">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">{item.name}</span>
-          <RowStatus item={item} />
-        </div>
-        <div className="mt-0.5 truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">{meta}</div>
-      </div>
-    </li>
+    <SettingsRow
+      label={item.name}
+      help={<span className="font-mono text-[11px] text-[color:var(--text-subtle)]">{meta}</span>}
+    >
+      <RowStatus item={item} />
+    </SettingsRow>
   )
 }
 
@@ -198,7 +198,7 @@ function RowStatus({ item }: { item: InstalledExtension }) {
   if (item.kind === 'module' && item.trust) {
     const trust = TRUST_PRESENTATION[item.trust]
     return (
-      <span className="inline-flex shrink-0 items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
+      <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
         {/* Decorative: the adjacent label already names the trust state. */}
         <StatusDot tone={trust.tone} />
         {trust.label}
@@ -207,7 +207,7 @@ function RowStatus({ item }: { item: InstalledExtension }) {
   }
   if (item.kind === 'mcp') {
     return (
-      <span className="inline-flex shrink-0 items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
+      <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
         <StatusDot tone={item.enabled ? 'good' : 'neutral'} />
         {item.enabled ? 'Active' : 'Inactive'}
       </span>
