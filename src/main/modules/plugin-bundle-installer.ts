@@ -8,6 +8,8 @@ import type {
   McpClientTarget,
   McpServerConfig,
   McpSettings,
+  McpSyncTarget,
+  McpValidationIssue,
   SkillPackHarness,
 } from '../../shared/electron-api'
 import type {
@@ -205,26 +207,29 @@ function installMcpComponent(
     return componentFailure('mcp', result.message, installed, mcpIssuesToMarketplaceIssues(result.issues))
   }
 
-  const syncedServerIds = new Set(result.targets.flatMap((target) => target.serverIds))
-  const missing = component.servers.map((server) => server.id).filter((id) => !syncedServerIds.has(id))
-  if (missing.length > 0) {
+  const installedMcp = installedMcpComponent(component.servers)
+  const partialInstalled = mcpTargetsIncludeServers(result.targets, component.servers)
+    ? [...installed, installedMcp]
+    : installed
+  const coverageFailures = mcpClientSyncCoverageFailures(component.servers, clients, result.targets)
+  const syncIssues = relevantMcpSyncIssues(result.issues, component.servers, clients)
+  if (coverageFailures.length > 0 || syncIssues.length > 0) {
     return componentFailure(
       'mcp',
-      `MCP sync did not write ${missing.join(', ')} to any client config.`,
-      installed,
-      mcpIssuesToMarketplaceIssues(result.issues)
+      coverageFailures.length > 0
+        ? `MCP sync did not write requested client targets: ${formatMcpCoverageFailures(coverageFailures)}.`
+        : 'MCP sync reported warnings for this MCP component.',
+      partialInstalled,
+      mergeMarketplaceIssues([
+        ...coverageFailures.map(mcpCoverageFailureIssue),
+        ...(mcpIssuesToMarketplaceIssues(syncIssues) ?? []),
+      ])
     )
   }
 
   return {
     ok: true,
-    installed: {
-      kind: 'mcp',
-      id: component.servers.map((server) => server.id).join(','),
-      serverIds: component.servers.map((server) => server.id),
-      servers: component.servers,
-      message: `Synced ${component.servers.length} MCP server${component.servers.length === 1 ? '' : 's'}.`,
-    },
+    installed: installedMcp,
     mcpSettings: nextSettings,
   }
 }
@@ -569,6 +574,91 @@ function isInsideOrEqual(parent: string, child: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function installedMcpComponent(servers: McpServerConfig[]): MarketplacePluginInstalledComponent {
+  return {
+    kind: 'mcp',
+    id: servers.map((server) => server.id).join(','),
+    serverIds: servers.map((server) => server.id),
+    servers,
+    message: `Synced ${servers.length} MCP server${servers.length === 1 ? '' : 's'}.`,
+  }
+}
+
+function mcpTargetsIncludeServers(targets: McpSyncTarget[], servers: McpServerConfig[]): boolean {
+  const serverIds = new Set(servers.map((server) => server.id))
+  return targets.some((target) => target.serverIds.some((serverId) => serverIds.has(serverId)))
+}
+
+function mcpClientSyncCoverageFailures(
+  servers: McpServerConfig[],
+  clients: McpClientTarget[],
+  targets: McpSyncTarget[]
+): Array<{ client: McpClientTarget; serverIds: string[] }> {
+  const targetServerIdsByClient = new Map<McpClientTarget, Set<string>>()
+  for (const target of targets) {
+    const serverIds = targetServerIdsByClient.get(target.client) ?? new Set<string>()
+    for (const serverId of target.serverIds) serverIds.add(serverId)
+    targetServerIdsByClient.set(target.client, serverIds)
+  }
+
+  const failures: Array<{ client: McpClientTarget; serverIds: string[] }> = []
+  for (const client of clients) {
+    const expectedServerIds = servers
+      .filter((server) => server.clients.includes(client))
+      .map((server) => server.id)
+    if (expectedServerIds.length === 0) continue
+
+    const syncedServerIds = targetServerIdsByClient.get(client) ?? new Set<string>()
+    const missing = expectedServerIds.filter((serverId) => !syncedServerIds.has(serverId))
+    if (missing.length > 0) failures.push({ client, serverIds: missing })
+  }
+  return failures
+}
+
+function relevantMcpSyncIssues(
+  issues: McpValidationIssue[] | undefined,
+  servers: McpServerConfig[],
+  clients: McpClientTarget[]
+): McpValidationIssue[] {
+  if (!issues?.length) return []
+
+  const serverIds = new Set(servers.map((server) => server.id))
+  const componentClients = new Set(
+    clients.filter((client) => servers.some((server) => server.clients.includes(client)))
+  )
+  return issues.filter((issue) => {
+    if (issue.serverId && serverIds.has(issue.serverId)) return true
+    if (issue.client && componentClients.has(issue.client)) return true
+    return false
+  })
+}
+
+function formatMcpCoverageFailures(failures: Array<{ client: McpClientTarget; serverIds: string[] }>): string {
+  return failures
+    .map((failure) => `${failure.client} (${failure.serverIds.join(', ')})`)
+    .join('; ')
+}
+
+function mcpCoverageFailureIssue(failure: { client: McpClientTarget; serverIds: string[] }): MarketplaceManifestIssue {
+  return {
+    path: `clients.${failure.client}`,
+    message: `MCP sync did not write ${failure.serverIds.join(', ')} to ${failure.client}.`,
+  }
+}
+
+function mergeMarketplaceIssues(issues: MarketplaceManifestIssue[]): MarketplaceManifestIssue[] | undefined {
+  if (issues.length === 0) return undefined
+  const seen = new Set<string>()
+  const merged: MarketplaceManifestIssue[] = []
+  for (const issue of issues) {
+    const key = `${issue.path}\n${issue.message}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(issue)
+  }
+  return merged
 }
 
 function mcpIssuesToMarketplaceIssues(

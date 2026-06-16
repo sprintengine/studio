@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 
 import type { WebContents } from 'electron'
-import type { MarketplacePluginInstallInput, McpSettings, SkillPackEntry } from '../../shared/electron-api'
+import type { MarketplacePluginInstallInput, McpClientTarget, McpSettings, SkillPackEntry } from '../../shared/electron-api'
 import { canonicalManifestPayload, validateMarketplacePluginManifest } from '../../shared/marketplace'
 import type { PluginManifest, PluginMcpConfigFormat } from '../../shared/plugin-manifest'
 import { createMcpConfigService, type PluginLookup } from '../mcp-config-service'
@@ -18,7 +18,7 @@ type RuntimeModule = typeof import('../terminal-runtime')
 type SentEvent = { channel: string; payload: unknown }
 
 type BundleComponents = {
-  mcp?: { path: string }
+  mcp?: { path: string; clients?: McpClientTarget[] }
   skills?: { path: string }
   module?: { path: string }
   cli?: { path: string }
@@ -213,7 +213,7 @@ async function createBundle(root: string, components: BundleComponents): Promise
           transport: 'stdio',
           command: 'node',
           args: ['-e', 'console.log("bundle mcp")'],
-          clients: ['codex'],
+          clients: components.mcp.clients ?? ['codex'],
           scope: 'workspace',
           riskLevel: 'local-command',
         },
@@ -263,7 +263,10 @@ async function createBundle(root: string, components: BundleComponents): Promise
   return bundle
 }
 
-async function installInput(temp: string, bundle: string): Promise<{
+async function installInput(temp: string, bundle: string, options: {
+  lookupPlugin?: PluginLookup
+  mcpClients?: McpClientTarget[]
+} = {}): Promise<{
   input: MarketplacePluginInstallInput
   services: Parameters<typeof installMarketplacePlugin>[1]
   workspaceRoot: string
@@ -275,17 +278,17 @@ async function installInput(temp: string, bundle: string): Promise<{
   const pluginRoot = join(temp, 'plugins')
   await mkdir(workspaceRoot, { recursive: true })
 
-  const lookupPlugin: PluginLookup = (id) => {
+  const lookupPlugin: PluginLookup = options.lookupPlugin ?? ((id) => {
     if (id === 'codex') return { manifest: mcpPluginManifest(id, 'codex') }
     return undefined
-  }
+  })
   const mcpConfigService = createMcpConfigService({
     lookupPlugin,
     homeDir: () => join(temp, 'home'),
   })
   const mcpSettings: McpSettings = { syncEnabled: false, servers: {} }
   return {
-    input: { localFolder: bundle, workspaceRoot, mcpSettings, mcpClients: ['codex'], skillHarnesses: ['agents'] },
+    input: { localFolder: bundle, workspaceRoot, mcpSettings, mcpClients: options.mcpClients ?? ['codex'], skillHarnesses: ['agents'] },
     services: {
       mcpConfigService,
       skillPackService: createLocalSkillService(),
@@ -325,6 +328,39 @@ async function testInstallsEveryComponentThroughRealPaths(): Promise<void> {
     assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'local-skill', 'SKILL.md')), true)
     assert.equal(existsSync(join(moduleRoot, 'bundle-module', 'manifest.json')), true)
     assert.equal(existsSync(join(pluginRoot, 'bundle-cli', 'plugin.json')), true)
+  })
+}
+
+async function testMcpFanOutWarningDoesNotReportCleanSuccess(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const components: BundleComponents = { mcp: { path: 'mcp.json', clients: ['codex', 'opencode'] } }
+    const bundle = await createBundle(temp, components)
+    const lookupPlugin: PluginLookup = (id) => {
+      if (id === 'codex') return { manifest: mcpPluginManifest(id, 'codex') }
+      if (id === 'opencode') return { manifest: mcpPluginManifest(id, 'opencode') }
+      return undefined
+    }
+    const { input, services, workspaceRoot } = await installInput(temp, bundle, {
+      lookupPlugin,
+      mcpClients: ['codex', 'opencode'],
+    })
+
+    const result = await installMarketplacePlugin(input, services)
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.component, 'mcp')
+    assert.match(result.message, /opencode \(bundle-mcp\)/)
+    assert.deepEqual(result.installed?.map((component) => component.kind), ['mcp'])
+    assert.ok(
+      result.issues?.some((issue) =>
+        issue.path === 'clients.opencode' && /writer for format "opencode" is not implemented/.test(issue.message)
+      ),
+      `expected opencode warning in install issues, got ${JSON.stringify(result.issues)}`
+    )
+
+    const codexConfig = await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8')
+    assert.match(codexConfig, /\[mcp_servers\.bundle-mcp\]/)
   })
 }
 
@@ -440,6 +476,7 @@ async function testPartialFailureReportsInstalledComponents(): Promise<void> {
 
 async function main(): Promise<void> {
   await testInstallsEveryComponentThroughRealPaths()
+  await testMcpFanOutWarningDoesNotReportCleanSuccess()
   await testMcpSkillBundleIsVisibleAndLaunchesTerminalWithInstalledMcp()
   await testInvalidBundleSignatureRejectsBeforeWrites()
   await testPartialFailureReportsInstalledComponents()
