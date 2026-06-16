@@ -16,7 +16,7 @@
 // verifies), and sign writes that normalized manifest back to disk so the
 // signed bytes on disk are exactly what the app checks.
 
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
@@ -192,6 +192,34 @@ function assertPluginComponentsExist(pluginDir: string, components: MarketplaceP
   if (issues.length > 0) fail(`Plugin component paths are missing in ${pluginDir}:`, issues)
 }
 
+function uniqueSiblingPath(parent: string, name: string): string {
+  let attempt = 0
+  while (true) {
+    const candidate = join(parent, `.${name}.${process.pid}.${Date.now()}.${attempt}`)
+    if (!existsSync(candidate)) return candidate
+    attempt += 1
+  }
+}
+
+function publishPackedDirectory(tempDir: string, outDir: string): void {
+  const outParent = dirname(outDir)
+  const previousDir = existsSync(outDir) ? uniqueSiblingPath(outParent, `${basename(outDir)}.previous`) : null
+  if (previousDir) renameSync(outDir, previousDir)
+  try {
+    renameSync(tempDir, outDir)
+  } catch (error) {
+    if (previousDir) {
+      try {
+        renameSync(previousDir, outDir)
+      } catch {
+        // Best effort rollback; the original error is more useful to callers.
+      }
+    }
+    throw error
+  }
+  if (previousDir) rmSync(previousDir, { recursive: true, force: true })
+}
+
 function keygen(args: string[]): void {
   const { values } = parseArgs({
     args,
@@ -357,7 +385,7 @@ function pluginScaffold(args: string[]): void {
           args: ['server.js'],
           clients: ['codex'],
           scope: 'workspace',
-          source: 'bundled',
+          source: 'custom',
           riskLevel: 'local-command',
         },
       ],
@@ -436,19 +464,28 @@ function pluginPack(args: string[]): void {
   }
 
   const skipped: string[] = []
-  cpSync(sourceDir, outDir, {
-    recursive: true,
-    force: true,
-    filter: (src) => {
-      const name = basename(src)
-      if (name === 'node_modules' || name === '.git') return false
-      if (name.endsWith('.key') || name.endsWith('.pem')) {
-        skipped.push(name)
-        return false
-      }
-      return true
-    },
-  })
+  const outParent = dirname(outDir)
+  mkdirSync(outParent, { recursive: true })
+  const tempDir = uniqueSiblingPath(outParent, `${basename(outDir)}.tmp`)
+  try {
+    cpSync(sourceDir, tempDir, {
+      recursive: true,
+      force: true,
+      filter: (src) => {
+        const name = basename(src)
+        if (name === 'node_modules' || name === '.git') return false
+        if (name.endsWith('.key') || name.endsWith('.pem')) {
+          skipped.push(name)
+          return false
+        }
+        return true
+      },
+    })
+    publishPackedDirectory(tempDir, outDir)
+  } catch (error) {
+    rmSync(tempDir, { recursive: true, force: true })
+    fail(`Could not pack plugin to ${outDir}: ${error instanceof Error ? error.message : 'unknown error'}`)
+  }
   for (const name of skipped) {
     console.warn(`Skipped ${name}: key material is never packed into a plugin.`)
   }

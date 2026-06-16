@@ -197,6 +197,10 @@ function testPluginScaffoldSignVerifyPackAndAppTrustFlowAccepts(): string {
   assert.ok(existsSync(join(pluginDir, 'skills', 'marketplace-plugin-fixture', 'SKILL.md')))
   assert.ok(existsSync(join(pluginDir, 'module', 'manifest.json')))
   assert.ok(existsSync(join(pluginDir, 'cli', 'plugin.json')))
+  const scaffoldedMcp = JSON.parse(readFileSync(join(pluginDir, 'mcp', 'server.json'), 'utf8')) as {
+    servers?: Array<{ source?: string }>
+  }
+  assert.equal(scaffoldedMcp.servers?.[0]?.source, 'custom', 'scaffolded marketplace MCPs must not look bundled')
 
   const signed = runCli(['plugin', 'sign', pluginDir, '--key', keyPath])
   assert.equal(signed.status, 0, signed.stderr)
@@ -223,6 +227,14 @@ function testPluginScaffoldSignVerifyPackAndAppTrustFlowAccepts(): string {
   assert.ok(existsSync(join(outDir, 'plugin.json')))
   assert.ok(existsSync(join(outDir, 'mcp', 'server.json')))
   assert.equal(existsSync(join(outDir, 'leaked-plugin.key')), false, 'key files are never packed')
+  assert.equal(runCli(['plugin', 'verify', outDir]).status, 0)
+
+  writeFileSync(join(outDir, 'stale-signing.pem'), 'stale key material from an earlier pack')
+  writeFileSync(join(outDir, 'cli', 'stale-plugin.key'), 'stale key material from an earlier pack')
+  const forced = runCli(['plugin', 'pack', pluginDir, '--out', outDir, '--force'])
+  assert.equal(forced.status, 0, forced.stderr)
+  assert.equal(existsSync(join(outDir, 'stale-signing.pem')), false, 'force pack must remove stale .pem files')
+  assert.equal(existsSync(join(outDir, 'cli', 'stale-plugin.key')), false, 'force pack must remove stale .key files')
   assert.equal(runCli(['plugin', 'verify', outDir]).status, 0)
   return pluginDir
 }
