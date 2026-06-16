@@ -39,6 +39,7 @@ import type { RoleInstallResult, UserRoleListResult } from './sprintengine/role-
 import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
 import type { ConversationProviderListEntry, ConversationProviderModel, PluginRegistryListEntry } from './plugin-manifest'
 import type { MarketplaceComponentKind, MarketplaceIndex, MarketplaceManifestIssue, MarketplacePluginEntry } from './marketplace/manifest'
+import type { CapabilityPermission } from './modules/permissions'
 import type {
   ConversationEvent,
   ConversationInterruptInput,
@@ -314,6 +315,14 @@ export type MarketplacePluginUninstallInput = {
 }
 
 export type MarketplacePluginTrustClassification = 'verified' | 'community' | 'unsigned' | 'invalid'
+
+export type MarketplacePluginVerifyResult = {
+  classification: MarketplacePluginTrustClassification
+  permissions: CapabilityPermission[]
+  sourceUrl: string
+  issues?: MarketplaceManifestIssue[]
+  message?: string
+}
 
 export type MarketplacePluginInstalledComponent = {
   kind: MarketplaceComponentKind
@@ -1749,6 +1758,7 @@ export type ElectronApi = {
   pluginsList: () => Promise<PluginRegistryListResult>
   readMarketplaceRegistry: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceRegistryReadResult>
   installPluginFolder: (srcDir: string) => Promise<PluginInstallResult>
+  verifyMarketplacePlugin: (entry: MarketplacePluginEntry) => Promise<MarketplacePluginVerifyResult>
   installMarketplacePluginFolder: (input: MarketplacePluginInstallInput) => Promise<MarketplacePluginInstallResult>
   installMarketplacePluginFromRegistry: (input: MarketplacePluginRegistryInstallInput) => Promise<MarketplacePluginRegistryInstallResult>
   updateMarketplacePluginFromRegistry: (input: MarketplacePluginRegistryInstallInput) => Promise<MarketplacePluginRegistryInstallResult>

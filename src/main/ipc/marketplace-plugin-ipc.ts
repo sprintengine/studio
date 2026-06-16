@@ -7,10 +7,13 @@ import type {
   MarketplacePluginRegistryInstallResult,
   MarketplacePluginUninstallInput,
   MarketplacePluginUninstallResult,
+  MarketplacePluginVerifyResult,
 } from '../../shared/electron-api'
+import type { MarketplacePluginEntry } from '../../shared/marketplace'
 import type { AppServices } from '../app-services'
 import { createMarketplacePluginLifecycleService, defaultMarketplacePluginInstallStorePath } from '../marketplace/plugin-lifecycle'
 import { defaultMarketplacePluginStagingRoot } from '../marketplace/plugin-download'
+import { createMarketplacePluginVerifier } from '../marketplace/plugin-verify'
 import { readTrustedMarketplacePublisherFingerprintsSync } from '../marketplace/trusted-publishers'
 import { createMarketplacePluginInstaller } from '../modules/plugin-bundle-installer'
 import { readTrustedModulesSync } from '../modules/trust-store'
@@ -28,6 +31,10 @@ export function registerMarketplacePluginIpc(
     skillPackService: services.skillPackService,
     trustContext,
   })
+  const verifier = createMarketplacePluginVerifier({
+    trustContext,
+    stagingRoot: defaultMarketplacePluginStagingRoot(app.getPath('userData')),
+  })
   const lifecycle = createMarketplacePluginLifecycleService({
     mcpConfigService: services.mcpConfigService,
     skillPackService: services.skillPackService,
@@ -43,6 +50,23 @@ export function registerMarketplacePluginIpc(
         return await installPlugin(input)
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'marketplace:plugins:verify',
+    async (_event, entry: MarketplacePluginEntry): Promise<MarketplacePluginVerifyResult> => {
+      try {
+        return await verifier.verify(entry)
+      } catch (error) {
+        return {
+          classification: 'invalid',
+          permissions: [],
+          sourceUrl: typeof entry?.source === 'string' ? entry.source : '',
+          issues: [{ path: 'source', message: error instanceof Error ? error.message : String(error) }],
+          message: error instanceof Error ? error.message : String(error),
+        }
       }
     }
   )

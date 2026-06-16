@@ -7,6 +7,7 @@ import type {
   MarketplacePluginRegistryInstallResult,
   MarketplacePluginUninstallInput,
   MarketplacePluginUninstallResult,
+  MarketplacePluginVerifyResult,
   MarketplaceRegistryReadInput,
   MarketplaceRegistryReadResult,
 } from '../../shared/electron-api'
@@ -20,6 +21,10 @@ type MarketplaceIpcRenderer = {
     channel: 'marketplace:plugins:install-folder',
     input: MarketplacePluginInstallInput
   ): Promise<MarketplacePluginInstallResult>
+  invoke(
+    channel: 'marketplace:plugins:verify',
+    entry: Parameters<ElectronApi['verifyMarketplacePlugin']>[0]
+  ): Promise<MarketplacePluginVerifyResult>
   invoke(
     channel: 'marketplace:plugins:install-entry',
     input: MarketplacePluginRegistryInstallInput
@@ -44,6 +49,10 @@ export function createMarketplaceApi(renderer: MarketplaceIpcRenderer) {
       input: MarketplacePluginInstallInput
     ): Promise<MarketplacePluginInstallResult> =>
       renderer.invoke('marketplace:plugins:install-folder', input),
+    verifyMarketplacePlugin: (
+      entry: Parameters<ElectronApi['verifyMarketplacePlugin']>[0]
+    ): Promise<MarketplacePluginVerifyResult> =>
+      renderer.invoke('marketplace:plugins:verify', entry),
     installMarketplacePluginFromRegistry: (
       input: MarketplacePluginRegistryInstallInput
     ): Promise<MarketplacePluginRegistryInstallResult> =>
@@ -60,6 +69,7 @@ export function createMarketplaceApi(renderer: MarketplaceIpcRenderer) {
     ElectronApi,
     | 'readMarketplaceRegistry'
     | 'installMarketplacePluginFolder'
+    | 'verifyMarketplacePlugin'
     | 'installMarketplacePluginFromRegistry'
     | 'updateMarketplacePluginFromRegistry'
     | 'uninstallMarketplacePlugin'
