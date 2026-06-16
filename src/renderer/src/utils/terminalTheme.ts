@@ -39,6 +39,16 @@ const LIGHT_TERMINAL_ANSI: ITheme = {
   selectionBackground: 'rgba(56, 92, 252, 0.20)',
 }
 
+// xterm nudges any glyph whose fg/bg contrast falls below this ratio toward
+// legibility, per cell. It is the only lever that also covers 256-color and
+// truecolor output — syntax highlighting and dimmed tool-call / diff text the
+// agent CLIs emit — which bypass the 16-color ANSI palette above and otherwise
+// render as near-invisible pale ink on a light surface. Enforced (AAA 7:1)
+// only on light terminal backgrounds; dark surfaces keep xterm's default (1 =
+// off) so their already-legible, deliberately tuned output is untouched.
+const LIGHT_TERMINAL_MIN_CONTRAST = 7
+const DEFAULT_MIN_CONTRAST = 1
+
 // Perceived luminance (Rec. 601). Returns false for any value we can't parse
 // as a hex color, so unknown backgrounds keep the dark-tuned default palette.
 function isLightBackground(color: string): boolean {
@@ -67,6 +77,14 @@ export function getTerminalTheme(): ITheme {
   return isLightBackground(background) ? { ...base, ...LIGHT_TERMINAL_ANSI } : base
 }
 
+// Companion to getTerminalTheme: the contrast floor for the current surface.
+// Set alongside the theme so 256-color / truecolor output stays legible on
+// light backgrounds (see LIGHT_TERMINAL_MIN_CONTRAST).
+export function getTerminalMinimumContrastRatio(): number {
+  const background = readVar('--terminal-bg', readVar('--bg-app', '#08090b'))
+  return isLightBackground(background) ? LIGHT_TERMINAL_MIN_CONTRAST : DEFAULT_MIN_CONTRAST
+}
+
 type Subscriber = () => void
 const subscribers = new Set<Subscriber>()
 let observer: MutationObserver | null = null
@@ -92,9 +110,11 @@ function ensureObserver(): void {
 // teardown.
 export function bindTerminalTheme(term: Terminal): () => void {
   term.options.theme = getTerminalTheme()
+  term.options.minimumContrastRatio = getTerminalMinimumContrastRatio()
   ensureObserver()
   const onChange: Subscriber = () => {
     term.options.theme = getTerminalTheme()
+    term.options.minimumContrastRatio = getTerminalMinimumContrastRatio()
   }
   subscribers.add(onChange)
   return () => {

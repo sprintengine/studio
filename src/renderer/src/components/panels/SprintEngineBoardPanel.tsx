@@ -67,6 +67,7 @@ import {
  getSprintEngineRoleLabel,
  isNewSprintEngineRoleForRun,
 } from '../../utils/sprintengine'
+import { canLaunchSprintEngineInitialSpawn } from '../../utils/sprintengineInitialSpawns'
 import {
  deriveSprintEngineAutomationMode,
  sprintEngineAutomationModeOptions,
@@ -92,7 +93,6 @@ import {
 import { isEditableTarget } from '../../utils/keyboard'
 import {
  artifactTimestampMs,
- runtimeStatusLabel,
  type ArtifactActionState,
  type TaskInputActionState,
  type TaskCommentActionState,
@@ -298,14 +298,6 @@ function SprintEngineModelField({
  </Popover>
  </div>
  )
-}
-
-type SpawnDialogState = {
- agentId: string
- cli: AgentCli
- // Model id passed at CLI launch; undefined means the CLI's own default.
- model?: string
- name: string
 }
 
 type RecoveryDialogState = {
@@ -620,7 +612,6 @@ function SprintEngineBoardPanelContent({
  const [activeTasksLayout, setActiveTasksLayout] = useState<SprintEngineTasksLayout>('kanban')
  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
  const [inspectorExpanded, setInspectorExpanded] = useState(false)
- const [spawnDialog, setSpawnDialog] = useState<SpawnDialogState | null>(null)
  const [recoveryDialog, setRecoveryDialog] = useState<RecoveryDialogState | null>(null)
  const [requestChangesDialog, setRequestChangesDialog] = useState<{
  artifact: SprintEngineArtifact
@@ -964,15 +955,6 @@ function SprintEngineBoardPanelContent({
  })
  const roleTaskLaunchSet = new Set<SprintEngineRoleId>(roleTaskLaunches.map(({ role }) => role))
  const specialistReviewAgents = roster.filter((agent) => agent.role !== 'architect')
- const spawnDialogAgent = spawnDialog ? rosterById[spawnDialog.agentId] : undefined
- const spawnDialogRuntime = spawnDialog
- ? runtimeAgents.find((agent) => agent.agentId === spawnDialog.agentId)
- : undefined
- const spawnDialogDefaultName = spawnDialogAgent?.label ?? spawnDialog?.agentId ?? ''
- const spawnDialogDisplayName = spawnDialog
- ? normalizeAgentIdentifier(spawnDialog.name) || spawnDialogDefaultName
- : spawnDialogDefaultName
- const spawnDialogHasLiveTerminal = spawnDialog ? isAgentTerminalLive(spawnDialog.agentId) : false
  // Installed agent CLI catalog (bundled + user plugins), replacing the old
  // hardcoded Codex/Claude pair so user-installed CLIs are spawnable here too.
  const cliOptions = useMemo(() => {
@@ -982,7 +964,6 @@ function SprintEngineBoardPanelContent({
      description: option.source === 'user' ? 'User-installed agent CLI' : 'Agent CLI plugin',
    }))
  }, [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes])
- const selectedCliOption = cliOptions.find((option) => option.value === spawnDialog?.cli) ?? cliOptions[0]
  const selectedRecoveryCliOption =
  cliOptions.find((option) => option.value === recoveryDialog?.cli) ?? cliOptions[0]
  const hasPlannedTasks = sprintEngineState.tasks.length > 0
@@ -1092,7 +1073,7 @@ function SprintEngineBoardPanelContent({
  const runFocusAgentAction = () => {
  if (!focusAgent || !showFocusAgentAction) return false
  if (focusAgentHasLiveTerminal) openAgentTerminal(focusAgent.agentId)
- else openSpawnDialog(focusAgent.agentId)
+ else void spawnAgent(focusAgent.agentId)
  return true
  }
  const selectedTaskBoardColumn = selectedTask
@@ -1180,7 +1161,7 @@ function SprintEngineBoardPanelContent({
  onPostTaskComment={postTaskComment}
  onBackFromArtifact={() => setPreviewedArtifact(null)}
  onPopOutArtifact={popOutPreviewedArtifact}
- onSpawnAgent={openSpawnDialog}
+ onSpawnAgent={spawnAgent}
  onOpenAgentTerminal={openAgentTerminal}
  isAgentTerminalLive={isAgentTerminalLive}
  isExpanded={inspectorExpanded}
@@ -1467,8 +1448,7 @@ function SprintEngineBoardPanelContent({
  openAgentTerminal,
  stopAgentTerminal,
  restartAgentTerminal,
- openSpawnDialog,
- confirmSpawnDialog,
+ spawnAgent,
  openRecoveryDialog,
  confirmRecoveryAudit,
  requestPlanReviews,
@@ -1486,14 +1466,11 @@ function SprintEngineBoardPanelContent({
  folderStatusMessage,
  folderCheckedPath,
  lastSelectedCli,
- spawnDialog,
  recoveryDialog,
- spawnDialogHasLiveTerminal,
  updateAgent,
  recheckFolder,
  setSelectedAgentId,
  setCliPickerOpen,
- setSpawnDialog,
  setRecoveryDialog,
  getAgentName,
  getCustomAgentName,
@@ -1617,14 +1594,23 @@ function SprintEngineBoardPanelContent({
  workspaceId,
  ])
 
- // New-workspace "Start now" intent: launch the marked roster agents through
- // the same path as a manual spawn, exactly once. The store consume is atomic,
- // so a re-render cannot double-spawn; intent is cleared after the first
- // attempt regardless of outcome (failures surface as launch diagnostics).
+ // New-workspace "Start now" intent: launch only agents that can safely enter
+ // the initialized run. The architect may start as the bootstrap/orchestration
+ // role; other roles wait until the real projection has claimable work for
+ // that role, so an eager roster selection cannot join an empty/uninitialized
+ // store and fail before planning has created tasks.
  const hasInitialSpawnIntent = Boolean(workspace.sprintEngineInitialSpawnAgentIds?.length)
  useEffect(() => {
  if (!hasInitialSpawnIntent) return
- const agentIds = consumeSprintEngineInitialSpawns(workspaceId)
+ const readyAgentIds = (workspace.sprintEngineInitialSpawnAgentIds ?? []).filter((agentId) => {
+ const rosterAgent = rosterById[agentId]
+ if (getLiveAgentTerminalSession(agentId)) return true
+ if (!rosterAgent) return false
+ if (rosterAgent.role === 'architect') return true
+ return canLaunchSprintEngineInitialSpawn(rosterAgent.role, sprintEngineState)
+ })
+ if (readyAgentIds.length === 0) return
+ const agentIds = consumeSprintEngineInitialSpawns(workspaceId, readyAgentIds)
  for (const agentId of agentIds) {
  if (getLiveAgentTerminalSession(agentId)) continue
  const label = getAgentName(agentId, rosterById[agentId]?.label ?? agentId)
@@ -1638,6 +1624,8 @@ function SprintEngineBoardPanelContent({
  hasInitialSpawnIntent,
  rosterById,
  startAgentTerminalWhenReady,
+ sprintEngineState,
+ workspace.sprintEngineInitialSpawnAgentIds,
  workspaceId,
  ])
 
@@ -2102,7 +2090,7 @@ function SprintEngineBoardPanelContent({
  onSelectAgentCli={selectAgentCli}
  onSelectAgentModel={selectAgentModel}
  onOpenAgent={openAgentTerminal}
- onSpawnAgent={openSpawnDialog}
+ onSpawnAgent={spawnAgent}
  onRestartAgent={(agentId) => {
  void restartAgentTerminal(agentId)
  }}
@@ -2312,187 +2300,6 @@ function SprintEngineBoardPanelContent({
  disabled={!folderPath || !architectAgentId}
  >
  Start Audit
- </ModalButton>
- </ModalFooter>
- </Modal>
- ) : null}
-
- {spawnDialog && spawnDialogAgent ? (
- <Modal
- open
- contained
- width={520}
- labelledBy="spawn-dialog-title"
- onClose={() => {
- setCliPickerOpen(false)
- setSpawnDialog(null)
- }}
- >
- <div className="flex items-start justify-between gap-4 border-b border-[color:var(--border-default)] px-5 py-4">
- <div className="min-w-0">
- <div className="mb-1 text-[10px] font-semibold text-[color:var(--text-disabled)]">
- Spawn Agent
- </div>
- <h3 id="spawn-dialog-title" className="truncate text-[18px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">
- {spawnDialogDisplayName}
- </h3>
- <p className="mt-2 text-[13px] leading-6 text-[color:var(--text-muted)]">
- Choose the CLI and optional identifier for this specialist.
- </p>
- </div>
- <CloseIconButton
- size="md"
- aria-label="Close"
- onClick={() => {
- setCliPickerOpen(false)
- setSpawnDialog(null)
- }}
- />
- </div>
-
- <ModalBody className="space-y-4">
- <DefinitionList
- layout="compact-grid"
- className="gap-x-8"
- items={[
- { term: 'Role', description: getSprintEngineRoleLabel(spawnDialogAgent.role) },
- { term: 'Status', description: runtimeStatusLabel(spawnDialogRuntime?.status ?? 'idle') },
- ]}
- />
-
- <label className="block">
- <span className="mb-2 block text-[10px] font-bold text-[color:var(--text-disabled)]">
- Name
- </span>
- <input
- type="text"
- value={spawnDialog.name}
- onChange={(event) => {
- setSpawnDialog((current) =>
- current ? { ...current, name: event.target.value } : current
- )
- }}
- placeholder={spawnDialogDefaultName}
- className="h-10 w-full rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-sm text-[color:var(--text-strong)] outline-none interactive transition-colors placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus:ring-1 focus:ring-[color:var(--accent-primary-soft)]"
- />
- </label>
-
- <div>
- <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">
- CLI
- </div>
- <Popover
- open={cliPickerOpen}
- onOpenChange={setCliPickerOpen}
- ariaLabel="Spawn agent CLI options"
- popupRole="listbox"
- placement="bottom-start"
- className="block w-full"
- surfaceClassName="min-w-[var(--popover-trigger-width)] p-1"
- renderTrigger={({ ref, triggerProps, togglePopover }) => (
- <button
- ref={ref}
- type="button"
- onClick={togglePopover}
- className="flex min-h-[58px] w-full items-center gap-3 rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-left text-[color:var(--text-strong)] outline-none interactive transition-colors hover:bg-[color:var(--bg-hover)] focus:ring-1 focus:ring-[color:var(--border-strong)]"
- {...triggerProps}
- >
- <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)]">
- <CliIcon cli={selectedCliOption.value} className="h-5 w-5" />
- </span>
- <span className="min-w-0 flex-1">
- <span className="block text-sm font-semibold text-[color:var(--text-strong)]">
- {selectedCliOption.label}
- </span>
- <span className="mt-0.5 block truncate text-[12px] text-[color:var(--text-disabled)]">
- {selectedCliOption.description}
- </span>
- </span>
- <svg
- className={`icon-md shrink-0 text-[color:var(--text-disabled)] transition-transform ${cliPickerOpen ? 'rotate-180' : ''}`}
- viewBox="0 0 20 20"
- fill="none"
- aria-hidden="true"
- xmlns="http://www.w3.org/2000/svg"
- >
- <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
- </svg>
- </button>
- )}
- >
- {cliOptions.map((option) => {
- const selected = spawnDialog.cli === option.value
- return (
- <button
- key={option.value}
- type="button"
- role="option"
- aria-selected={selected}
- onClick={() => {
- setSpawnDialog((current) =>
- current ? { ...current, cli: option.value, model: undefined } : current
- )
- setCliPickerOpen(false)
- }}
- className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left interactive transition-colors ${
- selected
- ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
- : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
- }`}
- >
- <span
- className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${
- selected
- ? 'text-[color:var(--text-muted)]'
- : 'text-[color:var(--text-disabled)]'
- }`}
- >
- <CliIcon cli={option.value} className="h-5 w-5" />
- </span>
- <span className="min-w-0 flex-1">
- <span className="block text-sm font-semibold">{option.label}</span>
- <span className="mt-0.5 block truncate text-[12px] text-[color:var(--text-disabled)]">
- {option.description}
- </span>
- </span>
- {selected ? (
- <svg className="icon-md shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
- <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
- </svg>
- ) : null}
- </button>
- )
- })}
- </Popover>
- </div>
-
- <SprintEngineModelField
- cliOption={selectedCliOption}
- model={spawnDialog.model}
- onChange={(model) => {
- setSpawnDialog((current) => (current ? { ...current, model } : current))
- }}
- />
-
- <p className="border-l border-[color:var(--border-strong)] pl-3 text-sm leading-6 text-[color:var(--text-muted)]">
- {cliOptions.find((option) => option.value === spawnDialog.cli)?.description}
- {spawnDialogHasLiveTerminal ? (
- <span className="text-[color:var(--text-disabled)]"> A terminal already exists, so this will focus it unless you changed the CLI.</span>
- ) : null}
- </p>
- </ModalBody>
-
- <ModalFooter>
- <ModalButton
- onClick={() => {
- setCliPickerOpen(false)
- setSpawnDialog(null)
- }}
- >
- Cancel
- </ModalButton>
- <ModalButton variant="primary" onClick={confirmSpawnDialog}>
- {spawnDialogHasLiveTerminal ? 'Open Terminal' : 'Spawn'}
  </ModalButton>
  </ModalFooter>
  </Modal>

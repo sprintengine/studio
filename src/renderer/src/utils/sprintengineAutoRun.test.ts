@@ -623,7 +623,7 @@ async function testAutoApprovalAppliesReturnedProjectionWithoutDiskFallback(): P
       autoApproveCount += 1
       assert.equal(statePath, workspace.sprintEngineContext?.statePath)
       assert.equal(artifactId, artifact.id)
-      return { ok: true, data: { projectionContent: JSON.stringify(mutatedProjection) } }
+      return { ok: true, data: { projectionContent: JSON.stringify(mutatedProjection), projectionToken: 'projection-token-2' } }
     },
     readSprintEngineProjection: async () => {
       readProjectionCount += 1
@@ -659,8 +659,8 @@ async function testAutoApprovalAppliesReturnedProjectionWithoutDiskFallback(): P
 
   assert.equal(
     lastContentByWorkspace.current.get(workspace.id),
-    JSON.stringify(mutatedProjection),
-    'projection-watcher signature is kept in sync so disk re-read does not re-apply the same state'
+    'projection-token-2',
+    'projection-watcher token is kept in sync so disk re-read does not re-apply the same state'
   )
   assert.equal(cooldown.current.size, 1, 'cooldown key is reserved before the IPC call to prevent re-issue')
 }
@@ -925,7 +925,7 @@ async function testDeliverApprovalCompletionWakesOwnerOnceWithoutFocus(): Promis
 
   assert.equal(first, 'none', 'deliver returns none when no spawn was triggered')
   assert.equal(second, 'none')
-  assert.equal(writes.length, 1, 'completion notification produces exactly one terminal directive per event id')
+  assert.equal(writes.length, 2, 'completion notification produces one pasted directive plus submit per event id')
   assert.equal(writes[0].sessionId, 'session-frontend')
   assert.ok(writes[0].text.includes('Your Sprint Engine task is complete.'))
   assert.ok(
@@ -997,7 +997,7 @@ async function testDeliverRequestChangesWakesOwnerWithJoinDirectiveWithoutReveal
   )
 
   assert.equal(result, 'none')
-  assert.equal(writes.length, 1, 'rework notification writes once')
+  assert.equal(writes.length, 2, 'rework notification writes one pasted directive plus submit')
   assert.equal(writes[0].sessionId, 'session-frontend')
   assert.ok(writes[0].text.includes('\x1b[200~'), 'rework prompt uses bracketed paste')
   assert.ok(
@@ -1128,8 +1128,8 @@ async function testDeliverNotificationsSuppressDuplicateObservations(): Promise<
 
   assert.equal(
     writes.length,
-    1,
-    'event id is the idempotency key: duplicate projection/event observations send the prompt at most once'
+    2,
+    'event id is the idempotency key: duplicate projection/event observations send one prompt plus submit at most once'
   )
 }
 
@@ -1343,7 +1343,7 @@ async function testDispatchPromptDeliveryUsesDispatchIdCooldown(): Promise<void>
     sent
   )
 
-  assert.equal(writes.length, 1, 'duplicate dispatch observations are suppressed inside the retry cooldown')
+  assert.equal(writes.length, 2, 'duplicate dispatch observations are suppressed inside the retry cooldown')
   assert.equal(writes[0].sessionId, 'session-frontend')
   assert.ok(writes[0].text.includes('\x1b[200~'), 'existing terminal receives bracketed paste')
   assert.ok(writes[0].text.includes('Dispatch: DISP-6ed51f5daa40b4bd'))
@@ -1422,7 +1422,7 @@ async function testDispatchPromptStopsAfterRetryLimit(): Promise<void> {
     new Set(['frontend-3']),
     sent
   )
-  assert.equal(writes.length, 1, 'dispatch prompt is still pasted for the final allowed retry')
+  assert.equal(writes.length, 2, 'dispatch prompt is still pasted and submitted for the final allowed retry')
   assert.equal(sent.current.get(key)?.attempts, supervisor.AUTO_RUN_MAX_PROMPT_RETRIES)
 
   sent.current.set(key, { sentAt: Date.now() - 360_000, attempts: supervisor.AUTO_RUN_MAX_PROMPT_RETRIES })
@@ -1433,7 +1433,7 @@ async function testDispatchPromptStopsAfterRetryLimit(): Promise<void> {
     sent
   )
 
-  assert.equal(writes.length, 1, 'dispatch prompt is not pasted after the retry cap is reached')
+  assert.equal(writes.length, 2, 'dispatch prompt is not pasted again after the retry cap is reached')
   assert.equal(sent.current.get(key)?.attempts, supervisor.AUTO_RUN_MAX_PROMPT_RETRIES)
 }
 
@@ -1494,7 +1494,7 @@ async function testWakeCandidatePromptStopsAfterSmallRetryLimit(): Promise<void>
     },
     sent
   )
-  assert.equal(writes.length, 1, 'wake-candidate prompt is still pasted for the final allowed retry')
+  assert.equal(writes.length, 2, 'wake-candidate prompt is still pasted and submitted for the final allowed retry')
   assert.equal(sent.current.get(key)?.attempts, supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)
 
   sent.current.set(key, { sentAt: Date.now() - 120_000, attempts: supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES })
@@ -1508,7 +1508,7 @@ async function testWakeCandidatePromptStopsAfterSmallRetryLimit(): Promise<void>
     sent
   )
 
-  assert.equal(writes.length, 1, 'wake-candidate prompt is not pasted after the small retry cap is reached')
+  assert.equal(writes.length, 2, 'wake-candidate prompt is not pasted again after the small retry cap is reached')
   assert.equal(sent.current.get(key)?.attempts, supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)
 }
 
@@ -1632,7 +1632,7 @@ async function testWakeCandidateCleanupPreservesGateRetryKeys(): Promise<void> {
     sent
   )
 
-  assert.equal(writes.length, 1, 'ready task wake candidate is still sent')
+  assert.equal(writes.length, 2, 'ready task wake candidate is still sent and submitted')
   assert.equal(sent.current.has(staleTaskKey), false, 'stale task wake-candidate retry state is pruned')
   assert.equal(sent.current.has(gateKey), true, 'claimed-gate retry state is not pruned by task wake cleanup')
 }
@@ -2752,7 +2752,7 @@ async function testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass(): Promise<
     idleClockByAgent: mutableRef(new Map()),
   })
 
-  assert.equal(writes.length, 1, `exactly one engagement for the agent; writes ${JSON.stringify(writes.map((write) => write.sessionId))}`)
+  assert.equal(writes.length, 2, `exactly one engagement for the agent plus submit; writes ${JSON.stringify(writes.map((write) => write.sessionId))}`)
   assert.ok(writes[0].text.includes('sprintengine.gate.next'), 'the single engagement is the gate continuation paste')
   assert.deepEqual(kills, [], 'a terminal that received a paste this pass is never killed in the same pass')
 }
@@ -2839,10 +2839,10 @@ async function testNotificationPasteSuppressesSamePassDispatchPaste(): Promise<v
 
   assert.equal(
     writes.length,
-    1,
-    `the engaged notification target gets exactly one instruction this pass; writes ${JSON.stringify(writes.map((write) => write.text.slice(0, 60)))}`
+    2,
+    `the engaged notification target gets exactly one instruction plus submit this pass; writes ${JSON.stringify(writes.map((write) => write.text.slice(0, 60)))}`
   )
-  assert.ok(writes[0].text.includes('Sprint Engine notification.'), 'the single write is the notification paste')
+  assert.ok(writes[0].text.includes('Sprint Engine notification.'), 'the first write is the notification paste')
 }
 
 function idleReviewerCycleFixtures(input: { tasks: SprintEngineTask[]; reviewerOverrides?: Partial<SprintEngineRuntimeAgent> }): {
@@ -3306,7 +3306,7 @@ async function testSecondNotificationForSameAgentDefersToNextPass(): Promise<voi
     sent
   )
 
-  assert.equal(writes.length, 1, `one engagement per agent per pass; writes ${JSON.stringify(writes.map((write) => write.text.slice(0, 50)))}`)
+  assert.equal(writes.length, 2, `one engagement per agent per pass plus submit; writes ${JSON.stringify(writes.map((write) => write.text.slice(0, 50)))}`)
   const firstKey = agentNotificationDeliveryKey(workspace, firstEvent)
   const secondKey = agentNotificationDeliveryKey(workspace, secondEvent)
   assert.equal(sent.current.has(firstKey), true, 'first event is delivered this pass')
@@ -3321,7 +3321,7 @@ async function testSecondNotificationForSameAgentDefersToNextPass(): Promise<voi
     mutableRef(new Set<string>()),
     sent
   )
-  assert.equal(writes.length, 2, 'the deferred event is delivered on the next pass')
+  assert.equal(writes.length, 4, 'the deferred event is delivered and submitted on the next pass')
   assert.equal(sent.current.has(secondKey), true, 'second event is delivered on the next pass')
 }
 
@@ -3409,10 +3409,10 @@ async function testTriageDefersWhenPlanEngagedArchitectThisPass(): Promise<void>
 
   assert.equal(
     writes.length,
-    1,
-    `the engaged architect receives exactly one instruction this pass; writes ${JSON.stringify(writes.map((write) => write.text.slice(0, 60)))}`
+    2,
+    `the engaged architect receives exactly one instruction plus submit this pass; writes ${JSON.stringify(writes.map((write) => write.text.slice(0, 60)))}`
   )
-  assert.ok(writes[0].text.includes('sprintengine.task.next'), 'the single write is the wake paste')
+  assert.ok(writes[0].text.includes('sprintengine.task.next'), 'the first write is the wake paste')
   assert.ok(
     !writes.some((write) => write.text.includes('sprintengine.triage.needs_input')),
     'no triage prompt is pasted in the same pass that engaged the architect'

@@ -49,7 +49,11 @@ function rosterLifecycle(
   }
 }
 
-type RosterMenuTarget = { agentId: string; x: number; y: number }
+// `picker` is the right-click fast path — it surfaces the shared CLI/model
+// listbox directly so the runtime can be picked in one gesture. `actions` is
+// the row's ⋮ button: lifecycle controls (open/spawn/restart/kill) plus the
+// same picker behind a flyout, kept for discoverability.
+type RosterMenuTarget = { kind: 'picker' | 'actions'; agentId: string; x: number; y: number }
 
 // Roster tab: agent list + detail. Mirrors the Inbox shape — roster on the
 // left, inspector (with agent-specific actions) on the right when an agent
@@ -57,8 +61,10 @@ type RosterMenuTarget = { agentId: string; x: number; y: number }
 // identity, earned status, active task, and CLI/model. Row actions
 // (open/spawn, the row menu) reveal on hover, focus, or selection so a
 // dormant roster reads as a calm list rather than a wall of buttons.
-// Right-clicking any row — or the row menu — opens the shared CLI/model
-// picker so the runtime can be changed in place without the spawn dialog.
+// Right-clicking any row opens the shared CLI/model picker directly — the
+// one gesture for choosing a member's runtime. The row's ⋮ button opens the
+// lifecycle menu (open/spawn/restart/kill), which also carries the picker
+// behind a flyout for discoverability.
 export function SprintEngineRosterView({
   sprintEngineState,
   roster,
@@ -142,7 +148,7 @@ export function SprintEngineRosterView({
                       <div
                         onContextMenu={(event) => {
                           event.preventDefault()
-                          setMenu({ agentId: agent.id, x: event.clientX, y: event.clientY })
+                          setMenu({ kind: 'picker', agentId: agent.id, x: event.clientX, y: event.clientY })
                         }}
                         className={`group relative flex w-full min-w-0 items-center gap-2 border-b border-[color:var(--border-default)] pr-2 ${
                           selected
@@ -226,7 +232,7 @@ export function SprintEngineRosterView({
                             onClick={(event) => {
                               event.stopPropagation()
                               const rect = event.currentTarget.getBoundingClientRect()
-                              setMenu({ agentId: agent.id, x: rect.right, y: rect.bottom })
+                              setMenu({ kind: 'actions', agentId: agent.id, x: rect.right, y: rect.bottom })
                             }}
                             className="interactive inline-flex h-6 w-6 items-center justify-center rounded text-[color:var(--text-disabled)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
                           >
@@ -302,6 +308,30 @@ export function SprintEngineRosterView({
         const pending = Boolean(agentState?.cliStartRequested) && !live
         const displayName = agentState?.name?.trim() || menuAgent.label
         const close = () => setMenu(null)
+
+        // Right-click fast path: the shared CLI/model picker on its own, the
+        // single gesture for choosing this member's runtime.
+        if (menu.kind === 'picker') {
+          return (
+            <ContextMenu
+              x={menu.x}
+              y={menu.y}
+              ariaLabel={`Runtime for ${displayName}`}
+              onClose={close}
+              surfaceClassName="w-[220px] p-1"
+            >
+              <CliModelListbox
+                ariaLabel={`Runtime options for ${displayName}`}
+                options={cliOptions}
+                currentCli={agentRuntimeCli(menuAgent.id)}
+                effectiveModelFor={(cli) => effectiveModelForAgent(menuAgent.id, cli)}
+                onSelectCli={(cli) => { onSelectAgentCli(menuAgent.id, cli); close() }}
+                onSelectModel={(cli, model) => { onSelectAgentModel(menuAgent.id, cli, model); close() }}
+              />
+            </ContextMenu>
+          )
+        }
+
         return (
           <ContextMenu
             x={menu.x}

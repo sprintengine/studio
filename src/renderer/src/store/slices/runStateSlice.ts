@@ -484,7 +484,7 @@ export interface RunStateSliceActions {
   ) => { id: AgentId; label: string } | null
   // Atomically takes the session-only creation launch intent so exactly one
   // consumer (the Sprint Engine board) starts the requested agents once.
-  consumeSprintEngineInitialSpawns: (workspaceId: WorkspaceId) => AgentId[]
+  consumeSprintEngineInitialSpawns: (workspaceId: WorkspaceId, agentIds?: AgentId[]) => AgentId[]
 }
 
 export type RunStateSlice = RunStateSliceState & RunStateSliceActions
@@ -860,13 +860,21 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
       return addedAgent
     },
 
-    consumeSprintEngineInitialSpawns: (workspaceId) => {
+    consumeSprintEngineInitialSpawns: (workspaceId, agentIds) => {
       let consumed: AgentId[] = []
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws?.sprintEngineInitialSpawnAgentIds?.length) return
-        consumed = [...ws.sprintEngineInitialSpawnAgentIds]
-        ws.sprintEngineInitialSpawnAgentIds = undefined
+        if (!agentIds) {
+          consumed = [...ws.sprintEngineInitialSpawnAgentIds]
+          ws.sprintEngineInitialSpawnAgentIds = undefined
+          return
+        }
+        const requested = new Set(agentIds)
+        consumed = ws.sprintEngineInitialSpawnAgentIds.filter((agentId) => requested.has(agentId))
+        if (consumed.length === 0) return
+        const remaining = ws.sprintEngineInitialSpawnAgentIds.filter((agentId) => !requested.has(agentId))
+        ws.sprintEngineInitialSpawnAgentIds = remaining.length > 0 ? remaining : undefined
       })
       return consumed
     },

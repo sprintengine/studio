@@ -23,6 +23,8 @@ export type AppTheme =
   | 'system'
   | 'dark'
   | 'light'
+  | 'vellum'
+  | 'verdigris'
   | 'slate'
   | 'conifer'
   | 'caramel'
@@ -102,6 +104,32 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
       bgSurfaceRaised: '#ffffff',
       accent: '#385cfc',
       textStrong: '#202428',
+    },
+  },
+  {
+    id: 'vellum',
+    label: 'Vellum',
+    resolved: 'vellum',
+    description: 'Warm vintage parchment',
+    swatches: {
+      bgApp: '#e8e0d0',
+      bgSurface: '#f4ece0',
+      bgSurfaceRaised: '#fcf4e8',
+      accent: '#b04428',
+      textStrong: '#2c2418',
+    },
+  },
+  {
+    id: 'verdigris',
+    label: 'Verdigris',
+    resolved: 'verdigris',
+    description: 'Dark forest-green parchment',
+    swatches: {
+      bgApp: '#0c100c',
+      bgSurface: '#101810',
+      bgSurfaceRaised: '#142018',
+      accent: '#c05038',
+      textStrong: '#e0e8d4',
     },
   },
   {
@@ -225,6 +253,33 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
 ]
 
 export const APP_THEME_IDS: readonly AppTheme[] = APP_THEMES.map((t) => t.id)
+
+export type ColorScheme = 'light' | 'dark'
+
+const APP_THEME_BY_ID: ReadonlyMap<AppTheme, AppThemeDescriptor> = new Map(
+  APP_THEMES.map((t) => [t.id, t]),
+)
+
+// Perceived luminance (Rec. 601) of a #rrggbb hex; ~0–1.
+function hexLuminance(hex: string): number {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return 0
+  const n = parseInt(m[1], 16)
+  const r = (n >> 16) & 0xff
+  const g = (n >> 8) & 0xff
+  const b = n & 0xff
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255
+}
+
+// Light/dark surface of a resolved theme, derived from its swatch canvas so it
+// never drifts as themes are added: a theme whose `bgApp` reads as a light
+// surface is a light theme. Used to tell the main process which scheme to launch
+// agent CLIs in. Defaults to 'dark' for any theme missing a swatch.
+export function colorSchemeForResolvedTheme(resolved: ResolvedAppTheme): ColorScheme {
+  const bgApp = APP_THEME_BY_ID.get(resolved)?.swatches?.bgApp
+  if (!bgApp) return 'dark'
+  return hexLuminance(bgApp) > 0.5 ? 'light' : 'dark'
+}
 
 export const APP_THEME_SELECT_ITEMS: SelectItem<AppTheme>[] = APP_THEMES.map(
   (t) => ({ value: t.id, label: t.label }),

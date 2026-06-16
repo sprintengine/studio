@@ -1,5 +1,9 @@
 import { createSprintEngineTemplate } from '../../../../modules/sprint-engine-workspace-types'
-import { countSprintEngineAgents, createInitialSprintEngineState } from '../../../../utils/sprintengine'
+import {
+  countSprintEngineAgents,
+  createInitialSprintEngineState,
+  normalizeSprintEngineProjection,
+} from '../../../../utils/sprintengine'
 import {
   sprintEngineAutomationInitialStateForMode,
   sprintEngineAutomationModeForRunOptions,
@@ -11,12 +15,31 @@ import {
 import { slugifySprintEngineName } from '../../../../utils/sprintengineStateFile'
 import { buildSprintEngineContext } from '../useNewWorkspaceFolder'
 import type {
+  SprintEngineAutomationMode,
+  SprintEngineRoleCounts,
+  SprintEngineRoleId,
+} from '../../../../types/workspace'
+import type {
   OnCreateArgs,
   SprintEngineExistingTeamInput,
   SprintEngineNewTeamInput,
+  SprintEngineNewTeamPorts,
   SprintEnginePlanSourcedInput,
   SprintEnginePlanSourcedPorts,
 } from './types'
+
+export class SprintEngineNewTeamCreationError extends Error {
+  constructor(public readonly code:
+    | 'missing-folder'
+    | 'team-exists'
+    | 'init-failed'
+    | 'invalid-projection'
+    | 'unknown'
+  ) {
+    super(code)
+    this.name = 'SprintEngineNewTeamCreationError'
+  }
+}
 
 export class SprintEnginePlanSourcedError extends Error {
   constructor(public readonly code:
@@ -38,6 +61,24 @@ function sprintEngineAutoStateFromRunOptions(input: {
   autoApproveArtifacts: boolean
 }) {
   return sprintEngineAutomationInitialStateForMode(sprintEngineAutomationModeForRunOptions(input))
+}
+
+export function buildSprintEngineEffectiveSpawnAtStartRoles(input: {
+  automationMode: SprintEngineAutomationMode
+  existingTeam: boolean
+  spawnAtStartRoles: Partial<Record<SprintEngineRoleId, boolean>>
+  visibleRoleCounts: SprintEngineRoleCounts
+}): Partial<Record<SprintEngineRoleId, boolean>> {
+  const next: Partial<Record<SprintEngineRoleId, boolean>> = { ...input.spawnAtStartRoles }
+  if (
+    input.automationMode !== 'manual'
+    && !input.existingTeam
+    && (input.visibleRoleCounts.architect ?? 0) > 0
+    && input.spawnAtStartRoles.architect === undefined
+  ) {
+    next.architect = true
+  }
+  return next
 }
 
 export function buildSprintEngineExistingTeamCreation(
@@ -102,6 +143,71 @@ export function buildSprintEngineNewTeamCreation(
       cliPermissionPreset: input.cliPermissionPreset,
       maxConcurrentAgents: Math.max(1, input.totalAgents),
     },
+  }
+}
+
+function parseInitializedSprintEngineState(
+  input: unknown,
+  fallbackName: string,
+) {
+  if (!input || typeof input !== 'object') return null
+  const projectionContent = (input as { projectionContent?: unknown }).projectionContent
+  if (typeof projectionContent !== 'string' || !projectionContent.trim()) return null
+  try {
+    return normalizeSprintEngineProjection(JSON.parse(projectionContent) as unknown, fallbackName)
+  } catch {
+    return null
+  }
+}
+
+export async function runSprintEngineNewTeamCreation(
+  input: SprintEngineNewTeamInput,
+  ports: SprintEngineNewTeamPorts,
+): Promise<OnCreateArgs> {
+  if (!input.folderPath) throw new SprintEngineNewTeamCreationError('missing-folder')
+
+  const args = buildSprintEngineNewTeamCreation(input)
+  if (!args.sprintEngineContext || !args.sprintEngineState) {
+    throw new SprintEngineNewTeamCreationError('missing-folder')
+  }
+  if (ports.pathExists && await ports.pathExists(args.sprintEngineContext.statePath)) {
+    throw new SprintEngineNewTeamCreationError('team-exists')
+  }
+
+  try {
+    const initResult = await ports.initializeSprintEngineState({
+      statePath: args.sprintEngineContext.statePath,
+      name: args.sprintEngineState.name,
+      goal: args.sprintEngineState.goal,
+      agents: args.sprintEngineState.sprintEngineAgents,
+      tasks: args.sprintEngineState.tasks,
+      events: args.sprintEngineState.events,
+      artifacts: args.sprintEngineState.artifacts,
+      useWorktrees: input.useWorktrees === true,
+    })
+    if (!initResult.ok) {
+      const wrapped = new SprintEngineNewTeamCreationError('init-failed')
+      wrapped.message = initResult.message || 'Could not initialize Sprint Engine run state.'
+      throw wrapped
+    }
+
+    const initializedState = parseInitializedSprintEngineState(
+      initResult.data,
+      args.sprintEngineState.name,
+    )
+    if (!initializedState) {
+      throw new SprintEngineNewTeamCreationError('invalid-projection')
+    }
+
+    return {
+      ...args,
+      sprintEngineState: initializedState,
+    }
+  } catch (error) {
+    if (error instanceof SprintEngineNewTeamCreationError) throw error
+    const wrapped = new SprintEngineNewTeamCreationError('unknown')
+    wrapped.message = error instanceof Error ? error.message : String(error)
+    throw wrapped
   }
 }
 

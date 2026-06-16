@@ -138,6 +138,20 @@ const pendingSprintEngineTerminalTeardowns = new Map<string, { session: Terminal
 
 export const SPRINTENGINE_AGENT_HEARTBEAT_INTERVAL_MS = 60 * 1000
 
+function mcpSettingsForManagedSprintEngineLaunch(settings: McpSettings | undefined): McpSettings {
+  const servers: McpSettings['servers'] = {}
+  for (const [key, server] of Object.entries(settings?.servers ?? {})) {
+    servers[key] = {
+      ...server,
+      enabled: false,
+    }
+  }
+  return {
+    syncEnabled: false,
+    servers,
+  }
+}
+
 /**
  * Run registration must authorize the run store, not just the terminal cwd:
  * worktree-mode agents launch in
@@ -1547,7 +1561,9 @@ async function spawnTerminalFromIpc(
       if (!shellOnly && syncMcpConfig && (mcpSettings?.syncEnabled || sprintEngineStatePath)) {
         const syncResult = await syncMcpConfig({
           workspaceRoot: workingDirectory,
-          settings: mcpSettings ?? { syncEnabled: false, servers: {} },
+          settings: sprintEngineStatePath
+            ? mcpSettingsForManagedSprintEngineLaunch(mcpSettings)
+            : mcpSettings ?? { syncEnabled: false, servers: {} },
           clients: [cli],
           managedSprintEngine: sprintEngineStatePath
             ? buildManagedSprintEngineSyncInputForLaunch(sprintEngineStatePath, workingDirectory, {

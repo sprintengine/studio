@@ -12,6 +12,7 @@ import {
   pickTerminalTabRecency,
   tabRecencyLabel,
 } from './useTerminalSessions'
+import { createTerminalSessionsStore } from './terminalSessionsStore'
 
 void main()
 
@@ -22,6 +23,10 @@ async function main(): Promise<void> {
   assertWorkspaceTerminalActivityPriorityAndPersistedRecency()
   assertTerminalTabRecencyPrefersLastOutputAt()
   assertAgentTabRecencyFallbackChain()
+  await assertSharedStoreUsesOneUnderlyingSubscription()
+  await assertSharedStoreDedupsSemanticUpdatesButKeepsLive()
+  await assertSharedStoreHandlesDuplicateSubscriberCallbacks()
+  await assertSharedStoreIgnoresDisconnectedInitialRefresh()
   await assertStaleLaunchFlagsClearWithoutLosingRecency()
   await assertClaudeSessionIdentitySurvivesStartupReconciliation()
   await assertClaudeCodeSessionIdentitySurvivesStartupReconciliation()
@@ -55,12 +60,36 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
   ]
   assert.notEqual(getTerminalSessionsSignature(base), getTerminalSessionsSignature(activityChanged))
 
+  // Same activity kind but different activity payload still matters to normal UI
+  // that renders failed/working timing and details.
+  const activityDetailChanged = [
+    session({ sessionId: 'a', activity: { kind: 'working', since: 9 }, lastOutputAt: 100 }),
+    session({ sessionId: 'b', activity: { kind: 'idle', since: 2 }, lastOutputAt: 200 }),
+  ]
+  assert.notEqual(getTerminalSessionsSignature(base), getTerminalSessionsSignature(activityDetailChanged))
+
   // A lifecycle change (process death) changes the signature.
   const exited = [
     session({ sessionId: 'a', processAlive: false, activity: { kind: 'working', since: 1 } }),
     session({ sessionId: 'b', activity: { kind: 'idle', since: 2 } }),
   ]
   assert.notEqual(getTerminalSessionsSignature(base), getTerminalSessionsSignature(exited))
+
+  // Execution identity is how Switchboard/Sprint Engine panels connect a running
+  // task to its terminal.
+  const executionChanged = [
+    session({
+      sessionId: 'a',
+      activity: { kind: 'working', since: 1 },
+      lastOutputAt: 100,
+      agentSession: {
+        ...base[0].agentSession!,
+        executionId: 'exec_2',
+      },
+    }),
+    session({ sessionId: 'b', activity: { kind: 'idle', since: 2 }, lastOutputAt: 200 }),
+  ]
+  assert.notEqual(getTerminalSessionsSignature(base), getTerminalSessionsSignature(executionChanged))
 }
 
 function assertProcessAliveHelpersUseLivenessOnly(): void {
@@ -237,6 +266,159 @@ function assertAgentTabRecencyFallbackChain(): void {
   assert.equal(tabRecencyLabel('exited'), 'Exited')
 }
 
+async function assertSharedStoreUsesOneUnderlyingSubscription(): Promise<void> {
+  const ipcListeners = new Set<(sessions: TerminalSessionSnapshot[]) => void>()
+  let terminalListCalls = 0
+  let unsubscribeCalls = 0
+  const store = createTerminalSessionsStore(() => ({
+    terminalList: async () => {
+      terminalListCalls += 1
+      return [session({ sessionId: 'session_initial' })]
+    },
+    onTerminalSessionsChanged: (listener) => {
+      ipcListeners.add(listener)
+      return () => {
+        unsubscribeCalls += 1
+        ipcListeners.delete(listener)
+      }
+    },
+  }))
+
+  const unsubscribers = Array.from({ length: 12 }, () => store.subscribeSemantic(() => undefined))
+  assert.equal(ipcListeners.size, 1, 'many semantic subscribers must share one IPC listener')
+  await flushPromises()
+  assert.equal(terminalListCalls, 1, 'shared store performs one initial terminalList refresh')
+  assert.deepEqual(store.getSemanticSnapshot().map((item) => item.sessionId), ['session_initial'])
+
+  await store.refresh()
+  assert.equal(ipcListeners.size, 1, 'manual refresh must not add another IPC listener')
+
+  unsubscribers.forEach((unsubscribe) => unsubscribe())
+  assert.equal(ipcListeners.size, 0, 'last unsubscribe removes the shared IPC listener')
+  assert.equal(unsubscribeCalls, 1)
+}
+
+async function assertSharedStoreDedupsSemanticUpdatesButKeepsLive(): Promise<void> {
+  let ipcListener: ((sessions: TerminalSessionSnapshot[]) => void) | null = null
+  const store = createTerminalSessionsStore(() => ({
+    terminalList: async () => [
+      session({ sessionId: 'session_a', activity: { kind: 'idle', since: 1 }, lastOutputAt: 100 }),
+    ],
+    onTerminalSessionsChanged: (listener) => {
+      ipcListener = listener
+      return () => {
+        ipcListener = null
+      }
+    },
+  }))
+  let semanticNotifications = 0
+  let liveNotifications = 0
+  const liveSnapshots: TerminalSessionSnapshot[][] = []
+
+  const unsubscribeSemantic = store.subscribeSemantic(() => {
+    semanticNotifications += 1
+  })
+  const unsubscribeLive = store.subscribeLive(() => {
+    liveNotifications += 1
+  })
+  const unsubscribeLiveSnapshot = store.subscribeLiveSnapshot((sessions) => {
+    liveSnapshots.push(sessions)
+  })
+  await flushPromises()
+  assert.equal(semanticNotifications, 1)
+  assert.equal(liveNotifications, 1)
+  assert.equal(liveSnapshots.length, 1)
+
+  semanticNotifications = 0
+  liveNotifications = 0
+  liveSnapshots.length = 0
+  ipcListener?.([
+    session({ sessionId: 'session_a', activity: { kind: 'idle', since: 1 }, lastOutputAt: 999 }),
+  ])
+  assert.equal(semanticNotifications, 0, 'semantic subscribers skip output-only churn')
+  assert.equal(liveNotifications, 1, 'live subscribers receive output-only churn')
+  assert.equal(liveSnapshots[0]?.[0]?.lastOutputAt, 999)
+
+  ipcListener?.([
+    session({ sessionId: 'session_a', activity: { kind: 'working', since: 2 }, lastOutputAt: 1000 }),
+  ])
+  assert.equal(semanticNotifications, 1, 'semantic subscribers receive lifecycle/activity changes')
+  assert.equal(liveNotifications, 2)
+
+  unsubscribeSemantic()
+  unsubscribeLive()
+  unsubscribeLiveSnapshot()
+}
+
+async function assertSharedStoreHandlesDuplicateSubscriberCallbacks(): Promise<void> {
+  let ipcListener: ((sessions: TerminalSessionSnapshot[]) => void) | null = null
+  let unsubscribeCalls = 0
+  const store = createTerminalSessionsStore(() => ({
+    terminalList: async () => [],
+    onTerminalSessionsChanged: (listener) => {
+      ipcListener = listener
+      return () => {
+        unsubscribeCalls += 1
+        ipcListener = null
+      }
+    },
+  }))
+  let calls = 0
+  const listener = () => {
+    calls += 1
+  }
+  const unsubscribeFirst = store.subscribeSemantic(listener)
+  const unsubscribeSecond = store.subscribeSemantic(listener)
+  await flushPromises()
+
+  ipcListener?.([session({ sessionId: 'session_duplicate_a' })])
+  assert.equal(calls, 2, 'the same callback subscribed twice represents two subscriptions')
+
+  unsubscribeFirst()
+  ipcListener?.([session({ sessionId: 'session_duplicate_b' })])
+  assert.equal(calls, 3, 'unsubscribing one duplicate leaves the other active')
+  assert.equal(unsubscribeCalls, 0)
+
+  unsubscribeSecond()
+  assert.equal(unsubscribeCalls, 1, 'underlying IPC listener is removed after the last duplicate unsubscribe')
+}
+
+async function assertSharedStoreIgnoresDisconnectedInitialRefresh(): Promise<void> {
+  const pendingTerminalLists: Array<(sessions: TerminalSessionSnapshot[]) => void> = []
+  const store = createTerminalSessionsStore(() => ({
+    terminalList: () => new Promise<TerminalSessionSnapshot[]>((resolve) => {
+      pendingTerminalLists.push(resolve)
+    }),
+    onTerminalSessionsChanged: () => () => undefined,
+  }))
+
+  const unsubscribeFirst = store.subscribeSemantic(() => undefined)
+  const manualRefresh = store.refresh()
+  unsubscribeFirst()
+  pendingTerminalLists[0]?.([session({ sessionId: 'session_stale_after_disconnect' })])
+  pendingTerminalLists[1]?.([session({ sessionId: 'session_manual_stale_after_disconnect' })])
+  await manualRefresh
+  await flushPromises()
+  assert.deepEqual(
+    store.getSemanticSnapshot(),
+    [],
+    'late initial refresh from a disconnected subscription must not repopulate the store',
+  )
+
+  const liveSnapshots: TerminalSessionSnapshot[][] = []
+  const unsubscribeSecond = store.subscribeLiveSnapshot((sessions) => {
+    liveSnapshots.push(sessions)
+  })
+  assert.deepEqual(liveSnapshots, [], 'new subscriber must not receive stale disconnected snapshot')
+
+  pendingTerminalLists[2]?.([session({ sessionId: 'session_fresh_after_reconnect' })])
+  await flushPromises()
+  assert.deepEqual(liveSnapshots.map((sessions) => sessions.map((item) => item.sessionId)), [
+    ['session_fresh_after_reconnect'],
+  ])
+  unsubscribeSecond()
+}
+
 async function assertStaleLaunchFlagsClearWithoutLosingRecency(): Promise<void> {
   installTestLocalStorage()
   const { useWorkspaceStore } = await import('../store/workspaceStore')
@@ -385,6 +567,11 @@ function session(
       displayName: 'Developer',
     },
   }
+}
+
+async function flushPromises(): Promise<void> {
+  await Promise.resolve()
+  await Promise.resolve()
 }
 
 function installTestLocalStorage(): void {

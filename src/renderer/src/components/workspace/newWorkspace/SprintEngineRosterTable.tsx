@@ -109,7 +109,7 @@ export function SprintEngineRosterTable({
               />
             )}
             {onSetSpawnAtStart ? (
-              <Tooltip content={spawnAtStartLocked ? 'Full auto starts every selected roster agent.' : `Start ${label} agents when the workspace opens`}>
+              <Tooltip content={spawnAtStartLocked ? 'This role is controlled by the selected run settings.' : `Start ${label} agents when the workspace opens`}>
                 <button
                   type="button"
                   aria-pressed={spawnAtStartRoles?.[role] ?? false}

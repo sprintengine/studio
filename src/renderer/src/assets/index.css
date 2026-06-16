@@ -655,6 +655,161 @@
   --terminal-fg: #ecdcb4;
 }
 
+/* Vellum — warm vintage-parchment light theme, drawn from an antique
+   natural-history butterfly plate: aged cream paper carrying jewel specimens.
+   The surface ramp is warm parchment (not the cool near-white of the Light
+   theme); ink flips to espresso browns; the single accent is the plate's
+   rust-terracotta (the boldest recurring wing band). Like the Light theme it
+   overrides the semantic tones — the dark catalogue's luminous-on-dark tones
+   wash out on cream — and flips error ink to white over the deep red. Anti-
+   dither baseline (channels in multiples of 4); pure white #ffffff exempt. */
+:root[data-theme="vellum"] {
+  /* App is a touch deeper than the card surfaces so panels read as elevated
+     paper against the canvas (same step as Light), warm throughout. */
+  --bg-app: #e8e0d0;
+  --bg-surface: #f4ece0;
+  --bg-surface-raised: #fcf4e8;
+  --bg-hover: #ece4d4;
+  --bg-active: #e0d8c4;
+  --bg-selected: #d8ccb4;
+  /* Inverted button is a warm near-black espresso; hover deepens toward it so
+     the light label keeps contrast. */
+  --bg-inverted-hover: #1c1814;
+  --surface-overlay-backdrop: rgba(40, 32, 24, 0.42);
+
+  --text-strong: #2c2418;
+  --text-default: #4c4030;
+  --text-muted: #6c6048;
+  --text-subtle: #645840;
+  /* Disabled deepened to clear AA-large (3:1) on the warm canvas, not just on
+     the lighter surface — empty-state hints sit on both. */
+  --text-disabled: #887c64;
+  --text-on-accent: #ffffff;
+
+  /* Warm-ink hairlines (rgb 44,36,24) lifted so structure reads on parchment:
+     subtle divider → clear hairline → structural separator. */
+  --border-subtle: rgba(44, 36, 24, 0.10);
+  --border-default: rgba(44, 36, 24, 0.20);
+  --border-strong: rgba(44, 36, 24, 0.30);
+  --border-focus: rgba(176, 68, 40, 0.55);
+
+  --accent-primary: #b04428;
+  --accent-primary-hover: #9c3c20;
+  --accent-primary-soft: rgba(176, 68, 40, 0.12);
+  --accent-primary-soft-strong: rgba(176, 68, 40, 0.20);
+
+  /* Semantic tones overridden for light, drawn from the plate: forest-teal
+     swallowtail (good), mustard gold (warn), a cooler crimson (error) kept
+     deliberately distinct in hue from the terracotta accent so it never reads
+     as a second accent. All carry white badge text at >=5:1 on the dot. */
+  --tone-neutral: #786c54;
+  --tone-accent: #b04428;
+  --tone-good: #2c6c54;
+  --tone-warn: #986400;
+  --tone-error: #c42424;
+  /* Deep red flips its ink to white (warm near-black would be illegible). */
+  --tone-error-ink: #ffffff;
+
+  --tone-neutral-soft: rgba(120, 108, 84, 0.16);
+  --tone-accent-soft: rgba(176, 68, 40, 0.14);
+  --tone-good-soft: rgba(44, 108, 84, 0.18);
+  --tone-warn-soft: rgba(152, 100, 0, 0.18);
+  --tone-error-soft: rgba(196, 36, 36, 0.14);
+
+  --scrollbar-thumb: #d4ccb8;
+  --scrollbar-thumb-hover: #c0b49c;
+  --skeleton-shimmer-low: rgba(44, 36, 24, 0.04);
+  --skeleton-shimmer-high: rgba(44, 36, 24, 0.09);
+
+  --shadow-drawer:
+    0 1px 3px rgba(40, 32, 20, 0.07),
+    0 8px 24px -6px rgba(40, 32, 20, 0.12);
+
+  --terminal-bg: #f8f0e4;
+  --terminal-fg: #2c2418;
+
+  /* Warm atmosphere: a barely-there terracotta tint on the parchment canvas so
+     the graph keeps depth without a colour cast. */
+  --memory-graph-atmosphere:
+    radial-gradient(circle at 50% 45%, rgba(176, 68, 40, 0.05), transparent 52%);
+
+  /* Darken file-type badge labels toward ink so language hues clear AA on the
+     warm chip surface instead of washing out. */
+  --file-badge-ink-mix: 50%;
+}
+
+/* Verdigris — dark sibling of Vellum, drawn from the same antique butterfly
+   plate but seen from the dark wing-body instead of the cream paper. The
+   surface ramp is the deep forest-green of the moth's body and the dark
+   swallowtail wing; the parchment cream flips up to become the ink. The single
+   accent stays Vellum's rust-terracotta (the boldest recurring wing band),
+   brightened so it carries on the dark canvas while still holding white label
+   text at AA (4.7:1 on #c05038). The jewel specimens supply the semantic tones:
+   the emerald-teal swallowtail band (good), mustard tiger-swallowtail (warn),
+   crimson wing band (error) — each kept luminous-on-dark and distinct in hue
+   from the terracotta accent so none reads as a second accent. Anti-dither
+   baseline: channel values are multiples of 4. */
+:root[data-theme="verdigris"] {
+  /* Forest-green ramp; green tint preserved by keeping G >= R = B across the
+     ramp (same discipline as conifer, deeper and more saturated). App is a
+     touch deeper than the cards so panels read as elevated wings. */
+  --bg-app: #0c100c;
+  --bg-surface: #101810;
+  --bg-surface-raised: #142018;
+  --bg-hover: #18241c;
+  --bg-active: #1c2820;
+  --bg-selected: #24342c;
+  --surface-overlay-backdrop: rgba(8, 12, 8, 0.72);
+
+  /* Aged-cream ink flipped up from the parchment; warm-sage at the muted end. */
+  --text-strong: #e0e8d4;
+  --text-default: #b8c4a8;
+  --text-muted: #8c9880;
+  --text-subtle: #7c8870;
+  --text-disabled: #5c6854;
+  /* Terracotta accent takes white label text (the blue-tuned base ink would be
+     illegible on it). */
+  --text-on-accent: #ffffff;
+
+  /* Cream-ink hairlines (rgb 224,232,212) so structure reads on forest green. */
+  --border-subtle: rgba(224, 232, 212, 0.06);
+  --border-default: rgba(224, 232, 212, 0.10);
+  --border-strong: rgba(224, 232, 212, 0.16);
+  --border-focus: rgba(192, 80, 56, 0.55);
+
+  /* Rust-terracotta, brightened from Vellum's #b04428 to read on the dark
+     canvas while clearing AA with white label text. */
+  --accent-primary: #c05038;
+  --accent-primary-hover: #cc6044;
+  --accent-primary-soft: rgba(192, 80, 56, 0.14);
+  --accent-primary-soft-strong: rgba(192, 80, 56, 0.22);
+
+  /* Semantic tones from the plate, tuned luminous-on-dark. Good is the
+     emerald-teal swallowtail band — green lives here and in the canvas, never
+     in the accent. */
+  --tone-accent: #c05038;
+  --tone-good: #38b488;
+  --tone-warn: #e0b048;
+  --tone-error: #e85858;
+  --tone-accent-soft: rgba(192, 80, 56, 0.16);
+  --tone-good-soft: rgba(56, 180, 136, 0.18);
+  --tone-warn-soft: rgba(224, 176, 72, 0.18);
+  --tone-error-soft: rgba(232, 88, 88, 0.18);
+
+  --scrollbar-thumb: #1c2820;
+  --scrollbar-thumb-hover: #283830;
+  --skeleton-shimmer-low: rgba(224, 232, 212, 0.03);
+  --skeleton-shimmer-high: rgba(224, 232, 212, 0.07);
+
+  /* Terminal reads as a punched-in screen, deeper than --bg-app. */
+  --terminal-bg: #080c08;
+  --terminal-fg: #e0e8d4;
+
+  /* Faint terracotta glow keeps the graph warm against the green canvas. */
+  --memory-graph-atmosphere:
+    radial-gradient(circle at 50% 45%, rgba(192, 80, 56, 0.07), transparent 50%);
+}
+
 
 * {
   box-sizing: border-box;
@@ -789,8 +944,10 @@ samp,
 .git-ref-pill-7 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #ff5a5f); border-color: color-mix(in oklab, var(--bg-surface) 66%, #ff5a5f); color: color-mix(in oklab, var(--text-strong) 30%, #ff5a5f); }
 
 /* Light-theme legibility: deepen lane strokes and pull pill labels to
- * majority-ink, same fix as the highlight palette. */
-:root[data-theme="light"] {
+ * majority-ink, same fix as the highlight palette. Shared by every light-
+ * surface theme (Light, Vellum). */
+:root[data-theme="light"],
+:root[data-theme="vellum"] {
   --git-lane-0: color-mix(in oklab, var(--text-strong) 35%, #5c7cff);
   --git-lane-1: color-mix(in oklab, var(--text-strong) 35%, #a78bfa);
   --git-lane-2: color-mix(in oklab, var(--text-strong) 35%, #30d158);
@@ -801,14 +958,22 @@ samp,
   --git-lane-7: color-mix(in oklab, var(--text-strong) 35%, #ff5a5f);
 }
 
-:root[data-theme="light"] .git-ref-pill-0 { color: color-mix(in oklab, var(--text-strong) 52%, #5c7cff); }
-:root[data-theme="light"] .git-ref-pill-1 { color: color-mix(in oklab, var(--text-strong) 52%, #a78bfa); }
-:root[data-theme="light"] .git-ref-pill-2 { color: color-mix(in oklab, var(--text-strong) 55%, #30d158); }
-:root[data-theme="light"] .git-ref-pill-3 { color: color-mix(in oklab, var(--text-strong) 55%, #ff8c42); }
-:root[data-theme="light"] .git-ref-pill-4 { color: color-mix(in oklab, var(--text-strong) 55%, #ff7eb3); }
-:root[data-theme="light"] .git-ref-pill-5 { color: color-mix(in oklab, var(--text-strong) 55%, #2dd4bf); }
-:root[data-theme="light"] .git-ref-pill-6 { color: color-mix(in oklab, var(--text-strong) 58%, #ffbf2f); }
-:root[data-theme="light"] .git-ref-pill-7 { color: color-mix(in oklab, var(--text-strong) 55%, #ff5a5f); }
+:root[data-theme="light"] .git-ref-pill-0,
+:root[data-theme="vellum"] .git-ref-pill-0 { color: color-mix(in oklab, var(--text-strong) 52%, #5c7cff); }
+:root[data-theme="light"] .git-ref-pill-1,
+:root[data-theme="vellum"] .git-ref-pill-1 { color: color-mix(in oklab, var(--text-strong) 52%, #a78bfa); }
+:root[data-theme="light"] .git-ref-pill-2,
+:root[data-theme="vellum"] .git-ref-pill-2 { color: color-mix(in oklab, var(--text-strong) 55%, #30d158); }
+:root[data-theme="light"] .git-ref-pill-3,
+:root[data-theme="vellum"] .git-ref-pill-3 { color: color-mix(in oklab, var(--text-strong) 55%, #ff8c42); }
+:root[data-theme="light"] .git-ref-pill-4,
+:root[data-theme="vellum"] .git-ref-pill-4 { color: color-mix(in oklab, var(--text-strong) 55%, #ff7eb3); }
+:root[data-theme="light"] .git-ref-pill-5,
+:root[data-theme="vellum"] .git-ref-pill-5 { color: color-mix(in oklab, var(--text-strong) 55%, #2dd4bf); }
+:root[data-theme="light"] .git-ref-pill-6,
+:root[data-theme="vellum"] .git-ref-pill-6 { color: color-mix(in oklab, var(--text-strong) 58%, #ffbf2f); }
+:root[data-theme="light"] .git-ref-pill-7,
+:root[data-theme="vellum"] .git-ref-pill-7 { color: color-mix(in oklab, var(--text-strong) 55%, #ff5a5f); }
 /* design-tokens-allow-end */
 
 /* Light-theme legibility overrides for the user-chosen highlight / tab-highlight
@@ -821,35 +986,63 @@ samp,
  * against white. Higher specificity wins regardless of source order.
  * design-tokens-allow-block: user-chosen highlight palette, hue literals */
 :root[data-theme="light"] .highlight-text-red,
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red { color: color-mix(in oklab, var(--text-strong) 55%, #ff5a5f); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red,
+:root[data-theme="vellum"] .highlight-text-red,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-red { color: color-mix(in oklab, var(--text-strong) 55%, #ff5a5f); }
 :root[data-theme="light"] .highlight-text-orange,
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange { color: color-mix(in oklab, var(--text-strong) 55%, #ff8c42); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange,
+:root[data-theme="vellum"] .highlight-text-orange,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-orange { color: color-mix(in oklab, var(--text-strong) 55%, #ff8c42); }
 :root[data-theme="light"] .highlight-text-amber,
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber { color: color-mix(in oklab, var(--text-strong) 55%, #ffbf2f); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber,
+:root[data-theme="vellum"] .highlight-text-amber,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-amber { color: color-mix(in oklab, var(--text-strong) 55%, #ffbf2f); }
 :root[data-theme="light"] .highlight-text-green,
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green { color: color-mix(in oklab, var(--text-strong) 55%, #30d158); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green,
+:root[data-theme="vellum"] .highlight-text-green,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-green { color: color-mix(in oklab, var(--text-strong) 55%, #30d158); }
 :root[data-theme="light"] .highlight-text-blue,
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue { color: color-mix(in oklab, var(--text-strong) 52%, #5c7cff); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue,
+:root[data-theme="vellum"] .highlight-text-blue,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-blue { color: color-mix(in oklab, var(--text-strong) 52%, #5c7cff); }
 :root[data-theme="light"] .highlight-text-purple,
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple { color: color-mix(in oklab, var(--text-strong) 52%, #a78bfa); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple,
+:root[data-theme="vellum"] .highlight-text-purple,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-purple { color: color-mix(in oklab, var(--text-strong) 52%, #a78bfa); }
 :root[data-theme="light"] .highlight-text-pink,
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink { color: color-mix(in oklab, var(--text-strong) 55%, #ff7eb3); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink,
+:root[data-theme="vellum"] .highlight-text-pink,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-pink { color: color-mix(in oklab, var(--text-strong) 55%, #ff7eb3); }
 
 /* Deepen the tab fill/border so the coloured tab itself reads on white. */
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red { background: rgba(255, 90, 95, 0.16); border-color: rgba(255, 90, 95, 0.52); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected { background: rgba(255, 90, 95, 0.28); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange { background: rgba(255, 140, 66, 0.16); border-color: rgba(255, 140, 66, 0.52); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected { background: rgba(255, 140, 66, 0.28); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber { background: rgba(255, 191, 47, 0.18); border-color: rgba(255, 191, 47, 0.52); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected { background: rgba(255, 191, 47, 0.30); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green { background: rgba(48, 209, 88, 0.16); border-color: rgba(48, 209, 88, 0.52); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected { background: rgba(48, 209, 88, 0.28); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue { background: rgba(92, 124, 255, 0.16); border-color: rgba(92, 124, 255, 0.55); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected { background: rgba(92, 124, 255, 0.28); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple { background: rgba(167, 139, 250, 0.16); border-color: rgba(167, 139, 250, 0.55); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected { background: rgba(167, 139, 250, 0.28); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink { background: rgba(255, 126, 179, 0.16); border-color: rgba(255, 126, 179, 0.55); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected { background: rgba(255, 126, 179, 0.28); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-red { background: rgba(255, 90, 95, 0.16); border-color: rgba(255, 90, 95, 0.52); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected { background: rgba(255, 90, 95, 0.28); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-orange { background: rgba(255, 140, 66, 0.16); border-color: rgba(255, 140, 66, 0.52); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected { background: rgba(255, 140, 66, 0.28); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-amber { background: rgba(255, 191, 47, 0.18); border-color: rgba(255, 191, 47, 0.52); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected { background: rgba(255, 191, 47, 0.30); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-green { background: rgba(48, 209, 88, 0.16); border-color: rgba(48, 209, 88, 0.52); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected { background: rgba(48, 209, 88, 0.28); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-blue { background: rgba(92, 124, 255, 0.16); border-color: rgba(92, 124, 255, 0.55); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected { background: rgba(92, 124, 255, 0.28); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-purple { background: rgba(167, 139, 250, 0.16); border-color: rgba(167, 139, 250, 0.55); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected { background: rgba(167, 139, 250, 0.28); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-pink { background: rgba(255, 126, 179, 0.16); border-color: rgba(255, 126, 179, 0.55); }
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected { background: rgba(255, 126, 179, 0.28); }
 /* design-tokens-allow-end */
 
 /* Canonical SVG icon size utilities. Pair with the --icon-* token scale.

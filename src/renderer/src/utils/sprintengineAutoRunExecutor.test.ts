@@ -86,27 +86,28 @@ function createFakePorts(overrides: Overrides = {}): FakePorts {
 
 async function testBracketedPasteEscapeSequence(): Promise<void> {
   const paste = bracketedTerminalPaste('hello\nworld')
-  assert.equal(paste, '\x1b[200~hello\nworld\x1b[201~\r')
+  assert.equal(paste, '\x1b[200~hello\nworld\x1b[201~')
   assert.equal(
     bracketedTerminalPaste('crlf\r\nline'),
-    '\x1b[200~crlf\nline\x1b[201~\r',
+    '\x1b[200~crlf\nline\x1b[201~',
     'CRLF should normalize to LF before bracketed paste',
   )
 }
 
-async function testWriteBracketedPromptCallsTerminalWrite(): Promise<void> {
+async function testWriteBracketedPromptSubmitsAfterPaste(): Promise<void> {
   const writes: Array<{ sessionId: string; data: string }> = []
   const { ports } = createFakePorts({
     terminalWrite: async (sessionId, data) => {
       writes.push({ sessionId, data })
     },
   })
-  await writeBracketedPrompt(ports, 'session-7', 'Run dispatch')
-  assert.equal(writes.length, 1)
+  await writeBracketedPrompt(ports, 'session-7', 'Run dispatch', 0)
+  assert.equal(writes.length, 2)
   assert.equal(writes[0].sessionId, 'session-7')
   assert.ok(writes[0].data.startsWith('\x1b[200~'))
-  assert.ok(writes[0].data.endsWith('\x1b[201~\r'))
+  assert.ok(writes[0].data.endsWith('\x1b[201~'))
   assert.ok(writes[0].data.includes('Run dispatch'))
+  assert.deepEqual(writes[1], { sessionId: 'session-7', data: '\r' })
 }
 
 async function testListTerminalSessionsResolvesWithPortResult(): Promise<void> {
@@ -480,7 +481,7 @@ async function testCloseSprintEngineRunTerminalsNoopsWithoutSprintContext(): Pro
 
 async function main(): Promise<void> {
   await testBracketedPasteEscapeSequence()
-  await testWriteBracketedPromptCallsTerminalWrite()
+  await testWriteBracketedPromptSubmitsAfterPaste()
   await testListTerminalSessionsResolvesWithPortResult()
   await testListTerminalSessionsRejectionWrappedAsIpcError()
   await testPublishTerminalListIpcFailureNoticeFirstCall()

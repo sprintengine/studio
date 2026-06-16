@@ -43,6 +43,7 @@ import { withTimeout } from './sprintengineAutoRun'
 
 export const TERMINAL_IPC_TIMEOUT_MS = 3000
 export const TERMINAL_LIST_IPC_NOTICE_COOLDOWN_MS = 30000
+const BRACKETED_PROMPT_SUBMIT_DELAY_MS = 50
 
 export type TerminalSpawnArgs = {
   sessionId: string
@@ -245,15 +246,20 @@ export async function publishTerminalListIpcFailureNotice(
 }
 
 export function bracketedTerminalPaste(text: string): string {
-  return `\x1b[200~${text.replace(/\r?\n/g, '\n')}\x1b[201~\r`
+  return `\x1b[200~${text.replace(/\r?\n/g, '\n')}\x1b[201~`
 }
 
 export async function writeBracketedPrompt(
   ports: SprintEngineAutoRunExecutorPorts,
   sessionId: string,
-  text: string
+  text: string,
+  submitDelayMs = BRACKETED_PROMPT_SUBMIT_DELAY_MS,
 ): Promise<void> {
   await ports.terminalWrite(sessionId, bracketedTerminalPaste(text))
+  if (submitDelayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, submitDelayMs))
+  }
+  await ports.terminalWrite(sessionId, '\r')
 }
 
 export async function safeTerminalStatus(

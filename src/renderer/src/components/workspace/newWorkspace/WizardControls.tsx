@@ -18,6 +18,7 @@ import type {
 import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAutomation'
 import { Field, Select } from '../../ui'
 import { SprintEngineRosterTable, type SprintEngineCliOption } from './SprintEngineRosterTable'
+import { sprintEngineTeamNameTaken } from './savedTeams'
 
 export const cliPermissionOptions: Array<{
   value: SprintEngineCliPermissionPreset
@@ -150,9 +151,11 @@ export function RosterAndRunSettings({
   rosterCountLabel,
   teams,
   selectedTeamId,
+  selectedTeamDirty,
   onSelectTeam,
   onSaveTeam,
   onUpdateTeam,
+  onRenameTeam,
   onDeleteTeam,
   automationMode,
   onChangeAutomationMode,
@@ -187,9 +190,13 @@ export function RosterAndRunSettings({
   // the bottom. Omitted by the Guided Brief handoff, which has no roster preset.
   teams?: SprintEngineRosterTeam[]
   selectedTeamId?: string | null
+  // True when the current rows have diverged from the selected team, so the
+  // picker reads "edited" and Update is offered instead of claiming a clean load.
+  selectedTeamDirty?: boolean
   onSelectTeam?: (id: string | null) => void
   onSaveTeam?: (name: string) => void
   onUpdateTeam?: (id: string, name: string) => void
+  onRenameTeam?: (id: string, name: string) => void
   onDeleteTeam?: (id: string) => void
   automationMode: SprintEngineAutomationMode
   onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
@@ -214,6 +221,7 @@ export function RosterAndRunSettings({
           <RosterTeamPicker
             teams={teams ?? []}
             selectedTeamId={selectedTeamId ?? null}
+            selectedTeamDirty={selectedTeamDirty ?? false}
             onSelectTeam={onSelectTeam}
           />
         ) : null}
@@ -237,8 +245,10 @@ export function RosterAndRunSettings({
               <SaveRosterTeamRow
                 teams={teams ?? []}
                 selectedTeamId={selectedTeamId ?? null}
+                selectedTeamDirty={selectedTeamDirty ?? false}
                 onSaveTeam={onSaveTeam}
                 onUpdateTeam={onUpdateTeam}
+                onRenameTeam={onRenameTeam}
                 onDeleteTeam={onDeleteTeam}
               />
             ) : null
@@ -307,10 +317,12 @@ const CUSTOM_TEAM_VALUE = '__custom__'
 function RosterTeamPicker({
   teams,
   selectedTeamId,
+  selectedTeamDirty,
   onSelectTeam,
 }: {
   teams: SprintEngineRosterTeam[]
   selectedTeamId: string | null
+  selectedTeamDirty: boolean
   onSelectTeam: (id: string | null) => void
 }) {
   const items = [
@@ -327,77 +339,109 @@ function RosterTeamPicker({
         onChange={(value) => onSelectTeam(value === CUSTOM_TEAM_VALUE ? null : value)}
         placeholder={teams.length ? 'Pick a team…' : 'No saved teams yet'}
       />
+      {selectedTeamId && selectedTeamDirty ? (
+        // Truthful state: the rows no longer match the named team. Without this
+        // the picker keeps claiming a clean team while the roster has diverged.
+        <span className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">· edited</span>
+      ) : null}
     </div>
   )
 }
 
 // Footer affordance for saving the current roster as a named team. When a team
-// is already selected it also offers to update or delete it, so the picker
-// above stays the single source for switching between saved teams.
+// is selected it also offers to update (re-save the edited roster), rename, or
+// delete it, so the picker above stays the single source for switching teams.
 function SaveRosterTeamRow({
   teams,
   selectedTeamId,
+  selectedTeamDirty,
   onSaveTeam,
   onUpdateTeam,
+  onRenameTeam,
   onDeleteTeam,
 }: {
   teams: SprintEngineRosterTeam[]
   selectedTeamId: string | null
+  selectedTeamDirty: boolean
   onSaveTeam: (name: string) => void
   onUpdateTeam?: (id: string, name: string) => void
+  onRenameTeam?: (id: string, name: string) => void
   onDeleteTeam?: (id: string) => void
 }) {
-  const [adding, setAdding] = React.useState(false)
+  // 'idle' | 'adding' (new team) | 'renaming' (selected team).
+  const [editing, setEditing] = React.useState<'idle' | 'adding' | 'renaming'>('idle')
   const [name, setName] = React.useState('')
   const selectedTeam = selectedTeamId ? teams.find((team) => team.id === selectedTeamId) ?? null : null
 
-  const submit = () => {
-    const trimmed = name.trim()
-    if (!trimmed) return
-    onSaveTeam(trimmed)
+  const close = () => {
+    setEditing('idle')
     setName('')
-    setAdding(false)
+  }
+  const beginRename = () => {
+    if (!selectedTeam) return
+    setName(selectedTeam.name)
+    setEditing('renaming')
   }
 
-  if (adding) {
+  if (editing !== 'idle') {
+    const trimmed = name.trim()
+    const excludeId = editing === 'renaming' ? selectedTeam?.id ?? null : null
+    const collides = sprintEngineTeamNameTaken(teams, trimmed, excludeId)
+    const canSubmit = trimmed.length > 0 && !collides
+    const submit = () => {
+      if (!canSubmit) return
+      if (editing === 'renaming' && selectedTeam && onRenameTeam) {
+        onRenameTeam(selectedTeam.id, trimmed)
+      } else {
+        onSaveTeam(trimmed)
+      }
+      close()
+    }
     return (
-      <div className="flex items-center gap-2 border-l-2 border-transparent px-3 py-2.5">
-        <input
-          autoFocus
-          type="text"
-          value={name}
-          placeholder="Team name (e.g. Lightweight)"
-          onChange={(event) => setName(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              submit()
-            } else if (event.key === 'Escape') {
-              event.preventDefault()
-              setAdding(false)
-              setName('')
-            }
-          }}
-          className="h-7 min-w-0 flex-1 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 text-[12px] text-[color:var(--text-default)] outline-none focus:border-[color:var(--accent-primary)]"
-        />
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!name.trim()}
-          className="h-7 shrink-0 rounded-[5px] bg-[color:var(--accent-primary)] px-2.5 text-[12px] font-semibold text-[color:var(--bg-app)] transition-colors hover:bg-[color:var(--accent-primary-hover)] disabled:cursor-not-allowed disabled:opacity-45"
-        >
-          Save
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setAdding(false)
-            setName('')
-          }}
-          className="h-7 shrink-0 rounded-[5px] px-2 text-[12px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
-        >
-          Cancel
-        </button>
+      <div className="flex flex-col gap-1 border-l-2 border-transparent px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <input
+            autoFocus
+            type="text"
+            value={name}
+            placeholder={editing === 'renaming' ? 'Team name' : 'Team name (e.g. Lightweight)'}
+            aria-label={editing === 'renaming' ? 'Rename team' : 'New team name'}
+            aria-invalid={collides}
+            onChange={(event) => setName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                submit()
+              } else if (event.key === 'Escape') {
+                event.preventDefault()
+                close()
+              }
+            }}
+            className={`h-7 min-w-0 flex-1 rounded-[5px] border bg-[color:var(--bg-surface-raised)] px-2 text-[12px] text-[color:var(--text-default)] outline-none ${
+              collides
+                ? 'border-[color:var(--tone-error)]'
+                : 'border-[color:var(--border-default)] focus:border-[color:var(--accent-primary)]'
+            }`}
+          />
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!canSubmit}
+            className="h-7 shrink-0 rounded-[5px] bg-[color:var(--accent-primary)] px-2.5 text-[12px] font-semibold text-[color:var(--bg-app)] transition-colors hover:bg-[color:var(--accent-primary-hover)] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            {editing === 'renaming' ? 'Rename' : 'Save'}
+          </button>
+          <button
+            type="button"
+            onClick={close}
+            className="h-7 shrink-0 rounded-[5px] px-2 text-[12px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
+          >
+            Cancel
+          </button>
+        </div>
+        {collides ? (
+          <span className="text-[11px] text-[color:var(--tone-error)]">A team named “{trimmed}” already exists.</span>
+        ) : null}
       </div>
     )
   }
@@ -406,18 +450,27 @@ function SaveRosterTeamRow({
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-l-2 border-transparent px-3 py-2.5 text-[12px]">
       <button
         type="button"
-        onClick={() => setAdding(true)}
+        onClick={() => setEditing('adding')}
         className="text-[color:var(--accent-primary)] transition-colors hover:text-[color:var(--accent-primary-hover)]"
       >
         Save as new team…
       </button>
-      {selectedTeam && onUpdateTeam ? (
+      {selectedTeam && selectedTeamDirty && onUpdateTeam ? (
         <button
           type="button"
           onClick={() => onUpdateTeam(selectedTeam.id, selectedTeam.name)}
           className="text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
         >
           Update “{selectedTeam.name}”
+        </button>
+      ) : null}
+      {selectedTeam && onRenameTeam ? (
+        <button
+          type="button"
+          onClick={beginRename}
+          className="text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
+        >
+          Rename
         </button>
       ) : null}
       {selectedTeam && onDeleteTeam ? (

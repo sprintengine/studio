@@ -343,12 +343,16 @@ async function buildSprintEngineMutationData(
   state: ValidSprintEngineStatePath,
   data: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
-  const projectionContent = await readFile(join(state.teamDirectory, 'projection.json'), 'utf8')
+  const projectionPath = join(state.teamDirectory, 'projection.json')
+  const projectionContent = await readFile(projectionPath, 'utf8')
+  const projectionStats = await stat(projectionPath)
+  const projectionToken = `${projectionStats.mtimeMs}:${projectionStats.size}`
   const toolEvents = collectSprintEngineEvents(data.tool)
   const latestEvent = toolEvents.at(-1) ?? await readLatestSprintEngineEvent(state)
   return {
     ...data,
     projectionContent,
+    projectionToken,
     ...(toolEvents.length > 0 ? { events: toolEvents } : {}),
     ...(latestEvent ? { latestEvent, latestEventId: latestEvent.id } : {}),
   }
@@ -404,7 +408,7 @@ function validateWorkspaceRoot(input: unknown): string {
 }
 
 function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: SerializableSprintEngineStatePayload): string[] {
-  const args = ['--state', state.statePath, 'init', '--goal', payload.goal || payload.name]
+  const args = ['--state', state.statePath, 'init', '--name', payload.name, '--goal', payload.goal || payload.name]
   if (payload.useWorktrees) {
     args.push('--use-worktrees', 'true')
   }

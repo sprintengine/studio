@@ -1042,6 +1042,7 @@ export type SprintEngineMutationEventMetadata = {
 
 export type SprintEngineMutationRefreshData = {
   projectionContent?: string
+  projectionToken?: string
   events?: SprintEngineMutationEventMetadata[]
   latestEvent?: SprintEngineMutationEventMetadata
   latestEventId?: string
@@ -1420,6 +1421,12 @@ export type WorkspaceBackupWriteResult = { ok: boolean; message?: string }
 
 export type ModuleEnablementOverrides = Record<string, boolean>
 export type ModuleEnablementWriteResult = { ok: boolean; message?: string }
+
+// Light/dark surface preference of the active app theme. The renderer resolves
+// its chosen theme to one of these and pushes it to main so spawned agent CLIs
+// can be launched matching the app's appearance (e.g. Claude Code's --settings
+// theme). Main keeps only the latest pushed value; the renderer owns the truth.
+export type ColorScheme = 'light' | 'dark'
 export type AppMenuAcceleratorUpdate = {
   commandId: string
   accelerator: string | null
@@ -1846,6 +1853,7 @@ export type ElectronApi = {
   workspaceBackupWrite: (payload: WorkspaceBackupPayload) => Promise<WorkspaceBackupWriteResult>
   workspaceBackupRead: () => Promise<WorkspaceBackupReadResult>
   setModuleEnablement: (overrides: ModuleEnablementOverrides) => Promise<ModuleEnablementWriteResult>
+  setColorScheme: (scheme: ColorScheme) => Promise<void>
   readBacklogObjectStore: (workspaceRoot: string) => Promise<BacklogReadResult>
   ensureBacklogObjectRecords: (workspaceRoot: string, items: BacklogItemRecordInput[]) => Promise<BacklogReadResult>
   updateBacklogStatus: (input: BacklogStatusInput) => Promise<BacklogMutationResult>

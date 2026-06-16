@@ -848,6 +848,9 @@ export interface SettingsSliceActions {
     roleCounts: SprintEngineRoleCounts
     roleCliDefaults: SprintEngineRoleCliDefaults
   }) => string
+  /** Rename a saved team in place. Leaves its roster (counts + CLI defaults)
+   *  untouched so renaming is orthogonal to saving roster edits. */
+  renameSprintEngineRosterTeam: (id: string, name: string) => void
   deleteSprintEngineRosterTeam: (id: string) => void
   setSprintEngineLastSelectedTeam: (id: string | null) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
@@ -1187,6 +1190,24 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         }
       })
       return id
+    },
+
+    renameSprintEngineRosterTeam: (id, name) => {
+      const teamId = id.trim()
+      const nextName = name.trim()
+      if (!teamId || !nextName) return
+      set((state) => {
+        const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
+        const teams = current.savedTeams ?? []
+        const index = teams.findIndex((team) => team.id === teamId)
+        if (index < 0) return
+        const updated = [...teams]
+        updated[index] = { ...updated[index], name: nextName, updatedAt: Date.now() }
+        state.appSettings.sprintEngineRoleSettings = {
+          ...current,
+          savedTeams: updated,
+        }
+      })
     },
 
     deleteSprintEngineRosterTeam: (id) =>

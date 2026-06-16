@@ -1,4 +1,4 @@
-import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset } from '../shared/electron-api'
+import type { AgentCli, CliRuntimeSettings, ColorScheme, SprintEngineCliPermissionPreset } from '../shared/electron-api'
 import type { LoadedPlugin, PluginRenderContext } from '../shared/plugin-manifest'
 
 import { getPluginById } from './plugin-registry-instance'
@@ -30,6 +30,10 @@ export type AgentLaunchRenderInput = {
   cliRuntime?: CliRuntimeSettings
   cliPermissionPreset?: SprintEngineCliPermissionPreset
   cliModel?: string
+  // Host light/dark scheme to launch the CLI matching the app surface. Consumed
+  // only by manifests declaring themeSelection (today: Claude Code); undefined
+  // leaves the CLI on its own configured theme.
+  colorScheme?: ColorScheme
 }
 
 export type RenderedAgentLaunch = {
@@ -57,6 +61,7 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
     prompt: input.initialPrompt,
     permissionPreset: input.cliPermissionPreset ?? 'default',
     model: input.cliModel,
+    colorScheme: input.colorScheme,
   }
 
   const rendered = input.resume

@@ -183,7 +183,7 @@ Sprint Engine - all run-store mutations go through here. Never edit run-store fi
 
 Entry points (CLI/human/headless compatibility; autonomous Multicode agents use MCP):
   sprintengine handover --name my-team --goal "..." --handover handover.md
-  sprintengine init [--goal "..."]                                # bootstraps the board; agents claim ready tasks separately
+  sprintengine init [--name "..."] [--goal "..."]                 # bootstraps the board; agents claim ready tasks separately
   sprintengine recover
   sprintengine projection
   sprintengine join --role developer --id developer-1 --watch
@@ -419,6 +419,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # init
     p = sub.add_parser("init", help="Bootstrap Sprint Engine run store and initial gates.")
+    p.add_argument("--name", help="Display name for the run; defaults to the team folder slug.")
     p.add_argument("--goal", help="Goal for the run.")
     p.add_argument("--agent", action="append", default=[], help="Selected roster member as role:id. Repeat for each specialist.")
     p.add_argument(

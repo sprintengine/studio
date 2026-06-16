@@ -67,21 +67,27 @@ import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind, workspaceRelativePath } from './newWorkspace/helpers'
 import type { CreationMode, ExistingTeam, GuidedBriefHasUi, ModeCardModel, SprintEnginePath } from './newWorkspace/types'
 import { stepsForMode, type StepId } from './newWorkspace/creationStepFlows'
+import { KnowledgeStep } from './newWorkspace/KnowledgeStep'
+import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
+import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { folderHintAutoSelectMode } from './newWorkspace/folderHintMode'
 import { CliPermissionPresetRow, PathRadio, RosterAndRunSettings } from './newWorkspace/WizardControls'
+import { pruneSprintEngineRoleCliDefaults, sprintEngineRosterMatchesTeam } from './newWorkspace/savedTeams'
 import { selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import {
   GuidedBriefScaffoldError,
   GuidedBriefStartBuildError,
   MultiloopControllerError,
+  SprintEngineNewTeamCreationError,
   SprintEnginePlanSourcedError,
+  buildSprintEngineEffectiveSpawnAtStartRoles,
   buildSprintEngineExistingTeamCreation,
-  buildSprintEngineNewTeamCreation,
   buildStandardCreation,
   buildSwitchboardCreation,
   runGuidedBriefScaffold,
   runGuidedBriefStartBuild,
   runMultiloopCreation,
+  runSprintEngineNewTeamCreation,
   runSprintEnginePlanSourcedCreation,
 } from './newWorkspace/controllers'
 import {
@@ -115,6 +121,10 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
   'skill-packs': {
     title: 'Pick skill packs',
     subtitle: 'Curated agent skills installed into this project on creation. Optional — skip and add later from Settings.',
+  },
+  knowledge: {
+    title: 'Connect a knowledge graph',
+    subtitle: 'Point new agents at a folder of project knowledge they should read. Optional — skip and set it later in Settings.',
   },
   'standard-layout': {
     title: 'Pick an IDE layout',
@@ -339,6 +349,8 @@ export default function NewWorkspacePanel({
     (s) => s.appSettings.recentWorkspaceFolders ?? [],
   )
   const workspaces = useWorkspaceStore((s) => s.workspaces)
+  const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots)
+  const setProjectKnowledgeRoot = useWorkspaceStore((s) => s.setProjectKnowledgeRoot)
   const lastSpawnPermissionPreset = useWorkspaceStore(
     (s) => s.appSettings.lastAgentSpawnPermissionPreset ?? 'default',
   )
@@ -347,6 +359,7 @@ export default function NewWorkspacePanel({
   )
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
   const saveSprintEngineRosterTeam = useWorkspaceStore((s) => s.saveSprintEngineRosterTeam)
+  const renameSprintEngineRosterTeam = useWorkspaceStore((s) => s.renameSprintEngineRosterTeam)
   const deleteSprintEngineRosterTeam = useWorkspaceStore((s) => s.deleteSprintEngineRosterTeam)
   const setSprintEngineLastSelectedTeam = useWorkspaceStore((s) => s.setSprintEngineLastSelectedTeam)
   const sprintEngineTeams = sprintEngineRoleSettings.savedTeams ?? []
@@ -368,6 +381,12 @@ export default function NewWorkspacePanel({
 
   const [mode, setMode] = useState<CreationMode>(initialMode)
   const [folderPath, setFolderPath] = useState<string | null>(initialFolderPath)
+  // Whether the knowledge step applies to the chosen folder, snapshotted when the
+  // folder is selected. Reading it live would let setting a knowledge folder (which
+  // configures the project) drop the step out from under the user mid-step.
+  const [knowledgeStepEligible, setKnowledgeStepEligible] = useState<boolean>(
+    () => shouldShowKnowledgeStep(initialFolderPath, projectKnowledgeRoots),
+  )
   const [name, setName] = useState(initialWorkspaceName)
   const [nameTouched, setNameTouched] = useState(false)
   const [layoutId, setLayoutId] = useState<string>(
@@ -636,9 +655,28 @@ export default function NewWorkspacePanel({
   const [step, setStep] = useState<StepId>(initialFuturePlan ? 'sprintengine-team' : 'workspace')
   const [direction, setDirection] = useState<'forward' | 'backward'>('forward')
 
-  const steps = stepsForMode(mode)
+  const steps = useMemo(() => {
+    const base = stepsForMode(mode)
+    return knowledgeStepEligible ? base : base.filter((id) => id !== 'knowledge')
+  }, [mode, knowledgeStepEligible])
   const stepIndex = Math.max(0, steps.indexOf(step))
   const isLastStep = stepIndex >= steps.length - 1
+
+  // Knowledge folder currently stored for the chosen project (case-preserved key,
+  // matching the project-keyed store), surfaced to the step and blocking copy.
+  const committedKnowledgeRoot = useMemo(() => {
+    const key = normalizeProjectRootKey(folderPath)
+    return key ? projectKnowledgeRoots?.[key] ?? null : null
+  }, [folderPath, projectKnowledgeRoots])
+  const handleCommitKnowledgeRoot = useCallback(
+    (relativeRoot: string | null) => {
+      if (folderPath) setProjectKnowledgeRoot(folderPath, relativeRoot)
+    },
+    [folderPath, setProjectKnowledgeRoot],
+  )
+  // Projects whose knowledge folder has been auto-applied, owned here so the value
+  // survives the knowledge step unmounting as the wizard navigates.
+  const knowledgeAutoAppliedRef = useRef<Set<string>>(new Set())
 
   const headingRef = useRef<HTMLHeadingElement | null>(null)
   const nameInputRef = useRef<HTMLInputElement | null>(null)
@@ -719,14 +757,14 @@ export default function NewWorkspacePanel({
     // rather than bouncing the user back to 'new'.
   }, [isSprintEngine, sePath, folderScan.result, folderScan.isScanning, sePlanPath])
 
-  // When mode changes, ensure the current step exists in the new mode's step list.
+  // When the step list changes (mode switch, or the knowledge step dropping out
+  // for an already-configured folder), keep the current step valid.
   useEffect(() => {
-    const list = stepsForMode(mode)
-    if (!list.includes(step)) {
-      const fallback = list.includes('mode') ? 'mode' : list[0]
+    if (!steps.includes(step)) {
+      const fallback = steps.includes('mode') ? 'mode' : steps[0]
       setStep(fallback as StepId)
     }
-  }, [mode, step])
+  }, [steps, step])
 
   // Move focus to the step heading and reset scroll on step change.
   useEffect(() => {
@@ -838,6 +876,7 @@ export default function NewWorkspacePanel({
     totalAgents,
     guidedIdea,
     guidedHasUi,
+    committedKnowledgeRoot,
   })
 
   const handleSelectMode = (next: CreationMode) => {
@@ -873,6 +912,7 @@ export default function NewWorkspacePanel({
   const handleSelectFolder = (dir: string) => {
     const folderName = basename(dir)
     setFolderPath(dir)
+    setKnowledgeStepEligible(shouldShowKnowledgeStep(dir, projectKnowledgeRoots))
     setSeExistingTeam(null)
     setSeAgentCliOverrides({})
     setSePlanPath('')
@@ -1056,13 +1096,13 @@ export default function NewWorkspacePanel({
   }
 
   const seEffectiveSpawnAtStartRoles = useMemo<Partial<Record<SprintEngineRoleId, boolean>>>(() => {
-    if (seAutomationMode !== 'run_agents_and_approve_artifacts') return seSpawnAtStartRoles
-    const next: Partial<Record<SprintEngineRoleId, boolean>> = { ...seSpawnAtStartRoles }
-    for (const [role, count] of Object.entries(visibleSprintEngineRoleCounts) as Array<[SprintEngineRoleId, number | undefined]>) {
-      if ((count ?? 0) > 0) next[role] = true
-    }
-    return next
-  }, [seAutomationMode, seSpawnAtStartRoles, visibleSprintEngineRoleCounts])
+    return buildSprintEngineEffectiveSpawnAtStartRoles({
+      automationMode: seAutomationMode,
+      existingTeam: seExistingTeam != null,
+      spawnAtStartRoles: seSpawnAtStartRoles,
+      visibleRoleCounts: visibleSprintEngineRoleCounts,
+    })
+  }, [seAutomationMode, seExistingTeam, seSpawnAtStartRoles, visibleSprintEngineRoleCounts])
 
   const seInitialSpawnRoles = useMemo(
     () => (Object.entries(seEffectiveSpawnAtStartRoles) as Array<[SprintEngineRoleId, boolean | undefined]>)
@@ -1126,18 +1166,26 @@ export default function NewWorkspacePanel({
     const id = saveSprintEngineRosterTeam({
       name,
       roleCounts: cloneSprintEngineRoleCounts(visibleSprintEngineRoleCounts),
-      roleCliDefaults: { ...seRoleCliDefaults },
+      roleCliDefaults: pruneSprintEngineRoleCliDefaults(visibleSprintEngineRoleCounts, seRoleCliDefaults),
     })
     if (id) setSeSelectedTeamId(id)
   }
 
+  // "Update" re-saves the current (edited) roster under the team's existing name.
   const handleUpdateSprintEngineTeam = (id: string, name: string) => {
     saveSprintEngineRosterTeam({
       id,
       name,
       roleCounts: cloneSprintEngineRoleCounts(visibleSprintEngineRoleCounts),
-      roleCliDefaults: { ...seRoleCliDefaults },
+      roleCliDefaults: pruneSprintEngineRoleCliDefaults(visibleSprintEngineRoleCounts, seRoleCliDefaults),
     })
+    setSeSelectedTeamId(id)
+  }
+
+  // "Rename" changes only the name, leaving the saved roster intact — so renaming
+  // never silently overwrites a team with the current (possibly edited) rows.
+  const handleRenameSprintEngineTeam = (id: string, name: string) => {
+    renameSprintEngineRosterTeam(id, name)
     setSeSelectedTeamId(id)
   }
 
@@ -1145,6 +1193,20 @@ export default function NewWorkspacePanel({
     deleteSprintEngineRosterTeam(id)
     if (seSelectedTeamId === id) setSeSelectedTeamId(null)
   }
+
+  // The saved team the roster was loaded from, and whether the current rows still
+  // match it. Drives the picker's truthful "edited" state (the rows no longer
+  // equal the named team) and gates the Update affordance.
+  const selectedSprintEngineTeam = useMemo(
+    () => (seSelectedTeamId ? sprintEngineTeams.find((team) => team.id === seSelectedTeamId) ?? null : null),
+    [seSelectedTeamId, sprintEngineTeams],
+  )
+  const selectedSprintEngineTeamDirty = useMemo(
+    () => (selectedSprintEngineTeam
+      ? !sprintEngineRosterMatchesTeam(selectedSprintEngineTeam, visibleSprintEngineRoleCounts, seRoleCliDefaults)
+      : false),
+    [selectedSprintEngineTeam, visibleSprintEngineRoleCounts, seRoleCliDefaults],
+  )
 
   const handleCreate = async () => {
     if (!sprintEngineRosterReady && mode === 'sprintengine') return
@@ -1375,24 +1437,43 @@ export default function NewWorkspacePanel({
         return
       }
 
-      const args = buildSprintEngineNewTeamCreation({
-        folderPath,
-        teamName: sprintEngineConfig.name,
-        goal: sprintEngineConfig.goal,
-        roleCounts: visibleSprintEngineRoleCounts,
-        visibleRoleCounts: visibleSprintEngineRoleCounts,
-        totalAgents,
-        roleCliDefaults: seRoleCliDefaults,
-        roleModelOverrides: seRoleModelOverrides,
-        initialSpawnRoles: seInitialSpawnRoles,
-        startRunner: seStartRunner,
-        autoApproveArtifacts: seAutoApproveArtifacts,
-        useWorktrees: seUseWorktrees,
-        cliPermissionPreset,
-      })
-      triggerSelectedSkillPackInstalls(folderPath)
-      onCreate(args)
-      persistLastPermissionPreset()
+      setIsCreating(true)
+      try {
+        const args = await runSprintEngineNewTeamCreation(
+          {
+            folderPath,
+            teamName: sprintEngineConfig.name,
+            goal: sprintEngineConfig.goal,
+            roleCounts: visibleSprintEngineRoleCounts,
+            visibleRoleCounts: visibleSprintEngineRoleCounts,
+            totalAgents,
+            roleCliDefaults: seRoleCliDefaults,
+            roleModelOverrides: seRoleModelOverrides,
+            initialSpawnRoles: seInitialSpawnRoles,
+            startRunner: seStartRunner,
+            autoApproveArtifacts: seAutoApproveArtifacts,
+            useWorktrees: seUseWorktrees,
+            cliPermissionPreset,
+          },
+          {
+            pathExists: window.api.pathExists,
+            initializeSprintEngineState: window.api.initializeSprintEngineState,
+          },
+        )
+        triggerSelectedSkillPackInstalls(folderPath)
+        onCreate(args)
+        persistLastPermissionPreset()
+      } catch (error) {
+        if (error instanceof SprintEngineNewTeamCreationError) {
+          setSePlanError(newTeamCreationErrorMessage(error))
+        } else {
+          setSePlanError(
+            error instanceof Error ? error.message : 'Could not create the Sprint Engine workspace.',
+          )
+        }
+      } finally {
+        setIsCreating(false)
+      }
       return
     }
 
@@ -1671,6 +1752,15 @@ export default function NewWorkspacePanel({
             />
           ) : null}
 
+          {step === 'knowledge' && folderPath ? (
+            <KnowledgeStep
+              projectRoot={folderPath}
+              committedRelativeRoot={committedKnowledgeRoot}
+              onCommit={handleCommitKnowledgeRoot}
+              autoApplyGuard={knowledgeAutoAppliedRef}
+            />
+          ) : null}
+
           {step === 'standard-layout' ? (
             <StandardLayoutStep
               layoutId={layoutId}
@@ -1806,7 +1896,7 @@ export default function NewWorkspacePanel({
               roleModelOverrides={seRoleModelOverrides}
               onSetRoleModel={setRoleModel}
               spawnAtStartRoles={seEffectiveSpawnAtStartRoles}
-              spawnAtStartLocked={seAutomationMode === 'run_agents_and_approve_artifacts'}
+              spawnAtStartLocked={false}
               onSetRoleSpawnAtStart={setRoleSpawnAtStart}
               automationMode={seAutomationMode}
               onChangeAutomationMode={setSeAutomationMode}
@@ -1821,9 +1911,11 @@ export default function NewWorkspacePanel({
               createError={sePlanError}
               teams={sprintEngineTeams}
               selectedTeamId={seSelectedTeamId}
+              selectedTeamDirty={selectedSprintEngineTeamDirty}
               onSelectTeam={handleSelectSprintEngineTeam}
               onSaveTeam={handleSaveSprintEngineTeam}
               onUpdateTeam={handleUpdateSprintEngineTeam}
+              onRenameTeam={handleRenameSprintEngineTeam}
               onDeleteTeam={handleDeleteSprintEngineTeam}
             />
           ) : null}
@@ -3142,9 +3234,11 @@ function SprintEngineRosterStep(props: {
   createError: string | null
   teams: SprintEngineRosterTeam[]
   selectedTeamId: string | null
+  selectedTeamDirty: boolean
   onSelectTeam: (id: string | null) => void
   onSaveTeam: (name: string) => void
   onUpdateTeam: (id: string, name: string) => void
+  onRenameTeam: (id: string, name: string) => void
   onDeleteTeam: (id: string) => void
 }) {
   const {
@@ -3177,9 +3271,11 @@ function SprintEngineRosterStep(props: {
     createError,
     teams,
     selectedTeamId,
+    selectedTeamDirty,
     onSelectTeam,
     onSaveTeam,
     onUpdateTeam,
+    onRenameTeam,
     onDeleteTeam,
   } = props
 
@@ -3220,9 +3316,11 @@ function SprintEngineRosterStep(props: {
         rosterCountLabel={registryStatus === 'loading' ? 'Loading roles' : undefined}
         teams={teams}
         selectedTeamId={selectedTeamId}
+        selectedTeamDirty={selectedTeamDirty}
         onSelectTeam={onSelectTeam}
         onSaveTeam={onSaveTeam}
         onUpdateTeam={onUpdateTeam}
+        onRenameTeam={onRenameTeam}
         onDeleteTeam={onDeleteTeam}
         automationMode={automationMode}
         onChangeAutomationMode={onChangeAutomationMode}
@@ -3250,6 +3348,25 @@ function planSourcedErrorMessage(error: SprintEnginePlanSourcedError): string {
       return 'Selected source file is not available.'
     case 'team-exists':
       return 'A Sprint Engine team with this name already exists.'
+    case 'unknown':
+      return error.message && error.message !== error.code
+        ? error.message
+        : 'Could not create the Sprint Engine workspace.'
+  }
+}
+
+function newTeamCreationErrorMessage(error: SprintEngineNewTeamCreationError): string {
+  switch (error.code) {
+    case 'missing-folder':
+      return 'Pick a folder before creating the Sprint Engine workspace.'
+    case 'team-exists':
+      return 'A Sprint Engine team with this name already exists.'
+    case 'init-failed':
+      return error.message && error.message !== error.code
+        ? error.message
+        : 'Could not initialize the Sprint Engine run state.'
+    case 'invalid-projection':
+      return 'Sprint Engine initialized but did not return a readable run projection.'
     case 'unknown':
       return error.message && error.message !== error.code
         ? error.message
@@ -3320,6 +3437,8 @@ function isStepReady(
       return true
     case 'skill-packs':
       return true
+    case 'knowledge':
+      return true
     case 'standard-layout':
       return readiness.standardLayoutStepReady
     case 'multiloop-goal':
@@ -3347,6 +3466,7 @@ function getStepBlockingMessage(args: {
   totalAgents: number
   guidedIdea: string
   guidedHasUi: GuidedBriefHasUi | null
+  committedKnowledgeRoot: string | null
 }): string {
   const {
     step,
@@ -3362,6 +3482,7 @@ function getStepBlockingMessage(args: {
     totalAgents,
     guidedIdea,
     guidedHasUi,
+    committedKnowledgeRoot,
   } = args
 
   switch (step) {
@@ -3376,6 +3497,10 @@ function getStepBlockingMessage(args: {
       return 'Pick MCP servers, or skip to add them later from Settings.'
     case 'skill-packs':
       return 'Pick skill packs, or skip to add them later from Settings.'
+    case 'knowledge':
+      return committedKnowledgeRoot
+        ? `Knowledge folder: ${committedKnowledgeRoot} — continue, or change it.`
+        : 'Pick a knowledge folder, or skip to set it later in Settings.'
     case 'standard-layout':
       return 'Pick a layout, then create.'
     case 'multiloop-goal':

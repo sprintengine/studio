@@ -19,6 +19,8 @@ import {
   deriveWorkspaceLastOutputAt,
   deriveWorkspaceTerminalActivity,
   getTerminalSessionsSignature,
+  refreshTerminalSessions,
+  subscribeLiveTerminalSessionSnapshots,
 } from '../../hooks/useTerminalSessions'
 import { useAppTheme } from '../../hooks/useAppTheme'
 import { useAutomationRequests } from '../../hooks/useAutomationRequests'
@@ -955,12 +957,7 @@ export default function WorkspaceManager() {
       setTerminalSessions(sessions)
     }
 
-    const refreshTerminalSessions = async () => {
-      applyTerminalSessions(await window.api.terminalList())
-    }
-
-    void refreshTerminalSessions().catch(() => {})
-    const unsubscribe = window.api.onTerminalSessionsChanged(applyTerminalSessions)
+    const unsubscribe = subscribeLiveTerminalSessionSnapshots(applyTerminalSessions)
     const interval = window.setInterval(() => {
       void refreshTerminalSessions().catch(() => {})
     }, TERMINAL_SESSION_RECOVERY_POLL_MS)

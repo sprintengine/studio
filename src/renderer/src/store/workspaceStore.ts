@@ -214,6 +214,7 @@ export interface WorkspaceStore extends PluginsSlice {
     roleCounts: SprintEngineRoleCounts
     roleCliDefaults: SprintEngineRoleCliDefaults
   }) => string
+  renameSprintEngineRosterTeam: (id: string, name: string) => void
   deleteSprintEngineRosterTeam: (id: string) => void
   setSprintEngineLastSelectedTeam: (id: string | null) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
@@ -321,7 +322,7 @@ export interface WorkspaceStore extends PluginsSlice {
     workspaceId: WorkspaceId,
     role: SprintEngineRoleId
   ) => { id: AgentId; label: string } | null
-  consumeSprintEngineInitialSpawns: (workspaceId: WorkspaceId) => AgentId[]
+  consumeSprintEngineInitialSpawns: (workspaceId: WorkspaceId, agentIds?: AgentId[]) => AgentId[]
   appendStream: (workspaceId: WorkspaceId, agentId: AgentId, chunk: string) => void
   commitStream: (workspaceId: WorkspaceId, agentId: AgentId) => void
   importWorkspace: (ws: Workspace) => void

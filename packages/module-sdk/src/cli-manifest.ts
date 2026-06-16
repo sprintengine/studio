@@ -109,6 +109,14 @@ export type CliModelSelectionSpec = {
   allowCustomId?: boolean
 }
 
+// Declares that the CLI can be launched matching the host's light/dark color
+// scheme. `args` are substituted templates spread into launch/resume argv as
+// `themeArgs`, with `{{colorScheme}}` resolving to 'light' or 'dark'
+// (e.g. ["--settings", "{\"theme\":\"{{colorScheme}}\"}"]).
+export type CliThemeSelectionSpec = {
+  args: string[]
+}
+
 export type CliSkillSupport = 'native' | 'prompt-shim' | 'unsupported'
 export type CliSkillInstallScope = 'workspace' | 'user'
 export type CliSkillFormat = 'agent-skills-v1' | 'claude-code' | 'codex' | 'opencode' | 'generic'
@@ -162,6 +170,7 @@ export type CliPluginManifest = {
   capabilities: CliCapabilities
   souls?: CliSoulsSpec
   modelSelection?: CliModelSelectionSpec
+  themeSelection?: CliThemeSelectionSpec
   skillIntegration?: CliSkillIntegration
 }
 
@@ -232,6 +241,7 @@ export function validateCliPluginManifest(value: unknown): CliManifestResult {
   if (value.variables !== undefined) validateVariables(value.variables, issues)
   if (value.souls !== undefined) validateSouls(value.souls, issues)
   if (value.modelSelection !== undefined) validateModelSelection(value.modelSelection, issues)
+  if (value.themeSelection !== undefined) validateThemeSelection(value.themeSelection, issues)
   if (value.skillIntegration !== undefined) validateSkillIntegration(value.skillIntegration, issues)
 
   if (issues.length > 0) return { ok: false, issues }
@@ -409,6 +419,16 @@ function validateCapabilities(value: unknown, issues: CliManifestIssue[]): void 
   }
   if (value.chatHistoryFile !== undefined && typeof value.chatHistoryFile !== 'string') {
     issues.push({ path: 'capabilities.chatHistoryFile', message: 'chatHistoryFile must be a string when present.' })
+  }
+}
+
+function validateThemeSelection(value: unknown, issues: CliManifestIssue[]): void {
+  if (!isObject(value)) {
+    issues.push({ path: 'themeSelection', message: 'themeSelection must be an object when present.' })
+    return
+  }
+  if (!Array.isArray(value.args) || value.args.length === 0 || value.args.some((arg) => typeof arg !== 'string')) {
+    issues.push({ path: 'themeSelection.args', message: 'themeSelection.args must be a non-empty array of string templates.' })
   }
 }
 

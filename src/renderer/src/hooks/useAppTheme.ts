@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useWorkspaceStore } from '../store/workspaceStore'
-import type { AppTheme, ResolvedAppTheme } from '../types/appTheme'
+import { colorSchemeForResolvedTheme, type AppTheme, type ResolvedAppTheme } from '../types/appTheme'
 
 export type { ResolvedAppTheme }
 
@@ -21,6 +21,10 @@ export function resolveTheme(theme: AppTheme): ResolvedAppTheme {
 function applyTheme(resolved: ResolvedAppTheme): void {
   if (typeof document === 'undefined') return
   document.documentElement.setAttribute('data-theme', resolved)
+  // Mirror the resolved light/dark scheme to main so newly-spawned agent CLIs
+  // launch matching the app surface (e.g. Claude Code's --settings theme).
+  // Best-effort: the API is absent in non-Electron/test contexts.
+  void window.api?.setColorScheme?.(colorSchemeForResolvedTheme(resolved))
 }
 
 // Drives the <html data-theme="…"> attribute from the persisted preference.

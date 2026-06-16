@@ -33,10 +33,14 @@
             theme = mql && mql.matches ? 'light' : 'dark'
           }
           document.documentElement.setAttribute('data-theme', theme)
-          // Paint the ink-scale background immediately (before the bundled CSS
-          // loads) so first launch never flashes white. The exact per-theme bg
-          // takes over once index.css applies; this is just the pre-paint guard.
-          document.documentElement.style.backgroundColor = theme === 'light' ? '#f6f6f4' : '#08090b'
+          // Paint the canvas background immediately (before the bundled CSS
+          // loads) so first launch never flashes the wrong scale. The exact
+          // per-theme bg takes over once index.css applies; this is just the
+          // pre-paint guard. Light-surface themes each pre-paint their own warm
+          // or cool canvas so a light theme never flashes the dark ink scale;
+          // everything else falls through to the dark ink scale.
+          var prePaint = { light: '#f6f6f4', vellum: '#e8e0d0' }
+          document.documentElement.style.backgroundColor = prePaint[theme] || '#08090b'
         } catch (e) {
           document.documentElement.setAttribute('data-theme', 'dark')
           document.documentElement.style.backgroundColor = '#08090b'

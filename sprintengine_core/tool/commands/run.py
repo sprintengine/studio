@@ -237,7 +237,8 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
 
 def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
     state_path = args.state
-    default_name = default_swarm_name_for_state(state_path)
+    requested_name = (getattr(args, "name", None) or "").strip()
+    default_name = requested_name or default_swarm_name_for_state(state_path)
     initial_state: Optional[Dict[str, Any]] = None
     if not state_path.exists():
         state_path.parent.mkdir(parents=True, exist_ok=True)

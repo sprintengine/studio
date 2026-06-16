@@ -368,6 +368,38 @@ assert.equal(
   undefined,
 )
 
+const partialLaunchIntentState = createInitialSprintEngineState({
+  name: 'Partial Launch Intent Team',
+  goal: 'Launch safe roles first.',
+  roleCounts: { architect: 1, developer: 1, tester: 1 },
+})
+const partialLaunchIntentId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Partial Launch Intent Team',
+  folderPath: '/Users/example/partial-launch-intent',
+  sprintEngineState: partialLaunchIntentState,
+  sprintEngineRoleCliDefaults: {
+    architect: 'claude-code',
+    developer: 'claude-code',
+    tester: 'claude-code',
+  },
+  sprintEngineInitialSpawnRoles: ['architect', 'developer', 'tester'],
+})
+const partialConsumed = useWorkspaceStore
+  .getState()
+  .consumeSprintEngineInitialSpawns(partialLaunchIntentId, ['architect'])
+assert.deepEqual(partialConsumed, ['architect'])
+assert.deepEqual(
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === partialLaunchIntentId)
+    ?.sprintEngineInitialSpawnAgentIds,
+  ['developer-1', 'tester'],
+  'partial consumption preserves initial spawn intent for roles not safe to launch yet',
+)
+assert.deepEqual(
+  useWorkspaceStore.getState().consumeSprintEngineInitialSpawns(partialLaunchIntentId),
+  ['developer-1', 'tester'],
+  'unfiltered consumption still clears all remaining launch intent for legacy callers',
+)
+
 // A second workspace in the same folder inserts directly above the first
 // (top of that folder's block), not at the global head and not at the tail.
 const blockFolder = '/Users/example/insert-order'

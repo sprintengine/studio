@@ -12,6 +12,7 @@ export type {
   MultiloopInitializeStatePort,
   SprintEngineExistingTeamInput,
   SprintEngineNewTeamInput,
+  SprintEngineNewTeamPorts,
   SprintEnginePlanSourcedInput,
   SprintEnginePlanSourcedPorts,
 } from './types'
@@ -26,8 +27,11 @@ export {
   MultiloopControllerError,
 } from './multiloopController'
 export {
+  buildSprintEngineEffectiveSpawnAtStartRoles,
   buildSprintEngineExistingTeamCreation,
   buildSprintEngineNewTeamCreation,
+  runSprintEngineNewTeamCreation,
+  SprintEngineNewTeamCreationError,
   runSprintEnginePlanSourcedCreation,
   SprintEnginePlanSourcedError,
 } from './sprintEngineController'

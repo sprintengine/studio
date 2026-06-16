@@ -2,6 +2,7 @@ import { contextBridge } from 'electron'
 import type { ElectronApi } from '../shared/electron-api'
 import { instrumentApi, snapshotIpcStats } from './ipcStats'
 import { appMenuApi } from './api/app-menu'
+import { appearanceApi } from './api/appearance'
 import { authApi } from './api/auth'
 import { automationApi } from './api/automation'
 import { backlogApi } from './api/backlog'
@@ -38,6 +39,7 @@ const api = {
   isDiagnosticsEnabled: process.env.MULTICODE_DIAGNOSTICS === '1',
   diagnosticsGetIpcStats: snapshotIpcStats,
   ...windowApi,
+  ...appearanceApi,
   ...authApi,
   ...automationApi,
   ...backlogApi,

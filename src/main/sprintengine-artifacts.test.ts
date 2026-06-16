@@ -22,6 +22,7 @@ async function main(): Promise<void> {
   await testReadRegistryRolesUsesRealMcpBridgeForBundledAndCustomRoles()
   await testReadRegistryRoleSurfacesUnknownRole()
   await testReadDispatchUsesMcpTool()
+  await testInitializeSprintEngineStatePreservesDisplayName()
   await testRunnerModeCliInvocationUsesSprintEngineTool()
   await testRosterAddCliInvocationUsesSprintEngineTool()
   await testReadBridgeSurfacesUnavailableMcpAndMalformedPayloads()
@@ -509,6 +510,37 @@ async function testRunnerModeCliInvocationUsesSprintEngineTool(): Promise<void> 
 
     const runYaml = await readFile(statePath, 'utf-8')
     assert.match(runYaml, /cliWatchPolling:\s+enabled/u)
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+async function testInitializeSprintEngineStatePreservesDisplayName(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-init-name-'))
+  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'ship-squad', 'run.yaml')
+  const handlers = createHandlers(async () => {
+    throw new Error('init must use the Sprint Engine CLI bridge')
+  })
+
+  try {
+    const init = await handlers.initializeSprintEngineState({
+      statePath,
+      name: 'Ship Squad',
+      goal: 'Ship the things',
+      agents: {
+        architect: { role: 'architect' },
+        product: { role: 'product' },
+      },
+    })
+    assert.equal(init.ok, true, init.ok ? undefined : init.message)
+    if (!init.ok) return
+
+    const runYaml = await readFile(statePath, 'utf-8')
+    assert.match(runYaml, /name:\s+Ship Squad/u)
+    assert.equal(typeof init.data.projectionToken, 'string')
+
+    const projection = JSON.parse(String(init.data?.projectionContent ?? '{}')) as { run?: { name?: string } }
+    assert.equal(projection.run?.name, 'Ship Squad')
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
   }

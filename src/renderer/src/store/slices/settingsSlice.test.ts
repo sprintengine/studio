@@ -602,6 +602,31 @@ assert.equal(
   'a blank team name is rejected',
 )
 
+// Renaming changes only the name, leaving the saved roster untouched.
+teamStore.renameSprintEngineRosterTeam(lightweightId, '  Featherweight  ')
+const afterRename = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
+const renamedTeam = afterRename.savedTeams?.find((team) => team.id === lightweightId)
+assert.equal(renamedTeam?.name, 'Featherweight', 'rename trims and applies the new name')
+assert.deepEqual(
+  renamedTeam?.roleCounts,
+  { architect: 1, developer: 2 },
+  'rename leaves the saved roster counts intact',
+)
+// A blank rename and an unknown id are no-ops rather than throwing or clearing.
+teamStore.renameSprintEngineRosterTeam(lightweightId, '   ')
+assert.equal(
+  useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.savedTeams
+    ?.find((team) => team.id === lightweightId)?.name,
+  'Featherweight',
+  'a blank rename is ignored',
+)
+teamStore.renameSprintEngineRosterTeam('does-not-exist', 'Ghost')
+assert.ok(
+  !useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.savedTeams
+    ?.some((team) => team.name === 'Ghost'),
+  'renaming an unknown id is a no-op',
+)
+
 // Deleting the selected team clears the selection.
 teamStore.deleteSprintEngineRosterTeam(lightweightId)
 const afterDelete = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings

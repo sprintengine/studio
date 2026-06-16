@@ -137,6 +137,13 @@ export type SprintEngineNewTeamInput = {
   workspaceWindowId?: WorkspaceWindowId | null
 }
 
+export type SprintEngineNewTeamPorts = {
+  pathExists?: PathExists
+  initializeSprintEngineState: (
+    input: SprintEngineStateInitializeInput
+  ) => Promise<SprintEngineArtifactCommandResult>
+}
+
 export type SprintEnginePlanSourcedInput = {
   folderPath: string | null
   teamName: string

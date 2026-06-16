@@ -91,6 +91,22 @@ function buildVariableScope(
     scope.set('modelArgs', [])
   }
 
+  // `themeArgs` mirrors `modelArgs`: spread into argv via { spreadIf: "themeArgs" }.
+  // Rendered only when the host reported a color scheme AND the manifest declares
+  // themeSelection; otherwise empty, so a CLI without theme support — or before
+  // the renderer has pushed a scheme — keeps its own configured theme.
+  const colorScheme = context.colorScheme?.trim()
+  const themeArgTemplates = manifest.themeSelection?.args
+  if (colorScheme && themeArgTemplates && themeArgTemplates.length > 0) {
+    scope.set('colorScheme', colorScheme)
+    scope.set(
+      'themeArgs',
+      themeArgTemplates.map((template) => substituteString(template, scope))
+    )
+  } else {
+    scope.set('themeArgs', [])
+  }
+
   return scope
 }
 

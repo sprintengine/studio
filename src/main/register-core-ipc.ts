@@ -1,4 +1,5 @@
 import type { IpcMain } from 'electron'
+import { registerAppearanceIpc } from './ipc/appearance-ipc'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerAutomationIpc } from './ipc/automation-ipc'
 import { registerAppMenuIpc } from './app-menu'
@@ -86,6 +87,7 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
   registerGitHubTokenIpc(ipcMain, services.githubTokenStore)
   registerMenuDialogIpc(ipcMain)
   registerModuleEnablementIpc(ipcMain)
+  registerAppearanceIpc(ipcMain)
   registerPluginIpc(ipcMain)
   registerConversationIpc(ipcMain)
   registerSprintEngineRoleRegistryIpc(ipcMain)

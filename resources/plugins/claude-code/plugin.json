@@ -29,11 +29,15 @@
     ],
     "allowCustomId": true
   },
+  "themeSelection": {
+    "args": ["--settings", "{\"theme\":\"{{colorScheme}}\"}"]
+  },
   "launch": {
     "argv": [
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
       { "spreadIf": "modelArgs" },
+      { "spreadIf": "themeArgs" },
       "--session-id",
       "{{sessionId}}",
       { "valueIf": "prompt", "value": "{{prompt}}" }
@@ -44,6 +48,7 @@
     "argv": [
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
+      { "spreadIf": "themeArgs" },
       "--resume",
       "{{sessionId}}",
       { "valueIf": "prompt", "value": "{{prompt}}" }

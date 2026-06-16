@@ -352,6 +352,7 @@ async function findRunningAgentSession(
 function applyAutoApprovalProjectionContent(
   workspace: Workspace,
   projectionContent: unknown,
+  projectionToken: unknown,
   projectionTokensByWorkspace: MutableRefObject<Map<string, string>>
 ): SprintEngineState | null {
   if (typeof projectionContent !== 'string') return null
@@ -361,12 +362,15 @@ function applyAutoApprovalProjectionContent(
     const parsedState = normalizeSprintEngineProjection(projection, workspace.sprintEngineContext.teamSlug)
     if (!parsedState) return null
     useWorkspaceStore.getState().setSprintEngineState(workspace.id, parsedState)
-    // We applied this projection content out-of-band (from the mutation result,
-    // not a disk read), so we don't know the file's current change token. Drop
-    // any stale token so the next poll re-reads from disk and records the
-    // authoritative one. The mutation already wrote the file, so that read is a
-    // single, self-correcting re-sync rather than a redundant re-apply loop.
-    projectionTokensByWorkspace.current.delete(workspace.id)
+    // We applied this projection out-of-band from the mutation result, so keep
+    // the projection watcher aligned when the bridge provides the same mtime:size
+    // token as readSprintEngineProjection. Older/malformed mutation payloads fall
+    // back to one forced disk refresh on the next tick.
+    if (typeof projectionToken === 'string' && projectionToken.trim()) {
+      projectionTokensByWorkspace.current.set(workspace.id, projectionToken)
+    } else {
+      projectionTokensByWorkspace.current.delete(workspace.id)
+    }
     return parsedState
   } catch {
     return null
@@ -450,7 +454,8 @@ export async function sendApprovalToNextEligibleArtifactProducer(
     }
 
     const projectionContent = (result.data as { projectionContent?: unknown } | undefined)?.projectionContent
-    const appliedState = applyAutoApprovalProjectionContent(workspace, projectionContent, projectionTokensByWorkspace)
+    const projectionToken = (result.data as { projectionToken?: unknown } | undefined)?.projectionToken
+    const appliedState = applyAutoApprovalProjectionContent(workspace, projectionContent, projectionToken, projectionTokensByWorkspace)
     if (!appliedState) {
       const refreshedState = await refreshAutoWorkspaceState(workspace, projectionTokensByWorkspace, { force: true })
       if (!refreshedState) {

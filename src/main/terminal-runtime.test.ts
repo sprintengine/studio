@@ -100,6 +100,8 @@ async function main(): Promise<void> {
   try {
     const runtimeModule = require('./terminal-runtime') as RuntimeModule
     await assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModule)
+    await assertStandardAgentSpawnKeepsEnabledOptionalMcpSettings(runtimeModule)
+    await assertSprintEngineSpawnDisablesOptionalMcpSettings(runtimeModule)
     await assertWorktreeSpawnRegistersProjectRootNotWorktreeCwd(runtimeModule)
     assertRegistrationRootDerivation(runtimeModule)
     await assertSprintEngineSpawnReportsSyncFailureWithoutPtySpawn(runtimeModule)
@@ -897,6 +899,104 @@ async function assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModul
   }
 }
 
+async function assertStandardAgentSpawnKeepsEnabledOptionalMcpSettings(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-standard-mcp-'))
+  const syncInputs: SyncInput[] = []
+  const mcpSettings = createOptionalMcpSettings()
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (input): Promise<SyncResult> => {
+      syncInputs.push(input)
+      return { ok: true }
+    },
+  })
+
+  try {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_standard_optional_mcp',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      mcpSettings,
+    })
+
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.equal(syncInputs.length, 1)
+    assert.deepEqual(syncInputs[0]?.settings, mcpSettings)
+    assert.equal(syncInputs[0]?.managedSprintEngine, undefined)
+    assert.equal(syncInputs[0]?.settings.servers.playwright?.enabled, true)
+    assert.equal(mockPty.spawnCalls.length, 1)
+  } finally {
+    await runtime.shutdown()
+  }
+}
+
+async function assertSprintEngineSpawnDisablesOptionalMcpSettings(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprint-mcp-filter-'))
+  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const syncInputs: SyncInput[] = []
+  const mcpSettings = createOptionalMcpSettings()
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (input): Promise<SyncResult> => {
+      syncInputs.push(input)
+      return {
+        ok: true,
+        managedSprintEngineRunId: 'registered-run-filtered-mcp',
+        runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'filtered-run-token' },
+      }
+    },
+    releaseManagedSprintEngineRun: async () => undefined,
+  })
+
+  try {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_sprint_optional_mcp',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      sprintEngineStatePath,
+      agentId: 'reviewer-1',
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      mcpSettings,
+    })
+
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.equal(syncInputs.length, 1)
+    assert.deepEqual(syncInputs[0]?.clients, ['claude-code'])
+    assert.equal(syncInputs[0]?.settings.syncEnabled, false)
+    assert.equal(syncInputs[0]?.settings.servers.playwright?.enabled, false)
+    assert.equal(syncInputs[0]?.settings.servers.github?.enabled, false)
+    assert.deepEqual(syncInputs[0]?.settings.servers.playwright?.clients, ['codex', 'claude-code'])
+    assert.equal(mcpSettings.servers.playwright?.enabled, true, 'launch filtering must not mutate app MCP settings')
+    assert.equal(syncInputs[0]?.managedSprintEngine?.statePath, sprintEngineStatePath)
+    assert.equal(syncInputs[0]?.managedSprintEngine?.agentId, 'reviewer-1')
+    assert.equal(syncInputs[0]?.managedSprintEngine?.cli, 'claude-code')
+    assert.equal(mockPty.spawnCalls.length, 1)
+    assert.equal(
+      (mockPty.spawnCalls[0]?.options.env as Record<string, string> | undefined)?.[MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR],
+      'filtered-run-token'
+    )
+  } finally {
+    await runtime.shutdown()
+  }
+}
+
 async function assertSprintEngineSpawnReportsSyncFailureWithoutPtySpawn(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-failure-'))
   const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
@@ -996,6 +1096,37 @@ async function assertSprintEngineSpawnDerivesFallbackAgentIdBeforeMcpSync(runtim
     )
   } finally {
     await runtime.shutdown()
+  }
+}
+
+function createOptionalMcpSettings(): McpSettings {
+  return {
+    syncEnabled: true,
+    servers: {
+      playwright: {
+        id: 'playwright',
+        name: 'Playwright',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@playwright/mcp@latest'],
+        enabled: true,
+        clients: ['codex', 'claude-code'],
+        scope: 'workspace',
+        source: 'bundled',
+        riskLevel: 'local-command',
+      },
+      github: {
+        id: 'github',
+        name: 'GitHub',
+        transport: 'http',
+        url: 'https://api.githubcopilot.com/mcp/',
+        enabled: true,
+        clients: ['claude-code'],
+        scope: 'workspace',
+        source: 'custom',
+        riskLevel: 'network',
+      },
+    },
   }
 }
 

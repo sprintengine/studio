@@ -8,6 +8,7 @@ export type StepId =
   | 'mode'
   | 'mcp-servers'
   | 'skill-packs'
+  | 'knowledge'
   | 'standard-layout'
   | 'multiloop-goal'
   | 'sprintengine-team'
@@ -20,12 +21,18 @@ export type StepId =
 // missing or names an unknown flow.
 export type CreationStepsId = 'standard' | 'switchboard' | 'multiloop' | 'sprintengine' | 'guided-brief'
 
+// The 'knowledge' step (point new agents at a knowledge-graph folder) sits with
+// the other per-project setup steps after 'skill-packs'. It is conditional, not
+// universal: NewWorkspacePanel drops it for a folder whose project already has a
+// configured/inherited knowledge root (see shouldShowKnowledgeStep), so existing
+// projects don't re-prompt while new ones get the picker — including first-run
+// onboarding, whose workspace step is this same panel.
 export const STEPS_BY_MODE: Record<CreationStepsId, StepId[]> = {
-  standard: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'standard-layout'],
-  switchboard: ['workspace', 'mode', 'mcp-servers', 'skill-packs'],
-  multiloop: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'multiloop-goal'],
-  sprintengine: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'sprintengine-team', 'sprintengine-roster'],
-  'guided-brief': ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'guided-idea'],
+  standard: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge', 'standard-layout'],
+  switchboard: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge'],
+  multiloop: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge', 'multiloop-goal'],
+  sprintengine: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge', 'sprintengine-team', 'sprintengine-roster'],
+  'guided-brief': ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge', 'guided-idea'],
 }
 
 function isCreationStepsId(value: string | undefined): value is CreationStepsId {

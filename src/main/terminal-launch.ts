@@ -5,6 +5,7 @@ import { join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
 import { buildAgentShellCommand, pluginIdForCli, renderAgentLaunchArgv, resolveCliRuntimeSettings } from './agent-launch-render'
 import { withMulticodeCliPath } from './cli-install'
+import { getColorScheme } from './color-scheme-store'
 import { ensureManagedRuntimeShims, getManagedPython, withManagedRuntimePath } from './managed-runtime'
 
 export type ShellLaunchConfig = {
@@ -727,6 +728,7 @@ function buildNativeAgentLaunchPowerShellScript(
     cliRuntime,
     cliPermissionPreset,
     cliModel,
+    colorScheme: getColorScheme(),
   })
   // argv[0] is the binary; the remainder are the arguments PowerShell needs
   // to base64-encode for round-trip safety through nested quoting layers.
@@ -801,5 +803,6 @@ function buildAgentLaunchCommand(
     cliRuntime,
     cliPermissionPreset,
     cliModel,
+    colorScheme: getColorScheme(),
   })
 }

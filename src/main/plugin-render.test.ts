@@ -43,6 +43,9 @@ async function main(): Promise<void> {
   testModelArgsSpread()
   testModelIgnoredWithoutModelSelection()
   testModelArgsOnResume()
+  testThemeArgsSpread()
+  testThemeIgnoredWithoutThemeSelection()
+  testThemeArgsOnResume()
 
   console.log('plugin-render tests passed')
 }
@@ -302,6 +305,48 @@ function testModelArgsOnResume(): void {
   })
   const resumed = renderPluginResume(manifest, { model: 'gpt-5-codex' })
   assert.deepEqual(resumed?.argv, ['test', 'resume', '-m', 'gpt-5-codex'])
+}
+
+function testThemeArgsSpread(): void {
+  const manifest = baseManifest({
+    themeSelection: { args: ['--settings', '{"theme":"{{colorScheme}}"}'] },
+    launch: {
+      argv: ['{{binary}}', { spreadIf: 'themeArgs' }, '--session-id', '{{sessionId}}'],
+    },
+  })
+
+  const light = renderPluginLaunch(manifest, { sessionId: 'exec_1', colorScheme: 'light' })
+  assert.deepEqual(light.argv, ['test', '--settings', '{"theme":"light"}', '--session-id', 'exec_1'])
+
+  const dark = renderPluginLaunch(manifest, { sessionId: 'exec_2', colorScheme: 'dark' })
+  assert.deepEqual(dark.argv, ['test', '--settings', '{"theme":"dark"}', '--session-id', 'exec_2'])
+
+  // No scheme reported (renderer hasn't pushed yet) → CLI keeps its own theme.
+  const none = renderPluginLaunch(manifest, { sessionId: 'exec_3' })
+  assert.deepEqual(none.argv, ['test', '--session-id', 'exec_3'])
+}
+
+function testThemeIgnoredWithoutThemeSelection(): void {
+  // A scheme against a plugin that declares no themeSelection must never leak
+  // into argv (other CLIs don't take --settings theme).
+  const manifest = baseManifest({
+    launch: { argv: ['{{binary}}', { spreadIf: 'themeArgs' }, '--session-id', '{{sessionId}}'] },
+  })
+  const out = renderPluginLaunch(manifest, { sessionId: 'exec_1', colorScheme: 'light' })
+  assert.deepEqual(out.argv, ['test', '--session-id', 'exec_1'])
+}
+
+function testThemeArgsOnResume(): void {
+  const manifest = baseManifest({
+    themeSelection: { args: ['--settings', '{"theme":"{{colorScheme}}"}'] },
+    launch: { argv: ['{{binary}}'] },
+    resume: {
+      supported: true,
+      argv: ['{{binary}}', { spreadIf: 'themeArgs' }, '--resume', '{{sessionId}}'],
+    },
+  })
+  const resumed = renderPluginResume(manifest, { sessionId: 'exec_9', colorScheme: 'dark' })
+  assert.deepEqual(resumed?.argv, ['test', '--settings', '{"theme":"dark"}', '--resume', 'exec_9'])
 }
 
 main().catch((err) => {

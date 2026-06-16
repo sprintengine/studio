@@ -145,6 +145,17 @@ export type PluginModelSelectionSpec = {
   allowCustomId?: boolean
 }
 
+// Declares that a CLI can be told the host's light/dark color scheme on launch,
+// and how. `args` are substituted templates exposed to launch/resume argv as the
+// `themeArgs` spread, with `{{colorScheme}}` resolving to 'light' or 'dark'
+// (e.g. ["--settings", "{\"theme\":\"{{colorScheme}}\"}"] for Claude Code).
+// Rendered only when the host has reported a scheme AND the manifest opts in, so
+// CLIs without themeSelection keep their own configured theme. Mirrors the
+// `modelSelection` → `modelArgs` pattern.
+export type PluginThemeSelectionSpec = {
+  args: string[]
+}
+
 export type PluginManifest = {
   kind?: 'cli'
   id: string
@@ -162,6 +173,7 @@ export type PluginManifest = {
   capabilities: PluginCapabilities
   souls?: PluginSoulsSpec
   modelSelection?: PluginModelSelectionSpec
+  themeSelection?: PluginThemeSelectionSpec
   skillIntegration?: PluginSkillIntegration
   detect?: PluginDetectSpec
   install?: PluginInstallSpec
@@ -262,6 +274,9 @@ export type PluginRenderContext = {
   workspaceRoot?: string
   permissionPreset?: string
   model?: string
+  // Host light/dark color scheme; consumed by manifests that declare
+  // `themeSelection` to spread theme args (e.g. Claude Code's --settings theme).
+  colorScheme?: string
   variables?: Record<string, string | number | boolean | string[] | undefined>
   files?: string[]
 }

@@ -7,14 +7,17 @@ import type {
 import {
   GuidedBriefScaffoldError,
   GuidedBriefStartBuildError,
+  SprintEngineNewTeamCreationError,
   SprintEnginePlanSourcedError,
   SwitchboardControllerError,
+  buildSprintEngineEffectiveSpawnAtStartRoles,
   buildSprintEngineExistingTeamCreation,
   buildSprintEngineNewTeamCreation,
   buildStandardCreation,
   buildSwitchboardCreation,
   runGuidedBriefScaffold,
   runGuidedBriefStartBuild,
+  runSprintEngineNewTeamCreation,
   runSprintEnginePlanSourcedCreation,
 } from './index'
 import type { GuidedBriefScaffoldPorts, GuidedBriefStartBuildPorts } from './types'
@@ -38,6 +41,75 @@ function createMemoryFilesystem(): GuidedBriefScaffoldPorts['filesystem'] & { fi
     async writeFile(path, content) {
       files.set(path, content)
     },
+  }
+}
+
+function sprintEngineProjectionFixture(input: {
+  name: string
+  goal: string
+  roster?: Record<string, { role: string; status?: string; currentTaskId?: string | null }>
+  tasks?: Array<Record<string, unknown>>
+}): Record<string, unknown> {
+  return {
+    ok: true,
+    projectionVersion: 1,
+    source: 'folder_store',
+    generatedAt: '2026-06-16T11:00:00Z',
+    updatedAt: '2026-06-16T11:00:00Z',
+    run: {
+      id: 'run-id',
+      name: input.name,
+      goal: input.goal,
+      status: 'planning',
+      rosterConfigured: true,
+      updatedAt: '2026-06-16T11:00:00Z',
+    },
+    roster: input.roster ?? {
+      architect: { role: 'architect', status: 'idle', currentTaskId: null },
+      product: { role: 'product', status: 'idle', currentTaskId: null },
+    },
+    tasks: input.tasks ?? [
+      {
+        id: 'T1',
+        title: 'Review product intake',
+        description: '',
+        role: 'product',
+        status: 'ready',
+        boardColumn: 'ready',
+        ownedPaths: [],
+        dependsOn: [],
+        acceptanceCriteria: [],
+        implementationNotes: [],
+        notes: [],
+        comments: [],
+        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+        activity: [],
+        startedAt: null,
+        completedAt: null,
+        ownerAgentId: null,
+      },
+      {
+        id: 'T2',
+        title: 'Write implementation plan',
+        description: '',
+        role: 'architect',
+        status: 'todo',
+        boardColumn: 'todo',
+        ownedPaths: [],
+        dependsOn: ['T1'],
+        acceptanceCriteria: [],
+        implementationNotes: [],
+        notes: [],
+        comments: [],
+        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+        activity: [],
+        startedAt: null,
+        completedAt: null,
+        ownerAgentId: null,
+      },
+    ],
+    artifacts: [],
+    activity: [],
   }
 }
 
@@ -164,6 +236,152 @@ function testBuildSprintEngineNewTeamCreation(): void {
     cliPermissionPreset: 'default',
   })
   assert.equal(noFolder.sprintEngineContext, null, 'leaves context null when folder is absent')
+}
+
+async function testSprintEngineNewTeamInitializesRunState(): Promise<void> {
+  const initInputs: Array<{ statePath: string; name: string; goal: string; agentIds: string[]; useWorktrees?: boolean }> = []
+  const args = await runSprintEngineNewTeamCreation(
+    {
+      folderPath: '/p',
+      teamName: 'Ship Squad',
+      goal: 'Ship the things',
+      roleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      totalAgents: 2,
+      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      initialSpawnRoles: ['architect'],
+      startRunner: true,
+      autoApproveArtifacts: false,
+      useWorktrees: true,
+      cliPermissionPreset: 'default',
+    },
+    {
+      pathExists: async () => false,
+      initializeSprintEngineState: async (input) => {
+        initInputs.push({
+          statePath: input.statePath,
+          name: input.name,
+          goal: input.goal,
+          agentIds: Object.keys(input.agents),
+          useWorktrees: input.useWorktrees,
+        })
+        return {
+          ok: true,
+          data: {
+            projectionContent: JSON.stringify(sprintEngineProjectionFixture({
+              name: 'Ship Squad',
+              goal: 'Ship the things',
+            })),
+          },
+        }
+      },
+    },
+  )
+
+  assert.deepEqual(initInputs, [
+    {
+      statePath: '/p/.multi-code/sprintengine/ship-squad/run.yaml',
+      name: 'Ship Squad',
+      goal: 'Ship the things',
+      agentIds: ['architect', 'product'],
+      useWorktrees: true,
+    },
+  ])
+  assert.equal(args.sprintEngineContext?.statePath, '/p/.multi-code/sprintengine/ship-squad/run.yaml')
+  assert.equal(args.sprintEngineState?.projection?.source, 'folder_store')
+  assert.equal(args.sprintEngineState?.tasks.length, 2, 'workspace opens with the initialized task graph')
+  assert.deepEqual(args.sprintEngineInitialSpawnRoles, ['architect'])
+  assert.equal(args.sprintEngineAutoState?.desiredMode, 'run_agents')
+}
+
+async function testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs(): Promise<void> {
+  const input = {
+    folderPath: '/p',
+    teamName: 'Ship Squad',
+    goal: 'Ship the things',
+    roleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+    visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+    totalAgents: 2,
+    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+    startRunner: false,
+    autoApproveArtifacts: false,
+    cliPermissionPreset: 'default' as const,
+  }
+  let initCalls = 0
+  await assert.rejects(
+    () => runSprintEngineNewTeamCreation(input, {
+      pathExists: async (path) => path.endsWith('/run.yaml'),
+      initializeSprintEngineState: async () => {
+        initCalls += 1
+        return { ok: true, data: {} }
+      },
+    }),
+    (error) => error instanceof SprintEngineNewTeamCreationError && error.code === 'team-exists',
+    'existing run state blocks duplicate new-team creation',
+  )
+  assert.equal(initCalls, 0, 'does not init when the team state path already exists')
+
+  await assert.rejects(
+    () => runSprintEngineNewTeamCreation(input, {
+      initializeSprintEngineState: async () => ({ ok: false, message: 'init failed', data: {} }),
+    }),
+    (error) => error instanceof SprintEngineNewTeamCreationError
+      && error.code === 'init-failed'
+      && error.message === 'init failed',
+    'init failure is surfaced',
+  )
+
+  await assert.rejects(
+    () => runSprintEngineNewTeamCreation(input, {
+      initializeSprintEngineState: async () => ({ ok: true, data: { projectionContent: 'not json' } }),
+    }),
+    (error) => error instanceof SprintEngineNewTeamCreationError && error.code === 'invalid-projection',
+    'missing or malformed projection blocks disconnected workspace state',
+  )
+}
+
+function testSprintEngineEffectiveSpawnAtStartRoles(): void {
+  const visibleRoleCounts = { architect: 1, product: 1, frontend: 1, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 1, security: 0 }
+  assert.deepEqual(
+    buildSprintEngineEffectiveSpawnAtStartRoles({
+      automationMode: 'run_agents_and_approve_artifacts',
+      existingTeam: false,
+      spawnAtStartRoles: {},
+      visibleRoleCounts,
+    }),
+    { architect: true },
+    'full automation no longer forces every roster role to start immediately',
+  )
+  assert.deepEqual(
+    buildSprintEngineEffectiveSpawnAtStartRoles({
+      automationMode: 'run_agents',
+      existingTeam: false,
+      spawnAtStartRoles: { tester: true },
+      visibleRoleCounts,
+    }),
+    { tester: true, architect: true },
+    'automation starts the architect by default and preserves explicit extra roles',
+  )
+  assert.deepEqual(
+    buildSprintEngineEffectiveSpawnAtStartRoles({
+      automationMode: 'run_agents',
+      existingTeam: false,
+      spawnAtStartRoles: { architect: false, tester: true },
+      visibleRoleCounts,
+    }),
+    { architect: false, tester: true },
+    'automation default does not override an explicit architect opt-out',
+  )
+  assert.deepEqual(
+    buildSprintEngineEffectiveSpawnAtStartRoles({
+      automationMode: 'run_agents_and_approve_artifacts',
+      existingTeam: true,
+      spawnAtStartRoles: {},
+      visibleRoleCounts,
+    }),
+    {},
+    'opening an existing team does not invent bootstrap launch intent',
+  )
 }
 
 async function testSprintEnginePlanSourcedValidation(): Promise<void> {
@@ -779,6 +997,9 @@ async function main(): Promise<void> {
   testBuildSwitchboardCreation()
   testBuildSprintEngineExistingTeamCreation()
   testBuildSprintEngineNewTeamCreation()
+  await testSprintEngineNewTeamInitializesRunState()
+  await testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs()
+  testSprintEngineEffectiveSpawnAtStartRoles()
   await testSprintEnginePlanSourcedValidation()
   await testSprintEnginePlanSourcedInitializesAndLinksBacklog()
   await testSprintEnginePlanSourcedWorktreeModeFlowsThroughStateAndPrompt()

@@ -9,21 +9,13 @@ import type {
 } from '../../../types/workspace'
 import { focusOrAddAgentTab } from '../../../utils/modelRegistry'
 import { getSprintEngineRoleLabel, type SprintEngineAgentRosterItem } from '../../../utils/sprintengine'
-import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../../utils/agentPrompt'
+import { prependAgentIdentifier } from '../../../utils/agentPrompt'
 import { publishDiagnostic } from '../../../utils/diagnostics'
 import {
   buildSprintEngineAddressPlanReviewsPrompt,
   buildSprintEnginePlanReviewStartupPrompt,
   buildSprintEngineRecoveryAuditPrompt,
 } from '../../../utils/sprintenginePlanReviewPrompts'
-
-type SpawnDialogState = {
-  agentId: string
-  cli: AgentCli
-  // Model id passed at CLI launch; undefined means the CLI's own default.
-  model?: string
-  name: string
-}
 
 type RecoveryDialogState = {
   cli: AgentCli
@@ -53,14 +45,11 @@ export type SprintEngineBoardTerminalActionsInput = {
   folderStatusMessage: string | null
   folderCheckedPath: string | null
   lastSelectedCli: AgentCli
-  spawnDialog: SpawnDialogState | null
   recoveryDialog: RecoveryDialogState | null
-  spawnDialogHasLiveTerminal: boolean
   updateAgent: (workspaceId: WorkspaceId, agentId: string, update: Partial<AgentState>) => void
   recheckFolder: () => void
   setSelectedAgentId: Dispatch<SetStateAction<string | null>>
   setCliPickerOpen: Dispatch<SetStateAction<boolean>>
-  setSpawnDialog: Dispatch<SetStateAction<SpawnDialogState | null>>
   setRecoveryDialog: Dispatch<SetStateAction<RecoveryDialogState | null>>
   getAgentName: (agentId: string, fallback: string) => string
   getCustomAgentName: (agentId: string, fallback: string) => string | undefined
@@ -89,8 +78,10 @@ export type SprintEngineBoardTerminalActions = {
   // Kills any live terminal, then starts a fresh session with the agent's
   // current CLI/model selection.
   restartAgentTerminal: (agentId: string) => Promise<boolean>
-  openSpawnDialog: (agentId: string) => void
-  confirmSpawnDialog: () => Promise<void>
+  // Spawns the agent's terminal directly with its resolved CLI/model
+  // defaults. If a live terminal already exists, focuses it instead of
+  // re-spawning.
+  spawnAgent: (agentId: string) => Promise<void>
   openRecoveryDialog: () => void
   confirmRecoveryAudit: () => Promise<void>
   requestPlanReviews: () => void
@@ -113,14 +104,11 @@ export function useSprintEngineBoardTerminalActions(
     folderStatusMessage,
     folderCheckedPath,
     lastSelectedCli,
-    spawnDialog,
     recoveryDialog,
-    spawnDialogHasLiveTerminal,
     updateAgent,
     recheckFolder,
     setSelectedAgentId,
     setCliPickerOpen,
-    setSpawnDialog,
     setRecoveryDialog,
     getAgentName,
     getCustomAgentName,
@@ -322,36 +310,29 @@ export function useSprintEngineBoardTerminalActions(
     })
   }
 
-  const openSpawnDialog: SprintEngineBoardTerminalActions['openSpawnDialog'] = (agentId) => {
-    const agentState = agents[agentId]
-    const defaultName = rosterById[agentId]?.label ?? agentId
-    const role = rosterById[agentId]?.role
-    const defaultCli = role ? workspace?.sprintEngineRoleCliDefaults?.[role] ?? lastSelectedCli : lastSelectedCli
-    const savedName = agentState?.name && agentState.name !== defaultName ? agentState.name : ''
+  const spawnAgent: SprintEngineBoardTerminalActions['spawnAgent'] = async (agentId) => {
     setSelectedAgentId(agentId)
-    setCliPickerOpen(false)
-    const dialogCli = agentState?.cli ?? defaultCli
-    setSpawnDialog({
-      agentId,
-      cli: dialogCli,
-      model: agentState?.cliModel,
-      name: savedName,
-    })
-  }
 
-  const confirmSpawnDialog: SprintEngineBoardTerminalActions['confirmSpawnDialog'] = async () => {
-    if (!spawnDialog) return
-    const defaultName = rosterById[spawnDialog.agentId]?.label ?? spawnDialog.agentId
-    const agentName = normalizeAgentIdentifier(spawnDialog.name)
-    const label = agentName || defaultName
-    const started = await startAgentTerminalWhenReady(spawnDialog.agentId, label, spawnDialog.cli, {
-      agentName,
-      freshSession: !spawnDialogHasLiveTerminal,
-      cliModel: spawnDialog.model ?? null,
+    // Already running — focus the existing terminal rather than re-spawn.
+    if (getLiveAgentTerminalSession(agentId)) {
+      openAgentTerminal(agentId)
+      return
+    }
+
+    const agentState = agents[agentId]
+    const fallbackLabel = rosterById[agentId]?.label ?? agentId
+    const label = getAgentName(agentId, fallbackLabel)
+    const role = rosterById[agentId]?.role
+    const roleDefaultCli = role
+      ? workspace?.sprintEngineRoleCliDefaults?.[role] ?? lastSelectedCli
+      : lastSelectedCli
+    const cli = agentState?.cli ?? roleDefaultCli
+
+    await startAgentTerminalWhenReady(agentId, label, cli, {
+      agentName: getCustomAgentName(agentId, fallbackLabel),
+      freshSession: true,
+      cliModel: agentState?.cliModel ?? null,
     })
-    if (!started) return
-    setCliPickerOpen(false)
-    setSpawnDialog(null)
   }
 
   const openRecoveryDialog: SprintEngineBoardTerminalActions['openRecoveryDialog'] = () => {
@@ -411,8 +392,7 @@ export function useSprintEngineBoardTerminalActions(
     openAgentTerminal,
     stopAgentTerminal,
     restartAgentTerminal,
-    openSpawnDialog,
-    confirmSpawnDialog,
+    spawnAgent,
     openRecoveryDialog,
     confirmRecoveryAudit,
     requestPlanReviews,
