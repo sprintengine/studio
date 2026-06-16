@@ -117,6 +117,9 @@ export async function downloadMarketplacePluginBundle(
       try {
         await downloadGithubTree(github, stage, fetcher, options.timeoutMs, limits)
       } catch (error) {
+        if (!isPackagedSeedFallbackEligible(error, github)) throw error
+        await rm(stage, { recursive: true, force: true })
+        stage = await mkdtemp(join(stagingRoot, `${options.entry.id}-`))
         const copiedSeedBundle = await copyPackagedMarketplacePluginBundle(
           github,
           options.entry.id,
@@ -228,6 +231,21 @@ function packagedMarketplacePluginRelativePath(source: GithubTreeSource, entryId
   if (source.owner !== 'multicode-labs' || source.repo !== 'marketplace' || source.ref !== 'main') return null
   const expectedPath = `plugins/${entryId}`
   return source.path === expectedPath ? expectedPath : null
+}
+
+function isPackagedSeedFallbackEligible(error: unknown, source: GithubTreeSource): boolean {
+  const rootUrl = githubContentsUrl(source)
+  if (error instanceof DownloadHttpError) {
+    return error.url === rootUrl && isSourceUnavailableStatus(error.statusCode)
+  }
+  if (error instanceof DownloadNetworkError) {
+    return error.url === rootUrl
+  }
+  return false
+}
+
+function isSourceUnavailableStatus(statusCode: number): boolean {
+  return statusCode === 404 || statusCode === 410 || statusCode === 502 || statusCode === 503 || statusCode === 504
 }
 
 function classifyUnsignedManifest(source: string, trustContext: ModuleTrustContext): ModuleTrust | null {
@@ -375,11 +393,29 @@ async function fetchBytes(
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), timeoutMs ?? DEFAULT_MARKETPLACE_PLUGIN_DOWNLOAD_TIMEOUT_MS)
   try {
-    const response = await fetcher(parsed.url.toString(), { method: 'GET', headers, signal: controller.signal })
-    if (!response.ok) {
-      throw new DownloadHttpError(`Marketplace plugin download failed with HTTP ${response.status}.`, response.status)
+    let response: Response
+    try {
+      response = await fetcher(parsed.url.toString(), { method: 'GET', headers, signal: controller.signal })
+    } catch (error) {
+      throw new DownloadNetworkError(`Marketplace plugin download failed. ${formatError(error)}`, parsed.url.toString())
     }
-    const body = Buffer.from(await response.arrayBuffer())
+    if (!response.ok) {
+      throw new DownloadHttpError(
+        `Marketplace plugin download failed with HTTP ${response.status}.`,
+        response.status,
+        parsed.url.toString()
+      )
+    }
+    let arrayBuffer: ArrayBuffer
+    try {
+      arrayBuffer = await response.arrayBuffer()
+    } catch (error) {
+      throw new DownloadNetworkError(
+        `Marketplace plugin download response could not be read. ${formatError(error)}`,
+        parsed.url.toString()
+      )
+    }
+    const body = Buffer.from(arrayBuffer)
     if (body.byteLength > maxBytes) throw new Error(`Downloaded file exceeds ${maxBytes} bytes.`)
     return body
   } finally {
@@ -434,7 +470,13 @@ async function defaultFetch(url: string, init: RequestInit): Promise<Response> {
 }
 
 class DownloadHttpError extends Error {
-  constructor(message: string, readonly statusCode: number) {
+  constructor(message: string, readonly statusCode: number, readonly url: string) {
+    super(message)
+  }
+}
+
+class DownloadNetworkError extends Error {
+  constructor(message: string, readonly url: string) {
     super(message)
   }
 }

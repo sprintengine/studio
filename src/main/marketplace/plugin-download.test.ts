@@ -199,6 +199,83 @@ async function testUnavailableGithubSourceFallsBackToPackagedSeedBundle(): Promi
   })
 }
 
+async function testPartialGithubDownloadDoesNotFallbackToPackagedSeedBundle(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const fixture = createFixture()
+    const packagedBundle = join(dir, 'seed', 'plugins', 'downloaded-plugin')
+    mkdirSync(join(packagedBundle, 'mcp'), { recursive: true })
+    writeFileSync(join(packagedBundle, 'plugin.json'), `${JSON.stringify(fixture.manifest, null, 2)}\n`, 'utf8')
+    writeFileSync(join(packagedBundle, 'mcp', 'server.json'), mcpComponentSource(), 'utf8')
+
+    const stagingRoot = join(dir, 'staging')
+    let resolverCalls = 0
+    const result = await downloadMarketplacePluginBundle({
+      entry: fixture.entry,
+      trustContext: {
+        trustedModules: new Map(),
+        trustedKeyFingerprints: new Set([fixture.fingerprint]),
+      },
+      stagingRoot,
+      fetcher: async (url) => {
+        if (url === API_ROOT) {
+          return jsonResponse([
+            { type: 'file', path: 'plugins/downloaded-plugin/plugin.json', download_url: RAW_PLUGIN },
+            { type: 'dir', path: 'plugins/downloaded-plugin/mcp', url: API_MCP },
+          ])
+        }
+        if (url === RAW_PLUGIN) return textResponse(`${JSON.stringify(fixture.manifest, null, 2)}\n`)
+        if (url === API_MCP) return new Response('not found', { status: 404 })
+        return new Response('not found', { status: 404 })
+      },
+      packagedResourceResolver: (relativePath) => {
+        resolverCalls += 1
+        return relativePath === 'plugins/downloaded-plugin' ? packagedBundle : null
+      },
+    })
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.statusCode, 404)
+    assert.equal(resolverCalls, 0)
+    assert.deepEqual(await readdir(stagingRoot), [])
+  })
+}
+
+async function testGithubPathValidationDoesNotFallbackToPackagedSeedBundle(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const fixture = createFixture()
+    const stagingRoot = join(dir, 'staging')
+    let resolverCalls = 0
+    const result = await downloadMarketplacePluginBundle({
+      entry: fixture.entry,
+      trustContext: {
+        trustedModules: new Map(),
+        trustedKeyFingerprints: new Set([fixture.fingerprint]),
+      },
+      stagingRoot,
+      fetcher: async (url) => {
+        if (url === API_ROOT) {
+          return jsonResponse([
+            { type: 'file', path: 'plugins/other-plugin/plugin.json', download_url: RAW_PLUGIN },
+          ])
+        }
+        if (url === RAW_PLUGIN) return textResponse(`${JSON.stringify(fixture.manifest, null, 2)}\n`)
+        return new Response('not found', { status: 404 })
+      },
+      packagedResourceResolver: () => {
+        resolverCalls += 1
+        return join(dir, 'seed', 'plugins', 'downloaded-plugin')
+      },
+    })
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.match(result.message, /outside the plugin source path/i)
+    assert.equal(resolverCalls, 0)
+    assert.deepEqual(await readdir(stagingRoot), [])
+  })
+}
+
 async function testSignedUntrustedPublisherStagesAsCommunity(): Promise<void> {
   await withTempDir(async (dir) => {
     const fixture = createFixture()
@@ -351,6 +428,8 @@ function testCliAndAppRejectSameTamperedModuleBytes(): void {
 async function main(): Promise<void> {
   await testVerifiedFirstPartyDownloadStagesBundle()
   await testUnavailableGithubSourceFallsBackToPackagedSeedBundle()
+  await testPartialGithubDownloadDoesNotFallbackToPackagedSeedBundle()
+  await testGithubPathValidationDoesNotFallbackToPackagedSeedBundle()
   await testSignedUntrustedPublisherStagesAsCommunity()
   await testDownloadedComponentBytesArePreserved()
   await testTamperedPluginSignatureBlocksAndRemovesStage()
