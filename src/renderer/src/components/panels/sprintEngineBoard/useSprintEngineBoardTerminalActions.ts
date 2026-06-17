@@ -7,7 +7,7 @@ import type {
   Workspace,
   WorkspaceId,
 } from '../../../types/workspace'
-import { focusOrAddAgentTab } from '../../../utils/modelRegistry'
+import { addAgentTabTiled, focusOrAddAgentTab, hasAgentTab } from '../../../utils/modelRegistry'
 import { getSprintEngineRoleLabel, type SprintEngineAgentRosterItem } from '../../../utils/sprintengine'
 import { prependAgentIdentifier } from '../../../utils/agentPrompt'
 import { publishDiagnostic } from '../../../utils/diagnostics'
@@ -30,6 +30,11 @@ type StartAgentTerminalOptions = {
   // string sets the launch model, null clears it back to the CLI default,
   // undefined preserves whatever the agent already has.
   cliModel?: string | null
+  // 'foreground' (default) reveals + focuses the agent tab — right for an
+  // explicit "open this agent" click. 'background' docks the tab without
+  // stealing focus, so automatic launches (initial spawn on Sprint Engine
+  // start, pending respawns) don't yank the user off the board.
+  reveal?: 'foreground' | 'background'
 }
 
 export type SprintEngineBoardTerminalActionsInput = {
@@ -174,7 +179,16 @@ export function useSprintEngineBoardTerminalActions(
       cliStartupPrompt: startupPrompt,
       kind: 'sprintengine',
     })
-    focusOrAddAgentTab(workspaceId, agentId, label)
+    if (options?.reveal === 'background') {
+      // Materialise the tab docked-but-unfocused. Only when it's missing — an
+      // already-open tab must not be re-selected, matching the board reveal
+      // contract for supervised launches.
+      if (!hasAgentTab(workspaceId, agentId)) {
+        addAgentTabTiled(workspaceId, agentId, label, undefined, false)
+      }
+    } else {
+      focusOrAddAgentTab(workspaceId, agentId, label)
+    }
     return true
   }
 

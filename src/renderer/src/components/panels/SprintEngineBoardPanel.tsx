@@ -1599,6 +1599,8 @@ function SprintEngineBoardPanelContent({
  {
  ...(pending.name ? { agentName: pending.name } : {}),
  ...(pending.model !== undefined ? { cliModel: pending.model } : {}),
+ // Automatic respawn: dock the tab without stealing focus from the board.
+ reveal: 'background',
  },
  ).then((started) => {
  if (!started) return
@@ -1639,7 +1641,9 @@ function SprintEngineBoardPanelContent({
  for (const agentId of agentIds) {
  if (getLiveAgentTerminalSession(agentId)) continue
  const label = getAgentName(agentId, rosterById[agentId]?.label ?? agentId)
- void startAgentTerminalWhenReady(agentId, label, agents[agentId]?.cli)
+ // Initial spawn on Sprint Engine start: dock each tab in the background so a
+ // multi-agent launch never pulls focus off the board.
+ void startAgentTerminalWhenReady(agentId, label, agents[agentId]?.cli, { reveal: 'background' })
  }
  }, [
  agents,

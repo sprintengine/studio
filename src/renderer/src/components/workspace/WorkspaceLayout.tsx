@@ -39,7 +39,7 @@ import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineS
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
 import { NewChatIcon, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import { panelTabAccentClass } from './panelTabAccent'
-import { StatusDot, type Tone } from '../ui'
+import { LifecycleGlyph, type LifecycleState, StatusDot, type Tone } from '../ui'
 import MulticodeSpinner from '../brand/MulticodeSpinner'
 import AgentPanel from '../panels/AgentPanel'
 
@@ -198,6 +198,29 @@ function agentTabStatusDot(
     return { tone: 'error', pulse: false, label: 'Failed' }
   }
   return null
+}
+
+// Sprint Engine agents are supervised by a run, so their tab shows persistent
+// run status (in progress / blocked / complete) — NOT terminal recency, which is
+// meaningless for a managed agent. Maps the runtime status to a LifecycleGlyph
+// state; `live` animates the spinner only while genuinely running.
+function sprintEngineTabLifecycle(
+  status: SprintEngineRuntimeAgentStatus | undefined
+): { state: LifecycleState; live: boolean; label: string } | null {
+  switch (status) {
+    case 'running':
+      return { state: 'in_progress', live: true, label: 'In progress' }
+    case 'needs_input':
+      return { state: 'needs_input', live: false, label: 'Blocked — needs input' }
+    case 'done':
+      return { state: 'done', live: false, label: 'Complete' }
+    case 'retired':
+      return { state: 'done', live: false, label: 'Finished' }
+    case 'idle':
+      return { state: 'in_progress', live: false, label: 'Idle — waiting for work' }
+    default:
+      return null
+  }
 }
 
 function inferSprintEngineRoleFromAgentId(agentId: string): SprintEngineRole | null {
@@ -1003,7 +1026,16 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
         : undefined
       const currentTaskId = runtimeAgent?.currentTaskId
       const isLive = Boolean(agentSession?.processAlive)
-      const activityDot = agentTabStatusDot(agentSession, runtimeAgent?.status, currentTaskId)
+      // Sprint Engine agents show their run lifecycle (in progress / blocked /
+      // complete), never a live dot or recency. Everyone else uses the
+      // processAlive-driven dot with recency-when-not-live.
+      const isSprintEngineRun = agent?.kind === 'sprintengine'
+      const sprintEngineLifecycle = isSprintEngineRun
+        ? sprintEngineTabLifecycle(runtimeAgent?.status)
+        : null
+      const activityDot = isSprintEngineRun
+        ? null
+        : agentTabStatusDot(agentSession, runtimeAgent?.status, currentTaskId)
       const specialist = (agent?.kind === 'specialist' || agent?.kind === 'watchtower') && agent.specialistId
         ? getSpecialistAction(agent.specialistId)
         : null
@@ -1046,9 +1078,10 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
         renderValues.leading = null
       }
 
-      // Recency only when NOT live: a dead/suspended process emits nothing, so
-      // its lastOutputAt is frozen and honest. Live agents show the green dot.
-      const agentRecency = isLive
+      // Recency only when NOT live and NOT a Sprint Engine run: a dead/suspended
+      // process emits nothing, so its lastOutputAt is frozen and honest. Live
+      // agents show the green dot; Sprint Engine agents show run lifecycle.
+      const agentRecency = isLive || isSprintEngineRun
         ? null
         : pickAgentTabRecency(
             agentSession,
@@ -1067,7 +1100,19 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
           )
         : null
 
-      if (activityDot) {
+      if (sprintEngineLifecycle) {
+        renderValues.content = (
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            {tabContent}
+            <LifecycleGlyph
+              state={sprintEngineLifecycle.state}
+              live={sprintEngineLifecycle.live}
+              label={sprintEngineLifecycle.label}
+              className="translate-y-px"
+            />
+          </span>
+        )
+      } else if (activityDot) {
         renderValues.content = (
           <span className="inline-flex min-w-0 items-center gap-1.5">
             {tabContent}

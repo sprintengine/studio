@@ -184,7 +184,11 @@ export function addAgentTabTiled(
   workspaceId: string,
   agentId: string,
   name: string,
-  config?: Record<string, unknown>
+  config?: Record<string, unknown>,
+  // The fifth arg to Actions.addNode is `select`: true foregrounds the new tab,
+  // false docks it in place without stealing focus. Sprint Engine auto-launches
+  // pass false so a supervised agent never yanks you off the board.
+  select = true
 ): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
@@ -202,7 +206,7 @@ export function addAgentTabTiled(
           terminalHost.getId(),
           DockLocation.CENTER,
           -1,
-          true
+          select
         )
       )
       window.setTimeout(() => clearAgentSpawnFlash(model, agentId), 13200)
@@ -214,7 +218,7 @@ export function addAgentTabTiled(
         model.getRoot().getId(),
         DockLocation.RIGHT,
         -1,
-        true
+        select
       )
     )
     window.setTimeout(() => clearAgentSpawnFlash(model, agentId), 13200)
@@ -230,7 +234,7 @@ export function addAgentTabTiled(
       targetTabset.getId(),
       agentTileLocation(targetTabset),
       -1,
-      true
+      select
     )
   )
   window.setTimeout(() => clearAgentSpawnFlash(model, agentId), 13200)

@@ -17,7 +17,7 @@ import {
   isAgentCliMissing,
   selectAgentCliCatalog,
 } from '../workspace/newWorkspace/cliRuntimeOptions'
-import { PrimaryButton, StatusDot, Tooltip } from '../ui'
+import { PrimaryButton, Tooltip } from '../ui'
 import { revealNavRailComponent } from '../../utils/modelRegistry'
 import { dispatchBacklogReveal } from '../../utils/backlogReveal'
 
@@ -203,21 +203,13 @@ export default function AgentPanel({
   return (
     <div className={`flex h-full flex-col bg-[color:var(--bg-surface)] font-mono text-[12px] text-[color:var(--text-default)] ${cliShellTone}`}>
       <div className={`group relative flex-1 overflow-hidden bg-[color:var(--bg-app)] ${needsInput ? 'shadow-[inset_0_1px_0_var(--tone-warn-soft)]' : ''}`}>
-        {hasStarted && (isTerminalLive || isTerminalSuspended || backlogItemRef) ? (
+        {hasStarted && (isTerminalSuspended || canSuspendTerminal || backlogItemRef) ? (
           // The positioning lives on this wrapper, not the buttons: Tooltip wraps
           // its child in a `position: relative` span, so an `absolute` child
           // would anchor to that zero-size span (off-screen) instead of the
-          // terminal surface. Glyphs sit inline in a single top-right row.
+          // terminal surface. Liveness shows on the workspace tab (single source
+          // of truth); here we keep only the resume/suspend actions + Backlog link.
           <div className="absolute right-2 top-2 z-30 flex items-center gap-1.5">
-            {isTerminalLive ? (
-              // Green "live" dot: the agent process is running. Absent once the
-              // terminal is suspended (where the play button takes over).
-              <Tooltip content="Agent is live" placement="bottom">
-                <span className="inline-flex h-7 items-center px-1">
-                  <StatusDot tone="good" size={8} label="Agent terminal live" />
-                </span>
-              </Tooltip>
-            ) : null}
             {isTerminalSuspended ? (
               // Suspended state is a distinct, accented PLAY button (not a muted
               // pause indicator) so the suspend→resume transition is obvious and
