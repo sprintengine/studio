@@ -96,6 +96,31 @@ run('recent sort orders by newest modified first', () => {
   assert.deepEqual(ids(sorted, (item) => String(item.modifiedAt)), ['30', '20', '10'])
 })
 
+run('status sort bands needs_input → in_progress → ready → idea → completed, newest within a band', () => {
+  const items = [
+    mk({ status: 'completed', modifiedAt: 9 }),
+    mk({ status: 'idea', modifiedAt: 8 }),
+    mk({ status: 'ready', modifiedAt: 7 }),
+    mk({ status: 'in_progress', modifiedAt: 5 }),
+    mk({ status: 'in_progress', modifiedAt: 6 }),
+    mk({ status: 'needs_input', modifiedAt: 1 }),
+  ]
+  const sorted = [...items].sort((a, b) => compareBacklogItems(a, b, 'status'))
+  assert.deepEqual(ids(sorted, (item) => item.status), [
+    'needs_input',
+    'in_progress',
+    'in_progress',
+    'ready',
+    'idea',
+    'completed',
+  ])
+  // Within the in_progress band the newer item leads.
+  assert.deepEqual(
+    ids(sorted.filter((item) => item.status === 'in_progress'), (item) => String(item.modifiedAt)),
+    ['6', '5'],
+  )
+})
+
 run('priority sort puts critical first, small-before-large on ties, unset last', () => {
   const smallCritical = mk({ difficulty: 'xs', criticality: 'critical', modifiedAt: 1 })
   const largeCritical = mk({ difficulty: 'xl', criticality: 'critical', modifiedAt: 2 })

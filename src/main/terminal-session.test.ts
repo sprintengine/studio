@@ -256,7 +256,7 @@ function assertVisibilityRecordingUpdatesRecency(): void {
 
   recordTerminalVisibility(session, false, 900)
   assert.equal(session.visible, false)
-  assert.equal(session.lastVisibleAt, 900, 'hiding still counts as the user having just looked')
+  assert.equal(session.lastVisibleAt, 900, 'hiding still records lastVisibleAt for the snapshot, even though it no longer feeds the idle clock')
 
   const snapshot = getTerminalSnapshot(session)
   assert.equal(snapshot.lastVisibleAt, 900)
@@ -287,11 +287,17 @@ function assertStaleRuleUsesMostRecentUserSignal(): void {
 
   recordTerminalInput(session, 5_000)
   appendTerminalOutput(session, 'output', 9_000)
+  // Becoming visible/hidden must NOT extend the idle clock — only real input and
+  // output count, so merely looking at a terminal can never keep it alive.
   recordTerminalVisibility(session, false, 12_000)
-  assert.equal(getTerminalLastSeenAt(session), 12_000)
+  assert.equal(
+    getTerminalLastSeenAt(session),
+    9_000,
+    'visibility does not count toward last-seen; the last real output (9_000) wins over the later visibility timestamp (12_000)',
+  )
 
-  assert.equal(isTerminalSessionStale(session, 12_000 + STALE_TERMINAL_MAX_UNSEEN_MS), false)
-  assert.equal(isTerminalSessionStale(session, 12_000 + STALE_TERMINAL_MAX_UNSEEN_MS + 1), true)
+  assert.equal(isTerminalSessionStale(session, 9_000 + STALE_TERMINAL_MAX_UNSEEN_MS), false)
+  assert.equal(isTerminalSessionStale(session, 9_000 + STALE_TERMINAL_MAX_UNSEEN_MS + 1), true)
 }
 
 function createSession(input: {

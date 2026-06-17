@@ -156,16 +156,22 @@ export function recordTerminalVisibility(
   session.lastVisibleAt = at
 }
 
-// A terminal that nobody has looked at (no mounted view, no input, no output)
-// for this long is reaped by the main-process sweep.
+// A terminal with no mounted view (the separate visible guard below), no input,
+// and no output for this long is reaped by the main-process sweep.
 export const STALE_TERMINAL_MAX_UNSEEN_MS = 24 * 60 * 60 * 1000
 
+// "When real activity last happened on this terminal": the spawn moment plus the
+// last genuine input or output. Deliberately EXCLUDES lastVisibleAt — merely
+// opening a workspace or clicking a tab marks a terminal visible, and counting
+// that would reset the idle clock every time the user just *looked*. Idle reaping
+// must key off real interaction (typing) and real work (output), not attention.
+// lastVisibleAt is still recorded for the snapshot/diagnostics, and the
+// currently-on-screen guard lives separately in isTerminalSessionStale.
 export function getTerminalLastSeenAt(session: TerminalSession): number {
   return Math.max(
     session.startedAt,
     session.lastInputAt ?? 0,
-    session.lastOutputAt ?? 0,
-    session.lastVisibleAt ?? 0
+    session.lastOutputAt ?? 0
   )
 }
 

@@ -83,14 +83,14 @@ export type DiagnosticsAggregationInput = {
   now?: number
 }
 
-// Mirror of main's getTerminalLastSeenAt: the most recent moment anyone touched
-// the terminal (started, typed, output, or viewed). Drives the stale warning.
+// Mirror of main's getTerminalLastSeenAt: the most recent moment of real
+// activity — started, typed, or output. Deliberately excludes lastVisibleAt (in
+// lockstep with main) so merely viewing a workspace never resets the stale clock.
 function terminalLastSeenAt(session: TerminalSessionSnapshot): number {
   return Math.max(
     session.startedAt,
     session.lastInputAt ?? 0,
-    session.lastOutputAt ?? 0,
-    session.lastVisibleAt ?? 0
+    session.lastOutputAt ?? 0
   )
 }
 

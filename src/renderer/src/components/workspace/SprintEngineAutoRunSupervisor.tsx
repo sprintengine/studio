@@ -699,6 +699,35 @@ export async function executeSprintEngineDispatchPlan(
   for (const skip of plan.skips) {
     logPerfEvent('SprintEngineAutoRun', skip.event, { ...base, ...skip.data })
   }
+  for (const diagnostic of plan.diagnostics) {
+    const ledger = diagnostic.ledger && diagnostic.key
+      ? dispatchPlanLedger(diagnostic.ledger, ledgers)
+      : undefined
+    const previous = diagnostic.key ? ledger?.get(diagnostic.key) : undefined
+    if (diagnostic.markExhausted && diagnostic.key && ledger) {
+      const exhaustedAt = Date.now()
+      ledger.set(diagnostic.key, {
+        sentAt: previous?.sentAt ?? exhaustedAt,
+        attempts: previous?.attempts ?? 0,
+        exhaustedAt,
+      })
+    }
+    await defaultExecutorPorts.publishDiagnostic({
+      level: diagnostic.diagnostic.level,
+      source: 'sprintengine',
+      title: diagnostic.diagnostic.title,
+      message: diagnostic.diagnostic.message,
+      details: diagnostic.diagnostic.details,
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      agentId: diagnostic.agentId,
+      taskId: diagnostic.diagnostic.taskId,
+      navigationTarget: diagnostic.diagnostic.taskId
+        ? { kind: 'task', ref: diagnostic.diagnostic.taskId }
+        : undefined,
+    })
+    logPerfEvent('SprintEngineAutoRun', diagnostic.event, { ...base, ...diagnostic.data })
+  }
   const markNotificationDelivered = (deliveryKey: string): void => {
     spawnContext?.sentNotificationKeys?.current.add(deliveryKey)
     defaultExecutorPorts.markSprintEngineAgentNotificationDelivered(workspace.id, deliveryKey)
@@ -1903,16 +1932,17 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
 
   // One reconcile pass for every re-engagement decision and recovery action:
   // notification deliveries (paste or spawn), durable-dispatch prompts,
-  // ready-task wakes, gate continuations, stalled restarts, and dead-claimant
-  // respawns come from a single plan with per-agent dedup (a terminal never
-  // gets two instructions — or a paste and a kill — in one pass). It runs
+  // ready-task wakes, gate continuations, active-assignment rescues, stalled
+  // restarts, and dead-claimant respawns come from a single plan with
+  // per-agent dedup (a terminal never gets two instructions — or a paste and
+  // a kill — in one pass). It runs
   // before any path that can early-return the cycle, and before slot
   // accounting — dead in-progress owners consume the very slots spawn-side
   // recovery would need.
   const dispatchResult = await runSprintEngineDispatchPaths({
     workspace,
     sprintEngineState,
-    paths: ['notification', 'dispatch', 'task_wake', 'gate', 'restart', 'respawn', 'idle_retire'],
+    paths: ['notification', 'dispatch', 'task_wake', 'gate', 'active_assignment', 'restart', 'respawn', 'idle_retire'],
     runningAgentIds,
     idleAgentIds: continuationCapacity.agentIds,
     ledgers: { continuation: sentContinuationMessages, dispatch: sentDispatchMessages },

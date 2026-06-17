@@ -47,6 +47,7 @@ import { createTerminalOutputBuffer } from './terminal-output-buffer'
 import { createTerminalMobileCommandService } from './terminal-mobile-command-service'
 import { planReapSweep, type SweepCandidate } from './terminal-reap-sweep'
 import { probeSubtreesForLiveProcesses } from './terminal-subtree-probe'
+import type { TerminalRootInfo } from './workspace-memory'
 
 type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
@@ -563,6 +564,27 @@ export async function runIdleAgentReapSweep(now = Date.now()): Promise<string[]>
     disposeTerminal(sessionId)
   }
   return decision.reapableSessionIds
+}
+
+// Live terminal sessions reduced to what per-workspace memory attribution needs:
+// the pty root pid (for subtree RSS walking) plus the metadata the diagnostics
+// panel shows. The session snapshot deliberately omits pids, so this main-only
+// accessor exposes them to the workspace-memory sampler.
+export function listTerminalRoots(): TerminalRootInfo[] {
+  return [...terminals.values()]
+    .filter((session) => !session.isDisposed)
+    .map((session) => ({
+      sessionId: session.sessionId,
+      rootPid: session.process.pid,
+      workspaceId: session.workspaceId ?? null,
+      agentId: session.agentId ?? null,
+      terminalId: session.terminalId ?? null,
+      kind: session.kind,
+      cli: session.cli ?? null,
+      activityKind: session.activity.kind,
+      processAlive: isTerminalProcessAlive(session),
+      startedAt: session.startedAt,
+    }))
 }
 
 async function shutdownTerminalRuntime(): Promise<void> {

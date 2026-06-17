@@ -6,6 +6,9 @@ import {
   unregisterModel,
 } from './modelRegistry'
 import {
+  AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS,
+  AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS,
+  AUTO_RUN_ACTIVE_ASSIGNMENT_PROMPT,
   AUTO_RUN_ROLE_CONTINUATION_GRACE_MS,
   agentNotificationDeliveryKey,
   architectTriageMessageKey,
@@ -30,6 +33,7 @@ import {
   pickSprintEngineBootstrapCandidate,
   planSprintEngineDispatch,
   sprintEngineDispatchDeliveryKey,
+  sprintEngineActiveAssignmentLedgerKey,
   sprintEngineAutoRunWorkKey,
   sprintEngineIdleClockKey,
   sprintEngineRespawnLedgerKey,
@@ -127,6 +131,11 @@ async function main(): Promise<void> {
   await testDispatchPromptSkipsAgentAlreadyWorkingDispatchTask()
   await testDispatchPromptSkipsAgentAlreadyReviewingDispatchGate()
   await testDispatchPromptSkipsNeedsInputAgent()
+  testActiveAssignmentRescueSendsMinimalPromptAfterSprintEngineInactivity()
+  testActiveAssignmentRescueUsesSprintEngineActivityAndResetsBudget()
+  testActiveAssignmentRescueStopsAfterTwoPromptsWithDiagnostic()
+  await testActiveAssignmentExhaustionDiagnosticMarksLedger()
+  testActiveGateAssignmentRescueSendsMinimalPrompt()
   await testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt()
   await testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity()
   await testSuperviseRunnerCycleRestartsExitedRoleForReadyTask()
@@ -2041,6 +2050,269 @@ async function testDispatchPromptSkipsNeedsInputAgent(): Promise<void> {
 
   assert.equal(writes.length, 0, 'needs_input agents are not repeatedly prompted with their stale task dispatch')
   assert.equal(sent.current.size, 0, 'skipped needs_input dispatch prompts clear stale delivery cooldown')
+}
+
+function testActiveAssignmentRescueSendsMinimalPromptAfterSprintEngineInactivity(): void {
+  const now = Date.parse('2026-06-17T12:00:00Z')
+  const startedAt = new Date(now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000).toISOString()
+  const workspace = workspaceFixture()
+  const claimedTask = task({
+    id: 'T-active',
+    title: 'Render haunted house shell',
+    role: 'developer',
+    status: 'in_progress',
+    boardColumn: 'in_progress',
+    ownerAgentId: 'developer-1',
+    startedAt,
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [claimedTask],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { status: 'running', currentTaskId: 'T-active' }),
+    },
+  })
+
+  const plan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: state,
+    now,
+    runningAgentIds: new Set(['developer-1']),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['active_assignment']),
+  })
+
+  assert.equal(plan.pastes.length, 1, 'stale owned in-progress work gets one continuation paste')
+  assert.equal(plan.pastes[0].prompt, AUTO_RUN_ACTIVE_ASSIGNMENT_PROMPT)
+  assert.equal(plan.pastes[0].prompt, 'Continue.', 'active-assignment rescue prompt stays intentionally minimal')
+  assert.equal(plan.pastes[0].key, sprintEngineActiveAssignmentLedgerKey(workspace, { taskId: 'T-active' }, 'developer-1'))
+  assert.equal(plan.pastes[0].event, 'active-assignment-continuation-prompt-sent')
+}
+
+function testActiveAssignmentRescueUsesSprintEngineActivityAndResetsBudget(): void {
+  const now = Date.parse('2026-06-17T12:00:00Z')
+  const workspace = workspaceFixture()
+  const startedAt = new Date(now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS * 2).toISOString()
+  const artifactActivityAt = new Date(now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS + 30_000).toISOString()
+  const claimedTask = task({
+    id: 'T-active',
+    title: 'Render haunted house shell',
+    role: 'developer',
+    status: 'in_progress',
+    boardColumn: 'in_progress',
+    ownerAgentId: 'developer-1',
+    startedAt,
+    qualityGates: [],
+  })
+  const key = sprintEngineActiveAssignmentLedgerKey(workspace, { taskId: 'T-active' }, 'developer-1')
+  const state = sprintEngineStateFixture({
+    tasks: [claimedTask],
+    artifacts: [{
+      id: 'A1',
+      kind: 'implementation',
+      title: 'Partial render evidence',
+      path: 'task.log.json',
+      status: 'draft',
+      createdBy: 'developer-1',
+      taskId: 'T-active',
+      fingerprint: null,
+      reviewHistory: [],
+      recommendedTasks: [],
+      createdAt: artifactActivityAt,
+      updatedAt: artifactActivityAt,
+    }],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { status: 'running', currentTaskId: 'T-active' }),
+    },
+  })
+
+  const plan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: state,
+    now,
+    runningAgentIds: new Set(['developer-1']),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map([[key, { sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS * 2, attempts: 1 }]]),
+    dispatchLedger: new Map(),
+    paths: new Set(['active_assignment']),
+  })
+
+  assert.equal(plan.pastes.length, 0, 'fresh Sprint Engine artifact activity prevents a continuation paste')
+  assert.deepEqual(plan.ledgerDeletes, [{ ledger: 'continuation', key }], 'new Sprint Engine activity clears the old rescue budget')
+}
+
+function testActiveAssignmentRescueStopsAfterTwoPromptsWithDiagnostic(): void {
+  const now = Date.parse('2026-06-17T12:00:00Z')
+  const workspace = workspaceFixture()
+  const startedAt = new Date(now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS * 3).toISOString()
+  const claimedTask = task({
+    id: 'T-active',
+    title: 'Render haunted house shell',
+    role: 'developer',
+    status: 'in_progress',
+    boardColumn: 'in_progress',
+    ownerAgentId: 'developer-1',
+    startedAt,
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [claimedTask],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { status: 'running', currentTaskId: 'T-active' }),
+    },
+  })
+  const key = sprintEngineActiveAssignmentLedgerKey(workspace, { taskId: 'T-active' }, 'developer-1')
+  const commonInput = {
+    workspace,
+    sprintEngineState: state,
+    now,
+    runningAgentIds: new Set(['developer-1']),
+    idleAgentIds: new Set<string>(),
+    dispatchLedger: new Map<string, { sentAt: number }>(),
+    paths: new Set(['active_assignment']),
+  }
+
+  const secondPrompt = planSprintEngineDispatch({
+    ...commonInput,
+    continuationLedger: new Map([[key, { sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000, attempts: 1 }]]),
+  })
+  assert.equal(secondPrompt.pastes.length, 1, 'the second continuation prompt is allowed after another inactive hour')
+  assert.equal(secondPrompt.pastes[0].prompt, 'Continue.')
+  assert.equal(secondPrompt.diagnostics.length, 0)
+
+  const exhausted = planSprintEngineDispatch({
+    ...commonInput,
+    continuationLedger: new Map([[key, { sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000, attempts: AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS }]]),
+  })
+  assert.equal(exhausted.pastes.length, 0, 'the prompt cap suppresses further continuation pastes')
+  assert.equal(exhausted.diagnostics.length, 1, 'exhausting rescue budget surfaces operator attention')
+  assert.equal(exhausted.diagnostics[0].markExhausted, true)
+  assert.equal(exhausted.diagnostics[0].diagnostic.level, 'warning')
+
+  const alreadyReported = planSprintEngineDispatch({
+    ...commonInput,
+    continuationLedger: new Map([[key, {
+      sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000,
+      attempts: AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS,
+      exhaustedAt: now - 1_000,
+    }]]),
+  })
+  assert.equal(alreadyReported.pastes.length, 0)
+  assert.equal(alreadyReported.diagnostics.length, 0, 'the operator diagnostic is not emitted again every tick')
+}
+
+async function testActiveAssignmentExhaustionDiagnosticMarksLedger(): Promise<void> {
+  const now = Date.parse('2026-06-17T12:00:00Z')
+  const diagnostics: unknown[] = []
+  installTestWindow({
+    terminalList: async () => [],
+    logDiagnostic: async (input) => {
+      diagnostics.push(input)
+      return input
+    },
+  })
+  const supervisor = await loadSupervisor()
+  const workspace = workspaceFixture()
+  const startedAt = new Date(now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS * 3).toISOString()
+  const claimedTask = task({
+    id: 'T-active',
+    title: 'Render haunted house shell',
+    role: 'developer',
+    status: 'in_progress',
+    boardColumn: 'in_progress',
+    ownerAgentId: 'developer-1',
+    startedAt,
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [claimedTask],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { status: 'running', currentTaskId: 'T-active' }),
+    },
+  })
+  const key = sprintEngineActiveAssignmentLedgerKey(workspace, { taskId: 'T-active' }, 'developer-1')
+  const ledger = new Map([[key, {
+    sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000,
+    attempts: AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS,
+  }]])
+  const plan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: state,
+    now,
+    runningAgentIds: new Set(['developer-1']),
+    idleAgentIds: new Set(),
+    continuationLedger: ledger,
+    dispatchLedger: new Map(),
+    paths: new Set(['active_assignment']),
+  })
+
+  await supervisor.executeSprintEngineDispatchPlan(
+    workspace,
+    plan,
+    { continuation: mutableRef(ledger), dispatch: mutableRef(new Map()) }
+  )
+
+  assert.equal(diagnostics.length, 1, 'exhausted active-assignment rescue publishes one operator diagnostic')
+  assert.ok(ledger.get(key)?.exhaustedAt, 'diagnostic execution marks the rescue ledger exhausted')
+}
+
+function testActiveGateAssignmentRescueSendsMinimalPrompt(): void {
+  const now = Date.parse('2026-06-17T12:00:00Z')
+  const startedAt = new Date(now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000).toISOString()
+  const workspace = workspaceFixture()
+  const reviewTask = task({
+    id: 'T-review',
+    title: 'Review haunted house shell',
+    status: 'review',
+    boardColumn: 'review',
+    ownerAgentId: 'developer-1',
+    qualityGates: [{
+      id: 'code_reviewer',
+      phase: 'review',
+      role: 'code_reviewer',
+      status: 'in_progress',
+      required: true,
+      allowSelfReview: true,
+      focus: '',
+      attempts: [{
+        id: 'GATE-code_reviewer-1',
+        status: 'in_progress',
+        role: 'code_reviewer',
+        claimedBy: 'code-reviewer-1',
+        startedAt,
+      }],
+    }],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [reviewTask],
+    sprintEngineAgents: {
+      'code-reviewer-1': runtimeAgent('code_reviewer', {
+        status: 'running',
+        currentTaskId: 'T-review',
+        currentGateId: 'code_reviewer',
+      }),
+    },
+  })
+
+  const plan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: state,
+    now,
+    runningAgentIds: new Set(['code-reviewer-1']),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['active_assignment']),
+  })
+
+  assert.equal(plan.pastes.length, 1, 'stale claimed gate work gets one continuation paste')
+  assert.equal(plan.pastes[0].prompt, 'Continue.')
+  assert.equal(
+    plan.pastes[0].key,
+    sprintEngineActiveAssignmentLedgerKey(workspace, { taskId: 'T-review', gateId: 'code_reviewer' }, 'code-reviewer-1')
+  )
 }
 
 async function testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt(): Promise<void> {

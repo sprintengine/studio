@@ -1,4 +1,10 @@
-import type { BacklogCriticality, BacklogDifficulty, BacklogItem, BacklogType } from './backlog'
+import type {
+  BacklogCriticality,
+  BacklogDifficulty,
+  BacklogItem,
+  BacklogItemStatus,
+  BacklogType,
+} from './backlog'
 
 // Triage view + sort logic for the Backlog panel, kept pure so the filtering
 // and ordering rules can be unit-tested without a DOM. The panel owns the
@@ -15,7 +21,7 @@ export type BacklogView =
   | 'unestimated'
   | 'archived'
 
-export type BacklogSort = 'recent' | 'priority' | 'largest' | 'smallest'
+export type BacklogSort = 'recent' | 'status' | 'priority' | 'largest' | 'smallest'
 
 export const DIFFICULTY_LABEL: Record<BacklogDifficulty, string> = {
   xs: 'XS',
@@ -48,6 +54,19 @@ export const TYPE_LABEL: Record<BacklogType, string> = {
 
 const DIFFICULTY_RANK: Record<BacklogDifficulty, number> = { xs: 0, s: 1, m: 2, l: 3, xl: 4 }
 const CRITICALITY_RANK: Record<BacklogCriticality, number> = { low: 0, normal: 1, high: 2, critical: 3 }
+
+// Worklist urgency order for the status sort: items waiting on a human decision
+// surface first, then work that is actively running, then ready-to-start, then
+// rough ideas, with finished/archived sinking to the bottom. Recency is the
+// tiebreak within a status band (compareBacklogItems).
+const STATUS_RANK: Record<BacklogItemStatus, number> = {
+  needs_input: 0,
+  in_progress: 1,
+  ready: 2,
+  idea: 3,
+  completed: 4,
+  archived: 5,
+}
 
 const SMALL: ReadonlySet<BacklogDifficulty> = new Set<BacklogDifficulty>(['xs', 's'])
 const LARGE: ReadonlySet<BacklogDifficulty> = new Set<BacklogDifficulty>(['l', 'xl'])
@@ -88,6 +107,15 @@ export function matchesBacklogView(item: Triageable, view: BacklogView): boolean
 
 export function compareBacklogItems(a: Triageable, b: Triageable, sort: BacklogSort): number {
   switch (sort) {
+    case 'status': {
+      // needs_input → in_progress → ready → idea → completed → archived, with
+      // newest-first inside each band so the freshest of two in-progress items
+      // leads.
+      const sa = STATUS_RANK[a.status]
+      const sb = STATUS_RANK[b.status]
+      if (sa !== sb) return sa - sb
+      return b.modifiedAt - a.modifiedAt
+    }
     case 'priority': {
       // Highest criticality first; tiebreak on the smallest difficulty so a
       // small + critical "quick win" outranks a large + critical bet. Unset

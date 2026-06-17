@@ -49,6 +49,7 @@ import {
 } from '../../utils/sprintengineBacklogLinks'
 import { deriveSprintEngineRunGlyph } from '../../utils/sprintengine'
 import { BacklogLinksSection } from '../backlog/BacklogLinksSection'
+import { BacklogFilterMenu } from '../backlog/BacklogFilterMenu'
 import {
   compareBacklogItems,
   matchesBacklogView,
@@ -112,6 +113,7 @@ const VIEW_ITEMS: SelectItem<BacklogView>[] = [
 
 const SORT_ITEMS: SelectItem<BacklogSort>[] = [
   { value: 'recent', label: 'Recently updated' },
+  { value: 'status', label: 'Status' },
   { value: 'priority', label: 'Priority' },
   { value: 'largest', label: 'Largest first' },
   { value: 'smallest', label: 'Smallest first' },
@@ -886,18 +888,13 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
             clearAriaLabel="Clear backlog search"
           />
         </div>
-        <Select
-          ariaLabel="Triage view"
-          items={VIEW_ITEMS}
-          value={view}
-          onChange={setView}
-          className="shrink-0"
-        />
-        <Select
-          ariaLabel="Sort items"
-          items={SORT_ITEMS}
-          value={sort}
-          onChange={setSort}
+        <BacklogFilterMenu
+          view={view}
+          sort={sort}
+          viewItems={VIEW_ITEMS}
+          sortItems={SORT_ITEMS}
+          onViewChange={setView}
+          onSortChange={setSort}
           className="shrink-0"
         />
       </div>

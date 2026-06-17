@@ -65,6 +65,9 @@ type WorkspaceSidebarProps = {
   isDetachedWindow: boolean
   sidebarCollapsed: boolean
   activityByWorkspaceId: Record<WorkspaceId, Activity>
+  // Workspaces whose agents are resident (live PTY) right now — bolded as "hot"
+  // (instant switch) versus suspended/exited rows that re-launch on open.
+  residentWorkspaceIds: Set<WorkspaceId>
   terminalRecencyByWorkspaceId: Record<WorkspaceId, TerminalRecency>
   onSelectWorkspace: (id: WorkspaceId) => void
   onMoveWorkspaceToNewWindow: (id: WorkspaceId, placement?: WorkspaceDetachPlacement) => void
@@ -340,6 +343,7 @@ export default function WorkspaceSidebar({
   isDetachedWindow,
   sidebarCollapsed,
   activityByWorkspaceId,
+  residentWorkspaceIds,
   terminalRecencyByWorkspaceId,
   onSelectWorkspace,
   onMoveWorkspaceToNewWindow,
@@ -771,6 +775,9 @@ export default function WorkspaceSidebar({
       : tone
     const folderMissing = workspace.folderMissing === true
     const starred = isStarred(workspace.highlight)
+    // "Hot": at least one resident (live-PTY) agent — instant to switch into.
+    // Bolded below so suspended/exited workspaces read as the quieter state.
+    const resident = residentWorkspaceIds.has(workspace.id)
     const highlighted = hasHighlightOverride(workspace.highlight)
     const accent = rowAccent(workspace, moduleOverrides)
     const dropMark =
@@ -888,7 +895,13 @@ export default function WorkspaceSidebar({
                     label="Starred"
                   />
                 ) : null}
-                <span className="min-w-0 truncate" title={workspace.name}>{workspace.name}</span>
+                <span
+                  className={`min-w-0 truncate ${resident ? 'font-semibold text-[color:var(--text-strong)]' : ''}`}
+                  title={workspace.name}
+                >
+                  {workspace.name}
+                </span>
+                {resident ? <span className="sr-only"> (agents resident)</span> : null}
               </span>
             )}
 

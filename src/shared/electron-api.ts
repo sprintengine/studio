@@ -788,6 +788,35 @@ export type SystemMemorySample = {
   source: 'vm_stat' | 'proc' | 'os'
 }
 
+// One terminal/agent's real process cost, attributed to its workspace. The
+// memory is the RSS of the pty's whole subtree (the CLI plus any MCP/dev-server
+// children), summed in the main process where pids and sessions meet.
+export type WorkspaceTerminalMemorySample = {
+  sessionId: string
+  kind: TerminalKind
+  cli: AgentCli | null
+  agentId: string | null
+  terminalId: string | null
+  activityKind: string
+  processAlive: boolean
+  memoryBytes: number
+  startedAt: number
+}
+
+// Per-workspace rollup of resident agent/terminal memory. Only live sessions
+// contribute; shared overhead (main/renderer/GPU) is intentionally not
+// attributed, so the sum is "what this workspace's terminals cost", not the
+// whole app.
+export type WorkspaceMemorySample = {
+  workspaceId: string
+  // At least one live agent PTY — the same "hot" signal the sidebar bolds.
+  resident: boolean
+  totalMemoryBytes: number
+  // Earliest startedAt across the workspace's live terminals ("live for …").
+  becameLiveAt: number | null
+  terminals: WorkspaceTerminalMemorySample[]
+}
+
 export type ProcessMetricsSnapshot = {
   sampledAt: number
   // Best-effort: empty when app.getAppMetrics() is unavailable in the current
@@ -795,6 +824,8 @@ export type ProcessMetricsSnapshot = {
   processes: ProcessMetricSample[]
   // Best-effort: omitted until the first out-of-band sample lands.
   systemMemory?: SystemMemorySample
+  // Best-effort: per-workspace RSS attribution; omitted until the first sample.
+  workspaceMemory?: WorkspaceMemorySample[]
 }
 
 // Per-api-method IPC accounting, accumulated in the preload (see preload/ipcStats).

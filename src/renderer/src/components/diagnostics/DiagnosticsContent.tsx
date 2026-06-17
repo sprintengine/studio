@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react'
-import type { ProcessMetricKind, ProcessMetricsSnapshot } from '../../../../shared/electron-api'
+import type { ProcessMetricKind, ProcessMetricsSnapshot, WorkspaceMemorySample } from '../../../../shared/electron-api'
 import { Select } from '../ui/Select'
 import { Tabs, TabPanel, type TabItem } from '../ui/Tabs'
 import { useTerminalSessions } from '../../hooks/useTerminalSessions'
@@ -214,13 +214,14 @@ function useWorkspaceSyncContext(): SyncContext {
   return context
 }
 
-type DiagnosticTabId = 'dashboard' | 'memory' | 'rendering' | 'terminals' | 'subsystems'
+type DiagnosticTabId = 'dashboard' | 'memory' | 'rendering' | 'terminals' | 'workspaces' | 'subsystems'
 
 const DIAGNOSTIC_TABS: TabItem<DiagnosticTabId>[] = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'memory', label: 'Memory' },
   { id: 'rendering', label: 'Rendering' },
   { id: 'terminals', label: 'Terminals' },
+  { id: 'workspaces', label: 'Workspaces' },
   { id: 'subsystems', label: 'Subsystems' },
 ]
 
@@ -377,6 +378,25 @@ export default function DiagnosticsContent({ headerActions }: Props) {
     () => aggregateDiagnostics({ sessions, activeWorkspaceIds, workspaceNames, now }),
     [sessions, activeWorkspaceIds, workspaceNames, now]
   )
+
+  // Real per-workspace process RSS, attributed in main from the pty subtrees.
+  // Joined into the Workspaces tab by id; absent until the first sample lands.
+  const workspaceMemoryById = useMemo(() => {
+    const map = new Map<string, WorkspaceMemorySample>()
+    for (const sample of metrics?.workspaceMemory ?? []) map.set(sample.workspaceId, sample)
+    return map
+  }, [metrics])
+
+  // Workspaces ordered by real resident memory (heaviest first) — the triage
+  // axis for "what's costing me RAM". Falls back to the aggregation's own order
+  // (retained replay) before the first memory sample arrives.
+  const workspacesByMemory = useMemo(() => {
+    return [...aggregation.workspaces].sort(
+      (a, b) =>
+        (workspaceMemoryById.get(b.workspaceId)?.totalMemoryBytes ?? 0) -
+        (workspaceMemoryById.get(a.workspaceId)?.totalMemoryBytes ?? 0)
+    )
+  }, [aggregation.workspaces, workspaceMemoryById])
 
   const sortedRows = useMemo(
     () => sortTerminalDiagnosticsRows(aggregation.rows, sortKey),
@@ -814,54 +834,6 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           active={activeTab === 'terminals'}
           className="flex flex-col gap-4"
         >
-        {/* Workspace rollups */}
-        <section>
-          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
-            Workspaces ({aggregation.workspaces.length})
-          </h2>
-          {aggregation.workspaces.length > 0 ? (
-            <table className="w-full border-collapse">
-              <thead>
-                <tr>
-                  <Th>Workspace</Th>
-                  <Th numeric>Live</Th>
-                  <Th numeric>Visible</Th>
-                  <Th numeric>Hidden+vis</Th>
-                  <Th numeric>Active</Th>
-                  <Th numeric>Idle</Th>
-                  <Th numeric>Failed</Th>
-                  <Th numeric>Retained</Th>
-                  <Th numeric>Largest</Th>
-                  <Th numeric>Last output</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {aggregation.workspaces.map((workspace) => (
-                  <tr key={workspace.workspaceId} className="border-b border-[color:var(--border-subtle)]">
-                    <Td title={workspace.workspaceId}>{workspace.workspaceName ?? workspace.workspaceId}</Td>
-                    <Td numeric>{workspace.liveTerminalCount}</Td>
-                    <Td numeric>{workspace.visibleTerminalCount}</Td>
-                    <Td numeric>
-                      {workspace.hiddenButVisibleCount > 0 ? (
-                        <span className="text-[color:var(--tone-error)]">{workspace.hiddenButVisibleCount}</span>
-                      ) : (
-                        0
-                      )}
-                    </Td>
-                    <Td numeric>{workspace.activeCount}</Td>
-                    <Td numeric>{workspace.idleCount}</Td>
-                    <Td numeric>{workspace.failedCount}</Td>
-                    <Td numeric>{formatBytes(workspace.totalRetainedReplayBytes)}</Td>
-                    <Td numeric>{formatBytes(workspace.largestRetainedReplayBytes)}</Td>
-                    <Td numeric>{formatRelativeMsAgo(workspace.lastOutputAt, now) || '—'}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p className="text-[color:var(--text-muted)]">No workspace terminals.</p>
-          )}
-        </section>
 
         {/* Terminal table */}
         <section>
@@ -947,6 +919,72 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             </table>
           ) : (
             <p className="text-[color:var(--text-muted)]">No terminal sessions.</p>
+          )}
+        </section>
+
+        </TabPanel>
+
+        {/* Workspaces — per-workspace resident memory + terminal rollup */}
+        <TabPanel
+          idPrefix={tabsIdPrefix}
+          tabId="workspaces"
+          active={activeTab === 'workspaces'}
+          className="flex flex-col gap-4"
+        >
+        <section>
+          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
+            Workspaces ({workspacesByMemory.length})
+          </h2>
+          <p className="mb-2 text-[10px] text-[color:var(--text-subtle)]">
+            Memory is the real RSS of each workspace's agent/terminal subtrees (the CLI plus its MCP/dev-server
+            children), summed in the main process. Shared app overhead (main, renderer, GPU) is not attributed here,
+            so these sum to less than the app total. &quot;Live for&quot; is since the oldest live terminal started.
+          </p>
+          {workspacesByMemory.length > 0 ? (
+            <table className="w-full border-collapse">
+              <thead>
+                <tr>
+                  <Th>Workspace</Th>
+                  <Th numeric>Memory</Th>
+                  <Th numeric>Live</Th>
+                  <Th numeric>Active</Th>
+                  <Th numeric>Idle</Th>
+                  <Th numeric>Hidden+vis</Th>
+                  <Th numeric>Retained</Th>
+                  <Th numeric>Live for</Th>
+                  <Th numeric>Last output</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {workspacesByMemory.map((workspace) => {
+                  const mem = workspaceMemoryById.get(workspace.workspaceId)
+                  return (
+                    <tr key={workspace.workspaceId} className="border-b border-[color:var(--border-subtle)]">
+                      <Td title={workspace.workspaceId}>
+                        {mem?.resident ? <span aria-hidden="true">● </span> : null}
+                        {workspace.workspaceName ?? workspace.workspaceId}
+                      </Td>
+                      <Td numeric>{mem ? formatBytes(mem.totalMemoryBytes) : '—'}</Td>
+                      <Td numeric>{workspace.liveTerminalCount}</Td>
+                      <Td numeric>{workspace.activeCount}</Td>
+                      <Td numeric>{workspace.idleCount}</Td>
+                      <Td numeric>
+                        {workspace.hiddenButVisibleCount > 0 ? (
+                          <span className="text-[color:var(--tone-error)]">{workspace.hiddenButVisibleCount}</span>
+                        ) : (
+                          0
+                        )}
+                      </Td>
+                      <Td numeric>{formatBytes(workspace.totalRetainedReplayBytes)}</Td>
+                      <Td numeric>{mem?.becameLiveAt ? formatRelativeMsAgo(mem.becameLiveAt, now) || '—' : '—'}</Td>
+                      <Td numeric>{formatRelativeMsAgo(workspace.lastOutputAt, now) || '—'}</Td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-[color:var(--text-muted)]">No workspace terminals.</p>
           )}
         </section>
 

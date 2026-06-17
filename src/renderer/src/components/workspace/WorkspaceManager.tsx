@@ -78,6 +78,7 @@ import {
   uniqueAgentName,
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
+import { residentAgentWorkspaceIds } from '../../utils/workspaceResidency'
 import {
   EMPTY_WORKSPACE_NAVIGATION_HISTORY,
   recordWorkspaceVisit,
@@ -1189,6 +1190,16 @@ export default function WorkspaceManager() {
     return map
   }, [workspaces, terminalSessions])
 
+  // Workspaces whose agents are resident (live PTY) right now, so the sidebar can
+  // bold them as "hot" — instant to switch into, versus suspended/exited rows that
+  // re-launch on open. Derived from the same live `terminalSessions` snapshot as
+  // activity, and recomputes the moment the reaper suspends an agent (it disposes
+  // the session and broadcasts terminal:sessions-changed).
+  const residentWorkspaceIds = useMemo(
+    () => residentAgentWorkspaceIds(terminalSessions),
+    [terminalSessions],
+  )
+
   const terminalRecencyByWorkspaceId = useMemo(() => {
     const map: Record<string, { hasRunning: boolean; lastFinishedAt: number | null }> = {}
     for (const workspace of workspaces) {
@@ -1963,6 +1974,7 @@ export default function WorkspaceManager() {
         isDetachedWindow={!isPrimaryWorkspaceWindow}
         sidebarCollapsed={sidebarCollapsed}
         activityByWorkspaceId={activityByWorkspaceId}
+        residentWorkspaceIds={residentWorkspaceIds}
         terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
         onSelectWorkspace={(id) => {
           setShowNewWorkspacePanel(false)

@@ -375,6 +375,9 @@ export function findSprintEngineWakeCandidateTaskForAgent(
 
 export const AUTO_RUN_ROLE_CONTINUATION_RETRY_MS = 60_000
 export const AUTO_RUN_DISPATCH_PROMPT_RETRY_MS = 5 * 60_000
+export const AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS = 60 * 60_000
+export const AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS = 2
+export const AUTO_RUN_ACTIVE_ASSIGNMENT_PROMPT = 'Continue.'
 /**
  * Idle retirement window. Long enough that a warm terminal is still reused
  * for back-to-back work via wake prompts; past it, a terminal with no
@@ -398,7 +401,7 @@ export const AUTO_RUN_RETIREMENT_COOLDOWN_MS = 15 * 60_000
 export const AUTO_RUN_MAX_PROMPT_RETRIES = 5
 export const AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES = 3
 
-export type SprintEngineDispatchAttempt = { sentAt: number; attempts?: number }
+export type SprintEngineDispatchAttempt = { sentAt: number; attempts?: number; exhaustedAt?: number }
 
 export function promptRetryLimitReached(
   attempt: SprintEngineDispatchAttempt | undefined,
@@ -466,6 +469,7 @@ export type SprintEngineDispatchPath =
   | 'dispatch'
   | 'task_wake'
   | 'gate'
+  | 'active_assignment'
   | 'restart'
   | 'respawn'
   | 'idle_retire'
@@ -538,12 +542,29 @@ export type SprintEngineDispatchRetirementAction = {
   diagnostic: { title: string; message: string; details: string }
 }
 
+export type SprintEngineDispatchDiagnosticAction = {
+  agentId?: string
+  ledger?: 'continuation' | 'dispatch'
+  key?: string
+  markExhausted?: boolean
+  event: string
+  data: Record<string, unknown>
+  diagnostic: {
+    level: 'info' | 'warning' | 'error'
+    title: string
+    message: string
+    details: string
+    taskId?: string
+  }
+}
+
 export type SprintEngineDispatchPlan = {
   ledgerDeletes: Array<{ ledger: 'continuation' | 'dispatch'; key: string }>
   skips: Array<{ event: string; data: Record<string, unknown> }>
   pastes: SprintEngineDispatchPasteAction[]
   restarts: SprintEngineDispatchRestartAction[]
   respawns: SprintEngineDispatchRespawnAction[]
+  diagnostics: SprintEngineDispatchDiagnosticAction[]
   notificationDeliveries: SprintEngineDispatchNotificationDelivery[]
   notificationResolutions: Array<{ deliveryKey: string; event: string; data: Record<string, unknown> }>
   retirements: SprintEngineDispatchRetirementAction[]
@@ -698,12 +719,91 @@ export function sprintEngineRespawnLedgerKey(
   return continuationMessageKey(workspace, `respawn:${sprintEngineAutoRunWorkKey(work)}`, agentId)
 }
 
+export function sprintEngineActiveAssignmentLedgerKey(
+  workspace: Workspace,
+  work: { taskId: string; gateId?: string | null },
+  agentId: string
+): string {
+  // The `active:` work segment contains ':', which keeps active-assignment
+  // rescue budgets separate from normal ready-task wake prompt budgets.
+  return continuationMessageKey(workspace, `active:${sprintEngineAutoRunWorkKey(work)}`, agentId)
+}
+
+function sprintEngineTimestampMs(value: string | null | undefined): number | null {
+  if (!value) return null
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function addSprintEngineTimestamp(max: number | null, value: string | null | undefined): number | null {
+  const parsed = sprintEngineTimestampMs(value)
+  if (parsed === null) return max
+  return max === null ? parsed : Math.max(max, parsed)
+}
+
+function getSprintEngineAssignmentActivityAt(
+  sprintEngineState: SprintEngineState,
+  task: SprintEngineTask,
+  options: {
+    agentId: string
+    gateId?: string | null
+  }
+): number | null {
+  let activityAt: number | null = null
+  activityAt = addSprintEngineTimestamp(activityAt, task.startedAt)
+  activityAt = addSprintEngineTimestamp(activityAt, task.completedAt)
+  for (const entry of task.activity ?? []) {
+    activityAt = addSprintEngineTimestamp(activityAt, entry.timestamp)
+  }
+  for (const comment of task.comments ?? []) {
+    activityAt = addSprintEngineTimestamp(activityAt, comment.createdAt)
+  }
+  for (const comment of task.latestComments ?? []) {
+    activityAt = addSprintEngineTimestamp(activityAt, comment.createdAt)
+  }
+  for (const comment of task.latestOpenFeedback ?? []) {
+    activityAt = addSprintEngineTimestamp(activityAt, comment.createdAt)
+  }
+  for (const artifact of sprintEngineState.artifacts) {
+    if (artifact.taskId !== task.id) continue
+    activityAt = addSprintEngineTimestamp(activityAt, artifact.createdAt)
+    activityAt = addSprintEngineTimestamp(activityAt, artifact.updatedAt)
+    for (const entry of artifact.reviewHistory) {
+      activityAt = addSprintEngineTimestamp(activityAt, entry.timestamp)
+    }
+    activityAt = addSprintEngineTimestamp(activityAt, artifact.approvedAt)
+    activityAt = addSprintEngineTimestamp(activityAt, artifact.changesRequestedAt)
+  }
+
+  if (options.gateId) {
+    const gate = task.qualityGates?.find((candidate) => candidate.id === options.gateId)
+    for (const attempt of gate?.attempts ?? []) {
+      activityAt = addSprintEngineTimestamp(activityAt, attempt.startedAt)
+      activityAt = addSprintEngineTimestamp(activityAt, attempt.completedAt)
+    }
+  }
+
+  const runtimeAgent = sprintEngineState.sprintEngineAgents[options.agentId]
+  const dispatch = runtimeAgent?.currentDispatch
+  if (
+    dispatch?.taskId === task.id
+    && (
+      (!options.gateId && dispatch.targetKind === 'task')
+      || (options.gateId && dispatch.targetKind === 'gate' && dispatch.gateId === options.gateId)
+    )
+  ) {
+    activityAt = addSprintEngineTimestamp(activityAt, dispatch.assignedAt)
+  }
+  return activityAt
+}
+
 /**
  * The reconciler core: one pure pass that decides every re-engagement action
  * for live terminals — durable-dispatch reconcile prompts, ready-task wake
- * prompts, claimed/unclaimed gate continuation prompts, and stalled-agent
- * restarts — against a unified attempt ledger. The supervisor executes the
- * returned plan (find session, paste, record, log); it makes no decisions.
+ * prompts, claimed/unclaimed gate continuation prompts, active-assignment
+ * rescues, and stalled-agent restarts — against a unified attempt ledger. The
+ * supervisor executes the returned plan (find session, paste, record, log);
+ * it makes no decisions.
  */
 export function planSprintEngineDispatch(input: {
   workspace: Workspace
@@ -727,6 +827,7 @@ export function planSprintEngineDispatch(input: {
     pastes: [],
     restarts: [],
     respawns: [],
+    diagnostics: [],
     notificationDeliveries: [],
     notificationResolutions: [],
     retirements: [],
@@ -734,9 +835,10 @@ export function planSprintEngineDispatch(input: {
   // One engagement per agent per pass: a terminal must never receive two
   // dispatch instructions — or a paste and a kill — from the same plan.
   // Paths run in priority order (notification, dispatch, task wake, gate,
-  // restart, respawn, idle retire); the first action planned for an agent
-  // wins the pass. Enforced structurally: every terminal-touching action is
-  // planned through one of the helpers below, which record the engagement.
+  // active assignment, restart, respawn, idle retire); the first action
+  // planned for an agent wins the pass. Enforced structurally: every
+  // terminal-touching action is planned through one of the helpers below,
+  // which record the engagement.
   // Paths still pre-check `engagedAgentIds` where they want a path-specific
   // skip event or to fall through to the next candidate.
   const engagedAgentIds = new Set<string>()
@@ -755,6 +857,9 @@ export function planSprintEngineDispatch(input: {
   const planRespawn = (respawn: SprintEngineDispatchRespawnAction): void => {
     plan.respawns.push(respawn)
     engagedAgentIds.add(respawn.agentId)
+  }
+  const planDiagnostic = (diagnostic: SprintEngineDispatchDiagnosticAction): void => {
+    plan.diagnostics.push(diagnostic)
   }
   const planRetirement = (retirement: SprintEngineDispatchRetirementAction): void => {
     plan.retirements.push(retirement)
@@ -1042,6 +1147,124 @@ export function planSprintEngineDispatch(input: {
         usedIdleAgentIds.add(agentId)
       }
     }
+  }
+
+  if (include('active_assignment')) {
+    const activeKeys = new Set<string>()
+    const activeAssignments: Array<{
+      agentId: string
+      role: SprintEngineRoleId
+      task: SprintEngineTask
+      gate?: SprintEngineQualityGate
+      kind: 'task' | 'gate'
+    }> = []
+    for (const task of sprintEngineState.tasks) {
+      if (task.status === 'in_progress' && task.ownerAgentId) {
+        activeAssignments.push({ agentId: task.ownerAgentId, role: task.role, task, kind: 'task' })
+      }
+    }
+    for (const task of sprintEngineState.tasks) {
+      for (const claim of getActiveSprintEngineAutoRunGateClaims(task, sprintEngineState.tasks)) {
+        activeAssignments.push({ agentId: claim.claimedBy, role: claim.gate.role, task, gate: claim.gate, kind: 'gate' })
+      }
+    }
+
+    for (const assignment of activeAssignments) {
+      const runtimeAgent = sprintEngineState.sprintEngineAgents[assignment.agentId]
+      const gateId = assignment.gate?.id
+      const key = sprintEngineActiveAssignmentLedgerKey(
+        workspace,
+        { taskId: assignment.task.id, ...(gateId ? { gateId } : {}) },
+        assignment.agentId
+      )
+      activeKeys.add(key)
+      const rescueData = {
+        agentId: assignment.agentId,
+        role: assignment.role,
+        taskId: assignment.task.id,
+        gateId: gateId ?? null,
+        assignmentKind: assignment.kind,
+      }
+      if (!input.runningAgentIds.has(assignment.agentId)) continue
+      if (engagedAgentIds.has(assignment.agentId)) continue
+      if (
+        !runtimeAgent
+        || runtimeAgent.status === 'needs_input'
+        || runtimeAgent.status === 'retired'
+        || runtimeAgent.status === 'done'
+      ) {
+        plan.skips.push({
+          event: 'active-assignment-rescue-skipped-agent-status',
+          data: { ...rescueData, status: runtimeAgent?.status ?? 'missing' },
+        })
+        continue
+      }
+      const activityAt = getSprintEngineAssignmentActivityAt(sprintEngineState, assignment.task, {
+        agentId: assignment.agentId,
+        gateId,
+      })
+      if (activityAt === null) {
+        plan.skips.push({ event: 'active-assignment-rescue-skipped-no-activity-clock', data: rescueData })
+        continue
+      }
+
+      let previous = input.continuationLedger.get(key)
+      if (previous && activityAt > Math.max(previous.sentAt, previous.exhaustedAt ?? 0)) {
+        plan.ledgerDeletes.push({ ledger: 'continuation', key })
+        previous = undefined
+      }
+      if (now - activityAt < AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS) continue
+      if (promptRetryLimitReached(previous, AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS)) {
+        if (!previous?.exhaustedAt) {
+          planDiagnostic({
+            agentId: assignment.agentId,
+            ledger: 'continuation',
+            key,
+            markExhausted: true,
+            event: 'active-assignment-rescue-exhausted',
+            data: {
+              ...rescueData,
+              attempts: previous?.attempts ?? 0,
+              maxPrompts: AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS,
+              inactiveMs: now - activityAt,
+            },
+            diagnostic: {
+              level: 'warning',
+              title: 'Sprint Engine agent needs operator attention',
+              message: 'A live assigned agent has not recorded Sprint Engine activity after two continuation prompts. Automatic rescue has stopped for this assignment.',
+              details: [
+                `Workspace: ${workspace.name}`,
+                `Agent: ${assignment.agentId} (${assignment.role})`,
+                `Task: ${assignment.task.id} - ${assignment.task.title}`,
+                gateId ? `Gate: ${gateId}` : null,
+                `Last Sprint Engine activity: ${new Date(activityAt).toISOString()}`,
+                `Continuation prompts attempted: ${previous?.attempts ?? 0}`,
+              ].filter((line): line is string => Boolean(line)).join('\n'),
+              taskId: assignment.task.id,
+            },
+          })
+        }
+        continue
+      }
+      if (previous && now - previous.sentAt < AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS) continue
+      planPaste({
+        agentId: assignment.agentId,
+        prompt: AUTO_RUN_ACTIVE_ASSIGNMENT_PROMPT,
+        ledger: 'continuation',
+        key,
+        event: 'active-assignment-continuation-prompt-sent',
+        data: {
+          ...rescueData,
+          inactiveMs: now - activityAt,
+        },
+      })
+    }
+
+    input.continuationLedger.forEach((_, key) => {
+      const workKey = getSprintEngineContinuationMessageWorkKey(workspace, key)
+      if (!workKey || !workKey.startsWith('active:')) return
+      if (!activeKeys.has(key)) plan.ledgerDeletes.push({ ledger: 'continuation', key })
+    })
   }
 
   if (include('restart') && input.idleAgentIds.size > 0 && wakeTasks.length > 0) {

@@ -5,11 +5,14 @@ import type {
   ProcessMetricSample,
   ProcessMetricsSnapshot,
   SystemMemorySample,
+  WorkspaceMemorySample,
 } from '../../shared/electron-api'
 import { CHILD_PROCESS_SAMPLE_THROTTLE_MS, sampleChildProcessMetrics } from '../child-process-metrics'
 import { collectProcessMetrics, type RawProcessMetric } from '../process-metrics'
 import { sampleSystemMemory, SYSTEM_MEMORY_SAMPLE_THROTTLE_MS } from '../system-memory'
 import { sampleThreadCounts, THREAD_SAMPLE_THROTTLE_MS } from '../thread-counts'
+import { listTerminalRoots } from '../terminal-runtime'
+import { sampleWorkspaceMemory, WORKSPACE_MEMORY_SAMPLE_THROTTLE_MS } from '../workspace-memory'
 
 // Thread counts come from the OS (getAppMetrics has none), which on macOS means a
 // `ps` spawn. To keep that off the 1s metrics poll, the latest counts are cached
@@ -26,6 +29,9 @@ let childProcessMetricSampleInFlight = false
 let systemMemoryCache: SystemMemorySample | undefined
 let systemMemorySampledAt = 0
 let systemMemorySampleInFlight = false
+let workspaceMemoryCache: WorkspaceMemorySample[] = []
+let workspaceMemorySampledAt = 0
+let workspaceMemorySampleInFlight = false
 
 function maybeRefreshThreadCounts(pids: readonly number[]): void {
   if (threadCountSampleInFlight) return
@@ -58,6 +64,27 @@ function maybeRefreshSystemMemory(): void {
     })
     .finally(() => {
       systemMemorySampleInFlight = false
+    })
+}
+
+// Per-workspace RSS attribution. Like the child-process sampler this shells out
+// to `ps`, so it is throttled and refreshed off the hot path; the poll attaches
+// whatever is cached. Reads the live terminal roots each refresh so it tracks
+// spawns/suspends.
+function maybeRefreshWorkspaceMemory(): void {
+  if (workspaceMemorySampleInFlight) return
+  if (Date.now() - workspaceMemorySampledAt < WORKSPACE_MEMORY_SAMPLE_THROTTLE_MS) return
+  workspaceMemorySampleInFlight = true
+  void sampleWorkspaceMemory(listTerminalRoots())
+    .then((samples) => {
+      workspaceMemoryCache = samples
+      workspaceMemorySampledAt = Date.now()
+    })
+    .catch(() => {
+      // Best-effort: keep the last good workspace-memory sample on failure.
+    })
+    .finally(() => {
+      workspaceMemorySampleInFlight = false
     })
 }
 
@@ -121,7 +148,8 @@ export function registerDiagnosticsIpc(
     maybeRefreshThreadCounts(electronPids)
     maybeRefreshChildProcessMetrics(electronPids)
     maybeRefreshSystemMemory()
-    return { ...snapshot, systemMemory: systemMemoryCache }
+    maybeRefreshWorkspaceMemory()
+    return { ...snapshot, systemMemory: systemMemoryCache, workspaceMemory: workspaceMemoryCache }
   })
 
   ipcMain.handle('diagnostics:open-window', () => {
