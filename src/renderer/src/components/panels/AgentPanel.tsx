@@ -1,5 +1,6 @@
-import React, { useMemo } from 'react'
+import React, { useCallback, useMemo } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { useSession } from '../../hooks/useTerminalSessions'
 import type {
   AgentCli,
   AgentRuntimeKind,
@@ -103,6 +104,23 @@ export default function AgentPanel({
     !agentCliUnavailable
     && (Boolean(sessionId) || (!sprintEngineTerminalBlocked && (!isSprintEngineAgent || Boolean(agent?.cliStartRequested))))
   const needsInput = sprintEngineRuntimeStatus === 'needs_input'
+  // Freeze-the-view: when this agent's terminal has been suspended (process
+  // killed to reclaim memory, scrollback kept painted), surface a glyph so the
+  // user knows it is not live and will resume on the next keystroke. Tracked off
+  // the session snapshot's `suspended` flag; `processAlive` co-varies, so the
+  // (deduped) sessions signature re-renders this on suspend/resume.
+  const terminalSession = useSession(
+    useCallback((s) => Boolean(sessionId) && s.sessionId === sessionId, [sessionId]),
+  )
+  const isTerminalSuspended = Boolean(terminalSession?.suspended)
+  // A live agent terminal can be manually suspended to reclaim its memory while
+  // keeping the painted scrollback to read. (Resume-on-keystroke is wired in
+  // TerminalView; until then a suspended terminal is read-only.)
+  const canSuspendTerminal = Boolean(sessionId) && Boolean(terminalSession?.processAlive) && !isTerminalSuspended
+  const suspendTerminal = () => {
+    if (!sessionId) return
+    void window.api.terminalSuspend(sessionId).catch(() => {})
+  }
   const cliShellTone = needsInput
     ? 'border border-[color:var(--tone-warn)] bg-[color:var(--bg-surface-raised)] ring-1 ring-[color:var(--tone-warn-soft)]'
     : ''
@@ -166,30 +184,65 @@ export default function AgentPanel({
 
   return (
     <div className={`flex h-full flex-col bg-[color:var(--bg-surface)] font-mono text-[12px] text-[color:var(--text-default)] ${cliShellTone}`}>
-      <div className={`relative flex-1 overflow-hidden bg-[color:var(--bg-app)] ${needsInput ? 'shadow-[inset_0_1px_0_var(--tone-warn-soft)]' : ''}`}>
-        {hasStarted && backlogItemRef ? (
-          // The positioning lives on this wrapper, not the button: Tooltip wraps
-          // its child in a `position: relative` span, so an `absolute` button
+      <div className={`group relative flex-1 overflow-hidden bg-[color:var(--bg-app)] ${needsInput ? 'shadow-[inset_0_1px_0_var(--tone-warn-soft)]' : ''}`}>
+        {hasStarted && (isTerminalSuspended || canSuspendTerminal || backlogItemRef) ? (
+          // The positioning lives on this wrapper, not the buttons: Tooltip wraps
+          // its child in a `position: relative` span, so an `absolute` child
           // would anchor to that zero-size span (off-screen) instead of the
-          // terminal surface.
-          <div className="absolute right-2 top-2 z-30">
-            <Tooltip content={`Open Backlog item: ${backlogItemRef.title}`} placement="bottom">
-              <button
-                type="button"
-                onClick={openLinkedBacklogItem}
-                aria-label={`Open Backlog item: ${backlogItemRef.title}`}
-                className="interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] shadow-sm transition-colors hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
-              >
-                {/* Matches the Backlog rail glyph (PanelRail) so the iconography
-                    reads as "the Backlog" at a glance. */}
-                <svg viewBox="0 0 16 16" fill="none" className="h-[15px] w-[15px]" aria-hidden="true">
-                  <path d="M6 4.5h7M6 8h7M6 11.5h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                  <circle cx="3" cy="4.5" r="1" fill="currentColor" />
-                  <circle cx="3" cy="8" r="1" fill="currentColor" />
-                  <circle cx="3" cy="11.5" r="1" fill="currentColor" />
-                </svg>
-              </button>
-            </Tooltip>
+          // terminal surface. Glyphs sit inline in a single top-right row.
+          <div className="absolute right-2 top-2 z-30 flex items-center gap-1.5">
+            {isTerminalSuspended ? (
+              <Tooltip content="Agent suspended to free memory — scrollback kept for reading" placement="bottom">
+                <span
+                  role="status"
+                  aria-label="Agent terminal suspended to free memory; scrollback preserved"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] shadow-sm"
+                >
+                  {/* Pause bars read as "not running, resumable". */}
+                  <svg viewBox="0 0 16 16" fill="none" className="h-[15px] w-[15px]" aria-hidden="true">
+                    <rect x="5" y="4" width="2" height="8" rx="1" fill="currentColor" />
+                    <rect x="9" y="4" width="2" height="8" rx="1" fill="currentColor" />
+                  </svg>
+                </span>
+              </Tooltip>
+            ) : null}
+            {canSuspendTerminal ? (
+              // Hover-revealed so it doesn't clutter the live terminal; the same
+              // pause glyph as the suspended state (context disambiguates: a
+              // button while live, a status indicator once suspended).
+              <Tooltip content="Suspend agent — free its memory, keep the output to read" placement="bottom">
+                <button
+                  type="button"
+                  onClick={suspendTerminal}
+                  aria-label="Suspend agent to free memory"
+                  className="interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] opacity-0 shadow-sm transition-opacity transition-colors hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] group-hover:opacity-100"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" className="h-[15px] w-[15px]" aria-hidden="true">
+                    <rect x="5" y="4" width="2" height="8" rx="1" fill="currentColor" />
+                    <rect x="9" y="4" width="2" height="8" rx="1" fill="currentColor" />
+                  </svg>
+                </button>
+              </Tooltip>
+            ) : null}
+            {backlogItemRef ? (
+              <Tooltip content={`Open Backlog item: ${backlogItemRef.title}`} placement="bottom">
+                <button
+                  type="button"
+                  onClick={openLinkedBacklogItem}
+                  aria-label={`Open Backlog item: ${backlogItemRef.title}`}
+                  className="interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] shadow-sm transition-colors hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+                >
+                  {/* Matches the Backlog rail glyph (PanelRail) so the iconography
+                      reads as "the Backlog" at a glance. */}
+                  <svg viewBox="0 0 16 16" fill="none" className="h-[15px] w-[15px]" aria-hidden="true">
+                    <path d="M6 4.5h7M6 8h7M6 11.5h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                    <circle cx="3" cy="4.5" r="1" fill="currentColor" />
+                    <circle cx="3" cy="8" r="1" fill="currentColor" />
+                    <circle cx="3" cy="11.5" r="1" fill="currentColor" />
+                  </svg>
+                </button>
+              </Tooltip>
+            ) : null}
           </div>
         ) : null}
         {hasStarted ? (

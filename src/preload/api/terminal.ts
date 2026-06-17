@@ -40,6 +40,32 @@ export const terminalApi = {
   terminalStatus: (sessionId: string): Promise<{ processAlive: boolean }> => ipcRenderer.invoke('terminal:status', sessionId),
   terminalList: (): Promise<TerminalSessionSnapshot[]> => ipcRenderer.invoke('terminal:list'),
   terminalSetVisible: (sessionId: string, visible: boolean) => ipcRenderer.invoke('terminal:set-visible', { sessionId, visible }),
+  terminalSuspend: (sessionId: string) => ipcRenderer.invoke('terminal:suspend', sessionId),
+  terminalResume: (
+    sessionId: string,
+    cols: number,
+    rows: number,
+    cwd?: string,
+    resume?: boolean,
+    sprintEngineStatePath?: string,
+    cli?: AgentCli,
+    initialPrompt?: string,
+    cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
+    shellOnly?: boolean,
+    metadata?: TerminalSpawnMetadata
+  ): Promise<TerminalSpawnResult> => ipcRenderer.invoke('terminal:resume', {
+    sessionId,
+    cols,
+    rows,
+    cwd,
+    resume,
+    sprintEngineStatePath,
+    cli,
+    initialPrompt,
+    cliRuntimes,
+    shellOnly,
+    ...metadata,
+  }),
   terminalKill: (sessionId: string) => ipcRenderer.invoke('terminal:kill', sessionId),
   onTerminalReplay: (sessionId: string, cb: (data: string) => void): (() => void) => {
     const ch = `terminal:replay:${sessionId}`
@@ -80,6 +106,8 @@ export const terminalApi = {
   | 'terminalStatus'
   | 'terminalList'
   | 'terminalSetVisible'
+  | 'terminalSuspend'
+  | 'terminalResume'
   | 'terminalKill'
   | 'onTerminalReplay'
   | 'onTerminalData'

@@ -5,6 +5,7 @@ import {
   createInitialTerminalActivity,
   getTerminalLastSeenAt,
   getTerminalSnapshot,
+  isTerminalProcessAlive,
   isTerminalSessionStale,
   markTerminalExited,
   markTerminalFailed,
@@ -42,6 +43,7 @@ function main(): void {
   assertVisibilityRecordingUpdatesRecency()
   assertStaleRuleExemptsVisibleSessionsWithLiveSender()
   assertStaleRuleUsesMostRecentUserSignal()
+  assertSuspendedSessionIsNotAlive()
 }
 
 function assertSpawnSnapshotStartsWorking(): void {
@@ -298,6 +300,23 @@ function assertStaleRuleUsesMostRecentUserSignal(): void {
 
   assert.equal(isTerminalSessionStale(session, 9_000 + STALE_TERMINAL_MAX_UNSEEN_MS), false)
   assert.equal(isTerminalSessionStale(session, 9_000 + STALE_TERMINAL_MAX_UNSEEN_MS + 1), true)
+}
+
+// Freeze-the-view: a suspended session's pty is killed, so it reports not-alive
+// (un-bolds, drops out of resident memory, is not re-reaped) while staying a
+// resumable, painted session — distinct from exited/disposed.
+function assertSuspendedSessionIsNotAlive(): void {
+  const session = createSession({ startedAt: 1_000 })
+  assert.equal(isTerminalProcessAlive(session), true)
+  assert.equal(getTerminalSnapshot(session).suspended, false)
+
+  session.suspended = true
+  assert.equal(
+    isTerminalProcessAlive(session),
+    false,
+    'a suspended session is not alive even though it has not exited or been disposed',
+  )
+  assert.equal(getTerminalSnapshot(session).suspended, true)
 }
 
 function createSession(input: {

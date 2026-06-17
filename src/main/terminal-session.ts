@@ -54,6 +54,13 @@ export type TerminalSession = {
   exitedAt: number | null
   exitCode?: number
   isDisposed: boolean
+  // Freeze-the-view: the agent process was killed to reclaim memory but the
+  // session is kept (painted scrollback + --resume flags) so it can be resumed
+  // on the next keystroke. Distinct from `isDisposed` (gone for good) and from a
+  // real exit. `suspending` is the transient flag set just before `process.kill()`
+  // so the pty `onExit` handler treats the death as a suspend, not a crash/exit.
+  suspended?: boolean
+  suspending?: boolean
   idleTimer?: ReturnType<typeof setTimeout>
   activity: SessionActivity
   outputChunks: string[]
@@ -99,7 +106,10 @@ export function getTerminalSize(cols: number, rows: number): TerminalSize {
 }
 
 export function isTerminalProcessAlive(session: TerminalSession): boolean {
-  return !session.hasExited && !session.isDisposed
+  // A suspended session's pty has been killed to reclaim memory; it is not live
+  // (so it un-bolds, drops out of resident memory, and is not re-reaped) but is
+  // not gone either — `suspended` is its own state, distinct from exit/dispose.
+  return !session.hasExited && !session.isDisposed && !session.suspended
 }
 
 export function clearTerminalIdleTimer(session: TerminalSession): void {
@@ -303,6 +313,7 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     worktreePath: session.worktreePath,
     agentSession: session.agentSession,
     visible: session.visible,
+    suspended: session.suspended ?? false,
     startedAt: session.startedAt,
     lastOutputAt: session.lastOutputAt,
     lastInputAt: session.lastInputAt,

@@ -101,6 +101,8 @@ type TerminalIpcHandlers = {
   getTerminalStatus(sessionId: string): { processAlive: boolean }
   listTerminals(): TerminalSessionSnapshot[]
   setTerminalVisible(sessionId: string, visible: boolean): void
+  suspendTerminal(sessionId: string): void
+  resumeTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   killTerminal(sessionId: string): void
 }
 
@@ -256,6 +258,8 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
           .map(getTerminalSnapshot)
       },
       setTerminalVisible: setTerminalVisible,
+      suspendTerminal: suspendTerminal,
+      resumeTerminal: resumeTerminal,
       killTerminal: disposeTerminal,
     },
   }
@@ -439,6 +443,46 @@ function flushPendingTerminalResize(sessionId: string, session: TerminalSession)
   safeResizeTerminal(sessionId, pendingResize.cols, pendingResize.rows)
 }
 
+// Freeze-the-view: kill the agent process to reclaim its RAM but KEEP the
+// session (painted scrollback + --resume launch flags) so it can be resumed on
+// the next keystroke. Unlike disposeTerminal this does not remove the session,
+// does not fire `terminal:exit` (the view stays painted), and does not tear down
+// the agent's SprintEngine run. The pty `onExit` handler finalizes the suspend
+// (sets `suspended`, broadcasts) by branching on the `suspending` flag set here.
+export function suspendTerminal(sessionId: string): void {
+  const session = terminals.get(sessionId)
+  if (!session || session.isDisposed || session.suspended || session.suspending) return
+  if (!isTerminalProcessAlive(session)) return
+  session.suspending = true
+  // Capture any pending output before the process dies, but keep the buffer so
+  // the scrollback can be replayed for the painted view.
+  terminalOutput.flush(sessionId, 'dispose')
+  clearTerminalIdleTimer(session)
+  try {
+    session.process.kill()
+  } catch {
+    // If the process already died, the onExit path has run; the guards above
+    // keep this from double-finalizing.
+  }
+}
+
+// Freeze-the-view: relaunch a suspended agent under the SAME session id with
+// --resume, triggered by the renderer on the first keystroke. The suspended
+// session's pty is already dead, so we dispose the stale record and re-spawn with
+// `resume: true` — the existing launch path renders `--resume <sessionId>` for
+// Claude and attaches a fresh pty. A non-suspended session falls through to the
+// normal spawn/reattach path unchanged (no-op relaunch).
+async function resumeTerminal(
+  sender: WebContents,
+  payload: TerminalSpawnPayload
+): Promise<TerminalSpawnResult> {
+  const existing = terminals.get(payload.sessionId)
+  if (existing && existing.suspended) {
+    disposeTerminal(payload.sessionId)
+  }
+  return spawnTerminalFromIpc(sender, { ...payload, resume: true })
+}
+
 function disposeTerminal(sessionId: string): void {
   const session = terminals.get(sessionId)
   if (!session) return
@@ -460,7 +504,10 @@ function disposeTerminal(sessionId: string): void {
 }
 
 async function waitForTerminalExit(session: TerminalSession, timeoutMs: number): Promise<boolean> {
-  if (session.hasExited || session.isDisposed) return true
+  // A suspended session's pty has already exited (we killed it); its `onExit`
+  // already fired, so waiting for another would block the full timeout on
+  // shutdown. Treat it as already-exited.
+  if (session.hasExited || session.isDisposed || session.suspended) return true
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       disposable.dispose()
@@ -977,6 +1024,18 @@ function attachTerminalSession(
   })
 
   terminalSession.process.onExit((event) => {
+    // Freeze-the-view: a suspend-kill is NOT a real exit. Finalize the suspended
+    // state and keep the session + painted scrollback; do not tear down the
+    // SprintEngine run, mark the session exited, or fire `terminal:exit` (which
+    // would unmount the view). Resume relaunches under the same session id.
+    if (terminalSession.suspending || terminalSession.suspended) {
+      terminalSession.suspending = false
+      terminalSession.suspended = true
+      if (terminals.get(sessionId) === terminalSession) {
+        broadcastTerminalSessionsChanged()
+      }
+      return
+    }
     void queueSprintEngineTerminalTeardown(terminalSession, `terminal exited with code ${event.exitCode}`)
     cleanupTerminalStartupScript(terminalSession.startupScriptPath)
     terminalOutput.flush(sessionId, 'exit')
@@ -1478,7 +1537,11 @@ async function spawnTerminalFromIpc(
       existingSession.worktreePath = worktreePath ?? existingSession.worktreePath
       existingSession.agentSession = materializeAgentSessionIdentity(sessionId, workspaceId, agentSession) ?? existingSession.agentSession
       recordTerminalVisibility(existingSession, visible)
-      if (!existingSession.hasExited) {
+      // Only resize a live pty. A suspended session (pty killed, view kept
+      // painted) is being re-viewed here, not relaunched — resume happens via
+      // `resumeTerminal` on keystroke. Resizing its dead pty would be a no-op at
+      // best, so guard on liveness rather than `!hasExited`.
+      if (isTerminalProcessAlive(existingSession)) {
         safeResizeTerminal(sessionId, cols, rows)
       }
       const replay = materializeTerminalReplay(existingSession)

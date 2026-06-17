@@ -46,6 +46,8 @@ type TerminalIpcDependencies = {
   getTerminalStatus(sessionId: string): { processAlive: boolean }
   listTerminals(): TerminalSessionSnapshot[]
   setTerminalVisible(sessionId: string, visible: boolean): void
+  suspendTerminal(sessionId: string): void
+  resumeTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   killTerminal(sessionId: string): void
 }
 
@@ -80,6 +82,14 @@ export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependenc
 
   ipcMain.handle('terminal:set-visible', (_, { sessionId, visible }: { sessionId: string; visible: boolean }): void => {
     deps.setTerminalVisible(sessionId, visible)
+  })
+
+  ipcMain.handle('terminal:suspend', (_, sessionId: string): void => {
+    deps.suspendTerminal(sessionId)
+  })
+
+  ipcMain.handle('terminal:resume', async (event, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult> => {
+    return deps.resumeTerminal(event.sender, payload)
   })
 
   ipcMain.handle('terminal:kill', (_, sessionId: string): void => {

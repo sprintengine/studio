@@ -726,6 +726,9 @@ export type TerminalSessionSnapshot = {
   worktreePath?: string
   agentSession?: AgentSessionIdentity
   visible: boolean
+  // Freeze-the-view: agent process killed to reclaim memory, scrollback kept
+  // painted, resumable on keystroke. `processAlive` is false while suspended.
+  suspended: boolean
   startedAt: number
   lastOutputAt: number | null
   lastInputAt: number | null
@@ -2010,6 +2013,23 @@ export type ElectronApi = {
   terminalStatus: (sessionId: string) => Promise<{ processAlive: boolean }>
   terminalList: () => Promise<TerminalSessionSnapshot[]>
   terminalSetVisible: (sessionId: string, visible: boolean) => Promise<void>
+  // Freeze-the-view: suspend kills the agent process but keeps the painted,
+  // resumable session; resume relaunches it (mirrors terminalSpawn's payload,
+  // forced --resume) on the first keystroke.
+  terminalSuspend: (sessionId: string) => Promise<void>
+  terminalResume: (
+    sessionId: string,
+    cols: number,
+    rows: number,
+    cwd?: string,
+    resume?: boolean,
+    sprintEngineStatePath?: string,
+    cli?: AgentCli,
+    initialPrompt?: string,
+    cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
+    shellOnly?: boolean,
+    metadata?: TerminalSpawnMetadata
+  ) => Promise<TerminalSpawnResult>
   terminalKill: (sessionId: string) => Promise<void>
   onTerminalReplay: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalData: (sessionId: string, cb: (data: string) => void) => () => void
