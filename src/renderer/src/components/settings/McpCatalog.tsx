@@ -6,7 +6,9 @@
 
 import React, { useEffect, useState } from 'react'
 import type { McpCatalogServer, McpServerConfig } from '../../types/workspace'
-import { GhostButton, PrimaryButton } from '../ui'
+import { GhostButton, InboxSearchInput, PrimaryButton } from '../ui'
+import { SettingsSectionTitle } from './SettingsAtoms'
+import { filterMcpCatalog } from './mcpCatalogFilter'
 
 export function mcpServerFromCatalog(server: McpCatalogServer): McpServerConfig {
   return {
@@ -274,6 +276,96 @@ export function McpInfoPanel({
         )}
       </div>
     </aside>
+  )
+}
+
+// Settings → MCPs "Bundled catalog": the searchable tile grid plus its detail
+// aside. Owns the search query and the open-detail selection; the parent owns
+// install state and the toggle mutation (emitted via `onToggle`). Reuses the
+// shared `InboxSearchInput` search idiom rather than a bespoke one.
+export function McpCatalogBrowser({
+  servers,
+  isInstalled,
+  onToggle,
+}: {
+  servers: McpCatalogServer[]
+  isInstalled: (id: string) => boolean
+  onToggle: (server: McpCatalogServer) => void
+}) {
+  const [query, setQuery] = useState('')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  const filtered = filterMcpCatalog(servers, query)
+  const groups = groupMcpCatalog(filtered)
+  // Only show the detail aside while its server is in the filtered set, so a
+  // search that hides the selected tile also hides its now-orphaned panel; the
+  // selection itself persists, so clearing the search restores it.
+  const selected =
+    selectedId && filtered.some((server) => server.id === selectedId)
+      ? servers.find((server) => server.id === selectedId) ?? null
+      : null
+  const trimmed = query.trim()
+
+  return (
+    <div className="space-y-4 border-t border-[color:var(--border-subtle)] pt-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <SettingsSectionTitle count={filtered.length}>Bundled catalog</SettingsSectionTitle>
+        <div className="min-w-0 flex-1">
+          <InboxSearchInput
+            value={query}
+            onChange={setQuery}
+            ariaLabel="Search MCP servers by name, category, or description"
+            placeholder="Search MCP servers"
+          />
+        </div>
+      </div>
+
+      <div className="flex gap-4">
+        <section className="min-w-0 flex-1 space-y-4">
+          {groups.length === 0 ? (
+            <p className="px-1 py-6 text-center text-[12px] text-[color:var(--text-muted)]">
+              {trimmed ? `No MCP servers match “${trimmed}”.` : 'No MCP servers available.'}
+            </p>
+          ) : (
+            <div className="space-y-5">
+              {groups.map(([category, categoryServers]) => (
+                <div key={category} className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[12px] font-medium text-[color:var(--text-muted)]">{category}</span>
+                    <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
+                    <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-subtle)]">
+                      {categoryServers.length}
+                    </span>
+                  </div>
+                  <div className={`grid grid-cols-2 gap-2 sm:grid-cols-3 ${selected ? '' : 'lg:grid-cols-4'}`}>
+                    {categoryServers.map((server) => (
+                      <McpCatalogTile
+                        key={server.id}
+                        server={server}
+                        installed={isInstalled(server.id)}
+                        selected={selectedId === server.id}
+                        onToggle={() => onToggle(server)}
+                        onInfo={() =>
+                          setSelectedId((current) => (current === server.id ? null : server.id))
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+        {selected ? (
+          <McpInfoPanel
+            server={selected}
+            installed={isInstalled(selected.id)}
+            onToggle={() => onToggle(selected)}
+            onClose={() => setSelectedId(null)}
+          />
+        ) : null}
+      </div>
+    </div>
   )
 }
 

@@ -540,3 +540,26 @@ export {
   type CliVariableDecl,
   type CliVariableType,
 } from './cli-manifest.js'
+
+// ── Marketplace plugin bundle authoring ─────────────────────────────────────
+// A marketplace plugin is a signed bundle manifest (`plugin.json`) that points
+// at existing primitives: MCP configs, skill directories, capability modules,
+// and BYO-CLI plugin folders. The app re-exports these helpers from its shared
+// marketplace module, so SDK authors and Multicode verify the same shape.
+
+export {
+  MARKETPLACE_COMPONENT_KINDS,
+  parseMarketplacePluginAuthoringManifest,
+  parseMarketplacePluginManifest,
+  validateMarketplacePluginAuthoringManifest,
+  validateMarketplacePluginManifest,
+  type MarketplaceComponent,
+  type MarketplaceComponentFileDigest,
+  type MarketplaceComponentKind,
+  type MarketplaceManifestIssue,
+  type MarketplacePluginAuthoringManifest,
+  type MarketplacePluginAuthoringManifestResult,
+  type MarketplacePluginComponents,
+  type MarketplacePluginManifest,
+  type MarketplacePluginManifestResult,
+} from './plugin-manifest.js'

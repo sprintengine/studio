@@ -1,0 +1,60 @@
+name: Marketplace Registry
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/marketplace-registry.yml
+      - package-lock.json
+      - package.json
+      - packages/module-sdk/src/cli.ts
+      - packages/module-sdk/src/index.ts
+      - packages/module-sdk/src/manifest-validate.ts
+      - packages/module-sdk/src/plugin-manifest.ts
+      - packages/module-sdk/src/signing.ts
+      - resources/marketplace/**
+      - src/main/mcp-config-service.ts
+      - src/shared/marketplace/**
+      - src/shared/modules/**
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/marketplace-registry.yml
+      - package-lock.json
+      - package.json
+      - packages/module-sdk/src/cli.ts
+      - packages/module-sdk/src/index.ts
+      - packages/module-sdk/src/manifest-validate.ts
+      - packages/module-sdk/src/plugin-manifest.ts
+      - packages/module-sdk/src/signing.ts
+      - resources/marketplace/**
+      - src/main/mcp-config-service.ts
+      - src/shared/marketplace/**
+      - src/shared/modules/**
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Marketplace Registry
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate registry and plugin signatures
+        run: npm run verify:marketplace-registry
+
+      - name: Exercise valid and tampered submissions
+        run: npm run test:marketplace-publish

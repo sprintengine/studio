@@ -1,0 +1,31 @@
+{
+  "servers": [
+    {
+      "id": "context7",
+      "name": "Context7",
+      "category": "Documentation",
+      "description": "Developer documentation lookup for libraries and frameworks.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ],
+      "clients": [
+        "codex",
+        "claude-code"
+      ],
+      "scope": "workspace",
+      "source": "bundled",
+      "riskLevel": "network",
+      "auth": "Optional account",
+      "capabilities": [
+        "Current docs",
+        "Library examples",
+        "API references"
+      ],
+      "envVarNames": [],
+      "sourceUrl": "https://context7.com/upstash/context7"
+    }
+  ]
+}

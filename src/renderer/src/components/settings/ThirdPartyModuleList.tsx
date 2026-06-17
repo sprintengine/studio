@@ -134,7 +134,7 @@ const MESSAGE_CLASS: Record<NonNullable<Message>['tone'], string> = {
 // scopes warn-tint the chip; the wording itself carries the same signal
 // ("broad legacy scope" / "Unrecognized capability"), so the flag is never
 // color-only.
-function PermissionChips({ permissions }: { permissions: string[] }) {
+export function PermissionChips({ permissions }: { permissions: string[] }) {
   if (permissions.length === 0) {
     return <span className="text-[11px] text-[color:var(--text-subtle)]">No special access requested.</span>
   }

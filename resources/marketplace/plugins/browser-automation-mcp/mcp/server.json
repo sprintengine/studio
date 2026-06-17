@@ -1,0 +1,31 @@
+{
+  "servers": [
+    {
+      "id": "playwright",
+      "name": "Playwright",
+      "category": "Testing",
+      "description": "Browser automation for inspecting pages, driving UI flows, and validating web app behavior.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest"
+      ],
+      "clients": [
+        "codex",
+        "claude-code"
+      ],
+      "scope": "workspace",
+      "source": "bundled",
+      "riskLevel": "local-command",
+      "auth": "None",
+      "capabilities": [
+        "Browser automation",
+        "UI inspection",
+        "E2E debugging"
+      ],
+      "envVarNames": [],
+      "sourceUrl": "https://github.com/microsoft/playwright-mcp"
+    }
+  ]
+}

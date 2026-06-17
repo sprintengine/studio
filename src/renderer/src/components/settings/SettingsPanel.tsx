@@ -41,11 +41,10 @@ import { KeyboardShortcutsTab } from './KeyboardShortcutsTab'
 import MobileSettingsTab from './MobileSettingsTab'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
+import { ExtensionsSettingsTab } from './ExtensionsSettingsTab'
 import {
   McpBrandIcon,
-  McpCatalogTile,
-  McpInfoPanel,
-  groupMcpCatalog,
+  McpCatalogBrowser,
   mcpIconSlug,
   mcpServerFromCatalog,
 } from './McpCatalog'
@@ -135,6 +134,7 @@ type SettingsTabId =
   | 'mobile'
   | 'voice-dictation'
   | 'telemetry'
+  | 'extensions'
 
 // Declared in rail order: the flat order of this array (filtered to visible
 // tabs, then module sections appended) drives index-based roving focus, so it
@@ -156,6 +156,9 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
   { id: 'mobile', label: 'Mobile', description: 'Phone pairing and relay' },
   { id: 'voice-dictation', label: 'Voice dictation', description: 'Transcription server and model' },
   { id: 'learn', label: 'Learn', description: 'Tips and lessons' },
+  // Rendered in the trailing "Extensions" rail group (see railGroups), ahead of
+  // any module-contributed sections — not in settingsTabGroups.
+  { id: 'extensions', label: 'Extensions', description: 'Installed plugins and extensions' },
 ]
 
 // Rail groups (sentence-case micro labels). Module-contributed sections render
@@ -201,6 +204,7 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     || value === 'mobile'
     || value === 'voice-dictation'
     || value === 'telemetry'
+    || value === 'extensions'
   )
 }
 
@@ -635,7 +639,6 @@ export default function SettingsPanel({
   const [builtinSkillMessage, setBuiltinSkillMessage] = useState<string | null>(null)
   const [mcpCatalog, setMcpCatalog] = useState<McpCatalogServer[]>([])
   const [mcpMessage, setMcpMessage] = useState<string | null>(null)
-  const [selectedCatalogId, setSelectedCatalogId] = useState<string | null>(null)
   const [skillPackCatalog, setSkillPackCatalog] = useState<SkillPackCatalogEntry[]>([])
   const [skillPackMessage, setSkillPackMessage] = useState<string | null>(null)
   const [skillPackPendingId, setSkillPackPendingId] = useState<string | null>(null)
@@ -1093,10 +1096,6 @@ export default function SettingsPanel({
     githubTokenStatus !== null && (githubTokenEditing || !githubTokenStatus.configured)
 
   const activeTab = visibleSettingsTabs.find((tab) => tab.id === activeSettingsTab) ?? visibleSettingsTabs[0]
-  const groupedMcpCatalog = groupMcpCatalog(mcpCatalog)
-  const selectedCatalogServer = selectedCatalogId
-    ? mcpCatalog.find((server) => server.id === selectedCatalogId) ?? null
-    : null
   const activeMcpServers = Object.values(mcpSettings.servers).filter((server) => server.enabled)
   const registryRoles = orderedSprintEngineRoles(roleRegistry)
 
@@ -1383,6 +1382,14 @@ export default function SettingsPanel({
   // renders in the same order, so arrow keys move in visual order.
   const tabIndexById = new Map(visibleSettingsTabs.map((tab, index) => [tab.id, index] as const))
   const moduleSectionTabs = visibleSettingsTabs.filter((tab) => tab.moduleSection)
+  // The built-in Extensions (marketplace) tab leads the trailing "Extensions"
+  // rail group, with any module-contributed sections after it — one coherent
+  // group rather than a duplicate header.
+  const extensionsBuiltInTab = visibleSettingsTabs.find((tab) => tab.id === 'extensions')
+  const extensionsGroupTabs = [
+    ...(extensionsBuiltInTab ? [extensionsBuiltInTab] : []),
+    ...moduleSectionTabs,
+  ]
   const railGroups = [
     ...settingsTabGroups
       .map((group) => ({
@@ -1392,7 +1399,7 @@ export default function SettingsPanel({
           .filter((tab): tab is SettingsTabDescriptor => tab !== undefined),
       }))
       .filter((group) => group.tabs.length > 0),
-    ...(moduleSectionTabs.length > 0 ? [{ label: 'Extensions', tabs: moduleSectionTabs }] : []),
+    ...(extensionsGroupTabs.length > 0 ? [{ label: 'Extensions', tabs: extensionsGroupTabs }] : []),
   ]
 
   const sidebarNode = (
@@ -1989,42 +1996,11 @@ export default function SettingsPanel({
             )}
           </section>
 
-          <div className="flex gap-4 border-t border-[color:var(--border-subtle)] pt-4">
-            <section className="min-w-0 flex-1 space-y-4">
-              <SettingsSectionTitle count={mcpCatalog.length}>Bundled catalog</SettingsSectionTitle>
-              <div className="space-y-5">
-                {groupedMcpCatalog.map(([category, servers]) => (
-                  <div key={category} className="space-y-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-[12px] font-medium text-[color:var(--text-muted)]">{category}</span>
-                      <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
-                      <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-subtle)]">{servers.length}</span>
-                    </div>
-                    <div className={`grid grid-cols-2 gap-2 sm:grid-cols-3 ${selectedCatalogServer ? '' : 'lg:grid-cols-4'}`}>
-                      {servers.map((server) => (
-                        <McpCatalogTile
-                          key={server.id}
-                          server={server}
-                          installed={Boolean(mcpSettings.servers[server.id]?.enabled)}
-                          selected={selectedCatalogId === server.id}
-                          onToggle={() => toggleCatalogServer(server)}
-                          onInfo={() => setSelectedCatalogId((current) => current === server.id ? null : server.id)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-            {selectedCatalogServer ? (
-              <McpInfoPanel
-                server={selectedCatalogServer}
-                installed={Boolean(mcpSettings.servers[selectedCatalogServer.id]?.enabled)}
-                onToggle={() => toggleCatalogServer(selectedCatalogServer)}
-                onClose={() => setSelectedCatalogId(null)}
-              />
-            ) : null}
-          </div>
+          <McpCatalogBrowser
+            servers={mcpCatalog}
+            isInstalled={(id) => Boolean(mcpSettings.servers[id]?.enabled)}
+            onToggle={toggleCatalogServer}
+          />
 
           <details className="group space-y-3 border-t border-[color:var(--border-subtle)] pt-4 [&[open]]:space-y-3">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-[color:var(--text-strong)] focus:outline-none focus-visible:underline">
@@ -2498,6 +2474,16 @@ export default function SettingsPanel({
             />
           </div>
         </div>
+      ) : null}
+
+      {activeSettingsTab === 'extensions' ? (
+        <ExtensionsSettingsTab
+          mcpServers={Object.values(mcpSettings.servers)}
+          mcpSettings={mcpSettings}
+          moduleOverrides={moduleEnablement}
+          workspaceRoot={activeProjectRoot}
+          onUpsertMcpServer={upsertMcpServer}
+        />
       ) : null}
 
       {activeTab.moduleSection ? (

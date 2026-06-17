@@ -61,8 +61,8 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-// A path that stays inside the module root: relative, no traversal, no NUL.
-function isSafeRelativePath(value: unknown): value is string {
+// A path that stays inside the manifest root: relative, no traversal, no NUL.
+export function isSafeManifestRelativePath(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0) return false
   if (value.includes('\0') || value.includes('\\')) return false
   if (value.startsWith('/')) return false
@@ -100,7 +100,7 @@ function validateEntry(value: unknown, issues: ThirdPartyManifestIssue[]): Modul
   const entry: ModuleEntry = {}
   for (const key of ['main', 'preload', 'renderer'] as const) {
     if (value[key] === undefined) continue
-    if (!isSafeRelativePath(value[key])) {
+    if (!isSafeManifestRelativePath(value[key])) {
       issues.push({
         path: `entry.${key}`,
         message: 'must be a safe relative path inside the module (no absolute paths or "..").',
