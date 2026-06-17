@@ -67,6 +67,8 @@ export class AutomationsEngine {
   private readonly onEvaluation?: (result: AutomationsEngineEvaluationResult) => void
   private readonly inFlight = new Set<string>()
   private timer: ReturnType<typeof setInterval> | null = null
+  private started = false
+  private startupEvaluation: Promise<AutomationsEngineEvaluationResult> | null = null
 
   constructor(options: AutomationsEngineOptions) {
     this.getProjectFolders = options.getProjectFolders
@@ -80,28 +82,47 @@ export class AutomationsEngine {
   }
 
   start(): void {
-    if (this.timer) return
-    void this.handleStartup()
-    this.timer = setInterval(() => {
-      void this.tick()
-    }, this.pollIntervalMs)
+    if (this.started) return
+    this.started = true
+
+    const startup = this.handleStartup()
+    void startup
+      .catch(() => undefined)
+      .finally(() => {
+        if (!this.started || this.timer) return
+        this.timer = setInterval(() => {
+          void this.tick()
+        }, this.pollIntervalMs)
+      })
   }
 
   stop(): void {
-    if (!this.timer) return
-    clearInterval(this.timer)
-    this.timer = null
+    if (!this.started && !this.timer) return
+    this.started = false
+    if (this.timer) {
+      clearInterval(this.timer)
+      this.timer = null
+    }
   }
 
   isRunning(): boolean {
-    return this.timer !== null
+    return this.started
   }
 
   async handleStartup(): Promise<AutomationsEngineEvaluationResult> {
-    return this.evaluate('startup')
+    if (this.startupEvaluation) return this.startupEvaluation
+
+    let startup: Promise<AutomationsEngineEvaluationResult>
+    startup = this.evaluate('startup').finally(() => {
+      if (this.startupEvaluation === startup) this.startupEvaluation = null
+    })
+    this.startupEvaluation = startup
+    return startup
   }
 
   async tick(): Promise<AutomationsEngineEvaluationResult> {
+    const startup = this.startupEvaluation
+    if (startup) await startup
     return this.evaluate('timer')
   }
 

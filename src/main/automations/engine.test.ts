@@ -3,10 +3,10 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { AutomationDefinition, ScheduleTriggerConfig } from '../../shared/automations/contracts'
+import type { AutomationDefinition, AutomationRun, ScheduleTriggerConfig } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { AutomationsEngine, projectFoldersFromWorkspaceSyncSnapshot } from './engine'
-import { AutomationsStore } from './store'
+import { AutomationsStore, type AutomationStoreState } from './store'
 import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
 
 void main().catch((error) => {
@@ -21,6 +21,7 @@ async function main(): Promise<void> {
   assertWorkspaceSnapshotFolderExtraction()
   await assertDueAutomationFiresOnceWithDuplicateGuard()
   await assertStartupOverdueIsSkippedWithoutCatchup()
+  await assertTickWaitsForStartupOverdueSkip()
 }
 
 function definition(overrides: Partial<AutomationDefinition> = {}): AutomationDefinition {
@@ -72,6 +73,66 @@ function weeklyConfig(timeLocal: string, daysOfWeek: number[]): ScheduleTriggerC
 
 async function createWorkspace(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'multicode-automations-engine-'))
+}
+
+class InMemoryAutomationsStore extends AutomationsStore {
+  state: AutomationStoreState = { nextRunAtByAutomationId: {}, lock: null }
+  runs: AutomationRun[] = []
+
+  constructor(definitionValue: AutomationDefinition) {
+    super(join(tmpdir(), 'multicode-automations-engine-memory'))
+    this.definitionValue = definitionValue
+  }
+
+  private definitionValue: AutomationDefinition
+  private delayNextSkippedRun = false
+  private skippedRunStarted: (() => void) | null = null
+  private releaseSkippedRun: Promise<void> | null = null
+
+  delaySkippedRunRecord(input: { started: () => void; release: Promise<void> }): void {
+    this.delayNextSkippedRun = true
+    this.skippedRunStarted = input.started
+    this.releaseSkippedRun = input.release
+  }
+
+  async listDefinitions() {
+    return { ok: true as const, values: [clone(this.definitionValue)] }
+  }
+
+  async readState() {
+    return { ok: true as const, value: clone(this.state) }
+  }
+
+  async writeState(state: AutomationStoreState) {
+    this.state = clone(state)
+    return { ok: true as const, value: clone(this.state) }
+  }
+
+  async recordRun(run: AutomationRun) {
+    if (this.delayNextSkippedRun && run.status === 'skipped') {
+      this.delayNextSkippedRun = false
+      this.skippedRunStarted?.()
+      await this.releaseSkippedRun
+    }
+
+    const nextRun = clone(run)
+    this.runs = this.runs.filter((candidate) => candidate.id !== nextRun.id)
+    this.runs.push(nextRun)
+    return { ok: true as const, value: clone(nextRun) }
+  }
+
+  async updateDefinition(definitionValue: AutomationDefinition) {
+    this.definitionValue = clone(definitionValue)
+    return { ok: true as const, value: clone(this.definitionValue) }
+  }
+
+  async getDefinition() {
+    return { ok: true as const, value: clone(this.definitionValue) }
+  }
+
+  async listRuns() {
+    return { ok: true as const, values: this.runs.map((run) => clone(run)) }
+  }
 }
 
 function assertIntervalDailyWeeklyNextRuns(): void {
@@ -223,4 +284,77 @@ async function assertStartupOverdueIsSkippedWithoutCatchup(): Promise<void> {
   const afterSecondStartup = await store.listRuns('nightly-review')
   assert.equal(afterSecondStartup.ok, true)
   assert.equal(afterSecondStartup.ok && afterSecondStartup.values.length, 1)
+}
+
+async function assertTickWaitsForStartupOverdueSkip(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const store = new InMemoryAutomationsStore(definition({
+    trigger: { kind: 'schedule', config: intervalConfig(15) },
+    nextRunAt: '2026-06-17T09:00:00.000Z',
+  }))
+
+  let releaseSkippedRun: () => void = () => undefined
+  const skippedRunRelease = new Promise<void>((resolve) => {
+    releaseSkippedRun = resolve
+  })
+  let markSkippedRunStarted: () => void = () => undefined
+  const skippedRunStarted = new Promise<void>((resolve) => {
+    markSkippedRunStarted = resolve
+  })
+  store.delaySkippedRunRecord({
+    started: markSkippedRunStarted,
+    release: skippedRunRelease,
+  })
+
+  let markRunnerStarted: () => void = () => undefined
+  const runnerStarted = new Promise<'fired'>((resolve) => {
+    markRunnerStarted = () => resolve('fired')
+  })
+  let runCount = 0
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-a', folderPath: '/repo/race' }],
+    createStore: () => store,
+    now: () => now,
+    createRunId: () => 'run-overdue-race',
+    pollIntervalMs: 1_000_000,
+    runAutomation: async () => {
+      runCount += 1
+      markRunnerStarted()
+      return { status: 'completed' }
+    },
+  })
+
+  engine.start()
+  assert.equal(engine.isRunning(), true)
+  await skippedRunStarted
+
+  const tickDuringStartup = engine.tick()
+  const tickRace = await Promise.race([
+    runnerStarted,
+    flushMicrotasks(50).then(() => 'blocked' as const),
+  ])
+  assert.equal(tickRace, 'blocked')
+  assert.equal(runCount, 0)
+
+  releaseSkippedRun()
+  const tickResult = await tickDuringStartup
+  engine.stop()
+
+  assert.equal(tickResult.fired.length, 0)
+  assert.equal(tickResult.skipped.length, 0)
+  assert.equal(tickResult.scheduled.length, 1)
+  assert.equal(runCount, 0)
+  assert.equal(store.runs.length, 1)
+  assert.equal(store.runs[0]?.status, 'skipped')
+  assert.equal(store.runs[0]?.blockedReason, 'overdue_not_replayed')
+}
+
+async function flushMicrotasks(count: number): Promise<void> {
+  for (let index = 0; index < count; index += 1) {
+    await Promise.resolve()
+  }
+}
+
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
 }
