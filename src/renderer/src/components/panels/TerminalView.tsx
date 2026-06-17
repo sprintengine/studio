@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -6,7 +6,8 @@ import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentExecution, AgentExecutionMode, AgentKind } from '../../types/workspace'
-import type { AgentSessionSystem } from '../../../../shared/electron-api'
+import type { AgentSessionSystem, TerminalSpawnMetadata, TerminalSpawnResult } from '../../../../shared/electron-api'
+import { useSession } from '../../hooks/useTerminalSessions'
 import { buildSpecialistSoulStartupPrompt, getSpecialistAction } from '../../specialists/specialistActions'
 import { buildSprintEngineAgentRosterForState, buildSprintEngineRosterCommandArgs, getSprintEngineRoleLabel } from '../../utils/sprintengine'
 import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
@@ -152,6 +153,23 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   const workspaceName = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.name
   )
+  // Freeze-the-view resume: when this terminal's session is suspended (agent
+  // process killed, scrollback painted), the first keystroke relaunches it under
+  // the same id with --resume and flushes the keys typed during the boot. These
+  // refs let the one-time `onData` handler read the live suspended state and the
+  // captured resume thunk WITHOUT re-running the launch effect (which would
+  // dispose the painted term).
+  const effectiveSessionId = attachedSessionId ?? agent?.cliSessionId
+  const suspendedSession = useSession(
+    useCallback((s) => Boolean(effectiveSessionId) && s.sessionId === effectiveSessionId, [effectiveSessionId])
+  )
+  const suspendedRef = useRef(false)
+  const resumeThunkRef = useRef<(() => Promise<TerminalSpawnResult>) | null>(null)
+  const pendingResumeInputRef = useRef<string[]>([])
+  const resumingRef = useRef(false)
+  useEffect(() => {
+    suspendedRef.current = Boolean(suspendedSession?.suspended)
+  }, [suspendedSession?.suspended])
   const {
     folderPath: savedFolderPath,
     folderReadyPath,
@@ -528,11 +546,52 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       })
     })
 
+    // Freeze-the-view: relaunch a suspended agent on the first keystroke, under
+    // the same session id with --resume, then flush the keys typed during the
+    // boot. Reuses the launch payload captured in `resumeThunkRef`; the existing
+    // replay/data handlers on this same term pick up the resumed pty's output, so
+    // the painted view is never torn down.
+    const resumeFromSuspend = async () => {
+      if (resumingRef.current) return
+      const resume = resumeThunkRef.current
+      if (!resume) return
+      resumingRef.current = true
+      const result = await resume().catch((): TerminalSpawnResult => ({
+        ok: false,
+        sessionId,
+        message: 'Failed to resume terminal.',
+        exitCode: 1,
+      }))
+      if (result.ok) {
+        suspendedRef.current = false
+        const buffered = pendingResumeInputRef.current.join('')
+        pendingResumeInputRef.current = []
+        if (buffered) window.api.terminalWriteFast(sessionId, buffered)
+      }
+      resumingRef.current = false
+    }
+
     const onDataDisposable = term.onData((data) => {
       terminalDiagnostics.recordInput(data)
+      // Suspended: buffer the keystroke and kick a resume instead of writing to a
+      // dead pty (main drops writes to a suspended session anyway).
+      if (suspendedRef.current) {
+        pendingResumeInputRef.current.push(data)
+        void resumeFromSuspend()
+        return
+      }
       window.api.terminalWriteFast(sessionId, data)
       terminalDiagnostics.recordInputDispatch(data)
     })
+
+    // The suspended-state play button (AgentPanel) lives in a different component
+    // and has no access to the relaunch payload, so it asks this terminal to
+    // resume via a window event keyed by session id — same path as typing.
+    const onResumeRequest = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string }>).detail
+      if (detail?.sessionId === sessionId) void resumeFromSuspend()
+    }
+    window.addEventListener('multicode:resume-terminal', onResumeRequest)
 
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
       void window.api.terminalResize(sessionId, cols, rows)
@@ -668,6 +727,43 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
             displayName: finalAgent.name ?? agentId,
           }
 
+      // Capture how to relaunch THIS agent under the same session id with
+      // --resume (freeze-the-view resume-on-keystroke). Mirrors the spawn payload
+      // below but forces resume and sends no fresh prompt; reads the live term
+      // size at call time.
+      resumeThunkRef.current = () => window.api.terminalResume(
+        sessionId,
+        term.cols,
+        term.rows,
+        executionRoot.cwd,
+        true,
+        sprintEngineStatePath,
+        finalCli,
+        undefined,
+        finalContext.cliRuntimes,
+        false,
+        ({
+          kind: 'agent',
+          workspaceId,
+          agentId,
+          agentName: finalAgent.name,
+          executionMode: executionRoot.mode,
+          worktreeId: executionRoot.worktreeId,
+          worktreePath: executionRoot.worktreePath,
+          cliPermissionPreset: finalContext.cliPermissionPreset,
+          cliModel: finalAgent.cliModel,
+          memoryRootPath: memoryContext.rootPath,
+          memoryRelativeRoot: memoryContext.relativeRoot,
+          mcpSettings: finalContext.mcpSettings,
+          visible: true,
+          ...(agentSession ? { agentSession } : {}),
+        } as TerminalSpawnMetadata & {
+          executionMode: AgentExecutionMode
+          worktreeId?: string
+          worktreePath?: string
+        })
+      )
+
       replayGate.beginReplayWait()
       const spawnResult = await window.api.terminalSpawn(
         sessionId,
@@ -801,6 +897,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       disposeReplay()
       disposeExit()
       disposeError()
+      window.removeEventListener('multicode:resume-terminal', onResumeRequest)
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
       fileLinkDisposable.dispose()

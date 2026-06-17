@@ -17,7 +17,7 @@ import {
   isAgentCliMissing,
   selectAgentCliCatalog,
 } from '../workspace/newWorkspace/cliRuntimeOptions'
-import { PrimaryButton, Tooltip } from '../ui'
+import { PrimaryButton, StatusDot, Tooltip } from '../ui'
 import { revealNavRailComponent } from '../../utils/modelRegistry'
 import { dispatchBacklogReveal } from '../../utils/backlogReveal'
 
@@ -109,17 +109,35 @@ export default function AgentPanel({
   // user knows it is not live and will resume on the next keystroke. Tracked off
   // the session snapshot's `suspended` flag; `processAlive` co-varies, so the
   // (deduped) sessions signature re-renders this on suspend/resume.
+  // The real terminal session id: the `sessionId` prop is only set for attached
+  // sessions; a normally-launched agent carries its id on `agent.cliSessionId`
+  // (TerminalView resolves it the same way). Keying the glyph/button off the bare
+  // prop is why it never showed for normal agents.
+  const effectiveSessionId = sessionId ?? agent?.cliSessionId
   const terminalSession = useSession(
-    useCallback((s) => Boolean(sessionId) && s.sessionId === sessionId, [sessionId]),
+    useCallback(
+      (s) => Boolean(effectiveSessionId) && s.sessionId === effectiveSessionId,
+      [effectiveSessionId],
+    ),
   )
   const isTerminalSuspended = Boolean(terminalSession?.suspended)
-  // A live agent terminal can be manually suspended to reclaim its memory while
-  // keeping the painted scrollback to read. (Resume-on-keystroke is wired in
-  // TerminalView; until then a suspended terminal is read-only.)
-  const canSuspendTerminal = Boolean(sessionId) && Boolean(terminalSession?.processAlive) && !isTerminalSuspended
+  // The terminal has a live agent process (green "live" dot). A suspended session
+  // reports processAlive=false, so live and suspended are mutually exclusive.
+  const isTerminalLive = Boolean(terminalSession?.processAlive)
+  // Only a live terminal can be suspended (not an exited or already-suspended one).
+  const canSuspendTerminal = hasStarted && isTerminalLive && !isTerminalSuspended
   const suspendTerminal = () => {
-    if (!sessionId) return
-    void window.api.terminalSuspend(sessionId).catch(() => {})
+    if (!effectiveSessionId) return
+    void window.api.terminalSuspend(effectiveSessionId).catch(() => {})
+  }
+  // Resume is owned by TerminalView (it holds the relaunch payload + keystroke
+  // buffer), so the play button asks it to resume via a window event keyed by
+  // session id — same path as typing into the suspended terminal.
+  const resumeTerminal = () => {
+    if (!effectiveSessionId) return
+    window.dispatchEvent(
+      new CustomEvent('multicode:resume-terminal', { detail: { sessionId: effectiveSessionId } }),
+    )
   }
   const cliShellTone = needsInput
     ? 'border border-[color:var(--tone-warn)] bg-[color:var(--bg-surface-raised)] ring-1 ring-[color:var(--tone-warn-soft)]'
@@ -185,25 +203,37 @@ export default function AgentPanel({
   return (
     <div className={`flex h-full flex-col bg-[color:var(--bg-surface)] font-mono text-[12px] text-[color:var(--text-default)] ${cliShellTone}`}>
       <div className={`group relative flex-1 overflow-hidden bg-[color:var(--bg-app)] ${needsInput ? 'shadow-[inset_0_1px_0_var(--tone-warn-soft)]' : ''}`}>
-        {hasStarted && (isTerminalSuspended || canSuspendTerminal || backlogItemRef) ? (
+        {hasStarted && (isTerminalLive || isTerminalSuspended || backlogItemRef) ? (
           // The positioning lives on this wrapper, not the buttons: Tooltip wraps
           // its child in a `position: relative` span, so an `absolute` child
           // would anchor to that zero-size span (off-screen) instead of the
           // terminal surface. Glyphs sit inline in a single top-right row.
           <div className="absolute right-2 top-2 z-30 flex items-center gap-1.5">
-            {isTerminalSuspended ? (
-              <Tooltip content="Agent suspended to free memory — scrollback kept for reading" placement="bottom">
-                <span
-                  role="status"
-                  aria-label="Agent terminal suspended to free memory; scrollback preserved"
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] shadow-sm"
-                >
-                  {/* Pause bars read as "not running, resumable". */}
-                  <svg viewBox="0 0 16 16" fill="none" className="h-[15px] w-[15px]" aria-hidden="true">
-                    <rect x="5" y="4" width="2" height="8" rx="1" fill="currentColor" />
-                    <rect x="9" y="4" width="2" height="8" rx="1" fill="currentColor" />
-                  </svg>
+            {isTerminalLive ? (
+              // Green "live" dot: the agent process is running. Absent once the
+              // terminal is suspended (where the play button takes over).
+              <Tooltip content="Agent is live" placement="bottom">
+                <span className="inline-flex h-7 items-center px-1">
+                  <StatusDot tone="good" size={8} label="Agent terminal live" />
                 </span>
+              </Tooltip>
+            ) : null}
+            {isTerminalSuspended ? (
+              // Suspended state is a distinct, accented PLAY button (not a muted
+              // pause indicator) so the suspend→resume transition is obvious and
+              // the resume affordance is clear. Click resumes; typing also resumes.
+              <Tooltip content="Suspended to free memory — click or type to resume" placement="bottom">
+                <button
+                  type="button"
+                  onClick={resumeTerminal}
+                  aria-label="Resume suspended agent"
+                  className="interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--accent-primary-soft)] bg-[color:var(--bg-surface-raised)] text-[color:var(--accent-primary)] shadow-sm transition-colors hover:border-[color:var(--accent-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+                >
+                  {/* Play triangle reads as "resume". */}
+                  <svg viewBox="0 0 16 16" fill="none" className="h-[15px] w-[15px]" aria-hidden="true">
+                    <path d="M5.5 4.2 11.5 8l-6 3.8V4.2Z" fill="currentColor" />
+                  </svg>
+                </button>
               </Tooltip>
             ) : null}
             {canSuspendTerminal ? (
