@@ -24,7 +24,6 @@ import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import {
   isSessionFailed,
-  isSessionWorking,
   pickAgentTabRecency,
   pickTerminalTabRecency,
   tabRecencyLabel,
@@ -151,7 +150,6 @@ const GuidedBriefWorkspacePanel = React.lazy(() => import('./guidedBrief/GuidedB
 const EMPTY_SURFACE = <div className="h-full bg-[color:var(--bg-app)]" />
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const loadedPanelComponents = new Set<string>()
-type AgentTabActivity = 'needs-input' | 'working' | 'failed' | 'idle'
 const SPRINTENGINE_ROLES: SprintEngineRole[] = [
   'architect',
   'product',
@@ -177,42 +175,29 @@ type AgentTabActivityDot = {
   label: string
 }
 
-function agentTabActivity(
+// The tab status dot, driven by repaint-immune signals. Priority: needs-input
+// (authoritative SprintEngine run state) > live (processAlive — NOT the
+// output-derived 'working', which flips on a reveal repaint) > failed. A live
+// agent shows a steady green dot; revealing a workspace can never flip it.
+function agentTabStatusDot(
   session: TerminalSessionSnapshot | undefined,
-  runtimeStatus: SprintEngineRuntimeAgentStatus | undefined
-): AgentTabActivity {
-  if (runtimeStatus === 'needs_input') return 'needs-input'
-  if (isSessionWorking(session)) return 'working'
-  if (isSessionFailed(session)) return 'failed'
-  return 'idle'
-}
-
-function agentTabActivityDot(
-  activity: AgentTabActivity,
+  runtimeStatus: SprintEngineRuntimeAgentStatus | undefined,
   currentTaskId: string | null | undefined
 ): AgentTabActivityDot | null {
-  switch (activity) {
-    case 'needs-input':
-      return {
-        tone: 'warn',
-        pulse: true,
-        label: currentTaskId ? `Needs input on ${currentTaskId}` : 'Needs input',
-      }
-    case 'working':
-      return {
-        tone: 'good',
-        pulse: true,
-        label: 'Working',
-      }
-    case 'failed':
-      return {
-        tone: 'error',
-        pulse: false,
-        label: 'Failed',
-      }
-    default:
-      return null
+  if (runtimeStatus === 'needs_input') {
+    return {
+      tone: 'warn',
+      pulse: true,
+      label: currentTaskId ? `Needs input on ${currentTaskId}` : 'Needs input',
+    }
   }
+  if (session?.processAlive) {
+    return { tone: 'good', pulse: false, label: 'Live' }
+  }
+  if (isSessionFailed(session)) {
+    return { tone: 'error', pulse: false, label: 'Failed' }
+  }
+  return null
 }
 
 function inferSprintEngineRoleFromAgentId(agentId: string): SprintEngineRole | null {
@@ -269,8 +254,11 @@ function renderTerminalRecencyIndicator(
   now: number
 ): React.ReactNode {
   if (!session) return null
-  if (isSessionWorking(session)) {
-    return <StatusDot tone="good" pulse label="Working" className="ml-0.5" />
+  // Liveness (processAlive) drives the green dot — repaint-immune, unlike the
+  // output-derived 'working' activity which flips on a reveal repaint. Recency
+  // shows only when NOT live (a dead process can't bump lastOutputAt).
+  if (session.processAlive) {
+    return <StatusDot tone="good" label="Live" className="ml-0.5" />
   }
   if (isSessionFailed(session)) {
     return <StatusDot tone="error" label="Failed" className="ml-0.5" />
@@ -1013,9 +1001,9 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
       const agentSession = agentSessionId
         ? terminalSessions.find((s) => s.sessionId === agentSessionId)
         : undefined
-      const activity = agentTabActivity(agentSession, runtimeAgent?.status)
       const currentTaskId = runtimeAgent?.currentTaskId
-      const activityDot = agentTabActivityDot(activity, currentTaskId)
+      const isLive = Boolean(agentSession?.processAlive)
+      const activityDot = agentTabStatusDot(agentSession, runtimeAgent?.status, currentTaskId)
       const specialist = (agent?.kind === 'specialist' || agent?.kind === 'watchtower') && agent.specialistId
         ? getSpecialistAction(agent.specialistId)
         : null
@@ -1058,7 +1046,9 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
         renderValues.leading = null
       }
 
-      const agentRecency = activity === 'working'
+      // Recency only when NOT live: a dead/suspended process emits nothing, so
+      // its lastOutputAt is frozen and honest. Live agents show the green dot.
+      const agentRecency = isLive
         ? null
         : pickAgentTabRecency(
             agentSession,

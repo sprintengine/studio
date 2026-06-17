@@ -45,8 +45,7 @@ import {
 import { createTerminalDiagnostics } from './terminal-diagnostics'
 import { createTerminalOutputBuffer } from './terminal-output-buffer'
 import { createTerminalMobileCommandService } from './terminal-mobile-command-service'
-import { planReapSweep, type SweepCandidate } from './terminal-reap-sweep'
-import { probeSubtreesForLiveProcesses } from './terminal-subtree-probe'
+import { selectReapableSessions, type ReapCandidate } from './terminal-reap-policy'
 import type { TerminalRootInfo } from './workspace-memory'
 
 type TerminalRuntimeOptions = {
@@ -417,6 +416,11 @@ function setTerminalVisible(sessionId: string, visible: boolean): void {
   broadcastTerminalSessionsChanged()
 }
 
+// How long after a pty resize to treat incoming output as a repaint (alt-screen
+// redraw) rather than agent activity. A few hundred ms covers the redraw burst;
+// real agent output that follows lands outside the window and counts normally.
+const REPAINT_GRACE_MS = 400
+
 function safeResizeTerminal(sessionId: string, cols: number, rows: number): void {
   const session = terminals.get(sessionId)
   if (!session || !isTerminalProcessAlive(session)) return
@@ -427,8 +431,20 @@ function safeResizeTerminal(sessionId: string, cols: number, rows: number): void
     return
   }
 
+  // Dedupe: a reveal / tab-switch re-fits to the SAME dimensions. Resizing the
+  // pty then makes the alt-screen TUI (Claude/Codex) repaint, and that repaint
+  // flows through onData as spurious output — bumping lastOutputAt and flipping
+  // activity to "working". Skip when the size is unchanged so liveness/recency
+  // reflect real agent output, not repaints.
+  if (session.appliedCols === size.cols && session.appliedRows === size.rows) return
+
   try {
     session.process.resize(size.cols, size.rows)
+    session.appliedCols = size.cols
+    session.appliedRows = size.rows
+    // Output in the brief window after a resize is the TUI repainting, not the
+    // agent working — buffer it but don't count it toward liveness/recency.
+    session.repaintGraceUntil = Date.now() + REPAINT_GRACE_MS
   } catch {
     // node-pty can report resize-after-exit races before its exit event is delivered.
     setTerminalActivity(session, { kind: 'exited', at: Date.now(), exitCode: session.exitCode ?? 0 })
@@ -530,7 +546,7 @@ function startStaleTerminalSweep(): void {
     // 24h coarse backstop (catches anything ancient), then the Phase 1 policy
     // sweep that suspends idle agents outside the hot set within a session.
     reapStaleTerminals()
-    void runIdleAgentReapSweep().catch(() => {})
+    runIdleAgentReapSweep()
   }, STALE_TERMINAL_SWEEP_INTERVAL_MS)
   staleTerminalSweepTimer.unref?.()
 }
@@ -569,31 +585,31 @@ export function reapStaleTerminals(now = Date.now()): string[] {
   return staleSessionIds
 }
 
-// Phase 1 in-session reaper: suspend idle agent terminals that have fallen out
-// of the recency hot set, so a long session doesn't accumulate dozens of idle
-// agents holding GBs. The destructive decision lives in the pure, tested policy
-// (`terminal-reap-policy` / `terminal-reap-sweep`); this only maps the live
-// sessions into candidates and disposes what the policy clears. `disposeTerminal`
-// preserves agent launch flags, so a suspended Claude relaunches with --resume.
-// Async because the safety probe shells out to `ps`/`lsof`.
-export async function runIdleAgentReapSweep(now = Date.now()): Promise<string[]> {
-  const candidates: SweepCandidate[] = [...terminals.values()].map((session) => ({
+// In-session reaper: suspend idle agent terminals that have fallen out of the
+// recency hot set, so a long session doesn't accumulate dozens of idle agents
+// holding GBs. Driven ONLY by repaint-immune signals — real user input
+// (lastInputAt), visibility, and run-state — so revealing a workspace (which
+// makes its TUIs repaint) can't reset the idle clock or look like activity. The
+// decision lives in the pure policy (terminal-reap-policy); this maps live
+// sessions to candidates and disposes what it clears. disposeTerminal preserves
+// agent launch flags, so a reaped Claude relaunches with --resume on reopen.
+export function runIdleAgentReapSweep(now = Date.now()): string[] {
+  const lastInteractionAt = (session: TerminalSession): number =>
+    Math.max(session.startedAt, session.lastInputAt ?? 0)
+  const candidates: ReapCandidate[] = [...terminals.values()].map((session) => ({
     sessionId: session.sessionId,
     workspaceId: session.workspaceId ?? null,
     kind: session.kind,
     cli: session.cli ?? null,
-    activityKind: session.activity.kind,
     visible: session.visible ?? false,
     processAlive: isTerminalProcessAlive(session),
-    lastSeenAt: getTerminalLastSeenAt(session),
-    rootPid: session.process.pid,
+    lastInteractionAt: lastInteractionAt(session),
+    // Conservatively protect any managed SprintEngine agent (it may be mid-run
+    // with no user keystrokes) until authoritative run-active state is wired in.
+    inActiveRun: Boolean(session.sprintEngineStatePath),
   }))
 
-  const decision = await planReapSweep(
-    candidates,
-    { probeSubtrees: (rootPids) => probeSubtreesForLiveProcesses(rootPids) },
-    { now }
-  )
+  const decision = selectReapableSessions(candidates, { now })
 
   for (const sessionId of decision.reapableSessionIds) {
     const session = terminals.get(sessionId)
@@ -604,8 +620,8 @@ export async function runIdleAgentReapSweep(now = Date.now()): Promise<string[]>
       workspaceId: session.workspaceId,
       agentId: session.agentId,
       cli: session.cli,
-      lastSeenAt: getTerminalLastSeenAt(session),
-      unseenMs: now - getTerminalLastSeenAt(session),
+      lastInteractionAt: lastInteractionAt(session),
+      idleMs: now - lastInteractionAt(session),
       hotWorkspaceIds: decision.hotWorkspaceIds,
     })
     disposeTerminal(sessionId)
@@ -1012,14 +1028,22 @@ function attachTerminalSession(
       terminalSession.isReady = true
       flushPendingTerminalResize(sessionId, terminalSession)
     }
-    appendTerminalOutput(terminalSession, data)
-    if (terminalSession.activity.kind !== 'working') {
-      setTerminalActivity(
-        terminalSession,
-        { kind: 'working', since: terminalSession.lastOutputAt ?? Date.now() }
-      )
+    const now = Date.now()
+    // Output right after a resize is the TUI repainting, not agent activity:
+    // keep the painted scrollback complete but don't advance liveness/recency or
+    // flip to "working" — otherwise revealing a workspace makes its idle agents
+    // look active and reorders the sidebar.
+    const isRepaint = now < (terminalSession.repaintGraceUntil ?? 0)
+    appendTerminalOutput(terminalSession, data, now, !isRepaint)
+    if (!isRepaint) {
+      if (terminalSession.activity.kind !== 'working') {
+        setTerminalActivity(
+          terminalSession,
+          { kind: 'working', since: terminalSession.lastOutputAt ?? now }
+        )
+      }
+      scheduleTerminalIdleTransition(terminalSession)
     }
-    scheduleTerminalIdleTransition(terminalSession)
     terminalOutput.send(terminalSession, data)
   })
 
