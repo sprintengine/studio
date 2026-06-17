@@ -220,6 +220,52 @@ async function assertMissingIntegrationBlocksWithoutFakeSuccess(): Promise<void>
   assert.deepEqual(requests, [], 'missing integration blocks before renderer launch')
 }
 
+async function assertRequiredIntegrationFailsClosed(): Promise<void> {
+  const withoutResolver = executorHarness([workspace('ws-clean', '/repo/a')])
+  const noResolverResult = await withoutResolver.executor({
+    workspaceRoot: '/repo/a',
+    definition: definition({
+      action: {
+        kind: 'spawn-agent',
+        config: { folderPath: '/repo/a', prompt: 'Check Sentry.', requiredIntegrations: ['mcp:sentry'] },
+      },
+    }),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(noResolverResult.status, 'blocked')
+  assert.match(noResolverResult.blockedReason ?? '', /mcp:sentry/)
+  assert.deepEqual(withoutResolver.requests, [], 'required integrations fail closed when no resolver is configured')
+
+  const cleanWorkspace = workspace('ws-clean', '/repo/a')
+  const requests: AutomationRendererRequest[] = []
+  const unknownResolverExecutor = createLocalAutomationExecutor({
+    delegateToRenderer: async (request) => {
+      requests.push(request)
+      return { ok: false, code: 'should_not_launch', message: 'should not launch' }
+    },
+    getWorkspaceSyncSnapshot: () => snapshot([cleanWorkspace]),
+    isIntegrationAvailable: () => undefined,
+    sleep: async () => undefined,
+  })
+  const unknownResolverResult = await unknownResolverExecutor({
+    workspaceRoot: '/repo/a',
+    definition: definition({
+      action: {
+        kind: 'spawn-agent',
+        config: { folderPath: '/repo/a', prompt: 'Check Sentry.', requiredIntegrations: ['mcp:sentry'] },
+      },
+    }),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(unknownResolverResult.status, 'blocked')
+  assert.match(unknownResolverResult.blockedReason ?? '', /mcp:sentry/)
+  assert.deepEqual(requests, [], 'required integrations fail closed when resolver cannot verify availability')
+}
+
 async function assertUnknownWorkspaceIdDoesNotCreateFallbackWorkspace(): Promise<void> {
   const harness = executorHarness([workspace('ws-known', '/repo/a')])
   const result = await harness.executor({
@@ -272,6 +318,7 @@ async function main(): Promise<void> {
   await assertSpawnAgentCreatesWorkspaceAndLaunchesOnBus()
   await assertAllowChangesDirtyWorkspaceBlocksBeforeLaunch()
   await assertMissingIntegrationBlocksWithoutFakeSuccess()
+  await assertRequiredIntegrationFailsClosed()
   await assertUnknownWorkspaceIdDoesNotCreateFallbackWorkspace()
   await assertRunSkillLoopIsPresetAndRunCommandIsNotRegistered()
 }

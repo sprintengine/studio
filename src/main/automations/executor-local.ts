@@ -11,7 +11,7 @@ import { createSpawnAgentActionProvider, runSpawnAgentAction } from './actions/s
 export type LocalAutomationExecutorOptions = {
   delegateToRenderer(request: AutomationRendererRequest): Promise<AutomationRendererResponse>
   getWorkspaceSyncSnapshot(): WorkspaceSyncSnapshot
-  isIntegrationAvailable?: (id: string) => boolean
+  isIntegrationAvailable?: (id: string) => boolean | undefined
   isWorkspaceDirty?: (input: { workspaceId?: string; folderPath: string; workspace: Workspace | null }) => Promise<WorkspaceDirtyResult>
   now?: () => number
   sleep?: (ms: number) => Promise<void>
@@ -118,7 +118,7 @@ export function createActionContext(
     reportProgress,
     requireIntegration: (id) => {
       const available = options.isIntegrationAvailable?.(id)
-      if (available === false) throw new AutomationActionBlockedError(`Required integration is unavailable: ${id}`)
+      if (available !== true) throw new AutomationActionBlockedError(`Required integration is unavailable or unverified: ${id}`)
     },
   }
 }
