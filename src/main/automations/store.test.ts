@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
-import { AutomationsStore } from './store'
+import { AutomationsStore, type AutomationStoreState } from './store'
 
 void main().catch((error) => {
   console.error(error)
@@ -17,6 +17,9 @@ async function main(): Promise<void> {
   await assertMalformedDefinitionFailsClosed()
   await assertRunWriteRequiresReadableDefinition()
   await assertMalformedRunFailsClosed()
+  await assertDotSegmentIdsAreRejected()
+  await assertStateRoundTrip()
+  await assertMalformedStateFailsClosed()
 }
 
 async function createWorkspace(): Promise<string> {
@@ -65,6 +68,20 @@ function run(index: number, overrides: Partial<AutomationRun> = {}): AutomationR
     touchedFiles: ['src/main/example.ts'],
     commandsRan: ['npm run typecheck'],
     summary: `Completed run ${suffix}.`,
+    ...overrides,
+  }
+}
+
+function state(overrides: Partial<AutomationStoreState> = {}): AutomationStoreState {
+  return {
+    nextRunAtByAutomationId: {
+      'nightly-review': '2026-06-18T01:00:00.000Z',
+    },
+    lock: {
+      ownerId: 'automations-engine',
+      acquiredAt: '2026-06-17T12:00:00.000Z',
+      expiresAt: '2026-06-17T12:01:00.000Z',
+    },
     ...overrides,
   }
 }
@@ -188,4 +205,76 @@ async function assertMalformedRunFailsClosed(): Promise<void> {
 
   const runFiles = await readdir(runDirectory)
   assert.equal(runFiles.includes('run-002.json'), false)
+}
+
+async function assertDotSegmentIdsAreRejected(): Promise<void> {
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+
+  for (const id of ['.', '..']) {
+    const created = await store.createDefinition(definition({ id }))
+    assert.equal(created.ok, false)
+    assert.equal(!created.ok && created.error.code, 'invalid_id')
+
+    const runs = await store.listRuns(id)
+    assert.equal(runs.ok, false)
+    assert.equal(!runs.ok && runs.errors[0]?.code, 'invalid_id')
+  }
+
+  assert.equal((await store.createDefinition(definition())).ok, true)
+  const unsafeRun = await store.recordRun(run(1, { automationId: '..', id: 'state' }))
+  assert.equal(unsafeRun.ok, false)
+  assert.equal(!unsafeRun.ok && unsafeRun.error.code, 'invalid_id')
+
+  const escapedStatePath = join(workspaceRoot, '.multi-code', 'automations', 'state.json')
+  await assert.rejects(readFile(escapedStatePath, 'utf8'), { code: 'ENOENT' })
+}
+
+async function assertStateRoundTrip(): Promise<void> {
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+
+  const missing = await store.readState()
+  assert.equal(missing.ok, true)
+  assert.equal(missing.ok && missing.value, null)
+
+  const nextState = state({
+    nextRunAtByAutomationId: {
+      'nightly-review': '2026-06-18T01:00:00.000Z',
+      'weekly-cleanup': null,
+    },
+  })
+  const written = await store.writeState(nextState)
+  assert.equal(written.ok, true)
+
+  const readBack = await store.readState()
+  assert.equal(readBack.ok, true)
+  assert.deepEqual(readBack.ok && readBack.value, nextState)
+
+  const stateFile = await readFile(join(workspaceRoot, '.multi-code', 'automations', 'state.json'), 'utf8')
+  assert.match(stateFile, /nextRunAtByAutomationId/)
+
+  const invalidKey = await store.writeState(state({ nextRunAtByAutomationId: { '..': '2026-06-18T01:00:00.000Z' } }))
+  assert.equal(invalidKey.ok, false)
+  assert.equal(!invalidKey.ok && invalidKey.error.code, 'invalid_payload')
+}
+
+async function assertMalformedStateFailsClosed(): Promise<void> {
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  const statePath = join(workspaceRoot, '.multi-code', 'automations', 'state.json')
+
+  await mkdir(join(workspaceRoot, '.multi-code', 'automations'), { recursive: true })
+  await writeFile(statePath, '{not-json', 'utf8')
+
+  const corruptJson = await store.readState()
+  assert.equal(corruptJson.ok, false)
+  assert.equal(!corruptJson.ok && corruptJson.error.code, 'invalid_json')
+  assert.equal(await readFile(statePath, 'utf8'), '{not-json')
+
+  await writeFile(statePath, JSON.stringify({ nextRunAtByAutomationId: [], lock: null }), 'utf8')
+
+  const malformedPayload = await store.readState()
+  assert.equal(malformedPayload.ok, false)
+  assert.equal(!malformedPayload.ok && malformedPayload.error.code, 'invalid_payload')
 }

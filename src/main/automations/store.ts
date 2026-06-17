@@ -1,6 +1,6 @@
 import { constants as fsConstants } from 'node:fs'
 import { access, mkdir, readdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises'
-import { basename, dirname, join, relative } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import type {
   AutomationDefinition,
@@ -31,6 +31,17 @@ export type AutomationStoreReadResult<T> = { ok: true; value: T } | { ok: false;
 export type AutomationStoreListResult<T> = { ok: true; values: T[] } | { ok: false; errors: AutomationStoreProblem[] }
 export type AutomationStoreWriteResult<T> = { ok: true; value: T } | { ok: false; error: AutomationStoreProblem }
 export type AutomationStoreDeleteResult = { ok: true } | { ok: false; error: AutomationStoreProblem }
+
+export type AutomationStoreLock = {
+  ownerId: string
+  acquiredAt: string
+  expiresAt: string
+}
+
+export type AutomationStoreState = {
+  nextRunAtByAutomationId: Record<string, string | null>
+  lock: AutomationStoreLock | null
+}
 
 const AUTOMATION_STATUSES = new Set<AutomationStatus>(['enabled', 'paused', 'blocked'])
 const AUTOMATION_RUN_STATUSES = new Set<AutomationRunStatus>([
@@ -90,10 +101,12 @@ export class AutomationsStore {
   async deleteDefinition(automationId: string): Promise<AutomationStoreDeleteResult> {
     const target = this.definitionPath(automationId)
     if (!target.ok) return target
+    const runDirectory = this.runsDirectory(automationId)
+    if (!runDirectory.ok) return runDirectory
 
     try {
       await unlink(target.path)
-      await rm(this.runsDirectory(automationId), { recursive: true, force: true })
+      await rm(runDirectory.path, { recursive: true, force: true })
       return { ok: true }
     } catch (error) {
       const code = (error as NodeJS.ErrnoException | undefined)?.code
@@ -167,10 +180,9 @@ export class AutomationsStore {
   }
 
   async listRuns(automationId: string): Promise<AutomationStoreListResult<AutomationRun>> {
-    const safeId = this.safeId(automationId)
-    if (!safeId.ok) return { ok: false, errors: [safeId.error] }
-
-    const directory = this.runsDirectory(automationId)
+    const directoryResult = this.runsDirectory(automationId)
+    if (!directoryResult.ok) return { ok: false, errors: [directoryResult.error] }
+    const directory = directoryResult.path
     const files = await listJsonFiles(directory)
     if (!files.ok) {
       const error = files.errors[0]
@@ -190,18 +202,48 @@ export class AutomationsStore {
     return { ok: true, values: runs.sort(compareRunsNewestFirst) }
   }
 
+  async readState(): Promise<AutomationStoreReadResult<AutomationStoreState | null>> {
+    const target = this.statePath()
+    const parsed = await this.readJson(target)
+    if (!parsed.ok) {
+      if (parsed.error.code === 'missing') return { ok: true, value: null }
+      return parsed
+    }
+    return this.validateState(parsed.value, target)
+  }
+
+  async writeState(state: AutomationStoreState): Promise<AutomationStoreWriteResult<AutomationStoreState>> {
+    const target = this.statePath()
+    const validation = this.validateState(state, target)
+    if (!validation.ok) return validation
+
+    const written = await this.writeJson(target, state)
+    if (!written.ok) return written
+    return { ok: true, value: state }
+  }
+
   private definitionsDirectory(): string {
     return join(this.rootPath, 'definitions')
   }
 
-  private runsDirectory(automationId: string): string {
-    return join(this.rootPath, 'runs', automationId)
+  private runsRootDirectory(): string {
+    return join(this.rootPath, 'runs')
+  }
+
+  private runsDirectory(automationId: string): { ok: true; path: string } | { ok: false; error: AutomationStoreProblem } {
+    const safeId = this.safeId(automationId)
+    if (!safeId.ok) return safeId
+    return this.containedPath(this.runsRootDirectory(), automationId)
+  }
+
+  private statePath(): string {
+    return join(this.rootPath, 'state.json')
   }
 
   private definitionPath(automationId: string): { ok: true; path: string } | { ok: false; error: AutomationStoreProblem } {
     const safeId = this.safeId(automationId)
     if (!safeId.ok) return safeId
-    return { ok: true, path: join(this.definitionsDirectory(), `${automationId}.json`) }
+    return this.containedPath(this.definitionsDirectory(), `${automationId}.json`)
   }
 
   private runPath(
@@ -212,18 +254,38 @@ export class AutomationsStore {
     if (!safeAutomationId.ok) return safeAutomationId
     const safeRunId = this.safeId(runId)
     if (!safeRunId.ok) return safeRunId
-    return { ok: true, path: join(this.runsDirectory(automationId), `${runId}.json`) }
+    const directory = this.runsDirectory(automationId)
+    if (!directory.ok) return directory
+    return this.containedPath(directory.path, `${runId}.json`)
   }
 
   private safeId(id: string): { ok: true } | { ok: false; error: AutomationStoreProblem } {
-    if (SAFE_FILE_ID.test(id)) return { ok: true }
+    if (SAFE_FILE_ID.test(id) && id !== '.' && id !== '..') return { ok: true }
     return {
       ok: false,
       error: {
         code: 'invalid_id',
         path: AUTOMATIONS_STORE_DIRECTORY,
-        message: 'Automation store ids must be non-empty file names containing only letters, numbers, dot, underscore, or hyphen.',
+        message:
+          'Automation store ids must be non-empty file names containing only letters, numbers, dot, underscore, or hyphen, and cannot be dot segments.',
       },
+    }
+  }
+
+  private containedPath(
+    directory: string,
+    childName: string
+  ): { ok: true; path: string } | { ok: false; error: AutomationStoreProblem } {
+    const parent = resolve(directory)
+    const target = resolve(directory, childName)
+    const relativePath = relative(parent, target)
+    if (relativePath !== '' && !relativePath.startsWith('..') && !isAbsolute(relativePath)) {
+      return { ok: true, path: target }
+    }
+
+    return {
+      ok: false,
+      error: this.problem('invalid_id', target, 'Automation store id resolves outside its expected directory.'),
     }
   }
 
@@ -307,6 +369,24 @@ export class AutomationsStore {
   private validateRun(value: unknown, path: string): AutomationStoreReadResult<AutomationRun> | AutomationStoreWriteResult<AutomationRun> {
     if (isAutomationRun(value)) return { ok: true, value }
     return { ok: false, error: this.problem('invalid_payload', path, 'Automation run payload is malformed.') }
+  }
+
+  private validateState(
+    value: unknown,
+    path: string
+  ): AutomationStoreReadResult<AutomationStoreState> | AutomationStoreWriteResult<AutomationStoreState> {
+    if (!isAutomationStoreState(value)) {
+      return { ok: false, error: this.problem('invalid_payload', path, 'Automation state payload is malformed.') }
+    }
+
+    for (const automationId of Object.keys(value.nextRunAtByAutomationId)) {
+      const safeId = this.safeId(automationId)
+      if (!safeId.ok) {
+        return { ok: false, error: this.problem('invalid_payload', path, `Automation state contains invalid id "${automationId}".`) }
+      }
+    }
+
+    return { ok: true, value }
   }
 
   private async pruneRunHistory(automationId: string): Promise<AutomationStoreDeleteResult> {
@@ -429,6 +509,27 @@ function isAutomationRun(value: unknown): value is AutomationRun {
     && isOptionalStringArray(value.touchedFiles)
     && isOptionalStringArray(value.commandsRan)
     && isOptionalString(value.summary)
+  )
+}
+
+function isAutomationStoreState(value: unknown): value is AutomationStoreState {
+  return (
+    isRecord(value)
+    && isNextRunAtCache(value.nextRunAtByAutomationId)
+    && (value.lock === null || isAutomationStoreLock(value.lock))
+  )
+}
+
+function isNextRunAtCache(value: unknown): value is Record<string, string | null> {
+  return isRecord(value) && Object.values(value).every((entry) => isNullableString(entry))
+}
+
+function isAutomationStoreLock(value: unknown): value is AutomationStoreLock {
+  return (
+    isRecord(value)
+    && typeof value.ownerId === 'string'
+    && typeof value.acquiredAt === 'string'
+    && typeof value.expiresAt === 'string'
   )
 }
 
