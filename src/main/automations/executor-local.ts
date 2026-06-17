@@ -74,8 +74,12 @@ export async function runLocalAutomationAction(
       requireIntegration: context.requireIntegration,
       isWorkspaceDirty: async (target: { workspaceId?: string; folderPath: string }) => {
         const workspace = target.workspaceId ? findWorkspaceById(options.getWorkspaceSyncSnapshot(), target.workspaceId) : findWorkspaceByFolder(options.getWorkspaceSyncSnapshot(), target.folderPath)
+        const resolvedFolderPath = workspace?.folderPath?.trim()
+        if (target.workspaceId && workspace && !resolvedFolderPath) {
+          throw new AutomationActionBlockedError(`Unable to verify that target workspace "${target.workspaceId}" is clean because it has no folder path.`)
+        }
         const checker = options.isWorkspaceDirty ?? defaultWorkspaceDirtyCheck
-        return checker({ ...target, workspace })
+        return checker({ ...target, folderPath: resolvedFolderPath || target.folderPath, workspace })
       },
     }
 

@@ -190,6 +190,44 @@ async function assertAllowChangesDirtyWorkspaceBlocksBeforeLaunch(): Promise<voi
   assert.deepEqual(harness.requests, [], 'dirty allow_changes runs do not delegate a launch')
 }
 
+async function assertAllowChangesWorkspaceIdUsesResolvedWorkspaceForDirtyCheck(): Promise<void> {
+  const targetWorkspace = workspace('ws-target', '/repo/target')
+  const requests: AutomationRendererRequest[] = []
+  const dirtyChecks: Array<{ workspaceId?: string; folderPath: string; workspace: Workspace | null }> = []
+  const executor = createLocalAutomationExecutor({
+    delegateToRenderer: async (request) => {
+      requests.push(request)
+      return { ok: false, code: 'should_not_launch', message: 'should not launch' }
+    },
+    getWorkspaceSyncSnapshot: () => snapshot([targetWorkspace]),
+    isWorkspaceDirty: async (input) => {
+      dirtyChecks.push(input)
+      return input.folderPath === '/repo/target'
+        ? { dirty: true, reason: 'Target workspace repo is dirty.' }
+        : { dirty: false }
+    },
+    sleep: async () => undefined,
+  })
+
+  const result = await executor({
+    workspaceRoot: '/repo/default',
+    definition: definition({
+      autonomyDefault: 'allow_changes',
+      action: { kind: 'spawn-agent', config: { workspaceId: 'ws-target', prompt: 'Fix target.' } },
+    }),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'blocked')
+  assert.match(result.blockedReason ?? '', /Target workspace repo is dirty/)
+  assert.equal(dirtyChecks.length, 1)
+  assert.equal(dirtyChecks[0]?.workspaceId, 'ws-target')
+  assert.equal(dirtyChecks[0]?.folderPath, '/repo/target')
+  assert.equal(dirtyChecks[0]?.workspace?.id, 'ws-target')
+  assert.deepEqual(requests, [], 'workspaceId allow_changes checks the target workspace before launch')
+}
+
 async function assertMissingIntegrationBlocksWithoutFakeSuccess(): Promise<void> {
   const cleanWorkspace = workspace('ws-clean', '/repo/a')
   const requests: AutomationRendererRequest[] = []
@@ -317,6 +355,7 @@ void main().catch((error) => {
 async function main(): Promise<void> {
   await assertSpawnAgentCreatesWorkspaceAndLaunchesOnBus()
   await assertAllowChangesDirtyWorkspaceBlocksBeforeLaunch()
+  await assertAllowChangesWorkspaceIdUsesResolvedWorkspaceForDirtyCheck()
   await assertMissingIntegrationBlocksWithoutFakeSuccess()
   await assertRequiredIntegrationFailsClosed()
   await assertUnknownWorkspaceIdDoesNotCreateFallbackWorkspace()
