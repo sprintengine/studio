@@ -147,9 +147,9 @@ function RunRow({ run, now, onOpenAgent }: { run: AutomationRun; now: number; on
           <p className="mt-0.5 text-[11px] leading-4 text-[color:var(--tone-warn)]">{run.blockedReason}</p>
         ) : null}
         {(run.workspaceId || run.agentId) ? (
-          <div className="mt-1 flex items-center gap-2">
+          <div className="mt-1 flex flex-wrap items-center gap-2">
             {run.agentId ? (
-              <span className="font-mono text-[10px] text-[color:var(--text-subtle)]">{run.agentId}</span>
+              <span className="truncate font-mono text-[10px] text-[color:var(--text-subtle)]">{run.agentId}</span>
             ) : null}
             {run.workspaceId ? (
               <GhostButton onClick={() => onOpenAgent(run.workspaceId!)} className="h-5 px-1.5 text-[10px]">

@@ -84,85 +84,91 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
   const titleId = `automations-${workspaceId}`
 
   return (
+    // The panel host can squeeze this column very narrow (e.g. a 390px viewport
+    // with the workspace sidebar open). Scroll the whole panel horizontally
+    // below a readable minimum so the header action, row actions, and detail
+    // controls stay reachable instead of clipping offscreen.
     <section
       aria-labelledby={titleId}
-      className="flex h-full min-h-0 flex-col bg-[color:var(--bg-app)] text-[color:var(--text-default)]"
+      className="flex h-full min-h-0 flex-col overflow-x-auto bg-[color:var(--bg-app)] text-[color:var(--text-default)]"
     >
-      <PanelHeader
-        title="Automations"
-        titleId={titleId}
-        subtitle="Runs while Multicode is open"
-        count={loadState === 'ready' ? definitions.length : undefined}
-        primaryAction={
-          <PrimaryButton
-            onClick={() => { setEditor({ mode: 'create' }); setSelectedId(null); clearActionError() }}
-            disabled={loadState !== 'ready'}
-          >
-            New automation
-          </PrimaryButton>
-        }
-      />
+      <div className="flex h-full min-h-0 w-full min-w-[16rem] flex-col">
+        <PanelHeader
+          title="Automations"
+          titleId={titleId}
+          subtitle="Runs while Multicode is open"
+          count={loadState === 'ready' ? definitions.length : undefined}
+          primaryAction={
+            <PrimaryButton
+              onClick={() => { setEditor({ mode: 'create' }); setSelectedId(null); clearActionError() }}
+              disabled={loadState !== 'ready'}
+            >
+              New automation
+            </PrimaryButton>
+          }
+        />
 
-      {actionError ? (
-        <div className="px-3 pt-3">
-          <InlineNotice tone="error" action={<GhostButton onClick={clearActionError}>Dismiss</GhostButton>}>
-            {actionError}
-          </InlineNotice>
-        </div>
-      ) : null}
-
-      {loadState === 'loading' || loadState === 'idle' ? (
-        <div className="flex flex-1 items-center justify-center gap-2 text-[12px] text-[color:var(--text-muted)]">
-          <Spinner size={14} label="Loading automations" />
-          Loading automations…
-        </div>
-      ) : loadState === 'error' ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <p className="max-w-sm text-[12px] leading-5 text-[color:var(--text-muted)]">
-            Automations are unavailable for this project.
-          </p>
-          <p className="max-w-sm text-[11px] leading-5 text-[color:var(--tone-error)]">{loadError}</p>
-          <GhostButton onClick={() => void load()}>Retry</GhostButton>
-        </div>
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
-          <DefinitionList
-            ref={listRef}
-            definitions={ordered}
-            selectedId={editor ? null : selectedId}
-            busyId={busyId}
-            now={now}
-            onSelect={(id) => { setSelectedId(id); setEditor(null) }}
-            onKeyDown={onListKeyDown}
-            onRunNow={runNow}
-            onToggleStatus={toggleStatus}
-            onEdit={(def) => { setEditor({ mode: 'edit', definition: def }); setSelectedId(def.id) }}
-            onDelete={handleDelete}
-            onCreate={() => { setEditor({ mode: 'create' }); setSelectedId(null) }}
-          />
-          <div className="min-h-0 flex-1 border-t border-[color:var(--border-default)] md:overflow-y-auto md:border-l md:border-t-0">
-            {editor ? (
-              <AutomationEditor
-                key={editor.mode === 'edit' ? editor.definition.id : 'create'}
-                editor={editor}
-                providers={providers}
-                workspaceRoot={folderPath ?? ''}
-                onCancel={() => setEditor(null)}
-                onSaved={handleEditorSaved}
-              />
-            ) : selected ? (
-              <AutomationDetailPane
-                definition={selected}
-                workspaceRoot={folderPath ?? ''}
-                now={now}
-                onOpenAgent={(wsId) => setActiveWorkspace(wsId)}
-              />
-            ) : (
-              <DetailEmptyState hasDefinitions={definitions.length > 0} />
-            )}
+        {actionError ? (
+          <div className="px-3 pt-3">
+            <InlineNotice tone="error" action={<GhostButton onClick={clearActionError}>Dismiss</GhostButton>}>
+              {actionError}
+            </InlineNotice>
           </div>
-        </div>
-      )}
+        ) : null}
+
+        {loadState === 'loading' || loadState === 'idle' ? (
+          <div className="flex flex-1 items-center justify-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+            <Spinner size={14} label="Loading automations" />
+            Loading automations…
+          </div>
+        ) : loadState === 'error' ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+            <p className="max-w-sm text-[12px] leading-5 text-[color:var(--text-muted)]">
+              Automations are unavailable for this project.
+            </p>
+            <p className="max-w-sm text-[11px] leading-5 text-[color:var(--tone-error)]">{loadError}</p>
+            <GhostButton onClick={() => void load()}>Retry</GhostButton>
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
+            <DefinitionList
+              ref={listRef}
+              definitions={ordered}
+              selectedId={editor ? null : selectedId}
+              busyId={busyId}
+              now={now}
+              onSelect={(id) => { setSelectedId(id); setEditor(null) }}
+              onKeyDown={onListKeyDown}
+              onRunNow={runNow}
+              onToggleStatus={toggleStatus}
+              onEdit={(def) => { setEditor({ mode: 'edit', definition: def }); setSelectedId(def.id) }}
+              onDelete={handleDelete}
+              onCreate={() => { setEditor({ mode: 'create' }); setSelectedId(null) }}
+            />
+            <div className="min-h-0 flex-1 border-t border-[color:var(--border-default)] md:overflow-y-auto md:border-l md:border-t-0">
+              {editor ? (
+                <AutomationEditor
+                  key={editor.mode === 'edit' ? editor.definition.id : 'create'}
+                  editor={editor}
+                  providers={providers}
+                  workspaceRoot={folderPath ?? ''}
+                  onCancel={() => setEditor(null)}
+                  onSaved={handleEditorSaved}
+                />
+              ) : selected ? (
+                <AutomationDetailPane
+                  definition={selected}
+                  workspaceRoot={folderPath ?? ''}
+                  now={now}
+                  onOpenAgent={(wsId) => setActiveWorkspace(wsId)}
+                />
+              ) : (
+                <DetailEmptyState hasDefinitions={definitions.length > 0} />
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </section>
   )
 }

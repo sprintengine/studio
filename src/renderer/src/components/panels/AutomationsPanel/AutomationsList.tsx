@@ -139,10 +139,11 @@ function DefinitionRow({
         </div>
       </button>
 
-      {/* Trailing actions: revealed on hover/focus/selection so a resting row stays calm. */}
+      {/* Trailing actions: revealed on hover/focus/selection so a resting row stays calm.
+          Wraps at narrow widths so controls never clip past a squeezed panel column. */}
       <div
         className={[
-          'mt-1.5 flex items-center gap-1 pl-6 transition-opacity',
+          'mt-1.5 flex flex-wrap items-center gap-1 pl-6 transition-opacity',
           selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
         ].join(' ')}
       >
