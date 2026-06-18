@@ -347,7 +347,7 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
           <GhostButton onClick={() => void load()}>Retry</GhostButton>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
           <DefinitionList
             ref={listRef}
             definitions={ordered}
@@ -362,7 +362,7 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
             onDelete={handleDelete}
             onCreate={() => { setEditor({ mode: 'create' }); setSelectedId(null) }}
           />
-          <div className="min-h-0 flex-1 overflow-y-auto border-t border-[color:var(--border-default)] md:border-l md:border-t-0">
+          <div className="min-h-0 flex-1 border-t border-[color:var(--border-default)] md:overflow-y-auto md:border-l md:border-t-0">
             {editor ? (
               <AutomationEditor
                 key={editor.mode === 'edit' ? editor.definition.id : 'create'}
@@ -428,7 +428,7 @@ const DefinitionList = React.forwardRef<HTMLUListElement, DefinitionListProps>(f
       aria-label="Automations. Use j and k or the arrow keys to move between automations."
       tabIndex={0}
       onKeyDown={onKeyDown}
-      className="w-full shrink-0 overflow-y-auto py-1 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[color:var(--accent-primary)] md:w-[340px] md:border-r md:border-[color:var(--border-default)]"
+      className="w-full shrink-0 py-1 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[color:var(--accent-primary)] md:w-[340px] md:overflow-y-auto md:border-r md:border-[color:var(--border-default)]"
     >
       {definitions.map((def) => (
         <DefinitionRow
@@ -938,7 +938,7 @@ function AutomationEditor({
               type="number"
               min={5}
               value={form.everyMinutes}
-              onChange={(e) => update('everyMinutes', Math.max(5, Number(e.target.value) || 0))}
+              onChange={(e) => update('everyMinutes', Number(e.target.value) || 0)}
               className="w-32 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12px] tabular-nums text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--accent-primary)]"
             />
           </Field>
