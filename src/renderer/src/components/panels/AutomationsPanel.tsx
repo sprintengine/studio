@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AutomationDefinition } from '../../../../shared/automations/contracts'
-import { GhostButton, InlineNotice, PanelHeader, PrimaryButton, Spinner } from '../ui'
+import { GhostButton, InlineNotice, PanelHeader, PrimaryButton, Spinner, useConfirmDialog } from '../ui'
 import { AutomationDetailPane } from './AutomationsPanel/AutomationDetailPane'
 import { AutomationEditor } from './AutomationsPanel/AutomationEditor'
 import { DefinitionList, DetailEmptyState } from './AutomationsPanel/AutomationsList'
@@ -15,6 +15,7 @@ import { useAutomationsController } from './AutomationsPanel/useAutomationsContr
 export default function AutomationsPanel({ workspaceId }: { workspaceId: string }): JSX.Element {
   const folderPath = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
+  const dialog = useConfirmDialog()
 
   const {
     definitions, providers, loadState, loadError, actionError, busyId,
@@ -49,6 +50,18 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
     setSelectedId(saved.id)
     setEditor(null)
   }, [applySaved])
+
+  // Delete drops the definition and its run-history directory in the store, so
+  // gate it behind a danger confirm — cancel must leave both untouched.
+  const handleDelete = useCallback(async (def: AutomationDefinition) => {
+    const confirmed = await dialog.confirm({
+      title: `Delete ${def.name}?`,
+      body: 'This removes the automation and its run history. This cannot be undone.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })
+    if (confirmed) await remove(def)
+  }, [dialog, remove])
 
   const onListKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (isEditableTarget(event.target) || ordered.length === 0) return
@@ -124,7 +137,7 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
             onRunNow={runNow}
             onToggleStatus={toggleStatus}
             onEdit={(def) => { setEditor({ mode: 'edit', definition: def }); setSelectedId(def.id) }}
-            onDelete={remove}
+            onDelete={handleDelete}
             onCreate={() => { setEditor({ mode: 'create' }); setSelectedId(null) }}
           />
           <div className="min-h-0 flex-1 border-t border-[color:var(--border-default)] md:overflow-y-auto md:border-l md:border-t-0">

@@ -99,7 +99,7 @@ function DefinitionRow({
       <button
         type="button"
         onClick={onSelect}
-        className="flex w-full items-start gap-2 text-left outline-none"
+        className="flex w-full items-start gap-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[color:var(--accent-primary)]"
       >
         {busy ? (
           <Spinner size={14} label="Working" className="mt-[2px]" />
