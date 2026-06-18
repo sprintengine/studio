@@ -1,5 +1,14 @@
 export type JsonSchema = Record<string, unknown>
 
+export const AUTOMATIONS_LIST_CHANNEL = 'automations:list'
+export const AUTOMATIONS_GET_CHANNEL = 'automations:get'
+export const AUTOMATIONS_CREATE_CHANNEL = 'automations:create'
+export const AUTOMATIONS_UPDATE_CHANNEL = 'automations:update'
+export const AUTOMATIONS_DELETE_CHANNEL = 'automations:delete'
+export const AUTOMATIONS_RUN_NOW_CHANNEL = 'automations:run-now'
+export const AUTOMATIONS_RUNS_LIST_CHANNEL = 'automations:runs:list'
+export const AUTOMATIONS_PROVIDERS_LIST_CHANNEL = 'automations:providers:list'
+
 export type AutomationStatus = 'enabled' | 'paused' | 'blocked'
 
 export type AutomationRunStatus =
@@ -89,3 +98,59 @@ export type AutomationRun = {
   commandsRan?: string[]
   summary?: string
 }
+
+export type AutomationDefinitionDraft = {
+  id?: string
+  name: string
+  status: AutomationStatus
+  trigger: { kind: TriggerKind; config: unknown }
+  condition?: { kind: string; config: unknown }
+  action: { kind: ActionKind; config: unknown }
+  autonomyDefault: AutomationDefinition['autonomyDefault']
+}
+
+export type AutomationDefinitionPatch = Partial<Omit<AutomationDefinitionDraft, 'id'>>
+
+export type AutomationsWorkspaceInput = {
+  workspaceRoot: string
+}
+
+export type AutomationsDefinitionInput = AutomationsWorkspaceInput & {
+  automationId: string
+}
+
+export type AutomationsCreateInput = AutomationsWorkspaceInput & {
+  definition: AutomationDefinitionDraft
+}
+
+export type AutomationsUpdateInput = AutomationsDefinitionInput & {
+  patch: AutomationDefinitionPatch
+}
+
+export type AutomationsRunsListInput = AutomationsDefinitionInput
+
+export type AutomationsProviderView = {
+  kind: string
+  configSchema: JsonSchema
+  requiredIntegrations: string[]
+  missingIntegrations: string[]
+}
+
+export type AutomationsProviders = {
+  triggers: AutomationsProviderView[]
+  actions: AutomationsProviderView[]
+}
+
+export type AutomationsResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; code: string; message: string }
+
+export type AutomationsListResult = AutomationsResult<AutomationDefinition[]>
+export type AutomationsDefinitionResult = AutomationsResult<AutomationDefinition>
+export type AutomationsDeleteResult = AutomationsResult<{ automationId: string }>
+export type AutomationsRunNowResult = AutomationsResult<{
+  definition: AutomationDefinition
+  run: AutomationRun
+}>
+export type AutomationsRunsListResult = AutomationsResult<AutomationRun[]>
+export type AutomationsProvidersResult = AutomationsResult<AutomationsProviders>

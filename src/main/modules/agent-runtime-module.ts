@@ -1,12 +1,14 @@
 import type { AppServices } from '../app-services'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
 import {
+  AutomationDelegateToken,
   GitHubTokenStoreToken,
   MulticodeAuthToken,
   SprintEngineArtifactsToken,
   SprintEngineMcpHubToken,
   TerminalRuntimeToken,
   WorkspaceServiceToken,
+  WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
 import { createModuleWorkspaceService } from './module-workspace-service'
@@ -48,6 +50,8 @@ export function createAgentRuntimeModule(services: AppServices): CapabilityModul
       host.provideService(SprintEngineArtifactsToken, () => services.sprintEngineArtifacts)
       host.provideService(MulticodeAuthToken, () => services.multicodeAuth)
       host.provideService(SprintEngineMcpHubToken, () => services.sprintEngineMcpHub)
+      host.provideService(AutomationDelegateToken, () => services.automationDelegate)
+      host.provideService(WorkspaceSyncServiceToken, () => services.workspaceSyncService)
       // Programmatic workspace creation, routed through the same renderer
       // delegate + workspace-sync confirmation the automation tool uses.
       host.provideService(WorkspaceServiceToken, () =>

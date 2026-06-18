@@ -1,0 +1,205 @@
+import assert from 'node:assert/strict'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import type {
+  AutomationDefinitionDraft,
+  AutomationsDefinitionResult,
+  AutomationsDeleteResult,
+  AutomationsListResult,
+  AutomationsProvidersResult,
+  AutomationsRunNowResult,
+  AutomationsRunsListResult,
+} from '../../shared/automations/contracts'
+import {
+  AUTOMATIONS_CREATE_CHANNEL,
+  AUTOMATIONS_DELETE_CHANNEL,
+  AUTOMATIONS_GET_CHANNEL,
+  AUTOMATIONS_LIST_CHANNEL,
+  AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
+  AUTOMATIONS_RUN_NOW_CHANNEL,
+  AUTOMATIONS_RUNS_LIST_CHANNEL,
+  AUTOMATIONS_UPDATE_CHANNEL,
+} from '../../shared/automations/contracts'
+import { createAutomationsEngine } from '../automations/engine'
+import { createBuiltInAutomationActionProviders } from '../automations/executor-local'
+import { scheduleTriggerProvider } from '../automations/schedule'
+import { AutomationsStore } from '../automations/store'
+import type { IpcInvokeHandler } from '../module-host/main-host'
+import { registerAutomationsIpc } from './automations-ipc'
+
+type HandlerMap = Map<string, IpcInvokeHandler>
+
+function createFakeHost(): HandlerMap {
+  const handlers: HandlerMap = new Map()
+  registerAutomationsIpc(
+    {
+      registerIpc(channel, handler) {
+        handlers.set(channel, handler)
+      },
+    },
+    testDeps()
+  )
+  return handlers
+}
+
+let currentNow = Date.parse('2026-06-18T00:00:00.000Z')
+let runCount = 0
+
+function testDeps() {
+  const engine = createAutomationsEngine({
+    createStore: (workspaceRoot) => new AutomationsStore(workspaceRoot),
+    getProjectFolders: () => [],
+    runAutomation: async () => {
+      runCount += 1
+      return { status: 'completed', summary: 'Manual run completed.' }
+    },
+    now: () => currentNow,
+    createRunId: ({ automationId, dueAt }) => `${automationId}-${Date.parse(dueAt)}`,
+  })
+  return {
+    engine,
+    triggerProviders: [scheduleTriggerProvider],
+    actionProviders: createBuiltInAutomationActionProviders(),
+    now: () => currentNow,
+  }
+}
+
+async function invoke<T>(handlers: HandlerMap, channel: string, input?: unknown): Promise<T> {
+  const handler = handlers.get(channel)
+  assert.ok(handler, `expected handler for ${channel}`)
+  return await handler({} as never, input) as T
+}
+
+async function withWorkspaceRoot(): Promise<string> {
+  return mkdtemp(join(tmpdir(), 'multicode-automations-ipc-'))
+}
+
+function definitionDraft(overrides: Partial<AutomationDefinitionDraft> = {}): AutomationDefinitionDraft {
+  return {
+    id: 'nightly-review',
+    name: 'Nightly Review',
+    status: 'enabled',
+    trigger: {
+      kind: 'schedule',
+      config: {
+        kind: 'schedule',
+        timezone: 'UTC',
+        cadence: { type: 'interval', everyMinutes: 10 },
+      },
+    },
+    action: {
+      kind: 'spawn-agent',
+      config: { prompt: 'Review this workspace.' },
+    },
+    autonomyDefault: 'review_only',
+    ...overrides,
+  }
+}
+
+async function testProviderList(): Promise<void> {
+  const providers = await invoke<AutomationsProvidersResult>(createFakeHost(), AUTOMATIONS_PROVIDERS_LIST_CHANNEL)
+  assert.equal(providers.ok, true)
+  if (!providers.ok) return
+  assert.deepEqual(providers.value.triggers.map((provider) => provider.kind), ['schedule'])
+  assert.deepEqual(providers.value.actions.map((provider) => provider.kind), ['spawn-agent', 'run-skill-loop'])
+  assert.equal(
+    providers.value.actions.some((provider) => provider.kind === 'run-command'),
+    false,
+    'run-command remains deferred and is not registered'
+  )
+}
+
+async function testDefinitionRoundTripAndRunNow(): Promise<void> {
+  currentNow = Date.parse('2026-06-18T00:00:00.000Z')
+  runCount = 0
+  const workspaceRoot = await withWorkspaceRoot()
+  const handlers = createFakeHost()
+
+  const created = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_CREATE_CHANNEL, {
+    workspaceRoot,
+    definition: definitionDraft(),
+  })
+  assert.equal(created.ok, true)
+  if (!created.ok) return
+  assert.equal(created.value.nextRunAt, '2026-06-18T00:10:00.000Z')
+
+  const listed = await invoke<AutomationsListResult>(handlers, AUTOMATIONS_LIST_CHANNEL, { workspaceRoot })
+  assert.equal(listed.ok, true)
+  if (!listed.ok) return
+  assert.deepEqual(listed.value.map((definition) => definition.id), ['nightly-review'])
+
+  const fetched = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_GET_CHANNEL, {
+    workspaceRoot,
+    automationId: 'nightly-review',
+  })
+  assert.equal(fetched.ok, true)
+  if (!fetched.ok) return
+  assert.equal(fetched.value.name, 'Nightly Review')
+
+  const updated = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_UPDATE_CHANNEL, {
+    workspaceRoot,
+    automationId: 'nightly-review',
+    patch: {
+      trigger: {
+        kind: 'schedule',
+        config: {
+          kind: 'schedule',
+          timezone: 'UTC',
+          cadence: { type: 'interval', everyMinutes: 20 },
+        },
+      },
+    },
+  })
+  assert.equal(updated.ok, true)
+  if (!updated.ok) return
+  assert.equal(updated.value.nextRunAt, '2026-06-18T00:20:00.000Z')
+
+  const initialRuns = await invoke<AutomationsRunsListResult>(handlers, AUTOMATIONS_RUNS_LIST_CHANNEL, {
+    workspaceRoot,
+    automationId: 'nightly-review',
+  })
+  assert.equal(initialRuns.ok, true)
+  if (!initialRuns.ok) return
+  assert.deepEqual(initialRuns.value, [])
+
+  currentNow = Date.parse('2026-06-18T00:05:00.000Z')
+  const runNow = await invoke<AutomationsRunNowResult>(handlers, AUTOMATIONS_RUN_NOW_CHANNEL, {
+    workspaceRoot,
+    automationId: 'nightly-review',
+  })
+  assert.equal(runNow.ok, true)
+  if (!runNow.ok) return
+  assert.equal(runCount, 1)
+  assert.equal(runNow.value.run.status, 'completed')
+  assert.equal(runNow.value.definition.lastRunId, runNow.value.run.id)
+  assert.equal(runNow.value.definition.nextRunAt, '2026-06-18T00:25:00.000Z')
+
+  const runs = await invoke<AutomationsRunsListResult>(handlers, AUTOMATIONS_RUNS_LIST_CHANNEL, {
+    workspaceRoot,
+    automationId: 'nightly-review',
+  })
+  assert.equal(runs.ok, true)
+  if (!runs.ok) return
+  assert.deepEqual(runs.value.map((run) => run.status), ['completed'])
+
+  const deleted = await invoke<AutomationsDeleteResult>(handlers, AUTOMATIONS_DELETE_CHANNEL, {
+    workspaceRoot,
+    automationId: 'nightly-review',
+  })
+  assert.equal(deleted.ok, true)
+
+  const afterDelete = await invoke<AutomationsListResult>(handlers, AUTOMATIONS_LIST_CHANNEL, { workspaceRoot })
+  assert.equal(afterDelete.ok, true)
+  if (!afterDelete.ok) return
+  assert.deepEqual(afterDelete.value, [])
+}
+
+async function main(): Promise<void> {
+  await testProviderList()
+  await testDefinitionRoundTripAndRunNow()
+  console.log('automations-ipc tests passed')
+}
+
+void main()

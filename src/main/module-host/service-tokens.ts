@@ -1,4 +1,5 @@
 import type { AppServices } from '../app-services'
+import type { AutomationsEngine } from '../automations/engine'
 import type { ModuleWorkspaceService } from '../modules/module-workspace-service'
 import { createServiceToken } from './main-host'
 
@@ -20,6 +21,15 @@ export const MulticodeAuthToken = createServiceToken<AppServices['multicodeAuth'
 )
 export const SprintEngineMcpHubToken = createServiceToken<AppServices['sprintEngineMcpHub']>(
   'core.sprintengine-mcp-hub'
+)
+export const AutomationDelegateToken = createServiceToken<AppServices['automationDelegate']>(
+  'core.automation-delegate'
+)
+export const WorkspaceSyncServiceToken = createServiceToken<AppServices['workspaceSyncService']>(
+  'core.workspace-sync-service'
+)
+export const AutomationsEngineToken = createServiceToken<AutomationsEngine>(
+  'automations.engine'
 )
 // Programmatic workspace creation for capability modules. The key MUST equal the
 // SDK's WorkspaceServiceToken ('core.workspace') so a module that imports the

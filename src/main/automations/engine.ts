@@ -41,6 +41,10 @@ export type AutomationsEngineEvaluationResult = {
   problems: AutomationsEngineProblem[]
 }
 
+export type AutomationsEngineRunNowResult =
+  | { ok: true; definition: AutomationDefinition; run: AutomationRun }
+  | { ok: false; problem: AutomationsEngineProblem }
+
 export type AutomationsEngineOptions = {
   getProjectFolders?: () => AutomationsProjectFolder[] | Promise<AutomationsProjectFolder[]>
   getWorkspaceSnapshot?: () => WorkspaceSyncSnapshot | Promise<WorkspaceSyncSnapshot>
@@ -124,6 +128,135 @@ export class AutomationsEngine {
     const startup = this.startupEvaluation
     if (startup) await startup
     return this.evaluate('timer')
+  }
+
+  async runNow(input: {
+    workspaceRoot: string
+    automationId: string
+    triggerPayload?: Record<string, unknown>
+  }): Promise<AutomationsEngineRunNowResult> {
+    const store = this.createStore(input.workspaceRoot)
+    const definitionResult = await store.getDefinition(input.automationId)
+    if (!definitionResult.ok) {
+      return { ok: false, problem: storeProblem(input.workspaceRoot, definitionResult.error, input.automationId) }
+    }
+
+    const definition = definitionResult.value
+    if (definition.trigger.kind !== 'schedule') {
+      return {
+        ok: false,
+        problem: {
+          workspaceRoot: input.workspaceRoot,
+          automationId: definition.id,
+          code: 'unsupported_trigger',
+          message: `Automation "${definition.id}" cannot run because trigger "${definition.trigger.kind}" is not supported.`,
+        },
+      }
+    }
+
+    const validation = validateScheduleTriggerConfig(definition.trigger.config)
+    if (!validation.ok) {
+      return {
+        ok: false,
+        problem: {
+          workspaceRoot: input.workspaceRoot,
+          automationId: definition.id,
+          code: 'invalid_schedule',
+          message: validation.error,
+        },
+      }
+    }
+
+    const stateResult = await store.readState()
+    if (!stateResult.ok) {
+      return { ok: false, problem: storeProblem(input.workspaceRoot, stateResult.error, definition.id) }
+    }
+    const state: AutomationStoreState = stateResult.value ?? { nextRunAtByAutomationId: {}, lock: null }
+    const inFlightKey = this.inFlightKey(input.workspaceRoot, definition.id)
+    if (this.inFlight.has(inFlightKey)) {
+      return {
+        ok: false,
+        problem: {
+          workspaceRoot: input.workspaceRoot,
+          automationId: definition.id,
+          code: 'in_flight',
+          message: `Automation "${definition.id}" is already running.`,
+        },
+      }
+    }
+
+    this.inFlight.add(inFlightKey)
+    try {
+      const now = this.now()
+      const dueAt = new Date(now).toISOString()
+      const run = this.runRecord(input.workspaceRoot, definition.id, dueAt, {
+        status: 'running',
+        startedAt: dueAt,
+        completedAt: null,
+      })
+
+      const started = await store.recordRun(run)
+      if (!started.ok) {
+        return { ok: false, problem: storeProblem(input.workspaceRoot, started.error, definition.id) }
+      }
+
+      let finalRun: AutomationRun
+      try {
+        const patch = await this.runAutomation({
+          workspaceRoot: input.workspaceRoot,
+          definition,
+          run,
+          triggerPayload: input.triggerPayload ?? { kind: 'manual', dueAt },
+        })
+        const completedAt = patch.completedAt ?? new Date(this.now()).toISOString()
+        finalRun = completeRun(run, patch, completedAt)
+      } catch (error) {
+        const failedAt = new Date(this.now()).toISOString()
+        finalRun = completeRun(run, {
+          status: 'failed',
+          completedAt: failedAt,
+          summary: error instanceof Error ? error.message : 'Automation action failed.',
+        }, failedAt)
+      }
+
+      const completed = await store.recordRun(finalRun)
+      if (!completed.ok) {
+        return { ok: false, problem: storeProblem(input.workspaceRoot, completed.error, definition.id) }
+      }
+
+      const completedAt = Date.parse(finalRun.completedAt ?? dueAt)
+      const result = emptyEvaluationResult()
+      const nextRunAt = nextRunIso(validation.value, completedAt)
+      const updated = await this.updateDefinitionAfterRun(
+        store,
+        state,
+        input.workspaceRoot,
+        definition,
+        finalRun,
+        nextRunAt,
+        completedAt,
+        result
+      )
+      if (!updated) {
+        return {
+          ok: false,
+          problem: result.problems[0] ?? {
+            workspaceRoot: input.workspaceRoot,
+            automationId: definition.id,
+            code: 'definition_update_failed',
+            message: `Automation "${definition.id}" ran, but its schedule could not be updated.`,
+          },
+        }
+      }
+
+      const refreshed = await store.getDefinition(definition.id)
+      if (!refreshed.ok) {
+        return { ok: false, problem: storeProblem(input.workspaceRoot, refreshed.error, definition.id) }
+      }
+      return { ok: true, definition: refreshed.value, run: finalRun }
+    } finally {
+      this.inFlight.delete(inFlightKey)
+    }
   }
 
   private async evaluate(mode: EvaluationMode): Promise<AutomationsEngineEvaluationResult> {

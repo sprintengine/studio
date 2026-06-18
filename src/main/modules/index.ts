@@ -1,4 +1,5 @@
 import type { CapabilityModule } from '../module-host/load-modules'
+import { automationsModule } from './automations-module'
 import { mobileRelayModule } from './mobile-relay-module'
 import { multiloopModule } from './multiloop-module'
 import { sprintEngineModule } from './sprint-engine-module'
@@ -15,5 +16,6 @@ export const BUNDLED_MAIN_MODULES: CapabilityModule[] = [
   switchboardModule,
   multiloopModule,
   sprintEngineModule,
+  automationsModule,
   mobileRelayModule,
 ]
