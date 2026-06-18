@@ -302,6 +302,35 @@ function accountInitials(user: SessionUser | null): string {
   return source[0].toUpperCase()
 }
 
+type AccountTier = 'free' | 'pro'
+
+// Tier drives the colour of the account glyph: gold for an active Pro plan,
+// green otherwise (free, trial, or entitlements not yet resolved).
+function accountTier(authState: MulticodeAuthState): AccountTier {
+  return hasActiveProPlan(authState) ? 'pro' : 'free'
+}
+
+const ACCOUNT_TIER_STYLE: Record<AccountTier, { color: string; soft: string; label: string }> = {
+  free: { color: 'var(--tone-good)', soft: 'var(--tone-good-soft)', label: 'Free' },
+  pro: { color: 'var(--tone-warn)', soft: 'var(--tone-warn-soft)', label: 'Pro' },
+}
+
+// Neutral person glyph shown when no display name/email initials are available,
+// so a signed-in account still reads as a coloured tier badge rather than a "?".
+function AccountUserGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="8.4" r="3.5" stroke="currentColor" strokeWidth={1.7} />
+      <path
+        d="M5.6 19c0-3.3 2.9-5.4 6.4-5.4s6.4 2.1 6.4 5.4"
+        stroke="currentColor"
+        strokeWidth={1.7}
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 function sentenceCase(value: string): string {
   return value ? value[0].toUpperCase() + value.slice(1).replace(/_/g, ' ') : value
 }
@@ -980,29 +1009,39 @@ export default function WorkspaceTopBar({
                 onOpenAutoFocus={(surface) => {
                   surface.querySelector<HTMLButtonElement>('[data-account-item="true"]')?.focus()
                 }}
-                renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                  <Tooltip content="Account" placement="bottom">
-                    <button
-                      ref={ref}
-                      type="button"
-                      onClick={togglePopover}
-                      className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
-                        accountOpen
-                          ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)]'
-                          : 'border-transparent hover:bg-[color:var(--bg-hover)]'
-                      }`}
-                      aria-label="Account"
-                      {...triggerProps}
-                    >
-                      <span
-                        aria-hidden="true"
-                        className="flex h-6 w-6 items-center justify-center rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[11px] font-semibold text-[color:var(--text-default)]"
+                renderTrigger={({ ref, triggerProps, togglePopover }) => {
+                  const tier = accountTier(authState)
+                  const tierStyle = ACCOUNT_TIER_STYLE[tier]
+                  const initials = accountInitials(authState.user)
+                  return (
+                    <Tooltip content={`Account · ${tierStyle.label}`} placement="bottom">
+                      <button
+                        ref={ref}
+                        type="button"
+                        onClick={togglePopover}
+                        className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
+                          accountOpen
+                            ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)]'
+                            : 'border-transparent hover:bg-[color:var(--bg-hover)]'
+                        }`}
+                        aria-label={`Account · ${tierStyle.label} plan`}
+                        {...triggerProps}
                       >
-                        {accountInitials(authState.user)}
-                      </span>
-                    </button>
-                  </Tooltip>
-                )}
+                        <span
+                          aria-hidden="true"
+                          className="flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-semibold"
+                          style={{
+                            borderColor: tierStyle.color,
+                            backgroundColor: tierStyle.soft,
+                            color: tierStyle.color,
+                          }}
+                        >
+                          {initials === '?' ? <AccountUserGlyph className="h-3.5 w-3.5" /> : initials}
+                        </span>
+                      </button>
+                    </Tooltip>
+                  )
+                }}
               >
                 <AccountPopover
                   authState={authState}
