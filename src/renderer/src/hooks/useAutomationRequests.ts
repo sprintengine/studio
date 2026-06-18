@@ -7,7 +7,7 @@ import type {
 import { LAYOUT_TEMPLATES } from '../layouts/templates'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { pickRandomAgentName } from '../utils/agentNames'
-import { addAgentTabTiled, getModel } from '../utils/modelRegistry'
+import { getModel, revealAgentTab, type AgentTabRevealTarget } from '../utils/modelRegistry'
 import type { WorkspaceWindowId } from '../types/workspace'
 
 // Renderer half of the app-automation surface: the main-process MCP server
@@ -19,6 +19,15 @@ import type { WorkspaceWindowId } from '../types/workspace'
 
 const LAYOUT_MODEL_WAIT_MS = 5_000
 const LAYOUT_MODEL_POLL_MS = 100
+
+export function revealAutomationAgent(target: AgentTabRevealTarget): boolean {
+  return revealAgentTab(target, {
+    getWorkspace: (workspaceId) =>
+      useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspaceId) ?? null,
+    setActiveWorkspace: (workspaceId) => useWorkspaceStore.getState().setActiveWorkspace(workspaceId),
+    updateLayout: (workspaceId, layoutModel) => useWorkspaceStore.getState().updateLayout(workspaceId, layoutModel),
+  })
+}
 
 export function useAutomationRequests(workspaceWindowId: WorkspaceWindowId): void {
   useEffect(() => {
@@ -128,7 +137,13 @@ async function launchAgent(
     cliHasLaunched: false,
     cliResumeAvailable: false,
   })
-  addAgentTabTiled(workspace.id, agentId, name)
+  if (!revealAutomationAgent({ workspaceId: workspace.id, agentId, name })) {
+    return {
+      ok: false,
+      code: 'agent_tab_unavailable',
+      message: `Agent "${agentId}" was created in workspace "${workspace.id}" but its terminal tab could not be revealed.`,
+    }
+  }
   return { ok: true, workspaceId: workspace.id, agentId }
 }
 

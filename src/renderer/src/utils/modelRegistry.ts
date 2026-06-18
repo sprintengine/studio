@@ -4,6 +4,17 @@ import { basename, pathSeparatorFor } from './paths'
 const AGENT_TAB_SPAWN_FLASH_CLASS = 'agent-tab-spawn-flash'
 
 export type AgentTerminalRevealPolicy = 'background' | 'focus-if-open' | 'reveal'
+export type AgentTabRevealTarget = { workspaceId: string; agentId: string; name?: string }
+export type AgentTabRevealWorkspace = {
+  id: string
+  layoutModel: IJsonModel
+  agents: Record<string, { name?: string }>
+}
+export type AgentTabRevealPorts = {
+  getWorkspace(workspaceId: string): AgentTabRevealWorkspace | null
+  setActiveWorkspace(workspaceId: string): void
+  updateLayout(workspaceId: string, layoutModel: IJsonModel): void
+}
 
 // Ephemeral registry of live flexlayout Model instances, keyed by workspace id.
 // Lets components outside of WorkspaceLayout (e.g. the workspace action bar)
@@ -244,6 +255,29 @@ export function focusOrAddAgentTab(
   config?: Record<string, unknown>,
 ): boolean {
   return applyAgentTerminalRevealPolicy(workspaceId, agentId, name, 'reveal', config)
+}
+
+export function revealAgentTab(
+  target: AgentTabRevealTarget,
+  ports: AgentTabRevealPorts,
+): boolean {
+  const workspace = ports.getWorkspace(target.workspaceId)
+  const agent = workspace?.agents[target.agentId]
+  if (!workspace || !agent) return false
+
+  const name = target.name?.trim() || agent.name || target.agentId
+  ports.setActiveWorkspace(workspace.id)
+  if (focusOrAddAgentTab(workspace.id, target.agentId, name)) return true
+
+  try {
+    ports.updateLayout(
+      workspace.id,
+      ensureAgentTabInLayoutModel(workspace.layoutModel, target.agentId, name)
+    )
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function applyAgentTerminalRevealPolicy(

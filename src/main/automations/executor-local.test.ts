@@ -167,6 +167,50 @@ async function assertSpawnAgentCreatesWorkspaceAndLaunchesOnBus(): Promise<void>
   assert.equal(harness.workspaces[0]?.agents['agent-1']?.cliHasLaunched, true)
 }
 
+async function assertSpawnAgentUsesExistingStandardWorkspace(): Promise<void> {
+  const harness = executorHarness([workspace('ws-standard', '/repo/a')])
+  const result = await harness.executor({
+    workspaceRoot: '/repo/a',
+    definition: definition(),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'completed')
+  assert.equal(result.workspaceId, 'ws-standard')
+  assert.equal(result.agentId, 'agent-1')
+  assert.deepEqual(harness.requests.map((request) => request.kind), ['agent.launch'])
+  const launch = harness.requests[0]
+  assert.equal(launch.kind, 'agent.launch')
+  assert.equal(launch.kind === 'agent.launch' ? launch.workspaceId : '', 'ws-standard')
+}
+
+async function assertSpawnAgentCreatesStandardTargetWhenOnlyAutomationsWorkspaceIsOpen(): Promise<void> {
+  const automationsWorkspace = workspace('ws-automations', '/repo/a', { mode: 'automations' })
+  const harness = executorHarness([automationsWorkspace])
+  const result = await harness.executor({
+    workspaceRoot: '/repo/a',
+    definition: definition(),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'completed')
+  assert.equal(result.workspaceId, 'ws-created')
+  assert.equal(result.agentId, 'agent-1')
+  assert.deepEqual(harness.requests.map((request) => request.kind), ['workspace.create', 'agent.launch'])
+
+  const created = harness.requests[0]
+  assert.equal(created.kind, 'workspace.create')
+  assert.equal(created.kind === 'workspace.create' ? created.folderPath : '', '/repo/a')
+
+  const launch = harness.requests[1]
+  assert.equal(launch.kind, 'agent.launch')
+  assert.equal(launch.kind === 'agent.launch' ? launch.workspaceId : '', 'ws-created')
+  assert.equal(Object.keys(automationsWorkspace.agents).length, 0)
+  assert.equal(harness.workspaces.find((candidate) => candidate.id === 'ws-created')?.mode, 'standard')
+}
+
 async function assertAllowChangesDirtyWorkspaceBlocksBeforeLaunch(): Promise<void> {
   const dirtyWorkspace = workspace('ws-dirty', '/repo/dirty', {
     editorState: {
@@ -354,6 +398,8 @@ void main().catch((error) => {
 
 async function main(): Promise<void> {
   await assertSpawnAgentCreatesWorkspaceAndLaunchesOnBus()
+  await assertSpawnAgentUsesExistingStandardWorkspace()
+  await assertSpawnAgentCreatesStandardTargetWhenOnlyAutomationsWorkspaceIsOpen()
   await assertAllowChangesDirtyWorkspaceBlocksBeforeLaunch()
   await assertAllowChangesWorkspaceIdUsesResolvedWorkspaceForDirtyCheck()
   await assertMissingIntegrationBlocksWithoutFakeSuccess()

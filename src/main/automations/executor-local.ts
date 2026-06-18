@@ -137,13 +137,7 @@ async function spawnAgent(
   },
   options: LocalAutomationExecutorOptions
 ): Promise<{ workspaceId: string; agentId: string }> {
-  const workspace = input.workspaceId
-    ? findWorkspaceById(options.getWorkspaceSyncSnapshot(), input.workspaceId)
-    : findWorkspaceByFolder(options.getWorkspaceSyncSnapshot(), input.folderPath)
-  if (input.workspaceId && !workspace) {
-    throw new Error(`Workspace "${input.workspaceId}" is not known to the workspace-sync bus.`)
-  }
-  const workspaceId = workspace?.id ?? await createWorkspace(input, options)
+  const workspaceId = await resolveStandardLaunchWorkspace(input, options)
 
   const delegated = await options.delegateToRenderer({
     kind: 'agent.launch',
@@ -176,6 +170,27 @@ async function spawnAgent(
   return { workspaceId, agentId: confirmed }
 }
 
+async function resolveStandardLaunchWorkspace(
+  input: { workspaceId?: string; folderPath: string; name?: string },
+  options: LocalAutomationExecutorOptions
+): Promise<string> {
+  const snapshot = options.getWorkspaceSyncSnapshot()
+  if (input.workspaceId) {
+    const explicitWorkspace = findWorkspaceById(snapshot, input.workspaceId)
+    if (!explicitWorkspace) {
+      throw new Error(`Workspace "${input.workspaceId}" is not known to the workspace-sync bus.`)
+    }
+    if (isStandardWorkspace(explicitWorkspace)) return explicitWorkspace.id
+
+    const targetFolderPath = explicitWorkspace.folderPath?.trim() || input.folderPath
+    const standardWorkspace = findStandardWorkspaceByFolder(snapshot, targetFolderPath)
+    return standardWorkspace?.id ?? await createWorkspace({ ...input, folderPath: targetFolderPath }, options)
+  }
+
+  const standardWorkspace = findStandardWorkspaceByFolder(snapshot, input.folderPath)
+  return standardWorkspace?.id ?? await createWorkspace(input, options)
+}
+
 async function createWorkspace(
   input: { folderPath: string; name?: string },
   options: LocalAutomationExecutorOptions
@@ -193,6 +208,12 @@ async function createWorkspace(
     }
   )
   if (!created.ok) throw new Error(created.message)
+  if (!isStandardWorkspace(created.workspace)) {
+    throw new Error(
+      `Created workspace "${created.workspaceId}" is a ${created.workspace.mode} workspace; `
+      + 'automation agent launch requires a standard workspace.'
+    )
+  }
   return created.workspaceId
 }
 
@@ -231,6 +252,18 @@ function findWorkspaceByFolder(snapshot: WorkspaceSyncSnapshot, folderPath: stri
   const key = normalizeFolderKey(folderPath)
   if (!key) return null
   return snapshot.state.workspaces.find((workspace) => normalizeFolderKey(workspace.folderPath) === key) ?? null
+}
+
+function findStandardWorkspaceByFolder(snapshot: WorkspaceSyncSnapshot, folderPath: string): Workspace | null {
+  const key = normalizeFolderKey(folderPath)
+  if (!key) return null
+  return snapshot.state.workspaces.find((workspace) =>
+    isStandardWorkspace(workspace) && normalizeFolderKey(workspace.folderPath) === key
+  ) ?? null
+}
+
+function isStandardWorkspace(workspace: Workspace): boolean {
+  return workspace.mode === 'standard'
 }
 
 function normalizeFolderKey(folderPath: string | null | undefined): string | null {
