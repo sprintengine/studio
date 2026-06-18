@@ -5,6 +5,19 @@ import type {
   AutomationServerStatus,
 } from './automation'
 import type {
+  AutomationsCreateInput,
+  AutomationsDefinitionInput,
+  AutomationsDefinitionResult,
+  AutomationsDeleteResult,
+  AutomationsListResult,
+  AutomationsProvidersResult,
+  AutomationsRunNowResult,
+  AutomationsRunsListInput,
+  AutomationsRunsListResult,
+  AutomationsUpdateInput,
+  AutomationsWorkspaceInput,
+} from './automations/contracts'
+import type {
   SwitchboardAddCommentInput,
   SwitchboardCancelTaskInput,
   SwitchboardClaimTaskInput,
@@ -1748,6 +1761,16 @@ export type ElectronApi = {
   automationSetEnabled: (enabled: boolean) => Promise<AutomationServerStatus>
   onAutomationRequest: (cb: (requestId: string, request: AutomationRendererRequest) => void) => () => void
   automationRespond: (requestId: string, response: AutomationRendererResponse) => Promise<void>
+  // Automations platform (per-project scheduled agent automations). The renderer
+  // reads/writes only through these channels; the engine owns the on-disk store.
+  listAutomations: (input: AutomationsWorkspaceInput) => Promise<AutomationsListResult>
+  getAutomation: (input: AutomationsDefinitionInput) => Promise<AutomationsDefinitionResult>
+  createAutomation: (input: AutomationsCreateInput) => Promise<AutomationsDefinitionResult>
+  updateAutomation: (input: AutomationsUpdateInput) => Promise<AutomationsDefinitionResult>
+  deleteAutomation: (input: AutomationsDefinitionInput) => Promise<AutomationsDeleteResult>
+  runAutomationNow: (input: AutomationsDefinitionInput) => Promise<AutomationsRunNowResult>
+  listAutomationRuns: (input: AutomationsRunsListInput) => Promise<AutomationsRunsListResult>
+  listAutomationProviders: () => Promise<AutomationsProvidersResult>
   authGetState: () => Promise<MulticodeAuthState>
   authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
   authLogout: () => Promise<{ loggedOut: true }>

@@ -19,7 +19,7 @@ export type StepId =
 // workspace type points at one of these via its creationStepsId; 'standard' is
 // the shell-owned default and the fallback for any mode whose registry entry is
 // missing or names an unknown flow.
-export type CreationStepsId = 'standard' | 'switchboard' | 'multiloop' | 'sprintengine' | 'guided-brief'
+export type CreationStepsId = 'standard' | 'switchboard' | 'automations' | 'multiloop' | 'sprintengine' | 'guided-brief'
 
 // The 'knowledge' step (point new agents at a knowledge-graph folder) sits with
 // the other per-project setup steps after 'skill-packs'. It is conditional, not
@@ -30,6 +30,7 @@ export type CreationStepsId = 'standard' | 'switchboard' | 'multiloop' | 'sprint
 export const STEPS_BY_MODE: Record<CreationStepsId, StepId[]> = {
   standard: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge', 'standard-layout'],
   switchboard: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge'],
+  automations: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge'],
   multiloop: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge', 'multiloop-goal'],
   sprintengine: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge', 'sprintengine-team', 'sprintengine-roster'],
   'guided-brief': ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge', 'guided-idea'],

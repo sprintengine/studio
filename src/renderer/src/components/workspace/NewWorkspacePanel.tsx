@@ -82,6 +82,7 @@ import {
   SprintEnginePlanSourcedError,
   buildSprintEngineEffectiveSpawnAtStartRoles,
   buildSprintEngineExistingTeamCreation,
+  buildAutomationsCreation,
   buildStandardCreation,
   buildSwitchboardCreation,
   runGuidedBriefScaffold,
@@ -884,6 +885,8 @@ export default function NewWorkspacePanel({
     if (next === 'standard' && !nameTouched) setName(basename(folderPath ?? '') || 'workspace')
     if (next === 'switchboard' && !nameTouched)
       setName(toTitleName(basename(folderPath ?? '')) || 'Switchboard')
+    if (next === 'automations' && !nameTouched)
+      setName(toTitleName(basename(folderPath ?? '')) || 'Automations')
     if (next === 'multiloop')
       setMlName(toTitleName(basename(folderPath ?? '')) || 'Product Loop')
     if (next === 'guided-brief' && !nameTouched)
@@ -1317,6 +1320,15 @@ export default function NewWorkspacePanel({
     if (mode === 'switchboard') {
       if (!folderPath) return
       const args = buildSwitchboardCreation({ name, folderPath })
+      triggerSelectedSkillPackInstalls(folderPath)
+      onCreate(args)
+      onClose()
+      return
+    }
+
+    if (mode === 'automations') {
+      if (!folderPath) return
+      const args = buildAutomationsCreation({ name, folderPath })
       triggerSelectedSkillPackInstalls(folderPath)
       onCreate(args)
       onClose()
@@ -3406,6 +3418,8 @@ function createLabelFor(mode: CreationMode, isCreating: boolean, hasExistingTeam
       return 'Create Sprint Engine'
     case 'switchboard':
       return 'Create Switchboard'
+    case 'automations':
+      return 'Create Automations'
     case 'multiloop':
       return 'Create Multiloop'
     case 'guided-brief':
