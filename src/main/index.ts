@@ -5,6 +5,7 @@ import { registerAppLifecycle } from './app-lifecycle'
 import { createAppServices } from './app-services'
 import { ensureExtensionFolders } from './extension-folders'
 import { readTrustedMarketplacePublisherFingerprintsSync } from './marketplace/trusted-publishers'
+import type { ModuleEnablementLiveApplier } from './ipc/module-enablement-ipc'
 import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
 import { createAgentRuntimeModule } from './modules/agent-runtime-module'
@@ -26,8 +27,11 @@ const extensionFolders = ensureExtensionFolders()
 
 const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
 const services = createAppServices(MULTICODE_DIAGNOSTICS)
+let applyModuleEnablementLive: ModuleEnablementLiveApplier | undefined
 
-registerCoreIpc(ipcMain, services, MULTICODE_DIAGNOSTICS)
+registerCoreIpc(ipcMain, services, MULTICODE_DIAGNOSTICS, {
+  applyModuleEnablementLive: (overrides) => applyModuleEnablementLive?.(overrides),
+})
 registerWorkflowIpc(ipcMain, services)
 
 // Capability modules register their own IPC/services/sidecars through the host
@@ -55,6 +59,12 @@ const moduleLoad = loadMainModules({
     }
   },
 })
+applyModuleEnablementLive = async (overrides) => {
+  const report = await moduleLoad.applyEnablement(overrides, { liveModuleIds: ['automations'] })
+  const automationsError = report.errors.find((error) => error.id === 'automations')
+  if (automationsError) return { ok: false, message: automationsError.message }
+  return { ok: true }
+}
 recordThirdPartyMainLaunchReport(
   thirdPartyMainLoad.modules.map((module) => module.manifest.id),
   moduleLoad.report

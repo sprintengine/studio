@@ -126,8 +126,14 @@ export type MainKernel = {
   sidecarStatuses(): ReadonlyArray<SidecarRuntimeStatus>
   /** Run all registered startup hooks (in registration order), isolating failures. */
   runStartup(): Promise<void>
+  /** Run startup hooks owned by a live-loaded module after the app has started. */
+  runStartupForModule(moduleId: string): Promise<void>
   /** Run all registered shutdown hooks (reverse registration order), isolating failures. */
   runShutdown(): Promise<void>
+  /** Run a module's shutdown hooks and remove its tracked services, sidecars, and IPC. */
+  unregisterModule(moduleId: string): Promise<void>
+  /** True once the app-level startup hook pipeline has run and before shutdown. */
+  isStarted(): boolean
   /**
    * Infrastructure-only notification entry: stamps `sourceModuleId`, applies
    * flood bounding, buffers, and delivers. Module code never sees the kernel —
@@ -173,15 +179,26 @@ type SidecarEntry = {
   pendingStart?: Promise<void>
 }
 
+type HookEntry<T> = {
+  moduleId: string
+  hook: T
+}
+
+type ServiceEntry = {
+  moduleId: string
+  value: unknown
+}
+
 export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = {}): MainKernel {
   const channels = new Map<string, string>()
-  const services = new Map<string, unknown>()
-  const startupHooks: StartupHook[] = []
-  const shutdownHooks: ShutdownHook[] = []
+  const services = new Map<string, ServiceEntry>()
+  let startupHooks: HookEntry<StartupHook>[] = []
+  let shutdownHooks: HookEntry<ShutdownHook>[] = []
   const sidecarEntries = new Map<string, SidecarEntry>()
   const now = options.now ?? Date.now
   const recent: ModuleNotification[] = []
   const floodStateByModule = new Map<string, ModuleNotificationFloodState>()
+  let started = false
 
   // The notifications event channel belongs to the host kernel; reserving it
   // here makes a module's attempt to claim the name a registration error.
@@ -268,6 +285,13 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
 
   async function stopSidecar(entry: SidecarEntry): Promise<void> {
     if (!entry.lifecycle) return
+    if (entry.pendingStart) {
+      try {
+        await entry.pendingStart
+      } catch {
+        if (sidecarState(entry) !== 'running') return
+      }
+    }
     const current = sidecarState(entry)
     if (current !== 'starting' && current !== 'running') return
     try {
@@ -318,11 +342,11 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
           )
         }
         const instance = factory(this)
-        services.set(token.key, instance)
+        services.set(token.key, { moduleId, value: instance })
         return instance
       },
       getService<T>(token: ServiceToken<T>): T | undefined {
-        return services.get(token.key) as T | undefined
+        return services.get(token.key)?.value as T | undefined
       },
       requireService<T>(token: ServiceToken<T>): T {
         if (!services.has(token.key)) {
@@ -330,13 +354,13 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
             `Module "${moduleId}" requires service "${token.key}", which no enabled module provides.`
           )
         }
-        return services.get(token.key) as T
+        return services.get(token.key)!.value as T
       },
       onStartup(hook) {
-        startupHooks.push(hook)
+        startupHooks.push({ moduleId, hook })
       },
       onShutdown(hook) {
-        shutdownHooks.push(hook)
+        shutdownHooks.push({ moduleId, hook })
       },
       registerSidecar(spec, lifecycle) {
         const existing = sidecarEntries.get(spec.id)
@@ -355,9 +379,9 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
           // among this module's other startup hooks, and runShutdown's reverse
           // order stops sidecars last-started-first.
           if (spec.startOn !== 'demand') {
-            startupHooks.push(() => startSidecar(entry))
+            startupHooks.push({ moduleId, hook: () => startSidecar(entry) })
           }
-          shutdownHooks.push(() => stopSidecar(entry))
+          shutdownHooks.push({ moduleId, hook: () => stopSidecar(entry) })
         }
         return {
           start: () => startSidecar(entry),
@@ -371,32 +395,62 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     }
   }
 
+  async function runHooks(hooks: ReadonlyArray<HookEntry<StartupHook | ShutdownHook>>, failureLabel: string): Promise<void> {
+    for (const { hook } of hooks) {
+      try {
+        await hook()
+      } catch (err) {
+        console.warn(`[modules] ${failureLabel} hook failed:`, err)
+      }
+    }
+  }
+
+  async function unregisterModule(moduleId: string): Promise<void> {
+    await runHooks(
+      [...shutdownHooks].reverse().filter((entry) => entry.moduleId === moduleId),
+      `shutdown for module "${moduleId}"`
+    )
+
+    startupHooks = startupHooks.filter((entry) => entry.moduleId !== moduleId)
+    shutdownHooks = shutdownHooks.filter((entry) => entry.moduleId !== moduleId)
+
+    for (const [sidecarId, entry] of [...sidecarEntries]) {
+      if (entry.moduleId === moduleId) sidecarEntries.delete(sidecarId)
+    }
+    for (const [channel, owner] of [...channels]) {
+      if (owner !== moduleId) continue
+      channels.delete(channel)
+      ipcMain.removeHandler(channel)
+    }
+    for (const [serviceKey, entry] of [...services]) {
+      if (entry.moduleId === moduleId) services.delete(serviceKey)
+    }
+  }
+
   return {
     hostFor,
     ownedChannels: () => channels,
-    startupHooks: () => startupHooks,
-    shutdownHooks: () => shutdownHooks,
+    startupHooks: () => startupHooks.map((entry) => entry.hook),
+    shutdownHooks: () => shutdownHooks.map((entry) => entry.hook),
     sidecars: () => [...sidecarEntries.values()].map((entry) => entry.spec),
     sidecarStatuses: () => [...sidecarEntries.values()].map(sidecarStatusOf),
     emitNotification,
     recentNotifications: () => recent,
     async runStartup(): Promise<void> {
-      for (const hook of startupHooks) {
-        try {
-          await hook()
-        } catch (err) {
-          console.warn('[modules] startup hook failed:', err)
-        }
-      }
+      started = true
+      await runHooks(startupHooks, 'startup')
+    },
+    async runStartupForModule(moduleId: string): Promise<void> {
+      await runHooks(
+        startupHooks.filter((entry) => entry.moduleId === moduleId),
+        `startup for module "${moduleId}"`
+      )
     },
     async runShutdown(): Promise<void> {
-      for (const hook of [...shutdownHooks].reverse()) {
-        try {
-          await hook()
-        } catch (err) {
-          console.warn('[modules] shutdown hook failed:', err)
-        }
-      }
+      await runHooks([...shutdownHooks].reverse(), 'shutdown')
+      started = false
     },
+    unregisterModule,
+    isStarted: () => started,
   }
 }

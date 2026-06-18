@@ -1,22 +1,29 @@
 import assert from 'node:assert/strict'
 import type { IpcMain } from 'electron'
 
+import type { AutomationsEngine } from '../automations/engine'
 import type { CapabilityModule } from '../module-host/load-modules'
 import { loadMainModules } from '../module-host/load-modules'
 import {
   AutomationDelegateToken,
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
+import { AUTOMATIONS_LIST_CHANNEL } from '../../shared/automations/contracts'
 import { createAutomationsModule } from './automations-module'
 
-function createFakeIpcMain(): { ipcMain: IpcMain; handled: string[] } {
+function createFakeIpcMain(): { ipcMain: IpcMain; handled: string[]; activeHandlers: Set<string> } {
   const handled: string[] = []
+  const activeHandlers = new Set<string>()
   const ipcMain = {
     handle(channel: string, _handler: unknown): void {
       handled.push(channel)
+      activeHandlers.add(channel)
+    },
+    removeHandler(channel: string): void {
+      activeHandlers.delete(channel)
     },
   } as unknown as IpcMain
-  return { ipcMain, handled }
+  return { ipcMain, handled, activeHandlers }
 }
 
 function fakeAgentRuntimeModule(): CapabilityModule {
@@ -44,6 +51,36 @@ function fakeAgentRuntimeModule(): CapabilityModule {
           },
         }),
       } as never))
+    },
+  }
+}
+
+type FakeAutomationsEngine = Pick<AutomationsEngine, 'start' | 'stop' | 'isRunning' | 'runNow'> & {
+  startCount: number
+  stopCount: number
+}
+
+function createFakeAutomationsEngine(): FakeAutomationsEngine {
+  let running = false
+  return {
+    startCount: 0,
+    stopCount: 0,
+    start() {
+      running = true
+      this.startCount += 1
+    },
+    stop() {
+      running = false
+      this.stopCount += 1
+    },
+    isRunning() {
+      return running
+    },
+    async runNow() {
+      return {
+        ok: false as const,
+        problem: { code: 'not_used', message: 'runNow is not used by module lifecycle tests.' },
+      }
     },
   }
 }
@@ -118,9 +155,60 @@ async function testDisabledModuleRegistersNoSidecarOrIpc(): Promise<void> {
   assert.equal(reenabled.kernel.sidecarStatuses().find((status) => status.id === 'automations-engine')?.state, 'stopped')
 }
 
+async function testLiveEnablementToggleStopsUnregistersAndRestarts(): Promise<void> {
+  const { ipcMain, activeHandlers } = createFakeIpcMain()
+  const engines: FakeAutomationsEngine[] = []
+  const moduleLoad = loadMainModules({
+    ipcMain,
+    modules: [
+      fakeAgentRuntimeModule(),
+      createAutomationsModule({
+        createEngine: () => {
+          const engine = createFakeAutomationsEngine()
+          engines.push(engine)
+          return engine as AutomationsEngine
+        },
+      }),
+    ],
+  })
+
+  assert.ok(moduleLoad.report.loaded.includes('automations'))
+  assert.ok(activeHandlers.has(AUTOMATIONS_LIST_CHANNEL))
+  await moduleLoad.kernel.runStartup()
+  assert.equal(engines.length, 1)
+  assert.equal(engines[0].isRunning(), true)
+  assert.equal(engines[0].startCount, 1)
+
+  const disabled = await moduleLoad.applyEnablement({ automations: false }, { liveModuleIds: ['automations'] })
+  assert.deepEqual(disabled.errors, [])
+  assert.ok(disabled.disabled.includes('automations'))
+  assert.equal(engines[0].isRunning(), false)
+  assert.equal(engines[0].stopCount, 1)
+  assert.equal([...activeHandlers].some((channel) => channel.startsWith('automations:')), false)
+  assert.equal([...moduleLoad.kernel.ownedChannels().keys()].some((channel) => channel.startsWith('automations:')), false)
+  assert.equal(moduleLoad.kernel.sidecarStatuses().some((status) => status.id === 'automations-engine'), false)
+
+  const enabled = await moduleLoad.applyEnablement({ automations: true }, { liveModuleIds: ['automations'] })
+  assert.deepEqual(enabled.errors, [])
+  assert.ok(enabled.loaded.includes('automations'))
+  assert.equal(engines.length, 2)
+  assert.equal(engines[1].isRunning(), true)
+  assert.equal(engines[1].startCount, 1)
+  assert.ok(activeHandlers.has(AUTOMATIONS_LIST_CHANNEL))
+  assert.equal(
+    moduleLoad.kernel.sidecarStatuses().find((status) => status.id === 'automations-engine')?.state,
+    'running'
+  )
+
+  await moduleLoad.kernel.runShutdown()
+  assert.equal(engines[1].isRunning(), false)
+  assert.equal(engines[1].stopCount, 1)
+}
+
 async function main(): Promise<void> {
   await testEnabledModuleRegistersStartupSidecarAndIpc()
   await testDisabledModuleRegistersNoSidecarOrIpc()
+  await testLiveEnablementToggleStopsUnregistersAndRestarts()
   console.log('automations-module tests passed')
 }
 

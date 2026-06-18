@@ -21,7 +21,7 @@ import { registerMemoryIpc } from './ipc/memory-ipc'
 import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
 import { registerMarketplacePluginIpc } from './ipc/marketplace-plugin-ipc'
 import { registerMarketplaceRegistryIpc } from './ipc/marketplace-registry-ipc'
-import { registerModuleEnablementIpc } from './ipc/module-enablement-ipc'
+import { registerModuleEnablementIpc, type ModuleEnablementLiveApplier } from './ipc/module-enablement-ipc'
 import { registerPluginIpc } from './ipc/plugins-ipc'
 import { registerSkillPackIpc } from './ipc/skill-pack-ipc'
 import { registerSoulsIpc } from './ipc/souls-ipc'
@@ -40,7 +40,16 @@ import { createFilesystemWatchSearchHandlers } from './filesystem-watch-search-h
 import { openDiagnosticsLogsFolder, writeDiagnosticLog } from './diagnostics-service'
 import { readMultiloopPrompt, readSpecialistSoul } from './souls-service'
 
-export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnosticsEnabled: boolean): void {
+export type CoreIpcOptions = {
+  applyModuleEnablementLive?: ModuleEnablementLiveApplier
+}
+
+export function registerCoreIpc(
+  ipcMain: IpcMain,
+  services: AppServices,
+  diagnosticsEnabled: boolean,
+  options: CoreIpcOptions = {}
+): void {
   registerWindowIpc(ipcMain, {
     createWorkspaceWindow: ({ windowId, bounds, isMaximized }) => {
       createMainWindow({ diagnosticsEnabled, windowId, bounds, isMaximized })
@@ -88,7 +97,7 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
   })
   registerGitHubTokenIpc(ipcMain, services.githubTokenStore)
   registerMenuDialogIpc(ipcMain)
-  registerModuleEnablementIpc(ipcMain)
+  registerModuleEnablementIpc(ipcMain, { applyLive: options.applyModuleEnablementLive })
   registerAppearanceIpc(ipcMain)
   registerMarketplaceRegistryIpc(ipcMain)
   registerMarketplacePluginIpc(ipcMain, services)
