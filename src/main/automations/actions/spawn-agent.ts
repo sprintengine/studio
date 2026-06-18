@@ -15,18 +15,24 @@ export type SpawnAgentRuntime = {
   definition: AutomationDefinition
   runId: string
   workspaceRoot: string
+  resolveSpawnAgentTarget(input: { workspaceId?: string; folderPath: string }): Promise<SpawnAgentResolvedTarget>
   spawnAgent(input: {
     workspaceId?: string
     folderPath: string
+    resolvedTarget?: SpawnAgentResolvedTarget
     cli?: string
     name?: string
     prompt: string
   }): Promise<{ workspaceId: string; agentId: string }>
   requireIntegration(id: string): void
-  isWorkspaceDirty(input: { workspaceId?: string; folderPath: string }): Promise<{ dirty: boolean; reason?: string }>
+  isWorkspaceDirty(input: SpawnAgentResolvedTarget): Promise<{ dirty: boolean; reason?: string }>
 }
 
 export type SpawnAgentActionResult = Partial<AutomationRun>
+export type SpawnAgentResolvedTarget = {
+  workspaceId?: string
+  folderPath: string
+}
 
 export function createSpawnAgentActionProvider(): AutomationActionProvider {
   return {
@@ -60,9 +66,10 @@ export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRu
   }
 
   const folderPath = parsed.folderPath ?? runtime.workspaceRoot
+  const target = await runtime.resolveSpawnAgentTarget({ workspaceId: parsed.workspaceId, folderPath })
   const autonomy = runtime.definition.autonomyDefault
   if (autonomy === 'allow_changes') {
-    const dirty = await runtime.isWorkspaceDirty({ workspaceId: parsed.workspaceId, folderPath })
+    const dirty = await runtime.isWorkspaceDirty(target)
     if (dirty.dirty) {
       return {
         status: 'blocked',
@@ -79,8 +86,9 @@ export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRu
     runId: runtime.runId,
   })
   const launched = await runtime.spawnAgent({
-    workspaceId: parsed.workspaceId,
-    folderPath,
+    workspaceId: target.workspaceId,
+    folderPath: target.folderPath,
+    resolvedTarget: target,
     cli: parsed.cli,
     name: parsed.name ?? runtime.definition.name,
     prompt,

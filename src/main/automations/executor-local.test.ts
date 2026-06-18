@@ -234,6 +234,32 @@ async function assertAllowChangesDirtyWorkspaceBlocksBeforeLaunch(): Promise<voi
   assert.deepEqual(harness.requests, [], 'dirty allow_changes runs do not delegate a launch')
 }
 
+async function assertAllowChangesChecksResolvedStandardWorkspaceBeforeLaunch(): Promise<void> {
+  const automationsWorkspace = workspace('ws-automations', '/repo/a', { mode: 'automations' })
+  const dirtyStandardWorkspace = workspace('ws-standard', '/repo/a', {
+    editorState: {
+      activeFilePath: '/repo/a/file.ts',
+      openFiles: [{ path: '/repo/a/file.ts', name: 'file.ts', language: 'ts', isDirty: true }],
+    },
+  })
+  const harness = executorHarness([automationsWorkspace, dirtyStandardWorkspace])
+  const result = await harness.executor({
+    workspaceRoot: '/repo/a',
+    definition: definition({
+      autonomyDefault: 'allow_changes',
+      action: { kind: 'spawn-agent', config: { folderPath: '/repo/a', prompt: 'Fix this.' } },
+    }),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'blocked')
+  assert.match(result.blockedReason ?? '', /unsaved editor changes/)
+  assert.deepEqual(harness.requests, [], 'dirty resolved standard workspace blocks before renderer delegation')
+  assert.equal(Object.keys(automationsWorkspace.agents).length, 0)
+  assert.equal(Object.keys(dirtyStandardWorkspace.agents).length, 0)
+}
+
 async function assertAllowChangesWorkspaceIdUsesResolvedWorkspaceForDirtyCheck(): Promise<void> {
   const targetWorkspace = workspace('ws-target', '/repo/target')
   const requests: AutomationRendererRequest[] = []
@@ -401,6 +427,7 @@ async function main(): Promise<void> {
   await assertSpawnAgentUsesExistingStandardWorkspace()
   await assertSpawnAgentCreatesStandardTargetWhenOnlyAutomationsWorkspaceIsOpen()
   await assertAllowChangesDirtyWorkspaceBlocksBeforeLaunch()
+  await assertAllowChangesChecksResolvedStandardWorkspaceBeforeLaunch()
   await assertAllowChangesWorkspaceIdUsesResolvedWorkspaceForDirtyCheck()
   await assertMissingIntegrationBlocksWithoutFakeSuccess()
   await assertRequiredIntegrationFailsClosed()

@@ -6,7 +6,7 @@ import { getGitRepoRoot, getGitStatus } from '../git'
 import { createWorkspaceConfirmed } from '../workspace-create'
 import type { AutomationRunExecutionInput, AutomationRunExecutor } from './engine'
 import { createRunSkillLoopActionProvider, runSkillLoopAction } from './actions/run-skill-loop'
-import { createSpawnAgentActionProvider, runSpawnAgentAction } from './actions/spawn-agent'
+import { createSpawnAgentActionProvider, runSpawnAgentAction, type SpawnAgentResolvedTarget } from './actions/spawn-agent'
 
 export type LocalAutomationExecutorOptions = {
   delegateToRenderer(request: AutomationRendererRequest): Promise<AutomationRendererResponse>
@@ -70,10 +70,17 @@ export async function runLocalAutomationAction(
       definition: input.definition,
       runId: input.run.id,
       workspaceRoot: input.workspaceRoot,
+      resolveSpawnAgentTarget: (target: { workspaceId?: string; folderPath: string }) =>
+        Promise.resolve(resolveStandardLaunchTarget(target, options)),
       spawnAgent: context.spawnAgent,
       requireIntegration: context.requireIntegration,
-      isWorkspaceDirty: async (target: { workspaceId?: string; folderPath: string }) => {
-        const workspace = target.workspaceId ? findWorkspaceById(options.getWorkspaceSyncSnapshot(), target.workspaceId) : findWorkspaceByFolder(options.getWorkspaceSyncSnapshot(), target.folderPath)
+      isWorkspaceDirty: async (target: SpawnAgentResolvedTarget) => {
+        const workspace = target.workspaceId
+          ? findWorkspaceById(options.getWorkspaceSyncSnapshot(), target.workspaceId)
+          : null
+        if (target.workspaceId && !workspace) {
+          throw new AutomationActionBlockedError(`Unable to verify that target workspace "${target.workspaceId}" is clean because it is no longer known to the workspace-sync bus.`)
+        }
         const resolvedFolderPath = workspace?.folderPath?.trim()
         if (target.workspaceId && workspace && !resolvedFolderPath) {
           throw new AutomationActionBlockedError(`Unable to verify that target workspace "${target.workspaceId}" is clean because it has no folder path.`)
@@ -134,10 +141,15 @@ async function spawnAgent(
     cli?: string
     name?: string
     prompt: string
+    resolvedTarget?: SpawnAgentResolvedTarget
   },
   options: LocalAutomationExecutorOptions
 ): Promise<{ workspaceId: string; agentId: string }> {
-  const workspaceId = await resolveStandardLaunchWorkspace(input, options)
+  const target = input.resolvedTarget ?? resolveStandardLaunchTarget(input, options)
+  const workspaceId = target.workspaceId ?? await createWorkspace({
+    folderPath: target.folderPath,
+    name: input.name,
+  }, options)
 
   const delegated = await options.delegateToRenderer({
     kind: 'agent.launch',
@@ -170,25 +182,40 @@ async function spawnAgent(
   return { workspaceId, agentId: confirmed }
 }
 
-async function resolveStandardLaunchWorkspace(
+function resolveStandardLaunchTarget(
   input: { workspaceId?: string; folderPath: string; name?: string },
   options: LocalAutomationExecutorOptions
-): Promise<string> {
+): SpawnAgentResolvedTarget {
   const snapshot = options.getWorkspaceSyncSnapshot()
   if (input.workspaceId) {
     const explicitWorkspace = findWorkspaceById(snapshot, input.workspaceId)
     if (!explicitWorkspace) {
       throw new Error(`Workspace "${input.workspaceId}" is not known to the workspace-sync bus.`)
     }
-    if (isStandardWorkspace(explicitWorkspace)) return explicitWorkspace.id
+    if (isStandardWorkspace(explicitWorkspace)) {
+      return {
+        workspaceId: explicitWorkspace.id,
+        folderPath: explicitWorkspace.folderPath?.trim() || input.folderPath,
+      }
+    }
 
     const targetFolderPath = explicitWorkspace.folderPath?.trim() || input.folderPath
     const standardWorkspace = findStandardWorkspaceByFolder(snapshot, targetFolderPath)
-    return standardWorkspace?.id ?? await createWorkspace({ ...input, folderPath: targetFolderPath }, options)
+    return standardWorkspace
+      ? {
+          workspaceId: standardWorkspace.id,
+          folderPath: standardWorkspace.folderPath?.trim() || targetFolderPath,
+        }
+      : { folderPath: targetFolderPath }
   }
 
   const standardWorkspace = findStandardWorkspaceByFolder(snapshot, input.folderPath)
-  return standardWorkspace?.id ?? await createWorkspace(input, options)
+  return standardWorkspace
+    ? {
+        workspaceId: standardWorkspace.id,
+        folderPath: standardWorkspace.folderPath?.trim() || input.folderPath,
+      }
+    : { folderPath: input.folderPath }
 }
 
 async function createWorkspace(
@@ -246,12 +273,6 @@ async function defaultWorkspaceDirtyCheck(input: {
 
 function findWorkspaceById(snapshot: WorkspaceSyncSnapshot, workspaceId: string): Workspace | null {
   return snapshot.state.workspaces.find((workspace) => workspace.id === workspaceId) ?? null
-}
-
-function findWorkspaceByFolder(snapshot: WorkspaceSyncSnapshot, folderPath: string): Workspace | null {
-  const key = normalizeFolderKey(folderPath)
-  if (!key) return null
-  return snapshot.state.workspaces.find((workspace) => normalizeFolderKey(workspace.folderPath) === key) ?? null
 }
 
 function findStandardWorkspaceByFolder(snapshot: WorkspaceSyncSnapshot, folderPath: string): Workspace | null {
