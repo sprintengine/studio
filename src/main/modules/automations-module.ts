@@ -1,7 +1,12 @@
 import { BrowserWindow } from 'electron'
 
 import { createLocalAutomationExecutor, defaultWorkspaceDirtyCheck } from '../automations/executor-local'
-import { createAutomationsEngine, type AutomationsEngine, type AutomationsEngineOptions } from '../automations/engine'
+import {
+  createAutomationsEngine,
+  projectFoldersFromWorkspaceSyncSnapshot,
+  type AutomationsEngine,
+  type AutomationsEngineOptions,
+} from '../automations/engine'
 import {
   allowAutomationProvider,
   createBuiltInAutomationProviderRegistry,
@@ -32,6 +37,7 @@ import {
   WATCHTOWER_AUTOMATION_INTEGRATION_ID,
   type SwitchboardAutomationFrontDoors,
 } from '../automations/actions/switchboard'
+import { createAutomationWebhookReceiver } from '../automations/webhook-receiver'
 
 export type AutomationsModuleOptions = {
   createEngine?: (options: AutomationsEngineOptions) => AutomationsEngine
@@ -114,6 +120,10 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
           onRunEvent: options.deliverRunEvent ?? broadcastAutomationsRunEvent,
         })
       )
+      const webhookReceiver = createAutomationWebhookReceiver({
+        getProjectFolders: () => projectFoldersFromWorkspaceSyncSnapshot(workspaceSyncService.getSnapshot()),
+        deliverTriggerEvent: (input) => engine.deliverTriggerEvent(input),
+      })
 
       host.registerSidecar(
         {
@@ -125,8 +135,10 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         {
           start: async () => {
             engine.start()
+            await webhookReceiver.refresh()
           },
           stop: async () => {
+            await webhookReceiver.stop()
             engine.stop()
           },
           status: () => ({ state: engine.isRunning() ? 'running' : 'stopped' }),
@@ -140,6 +152,9 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         checkProviderPermission,
         isIntegrationAvailable,
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
+        onDefinitionsChanged: async () => {
+          await webhookReceiver.refresh()
+        },
       })
     },
   }

@@ -6,6 +6,7 @@ import type {
   AutomationRunEventStatus,
   AutomationRunEventTrigger,
   AutomationRunStatus,
+  AutomationTriggerPollEvent,
   AutomationTriggerPollContext,
   AutomationTriggerProvider,
   AutomationsRunEvent,
@@ -15,6 +16,7 @@ import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { AutomationsStore, type AutomationStoreProblem, type AutomationStoreState } from './store'
 import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
 import { evaluatePollingTriggerDefinition } from './polling-trigger-runner'
+import { enqueueTriggerEventRun, type TriggerEventRunResult } from './trigger-event-runner'
 
 export type AutomationsProjectFolder = {
   workspaceId: string
@@ -54,6 +56,10 @@ export type AutomationsEngineEvaluationResult = {
 
 export type AutomationsEngineRunNowResult =
   | { ok: true; definition: AutomationDefinition; run: AutomationRun }
+  | { ok: false; problem: AutomationsEngineProblem }
+
+export type AutomationsEngineTriggerEventDeliveryResult =
+  | { ok: true; definition: AutomationDefinition; delivery: Exclude<TriggerEventRunResult, { status: 'problem' }> }
   | { ok: false; problem: AutomationsEngineProblem }
 
 export type AutomationsEngineOptions = {
@@ -298,6 +304,107 @@ export class AutomationsEngine {
     } finally {
       this.inFlight.delete(inFlightKey)
     }
+  }
+
+  async deliverTriggerEvent(input: {
+    workspaceRoot: string
+    automationId: string
+    event: AutomationTriggerPollEvent
+    workspaceId?: string
+  }): Promise<AutomationsEngineTriggerEventDeliveryResult> {
+    const store = this.createStore(input.workspaceRoot)
+    const definitionResult = await store.getDefinition(input.automationId)
+    if (!definitionResult.ok) {
+      return { ok: false, problem: storeProblem(input.workspaceRoot, definitionResult.error, input.automationId) }
+    }
+
+    const definition = definitionResult.value
+    if (definition.status !== 'enabled') {
+      return {
+        ok: false,
+        problem: {
+          workspaceRoot: input.workspaceRoot,
+          automationId: definition.id,
+          code: 'automation_disabled',
+          message: `Automation "${definition.id}" is not enabled.`,
+        },
+      }
+    }
+    if (definition.trigger.kind === 'schedule') {
+      return {
+        ok: false,
+        problem: {
+          workspaceRoot: input.workspaceRoot,
+          automationId: definition.id,
+          code: 'unsupported_trigger',
+          message: `Automation "${definition.id}" cannot receive external trigger events for schedule triggers.`,
+        },
+      }
+    }
+
+    const provider = this.getTriggerProviders().find((candidate) => candidate.kind === definition.trigger.kind)
+    if (!provider) {
+      return {
+        ok: false,
+        problem: {
+          workspaceRoot: input.workspaceRoot,
+          automationId: definition.id,
+          code: 'unknown_trigger',
+          message: `No automation trigger provider is registered for "${definition.trigger.kind}".`,
+        },
+      }
+    }
+
+    const validation = provider.validateConfig?.(definition.trigger.config)
+    if (validation && !validation.ok) {
+      return {
+        ok: false,
+        problem: {
+          workspaceRoot: input.workspaceRoot,
+          automationId: definition.id,
+          code: 'invalid_trigger_config',
+          message: validation.error,
+        },
+      }
+    }
+
+    const missingIntegrations = (provider.requiredIntegrations ?? [])
+      .filter((id) => this.isIntegrationAvailable?.(id) !== true)
+    if (missingIntegrations.length > 0) {
+      return {
+        ok: false,
+        problem: {
+          workspaceRoot: input.workspaceRoot,
+          automationId: definition.id,
+          code: 'missing_trigger_integration',
+          message: `Required trigger integration is unavailable: ${missingIntegrations.join(', ')}.`,
+        },
+      }
+    }
+
+    const stateResult = await store.readState()
+    if (!stateResult.ok) {
+      return { ok: false, problem: storeProblem(input.workspaceRoot, stateResult.error, definition.id) }
+    }
+    const state: AutomationStoreState = stateResult.value ?? { nextRunAtByAutomationId: {}, lock: null }
+    const result = emptyEvaluationResult()
+    const workspaceId = input.workspaceId ?? await this.resolveWorkspaceIdForRoot(input.workspaceRoot) ?? ''
+    const delivery = await enqueueTriggerEventRun({
+      store,
+      state,
+      projectFolder: { workspaceId, folderPath: input.workspaceRoot },
+      definition,
+      event: input.event,
+      runAutomation: this.runAutomation,
+      now: this.now,
+      createRunId: this.createRunId,
+      inFlight: this.inFlight,
+      emitRunEvent: (event) => this.emitRunEvent({ ...event, trigger: 'timer' }),
+      result,
+    })
+
+    if (delivery.status === 'problem') return { ok: false, problem: delivery.problem }
+    return { ok: true, definition, delivery }
   }
 
   private async evaluate(mode: EvaluationMode): Promise<AutomationsEngineEvaluationResult> {

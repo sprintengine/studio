@@ -34,13 +34,18 @@ import {
 } from '../automations/actions/switchboard'
 import { createBuiltInAutomationProviderRegistry } from '../automations/provider-registry'
 import { REPO_EVENT_TRIGGER_KIND } from '../automations/triggers/repo-event'
+import { WEBHOOK_TRIGGER_KIND } from '../automations/triggers/webhook'
 import { AutomationsStore } from '../automations/store'
 import type { IpcInvokeHandler } from '../module-host/main-host'
 import { registerAutomationsIpc } from './automations-ipc'
 
 type HandlerMap = Map<string, IpcInvokeHandler>
 
-function createFakeHost(options: { onRunEvent?: (event: AutomationsRunEvent) => void; workspaceRoots?: string[] } = {}): HandlerMap {
+function createFakeHost(options: {
+  onDefinitionsChanged?: (workspaceRoot: string) => void | Promise<void>
+  onRunEvent?: (event: AutomationsRunEvent) => void
+  workspaceRoots?: string[]
+} = {}): HandlerMap {
   const handlers: HandlerMap = new Map()
   registerAutomationsIpc(
     {
@@ -56,7 +61,11 @@ function createFakeHost(options: { onRunEvent?: (event: AutomationsRunEvent) => 
 let currentNow = Date.parse('2026-06-18T00:00:00.000Z')
 let runCount = 0
 
-function testDeps(options: { onRunEvent?: (event: AutomationsRunEvent) => void; workspaceRoots?: string[] } = {}) {
+function testDeps(options: {
+  onDefinitionsChanged?: (workspaceRoot: string) => void | Promise<void>
+  onRunEvent?: (event: AutomationsRunEvent) => void
+  workspaceRoots?: string[]
+} = {}) {
   const workspaceRoots = options.workspaceRoots ?? []
   const providerRegistry = createBuiltInAutomationProviderRegistry()
   const engine = createAutomationsEngine({
@@ -75,6 +84,7 @@ function testDeps(options: { onRunEvent?: (event: AutomationsRunEvent) => void; 
     triggerProviders: providerRegistry.listTriggerProviders(),
     actionProviders: providerRegistry.listActionProviders(),
     getWorkspaceSyncSnapshot: () => workspaceSnapshot(workspaceRoots),
+    onDefinitionsChanged: options.onDefinitionsChanged,
     now: () => currentNow,
   }
 }
@@ -174,6 +184,24 @@ async function testProviderList(): Promise<void> {
                 },
               ],
             },
+          },
+        },
+        requiredIntegrations: [],
+        missingIntegrations: [],
+      },
+      {
+        kind: WEBHOOK_TRIGGER_KIND,
+        configSchema: {
+          type: 'object',
+          required: ['kind'],
+          properties: {
+            kind: { const: WEBHOOK_TRIGGER_KIND },
+            enabled: { type: 'boolean', default: false },
+            port: { type: 'integer', minimum: 0, maximum: 65535 },
+            path: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' },
+            secret: { type: 'string', minLength: 16 },
+            eventType: { type: 'string', minLength: 1 },
+            label: { type: 'string', minLength: 1 },
           },
         },
         requiredIntegrations: [],
@@ -426,6 +454,39 @@ async function testDefinitionRoundTripAndRunNow(): Promise<void> {
   assert.deepEqual(afterDelete.value, [])
 }
 
+async function testDefinitionWritesNotifyRefreshHook(): Promise<void> {
+  currentNow = Date.parse('2026-06-18T00:00:00.000Z')
+  const workspaceRoot = await withWorkspaceRoot()
+  const refreshRoots: string[] = []
+  const handlers = createFakeHost({
+    workspaceRoots: [workspaceRoot],
+    onDefinitionsChanged: (changedRoot) => {
+      refreshRoots.push(changedRoot)
+    },
+  })
+
+  const created = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_CREATE_CHANNEL, {
+    workspaceRoot,
+    definition: definitionDraft({ id: 'webhook-refresh-hook' }),
+  })
+  assert.equal(created.ok, true)
+
+  const updated = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_UPDATE_CHANNEL, {
+    workspaceRoot,
+    automationId: 'webhook-refresh-hook',
+    patch: { status: 'paused' },
+  })
+  assert.equal(updated.ok, true)
+
+  const deleted = await invoke<AutomationsDeleteResult>(handlers, AUTOMATIONS_DELETE_CHANNEL, {
+    workspaceRoot,
+    automationId: 'webhook-refresh-hook',
+  })
+  assert.equal(deleted.ok, true)
+
+  assert.deepEqual(refreshRoots, [workspaceRoot, workspaceRoot, workspaceRoot])
+}
+
 async function testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow(): Promise<void> {
   const knownRoot = await withWorkspaceRoot()
   const outsideRoot = await mkdtemp(join(tmpdir(), 'multicode-automations-ipc-outside-'))
@@ -479,6 +540,7 @@ async function main(): Promise<void> {
   await testProviderList()
   await testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
   await testDefinitionRoundTripAndRunNow()
+  await testDefinitionWritesNotifyRefreshHook()
   await testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow()
   console.log('automations-ipc tests passed')
 }

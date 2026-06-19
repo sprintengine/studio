@@ -14,6 +14,16 @@ import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { AutomationsEngine, projectFoldersFromWorkspaceSyncSnapshot } from './engine'
 import { AutomationsStore, type AutomationStoreState } from './store'
 import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
+import { AutomationWebhookReceiver } from './webhook-receiver'
+import {
+  createWebhookSignature,
+  createWebhookTriggerProvider,
+  webhookEndpointPath,
+  WEBHOOK_DELIVERY_ID_HEADER,
+  WEBHOOK_EVENT_TIME_HEADER,
+  WEBHOOK_SIGNATURE_HEADER,
+  WEBHOOK_TRIGGER_KIND,
+} from './triggers/webhook'
 
 void main().catch((error) => {
   console.error(error)
@@ -29,6 +39,7 @@ async function main(): Promise<void> {
   await assertRunEventsEmitForTimerAndManualTerminalStatuses()
   await assertRunEventDeliveryFailuresDoNotMutateRunTruth()
   await assertPollingTriggersUseProviderGetterAtEvaluationTime()
+  await assertWebhookReceiverOptInAuthAndDedupesDeliveredEvents()
   await assertStartupOverdueIsSkippedWithoutCatchup()
   await assertTickWaitsForStartupOverdueSkip()
 }
@@ -463,6 +474,159 @@ async function assertPollingTriggersUseProviderGetterAtEvaluationTime(): Promise
     runId: 'run-live-provider',
     status: 'completed',
   }])
+}
+
+async function assertWebhookReceiverOptInAuthAndDedupesDeliveredEvents(): Promise<void> {
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const secret = 'test-webhook-secret-0001'
+  const webhookAutomation = definition({
+    id: 'webhook-review',
+    name: 'Webhook review',
+    trigger: {
+      kind: WEBHOOK_TRIGGER_KIND,
+      config: { kind: WEBHOOK_TRIGGER_KIND, enabled: false },
+    },
+    nextRunAt: null,
+  })
+  assert.equal((await store.createDefinition(webhookAutomation)).ok, true)
+
+  const triggerPayloads: Record<string, unknown>[] = []
+  let runIndex = 0
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-webhooks', folderPath: workspaceRoot }],
+    triggerProviders: [createWebhookTriggerProvider()],
+    now: () => now,
+    createRunId: ({ automationId }) => `${automationId}-run-${runIndex += 1}`,
+    runAutomation: async (input) => {
+      triggerPayloads.push(input.triggerPayload)
+      return { status: 'completed', summary: 'Webhook handled.' }
+    },
+  })
+  const receiver = new AutomationWebhookReceiver({
+    getProjectFolders: () => [{ workspaceId: 'ws-webhooks', folderPath: workspaceRoot }],
+    deliverTriggerEvent: (input) => engine.deliverTriggerEvent(input),
+    now: () => now,
+  })
+
+  try {
+    const disabledStatus = await receiver.refresh()
+    assert.equal(disabledStatus.state, 'stopped')
+    assert.equal(disabledStatus.targetCount, 0)
+
+    assert.equal((await store.updateDefinition({
+      ...webhookAutomation,
+      trigger: {
+        kind: WEBHOOK_TRIGGER_KIND,
+        config: {
+          kind: WEBHOOK_TRIGGER_KIND,
+          enabled: true,
+          port: 0,
+          path: 'incoming-review',
+          secret,
+          eventType: 'push',
+        },
+      },
+      updatedAt: '2026-06-17T10:00:00.000Z',
+    })).ok, true)
+
+    const enabledStatus = await receiver.refresh()
+    assert.equal(enabledStatus.state, 'running')
+    assert.equal(enabledStatus.targetCount, 1)
+
+    const rawBody = JSON.stringify({ eventType: 'push', repository: 'acme/repo' })
+    const baseHeaders = {
+      'content-type': 'application/json',
+      [WEBHOOK_DELIVERY_ID_HEADER]: 'delivery-1',
+      [WEBHOOK_EVENT_TIME_HEADER]: '2026-06-17T09:59:00.000Z',
+    }
+    const malformed = await receiver.deliver({
+      port: 0,
+      path: webhookEndpointPath('incoming-review'),
+      headers: {
+        ...baseHeaders,
+        [WEBHOOK_SIGNATURE_HEADER]: createWebhookSignature(secret, '{bad json'),
+      },
+      rawBody: '{bad json',
+    })
+    assert.equal(malformed.ok, false)
+    assert.equal(malformed.ok ? '' : malformed.code, 'malformed_json')
+    assert.equal(triggerPayloads.length, 0)
+
+    const unauthorized = await receiver.deliver({
+      port: 0,
+      path: webhookEndpointPath('incoming-review'),
+      headers: {
+        ...baseHeaders,
+        [WEBHOOK_SIGNATURE_HEADER]: createWebhookSignature('wrong-secret-0001', rawBody),
+      },
+      rawBody,
+    })
+    assert.equal(unauthorized.ok, false)
+    assert.equal(unauthorized.ok ? '' : unauthorized.code, 'webhook_unauthorized')
+    assert.equal(triggerPayloads.length, 0)
+
+    const validHeaders = {
+      ...baseHeaders,
+      [WEBHOOK_SIGNATURE_HEADER]: createWebhookSignature(secret, rawBody),
+    }
+    const delivered = await receiver.deliver({
+      port: 0,
+      path: webhookEndpointPath('incoming-review'),
+      headers: validHeaders,
+      rawBody,
+    })
+    assert.equal(delivered.ok, true)
+    assert.equal(delivered.ok && delivered.status, 'delivered')
+    assert.equal(delivered.ok && delivered.fired, 1)
+    assert.deepEqual(delivered.ok && delivered.runIds, ['webhook-review-run-1'])
+    assert.equal(triggerPayloads.length, 1)
+    assert.equal(triggerPayloads[0]?.kind, WEBHOOK_TRIGGER_KIND)
+    assert.equal(triggerPayloads[0]?.deliveryId, 'delivery-1')
+    assert.equal(triggerPayloads[0]?.eventType, 'push')
+    assert.equal((triggerPayloads[0]?.body as Record<string, unknown> | undefined)?.repository, 'acme/repo')
+
+    const duplicate = await receiver.deliver({
+      port: 0,
+      path: webhookEndpointPath('incoming-review'),
+      headers: validHeaders,
+      rawBody,
+    })
+    assert.equal(duplicate.ok, true)
+    assert.equal(duplicate.ok && duplicate.status, 'duplicate')
+    assert.equal(duplicate.ok && duplicate.duplicates, 1)
+    assert.equal(triggerPayloads.length, 1)
+
+    const ignoredBody = JSON.stringify({ eventType: 'pull_request', repository: 'acme/repo' })
+    const ignored = await receiver.deliver({
+      port: 0,
+      path: webhookEndpointPath('incoming-review'),
+      headers: {
+        ...baseHeaders,
+        [WEBHOOK_DELIVERY_ID_HEADER]: 'delivery-2',
+        [WEBHOOK_SIGNATURE_HEADER]: createWebhookSignature(secret, ignoredBody),
+      },
+      rawBody: ignoredBody,
+    })
+    assert.equal(ignored.ok, true)
+    assert.equal(ignored.ok && ignored.status, 'ignored')
+    assert.equal(triggerPayloads.length, 1)
+
+    const runs = await store.listRuns('webhook-review')
+    assert.equal(runs.ok, true)
+    assert.equal(runs.ok && runs.values.length, 1)
+    assert.equal(runs.ok && runs.values[0]?.status, 'completed')
+
+    const state = await store.readState()
+    assert.equal(state.ok, true)
+    assert.equal(
+      state.ok && state.value?.triggerEventDedupByAutomationId?.['webhook-review']?.['webhook:incoming-review:delivery-1'],
+      '2026-06-17T10:00:00.000Z'
+    )
+  } finally {
+    await receiver.stop()
+  }
 }
 
 async function assertStartupOverdueIsSkippedWithoutCatchup(): Promise<void> {

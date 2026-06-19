@@ -22,6 +22,7 @@ import {
   namespacedProviderId,
 } from './provider-registry'
 import { REPO_EVENT_TRIGGER_KIND } from './triggers/repo-event'
+import { WEBHOOK_TRIGGER_KIND } from './triggers/webhook'
 
 function workspace(id: string, folderPath: string | null, overrides: Partial<Workspace> = {}): Workspace {
   return {
@@ -705,6 +706,7 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
   })
   assert.equal(namespacedProviderId('automations', 'schedule'), 'automations.schedule')
   assert.equal(builtIns.getTriggerProvider('automations.schedule')?.kind, 'schedule')
+  assert.equal(builtIns.getTriggerProvider(`automations.${WEBHOOK_TRIGGER_KIND}`)?.kind, WEBHOOK_TRIGGER_KIND)
   assert.equal(builtIns.getTriggerProvider(`switchboard.${REPO_EVENT_TRIGGER_KIND}`)?.kind, REPO_EVENT_TRIGGER_KIND)
   assert.equal(builtIns.getActionProvider('automations.spawn-agent')?.kind, 'spawn-agent')
   assert.equal(builtIns.getActionProvider('automations.run-skill-loop')?.kind, 'run-skill-loop')
@@ -712,7 +714,11 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
   assert.equal(builtIns.getActionProvider(`switchboard.${WATCHTOWER_REVIEW_ACTION_KIND}`)?.kind, WATCHTOWER_REVIEW_ACTION_KIND)
   assert.equal(builtIns.getActionProvider(`sprint-engine.${SPRINT_ENGINE_RUN_ACTION_KIND}`)?.kind, SPRINT_ENGINE_RUN_ACTION_KIND)
   assert.equal(builtIns.getActionProvider('other.spawn-agent'), undefined)
-  assert.deepEqual(builtIns.listTriggerProviders().map((provider) => provider.kind), ['schedule', REPO_EVENT_TRIGGER_KIND])
+  assert.deepEqual(builtIns.listTriggerProviders().map((provider) => provider.kind), [
+    'schedule',
+    WEBHOOK_TRIGGER_KIND,
+    REPO_EVENT_TRIGGER_KIND,
+  ])
   assert.deepEqual(builtIns.listActionProviders().map((provider) => provider.kind), [
     'spawn-agent',
     'run-skill-loop',

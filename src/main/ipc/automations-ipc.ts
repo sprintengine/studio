@@ -59,6 +59,7 @@ export type AutomationsIpcDependencies = {
   checkProviderPermission?: AutomationProviderPermissionChecker
   isIntegrationAvailable?: (id: string) => boolean | undefined
   getWorkspaceSyncSnapshot?: () => WorkspaceSyncSnapshot
+  onDefinitionsChanged?: (workspaceRoot: string) => void | Promise<void>
   now?: () => number
   createAutomationId?: (draft: AutomationDefinitionDraft) => string
 }
@@ -124,6 +125,7 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     if (!created.ok) return storeError(created.error)
     const state = await writeNextRunCache(store, prepared.value.id, prepared.value.nextRunAt)
     if (!state.ok) return storeError(state.error)
+    await notifyDefinitionsChanged(deps, parsed.value.workspaceRoot)
     return ok(created.value)
   })
 
@@ -156,6 +158,7 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     if (!written.ok) return storeError(written.error)
     const state = await writeNextRunCache(store, prepared.value.id, prepared.value.nextRunAt)
     if (!state.ok) return storeError(state.error)
+    await notifyDefinitionsChanged(deps, parsed.value.workspaceRoot)
     return ok(written.value)
   })
 
@@ -168,6 +171,7 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     if (!deleted.ok) return storeError(deleted.error)
     const state = await writeNextRunCache(store, parsed.value.automationId, null, true)
     if (!state.ok) return storeError(state.error)
+    await notifyDefinitionsChanged(deps, parsed.value.workspaceRoot)
     return ok({ automationId: parsed.value.automationId })
   })
 
@@ -497,6 +501,14 @@ function parseKindConfig(input: unknown, label: string): AutomationsResult<{ kin
 function engineRunNowResult(result: AutomationsEngineRunNowResult): AutomationsRunNowIpcResult {
   if (result.ok) return ok({ definition: result.definition, run: result.run })
   return fail(result.problem.code, result.problem.message)
+}
+
+async function notifyDefinitionsChanged(deps: AutomationsIpcDependencies, workspaceRoot: string): Promise<void> {
+  try {
+    await deps.onDefinitionsChanged?.(workspaceRoot)
+  } catch {
+    // Definition writes are authoritative; receiver refresh will retry on the next lifecycle or definition change.
+  }
 }
 
 function storeError<T>(error: AutomationStoreProblem): AutomationsResult<T> {

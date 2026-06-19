@@ -2,13 +2,17 @@ import type {
   AutomationDefinition,
   AutomationRun,
   AutomationTriggerPollContext,
-  AutomationTriggerPollEvent,
   AutomationTriggerProvider,
 } from '../../shared/automations/contracts'
 import type { AutomationRunExecutor, AutomationsEngineEvaluationResult, AutomationsProjectFolder } from './engine'
 import { AutomationsStore, type AutomationStoreProblem, type AutomationStoreState } from './store'
+import {
+  clearTriggerBlockedReasonState,
+  enqueueTriggerEventRun,
+  triggerEventInFlightKey,
+} from './trigger-event-runner'
 
-export const TRIGGER_EVENT_DEDUP_RETENTION_LIMIT = 100
+export { TRIGGER_EVENT_DEDUP_RETENTION_LIMIT } from './trigger-event-runner'
 
 export type PollingTriggerEvaluationInput = {
   store: AutomationsStore
@@ -92,80 +96,7 @@ export async function evaluatePollingTriggerDefinition(input: PollingTriggerEval
   await clearTriggerBlockedReason(input)
 
   for (const event of pollResult.events) {
-    if (input.state.triggerEventDedupByAutomationId?.[definition.id]?.[event.id]) continue
-    await fireTriggerEventRun(input, event)
-  }
-}
-
-async function fireTriggerEventRun(
-  input: PollingTriggerEvaluationInput,
-  event: AutomationTriggerPollEvent
-): Promise<void> {
-  const { definition, projectFolder, result, store } = input
-  const workspaceRoot = projectFolder.folderPath
-  const inFlightKey = triggerInFlightKey(workspaceRoot, definition.id)
-  if (input.inFlight.has(inFlightKey)) {
-    result.droppedInFlight.push({ workspaceRoot, automationId: definition.id })
-    return
-  }
-
-  input.inFlight.add(inFlightKey)
-  const dueAt = normalizedIso(event.occurredAt) ?? new Date(input.now()).toISOString()
-  const startedAt = new Date(input.now()).toISOString()
-  const run = runRecord(input, dueAt, {
-    status: 'running',
-    startedAt,
-    completedAt: null,
-  })
-
-  try {
-    const started = await store.recordRun(run)
-    if (!started.ok) {
-      result.problems.push(storeProblem(workspaceRoot, started.error, definition.id))
-      return
-    }
-
-    const patch = await input.runAutomation({
-      workspaceRoot,
-      definition,
-      run,
-      triggerPayload: event.payload,
-    })
-    const completedAt = patch.completedAt ?? new Date(input.now()).toISOString()
-    const finalRun = completeRun(run, patch, completedAt)
-    const completed = await store.recordRun(finalRun)
-    if (!completed.ok) {
-      result.problems.push(storeProblem(workspaceRoot, completed.error, definition.id))
-      return
-    }
-    input.emitRunEvent({ workspaceId: projectFolder.workspaceId, definition, run: finalRun })
-
-    const updated = await updateDefinitionAfterTriggerRun(input, finalRun, Date.parse(completedAt), () => {
-      markTriggerEventSeen(input.state, definition.id, event.id, completedAt)
-      clearTriggerBlockedReasonState(input.state, definition.id)
-    })
-    if (updated) result.fired.push({ workspaceRoot, automationId: definition.id, runId: finalRun.id, status: finalRun.status })
-  } catch (error) {
-    const failedAt = new Date(input.now()).toISOString()
-    const failedRun = completeRun(run, {
-      status: 'failed',
-      completedAt: failedAt,
-      summary: error instanceof Error ? error.message : 'Automation action failed.',
-    }, failedAt)
-    const recorded = await store.recordRun(failedRun)
-    if (!recorded.ok) {
-      result.problems.push(storeProblem(workspaceRoot, recorded.error, definition.id))
-      return
-    }
-    input.emitRunEvent({ workspaceId: projectFolder.workspaceId, definition, run: failedRun })
-
-    const updated = await updateDefinitionAfterTriggerRun(input, failedRun, Date.parse(failedAt), () => {
-      markTriggerEventSeen(input.state, definition.id, event.id, failedAt)
-      clearTriggerBlockedReasonState(input.state, definition.id)
-    })
-    if (updated) result.fired.push({ workspaceRoot, automationId: definition.id, runId: failedRun.id, status: failedRun.status })
-  } finally {
-    input.inFlight.delete(inFlightKey)
+    await enqueueTriggerEventRun({ ...input, event })
   }
 }
 
@@ -174,7 +105,7 @@ async function recordBlockedTriggerRun(input: PollingTriggerEvaluationInput, blo
   const workspaceRoot = projectFolder.folderPath
   if (state.triggerBlockedReasonByAutomationId?.[definition.id] === blockedReason) return
 
-  const inFlightKey = triggerInFlightKey(workspaceRoot, definition.id)
+  const inFlightKey = triggerEventInFlightKey(workspaceRoot, definition.id)
   if (input.inFlight.has(inFlightKey)) {
     result.droppedInFlight.push({ workspaceRoot, automationId: definition.id })
     return
@@ -257,78 +188,6 @@ function runRecord(
     dueAt,
     ...fields,
   }
-}
-
-function completeRun(run: AutomationRun, patch: Partial<AutomationRun>, completedAt: string): AutomationRun {
-  return {
-    ...run,
-    status: patch.status ?? 'completed',
-    completedAt,
-    blockedReason: patch.blockedReason,
-    workspaceId: patch.workspaceId,
-    agentId: patch.agentId,
-    promptFingerprint: patch.promptFingerprint,
-    touchedFiles: patch.touchedFiles,
-    commandsRan: patch.commandsRan,
-    summary: patch.summary,
-  }
-}
-
-function markTriggerEventSeen(
-  state: AutomationStoreState,
-  automationId: string,
-  eventId: string,
-  seenAt: string
-): void {
-  state.triggerEventDedupByAutomationId = state.triggerEventDedupByAutomationId ?? {}
-  state.triggerEventDedupByAutomationId[automationId] = state.triggerEventDedupByAutomationId[automationId] ?? {}
-  const automationEvents = state.triggerEventDedupByAutomationId[automationId]
-  automationEvents[eventId] = seenAt
-  pruneTriggerEventDedup(automationEvents)
-}
-
-function pruneTriggerEventDedup(events: Record<string, string>): void {
-  const entries = Object.entries(events)
-  if (entries.length <= TRIGGER_EVENT_DEDUP_RETENTION_LIMIT) return
-
-  const retainedEventIds = new Set(
-    entries
-      .sort(compareTriggerEventDedupEntriesNewestFirst)
-      .slice(0, TRIGGER_EVENT_DEDUP_RETENTION_LIMIT)
-      .map(([eventId]) => eventId)
-  )
-  for (const eventId of Object.keys(events)) {
-    if (!retainedEventIds.has(eventId)) delete events[eventId]
-  }
-}
-
-function compareTriggerEventDedupEntriesNewestFirst(
-  [leftEventId, leftSeenAt]: [string, string],
-  [rightEventId, rightSeenAt]: [string, string]
-): number {
-  const leftTimestamp = triggerEventDedupTimestamp(leftSeenAt)
-  const rightTimestamp = triggerEventDedupTimestamp(rightSeenAt)
-  if (leftTimestamp !== rightTimestamp) return rightTimestamp - leftTimestamp
-  return rightEventId.localeCompare(leftEventId)
-}
-
-function triggerEventDedupTimestamp(value: string): number {
-  const timestamp = Date.parse(value)
-  return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY
-}
-
-function clearTriggerBlockedReasonState(state: AutomationStoreState, automationId: string): void {
-  if (!state.triggerBlockedReasonByAutomationId) return
-  delete state.triggerBlockedReasonByAutomationId[automationId]
-}
-
-function triggerInFlightKey(workspaceRoot: string, automationId: string): string {
-  return `${workspaceRoot}\u0000${automationId}`
-}
-
-function normalizedIso(value: string): string | null {
-  const parsed = Date.parse(value)
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null
 }
 
 function storeProblem(workspaceRoot: string, error: AutomationStoreProblem, automationId?: string) {

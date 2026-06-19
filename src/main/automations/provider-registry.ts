@@ -6,6 +6,7 @@ import { createSprintEngineRunActionProvider, type SprintEngineAutomationFrontDo
 import { createSwitchboardAutomationActionProviders, type SwitchboardAutomationFrontDoors } from './actions/switchboard'
 import { scheduleTriggerProvider } from './schedule'
 import { createRepoEventTriggerProvider } from './triggers/repo-event'
+import { createWebhookTriggerProvider } from './triggers/webhook'
 
 export const AUTOMATIONS_PROVIDER_MODULE_ID = 'automations'
 export const SWITCHBOARD_PROVIDER_MODULE_ID = 'switchboard'
@@ -108,6 +109,7 @@ export function createBuiltInAutomationProviderRegistry(
 ): AutomationProviderRegistry {
   const registry = createAutomationProviderRegistry()
   registry.registerTriggerProvider(AUTOMATIONS_PROVIDER_MODULE_ID, scheduleTriggerProvider)
+  registry.registerTriggerProvider(AUTOMATIONS_PROVIDER_MODULE_ID, createWebhookTriggerProvider())
   registry.registerActionProvider(AUTOMATIONS_PROVIDER_MODULE_ID, createSpawnAgentActionProvider())
   registry.registerActionProvider(AUTOMATIONS_PROVIDER_MODULE_ID, createRunSkillLoopActionProvider())
   if (options.switchboard) {
