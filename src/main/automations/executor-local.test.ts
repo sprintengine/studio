@@ -563,6 +563,43 @@ async function assertDeniedKindCollisionUsesBlockedWrapperDispatch(): Promise<vo
   assert.deepEqual(requests, [], 'denied kind-collision wrapper must not reach spawn-agent launch')
 }
 
+async function assertDeniedBuiltInSpawnAgentUsesBlockedWrapperDispatch(): Promise<void> {
+  const requests: AutomationRendererRequest[] = []
+  const registry = createBuiltInAutomationProviderRegistry()
+  const denySpawnAgent: AutomationProviderPermissionChecker = (registration) => {
+    if (registration.providerId === 'automations.spawn-agent') {
+      return {
+        ok: false,
+        reason: 'Built-in spawn-agent denied for regression coverage.',
+      }
+    }
+    return { ok: true }
+  }
+  const executor = createLocalAutomationExecutor({
+    delegateToRenderer: async (request) => {
+      requests.push(request)
+      return { ok: false, code: 'should_not_launch', message: 'should not launch' }
+    },
+    getWorkspaceSyncSnapshot: () => snapshot([workspace('ws-clean', '/repo/a')]),
+    actionProviderRegistrations: registry.listActionProviderRegistrations(),
+    checkProviderPermission: denySpawnAgent,
+    sleep: async () => undefined,
+  })
+
+  const result = await executor({
+    workspaceRoot: '/repo/a',
+    definition: definition({
+      action: { kind: 'spawn-agent', config: { folderPath: '/repo/a', prompt: 'Should not launch.' } },
+    }),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'blocked')
+  assert.match(result.blockedReason ?? '', /Built-in spawn-agent denied/)
+  assert.deepEqual(requests, [], 'denied built-in wrapper must not reach spawn-agent launch')
+}
+
 async function assertUnknownWorkspaceIdDoesNotCreateFallbackWorkspace(): Promise<void> {
   const harness = executorHarness([workspace('ws-known', '/repo/a')])
   const result = await harness.executor({
@@ -814,6 +851,7 @@ async function main(): Promise<void> {
   await assertMissingIntegrationBlocksWithoutFakeSuccess()
   await assertRequiredIntegrationFailsClosed()
   await assertDeniedKindCollisionUsesBlockedWrapperDispatch()
+  await assertDeniedBuiltInSpawnAgentUsesBlockedWrapperDispatch()
   await assertUnknownWorkspaceIdDoesNotCreateFallbackWorkspace()
   await assertRunSkillLoopIsPresetAndRunCommandIsNotRegistered()
   await assertFirstPartyActionsInvokeFrontDoors()

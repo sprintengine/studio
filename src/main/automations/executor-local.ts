@@ -123,7 +123,7 @@ export async function runLocalAutomationAction(
 
     const registration = registrations?.find((candidate) => candidate.kind === provider.kind)
     const firstPartyResolvedProvider = registration
-      ? isFirstPartyAutomationProviderModule(registration.moduleId)
+      ? provider === registration.provider && isFirstPartyAutomationProviderModule(registration.moduleId)
       : false
     const providerResult = firstPartyResolvedProvider && provider.kind === 'spawn-agent'
       ? await runSpawnAgentAction(input.definition.action.config, runtime)
