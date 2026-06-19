@@ -843,6 +843,12 @@ export function createWorkspacesSlice(
         const isMultiloop = template.id === 'multiloop-mode' || Boolean(options?.multiloopState)
         const guidedBriefState = normalizeGuidedBriefState(options?.guidedBriefState)
         const isGuidedBrief = explicitMode === 'guided-brief' || template.id === 'guided-brief-mode' || Boolean(guidedBriefState)
+        // The automations control center persists `mode: 'automations'` so its
+        // run-notification Open resolver can dedupe by mode + folder (creating one
+        // control center per project, reused on later Opens). Without this branch
+        // the explicit mode is dropped to 'standard' and every Open spawns a new
+        // Automations-looking workspace.
+        const isAutomations = explicitMode === 'automations' || template.id === 'automations-mode'
         const targetWindowId =
           options?.windowId
           ?? (state.activeWorkspaceId ? findWorkspaceWindow(state, state.activeWorkspaceId)?.id : null)
@@ -985,7 +991,9 @@ export function createWorkspacesSlice(
                 ? 'guided-brief'
                 : sprintEngineState
                   ? 'sprintengine'
-                  : 'standard',
+                  : isAutomations
+                    ? 'automations'
+                    : 'standard',
           folderPath,
           folderMissing: false,
           sprintEngineContext,
