@@ -1,6 +1,7 @@
 import type {
   AutomationDefinition,
   AutomationRun,
+  AutomationTriggerPollContext,
   AutomationTriggerPollEvent,
   AutomationTriggerProvider,
 } from '../../shared/automations/contracts'
@@ -15,6 +16,7 @@ export type PollingTriggerEvaluationInput = {
   projectFolder: AutomationsProjectFolder
   definition: AutomationDefinition
   triggerProvidersByKind: ReadonlyMap<string, AutomationTriggerProvider>
+  pollContext: AutomationTriggerPollContext
   isIntegrationAvailable?: (id: string) => boolean | undefined
   runAutomation: AutomationRunExecutor
   now: () => number
@@ -72,6 +74,7 @@ export async function evaluatePollingTriggerDefinition(input: PollingTriggerEval
       config: definition.trigger.config,
       workspaceRoot,
       now: input.now,
+      context: input.pollContext,
     })
   } catch (error) {
     await recordBlockedTriggerRun(

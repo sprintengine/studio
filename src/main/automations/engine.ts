@@ -6,6 +6,7 @@ import type {
   AutomationRunEventStatus,
   AutomationRunEventTrigger,
   AutomationRunStatus,
+  AutomationTriggerPollContext,
   AutomationTriggerProvider,
   AutomationsRunEvent,
   ScheduleTriggerConfig,
@@ -301,9 +302,10 @@ export class AutomationsEngine {
     const result = emptyEvaluationResult()
     const now = this.now()
     const projectFolders = await this.loadProjectFolders(result)
+    const pollContext = createTriggerPollContext()
 
     for (const projectFolder of projectFolders) {
-      await this.evaluateProject(projectFolder, mode, now, result)
+      await this.evaluateProject(projectFolder, mode, now, pollContext, result)
     }
 
     this.onEvaluation?.(result)
@@ -331,6 +333,7 @@ export class AutomationsEngine {
     projectFolder: AutomationsProjectFolder,
     mode: EvaluationMode,
     now: number,
+    pollContext: AutomationTriggerPollContext,
     result: AutomationsEngineEvaluationResult
   ): Promise<void> {
     const workspaceRoot = projectFolder.folderPath
@@ -351,7 +354,7 @@ export class AutomationsEngine {
 
     const state: AutomationStoreState = stateResult.value ?? { nextRunAtByAutomationId: {}, lock: null }
     for (const definition of definitions.values) {
-      await this.evaluateDefinition(store, state, projectFolder, definition, mode, now, result)
+      await this.evaluateDefinition(store, state, projectFolder, definition, mode, now, pollContext, result)
     }
   }
 
@@ -362,6 +365,7 @@ export class AutomationsEngine {
     definition: AutomationDefinition,
     mode: EvaluationMode,
     now: number,
+    pollContext: AutomationTriggerPollContext,
     result: AutomationsEngineEvaluationResult
   ): Promise<void> {
     const workspaceRoot = projectFolder.folderPath
@@ -373,6 +377,7 @@ export class AutomationsEngine {
         projectFolder,
         definition,
         triggerProvidersByKind: this.triggerProvidersByKind,
+        pollContext,
         isIntegrationAvailable: this.isIntegrationAvailable,
         runAutomation: this.runAutomation,
         now: this.now,
@@ -709,6 +714,19 @@ function completeRun(run: AutomationRun, patch: Partial<AutomationRun>, complete
 function nextRunIso(config: ScheduleTriggerConfig, after: number): string | null {
   const nextRun = computeNextRun(config, after)
   return nextRun === null ? null : new Date(nextRun).toISOString()
+}
+
+function createTriggerPollContext(): AutomationTriggerPollContext {
+  const sharedValues = new Map<string, Promise<unknown>>()
+  return {
+    getSharedValue<T>(key: string, factory: () => Promise<T>): Promise<T> {
+      const existing = sharedValues.get(key)
+      if (existing) return existing as Promise<T>
+      const created = Promise.resolve().then(factory)
+      sharedValues.set(key, created)
+      return created
+    },
+  }
 }
 
 function dedupeProjectFolders(projectFolders: AutomationsProjectFolder[]): AutomationsProjectFolder[] {

@@ -33,6 +33,7 @@ async function main(): Promise<void> {
   await assertStartupOverdueIsSkippedWithoutCatchup()
   await assertTickWaitsForStartupOverdueSkip()
   await assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart()
+  await assertRepoEventTriggerSharesReadAllWithinEngineTick()
   await assertRepoEventTriggerDedupStateIsBoundedAndRetainsRecentEvents()
   await assertRepoEventCreatedTriggerFiresFromImportMetadata()
   await assertRepoEventIgnoresForgedImportCommentAndInvalidStructuredTimestamp()
@@ -694,6 +695,90 @@ async function assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart(): Promise
     state.ok && Object.keys(state.value?.triggerEventDedupByAutomationId?.['repo-event-watch'] ?? {}).length,
     2
   )
+}
+
+async function assertRepoEventTriggerSharesReadAllWithinEngineTick(): Promise<void> {
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  assert.equal((await store.createDefinition(repoEventDefinition({
+    id: 'repo-event-watch-a',
+    name: 'Repo event watch A',
+  }))).ok, true)
+  assert.equal((await store.createDefinition(repoEventDefinition({
+    id: 'repo-event-watch-b',
+    name: 'Repo event watch B',
+  }))).ok, true)
+
+  const sourceForExternalUpdatedAt = (externalUpdatedAt: string) => ({
+    type: 'github' as const,
+    externalId: 'github-node-1',
+    externalKey: 'acme/repo#1',
+    externalUrl: 'https://github.com/acme/repo/issues/1',
+    externalUpdatedAt,
+  })
+  let syncedTasks: SwitchboardTaskRecord[] = [
+    switchboardTaskRecord({ source: sourceForExternalUpdatedAt('2026-06-17T09:00:00.000Z') }),
+  ]
+  let readAllCalls = 0
+  const provider = createRepoEventTriggerProvider({
+    readAllTasks: async (input) => {
+      readAllCalls += 1
+      return {
+        ok: true,
+        workspaceRoot: input.workspaceRoot,
+        switchboardRoot: '/switchboard',
+        tasks: syncedTasks.map((record) => clone(record)),
+        problems: [],
+      }
+    },
+  })
+  const triggerPayloads: Array<{ automationId: string; externalUpdatedAt: unknown }> = []
+  let runIndex = 0
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-repo-event-shared-read', folderPath: workspaceRoot }],
+    triggerProviders: [provider],
+    isIntegrationAvailable: (id) => id === 'module:switchboard',
+    now: () => now,
+    createRunId: ({ automationId }) => `${automationId}-${runIndex += 1}`,
+    runAutomation: async (input) => {
+      triggerPayloads.push({
+        automationId: input.definition.id,
+        externalUpdatedAt: input.triggerPayload.externalUpdatedAt,
+      })
+      return { status: 'completed', summary: 'Repo event handled.' }
+    },
+  })
+
+  const firstTick = await engine.tick()
+  assert.equal(readAllCalls, 1)
+  assert.deepEqual(firstTick.fired.map((run) => run.automationId).sort(), [
+    'repo-event-watch-a',
+    'repo-event-watch-b',
+  ])
+  assert.deepEqual(triggerPayloads.map((payload) => payload.automationId).sort(), [
+    'repo-event-watch-a',
+    'repo-event-watch-b',
+  ])
+
+  syncedTasks = [
+    switchboardTaskRecord({
+      updatedAt: '2026-06-17T13:00:00.000Z',
+      source: sourceForExternalUpdatedAt('2026-06-17T09:30:00.000Z'),
+    }),
+  ]
+  const secondTick = await engine.tick()
+  assert.equal(readAllCalls, 2)
+  assert.equal(secondTick.fired.length, 2)
+  assert.deepEqual(triggerPayloads.slice(2).map((payload) => payload.externalUpdatedAt), [
+    '2026-06-17T09:30:00.000Z',
+    '2026-06-17T09:30:00.000Z',
+  ])
+
+  const duplicateTick = await engine.tick()
+  assert.equal(readAllCalls, 3)
+  assert.equal(duplicateTick.fired.length, 0)
+  assert.equal(triggerPayloads.length, 4)
 }
 
 async function assertRepoEventTriggerDedupStateIsBoundedAndRetainsRecentEvents(): Promise<void> {

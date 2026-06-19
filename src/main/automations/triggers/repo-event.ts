@@ -1,8 +1,10 @@
 import type {
+  AutomationTriggerPollContext,
   AutomationTriggerPollEvent,
   AutomationTriggerProvider,
 } from '../../../shared/automations/contracts'
 import type {
+  SwitchboardReadResult,
   SwitchboardImportProvider,
   SwitchboardTaskRecord,
 } from '../../../shared/switchboard'
@@ -30,6 +32,7 @@ type RepoEventTriggerValidationResult =
 const REPO_EVENT_TYPES = new Set<RepoEventType>(['created', 'updated'])
 const REPO_EVENT_PROVIDERS = new Set<SwitchboardImportProvider | 'any'>(['github', 'jira', 'any'])
 const DEFAULT_REPO_EVENT_TYPES: RepoEventType[] = ['updated']
+const SWITCHBOARD_READ_ALL_CACHE_KEY_PREFIX = 'switchboard:read-all:'
 
 export function createRepoEventTriggerProvider(
   frontDoors: Pick<SwitchboardAutomationFrontDoors, 'readAllTasks'>
@@ -66,7 +69,7 @@ export function createRepoEventTriggerProvider(
       const validation = validateRepoEventTriggerConfig(input.config)
       if (!validation.ok) return { ok: false, blockedReason: validation.error }
 
-      const read = await frontDoors.readAllTasks({ workspaceRoot: input.workspaceRoot })
+      const read = await readAllSwitchboardTasksForPoll(frontDoors, input.workspaceRoot, input.context)
       if (!read.ok) {
         return {
           ok: false,
@@ -97,6 +100,17 @@ export function createRepoEventTriggerProvider(
       }
     },
   }
+}
+
+function readAllSwitchboardTasksForPoll(
+  frontDoors: Pick<SwitchboardAutomationFrontDoors, 'readAllTasks'>,
+  workspaceRoot: string,
+  context: AutomationTriggerPollContext | undefined
+): Promise<SwitchboardReadResult> {
+  const readAll = () => frontDoors.readAllTasks({ workspaceRoot })
+  return context
+    ? context.getSharedValue(`${SWITCHBOARD_READ_ALL_CACHE_KEY_PREFIX}${workspaceRoot}`, readAll)
+    : readAll()
 }
 
 export function validateRepoEventTriggerConfig(config: unknown): RepoEventTriggerValidationResult {

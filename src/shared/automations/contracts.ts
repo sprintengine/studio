@@ -60,7 +60,12 @@ export type AutomationTriggerProvider = {
     config: unknown
     workspaceRoot: string
     now: () => number
+    context?: AutomationTriggerPollContext
   }): Promise<AutomationTriggerPollResult>
+}
+
+export type AutomationTriggerPollContext = {
+  getSharedValue<T>(key: string, factory: () => Promise<T>): Promise<T>
 }
 
 export type AutomationTriggerPollEvent = {
