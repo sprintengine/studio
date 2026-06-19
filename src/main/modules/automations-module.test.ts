@@ -5,33 +5,47 @@ import { join } from 'node:path'
 import type { IpcMain } from 'electron'
 
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
-import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
+import type { AutomationDefinition, AutomationRun, AutomationsProvidersResult } from '../../shared/automations/contracts'
 import type { AutomationsEngine, AutomationsEngineOptions } from '../automations/engine'
 import type { CapabilityModule } from '../module-host/load-modules'
+import type { IpcInvokeHandler } from '../module-host/main-host'
 import { loadMainModules } from '../module-host/load-modules'
 import {
   AutomationDelegateToken,
+  SprintEngineAutomationFrontDoorsToken,
+  SwitchboardAutomationFrontDoorsToken,
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
 import {
   AUTOMATIONS_LIST_CHANNEL,
+  AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
   AUTOMATIONS_RUN_EVENT_CHANNEL,
 } from '../../shared/automations/contracts'
+import { SPRINT_ENGINE_RUN_ACTION_KIND } from '../automations/actions/sprint-engine'
+import { SWITCHBOARD_RUNNER_TICK_ACTION_KIND, WATCHTOWER_REVIEW_ACTION_KIND } from '../automations/actions/switchboard'
 import { broadcastAutomationsRunEvent, createAutomationsModule } from './automations-module'
 
-function createFakeIpcMain(): { ipcMain: IpcMain; handled: string[]; activeHandlers: Set<string> } {
+function createFakeIpcMain(): {
+  ipcMain: IpcMain
+  handled: string[]
+  activeHandlers: Set<string>
+  handlers: Map<string, IpcInvokeHandler>
+} {
   const handled: string[] = []
   const activeHandlers = new Set<string>()
+  const handlers = new Map<string, IpcInvokeHandler>()
   const ipcMain = {
-    handle(channel: string, _handler: unknown): void {
+    handle(channel: string, handler: IpcInvokeHandler): void {
       handled.push(channel)
       activeHandlers.add(channel)
+      handlers.set(channel, handler)
     },
     removeHandler(channel: string): void {
       activeHandlers.delete(channel)
+      handlers.delete(channel)
     },
   } as unknown as IpcMain
-  return { ipcMain, handled, activeHandlers }
+  return { ipcMain, handled, activeHandlers, handlers }
 }
 
 function fakeAgentRuntimeModule(options: {
@@ -62,6 +76,68 @@ function fakeAgentRuntimeModule(options: {
           },
         }),
       } as never))
+    },
+  }
+}
+
+function fakeSwitchboardAutomationFrontDoorModule(): CapabilityModule {
+  return {
+    manifest: {
+      id: 'switchboard',
+      displayName: 'Switchboard',
+      version: 1,
+      defaultEnabled: true,
+      dependsOn: ['agent-runtime'],
+    },
+    registerMain(host) {
+      host.provideService(SwitchboardAutomationFrontDoorsToken, () => ({
+        tickRunner: async (input) => ({
+          ok: true,
+          workspaceRoot: input.workspaceRoot,
+          enabled: true,
+          running: true,
+          paused: false,
+          provider: 'electron-session',
+          cli: 'codex',
+          maxConcurrency: 1,
+          queues: ['ready'],
+          activeExecutions: [],
+          lastError: null,
+          updatedAt: null,
+        }),
+        startWatchtowerReview: async (input) => ({
+          ok: true,
+          run: {
+            schemaVersion: 1,
+            runId: 'watchtower-run-1',
+            status: 'running',
+            createdAt: '2026-06-18T00:00:00.000Z',
+            completedAt: null,
+            workspaceRoot: input.workspaceRoot,
+            preset: input.preset,
+            agents: [],
+            counts: { valid: 0, invalid: 0, ingested: 0 },
+          },
+        }),
+      }))
+    },
+  }
+}
+
+function fakeSprintEngineAutomationFrontDoorModule(): CapabilityModule {
+  return {
+    manifest: {
+      id: 'sprint-engine',
+      displayName: 'Sprint Engine',
+      version: 1,
+      defaultEnabled: true,
+      dependsOn: ['agent-runtime'],
+    },
+    registerMain(host) {
+      host.provideService(SprintEngineAutomationFrontDoorsToken, () => ({
+        setRunnerMode: async () => ({ ok: true, data: {} }),
+        replenishRoster: async () => ({ ok: true, data: {} }),
+      }))
     },
   }
 }
@@ -301,6 +377,37 @@ async function testModuleExecutorUsesRealDirtyCheckBeforeLaunch(): Promise<void>
   assert.deepEqual(launchRequests, [])
 }
 
+async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
+  const { ipcMain, handlers } = createFakeIpcMain()
+  const moduleLoad = loadMainModules({
+    ipcMain,
+    modules: [
+      fakeAgentRuntimeModule(),
+      fakeSwitchboardAutomationFrontDoorModule(),
+      fakeSprintEngineAutomationFrontDoorModule(),
+      createAutomationsModule(),
+    ],
+  })
+
+  assert.ok(moduleLoad.report.loaded.includes('automations'))
+  const handler = moduleLoad.kernel.ownedChannels().get(AUTOMATIONS_PROVIDERS_LIST_CHANNEL)
+  assert.equal(handler, 'automations')
+
+  const providerHandler = handlers.get(AUTOMATIONS_PROVIDERS_LIST_CHANNEL)
+  assert.ok(providerHandler)
+  const providers = await providerHandler({} as never) as AutomationsProvidersResult
+  assert.equal(providers.ok, true)
+  if (!providers.ok) return
+  assert.deepEqual(
+    providers.value.actions.map((provider) => provider.kind),
+    ['spawn-agent', 'run-skill-loop', SWITCHBOARD_RUNNER_TICK_ACTION_KIND, WATCHTOWER_REVIEW_ACTION_KIND, SPRINT_ENGINE_RUN_ACTION_KIND]
+  )
+  assert.deepEqual(
+    providers.value.actions.flatMap((provider) => provider.missingIntegrations),
+    []
+  )
+}
+
 function testBroadcastRunEventUsesAutomationsChannelAndSkipsFailedWindows(): void {
   const sent: Array<{ channel: string; payload: unknown }> = []
   let failedDeliveryAttempts = 0
@@ -364,6 +471,7 @@ async function main(): Promise<void> {
   await testDisabledModuleRegistersNoSidecarOrIpc()
   await testLiveEnablementToggleStopsUnregistersAndRestarts()
   await testModuleExecutorUsesRealDirtyCheckBeforeLaunch()
+  await testModuleRegistersFirstPartyActionProviders()
   testBroadcastRunEventUsesAutomationsChannelAndSkipsFailedWindows()
   console.log('automations-module tests passed')
 }

@@ -1,5 +1,7 @@
 import type { AppServices } from '../app-services'
 import type { AutomationsEngine } from '../automations/engine'
+import type { SprintEngineAutomationFrontDoors } from '../automations/actions/sprint-engine'
+import type { SwitchboardAutomationFrontDoors } from '../automations/actions/switchboard'
 import type { ModuleWorkspaceService } from '../modules/module-workspace-service'
 import { createServiceToken } from './main-host'
 
@@ -30,6 +32,12 @@ export const WorkspaceSyncServiceToken = createServiceToken<AppServices['workspa
 )
 export const AutomationsEngineToken = createServiceToken<AutomationsEngine>(
   'automations.engine'
+)
+export const SwitchboardAutomationFrontDoorsToken = createServiceToken<SwitchboardAutomationFrontDoors>(
+  'switchboard.automation-front-doors'
+)
+export const SprintEngineAutomationFrontDoorsToken = createServiceToken<SprintEngineAutomationFrontDoors>(
+  'sprint-engine.automation-front-doors'
 )
 // Programmatic workspace creation for capability modules. The key MUST equal the
 // SDK's WorkspaceServiceToken ('core.workspace') so a module that imports the

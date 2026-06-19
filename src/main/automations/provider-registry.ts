@@ -1,9 +1,18 @@
 import type { AutomationActionProvider, AutomationTriggerProvider } from '../../shared/automations/contracts'
 import { createRunSkillLoopActionProvider } from './actions/run-skill-loop'
 import { createSpawnAgentActionProvider } from './actions/spawn-agent'
+import { createSprintEngineRunActionProvider, type SprintEngineAutomationFrontDoors } from './actions/sprint-engine'
+import { createSwitchboardAutomationActionProviders, type SwitchboardAutomationFrontDoors } from './actions/switchboard'
 import { scheduleTriggerProvider } from './schedule'
 
 export const AUTOMATIONS_PROVIDER_MODULE_ID = 'automations'
+export const SWITCHBOARD_PROVIDER_MODULE_ID = 'switchboard'
+export const SPRINT_ENGINE_PROVIDER_MODULE_ID = 'sprint-engine'
+
+export type BuiltInAutomationProviderRegistryOptions = {
+  switchboard?: SwitchboardAutomationFrontDoors
+  sprintEngine?: SprintEngineAutomationFrontDoors
+}
 
 type RegisteredProviderType = 'trigger' | 'action'
 
@@ -64,11 +73,24 @@ export function createAutomationProviderRegistry(): AutomationProviderRegistry {
   return new AutomationProviderRegistry()
 }
 
-export function createBuiltInAutomationProviderRegistry(): AutomationProviderRegistry {
+export function createBuiltInAutomationProviderRegistry(
+  options: BuiltInAutomationProviderRegistryOptions = {}
+): AutomationProviderRegistry {
   const registry = createAutomationProviderRegistry()
   registry.registerTriggerProvider(AUTOMATIONS_PROVIDER_MODULE_ID, scheduleTriggerProvider)
   registry.registerActionProvider(AUTOMATIONS_PROVIDER_MODULE_ID, createSpawnAgentActionProvider())
   registry.registerActionProvider(AUTOMATIONS_PROVIDER_MODULE_ID, createRunSkillLoopActionProvider())
+  if (options.switchboard) {
+    for (const provider of createSwitchboardAutomationActionProviders(options.switchboard)) {
+      registry.registerActionProvider(SWITCHBOARD_PROVIDER_MODULE_ID, provider)
+    }
+  }
+  if (options.sprintEngine) {
+    registry.registerActionProvider(
+      SPRINT_ENGINE_PROVIDER_MODULE_ID,
+      createSprintEngineRunActionProvider(options.sprintEngine)
+    )
+  }
   return registry
 }
 

@@ -25,6 +25,12 @@ import {
   AUTOMATIONS_UPDATE_CHANNEL,
 } from '../../shared/automations/contracts'
 import { createAutomationsEngine } from '../automations/engine'
+import { SPRINT_ENGINE_RUN_ACTION_KIND } from '../automations/actions/sprint-engine'
+import {
+  SWITCHBOARD_RUNNER_TICK_ACTION_KIND,
+  WATCHTOWER_AUTOMATION_INTEGRATION_ID,
+  WATCHTOWER_REVIEW_ACTION_KIND,
+} from '../automations/actions/switchboard'
 import { createBuiltInAutomationProviderRegistry } from '../automations/provider-registry'
 import { AutomationsStore } from '../automations/store'
 import type { IpcInvokeHandler } from '../module-host/main-host'
@@ -219,6 +225,66 @@ async function testProviderList(): Promise<void> {
   assert.equal(providers.value.actions.some((provider) => provider.kind === 'run-command'), false)
 }
 
+async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations(): Promise<void> {
+  const handlers: HandlerMap = new Map()
+  const providerRegistry = createBuiltInAutomationProviderRegistry({
+    switchboard: {
+      tickRunner: async () => {
+        throw new Error('not used')
+      },
+      startWatchtowerReview: async () => {
+        throw new Error('not used')
+      },
+    },
+    sprintEngine: {
+      setRunnerMode: async () => {
+        throw new Error('not used')
+      },
+      replenishRoster: async () => {
+        throw new Error('not used')
+      },
+    },
+  })
+
+  registerAutomationsIpc(
+    {
+      registerIpc(channel, handler) {
+        handlers.set(channel, handler)
+      },
+    },
+    {
+      engine: {
+        runNow: async () => ({
+          ok: false as const,
+          problem: { code: 'not_used', message: 'not used' },
+        }),
+      },
+      triggerProviders: providerRegistry.listTriggerProviders(),
+      actionProviders: providerRegistry.listActionProviders(),
+      isIntegrationAvailable: (id) => id !== WATCHTOWER_AUTOMATION_INTEGRATION_ID,
+      now: () => currentNow,
+    }
+  )
+
+  const providers = await invoke<AutomationsProvidersResult>(handlers, AUTOMATIONS_PROVIDERS_LIST_CHANNEL)
+  assert.equal(providers.ok, true)
+  if (!providers.ok) return
+
+  const switchboard = providers.value.actions.find((provider) => provider.kind === SWITCHBOARD_RUNNER_TICK_ACTION_KIND)
+  assert.deepEqual(switchboard?.requiredIntegrations, ['module:switchboard'])
+  assert.deepEqual(switchboard?.missingIntegrations, [])
+
+  const watchtower = providers.value.actions.find((provider) => provider.kind === WATCHTOWER_REVIEW_ACTION_KIND)
+  assert.deepEqual(watchtower?.requiredIntegrations, ['module:watchtower'])
+  assert.deepEqual(watchtower?.missingIntegrations, ['module:watchtower'])
+  assert.deepEqual((watchtower?.configSchema as { required?: unknown }).required, ['preset'])
+
+  const sprintEngine = providers.value.actions.find((provider) => provider.kind === SPRINT_ENGINE_RUN_ACTION_KIND)
+  assert.deepEqual(sprintEngine?.requiredIntegrations, ['module:sprint-engine'])
+  assert.deepEqual(sprintEngine?.missingIntegrations, [])
+  assert.deepEqual((sprintEngine?.configSchema as { required?: unknown }).required, ['team'])
+}
+
 async function testDefinitionRoundTripAndRunNow(): Promise<void> {
   currentNow = Date.parse('2026-06-18T00:00:00.000Z')
   runCount = 0
@@ -367,6 +433,7 @@ async function testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow(): Promise<vo
 
 async function main(): Promise<void> {
   await testProviderList()
+  await testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
   await testDefinitionRoundTripAndRunNow()
   await testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow()
   console.log('automations-ipc tests passed')

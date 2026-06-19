@@ -1,5 +1,5 @@
 import { registerSwitchboardIpc } from '../ipc/switchboard-ipc'
-import { GitHubTokenStoreToken, TerminalRuntimeToken } from '../module-host/service-tokens'
+import { GitHubTokenStoreToken, SwitchboardAutomationFrontDoorsToken, TerminalRuntimeToken } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
 import { importGitHubIssuesIntoWatchtower } from '../switchboard-github'
 import { importJiraIssuesIntoWatchtower } from '../switchboard-jira'
@@ -59,6 +59,10 @@ export const switchboardModule: CapabilityModule = {
     configureSwitchboardSessionStopper(terminalRuntime.killAgentSession)
     configureSwitchboardRuntimeInventoryProvider(() => terminalRuntime.getLiveAgentExecutionIds())
     configureSwitchboardExecutionStopper(terminalRuntime.killAgentSession)
+    host.provideService(SwitchboardAutomationFrontDoorsToken, () => ({
+      tickRunner: tickSwitchboardRunner,
+      startWatchtowerReview,
+    }))
 
     host.registerSidecar({
       id: 'switchboard-core',

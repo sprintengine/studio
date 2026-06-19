@@ -7,7 +7,7 @@ import { createWorkspaceConfirmed } from '../workspace-create'
 import type { AutomationRunExecutionInput, AutomationRunExecutor } from './engine'
 import { runSkillLoopAction } from './actions/run-skill-loop'
 import { runSpawnAgentAction, type SpawnAgentResolvedTarget } from './actions/spawn-agent'
-import { createBuiltInAutomationProviderRegistry } from './provider-registry'
+import { createBuiltInAutomationProviderRegistry, type BuiltInAutomationProviderRegistryOptions } from './provider-registry'
 
 export type LocalAutomationExecutorOptions = {
   delegateToRenderer(request: AutomationRendererRequest): Promise<AutomationRendererResponse>
@@ -41,8 +41,10 @@ export function createLocalAutomationExecutor(options: LocalAutomationExecutorOp
   return async (input) => runLocalAutomationAction(input, providers, options)
 }
 
-export function createBuiltInAutomationActionProviders(): AutomationActionProvider[] {
-  return createBuiltInAutomationProviderRegistry().listActionProviders()
+export function createBuiltInAutomationActionProviders(
+  options?: BuiltInAutomationProviderRegistryOptions
+): AutomationActionProvider[] {
+  return createBuiltInAutomationProviderRegistry(options).listActionProviders()
 }
 
 export async function runLocalAutomationAction(

@@ -7,6 +7,8 @@ import { registerAutomationsIpc } from '../ipc/automations-ipc'
 import {
   AutomationDelegateToken,
   AutomationsEngineToken,
+  SprintEngineAutomationFrontDoorsToken,
+  SwitchboardAutomationFrontDoorsToken,
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
@@ -14,6 +16,15 @@ import {
   AUTOMATIONS_RUN_EVENT_CHANNEL,
   type AutomationsRunEvent,
 } from '../../shared/automations/contracts'
+import {
+  SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID,
+  type SprintEngineAutomationFrontDoors,
+} from '../automations/actions/sprint-engine'
+import {
+  SWITCHBOARD_AUTOMATION_INTEGRATION_ID,
+  WATCHTOWER_AUTOMATION_INTEGRATION_ID,
+  type SwitchboardAutomationFrontDoors,
+} from '../automations/actions/switchboard'
 
 export type AutomationsModuleOptions = {
   createEngine?: (options: AutomationsEngineOptions) => AutomationsEngine
@@ -57,11 +68,25 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
     registerMain(host) {
       const automationDelegate = host.requireService(AutomationDelegateToken)
       const workspaceSyncService = host.requireService(WorkspaceSyncServiceToken)
-      const providerRegistry = createBuiltInAutomationProviderRegistry()
+      const switchboardFrontDoors = serviceBackedSwitchboardFrontDoors(() =>
+        host.getService(SwitchboardAutomationFrontDoorsToken)
+      )
+      const sprintEngineFrontDoors = serviceBackedSprintEngineFrontDoors(() =>
+        host.getService(SprintEngineAutomationFrontDoorsToken)
+      )
+      const isIntegrationAvailable = createFirstPartyAutomationIntegrationResolver({
+        hasSwitchboard: () => Boolean(host.getService(SwitchboardAutomationFrontDoorsToken)),
+        hasSprintEngine: () => Boolean(host.getService(SprintEngineAutomationFrontDoorsToken)),
+      })
+      const providerRegistry = createBuiltInAutomationProviderRegistry({
+        switchboard: switchboardFrontDoors,
+        sprintEngine: sprintEngineFrontDoors,
+      })
       const actionProviders = providerRegistry.listActionProviders()
       const runAutomation = createLocalAutomationExecutor({
         delegateToRenderer: (request) => automationDelegate.request(request),
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
+        isIntegrationAvailable,
         isWorkspaceDirty: defaultWorkspaceDirtyCheck,
         actionProviders,
       })
@@ -95,6 +120,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         engine,
         triggerProviders: providerRegistry.listTriggerProviders(),
         actionProviders,
+        isIntegrationAvailable,
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
       })
     },
@@ -102,3 +128,37 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
 }
 
 export const automationsModule = createAutomationsModule()
+
+function createFirstPartyAutomationIntegrationResolver(input: {
+  hasSwitchboard(): boolean
+  hasSprintEngine(): boolean
+}): (id: string) => boolean | undefined {
+  return (id) => {
+    if (id === SWITCHBOARD_AUTOMATION_INTEGRATION_ID) return input.hasSwitchboard()
+    if (id === WATCHTOWER_AUTOMATION_INTEGRATION_ID) return input.hasSwitchboard()
+    if (id === SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID) return input.hasSprintEngine()
+    return undefined
+  }
+}
+
+function serviceBackedSwitchboardFrontDoors(
+  resolve: () => SwitchboardAutomationFrontDoors | undefined
+): SwitchboardAutomationFrontDoors {
+  return {
+    tickRunner: async (input) =>
+      resolve()?.tickRunner(input) ?? { ok: false, message: 'Switchboard is unavailable.' },
+    startWatchtowerReview: async (input) =>
+      resolve()?.startWatchtowerReview(input) ?? { ok: false, message: 'Watchtower is unavailable.' },
+  }
+}
+
+function serviceBackedSprintEngineFrontDoors(
+  resolve: () => SprintEngineAutomationFrontDoors | undefined
+): SprintEngineAutomationFrontDoors {
+  return {
+    setRunnerMode: async (input) =>
+      resolve()?.setRunnerMode(input) ?? { ok: false, message: 'Sprint Engine is unavailable.' },
+    replenishRoster: async (input) =>
+      resolve()?.replenishRoster(input) ?? { ok: false, message: 'Sprint Engine is unavailable.' },
+  }
+}
