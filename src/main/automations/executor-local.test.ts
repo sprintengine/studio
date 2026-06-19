@@ -109,6 +109,16 @@ function run(overrides: Partial<AutomationRun> = {}): AutomationRun {
   }
 }
 
+const LAUNCHABLE_WATCHTOWER_REVIEW_PRESETS = [
+  'lean_code_review',
+  'ui_brand_alignment_review',
+  'performance_focused_review',
+  'security_deep_review',
+  'full_product_review',
+] as const
+
+const launchableWatchtowerReviewPresets = new Set<string>(LAUNCHABLE_WATCHTOWER_REVIEW_PRESETS)
+
 function executorHarness(
   initialWorkspaces: Workspace[] = [],
   options: {
@@ -197,6 +207,9 @@ function firstPartyActionProviders(calls: string[] = []): AutomationActionProvid
       },
       startWatchtowerReview: async (input) => {
         calls.push(`watchtower:${input.workspaceRoot}:${input.preset}`)
+        if (!launchableWatchtowerReviewPresets.has(input.preset)) {
+          return { ok: false, message: 'Watchtower preset has no review agents.' }
+        }
         return {
           ok: true,
           run: {
@@ -595,6 +608,40 @@ async function assertFirstPartyActionsInvokeFrontDoors(): Promise<void> {
   ])
 }
 
+function watchtowerPresetEnum(provider: AutomationActionProvider): string[] {
+  const properties = (provider.configSchema as { properties?: Record<string, unknown> }).properties
+  const preset = properties?.preset as { enum?: unknown } | undefined
+  assert.ok(Array.isArray(preset?.enum), 'watchtower-review schema should enumerate presets')
+  assert.ok(preset.enum.every((value) => typeof value === 'string'), 'watchtower-review preset enum should contain strings')
+  return preset.enum
+}
+
+async function assertWatchtowerSchemaOnlyAcceptsLaunchablePresets(): Promise<void> {
+  const calls: string[] = []
+  const actionProviders = firstPartyActionProviders(calls)
+  const provider = actionProviders.find((candidate) => candidate.kind === WATCHTOWER_REVIEW_ACTION_KIND)
+  assert.ok(provider, 'watchtower-review action provider should be registered')
+
+  const acceptedPresets = watchtowerPresetEnum(provider)
+  assert.deepEqual(acceptedPresets, LAUNCHABLE_WATCHTOWER_REVIEW_PRESETS)
+  assert.equal(acceptedPresets.includes('custom'), false)
+
+  const harness = executorHarness([workspace('ws-front-door', '/repo/a')], {
+    actionProviders,
+    isIntegrationAvailable: () => true,
+  })
+  for (const preset of acceptedPresets) {
+    const result = await harness.executor({
+      workspaceRoot: '/repo/a',
+      definition: definition({ action: { kind: WATCHTOWER_REVIEW_ACTION_KIND, config: { preset } } }),
+      run: run(),
+      triggerPayload: { kind: 'schedule' },
+    })
+    assert.equal(result.status, 'completed', `accepted Watchtower preset should start: ${preset}`)
+  }
+  assert.deepEqual(calls, acceptedPresets.map((preset) => `watchtower:/repo/a:${preset}`))
+}
+
 async function assertFirstPartyMissingIntegrationBlocksBeforeFrontDoor(): Promise<void> {
   const cases = [
     {
@@ -711,5 +758,6 @@ async function main(): Promise<void> {
   await assertUnknownWorkspaceIdDoesNotCreateFallbackWorkspace()
   await assertRunSkillLoopIsPresetAndRunCommandIsNotRegistered()
   await assertFirstPartyActionsInvokeFrontDoors()
+  await assertWatchtowerSchemaOnlyAcceptsLaunchablePresets()
   await assertFirstPartyMissingIntegrationBlocksBeforeFrontDoor()
 }

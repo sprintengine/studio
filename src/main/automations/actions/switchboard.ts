@@ -68,7 +68,6 @@ function createWatchtowerReviewActionProvider(
             'performance_focused_review',
             'security_deep_review',
             'full_product_review',
-            'custom',
           ],
         },
       },
