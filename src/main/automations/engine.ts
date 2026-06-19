@@ -83,6 +83,7 @@ export class AutomationsEngine {
   private timer: ReturnType<typeof setInterval> | null = null
   private started = false
   private startupEvaluation: Promise<AutomationsEngineEvaluationResult> | null = null
+  private timerEvaluation: Promise<AutomationsEngineEvaluationResult> | null = null
 
   constructor(options: AutomationsEngineOptions) {
     this.getProjectFolders = options.getProjectFolders
@@ -138,7 +139,14 @@ export class AutomationsEngine {
   async tick(): Promise<AutomationsEngineEvaluationResult> {
     const startup = this.startupEvaluation
     if (startup) await startup
-    return this.evaluate('timer')
+    if (this.timerEvaluation) return emptyEvaluationResult()
+
+    let timerEvaluation: Promise<AutomationsEngineEvaluationResult>
+    timerEvaluation = this.evaluate('timer').finally(() => {
+      if (this.timerEvaluation === timerEvaluation) this.timerEvaluation = null
+    })
+    this.timerEvaluation = timerEvaluation
+    return timerEvaluation
   }
 
   async runNow(input: {

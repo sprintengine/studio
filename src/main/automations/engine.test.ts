@@ -24,7 +24,7 @@ async function main(): Promise<void> {
   assertDstRules()
   assertInvalidIntervalIsRejected()
   assertWorkspaceSnapshotFolderExtraction()
-  await assertDueAutomationFiresOnceWithDuplicateGuard()
+  await assertDueAutomationSkipsOverlappingTickAndPreservesSingleFlight()
   await assertRunEventsEmitForTimerAndManualTerminalStatuses()
   await assertRunEventDeliveryFailuresDoNotMutateRunTruth()
   await assertStartupOverdueIsSkippedWithoutCatchup()
@@ -194,7 +194,7 @@ function assertWorkspaceSnapshotFolderExtraction(): void {
   ])
 }
 
-async function assertDueAutomationFiresOnceWithDuplicateGuard(): Promise<void> {
+async function assertDueAutomationSkipsOverlappingTickAndPreservesSingleFlight(): Promise<void> {
   const workspaceRoot = await createWorkspace()
   const store = new AutomationsStore(workspaceRoot)
   const now = Date.parse('2026-06-17T10:00:00.000Z')
@@ -228,7 +228,18 @@ async function assertDueAutomationFiresOnceWithDuplicateGuard(): Promise<void> {
   await runnerStarted
   const duplicateTick = await engine.tick()
   assert.equal(duplicateTick.fired.length, 0)
-  assert.deepEqual(duplicateTick.droppedInFlight, [{ workspaceRoot, automationId: 'nightly-review' }])
+  assert.deepEqual(duplicateTick.scheduled, [])
+  assert.deepEqual(duplicateTick.skipped, [])
+  assert.deepEqual(duplicateTick.droppedInFlight, [])
+  assert.deepEqual(duplicateTick.problems, [])
+
+  const runNowWhileTimerIsRunning = await engine.runNow({
+    workspaceRoot,
+    automationId: 'nightly-review',
+  })
+  assert.equal(runNowWhileTimerIsRunning.ok, false)
+  assert.equal(runNowWhileTimerIsRunning.ok ? '' : runNowWhileTimerIsRunning.problem.code, 'in_flight')
+
   releaseRun()
 
   const firstResult = await firstTick
