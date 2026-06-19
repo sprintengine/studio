@@ -32,6 +32,7 @@ async function main(): Promise<void> {
   await assertStartupOverdueIsSkippedWithoutCatchup()
   await assertTickWaitsForStartupOverdueSkip()
   await assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart()
+  await assertRepoEventCreatedTriggerFiresFromImportMetadata()
   await assertRepoEventTriggerBlocksWhenSwitchboardUnsynced()
 }
 
@@ -634,6 +635,7 @@ async function assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart(): Promise
   assert.equal(triggerPayloads.length, 1)
   assert.equal(triggerPayloads[0]?.kind, REPO_EVENT_TRIGGER_KIND)
   assert.equal(triggerPayloads[0]?.provider, 'github')
+  assert.equal(triggerPayloads[0]?.eventType, 'updated')
   assert.equal(triggerPayloads[0]?.externalKey, 'acme/repo#1')
 
   const duplicateTick = await firstEngine.tick()
@@ -683,6 +685,59 @@ async function assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart(): Promise
     state.ok && Object.keys(state.value?.triggerEventDedupByAutomationId?.['repo-event-watch'] ?? {}).length,
     2
   )
+}
+
+async function assertRepoEventCreatedTriggerFiresFromImportMetadata(): Promise<void> {
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  assert.equal((await store.createDefinition(repoEventDefinition({
+    trigger: {
+      kind: REPO_EVENT_TRIGGER_KIND,
+      config: {
+        kind: REPO_EVENT_TRIGGER_KIND,
+        provider: 'github',
+        eventTypes: ['created'],
+      },
+    },
+  }))).ok, true)
+
+  const provider = createRepoEventTriggerProvider({
+    readAllTasks: async (input) => ({
+      ok: true,
+      workspaceRoot: input.workspaceRoot,
+      switchboardRoot: '/switchboard',
+      tasks: [switchboardTaskRecord()],
+      problems: [],
+    }),
+  })
+  const triggerPayloads: Record<string, unknown>[] = []
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-repo-event-created', folderPath: workspaceRoot }],
+    triggerProviders: [provider],
+    isIntegrationAvailable: (id) => id === 'module:switchboard',
+    now: () => now,
+    createRunId: () => 'repo-event-created-run',
+    runAutomation: async (input) => {
+      triggerPayloads.push(input.triggerPayload)
+      return { status: 'completed', summary: 'Repo created event handled.' }
+    },
+  })
+
+  const firstTick = await engine.tick()
+  assert.equal(firstTick.fired.length, 1)
+  assert.equal(firstTick.fired[0]?.runId, 'repo-event-created-run')
+  assert.equal(triggerPayloads.length, 1)
+  assert.equal(triggerPayloads[0]?.kind, REPO_EVENT_TRIGGER_KIND)
+  assert.equal(triggerPayloads[0]?.provider, 'github')
+  assert.equal(triggerPayloads[0]?.eventType, 'created')
+  assert.equal(triggerPayloads[0]?.externalKey, 'acme/repo#1')
+  assert.equal(triggerPayloads[0]?.importedAt, '2026-06-17T09:05:00.000Z')
+  assert.equal(triggerPayloads[0]?.occurredAt, '2026-06-17T09:05:00.000Z')
+
+  const duplicateTick = await engine.tick()
+  assert.equal(duplicateTick.fired.length, 0)
+  assert.equal(triggerPayloads.length, 1)
 }
 
 async function assertRepoEventTriggerBlocksWhenSwitchboardUnsynced(): Promise<void> {

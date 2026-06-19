@@ -904,6 +904,52 @@ class SwitchboardCliTests(unittest.TestCase):
         inbox = stdout_json(self.run_cli(["list", *self.workspace_args(), "--status", "inbox"]))["tasks"]
         self.assertEqual(len(inbox), 1)
 
+    def test_import_task_records_new_external_updated_at_for_duplicate_source(self) -> None:
+        item = {
+            "provider": "github",
+            "externalId": "I_kwDO123",
+            "externalKey": "owner/repo#12",
+            "externalUrl": "https://github.com/owner/repo/issues/12",
+            "identifier": "repo#12",
+            "title": "GitHub issue",
+            "updatedAt": "2026-05-09T12:00:00Z",
+        }
+
+        imported = stdout_json(self.run_cli(["import-task", *self.workspace_args(), "--input-json", json.dumps(item)]))
+        updated = stdout_json(self.run_cli([
+            "import-task",
+            *self.workspace_args(),
+            "--input-json",
+            json.dumps({**item, "updatedAt": "2026-05-09T13:00:00Z"}),
+        ]))
+        duplicate = stdout_json(self.run_cli([
+            "import-task",
+            *self.workspace_args(),
+            "--input-json",
+            json.dumps({**item, "updatedAt": "2026-05-09T13:00:00Z"}),
+        ]))
+        older_duplicate = stdout_json(self.run_cli([
+            "import-task",
+            *self.workspace_args(),
+            "--input-json",
+            json.dumps({**item, "updatedAt": "2026-05-09T12:30:00Z"}),
+        ]))
+
+        self.assertTrue(imported["created"])
+        self.assertEqual(updated["status"], "updated")
+        self.assertFalse(updated["created"])
+        self.assertFalse(updated["skipped"])
+        self.assertFalse(duplicate["created"])
+        self.assertTrue(duplicate["skipped"])
+        self.assertFalse(older_duplicate["created"])
+        self.assertTrue(older_duplicate["skipped"])
+
+        task = json.loads(self.task_file("inbox", imported["id"]).read_text(encoding="utf-8"))
+        import_comments = [comment for comment in task["comments"] if comment["kind"] == "import"]
+        self.assertEqual(len(import_comments), 2)
+        self.assertIn("External updated at: 2026-05-09T12:00:00Z.", import_comments[0]["body"])
+        self.assertIn("External updated at: 2026-05-09T13:00:00Z.", import_comments[1]["body"])
+
     def test_import_task_uses_url_identity_when_external_id_is_missing(self) -> None:
         first = {
             "provider": "jira",

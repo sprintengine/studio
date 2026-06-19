@@ -30,6 +30,7 @@ type RepoEventTriggerValidationResult =
 const REPO_EVENT_TYPES = new Set<RepoEventType>(['created', 'updated'])
 const REPO_EVENT_PROVIDERS = new Set<SwitchboardImportProvider | 'any'>(['github', 'jira', 'any'])
 const EXTERNAL_UPDATED_AT_LABEL = 'External updated at:'
+const DEFAULT_REPO_EVENT_TYPES: RepoEventType[] = ['updated']
 
 export function createRepoEventTriggerProvider(
   frontDoors: Pick<SwitchboardAutomationFrontDoors, 'readAllTasks'>
@@ -91,8 +92,7 @@ export function createRepoEventTriggerProvider(
       return {
         ok: true,
         events: providerSyncedRecords
-          .map((record) => recordToRepoEvent(record))
-          .filter((event): event is AutomationTriggerPollEvent => event !== null)
+          .flatMap((record) => recordToRepoEvents(record))
           .filter((event) => matchesRepoEventConfig(event, validation.value))
           .sort(compareRepoEvents),
       }
@@ -145,12 +145,12 @@ export function validateRepoEventTriggerConfig(config: unknown): RepoEventTrigge
   }
 }
 
-function recordToRepoEvent(record: SwitchboardTaskRecord): AutomationTriggerPollEvent | null {
+function recordToRepoEvents(record: SwitchboardTaskRecord): AutomationTriggerPollEvent[] {
   const provider = record.task.source.type
-  if (provider !== 'github' && provider !== 'jira') return null
+  if (provider !== 'github' && provider !== 'jira') return []
 
-  const externalUpdatedAt = latestExternalUpdatedAt(record)
-  if (!externalUpdatedAt) return null
+  const importMetadata = readImportMetadata(record)
+  if (!importMetadata) return []
 
   const sourceKey =
     normalizedString(record.task.source.externalId)
@@ -160,38 +160,64 @@ function recordToRepoEvent(record: SwitchboardTaskRecord): AutomationTriggerPoll
   const externalKey = normalizedString(record.task.source.externalKey)
   const externalUrl = normalizedString(record.task.source.externalUrl)
   const externalId = normalizedString(record.task.source.externalId)
+  const basePayload = {
+    kind: REPO_EVENT_TRIGGER_KIND,
+    provider,
+    taskId: record.task.id,
+    identifier: record.task.identifier,
+    title: record.task.title,
+    taskState: record.task.state,
+    labels: record.task.labels,
+    ...(externalId ? { externalId } : {}),
+    ...(externalKey ? { externalKey } : {}),
+    ...(externalUrl ? { externalUrl } : {}),
+  }
+  const events: AutomationTriggerPollEvent[] = []
 
-  return {
+  events.push({
     id: [
       REPO_EVENT_TRIGGER_KIND,
       provider,
       sourceKey,
-      'updated',
-      externalUpdatedAt,
+      'created',
+      importMetadata.createdAt,
     ].join(':'),
-    occurredAt: externalUpdatedAt,
+    occurredAt: importMetadata.createdAt,
     payload: {
-      kind: REPO_EVENT_TRIGGER_KIND,
-      provider,
-      eventType: 'updated',
-      taskId: record.task.id,
-      identifier: record.task.identifier,
-      title: record.task.title,
-      taskState: record.task.state,
-      labels: record.task.labels,
-      occurredAt: externalUpdatedAt,
-      externalUpdatedAt,
-      ...(externalId ? { externalId } : {}),
-      ...(externalKey ? { externalKey } : {}),
-      ...(externalUrl ? { externalUrl } : {}),
+      ...basePayload,
+      eventType: 'created',
+      occurredAt: importMetadata.createdAt,
+      importedAt: importMetadata.createdAt,
     },
+  })
+
+  if (importMetadata.externalUpdatedAt) {
+    events.push({
+      id: [
+        REPO_EVENT_TRIGGER_KIND,
+        provider,
+        sourceKey,
+        'updated',
+        importMetadata.externalUpdatedAt,
+      ].join(':'),
+      occurredAt: importMetadata.externalUpdatedAt,
+      payload: {
+        ...basePayload,
+        eventType: 'updated',
+        occurredAt: importMetadata.externalUpdatedAt,
+        externalUpdatedAt: importMetadata.externalUpdatedAt,
+      },
+    })
   }
+
+  return events
 }
 
 function matchesRepoEventConfig(event: AutomationTriggerPollEvent, config: RepoEventTriggerConfig): boolean {
   const payload = event.payload
   if (config.provider && config.provider !== 'any' && payload.provider !== config.provider) return false
-  if (config.eventTypes?.length && !config.eventTypes.includes(payload.eventType as RepoEventType)) return false
+  const eventTypes = config.eventTypes?.length ? config.eventTypes : DEFAULT_REPO_EVENT_TYPES
+  if (!eventTypes.includes(payload.eventType as RepoEventType)) return false
   if (config.externalKey && payload.externalKey !== config.externalKey) return false
   if (config.label) {
     const labels = Array.isArray(payload.labels) ? payload.labels : []
@@ -204,14 +230,20 @@ function isRepoSyncRecord(record: SwitchboardTaskRecord): boolean {
   return record.task.source.type === 'github' || record.task.source.type === 'jira'
 }
 
-function latestExternalUpdatedAt(record: SwitchboardTaskRecord): string | null {
-  for (const comment of [...record.task.comments].reverse()) {
+function readImportMetadata(record: SwitchboardTaskRecord): { createdAt: string; externalUpdatedAt: string | null } | null {
+  let createdAt: string | null = null
+  let externalUpdatedAt: string | null = null
+
+  for (const comment of record.task.comments) {
     if (comment.kind !== 'import') continue
     if (comment.author.id !== 'switchboard-import') continue
-    const externalUpdatedAt = parseExternalUpdatedAt(comment.body)
-    if (externalUpdatedAt) return externalUpdatedAt
+    const commentCreatedAt = normalizedIsoTimestamp(comment.createdAt)
+    if (!commentCreatedAt) continue
+    createdAt ??= commentCreatedAt
+    externalUpdatedAt = parseExternalUpdatedAt(comment.body) ?? externalUpdatedAt
   }
-  return null
+
+  return createdAt ? { createdAt, externalUpdatedAt } : null
 }
 
 function parseExternalUpdatedAt(body: string): string | null {
@@ -219,7 +251,11 @@ function parseExternalUpdatedAt(body: string): string | null {
   if (labelIndex < 0) return null
   const raw = body.slice(labelIndex + EXTERNAL_UPDATED_AT_LABEL.length).trim().split(/\s+/u)[0]?.replace(/[.)]+$/u, '')
   if (!raw) return null
-  const parsed = Date.parse(raw)
+  return normalizedIsoTimestamp(raw)
+}
+
+function normalizedIsoTimestamp(value: string): string | null {
+  const parsed = Date.parse(value)
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null
 }
 
