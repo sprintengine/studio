@@ -151,14 +151,19 @@ export function sortDefinitions(defs: AutomationDefinition[], now: number): Auto
 // testable without rendering the form.
 
 // Empty cli is valid — the executor falls back to the app's last-selected CLI
-// (a picker-valid id) at launch, matching the field's optional schema.
+// (a picker-valid id) at launch, matching the field's optional schema. A
+// non-empty value must be provably present in the offered catalog: we fail
+// closed against `selectAgentCliCatalog`, which is never empty while the plugin
+// registry is loading or after a load error (it falls back to the bundled
+// codex/claude-code options, and never surfaces hidden ids like generic-shell).
+// So a stale unlaunchable value is rejected in every registry state, not just
+// once the registry reaches `ready`.
 export function automationCliFieldError(
   cli: string | undefined,
   catalog: AgentCliCatalogOption[],
-  catalogReady: boolean,
 ): string | null {
   const value = cli?.trim()
-  if (!value || !catalogReady) return null
+  if (!value) return null
   if (!isAgentCliAvailable(value, catalog)) {
     return `"${value}" is not an available agent CLI. Pick an installed CLI.`
   }

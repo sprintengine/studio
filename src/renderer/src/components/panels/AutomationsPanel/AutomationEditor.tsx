@@ -123,7 +123,6 @@ export function AutomationEditor({
     () => selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes),
     [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes],
   )
-  const cliCatalogReady = pluginCatalogStatus === 'ready'
 
   const actionProvider = providers?.actions.find((a) => a.kind === form.actionKind) ?? null
   const actionMissing = actionProvider?.missingIntegrations ?? []
@@ -141,7 +140,7 @@ export function AutomationEditor({
     if (form.cadenceType === 'interval' && form.everyMinutes < 5) return 'Interval must be at least 5 minutes.'
     if (form.cadenceType === 'weekly' && form.daysOfWeek.length === 0) return 'Pick at least one day for a weekly schedule.'
     if (configKeys.includes('cli')) {
-      const cliError = automationCliFieldError(form.config.cli, cliCatalog, cliCatalogReady)
+      const cliError = automationCliFieldError(form.config.cli, cliCatalog)
       if (cliError) return cliError
     }
     for (const key of requiredKeys) {
@@ -149,7 +148,7 @@ export function AutomationEditor({
       if (!form.config[key]?.trim()) return `${CONFIG_FIELD_LABEL[key] ?? key} is required.`
     }
     return null
-  }, [form, actionProvider, actionMissing, requiredKeys, configKeys, cliCatalog, cliCatalogReady])
+  }, [form, actionProvider, actionMissing, requiredKeys, configKeys, cliCatalog])
 
   const handleSubmit = useCallback(async () => {
     if (validationError || !workspaceRoot) { setError(validationError); return }
