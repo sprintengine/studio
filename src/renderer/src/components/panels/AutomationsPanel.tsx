@@ -2,6 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { revealAutomationAgent } from '../../hooks/useAutomationRequests'
+import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { consumePendingRevealTarget, subscribeRevealTarget } from '../../utils/revealTarget'
+import type { NotificationNavigationTarget } from '../../types/workspace'
 import type { AutomationDefinition } from '../../../../shared/automations/contracts'
 import { GhostButton, InlineNotice, PanelHeader, PrimaryButton, Spinner, useConfirmDialog } from '../ui'
 import { AutomationDetailPane } from './AutomationsPanel/AutomationDetailPane'
@@ -10,11 +13,34 @@ import { DefinitionList, DetailEmptyState } from './AutomationsPanel/Automations
 import { isEditableTarget, sortDefinitions, type EditorState } from './AutomationsPanel/automationsFormat'
 import { useAutomationsController } from './AutomationsPanel/useAutomationsController'
 
+// A run notification's Open action deep-links back here. The target ref carries
+// both the automation and the run (plain JSON so it survives notification
+// persistence), since a run id alone can't be mapped to its definition without
+// loading every history.
+const RUN_TARGET_KIND = 'run'
+
+function encodeRunRef(automationId: string, runId: string): string {
+  return JSON.stringify({ automationId, runId })
+}
+
+function decodeRunRef(ref: string): { automationId: string; runId: string } | null {
+  try {
+    const parsed = JSON.parse(ref) as { automationId?: unknown; runId?: unknown }
+    if (typeof parsed.automationId === 'string' && typeof parsed.runId === 'string') {
+      return { automationId: parsed.automationId, runId: parsed.runId }
+    }
+  } catch {
+    // Malformed/foreign target — ignore rather than guess a run to focus.
+  }
+  return null
+}
+
 // Automations control center: composes the data controller (window.api IPC
 // boundary), the definitions list, the run-history/detail pane, and the
 // schema-driven editor. Sub-modules live in ./AutomationsPanel/*.
 export default function AutomationsPanel({ workspaceId }: { workspaceId: string }): JSX.Element {
   const folderPath = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
+  const workspaceName = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.name ?? null)
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
   const dialog = useConfirmDialog()
 
@@ -26,6 +52,10 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [now, setNow] = useState(() => Date.now())
+  // Run a notification's Open action latches a target here; it is applied once
+  // the named definition has loaded, then the run is scrolled into view.
+  const [pendingRunTarget, setPendingRunTarget] = useState<{ automationId: string; runId: string } | null>(null)
+  const [focusRunId, setFocusRunId] = useState<string | null>(null)
   const listRef = useRef<HTMLUListElement>(null)
 
   // A slow clock so "in 3h" / "overdue" stay honest without churning the list.
@@ -63,6 +93,55 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
     })
     if (confirmed) await remove(def)
   }, [dialog, remove])
+
+  // Run now is the only run whose terminal status the renderer observes (the
+  // IPC return). On a failed/blocked outcome raise a notification whose Open
+  // action deep-links back to this control center and the originating run.
+  // Scheduled/background runs notify via T12/T13, not here.
+  const handleRunNow = useCallback(async (def: AutomationDefinition) => {
+    const run = await runNow(def)
+    if (!run || (run.status !== 'failed' && run.status !== 'blocked')) return
+    publishDiagnosticSync({
+      level: run.status === 'failed' ? 'error' : 'warning',
+      source: 'automations',
+      title: `Automation ${run.status}: ${def.name}`,
+      message: run.blockedReason || run.summary || `The run ended ${run.status}.`,
+      workspaceId,
+      workspaceName: workspaceName ?? undefined,
+      navigationTarget: { kind: RUN_TARGET_KIND, ref: encodeRunRef(def.id, run.id) },
+    })
+  }, [runNow, workspaceId, workspaceName])
+
+  // Deep-link from an automations run notification. The shell reveals the
+  // workspace; this latches the target (drained on mount AND via the live
+  // event, refreshed through a ref so re-renders don't churn the listener) and
+  // applies it once the definition has loaded.
+  const revealTargetHandlerRef = useRef<(target: NotificationNavigationTarget) => void>(() => {})
+  revealTargetHandlerRef.current = (target) => {
+    if (target.kind !== RUN_TARGET_KIND) return
+    const decoded = decodeRunRef(target.ref)
+    if (decoded) setPendingRunTarget(decoded)
+  }
+  useEffect(() => {
+    const pending = consumePendingRevealTarget(workspaceId)
+    if (pending) revealTargetHandlerRef.current(pending)
+    return subscribeRevealTarget((detail) => {
+      if (detail.workspaceId !== workspaceId) return
+      // Clear the latch so the mount-drain path can't re-fire the same target.
+      consumePendingRevealTarget(workspaceId)
+      revealTargetHandlerRef.current(detail.target)
+    })
+  }, [workspaceId])
+
+  // Apply a latched target once its definition is present (the list loads
+  // asynchronously, so the target can arrive before the row exists).
+  useEffect(() => {
+    if (!pendingRunTarget || !definitions.some((d) => d.id === pendingRunTarget.automationId)) return
+    setEditor(null)
+    setSelectedId(pendingRunTarget.automationId)
+    setFocusRunId(pendingRunTarget.runId)
+    setPendingRunTarget(null)
+  }, [pendingRunTarget, definitions])
 
   const onListKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (isEditableTarget(event.target) || ordered.length === 0) return
@@ -138,9 +217,9 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
               selectedId={editor ? null : selectedId}
               busyId={busyId}
               now={now}
-              onSelect={(id) => { setSelectedId(id); setEditor(null) }}
+              onSelect={(id) => { setSelectedId(id); setEditor(null); setFocusRunId(null) }}
               onKeyDown={onListKeyDown}
-              onRunNow={runNow}
+              onRunNow={handleRunNow}
               onToggleStatus={toggleStatus}
               onEdit={(def) => { setEditor({ mode: 'edit', definition: def }); setSelectedId(def.id) }}
               onDelete={handleDelete}
@@ -161,6 +240,7 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
                   definition={selected}
                   workspaceRoot={folderPath ?? ''}
                   now={now}
+                  focusRunId={selected.id === selectedId ? focusRunId : null}
                   onOpenAgent={(wsId, agentId) => {
                     // Focus the concrete launched agent tab (T10 reveal); fall
                     // back to activating the workspace when the run carries no

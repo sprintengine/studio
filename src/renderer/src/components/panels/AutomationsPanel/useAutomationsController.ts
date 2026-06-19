@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import type {
   AutomationDefinition,
+  AutomationRun,
   AutomationStatus,
   AutomationsProviders,
 } from '../../../../../shared/automations/contracts'
@@ -23,7 +24,8 @@ export type AutomationsController = {
   busyId: string | null
   load: () => Promise<void>
   clearActionError: () => void
-  runNow: (def: AutomationDefinition) => Promise<void>
+  /** Resolves with the terminal run on success (for notify/deep-link), null otherwise. */
+  runNow: (def: AutomationDefinition) => Promise<AutomationRun | null>
   toggleStatus: (def: AutomationDefinition) => Promise<void>
   remove: (def: AutomationDefinition) => Promise<void>
   applySaved: (saved: AutomationDefinition) => void
@@ -32,7 +34,8 @@ export type AutomationsController = {
 // Owns the control center's data layer: the list + providers load and every
 // mutation. All reads/writes go through the `window.api` automations bridge —
 // the renderer never touches the on-disk store.
-export function useAutomationsController(folderPath: string | null): AutomationsController {
+export function useAutomationsController(input: { folderPath: string | null; workspaceId: string }): AutomationsController {
+  const { folderPath, workspaceId } = input
   const [definitions, setDefinitions] = useState<AutomationDefinition[]>([])
   const [providers, setProviders] = useState<AutomationsProviders | null>(null)
   const [loadState, setLoadState] = useState<AsyncState>('idle')
@@ -96,11 +99,18 @@ export function useAutomationsController(folderPath: string | null): Automations
     }
   }, [folderPath])
 
-  const runNow = useCallback((def: AutomationDefinition) => mutate(def, async () => {
-    const result = await window.api.runAutomationNow({ workspaceRoot: folderPath!, automationId: def.id })
-    if (result.ok) setDefinitions((prev) => prev.map((d) => (d.id === result.value.definition.id ? result.value.definition : d)))
-    return result
-  }), [folderPath, mutate])
+  const runNow = useCallback(async (def: AutomationDefinition) => {
+    let finishedRun: AutomationRun | null = null
+    await mutate(def, async () => {
+      const result = await window.api.runAutomationNow({ workspaceRoot: folderPath!, workspaceId, automationId: def.id })
+      if (result.ok) {
+        finishedRun = result.value.run
+        setDefinitions((prev) => prev.map((d) => (d.id === result.value.definition.id ? result.value.definition : d)))
+      }
+      return result
+    })
+    return finishedRun
+  }, [folderPath, mutate, workspaceId])
 
   const toggleStatus = useCallback((def: AutomationDefinition) => mutate(def, async () => {
     const nextStatus: AutomationStatus = def.status === 'enabled' ? 'paused' : 'enabled'

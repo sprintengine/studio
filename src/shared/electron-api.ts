@@ -11,6 +11,7 @@ import type {
   AutomationsDeleteResult,
   AutomationsListResult,
   AutomationsProvidersResult,
+  AutomationsRunEvent,
   AutomationsRunNowResult,
   AutomationsRunsListInput,
   AutomationsRunsListResult,
@@ -1075,7 +1076,7 @@ export type GitConflictFileContent = {
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
-export type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'update' | 'voice' | 'workspace'
+export type DiagnosticSource = 'auth' | 'automations' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'update' | 'voice' | 'workspace'
 
 export type DiagnosticLogInput = {
   level: DiagnosticLevel
@@ -1771,6 +1772,7 @@ export type ElectronApi = {
   runAutomationNow: (input: AutomationsDefinitionInput) => Promise<AutomationsRunNowResult>
   listAutomationRuns: (input: AutomationsRunsListInput) => Promise<AutomationsRunsListResult>
   listAutomationProviders: () => Promise<AutomationsProvidersResult>
+  onAutomationRunEvent: (cb: (event: AutomationsRunEvent) => void) => () => void
   authGetState: () => Promise<MulticodeAuthState>
   authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
   authLogout: () => Promise<{ loggedOut: true }>

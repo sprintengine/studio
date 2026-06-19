@@ -18,16 +18,19 @@ import {
 // `window.api` automations bridge; reloads whenever the definition's lastRunId
 // changes (e.g. after a run-now).
 export function AutomationDetailPane({
-  definition, workspaceRoot, now, onOpenAgent,
+  definition, workspaceRoot, now, focusRunId, onOpenAgent,
 }: {
   definition: AutomationDefinition
   workspaceRoot: string
   now: number
+  /** A run to scroll into view and briefly highlight (notification deep link). */
+  focusRunId?: string | null
   onOpenAgent: (workspaceId: string, agentId?: string) => void
 }) {
   const [runs, setRuns] = useState<AutomationRun[]>([])
   const [state, setState] = useState<AsyncState>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [highlightRunId, setHighlightRunId] = useState<string | null>(null)
 
   const loadRuns = useCallback(async () => {
     if (!workspaceRoot) return
@@ -50,6 +53,17 @@ export function AutomationDetailPane({
   }, [workspaceRoot, definition.id, definition.lastRunId])
 
   useEffect(() => { void loadRuns() }, [loadRuns])
+
+  // Scroll the deep-linked run into view once history has loaded, and highlight
+  // it briefly so the eye lands on it. Instant scroll (no smooth behaviour) so
+  // it is reduced-motion safe.
+  useEffect(() => {
+    if (state !== 'ready' || !focusRunId || !runs.some((run) => run.id === focusRunId)) return
+    document.getElementById(`automation-run-${focusRunId}`)?.scrollIntoView({ block: 'nearest' })
+    setHighlightRunId(focusRunId)
+    const timer = window.setTimeout(() => setHighlightRunId(null), 2400)
+    return () => window.clearTimeout(timer)
+  }, [state, focusRunId, runs])
 
   const nextAt = parseTime(definition.nextRunAt)
   const lastAt = parseTime(definition.lastRunAt)
@@ -96,7 +110,7 @@ export function AutomationDetailPane({
         ) : (
           <ol className="flex flex-col">
             {runs.map((run) => (
-              <RunRow key={run.id} run={run} now={now} onOpenAgent={onOpenAgent} />
+              <RunRow key={run.id} run={run} now={now} highlighted={run.id === highlightRunId} onOpenAgent={onOpenAgent} />
             ))}
           </ol>
         )}
@@ -117,14 +131,20 @@ function Meta({ label, value }: { label: string; value: string }) {
 // Watchtower-style run row: leading lifecycle glyph (shape-coded), identifier in
 // mono, timing in tabular figures, and a trailing "Open agent" when a run
 // launched one.
-function RunRow({ run, now, onOpenAgent }: { run: AutomationRun; now: number; onOpenAgent: (workspaceId: string, agentId?: string) => void }) {
+function RunRow({ run, now, highlighted, onOpenAgent }: { run: AutomationRun; now: number; highlighted: boolean; onOpenAgent: (workspaceId: string, agentId?: string) => void }) {
   const dueAt = parseTime(run.dueAt)
   const startedAt = parseTime(run.startedAt)
   const completedAt = parseTime(run.completedAt)
   const stamp = completedAt ?? startedAt ?? dueAt
 
   return (
-    <li className="flex items-start gap-2 border-b border-[color:var(--border-subtle)] py-2 last:border-b-0">
+    <li
+      id={`automation-run-${run.id}`}
+      className={[
+        'flex items-start gap-2 border-b border-[color:var(--border-subtle)] py-2 transition-colors last:border-b-0',
+        highlighted ? 'bg-[color:var(--accent-primary-soft)]' : '',
+      ].join(' ')}
+    >
       <LifecycleGlyph
         state={RUN_LIFECYCLE[run.status]}
         live={run.status === 'running'}

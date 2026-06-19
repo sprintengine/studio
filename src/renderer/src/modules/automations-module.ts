@@ -2,6 +2,7 @@ import React from 'react'
 
 import type { RendererModule } from './renderer-host'
 import { registerAutomationsWorkspaceTypes } from './automations-workspace-types'
+import { dispatchRevealTarget } from '../utils/revealTarget'
 
 // Lazy so the control-center bundle only loads when an automations workspace is
 // actually rendered — never when the module is disabled.
@@ -25,5 +26,29 @@ export const automationsRendererModule: RendererModule = {
   registerRenderer(host) {
     host.registerPanel('automations-control-center', AutomationsPanel)
     registerAutomationsWorkspaceTypes(host)
+    // Deep-link from an automations run notification to the run it is about. The
+    // shell reveals the workspace; this provider adds the control-center run
+    // focus on top when the notification carries a `{ kind: 'run' }` target.
+    // With no run target it returns nothing and the shell's workspace-reveal
+    // fallback still gives the user an Open. Shared infra: the T13 background-run
+    // observer reuses this provider rather than registering a second one.
+    host.registerNotificationActionProvider({
+      source: 'automations',
+      resolveActions: ({ notification, revealWorkspace }) => {
+        const workspaceId = notification.workspaceId
+        const target = notification.navigationTarget
+        if (!workspaceId || target?.kind !== 'run' || !target.ref) return []
+        return [
+          {
+            id: 'automations.open-run',
+            label: 'Open',
+            run: () => {
+              revealWorkspace(workspaceId)
+              dispatchRevealTarget({ workspaceId, target })
+            },
+          },
+        ]
+      },
+    })
   },
 }
