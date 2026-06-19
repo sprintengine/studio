@@ -1,7 +1,7 @@
 import React from 'react'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
-import { ChangePulse, FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, Tooltip } from '../ui'
+import { ChangePulse, FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, TONE_COLOR_VAR, TONE_SOFT_VAR, Tooltip } from '../ui'
 import type { SessionUser } from '../../../../shared/electron-api'
 import { hasActiveProPlan } from './workspaceManagerHelpers'
 import CliIcon from '../CliIcon'
@@ -311,8 +311,8 @@ function accountTier(authState: MulticodeAuthState): AccountTier {
 }
 
 const ACCOUNT_TIER_STYLE: Record<AccountTier, { color: string; soft: string; label: string }> = {
-  free: { color: 'var(--tone-good)', soft: 'var(--tone-good-soft)', label: 'Free' },
-  pro: { color: 'var(--tone-warn)', soft: 'var(--tone-warn-soft)', label: 'Pro' },
+  free: { color: TONE_COLOR_VAR.good, soft: TONE_SOFT_VAR.good, label: 'Free' },
+  pro: { color: TONE_COLOR_VAR.warn, soft: TONE_SOFT_VAR.warn, label: 'Pro' },
 }
 
 // Neutral person glyph shown when no display name/email initials are available,
@@ -1036,7 +1036,7 @@ export default function WorkspaceTopBar({
                             color: tierStyle.color,
                           }}
                         >
-                          {initials === '?' ? <AccountUserGlyph className="h-3.5 w-3.5" /> : initials}
+                          {initials === '?' ? <AccountUserGlyph className="icon-sm" /> : initials}
                         </span>
                       </button>
                     </Tooltip>
