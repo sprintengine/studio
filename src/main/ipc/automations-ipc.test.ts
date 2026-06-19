@@ -380,11 +380,45 @@ async function testDefinitionRoundTripAndRunNow(): Promise<void> {
   if (!runs.ok) return
   assert.deepEqual(runs.value.map((run) => run.status), ['completed'])
 
+  const store = new AutomationsStore(workspaceRoot)
+  const stateBeforeDelete = await store.readState()
+  assert.equal(stateBeforeDelete.ok, true)
+  if (!stateBeforeDelete.ok) return
+  const seededState = await store.writeState({
+    ...(stateBeforeDelete.value ?? { nextRunAtByAutomationId: {}, lock: null }),
+    triggerEventDedupByAutomationId: {
+      ...(stateBeforeDelete.value?.triggerEventDedupByAutomationId ?? {}),
+      'nightly-review': {
+        'repo-event:github:acme/repo#1:updated:2026-06-17T09:00:00.000Z': '2026-06-18T00:06:00.000Z',
+      },
+      'other-automation': {
+        'repo-event:github:acme/repo#2:updated:2026-06-17T09:00:00.000Z': '2026-06-18T00:06:00.000Z',
+      },
+    },
+    triggerBlockedReasonByAutomationId: {
+      ...(stateBeforeDelete.value?.triggerBlockedReasonByAutomationId ?? {}),
+      'nightly-review': 'Blocked before delete.',
+      'other-automation': 'Still blocked.',
+    },
+  })
+  assert.equal(seededState.ok, true)
+
   const deleted = await invoke<AutomationsDeleteResult>(handlers, AUTOMATIONS_DELETE_CHANNEL, {
     workspaceRoot,
     automationId: 'nightly-review',
   })
   assert.equal(deleted.ok, true)
+
+  const stateAfterDelete = await store.readState()
+  assert.equal(stateAfterDelete.ok, true)
+  if (!stateAfterDelete.ok) return
+  assert.equal(stateAfterDelete.value?.nextRunAtByAutomationId['nightly-review'], undefined)
+  assert.equal(stateAfterDelete.value?.triggerEventDedupByAutomationId?.['nightly-review'], undefined)
+  assert.equal(stateAfterDelete.value?.triggerBlockedReasonByAutomationId?.['nightly-review'], undefined)
+  assert.deepEqual(stateAfterDelete.value?.triggerEventDedupByAutomationId?.['other-automation'], {
+    'repo-event:github:acme/repo#2:updated:2026-06-17T09:00:00.000Z': '2026-06-18T00:06:00.000Z',
+  })
+  assert.equal(stateAfterDelete.value?.triggerBlockedReasonByAutomationId?.['other-automation'], 'Still blocked.')
 
   const afterDelete = await invoke<AutomationsListResult>(handlers, AUTOMATIONS_LIST_CHANNEL, { workspaceRoot })
   assert.equal(afterDelete.ok, true)

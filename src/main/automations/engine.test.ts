@@ -12,6 +12,7 @@ import type {
 import type { SwitchboardTaskRecord } from '../../shared/switchboard'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { AutomationsEngine, projectFoldersFromWorkspaceSyncSnapshot } from './engine'
+import { TRIGGER_EVENT_DEDUP_RETENTION_LIMIT } from './polling-trigger-runner'
 import { AutomationsStore, type AutomationStoreState } from './store'
 import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
 import { createRepoEventTriggerProvider, REPO_EVENT_TRIGGER_KIND } from './triggers/repo-event'
@@ -32,6 +33,7 @@ async function main(): Promise<void> {
   await assertStartupOverdueIsSkippedWithoutCatchup()
   await assertTickWaitsForStartupOverdueSkip()
   await assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart()
+  await assertRepoEventTriggerDedupStateIsBoundedAndRetainsRecentEvents()
   await assertRepoEventCreatedTriggerFiresFromImportMetadata()
   await assertRepoEventIgnoresForgedImportCommentAndInvalidStructuredTimestamp()
   await assertRepoEventTriggerBlocksWhenSwitchboardUnsynced()
@@ -692,6 +694,87 @@ async function assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart(): Promise
     state.ok && Object.keys(state.value?.triggerEventDedupByAutomationId?.['repo-event-watch'] ?? {}).length,
     2
   )
+}
+
+async function assertRepoEventTriggerDedupStateIsBoundedAndRetainsRecentEvents(): Promise<void> {
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  const baseNow = Date.parse('2026-06-17T10:00:00.000Z')
+  const baseExternalUpdatedAt = Date.parse('2026-06-17T09:00:00.000Z')
+  assert.equal((await store.createDefinition(repoEventDefinition())).ok, true)
+
+  const externalUpdatedAtForIndex = (index: number) =>
+    new Date(baseExternalUpdatedAt + index * 60_000).toISOString()
+  const sourceForIndex = (index: number) => ({
+    type: 'github' as const,
+    externalId: 'github-node-1',
+    externalKey: 'acme/repo#1',
+    externalUrl: 'https://github.com/acme/repo/issues/1',
+    externalUpdatedAt: externalUpdatedAtForIndex(index),
+  })
+
+  let now = baseNow
+  let syncedTasks: SwitchboardTaskRecord[] = [
+    switchboardTaskRecord({ source: sourceForIndex(0) }),
+  ]
+  const provider = createRepoEventTriggerProvider({
+    readAllTasks: async (input) => ({
+      ok: true,
+      workspaceRoot: input.workspaceRoot,
+      switchboardRoot: '/switchboard',
+      tasks: syncedTasks,
+      problems: [],
+    }),
+  })
+  const triggerPayloads: Record<string, unknown>[] = []
+  let runIndex = 0
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-repo-event-bound', folderPath: workspaceRoot }],
+    triggerProviders: [provider],
+    isIntegrationAvailable: (id) => id === 'module:switchboard',
+    now: () => now,
+    createRunId: () => `repo-event-bound-${runIndex += 1}`,
+    runAutomation: async (input) => {
+      triggerPayloads.push(input.triggerPayload)
+      return { status: 'completed', summary: 'Repo event handled.' }
+    },
+  })
+
+  const tickWithExternalUpdate = async (index: number) => {
+    now = baseNow + index * 1_000
+    syncedTasks = [switchboardTaskRecord({ source: sourceForIndex(index) })]
+    return await engine.tick()
+  }
+
+  const firstTick = await tickWithExternalUpdate(0)
+  assert.equal(firstTick.fired.length, 1)
+
+  const duplicateTick = await engine.tick()
+  assert.equal(duplicateTick.fired.length, 0)
+  assert.equal(triggerPayloads.length, 1)
+
+  const lastExternalUpdateIndex = TRIGGER_EVENT_DEDUP_RETENTION_LIMIT + 5
+  for (let index = 1; index <= lastExternalUpdateIndex; index += 1) {
+    const updateTick = await tickWithExternalUpdate(index)
+    assert.equal(updateTick.fired.length, 1)
+  }
+  assert.equal(triggerPayloads.length, lastExternalUpdateIndex + 1)
+
+  const state = await store.readState()
+  assert.equal(state.ok, true)
+  const dedupEntries = state.ok
+    ? Object.keys(state.value?.triggerEventDedupByAutomationId?.['repo-event-watch'] ?? {})
+    : []
+  assert.equal(dedupEntries.length, TRIGGER_EVENT_DEDUP_RETENTION_LIMIT)
+  assert.equal(dedupEntries.some((eventId) => eventId.endsWith(`:updated:${externalUpdatedAtForIndex(0)}`)), false)
+  assert.equal(
+    dedupEntries.some((eventId) => eventId.endsWith(`:updated:${externalUpdatedAtForIndex(lastExternalUpdateIndex)}`)),
+    true
+  )
+
+  const retainedDuplicate = await engine.tick()
+  assert.equal(retainedDuplicate.fired.length, 0)
+  assert.equal(triggerPayloads.length, lastExternalUpdateIndex + 1)
 }
 
 async function assertRepoEventCreatedTriggerFiresFromImportMetadata(): Promise<void> {

@@ -7,6 +7,8 @@ import type {
 import type { AutomationRunExecutor, AutomationsEngineEvaluationResult, AutomationsProjectFolder } from './engine'
 import { AutomationsStore, type AutomationStoreProblem, type AutomationStoreState } from './store'
 
+export const TRIGGER_EVENT_DEDUP_RETENTION_LIMIT = 100
+
 export type PollingTriggerEvaluationInput = {
   store: AutomationsStore
   state: AutomationStoreState
@@ -277,7 +279,39 @@ function markTriggerEventSeen(
 ): void {
   state.triggerEventDedupByAutomationId = state.triggerEventDedupByAutomationId ?? {}
   state.triggerEventDedupByAutomationId[automationId] = state.triggerEventDedupByAutomationId[automationId] ?? {}
-  state.triggerEventDedupByAutomationId[automationId][eventId] = seenAt
+  const automationEvents = state.triggerEventDedupByAutomationId[automationId]
+  automationEvents[eventId] = seenAt
+  pruneTriggerEventDedup(automationEvents)
+}
+
+function pruneTriggerEventDedup(events: Record<string, string>): void {
+  const entries = Object.entries(events)
+  if (entries.length <= TRIGGER_EVENT_DEDUP_RETENTION_LIMIT) return
+
+  const retainedEventIds = new Set(
+    entries
+      .sort(compareTriggerEventDedupEntriesNewestFirst)
+      .slice(0, TRIGGER_EVENT_DEDUP_RETENTION_LIMIT)
+      .map(([eventId]) => eventId)
+  )
+  for (const eventId of Object.keys(events)) {
+    if (!retainedEventIds.has(eventId)) delete events[eventId]
+  }
+}
+
+function compareTriggerEventDedupEntriesNewestFirst(
+  [leftEventId, leftSeenAt]: [string, string],
+  [rightEventId, rightSeenAt]: [string, string]
+): number {
+  const leftTimestamp = triggerEventDedupTimestamp(leftSeenAt)
+  const rightTimestamp = triggerEventDedupTimestamp(rightSeenAt)
+  if (leftTimestamp !== rightTimestamp) return rightTimestamp - leftTimestamp
+  return rightEventId.localeCompare(leftEventId)
+}
+
+function triggerEventDedupTimestamp(value: string): number {
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY
 }
 
 function clearTriggerBlockedReasonState(state: AutomationStoreState, automationId: string): void {
