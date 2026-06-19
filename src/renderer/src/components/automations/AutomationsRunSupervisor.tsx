@@ -1,8 +1,7 @@
-import { useEffect } from 'react'
+import { useLayoutEffect } from 'react'
 
-import type { AutomationsRunEvent } from '../../../../shared/automations/contracts'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
-import { handleAutomationRunEvent } from './runTarget'
+import { subscribeAutomationRunNotifications } from './runTarget'
 
 // Always-mounted renderer observer of T12's automation run-event channel
 // (`window.api.onAutomationRunEvent`). It surfaces overnight/background run
@@ -21,6 +20,12 @@ import { handleAutomationRunEvent } from './runTarget'
 // at the top level — the run's folder is resolved on demand inside the handler
 // via a dynamic import (and only when an event actually arrives).
 //
+// Subscribes in `useLayoutEffect`, not `useEffect`: the run-event channel is
+// fire-and-forget with no replay, so the observer must attach during the commit
+// phase — before the browser paints and before the renderer returns to the event
+// loop to dispatch the next IPC message — to minimise the window where a
+// just-delivered scheduled-run event could arrive before the listener is live.
+//
 // Disjoint from T6 by design: scheduledRunNotification notifies ONLY on
 // `trigger:'timer'` failed/blocked events, so a manual Run-now is never
 // double-toasted. Reuses the source-'automations' action provider and the
@@ -28,19 +33,21 @@ import { handleAutomationRunEvent } from './runTarget'
 // surface. Observer only: it reads the store to resolve a folder but never
 // mutates it.
 export default function AutomationsRunSupervisor(): null {
-  useEffect(() => {
-    if (typeof window.api?.onAutomationRunEvent !== 'function') return
-    return window.api.onAutomationRunEvent((event: AutomationsRunEvent) => {
-      void import('../../store/workspaceStore').then(({ useWorkspaceStore }) => {
-        handleAutomationRunEvent(
-          event,
-          (workspaceId) =>
-            useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)?.folderPath ?? null,
-          publishDiagnosticSync,
-        )
-      })
-    })
-  }, [])
+  useLayoutEffect(
+    () =>
+      subscribeAutomationRunNotifications(
+        window.api,
+        () =>
+          import('../../store/workspaceStore').then(
+            ({ useWorkspaceStore }) =>
+              (workspaceId: string) =>
+                useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)?.folderPath ??
+                null,
+          ),
+        publishDiagnosticSync,
+      ),
+    [],
+  )
 
   return null
 }

@@ -82,6 +82,33 @@ export function handleAutomationRunEvent(
   if (diagnostic) publish(diagnostic)
 }
 
+/** The single capability the run observer needs from T12's preload bridge. */
+export type AutomationRunEventSource = {
+  onAutomationRunEvent?: (listener: (event: AutomationsRunEvent) => void) => () => void
+}
+
+// The always-mounted observer's complete subscription wiring, extracted from the
+// React component so the delivered-event -> publish boundary (tester C7/C9/C10:
+// the path that failed in built Electron) is exercised the same way the mounted
+// supervisor runs it — subscribe via `onAutomationRunEvent`, then per event
+// resolve the run folder and publish. The subscription is attached synchronously
+// (no async gap that could drop an early run-event); only the folder lookup is
+// deferred via `loadResolveFolderPath`, so the eager observer module stays free
+// of the workspace store / FlexLayout graph (bundled-ids drift guard). Returns
+// the unsubscribe, or a no-op when the channel is unavailable.
+export function subscribeAutomationRunNotifications(
+  api: AutomationRunEventSource | undefined,
+  loadResolveFolderPath: () => Promise<(workspaceId: string) => string | null>,
+  publish: (input: DiagnosticLogInput) => void,
+): () => void {
+  if (typeof api?.onAutomationRunEvent !== 'function') return () => {}
+  return api.onAutomationRunEvent((event) => {
+    void loadResolveFolderPath().then((resolveFolderPath) =>
+      handleAutomationRunEvent(event, resolveFolderPath, publish),
+    )
+  })
+}
+
 // Resolve the automations control-center workspace a run notification's Open
 // action should land on. Dedupe-first: reuse an existing automations workspace
 // for the run's folder; create one only if none exists, so Open reaches the

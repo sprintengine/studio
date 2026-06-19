@@ -6,7 +6,14 @@ import { createMultiloopTemplate } from './multiloop-workspace-types'
 import { createGuidedBriefTemplate, createSprintEngineTemplate } from './sprint-engine-workspace-types'
 import { createSwitchboardTemplate } from './switchboard-workspace-types'
 import { collectWorkspaceTypeSupervisors } from './workspace-type-supervisors'
-import { decodeRunRef, handleAutomationRunEvent, resolveAutomationsWorkspaceId, scheduledRunNotification } from '../components/automations/runTarget'
+import {
+  decodeRunRef,
+  handleAutomationRunEvent,
+  resolveAutomationsWorkspaceId,
+  scheduledRunNotification,
+  subscribeAutomationRunNotifications,
+  type AutomationRunEventSource,
+} from '../components/automations/runTarget'
 import type { DiagnosticLogInput } from '../types/workspace'
 import type { AutomationsRunEvent } from '../../../shared/automations/contracts'
 import type { LayoutTemplate, SprintEngineMockConfig } from '../types/workspace'
@@ -411,4 +418,69 @@ assert.deepEqual(
   assert.equal(completedPublished.length, 0, 'completed events publish nothing (low-noise)')
 }
 
-console.log('bundled workspace type registration tests passed')
+// T13 C7/C9/C15: the mounted observer's subscription boundary — the exact wiring
+// AutomationsRunSupervisor installs (subscribe to window.api.onAutomationRunEvent
+// -> resolve folder -> publish), which the handler-only tests above did not
+// cover. Proves a delivered timer failed/blocked event creates one
+// source-'automations' notification, manual/completed are ignored, the listener
+// is attached synchronously on mount, and the cleanup unsubscribes on unmount.
+async function runSubscriptionBoundaryTest(): Promise<void> {
+  let captured: ((event: AutomationsRunEvent) => void) | null = null
+  let unsubscribed = false
+  const api: AutomationRunEventSource = {
+    onAutomationRunEvent: (listener) => {
+      captured = listener
+      return () => {
+        unsubscribed = true
+      }
+    },
+  }
+  const published: DiagnosticLogInput[] = []
+  // Mirrors the component's async store-backed resolver, kept out of the eager graph.
+  const loadResolveFolderPath = async () => (workspaceId: string) =>
+    workspaceId === 'ws-project' ? '/repo/app' : null
+
+  const unsubscribe = subscribeAutomationRunNotifications(api, loadResolveFolderPath, (input) => published.push(input))
+  assert.ok(captured, 'observer subscribes to onAutomationRunEvent synchronously on mount (no async gap)')
+
+  const timerFailed: AutomationsRunEvent = {
+    automationId: 'auto-3',
+    runId: 'run-7',
+    workspaceId: 'ws-project',
+    definitionName: 'Nightly QA',
+    status: 'failed',
+    trigger: 'timer',
+  }
+  captured!(timerFailed)
+  captured!({ ...timerFailed, status: 'blocked' })
+  captured!({ ...timerFailed, trigger: 'manual' })
+  captured!({ ...timerFailed, status: 'completed' })
+  // Flush the deferred folder-resolution promise chain each delivered event queued.
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.equal(published.length, 2, 'only the timer failed + blocked events publish through the subscription')
+  assert.equal(published[0].source, 'automations')
+  assert.equal(published[0].level, 'error', 'delivered timer failed event is error severity')
+  assert.equal(published[1].level, 'warning', 'delivered timer blocked event is warning severity')
+  assert.deepEqual(
+    decodeRunRef(published[0].navigationTarget!.ref),
+    { automationId: 'auto-3', runId: 'run-7', folderPath: '/repo/app' },
+    'subscribed observer resolves the run folder for Open',
+  )
+
+  unsubscribe()
+  assert.ok(unsubscribed, 'cleanup unsubscribes the observer on unmount')
+
+  // Channel unavailable (older preload / disabled bridge): subscribing is a safe
+  // no-op cleanup, never a throw at mount.
+  const noopCleanup = subscribeAutomationRunNotifications({}, loadResolveFolderPath, () => {})
+  noopCleanup()
+}
+
+void runSubscriptionBoundaryTest().then(
+  () => console.log('bundled workspace type registration tests passed'),
+  (error) => {
+    console.error(error)
+    process.exit(1)
+  },
+)
