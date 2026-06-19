@@ -80,6 +80,13 @@ type ServerEntry = {
 const DEFAULT_WEBHOOK_HOST = '127.0.0.1'
 const MAX_WEBHOOK_BODY_BYTES = 256 * 1024
 
+export class AutomationWebhookReceiverRefreshError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'AutomationWebhookReceiverRefreshError'
+  }
+}
+
 export class AutomationWebhookReceiver {
   private readonly getProjectFolders: AutomationWebhookReceiverOptions['getProjectFolders']
   private readonly createStore: (workspaceRoot: string) => AutomationsStore
@@ -87,6 +94,8 @@ export class AutomationWebhookReceiver {
   private readonly now: () => number
   private readonly host: string
   private readonly servers = new Map<number, ServerEntry>()
+  private operationQueue: Promise<void> = Promise.resolve()
+  private mutationGeneration = 0
   private routes = new Map<string, WebhookTarget[]>()
   private targetCount = 0
   private lastError: string | null = null
@@ -100,29 +109,18 @@ export class AutomationWebhookReceiver {
   }
 
   async refresh(): Promise<AutomationWebhookReceiverStatus> {
-    const load = await this.loadRoutes()
-    this.routes = load.routes
-    this.targetCount = load.targetCount
-    this.lastError = load.error
-
-    const desiredPorts = new Set(load.ports)
-    for (const port of [...this.servers.keys()]) {
-      if (!desiredPorts.has(port)) await this.stopServer(port)
-    }
-
-    for (const port of desiredPorts) {
-      if (this.servers.has(port)) continue
-      const started = await this.startServer(port)
-      if (!started.ok) this.lastError = started.message
-    }
-
-    return this.status()
+    const generation = this.mutationGeneration += 1
+    return this.enqueueMutation(async () => this.refreshLatest(generation))
   }
 
   async stop(): Promise<void> {
-    await Promise.all([...this.servers.keys()].map((port) => this.stopServer(port)))
-    this.routes = new Map()
-    this.targetCount = 0
+    this.mutationGeneration += 1
+    await this.enqueueMutation(async () => {
+      await this.stopAllServers()
+      this.routes = new Map()
+      this.targetCount = 0
+      this.lastError = null
+    })
   }
 
   status(): AutomationWebhookReceiverStatus {
@@ -215,6 +213,64 @@ export class AutomationWebhookReceiver {
         ? 'duplicate'
         : 'ignored'
     return { ok: true, status, fired, duplicates, ignored, inFlight, runIds }
+  }
+
+  private async refreshLatest(generation: number): Promise<AutomationWebhookReceiverStatus> {
+    const load = await this.loadRoutes()
+    if (!this.isLatestMutation(generation)) return this.status()
+    if (load.error) {
+      await this.failClosed(load.error)
+    }
+
+    const desiredPorts = new Set(load.ports)
+    for (const port of [...this.servers.keys()]) {
+      if (!this.isLatestMutation(generation)) return this.status()
+      if (!desiredPorts.has(port)) await this.stopServer(port)
+    }
+
+    const startErrors: string[] = []
+    for (const port of desiredPorts) {
+      if (!this.isLatestMutation(generation)) return this.status()
+      if (this.servers.has(port)) continue
+      const started = await this.startServer(port)
+      if (!this.isLatestMutation(generation)) {
+        await this.stopAllServers()
+        return this.status()
+      }
+      if (!started.ok) startErrors.push(started.message)
+    }
+
+    if (startErrors.length > 0) {
+      await this.failClosed(startErrors.join('; '))
+    }
+
+    if (!this.isLatestMutation(generation)) return this.status()
+    this.routes = load.routes
+    this.targetCount = load.targetCount
+    this.lastError = null
+    return this.status()
+  }
+
+  private enqueueMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.operationQueue.then(operation, operation)
+    this.operationQueue = run.then(() => undefined, () => undefined)
+    return run
+  }
+
+  private isLatestMutation(generation: number): boolean {
+    return generation === this.mutationGeneration
+  }
+
+  private async failClosed(message: string): Promise<never> {
+    await this.stopAllServers()
+    this.routes = new Map()
+    this.targetCount = 0
+    this.lastError = message
+    throw new AutomationWebhookReceiverRefreshError(message)
+  }
+
+  private async stopAllServers(): Promise<void> {
+    await Promise.all([...this.servers.keys()].map((port) => this.stopServer(port)))
   }
 
   private async loadRoutes(): Promise<{
@@ -369,9 +425,8 @@ function normalizeDeliveryPath(value: string): string | null {
   } catch {
     pathname = value
   }
-  if (pathname.startsWith(WEBHOOK_ROUTE_PREFIX)) {
-    pathname = pathname.slice(WEBHOOK_ROUTE_PREFIX.length)
-  }
+  if (!pathname.startsWith(WEBHOOK_ROUTE_PREFIX)) return null
+  pathname = pathname.slice(WEBHOOK_ROUTE_PREFIX.length)
   pathname = pathname.replace(/^\/+/u, '').trim()
   return pathname || null
 }

@@ -134,14 +134,20 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         },
         {
           start: async () => {
-            engine.start()
             await webhookReceiver.refresh()
+            engine.start()
           },
           stop: async () => {
             await webhookReceiver.stop()
             engine.stop()
           },
-          status: () => ({ state: engine.isRunning() ? 'running' : 'stopped' }),
+          status: () => {
+            const receiverStatus = webhookReceiver.status()
+            return {
+              state: receiverStatus.error ? 'failed' : engine.isRunning() ? 'running' : 'stopped',
+              ...(receiverStatus.error ? { error: `Webhook receiver: ${receiverStatus.error}` } : {}),
+            }
+          },
         }
       )
 

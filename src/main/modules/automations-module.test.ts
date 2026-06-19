@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdtemp } from 'node:fs/promises'
+import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMain } from 'electron'
@@ -13,6 +14,7 @@ import type {
   AutomationsProvidersResult,
 } from '../../shared/automations/contracts'
 import type { AutomationsEngine, AutomationsEngineOptions } from '../automations/engine'
+import { AutomationsStore } from '../automations/store'
 import type { AutomationProviderPermissionChecker } from '../automations/provider-registry'
 import type { CapabilityModule } from '../module-host/load-modules'
 import type { IpcInvokeHandler } from '../module-host/main-host'
@@ -241,6 +243,30 @@ function workspaceSnapshot(folderPath: string): unknown {
   }
 }
 
+async function listenOnEphemeralPort(): Promise<{ server: Server; port: number }> {
+  const server = createServer()
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject)
+      resolve()
+    })
+  })
+  const address = server.address()
+  if (!address || typeof address !== 'object') throw new Error('Unable to read test server port.')
+  return { server, port: address.port }
+}
+
+async function closeHttpServer(server: Server): Promise<void> {
+  if (!server.listening) return
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error)
+      else resolve()
+    })
+  })
+}
+
 type FakeAutomationsEngine = Pick<AutomationsEngine, 'start' | 'stop' | 'isRunning' | 'runNow'> & {
   startCount: number
   stopCount: number
@@ -310,6 +336,46 @@ async function testEnabledModuleRegistersStartupSidecarAndIpc(): Promise<void> {
   assert.equal(kernel.sidecarStatuses().find((status) => status.id === 'automations-engine')?.state, 'running')
   await kernel.runShutdown()
   assert.equal(kernel.sidecarStatuses().find((status) => status.id === 'automations-engine')?.state, 'stopped')
+}
+
+async function testWebhookReceiverFailureIsVisibleInSidecarStatus(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-automations-module-webhook-'))
+  const occupied = await listenOnEphemeralPort()
+  const store = new AutomationsStore(workspaceRoot)
+  assert.equal((await store.createDefinition(automationDefinition(workspaceRoot, {
+    id: 'webhook-status-error',
+    name: 'Webhook status error',
+    trigger: {
+      kind: WEBHOOK_TRIGGER_KIND,
+      config: {
+        kind: WEBHOOK_TRIGGER_KIND,
+        enabled: true,
+        port: occupied.port,
+        path: 'status-error',
+        secret: 'test-webhook-secret-status',
+      },
+    },
+    nextRunAt: null,
+  }))).ok, true)
+
+  const { ipcMain } = createFakeIpcMain()
+  const { kernel } = loadMainModules({
+    ipcMain,
+    modules: [
+      fakeAgentRuntimeModule({ workspaceSnapshot: workspaceSnapshot(workspaceRoot) }),
+      createAutomationsModule(),
+    ],
+  })
+
+  try {
+    await kernel.runStartup()
+    const status = kernel.sidecarStatuses().find((candidate) => candidate.id === 'automations-engine')
+    assert.equal(status?.state, 'failed')
+    assert.match(status?.error ?? '', /Webhook receiver: .*EADDRINUSE|address already in use|listen/u)
+  } finally {
+    await kernel.runShutdown()
+    await closeHttpServer(occupied.server)
+  }
 }
 
 async function testDisabledModuleRegistersNoSidecarOrIpc(): Promise<void> {
@@ -648,6 +714,7 @@ function testBroadcastRunEventUsesAutomationsChannelAndSkipsFailedWindows(): voi
 
 async function main(): Promise<void> {
   await testEnabledModuleRegistersStartupSidecarAndIpc()
+  await testWebhookReceiverFailureIsVisibleInSidecarStatus()
   await testDisabledModuleRegistersNoSidecarOrIpc()
   await testLiveEnablementToggleStopsUnregistersAndRestarts()
   await testModuleExecutorUsesRealDirtyCheckBeforeLaunch()

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdtemp } from 'node:fs/promises'
+import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -42,6 +43,7 @@ async function main(): Promise<void> {
   await assertPollingTriggersUseProviderGetterAtEvaluationTime()
   await assertDeniedTriggerProviderIsInertBeforePolling()
   await assertWebhookReceiverOptInAuthAndDedupesDeliveredEvents()
+  await assertWebhookReceiverRefreshSerializesAndFailsClosed()
   await assertStartupOverdueIsSkippedWithoutCatchup()
   await assertTickWaitsForStartupOverdueSkip()
 }
@@ -95,6 +97,30 @@ function weeklyConfig(timeLocal: string, daysOfWeek: number[]): ScheduleTriggerC
 
 async function createWorkspace(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'multicode-automations-engine-'))
+}
+
+async function listenOnEphemeralPort(): Promise<{ server: Server; port: number }> {
+  const server = createServer()
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject)
+      resolve()
+    })
+  })
+  const address = server.address()
+  if (!address || typeof address !== 'object') throw new Error('Unable to read test server port.')
+  return { server, port: address.port }
+}
+
+async function closeHttpServer(server: Server): Promise<void> {
+  if (!server.listening) return
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error)
+      else resolve()
+    })
+  })
 }
 
 class InMemoryAutomationsStore extends AutomationsStore {
@@ -639,6 +665,16 @@ async function assertWebhookReceiverOptInAuthAndDedupesDeliveredEvents(): Promis
       ...baseHeaders,
       [WEBHOOK_SIGNATURE_HEADER]: createWebhookSignature(secret, rawBody),
     }
+    const unprefixed = await receiver.deliver({
+      port: 0,
+      path: '/incoming-review',
+      headers: validHeaders,
+      rawBody,
+    })
+    assert.equal(unprefixed.ok, false)
+    assert.equal(unprefixed.ok ? '' : unprefixed.code, 'webhook_route_not_found')
+    assert.equal(triggerPayloads.length, 0)
+
     const delivered = await receiver.deliver({
       port: 0,
       path: webhookEndpointPath('incoming-review'),
@@ -694,6 +730,118 @@ async function assertWebhookReceiverOptInAuthAndDedupesDeliveredEvents(): Promis
     )
   } finally {
     await receiver.stop()
+  }
+}
+
+async function assertWebhookReceiverRefreshSerializesAndFailsClosed(): Promise<void> {
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  const secret = 'test-webhook-secret-serial'
+  const enabled = definition({
+    id: 'webhook-serial',
+    name: 'Webhook serial',
+    trigger: {
+      kind: WEBHOOK_TRIGGER_KIND,
+      config: {
+        kind: WEBHOOK_TRIGGER_KIND,
+        enabled: true,
+        port: 0,
+        path: 'first-route',
+        secret,
+      },
+    },
+    nextRunAt: null,
+  })
+  assert.equal((await store.createDefinition(enabled)).ok, true)
+
+  const receiver = new AutomationWebhookReceiver({
+    getProjectFolders: () => [{ workspaceId: 'ws-webhooks', folderPath: workspaceRoot }],
+    deliverTriggerEvent: async () => {
+      throw new Error('webhook serial refresh test should not deliver events')
+    },
+  })
+
+  try {
+    const firstRefresh = receiver.refresh()
+    assert.equal((await store.updateDefinition({
+      ...enabled,
+      trigger: {
+        kind: WEBHOOK_TRIGGER_KIND,
+        config: {
+          kind: WEBHOOK_TRIGGER_KIND,
+          enabled: true,
+          port: 0,
+          path: 'second-route',
+          secret,
+        },
+      },
+      updatedAt: '2026-06-17T10:01:00.000Z',
+    })).ok, true)
+    const secondRefresh = receiver.refresh()
+    assert.equal((await store.updateDefinition({
+      ...enabled,
+      trigger: {
+        kind: WEBHOOK_TRIGGER_KIND,
+        config: { kind: WEBHOOK_TRIGGER_KIND, enabled: false },
+      },
+      updatedAt: '2026-06-17T10:02:00.000Z',
+    })).ok, true)
+    const thirdRefresh = receiver.refresh()
+
+    const refreshes = await Promise.allSettled([firstRefresh, secondRefresh, thirdRefresh])
+    assert.equal(refreshes.every((result) => result.status === 'fulfilled'), true)
+    const finalStatus = receiver.status()
+    assert.equal(finalStatus.state, 'stopped')
+    assert.equal(finalStatus.targetCount, 0)
+
+    for (const path of [webhookEndpointPath('first-route'), webhookEndpointPath('second-route')]) {
+      const stale = await receiver.deliver({ port: 0, path, headers: {}, rawBody: '{}' })
+      assert.equal(stale.ok, false)
+      assert.equal(stale.ok ? '' : stale.code, 'webhook_route_not_found')
+    }
+  } finally {
+    await receiver.stop()
+  }
+
+  const occupied = await listenOnEphemeralPort()
+  const conflictReceiver = new AutomationWebhookReceiver({
+    getProjectFolders: () => [{ workspaceId: 'ws-webhooks', folderPath: workspaceRoot }],
+    deliverTriggerEvent: async () => {
+      throw new Error('webhook conflict refresh test should not deliver events')
+    },
+  })
+  try {
+    assert.equal((await store.updateDefinition({
+      ...enabled,
+      trigger: {
+        kind: WEBHOOK_TRIGGER_KIND,
+        config: {
+          kind: WEBHOOK_TRIGGER_KIND,
+          enabled: true,
+          port: occupied.port,
+          path: 'conflict-route',
+          secret,
+        },
+      },
+      updatedAt: '2026-06-17T10:03:00.000Z',
+    })).ok, true)
+
+    await assert.rejects(() => conflictReceiver.refresh(), /EADDRINUSE|address already in use|listen/u)
+    const failedStatus = conflictReceiver.status()
+    assert.equal(failedStatus.state, 'stopped')
+    assert.equal(failedStatus.targetCount, 0)
+    assert.match(failedStatus.error ?? '', /EADDRINUSE|address already in use|listen/u)
+    const stale = await conflictReceiver.deliver({
+      port: occupied.port,
+      path: webhookEndpointPath('conflict-route'),
+      headers: {},
+      rawBody: '{}',
+    })
+    assert.equal(stale.ok, false)
+    assert.equal(stale.ok ? '' : stale.code, 'webhook_route_not_found')
+  } finally {
+    await conflictReceiver.stop()
+    await closeHttpServer(occupied.server)
   }
 }
 

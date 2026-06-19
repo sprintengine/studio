@@ -125,7 +125,8 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     if (!created.ok) return storeError(created.error)
     const state = await writeNextRunCache(store, prepared.value.id, prepared.value.nextRunAt)
     if (!state.ok) return storeError(state.error)
-    await notifyDefinitionsChanged(deps, parsed.value.workspaceRoot)
+    const notified = await notifyDefinitionsChanged(deps, parsed.value.workspaceRoot)
+    if (!notified.ok) return notified
     return ok(created.value)
   })
 
@@ -158,7 +159,8 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     if (!written.ok) return storeError(written.error)
     const state = await writeNextRunCache(store, prepared.value.id, prepared.value.nextRunAt)
     if (!state.ok) return storeError(state.error)
-    await notifyDefinitionsChanged(deps, parsed.value.workspaceRoot)
+    const notified = await notifyDefinitionsChanged(deps, parsed.value.workspaceRoot)
+    if (!notified.ok) return notified
     return ok(written.value)
   })
 
@@ -171,7 +173,8 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     if (!deleted.ok) return storeError(deleted.error)
     const state = await writeNextRunCache(store, parsed.value.automationId, null, true)
     if (!state.ok) return storeError(state.error)
-    await notifyDefinitionsChanged(deps, parsed.value.workspaceRoot)
+    const notified = await notifyDefinitionsChanged(deps, parsed.value.workspaceRoot)
+    if (!notified.ok) return notified
     return ok({ automationId: parsed.value.automationId })
   })
 
@@ -503,11 +506,18 @@ function engineRunNowResult(result: AutomationsEngineRunNowResult): AutomationsR
   return fail(result.problem.code, result.problem.message)
 }
 
-async function notifyDefinitionsChanged(deps: AutomationsIpcDependencies, workspaceRoot: string): Promise<void> {
+async function notifyDefinitionsChanged(
+  deps: AutomationsIpcDependencies,
+  workspaceRoot: string
+): Promise<AutomationsResult<void>> {
   try {
     await deps.onDefinitionsChanged?.(workspaceRoot)
-  } catch {
-    // Definition writes are authoritative; receiver refresh will retry on the next lifecycle or definition change.
+    return ok(undefined)
+  } catch (error) {
+    return fail(
+      'webhook_receiver_refresh_failed',
+      error instanceof Error ? error.message : 'Webhook receiver refresh failed.'
+    )
   }
 }
 
