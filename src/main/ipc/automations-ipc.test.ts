@@ -487,6 +487,25 @@ async function testDefinitionWritesNotifyRefreshHook(): Promise<void> {
   assert.deepEqual(refreshRoots, [workspaceRoot, workspaceRoot, workspaceRoot])
 }
 
+async function testDefinitionWriteSurfacesRefreshHookFailure(): Promise<void> {
+  currentNow = Date.parse('2026-06-18T00:00:00.000Z')
+  const workspaceRoot = await withWorkspaceRoot()
+  const handlers = createFakeHost({
+    workspaceRoots: [workspaceRoot],
+    onDefinitionsChanged: () => {
+      throw new Error('receiver failed closed')
+    },
+  })
+
+  const created = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_CREATE_CHANNEL, {
+    workspaceRoot,
+    definition: definitionDraft({ id: 'webhook-refresh-failure' }),
+  })
+  assert.equal(created.ok, false)
+  assert.equal(created.ok ? '' : created.code, 'webhook_receiver_refresh_failed')
+  assert.match(created.ok ? '' : created.message, /receiver failed closed/u)
+}
+
 async function testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow(): Promise<void> {
   const knownRoot = await withWorkspaceRoot()
   const outsideRoot = await mkdtemp(join(tmpdir(), 'multicode-automations-ipc-outside-'))
@@ -541,6 +560,7 @@ async function main(): Promise<void> {
   await testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
   await testDefinitionRoundTripAndRunNow()
   await testDefinitionWritesNotifyRefreshHook()
+  await testDefinitionWriteSurfacesRefreshHookFailure()
   await testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow()
   console.log('automations-ipc tests passed')
 }
