@@ -428,8 +428,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
   // Capability-module gate. Host-registered panels (editor, git, sprintengine,
   // switchboard, multiloop, memory-graph, …) are gated generically in the
   // factory's default case by their owning module's enablement, so a disabled
-  // module's panel falls back to an empty surface and PanelRail hides its
-  // button. Only the panels with bespoke props (file-editor, explorer, the
+  // module's panel falls back to the explicit DISABLED_SURFACE and PanelRail
+  // hides its button. Only the panels with bespoke props (file-editor, explorer, the
   // sprintengine fixed-view/summary fallbacks, guided-brief, git-conflict) need
   // an explicit gated arm below; those read enablement from this single
   // overrides object.
@@ -530,7 +530,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
         case 'guided-brief':
           // Guided Brief hands its build off to a Sprint Engine run, so it
           // follows sprint-engine enablement: a stale guided-brief workspace
-          // blanks when Sprint Engine is disabled, matching the other modes.
+          // shows the explicit unavailable surface when Sprint Engine is
+          // disabled, matching the other modes.
           return sprintEngineEnabled
             ? timedPanel(
               'GuidedBriefWorkspacePanel',

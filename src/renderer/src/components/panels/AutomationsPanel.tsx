@@ -47,7 +47,7 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
   const {
     definitions, providers, loadState, loadError, actionError, busyId,
     load, clearActionError, runNow, toggleStatus, remove, applySaved,
-  } = useAutomationsController(folderPath)
+  } = useAutomationsController({ folderPath, workspaceId })
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
