@@ -1078,6 +1078,15 @@ export type GitConflictFileContent = {
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
 export type DiagnosticSource = 'auth' | 'automations' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'update' | 'voice' | 'workspace'
 
+// Serializable deep-focus target for a notification's Open action. Mirrors the
+// renderer `NotificationNavigationTarget` (src/renderer/src/types/workspace.ts);
+// declared here so a diagnostic's navigation target is an explicit part of the
+// logDiagnostic IPC contract rather than an undeclared passthrough.
+export type NotificationNavigationTarget = {
+  kind: string
+  ref: string
+}
+
 export type DiagnosticLogInput = {
   level: DiagnosticLevel
   source: DiagnosticSource
@@ -1089,6 +1098,7 @@ export type DiagnosticLogInput = {
   agentId?: string
   taskId?: string
   sessionId?: string
+  navigationTarget?: NotificationNavigationTarget
 }
 
 export type DiagnosticLogEntry = DiagnosticLogInput & {

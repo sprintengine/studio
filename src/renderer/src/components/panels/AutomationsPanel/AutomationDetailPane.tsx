@@ -18,13 +18,15 @@ import {
 // `window.api` automations bridge; reloads whenever the definition's lastRunId
 // changes (e.g. after a run-now).
 export function AutomationDetailPane({
-  definition, workspaceRoot, now, focusRunId, onOpenAgent,
+  definition, workspaceRoot, now, focusRunId, focusNonce, onOpenAgent,
 }: {
   definition: AutomationDefinition
   workspaceRoot: string
   now: number
   /** A run to scroll into view and briefly highlight (notification deep link). */
   focusRunId?: string | null
+  /** Changes on every Open action so re-opening the same run re-fires the scroll. */
+  focusNonce?: number
   onOpenAgent: (workspaceId: string, agentId?: string) => void
 }) {
   const [runs, setRuns] = useState<AutomationRun[]>([])
@@ -63,7 +65,7 @@ export function AutomationDetailPane({
     setHighlightRunId(focusRunId)
     const timer = window.setTimeout(() => setHighlightRunId(null), 2400)
     return () => window.clearTimeout(timer)
-  }, [state, focusRunId, runs])
+  }, [state, focusRunId, focusNonce, runs])
 
   const nextAt = parseTime(definition.nextRunAt)
   const lastAt = parseTime(definition.lastRunAt)

@@ -56,6 +56,10 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
   // the named definition has loaded, then the run is scrolled into view.
   const [pendingRunTarget, setPendingRunTarget] = useState<{ automationId: string; runId: string } | null>(null)
   const [focusRunId, setFocusRunId] = useState<string | null>(null)
+  // Bumped each time a reveal target is applied so re-opening the same run's
+  // notification re-triggers the scroll/highlight even though the run id is
+  // unchanged.
+  const [focusNonce, setFocusNonce] = useState(0)
   const listRef = useRef<HTMLUListElement>(null)
 
   // A slow clock so "in 3h" / "overdue" stay honest without churning the list.
@@ -140,6 +144,7 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
     setEditor(null)
     setSelectedId(pendingRunTarget.automationId)
     setFocusRunId(pendingRunTarget.runId)
+    setFocusNonce((n) => n + 1)
     setPendingRunTarget(null)
   }, [pendingRunTarget, definitions])
 
@@ -241,6 +246,7 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
                   workspaceRoot={folderPath ?? ''}
                   now={now}
                   focusRunId={selected.id === selectedId ? focusRunId : null}
+                  focusNonce={focusNonce}
                   onOpenAgent={(wsId, agentId) => {
                     // Focus the concrete launched agent tab (T10 reveal); fall
                     // back to activating the workspace when the run carries no
