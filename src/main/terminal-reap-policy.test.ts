@@ -29,7 +29,7 @@ function reapable(overrides: Partial<ReapCandidate> = {}): ReapCandidate {
     sessionId: 'sess-1',
     workspaceId: 'ws-cold',
     kind: 'agent',
-    cli: 'claude',
+    cli: 'claude-code',
     visible: false,
     processAlive: true,
     lastInteractionAt: STALE,
@@ -39,7 +39,19 @@ function reapable(overrides: Partial<ReapCandidate> = {}): ReapCandidate {
 }
 
 const HOT_NONE = new Set<string>()
-const POLICY = { now: NOW, idleThresholdMs: DEFAULT_SUSPEND_IDLE_AFTER_MS, resumableClis: ['claude'] }
+const POLICY = { now: NOW, idleThresholdMs: DEFAULT_SUSPEND_IDLE_AFTER_MS }
+
+run('any idle agent cli is reapable — the policy no longer gates on cli', () => {
+  // The reaper acts on any idle agent regardless of CLI; only kind/visibility/
+  // run-state/idle/hot-set decide. Codex (and any other agent cli) is now in.
+  for (const cli of ['claude-code', 'codex', 'some-future-cli', null]) {
+    assert.equal(
+      isSessionReapable(reapable({ cli }), HOT_NONE, POLICY),
+      true,
+      `expected reapable regardless of cli: ${cli ?? 'null'}`,
+    )
+  }
+})
 
 run('a cold, resumable agent with no recent user input is reapable', () => {
   assert.equal(isSessionReapable(reapable(), HOT_NONE, POLICY), true)
@@ -49,8 +61,6 @@ run('each safety gate independently keeps the terminal alive', () => {
   const cases: Array<[string, Partial<ReapCandidate>]> = [
     ['dead process', { processAlive: false }],
     ['plain shell (not agent)', { kind: 'terminal' }],
-    ['non-resumable cli (codex)', { cli: 'codex' }],
-    ['null cli', { cli: null }],
     ['visible on screen', { visible: true }],
     ['in active managed run', { inActiveRun: true }],
     ['null workspace', { workspaceId: null }],

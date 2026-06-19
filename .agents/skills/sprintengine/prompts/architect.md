@@ -131,6 +131,8 @@ Before adding or updating a task, copy the relevant implementation detail from `
 - `acceptance`: externally verifiable outcomes. Avoid vague criteria like "works correctly".
 - `note`: repeatable low-level details such as functions to update, state transitions, API contracts, edge cases, and rollback notes.
 
+Every acceptance criterion must be satisfiable when this task runs: it must be verifiable using files this task owns or files owned by a task it `dependsOn` and that is already done. Do not write a criterion whose only verification path is code owned by another task that has not run yet — for example a UI task whose acceptance requires an end-to-end flow through a launch/IPC path another task delivers. When you catch one, either add that task as a `dependsOn`, move the criterion onto the integrating or tester task that owns the cross-cutting path, or split it out. This is about sequencing, not editing: workers may still edit beyond `ownedPaths` when a change legitimately cascades — `ownedPaths` is the commit/collision boundary, not an edit cage.
+
 For review-only tasks:
 
 - Make the task review-only.

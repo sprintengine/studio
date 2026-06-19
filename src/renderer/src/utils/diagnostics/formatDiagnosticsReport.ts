@@ -45,6 +45,16 @@ function msOrDash(value: number | null): string {
   return value === null ? '—' : String(Math.round(value))
 }
 
+// Coarse human duration for a reap's idle/unseen window.
+function msWindow(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return '—'
+  const totalMinutes = Math.round(ms / 60_000)
+  if (totalMinutes < 60) return `${totalMinutes}m`
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
+}
+
 // Signed binary-unit delta, e.g. "+1.2 MiB" / "−300 KiB" / "0 B".
 function signedBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -190,6 +200,30 @@ export function formatDiagnosticsReport(input: {
       ])
     )
   )
+
+  const reapEvents = metrics?.reapEvents ?? []
+  if (reapEvents.length > 0) {
+    // Resolve reaped workspaces to their names where the aggregation still knows
+    // them; disposed workspaces fall back to the raw id.
+    const workspaceNameById = new Map<string, string>()
+    for (const workspace of aggregation.workspaces) {
+      if (workspace.workspaceName) workspaceNameById.set(workspace.workspaceId, workspace.workspaceName)
+    }
+    sections.push('## Reaped terminals')
+    sections.push(
+      table(
+        ['Reaped', 'Workspace', 'Agent/Term', 'Kind', 'Reason', 'Idle/unseen'],
+        reapEvents.map((event) => [
+          lastOutput(event.reapedAt, now),
+          (event.workspaceId ? workspaceNameById.get(event.workspaceId) : null) ?? event.workspaceId ?? '—',
+          event.agentId ?? event.terminalId ?? event.sessionId,
+          event.cli ? `${event.kind}·${event.cli}` : event.kind,
+          event.reason,
+          msWindow(event.idleMs ?? event.unseenMs ?? null),
+        ])
+      )
+    )
+  }
 
   if (longTasks) {
     sections.push('## Long tasks (main-thread stalls)')

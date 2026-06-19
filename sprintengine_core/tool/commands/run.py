@@ -791,7 +791,21 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
 
         if not active and not ready:
             if policy.get("stopWhenComplete") and all_tasks_done(state):
-                return {"ok": True, "role": args.role, "agentId": args.id, "action": "complete", "runner": policy, "message": "All Sprint Engine tasks are done. Stop now.", "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
+                finalize = finalize_completed_run(state, args.state, policy)
+                completion = {
+                    "ok": True,
+                    "role": args.role,
+                    "agentId": args.id,
+                    "action": "completion_blocked" if finalize.get("blocked") else "complete",
+                    "runner": policy,
+                    "message": finalize["message"],
+                    "releasedExpired": expired["released"],
+                    "write": True,
+                }
+                for key in ("pullRequestUrl", "pullRequestError", "alreadyExists", "orphanedUncommittedPaths"):
+                    if key in finalize:
+                        completion[key] = finalize[key]
+                return completion
             return {"ok": True, "role": args.role, "agentId": args.id, "action": "idle", "runner": policy, "message": f"No tasks or gates are currently ready for the '{args.role}' role.", "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
 
         directive = (
@@ -879,7 +893,11 @@ def cmd_vcs_status(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
-    from sprintengine_core.tool.shell import commit_run_worktree_paths, worktree_for_vcs
+    from sprintengine_core.tool.shell import (
+        commit_run_worktree_paths,
+        worktree_for_vcs,
+        worktree_orphaned_dirty_paths,
+    )
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         vcs = get_run_vcs(state)
@@ -896,7 +914,20 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
         if worktree and worktree.exists():
             from sprintengine_core.tool.shell import git_status_short
             dirty = git_status_short(worktree)
+        orphaned = worktree_orphaned_dirty_paths(state, args.state)
         recompute_phase(state)
+        base_message = (
+            f"Committed task {args.task_id} changes as {sha}."
+            if sha
+            else f"No in-scope changes to commit for task {args.task_id}."
+        )
+        if orphaned:
+            base_message += (
+                f" WARNING: {len(orphaned)} changed path(s) fall outside every task's owned paths and were NOT committed: "
+                f"{', '.join(orphaned)}. If they belong to this task, add them to the task's ownedPaths "
+                f"(`sprintengine plan update-task`) or pass `--path <file>`, then commit again — otherwise a clean "
+                f"checkout will be missing these files."
+            )
         return {
             "ok": True,
             "taskId": args.task_id,
@@ -905,11 +936,8 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
             "branchName": vcs.get("branchName"),
             "worktreePath": vcs.get("worktreePath"),
             "clean": not dirty,
-            "message": (
-                f"Committed task {args.task_id} changes as {sha}."
-                if sha
-                else f"No in-scope changes to commit for task {args.task_id}."
-            ),
+            "orphanedUncommittedPaths": orphaned,
+            "message": base_message,
         }
 
     return with_locked_state(args.state, run)
@@ -931,6 +959,77 @@ def cmd_vcs_pr(args: argparse.Namespace) -> Dict[str, Any]:
         return {"action": "vcs_pr", **result}
 
     return with_locked_state(args.state, run)
+
+
+def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict[str, Any]) -> Dict[str, Any]:
+    """Commit leftover task-scoped changes and open the run pull request at completion.
+
+    Runs only in worktree mode with ``openPullRequestOnComplete`` enabled. Returns
+    a dict with a ``blocked`` flag and a ``message``; when not blocked it carries
+    any ``pullRequestUrl``/``pullRequestError``. If the worktree still has changes
+    owned by no task after a backstop commit, the run is blocked instead of opening
+    a pull request over an incomplete tree.
+    """
+    from sprintengine_core.tool.shell import (
+        commit_task_changes_if_needed,
+        create_run_pull_request,
+        get_run_vcs,
+        worktree_orphaned_dirty_paths,
+    )
+
+    vcs = get_run_vcs(state)
+    if not vcs or not policy.get("openPullRequestOnComplete"):
+        return {"blocked": False, "message": "All Sprint Engine tasks are done. Stop now."}
+
+    # Backstop-commit any still-uncommitted task-scoped changes across all tasks.
+    for task in state.get("tasks", []) or []:
+        if isinstance(task, dict):
+            commit_task_changes_if_needed(state, state_path, task, "sprintengine")
+
+    orphaned = worktree_orphaned_dirty_paths(state, state_path)
+    if orphaned:
+        return {
+            "blocked": True,
+            "orphanedUncommittedPaths": orphaned,
+            "message": (
+                "All tasks are done but the run worktree has changes owned by no task and uncommitted: "
+                f"{', '.join(orphaned)}. These would be missing from the pull request. Add them to a task's "
+                "ownedPaths and commit (`sprintengine vcs commit`), or remove them, then complete again."
+            ),
+        }
+
+    existing_url = str(vcs.get("pullRequestUrl") or "").strip()
+    if existing_url:
+        return {
+            "blocked": False,
+            "pullRequestUrl": existing_url,
+            "alreadyExists": True,
+            "message": f"All tasks are done. Pull request already open: {existing_url}. Stop now.",
+        }
+
+    # Opening the PR is best-effort and must never prevent a completed run from
+    # completing. `create_run_pull_request` returns push/network errors, but
+    # `run_gh_checked` raises SystemExit when `gh` is not installed, so guard the
+    # whole call and surface any failure as a reported error instead.
+    try:
+        pr = create_run_pull_request(state, state_path)
+    except SystemExit as exc:
+        pr = {"ok": False, "error": str(exc)}
+    if not pr.get("ok"):
+        return {
+            "blocked": False,
+            "pullRequestError": pr.get("error"),
+            "message": (
+                "All tasks are done and changes are committed, but opening the pull request failed: "
+                f"{pr.get('error')}. Retry with `sprintengine vcs pr`. Stop now."
+            ),
+        }
+    url = pr.get("pullRequestUrl")
+    return {
+        "blocked": False,
+        "pullRequestUrl": url,
+        "message": f"All tasks are done. Opened pull request: {url or '(url unavailable)'}. Stop now.",
+    }
 
 
 def build_recovery_prompt(state: Dict[str, Any], state_path: Path, backup_path: Path) -> str:

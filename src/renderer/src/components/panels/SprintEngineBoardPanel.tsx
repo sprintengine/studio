@@ -544,6 +544,8 @@ function SprintEngineBoardPanelContent({
  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
  const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
+ const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
+ const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
  const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
  const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
  const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
@@ -960,12 +962,15 @@ function SprintEngineBoardPanelContent({
  // Installed agent CLI catalog (bundled + user plugins), replacing the old
  // hardcoded Codex/Claude pair so user-installed CLIs are spawnable here too.
  const cliOptions = useMemo(() => {
-   const catalog = selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes)
+   const catalog = selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, {
+     map: cliAvailability,
+     status: cliAvailabilityStatus,
+   })
    return catalog.map((option) => ({
      ...option,
      description: option.source === 'user' ? 'User-installed agent CLI' : 'Agent CLI plugin',
    }))
- }, [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes])
+ }, [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus])
  const selectedRecoveryCliOption =
  cliOptions.find((option) => option.value === recoveryDialog?.cli) ?? cliOptions[0]
  const hasPlannedTasks = sprintEngineState.tasks.length > 0

@@ -78,7 +78,7 @@ export async function runGuidedBriefScaffold(
   } catch (error) {
     if (error instanceof GuidedBriefWorkspaceError) {
       const wrapped = new GuidedBriefScaffoldError('unknown')
-      wrapped.message = `Could not scaffold the guided brief workspace (${error.code}).`
+      wrapped.message = `Could not set up the Design Wizard workspace (${error.code}).`
       throw wrapped
     }
     if (error instanceof Error) {
@@ -119,7 +119,7 @@ export async function runGuidedBriefScaffold(
     })
   }
 
-  const workspaceLabel = toTitleName(basename(folderPath)) || input.workspaceName.trim() || 'Guided brief'
+  const workspaceLabel = toTitleName(basename(folderPath)) || input.workspaceName.trim() || 'Design Wizard'
   const runtimeState: GuidedBriefRuntimeState = {
     workspaceRoot: folderPath,
     workspaceName: workspaceLabel,

@@ -118,6 +118,12 @@ export type WorkspaceSyncRoutingSnapshot = {
   sequence: number
   workspaceWindows: WorkspaceWindowState[]
   primaryWorkspaceWindowId: WorkspaceWindowId
+  // Display names by workspace id, captured at persist time. The routing
+  // snapshot otherwise only knows window->workspaceId routing, so a workspace
+  // restored from it but never re-hydrated by the renderer this session would
+  // surface its raw id (e.g. in the diagnostics Workspaces panel). Optional and
+  // best-effort: a missing entry falls back to the id.
+  workspaceNames?: Record<string, string>
 }
 
 export type WorkspaceSyncCommandResult =

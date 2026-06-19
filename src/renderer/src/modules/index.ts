@@ -1,6 +1,6 @@
 import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../shared/modules/manifest'
+import { activeForChannel } from '../../../shared/modules/dev-only'
 import { resolveModuleEnablement } from '../../../shared/modules/resolve'
-import { MODULE_PROFILES, profileEnables, type ModuleProfileId } from '../../../shared/modules/profiles'
 import { agentRuntimeRendererModule } from './agent-runtime-module'
 import { backlogRendererModule } from './backlog-module'
 import { devToolsRendererModule } from './dev-tools-module'
@@ -29,21 +29,57 @@ export const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   voiceDictationRendererModule,
 ]
 
+// Full bundled manifest list. Kept complete in every build channel: it backs
+// the reserved-id drift guard (bundled-ids.test.ts) and the anti-impersonation
+// set, so a third-party module can never claim a bundled id even in a build
+// where the feature itself is absent. Do NOT narrow this to the active set.
 export const BUNDLED_RENDERER_MODULE_MANIFESTS: ReadonlyArray<CapabilityManifest> =
   BUNDLED_RENDERER_MODULES.map((module) => module.manifest)
 
-// The optional (non-core) module ids — the universe profiles select from. Core
-// modules are always on and never appear in an override map.
-export const OPTIONAL_MODULE_IDS: ReadonlyArray<string> = BUNDLED_RENDERER_MODULE_MANIFESTS.filter(
-  (manifest) => !manifest.core
-).map((manifest) => manifest.id)
+// True only in a real packaged (production) vite renderer build. We key on
+// vite's `import.meta.env.PROD` rather than `DEV` on purpose: the unit-test
+// bundles pass `--define:import.meta.env.DEV=false` (61 of them), which esbuild
+// would fold into this gate and wrongly drop dev-only modules under test. No
+// test defines `PROD`, so reading it defensively yields `false` everywhere
+// except a genuine production build (where vite sets `PROD === true`), keeping
+// the full module set active under both dev runs and tests. Do NOT "simplify"
+// this back to `import.meta.env.DEV`.
+const IS_PRODUCTION_BUILD: boolean = (import.meta as { env?: { PROD?: boolean } }).env?.PROD === true
+
+// Active renderer modules for this build channel. Dev-only modules (Voice,
+// Switchboard/Watchtower, Multiloop, Mobile Relay) are dropped from a packaged
+// (production) renderer bundle so they are absent everywhere downstream: host
+// registration, the enablement universe, profiles, and the Settings → Modules
+// manager. In a dev build the full set is active and the modules remain
+// user-toggleable. See src/shared/modules/dev-only.ts.
+
+export const ACTIVE_RENDERER_MODULES: ReadonlyArray<RendererModule> = activeForChannel(
+  BUNDLED_RENDERER_MODULES,
+  (module) => module.manifest.id,
+  !IS_PRODUCTION_BUILD
+)
+
+export const ACTIVE_RENDERER_MODULE_MANIFESTS: ReadonlyArray<CapabilityManifest> =
+  ACTIVE_RENDERER_MODULES.map((module) => module.manifest)
+
+// Bundled modules that exist but are not active in this build channel — i.e. the
+// feature-flagged (dev-only) modules in a production build; empty in a dev build
+// where every bundled module is active. The Settings → Modules manager shows
+// these as greyed-out "Coming soon" rows so users can see what's on the way
+// without being able to turn them on (they are absent from the enablement
+// universe, so they can never resolve enabled).
+const ACTIVE_RENDERER_MODULE_IDS = new Set(ACTIVE_RENDERER_MODULE_MANIFESTS.map((m) => m.id))
+export const COMING_SOON_MODULE_MANIFESTS: ReadonlyArray<CapabilityManifest> =
+  BUNDLED_RENDERER_MODULE_MANIFESTS.filter((manifest) => !ACTIVE_RENDERER_MODULE_IDS.has(manifest.id))
 
 // Eager singleton: registering a panel only stores a (lazy) component reference,
 // so there's no render cost. The actual bundle loads when the panel renders.
 // Each module registers through a scoped host so its panels record their owning
-// module id (used by the factory to gate a host panel by enablement).
+// module id (used by the factory to gate a host panel by enablement). Only the
+// active set registers, so a dev-only module's panels/commands/settings never
+// exist on the host in a production build.
 const rendererHost = createRendererHost()
-for (const module of BUNDLED_RENDERER_MODULES) {
+for (const module of ACTIVE_RENDERER_MODULES) {
   module.registerRenderer?.(rendererHost.hostFor(module.manifest.id))
 }
 
@@ -83,7 +119,9 @@ export async function loadThirdPartyRendererModules(): Promise<void> {
 let enabledSetCache = new WeakMap<object, Set<string>>()
 
 function enablementUniverse(): CapabilityManifest[] {
-  return [...BUNDLED_RENDERER_MODULE_MANIFESTS, ...thirdPartyRendererManifests]
+  // Active set only: a dev-only module excluded from this build channel must not
+  // resolve as enabled, so it never surfaces a panel, command, or workspace mode.
+  return [...ACTIVE_RENDERER_MODULE_MANIFESTS, ...thirdPartyRendererManifests]
 }
 
 function enabledModuleSet(overrides: ModuleEnablementOverrides): Set<string> {
@@ -105,18 +143,6 @@ export function selectModuleEnabled(
   moduleId: string
 ): boolean {
   return enabledModuleSet(overrides).has(moduleId)
-}
-
-// The profile whose optional-module selection exactly matches the current
-// enablement, or null for a custom mix. Used to highlight the active profile in
-// the chooser and the Settings → Modules manager.
-export function matchModuleProfile(overrides: ModuleEnablementOverrides): ModuleProfileId | null {
-  const enabled = enabledModuleSet(overrides)
-  for (const profile of MODULE_PROFILES) {
-    const matches = OPTIONAL_MODULE_IDS.every((id) => enabled.has(id) === profileEnables(profile, id))
-    if (matches) return profile.id
-  }
-  return null
 }
 
 export type { RendererModule } from './renderer-host'

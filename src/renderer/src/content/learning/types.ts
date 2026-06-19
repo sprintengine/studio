@@ -52,7 +52,7 @@ export type LearningItem = {
 export const LEARNING_CATEGORY_LABELS: Record<LearningCategory, string> = {
   workspace: 'Workspaces',
   agents: 'Agents',
-  'guided-brief': 'Guided Brief',
+  'guided-brief': 'Design Wizard',
   sprintengine: 'Sprint Engine',
   switchboard: 'Switchboard',
   git: 'Git',

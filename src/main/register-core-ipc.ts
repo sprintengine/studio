@@ -40,7 +40,12 @@ import { createFilesystemWatchSearchHandlers } from './filesystem-watch-search-h
 import { openDiagnosticsLogsFolder, writeDiagnosticLog } from './diagnostics-service'
 import { readMultiloopPrompt, readSpecialistSoul } from './souls-service'
 
-export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnosticsEnabled: boolean): void {
+export function registerCoreIpc(
+  ipcMain: IpcMain,
+  services: AppServices,
+  diagnosticsEnabled: boolean,
+  includeDevModules: boolean
+): void {
   registerWindowIpc(ipcMain, {
     createWorkspaceWindow: ({ windowId, bounds, isMaximized }) => {
       createMainWindow({ diagnosticsEnabled, windowId, bounds, isMaximized })
@@ -54,7 +59,11 @@ export function registerCoreIpc(ipcMain: IpcMain, services: AppServices, diagnos
   registerWorkspaceBackupIpc(ipcMain, services.workspaceBackupService)
   registerClipboardIpc(ipcMain)
   registerCliRuntimeIpc(ipcMain)
-  registerVoiceIpc(ipcMain)
+  // Voice dictation is a dev-only capability (the `voice-dictation` module). Its
+  // main IPC is not yet a capability module, so gate it on the build channel
+  // here so `voice:transcribe` is genuinely absent in a packaged build, not just
+  // orphaned behind a hidden renderer surface.
+  if (includeDevModules) registerVoiceIpc(ipcMain)
   registerAuthIpc(ipcMain, services.multicodeAuth)
   registerBuiltinSkillsIpc(ipcMain, services.builtinSkillManager)
   registerMcpIpc(ipcMain, services.mcpConfigService)

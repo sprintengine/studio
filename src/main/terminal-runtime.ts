@@ -46,6 +46,7 @@ import { createTerminalDiagnostics } from './terminal-diagnostics'
 import { createTerminalOutputBuffer } from './terminal-output-buffer'
 import { createTerminalMobileCommandService } from './terminal-mobile-command-service'
 import { selectReapableSessions, type ReapCandidate } from './terminal-reap-policy'
+import { recordReapEvent } from './terminal-reap-log'
 import type { TerminalRootInfo } from './workspace-memory'
 
 type TerminalRuntimeOptions = {
@@ -569,6 +570,7 @@ export function reapStaleTerminals(now = Date.now()): string[] {
   for (const sessionId of staleSessionIds) {
     const session = terminals.get(sessionId)
     if (!session) continue
+    const unseenMs = now - getTerminalLastSeenAt(session)
     logMainPerfEvent('TerminalRuntime', 'terminal-stale-reaped', {
       sessionId,
       kind: session.kind,
@@ -578,7 +580,18 @@ export function reapStaleTerminals(now = Date.now()): string[] {
       cli: session.cli,
       processAlive: isTerminalProcessAlive(session),
       lastSeenAt: getTerminalLastSeenAt(session),
-      unseenMs: now - getTerminalLastSeenAt(session),
+      unseenMs,
+    })
+    recordReapEvent({
+      reapedAt: now,
+      reason: 'stale-dispose',
+      sessionId,
+      workspaceId: session.workspaceId ?? null,
+      agentId: session.agentId ?? null,
+      terminalId: session.terminalId ?? null,
+      cli: session.cli ?? null,
+      kind: session.kind,
+      unseenMs,
     })
     disposeTerminal(sessionId)
   }
@@ -614,6 +627,7 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
   for (const sessionId of decision.reapableSessionIds) {
     const session = terminals.get(sessionId)
     if (!session || session.isDisposed) continue
+    const idleMs = now - lastInteractionAt(session)
     logMainPerfEvent('TerminalRuntime', 'terminal-idle-suspended', {
       sessionId,
       kind: session.kind,
@@ -621,8 +635,19 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
       agentId: session.agentId,
       cli: session.cli,
       lastInteractionAt: lastInteractionAt(session),
-      idleMs: now - lastInteractionAt(session),
+      idleMs,
       hotWorkspaceIds: decision.hotWorkspaceIds,
+    })
+    recordReapEvent({
+      reapedAt: now,
+      reason: 'idle-suspend',
+      sessionId,
+      workspaceId: session.workspaceId ?? null,
+      agentId: session.agentId ?? null,
+      terminalId: session.terminalId ?? null,
+      cli: session.cli ?? null,
+      kind: session.kind,
+      idleMs,
     })
     disposeTerminal(sessionId)
   }

@@ -27,6 +27,40 @@ assert.equal(
   'loading catalog does not mark stored agent CLIs unavailable before registry evidence exists',
 )
 
+// --- availability-aware launch guard --------------------------------------
+// A registered-but-not-installed CLI (Claude Code on a Codex-only machine) must
+// be flagged unavailable so the stored agent does not spawn a missing binary.
+assert.equal(
+  isStoredAgentCliUnavailable('claude-code', 'ready', installedPlugins, undefined, {
+    map: {
+      codex: { cli: 'codex', installed: true, resolvedPath: '/bin/codex', version: '1' },
+      'claude-code': { cli: 'claude-code', installed: false, resolvedPath: null, version: null },
+    },
+    status: 'ready',
+  }),
+  true,
+  'a stored Claude Code agent is unavailable when its binary is not installed',
+)
+assert.equal(
+  isStoredAgentCliUnavailable('codex', 'ready', installedPlugins, undefined, {
+    map: {
+      codex: { cli: 'codex', installed: true, resolvedPath: '/bin/codex', version: '1' },
+      'claude-code': { cli: 'claude-code', installed: false, resolvedPath: null, version: null },
+    },
+    status: 'ready',
+  }),
+  false,
+  'an installed CLI stays launchable when availability is known',
+)
+assert.equal(
+  isStoredAgentCliUnavailable('claude-code', 'ready', installedPlugins, undefined, {
+    map: {},
+    status: 'loading',
+  }),
+  false,
+  'availability still loading does not block a stored agent (never-empty fallback)',
+)
+
 // --- runtime kind routing --------------------------------------------------
 
 const conversationAgent = {

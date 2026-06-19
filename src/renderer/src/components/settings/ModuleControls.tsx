@@ -1,12 +1,11 @@
 import type { CapabilityCategory, CapabilityManifest, ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
-import { MODULE_PROFILES, type ModuleProfileId } from '../../../../shared/modules/profiles'
-import { BUNDLED_RENDERER_MODULE_MANIFESTS, matchModuleProfile, selectModuleEnabled } from '../../modules'
-import { FOCUS_RING_CLASS } from '../ui'
+import { ACTIVE_RENDERER_MODULE_MANIFESTS, COMING_SOON_MODULE_MANIFESTS, selectModuleEnabled } from '../../modules'
 import { SettingToggle } from './SettingsAtoms'
 
 // Shared capability-module controls composed by both the Settings → Modules
-// manager and the first-run chooser: a profile picker and a category-grouped
-// toggle list. Keeping them here means the two surfaces stay identical.
+// manager and the first-run chooser: a category-grouped toggle list, plus any
+// feature-flagged modules shown as greyed-out "Coming soon" rows. Keeping them
+// here means the two surfaces stay identical.
 
 const CATEGORY_ORDER: CapabilityCategory[] = [
   'core',
@@ -31,11 +30,17 @@ function categoryRank(category: CapabilityCategory | undefined): number {
   return index === -1 ? CATEGORY_ORDER.length : index
 }
 
-// Computed once: BUNDLED_RENDERER_MODULE_MANIFESTS is immutable for the session.
+// Ids of the feature-flagged modules surfaced as read-only "Coming soon" rows.
+const COMING_SOON_IDS: ReadonlySet<string> = new Set(COMING_SOON_MODULE_MANIFESTS.map((m) => m.id))
+
+// Computed once: immutable for the session. Groups the active (toggleable)
+// modules together with any "Coming soon" feature-flagged modules, by category.
+// Active modules are listed before coming-soon ones within a category because
+// they are added first.
 const MODULE_CATEGORY_GROUPS: Array<{ category: CapabilityCategory; manifests: CapabilityManifest[] }> =
   (() => {
     const groups = new Map<CapabilityCategory, CapabilityManifest[]>()
-    for (const manifest of BUNDLED_RENDERER_MODULE_MANIFESTS) {
+    for (const manifest of [...ACTIVE_RENDERER_MODULE_MANIFESTS, ...COMING_SOON_MODULE_MANIFESTS]) {
       const category = manifest.category ?? 'orchestration'
       const list = groups.get(category) ?? []
       list.push(manifest)
@@ -46,41 +51,23 @@ const MODULE_CATEGORY_GROUPS: Array<{ category: CapabilityCategory; manifests: C
       .sort((a, b) => categoryRank(a.category) - categoryRank(b.category))
   })()
 
-export function ModuleProfilePicker({
-  overrides,
-  onApply,
-}: {
-  overrides: ModuleEnablementOverrides
-  onApply: (profileId: ModuleProfileId) => void
-}) {
-  const active = matchModuleProfile(overrides)
+// Read-only row for a feature-flagged module: greyed out, with a "Coming soon"
+// pill in place of the toggle. The module is absent from the enablement
+// universe, so there is nothing to turn on — the row is purely informational.
+function ComingSoonModuleRow({ manifest }: { manifest: CapabilityManifest }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <div role="radiogroup" aria-label="Module profiles" className="flex flex-col gap-1.5">
-        {MODULE_PROFILES.map((profile) => {
-          const selected = active === profile.id
-          return (
-            <button
-              key={profile.id}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              onClick={() => onApply(profile.id)}
-              className={`flex flex-col items-start gap-0.5 rounded-[var(--radius-sm)] border-l-2 px-3 py-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
-                selected
-                  ? 'border-l-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
-                  : 'border-l-transparent bg-transparent hover:bg-[color:var(--bg-hover)]'
-              }`}
-            >
-              <span className="text-sm font-medium text-[color:var(--text-strong)]">{profile.name}</span>
-              <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">{profile.summary}</span>
-            </button>
-          )
-        })}
+    <div className="flex items-start justify-between gap-3 py-2.5 opacity-60">
+      <div className="min-w-0">
+        <div className="text-[13px] font-medium text-[color:var(--text-subtle)]">{manifest.displayName}</div>
+        {manifest.summary ? (
+          <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-disabled)]">
+            {manifest.summary}
+          </div>
+        ) : null}
       </div>
-      {active === null ? (
-        <p className="px-3 text-[12px] leading-5 text-[color:var(--text-subtle)]">Custom selection</p>
-      ) : null}
+      <span className="mt-0.5 shrink-0 whitespace-nowrap rounded-full border border-[color:var(--border-default)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--text-subtle)]">
+        Coming soon
+      </span>
     </div>
   )
 }
@@ -100,18 +87,22 @@ export function ModuleToggleList({
             {CATEGORY_LABEL[category] ?? category}
           </div>
           <div className="divide-y divide-[color:var(--border-subtle)]">
-            {manifests.map((manifest) => (
-              <SettingToggle
-                key={manifest.id}
-                label={manifest.displayName}
-                description={
-                  manifest.core ? `${manifest.summary ?? ''} Always on.`.trim() : manifest.summary
-                }
-                enabled={manifest.core ? true : selectModuleEnabled(overrides, manifest.id)}
-                disabled={manifest.core}
-                onChange={(next) => onToggle(manifest.id, next)}
-              />
-            ))}
+            {manifests.map((manifest) =>
+              COMING_SOON_IDS.has(manifest.id) ? (
+                <ComingSoonModuleRow key={manifest.id} manifest={manifest} />
+              ) : (
+                <SettingToggle
+                  key={manifest.id}
+                  label={manifest.displayName}
+                  description={
+                    manifest.core ? `${manifest.summary ?? ''} Always on.`.trim() : manifest.summary
+                  }
+                  enabled={manifest.core ? true : selectModuleEnabled(overrides, manifest.id)}
+                  disabled={manifest.core}
+                  onChange={(next) => onToggle(manifest.id, next)}
+                />
+              )
+            )}
           </div>
         </div>
       ))}

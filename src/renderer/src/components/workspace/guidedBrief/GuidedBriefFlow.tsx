@@ -664,7 +664,7 @@ export function GuidedBriefFlow({
             {workspaceName}
           </h2>
           <span className="text-[12px] text-[color:var(--text-muted)]">
-            · {isDesignPreset ? 'Multicode Design' : `Guided brief${hasUi === 'no' ? ' · no UI' : ''}`}
+            · {isDesignPreset ? 'Design only' : `Plan & design${hasUi === 'no' ? ' · no UI' : ''}`}
           </span>
         </div>
         <StepRail
@@ -854,7 +854,7 @@ function StepRail({
 }) {
   return (
     <nav
-      aria-label="Guided brief steps"
+      aria-label="Design Wizard steps"
       className="ml-auto flex min-w-0 shrink-0 items-center gap-1"
     >
       {steps.map((step, index) => {

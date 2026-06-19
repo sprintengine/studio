@@ -5,6 +5,7 @@ import { registerAppLifecycle } from './app-lifecycle'
 import { createAppServices } from './app-services'
 import { ensureExtensionFolders } from './extension-folders'
 import { readTrustedMarketplacePublisherFingerprintsSync } from './marketplace/trusted-publishers'
+import { activeForChannel } from '../shared/modules/dev-only'
 import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
 import { createAgentRuntimeModule } from './modules/agent-runtime-module'
@@ -27,7 +28,13 @@ const extensionFolders = ensureExtensionFolders()
 const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
 const services = createAppServices(MULTICODE_DIAGNOSTICS)
 
-registerCoreIpc(ipcMain, services, MULTICODE_DIAGNOSTICS)
+// Dev-only capability surfaces (Voice, Switchboard/Watchtower, Multiloop, Mobile
+// Relay) ship only in from-source dev builds. A packaged/installed build is the
+// production channel, so they are excluded from registration entirely. See
+// src/shared/modules/dev-only.ts.
+const includeDevModules = !app.isPackaged
+
+registerCoreIpc(ipcMain, services, MULTICODE_DIAGNOSTICS, includeDevModules)
 registerWorkflowIpc(ipcMain, services)
 
 // Capability modules register their own IPC/services/sidecars through the host
@@ -42,9 +49,14 @@ const moduleOverrides = readModuleEnablementOverrides()
 const thirdPartyMainLoad = planThirdPartyMainModules(
   discoverUserModulesSync(defaultUserModuleRoot(), readModuleTrustContext())
 )
+const activeMainModules = activeForChannel(
+  BUNDLED_MAIN_MODULES,
+  (module) => module.manifest.id,
+  includeDevModules
+)
 const moduleLoad = loadMainModules({
   ipcMain,
-  modules: [createAgentRuntimeModule(services), ...BUNDLED_MAIN_MODULES, ...thirdPartyMainLoad.modules],
+  modules: [createAgentRuntimeModule(services), ...activeMainModules, ...thirdPartyMainLoad.modules],
   overrides: moduleOverrides,
   ineligible: thirdPartyMainLoad.ineligible,
   launchErrors: thirdPartyMainLoad.launchErrors,

@@ -73,7 +73,11 @@ import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { folderHintAutoSelectMode } from './newWorkspace/folderHintMode'
 import { CliPermissionPresetRow, PathRadio, RosterAndRunSettings } from './newWorkspace/WizardControls'
 import { pruneSprintEngineRoleCliDefaults, sprintEngineRosterMatchesTeam } from './newWorkspace/savedTeams'
-import { selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
+import {
+  resolveAvailableAgentCli,
+  selectAgentCliCatalog,
+  type AgentCliCatalogOption,
+} from './newWorkspace/cliRuntimeOptions'
 import {
   GuidedBriefScaffoldError,
   GuidedBriefStartBuildError,
@@ -135,16 +139,16 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
     subtitle: 'What outcome should this loop reach?',
   },
   'sprintengine-team': {
-    title: 'Plan the team',
-    subtitle: 'Pick a starting point and configure the team.',
+    title: 'What should the team work on?',
+    subtitle: 'Start fresh, pick something from your backlog, or reopen a team.',
   },
   'sprintengine-roster': {
-    title: 'Pick specialists',
-    subtitle: 'Choose how many of each role and which CLI they default to.',
+    title: 'Your AI team',
+    subtitle: 'We’ve picked a starting team for you. Add or remove anyone, or just continue.',
   },
   'guided-idea': {
     title: 'Tell us about your idea',
-    subtitle: 'A sentence or two. The strategist will ask the rest.',
+    subtitle: 'A sentence or two, in plain words. We’ll ask the rest.',
   },
 }
 
@@ -176,13 +180,17 @@ const SOURCE_BUNDLE_KIND_OPTIONS: Array<{ value: SprintEngineSourceBundleKind; l
   { value: 'generic_context', label: SOURCE_BUNDLE_KIND_LABELS.generic_context },
 ]
 
+// Default first-run team for a from-scratch Sprint Engine: a runnable
+// plan -> build -> review loop, not just planners. A novice who lands on the
+// roster step can press Continue and get a team that actually implements and
+// reviews work. Saved teams override this; it only seeds when none exists.
 const initialSprintEngineRoleCounts: SprintEngineRoleCounts = {
   architect: 1,
   product: 1,
   frontend: 0,
   ui_ux_reviewer: 0,
-  developer: 0,
-  code_reviewer: 0,
+  developer: 1,
+  code_reviewer: 1,
   spec_reviewer: 0,
   performance: 0,
   production_readiness_reviewer: 0,
@@ -224,6 +232,30 @@ function sprintEngineRoleCliDefaultsFromSavedRoster(
     ...initialSprintEngineRoleCliDefaults,
     ...(savedRoster?.roleCliDefaults ?? {}),
   }
+}
+
+// Clamp every role's CLI default to an installed agent CLI. The catalog passed
+// in is already availability-filtered, so resolveAvailableAgentCli remaps any
+// role still pointing at an uninstalled CLI (e.g. a saved team's Claude Code on
+// a Codex-only machine) to an installed one. Returns the same object reference
+// when nothing changes so it is a no-op inside setState (no render thrash).
+function remapRoleCliDefaultsToAvailable<T extends Record<string, AgentCli | undefined>>(
+  defaults: T,
+  catalog: AgentCliCatalogOption[],
+): T {
+  if (catalog.length === 0) return defaults
+  let changed = false
+  const next = { ...defaults }
+  for (const role of Object.keys(defaults) as Array<keyof T>) {
+    const current = defaults[role]
+    if (current === undefined) continue
+    const resolved = resolveAvailableAgentCli(current, catalog, current) as T[keyof T]
+    if (resolved !== current) {
+      next[role] = resolved
+      changed = true
+    }
+  }
+  return changed ? next : defaults
 }
 
 const guidedBriefSprintEngineRoleCounts: SprintEngineRoleCounts = {
@@ -495,13 +527,35 @@ export default function NewWorkspacePanel({
   const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
+  const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
+  const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
   // Shared plugin-aware catalog (installed agents + configured runtimes) used by
   // both the Sprint Engine roster role pickers and the Guided Brief role pickers,
   // so opencode/custom agents are selectable everywhere new agents are configured.
+  // Filtered by detected availability so uninstalled agent CLIs are never offered
+  // or defaulted to (a Codex-only machine must not see/seed Claude Code).
   const sprintEngineCliOptions = useMemo(
-    () => selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes),
-    [pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes],
+    () =>
+      selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes, {
+        map: cliAvailability,
+        status: cliAvailabilityStatus,
+      }),
+    [pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes, cliAvailability, cliAvailabilityStatus],
   )
+  // Once detection is trustworthy, remap any role default seeded to an
+  // uninstalled CLI (e.g. the Claude Code seed, or a saved team's Claude Code on
+  // a Codex-only machine) to an installed agent so creation never deploys — or
+  // even offers as the selected value — a CLI the user does not have. No-op when
+  // the values are already installed (setState bails on the same reference).
+  // Depends on the current defaults too so loading a saved team (which sets new
+  // defaults without changing availability) is re-clamped. The remap is
+  // idempotent — it returns the same object reference when nothing needs
+  // changing, so setState bails and this converges without looping.
+  useEffect(() => {
+    if (cliAvailabilityStatus !== 'ready') return
+    setSeRoleCliDefaults((current) => remapRoleCliDefaultsToAvailable(current, sprintEngineCliOptions))
+    setGuidedRoleCliDefaults((current) => remapRoleCliDefaultsToAvailable(current, sprintEngineCliOptions))
+  }, [cliAvailabilityStatus, sprintEngineCliOptions, seRoleCliDefaults, guidedRoleCliDefaults])
   const sprintEngineModuleEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const multiloopModuleEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
   const sprintEngineDisabledRoleIds = useMemo(
@@ -887,7 +941,7 @@ export default function NewWorkspacePanel({
     if (next === 'multiloop')
       setMlName(toTitleName(basename(folderPath ?? '')) || 'Product Loop')
     if (next === 'guided-brief' && !nameTouched)
-      setName(toTitleName(basename(folderPath ?? '')) || 'Guided brief')
+      setName(toTitleName(basename(folderPath ?? '')) || 'Design Wizard')
     if (next !== 'sprintengine') {
       setSeExistingTeam(null)
       setSeAgentCliOverrides({})
@@ -1049,7 +1103,10 @@ export default function NewWorkspacePanel({
     setSeAgentCliOverrides({})
     setSeRoleCliDefaults((current) => ({
       ...current,
-      [role]: current[role] ?? 'claude-code',
+      // Seed a newly surfaced role with an installed CLI rather than the raw
+      // Claude Code default, so bumping a role count never reintroduces an
+      // uninstalled agent on a machine that lacks it.
+      [role]: current[role] ?? resolveAvailableAgentCli('claude-code', sprintEngineCliOptions, 'claude-code'),
     }))
     setSeRoleCounts((current) => ({
       ...current,
@@ -1267,10 +1324,10 @@ export default function NewWorkspacePanel({
           error instanceof GuidedBriefScaffoldError && error.message !== error.code
             ? error.message
             : error instanceof GuidedBriefScaffoldError
-              ? `Could not scaffold the guided brief workspace (${error.code}).`
+              ? `Could not set up the Design Wizard workspace (${error.code}).`
               : error instanceof Error
                 ? error.message
-                : 'Could not scaffold the guided brief workspace.',
+                : 'Could not set up the Design Wizard workspace.',
         )
       } finally {
         setIsCreating(false)
@@ -1633,7 +1690,7 @@ export default function NewWorkspacePanel({
             New workspace
           </h2>
         </div>
-        <WizardProgress total={steps.length} active={stepIndex} />
+        <WizardProgress total={steps.length} active={stepIndex} currentStepLabel={stepHeading.title} />
         {allowClose ? (
           <CloseIconButton
             size="md"
@@ -2552,17 +2609,17 @@ function GuidedIdeaStep({
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <FieldLabel>What are we making?</FieldLabel>
-        <div role="radiogroup" aria-label="Guided brief preset" className="grid grid-cols-2 gap-2.5">
+        <div role="radiogroup" aria-label="Design Wizard mode" className="grid grid-cols-2 gap-2.5">
           <GuidedChoiceCard
             active={!isDesignPreset}
-            title="Full guided brief"
-            body="Strategy, architecture, and design before the build."
+            title="Plan & design"
+            body="Think it through, then design it — strategy, plan, and screens before the build."
             onSelect={() => onChangePreset('full-brief')}
           />
           <GuidedChoiceCard
             active={isDesignPreset}
-            title="Multicode Design"
-            body="A design-only studio that goes straight to UI direction and mockups."
+            title="Design only"
+            body="Skip the planning and go straight to screens and mockups."
             onSelect={() => onChangePreset('frontend-design')}
           />
         </div>
@@ -2662,7 +2719,7 @@ function GuidedIdeaStep({
         </div>
         {isDesignPreset ? (
           <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            Multicode Design skips the product and architecture discussions and starts on the design studio.
+            Design only skips the strategy and planning discussions and starts straight in the design studio.
           </p>
         ) : null}
       </div>
