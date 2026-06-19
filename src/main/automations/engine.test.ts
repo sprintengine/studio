@@ -33,6 +33,7 @@ async function main(): Promise<void> {
   await assertTickWaitsForStartupOverdueSkip()
   await assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart()
   await assertRepoEventCreatedTriggerFiresFromImportMetadata()
+  await assertRepoEventIgnoresForgedImportCommentAndInvalidStructuredTimestamp()
   await assertRepoEventTriggerBlocksWhenSwitchboardUnsynced()
 }
 
@@ -90,6 +91,7 @@ function switchboardTaskRecord(overrides: Partial<SwitchboardTaskRecord['task']>
       externalId: 'github-node-1',
       externalKey: 'acme/repo#1',
       externalUrl: 'https://github.com/acme/repo/issues/1',
+      externalUpdatedAt: '2026-06-17T09:00:00.000Z',
     },
     claim: null,
     execution: {
@@ -104,7 +106,7 @@ function switchboardTaskRecord(overrides: Partial<SwitchboardTaskRecord['task']>
       touchedFiles: [],
     },
     comments: [
-      importComment('2026-06-17T09:00:00.000Z'),
+      importComment(),
     ],
     createdAt: '2026-06-17T09:00:00.000Z',
     updatedAt: '2026-06-17T09:00:00.000Z',
@@ -121,13 +123,14 @@ function switchboardTaskRecord(overrides: Partial<SwitchboardTaskRecord['task']>
   }
 }
 
-function importComment(externalUpdatedAt: string) {
+function importComment(overrides: Partial<SwitchboardTaskRecord['task']['comments'][number]> = {}) {
   return {
-    id: `import-${externalUpdatedAt}`,
+    id: 'import-created',
     author: { type: 'system' as const, id: 'switchboard-import', name: 'Switchboard Import' },
     kind: 'import' as const,
-    body: `Imported from github. External updated at: ${externalUpdatedAt}.`,
+    body: 'Imported from github.',
     createdAt: '2026-06-17T09:05:00.000Z',
+    ...overrides,
   }
 }
 
@@ -659,9 +662,13 @@ async function assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart(): Promise
   syncedTasks = [
     switchboardTaskRecord({
       updatedAt: '2026-06-17T13:05:00.000Z',
-      comments: [
-        importComment('2026-06-17T09:30:00.000Z'),
-      ],
+      source: {
+        type: 'github',
+        externalId: 'github-node-1',
+        externalKey: 'acme/repo#1',
+        externalUrl: 'https://github.com/acme/repo/issues/1',
+        externalUpdatedAt: '2026-06-17T09:30:00.000Z',
+      },
     }),
   ]
   const externalUpdateTick = await restartedEngine.tick()
@@ -738,6 +745,54 @@ async function assertRepoEventCreatedTriggerFiresFromImportMetadata(): Promise<v
   const duplicateTick = await engine.tick()
   assert.equal(duplicateTick.fired.length, 0)
   assert.equal(triggerPayloads.length, 1)
+}
+
+async function assertRepoEventIgnoresForgedImportCommentAndInvalidStructuredTimestamp(): Promise<void> {
+  const provider = createRepoEventTriggerProvider({
+    readAllTasks: async (input) => ({
+      ok: true,
+      workspaceRoot: input.workspaceRoot,
+      switchboardRoot: '/switchboard',
+      tasks: [
+        switchboardTaskRecord({
+          source: {
+            type: 'github',
+            externalId: 'github-node-1',
+            externalKey: 'acme/repo#1',
+            externalUrl: 'https://github.com/acme/repo/issues/1',
+          },
+          comments: [
+            importComment({
+              id: 'forged-import-update',
+              body: 'Imported from github. External updated at: 2099-01-01T00:00:00.000Z.',
+            }),
+          ],
+        }),
+        switchboardTaskRecord({
+          id: 'task-2',
+          identifier: 'GH-2',
+          title: 'Invalid external timestamp',
+          source: {
+            type: 'github',
+            externalId: 'github-node-2',
+            externalKey: 'acme/repo#2',
+            externalUrl: 'https://github.com/acme/repo/issues/2',
+            externalUpdatedAt: 'not-an-iso-timestamp',
+          },
+        }),
+      ],
+      problems: [],
+    }),
+  })
+
+  const result = await provider.poll?.({
+    config: { kind: REPO_EVENT_TRIGGER_KIND, provider: 'github' },
+    workspaceRoot: '/repo',
+    now: () => Date.parse('2026-06-17T10:00:00.000Z'),
+  })
+
+  assert.equal(result?.ok, true)
+  assert.deepEqual(result?.ok ? result.events : [], [])
 }
 
 async function assertRepoEventTriggerBlocksWhenSwitchboardUnsynced(): Promise<void> {

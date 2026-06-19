@@ -29,7 +29,6 @@ type RepoEventTriggerValidationResult =
 
 const REPO_EVENT_TYPES = new Set<RepoEventType>(['created', 'updated'])
 const REPO_EVENT_PROVIDERS = new Set<SwitchboardImportProvider | 'any'>(['github', 'jira', 'any'])
-const EXTERNAL_UPDATED_AT_LABEL = 'External updated at:'
 const DEFAULT_REPO_EVENT_TYPES: RepoEventType[] = ['updated']
 
 export function createRepoEventTriggerProvider(
@@ -232,7 +231,6 @@ function isRepoSyncRecord(record: SwitchboardTaskRecord): boolean {
 
 function readImportMetadata(record: SwitchboardTaskRecord): { createdAt: string; externalUpdatedAt: string | null } | null {
   let createdAt: string | null = null
-  let externalUpdatedAt: string | null = null
 
   for (const comment of record.task.comments) {
     if (comment.kind !== 'import') continue
@@ -240,18 +238,10 @@ function readImportMetadata(record: SwitchboardTaskRecord): { createdAt: string;
     const commentCreatedAt = normalizedIsoTimestamp(comment.createdAt)
     if (!commentCreatedAt) continue
     createdAt ??= commentCreatedAt
-    externalUpdatedAt = parseExternalUpdatedAt(comment.body) ?? externalUpdatedAt
   }
 
+  const externalUpdatedAt = normalizedIsoTimestamp(record.task.source.externalUpdatedAt ?? '')
   return createdAt ? { createdAt, externalUpdatedAt } : null
-}
-
-function parseExternalUpdatedAt(body: string): string | null {
-  const labelIndex = body.indexOf(EXTERNAL_UPDATED_AT_LABEL)
-  if (labelIndex < 0) return null
-  const raw = body.slice(labelIndex + EXTERNAL_UPDATED_AT_LABEL.length).trim().split(/\s+/u)[0]?.replace(/[.)]+$/u, '')
-  if (!raw) return null
-  return normalizedIsoTimestamp(raw)
 }
 
 function normalizedIsoTimestamp(value: string): string | null {

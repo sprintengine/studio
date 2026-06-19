@@ -42,6 +42,7 @@ export type SwitchboardSource = {
   externalId?: string | null
   externalKey?: string | null
   externalUrl?: string | null
+  externalUpdatedAt?: string | null
 }
 
 export type SwitchboardClaim = {
@@ -767,6 +768,12 @@ export function validateSwitchboardTaskShape(task: unknown): string[] {
     || !(['manual', 'watchtower', 'github', 'jira', 'campaign', 'sprintengine'] as string[]).includes(record.source.type)
   ) {
     errors.push('source.type must be valid.')
+  } else if (
+    record.source.externalUpdatedAt !== undefined
+    && record.source.externalUpdatedAt !== null
+    && typeof record.source.externalUpdatedAt !== 'string'
+  ) {
+    errors.push('source.externalUpdatedAt must be a string or null.')
   }
   if (!record.execution || typeof record.execution !== 'object' || Array.isArray(record.execution)) {
     errors.push('execution must be an object.')
