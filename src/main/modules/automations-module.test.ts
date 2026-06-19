@@ -194,6 +194,39 @@ function fakeThirdPartyAutomationProviderModule(): CapabilityModule {
   }
 }
 
+function fakeThirdPartyThrowingActionProviderModule(counters: { getterCalls: number; runCalls: number }): CapabilityModule {
+  const actionProvider: AutomationActionProvider = {
+    kind: 'weather-deck.throwing-getter-action',
+    get configSchema(): Record<string, unknown> {
+      counters.getterCalls += 1
+      throw new Error('denied action configSchema getter must not run')
+    },
+    get requiredIntegrations(): string[] {
+      counters.getterCalls += 1
+      throw new Error('denied action requiredIntegrations getter must not run')
+    },
+    run: async () => {
+      counters.runCalls += 1
+      return { status: 'completed', summary: 'Denied action should not run.' }
+    },
+  }
+
+  return {
+    manifest: {
+      id: 'weather-deck',
+      displayName: 'Weather Deck',
+      version: 1,
+      defaultEnabled: true,
+      dependsOn: ['automations'],
+      source: 'third-party',
+    },
+    registerMain(host) {
+      const registry = host.requireService(AutomationsProviderRegistryToken)
+      registry.registerActionProvider(host.moduleId, actionProvider)
+    },
+  }
+}
+
 function automationDefinition(folderPath: string, overrides: Partial<AutomationDefinition> = {}): AutomationDefinition {
   return {
     id: 'nightly-review',
@@ -654,6 +687,66 @@ async function testThirdPartyAutomationProviderTrustGateBlocksListingAndExecutio
   assert.match(result.blockedReason ?? '', /not trusted/)
 }
 
+async function testDeniedThirdPartyActionProviderIsInertAfterRevocation(): Promise<void> {
+  const { ipcMain, handlers } = createFakeIpcMain()
+  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null
+  let weatherDeckTrusted = true
+  const counters = { getterCalls: 0, runCalls: 0 }
+  const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-provider-getters-'))
+  const checkProviderPermission: AutomationProviderPermissionChecker = (registration) => {
+    if (registration.moduleId !== 'weather-deck') return { ok: true }
+    return weatherDeckTrusted
+      ? { ok: true }
+      : { ok: false, reason: 'Module "weather-deck" is not trusted in Settings -> Modules.' }
+  }
+
+  const moduleLoad = loadMainModules({
+    ipcMain,
+    modules: [
+      fakeAgentRuntimeModule({ workspaceSnapshot: workspaceSnapshot(folderPath) }),
+      createAutomationsModule({
+        checkProviderPermission,
+        createEngine: (options) => {
+          capturedRunAutomation = options.runAutomation
+          return createFakeAutomationsEngine() as AutomationsEngine
+        },
+      }),
+      fakeThirdPartyThrowingActionProviderModule(counters),
+    ],
+  })
+
+  assert.deepEqual(moduleLoad.report.errors, [])
+  assert.ok(moduleLoad.report.loaded.includes('weather-deck'))
+  assert.equal(counters.getterCalls, 0)
+
+  weatherDeckTrusted = false
+  const providerHandler = handlers.get(AUTOMATIONS_PROVIDERS_LIST_CHANNEL)
+  assert.ok(providerHandler)
+  const providers = await providerHandler({} as never) as AutomationsProvidersResult
+  assert.equal(providers.ok, true)
+  if (!providers.ok) return
+  const actionView = providers.value.actions.find((provider) => provider.kind === 'weather-deck.throwing-getter-action')
+  assert.ok(actionView)
+  assert.match(actionView.blockedReason ?? '', /not trusted/)
+  assert.deepEqual(actionView.requiredIntegrations, [])
+  assert.deepEqual(actionView.missingIntegrations, [])
+  assert.equal(counters.getterCalls, 0)
+
+  assert.ok(capturedRunAutomation)
+  const result = await capturedRunAutomation({
+    workspaceRoot: folderPath,
+    definition: automationDefinition(folderPath, {
+      action: { kind: 'weather-deck.throwing-getter-action', config: { city: 'Dublin' } },
+    }),
+    run: automationRun(),
+    triggerPayload: { source: 'test' },
+  })
+  assert.equal(result.status, 'blocked')
+  assert.match(result.blockedReason ?? '', /not trusted/)
+  assert.equal(counters.getterCalls, 0)
+  assert.equal(counters.runCalls, 0)
+}
+
 function testBroadcastRunEventUsesAutomationsChannelAndSkipsFailedWindows(): void {
   const sent: Array<{ channel: string; payload: unknown }> = []
   let failedDeliveryAttempts = 0
@@ -721,6 +814,7 @@ async function main(): Promise<void> {
   await testModuleRegistersFirstPartyActionProviders()
   await testThirdPartyAutomationProviderRegistrationUsesLiveRegistry()
   await testThirdPartyAutomationProviderTrustGateBlocksListingAndExecution()
+  await testDeniedThirdPartyActionProviderIsInertAfterRevocation()
   testBroadcastRunEventUsesAutomationsChannelAndSkipsFailedWindows()
   console.log('automations-module tests passed')
 }

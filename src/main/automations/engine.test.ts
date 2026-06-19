@@ -535,6 +535,9 @@ async function assertDeniedTriggerProviderIsInertBeforePolling(): Promise<void> 
       providerId: 'weather-deck.weather-deck.forecast-ready',
       moduleId: 'weather-deck',
       providerType: 'trigger',
+      kind: 'weather-deck.forecast-ready',
+      configSchema: { type: 'object' },
+      requiredIntegrations: ['module:weather-deck'],
       provider: thirdPartyTrigger,
     }],
     () => ({ ok: false, reason: 'Module "weather-deck" is not trusted.' })

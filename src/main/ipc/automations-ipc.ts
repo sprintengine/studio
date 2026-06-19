@@ -39,6 +39,7 @@ import {
 } from '../automations/provider-registry'
 import { computeNextRun, validateScheduleTriggerConfig } from '../automations/schedule'
 import { AutomationsStore, type AutomationStoreProblem } from '../automations/store'
+import { WEBHOOK_TRIGGER_KIND } from '../automations/triggers/webhook'
 import type { IpcInvokeHandler } from '../module-host/main-host'
 
 export type AutomationsIpcHost = {
@@ -94,7 +95,7 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     if (!workspaceRoot.ok) return workspaceRoot
     const definitions = await createStore(workspaceRoot.value).listDefinitions()
     if (!definitions.ok) return storeErrors(definitions.errors)
-    return ok(definitions.values)
+    return ok(definitions.values.map(definitionForRenderer))
   })
 
   host.registerIpc(AUTOMATIONS_GET_CHANNEL, async (_event, input: unknown): Promise<AutomationsDefinitionResult> => {
@@ -102,7 +103,7 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     if (!parsed.ok) return parsed
     const definition = await createStore(parsed.value.workspaceRoot).getDefinition(parsed.value.automationId)
     if (!definition.ok) return storeError(definition.error)
-    return ok(definition.value)
+    return ok(definitionForRenderer(definition.value))
   })
 
   host.registerIpc(AUTOMATIONS_CREATE_CHANNEL, async (_event, input: unknown): Promise<AutomationsDefinitionResult> => {
@@ -127,7 +128,7 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     if (!state.ok) return storeError(state.error)
     const notified = await notifyDefinitionsChanged(deps, parsed.value.workspaceRoot)
     if (!notified.ok) return notified
-    return ok(created.value)
+    return ok(definitionForRenderer(created.value))
   })
 
   host.registerIpc(AUTOMATIONS_UPDATE_CHANNEL, async (_event, input: unknown): Promise<AutomationsDefinitionResult> => {
@@ -161,7 +162,7 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     if (!state.ok) return storeError(state.error)
     const notified = await notifyDefinitionsChanged(deps, parsed.value.workspaceRoot)
     if (!notified.ok) return notified
-    return ok(written.value)
+    return ok(definitionForRenderer(written.value))
   })
 
   host.registerIpc(AUTOMATIONS_DELETE_CHANNEL, async (_event, input: unknown): Promise<AutomationsDeleteResult> => {
@@ -233,7 +234,7 @@ function prepareDefinitionForWrite(
   checkProviderPermission: AutomationProviderPermissionChecker,
   after: number
 ): AutomationsDefinitionResult {
-  const triggerRegistration = triggerProviders.find((registration) => registration.provider.kind === definition.trigger.kind)
+  const triggerRegistration = triggerProviders.find((registration) => registration.kind === definition.trigger.kind)
   if (!triggerRegistration) {
     return fail('unknown_trigger', `No automation trigger provider is registered for "${definition.trigger.kind}".`)
   }
@@ -243,7 +244,7 @@ function prepareDefinitionForWrite(
   )
   if (triggerBlockedReason) return fail('provider_blocked', triggerBlockedReason)
 
-  const actionRegistration = actionProviders.find((registration) => registration.provider.kind === definition.action.kind)
+  const actionRegistration = actionProviders.find((registration) => registration.kind === definition.action.kind)
   if (!actionRegistration) {
     return fail('unknown_action', `No automation action provider is registered for "${definition.action.kind}".`)
   }
@@ -313,12 +314,11 @@ function providerView(
   isIntegrationAvailable: ((id: string) => boolean | undefined) | undefined,
   checkProviderPermission: AutomationProviderPermissionChecker
 ): AutomationsProviderView {
-  const provider = registration.provider
-  const requiredIntegrations = 'requiredIntegrations' in provider ? provider.requiredIntegrations ?? [] : []
   const blockedReason = automationProviderBlockedReason(registration, checkProviderPermission(registration))
+  const requiredIntegrations = registration.requiredIntegrations
   return {
-    kind: provider.kind,
-    configSchema: provider.configSchema,
+    kind: registration.kind,
+    configSchema: registration.configSchema,
     requiredIntegrations,
     missingIntegrations: requiredIntegrations.filter((id) => isIntegrationAvailable?.(id) !== true),
     ...(blockedReason ? { blockedReason } : {}),
@@ -333,8 +333,27 @@ function legacyProviderRegistration<T extends AutomationTriggerProvider | Automa
     providerId: provider.kind,
     moduleId: 'automations',
     providerType,
+    kind: provider.kind,
+    configSchema: ownDataProperty(provider, 'configSchema', fallbackConfigSchema()),
+    requiredIntegrations: snapshotRequiredIntegrations(provider),
     provider,
   } as RegisteredAutomationProvider<T>
+}
+
+function definitionForRenderer(definition: AutomationDefinition): AutomationDefinition {
+  const config = definition.trigger.config
+  if (definition.trigger.kind !== WEBHOOK_TRIGGER_KIND || !isRecord(config)) return definition
+  const { secret, ...redactedConfig } = config
+  return {
+    ...definition,
+    trigger: {
+      ...definition.trigger,
+      config: {
+        ...redactedConfig,
+        hasSecret: typeof secret === 'string' && secret.trim().length > 0,
+      },
+    },
+  }
 }
 
 function parseWorkspaceRoot(
@@ -502,8 +521,28 @@ function parseKindConfig(input: unknown, label: string): AutomationsResult<{ kin
 }
 
 function engineRunNowResult(result: AutomationsEngineRunNowResult): AutomationsRunNowIpcResult {
-  if (result.ok) return ok({ definition: result.definition, run: result.run })
+  if (result.ok) return ok({ definition: definitionForRenderer(result.definition), run: result.run })
   return fail(result.problem.code, result.problem.message)
+}
+
+function snapshotRequiredIntegrations(provider: AutomationTriggerProvider | AutomationActionProvider): string[] {
+  const value = ownDataProperty<unknown>(provider, 'requiredIntegrations', [])
+  if (!Array.isArray(value)) return []
+  return value.filter((integration): integration is string => typeof integration === 'string')
+}
+
+function ownDataProperty<T>(
+  target: object,
+  key: string,
+  fallback: T
+): T {
+  const descriptor = Object.getOwnPropertyDescriptor(target, key)
+  if (!descriptor || !('value' in descriptor)) return fallback
+  return descriptor.value as T
+}
+
+function fallbackConfigSchema(): Record<string, unknown> {
+  return { type: 'object' }
 }
 
 async function notifyDefinitionsChanged(

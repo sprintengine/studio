@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type {
+  AutomationDefinition,
   AutomationDefinitionDraft,
   AutomationsDefinitionResult,
   AutomationsDeleteResult,
@@ -454,6 +455,75 @@ async function testDefinitionRoundTripAndRunNow(): Promise<void> {
   assert.deepEqual(afterDelete.value, [])
 }
 
+async function testWebhookSecretIsRedactedFromDefinitionIpcReads(): Promise<void> {
+  const workspaceRoot = await withWorkspaceRoot()
+  const secret = 'test-webhook-secret-redacted'
+  const store = new AutomationsStore(workspaceRoot)
+  const definition: AutomationDefinition = {
+    id: 'webhook-secret',
+    name: 'Webhook Secret',
+    status: 'enabled',
+    trigger: {
+      kind: WEBHOOK_TRIGGER_KIND,
+      config: {
+        kind: WEBHOOK_TRIGGER_KIND,
+        enabled: true,
+        port: 0,
+        path: 'incoming-review',
+        secret,
+        eventType: 'push',
+      },
+    },
+    action: {
+      kind: 'spawn-agent',
+      config: { prompt: 'Handle the webhook.' },
+    },
+    autonomyDefault: 'review_only',
+    nextRunAt: null,
+    lastRunAt: null,
+    lastRunId: null,
+    createdAt: '2026-06-18T00:00:00.000Z',
+    updatedAt: '2026-06-18T00:00:00.000Z',
+  }
+  assert.equal((await store.createDefinition(definition)).ok, true)
+
+  const handlers = createFakeHost({ workspaceRoots: [workspaceRoot] })
+  const listed = await invoke<AutomationsListResult>(handlers, AUTOMATIONS_LIST_CHANNEL, { workspaceRoot })
+  assert.equal(listed.ok, true)
+  if (!listed.ok) return
+  assertRedactedWebhookDefinition(listed.value[0])
+
+  const fetched = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_GET_CHANNEL, {
+    workspaceRoot,
+    automationId: 'webhook-secret',
+  })
+  assert.equal(fetched.ok, true)
+  if (!fetched.ok) return
+  assertRedactedWebhookDefinition(fetched.value)
+
+  const updated = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_UPDATE_CHANNEL, {
+    workspaceRoot,
+    automationId: 'webhook-secret',
+    patch: { status: 'paused' },
+  })
+  assert.equal(updated.ok, true)
+  if (!updated.ok) return
+  assertRedactedWebhookDefinition(updated.value)
+
+  const raw = await store.getDefinition('webhook-secret')
+  assert.equal(raw.ok, true)
+  if (!raw.ok) return
+  assert.equal((raw.value.trigger.config as Record<string, unknown>).secret, secret)
+}
+
+function assertRedactedWebhookDefinition(definition: AutomationDefinition | undefined): void {
+  assert.ok(definition)
+  const config = definition.trigger.config as Record<string, unknown>
+  assert.equal(config.secret, undefined)
+  assert.equal(config.hasSecret, true)
+  assert.equal(config.path, 'incoming-review')
+}
+
 async function testDefinitionWritesNotifyRefreshHook(): Promise<void> {
   currentNow = Date.parse('2026-06-18T00:00:00.000Z')
   const workspaceRoot = await withWorkspaceRoot()
@@ -559,6 +629,7 @@ async function main(): Promise<void> {
   await testProviderList()
   await testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
   await testDefinitionRoundTripAndRunNow()
+  await testWebhookSecretIsRedactedFromDefinitionIpcReads()
   await testDefinitionWritesNotifyRefreshHook()
   await testDefinitionWriteSurfacesRefreshHookFailure()
   await testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow()

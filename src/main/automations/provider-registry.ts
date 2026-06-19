@@ -1,4 +1,4 @@
-import type { AutomationActionProvider, AutomationTriggerProvider } from '../../shared/automations/contracts'
+import type { AutomationActionProvider, AutomationTriggerProvider, JsonSchema } from '../../shared/automations/contracts'
 import { BUNDLED_MODULE_IDS } from '../../shared/modules/manifest'
 import { createRunSkillLoopActionProvider } from './actions/run-skill-loop'
 import { createSpawnAgentActionProvider } from './actions/spawn-agent'
@@ -23,6 +23,9 @@ export type RegisteredAutomationProvider<T extends AutomationTriggerProvider | A
   providerId: string
   moduleId: string
   providerType: RegisteredProviderType
+  kind: string
+  configSchema: JsonSchema
+  requiredIntegrations: string[]
   provider: T
 }
 
@@ -52,16 +55,18 @@ export class AutomationProviderRegistry {
   private readonly actionProviders = new Map<string, RegisteredAutomationProvider<AutomationActionProvider>>()
 
   registerTriggerProvider(moduleId: string, provider: AutomationTriggerProvider): string {
-    const providerId = namespacedProviderId(moduleId, provider.kind)
+    const metadata = snapshotProviderMetadata(provider)
+    const providerId = namespacedProviderId(moduleId, metadata.kind)
     this.registerProviderId(providerId, 'trigger')
-    this.triggerProviders.set(providerId, { providerId, moduleId, providerType: 'trigger', provider })
+    this.triggerProviders.set(providerId, { providerId, moduleId, providerType: 'trigger', ...metadata, provider })
     return providerId
   }
 
   registerActionProvider(moduleId: string, provider: AutomationActionProvider): string {
-    const providerId = namespacedProviderId(moduleId, provider.kind)
+    const metadata = snapshotProviderMetadata(provider)
+    const providerId = namespacedProviderId(moduleId, metadata.kind)
     this.registerProviderId(providerId, 'action')
-    this.actionProviders.set(providerId, { providerId, moduleId, providerType: 'action', provider })
+    this.actionProviders.set(providerId, { providerId, moduleId, providerType: 'action', ...metadata, provider })
     return providerId
   }
 
@@ -152,7 +157,7 @@ export function automationProviderBlockedReason(
   permission: AutomationProviderPermission
 ): string | undefined {
   if (permission.ok) return undefined
-  return `Automation ${registration.providerType} provider "${registration.provider.kind}" from module "${registration.moduleId}" is blocked: ${permission.reason}`
+  return `Automation ${registration.providerType} provider "${registration.kind}" from module "${registration.moduleId}" is blocked: ${permission.reason}`
 }
 
 export function executableTriggerProviders(
@@ -182,10 +187,10 @@ function blockedTriggerProvider(
   permission: AutomationProviderPermission
 ): AutomationTriggerProvider {
   const blockedReason = automationProviderBlockedReason(registration, permission)
-    ?? `Automation trigger provider "${registration.provider.kind}" is blocked.`
+    ?? `Automation trigger provider "${registration.kind}" is blocked.`
   return {
-    kind: registration.provider.kind,
-    configSchema: registration.provider.configSchema,
+    kind: registration.kind,
+    configSchema: registration.configSchema,
     subscribe: () => () => undefined,
     computeNextRun: () => null,
     poll: async () => ({ ok: false, blockedReason }),
@@ -197,15 +202,46 @@ function blockedActionProvider(
   permission: AutomationProviderPermission
 ): AutomationActionProvider {
   const blockedReason = automationProviderBlockedReason(registration, permission)
-    ?? `Automation action provider "${registration.provider.kind}" is blocked.`
+    ?? `Automation action provider "${registration.kind}" is blocked.`
   return {
-    kind: registration.provider.kind,
-    configSchema: registration.provider.configSchema,
-    requiredIntegrations: registration.provider.requiredIntegrations,
+    kind: registration.kind,
+    configSchema: registration.configSchema,
     run: async () => ({
       status: 'blocked',
       blockedReason,
       summary: 'Automation action blocked before launch.',
     }),
   }
+}
+
+function snapshotProviderMetadata(provider: AutomationTriggerProvider | AutomationActionProvider): {
+  kind: string
+  configSchema: JsonSchema
+  requiredIntegrations: string[]
+} {
+  return {
+    kind: provider.kind,
+    configSchema: ownDataProperty(provider, 'configSchema', fallbackConfigSchema()),
+    requiredIntegrations: snapshotRequiredIntegrations(provider),
+  }
+}
+
+function snapshotRequiredIntegrations(provider: AutomationTriggerProvider | AutomationActionProvider): string[] {
+  const value = ownDataProperty<unknown>(provider, 'requiredIntegrations', [])
+  if (!Array.isArray(value)) return []
+  return value.filter((integration): integration is string => typeof integration === 'string')
+}
+
+function ownDataProperty<T>(
+  target: object,
+  key: string,
+  fallback: T
+): T {
+  const descriptor = Object.getOwnPropertyDescriptor(target, key)
+  if (!descriptor || !('value' in descriptor)) return fallback
+  return descriptor.value as T
+}
+
+function fallbackConfigSchema(): JsonSchema {
+  return { type: 'object' }
 }
