@@ -34,7 +34,11 @@ export function broadcastAutomationsRunEvent(
 ): void {
   for (const window of windows) {
     if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-    window.webContents.send(AUTOMATIONS_RUN_EVENT_CHANNEL, event)
+    try {
+      window.webContents.send(AUTOMATIONS_RUN_EVENT_CHANNEL, event)
+    } catch {
+      // Keep run-event delivery best-effort per renderer window.
+    }
   }
 }
 

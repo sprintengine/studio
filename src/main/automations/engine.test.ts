@@ -26,6 +26,7 @@ async function main(): Promise<void> {
   assertWorkspaceSnapshotFolderExtraction()
   await assertDueAutomationFiresOnceWithDuplicateGuard()
   await assertRunEventsEmitForTimerAndManualTerminalStatuses()
+  await assertRunEventDeliveryFailuresDoNotMutateRunTruth()
   await assertStartupOverdueIsSkippedWithoutCatchup()
   await assertTickWaitsForStartupOverdueSkip()
 }
@@ -315,6 +316,89 @@ async function assertRunEventsEmitForTimerAndManualTerminalStatuses(): Promise<v
     status: 'completed',
     trigger: 'manual',
   })
+}
+
+async function assertRunEventDeliveryFailuresDoNotMutateRunTruth(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const manualRoot = await createWorkspace()
+  const manualStore = new AutomationsStore(manualRoot)
+  assert.equal((await manualStore.createDefinition(definition({
+    trigger: { kind: 'schedule', config: intervalConfig(10) },
+    nextRunAt: new Date(now).toISOString(),
+  }))).ok, true)
+
+  let manualDeliveryAttempts = 0
+  const manualEngine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-manual-throw', folderPath: manualRoot }],
+    now: () => now,
+    createRunId: () => 'run-manual-throw',
+    onRunEvent: () => {
+      manualDeliveryAttempts += 1
+      throw new Error('renderer delivery failed')
+    },
+    runAutomation: async () => ({
+      status: 'completed',
+      summary: 'Manual run completed despite renderer delivery failure.',
+    }),
+  })
+
+  const runNow = await manualEngine.runNow({
+    workspaceRoot: manualRoot,
+    workspaceId: 'ws-manual-throw',
+    automationId: 'nightly-review',
+  })
+  assert.equal(manualDeliveryAttempts, 1)
+  assert.equal(runNow.ok, true)
+  assert.equal(runNow.ok && runNow.run.status, 'completed')
+  assert.equal(runNow.ok && runNow.definition.lastRunId, 'run-manual-throw')
+  assert.equal(runNow.ok && runNow.definition.nextRunAt, '2026-06-17T10:10:00.000Z')
+
+  const manualRuns = await manualStore.listRuns('nightly-review')
+  assert.equal(manualRuns.ok, true)
+  assert.equal(manualRuns.ok && manualRuns.values.length, 1)
+  assert.equal(manualRuns.ok && manualRuns.values[0]?.status, 'completed')
+
+  const timerRoot = await createWorkspace()
+  const timerStore = new AutomationsStore(timerRoot)
+  assert.equal((await timerStore.createDefinition(definition({
+    trigger: { kind: 'schedule', config: intervalConfig(5) },
+    nextRunAt: new Date(now).toISOString(),
+  }))).ok, true)
+
+  let timerDeliveryAttempts = 0
+  const timerEngine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-timer-throw', folderPath: timerRoot }],
+    now: () => now,
+    createRunId: () => 'run-timer-throw',
+    onRunEvent: () => {
+      timerDeliveryAttempts += 1
+      throw new Error('renderer delivery failed')
+    },
+    runAutomation: async () => ({
+      status: 'completed',
+      summary: 'Timer run completed despite renderer delivery failure.',
+    }),
+  })
+
+  const tick = await timerEngine.tick()
+  assert.equal(timerDeliveryAttempts, 1)
+  assert.deepEqual(tick.problems, [])
+  assert.deepEqual(tick.fired, [{
+    workspaceRoot: timerRoot,
+    automationId: 'nightly-review',
+    runId: 'run-timer-throw',
+    status: 'completed',
+  }])
+
+  const timerRuns = await timerStore.listRuns('nightly-review')
+  assert.equal(timerRuns.ok, true)
+  assert.equal(timerRuns.ok && timerRuns.values.length, 1)
+  assert.equal(timerRuns.ok && timerRuns.values[0]?.status, 'completed')
+
+  const updatedTimerDefinition = await timerStore.getDefinition('nightly-review')
+  assert.equal(updatedTimerDefinition.ok, true)
+  assert.equal(updatedTimerDefinition.ok && updatedTimerDefinition.value.lastRunId, 'run-timer-throw')
+  assert.equal(updatedTimerDefinition.ok && updatedTimerDefinition.value.nextRunAt, '2026-06-17T10:05:00.000Z')
 }
 
 async function assertStartupOverdueIsSkippedWithoutCatchup(): Promise<void> {

@@ -614,7 +614,7 @@ export class AutomationsEngine {
     if (!this.onRunEvent || !isRunEventStatus(input.run.status)) return
     const workspaceId = input.workspaceId?.trim()
     if (!workspaceId) return
-    this.onRunEvent({
+    const event: AutomationsRunEvent = {
       automationId: input.definition.id,
       runId: input.run.id,
       workspaceId,
@@ -622,7 +622,12 @@ export class AutomationsEngine {
       definitionName: input.definition.name,
       status: input.run.status,
       trigger: input.trigger,
-    })
+    }
+    try {
+      this.onRunEvent(event)
+    } catch {
+      // Renderer delivery is best-effort; run records and IPC results are authoritative.
+    }
   }
 
   private async resolveWorkspaceIdForRoot(workspaceRoot: string): Promise<string | null> {

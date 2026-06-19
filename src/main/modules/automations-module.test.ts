@@ -208,8 +208,9 @@ async function testLiveEnablementToggleStopsUnregistersAndRestarts(): Promise<vo
   assert.equal(engines[1].stopCount, 1)
 }
 
-function testBroadcastRunEventUsesAutomationsChannel(): void {
+function testBroadcastRunEventUsesAutomationsChannelAndSkipsFailedWindows(): void {
   const sent: Array<{ channel: string; payload: unknown }> = []
+  let failedDeliveryAttempts = 0
   broadcastAutomationsRunEvent(
     {
       automationId: 'nightly-review',
@@ -221,6 +222,16 @@ function testBroadcastRunEventUsesAutomationsChannel(): void {
       trigger: 'timer',
     },
     [
+      {
+        isDestroyed: () => false,
+        webContents: {
+          isDestroyed: () => false,
+          send: () => {
+            failedDeliveryAttempts += 1
+            throw new Error('renderer delivery failed')
+          },
+        },
+      },
       {
         isDestroyed: () => false,
         webContents: {
@@ -238,6 +249,7 @@ function testBroadcastRunEventUsesAutomationsChannel(): void {
     ]
   )
 
+  assert.equal(failedDeliveryAttempts, 1)
   assert.deepEqual(sent, [
     {
       channel: AUTOMATIONS_RUN_EVENT_CHANNEL,
@@ -258,7 +270,7 @@ async function main(): Promise<void> {
   await testEnabledModuleRegistersStartupSidecarAndIpc()
   await testDisabledModuleRegistersNoSidecarOrIpc()
   await testLiveEnablementToggleStopsUnregistersAndRestarts()
-  testBroadcastRunEventUsesAutomationsChannel()
+  testBroadcastRunEventUsesAutomationsChannelAndSkipsFailedWindows()
   console.log('automations-module tests passed')
 }
 
