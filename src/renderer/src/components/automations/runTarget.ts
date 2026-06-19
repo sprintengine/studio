@@ -69,6 +69,19 @@ export function scheduledRunNotification(
   }
 }
 
+// The observer's full event->publish boundary (the path tester C7 exercised in
+// Electron): given a delivered run event, resolve its folder and publish the
+// scheduled-run notification when one is warranted. Kept here as a pure,
+// injected-port function so it is unit-testable without mounting React.
+export function handleAutomationRunEvent(
+  event: AutomationsRunEvent,
+  resolveFolderPath: (workspaceId: string) => string | null,
+  publish: (input: DiagnosticLogInput) => void,
+): void {
+  const diagnostic = scheduledRunNotification(event, () => resolveFolderPath(event.workspaceId))
+  if (diagnostic) publish(diagnostic)
+}
+
 // Resolve the automations control-center workspace a run notification's Open
 // action should land on. Dedupe-first: reuse an existing automations workspace
 // for the run's folder; create one only if none exists, so Open reaches the

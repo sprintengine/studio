@@ -6,7 +6,8 @@ import { createMultiloopTemplate } from './multiloop-workspace-types'
 import { createGuidedBriefTemplate, createSprintEngineTemplate } from './sprint-engine-workspace-types'
 import { createSwitchboardTemplate } from './switchboard-workspace-types'
 import { collectWorkspaceTypeSupervisors } from './workspace-type-supervisors'
-import { decodeRunRef, resolveAutomationsWorkspaceId, scheduledRunNotification } from '../components/automations/runTarget'
+import { decodeRunRef, handleAutomationRunEvent, resolveAutomationsWorkspaceId, scheduledRunNotification } from '../components/automations/runTarget'
+import type { DiagnosticLogInput } from '../types/workspace'
 import type { AutomationsRunEvent } from '../../../shared/automations/contracts'
 import type { LayoutTemplate, SprintEngineMockConfig } from '../types/workspace'
 
@@ -374,6 +375,40 @@ assert.deepEqual(
     null,
     'completed runs stay silent (low-noise)',
   )
+}
+
+// T13 C7/C9/C10: the observer's delivered-event -> publish boundary (the path
+// that failed in built Electron). handleAutomationRunEvent is what the mounted
+// supervisor invokes for every onAutomationRunEvent payload.
+{
+  const event: AutomationsRunEvent = {
+    automationId: 'auto-2',
+    runId: 'run-42',
+    workspaceId: 'ws-project',
+    definitionName: 'Nightly QA',
+    status: 'failed',
+    trigger: 'timer',
+  }
+  const resolveFolderPath = (workspaceId: string) => (workspaceId === 'ws-project' ? '/repo/app' : null)
+
+  const published: DiagnosticLogInput[] = []
+  handleAutomationRunEvent(event, resolveFolderPath, (input) => published.push(input))
+  assert.equal(published.length, 1, 'timer failed event publishes exactly one notification')
+  assert.equal(published[0].source, 'automations')
+  assert.equal(published[0].level, 'error')
+  assert.deepEqual(
+    decodeRunRef(published[0].navigationTarget!.ref),
+    { automationId: 'auto-2', runId: 'run-42', folderPath: '/repo/app' },
+    'published deep-link resolves the run folder for Open',
+  )
+
+  const manualPublished: DiagnosticLogInput[] = []
+  handleAutomationRunEvent({ ...event, trigger: 'manual' }, resolveFolderPath, (input) => manualPublished.push(input))
+  assert.equal(manualPublished.length, 0, 'manual events publish nothing (owned by T6)')
+
+  const completedPublished: DiagnosticLogInput[] = []
+  handleAutomationRunEvent({ ...event, status: 'completed' }, resolveFolderPath, (input) => completedPublished.push(input))
+  assert.equal(completedPublished.length, 0, 'completed events publish nothing (low-noise)')
 }
 
 console.log('bundled workspace type registration tests passed')

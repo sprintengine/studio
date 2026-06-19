@@ -1,14 +1,12 @@
-import React from 'react'
-
 import type { RendererHost } from './renderer-host'
 import type { LayoutTemplate, PreviewSlot } from '../types/workspace'
 import { AutomationsWorkspaceTypeIcon } from '../components/AppIcons'
-
-// Lazy so the always-mounted background-run observer's tiny module loads with
-// the automations workspace-type registration, not eagerly at app boot.
-const AutomationsRunSupervisor = React.lazy(
-  () => import('../components/automations/AutomationsRunSupervisor'),
-)
+// Eager (not React.lazy): the always-mounted background-run observer must
+// subscribe with no chunk-load gap that could drop an early run-event. Its
+// module is intentionally store-free (resolves folders on demand), so this
+// eager import keeps the registry graph / bundled-ids free of the workspace
+// store + FlexLayout.
+import AutomationsRunSupervisor from '../components/automations/AutomationsRunSupervisor'
 
 const editor = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({ x, y, w, h, type: 'editor', label })
 

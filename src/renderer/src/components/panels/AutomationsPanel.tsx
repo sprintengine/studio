@@ -93,7 +93,7 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
       workspaceName: workspaceName ?? undefined,
       navigationTarget: { kind: RUN_TARGET_KIND, ref: encodeRunRef(def.id, run.id, folderPath) },
     })
-  }, [runNow, workspaceId, workspaceName])
+  }, [runNow, workspaceId, workspaceName, folderPath])
 
   // Deep-link from an automations run notification. The shell reveals the
   // workspace; this latches the target (drained on mount AND via the live
