@@ -192,5 +192,15 @@ assert.equal(
   0,
   'SDK public declaration surface must not contain `any`'
 )
+assert.equal(
+  publicTypes.includes('AutomationsProviderRegistryToken'),
+  false,
+  'SDK public surface must not expose the raw Automations provider registry token'
+)
+assert.equal(
+  publicTypes.includes('AutomationsProviderRegistry'),
+  false,
+  'SDK public surface must not expose the raw Automations provider registry contract'
+)
 
 console.log('module-sdk drift guard passed')

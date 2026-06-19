@@ -34,6 +34,11 @@ const anyUses = publicTypes.match(/\bany\b/g) ?? []
 if (anyUses.length > 0) {
   throw new Error(`SDK public surface contains ${anyUses.length} use(s) of \`any\`.`)
 }
+for (const forbiddenExport of ['AutomationsProviderRegistryToken', 'AutomationsProviderRegistry']) {
+  if (publicTypes.includes(forbiddenExport)) {
+    throw new Error(`SDK public surface exposes forbidden raw Automations registry contract: ${forbiddenExport}.`)
+  }
+}
 console.log('public surface contains no `any`')
 
 run(`npm install --no-save --no-package-lock --no-audit --no-fund ../${tarball}`, fixtureDir)

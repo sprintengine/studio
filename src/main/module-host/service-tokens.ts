@@ -34,7 +34,7 @@ export const WorkspaceSyncServiceToken = createServiceToken<AppServices['workspa
 export const AutomationsEngineToken = createServiceToken<AutomationsEngine>(
   'automations.engine'
 )
-// Key mirrors @multicode/module-sdk's AutomationsProviderRegistryToken.
+// Key mirrors the private service token used by module-sdk's Automations helpers.
 export const AutomationsProviderRegistryToken = createServiceToken<AutomationProviderRegistryService>(
   'automations.provider-registry'
 )

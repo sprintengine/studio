@@ -47,8 +47,9 @@ contracts, so a published version always matches the app version it ships with.
   `module:<id>` settings namespace).
 - **Automations providers**: `registerAutomationTrigger` and
   `registerAutomationAction` register trusted module providers with the
-  Automations registry. Declare `dependsOn: ['automations']` so the registry
-  service exists before your `entry.main` runs.
+  Automations registry using the current `host.moduleId`. Declare
+  `dependsOn: ['automations']` so the registry service exists before your
+  `entry.main` runs.
 - **React**: panels, icons, and settings sections are React components. The
   app provides React at runtime; compile against `@types/react` 18 (declared
   as an optional peer dependency) and bundle your renderer entry as ESM with
@@ -148,6 +149,8 @@ export const registerMain: RegisterMain = (host) => {
 Automations provider code only runs from trusted modules, under the same
 third-party module trust gate as other `entry.main` code. `run-command` remains
 unavailable in the app-active executor until Multicode ships that capability.
+The lower-level registry service token is intentionally not exported; use the
+helper functions so provider ownership is always stamped from the host.
 
 ## BYO-CLI plugins (adding an agent CLI)
 

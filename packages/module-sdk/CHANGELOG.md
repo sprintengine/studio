@@ -4,8 +4,7 @@
 
 - New Automations provider authoring surface:
   `registerAutomationTrigger`, `registerAutomationAction`, provider/context
-  types, and `AutomationsProviderRegistryToken` for trusted modules that
-  declare `dependsOn: ['automations']`.
+  types for trusted modules that declare `dependsOn: ['automations']`.
 - `BUNDLED_MODULE_IDS` now includes `automations`, matching the app reserved-id
   set.
 - `BacklogItemLink.type` now includes `agent`, matching the app's

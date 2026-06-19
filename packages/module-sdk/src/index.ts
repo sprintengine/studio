@@ -324,24 +324,20 @@ export type AutomationActionProvider = {
   run(config: unknown, ctx: ActionContext): Promise<Partial<AutomationRun>>
 }
 
-export type AutomationsProviderRegistry = {
+type AutomationsProviderRegistry = {
   registerTriggerProvider(moduleId: string, provider: AutomationTriggerProvider): string
   registerActionProvider(moduleId: string, provider: AutomationActionProvider): string
 }
 
-/**
- * Service token for modules that need lower-level access to Automations provider
- * registration. Prefer `registerAutomationTrigger` and `registerAutomationAction`.
- */
-export const AutomationsProviderRegistryToken: ServiceToken<AutomationsProviderRegistry> =
+const automationsProviderRegistryToken: ServiceToken<AutomationsProviderRegistry> =
   createServiceToken<AutomationsProviderRegistry>('automations.provider-registry')
 
 export function registerAutomationTrigger(host: MainHost, provider: AutomationTriggerProvider): string {
-  return host.requireService(AutomationsProviderRegistryToken).registerTriggerProvider(host.moduleId, provider)
+  return host.requireService(automationsProviderRegistryToken).registerTriggerProvider(host.moduleId, provider)
 }
 
 export function registerAutomationAction(host: MainHost, provider: AutomationActionProvider): string {
-  return host.requireService(AutomationsProviderRegistryToken).registerActionProvider(host.moduleId, provider)
+  return host.requireService(automationsProviderRegistryToken).registerActionProvider(host.moduleId, provider)
 }
 
 // ── Renderer host (entry.renderer) ───────────────────────────────────────────
