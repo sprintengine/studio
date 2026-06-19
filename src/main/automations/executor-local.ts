@@ -5,8 +5,9 @@ import type { Workspace } from '../../renderer/src/types/workspace'
 import { getGitRepoRoot, getGitStatus } from '../git'
 import { createWorkspaceConfirmed } from '../workspace-create'
 import type { AutomationRunExecutionInput, AutomationRunExecutor } from './engine'
-import { createRunSkillLoopActionProvider, runSkillLoopAction } from './actions/run-skill-loop'
-import { createSpawnAgentActionProvider, runSpawnAgentAction, type SpawnAgentResolvedTarget } from './actions/spawn-agent'
+import { runSkillLoopAction } from './actions/run-skill-loop'
+import { runSpawnAgentAction, type SpawnAgentResolvedTarget } from './actions/spawn-agent'
+import { createBuiltInAutomationProviderRegistry } from './provider-registry'
 
 export type LocalAutomationExecutorOptions = {
   delegateToRenderer(request: AutomationRendererRequest): Promise<AutomationRendererResponse>
@@ -17,6 +18,7 @@ export type LocalAutomationExecutorOptions = {
   sleep?: (ms: number) => Promise<void>
   launchConfirmTimeoutMs?: number
   launchConfirmPollIntervalMs?: number
+  actionProviders?: AutomationActionProvider[]
 }
 
 export type WorkspaceDirtyResult = {
@@ -35,15 +37,12 @@ const DEFAULT_LAUNCH_CONFIRM_TIMEOUT_MS = 20_000
 const DEFAULT_LAUNCH_CONFIRM_POLL_INTERVAL_MS = 150
 
 export function createLocalAutomationExecutor(options: LocalAutomationExecutorOptions): AutomationRunExecutor {
-  const providers = createBuiltInAutomationActionProviders()
+  const providers = options.actionProviders ?? createBuiltInAutomationActionProviders()
   return async (input) => runLocalAutomationAction(input, providers, options)
 }
 
 export function createBuiltInAutomationActionProviders(): AutomationActionProvider[] {
-  return [
-    createSpawnAgentActionProvider(),
-    createRunSkillLoopActionProvider(),
-  ]
+  return createBuiltInAutomationProviderRegistry().listActionProviders()
 }
 
 export async function runLocalAutomationAction(

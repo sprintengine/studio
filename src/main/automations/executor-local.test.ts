@@ -4,10 +4,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
-import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
+import type { AutomationActionProvider, AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { Workspace } from '../../renderer/src/types/workspace'
 import { createBuiltInAutomationActionProviders, createLocalAutomationExecutor, type LocalAutomationExecutorOptions } from './executor-local'
+import {
+  AutomationProviderRegistrationError,
+  createAutomationProviderRegistry,
+  createBuiltInAutomationProviderRegistry,
+  namespacedProviderId,
+} from './provider-registry'
 
 function workspace(id: string, folderPath: string | null, overrides: Partial<Workspace> = {}): Workspace {
   return {
@@ -468,12 +474,38 @@ async function assertRunSkillLoopIsPresetAndRunCommandIsNotRegistered(): Promise
   assert.match(launch.kind === 'agent.launch' ? launch.prompt ?? '' : '', /review_only/)
 }
 
+function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): void {
+  const builtIns = createBuiltInAutomationProviderRegistry()
+  assert.equal(namespacedProviderId('automations', 'schedule'), 'automations.schedule')
+  assert.equal(builtIns.getTriggerProvider('automations.schedule')?.kind, 'schedule')
+  assert.equal(builtIns.getActionProvider('automations.spawn-agent')?.kind, 'spawn-agent')
+  assert.equal(builtIns.getActionProvider('automations.run-skill-loop')?.kind, 'run-skill-loop')
+  assert.equal(builtIns.getActionProvider('other.spawn-agent'), undefined)
+  assert.deepEqual(builtIns.listTriggerProviders().map((provider) => provider.kind), ['schedule'])
+  assert.deepEqual(builtIns.listActionProviders().map((provider) => provider.kind), ['spawn-agent', 'run-skill-loop'])
+
+  const duplicateRegistry = createAutomationProviderRegistry()
+  const duplicateProvider: AutomationActionProvider = {
+    kind: 'spawn-agent',
+    configSchema: {},
+    run: async () => ({}),
+  }
+  assert.equal(duplicateRegistry.registerActionProvider('automations', duplicateProvider), 'automations.spawn-agent')
+  assert.throws(
+    () => duplicateRegistry.registerActionProvider('automations', duplicateProvider),
+    (error) => error instanceof AutomationProviderRegistrationError
+      && error.providerId === 'automations.spawn-agent'
+      && /Duplicate automation action provider registration/.test(error.message)
+  )
+}
+
 void main().catch((error) => {
   console.error(error)
   process.exit(1)
 })
 
 async function main(): Promise<void> {
+  assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates()
   await assertSpawnAgentCreatesWorkspaceAndLaunchesOnBus()
   await assertSpawnAgentUsesExistingStandardWorkspace()
   await assertSpawnAgentCreatesStandardTargetWhenOnlyAutomationsWorkspaceIsOpen()

@@ -25,8 +25,7 @@ import {
   AUTOMATIONS_UPDATE_CHANNEL,
 } from '../../shared/automations/contracts'
 import { createAutomationsEngine } from '../automations/engine'
-import { createBuiltInAutomationActionProviders } from '../automations/executor-local'
-import { scheduleTriggerProvider } from '../automations/schedule'
+import { createBuiltInAutomationProviderRegistry } from '../automations/provider-registry'
 import { AutomationsStore } from '../automations/store'
 import type { IpcInvokeHandler } from '../module-host/main-host'
 import { registerAutomationsIpc } from './automations-ipc'
@@ -51,6 +50,7 @@ let runCount = 0
 
 function testDeps(options: { onRunEvent?: (event: AutomationsRunEvent) => void; workspaceRoots?: string[] } = {}) {
   const workspaceRoots = options.workspaceRoots ?? []
+  const providerRegistry = createBuiltInAutomationProviderRegistry()
   const engine = createAutomationsEngine({
     createStore: (workspaceRoot) => new AutomationsStore(workspaceRoot),
     getProjectFolders: () => workspaceRoots.map((folderPath, index) => ({ workspaceId: `ws-${index + 1}`, folderPath })),
@@ -64,8 +64,8 @@ function testDeps(options: { onRunEvent?: (event: AutomationsRunEvent) => void; 
   })
   return {
     engine,
-    triggerProviders: [scheduleTriggerProvider],
-    actionProviders: createBuiltInAutomationActionProviders(),
+    triggerProviders: providerRegistry.listTriggerProviders(),
+    actionProviders: providerRegistry.listActionProviders(),
     getWorkspaceSyncSnapshot: () => workspaceSnapshot(workspaceRoots),
     now: () => currentNow,
   }
@@ -122,13 +122,101 @@ async function testProviderList(): Promise<void> {
   const providers = await invoke<AutomationsProvidersResult>(createFakeHost(), AUTOMATIONS_PROVIDERS_LIST_CHANNEL)
   assert.equal(providers.ok, true)
   if (!providers.ok) return
-  assert.deepEqual(providers.value.triggers.map((provider) => provider.kind), ['schedule'])
-  assert.deepEqual(providers.value.actions.map((provider) => provider.kind), ['spawn-agent', 'run-skill-loop'])
-  assert.equal(
-    providers.value.actions.some((provider) => provider.kind === 'run-command'),
-    false,
-    'run-command remains deferred and is not registered'
-  )
+  assert.equal(JSON.stringify(providers.value), JSON.stringify({
+    triggers: [
+      {
+        kind: 'schedule',
+        configSchema: {
+          type: 'object',
+          required: ['kind', 'cadence', 'timezone'],
+          properties: {
+            kind: { const: 'schedule' },
+            timezone: { type: 'string', minLength: 1 },
+            cadence: {
+              oneOf: [
+                {
+                  type: 'object',
+                  required: ['type', 'everyMinutes'],
+                  properties: {
+                    type: { const: 'interval' },
+                    everyMinutes: { type: 'integer', minimum: 5 },
+                  },
+                },
+                {
+                  type: 'object',
+                  required: ['type', 'timeLocal'],
+                  properties: {
+                    type: { const: 'daily' },
+                    timeLocal: { type: 'string', pattern: '^([01]\\d|2[0-3]):([0-5]\\d)$' },
+                  },
+                },
+                {
+                  type: 'object',
+                  required: ['type', 'timeLocal', 'daysOfWeek'],
+                  properties: {
+                    type: { const: 'weekly' },
+                    timeLocal: { type: 'string', pattern: '^([01]\\d|2[0-3]):([0-5]\\d)$' },
+                    daysOfWeek: {
+                      type: 'array',
+                      minItems: 1,
+                      uniqueItems: true,
+                      items: { type: 'integer', minimum: 0, maximum: 6 },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+        requiredIntegrations: [],
+        missingIntegrations: [],
+      },
+    ],
+    actions: [
+      {
+        kind: 'spawn-agent',
+        configSchema: {
+          type: 'object',
+          required: ['prompt'],
+          properties: {
+            folderPath: { type: 'string', minLength: 1 },
+            workspaceId: { type: 'string', minLength: 1 },
+            cli: { type: 'string', minLength: 1 },
+            name: { type: 'string', minLength: 1 },
+            prompt: { type: 'string', minLength: 1 },
+            requiredIntegrations: {
+              type: 'array',
+              items: { type: 'string', minLength: 1 },
+            },
+          },
+        },
+        requiredIntegrations: [],
+        missingIntegrations: [],
+      },
+      {
+        kind: 'run-skill-loop',
+        configSchema: {
+          type: 'object',
+          required: ['prompt'],
+          properties: {
+            folderPath: { type: 'string', minLength: 1 },
+            workspaceId: { type: 'string', minLength: 1 },
+            cli: { type: 'string', minLength: 1 },
+            name: { type: 'string', minLength: 1 },
+            prompt: { type: 'string', minLength: 1 },
+            skill: { type: 'string', minLength: 1 },
+            requiredIntegrations: {
+              type: 'array',
+              items: { type: 'string', minLength: 1 },
+            },
+          },
+        },
+        requiredIntegrations: [],
+        missingIntegrations: [],
+      },
+    ],
+  }))
+  assert.equal(providers.value.actions.some((provider) => provider.kind === 'run-command'), false)
 }
 
 async function testDefinitionRoundTripAndRunNow(): Promise<void> {
@@ -234,6 +322,7 @@ async function testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow(): Promise<vo
   const handlers: HandlerMap = new Map()
   let storeCreated = 0
   let runNowCalled = 0
+  const providerRegistry = createBuiltInAutomationProviderRegistry()
 
   registerAutomationsIpc(
     {
@@ -255,8 +344,8 @@ async function testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow(): Promise<vo
         storeCreated += 1
         return new AutomationsStore(workspaceRoot)
       },
-      triggerProviders: [scheduleTriggerProvider],
-      actionProviders: createBuiltInAutomationActionProviders(),
+      triggerProviders: providerRegistry.listTriggerProviders(),
+      actionProviders: providerRegistry.listActionProviders(),
       getWorkspaceSyncSnapshot: () => workspaceSnapshot([knownRoot]),
       now: () => currentNow,
     }

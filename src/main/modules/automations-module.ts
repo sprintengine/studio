@@ -1,8 +1,8 @@
 import { BrowserWindow } from 'electron'
 
-import { createBuiltInAutomationActionProviders, createLocalAutomationExecutor, defaultWorkspaceDirtyCheck } from '../automations/executor-local'
+import { createLocalAutomationExecutor, defaultWorkspaceDirtyCheck } from '../automations/executor-local'
 import { createAutomationsEngine, type AutomationsEngine, type AutomationsEngineOptions } from '../automations/engine'
-import { scheduleTriggerProvider } from '../automations/schedule'
+import { createBuiltInAutomationProviderRegistry } from '../automations/provider-registry'
 import { registerAutomationsIpc } from '../ipc/automations-ipc'
 import {
   AutomationDelegateToken,
@@ -57,11 +57,13 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
     registerMain(host) {
       const automationDelegate = host.requireService(AutomationDelegateToken)
       const workspaceSyncService = host.requireService(WorkspaceSyncServiceToken)
-      const actionProviders = createBuiltInAutomationActionProviders()
+      const providerRegistry = createBuiltInAutomationProviderRegistry()
+      const actionProviders = providerRegistry.listActionProviders()
       const runAutomation = createLocalAutomationExecutor({
         delegateToRenderer: (request) => automationDelegate.request(request),
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
         isWorkspaceDirty: defaultWorkspaceDirtyCheck,
+        actionProviders,
       })
       const engine = host.provideService(AutomationsEngineToken, () =>
         (options.createEngine ?? createAutomationsEngine)({
@@ -91,7 +93,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
 
       registerAutomationsIpc(host, {
         engine,
-        triggerProviders: [scheduleTriggerProvider],
+        triggerProviders: providerRegistry.listTriggerProviders(),
         actionProviders,
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
       })
