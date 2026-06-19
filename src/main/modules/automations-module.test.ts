@@ -13,6 +13,7 @@ import type {
   AutomationsProvidersResult,
 } from '../../shared/automations/contracts'
 import type { AutomationsEngine, AutomationsEngineOptions } from '../automations/engine'
+import type { AutomationProviderPermissionChecker } from '../automations/provider-registry'
 import type { CapabilityModule } from '../module-host/load-modules'
 import type { IpcInvokeHandler } from '../module-host/main-host'
 import { loadMainModules } from '../module-host/load-modules'
@@ -513,6 +514,79 @@ async function testThirdPartyAutomationProviderRegistrationUsesLiveRegistry(): P
   assert.equal(result.summary, 'Weather Deck action completed.')
 }
 
+async function testThirdPartyAutomationProviderTrustGateBlocksListingAndExecution(): Promise<void> {
+  const { ipcMain, handlers } = createFakeIpcMain()
+  let capturedEngineOptions: AutomationsEngineOptions | null = null
+  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null
+  let weatherDeckTrusted = true
+  const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-provider-blocked-'))
+  const checkProviderPermission: AutomationProviderPermissionChecker = (registration) => {
+    if (registration.moduleId !== 'weather-deck') return { ok: true }
+    return weatherDeckTrusted
+      ? { ok: true }
+      : { ok: false, reason: 'Module "weather-deck" is not trusted in Settings -> Modules.' }
+  }
+
+  const moduleLoad = loadMainModules({
+    ipcMain,
+    modules: [
+      fakeAgentRuntimeModule({ workspaceSnapshot: workspaceSnapshot(folderPath) }),
+      createAutomationsModule({
+        checkProviderPermission,
+        createEngine: (options) => {
+          capturedEngineOptions = options
+          capturedRunAutomation = options.runAutomation
+          return createFakeAutomationsEngine() as AutomationsEngine
+        },
+      }),
+      fakeThirdPartyAutomationProviderModule(),
+    ],
+  })
+
+  assert.deepEqual(moduleLoad.report.errors, [])
+  assert.ok(moduleLoad.report.loaded.includes('weather-deck'))
+
+  weatherDeckTrusted = false
+  const providerHandler = handlers.get(AUTOMATIONS_PROVIDERS_LIST_CHANNEL)
+  assert.ok(providerHandler)
+  const providers = await providerHandler({} as never) as AutomationsProvidersResult
+  assert.equal(providers.ok, true)
+  if (!providers.ok) return
+  assert.equal(providers.value.triggers.find((provider) => provider.kind === 'schedule')?.blockedReason, undefined)
+  assert.match(
+    providers.value.triggers.find((provider) => provider.kind === 'weather-deck.forecast-ready')?.blockedReason ?? '',
+    /not trusted/
+  )
+  assert.match(
+    providers.value.actions.find((provider) => provider.kind === 'weather-deck.refresh-forecast')?.blockedReason ?? '',
+    /not trusted/
+  )
+
+  const triggerProvider = capturedEngineOptions?.getTriggerProviders?.()
+    .find((provider) => provider.kind === 'weather-deck.forecast-ready')
+  assert.ok(triggerProvider)
+  assert.ok(triggerProvider.poll)
+  const poll = await triggerProvider.poll({
+    config: { city: 'Dublin' },
+    workspaceRoot: folderPath,
+    now: () => Date.parse('2026-06-18T00:00:00.000Z'),
+  })
+  assert.equal(poll.ok, false)
+  assert.match(poll.ok ? '' : poll.blockedReason, /not trusted/)
+
+  assert.ok(capturedRunAutomation)
+  const result = await capturedRunAutomation({
+    workspaceRoot: folderPath,
+    definition: automationDefinition(folderPath, {
+      action: { kind: 'weather-deck.refresh-forecast', config: { city: 'Dublin' } },
+    }),
+    run: automationRun(),
+    triggerPayload: { source: 'test' },
+  })
+  assert.equal(result.status, 'blocked')
+  assert.match(result.blockedReason ?? '', /not trusted/)
+}
+
 function testBroadcastRunEventUsesAutomationsChannelAndSkipsFailedWindows(): void {
   const sent: Array<{ channel: string; payload: unknown }> = []
   let failedDeliveryAttempts = 0
@@ -578,6 +652,7 @@ async function main(): Promise<void> {
   await testModuleExecutorUsesRealDirtyCheckBeforeLaunch()
   await testModuleRegistersFirstPartyActionProviders()
   await testThirdPartyAutomationProviderRegistrationUsesLiveRegistry()
+  await testThirdPartyAutomationProviderTrustGateBlocksListingAndExecution()
   testBroadcastRunEventUsesAutomationsChannelAndSkipsFailedWindows()
   console.log('automations-module tests passed')
 }

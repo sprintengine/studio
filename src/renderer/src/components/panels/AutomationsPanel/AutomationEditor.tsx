@@ -64,7 +64,7 @@ const EMPTY_FORM: EditorFormState = {
 
 function initialFormState(editor: EditorState, providers: AutomationsProviders): EditorFormState {
   const firstAvailableAction =
-    providers.actions.find((a) => a.missingIntegrations.length === 0) ?? providers.actions[0]
+    providers.actions.find((a) => !providerUnavailableReason(a)) ?? providers.actions[0]
   if (editor.mode === 'create') {
     return { ...EMPTY_FORM, actionKind: firstAvailableAction?.kind ?? '' }
   }
@@ -88,6 +88,15 @@ function initialFormState(editor: EditorState, providers: AutomationsProviders):
     daysOfWeek: cadence?.type === 'weekly' ? cadence.daysOfWeek : [1, 2, 3, 4, 5],
     config,
   }
+}
+
+function providerUnavailableReason(provider: AutomationsProviderView | null | undefined): string | null {
+  if (!provider) return null
+  if (provider.blockedReason) return provider.blockedReason
+  if (provider.missingIntegrations.length > 0) {
+    return `This action needs ${provider.missingIntegrations.join(', ')}, which is not connected.`
+  }
+  return null
 }
 
 function buildCadence(form: EditorFormState): ScheduleTriggerConfig['cadence'] {
@@ -125,7 +134,7 @@ export function AutomationEditor({
   )
 
   const actionProvider = providers?.actions.find((a) => a.kind === form.actionKind) ?? null
-  const actionMissing = actionProvider?.missingIntegrations ?? []
+  const actionUnavailableReason = providerUnavailableReason(actionProvider)
   const configKeys = actionProvider ? schemaStringKeys(actionProvider.configSchema) : []
   const requiredKeys = actionProvider ? schemaRequiredKeys(actionProvider.configSchema) : new Set<string>()
 
@@ -136,7 +145,7 @@ export function AutomationEditor({
   const validationError = useMemo((): string | null => {
     if (!form.name.trim()) return 'Give the automation a name.'
     if (!actionProvider) return 'No action provider is available.'
-    if (actionMissing.length > 0) return `The "${form.actionKind}" action needs ${actionMissing.join(', ')}, which is not available.`
+    if (actionUnavailableReason) return actionUnavailableReason
     if (form.cadenceType === 'interval' && form.everyMinutes < 5) return 'Interval must be at least 5 minutes.'
     if (form.cadenceType === 'weekly' && form.daysOfWeek.length === 0) return 'Pick at least one day for a weekly schedule.'
     if (configKeys.includes('cli')) {
@@ -148,7 +157,7 @@ export function AutomationEditor({
       if (!form.config[key]?.trim()) return `${CONFIG_FIELD_LABEL[key] ?? key} is required.`
     }
     return null
-  }, [form, actionProvider, actionMissing, requiredKeys, configKeys, cliCatalog])
+  }, [form, actionProvider, actionUnavailableReason, requiredKeys, configKeys, cliCatalog])
 
   const handleSubmit = useCallback(async () => {
     if (validationError || !workspaceRoot) { setError(validationError); return }
@@ -199,8 +208,8 @@ export function AutomationEditor({
 
   const actionItems: SelectItem[] = (providers?.actions ?? []).map((a) => ({
     value: a.kind,
-    label: a.missingIntegrations.length > 0 ? `${a.kind} (needs ${a.missingIntegrations.join(', ')})` : a.kind,
-    disabled: a.missingIntegrations.length > 0,
+    label: providerUnavailableReason(a) ? `${a.kind} (blocked)` : a.kind,
+    disabled: Boolean(providerUnavailableReason(a)),
   }))
 
   return (
@@ -303,9 +312,9 @@ export function AutomationEditor({
             placeholder="Select an action…"
           />
         </Field>
-        {actionMissing.length > 0 ? (
+        {actionUnavailableReason ? (
           <InlineNotice tone="warn">
-            This action needs {actionMissing.join(', ')}, which is not connected. Connect it to enable this action.
+            {actionUnavailableReason}
           </InlineNotice>
         ) : (
           configKeys.map((key) => {

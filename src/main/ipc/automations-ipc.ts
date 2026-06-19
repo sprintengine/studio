@@ -31,6 +31,12 @@ import {
   AUTOMATIONS_UPDATE_CHANNEL,
 } from '../../shared/automations/contracts'
 import { projectFoldersFromWorkspaceSyncSnapshot, type AutomationsEngine, type AutomationsEngineRunNowResult } from '../automations/engine'
+import {
+  allowAutomationProvider,
+  automationProviderBlockedReason,
+  type AutomationProviderPermissionChecker,
+  type RegisteredAutomationProvider,
+} from '../automations/provider-registry'
 import { computeNextRun, validateScheduleTriggerConfig } from '../automations/schedule'
 import { AutomationsStore, type AutomationStoreProblem } from '../automations/store'
 import type { IpcInvokeHandler } from '../module-host/main-host'
@@ -44,8 +50,13 @@ export type AutomationsIpcDependencies = {
   createStore?: (workspaceRoot: string) => AutomationsStore
   triggerProviders?: AutomationTriggerProvider[]
   actionProviders?: AutomationActionProvider[]
+  triggerProviderRegistrations?: RegisteredAutomationProvider<AutomationTriggerProvider>[]
+  actionProviderRegistrations?: RegisteredAutomationProvider<AutomationActionProvider>[]
   getTriggerProviders?: () => AutomationTriggerProvider[]
   getActionProviders?: () => AutomationActionProvider[]
+  getTriggerProviderRegistrations?: () => RegisteredAutomationProvider<AutomationTriggerProvider>[]
+  getActionProviderRegistrations?: () => RegisteredAutomationProvider<AutomationActionProvider>[]
+  checkProviderPermission?: AutomationProviderPermissionChecker
   isIntegrationAvailable?: (id: string) => boolean | undefined
   getWorkspaceSyncSnapshot?: () => WorkspaceSyncSnapshot
   now?: () => number
@@ -66,6 +77,15 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
   const staticActionProviders = deps.actionProviders ?? []
   const getTriggerProviders = deps.getTriggerProviders ?? (() => staticTriggerProviders)
   const getActionProviders = deps.getActionProviders ?? (() => staticActionProviders)
+  const getTriggerProviderRegistrations = deps.getTriggerProviderRegistrations
+    ?? (() => deps.triggerProviderRegistrations ?? getTriggerProviders().map((provider) =>
+      legacyProviderRegistration('trigger', provider)
+    ))
+  const getActionProviderRegistrations = deps.getActionProviderRegistrations
+    ?? (() => deps.actionProviderRegistrations ?? getActionProviders().map((provider) =>
+      legacyProviderRegistration('action', provider)
+    ))
+  const checkProviderPermission = deps.checkProviderPermission ?? allowAutomationProvider
   const now = deps.now ?? Date.now
 
   host.registerIpc(AUTOMATIONS_LIST_CHANNEL, async (_event, input: unknown): Promise<AutomationsListResult> => {
@@ -90,7 +110,13 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
 
     const timestamp = new Date(now()).toISOString()
     const definition = buildDefinitionForCreate(parsed.value.definition, timestamp, deps.createAutomationId)
-    const prepared = prepareDefinitionForWrite(definition, getTriggerProviders(), getActionProviders(), now())
+    const prepared = prepareDefinitionForWrite(
+      definition,
+      getTriggerProviderRegistrations(),
+      getActionProviderRegistrations(),
+      checkProviderPermission,
+      now()
+    )
     if (!prepared.ok) return prepared
 
     const store = createStore(parsed.value.workspaceRoot)
@@ -117,7 +143,13 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
       createdAt: existing.value.createdAt,
       updatedAt: timestamp,
     }
-    const prepared = prepareDefinitionForWrite(updated, getTriggerProviders(), getActionProviders(), now())
+    const prepared = prepareDefinitionForWrite(
+      updated,
+      getTriggerProviderRegistrations(),
+      getActionProviderRegistrations(),
+      checkProviderPermission,
+      now()
+    )
     if (!prepared.ok) return prepared
 
     const written = await store.updateDefinition(prepared.value)
@@ -156,8 +188,12 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
 
   host.registerIpc(AUTOMATIONS_PROVIDERS_LIST_CHANNEL, async (): Promise<AutomationsProvidersResult> => {
     return ok({
-      triggers: getTriggerProviders().map((provider) => providerView(provider, deps.isIntegrationAvailable)),
-      actions: getActionProviders().map((provider) => providerView(provider, deps.isIntegrationAvailable)),
+      triggers: getTriggerProviderRegistrations().map((registration) =>
+        providerView(registration, deps.isIntegrationAvailable, checkProviderPermission)
+      ),
+      actions: getActionProviderRegistrations().map((registration) =>
+        providerView(registration, deps.isIntegrationAvailable, checkProviderPermission)
+      ),
     })
   })
 }
@@ -185,17 +221,32 @@ function buildDefinitionForCreate(
 
 function prepareDefinitionForWrite(
   definition: AutomationDefinition,
-  triggerProviders: AutomationTriggerProvider[],
-  actionProviders: AutomationActionProvider[],
+  triggerProviders: RegisteredAutomationProvider<AutomationTriggerProvider>[],
+  actionProviders: RegisteredAutomationProvider<AutomationActionProvider>[],
+  checkProviderPermission: AutomationProviderPermissionChecker,
   after: number
 ): AutomationsDefinitionResult {
-  const triggerProvider = triggerProviders.find((provider) => provider.kind === definition.trigger.kind)
-  if (!triggerProvider) {
+  const triggerRegistration = triggerProviders.find((registration) => registration.provider.kind === definition.trigger.kind)
+  if (!triggerRegistration) {
     return fail('unknown_trigger', `No automation trigger provider is registered for "${definition.trigger.kind}".`)
   }
-  if (!actionProviders.some((provider) => provider.kind === definition.action.kind)) {
+  const triggerBlockedReason = automationProviderBlockedReason(
+    triggerRegistration,
+    checkProviderPermission(triggerRegistration)
+  )
+  if (triggerBlockedReason) return fail('provider_blocked', triggerBlockedReason)
+
+  const actionRegistration = actionProviders.find((registration) => registration.provider.kind === definition.action.kind)
+  if (!actionRegistration) {
     return fail('unknown_action', `No automation action provider is registered for "${definition.action.kind}".`)
   }
+  const actionBlockedReason = automationProviderBlockedReason(
+    actionRegistration,
+    checkProviderPermission(actionRegistration)
+  )
+  if (actionBlockedReason) return fail('provider_blocked', actionBlockedReason)
+
+  const triggerProvider = triggerRegistration.provider
 
   if (definition.trigger.kind === 'schedule') {
     const validation = validateScheduleTriggerConfig(definition.trigger.config)
@@ -251,16 +302,32 @@ async function writeNextRunCache(
 }
 
 function providerView(
-  provider: AutomationTriggerProvider | AutomationActionProvider,
-  isIntegrationAvailable: ((id: string) => boolean | undefined) | undefined
+  registration: RegisteredAutomationProvider<AutomationTriggerProvider | AutomationActionProvider>,
+  isIntegrationAvailable: ((id: string) => boolean | undefined) | undefined,
+  checkProviderPermission: AutomationProviderPermissionChecker
 ): AutomationsProviderView {
+  const provider = registration.provider
   const requiredIntegrations = 'requiredIntegrations' in provider ? provider.requiredIntegrations ?? [] : []
+  const blockedReason = automationProviderBlockedReason(registration, checkProviderPermission(registration))
   return {
     kind: provider.kind,
     configSchema: provider.configSchema,
     requiredIntegrations,
     missingIntegrations: requiredIntegrations.filter((id) => isIntegrationAvailable?.(id) !== true),
+    ...(blockedReason ? { blockedReason } : {}),
   }
+}
+
+function legacyProviderRegistration<T extends AutomationTriggerProvider | AutomationActionProvider>(
+  providerType: T extends AutomationTriggerProvider ? 'trigger' : 'action',
+  provider: T
+): RegisteredAutomationProvider<T> {
+  return {
+    providerId: provider.kind,
+    moduleId: 'automations',
+    providerType,
+    provider,
+  } as RegisteredAutomationProvider<T>
 }
 
 function parseWorkspaceRoot(

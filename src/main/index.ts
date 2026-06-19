@@ -9,8 +9,9 @@ import type { ModuleEnablementLiveApplier } from './ipc/module-enablement-ipc'
 import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
 import { createAgentRuntimeModule } from './modules/agent-runtime-module'
-import { BUNDLED_MAIN_MODULES } from './modules'
-import type { ModuleTrustContext } from './modules/module-signature'
+import { createBundledMainModules } from './modules'
+import { isFirstPartyAutomationProviderModule, type AutomationProviderPermissionChecker } from './automations/provider-registry'
+import { isLoadEligible, type ModuleTrustContext } from './modules/module-signature'
 import { readTrustedModulesSync } from './modules/trust-store'
 import { planThirdPartyMainModules, recordThirdPartyMainLaunchReport } from './modules/third-party-main-loader'
 import { registerThirdPartyRendererEntryIpc } from './modules/third-party-renderer-entries'
@@ -48,7 +49,13 @@ const thirdPartyMainLoad = planThirdPartyMainModules(
 )
 const moduleLoad = loadMainModules({
   ipcMain,
-  modules: [createAgentRuntimeModule(services), ...BUNDLED_MAIN_MODULES, ...thirdPartyMainLoad.modules],
+  modules: [
+    createAgentRuntimeModule(services),
+    ...createBundledMainModules({
+      automations: { checkProviderPermission: checkAutomationProviderPermission },
+    }),
+    ...thirdPartyMainLoad.modules,
+  ],
   overrides: moduleOverrides,
   ineligible: thirdPartyMainLoad.ineligible,
   launchErrors: thirdPartyMainLoad.launchErrors,
@@ -107,6 +114,32 @@ function readModuleTrustContext(): ModuleTrustContext {
     trustedModules: readTrustedModulesSync(app.getPath('userData')),
     trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync(),
   }
+}
+
+function checkAutomationProviderPermission(
+  registration: Parameters<AutomationProviderPermissionChecker>[0]
+): ReturnType<AutomationProviderPermissionChecker> {
+  if (isFirstPartyAutomationProviderModule(registration.moduleId)) return { ok: true }
+
+  const { modules } = discoverUserModulesSync(defaultUserModuleRoot(), readModuleTrustContext())
+  const installed = modules.find((module) => module.manifest.id === registration.moduleId)
+  if (!installed) {
+    return { ok: false, reason: `Module "${registration.moduleId}" is not installed.` }
+  }
+  if (!isLoadEligible(installed.trust.status)) {
+    if (installed.trust.status === 'invalid') {
+      return { ok: false, reason: `Module "${registration.moduleId}" has an invalid signature.` }
+    }
+    return { ok: false, reason: `Module "${registration.moduleId}" is not trusted in Settings -> Modules.` }
+  }
+
+  const overrides = readModuleEnablementOverrides()
+  const enabled = overrides[registration.moduleId] ?? installed.manifest.defaultEnabled
+  if (!enabled) {
+    return { ok: false, reason: `Module "${registration.moduleId}" is disabled in Settings -> Modules.` }
+  }
+
+  return { ok: true }
 }
 
 function configureDevUserData(): void {

@@ -2,7 +2,13 @@ import { BrowserWindow } from 'electron'
 
 import { createLocalAutomationExecutor, defaultWorkspaceDirtyCheck } from '../automations/executor-local'
 import { createAutomationsEngine, type AutomationsEngine, type AutomationsEngineOptions } from '../automations/engine'
-import { createBuiltInAutomationProviderRegistry } from '../automations/provider-registry'
+import {
+  allowAutomationProvider,
+  createBuiltInAutomationProviderRegistry,
+  executableActionProviders,
+  executableTriggerProviders,
+  type AutomationProviderPermissionChecker,
+} from '../automations/provider-registry'
 import { registerAutomationsIpc } from '../ipc/automations-ipc'
 import {
   AutomationDelegateToken,
@@ -30,6 +36,7 @@ import {
 export type AutomationsModuleOptions = {
   createEngine?: (options: AutomationsEngineOptions) => AutomationsEngine
   deliverRunEvent?: (event: AutomationsRunEvent) => void
+  checkProviderPermission?: AutomationProviderPermissionChecker
 }
 
 type RunEventWindow = {
@@ -83,9 +90,14 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         switchboard: switchboardFrontDoors,
         sprintEngine: sprintEngineFrontDoors,
       })
+      const checkProviderPermission = options.checkProviderPermission ?? allowAutomationProvider
       host.provideService(AutomationsProviderRegistryToken, () => providerRegistry)
-      const getTriggerProviders = () => providerRegistry.listTriggerProviders()
-      const getActionProviders = () => providerRegistry.listActionProviders()
+      const getTriggerProviderRegistrations = () => providerRegistry.listTriggerProviderRegistrations()
+      const getActionProviderRegistrations = () => providerRegistry.listActionProviderRegistrations()
+      const getTriggerProviders = () =>
+        executableTriggerProviders(getTriggerProviderRegistrations(), checkProviderPermission)
+      const getActionProviders = () =>
+        executableActionProviders(getActionProviderRegistrations(), checkProviderPermission)
       const runAutomation = createLocalAutomationExecutor({
         delegateToRenderer: (request) => automationDelegate.request(request),
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
@@ -123,8 +135,9 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
 
       registerAutomationsIpc(host, {
         engine,
-        getTriggerProviders,
-        getActionProviders,
+        getTriggerProviderRegistrations,
+        getActionProviderRegistrations,
+        checkProviderPermission,
         isIntegrationAvailable,
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
       })

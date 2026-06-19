@@ -171,6 +171,7 @@ export type AutomationsProviderView = {
   configSchema: JsonSchema
   requiredIntegrations: string[]
   missingIntegrations: string[]
+  blockedReason?: string
 }
 
 export type AutomationsProviders = {
