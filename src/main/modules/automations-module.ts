@@ -10,7 +10,6 @@ import {
 import {
   allowAutomationProvider,
   createBuiltInAutomationProviderRegistry,
-  executableActionProviders,
   executableTriggerProviders,
   type AutomationProviderPermissionChecker,
 } from '../automations/provider-registry'
@@ -102,14 +101,13 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       const getActionProviderRegistrations = () => providerRegistry.listActionProviderRegistrations()
       const getTriggerProviders = () =>
         executableTriggerProviders(getTriggerProviderRegistrations(), checkProviderPermission)
-      const getActionProviders = () =>
-        executableActionProviders(getActionProviderRegistrations(), checkProviderPermission)
       const runAutomation = createLocalAutomationExecutor({
         delegateToRenderer: (request) => automationDelegate.request(request),
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
         isIntegrationAvailable,
         isWorkspaceDirty: defaultWorkspaceDirtyCheck,
-        getActionProviders,
+        getActionProviderRegistrations,
+        checkProviderPermission,
       })
       const engine = host.provideService(AutomationsEngineToken, () =>
         (options.createEngine ?? createAutomationsEngine)({

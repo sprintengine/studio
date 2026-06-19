@@ -6,6 +6,7 @@ import {
   type AutomationStoreProblem,
 } from './store'
 import type {
+  AutomationsEngineProblem,
   AutomationsEngineTriggerEventDeliveryResult,
   AutomationsProjectFolder,
 } from './engine'
@@ -34,6 +35,7 @@ export type AutomationWebhookReceiverOptions = {
   }): Promise<AutomationsEngineTriggerEventDeliveryResult>
   now?: () => number
   host?: string
+  logDeliveryProblem?: (problem: AutomationsEngineProblem) => void
 }
 
 export type AutomationWebhookDeliveryInput = {
@@ -93,6 +95,7 @@ export class AutomationWebhookReceiver {
   private readonly deliverTriggerEvent: AutomationWebhookReceiverOptions['deliverTriggerEvent']
   private readonly now: () => number
   private readonly host: string
+  private readonly logDeliveryProblem: (problem: AutomationsEngineProblem) => void
   private readonly servers = new Map<number, ServerEntry>()
   private operationQueue: Promise<void> = Promise.resolve()
   private mutationGeneration = 0
@@ -106,6 +109,7 @@ export class AutomationWebhookReceiver {
     this.deliverTriggerEvent = options.deliverTriggerEvent
     this.now = options.now ?? Date.now
     this.host = options.host ?? DEFAULT_WEBHOOK_HOST
+    this.logDeliveryProblem = options.logDeliveryProblem ?? defaultDeliveryProblemLogger
   }
 
   async refresh(): Promise<AutomationWebhookReceiverStatus> {
@@ -191,7 +195,10 @@ export class AutomationWebhookReceiver {
           receivedAt,
         }),
       })
-      if (!delivery.ok) return failDelivery(500, delivery.problem.code, delivery.problem.message)
+      if (!delivery.ok) {
+        this.logDeliveryProblem(delivery.problem)
+        return failDelivery(500, delivery.problem.code, 'Webhook delivery failed.')
+      }
 
       if (delivery.delivery.status === 'fired') {
         fired += 1
@@ -502,6 +509,13 @@ function writeJson(response: ServerResponse, statusCode: number, payload: unknow
 
 function storeProblemMessage(error: AutomationStoreProblem): string {
   return `${error.path}: ${error.message}`
+}
+
+function defaultDeliveryProblemLogger(problem: AutomationsEngineProblem): void {
+  console.warn(
+    `[automations:webhook] delivery failed (${problem.code})`,
+    problem.message
+  )
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

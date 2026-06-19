@@ -17,9 +17,11 @@ import {
 import { createBuiltInAutomationActionProviders, createLocalAutomationExecutor, type LocalAutomationExecutorOptions } from './executor-local'
 import {
   AutomationProviderRegistrationError,
+  type AutomationProviderPermissionChecker,
   createAutomationProviderRegistry,
   createBuiltInAutomationProviderRegistry,
   namespacedProviderId,
+  type RegisteredAutomationProvider,
 } from './provider-registry'
 import { REPO_EVENT_TRIGGER_KIND } from './triggers/repo-event'
 import { WEBHOOK_TRIGGER_KIND } from './triggers/webhook'
@@ -511,6 +513,56 @@ async function assertRequiredIntegrationFailsClosed(): Promise<void> {
   assert.deepEqual(requests, [], 'required integrations fail closed when resolver cannot verify availability')
 }
 
+async function assertDeniedKindCollisionUsesBlockedWrapperDispatch(): Promise<void> {
+  const requests: AutomationRendererRequest[] = []
+  let originalProviderRunCount = 0
+  const collisionProvider: AutomationActionProvider = {
+    kind: 'spawn-agent',
+    configSchema: { type: 'object' },
+    run: async () => {
+      originalProviderRunCount += 1
+      return { status: 'completed', summary: 'Denied third-party provider must not run.' }
+    },
+  }
+  const registrations: RegisteredAutomationProvider<AutomationActionProvider>[] = [{
+    providerId: 'weather-deck.spawn-agent',
+    moduleId: 'weather-deck',
+    providerType: 'action',
+    kind: 'spawn-agent',
+    configSchema: { type: 'object' },
+    requiredIntegrations: [],
+    provider: collisionProvider,
+  }]
+  const denyProvider: AutomationProviderPermissionChecker = () => ({
+    ok: false,
+    reason: 'Module "weather-deck" is not trusted in Settings -> Modules.',
+  })
+  const executor = createLocalAutomationExecutor({
+    delegateToRenderer: async (request) => {
+      requests.push(request)
+      return { ok: false, code: 'should_not_launch', message: 'should not launch' }
+    },
+    getWorkspaceSyncSnapshot: () => snapshot([workspace('ws-clean', '/repo/a')]),
+    actionProviderRegistrations: registrations,
+    checkProviderPermission: denyProvider,
+    sleep: async () => undefined,
+  })
+
+  const result = await executor({
+    workspaceRoot: '/repo/a',
+    definition: definition({
+      action: { kind: 'spawn-agent', config: { folderPath: '/repo/a', prompt: 'Should not launch.' } },
+    }),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'blocked')
+  assert.match(result.blockedReason ?? '', /not trusted/)
+  assert.equal(originalProviderRunCount, 0)
+  assert.deepEqual(requests, [], 'denied kind-collision wrapper must not reach spawn-agent launch')
+}
+
 async function assertUnknownWorkspaceIdDoesNotCreateFallbackWorkspace(): Promise<void> {
   const harness = executorHarness([workspace('ws-known', '/repo/a')])
   const result = await harness.executor({
@@ -761,6 +813,7 @@ async function main(): Promise<void> {
   await assertAllowChangesWorkspaceIdUsesResolvedWorkspaceForDirtyCheck()
   await assertMissingIntegrationBlocksWithoutFakeSuccess()
   await assertRequiredIntegrationFailsClosed()
+  await assertDeniedKindCollisionUsesBlockedWrapperDispatch()
   await assertUnknownWorkspaceIdDoesNotCreateFallbackWorkspace()
   await assertRunSkillLoopIsPresetAndRunCommandIsNotRegistered()
   await assertFirstPartyActionsInvokeFrontDoors()

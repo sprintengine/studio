@@ -7,7 +7,15 @@ import { createWorkspaceConfirmed } from '../workspace-create'
 import type { AutomationRunExecutionInput, AutomationRunExecutor } from './engine'
 import { runSkillLoopAction } from './actions/run-skill-loop'
 import { runSpawnAgentAction, type SpawnAgentResolvedTarget } from './actions/spawn-agent'
-import { createBuiltInAutomationProviderRegistry, type BuiltInAutomationProviderRegistryOptions } from './provider-registry'
+import {
+  allowAutomationProvider,
+  createBuiltInAutomationProviderRegistry,
+  executableActionProviders,
+  isFirstPartyAutomationProviderModule,
+  type AutomationProviderPermissionChecker,
+  type BuiltInAutomationProviderRegistryOptions,
+  type RegisteredAutomationProvider,
+} from './provider-registry'
 
 export type LocalAutomationExecutorOptions = {
   delegateToRenderer(request: AutomationRendererRequest): Promise<AutomationRendererResponse>
@@ -20,6 +28,9 @@ export type LocalAutomationExecutorOptions = {
   launchConfirmPollIntervalMs?: number
   actionProviders?: AutomationActionProvider[]
   getActionProviders?: () => AutomationActionProvider[]
+  actionProviderRegistrations?: RegisteredAutomationProvider<AutomationActionProvider>[]
+  getActionProviderRegistrations?: () => RegisteredAutomationProvider<AutomationActionProvider>[]
+  checkProviderPermission?: AutomationProviderPermissionChecker
 }
 
 export type WorkspaceDirtyResult = {
@@ -38,9 +49,25 @@ const DEFAULT_LAUNCH_CONFIRM_TIMEOUT_MS = 20_000
 const DEFAULT_LAUNCH_CONFIRM_POLL_INTERVAL_MS = 150
 
 export function createLocalAutomationExecutor(options: LocalAutomationExecutorOptions): AutomationRunExecutor {
-  const staticProviders = options.actionProviders ?? createBuiltInAutomationActionProviders()
+  const builtInRegistry = options.actionProviders
+    || options.getActionProviders
+    || options.actionProviderRegistrations
+    || options.getActionProviderRegistrations
+    ? null
+    : createBuiltInAutomationProviderRegistry()
+  const staticProviders = options.actionProviders ?? builtInRegistry?.listActionProviders() ?? createBuiltInAutomationActionProviders()
   const getActionProviders = options.getActionProviders ?? (() => staticProviders)
-  return async (input) => runLocalAutomationAction(input, getActionProviders(), options)
+  const staticRegistrations = options.actionProviderRegistrations ?? builtInRegistry?.listActionProviderRegistrations()
+  const getActionProviderRegistrations = options.getActionProviderRegistrations
+    ?? (staticRegistrations ? () => staticRegistrations : undefined)
+  const checkProviderPermission = options.checkProviderPermission ?? allowAutomationProvider
+  return async (input) => {
+    const registrations = getActionProviderRegistrations?.()
+    const providers = registrations
+      ? executableActionProviders(registrations, checkProviderPermission)
+      : getActionProviders()
+    return runLocalAutomationAction(input, providers, options, registrations)
+  }
 }
 
 export function createBuiltInAutomationActionProviders(
@@ -52,7 +79,8 @@ export function createBuiltInAutomationActionProviders(
 export async function runLocalAutomationAction(
   input: AutomationRunExecutionInput,
   providers: AutomationActionProvider[],
-  options: LocalAutomationExecutorOptions
+  options: LocalAutomationExecutorOptions,
+  registrations?: RegisteredAutomationProvider<AutomationActionProvider>[]
 ): Promise<Partial<AutomationRun>> {
   const provider = providers.find((candidate) => candidate.kind === input.definition.action.kind)
   if (!provider) {
@@ -93,9 +121,13 @@ export async function runLocalAutomationAction(
       },
     }
 
-    const providerResult = provider.kind === 'spawn-agent'
+    const registration = registrations?.find((candidate) => candidate.kind === provider.kind)
+    const firstPartyResolvedProvider = registration
+      ? isFirstPartyAutomationProviderModule(registration.moduleId)
+      : false
+    const providerResult = firstPartyResolvedProvider && provider.kind === 'spawn-agent'
       ? await runSpawnAgentAction(input.definition.action.config, runtime)
-      : provider.kind === 'run-skill-loop'
+      : firstPartyResolvedProvider && provider.kind === 'run-skill-loop'
         ? await runSkillLoopAction(input.definition.action.config, runtime)
         : await provider.run(input.definition.action.config, context)
 

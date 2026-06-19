@@ -43,6 +43,7 @@ async function main(): Promise<void> {
   await assertPollingTriggersUseProviderGetterAtEvaluationTime()
   await assertDeniedTriggerProviderIsInertBeforePolling()
   await assertWebhookReceiverOptInAuthAndDedupesDeliveredEvents()
+  await assertWebhookDeliveryFailureRedactsProblemFromCaller()
   await assertWebhookReceiverRefreshSerializesAndFailsClosed()
   await assertStartupOverdueIsSkippedWithoutCatchup()
   await assertTickWaitsForStartupOverdueSkip()
@@ -731,6 +732,73 @@ async function assertWebhookReceiverOptInAuthAndDedupesDeliveredEvents(): Promis
       state.ok && state.value?.triggerEventDedupByAutomationId?.['webhook-review']?.['webhook:incoming-review:delivery-1'],
       '2026-06-17T10:00:00.000Z'
     )
+  } finally {
+    await receiver.stop()
+  }
+}
+
+async function assertWebhookDeliveryFailureRedactsProblemFromCaller(): Promise<void> {
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const secret = 'test-webhook-secret-redacted'
+  const sensitiveMessage = `${workspaceRoot}/.multi-code/automations/state.json: disk full`
+  const loggedMessages: string[] = []
+  assert.equal((await store.createDefinition(definition({
+    id: 'webhook-redacted-failure',
+    name: 'Webhook redacted failure',
+    trigger: {
+      kind: WEBHOOK_TRIGGER_KIND,
+      config: {
+        kind: WEBHOOK_TRIGGER_KIND,
+        enabled: true,
+        port: 0,
+        path: 'redacted-failure',
+        secret,
+      },
+    },
+    nextRunAt: null,
+  }))).ok, true)
+
+  const receiver = new AutomationWebhookReceiver({
+    getProjectFolders: () => [{ workspaceId: 'ws-webhooks', folderPath: workspaceRoot }],
+    deliverTriggerEvent: async () => ({
+      ok: false,
+      problem: {
+        workspaceRoot,
+        automationId: 'webhook-redacted-failure',
+        code: 'state_write_failed',
+        message: sensitiveMessage,
+      },
+    }),
+    logDeliveryProblem: (problem) => {
+      loggedMessages.push(problem.message)
+    },
+    now: () => now,
+  })
+
+  try {
+    const status = await receiver.refresh()
+    assert.equal(status.state, 'running')
+    const rawBody = JSON.stringify({ eventType: 'push' })
+    const delivered = await receiver.deliver({
+      port: 0,
+      path: webhookEndpointPath('redacted-failure'),
+      headers: {
+        'content-type': 'application/json',
+        [WEBHOOK_DELIVERY_ID_HEADER]: 'delivery-redacted',
+        [WEBHOOK_SIGNATURE_HEADER]: createWebhookSignature(secret, rawBody),
+      },
+      rawBody,
+    })
+
+    assert.equal(delivered.ok, false)
+    assert.equal(delivered.ok ? 0 : delivered.statusCode, 500)
+    assert.equal(delivered.ok ? '' : delivered.code, 'state_write_failed')
+    assert.equal(delivered.ok ? '' : delivered.message, 'Webhook delivery failed.')
+    assert.equal(JSON.stringify(delivered).includes(workspaceRoot), false)
+    assert.equal(JSON.stringify(delivered).includes('.multi-code/automations'), false)
+    assert.deepEqual(loggedMessages, [sensitiveMessage])
   } finally {
     await receiver.stop()
   }
