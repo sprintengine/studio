@@ -68,13 +68,13 @@ export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRu
   const folderPath = parsed.folderPath ?? runtime.workspaceRoot
   const target = await runtime.resolveSpawnAgentTarget({ workspaceId: parsed.workspaceId, folderPath })
   const autonomy = runtime.definition.autonomyDefault
-  if (autonomy === 'allow_changes') {
+  if (autonomy === 'allow_changes' || autonomy === 'review_only') {
     const dirty = await runtime.isWorkspaceDirty(target)
     if (dirty.dirty) {
       return {
         status: 'blocked',
         blockedReason: dirty.reason ?? 'Target workspace has uncommitted or unsaved changes.',
-        summary: 'Automation blocked before launching because allow_changes requires a clean target workspace.',
+        summary: `Automation blocked before launching because ${autonomy} requires a clean target workspace.`,
       }
     }
   }

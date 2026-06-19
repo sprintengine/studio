@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { Workspace } from '../../renderer/src/types/workspace'
-import { createBuiltInAutomationActionProviders, createLocalAutomationExecutor } from './executor-local'
+import { createBuiltInAutomationActionProviders, createLocalAutomationExecutor, type LocalAutomationExecutorOptions } from './executor-local'
 
 function workspace(id: string, folderPath: string | null, overrides: Partial<Workspace> = {}): Workspace {
   return {
@@ -92,9 +95,15 @@ function run(overrides: Partial<AutomationRun> = {}): AutomationRun {
   }
 }
 
-function executorHarness(initialWorkspaces: Workspace[] = []) {
+function executorHarness(
+  initialWorkspaces: Workspace[] = [],
+  options: { isWorkspaceDirty?: LocalAutomationExecutorOptions['isWorkspaceDirty'] | null } = {}
+) {
   const workspaces = [...initialWorkspaces]
   const requests: AutomationRendererRequest[] = []
+  const isWorkspaceDirty = options.isWorkspaceDirty === null
+    ? undefined
+    : options.isWorkspaceDirty ?? (async () => ({ dirty: false }))
   const delegateToRenderer = async (request: AutomationRendererRequest): Promise<AutomationRendererResponse> => {
     requests.push(request)
     if (request.kind === 'workspace.create') {
@@ -140,6 +149,7 @@ function executorHarness(initialWorkspaces: Workspace[] = []) {
         }
       })(),
       sleep: async () => undefined,
+      ...(isWorkspaceDirty ? { isWorkspaceDirty } : {}),
     }),
   }
 }
@@ -218,7 +228,7 @@ async function assertAllowChangesDirtyWorkspaceBlocksBeforeLaunch(): Promise<voi
       openFiles: [{ path: '/repo/dirty/file.ts', name: 'file.ts', language: 'ts', isDirty: true }],
     },
   })
-  const harness = executorHarness([dirtyWorkspace])
+  const harness = executorHarness([dirtyWorkspace], { isWorkspaceDirty: null })
   const result = await harness.executor({
     workspaceRoot: '/repo/dirty',
     definition: definition({
@@ -234,6 +244,47 @@ async function assertAllowChangesDirtyWorkspaceBlocksBeforeLaunch(): Promise<voi
   assert.deepEqual(harness.requests, [], 'dirty allow_changes runs do not delegate a launch')
 }
 
+async function assertReviewOnlyDirtyWorkspaceBlocksBeforeLaunch(): Promise<void> {
+  const dirtyWorkspace = workspace('ws-review-dirty', '/repo/review-dirty', {
+    editorState: {
+      activeFilePath: '/repo/review-dirty/file.ts',
+      openFiles: [{ path: '/repo/review-dirty/file.ts', name: 'file.ts', language: 'ts', isDirty: true }],
+    },
+  })
+  const harness = executorHarness([dirtyWorkspace], { isWorkspaceDirty: null })
+  const result = await harness.executor({
+    workspaceRoot: '/repo/review-dirty',
+    definition: definition({
+      autonomyDefault: 'review_only',
+      action: { kind: 'spawn-agent', config: { folderPath: '/repo/review-dirty', prompt: 'Write a file named injected.txt.' } },
+    }),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'blocked')
+  assert.match(result.blockedReason ?? '', /unsaved editor changes/)
+  assert.deepEqual(harness.requests, [], 'dirty review_only runs do not delegate a launch')
+}
+
+async function assertAllowChangesNonGitWorkspaceBlocksBeforeLaunch(): Promise<void> {
+  const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-non-git-'))
+  const harness = executorHarness([workspace('ws-non-git', folderPath)], { isWorkspaceDirty: null })
+  const result = await harness.executor({
+    workspaceRoot: folderPath,
+    definition: definition({
+      autonomyDefault: 'allow_changes',
+      action: { kind: 'spawn-agent', config: { folderPath, prompt: 'Fix this.' } },
+    }),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'blocked')
+  assert.match(result.blockedReason ?? '', /not inside a Git repository/)
+  assert.deepEqual(harness.requests, [], 'non-git allow_changes runs do not delegate a launch')
+}
+
 async function assertAllowChangesChecksResolvedStandardWorkspaceBeforeLaunch(): Promise<void> {
   const automationsWorkspace = workspace('ws-automations', '/repo/a', { mode: 'automations' })
   const dirtyStandardWorkspace = workspace('ws-standard', '/repo/a', {
@@ -242,7 +293,7 @@ async function assertAllowChangesChecksResolvedStandardWorkspaceBeforeLaunch(): 
       openFiles: [{ path: '/repo/a/file.ts', name: 'file.ts', language: 'ts', isDirty: true }],
     },
   })
-  const harness = executorHarness([automationsWorkspace, dirtyStandardWorkspace])
+  const harness = executorHarness([automationsWorkspace, dirtyStandardWorkspace], { isWorkspaceDirty: null })
   const result = await harness.executor({
     workspaceRoot: '/repo/a',
     definition: definition({
@@ -427,6 +478,8 @@ async function main(): Promise<void> {
   await assertSpawnAgentUsesExistingStandardWorkspace()
   await assertSpawnAgentCreatesStandardTargetWhenOnlyAutomationsWorkspaceIsOpen()
   await assertAllowChangesDirtyWorkspaceBlocksBeforeLaunch()
+  await assertReviewOnlyDirtyWorkspaceBlocksBeforeLaunch()
+  await assertAllowChangesNonGitWorkspaceBlocksBeforeLaunch()
   await assertAllowChangesChecksResolvedStandardWorkspaceBeforeLaunch()
   await assertAllowChangesWorkspaceIdUsesResolvedWorkspaceForDirtyCheck()
   await assertMissingIntegrationBlocksWithoutFakeSuccess()

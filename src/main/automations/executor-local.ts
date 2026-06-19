@@ -244,7 +244,7 @@ async function createWorkspace(
   return created.workspaceId
 }
 
-async function defaultWorkspaceDirtyCheck(input: {
+export async function defaultWorkspaceDirtyCheck(input: {
   folderPath: string
   workspace: Workspace | null
 }): Promise<WorkspaceDirtyResult> {
@@ -253,7 +253,12 @@ async function defaultWorkspaceDirtyCheck(input: {
   }
 
   const repoRoot = await getGitRepoRoot(input.folderPath)
-  if (!repoRoot) return { dirty: false }
+  if (!repoRoot) {
+    return {
+      dirty: true,
+      reason: 'Unable to verify a clean automation baseline because the target folder is not inside a Git repository.',
+    }
+  }
 
   try {
     const status = await getGitStatus(repoRoot)

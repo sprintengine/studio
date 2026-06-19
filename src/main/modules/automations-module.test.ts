@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { IpcMain } from 'electron'
 
-import type { AutomationsEngine } from '../automations/engine'
+import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
+import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
+import type { AutomationsEngine, AutomationsEngineOptions } from '../automations/engine'
 import type { CapabilityModule } from '../module-host/load-modules'
 import { loadMainModules } from '../module-host/load-modules'
 import {
@@ -29,7 +34,10 @@ function createFakeIpcMain(): { ipcMain: IpcMain; handled: string[]; activeHandl
   return { ipcMain, handled, activeHandlers }
 }
 
-function fakeAgentRuntimeModule(): CapabilityModule {
+function fakeAgentRuntimeModule(options: {
+  delegateRequest?: (request: AutomationRendererRequest) => Promise<AutomationRendererResponse>
+  workspaceSnapshot?: unknown
+} = {}): CapabilityModule {
   return {
     manifest: {
       id: 'agent-runtime',
@@ -40,11 +48,11 @@ function fakeAgentRuntimeModule(): CapabilityModule {
     },
     registerMain(host) {
       host.provideService(AutomationDelegateToken, () => ({
-        request: async () => ({ ok: false, message: 'not used in module registration tests' }),
+        request: options.delegateRequest ?? (async () => ({ ok: false, message: 'not used in module registration tests' })),
         handleResponse: () => undefined,
       } as never))
       host.provideService(WorkspaceSyncServiceToken, () => ({
-        getSnapshot: () => ({
+        getSnapshot: () => options.workspaceSnapshot ?? ({
           sequence: 1,
           state: {
             workspaces: [],
@@ -54,6 +62,54 @@ function fakeAgentRuntimeModule(): CapabilityModule {
           },
         }),
       } as never))
+    },
+  }
+}
+
+function automationDefinition(folderPath: string): AutomationDefinition {
+  return {
+    id: 'nightly-review',
+    name: 'Nightly Review',
+    status: 'enabled',
+    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' } },
+    action: { kind: 'spawn-agent', config: { folderPath, prompt: 'Write a file named injected.txt.' } },
+    autonomyDefault: 'review_only',
+    nextRunAt: '2026-06-18T00:30:00.000Z',
+    lastRunAt: null,
+    lastRunId: null,
+    createdAt: '2026-06-18T00:00:00.000Z',
+    updatedAt: '2026-06-18T00:00:00.000Z',
+  }
+}
+
+function automationRun(): AutomationRun {
+  return {
+    id: 'run-1',
+    automationId: 'nightly-review',
+    status: 'running',
+    dueAt: '2026-06-18T00:30:00.000Z',
+    startedAt: '2026-06-18T00:30:00.000Z',
+    completedAt: null,
+  }
+}
+
+function workspaceSnapshot(folderPath: string): unknown {
+  return {
+    sequence: 1,
+    state: {
+      workspaces: [
+        {
+          id: 'ws-non-git',
+          name: 'Non Git',
+          mode: 'standard',
+          folderPath,
+          editorState: { openFiles: [], activeFilePath: null },
+          agents: {},
+        },
+      ],
+      activeWorkspaceId: 'ws-non-git',
+      primaryWorkspaceWindowId: 'primary',
+      workspaceWindows: [],
     },
   }
 }
@@ -208,6 +264,43 @@ async function testLiveEnablementToggleStopsUnregistersAndRestarts(): Promise<vo
   assert.equal(engines[1].stopCount, 1)
 }
 
+async function testModuleExecutorUsesRealDirtyCheckBeforeLaunch(): Promise<void> {
+  const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-non-git-'))
+  const launchRequests: AutomationRendererRequest[] = []
+  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null
+
+  loadMainModules({
+    ipcMain: createFakeIpcMain().ipcMain,
+    modules: [
+      fakeAgentRuntimeModule({
+        workspaceSnapshot: workspaceSnapshot(folderPath),
+        delegateRequest: async (request) => {
+          launchRequests.push(request)
+          return { ok: false, code: 'should_not_launch', message: 'should not launch' }
+        },
+      }),
+      createAutomationsModule({
+        createEngine: (options) => {
+          capturedRunAutomation = options.runAutomation
+          return createFakeAutomationsEngine() as AutomationsEngine
+        },
+      }),
+    ],
+  })
+
+  assert.ok(capturedRunAutomation)
+  const result = await capturedRunAutomation({
+    workspaceRoot: folderPath,
+    definition: automationDefinition(folderPath),
+    run: automationRun(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'blocked')
+  assert.match(result.blockedReason ?? '', /not inside a Git repository/)
+  assert.deepEqual(launchRequests, [])
+}
+
 function testBroadcastRunEventUsesAutomationsChannelAndSkipsFailedWindows(): void {
   const sent: Array<{ channel: string; payload: unknown }> = []
   let failedDeliveryAttempts = 0
@@ -270,6 +363,7 @@ async function main(): Promise<void> {
   await testEnabledModuleRegistersStartupSidecarAndIpc()
   await testDisabledModuleRegistersNoSidecarOrIpc()
   await testLiveEnablementToggleStopsUnregistersAndRestarts()
+  await testModuleExecutorUsesRealDirtyCheckBeforeLaunch()
   testBroadcastRunEventUsesAutomationsChannelAndSkipsFailedWindows()
   console.log('automations-module tests passed')
 }

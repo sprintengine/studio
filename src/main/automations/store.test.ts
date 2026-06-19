@@ -16,7 +16,7 @@ async function main(): Promise<void> {
   await assertRunHistoryIsBounded()
   await assertMalformedDefinitionFailsClosed()
   await assertRunWriteRequiresReadableDefinition()
-  await assertMalformedRunFailsClosed()
+  await assertMalformedRunListFailsClosedButWriteSkipsBadRun()
   await assertDotSegmentIdsAreRejected()
   await assertStateRoundTrip()
   await assertMalformedStateFailsClosed()
@@ -181,7 +181,7 @@ async function assertRunWriteRequiresReadableDefinition(): Promise<void> {
   assert.deepEqual(runs.ok && runs.values, [])
 }
 
-async function assertMalformedRunFailsClosed(): Promise<void> {
+async function assertMalformedRunListFailsClosedButWriteSkipsBadRun(): Promise<void> {
   const workspaceRoot = await createWorkspace()
   const store = new AutomationsStore(workspaceRoot)
   assert.equal((await store.createDefinition(definition())).ok, true)
@@ -190,21 +190,25 @@ async function assertMalformedRunFailsClosed(): Promise<void> {
   const runDirectory = join(workspaceRoot, '.multi-code', 'automations', 'runs', 'nightly-review')
   await mkdir(runDirectory, { recursive: true })
   const brokenPath = join(runDirectory, 'broken-run.json')
-  await writeFile(brokenPath, '{}', 'utf8')
+  await writeFile(brokenPath, '{not-json', 'utf8')
 
   const listed = await store.listRuns('nightly-review')
   assert.equal(listed.ok, false)
   assert.equal(!listed.ok && listed.errors.length, 1)
-  assert.equal(!listed.ok && listed.errors[0]?.code, 'invalid_payload')
-  assert.match(!listed.ok ? listed.errors[0]?.message ?? '' : '', /payload is malformed/)
-  assert.equal(await readFile(brokenPath, 'utf8'), '{}')
+  assert.equal(!listed.ok && listed.errors[0]?.code, 'invalid_json')
+  assert.match(!listed.ok ? listed.errors[0]?.message ?? '' : '', /not valid JSON/)
+  assert.equal(await readFile(brokenPath, 'utf8'), '{not-json')
 
   const recorded = await store.recordRun(run(2))
-  assert.equal(recorded.ok, false)
-  assert.equal(!recorded.ok && recorded.error.code, 'invalid_payload')
+  assert.equal(recorded.ok, true)
 
   const runFiles = await readdir(runDirectory)
-  assert.equal(runFiles.includes('run-002.json'), false)
+  assert.equal(runFiles.includes('broken-run.json'), true)
+  assert.equal(runFiles.includes('run-002.json'), true)
+
+  const fetched = await store.getRun('nightly-review', 'run-002')
+  assert.equal(fetched.ok, true)
+  assert.equal(fetched.ok && fetched.value.id, 'run-002')
 }
 
 async function assertDotSegmentIdsAreRejected(): Promise<void> {

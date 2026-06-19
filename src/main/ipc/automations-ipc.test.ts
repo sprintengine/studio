@@ -3,6 +3,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type {
   AutomationDefinitionDraft,
   AutomationsDefinitionResult,
@@ -32,7 +33,7 @@ import { registerAutomationsIpc } from './automations-ipc'
 
 type HandlerMap = Map<string, IpcInvokeHandler>
 
-function createFakeHost(options: { onRunEvent?: (event: AutomationsRunEvent) => void } = {}): HandlerMap {
+function createFakeHost(options: { onRunEvent?: (event: AutomationsRunEvent) => void; workspaceRoots?: string[] } = {}): HandlerMap {
   const handlers: HandlerMap = new Map()
   registerAutomationsIpc(
     {
@@ -48,10 +49,11 @@ function createFakeHost(options: { onRunEvent?: (event: AutomationsRunEvent) => 
 let currentNow = Date.parse('2026-06-18T00:00:00.000Z')
 let runCount = 0
 
-function testDeps(options: { onRunEvent?: (event: AutomationsRunEvent) => void } = {}) {
+function testDeps(options: { onRunEvent?: (event: AutomationsRunEvent) => void; workspaceRoots?: string[] } = {}) {
+  const workspaceRoots = options.workspaceRoots ?? []
   const engine = createAutomationsEngine({
     createStore: (workspaceRoot) => new AutomationsStore(workspaceRoot),
-    getProjectFolders: () => [],
+    getProjectFolders: () => workspaceRoots.map((folderPath, index) => ({ workspaceId: `ws-${index + 1}`, folderPath })),
     runAutomation: async () => {
       runCount += 1
       return { status: 'completed', summary: 'Manual run completed.' }
@@ -64,6 +66,7 @@ function testDeps(options: { onRunEvent?: (event: AutomationsRunEvent) => void }
     engine,
     triggerProviders: [scheduleTriggerProvider],
     actionProviders: createBuiltInAutomationActionProviders(),
+    getWorkspaceSyncSnapshot: () => workspaceSnapshot(workspaceRoots),
     now: () => currentNow,
   }
 }
@@ -76,6 +79,21 @@ async function invoke<T>(handlers: HandlerMap, channel: string, input?: unknown)
 
 async function withWorkspaceRoot(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'multicode-automations-ipc-'))
+}
+
+function workspaceSnapshot(workspaceRoots: string[]): WorkspaceSyncSnapshot {
+  return {
+    sequence: 1,
+    state: {
+      activeWorkspaceId: workspaceRoots[0] ? 'ws-1' : null,
+      primaryWorkspaceWindowId: 'primary',
+      workspaceWindows: [],
+      workspaces: workspaceRoots.map((folderPath, index) => ({
+        id: `ws-${index + 1}`,
+        folderPath,
+      })),
+    },
+  } as WorkspaceSyncSnapshot
 }
 
 function definitionDraft(overrides: Partial<AutomationDefinitionDraft> = {}): AutomationDefinitionDraft {
@@ -118,7 +136,7 @@ async function testDefinitionRoundTripAndRunNow(): Promise<void> {
   runCount = 0
   const workspaceRoot = await withWorkspaceRoot()
   const runEvents: AutomationsRunEvent[] = []
-  const handlers = createFakeHost({ onRunEvent: (event) => runEvents.push(event) })
+  const handlers = createFakeHost({ onRunEvent: (event) => runEvents.push(event), workspaceRoots: [workspaceRoot] })
 
   const created = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_CREATE_CHANNEL, {
     workspaceRoot,
@@ -210,9 +228,58 @@ async function testDefinitionRoundTripAndRunNow(): Promise<void> {
   assert.deepEqual(afterDelete.value, [])
 }
 
+async function testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow(): Promise<void> {
+  const knownRoot = await withWorkspaceRoot()
+  const outsideRoot = await mkdtemp(join(tmpdir(), 'multicode-automations-ipc-outside-'))
+  const handlers: HandlerMap = new Map()
+  let storeCreated = 0
+  let runNowCalled = 0
+
+  registerAutomationsIpc(
+    {
+      registerIpc(channel, handler) {
+        handlers.set(channel, handler)
+      },
+    },
+    {
+      engine: {
+        runNow: async () => {
+          runNowCalled += 1
+          return {
+            ok: false as const,
+            problem: { code: 'should_not_run', message: 'should not run' },
+          }
+        },
+      },
+      createStore: (workspaceRoot) => {
+        storeCreated += 1
+        return new AutomationsStore(workspaceRoot)
+      },
+      triggerProviders: [scheduleTriggerProvider],
+      actionProviders: createBuiltInAutomationActionProviders(),
+      getWorkspaceSyncSnapshot: () => workspaceSnapshot([knownRoot]),
+      now: () => currentNow,
+    }
+  )
+
+  const listed = await invoke<AutomationsListResult>(handlers, AUTOMATIONS_LIST_CHANNEL, { workspaceRoot: outsideRoot })
+  assert.equal(listed.ok, false)
+  assert.equal(listed.ok ? '' : listed.code, 'workspace_root_untrusted')
+  assert.equal(storeCreated, 0)
+
+  const runNow = await invoke<AutomationsRunNowResult>(handlers, AUTOMATIONS_RUN_NOW_CHANNEL, {
+    workspaceRoot: outsideRoot,
+    automationId: 'nightly-review',
+  })
+  assert.equal(runNow.ok, false)
+  assert.equal(runNow.ok ? '' : runNow.code, 'workspace_root_untrusted')
+  assert.equal(runNowCalled, 0)
+}
+
 async function main(): Promise<void> {
   await testProviderList()
   await testDefinitionRoundTripAndRunNow()
+  await testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow()
   console.log('automations-ipc tests passed')
 }
 

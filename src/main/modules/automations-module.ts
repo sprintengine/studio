@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron'
 
-import { createBuiltInAutomationActionProviders, createLocalAutomationExecutor } from '../automations/executor-local'
+import { createBuiltInAutomationActionProviders, createLocalAutomationExecutor, defaultWorkspaceDirtyCheck } from '../automations/executor-local'
 import { createAutomationsEngine, type AutomationsEngine, type AutomationsEngineOptions } from '../automations/engine'
 import { scheduleTriggerProvider } from '../automations/schedule'
 import { registerAutomationsIpc } from '../ipc/automations-ipc'
@@ -61,6 +61,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       const runAutomation = createLocalAutomationExecutor({
         delegateToRenderer: (request) => automationDelegate.request(request),
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
+        isWorkspaceDirty: defaultWorkspaceDirtyCheck,
       })
       const engine = host.provideService(AutomationsEngineToken, () =>
         (options.createEngine ?? createAutomationsEngine)({
@@ -92,6 +93,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         engine,
         triggerProviders: [scheduleTriggerProvider],
         actionProviders,
+        getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
       })
     },
   }

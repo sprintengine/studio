@@ -161,9 +161,6 @@ export class AutomationsStore {
     const definition = await this.readDefinitionFile(definitionTarget.path)
     if (!definition.ok) return { ok: false, error: definition.error }
 
-    const existingRuns = await this.listRuns(run.automationId)
-    if (!existingRuns.ok) return { ok: false, error: aggregateProblems(existingRuns.errors) }
-
     const written = await this.writeRun(run, runTarget.path)
     if (!written.ok) return written
 
@@ -180,6 +177,10 @@ export class AutomationsStore {
   }
 
   async listRuns(automationId: string): Promise<AutomationStoreListResult<AutomationRun>> {
+    return this.listRunsStrict(automationId)
+  }
+
+  private async listRunsStrict(automationId: string): Promise<AutomationStoreListResult<AutomationRun>> {
     const directoryResult = this.runsDirectory(automationId)
     if (!directoryResult.ok) return { ok: false, errors: [directoryResult.error] }
     const directory = directoryResult.path
@@ -199,6 +200,26 @@ export class AutomationsStore {
     }
 
     if (errors.length > 0) return { ok: false, errors }
+    return { ok: true, values: runs.sort(compareRunsNewestFirst) }
+  }
+
+  private async listReadableRunsForWrite(automationId: string): Promise<AutomationStoreListResult<AutomationRun>> {
+    const directoryResult = this.runsDirectory(automationId)
+    if (!directoryResult.ok) return { ok: false, errors: [directoryResult.error] }
+    const directory = directoryResult.path
+    const files = await listJsonFiles(directory)
+    if (!files.ok) {
+      const error = files.errors[0]
+      if (error?.code === 'missing') return { ok: true, values: [] }
+      return { ok: false, errors: [this.problem(error?.code ?? 'read_failed', directory, error?.message ?? 'Failed to read runs.')] }
+    }
+
+    const runs: AutomationRun[] = []
+    for (const fileName of files.values) {
+      const result = await this.readRunFile(join(directory, fileName))
+      if (result.ok) runs.push(result.value)
+    }
+
     return { ok: true, values: runs.sort(compareRunsNewestFirst) }
   }
 
@@ -390,7 +411,7 @@ export class AutomationsStore {
   }
 
   private async pruneRunHistory(automationId: string): Promise<AutomationStoreDeleteResult> {
-    const runs = await this.listRuns(automationId)
+    const runs = await this.listReadableRunsForWrite(automationId)
     if (!runs.ok) return { ok: false, error: aggregateProblems(runs.errors) }
 
     const limit = this.options.runHistoryLimit ?? AUTOMATION_RUN_HISTORY_LIMIT

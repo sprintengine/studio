@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { isAbsolute, resolve } from 'node:path'
 
 import type {
   AutomationActionProvider,
@@ -18,6 +19,7 @@ import type {
   AutomationsRunsListResult,
   AutomationsUpdateInput,
 } from '../../shared/automations/contracts'
+import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import {
   AUTOMATIONS_CREATE_CHANNEL,
   AUTOMATIONS_DELETE_CHANNEL,
@@ -28,7 +30,7 @@ import {
   AUTOMATIONS_RUNS_LIST_CHANNEL,
   AUTOMATIONS_UPDATE_CHANNEL,
 } from '../../shared/automations/contracts'
-import type { AutomationsEngine, AutomationsEngineRunNowResult } from '../automations/engine'
+import { projectFoldersFromWorkspaceSyncSnapshot, type AutomationsEngine, type AutomationsEngineRunNowResult } from '../automations/engine'
 import { computeNextRun, validateScheduleTriggerConfig } from '../automations/schedule'
 import { AutomationsStore, type AutomationStoreProblem } from '../automations/store'
 import type { IpcInvokeHandler } from '../module-host/main-host'
@@ -43,6 +45,7 @@ export type AutomationsIpcDependencies = {
   triggerProviders?: AutomationTriggerProvider[]
   actionProviders?: AutomationActionProvider[]
   isIntegrationAvailable?: (id: string) => boolean | undefined
+  getWorkspaceSyncSnapshot?: () => WorkspaceSyncSnapshot
   now?: () => number
   createAutomationId?: (draft: AutomationDefinitionDraft) => string
 }
@@ -62,7 +65,7 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
   const now = deps.now ?? Date.now
 
   host.registerIpc(AUTOMATIONS_LIST_CHANNEL, async (_event, input: unknown): Promise<AutomationsListResult> => {
-    const workspaceRoot = parseWorkspaceRoot(input)
+    const workspaceRoot = parseWorkspaceRoot(input, deps.getWorkspaceSyncSnapshot)
     if (!workspaceRoot.ok) return workspaceRoot
     const definitions = await createStore(workspaceRoot.value).listDefinitions()
     if (!definitions.ok) return storeErrors(definitions.errors)
@@ -70,7 +73,7 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
   })
 
   host.registerIpc(AUTOMATIONS_GET_CHANNEL, async (_event, input: unknown): Promise<AutomationsDefinitionResult> => {
-    const parsed = parseDefinitionInput(input)
+    const parsed = parseDefinitionInput(input, deps.getWorkspaceSyncSnapshot)
     if (!parsed.ok) return parsed
     const definition = await createStore(parsed.value.workspaceRoot).getDefinition(parsed.value.automationId)
     if (!definition.ok) return storeError(definition.error)
@@ -78,7 +81,7 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
   })
 
   host.registerIpc(AUTOMATIONS_CREATE_CHANNEL, async (_event, input: unknown): Promise<AutomationsDefinitionResult> => {
-    const parsed = parseCreateInput(input)
+    const parsed = parseCreateInput(input, deps.getWorkspaceSyncSnapshot)
     if (!parsed.ok) return parsed
 
     const timestamp = new Date(now()).toISOString()
@@ -95,7 +98,7 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
   })
 
   host.registerIpc(AUTOMATIONS_UPDATE_CHANNEL, async (_event, input: unknown): Promise<AutomationsDefinitionResult> => {
-    const parsed = parseUpdateInput(input)
+    const parsed = parseUpdateInput(input, deps.getWorkspaceSyncSnapshot)
     if (!parsed.ok) return parsed
 
     const store = createStore(parsed.value.workspaceRoot)
@@ -121,7 +124,7 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
   })
 
   host.registerIpc(AUTOMATIONS_DELETE_CHANNEL, async (_event, input: unknown): Promise<AutomationsDeleteResult> => {
-    const parsed = parseDefinitionInput(input)
+    const parsed = parseDefinitionInput(input, deps.getWorkspaceSyncSnapshot)
     if (!parsed.ok) return parsed
 
     const store = createStore(parsed.value.workspaceRoot)
@@ -133,14 +136,14 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
   })
 
   host.registerIpc(AUTOMATIONS_RUN_NOW_CHANNEL, async (_event, input: unknown): Promise<AutomationsRunNowIpcResult> => {
-    const parsed = parseDefinitionInput(input)
+    const parsed = parseDefinitionInput(input, deps.getWorkspaceSyncSnapshot)
     if (!parsed.ok) return parsed
     const result = await deps.engine.runNow(parsed.value)
     return engineRunNowResult(result)
   })
 
   host.registerIpc(AUTOMATIONS_RUNS_LIST_CHANNEL, async (_event, input: unknown): Promise<AutomationsRunsListResult> => {
-    const parsed = parseRunsListInput(input)
+    const parsed = parseRunsListInput(input, deps.getWorkspaceSyncSnapshot)
     if (!parsed.ok) return parsed
     const runs = await createStore(parsed.value.workspaceRoot).listRuns(parsed.value.automationId)
     if (!runs.ok) return storeErrors(runs.errors)
@@ -236,15 +239,24 @@ function providerView(
   }
 }
 
-function parseWorkspaceRoot(input: unknown): AutomationsResult<string> {
+function parseWorkspaceRoot(
+  input: unknown,
+  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined
+): AutomationsResult<string> {
   if (!isRecord(input) || typeof input.workspaceRoot !== 'string' || input.workspaceRoot.trim() === '') {
     return fail('invalid_input', 'workspaceRoot is required.')
   }
-  return ok(input.workspaceRoot)
+  const workspaceRoot = input.workspaceRoot.trim()
+  const trustedRoot = validateKnownWorkspaceRoot(workspaceRoot, getWorkspaceSyncSnapshot)
+  if (!trustedRoot.ok) return trustedRoot
+  return ok(trustedRoot.value)
 }
 
-function parseDefinitionInput(input: unknown): AutomationsResult<AutomationsDefinitionInput> {
-  const workspaceRoot = parseWorkspaceRoot(input)
+function parseDefinitionInput(
+  input: unknown,
+  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined
+): AutomationsResult<AutomationsDefinitionInput> {
+  const workspaceRoot = parseWorkspaceRoot(input, getWorkspaceSyncSnapshot)
   if (!workspaceRoot.ok) return workspaceRoot
   if (!isRecord(input) || typeof input.automationId !== 'string' || input.automationId.trim() === '') {
     return fail('invalid_input', 'automationId is required.')
@@ -257,8 +269,11 @@ function parseDefinitionInput(input: unknown): AutomationsResult<AutomationsDefi
   })
 }
 
-function parseCreateInput(input: unknown): AutomationsResult<AutomationsCreateInput> {
-  const workspaceRoot = parseWorkspaceRoot(input)
+function parseCreateInput(
+  input: unknown,
+  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined
+): AutomationsResult<AutomationsCreateInput> {
+  const workspaceRoot = parseWorkspaceRoot(input, getWorkspaceSyncSnapshot)
   if (!workspaceRoot.ok) return workspaceRoot
   if (!isRecord(input)) return fail('invalid_input', 'Automation create input must be an object.')
   const definition = parseDefinitionDraft(input.definition)
@@ -266,8 +281,11 @@ function parseCreateInput(input: unknown): AutomationsResult<AutomationsCreateIn
   return ok({ workspaceRoot: workspaceRoot.value, definition: definition.value })
 }
 
-function parseUpdateInput(input: unknown): AutomationsResult<AutomationsUpdateInput & { patch: ParsedDefinitionPatch }> {
-  const base = parseDefinitionInput(input)
+function parseUpdateInput(
+  input: unknown,
+  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined
+): AutomationsResult<AutomationsUpdateInput & { patch: ParsedDefinitionPatch }> {
+  const base = parseDefinitionInput(input, getWorkspaceSyncSnapshot)
   if (!base.ok) return base
   if (!isRecord(input)) return fail('invalid_input', 'Automation update input must be an object.')
   const patch = parseDefinitionPatch(input.patch)
@@ -275,8 +293,42 @@ function parseUpdateInput(input: unknown): AutomationsResult<AutomationsUpdateIn
   return ok({ ...base.value, patch: patch.value })
 }
 
-function parseRunsListInput(input: unknown): AutomationsResult<AutomationsRunsListInput> {
-  return parseDefinitionInput(input)
+function parseRunsListInput(
+  input: unknown,
+  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined
+): AutomationsResult<AutomationsRunsListInput> {
+  return parseDefinitionInput(input, getWorkspaceSyncSnapshot)
+}
+
+function validateKnownWorkspaceRoot(
+  workspaceRoot: string,
+  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined
+): AutomationsResult<string> {
+  if (!isAbsolute(workspaceRoot)) {
+    return fail('invalid_input', 'workspaceRoot must be an absolute path.')
+  }
+  if (!getWorkspaceSyncSnapshot) {
+    return fail('workspace_root_unverified', 'workspaceRoot cannot be verified against the workspace snapshot.')
+  }
+
+  try {
+    const workspaceRootKey = normalizeWorkspaceRoot(workspaceRoot)
+    const knownFolder = projectFoldersFromWorkspaceSyncSnapshot(getWorkspaceSyncSnapshot())
+      .find((folder) => normalizeWorkspaceRoot(folder.folderPath) === workspaceRootKey)
+    if (!knownFolder) {
+      return fail('workspace_root_untrusted', 'workspaceRoot must match an open workspace folder.')
+    }
+    return ok(knownFolder.folderPath.trim())
+  } catch (error) {
+    return fail(
+      'workspace_snapshot_unavailable',
+      error instanceof Error ? error.message : 'Unable to verify workspaceRoot against the workspace snapshot.'
+    )
+  }
+}
+
+function normalizeWorkspaceRoot(workspaceRoot: string): string {
+  return resolve(workspaceRoot).replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
 }
 
 function parseDefinitionDraft(input: unknown): AutomationsResult<AutomationDefinitionDraft> {
