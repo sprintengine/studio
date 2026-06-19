@@ -60,6 +60,7 @@ import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
 import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
 import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor'
+import AutomationsRunSupervisor from '../automations/AutomationsRunSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
 import SprintEnginesAside from './SprintEnginesAside'
@@ -212,6 +213,7 @@ export default function WorkspaceManager() {
   const moduleEnablement = useWorkspaceStore((s) => s.appSettings.modules)
   const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
+  const automationsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'automations'))
   const voiceDictationEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'voice-dictation'))
   const voiceDictation = useVoiceDictation()
   const onboardingStep = useWorkspaceStore((s) => s.appSettings.onboardingStep)
@@ -1940,6 +1942,9 @@ export default function WorkspaceManager() {
           <Component />
         </React.Suspense>
       ))}
+      {/* Always-mounted (primary window) observer for background scheduled-run
+          notifications; active even when no automations workspace is open. */}
+      {ownsGlobalSupervisors && automationsEnabled ? <AutomationsRunSupervisor /> : null}
       {multiloopEnabled && visibleWorkspaces.map((workspace) => (
         workspace.id === windowActiveWorkspaceId && (workspace.mode === 'multiloop' || workspace.multiloopContext)
           ? <MultiloopStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
