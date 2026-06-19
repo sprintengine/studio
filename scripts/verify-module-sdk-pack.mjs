@@ -3,7 +3,7 @@
 // 1. The package builds standalone and `npm pack` produces a tarball.
 // 2. The packed d.ts public surface contains no `any`.
 // 3. The committed external fixture project compiles against the tarball
-//    types only (its sole dependency is the freshly packed tarball).
+//    types only, including public provider-registration exports.
 
 import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'

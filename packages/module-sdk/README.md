@@ -4,7 +4,8 @@ Published contract types for building **Multicode capability modules** — the
 manifest and permission shapes, the main-process `MainHost` registration
 contract, the renderer `RendererHost` contribution types (panels, workspace
 types, Backlog item actions, Backlog link providers, commands, settings
-sections), and the module notification payloads.
+sections), Automations provider registration, and the module notification
+payloads.
 
 The package is types-first: it ships type declarations plus a handful of small
 mirrored values (`BUNDLED_MODULE_IDS`, `KNOWN_CAPABILITY_PERMISSIONS`,
@@ -44,6 +45,10 @@ contracts, so a published version always matches the app version it ships with.
   `registerCommand` (registered id is namespaced `<moduleId>.<id>`), and
   `registerSettingsSection` (values persist in the module's own
   `module:<id>` settings namespace).
+- **Automations providers**: `registerAutomationTrigger` and
+  `registerAutomationAction` register trusted module providers with the
+  Automations registry. Declare `dependsOn: ['automations']` so the registry
+  service exists before your `entry.main` runs.
 - **React**: panels, icons, and settings sections are React components. The
   app provides React at runtime; compile against `@types/react` 18 (declared
   as an optional peer dependency) and bundle your renderer entry as ESM with
@@ -100,6 +105,49 @@ export const registerMain: RegisterMain = (host) => {
 bus, so the returned id is always a real, confirmed workspace (or an explicit
 failure). The service is provided by the always-on `agent-runtime` core, so
 `requireService` never throws for it.
+
+## Automations provider registration
+
+A trusted module's `entry.main` can contribute an Automations trigger or action
+provider. Provider ids are namespaced by the registering module id inside
+Multicode, while `providers:list` still exposes the provider's declared `kind`
+to the editor form.
+
+```ts
+import {
+  registerAutomationAction,
+  type AutomationActionProvider,
+  type CapabilityManifest,
+  type RegisterMain,
+} from '@multicode/module-sdk'
+
+export const manifest: CapabilityManifest = {
+  id: 'weather-deck',
+  displayName: 'Weather Deck',
+  version: 1,
+  defaultEnabled: true,
+  source: 'third-party',
+  dependsOn: ['automations'],
+  entry: { main: 'dist/main.cjs' },
+}
+
+const refreshForecast: AutomationActionProvider = {
+  kind: 'weather-deck.refresh-forecast',
+  configSchema: { type: 'object' },
+  run: async (_config, context) => {
+    context.reportProgress({ summary: 'Refreshing forecast.' })
+    return { status: 'completed', summary: 'Forecast refreshed.' }
+  },
+}
+
+export const registerMain: RegisterMain = (host) => {
+  registerAutomationAction(host, refreshForecast)
+}
+```
+
+Automations provider code only runs from trusted modules, under the same
+third-party module trust gate as other `entry.main` code. `run-command` remains
+unavailable in the app-active executor until Multicode ships that capability.
 
 ## BYO-CLI plugins (adding an agent CLI)
 

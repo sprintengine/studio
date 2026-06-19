@@ -81,6 +81,7 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'switchboard',
   'multiloop',
   'sprint-engine',
+  'automations',
   'mobile-relay',
   'voice-dictation',
 ]
@@ -222,6 +223,127 @@ export type WorkspaceService = {
 export const WorkspaceServiceToken: ServiceToken<WorkspaceService> =
   createServiceToken<WorkspaceService>('core.workspace')
 
+// ── Automations providers (host-provided, consumed via the service bridge) ────
+
+export type JsonSchema = Record<string, unknown>
+
+export type AutomationStatus = 'enabled' | 'paused' | 'blocked'
+
+export type AutomationRunStatus =
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'blocked'
+  | 'skipped'
+
+export type TriggerKind = 'schedule' | string
+
+export type ScheduleTriggerConfig = {
+  kind: 'schedule'
+  cadence:
+    | { type: 'interval'; everyMinutes: number }
+    | { type: 'daily'; timeLocal: string }
+    | { type: 'weekly'; timeLocal: string; daysOfWeek: number[] }
+    | { type: 'cron'; expression: string }
+  timezone: string
+}
+
+export type AutomationTriggerPollContext = {
+  getSharedValue<T>(key: string, factory: () => Promise<T>): Promise<T>
+}
+
+export type AutomationTriggerPollEvent = {
+  id: string
+  occurredAt: string
+  payload: Record<string, unknown>
+}
+
+export type AutomationTriggerPollResult =
+  | { ok: true; events: AutomationTriggerPollEvent[] }
+  | { ok: false; blockedReason: string }
+
+export type AutomationTriggerProvider = {
+  kind: TriggerKind
+  configSchema: JsonSchema
+  requiredIntegrations?: string[]
+  validateConfig?(config: unknown): { ok: true } | { ok: false; error: string }
+  subscribe(input: {
+    config: unknown
+    fire: (payload: Record<string, unknown>) => void
+    now: () => number
+  }): () => void
+  computeNextRun?(config: unknown, after: number): number | null
+  poll?(input: {
+    config: unknown
+    workspaceRoot: string
+    now: () => number
+    context?: AutomationTriggerPollContext
+  }): Promise<AutomationTriggerPollResult>
+}
+
+export type ActionKind = 'spawn-agent' | 'run-command' | 'run-skill-loop' | string
+
+export type AutomationRun = {
+  id: string
+  automationId: string
+  status: AutomationRunStatus
+  dueAt: string
+  startedAt: string | null
+  completedAt: string | null
+  blockedReason?: string
+  workspaceId?: string
+  agentId?: string
+  promptFingerprint?: string
+  touchedFiles?: string[]
+  commandsRan?: string[]
+  summary?: string
+}
+
+export type ActionContext = {
+  automationId: string
+  runId: string
+  workspaceRoot: string
+  triggerPayload: Record<string, unknown>
+  spawnAgent(input: {
+    workspaceId?: string
+    folderPath: string
+    cli?: string
+    name?: string
+    prompt: string
+  }): Promise<{ workspaceId: string; agentId: string }>
+  runCommand(input: { command: string[]; cwd: string }): Promise<{ code: number; output: string }>
+  reportProgress(patch: Partial<AutomationRun>): void
+  requireIntegration(id: string): void
+}
+
+export type AutomationActionProvider = {
+  kind: ActionKind
+  configSchema: JsonSchema
+  requiredIntegrations?: string[]
+  run(config: unknown, ctx: ActionContext): Promise<Partial<AutomationRun>>
+}
+
+export type AutomationsProviderRegistry = {
+  registerTriggerProvider(moduleId: string, provider: AutomationTriggerProvider): string
+  registerActionProvider(moduleId: string, provider: AutomationActionProvider): string
+}
+
+/**
+ * Service token for modules that need lower-level access to Automations provider
+ * registration. Prefer `registerAutomationTrigger` and `registerAutomationAction`.
+ */
+export const AutomationsProviderRegistryToken: ServiceToken<AutomationsProviderRegistry> =
+  createServiceToken<AutomationsProviderRegistry>('automations.provider-registry')
+
+export function registerAutomationTrigger(host: MainHost, provider: AutomationTriggerProvider): string {
+  return host.requireService(AutomationsProviderRegistryToken).registerTriggerProvider(host.moduleId, provider)
+}
+
+export function registerAutomationAction(host: MainHost, provider: AutomationActionProvider): string {
+  return host.requireService(AutomationsProviderRegistryToken).registerActionProvider(host.moduleId, provider)
+}
+
 // ── Renderer host (entry.renderer) ───────────────────────────────────────────
 
 /**
@@ -325,7 +447,7 @@ export type BacklogItemLinkStatus = 'active' | 'completed' | 'failed' | 'unknown
 export type BacklogItemLink = {
   id: string
   moduleId: string
-  type: 'execution' | 'issue' | 'review' | 'artifact' | 'external'
+  type: 'execution' | 'issue' | 'review' | 'artifact' | 'external' | 'agent'
   label: string
   target: {
     kind: string

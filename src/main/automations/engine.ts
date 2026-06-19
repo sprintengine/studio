@@ -61,6 +61,7 @@ export type AutomationsEngineOptions = {
   getWorkspaceSnapshot?: () => WorkspaceSyncSnapshot | Promise<WorkspaceSyncSnapshot>
   createStore?: (workspaceRoot: string) => AutomationsStore
   triggerProviders?: AutomationTriggerProvider[]
+  getTriggerProviders?: () => AutomationTriggerProvider[]
   isIntegrationAvailable?: (id: string) => boolean | undefined
   runAutomation: AutomationRunExecutor
   now?: () => number
@@ -78,7 +79,7 @@ export class AutomationsEngine {
   private readonly getProjectFolders?: () => AutomationsProjectFolder[] | Promise<AutomationsProjectFolder[]>
   private readonly getWorkspaceSnapshot?: () => WorkspaceSyncSnapshot | Promise<WorkspaceSyncSnapshot>
   private readonly createStore: (workspaceRoot: string) => AutomationsStore
-  private readonly triggerProvidersByKind: Map<string, AutomationTriggerProvider>
+  private readonly getTriggerProviders: () => AutomationTriggerProvider[]
   private readonly isIntegrationAvailable?: (id: string) => boolean | undefined
   private readonly runAutomation: AutomationRunExecutor
   private readonly now: () => number
@@ -96,7 +97,8 @@ export class AutomationsEngine {
     this.getProjectFolders = options.getProjectFolders
     this.getWorkspaceSnapshot = options.getWorkspaceSnapshot
     this.createStore = options.createStore ?? ((workspaceRoot) => new AutomationsStore(workspaceRoot))
-    this.triggerProvidersByKind = new Map((options.triggerProviders ?? []).map((provider) => [provider.kind, provider]))
+    const staticTriggerProviders = options.triggerProviders ?? []
+    this.getTriggerProviders = options.getTriggerProviders ?? (() => staticTriggerProviders)
     this.isIntegrationAvailable = options.isIntegrationAvailable
     this.runAutomation = options.runAutomation
     this.now = options.now ?? Date.now
@@ -303,9 +305,12 @@ export class AutomationsEngine {
     const now = this.now()
     const projectFolders = await this.loadProjectFolders(result)
     const pollContext = createTriggerPollContext()
+    const triggerProvidersByKind = new Map(
+      this.getTriggerProviders().map((provider) => [provider.kind, provider])
+    )
 
     for (const projectFolder of projectFolders) {
-      await this.evaluateProject(projectFolder, mode, now, pollContext, result)
+      await this.evaluateProject(projectFolder, mode, now, pollContext, triggerProvidersByKind, result)
     }
 
     this.onEvaluation?.(result)
@@ -334,6 +339,7 @@ export class AutomationsEngine {
     mode: EvaluationMode,
     now: number,
     pollContext: AutomationTriggerPollContext,
+    triggerProvidersByKind: ReadonlyMap<string, AutomationTriggerProvider>,
     result: AutomationsEngineEvaluationResult
   ): Promise<void> {
     const workspaceRoot = projectFolder.folderPath
@@ -354,7 +360,17 @@ export class AutomationsEngine {
 
     const state: AutomationStoreState = stateResult.value ?? { nextRunAtByAutomationId: {}, lock: null }
     for (const definition of definitions.values) {
-      await this.evaluateDefinition(store, state, projectFolder, definition, mode, now, pollContext, result)
+      await this.evaluateDefinition(
+        store,
+        state,
+        projectFolder,
+        definition,
+        mode,
+        now,
+        pollContext,
+        triggerProvidersByKind,
+        result
+      )
     }
   }
 
@@ -366,6 +382,7 @@ export class AutomationsEngine {
     mode: EvaluationMode,
     now: number,
     pollContext: AutomationTriggerPollContext,
+    triggerProvidersByKind: ReadonlyMap<string, AutomationTriggerProvider>,
     result: AutomationsEngineEvaluationResult
   ): Promise<void> {
     const workspaceRoot = projectFolder.folderPath
@@ -376,7 +393,7 @@ export class AutomationsEngine {
         state,
         projectFolder,
         definition,
-        triggerProvidersByKind: this.triggerProvidersByKind,
+        triggerProvidersByKind,
         pollContext,
         isIntegrationAvailable: this.isIntegrationAvailable,
         runAutomation: this.runAutomation,

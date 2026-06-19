@@ -44,6 +44,8 @@ export type AutomationsIpcDependencies = {
   createStore?: (workspaceRoot: string) => AutomationsStore
   triggerProviders?: AutomationTriggerProvider[]
   actionProviders?: AutomationActionProvider[]
+  getTriggerProviders?: () => AutomationTriggerProvider[]
+  getActionProviders?: () => AutomationActionProvider[]
   isIntegrationAvailable?: (id: string) => boolean | undefined
   getWorkspaceSyncSnapshot?: () => WorkspaceSyncSnapshot
   now?: () => number
@@ -60,8 +62,10 @@ const AUTONOMY_DEFAULTS = new Set(['review_only', 'allow_changes'])
 
 export function registerAutomationsIpc(host: AutomationsIpcHost, deps: AutomationsIpcDependencies): void {
   const createStore = deps.createStore ?? ((workspaceRoot) => new AutomationsStore(workspaceRoot))
-  const triggerProviders = deps.triggerProviders ?? []
-  const actionProviders = deps.actionProviders ?? []
+  const staticTriggerProviders = deps.triggerProviders ?? []
+  const staticActionProviders = deps.actionProviders ?? []
+  const getTriggerProviders = deps.getTriggerProviders ?? (() => staticTriggerProviders)
+  const getActionProviders = deps.getActionProviders ?? (() => staticActionProviders)
   const now = deps.now ?? Date.now
 
   host.registerIpc(AUTOMATIONS_LIST_CHANNEL, async (_event, input: unknown): Promise<AutomationsListResult> => {
@@ -86,7 +90,7 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
 
     const timestamp = new Date(now()).toISOString()
     const definition = buildDefinitionForCreate(parsed.value.definition, timestamp, deps.createAutomationId)
-    const prepared = prepareDefinitionForWrite(definition, triggerProviders, actionProviders, now())
+    const prepared = prepareDefinitionForWrite(definition, getTriggerProviders(), getActionProviders(), now())
     if (!prepared.ok) return prepared
 
     const store = createStore(parsed.value.workspaceRoot)
@@ -113,7 +117,7 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
       createdAt: existing.value.createdAt,
       updatedAt: timestamp,
     }
-    const prepared = prepareDefinitionForWrite(updated, triggerProviders, actionProviders, now())
+    const prepared = prepareDefinitionForWrite(updated, getTriggerProviders(), getActionProviders(), now())
     if (!prepared.ok) return prepared
 
     const written = await store.updateDefinition(prepared.value)
@@ -152,8 +156,8 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
 
   host.registerIpc(AUTOMATIONS_PROVIDERS_LIST_CHANNEL, async (): Promise<AutomationsProvidersResult> => {
     return ok({
-      triggers: triggerProviders.map((provider) => providerView(provider, deps.isIntegrationAvailable)),
-      actions: actionProviders.map((provider) => providerView(provider, deps.isIntegrationAvailable)),
+      triggers: getTriggerProviders().map((provider) => providerView(provider, deps.isIntegrationAvailable)),
+      actions: getActionProviders().map((provider) => providerView(provider, deps.isIntegrationAvailable)),
     })
   })
 }

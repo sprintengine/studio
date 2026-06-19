@@ -19,6 +19,7 @@ export type LocalAutomationExecutorOptions = {
   launchConfirmTimeoutMs?: number
   launchConfirmPollIntervalMs?: number
   actionProviders?: AutomationActionProvider[]
+  getActionProviders?: () => AutomationActionProvider[]
 }
 
 export type WorkspaceDirtyResult = {
@@ -37,8 +38,9 @@ const DEFAULT_LAUNCH_CONFIRM_TIMEOUT_MS = 20_000
 const DEFAULT_LAUNCH_CONFIRM_POLL_INTERVAL_MS = 150
 
 export function createLocalAutomationExecutor(options: LocalAutomationExecutorOptions): AutomationRunExecutor {
-  const providers = options.actionProviders ?? createBuiltInAutomationActionProviders()
-  return async (input) => runLocalAutomationAction(input, providers, options)
+  const staticProviders = options.actionProviders ?? createBuiltInAutomationActionProviders()
+  const getActionProviders = options.getActionProviders ?? (() => staticProviders)
+  return async (input) => runLocalAutomationAction(input, getActionProviders(), options)
 }
 
 export function createBuiltInAutomationActionProviders(

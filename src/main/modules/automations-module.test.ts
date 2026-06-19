@@ -5,13 +5,20 @@ import { join } from 'node:path'
 import type { IpcMain } from 'electron'
 
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
-import type { AutomationDefinition, AutomationRun, AutomationsProvidersResult } from '../../shared/automations/contracts'
+import type {
+  AutomationActionProvider,
+  AutomationDefinition,
+  AutomationRun,
+  AutomationTriggerProvider,
+  AutomationsProvidersResult,
+} from '../../shared/automations/contracts'
 import type { AutomationsEngine, AutomationsEngineOptions } from '../automations/engine'
 import type { CapabilityModule } from '../module-host/load-modules'
 import type { IpcInvokeHandler } from '../module-host/main-host'
 import { loadMainModules } from '../module-host/load-modules'
 import {
   AutomationDelegateToken,
+  AutomationsProviderRegistryToken,
   SprintEngineAutomationFrontDoorsToken,
   SwitchboardAutomationFrontDoorsToken,
   WorkspaceSyncServiceToken,
@@ -150,7 +157,40 @@ function fakeSprintEngineAutomationFrontDoorModule(): CapabilityModule {
   }
 }
 
-function automationDefinition(folderPath: string): AutomationDefinition {
+function fakeThirdPartyAutomationProviderModule(): CapabilityModule {
+  const triggerProvider: AutomationTriggerProvider = {
+    kind: 'weather-deck.forecast-ready',
+    configSchema: { type: 'object' },
+    subscribe: () => () => undefined,
+    poll: async () => ({ ok: true, events: [] }),
+  }
+  const actionProvider: AutomationActionProvider = {
+    kind: 'weather-deck.refresh-forecast',
+    configSchema: { type: 'object' },
+    run: async (_config, context) => {
+      context.reportProgress({ summary: 'Weather Deck action started.' })
+      return { status: 'completed', summary: 'Weather Deck action completed.' }
+    },
+  }
+
+  return {
+    manifest: {
+      id: 'weather-deck',
+      displayName: 'Weather Deck',
+      version: 1,
+      defaultEnabled: true,
+      dependsOn: ['automations'],
+      source: 'third-party',
+    },
+    registerMain(host) {
+      const registry = host.requireService(AutomationsProviderRegistryToken)
+      registry.registerTriggerProvider(host.moduleId, triggerProvider)
+      registry.registerActionProvider(host.moduleId, actionProvider)
+    },
+  }
+}
+
+function automationDefinition(folderPath: string, overrides: Partial<AutomationDefinition> = {}): AutomationDefinition {
   return {
     id: 'nightly-review',
     name: 'Nightly Review',
@@ -163,6 +203,7 @@ function automationDefinition(folderPath: string): AutomationDefinition {
     lastRunId: null,
     createdAt: '2026-06-18T00:00:00.000Z',
     updatedAt: '2026-06-18T00:00:00.000Z',
+    ...overrides,
   }
 }
 
@@ -424,6 +465,54 @@ async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
   )
 }
 
+async function testThirdPartyAutomationProviderRegistrationUsesLiveRegistry(): Promise<void> {
+  const { ipcMain, handlers } = createFakeIpcMain()
+  let capturedEngineOptions: AutomationsEngineOptions | null = null
+  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null
+  const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-provider-'))
+
+  const moduleLoad = loadMainModules({
+    ipcMain,
+    modules: [
+      fakeAgentRuntimeModule({ workspaceSnapshot: workspaceSnapshot(folderPath) }),
+      createAutomationsModule({
+        createEngine: (options) => {
+          capturedEngineOptions = options
+          capturedRunAutomation = options.runAutomation
+          return createFakeAutomationsEngine() as AutomationsEngine
+        },
+      }),
+      fakeThirdPartyAutomationProviderModule(),
+    ],
+  })
+
+  assert.deepEqual(moduleLoad.report.errors, [])
+  assert.ok(moduleLoad.report.loaded.includes('weather-deck'))
+  assert.ok(
+    capturedEngineOptions?.getTriggerProviders?.().some((provider) => provider.kind === 'weather-deck.forecast-ready')
+  )
+
+  const providerHandler = handlers.get(AUTOMATIONS_PROVIDERS_LIST_CHANNEL)
+  assert.ok(providerHandler)
+  const providers = await providerHandler({} as never) as AutomationsProvidersResult
+  assert.equal(providers.ok, true)
+  if (!providers.ok) return
+  assert.ok(providers.value.triggers.some((provider) => provider.kind === 'weather-deck.forecast-ready'))
+  assert.ok(providers.value.actions.some((provider) => provider.kind === 'weather-deck.refresh-forecast'))
+
+  assert.ok(capturedRunAutomation)
+  const result = await capturedRunAutomation({
+    workspaceRoot: folderPath,
+    definition: automationDefinition(folderPath, {
+      action: { kind: 'weather-deck.refresh-forecast', config: { city: 'Dublin' } },
+    }),
+    run: automationRun(),
+    triggerPayload: { source: 'test' },
+  })
+  assert.equal(result.status, 'completed')
+  assert.equal(result.summary, 'Weather Deck action completed.')
+}
+
 function testBroadcastRunEventUsesAutomationsChannelAndSkipsFailedWindows(): void {
   const sent: Array<{ channel: string; payload: unknown }> = []
   let failedDeliveryAttempts = 0
@@ -488,6 +577,7 @@ async function main(): Promise<void> {
   await testLiveEnablementToggleStopsUnregistersAndRestarts()
   await testModuleExecutorUsesRealDirtyCheckBeforeLaunch()
   await testModuleRegistersFirstPartyActionProviders()
+  await testThirdPartyAutomationProviderRegistrationUsesLiveRegistry()
   testBroadcastRunEventUsesAutomationsChannelAndSkipsFailedWindows()
   console.log('automations-module tests passed')
 }

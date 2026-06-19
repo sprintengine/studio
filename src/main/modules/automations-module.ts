@@ -7,6 +7,7 @@ import { registerAutomationsIpc } from '../ipc/automations-ipc'
 import {
   AutomationDelegateToken,
   AutomationsEngineToken,
+  AutomationsProviderRegistryToken,
   SprintEngineAutomationFrontDoorsToken,
   SwitchboardAutomationFrontDoorsToken,
   WorkspaceSyncServiceToken,
@@ -82,19 +83,20 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         switchboard: switchboardFrontDoors,
         sprintEngine: sprintEngineFrontDoors,
       })
-      const triggerProviders = providerRegistry.listTriggerProviders()
-      const actionProviders = providerRegistry.listActionProviders()
+      host.provideService(AutomationsProviderRegistryToken, () => providerRegistry)
+      const getTriggerProviders = () => providerRegistry.listTriggerProviders()
+      const getActionProviders = () => providerRegistry.listActionProviders()
       const runAutomation = createLocalAutomationExecutor({
         delegateToRenderer: (request) => automationDelegate.request(request),
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
         isIntegrationAvailable,
         isWorkspaceDirty: defaultWorkspaceDirtyCheck,
-        actionProviders,
+        getActionProviders,
       })
       const engine = host.provideService(AutomationsEngineToken, () =>
         (options.createEngine ?? createAutomationsEngine)({
           getWorkspaceSnapshot: () => workspaceSyncService.getSnapshot(),
-          triggerProviders,
+          getTriggerProviders,
           isIntegrationAvailable,
           runAutomation,
           onRunEvent: options.deliverRunEvent ?? broadcastAutomationsRunEvent,
@@ -121,8 +123,8 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
 
       registerAutomationsIpc(host, {
         engine,
-        triggerProviders,
-        actionProviders,
+        getTriggerProviders,
+        getActionProviders,
         isIntegrationAvailable,
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
       })

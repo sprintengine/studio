@@ -1,5 +1,6 @@
 import type { AppServices } from '../app-services'
 import type { AutomationsEngine } from '../automations/engine'
+import type { AutomationProviderRegistryService } from '../automations/provider-registry'
 import type { SprintEngineAutomationFrontDoors } from '../automations/actions/sprint-engine'
 import type { SwitchboardAutomationFrontDoors } from '../automations/actions/switchboard'
 import type { ModuleWorkspaceService } from '../modules/module-workspace-service'
@@ -32,6 +33,10 @@ export const WorkspaceSyncServiceToken = createServiceToken<AppServices['workspa
 )
 export const AutomationsEngineToken = createServiceToken<AutomationsEngine>(
   'automations.engine'
+)
+// Key mirrors @multicode/module-sdk's AutomationsProviderRegistryToken.
+export const AutomationsProviderRegistryToken = createServiceToken<AutomationProviderRegistryService>(
+  'automations.provider-registry'
 )
 export const SwitchboardAutomationFrontDoorsToken = createServiceToken<SwitchboardAutomationFrontDoors>(
   'switchboard.automation-front-doors'

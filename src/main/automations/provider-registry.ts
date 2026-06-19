@@ -17,6 +17,11 @@ export type BuiltInAutomationProviderRegistryOptions = {
 
 type RegisteredProviderType = 'trigger' | 'action'
 
+export type AutomationProviderRegistryService = Pick<
+  AutomationProviderRegistry,
+  'registerTriggerProvider' | 'registerActionProvider'
+>
+
 export class AutomationProviderRegistrationError extends Error {
   constructor(message: string, readonly providerId: string) {
     super(message)

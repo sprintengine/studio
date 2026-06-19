@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import type {
   AutomationDefinition,
   AutomationRun,
+  AutomationTriggerProvider,
   AutomationsRunEvent,
   ScheduleTriggerConfig,
 } from '../../shared/automations/contracts'
@@ -27,6 +28,7 @@ async function main(): Promise<void> {
   await assertDueAutomationSkipsOverlappingTickAndPreservesSingleFlight()
   await assertRunEventsEmitForTimerAndManualTerminalStatuses()
   await assertRunEventDeliveryFailuresDoNotMutateRunTruth()
+  await assertPollingTriggersUseProviderGetterAtEvaluationTime()
   await assertStartupOverdueIsSkippedWithoutCatchup()
   await assertTickWaitsForStartupOverdueSkip()
 }
@@ -410,6 +412,57 @@ async function assertRunEventDeliveryFailuresDoNotMutateRunTruth(): Promise<void
   assert.equal(updatedTimerDefinition.ok, true)
   assert.equal(updatedTimerDefinition.ok && updatedTimerDefinition.value.lastRunId, 'run-timer-throw')
   assert.equal(updatedTimerDefinition.ok && updatedTimerDefinition.value.nextRunAt, '2026-06-17T10:05:00.000Z')
+}
+
+async function assertPollingTriggersUseProviderGetterAtEvaluationTime(): Promise<void> {
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  assert.equal((await store.createDefinition(definition({
+    trigger: { kind: 'weather-deck.forecast-ready', config: { city: 'Dublin' } },
+    action: { kind: 'spawn-agent', config: {} },
+    nextRunAt: null,
+  }))).ok, true)
+
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  let pollCount = 0
+  let triggerProviders: AutomationTriggerProvider[] = []
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-live-provider', folderPath: workspaceRoot }],
+    getTriggerProviders: () => triggerProviders,
+    now: () => now,
+    createRunId: () => 'run-live-provider',
+    runAutomation: async () => ({ status: 'completed', summary: 'Live provider ran.' }),
+  })
+  triggerProviders = [
+    {
+      kind: 'weather-deck.forecast-ready',
+      configSchema: { type: 'object' },
+      subscribe: () => () => undefined,
+      poll: async () => {
+        pollCount += 1
+        return {
+          ok: true,
+          events: [
+            {
+              id: 'forecast-1',
+              occurredAt: new Date(now).toISOString(),
+              payload: { city: 'Dublin' },
+            },
+          ],
+        }
+      },
+    },
+  ]
+
+  const tick = await engine.tick()
+  assert.equal(pollCount, 1)
+  assert.deepEqual(tick.problems, [])
+  assert.deepEqual(tick.fired, [{
+    workspaceRoot,
+    automationId: 'nightly-review',
+    runId: 'run-live-provider',
+    status: 'completed',
+  }])
 }
 
 async function assertStartupOverdueIsSkippedWithoutCatchup(): Promise<void> {

@@ -30,6 +30,21 @@ import { BUNDLED_MODULE_IDS as APP_BUNDLED_MODULE_IDS } from '../../../src/share
 import type { CapabilityPermission as AppCapabilityPermission } from '../../../src/shared/modules/permissions'
 import { KNOWN_CAPABILITY_PERMISSIONS as APP_KNOWN_CAPABILITY_PERMISSIONS } from '../../../src/shared/modules/permissions'
 import type {
+  ActionContext as AppActionContext,
+  ActionKind as AppActionKind,
+  AutomationActionProvider as AppAutomationActionProvider,
+  AutomationRun as AppAutomationRun,
+  AutomationRunStatus as AppAutomationRunStatus,
+  AutomationStatus as AppAutomationStatus,
+  AutomationTriggerPollContext as AppAutomationTriggerPollContext,
+  AutomationTriggerPollEvent as AppAutomationTriggerPollEvent,
+  AutomationTriggerPollResult as AppAutomationTriggerPollResult,
+  AutomationTriggerProvider as AppAutomationTriggerProvider,
+  JsonSchema as AppJsonSchema,
+  ScheduleTriggerConfig as AppScheduleTriggerConfig,
+  TriggerKind as AppTriggerKind,
+} from '../../../src/shared/automations/contracts'
+import type {
   ModuleNotification as AppModuleNotification,
   ModuleNotificationSeverity as AppModuleNotificationSeverity,
   ModuleNotifyInput as AppModuleNotifyInput,
@@ -67,6 +82,17 @@ import type {
   CapabilityPermission as SdkCapabilityPermission,
   CommandAvailability as SdkCommandAvailability,
   CommandScope as SdkCommandScope,
+  ActionContext as SdkActionContext,
+  ActionKind as SdkActionKind,
+  AutomationActionProvider as SdkAutomationActionProvider,
+  AutomationRun as SdkAutomationRun,
+  AutomationRunStatus as SdkAutomationRunStatus,
+  AutomationStatus as SdkAutomationStatus,
+  AutomationTriggerPollContext as SdkAutomationTriggerPollContext,
+  AutomationTriggerPollEvent as SdkAutomationTriggerPollEvent,
+  AutomationTriggerPollResult as SdkAutomationTriggerPollResult,
+  AutomationTriggerProvider as SdkAutomationTriggerProvider,
+  JsonSchema as SdkJsonSchema,
   MainHost as SdkMainHost,
   ModuleCommandDefinition as SdkModuleCommandDefinition,
   ModuleEntry as SdkModuleEntry,
@@ -78,9 +104,11 @@ import type {
   ModuleTrustStatus as SdkModuleTrustStatus,
   PreviewSlot as SdkPreviewSlot,
   RendererHost as SdkRendererHost,
+  ScheduleTriggerConfig as SdkScheduleTriggerConfig,
   SettingsSectionDefinition as SdkSettingsSectionDefinition,
   SettingsSectionProps as SdkSettingsSectionProps,
   SidecarSpec as SdkSidecarSpec,
+  TriggerKind as SdkTriggerKind,
   WorkspaceLayoutTemplate as SdkWorkspaceLayoutTemplate,
   WorkspacePanelComponent as SdkWorkspacePanelComponent,
   WorkspaceTypeDefinition as SdkWorkspaceTypeDefinition,
@@ -115,6 +143,19 @@ expectType<IsExact<AppBacklogItemLink, SdkBacklogItemLink>>()
 expectType<IsExact<AppBacklogResolvedLink, SdkBacklogResolvedLink>>()
 expectType<IsExact<AppSettingsSectionProps, SdkSettingsSectionProps>>()
 expectType<IsExact<AppPreviewSlot, SdkPreviewSlot>>()
+expectType<IsExact<AppJsonSchema, SdkJsonSchema>>()
+expectType<IsExact<AppAutomationStatus, SdkAutomationStatus>>()
+expectType<IsExact<AppAutomationRunStatus, SdkAutomationRunStatus>>()
+expectType<IsExact<AppTriggerKind, SdkTriggerKind>>()
+expectType<IsExact<AppScheduleTriggerConfig, SdkScheduleTriggerConfig>>()
+expectType<IsExact<AppAutomationTriggerPollContext, SdkAutomationTriggerPollContext>>()
+expectType<IsExact<AppAutomationTriggerPollEvent, SdkAutomationTriggerPollEvent>>()
+expectType<IsExact<AppAutomationTriggerPollResult, SdkAutomationTriggerPollResult>>()
+expectType<IsExact<AppAutomationTriggerProvider, SdkAutomationTriggerProvider>>()
+expectType<IsExact<AppActionKind, SdkActionKind>>()
+expectType<IsExact<AppAutomationRun, SdkAutomationRun>>()
+expectType<IsExact<AppActionContext, SdkActionContext>>()
+expectType<IsExact<AppAutomationActionProvider, SdkAutomationActionProvider>>()
 
 // Host soundness: the app host handed to module code satisfies the SDK view.
 expectType<Extends<AppMainHost, SdkMainHost>>()
