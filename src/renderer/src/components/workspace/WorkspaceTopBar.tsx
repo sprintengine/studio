@@ -250,7 +250,7 @@ function SessionsPopover({
                     return (
                       <div
                         key={`${item.workspace.id}:${item.agentId ?? item.terminalId ?? item.sessionId}`}
-                        className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded px-2.5 py-2 text-[13px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)]"
+                        className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-2.5 py-2 text-[13px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)]"
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <span
@@ -274,6 +274,7 @@ function SessionsPopover({
                           </span>
                         </div>
 
+                        <div className="flex shrink-0 items-center gap-2">
                         <button
                           type="button"
                           onClick={() => void onOpen(item)}
@@ -305,6 +306,7 @@ function SessionsPopover({
                             <StopIcon className="icon-sm" />
                           </button>
                         </Tooltip>
+                        </div>
                       </div>
                     )
                   })}

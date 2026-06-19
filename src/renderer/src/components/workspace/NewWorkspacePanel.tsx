@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
 import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { userLayoutTemplateToTemplate } from '../../layouts/userTemplates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -144,7 +144,7 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
   },
   'sprintengine-roster': {
     title: 'Your AI team',
-    subtitle: 'We’ve picked a starting team for you. Add or remove anyone, or just continue.',
+    subtitle: 'A balanced team is ready to go. Adjust it below, or just continue.',
   },
   'guided-idea': {
     title: 'Tell us about your idea',
@@ -1783,39 +1783,27 @@ export default function NewWorkspacePanel({
           ) : null}
 
           {step === 'mode' ? (
-            <ModeStep
-              mode={mode}
-              onSelect={handleSelectMode}
-              folderPath={folderPath}
-              folderHint={folderPath ? folderHints.get(folderPath) ?? null : null}
-            />
-          ) : null}
-
-          {step === 'mcp-servers' ? (
-            <McpServersStep
-              mcpCatalog={integrationsMcpCatalog}
-              mcpSettings={mcpSettings ?? null}
-              onToggleMcp={toggleMcpInWizard}
-              message={integrationsMessage}
-            />
-          ) : null}
-
-          {step === 'skill-packs' ? (
-            <SkillPacksStep
-              skillPackCatalog={integrationsSkillPackCatalog}
-              selectedSkillPackIds={selectedSkillPackIds}
-              onToggleSkillPack={toggleSkillPackInWizard}
-              message={integrationsMessage}
-            />
-          ) : null}
-
-          {step === 'knowledge' && folderPath ? (
-            <KnowledgeStep
-              projectRoot={folderPath}
-              committedRelativeRoot={committedKnowledgeRoot}
-              onCommit={handleCommitKnowledgeRoot}
-              autoApplyGuard={knowledgeAutoAppliedRef}
-            />
+            <div className="flex flex-col gap-6">
+              <ModeStep
+                mode={mode}
+                onSelect={handleSelectMode}
+                folderPath={folderPath}
+                folderHint={folderPath ? folderHints.get(folderPath) ?? null : null}
+              />
+              <AdvancedSetupDisclosure
+                mcpCatalog={integrationsMcpCatalog}
+                mcpSettings={mcpSettings ?? null}
+                onToggleMcp={toggleMcpInWizard}
+                skillPackCatalog={integrationsSkillPackCatalog}
+                selectedSkillPackIds={selectedSkillPackIds}
+                onToggleSkillPack={toggleSkillPackInWizard}
+                integrationsMessage={integrationsMessage}
+                knowledgeProjectRoot={folderPath && knowledgeStepEligible ? folderPath : null}
+                committedKnowledgeRoot={committedKnowledgeRoot}
+                onCommitKnowledge={handleCommitKnowledgeRoot}
+                knowledgeAutoAppliedRef={knowledgeAutoAppliedRef}
+              />
+            </div>
           ) : null}
 
           {step === 'standard-layout' ? (
@@ -2206,6 +2194,109 @@ function ModeStep({
           <ModeCard key={model.id} model={model} active={mode === model.id} onSelect={onSelect} />
         ))}
       </div>
+    </div>
+  )
+}
+
+// Opt-in advanced configuration for the mode step. The novice critical path no
+// longer gates on MCP servers / skill packs / knowledge (see creationStepFlows),
+// but power users keep one-place in-wizard access here without seeing the jargon
+// unless they ask for it. Collapsed by default; a selection count surfaces when
+// the user has chosen anything so a returning expander isn't a surprise. Each
+// section reuses the same component the standalone steps used, so behavior and
+// persistence are identical — selections still write to project settings.
+function AdvancedSetupDisclosure({
+  mcpCatalog,
+  mcpSettings,
+  onToggleMcp,
+  skillPackCatalog,
+  selectedSkillPackIds,
+  onToggleSkillPack,
+  integrationsMessage,
+  knowledgeProjectRoot,
+  committedKnowledgeRoot,
+  onCommitKnowledge,
+  knowledgeAutoAppliedRef,
+}: {
+  mcpCatalog: McpCatalogServer[]
+  mcpSettings: { servers: Record<string, { enabled: boolean }> } | null
+  onToggleMcp: (server: McpCatalogServer) => void
+  skillPackCatalog: SkillPackCatalogEntry[]
+  selectedSkillPackIds: Set<string>
+  onToggleSkillPack: (pack: SkillPackCatalogEntry) => void
+  integrationsMessage: string | null
+  knowledgeProjectRoot: string | null
+  committedKnowledgeRoot: string | null
+  onCommitKnowledge: (relativeRoot: string | null) => void
+  knowledgeAutoAppliedRef: MutableRefObject<Set<string>>
+}) {
+  const [open, setOpen] = useState(false)
+  const selectedCount =
+    mcpCatalog.reduce((count, server) => count + (mcpSettings?.servers[server.id]?.enabled ? 1 : 0), 0) +
+    skillPackCatalog.reduce((count, pack) => count + (selectedSkillPackIds.has(pack.id) ? 1 : 0), 0)
+
+  return (
+    <div className="border-t border-[color:var(--border-subtle)] pt-4">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="
+          flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left transition-colors
+          hover:bg-[color:var(--bg-surface-raised)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+        "
+      >
+        <svg
+          className={`icon-sm shrink-0 text-[color:var(--text-subtle)] transition-transform ${open ? 'rotate-90' : ''}`}
+          viewBox="0 0 12 12"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path d="M4.5 3L7.5 6L4.5 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span className="text-[13px] font-medium text-[color:var(--text-strong)]">Advanced setup</span>
+        <span className="min-w-0 truncate text-[12px] text-[color:var(--text-subtle)]">
+          Tool integrations and skill packs{knowledgeProjectRoot ? ', knowledge' : ''} — optional
+        </span>
+        {selectedCount > 0 ? (
+          <span className="ml-auto shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+            {selectedCount} selected
+          </span>
+        ) : null}
+      </button>
+      {open ? (
+        <div className="flex flex-col gap-6 px-1.5 pt-4">
+          <section className="flex flex-col gap-2">
+            <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Tool integrations</h4>
+            <McpServersStep
+              mcpCatalog={mcpCatalog}
+              mcpSettings={mcpSettings}
+              onToggleMcp={onToggleMcp}
+              message={integrationsMessage}
+            />
+          </section>
+          <section className="flex flex-col gap-2">
+            <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Skill packs</h4>
+            <SkillPacksStep
+              skillPackCatalog={skillPackCatalog}
+              selectedSkillPackIds={selectedSkillPackIds}
+              onToggleSkillPack={onToggleSkillPack}
+              message={integrationsMessage}
+            />
+          </section>
+          {knowledgeProjectRoot ? (
+            <section className="flex flex-col gap-2">
+              <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Knowledge graph</h4>
+              <KnowledgeStep
+                projectRoot={knowledgeProjectRoot}
+                committedRelativeRoot={committedKnowledgeRoot}
+                onCommit={onCommitKnowledge}
+                autoApplyGuard={knowledgeAutoAppliedRef}
+              />
+            </section>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
