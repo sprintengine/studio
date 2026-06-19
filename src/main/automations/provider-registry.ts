@@ -186,8 +186,6 @@ function blockedTriggerProvider(
   return {
     kind: registration.provider.kind,
     configSchema: registration.provider.configSchema,
-    requiredIntegrations: registration.provider.requiredIntegrations,
-    validateConfig: registration.provider.validateConfig,
     subscribe: () => () => undefined,
     computeNextRun: () => null,
     poll: async () => ({ ok: false, blockedReason }),

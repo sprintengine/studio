@@ -14,6 +14,7 @@ import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { AutomationsEngine, projectFoldersFromWorkspaceSyncSnapshot } from './engine'
 import { AutomationsStore, type AutomationStoreState } from './store'
 import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
+import { executableTriggerProviders } from './provider-registry'
 import { AutomationWebhookReceiver } from './webhook-receiver'
 import {
   createWebhookSignature,
@@ -39,6 +40,7 @@ async function main(): Promise<void> {
   await assertRunEventsEmitForTimerAndManualTerminalStatuses()
   await assertRunEventDeliveryFailuresDoNotMutateRunTruth()
   await assertPollingTriggersUseProviderGetterAtEvaluationTime()
+  await assertDeniedTriggerProviderIsInertBeforePolling()
   await assertWebhookReceiverOptInAuthAndDedupesDeliveredEvents()
   await assertStartupOverdueIsSkippedWithoutCatchup()
   await assertTickWaitsForStartupOverdueSkip()
@@ -474,6 +476,72 @@ async function assertPollingTriggersUseProviderGetterAtEvaluationTime(): Promise
     runId: 'run-live-provider',
     status: 'completed',
   }])
+}
+
+async function assertDeniedTriggerProviderIsInertBeforePolling(): Promise<void> {
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  assert.equal((await store.createDefinition(definition({
+    trigger: { kind: 'weather-deck.forecast-ready', config: { city: 'Dublin' } },
+    action: { kind: 'spawn-agent', config: {} },
+    nextRunAt: null,
+  }))).ok, true)
+
+  let validateCalls = 0
+  let pollCalls = 0
+  let runCount = 0
+  const thirdPartyTrigger: AutomationTriggerProvider = {
+    kind: 'weather-deck.forecast-ready',
+    configSchema: { type: 'object' },
+    requiredIntegrations: ['module:weather-deck'],
+    validateConfig: () => {
+      validateCalls += 1
+      throw new Error('denied trigger validateConfig must not run')
+    },
+    subscribe: () => () => undefined,
+    poll: async () => {
+      pollCalls += 1
+      throw new Error('denied trigger poll must not run')
+    },
+  }
+  const triggerProviders = executableTriggerProviders(
+    [{
+      providerId: 'weather-deck.weather-deck.forecast-ready',
+      moduleId: 'weather-deck',
+      providerType: 'trigger',
+      provider: thirdPartyTrigger,
+    }],
+    () => ({ ok: false, reason: 'Module "weather-deck" is not trusted.' })
+  )
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-denied-provider', folderPath: workspaceRoot }],
+    triggerProviders,
+    isIntegrationAvailable: () => false,
+    now: () => Date.parse('2026-06-17T10:00:00.000Z'),
+    createRunId: () => 'run-denied-provider',
+    runAutomation: async () => {
+      runCount += 1
+      return { status: 'completed', summary: 'Denied provider should not run.' }
+    },
+  })
+
+  const tick = await engine.tick()
+  assert.equal(validateCalls, 0)
+  assert.equal(pollCalls, 0)
+  assert.equal(runCount, 0)
+  assert.deepEqual(tick.problems, [])
+  assert.deepEqual(tick.fired, [{
+    workspaceRoot,
+    automationId: 'nightly-review',
+    runId: 'run-denied-provider',
+    status: 'blocked',
+  }])
+
+  const runs = await store.listRuns('nightly-review')
+  assert.equal(runs.ok, true)
+  assert.equal(runs.ok && runs.values.length, 1)
+  assert.equal(runs.ok && runs.values[0]?.status, 'blocked')
+  assert.match(runs.ok ? runs.values[0]?.blockedReason ?? '' : '', /not trusted/)
 }
 
 async function assertWebhookReceiverOptInAuthAndDedupesDeliveredEvents(): Promise<void> {
