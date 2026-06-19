@@ -3,7 +3,12 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { AutomationDefinition, AutomationRun, ScheduleTriggerConfig } from '../../shared/automations/contracts'
+import type {
+  AutomationDefinition,
+  AutomationRun,
+  AutomationsRunEvent,
+  ScheduleTriggerConfig,
+} from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { AutomationsEngine, projectFoldersFromWorkspaceSyncSnapshot } from './engine'
 import { AutomationsStore, type AutomationStoreState } from './store'
@@ -20,6 +25,7 @@ async function main(): Promise<void> {
   assertInvalidIntervalIsRejected()
   assertWorkspaceSnapshotFolderExtraction()
   await assertDueAutomationFiresOnceWithDuplicateGuard()
+  await assertRunEventsEmitForTimerAndManualTerminalStatuses()
   await assertStartupOverdueIsSkippedWithoutCatchup()
   await assertTickWaitsForStartupOverdueSkip()
 }
@@ -239,6 +245,76 @@ async function assertDueAutomationFiresOnceWithDuplicateGuard(): Promise<void> {
   assert.equal(updatedDefinition.ok, true)
   assert.equal(updatedDefinition.ok && updatedDefinition.value.lastRunId, 'run-due')
   assert.equal(updatedDefinition.ok && updatedDefinition.value.nextRunAt, '2026-06-17T10:05:00.000Z')
+}
+
+async function assertRunEventsEmitForTimerAndManualTerminalStatuses(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const timerRoot = await createWorkspace()
+  const timerStore = new AutomationsStore(timerRoot)
+  assert.equal((await timerStore.createDefinition(definition({
+    trigger: { kind: 'schedule', config: intervalConfig(5) },
+    nextRunAt: new Date(now).toISOString(),
+  }))).ok, true)
+
+  const events: AutomationsRunEvent[] = []
+  const timerEngine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-automations-timer', folderPath: timerRoot }],
+    now: () => now,
+    createRunId: () => 'run-timer',
+    onRunEvent: (event) => events.push(event),
+    runAutomation: async () => ({
+      status: 'blocked',
+      blockedReason: 'Required integration is missing.',
+      summary: 'Blocked by test.',
+    }),
+  })
+
+  await timerEngine.tick()
+  assert.deepEqual(events, [
+    {
+      automationId: 'nightly-review',
+      runId: 'run-timer',
+      workspaceId: 'ws-automations-timer',
+      definitionName: 'Nightly review',
+      status: 'blocked',
+      trigger: 'timer',
+    },
+  ])
+
+  const manualRoot = await createWorkspace()
+  const manualStore = new AutomationsStore(manualRoot)
+  assert.equal((await manualStore.createDefinition(definition({
+    trigger: { kind: 'schedule', config: intervalConfig(10) },
+    nextRunAt: new Date(now).toISOString(),
+  }))).ok, true)
+
+  const manualEngine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-from-snapshot', folderPath: manualRoot }],
+    now: () => now,
+    createRunId: () => 'run-manual',
+    onRunEvent: (event) => events.push(event),
+    runAutomation: async () => ({
+      status: 'completed',
+      workspaceId: 'ws-action-target',
+      agentId: 'agent-manual',
+      summary: 'Manual run completed.',
+    }),
+  })
+
+  const runNow = await manualEngine.runNow({
+    workspaceRoot: manualRoot,
+    automationId: 'nightly-review',
+  })
+  assert.equal(runNow.ok, true)
+  assert.deepEqual(events[1], {
+    automationId: 'nightly-review',
+    runId: 'run-manual',
+    workspaceId: 'ws-from-snapshot',
+    agentId: 'agent-manual',
+    definitionName: 'Nightly review',
+    status: 'completed',
+    trigger: 'manual',
+  })
 }
 
 async function assertStartupOverdueIsSkippedWithoutCatchup(): Promise<void> {

@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron'
+import { ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { ElectronApi } from '../../shared/electron-api'
 import type {
   AutomationsCreateInput,
@@ -7,6 +7,7 @@ import type {
   AutomationsDeleteResult,
   AutomationsListResult,
   AutomationsProvidersResult,
+  AutomationsRunEvent,
   AutomationsRunNowResult,
   AutomationsRunsListInput,
   AutomationsRunsListResult,
@@ -19,32 +20,22 @@ import {
   AUTOMATIONS_GET_CHANNEL,
   AUTOMATIONS_LIST_CHANNEL,
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
+  AUTOMATIONS_RUN_EVENT_CHANNEL,
   AUTOMATIONS_RUN_NOW_CHANNEL,
   AUTOMATIONS_RUNS_LIST_CHANNEL,
   AUTOMATIONS_UPDATE_CHANNEL,
 } from '../../shared/automations/contracts'
 
+type AutomationsIpcRenderer = {
+  invoke(channel: string, input?: unknown): Promise<unknown>
+  on(channel: string, listener: (event: IpcRendererEvent, payload: unknown) => void): void
+  removeListener(channel: string, listener: (event: IpcRendererEvent, payload: unknown) => void): void
+}
+
 // Renderer → main bridge for the Automations engine IPC registered by the main
 // automations module (src/main/ipc/automations-ipc.ts). The renderer never
 // touches the on-disk store; every read and write goes through these channels.
-export const automationsApi = {
-  listAutomations: (input: AutomationsWorkspaceInput): Promise<AutomationsListResult> =>
-    ipcRenderer.invoke(AUTOMATIONS_LIST_CHANNEL, input),
-  getAutomation: (input: AutomationsDefinitionInput): Promise<AutomationsDefinitionResult> =>
-    ipcRenderer.invoke(AUTOMATIONS_GET_CHANNEL, input),
-  createAutomation: (input: AutomationsCreateInput): Promise<AutomationsDefinitionResult> =>
-    ipcRenderer.invoke(AUTOMATIONS_CREATE_CHANNEL, input),
-  updateAutomation: (input: AutomationsUpdateInput): Promise<AutomationsDefinitionResult> =>
-    ipcRenderer.invoke(AUTOMATIONS_UPDATE_CHANNEL, input),
-  deleteAutomation: (input: AutomationsDefinitionInput): Promise<AutomationsDeleteResult> =>
-    ipcRenderer.invoke(AUTOMATIONS_DELETE_CHANNEL, input),
-  runAutomationNow: (input: AutomationsDefinitionInput): Promise<AutomationsRunNowResult> =>
-    ipcRenderer.invoke(AUTOMATIONS_RUN_NOW_CHANNEL, input),
-  listAutomationRuns: (input: AutomationsRunsListInput): Promise<AutomationsRunsListResult> =>
-    ipcRenderer.invoke(AUTOMATIONS_RUNS_LIST_CHANNEL, input),
-  listAutomationProviders: (): Promise<AutomationsProvidersResult> =>
-    ipcRenderer.invoke(AUTOMATIONS_PROVIDERS_LIST_CHANNEL),
-} satisfies Pick<
+export function createAutomationsApi(renderer: AutomationsIpcRenderer): Pick<
   ElectronApi,
   | 'listAutomations'
   | 'getAutomation'
@@ -54,4 +45,31 @@ export const automationsApi = {
   | 'runAutomationNow'
   | 'listAutomationRuns'
   | 'listAutomationProviders'
->
+  | 'onAutomationRunEvent'
+> {
+  return {
+    listAutomations: (input: AutomationsWorkspaceInput): Promise<AutomationsListResult> =>
+      renderer.invoke(AUTOMATIONS_LIST_CHANNEL, input) as Promise<AutomationsListResult>,
+    getAutomation: (input: AutomationsDefinitionInput): Promise<AutomationsDefinitionResult> =>
+      renderer.invoke(AUTOMATIONS_GET_CHANNEL, input) as Promise<AutomationsDefinitionResult>,
+    createAutomation: (input: AutomationsCreateInput): Promise<AutomationsDefinitionResult> =>
+      renderer.invoke(AUTOMATIONS_CREATE_CHANNEL, input) as Promise<AutomationsDefinitionResult>,
+    updateAutomation: (input: AutomationsUpdateInput): Promise<AutomationsDefinitionResult> =>
+      renderer.invoke(AUTOMATIONS_UPDATE_CHANNEL, input) as Promise<AutomationsDefinitionResult>,
+    deleteAutomation: (input: AutomationsDefinitionInput): Promise<AutomationsDeleteResult> =>
+      renderer.invoke(AUTOMATIONS_DELETE_CHANNEL, input) as Promise<AutomationsDeleteResult>,
+    runAutomationNow: (input: AutomationsDefinitionInput): Promise<AutomationsRunNowResult> =>
+      renderer.invoke(AUTOMATIONS_RUN_NOW_CHANNEL, input) as Promise<AutomationsRunNowResult>,
+    listAutomationRuns: (input: AutomationsRunsListInput): Promise<AutomationsRunsListResult> =>
+      renderer.invoke(AUTOMATIONS_RUNS_LIST_CHANNEL, input) as Promise<AutomationsRunsListResult>,
+    listAutomationProviders: (): Promise<AutomationsProvidersResult> =>
+      renderer.invoke(AUTOMATIONS_PROVIDERS_LIST_CHANNEL) as Promise<AutomationsProvidersResult>,
+    onAutomationRunEvent: (cb: (event: AutomationsRunEvent) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, payload: unknown) => cb(payload as AutomationsRunEvent)
+      renderer.on(AUTOMATIONS_RUN_EVENT_CHANNEL, handler)
+      return () => renderer.removeListener(AUTOMATIONS_RUN_EVENT_CHANNEL, handler)
+    },
+  }
+}
+
+export const automationsApi = createAutomationsApi(ipcRenderer)

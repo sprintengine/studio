@@ -8,6 +8,7 @@ export const AUTOMATIONS_DELETE_CHANNEL = 'automations:delete'
 export const AUTOMATIONS_RUN_NOW_CHANNEL = 'automations:run-now'
 export const AUTOMATIONS_RUNS_LIST_CHANNEL = 'automations:runs:list'
 export const AUTOMATIONS_PROVIDERS_LIST_CHANNEL = 'automations:providers:list'
+export const AUTOMATIONS_RUN_EVENT_CHANNEL = 'automations:run-event'
 
 export type AutomationStatus = 'enabled' | 'paused' | 'blocked'
 
@@ -18,6 +19,19 @@ export type AutomationRunStatus =
   | 'failed'
   | 'blocked'
   | 'skipped'
+
+export type AutomationRunEventStatus = Extract<AutomationRunStatus, 'completed' | 'failed' | 'blocked'>
+export type AutomationRunEventTrigger = 'timer' | 'manual'
+
+export type AutomationsRunEvent = {
+  automationId: string
+  runId: string
+  workspaceId: string
+  agentId?: string
+  definitionName: string
+  status: AutomationRunEventStatus
+  trigger: AutomationRunEventTrigger
+}
 
 export type TriggerKind = 'schedule' | string
 
@@ -113,6 +127,7 @@ export type AutomationDefinitionPatch = Partial<Omit<AutomationDefinitionDraft, 
 
 export type AutomationsWorkspaceInput = {
   workspaceRoot: string
+  workspaceId?: string
 }
 
 export type AutomationsDefinitionInput = AutomationsWorkspaceInput & {

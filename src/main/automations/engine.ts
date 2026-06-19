@@ -1,6 +1,14 @@
 import { randomUUID } from 'node:crypto'
 
-import type { AutomationDefinition, AutomationRun, AutomationRunStatus, ScheduleTriggerConfig } from '../../shared/automations/contracts'
+import type {
+  AutomationDefinition,
+  AutomationRun,
+  AutomationRunEventStatus,
+  AutomationRunEventTrigger,
+  AutomationRunStatus,
+  AutomationsRunEvent,
+  ScheduleTriggerConfig,
+} from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { AutomationsStore, type AutomationStoreProblem, type AutomationStoreState } from './store'
 import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
@@ -54,6 +62,7 @@ export type AutomationsEngineOptions = {
   createRunId?: (input: { workspaceRoot: string; automationId: string; dueAt: string }) => string
   pollIntervalMs?: number
   onEvaluation?: (result: AutomationsEngineEvaluationResult) => void
+  onRunEvent?: (event: AutomationsRunEvent) => void
 }
 
 type EvaluationMode = 'startup' | 'timer'
@@ -69,6 +78,7 @@ export class AutomationsEngine {
   private readonly createRunId: (input: { workspaceRoot: string; automationId: string; dueAt: string }) => string
   private readonly pollIntervalMs: number
   private readonly onEvaluation?: (result: AutomationsEngineEvaluationResult) => void
+  private readonly onRunEvent?: (event: AutomationsRunEvent) => void
   private readonly inFlight = new Set<string>()
   private timer: ReturnType<typeof setInterval> | null = null
   private started = false
@@ -83,6 +93,7 @@ export class AutomationsEngine {
     this.createRunId = options.createRunId ?? (() => `automation-run-${randomUUID()}`)
     this.pollIntervalMs = Math.max(1_000, Math.floor(options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS))
     this.onEvaluation = options.onEvaluation
+    this.onRunEvent = options.onRunEvent
   }
 
   start(): void {
@@ -133,6 +144,7 @@ export class AutomationsEngine {
   async runNow(input: {
     workspaceRoot: string
     automationId: string
+    workspaceId?: string
     triggerPayload?: Record<string, unknown>
   }): Promise<AutomationsEngineRunNowResult> {
     const store = this.createStore(input.workspaceRoot)
@@ -223,6 +235,16 @@ export class AutomationsEngine {
       if (!completed.ok) {
         return { ok: false, problem: storeProblem(input.workspaceRoot, completed.error, definition.id) }
       }
+      const eventWorkspaceId =
+        input.workspaceId
+        ?? await this.resolveWorkspaceIdForRoot(input.workspaceRoot)
+        ?? finalRun.workspaceId
+      this.emitRunEvent({
+        workspaceId: eventWorkspaceId,
+        definition,
+        run: finalRun,
+        trigger: 'manual',
+      })
 
       const completedAt = Date.parse(finalRun.completedAt ?? dueAt)
       const result = emptyEvaluationResult()
@@ -265,7 +287,7 @@ export class AutomationsEngine {
     const projectFolders = await this.loadProjectFolders(result)
 
     for (const projectFolder of projectFolders) {
-      await this.evaluateProject(projectFolder.folderPath, mode, now, result)
+      await this.evaluateProject(projectFolder, mode, now, result)
     }
 
     this.onEvaluation?.(result)
@@ -290,11 +312,12 @@ export class AutomationsEngine {
   }
 
   private async evaluateProject(
-    workspaceRoot: string,
+    projectFolder: AutomationsProjectFolder,
     mode: EvaluationMode,
     now: number,
     result: AutomationsEngineEvaluationResult
   ): Promise<void> {
+    const workspaceRoot = projectFolder.folderPath
     const store = this.createStore(workspaceRoot)
     const definitions = await store.listDefinitions()
     if (!definitions.ok) {
@@ -312,19 +335,20 @@ export class AutomationsEngine {
 
     const state: AutomationStoreState = stateResult.value ?? { nextRunAtByAutomationId: {}, lock: null }
     for (const definition of definitions.values) {
-      await this.evaluateDefinition(store, state, workspaceRoot, definition, mode, now, result)
+      await this.evaluateDefinition(store, state, projectFolder, definition, mode, now, result)
     }
   }
 
   private async evaluateDefinition(
     store: AutomationsStore,
     state: AutomationStoreState,
-    workspaceRoot: string,
+    projectFolder: AutomationsProjectFolder,
     definition: AutomationDefinition,
     mode: EvaluationMode,
     now: number,
     result: AutomationsEngineEvaluationResult
   ): Promise<void> {
+    const workspaceRoot = projectFolder.folderPath
     if (definition.status !== 'enabled' || definition.trigger.kind !== 'schedule') return
 
     const validation = validateScheduleTriggerConfig(definition.trigger.config)
@@ -361,7 +385,7 @@ export class AutomationsEngine {
     }
 
     if (dueAt <= now) {
-      await this.fireDueRun(store, state, workspaceRoot, definition, validation.value, nextRunAt, result)
+      await this.fireDueRun(store, state, projectFolder, definition, validation.value, nextRunAt, result)
       return
     }
 
@@ -444,12 +468,13 @@ export class AutomationsEngine {
   private async fireDueRun(
     store: AutomationsStore,
     state: AutomationStoreState,
-    workspaceRoot: string,
+    projectFolder: AutomationsProjectFolder,
     definition: AutomationDefinition,
     config: ScheduleTriggerConfig,
     dueAt: string,
     result: AutomationsEngineEvaluationResult
   ): Promise<void> {
+    const workspaceRoot = projectFolder.folderPath
     const inFlightKey = this.inFlightKey(workspaceRoot, definition.id)
     if (this.inFlight.has(inFlightKey)) {
       result.droppedInFlight.push({ workspaceRoot, automationId: definition.id })
@@ -484,6 +509,12 @@ export class AutomationsEngine {
         result.problems.push(storeProblem(workspaceRoot, completed.error, definition.id))
         return
       }
+      this.emitRunEvent({
+        workspaceId: projectFolder.workspaceId,
+        definition,
+        run: finalRun,
+        trigger: 'timer',
+      })
 
       const nextRunAt = nextRunIso(config, Date.parse(completedAt))
       const updated = await this.updateDefinitionAfterRun(store, state, workspaceRoot, definition, finalRun, nextRunAt, Date.parse(completedAt), result)
@@ -497,6 +528,14 @@ export class AutomationsEngine {
       }, failedAt)
       const recorded = await store.recordRun(failedRun)
       if (!recorded.ok) result.problems.push(storeProblem(workspaceRoot, recorded.error, definition.id))
+      else {
+        this.emitRunEvent({
+          workspaceId: projectFolder.workspaceId,
+          definition,
+          run: failedRun,
+          trigger: 'timer',
+        })
+      }
 
       const nextRunAt = nextRunIso(config, Date.parse(failedAt))
       const updated = await this.updateDefinitionAfterRun(store, state, workspaceRoot, definition, failedRun, nextRunAt, Date.parse(failedAt), result)
@@ -565,6 +604,40 @@ export class AutomationsEngine {
   private inFlightKey(workspaceRoot: string, automationId: string): string {
     return `${workspaceRoot}\u0000${automationId}`
   }
+
+  private emitRunEvent(input: {
+    workspaceId?: string | null
+    definition: AutomationDefinition
+    run: AutomationRun
+    trigger: AutomationRunEventTrigger
+  }): void {
+    if (!this.onRunEvent || !isRunEventStatus(input.run.status)) return
+    const workspaceId = input.workspaceId?.trim()
+    if (!workspaceId) return
+    this.onRunEvent({
+      automationId: input.definition.id,
+      runId: input.run.id,
+      workspaceId,
+      ...(input.run.agentId ? { agentId: input.run.agentId } : {}),
+      definitionName: input.definition.name,
+      status: input.run.status,
+      trigger: input.trigger,
+    })
+  }
+
+  private async resolveWorkspaceIdForRoot(workspaceRoot: string): Promise<string | null> {
+    try {
+      const projectFolders = this.getProjectFolders
+        ? await this.getProjectFolders()
+        : this.getWorkspaceSnapshot
+          ? projectFoldersFromWorkspaceSyncSnapshot(await this.getWorkspaceSnapshot())
+          : []
+      const normalizedRoot = normalizeWorkspaceRoot(workspaceRoot)
+      return dedupeProjectFolders(projectFolders).find((folder) => normalizeWorkspaceRoot(folder.folderPath) === normalizedRoot)?.workspaceId ?? null
+    } catch {
+      return null
+    }
+  }
 }
 
 export function createAutomationsEngine(options: AutomationsEngineOptions): AutomationsEngine {
@@ -612,6 +685,14 @@ function dedupeProjectFolders(projectFolders: AutomationsProjectFolder[]): Autom
     deduped.push({ workspaceId: projectFolder.workspaceId, folderPath })
   }
   return deduped
+}
+
+function isRunEventStatus(status: AutomationRunStatus): status is AutomationRunEventStatus {
+  return status === 'completed' || status === 'failed' || status === 'blocked'
+}
+
+function normalizeWorkspaceRoot(workspaceRoot: string): string {
+  return workspaceRoot.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
 }
 
 function storeProblem(workspaceRoot: string, error: AutomationStoreProblem, automationId?: string): AutomationsEngineProblem {

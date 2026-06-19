@@ -9,6 +9,7 @@ import type {
   AutomationsDeleteResult,
   AutomationsListResult,
   AutomationsProvidersResult,
+  AutomationsRunEvent,
   AutomationsRunNowResult,
   AutomationsRunsListResult,
 } from '../../shared/automations/contracts'
@@ -31,7 +32,7 @@ import { registerAutomationsIpc } from './automations-ipc'
 
 type HandlerMap = Map<string, IpcInvokeHandler>
 
-function createFakeHost(): HandlerMap {
+function createFakeHost(options: { onRunEvent?: (event: AutomationsRunEvent) => void } = {}): HandlerMap {
   const handlers: HandlerMap = new Map()
   registerAutomationsIpc(
     {
@@ -39,7 +40,7 @@ function createFakeHost(): HandlerMap {
         handlers.set(channel, handler)
       },
     },
-    testDeps()
+    testDeps(options)
   )
   return handlers
 }
@@ -47,7 +48,7 @@ function createFakeHost(): HandlerMap {
 let currentNow = Date.parse('2026-06-18T00:00:00.000Z')
 let runCount = 0
 
-function testDeps() {
+function testDeps(options: { onRunEvent?: (event: AutomationsRunEvent) => void } = {}) {
   const engine = createAutomationsEngine({
     createStore: (workspaceRoot) => new AutomationsStore(workspaceRoot),
     getProjectFolders: () => [],
@@ -57,6 +58,7 @@ function testDeps() {
     },
     now: () => currentNow,
     createRunId: ({ automationId, dueAt }) => `${automationId}-${Date.parse(dueAt)}`,
+    onRunEvent: options.onRunEvent,
   })
   return {
     engine,
@@ -115,7 +117,8 @@ async function testDefinitionRoundTripAndRunNow(): Promise<void> {
   currentNow = Date.parse('2026-06-18T00:00:00.000Z')
   runCount = 0
   const workspaceRoot = await withWorkspaceRoot()
-  const handlers = createFakeHost()
+  const runEvents: AutomationsRunEvent[] = []
+  const handlers = createFakeHost({ onRunEvent: (event) => runEvents.push(event) })
 
   const created = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_CREATE_CHANNEL, {
     workspaceRoot,
@@ -167,6 +170,7 @@ async function testDefinitionRoundTripAndRunNow(): Promise<void> {
   currentNow = Date.parse('2026-06-18T00:05:00.000Z')
   const runNow = await invoke<AutomationsRunNowResult>(handlers, AUTOMATIONS_RUN_NOW_CHANNEL, {
     workspaceRoot,
+    workspaceId: 'ws-automations',
     automationId: 'nightly-review',
   })
   assert.equal(runNow.ok, true)
@@ -175,6 +179,16 @@ async function testDefinitionRoundTripAndRunNow(): Promise<void> {
   assert.equal(runNow.value.run.status, 'completed')
   assert.equal(runNow.value.definition.lastRunId, runNow.value.run.id)
   assert.equal(runNow.value.definition.nextRunAt, '2026-06-18T00:25:00.000Z')
+  assert.deepEqual(runEvents, [
+    {
+      automationId: 'nightly-review',
+      runId: runNow.value.run.id,
+      workspaceId: 'ws-automations',
+      definitionName: 'Nightly Review',
+      status: 'completed',
+      trigger: 'manual',
+    },
+  ])
 
   const runs = await invoke<AutomationsRunsListResult>(handlers, AUTOMATIONS_RUNS_LIST_CHANNEL, {
     workspaceRoot,

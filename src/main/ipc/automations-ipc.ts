@@ -249,7 +249,12 @@ function parseDefinitionInput(input: unknown): AutomationsResult<AutomationsDefi
   if (!isRecord(input) || typeof input.automationId !== 'string' || input.automationId.trim() === '') {
     return fail('invalid_input', 'automationId is required.')
   }
-  return ok({ workspaceRoot: workspaceRoot.value, automationId: input.automationId.trim() })
+  const workspaceId = trimmedString(input.workspaceId)
+  return ok({
+    workspaceRoot: workspaceRoot.value,
+    ...(workspaceId ? { workspaceId } : {}),
+    automationId: input.automationId.trim(),
+  })
 }
 
 function parseCreateInput(input: unknown): AutomationsResult<AutomationsCreateInput> {

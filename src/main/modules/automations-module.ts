@@ -1,3 +1,5 @@
+import { BrowserWindow } from 'electron'
+
 import { createBuiltInAutomationActionProviders, createLocalAutomationExecutor } from '../automations/executor-local'
 import { createAutomationsEngine, type AutomationsEngine, type AutomationsEngineOptions } from '../automations/engine'
 import { scheduleTriggerProvider } from '../automations/schedule'
@@ -8,9 +10,32 @@ import {
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
+import {
+  AUTOMATIONS_RUN_EVENT_CHANNEL,
+  type AutomationsRunEvent,
+} from '../../shared/automations/contracts'
 
 export type AutomationsModuleOptions = {
   createEngine?: (options: AutomationsEngineOptions) => AutomationsEngine
+  deliverRunEvent?: (event: AutomationsRunEvent) => void
+}
+
+type RunEventWindow = {
+  isDestroyed(): boolean
+  webContents: {
+    isDestroyed(): boolean
+    send(channel: string, payload: AutomationsRunEvent): void
+  }
+}
+
+export function broadcastAutomationsRunEvent(
+  event: AutomationsRunEvent,
+  windows: readonly RunEventWindow[] = BrowserWindow.getAllWindows()
+): void {
+  for (const window of windows) {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+    window.webContents.send(AUTOMATIONS_RUN_EVENT_CHANNEL, event)
+  }
 }
 
 export function createAutomationsModule(options: AutomationsModuleOptions = {}): CapabilityModule {
@@ -37,6 +62,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         (options.createEngine ?? createAutomationsEngine)({
           getWorkspaceSnapshot: () => workspaceSyncService.getSnapshot(),
           runAutomation,
+          onRunEvent: options.deliverRunEvent ?? broadcastAutomationsRunEvent,
         })
       )
 

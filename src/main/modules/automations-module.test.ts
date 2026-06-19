@@ -8,8 +8,11 @@ import {
   AutomationDelegateToken,
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
-import { AUTOMATIONS_LIST_CHANNEL } from '../../shared/automations/contracts'
-import { createAutomationsModule } from './automations-module'
+import {
+  AUTOMATIONS_LIST_CHANNEL,
+  AUTOMATIONS_RUN_EVENT_CHANNEL,
+} from '../../shared/automations/contracts'
+import { broadcastAutomationsRunEvent, createAutomationsModule } from './automations-module'
 
 function createFakeIpcMain(): { ipcMain: IpcMain; handled: string[]; activeHandlers: Set<string> } {
   const handled: string[] = []
@@ -205,10 +208,57 @@ async function testLiveEnablementToggleStopsUnregistersAndRestarts(): Promise<vo
   assert.equal(engines[1].stopCount, 1)
 }
 
+function testBroadcastRunEventUsesAutomationsChannel(): void {
+  const sent: Array<{ channel: string; payload: unknown }> = []
+  broadcastAutomationsRunEvent(
+    {
+      automationId: 'nightly-review',
+      runId: 'run-1',
+      workspaceId: 'ws-1',
+      agentId: 'agent-1',
+      definitionName: 'Nightly Review',
+      status: 'completed',
+      trigger: 'timer',
+    },
+    [
+      {
+        isDestroyed: () => false,
+        webContents: {
+          isDestroyed: () => false,
+          send: (channel, payload) => sent.push({ channel, payload }),
+        },
+      },
+      {
+        isDestroyed: () => true,
+        webContents: {
+          isDestroyed: () => false,
+          send: (channel, payload) => sent.push({ channel, payload }),
+        },
+      },
+    ]
+  )
+
+  assert.deepEqual(sent, [
+    {
+      channel: AUTOMATIONS_RUN_EVENT_CHANNEL,
+      payload: {
+        automationId: 'nightly-review',
+        runId: 'run-1',
+        workspaceId: 'ws-1',
+        agentId: 'agent-1',
+        definitionName: 'Nightly Review',
+        status: 'completed',
+        trigger: 'timer',
+      },
+    },
+  ])
+}
+
 async function main(): Promise<void> {
   await testEnabledModuleRegistersStartupSidecarAndIpc()
   await testDisabledModuleRegistersNoSidecarOrIpc()
   await testLiveEnablementToggleStopsUnregistersAndRestarts()
+  testBroadcastRunEventUsesAutomationsChannel()
   console.log('automations-module tests passed')
 }
 
