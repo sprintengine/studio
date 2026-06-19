@@ -102,7 +102,9 @@ function switchboardTaskRecord(overrides: Partial<SwitchboardTaskRecord['task']>
       commandsRun: [],
       touchedFiles: [],
     },
-    comments: [],
+    comments: [
+      importComment('2026-06-17T09:00:00.000Z'),
+    ],
     createdAt: '2026-06-17T09:00:00.000Z',
     updatedAt: '2026-06-17T09:00:00.000Z',
     ...overrides,
@@ -115,6 +117,16 @@ function switchboardTaskRecord(overrides: Partial<SwitchboardTaskRecord['task']>
       path: `.multi-code/switchboard/todo/${task.id}.json`,
     },
     warnings: [],
+  }
+}
+
+function importComment(externalUpdatedAt: string) {
+  return {
+    id: `import-${externalUpdatedAt}`,
+    author: { type: 'system' as const, id: 'switchboard-import', name: 'Switchboard Import' },
+    kind: 'import' as const,
+    body: `Imported from github. External updated at: ${externalUpdatedAt}.`,
+    createdAt: '2026-06-17T09:05:00.000Z',
   }
 }
 
@@ -635,25 +647,31 @@ async function assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart(): Promise
 
   syncedTasks = [
     switchboardTaskRecord({
-      id: 'task-2',
-      identifier: 'GH-2',
-      title: 'New issue',
-      source: {
-        type: 'github',
-        externalId: 'github-node-2',
-        externalKey: 'acme/repo#2',
-        externalUrl: 'https://github.com/acme/repo/issues/2',
-      },
-      url: 'https://github.com/acme/repo/issues/2',
-      createdAt: '2026-06-17T09:30:00.000Z',
-      updatedAt: '2026-06-17T09:30:00.000Z',
+      updatedAt: '2026-06-17T13:00:00.000Z',
     }),
   ]
-  const newEventTick = await restartedEngine.tick()
-  assert.equal(newEventTick.fired.length, 1)
-  assert.equal(newEventTick.fired[0]?.runId, 'repo-event-run-2')
+  const localOnlyUpdate = await restartedEngine.tick()
+  assert.equal(localOnlyUpdate.fired.length, 0)
+  assert.equal(triggerPayloads.length, 1)
+
+  syncedTasks = [
+    switchboardTaskRecord({
+      updatedAt: '2026-06-17T13:05:00.000Z',
+      comments: [
+        importComment('2026-06-17T09:30:00.000Z'),
+      ],
+    }),
+  ]
+  const externalUpdateTick = await restartedEngine.tick()
+  assert.equal(externalUpdateTick.fired.length, 1)
+  assert.equal(externalUpdateTick.fired[0]?.runId, 'repo-event-run-2')
   assert.equal(triggerPayloads.length, 2)
-  assert.equal(triggerPayloads[1]?.externalKey, 'acme/repo#2')
+  assert.equal(triggerPayloads[1]?.externalKey, 'acme/repo#1')
+  assert.equal(triggerPayloads[1]?.externalUpdatedAt, '2026-06-17T09:30:00.000Z')
+
+  const duplicateExternalUpdate = await restartedEngine.tick()
+  assert.equal(duplicateExternalUpdate.fired.length, 0)
+  assert.equal(triggerPayloads.length, 2)
 
   const runs = await store.listRuns('repo-event-watch')
   assert.equal(runs.ok, true)
@@ -662,7 +680,7 @@ async function assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart(): Promise
   const state = await store.readState()
   assert.equal(state.ok, true)
   assert.equal(
-    state.ok && Object.keys(state.value?.repoEventDedupByAutomationId?.['repo-event-watch'] ?? {}).length,
+    state.ok && Object.keys(state.value?.triggerEventDedupByAutomationId?.['repo-event-watch'] ?? {}).length,
     2
   )
 }

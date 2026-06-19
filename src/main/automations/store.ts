@@ -40,7 +40,7 @@ export type AutomationStoreLock = {
 
 export type AutomationStoreState = {
   nextRunAtByAutomationId: Record<string, string | null>
-  repoEventDedupByAutomationId?: Record<string, Record<string, string>>
+  triggerEventDedupByAutomationId?: Record<string, Record<string, string>>
   triggerBlockedReasonByAutomationId?: Record<string, string | null>
   lock: AutomationStoreLock | null
 }
@@ -232,7 +232,12 @@ export class AutomationsStore {
       if (parsed.error.code === 'missing') return { ok: true, value: null }
       return parsed
     }
-    return this.validateState(parsed.value, target)
+    const validation = this.validateState(parsed.value, target)
+    if (!validation.ok) return validation
+    const normalized = normalizeStoreState(validation.value)
+    const normalizedValidation = this.validateState(normalized, target)
+    if (!normalizedValidation.ok) return normalizedValidation
+    return { ok: true, value: normalized }
   }
 
   async writeState(state: AutomationStoreState): Promise<AutomationStoreWriteResult<AutomationStoreState>> {
@@ -409,10 +414,10 @@ export class AutomationsStore {
       }
     }
 
-    for (const automationId of Object.keys(value.repoEventDedupByAutomationId ?? {})) {
+    for (const automationId of Object.keys(value.triggerEventDedupByAutomationId ?? {})) {
       const safeId = this.safeId(automationId)
       if (!safeId.ok) {
-        return { ok: false, error: this.problem('invalid_payload', path, `Automation repo-event state contains invalid id "${automationId}".`) }
+        return { ok: false, error: this.problem('invalid_payload', path, `Automation trigger-event state contains invalid id "${automationId}".`) }
       }
     }
 
@@ -553,7 +558,10 @@ function isAutomationStoreState(value: unknown): value is AutomationStoreState {
   return (
     isRecord(value)
     && isNextRunAtCache(value.nextRunAtByAutomationId)
-    && (value.repoEventDedupByAutomationId === undefined || isRepoEventDedupCache(value.repoEventDedupByAutomationId))
+    && (
+      value.triggerEventDedupByAutomationId === undefined
+      || isTriggerEventDedupCache(value.triggerEventDedupByAutomationId)
+    )
     && (
       value.triggerBlockedReasonByAutomationId === undefined
       || isTriggerBlockedReasonCache(value.triggerBlockedReasonByAutomationId)
@@ -566,7 +574,7 @@ function isNextRunAtCache(value: unknown): value is Record<string, string | null
   return isRecord(value) && Object.values(value).every((entry) => isNullableString(entry))
 }
 
-function isRepoEventDedupCache(value: unknown): value is Record<string, Record<string, string>> {
+function isTriggerEventDedupCache(value: unknown): value is Record<string, Record<string, string>> {
   return (
     isRecord(value)
     && Object.values(value).every((entry) =>
@@ -577,6 +585,28 @@ function isRepoEventDedupCache(value: unknown): value is Record<string, Record<s
 
 function isTriggerBlockedReasonCache(value: unknown): value is Record<string, string | null> {
   return isRecord(value) && Object.values(value).every((entry) => isNullableString(entry))
+}
+
+function normalizeStoreState(value: AutomationStoreState): AutomationStoreState {
+  const legacyRepoEventDedup = (value as { repoEventDedupByAutomationId?: unknown }).repoEventDedupByAutomationId
+  if (!isTriggerEventDedupCache(legacyRepoEventDedup)) return value
+
+  const mergedTriggerEventDedupByAutomationId: Record<string, Record<string, string>> = {}
+  for (const [automationId, events] of Object.entries(legacyRepoEventDedup)) {
+    mergedTriggerEventDedupByAutomationId[automationId] = { ...events }
+  }
+  for (const [automationId, events] of Object.entries(value.triggerEventDedupByAutomationId ?? {})) {
+    mergedTriggerEventDedupByAutomationId[automationId] = {
+      ...mergedTriggerEventDedupByAutomationId[automationId],
+      ...events,
+    }
+  }
+  return {
+    nextRunAtByAutomationId: value.nextRunAtByAutomationId,
+    triggerEventDedupByAutomationId: mergedTriggerEventDedupByAutomationId,
+    triggerBlockedReasonByAutomationId: value.triggerBlockedReasonByAutomationId,
+    lock: value.lock,
+  }
 }
 
 function isAutomationStoreLock(value: unknown): value is AutomationStoreLock {

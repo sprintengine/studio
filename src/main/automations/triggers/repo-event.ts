@@ -29,6 +29,7 @@ type RepoEventTriggerValidationResult =
 
 const REPO_EVENT_TYPES = new Set<RepoEventType>(['created', 'updated'])
 const REPO_EVENT_PROVIDERS = new Set<SwitchboardImportProvider | 'any'>(['github', 'jira', 'any'])
+const EXTERNAL_UPDATED_AT_LABEL = 'External updated at:'
 
 export function createRepoEventTriggerProvider(
   frontDoors: Pick<SwitchboardAutomationFrontDoors, 'readAllTasks'>
@@ -148,10 +149,9 @@ function recordToRepoEvent(record: SwitchboardTaskRecord): AutomationTriggerPoll
   const provider = record.task.source.type
   if (provider !== 'github' && provider !== 'jira') return null
 
-  const occurredAt = repoEventTimestamp(record)
-  if (!occurredAt) return null
+  const externalUpdatedAt = latestExternalUpdatedAt(record)
+  if (!externalUpdatedAt) return null
 
-  const eventType = repoEventType(record)
   const sourceKey =
     normalizedString(record.task.source.externalId)
     ?? normalizedString(record.task.source.externalKey)
@@ -166,20 +166,21 @@ function recordToRepoEvent(record: SwitchboardTaskRecord): AutomationTriggerPoll
       REPO_EVENT_TRIGGER_KIND,
       provider,
       sourceKey,
-      eventType,
-      occurredAt,
+      'updated',
+      externalUpdatedAt,
     ].join(':'),
-    occurredAt,
+    occurredAt: externalUpdatedAt,
     payload: {
       kind: REPO_EVENT_TRIGGER_KIND,
       provider,
-      eventType,
+      eventType: 'updated',
       taskId: record.task.id,
       identifier: record.task.identifier,
       title: record.task.title,
       taskState: record.task.state,
       labels: record.task.labels,
-      occurredAt,
+      occurredAt: externalUpdatedAt,
+      externalUpdatedAt,
       ...(externalId ? { externalId } : {}),
       ...(externalKey ? { externalKey } : {}),
       ...(externalUrl ? { externalUrl } : {}),
@@ -203,18 +204,23 @@ function isRepoSyncRecord(record: SwitchboardTaskRecord): boolean {
   return record.task.source.type === 'github' || record.task.source.type === 'jira'
 }
 
-function repoEventType(record: SwitchboardTaskRecord): RepoEventType {
-  const createdAt = Date.parse(record.task.createdAt)
-  const updatedAt = Date.parse(record.task.updatedAt)
-  return Number.isFinite(createdAt) && Number.isFinite(updatedAt) && updatedAt > createdAt ? 'updated' : 'created'
+function latestExternalUpdatedAt(record: SwitchboardTaskRecord): string | null {
+  for (const comment of [...record.task.comments].reverse()) {
+    if (comment.kind !== 'import') continue
+    if (comment.author.id !== 'switchboard-import') continue
+    const externalUpdatedAt = parseExternalUpdatedAt(comment.body)
+    if (externalUpdatedAt) return externalUpdatedAt
+  }
+  return null
 }
 
-function repoEventTimestamp(record: SwitchboardTaskRecord): string | null {
-  const updatedAt = Date.parse(record.task.updatedAt)
-  if (Number.isFinite(updatedAt)) return new Date(updatedAt).toISOString()
-  const createdAt = Date.parse(record.task.createdAt)
-  if (Number.isFinite(createdAt)) return new Date(createdAt).toISOString()
-  return null
+function parseExternalUpdatedAt(body: string): string | null {
+  const labelIndex = body.indexOf(EXTERNAL_UPDATED_AT_LABEL)
+  if (labelIndex < 0) return null
+  const raw = body.slice(labelIndex + EXTERNAL_UPDATED_AT_LABEL.length).trim().split(/\s+/u)[0]?.replace(/[.)]+$/u, '')
+  if (!raw) return null
+  const parsed = Date.parse(raw)
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null
 }
 
 function compareRepoEvents(left: AutomationTriggerPollEvent, right: AutomationTriggerPollEvent): number {

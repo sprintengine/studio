@@ -235,7 +235,7 @@ async function writeNextRunCache(
   const state = stateResult.value ?? { nextRunAtByAutomationId: {}, lock: null }
   if (remove) {
     delete state.nextRunAtByAutomationId[automationId]
-    delete state.repoEventDedupByAutomationId?.[automationId]
+    delete state.triggerEventDedupByAutomationId?.[automationId]
     delete state.triggerBlockedReasonByAutomationId?.[automationId]
   } else {
     state.nextRunAtByAutomationId[automationId] = nextRunAt

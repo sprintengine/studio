@@ -247,9 +247,9 @@ async function assertStateRoundTrip(): Promise<void> {
       'nightly-review': '2026-06-18T01:00:00.000Z',
       'weekly-cleanup': null,
     },
-    repoEventDedupByAutomationId: {
+    triggerEventDedupByAutomationId: {
       'repo-event-watch': {
-        'repo-event:github:acme/repo#1:created:2026-06-17T09:00:00.000Z': '2026-06-17T10:00:00.000Z',
+        'repo-event:github:acme/repo#1:updated:2026-06-17T09:00:00.000Z': '2026-06-17T10:00:00.000Z',
       },
     },
     triggerBlockedReasonByAutomationId: {
@@ -266,13 +266,37 @@ async function assertStateRoundTrip(): Promise<void> {
   const stateFile = await readFile(join(workspaceRoot, '.multi-code', 'automations', 'state.json'), 'utf8')
   assert.match(stateFile, /nextRunAtByAutomationId/)
 
+  const legacyRepoEventState = {
+    nextRunAtByAutomationId: {
+      'repo-event-watch': null,
+    },
+    repoEventDedupByAutomationId: {
+      'repo-event-watch': {
+        'repo-event:github:acme/repo#1:updated:2026-06-17T09:30:00.000Z': '2026-06-17T10:30:00.000Z',
+      },
+    },
+    lock: null,
+  }
+  await writeFile(join(workspaceRoot, '.multi-code', 'automations', 'state.json'), JSON.stringify(legacyRepoEventState), 'utf8')
+  const migratedLegacyState = await store.readState()
+  assert.equal(migratedLegacyState.ok, true)
+  assert.deepEqual(
+    migratedLegacyState.ok && migratedLegacyState.value?.triggerEventDedupByAutomationId,
+    legacyRepoEventState.repoEventDedupByAutomationId
+  )
+  assert.equal(
+    migratedLegacyState.ok
+      && Object.prototype.hasOwnProperty.call(migratedLegacyState.value ?? {}, 'repoEventDedupByAutomationId'),
+    false
+  )
+
   const invalidKey = await store.writeState(state({ nextRunAtByAutomationId: { '..': '2026-06-18T01:00:00.000Z' } }))
   assert.equal(invalidKey.ok, false)
   assert.equal(!invalidKey.ok && invalidKey.error.code, 'invalid_payload')
 
-  const invalidRepoEventKey = await store.writeState(state({ repoEventDedupByAutomationId: { '..': {} } }))
-  assert.equal(invalidRepoEventKey.ok, false)
-  assert.equal(!invalidRepoEventKey.ok && invalidRepoEventKey.error.code, 'invalid_payload')
+  const invalidTriggerEventKey = await store.writeState(state({ triggerEventDedupByAutomationId: { '..': {} } }))
+  assert.equal(invalidTriggerEventKey.ok, false)
+  assert.equal(!invalidTriggerEventKey.ok && invalidTriggerEventKey.error.code, 'invalid_payload')
 
   const invalidBlockedKey = await store.writeState(state({ triggerBlockedReasonByAutomationId: { '..': 'blocked' } }))
   assert.equal(invalidBlockedKey.ok, false)
