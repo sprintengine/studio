@@ -6,7 +6,8 @@ import { createMultiloopTemplate } from './multiloop-workspace-types'
 import { createGuidedBriefTemplate, createSprintEngineTemplate } from './sprint-engine-workspace-types'
 import { createSwitchboardTemplate } from './switchboard-workspace-types'
 import { collectWorkspaceTypeSupervisors } from './workspace-type-supervisors'
-import { resolveAutomationsWorkspaceId } from '../components/automations/runTarget'
+import { decodeRunRef, resolveAutomationsWorkspaceId, scheduledRunNotification } from '../components/automations/runTarget'
+import type { AutomationsRunEvent } from '../../../shared/automations/contracts'
 import type { LayoutTemplate, SprintEngineMockConfig } from '../types/workspace'
 
 const sprintEngineConfig: SprintEngineMockConfig = {
@@ -333,6 +334,46 @@ assert.deepEqual(
     createAutomationsWorkspace: () => assert.fail('must not create without a folder'),
   })
   assert.equal(resolvedNoFolder, 'ws-standard', 'falls back to the notification workspace when no folder is known')
+}
+
+// T13 regression: the always-mounted observer's per-event decision. A timer
+// failed/blocked run yields a source-'automations' notification with a run
+// deep-link; manual events (owned by T6) and non-terminal/completed states are
+// ignored. Proves the handle->notify path independent of lazy mount timing.
+{
+  const baseEvent: AutomationsRunEvent = {
+    automationId: 'auto-1',
+    runId: 'run-9',
+    workspaceId: 'ws-project',
+    definitionName: 'Nightly QA',
+    status: 'failed',
+    trigger: 'timer',
+  }
+  const failed = scheduledRunNotification(baseEvent, () => '/repo/app')
+  assert.ok(failed, 'timer failed run raises a notification')
+  assert.equal(failed.source, 'automations', 'notification is source-automations')
+  assert.equal(failed.level, 'error', 'failed run is error severity')
+  assert.equal(failed.workspaceId, 'ws-project')
+  assert.equal(failed.navigationTarget?.kind, 'run', 'carries a run deep-link target')
+  assert.deepEqual(
+    decodeRunRef(failed.navigationTarget!.ref),
+    { automationId: 'auto-1', runId: 'run-9', folderPath: '/repo/app' },
+    'deep-link ref carries automation, run, and folder for resolve/create',
+  )
+
+  const blocked = scheduledRunNotification({ ...baseEvent, status: 'blocked' }, () => '/repo/app')
+  assert.equal(blocked?.level, 'warning', 'blocked run is warning severity')
+
+  assert.equal(
+    scheduledRunNotification({ ...baseEvent, trigger: 'manual' }, () => '/repo/app'),
+    null,
+    'manual runs are ignored (owned by T6, no double-toast)',
+  )
+  assert.equal(
+    scheduledRunNotification({ ...baseEvent, status: 'completed' }, () => '/repo/app'),
+    null,
+    'completed runs stay silent (low-noise)',
+  )
 }
 
 console.log('bundled workspace type registration tests passed')

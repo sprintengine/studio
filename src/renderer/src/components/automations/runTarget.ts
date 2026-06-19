@@ -1,4 +1,6 @@
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
+import type { AutomationsRunEvent } from '../../../../shared/automations/contracts'
+import type { DiagnosticLogInput } from '../../types/workspace'
 
 // Mirrors workspacesSlice.workspaceFolderKey (normalize + lowercase) for
 // folder-equality comparison, imported from the light projectKnowledge util so
@@ -42,6 +44,29 @@ export function decodeRunRef(ref: string): RunTargetRef | null {
     // Malformed/foreign target — ignore rather than guess a run to focus.
   }
   return null
+}
+
+// The notification a background (scheduled) run event should raise, or null
+// when it must be ignored. Disjoint from T6's manual Run-now by trigger: only
+// `timer` runs notify here, and only failed/blocked terminal states (completed
+// stays silent, matching the panel's low-noise policy). `resolveFolderPath` is
+// a thunk so the (store-backed) lookup only runs when we actually notify, and so
+// the decision stays pure + unit-testable. Pairs with the source-'automations'
+// action provider's deep-link contract.
+export function scheduledRunNotification(
+  event: AutomationsRunEvent,
+  resolveFolderPath: () => string | null,
+): DiagnosticLogInput | null {
+  if (event.trigger !== 'timer') return null
+  if (event.status !== 'failed' && event.status !== 'blocked') return null
+  return {
+    level: event.status === 'failed' ? 'error' : 'warning',
+    source: 'automations',
+    title: `Automation ${event.status}: ${event.definitionName}`,
+    message: `The scheduled run ended ${event.status}. Open to see its run history.`,
+    workspaceId: event.workspaceId,
+    navigationTarget: { kind: RUN_TARGET_KIND, ref: encodeRunRef(event.automationId, event.runId, resolveFolderPath()) },
+  }
 }
 
 // Resolve the automations control-center workspace a run notification's Open

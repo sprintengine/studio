@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 import type { AutomationsRunEvent } from '../../../../shared/automations/contracts'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
-import { RUN_TARGET_KIND, encodeRunRef } from './runTarget'
+import { scheduledRunNotification } from './runTarget'
 
 // Always-mounted renderer observer of T12's automation run-event channel
 // (`window.api.onAutomationRunEvent`). It surfaces overnight/background run
@@ -25,23 +25,14 @@ export default function AutomationsRunSupervisor(): null {
   useEffect(() => {
     if (typeof window.api?.onAutomationRunEvent !== 'function') return
     return window.api.onAutomationRunEvent((event: AutomationsRunEvent) => {
-      // Scheduled runs only — manual Run-now notifications are owned by T6.
-      if (event.trigger !== 'timer') return
-      // Keep noise low: only surface terminal runs that need attention.
-      if (event.status !== 'failed' && event.status !== 'blocked') return
-      // The run's project folder lets the Open action resolve/create the
-      // control-center workspace even when none is currently open.
-      const folderPath =
+      // scheduledRunNotification decides (timer-only, failed/blocked) and builds
+      // the source-'automations' diagnostic; the folder thunk resolves the run's
+      // project folder (for Open's resolve/create) only when we actually notify.
+      const diagnostic = scheduledRunNotification(event, () =>
         useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === event.workspaceId)?.folderPath
-        ?? null
-      publishDiagnosticSync({
-        level: event.status === 'failed' ? 'error' : 'warning',
-        source: 'automations',
-        title: `Automation ${event.status}: ${event.definitionName}`,
-        message: `The scheduled run ended ${event.status}. Open to see its run history.`,
-        workspaceId: event.workspaceId,
-        navigationTarget: { kind: RUN_TARGET_KIND, ref: encodeRunRef(event.automationId, event.runId, folderPath) },
-      })
+        ?? null,
+      )
+      if (diagnostic) publishDiagnosticSync(diagnostic)
     })
   }, [])
 
