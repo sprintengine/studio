@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useState } from 'react'
 
 import { Field, GhostButton, InlineNotice, PrimaryButton, Select, type SelectItem, Switch } from '../../ui'
+import { useWorkspaceStore } from '../../../store/workspaceStore'
+import { selectAgentCliCatalog } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import type {
   AutomationDefinition,
   AutomationDefinitionDraft,
@@ -8,7 +10,13 @@ import type {
   AutomationsProviders,
   ScheduleTriggerConfig,
 } from '../../../../../shared/automations/contracts'
-import { WEEKDAY_SHORT, isScheduleConfig, type EditorState } from './automationsFormat'
+import {
+  WEEKDAY_SHORT,
+  automationCliFieldError,
+  automationCliSelectItems,
+  isScheduleConfig,
+  type EditorState,
+} from './automationsFormat'
 
 type CadenceType = 'interval' | 'daily' | 'weekly'
 
@@ -105,6 +113,18 @@ export function AutomationEditor({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // The cli config field is constrained to the same agent-picker catalog
+  // SpawnAgentMenu uses (T2 plugin registry), not a new hardcoded list, so an
+  // unlaunchable CLI cannot be saved.
+  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
+  const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
+  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const cliCatalog = useMemo(
+    () => selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes),
+    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes],
+  )
+  const cliCatalogReady = pluginCatalogStatus === 'ready'
+
   const actionProvider = providers?.actions.find((a) => a.kind === form.actionKind) ?? null
   const actionMissing = actionProvider?.missingIntegrations ?? []
   const configKeys = actionProvider ? schemaStringKeys(actionProvider.configSchema) : []
@@ -120,12 +140,16 @@ export function AutomationEditor({
     if (actionMissing.length > 0) return `The "${form.actionKind}" action needs ${actionMissing.join(', ')}, which is not available.`
     if (form.cadenceType === 'interval' && form.everyMinutes < 5) return 'Interval must be at least 5 minutes.'
     if (form.cadenceType === 'weekly' && form.daysOfWeek.length === 0) return 'Pick at least one day for a weekly schedule.'
+    if (configKeys.includes('cli')) {
+      const cliError = automationCliFieldError(form.config.cli, cliCatalog, cliCatalogReady)
+      if (cliError) return cliError
+    }
     for (const key of requiredKeys) {
       if (INTERNAL_CONFIG_KEYS.has(key)) continue
       if (!form.config[key]?.trim()) return `${CONFIG_FIELD_LABEL[key] ?? key} is required.`
     }
     return null
-  }, [form, actionProvider, actionMissing, requiredKeys])
+  }, [form, actionProvider, actionMissing, requiredKeys, configKeys, cliCatalog, cliCatalogReady])
 
   const handleSubmit = useCallback(async () => {
     if (validationError || !workspaceRoot) { setError(validationError); return }
@@ -291,7 +315,14 @@ export function AutomationEditor({
             const id = `automation-config-${key}`
             return (
               <Field key={key} label={label} htmlFor={id} required={required}>
-                {key === 'prompt' ? (
+                {key === 'cli' ? (
+                  <Select
+                    ariaLabel="Agent CLI"
+                    value={form.config[key] ?? ''}
+                    onChange={(value) => update('config', { ...form.config, [key]: value })}
+                    items={automationCliSelectItems(form.config[key], cliCatalog)}
+                  />
+                ) : key === 'prompt' ? (
                   <textarea
                     id={id}
                     rows={4}

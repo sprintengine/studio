@@ -1,4 +1,8 @@
-import type { LifecycleState } from '../../ui'
+import type { LifecycleState, SelectItem } from '../../ui'
+import {
+  isAgentCliAvailable,
+  type AgentCliCatalogOption,
+} from '../../workspace/newWorkspace/cliRuntimeOptions'
 import type {
   AutomationDefinition,
   AutomationRunStatus,
@@ -133,6 +137,49 @@ export function sortDefinitions(defs: AutomationDefinition[], now: number): Auto
     if (na === null && nb !== null) return 1
     return a.name.localeCompare(b.name)
   })
+}
+
+// ---------------------------------------------------------------------------
+// spawn-agent `cli` field — constrained to the agent-picker catalog
+// ---------------------------------------------------------------------------
+// The spawn-agent action launches a delegated agent under `agent-<cli>-<id>`,
+// which only reaches launch-confirm when the workspace-sync bus observes that
+// id. CLIs the picker hides (e.g. `generic-shell`) never launch that way, so a
+// free-text cli value could be saved that always fails. The editor reuses the
+// same `selectAgentCliCatalog` source SpawnAgentMenu uses and rejects any value
+// the catalog does not offer. These helpers are pure so the constraint is unit-
+// testable without rendering the form.
+
+// Empty cli is valid — the executor falls back to the app's last-selected CLI
+// (a picker-valid id) at launch, matching the field's optional schema.
+export function automationCliFieldError(
+  cli: string | undefined,
+  catalog: AgentCliCatalogOption[],
+  catalogReady: boolean,
+): string | null {
+  const value = cli?.trim()
+  if (!value || !catalogReady) return null
+  if (!isAgentCliAvailable(value, catalog)) {
+    return `"${value}" is not an available agent CLI. Pick an installed CLI.`
+  }
+  return null
+}
+
+// Options for the cli Select: a leading "use default" entry, the picker catalog,
+// and — when editing a definition whose stored cli is no longer available — a
+// trailing disabled entry so the unlaunchable value is visible instead of
+// silently blank. The empty-value entry maps back to "omit cli" on save.
+export function automationCliSelectItems(
+  cli: string | undefined,
+  catalog: AgentCliCatalogOption[],
+): SelectItem[] {
+  const items: SelectItem[] = [{ value: '', label: 'Default (use selected CLI)' }]
+  for (const option of catalog) items.push({ value: option.value, label: option.label })
+  const value = cli?.trim()
+  if (value && !isAgentCliAvailable(value, catalog)) {
+    items.push({ value, label: `${value} (unavailable)`, disabled: true, tone: 'warn' })
+  }
+  return items
 }
 
 // Editable-target guard so list shortcuts stay inert while typing.
