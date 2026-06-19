@@ -12,28 +12,7 @@ import { AutomationEditor } from './AutomationsPanel/AutomationEditor'
 import { DefinitionList, DetailEmptyState } from './AutomationsPanel/AutomationsList'
 import { isEditableTarget, sortDefinitions, type EditorState } from './AutomationsPanel/automationsFormat'
 import { useAutomationsController } from './AutomationsPanel/useAutomationsController'
-
-// A run notification's Open action deep-links back here. The target ref carries
-// both the automation and the run (plain JSON so it survives notification
-// persistence), since a run id alone can't be mapped to its definition without
-// loading every history.
-const RUN_TARGET_KIND = 'run'
-
-function encodeRunRef(automationId: string, runId: string): string {
-  return JSON.stringify({ automationId, runId })
-}
-
-function decodeRunRef(ref: string): { automationId: string; runId: string } | null {
-  try {
-    const parsed = JSON.parse(ref) as { automationId?: unknown; runId?: unknown }
-    if (typeof parsed.automationId === 'string' && typeof parsed.runId === 'string') {
-      return { automationId: parsed.automationId, runId: parsed.runId }
-    }
-  } catch {
-    // Malformed/foreign target — ignore rather than guess a run to focus.
-  }
-  return null
-}
+import { RUN_TARGET_KIND, decodeRunRef, encodeRunRef } from '../automations/runTarget'
 
 // Automations control center: composes the data controller (window.api IPC
 // boundary), the definitions list, the run-history/detail pane, and the
@@ -112,7 +91,7 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
       message: run.blockedReason || run.summary || `The run ended ${run.status}.`,
       workspaceId,
       workspaceName: workspaceName ?? undefined,
-      navigationTarget: { kind: RUN_TARGET_KIND, ref: encodeRunRef(def.id, run.id) },
+      navigationTarget: { kind: RUN_TARGET_KIND, ref: encodeRunRef(def.id, run.id, folderPath) },
     })
   }, [runNow, workspaceId, workspaceName])
 

@@ -6,6 +6,7 @@ import { createMultiloopTemplate } from './multiloop-workspace-types'
 import { createGuidedBriefTemplate, createSprintEngineTemplate } from './sprint-engine-workspace-types'
 import { createSwitchboardTemplate } from './switchboard-workspace-types'
 import { collectWorkspaceTypeSupervisors } from './workspace-type-supervisors'
+import { resolveAutomationsWorkspaceId } from '../components/automations/runTarget'
 import type { LayoutTemplate, SprintEngineMockConfig } from '../types/workspace'
 
 const sprintEngineConfig: SprintEngineMockConfig = {
@@ -171,7 +172,7 @@ assert.deepEqual(
   host.getWorkspaceTypes((moduleId) => moduleId !== 'sprint-engine')
     .flatMap((definition) => definition.supervisors ?? [])
     .map((supervisor) => supervisor.scope),
-  ['global'],
+  ['global', 'global'],
   'workspace-type supervisor listings are gated by module enablement',
 )
 
@@ -264,8 +265,18 @@ assert.deepEqual(
   'Multiloop owns its global auto-run supervisor contribution',
 )
 assert.deepEqual(
+  host.getWorkspaceType('automations')?.supervisors?.map((supervisor) => ({
+    scope: supervisor.scope,
+    hasComponent: Boolean(supervisor.Component),
+  })),
+  [
+    { scope: 'global', hasComponent: true },
+  ],
+  'Automations owns its global background-run observer contribution',
+)
+assert.deepEqual(
   collectWorkspaceTypeSupervisors(host.getWorkspaceTypes(), true).map((supervisor) => supervisor.key),
-  ['sprintengine:global:0', 'multiloop:global:0'],
+  ['sprintengine:global:0', 'multiloop:global:0', 'automations:global:0'],
   'primary workspace window mounts global supervisor contributions in registry order',
 )
 assert.deepEqual(
@@ -278,8 +289,50 @@ assert.deepEqual(
     host.getWorkspaceTypes((moduleId) => moduleId !== 'sprint-engine'),
     true,
   ).map((supervisor) => supervisor.key),
-  ['multiloop:global:0'],
+  ['multiloop:global:0', 'automations:global:0'],
   'disabling a module removes its supervisor contribution without affecting others',
 )
+
+// T13 regression: a background (timer) run notification's Open must land in the
+// project's automations control center even when only a standard workspace is
+// open. resolveAutomationsWorkspaceId dedupes to an existing automations
+// workspace for the folder, else creates one; with no folder it falls back.
+{
+  const standardOnly = [
+    { id: 'ws-standard', mode: 'standard', folderPath: '/repo/app' },
+  ]
+  let created: { folderPath: string } | null = null
+  const resolvedCreate = resolveAutomationsWorkspaceId({
+    folderPath: '/repo/app',
+    fallbackWorkspaceId: 'ws-standard',
+    workspaces: standardOnly,
+    createAutomationsWorkspace: (folderPath) => {
+      created = { folderPath }
+      return 'ws-automations-new'
+    },
+  })
+  assert.equal(resolvedCreate, 'ws-automations-new', 'creates an automations workspace when none exists for the folder')
+  assert.deepEqual(created, { folderPath: '/repo/app' }, 'creates it for the run folder')
+
+  const withAutomations = [
+    ...standardOnly,
+    { id: 'ws-automations', mode: 'automations', folderPath: '/repo/app' },
+  ]
+  const resolvedExisting = resolveAutomationsWorkspaceId({
+    folderPath: '/repo/app',
+    fallbackWorkspaceId: 'ws-standard',
+    workspaces: withAutomations,
+    createAutomationsWorkspace: () => assert.fail('must not create when an automations workspace already exists'),
+  })
+  assert.equal(resolvedExisting, 'ws-automations', 'dedupes to the existing automations workspace for the folder')
+
+  const resolvedNoFolder = resolveAutomationsWorkspaceId({
+    folderPath: null,
+    fallbackWorkspaceId: 'ws-standard',
+    workspaces: withAutomations,
+    createAutomationsWorkspace: () => assert.fail('must not create without a folder'),
+  })
+  assert.equal(resolvedNoFolder, 'ws-standard', 'falls back to the notification workspace when no folder is known')
+}
 
 console.log('bundled workspace type registration tests passed')

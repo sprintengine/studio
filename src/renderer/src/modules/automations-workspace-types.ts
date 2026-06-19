@@ -1,6 +1,14 @@
+import React from 'react'
+
 import type { RendererHost } from './renderer-host'
 import type { LayoutTemplate, PreviewSlot } from '../types/workspace'
 import { AutomationsWorkspaceTypeIcon } from '../components/AppIcons'
+
+// Lazy so the always-mounted background-run observer's tiny module loads with
+// the automations workspace-type registration, not eagerly at app boot.
+const AutomationsRunSupervisor = React.lazy(
+  () => import('../components/automations/AutomationsRunSupervisor'),
+)
 
 const editor = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({ x, y, w, h, type: 'editor', label })
 
@@ -49,6 +57,12 @@ export function registerAutomationsWorkspaceTypes(host: RendererHost): void {
     accentToken: '--accent-primary',
     searchTerms: ['automations', 'schedule', 'cron', 'trigger', 'agent', 'recurring'],
     createTemplate: createAutomationsTemplate,
+    // Always-mounted (primary-window) observer for background scheduled-run
+    // notifications; mounts on module-enablement even when no automations
+    // workspace is open (Sprint Engine / Multiloop precedent).
+    supervisors: [
+      { Component: AutomationsRunSupervisor, scope: 'global' },
+    ],
     // Fixed single-surface layout, so the new-workspace wizard skips the
     // layout-picker step (same flow shape as Switchboard).
     creationStepsId: 'automations',
