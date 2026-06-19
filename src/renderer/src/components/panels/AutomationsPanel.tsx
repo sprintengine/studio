@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { revealAutomationAgent } from '../../hooks/useAutomationRequests'
 import type { AutomationDefinition } from '../../../../shared/automations/contracts'
 import { GhostButton, InlineNotice, PanelHeader, PrimaryButton, Spinner, useConfirmDialog } from '../ui'
 import { AutomationDetailPane } from './AutomationsPanel/AutomationDetailPane'
@@ -160,7 +161,13 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
                   definition={selected}
                   workspaceRoot={folderPath ?? ''}
                   now={now}
-                  onOpenAgent={(wsId) => setActiveWorkspace(wsId)}
+                  onOpenAgent={(wsId, agentId) => {
+                    // Focus the concrete launched agent tab (T10 reveal); fall
+                    // back to activating the workspace when the run carries no
+                    // agentId or the agent/workspace is gone.
+                    if (agentId && revealAutomationAgent({ workspaceId: wsId, agentId })) return
+                    setActiveWorkspace(wsId)
+                  }}
                 />
               ) : (
                 <DetailEmptyState hasDefinitions={definitions.length > 0} />

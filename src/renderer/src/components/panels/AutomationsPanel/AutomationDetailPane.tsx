@@ -23,7 +23,7 @@ export function AutomationDetailPane({
   definition: AutomationDefinition
   workspaceRoot: string
   now: number
-  onOpenAgent: (workspaceId: string) => void
+  onOpenAgent: (workspaceId: string, agentId?: string) => void
 }) {
   const [runs, setRuns] = useState<AutomationRun[]>([])
   const [state, setState] = useState<AsyncState>('idle')
@@ -117,7 +117,7 @@ function Meta({ label, value }: { label: string; value: string }) {
 // Watchtower-style run row: leading lifecycle glyph (shape-coded), identifier in
 // mono, timing in tabular figures, and a trailing "Open agent" when a run
 // launched one.
-function RunRow({ run, now, onOpenAgent }: { run: AutomationRun; now: number; onOpenAgent: (workspaceId: string) => void }) {
+function RunRow({ run, now, onOpenAgent }: { run: AutomationRun; now: number; onOpenAgent: (workspaceId: string, agentId?: string) => void }) {
   const dueAt = parseTime(run.dueAt)
   const startedAt = parseTime(run.startedAt)
   const completedAt = parseTime(run.completedAt)
@@ -152,7 +152,7 @@ function RunRow({ run, now, onOpenAgent }: { run: AutomationRun; now: number; on
               <span className="truncate font-mono text-[10px] text-[color:var(--text-subtle)]">{run.agentId}</span>
             ) : null}
             {run.workspaceId ? (
-              <GhostButton onClick={() => onOpenAgent(run.workspaceId!)} className="h-5 px-1.5 text-[10px]">
+              <GhostButton onClick={() => onOpenAgent(run.workspaceId!, run.agentId ?? undefined)} className="h-5 px-1.5 text-[10px]">
                 Open agent
               </GhostButton>
             ) : null}
