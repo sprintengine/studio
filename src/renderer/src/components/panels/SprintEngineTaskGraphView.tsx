@@ -267,15 +267,19 @@ export function SprintEngineTaskGraphView({
  return () => window.cancelAnimationFrame(frame)
  }, [graphZoom])
 
- // Plain scroll wheel zooms toward the cursor (no modifier needed). Bound as a
- // native non-passive listener so preventDefault reliably suppresses the
- // browser's default scroll/zoom — React attaches wheel handlers passively.
+ // Excalidraw-style navigation: a plain scroll wheel / two-finger trackpad
+ // swipe pans via the browser's native scrolling, while pinch-zoom — which
+ // Chromium delivers as a ctrl/meta + wheel event — zooms toward the cursor.
+ // Bound as a native non-passive listener so preventDefault reliably
+ // suppresses the browser's own pinch-zoom; React attaches wheel passively.
  useEffect(() => {
  const scrollEl = graphScrollRef.current
  if (!scrollEl) return
 
  const onWheel = (event: WheelEvent) => {
  if (graph.nodes.length === 0) return
+ // Let the native overflow scroll pan the canvas for unmodified wheels.
+ if (!event.ctrlKey && !event.metaKey) return
  event.preventDefault()
 
  const rect = scrollEl.getBoundingClientRect()
