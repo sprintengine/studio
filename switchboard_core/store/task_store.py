@@ -441,8 +441,22 @@ def find_import_duplicate(
     return None
 
 
+EXTERNAL_UPDATED_AT_LABEL = "External updated at:"
+
+
 def import_comment_body(provider: str) -> str:
     return f"Imported from {provider}."
+
+
+def parse_legacy_import_external_updated_at(body: Any) -> str | None:
+    if not isinstance(body, str):
+        return None
+    label_index = body.find(EXTERNAL_UPDATED_AT_LABEL)
+    if label_index < 0:
+        return None
+    after_label = body[label_index + len(EXTERNAL_UPDATED_AT_LABEL):].strip()
+    raw = after_label.split(maxsplit=1)[0] if after_label else ""
+    return raw.rstrip(".)") or None
 
 
 def comparable_external_updated_at_is_newer(candidate: str, current: str | None) -> bool:
@@ -466,15 +480,42 @@ def source_external_updated_at(task: dict[str, Any]) -> str | None:
     return normalize_external_updated_at(source.get("externalUpdatedAt"))
 
 
+def legacy_import_external_updated_at(task: dict[str, Any], provider: str) -> str | None:
+    comments = task.get("comments") if isinstance(task.get("comments"), list) else []
+    for comment in reversed(comments):
+        if not isinstance(comment, dict):
+            continue
+        author = comment.get("author") if isinstance(comment.get("author"), dict) else {}
+        body = comment.get("body")
+        if comment.get("kind") != "import":
+            continue
+        if author.get("type") != "system" or author.get("id") != "switchboard-import":
+            continue
+        if not isinstance(body, str) or not body.startswith(import_comment_body(provider)):
+            continue
+        external_updated_at = parse_legacy_import_external_updated_at(body)
+        normalized = normalize_external_updated_at(external_updated_at)
+        if normalized:
+            return normalized
+    return None
+
+
+def current_import_external_updated_at(task: dict[str, Any], provider: str) -> str | None:
+    return source_external_updated_at(task) or legacy_import_external_updated_at(task, provider)
+
+
 def import_source_identity(source: dict[str, Any]) -> tuple[Any, Any, Any]:
     return (source.get("type"), source.get("externalId"), source.get("externalUrl"))
 
 
-def write_import_update_metadata(located: LocatedTask, updated_at: str | None) -> LocatedTask | None:
+def write_import_update_metadata(located: LocatedTask, provider: str, updated_at: str | None) -> LocatedTask | None:
     comparable_updated_at = normalize_external_updated_at(updated_at)
     if comparable_updated_at is None:
         return None
-    if not comparable_external_updated_at_is_newer(comparable_updated_at, source_external_updated_at(located.task)):
+    if not comparable_external_updated_at_is_newer(
+        comparable_updated_at,
+        current_import_external_updated_at(located.task, provider),
+    ):
         return None
     now = now_iso()
     source = located.task.get("source") if isinstance(located.task.get("source"), dict) else {}
@@ -525,7 +566,7 @@ def import_inbox_task(
                 return None, "duplicate"
             source = located.task.get("source") if isinstance(located.task.get("source"), dict) else {}
             if source_matches_import_identity(source, provider, identity, url_identity):
-                synced = write_import_update_metadata(located, updated_at)
+                synced = write_import_update_metadata(located, provider, updated_at)
                 return (synced, "updated") if synced else (None, "duplicate")
 
     with locked_folders(workspace, ["inbox"], owner="switchboard-import"):
@@ -533,7 +574,7 @@ def import_inbox_task(
         duplicate = find_import_duplicate(tasks, provider, identity, url_identity)
         if duplicate:
             synced = (
-                write_import_update_metadata(duplicate, updated_at)
+                write_import_update_metadata(duplicate, provider, updated_at)
                 if duplicate.folder_status == "inbox"
                 else None
             )

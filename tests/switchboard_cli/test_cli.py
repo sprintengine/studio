@@ -971,6 +971,54 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(import_comments[0]["body"], "Imported from github.")
         self.assertEqual(task["source"]["externalUpdatedAt"], "2026-05-09T13:00:00.000Z")
 
+    def test_import_task_compares_against_legacy_external_updated_at_comment(self) -> None:
+        item = {
+            "provider": "github",
+            "externalId": "I_kwDO123",
+            "externalKey": "owner/repo#12",
+            "externalUrl": "https://github.com/owner/repo/issues/12",
+            "identifier": "repo#12",
+            "title": "GitHub issue",
+            "updatedAt": "2026-05-09T13:00:00Z",
+        }
+
+        imported = stdout_json(self.run_cli(["import-task", *self.workspace_args(), "--input-json", json.dumps(item)]))
+        legacy_path = self.task_file("inbox", imported["id"])
+        legacy_task = json.loads(legacy_path.read_text(encoding="utf-8"))
+        legacy_task["source"].pop("externalUpdatedAt", None)
+        legacy_task["comments"][0]["body"] = "Imported from github. External updated at: 2026-05-09T13:00:00Z."
+        legacy_path.write_text(json.dumps(legacy_task, indent=2) + "\n", encoding="utf-8")
+
+        unchanged_duplicate = stdout_json(self.run_cli([
+            "import-task",
+            *self.workspace_args(),
+            "--input-json",
+            json.dumps(item),
+        ]))
+        older_duplicate = stdout_json(self.run_cli([
+            "import-task",
+            *self.workspace_args(),
+            "--input-json",
+            json.dumps({**item, "updatedAt": "2026-05-09T12:30:00Z"}),
+        ]))
+        newer_duplicate = stdout_json(self.run_cli([
+            "import-task",
+            *self.workspace_args(),
+            "--input-json",
+            json.dumps({**item, "updatedAt": "2026-05-09T14:00:00Z"}),
+        ]))
+
+        self.assertFalse(unchanged_duplicate["created"])
+        self.assertTrue(unchanged_duplicate["skipped"])
+        self.assertFalse(older_duplicate["created"])
+        self.assertTrue(older_duplicate["skipped"])
+        self.assertEqual(newer_duplicate["status"], "updated")
+
+        task = json.loads(legacy_path.read_text(encoding="utf-8"))
+        import_comments = [comment for comment in task["comments"] if comment["kind"] == "import"]
+        self.assertEqual(len(import_comments), 1)
+        self.assertEqual(task["source"]["externalUpdatedAt"], "2026-05-09T14:00:00.000Z")
+
     def test_import_task_ignores_unparseable_external_updated_at(self) -> None:
         item = {
             "provider": "github",
