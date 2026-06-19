@@ -1,5 +1,6 @@
 import type { AutomationActionProvider, AutomationRun } from '../../../shared/automations/contracts'
 import type {
+  SwitchboardReadResult,
   SwitchboardRunnerResult,
   SwitchboardRunnerWorkspaceInput,
   WatchtowerRunResult,
@@ -13,6 +14,7 @@ export const SWITCHBOARD_RUNNER_TICK_ACTION_KIND = 'switchboard-runner-tick'
 export const WATCHTOWER_REVIEW_ACTION_KIND = 'watchtower-review'
 
 export type SwitchboardAutomationFrontDoors = {
+  readAllTasks(input: { workspaceRoot: string }): Promise<SwitchboardReadResult>
   tickRunner(input: SwitchboardRunnerWorkspaceInput): Promise<SwitchboardRunnerResult>
   startWatchtowerReview(input: WatchtowerStartReviewInput): Promise<WatchtowerRunResult>
 }

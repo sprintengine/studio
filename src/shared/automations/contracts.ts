@@ -48,13 +48,30 @@ export type ScheduleTriggerConfig = {
 export type AutomationTriggerProvider = {
   kind: TriggerKind
   configSchema: JsonSchema
+  requiredIntegrations?: string[]
+  validateConfig?(config: unknown): { ok: true } | { ok: false; error: string }
   subscribe(input: {
     config: unknown
     fire: (payload: Record<string, unknown>) => void
     now: () => number
   }): () => void
   computeNextRun?(config: unknown, after: number): number | null
+  poll?(input: {
+    config: unknown
+    workspaceRoot: string
+    now: () => number
+  }): Promise<AutomationTriggerPollResult>
 }
+
+export type AutomationTriggerPollEvent = {
+  id: string
+  occurredAt: string
+  payload: Record<string, unknown>
+}
+
+export type AutomationTriggerPollResult =
+  | { ok: true; events: AutomationTriggerPollEvent[] }
+  | { ok: false; blockedReason: string }
 
 export type ActionKind = 'spawn-agent' | 'run-command' | 'run-skill-loop' | string
 

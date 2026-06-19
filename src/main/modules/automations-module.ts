@@ -82,6 +82,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         switchboard: switchboardFrontDoors,
         sprintEngine: sprintEngineFrontDoors,
       })
+      const triggerProviders = providerRegistry.listTriggerProviders()
       const actionProviders = providerRegistry.listActionProviders()
       const runAutomation = createLocalAutomationExecutor({
         delegateToRenderer: (request) => automationDelegate.request(request),
@@ -93,6 +94,8 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       const engine = host.provideService(AutomationsEngineToken, () =>
         (options.createEngine ?? createAutomationsEngine)({
           getWorkspaceSnapshot: () => workspaceSyncService.getSnapshot(),
+          triggerProviders,
+          isIntegrationAvailable,
           runAutomation,
           onRunEvent: options.deliverRunEvent ?? broadcastAutomationsRunEvent,
         })
@@ -118,7 +121,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
 
       registerAutomationsIpc(host, {
         engine,
-        triggerProviders: providerRegistry.listTriggerProviders(),
+        triggerProviders,
         actionProviders,
         isIntegrationAvailable,
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
@@ -145,6 +148,8 @@ function serviceBackedSwitchboardFrontDoors(
   resolve: () => SwitchboardAutomationFrontDoors | undefined
 ): SwitchboardAutomationFrontDoors {
   return {
+    readAllTasks: async (input) =>
+      resolve()?.readAllTasks(input) ?? { ok: false, message: 'Switchboard is unavailable.' },
     tickRunner: async (input) =>
       resolve()?.tickRunner(input) ?? { ok: false, message: 'Switchboard is unavailable.' },
     startWatchtowerReview: async (input) =>

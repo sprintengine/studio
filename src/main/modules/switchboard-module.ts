@@ -60,6 +60,7 @@ export const switchboardModule: CapabilityModule = {
     configureSwitchboardRuntimeInventoryProvider(() => terminalRuntime.getLiveAgentExecutionIds())
     configureSwitchboardExecutionStopper(terminalRuntime.killAgentSession)
     host.provideService(SwitchboardAutomationFrontDoorsToken, () => ({
+      readAllTasks: readAllSwitchboardTasks,
       tickRunner: tickSwitchboardRunner,
       startWatchtowerReview,
     }))

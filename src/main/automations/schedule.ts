@@ -64,6 +64,10 @@ export const scheduleTriggerProvider: AutomationTriggerProvider = {
       },
     },
   },
+  validateConfig(config) {
+    const validation = validateScheduleTriggerConfig(config)
+    return validation.ok ? { ok: true } : validation
+  },
   subscribe(input) {
     const validation = validateScheduleTriggerConfig(input.config)
     if (!validation.ok) throw new Error(validation.error)

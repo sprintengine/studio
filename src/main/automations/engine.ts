@@ -6,6 +6,8 @@ import type {
   AutomationRunEventStatus,
   AutomationRunEventTrigger,
   AutomationRunStatus,
+  AutomationTriggerPollEvent,
+  AutomationTriggerProvider,
   AutomationsRunEvent,
   ScheduleTriggerConfig,
 } from '../../shared/automations/contracts'
@@ -57,6 +59,8 @@ export type AutomationsEngineOptions = {
   getProjectFolders?: () => AutomationsProjectFolder[] | Promise<AutomationsProjectFolder[]>
   getWorkspaceSnapshot?: () => WorkspaceSyncSnapshot | Promise<WorkspaceSyncSnapshot>
   createStore?: (workspaceRoot: string) => AutomationsStore
+  triggerProviders?: AutomationTriggerProvider[]
+  isIntegrationAvailable?: (id: string) => boolean | undefined
   runAutomation: AutomationRunExecutor
   now?: () => number
   createRunId?: (input: { workspaceRoot: string; automationId: string; dueAt: string }) => string
@@ -73,6 +77,8 @@ export class AutomationsEngine {
   private readonly getProjectFolders?: () => AutomationsProjectFolder[] | Promise<AutomationsProjectFolder[]>
   private readonly getWorkspaceSnapshot?: () => WorkspaceSyncSnapshot | Promise<WorkspaceSyncSnapshot>
   private readonly createStore: (workspaceRoot: string) => AutomationsStore
+  private readonly triggerProvidersByKind: Map<string, AutomationTriggerProvider>
+  private readonly isIntegrationAvailable?: (id: string) => boolean | undefined
   private readonly runAutomation: AutomationRunExecutor
   private readonly now: () => number
   private readonly createRunId: (input: { workspaceRoot: string; automationId: string; dueAt: string }) => string
@@ -89,6 +95,8 @@ export class AutomationsEngine {
     this.getProjectFolders = options.getProjectFolders
     this.getWorkspaceSnapshot = options.getWorkspaceSnapshot
     this.createStore = options.createStore ?? ((workspaceRoot) => new AutomationsStore(workspaceRoot))
+    this.triggerProvidersByKind = new Map((options.triggerProviders ?? []).map((provider) => [provider.kind, provider]))
+    this.isIntegrationAvailable = options.isIntegrationAvailable
     this.runAutomation = options.runAutomation
     this.now = options.now ?? Date.now
     this.createRunId = options.createRunId ?? (() => `automation-run-${randomUUID()}`)
@@ -357,7 +365,11 @@ export class AutomationsEngine {
     result: AutomationsEngineEvaluationResult
   ): Promise<void> {
     const workspaceRoot = projectFolder.folderPath
-    if (definition.status !== 'enabled' || definition.trigger.kind !== 'schedule') return
+    if (definition.status !== 'enabled') return
+    if (definition.trigger.kind !== 'schedule') {
+      await this.evaluatePollingTriggerDefinition(store, state, projectFolder, definition, result)
+      return
+    }
 
     const validation = validateScheduleTriggerConfig(definition.trigger.config)
     if (!validation.ok) {
@@ -403,6 +415,265 @@ export class AutomationsEngine {
       if (!written.ok) result.problems.push(storeProblem(workspaceRoot, written.error, definition.id))
     }
     result.scheduled.push({ workspaceRoot, automationId: definition.id, nextRunAt })
+  }
+
+  private async evaluatePollingTriggerDefinition(
+    store: AutomationsStore,
+    state: AutomationStoreState,
+    projectFolder: AutomationsProjectFolder,
+    definition: AutomationDefinition,
+    result: AutomationsEngineEvaluationResult
+  ): Promise<void> {
+    const workspaceRoot = projectFolder.folderPath
+    const provider = this.triggerProvidersByKind.get(definition.trigger.kind)
+    if (!provider) {
+      result.problems.push({
+        workspaceRoot,
+        automationId: definition.id,
+        code: 'unknown_trigger',
+        message: `No automation trigger provider is registered for "${definition.trigger.kind}".`,
+      })
+      return
+    }
+
+    if (!provider.poll) {
+      result.problems.push({
+        workspaceRoot,
+        automationId: definition.id,
+        code: 'unsupported_trigger',
+        message: `Automation trigger "${definition.trigger.kind}" does not support engine polling.`,
+      })
+      return
+    }
+
+    const configValidation = provider.validateConfig?.(definition.trigger.config)
+    if (configValidation && !configValidation.ok) {
+      result.problems.push({
+        workspaceRoot,
+        automationId: definition.id,
+        code: 'invalid_trigger_config',
+        message: configValidation.error,
+      })
+      return
+    }
+
+    const missingIntegrations = (provider.requiredIntegrations ?? [])
+      .filter((id) => this.isIntegrationAvailable?.(id) !== true)
+    if (missingIntegrations.length > 0) {
+      await this.recordBlockedTriggerRun(
+        store,
+        state,
+        projectFolder,
+        definition,
+        `Required trigger integration is unavailable: ${missingIntegrations.join(', ')}.`,
+        result
+      )
+      return
+    }
+
+    let pollResult: Awaited<ReturnType<NonNullable<AutomationTriggerProvider['poll']>>>
+    try {
+      pollResult = await provider.poll({
+        config: definition.trigger.config,
+        workspaceRoot,
+        now: this.now,
+      })
+    } catch (error) {
+      await this.recordBlockedTriggerRun(
+        store,
+        state,
+        projectFolder,
+        definition,
+        error instanceof Error ? error.message : `Automation trigger "${definition.trigger.kind}" failed while polling.`,
+        result
+      )
+      return
+    }
+
+    if (!pollResult.ok) {
+      await this.recordBlockedTriggerRun(store, state, projectFolder, definition, pollResult.blockedReason, result)
+      return
+    }
+
+    await this.clearTriggerBlockedReason(store, state, workspaceRoot, definition, result)
+
+    for (const event of pollResult.events) {
+      if (state.repoEventDedupByAutomationId?.[definition.id]?.[event.id]) continue
+      await this.fireTriggerEventRun(store, state, projectFolder, definition, event, result)
+    }
+  }
+
+  private async fireTriggerEventRun(
+    store: AutomationsStore,
+    state: AutomationStoreState,
+    projectFolder: AutomationsProjectFolder,
+    definition: AutomationDefinition,
+    event: AutomationTriggerPollEvent,
+    result: AutomationsEngineEvaluationResult
+  ): Promise<void> {
+    const workspaceRoot = projectFolder.folderPath
+    const inFlightKey = this.inFlightKey(workspaceRoot, definition.id)
+    if (this.inFlight.has(inFlightKey)) {
+      result.droppedInFlight.push({ workspaceRoot, automationId: definition.id })
+      return
+    }
+
+    this.inFlight.add(inFlightKey)
+    const dueAt = normalizedIso(event.occurredAt) ?? new Date(this.now()).toISOString()
+    const startedAt = new Date(this.now()).toISOString()
+    const run = this.runRecord(workspaceRoot, definition.id, dueAt, {
+      status: 'running',
+      startedAt,
+      completedAt: null,
+    })
+
+    try {
+      const started = await store.recordRun(run)
+      if (!started.ok) {
+        result.problems.push(storeProblem(workspaceRoot, started.error, definition.id))
+        return
+      }
+
+      const patch = await this.runAutomation({
+        workspaceRoot,
+        definition,
+        run,
+        triggerPayload: event.payload,
+      })
+      const completedAt = patch.completedAt ?? new Date(this.now()).toISOString()
+      const finalRun = completeRun(run, patch, completedAt)
+      const completed = await store.recordRun(finalRun)
+      if (!completed.ok) {
+        result.problems.push(storeProblem(workspaceRoot, completed.error, definition.id))
+        return
+      }
+      this.emitRunEvent({
+        workspaceId: projectFolder.workspaceId,
+        definition,
+        run: finalRun,
+        trigger: 'timer',
+      })
+
+      const updated = await this.updateDefinitionAfterTriggerRun(
+        store,
+        state,
+        workspaceRoot,
+        definition,
+        finalRun,
+        Date.parse(completedAt),
+        result,
+        () => {
+          markRepoEventSeen(state, definition.id, event.id, completedAt)
+          clearTriggerBlockedReasonState(state, definition.id)
+        }
+      )
+      if (updated) result.fired.push({ workspaceRoot, automationId: definition.id, runId: finalRun.id, status: finalRun.status })
+    } catch (error) {
+      const failedAt = new Date(this.now()).toISOString()
+      const failedRun = completeRun(run, {
+        status: 'failed',
+        completedAt: failedAt,
+        summary: error instanceof Error ? error.message : 'Automation action failed.',
+      }, failedAt)
+      const recorded = await store.recordRun(failedRun)
+      if (!recorded.ok) {
+        result.problems.push(storeProblem(workspaceRoot, recorded.error, definition.id))
+        return
+      }
+      this.emitRunEvent({
+        workspaceId: projectFolder.workspaceId,
+        definition,
+        run: failedRun,
+        trigger: 'timer',
+      })
+
+      const updated = await this.updateDefinitionAfterTriggerRun(
+        store,
+        state,
+        workspaceRoot,
+        definition,
+        failedRun,
+        Date.parse(failedAt),
+        result,
+        () => {
+          markRepoEventSeen(state, definition.id, event.id, failedAt)
+          clearTriggerBlockedReasonState(state, definition.id)
+        }
+      )
+      if (updated) result.fired.push({ workspaceRoot, automationId: definition.id, runId: failedRun.id, status: failedRun.status })
+    } finally {
+      this.inFlight.delete(inFlightKey)
+    }
+  }
+
+  private async recordBlockedTriggerRun(
+    store: AutomationsStore,
+    state: AutomationStoreState,
+    projectFolder: AutomationsProjectFolder,
+    definition: AutomationDefinition,
+    blockedReason: string,
+    result: AutomationsEngineEvaluationResult
+  ): Promise<void> {
+    const workspaceRoot = projectFolder.folderPath
+    if (state.triggerBlockedReasonByAutomationId?.[definition.id] === blockedReason) return
+
+    const inFlightKey = this.inFlightKey(workspaceRoot, definition.id)
+    if (this.inFlight.has(inFlightKey)) {
+      result.droppedInFlight.push({ workspaceRoot, automationId: definition.id })
+      return
+    }
+
+    this.inFlight.add(inFlightKey)
+    try {
+      const completedAt = new Date(this.now()).toISOString()
+      const run = this.runRecord(workspaceRoot, definition.id, completedAt, {
+        status: 'blocked',
+        startedAt: null,
+        completedAt,
+        blockedReason,
+        summary: blockedReason,
+      })
+      const recorded = await store.recordRun(run)
+      if (!recorded.ok) {
+        result.problems.push(storeProblem(workspaceRoot, recorded.error, definition.id))
+        return
+      }
+      this.emitRunEvent({
+        workspaceId: projectFolder.workspaceId,
+        definition,
+        run,
+        trigger: 'timer',
+      })
+      const updated = await this.updateDefinitionAfterTriggerRun(
+        store,
+        state,
+        workspaceRoot,
+        definition,
+        run,
+        Date.parse(completedAt),
+        result,
+        () => {
+          state.triggerBlockedReasonByAutomationId = state.triggerBlockedReasonByAutomationId ?? {}
+          state.triggerBlockedReasonByAutomationId[definition.id] = blockedReason
+        }
+      )
+      if (updated) result.fired.push({ workspaceRoot, automationId: definition.id, runId: run.id, status: run.status })
+    } finally {
+      this.inFlight.delete(inFlightKey)
+    }
+  }
+
+  private async clearTriggerBlockedReason(
+    store: AutomationsStore,
+    state: AutomationStoreState,
+    workspaceRoot: string,
+    definition: AutomationDefinition,
+    result: AutomationsEngineEvaluationResult
+  ): Promise<void> {
+    if (!state.triggerBlockedReasonByAutomationId?.[definition.id]) return
+    clearTriggerBlockedReasonState(state, definition.id)
+    const written = await store.writeState(state)
+    if (!written.ok) result.problems.push(storeProblem(workspaceRoot, written.error, definition.id))
   }
 
   private async persistNextRun(
@@ -595,6 +866,39 @@ export class AutomationsEngine {
     return true
   }
 
+  private async updateDefinitionAfterTriggerRun(
+    store: AutomationsStore,
+    state: AutomationStoreState,
+    workspaceRoot: string,
+    definition: AutomationDefinition,
+    run: AutomationRun,
+    updatedAt: number,
+    result: AutomationsEngineEvaluationResult,
+    mutateState: () => void
+  ): Promise<boolean> {
+    const updatedAtIso = new Date(updatedAt).toISOString()
+    const updated = await store.updateDefinition({
+      ...definition,
+      nextRunAt: null,
+      lastRunAt: run.completedAt ?? updatedAtIso,
+      lastRunId: run.id,
+      updatedAt: updatedAtIso,
+    })
+    if (!updated.ok) {
+      result.problems.push(storeProblem(workspaceRoot, updated.error, definition.id))
+      return false
+    }
+
+    state.nextRunAtByAutomationId[definition.id] = null
+    mutateState()
+    const stateWrite = await store.writeState(state)
+    if (!stateWrite.ok) {
+      result.problems.push(storeProblem(workspaceRoot, stateWrite.error, definition.id))
+      return false
+    }
+    return true
+  }
+
   private runRecord(
     workspaceRoot: string,
     automationId: string,
@@ -706,6 +1010,27 @@ function isRunEventStatus(status: AutomationRunStatus): status is AutomationRunE
 
 function normalizeWorkspaceRoot(workspaceRoot: string): string {
   return workspaceRoot.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
+}
+
+function normalizedIso(value: string): string | null {
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null
+}
+
+function markRepoEventSeen(
+  state: AutomationStoreState,
+  automationId: string,
+  eventId: string,
+  seenAt: string
+): void {
+  state.repoEventDedupByAutomationId = state.repoEventDedupByAutomationId ?? {}
+  state.repoEventDedupByAutomationId[automationId] = state.repoEventDedupByAutomationId[automationId] ?? {}
+  state.repoEventDedupByAutomationId[automationId][eventId] = seenAt
+}
+
+function clearTriggerBlockedReasonState(state: AutomationStoreState, automationId: string): void {
+  if (!state.triggerBlockedReasonByAutomationId) return
+  delete state.triggerBlockedReasonByAutomationId[automationId]
 }
 
 function storeProblem(workspaceRoot: string, error: AutomationStoreProblem, automationId?: string): AutomationsEngineProblem {

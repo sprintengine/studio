@@ -247,6 +247,14 @@ async function assertStateRoundTrip(): Promise<void> {
       'nightly-review': '2026-06-18T01:00:00.000Z',
       'weekly-cleanup': null,
     },
+    repoEventDedupByAutomationId: {
+      'repo-event-watch': {
+        'repo-event:github:acme/repo#1:created:2026-06-17T09:00:00.000Z': '2026-06-17T10:00:00.000Z',
+      },
+    },
+    triggerBlockedReasonByAutomationId: {
+      'repo-event-watch': 'Switchboard has no GitHub sync state for this workspace.',
+    },
   })
   const written = await store.writeState(nextState)
   assert.equal(written.ok, true)
@@ -261,6 +269,14 @@ async function assertStateRoundTrip(): Promise<void> {
   const invalidKey = await store.writeState(state({ nextRunAtByAutomationId: { '..': '2026-06-18T01:00:00.000Z' } }))
   assert.equal(invalidKey.ok, false)
   assert.equal(!invalidKey.ok && invalidKey.error.code, 'invalid_payload')
+
+  const invalidRepoEventKey = await store.writeState(state({ repoEventDedupByAutomationId: { '..': {} } }))
+  assert.equal(invalidRepoEventKey.ok, false)
+  assert.equal(!invalidRepoEventKey.ok && invalidRepoEventKey.error.code, 'invalid_payload')
+
+  const invalidBlockedKey = await store.writeState(state({ triggerBlockedReasonByAutomationId: { '..': 'blocked' } }))
+  assert.equal(invalidBlockedKey.ok, false)
+  assert.equal(!invalidBlockedKey.ok && invalidBlockedKey.error.code, 'invalid_payload')
 }
 
 async function assertMalformedStateFailsClosed(): Promise<void> {

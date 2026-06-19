@@ -40,6 +40,8 @@ export type AutomationStoreLock = {
 
 export type AutomationStoreState = {
   nextRunAtByAutomationId: Record<string, string | null>
+  repoEventDedupByAutomationId?: Record<string, Record<string, string>>
+  triggerBlockedReasonByAutomationId?: Record<string, string | null>
   lock: AutomationStoreLock | null
 }
 
@@ -407,6 +409,20 @@ export class AutomationsStore {
       }
     }
 
+    for (const automationId of Object.keys(value.repoEventDedupByAutomationId ?? {})) {
+      const safeId = this.safeId(automationId)
+      if (!safeId.ok) {
+        return { ok: false, error: this.problem('invalid_payload', path, `Automation repo-event state contains invalid id "${automationId}".`) }
+      }
+    }
+
+    for (const automationId of Object.keys(value.triggerBlockedReasonByAutomationId ?? {})) {
+      const safeId = this.safeId(automationId)
+      if (!safeId.ok) {
+        return { ok: false, error: this.problem('invalid_payload', path, `Automation trigger-blocked state contains invalid id "${automationId}".`) }
+      }
+    }
+
     return { ok: true, value }
   }
 
@@ -537,11 +553,29 @@ function isAutomationStoreState(value: unknown): value is AutomationStoreState {
   return (
     isRecord(value)
     && isNextRunAtCache(value.nextRunAtByAutomationId)
+    && (value.repoEventDedupByAutomationId === undefined || isRepoEventDedupCache(value.repoEventDedupByAutomationId))
+    && (
+      value.triggerBlockedReasonByAutomationId === undefined
+      || isTriggerBlockedReasonCache(value.triggerBlockedReasonByAutomationId)
+    )
     && (value.lock === null || isAutomationStoreLock(value.lock))
   )
 }
 
 function isNextRunAtCache(value: unknown): value is Record<string, string | null> {
+  return isRecord(value) && Object.values(value).every((entry) => isNullableString(entry))
+}
+
+function isRepoEventDedupCache(value: unknown): value is Record<string, Record<string, string>> {
+  return (
+    isRecord(value)
+    && Object.values(value).every((entry) =>
+      isRecord(entry) && Object.values(entry).every((seenAt) => typeof seenAt === 'string')
+    )
+  )
+}
+
+function isTriggerBlockedReasonCache(value: unknown): value is Record<string, string | null> {
   return isRecord(value) && Object.values(value).every((entry) => isNullableString(entry))
 }
 

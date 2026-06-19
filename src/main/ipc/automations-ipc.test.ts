@@ -27,11 +27,13 @@ import {
 import { createAutomationsEngine } from '../automations/engine'
 import { SPRINT_ENGINE_RUN_ACTION_KIND } from '../automations/actions/sprint-engine'
 import {
+  SWITCHBOARD_AUTOMATION_INTEGRATION_ID,
   SWITCHBOARD_RUNNER_TICK_ACTION_KIND,
   WATCHTOWER_AUTOMATION_INTEGRATION_ID,
   WATCHTOWER_REVIEW_ACTION_KIND,
 } from '../automations/actions/switchboard'
 import { createBuiltInAutomationProviderRegistry } from '../automations/provider-registry'
+import { REPO_EVENT_TRIGGER_KIND } from '../automations/triggers/repo-event'
 import { AutomationsStore } from '../automations/store'
 import type { IpcInvokeHandler } from '../module-host/main-host'
 import { registerAutomationsIpc } from './automations-ipc'
@@ -229,6 +231,9 @@ async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
   const handlers: HandlerMap = new Map()
   const providerRegistry = createBuiltInAutomationProviderRegistry({
     switchboard: {
+      readAllTasks: async () => {
+        throw new Error('not used')
+      },
       tickRunner: async () => {
         throw new Error('not used')
       },
@@ -269,6 +274,11 @@ async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
   const providers = await invoke<AutomationsProvidersResult>(handlers, AUTOMATIONS_PROVIDERS_LIST_CHANNEL)
   assert.equal(providers.ok, true)
   if (!providers.ok) return
+
+  const repoEvent = providers.value.triggers.find((provider) => provider.kind === REPO_EVENT_TRIGGER_KIND)
+  assert.deepEqual(repoEvent?.requiredIntegrations, [SWITCHBOARD_AUTOMATION_INTEGRATION_ID])
+  assert.deepEqual(repoEvent?.missingIntegrations, [])
+  assert.deepEqual((repoEvent?.configSchema as { required?: unknown }).required, ['kind'])
 
   const switchboard = providers.value.actions.find((provider) => provider.kind === SWITCHBOARD_RUNNER_TICK_ACTION_KIND)
   assert.deepEqual(switchboard?.requiredIntegrations, ['module:switchboard'])

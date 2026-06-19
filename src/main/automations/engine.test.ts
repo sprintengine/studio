@@ -9,10 +9,12 @@ import type {
   AutomationsRunEvent,
   ScheduleTriggerConfig,
 } from '../../shared/automations/contracts'
+import type { SwitchboardTaskRecord } from '../../shared/switchboard'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { AutomationsEngine, projectFoldersFromWorkspaceSyncSnapshot } from './engine'
 import { AutomationsStore, type AutomationStoreState } from './store'
 import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
+import { createRepoEventTriggerProvider, REPO_EVENT_TRIGGER_KIND } from './triggers/repo-event'
 
 void main().catch((error) => {
   console.error(error)
@@ -29,6 +31,8 @@ async function main(): Promise<void> {
   await assertRunEventDeliveryFailuresDoNotMutateRunTruth()
   await assertStartupOverdueIsSkippedWithoutCatchup()
   await assertTickWaitsForStartupOverdueSkip()
+  await assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart()
+  await assertRepoEventTriggerBlocksWhenSwitchboardUnsynced()
 }
 
 function definition(overrides: Partial<AutomationDefinition> = {}): AutomationDefinition {
@@ -51,6 +55,66 @@ function definition(overrides: Partial<AutomationDefinition> = {}): AutomationDe
     createdAt: '2026-06-17T00:00:00.000Z',
     updatedAt: '2026-06-17T00:00:00.000Z',
     ...overrides,
+  }
+}
+
+function repoEventDefinition(overrides: Partial<AutomationDefinition> = {}): AutomationDefinition {
+  return definition({
+    id: 'repo-event-watch',
+    name: 'Repo event watch',
+    trigger: {
+      kind: REPO_EVENT_TRIGGER_KIND,
+      config: { kind: REPO_EVENT_TRIGGER_KIND, provider: 'github' },
+    },
+    nextRunAt: null,
+    ...overrides,
+  })
+}
+
+function switchboardTaskRecord(overrides: Partial<SwitchboardTaskRecord['task']> = {}): SwitchboardTaskRecord {
+  const task = {
+    schemaVersion: 1 as const,
+    id: 'task-1',
+    identifier: 'GH-1',
+    title: 'Fix issue',
+    description: 'Synced from GitHub.',
+    priority: null,
+    state: 'todo' as const,
+    branchName: null,
+    url: 'https://github.com/acme/repo/issues/1',
+    labels: ['bug'],
+    blockedBy: [],
+    source: {
+      type: 'github' as const,
+      externalId: 'github-node-1',
+      externalKey: 'acme/repo#1',
+      externalUrl: 'https://github.com/acme/repo/issues/1',
+    },
+    claim: null,
+    execution: {
+      attempts: [],
+      worktreePath: null,
+      activeSessionId: null,
+    },
+    evidence: {
+      summary: '',
+      artifacts: [],
+      commandsRun: [],
+      touchedFiles: [],
+    },
+    comments: [],
+    createdAt: '2026-06-17T09:00:00.000Z',
+    updatedAt: '2026-06-17T09:00:00.000Z',
+    ...overrides,
+  }
+
+  return {
+    task,
+    location: {
+      folderStatus: 'todo',
+      path: `.multi-code/switchboard/todo/${task.id}.json`,
+    },
+    warnings: [],
   }
 }
 
@@ -518,6 +582,134 @@ async function assertTickWaitsForStartupOverdueSkip(): Promise<void> {
   assert.equal(store.runs.length, 1)
   assert.equal(store.runs[0]?.status, 'skipped')
   assert.equal(store.runs[0]?.blockedReason, 'overdue_not_replayed')
+}
+
+async function assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart(): Promise<void> {
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  assert.equal((await store.createDefinition(repoEventDefinition())).ok, true)
+
+  let syncedTasks = [switchboardTaskRecord()]
+  const provider = createRepoEventTriggerProvider({
+    readAllTasks: async (input) => ({
+      ok: true,
+      workspaceRoot: input.workspaceRoot,
+      switchboardRoot: '/switchboard',
+      tasks: syncedTasks,
+      problems: [],
+    }),
+  })
+  const triggerPayloads: Record<string, unknown>[] = []
+  let runIndex = 0
+  const createEngine = () =>
+    new AutomationsEngine({
+      getProjectFolders: () => [{ workspaceId: 'ws-repo-events', folderPath: workspaceRoot }],
+      triggerProviders: [provider],
+      isIntegrationAvailable: (id) => id === 'module:switchboard',
+      now: () => now,
+      createRunId: () => `repo-event-run-${runIndex += 1}`,
+      runAutomation: async (input) => {
+        triggerPayloads.push(input.triggerPayload)
+        return { status: 'completed', summary: 'Repo event handled.' }
+      },
+    })
+
+  const firstEngine = createEngine()
+  const firstTick = await firstEngine.tick()
+  assert.equal(firstTick.fired.length, 1)
+  assert.equal(firstTick.fired[0]?.runId, 'repo-event-run-1')
+  assert.equal(triggerPayloads.length, 1)
+  assert.equal(triggerPayloads[0]?.kind, REPO_EVENT_TRIGGER_KIND)
+  assert.equal(triggerPayloads[0]?.provider, 'github')
+  assert.equal(triggerPayloads[0]?.externalKey, 'acme/repo#1')
+
+  const duplicateTick = await firstEngine.tick()
+  assert.equal(duplicateTick.fired.length, 0)
+  assert.equal(triggerPayloads.length, 1)
+
+  const restartedEngine = createEngine()
+  const afterRestart = await restartedEngine.tick()
+  assert.equal(afterRestart.fired.length, 0)
+  assert.equal(triggerPayloads.length, 1)
+
+  syncedTasks = [
+    switchboardTaskRecord({
+      id: 'task-2',
+      identifier: 'GH-2',
+      title: 'New issue',
+      source: {
+        type: 'github',
+        externalId: 'github-node-2',
+        externalKey: 'acme/repo#2',
+        externalUrl: 'https://github.com/acme/repo/issues/2',
+      },
+      url: 'https://github.com/acme/repo/issues/2',
+      createdAt: '2026-06-17T09:30:00.000Z',
+      updatedAt: '2026-06-17T09:30:00.000Z',
+    }),
+  ]
+  const newEventTick = await restartedEngine.tick()
+  assert.equal(newEventTick.fired.length, 1)
+  assert.equal(newEventTick.fired[0]?.runId, 'repo-event-run-2')
+  assert.equal(triggerPayloads.length, 2)
+  assert.equal(triggerPayloads[1]?.externalKey, 'acme/repo#2')
+
+  const runs = await store.listRuns('repo-event-watch')
+  assert.equal(runs.ok, true)
+  assert.equal(runs.ok && runs.values.length, 2)
+
+  const state = await store.readState()
+  assert.equal(state.ok, true)
+  assert.equal(
+    state.ok && Object.keys(state.value?.repoEventDedupByAutomationId?.['repo-event-watch'] ?? {}).length,
+    2
+  )
+}
+
+async function assertRepoEventTriggerBlocksWhenSwitchboardUnsynced(): Promise<void> {
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  assert.equal((await store.createDefinition(repoEventDefinition())).ok, true)
+
+  const provider = createRepoEventTriggerProvider({
+    readAllTasks: async (input) => ({
+      ok: true,
+      workspaceRoot: input.workspaceRoot,
+      switchboardRoot: '/switchboard',
+      tasks: [],
+      problems: [],
+    }),
+  })
+  let runAutomationCalled = 0
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-unsynced', folderPath: workspaceRoot }],
+    triggerProviders: [provider],
+    isIntegrationAvailable: (id) => id === 'module:switchboard',
+    now: () => now,
+    createRunId: () => 'repo-event-blocked',
+    runAutomation: async () => {
+      runAutomationCalled += 1
+      return { status: 'completed' }
+    },
+  })
+
+  const firstTick = await engine.tick()
+  assert.equal(firstTick.fired.length, 1)
+  assert.equal(firstTick.fired[0]?.status, 'blocked')
+  assert.equal(runAutomationCalled, 0)
+  assert.deepEqual(firstTick.problems, [])
+
+  const secondTick = await engine.tick()
+  assert.equal(secondTick.fired.length, 0)
+  assert.equal(runAutomationCalled, 0)
+
+  const runs = await store.listRuns('repo-event-watch')
+  assert.equal(runs.ok, true)
+  assert.equal(runs.ok && runs.values.length, 1)
+  assert.equal(runs.ok && runs.values[0]?.status, 'blocked')
+  assert.match(runs.ok ? runs.values[0]?.blockedReason ?? '' : '', /no github sync state/)
 }
 
 async function flushMicrotasks(count: number): Promise<void> {

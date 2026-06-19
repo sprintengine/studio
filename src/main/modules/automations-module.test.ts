@@ -23,6 +23,7 @@ import {
 } from '../../shared/automations/contracts'
 import { SPRINT_ENGINE_RUN_ACTION_KIND } from '../automations/actions/sprint-engine'
 import { SWITCHBOARD_RUNNER_TICK_ACTION_KIND, WATCHTOWER_REVIEW_ACTION_KIND } from '../automations/actions/switchboard'
+import { REPO_EVENT_TRIGGER_KIND } from '../automations/triggers/repo-event'
 import { broadcastAutomationsRunEvent, createAutomationsModule } from './automations-module'
 
 function createFakeIpcMain(): {
@@ -91,6 +92,13 @@ function fakeSwitchboardAutomationFrontDoorModule(): CapabilityModule {
     },
     registerMain(host) {
       host.provideService(SwitchboardAutomationFrontDoorsToken, () => ({
+        readAllTasks: async (input) => ({
+          ok: true,
+          workspaceRoot: input.workspaceRoot,
+          switchboardRoot: '',
+          tasks: [],
+          problems: [],
+        }),
         tickRunner: async (input) => ({
           ok: true,
           workspaceRoot: input.workspaceRoot,
@@ -398,6 +406,14 @@ async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
   const providers = await providerHandler({} as never) as AutomationsProvidersResult
   assert.equal(providers.ok, true)
   if (!providers.ok) return
+  assert.deepEqual(
+    providers.value.triggers.map((provider) => provider.kind),
+    ['schedule', REPO_EVENT_TRIGGER_KIND]
+  )
+  assert.deepEqual(
+    providers.value.triggers.flatMap((provider) => provider.missingIntegrations),
+    []
+  )
   assert.deepEqual(
     providers.value.actions.map((provider) => provider.kind),
     ['spawn-agent', 'run-skill-loop', SWITCHBOARD_RUNNER_TICK_ACTION_KIND, WATCHTOWER_REVIEW_ACTION_KIND, SPRINT_ENGINE_RUN_ACTION_KIND]

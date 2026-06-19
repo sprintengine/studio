@@ -185,24 +185,39 @@ function prepareDefinitionForWrite(
   actionProviders: AutomationActionProvider[],
   after: number
 ): AutomationsDefinitionResult {
-  if (!triggerProviders.some((provider) => provider.kind === definition.trigger.kind)) {
+  const triggerProvider = triggerProviders.find((provider) => provider.kind === definition.trigger.kind)
+  if (!triggerProvider) {
     return fail('unknown_trigger', `No automation trigger provider is registered for "${definition.trigger.kind}".`)
   }
   if (!actionProviders.some((provider) => provider.kind === definition.action.kind)) {
     return fail('unknown_action', `No automation action provider is registered for "${definition.action.kind}".`)
   }
 
-  if (definition.trigger.kind !== 'schedule') {
-    return fail('unsupported_trigger', `Automation trigger "${definition.trigger.kind}" is not supported yet.`)
+  if (definition.trigger.kind === 'schedule') {
+    const validation = validateScheduleTriggerConfig(definition.trigger.config)
+    if (!validation.ok) return fail('invalid_schedule', validation.error)
+
+    if (definition.status !== 'enabled') {
+      return ok({ ...definition, nextRunAt: null })
+    }
+
+    const nextRunAt = computeNextRun(validation.value, after)
+    if (nextRunAt === null) {
+      return fail('next_run_unavailable', `Unable to compute next run for automation "${definition.id}".`)
+    }
+    return ok({ ...definition, nextRunAt: new Date(nextRunAt).toISOString() })
   }
-  const validation = validateScheduleTriggerConfig(definition.trigger.config)
-  if (!validation.ok) return fail('invalid_schedule', validation.error)
+
+  const validation = triggerProvider.validateConfig?.(definition.trigger.config) ?? { ok: true }
+  if (!validation.ok) return fail('invalid_trigger_config', validation.error)
 
   if (definition.status !== 'enabled') {
     return ok({ ...definition, nextRunAt: null })
   }
 
-  const nextRunAt = computeNextRun(validation.value, after)
+  if (!triggerProvider.computeNextRun) return ok({ ...definition, nextRunAt: null })
+
+  const nextRunAt = triggerProvider.computeNextRun(definition.trigger.config, after)
   if (nextRunAt === null) {
     return fail('next_run_unavailable', `Unable to compute next run for automation "${definition.id}".`)
   }
@@ -218,8 +233,13 @@ async function writeNextRunCache(
   const stateResult = await store.readState()
   if (!stateResult.ok) return stateResult
   const state = stateResult.value ?? { nextRunAtByAutomationId: {}, lock: null }
-  if (remove) delete state.nextRunAtByAutomationId[automationId]
-  else state.nextRunAtByAutomationId[automationId] = nextRunAt
+  if (remove) {
+    delete state.nextRunAtByAutomationId[automationId]
+    delete state.repoEventDedupByAutomationId?.[automationId]
+    delete state.triggerBlockedReasonByAutomationId?.[automationId]
+  } else {
+    state.nextRunAtByAutomationId[automationId] = nextRunAt
+  }
 
   const written = await store.writeState(state)
   if (!written.ok) return written

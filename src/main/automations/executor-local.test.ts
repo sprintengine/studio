@@ -21,6 +21,7 @@ import {
   createBuiltInAutomationProviderRegistry,
   namespacedProviderId,
 } from './provider-registry'
+import { REPO_EVENT_TRIGGER_KIND } from './triggers/repo-event'
 
 function workspace(id: string, folderPath: string | null, overrides: Partial<Workspace> = {}): Workspace {
   return {
@@ -176,6 +177,7 @@ function executorHarness(
 function firstPartyActionProviders(calls: string[] = []): AutomationActionProvider[] {
   return createBuiltInAutomationActionProviders({
     switchboard: {
+      readAllTasks: async (input) => ({ ok: true, workspaceRoot: input.workspaceRoot, switchboardRoot: '', tasks: [], problems: [] }),
       tickRunner: async (input) => {
         calls.push(`switchboard:${input.workspaceRoot}`)
         return {
@@ -635,6 +637,9 @@ async function assertFirstPartyMissingIntegrationBlocksBeforeFrontDoor(): Promis
 function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): void {
   const builtIns = createBuiltInAutomationProviderRegistry({
     switchboard: {
+      readAllTasks: async () => {
+        throw new Error('not used')
+      },
       tickRunner: async () => {
         throw new Error('not used')
       },
@@ -653,13 +658,14 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
   })
   assert.equal(namespacedProviderId('automations', 'schedule'), 'automations.schedule')
   assert.equal(builtIns.getTriggerProvider('automations.schedule')?.kind, 'schedule')
+  assert.equal(builtIns.getTriggerProvider(`switchboard.${REPO_EVENT_TRIGGER_KIND}`)?.kind, REPO_EVENT_TRIGGER_KIND)
   assert.equal(builtIns.getActionProvider('automations.spawn-agent')?.kind, 'spawn-agent')
   assert.equal(builtIns.getActionProvider('automations.run-skill-loop')?.kind, 'run-skill-loop')
   assert.equal(builtIns.getActionProvider(`switchboard.${SWITCHBOARD_RUNNER_TICK_ACTION_KIND}`)?.kind, SWITCHBOARD_RUNNER_TICK_ACTION_KIND)
   assert.equal(builtIns.getActionProvider(`switchboard.${WATCHTOWER_REVIEW_ACTION_KIND}`)?.kind, WATCHTOWER_REVIEW_ACTION_KIND)
   assert.equal(builtIns.getActionProvider(`sprint-engine.${SPRINT_ENGINE_RUN_ACTION_KIND}`)?.kind, SPRINT_ENGINE_RUN_ACTION_KIND)
   assert.equal(builtIns.getActionProvider('other.spawn-agent'), undefined)
-  assert.deepEqual(builtIns.listTriggerProviders().map((provider) => provider.kind), ['schedule'])
+  assert.deepEqual(builtIns.listTriggerProviders().map((provider) => provider.kind), ['schedule', REPO_EVENT_TRIGGER_KIND])
   assert.deepEqual(builtIns.listActionProviders().map((provider) => provider.kind), [
     'spawn-agent',
     'run-skill-loop',
