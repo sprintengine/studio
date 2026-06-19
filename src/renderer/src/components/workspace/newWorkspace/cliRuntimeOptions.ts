@@ -19,6 +19,17 @@ export type AgentCliCatalogOption = {
 
 const CLAUDE_CODE_PLUGIN_ID = 'claude-code'
 
+// Plugin ids that exist in the main-process registry but must never appear as a
+// selectable agent CLI in spawn pickers. `generic-shell` is a bare `sh` pipe
+// with no tool use or resume — it duplicates the Terminal quick row and reads as
+// noise in the agent/specialist CLI lists, so it is hidden from the picker
+// catalog while staying available to the registry for direct terminal launch.
+// Both catalog paths — the plugin-registry path in `buildAgentCliCatalog` and
+// the bundled/legacy fallback in `legacyCliRuntimeOptions` — must apply this, or
+// a persisted `cliRuntimes` key could leak a hidden id into the loading/error
+// fallback catalog.
+const AGENT_PICKER_HIDDEN_CLI_IDS = new Set<AgentCli>(['generic-shell'])
+
 const BUNDLED_AGENT_MODEL_CATALOGS: Record<AgentCli, PluginModelCatalog> = {
   codex: {
     options: [
@@ -62,7 +73,7 @@ function legacyCliRuntimeOptions(
   for (const id of ['codex', CLAUDE_CODE_PLUGIN_ID, ...Object.keys(cliRuntimes ?? {})]) {
     const trimmed = id.trim()
     const canonical = pluginRegistryIdForCli(trimmed)
-    if (!canonical || seen.has(canonical)) continue
+    if (!canonical || seen.has(canonical) || AGENT_PICKER_HIDDEN_CLI_IDS.has(canonical)) continue
     seen.add(canonical)
     orderedIds.push(canonical)
   }
@@ -153,13 +164,6 @@ export function resolveTemplateAgentCli(
   if (explicit) return pluginRegistryIdForCli(explicit)
   return resolveAvailableAgentCli(lastSelectedCli, catalog, catalog[0]?.value ?? lastSelectedCli)
 }
-
-// Plugin ids that exist in the main-process registry but must never appear as a
-// selectable agent CLI in spawn pickers. `generic-shell` is a bare `sh` pipe
-// with no tool use or resume — it duplicates the Terminal quick row and reads as
-// noise in the agent/specialist CLI lists, so it is hidden from the picker
-// catalog while staying available to the registry for direct terminal launch.
-const AGENT_PICKER_HIDDEN_CLI_IDS = new Set<AgentCli>(['generic-shell'])
 
 export function buildAgentCliCatalog(
   plugins: PluginCatalogEntry[] | null | undefined,
