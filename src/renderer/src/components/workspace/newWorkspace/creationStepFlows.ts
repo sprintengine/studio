@@ -21,19 +21,24 @@ export type StepId =
 // missing or names an unknown flow.
 export type CreationStepsId = 'standard' | 'switchboard' | 'automations' | 'multiloop' | 'sprintengine' | 'guided-brief'
 
-// The 'knowledge' step (point new agents at a knowledge-graph folder) sits with
-// the other per-project setup steps after 'skill-packs'. It is conditional, not
-// universal: NewWorkspacePanel drops it for a folder whose project already has a
-// configured/inherited knowledge root (see shouldShowKnowledgeStep), so existing
-// projects don't re-prompt while new ones get the picker — including first-run
-// onboarding, whose workspace step is this same panel.
+// Default flows keep only the steps a person needs to reach the thing they came
+// to make. The developer-configuration steps — 'mcp-servers', 'skill-packs', and
+// 'knowledge' — are deliberately NOT in the linear gate: they're optional, jargon-
+// heavy, and equally reachable from Settings (and, going forward, an opt-in
+// "Advanced setup" disclosure). 'mode' stays in every flow because it is the pivot
+// step where the workspace type is chosen and the flow is recomputed live.
+//
+// The 'knowledge' step (point new agents at a knowledge-graph folder) is still a
+// valid StepId rendered by the optional advanced surface; NewWorkspacePanel also
+// drops it for a folder whose project already has a configured/inherited knowledge
+// root (see shouldShowKnowledgeStep).
 export const STEPS_BY_MODE: Record<CreationStepsId, StepId[]> = {
-  standard: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge', 'standard-layout'],
-  switchboard: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge'],
-  automations: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge'],
-  multiloop: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge', 'multiloop-goal'],
-  sprintengine: ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge', 'sprintengine-team', 'sprintengine-roster'],
-  'guided-brief': ['workspace', 'mode', 'mcp-servers', 'skill-packs', 'knowledge', 'guided-idea'],
+  standard: ['workspace', 'mode', 'standard-layout'],
+  switchboard: ['workspace', 'mode'],
+  automations: ['workspace', 'mode'],
+  multiloop: ['workspace', 'mode', 'multiloop-goal'],
+  sprintengine: ['workspace', 'mode', 'sprintengine-team', 'sprintengine-roster'],
+  'guided-brief': ['workspace', 'mode', 'guided-idea'],
 }
 
 function isCreationStepsId(value: string | undefined): value is CreationStepsId {

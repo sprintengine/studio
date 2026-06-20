@@ -55,9 +55,15 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
+  const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
+  const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
   const cliOptions = useMemo(
-    () => selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes),
-    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes],
+    () =>
+      selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, {
+        map: cliAvailability,
+        status: cliAvailabilityStatus,
+      }),
+    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus],
   )
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
   const workspaceWindowId = useWorkspaceStore((s) =>
@@ -158,7 +164,7 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
   if (!workspace || !runtimeState) {
     return (
       <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] px-6 text-center text-[12px] text-[color:var(--text-muted)]">
-        Guided brief state is missing for this workspace.
+        Design Wizard state is missing for this workspace.
       </div>
     )
   }

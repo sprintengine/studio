@@ -3,7 +3,7 @@ import { useEffect, useId, useMemo, useRef } from 'react'
 import MulticodeWordmark from '../brand/MulticodeWordmark'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { GhostButton, PrimaryButton } from '../ui'
-import { ModuleProfilePicker, ModuleToggleList } from '../settings/ModuleControls'
+import { ModuleToggleList } from '../settings/ModuleControls'
 import { CliInstallControl } from '../settings/CliInstallControl'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 
@@ -21,7 +21,6 @@ export default function OnboardingFlow() {
   const advanceOnboarding = useWorkspaceStore((s) => s.advanceOnboarding)
   const overrides = useWorkspaceStore((s) => s.appSettings.modules)
   const setModuleEnabled = useWorkspaceStore((s) => s.setModuleEnabled)
-  const applyModuleProfile = useWorkspaceStore((s) => s.applyModuleProfile)
 
   const titleId = useId()
   const surfaceRef = useRef<HTMLDivElement>(null)
@@ -61,7 +60,6 @@ export default function OnboardingFlow() {
           <ModulesStep
             titleId={titleId}
             overrides={overrides}
-            onApply={applyModuleProfile}
             onToggle={setModuleEnabled}
             onContinue={advanceOnboarding}
           />
@@ -96,13 +94,11 @@ function WelcomeStep({ titleId, onContinue }: { titleId: string; onContinue: () 
 function ModulesStep({
   titleId,
   overrides,
-  onApply,
   onToggle,
   onContinue,
 }: {
   titleId: string
   overrides: Parameters<typeof ModuleToggleList>[0]['overrides']
-  onApply: Parameters<typeof ModuleProfilePicker>[0]['onApply']
   onToggle: Parameters<typeof ModuleToggleList>[0]['onToggle']
   onContinue: () => void
 }) {
@@ -110,20 +106,16 @@ function ModulesStep({
     <>
       <div className="border-b border-[color:var(--border-subtle)] px-6 py-5">
         <h2 id={titleId} className="text-[15px] font-semibold text-[color:var(--text-strong)]">
-          Choose your tools
+          What’s included
         </h2>
         <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Pick a starting profile, or switch individual capabilities on and off. You can change this
-          later in Settings.
+          Everything’s switched on to start. Turn off anything you don’t need, or just continue —
+          you can change this anytime in Settings.
         </p>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
-        <div className="mb-2 text-[11px] font-medium text-[color:var(--text-subtle)]">Profiles</div>
-        <ModuleProfilePicker overrides={overrides} onApply={onApply} />
-        <div className="mt-5">
-          <ModuleToggleList overrides={overrides} onToggle={onToggle} />
-        </div>
+        <ModuleToggleList overrides={overrides} onToggle={onToggle} />
       </div>
 
       <div className="flex justify-end border-t border-[color:var(--border-subtle)] px-6 py-4">
@@ -140,6 +132,7 @@ function CliStep({ titleId, onContinue }: { titleId: string; onContinue: () => v
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
   const refreshPluginCatalog = useWorkspaceStore((s) => s.refreshPluginCatalog)
+  const refreshCliAvailability = useWorkspaceStore((s) => s.refreshCliAvailability)
   const rows = useMemo(() => orderInstalledPlugins(pluginCatalogEntries), [pluginCatalogEntries])
 
   return (
@@ -176,6 +169,7 @@ function CliStep({ titleId, onContinue }: { titleId: string; onContinue: () => v
                       setCliRuntime(plugin.id, { command: result.resolvedPath, useWsl: override.useWsl })
                     }
                     void refreshPluginCatalog()
+                    void refreshCliAvailability({ force: true, cliRuntimes })
                   }}
                 />
               )

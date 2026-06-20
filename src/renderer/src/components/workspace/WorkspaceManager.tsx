@@ -243,6 +243,8 @@ export default function WorkspaceManager() {
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
+  const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
+  const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
   const lastSelectedSpecialist = useWorkspaceStore(
     (s) => s.appSettings.lastSelectedSpecialist ?? SPECIALIST_ACTIONS[0].id
   )
@@ -550,8 +552,12 @@ export default function WorkspaceManager() {
   // agents instead of a hardcoded list. While the registry is loading or after a
   // registry error this falls back to the legacy bundled options.
   const agentCliCatalog = useMemo(
-    () => selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes),
-    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes],
+    () =>
+      selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, {
+        map: cliAvailability,
+        status: cliAvailabilityStatus,
+      }),
+    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus],
   )
   // First available catalog entry used to rescue new spawns whose remembered CLI
   // (lastSelectedCli / specialist / multiloop default) is no longer installed.
@@ -724,7 +730,14 @@ export default function WorkspaceManager() {
   useEffect(
     () =>
       subscribePluginCatalogRefreshOnFocus(() => {
-        void useWorkspaceStore.getState().refreshPluginCatalog({ background: true })
+        const store = useWorkspaceStore.getState()
+        void store.refreshPluginCatalog({ background: true })
+        // Re-detect installed agent CLIs in lockstep with the catalog so a CLI
+        // installed/removed while away updates the deployment pickers too.
+        void store.refreshCliAvailability({
+          background: true,
+          cliRuntimes: store.appSettings.cliRuntimes,
+        })
       }),
     []
   )
@@ -1897,6 +1910,16 @@ export default function WorkspaceManager() {
     setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))
   }
 
+  // Pause = freeze-the-view suspend: kill the agent PTY to free memory but keep
+  // the painted scrollback and the resume flags, so reopening relaunches the CLI
+  // with --resume. Unlike stopSession we do NOT reset launch flags or prune the
+  // session — the suspend broadcast (terminal:sessions-changed) flips it to
+  // suspended (processAlive=false), which drops it out of the working-sessions
+  // list on its own.
+  const pauseSession = (item: SessionItem) => {
+    void window.api.terminalSuspend(item.sessionId).catch(() => {})
+  }
+
   const stopWorkspaceSessions = async (workspace: Workspace, items: SessionItem[]) => {
     if (items.length === 0) return
     const confirmed = await dialog.confirm({
@@ -2023,6 +2046,7 @@ export default function WorkspaceManager() {
         sessionsOpen={sessionsOpen}
         setSessionsOpen={setSessionsOpen}
         openSession={openSession}
+        pauseSession={pauseSession}
         stopSession={stopSession}
         stopWorkspaceSessions={stopWorkspaceSessions}
         viewMenuOpen={viewMenuOpen}

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
+  canStopPollingCompletedSprintEngineProjection,
   refreshSprintEngineWorkspaceProjection,
 } from '../../utils/sprintengineProjectionRefresh'
 import { registerTimer } from '../../utils/diagnostics/timerRegistry'
@@ -48,6 +49,14 @@ export default function SprintEngineProjectionSupervisor({ activeWorkspaceId, wo
 
         for (const workspace of sprintEngineWorkspaces) {
           if (disposed) return
+          // A finished run is terminal — once its board/summary data is loaded,
+          // stop polling it entirely (see the predicate for the two guards that
+          // keep a cold or still-healing run polling until it is ready to skip).
+          if (canStopPollingCompletedSprintEngineProjection(workspace)) {
+            tokensByWorkspace.current.delete(workspace.id)
+            lastInactiveRefreshByWorkspace.current.delete(workspace.id)
+            continue
+          }
           if (workspace.id !== activeWorkspaceId) {
             const lastRefresh = lastInactiveRefreshByWorkspace.current.get(workspace.id) ?? 0
             if (now - lastRefresh < SPRINT_ENGINE_PROJECTION_INACTIVE_POLL_MS) continue

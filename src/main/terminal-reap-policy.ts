@@ -25,18 +25,17 @@ export const DEFAULT_HOT_WORKSPACE_LIMIT = 5
 // workspace can't reset it. Tunable.
 export const DEFAULT_SUSPEND_IDLE_AFTER_MS = 2 * 60 * 60 * 1000
 
-// CLIs whose session resume is deterministic enough to suspend-and-restore.
-// Claude pre-seeds its own session id at launch (`--session-id`), so
-// `--resume <id>` is exact. Codex generates its own id we can't yet capture, so
-// it is intentionally absent — never suspend a Codex agent.
-export const RESUMABLE_CLIS: readonly string[] = ['claude']
-
 export type ReapCandidate = {
   sessionId: string
   workspaceId: string | null
   // 'agent' terminals are the only suspend targets. Plain shells are cheap and
   // may hold a foreground command, so they are never suspended here.
   kind: string
+  // Informational only (carried into the reap audit log). The policy no longer
+  // gates on the cli: any idle agent is reapable regardless of which CLI it runs.
+  // Reaping kills the PTY; reopen relaunches via the plugin's resume command
+  // where one is declared (exact for claude-code; codex reattaches its own
+  // latest session). A cli with no resume support would relaunch fresh.
   cli: string | null
   visible: boolean
   processAlive: boolean
@@ -52,7 +51,6 @@ export type ReapPolicyOptions = {
   now?: number
   hotWorkspaceLimit?: number
   idleThresholdMs?: number
-  resumableClis?: readonly string[]
 }
 
 export type ReapDecision = {
@@ -86,20 +84,15 @@ export function computeHotWorkspaceIds(
     .map(([workspaceId]) => workspaceId)
 }
 
-function isResumable(cli: string | null, resumableClis: readonly string[]): boolean {
-  return cli !== null && resumableClis.includes(cli)
-}
-
 // True only when EVERY gate passes. Order is cheap-checks-first, but the result
 // is the conjunction either way.
 export function isSessionReapable(
   candidate: ReapCandidate,
   hotWorkspaceIds: ReadonlySet<string>,
-  options: { now: number; idleThresholdMs: number; resumableClis: readonly string[] }
+  options: { now: number; idleThresholdMs: number }
 ): boolean {
   if (!candidate.processAlive) return false
   if (candidate.kind !== 'agent') return false
-  if (!isResumable(candidate.cli, options.resumableClis)) return false
   if (candidate.visible) return false
   if (candidate.inActiveRun) return false
   if (candidate.workspaceId === null) return false
@@ -115,13 +108,12 @@ export function selectReapableSessions(
   const now = options.now ?? Date.now()
   const hotWorkspaceLimit = options.hotWorkspaceLimit ?? DEFAULT_HOT_WORKSPACE_LIMIT
   const idleThresholdMs = options.idleThresholdMs ?? DEFAULT_SUSPEND_IDLE_AFTER_MS
-  const resumableClis = options.resumableClis ?? RESUMABLE_CLIS
 
   const hotWorkspaceIds = computeHotWorkspaceIds(candidates, hotWorkspaceLimit)
   const hotSet = new Set(hotWorkspaceIds)
 
   const reapableSessionIds = candidates
-    .filter((candidate) => isSessionReapable(candidate, hotSet, { now, idleThresholdMs, resumableClis }))
+    .filter((candidate) => isSessionReapable(candidate, hotSet, { now, idleThresholdMs }))
     .map((candidate) => candidate.sessionId)
 
   return { hotWorkspaceIds, reapableSessionIds }

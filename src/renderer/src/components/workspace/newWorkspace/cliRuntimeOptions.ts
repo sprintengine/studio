@@ -1,5 +1,6 @@
 import type {
   AgentCli,
+  AgentCliAvailabilityMap,
   AgentCliModelSelection,
   CliRuntimeSettings,
   PluginCatalogEntry,
@@ -15,6 +16,20 @@ export type AgentCliCatalogOption = {
   // the user-added ids from `cliRuntimes[id].models`. Absent when the plugin
   // declares no modelSelection — such CLIs show no model UI at all.
   modelSelection?: PluginModelCatalog
+  // Detected install state, attached once availability is known. `undefined`
+  // means "not probed yet"; deployment surfaces hide only options that are
+  // explicitly `installed === false` (see filterCatalogByAvailability).
+  installed?: boolean
+  resolvedPath?: string | null
+}
+
+// Trust state of the detected-availability map. Mirrors the slice's
+// CliAvailabilityStatus without importing the store (keeps this util store-free).
+export type CliAvailabilityFilterStatus = 'loading' | 'ready' | 'error'
+
+export type CliAvailabilityFilter = {
+  map: AgentCliAvailabilityMap | null | undefined
+  status: CliAvailabilityFilterStatus
 }
 
 const CLAUDE_CODE_PLUGIN_ID = 'claude-code'
@@ -249,6 +264,40 @@ export function selectAgentCliCatalog(
   status: PluginCatalogStatus,
   entries: PluginCatalogEntry[] | null | undefined,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
+  availability?: CliAvailabilityFilter,
 ): AgentCliCatalogOption[] {
-  return buildAgentCliCatalog(status === 'ready' ? entries ?? [] : null, cliRuntimes)
+  const catalog = buildAgentCliCatalog(status === 'ready' ? entries ?? [] : null, cliRuntimes)
+  if (!availability) return catalog
+  return filterCatalogByAvailability(catalog, availability.map, availability.status)
+}
+
+// Annotate each option with its detected install state and hide the agent CLIs
+// whose binary is not installed, so deployment pickers never offer (or default
+// to) an uninstalled agent. Guards against a worse failure than the one we are
+// fixing — an empty picker — by falling back to the unfiltered (annotated)
+// catalog whenever detection is not yet trustworthy:
+//   - status is not `ready` (still loading, or detection errored), OR
+//   - the map is absent, OR
+//   - zero CLIs are detected as installed (likely a flaky/blocked probe).
+// Only options explicitly detected as `installed === false` are removed; an
+// option with no availability entry (e.g. probed-after-add) stays visible.
+export function filterCatalogByAvailability(
+  catalog: AgentCliCatalogOption[],
+  availabilityMap: AgentCliAvailabilityMap | null | undefined,
+  status: CliAvailabilityFilterStatus,
+): AgentCliCatalogOption[] {
+  const annotated = catalog.map((option) => {
+    const entry = availabilityMap?.[option.value]
+    return entry
+      ? { ...option, installed: entry.installed, resolvedPath: entry.resolvedPath }
+      : option
+  })
+
+  if (status !== 'ready' || !availabilityMap) return annotated
+
+  const anyInstalled = Object.values(availabilityMap).some((entry) => entry.installed)
+  if (!anyInstalled) return annotated
+
+  const filtered = annotated.filter((option) => availabilityMap[option.value]?.installed !== false)
+  return filtered.length > 0 ? filtered : annotated
 }

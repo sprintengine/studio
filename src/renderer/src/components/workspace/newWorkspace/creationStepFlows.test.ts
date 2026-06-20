@@ -17,4 +17,20 @@ assert.deepEqual(stepsForMode('guided-brief'), STEPS_BY_MODE['guided-brief'], 'g
 assert.deepEqual(stepsForMode('totally-unknown-mode'), STEPS_BY_MODE.standard, 'unknown mode id falls back to standard')
 assert.deepEqual(stepsForMode(''), STEPS_BY_MODE.standard, 'empty mode id falls back to standard')
 
+// Novice-first flow contract: the developer-configuration steps are off the linear
+// gate in every default flow (they live in Settings / the optional advanced
+// surface), and every flow leads with workspace then the mode pivot.
+const CONFIG_STEPS = ['mcp-servers', 'skill-packs', 'knowledge'] as const
+for (const [flowId, steps] of Object.entries(STEPS_BY_MODE)) {
+  for (const configStep of CONFIG_STEPS) {
+    assert.ok(!steps.includes(configStep), `${flowId} flow must not gate on ${configStep}`)
+  }
+  assert.equal(steps[0], 'workspace', `${flowId} flow starts at workspace`)
+  assert.equal(steps[1], 'mode', `${flowId} flow keeps the mode pivot second`)
+}
+
+// The novice critical paths stay short.
+assert.deepEqual(STEPS_BY_MODE.sprintengine, ['workspace', 'mode', 'sprintengine-team', 'sprintengine-roster'])
+assert.deepEqual(STEPS_BY_MODE['guided-brief'], ['workspace', 'mode', 'guided-idea'])
+
 console.log('creation step flow tests passed')

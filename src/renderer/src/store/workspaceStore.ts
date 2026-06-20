@@ -2,7 +2,6 @@ import { create } from 'zustand'
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import type { IJsonModel } from 'flexlayout-react'
-import type { ModuleProfileId } from '../../../shared/modules/profiles'
 import type { OnboardingStep } from './onboardingState'
 import type {
   Workspace,
@@ -89,6 +88,10 @@ import {
   defaultWorkspaceMemoryConfig,
 } from './slices/memorySlice'
 import {
+  createCliAvailabilitySlice,
+  type CliAvailabilitySlice,
+} from './slices/cliAvailabilitySlice'
+import {
   createPluginsSlice,
   type PluginsSlice,
 } from './slices/pluginsSlice'
@@ -131,7 +134,7 @@ import type { WorkspaceRegistryEmptyState } from '../types/workspace'
 
 migrateLegacyWorkspaceStorageKey()
 
-export interface WorkspaceStore extends PluginsSlice {
+export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
   workspaceWindows: WorkspaceWindowState[]
@@ -220,7 +223,6 @@ export interface WorkspaceStore extends PluginsSlice {
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   /** Write one value in a module's `module:<id>` settings namespace; `undefined` deletes the key. */
   setModuleSettingValue: (moduleId: string, key: string, value: unknown) => void
-  applyModuleProfile: (profileId: ModuleProfileId) => void
   setModulesChosen: (chosen: boolean) => void
   setOnboardingStep: (step: OnboardingStep) => void
   advanceOnboarding: () => void
@@ -1089,6 +1091,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       ...createWorktreesSlice(set),
       ...createMemorySlice(set),
       ...createPluginsSlice(set),
+      ...createCliAvailabilitySlice(set),
       ...createWorkspacesSlice(set, workspacesSliceDeps),
     })),
     {
@@ -1161,7 +1164,15 @@ function scheduleInitialPluginCatalogRefresh(): void {
   if (typeof window === 'undefined') return
   if (!window.api || typeof window.api.pluginsList !== 'function') return
   queueMicrotask(() => {
-    void useWorkspaceStore.getState().refreshPluginCatalog()
+    const store = useWorkspaceStore.getState()
+    void store.refreshPluginCatalog()
+    // Detect which agent CLI binaries are actually installed so deployment
+    // pickers/defaults can hide and avoid defaulting to uninstalled agents.
+    if (typeof window.api?.pluginsDetectAvailability === 'function') {
+      void store.refreshCliAvailability({
+        cliRuntimes: store.appSettings.cliRuntimes,
+      })
+    }
   })
 }
 

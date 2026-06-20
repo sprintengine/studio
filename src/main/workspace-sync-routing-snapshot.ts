@@ -50,6 +50,7 @@ export function createWorkspaceSyncRoutingSnapshotStore(options: {
           sequence,
           primaryWorkspaceWindowId: parsed.primaryWorkspaceWindowId,
           workspaceWindows: parsed.workspaceWindows.filter(isWorkspaceWindowState),
+          workspaceNames: sanitizeWorkspaceNames(parsed.workspaceNames),
         }
       } catch (error) {
         options.logDiagnostic?.({
@@ -69,6 +70,15 @@ export function createWorkspaceSyncRoutingSnapshotStore(options: {
       renameSync(tmp, path)
     },
   }
+}
+
+function sanitizeWorkspaceNames(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const result: Record<string, string> = {}
+  for (const [id, name] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof name === 'string' && name.trim()) result[id] = name
+  }
+  return Object.keys(result).length > 0 ? result : undefined
 }
 
 function isWorkspaceWindowState(value: unknown): value is WorkspaceWindowState {

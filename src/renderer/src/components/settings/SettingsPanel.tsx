@@ -4,6 +4,7 @@ import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { RegisteredSettingsSection } from '../../modules/renderer-host'
 import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
 import type {
+  CliAvailability,
   McpCatalogServer,
   McpSettings,
   PluginCatalogEntry,
@@ -28,9 +29,11 @@ import {
   CloseIconButton,
   Field,
   GhostButton,
+  LifecycleGlyph,
   PrimaryButton,
   Select,
   type SelectItem,
+  Spinner,
   StatusDot,
   Switch,
   type Tone,
@@ -299,29 +302,23 @@ function StatusTag({
   )
 }
 
-// Per-plugin model configuration: a default model for new launches plus the
-// user-extended model id list. Rendered only when the plugin declares
-// modelSelection — without declared launch args a model could not be passed.
-// Terminal CLIs expose no live model catalog, so the user list is how new
-// models are adopted between plugin updates.
+// Per-plugin custom model ids. Multicode does not persist an app-level default
+// model (the CLI's own default is used when no per-surface override is set), so
+// this is purely the user-extended id list. Rendered only when the plugin
+// declares modelSelection with `allowCustomId` — without declared launch args a
+// model could not be passed, and terminal CLIs expose no live model catalog, so
+// this list is how new models are adopted between plugin updates. Rendered
+// inline inside the per-plugin configuration disclosure.
 function PluginModelSettings({
-  pluginId,
   displayName,
-  modelSelection,
   userModels,
   onUserModelsChange,
 }: {
-  pluginId: string
   displayName: string
-  modelSelection: NonNullable<PluginCatalogEntry['modelSelection']>
   userModels: string[]
   onUserModelsChange: (models: string[]) => void
 }) {
   const [draftModel, setDraftModel] = useState('')
-  // Custom ids are a lower-frequency task than picking a default; they
-  // collapse to a count until opened.
-  const [userModelsOpen, setUserModelsOpen] = useState(false)
-  const userModelsListId = `cli-user-models-${pluginId}`
   const addDraftModel = (): void => {
     const model = draftModel.trim()
     if (!model) return
@@ -329,63 +326,40 @@ function PluginModelSettings({
     setDraftModel('')
   }
   return (
-    <>
-      {modelSelection.allowCustomId ? (
-        <div className="py-2.5 last:pb-0">
-          <button
-            type="button"
-            onClick={() => setUserModelsOpen((open) => !open)}
-            aria-expanded={userModelsOpen}
-            aria-controls={userModelsListId}
-            className="interactive flex w-full items-center justify-between gap-4 rounded-[5px] text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
-          >
-            <span className="flex items-center gap-1.5 text-[13px] font-medium text-[color:var(--text-strong)]">
-              <span
-                aria-hidden="true"
-                className={`text-[color:var(--text-subtle)] transition-transform ${userModelsOpen ? 'rotate-90' : ''}`}
-              >
-                ›
-              </span>
-              Custom model ids
+    <div className="py-2.5 first:pt-0 last:pb-0">
+      <div className="text-[13px] font-medium text-[color:var(--text-strong)]">Custom model ids</div>
+      <div className="mt-2 space-y-1">
+        {userModels.map((model) => (
+          <div key={model} className="group -mx-1 flex h-8 items-center gap-2 rounded px-1">
+            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-[color:var(--text-default)]">
+              {model}
             </span>
-            <span className="tabular-nums text-[12px] text-[color:var(--text-muted)]">{userModels.length}</span>
-          </button>
-          {userModelsOpen ? (
-            <div id={userModelsListId} className="mt-2 space-y-1">
-              {userModels.map((model) => (
-                <div key={model} className="group -mx-1 flex h-8 items-center gap-2 rounded px-1">
-                  <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-[color:var(--text-default)]">
-                    {model}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onUserModelsChange(userModels.filter((id) => id !== model))}
-                    className="invisible rounded px-1.5 py-0.5 text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] focus-visible:visible group-focus-within:visible group-hover:visible"
-                  >
-                    Remove
-                    <span className="sr-only"> {model} from {displayName} models</span>
-                  </button>
-                </div>
-              ))}
-              <input
-                type="text"
-                value={draftModel}
-                aria-label={`Add a model id for ${displayName}`}
-                placeholder="Add model id and press Enter"
-                onChange={(event) => setDraftModel(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    addDraftModel()
-                  }
-                }}
-                className={`${ROW_INPUT_CLASS} w-full`}
-              />
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </>
+            <button
+              type="button"
+              onClick={() => onUserModelsChange(userModels.filter((id) => id !== model))}
+              className="invisible rounded px-1.5 py-0.5 text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] focus-visible:visible group-focus-within:visible group-hover:visible"
+            >
+              Remove
+              <span className="sr-only"> {model} from {displayName} models</span>
+            </button>
+          </div>
+        ))}
+        <input
+          type="text"
+          value={draftModel}
+          aria-label={`Add a model id for ${displayName}`}
+          placeholder="Add model id and press Enter"
+          onChange={(event) => setDraftModel(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              addDraftModel()
+            }
+          }}
+          className={`${ROW_INPUT_CLASS} w-full`}
+        />
+      </div>
+    </div>
   )
 }
 
@@ -502,6 +476,95 @@ function RegistrySwitchRow({
   )
 }
 
+// Compact, glanceable CLI tile: icon + name + source, then a one-line detection
+// status (a Spinner while probing, else a shape-coded LifecycleGlyph + terse
+// text). A missing CLI surfaces an inline Install button; everything else
+// (command override, models, custom ids) lives in the detail the card opens. The
+// card is a disclosure button that reveals that detail below the grid; the
+// nested Install button stops propagation so it acts without toggling the card.
+function CliCard({
+  plugin,
+  availability,
+  detecting,
+  selected,
+  detailId,
+  onToggle,
+  onInstall,
+}: {
+  plugin: PluginCatalogEntry
+  availability: CliAvailability | undefined
+  detecting: boolean
+  selected: boolean
+  detailId: string
+  onToggle: () => void
+  onInstall: () => void
+}) {
+  const installed = availability?.installed === true
+  const version = availability?.version ?? null
+  const statusText = detecting ? 'Checking…' : installed ? `Detected${version ? ` · ${version}` : ''}` : 'Not found'
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-expanded={selected}
+      aria-controls={detailId}
+      onClick={onToggle}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onToggle()
+        }
+      }}
+      className={`group relative cursor-pointer rounded-[var(--radius-md)] border p-3 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+        selected
+          ? 'border-[color:var(--accent-primary)] bg-[color:var(--bg-surface-raised)]'
+          : 'border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] hover:bg-[color:var(--bg-hover)]'
+      }`}
+    >
+      {selected ? (
+        <span
+          aria-hidden="true"
+          className="absolute inset-x-0 top-0 h-[3px] rounded-t-[var(--radius-md)] bg-[color:var(--accent-primary)]"
+        />
+      ) : null}
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-2 text-[13px] font-semibold text-[color:var(--text-strong)]">
+          <CliIcon cli={plugin.id} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
+          <span className="truncate">{plugin.displayName}</span>
+        </span>
+        <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">
+          {plugin.source === 'bundled' ? 'Built-in' : 'User'}
+        </span>
+      </div>
+      <div className="mt-2.5 flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
+          {detecting ? (
+            <Spinner className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
+          ) : (
+            <LifecycleGlyph
+              state={installed ? 'done' : 'needs_input'}
+              label={installed ? `${plugin.displayName} detected` : `${plugin.displayName} not installed`}
+            />
+          )}
+          <span className="truncate">{statusText}</span>
+        </span>
+        {!detecting && !installed ? (
+          <PrimaryButton
+            size="sm"
+            className="h-7 shrink-0"
+            onClick={(event) => {
+              event.stopPropagation()
+              onInstall()
+            }}
+          >
+            Install
+          </PrimaryButton>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 function CompoundSwitchRow({
   label,
   description,
@@ -559,6 +622,11 @@ export default function SettingsPanel({
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const pluginCatalogError = useWorkspaceStore((s) => s.pluginCatalogError)
   const refreshPluginCatalog = useWorkspaceStore((s) => s.refreshPluginCatalog)
+  const refreshCliAvailability = useWorkspaceStore((s) => s.refreshCliAvailability)
+  // Detection map shared with the deployment pickers — drives the at-a-glance
+  // status on each CLI card without a per-card probe.
+  const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
+  const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
   const installedPluginRows = useMemo(
     () => orderInstalledPlugins(pluginCatalogEntries),
     [pluginCatalogEntries],
@@ -650,6 +718,11 @@ export default function SettingsPanel({
   const [roleInstallMessage, setRoleInstallMessage] = useState<RoleInstallMessage>(null)
   const [cliInstallPending, setCliInstallPending] = useState(false)
   const [cliInstallMessage, setCliInstallMessage] = useState<RoleInstallMessage>(null)
+  // The CLI card whose detail panel is open (null = grid only). `installIntentId`
+  // marks a card whose Install button was pressed, so its detail opens straight
+  // into the install flow.
+  const [selectedCliId, setSelectedCliId] = useState<string | null>(null)
+  const [installIntentId, setInstallIntentId] = useState<string | null>(null)
   const [userRoles, setUserRoles] = useState<Array<{ id: string; label: string; summary?: string }>>([])
   const [globalInstallPending, setGlobalInstallPending] = useState(false)
   const [globalInstallMessage, setGlobalInstallMessage] = useState<RoleInstallMessage>(null)
@@ -672,6 +745,13 @@ export default function SettingsPanel({
       window.requestAnimationFrame(() => tabRefs.current[initialTab]?.focus())
     }
   }, [initialTab])
+
+  // Refresh CLI detection when the Agents tab opens so each card shows current
+  // status. Cache-respecting (no force), so it's a cheap no-op when fresh.
+  useEffect(() => {
+    if (activeSettingsTab !== 'agents') return
+    void refreshCliAvailability({ cliRuntimes })
+  }, [activeSettingsTab, refreshCliAvailability, cliRuntimes])
 
   // If the active tab is no longer visible (e.g. the Mobile module was disabled
   // while its tab was active), fall back to the first visible tab so the panel
@@ -1627,39 +1707,29 @@ export default function SettingsPanel({
           role="tabpanel"
           id="settings-panel-agents"
           aria-labelledby="settings-tab-agents"
-          className="space-y-5"
+          className="space-y-3"
         >
+          <SettingsSectionTitle
+            count={pluginCatalogStatus === 'ready' ? installedPluginRows.length : undefined}
+            action={
+              <GhostButton
+                size="md"
+                onClick={() => void installCliFromFolder()}
+                disabled={cliInstallPending}
+                className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              >
+                {cliInstallPending ? 'Installing' : 'Install CLI from folder'}
+              </GhostButton>
+            }
+          >
+            Installed CLIs
+          </SettingsSectionTitle>
           <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            Installed plugins define which agent CLIs are available. These fields only override how each
-            one is invoked. Leave a command blank to use the plugin's bundled binary, or enter a full
-            executable path if the CLI is not on PATH.
+            The agent CLIs Multicode can launch. Select one to check its status or change how it runs.
           </p>
-
-          <div className="space-y-2">
-            <SettingsSectionTitle
-              action={
-                <GhostButton
-                  size="md"
-                  onClick={() => void installCliFromFolder()}
-                  disabled={cliInstallPending}
-                  className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-                >
-                  {cliInstallPending ? 'Installing' : 'Install CLI from folder'}
-                </GhostButton>
-              }
-            >
-              Add a CLI
-            </SettingsSectionTitle>
-            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-              Install a plugin folder (a <span className="font-mono text-[color:var(--text-default)]">plugin.json</span>{' '}
-              describing how to launch the CLI) to add a new agent CLI, or drop one into{' '}
-              <span className="font-mono text-[color:var(--text-default)]">~/.multicode/plugins</span>. See the README
-              there, or author against <span className="font-mono text-[color:var(--text-default)]">@multicode/module-sdk</span>.
-            </p>
-            {cliInstallMessage ? (
-              <MessageBlock tone={cliInstallMessage.tone}>{cliInstallMessage.text}</MessageBlock>
-            ) : null}
-          </div>
+          {cliInstallMessage ? (
+            <MessageBlock tone={cliInstallMessage.tone}>{cliInstallMessage.text}</MessageBlock>
+          ) : null}
 
           {pluginCatalogStatus === 'loading' && installedPluginRows.length === 0 ? (
             <MessageBlock tone="neutral">Loading installed agent plugins…</MessageBlock>
@@ -1686,44 +1756,52 @@ export default function SettingsPanel({
               </GhostButton>
             </div>
           ) : (
-            installedPluginRows.map((plugin) => {
-              const override = cliRuntimeForPlugin(plugin.id, cliRuntimes)
-              return (
-                <section key={plugin.id} aria-label={plugin.displayName} className="pt-2 first-of-type:pt-0">
-                  <SettingsSectionTitle
-                    action={
-                      <span className="text-[11px] text-[color:var(--text-subtle)]">
-                        {plugin.source === 'bundled' ? 'Built-in' : 'User plugin'}
-                      </span>
-                    }
-                  >
-                    <span className="flex items-center gap-2">
-                      <CliIcon cli={plugin.id} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
-                      {plugin.displayName}
-                    </span>
-                  </SettingsSectionTitle>
+            <>
+              {/* Calm card grid: one box per CLI showing only name + detection +
+                  Install. Configuration (command override, models) lives in the
+                  detail a card opens, so the resting view stays scannable. */}
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {installedPluginRows.map((plugin) => {
+                  const detailId = `cli-detail-${plugin.id}`
+                  const detecting = cliAvailabilityStatus === 'loading' && !cliAvailability[plugin.id]
+                  return (
+                    <CliCard
+                      key={plugin.id}
+                      plugin={plugin}
+                      availability={cliAvailability[plugin.id]}
+                      detecting={detecting}
+                      selected={selectedCliId === plugin.id}
+                      detailId={detailId}
+                      onToggle={() => {
+                        setInstallIntentId(null)
+                        setSelectedCliId((current) => (current === plugin.id ? null : plugin.id))
+                      }}
+                      onInstall={() => {
+                        setInstallIntentId(plugin.id)
+                        setSelectedCliId(plugin.id)
+                      }}
+                    />
+                  )
+                })}
+              </div>
 
-                  <div className="mt-1 divide-y divide-[color:var(--border-subtle)]">
-                    <SettingsRow
-                      label="Command"
-                      help={
-                        <>
-                          Runs <span className="font-mono text-[color:var(--text-default)]">{plugin.binary}</span> when blank.
-                        </>
-                      }
-                      htmlFor={`cli-command-${plugin.id}`}
-                    >
-                      <input
-                        id={`cli-command-${plugin.id}`}
-                        // Per-plugin accessible name so screen readers don't announce an
-                        // identical "Command" for every row; the visible label stays compact.
-                        aria-label={`${plugin.displayName} command`}
-                        value={override.command}
-                        onChange={(event) => setCliRuntime(plugin.id, { command: event.target.value, useWsl: override.useWsl })}
-                        placeholder={plugin.binary}
-                        className={`${ROW_INPUT_CLASS} w-60`}
-                      />
-                    </SettingsRow>
+              {(() => {
+                const plugin = installedPluginRows.find((entry) => entry.id === selectedCliId)
+                if (!plugin) return null
+                const override = cliRuntimeForPlugin(plugin.id, cliRuntimes)
+                const declaredModels = plugin.modelSelection?.options ?? []
+                const allowCustomModels = Boolean(plugin.modelSelection?.allowCustomId)
+                const userModels = cliRuntimes?.[plugin.id]?.models ?? EMPTY_USER_MODELS
+                return (
+                  <div
+                    id={`cli-detail-${plugin.id}`}
+                    aria-label={`${plugin.displayName} details`}
+                    className="mt-3 border-t border-[color:var(--border-subtle)] pt-4"
+                  >
+                    <div className="flex items-center gap-2 text-[13px] font-semibold text-[color:var(--text-strong)]">
+                      <CliIcon cli={plugin.id} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
+                      <span className="truncate">{plugin.displayName}</span>
+                    </div>
 
                     <CliInstallControl
                       cli={plugin.id}
@@ -1731,34 +1809,70 @@ export default function SettingsPanel({
                       binary={plugin.binary}
                       command={override.command}
                       useWsl={override.useWsl}
+                      showName={false}
+                      autoOpenInstall={installIntentId === plugin.id}
                       onInstalled={(result) => {
                         if (result.resolvedPath && !override.command) {
                           setCliRuntime(plugin.id, { command: result.resolvedPath, useWsl: override.useWsl })
                         }
                         void refreshPluginCatalog()
+                        // Force-refresh availability so the freshly installed CLI
+                        // shows as detected on its card and in deployment pickers.
+                        void refreshCliAvailability({ force: true, cliRuntimes })
                       }}
                     />
 
-                    {isWindows && (
-                      <CompoundSwitchRow
-                        label={`Run ${plugin.displayName} through WSL`}
-                        checked={override.useWsl}
-                        onChange={(enabled) => setCliRuntime(plugin.id, { command: override.command, useWsl: enabled })}
-                      />
-                    )}
-                    {plugin.modelSelection ? (
-                      <PluginModelSettings
-                        pluginId={plugin.id}
-                        displayName={plugin.displayName}
-                        modelSelection={plugin.modelSelection}
-                        userModels={cliRuntimes?.[plugin.id]?.models ?? EMPTY_USER_MODELS}
-                        onUserModelsChange={(models) => setCliRuntime(plugin.id, { models })}
-                      />
+                    {declaredModels.length > 0 ? (
+                      <div className="mt-2 flex gap-2 text-[12px] leading-5">
+                        <span className="shrink-0 text-[color:var(--text-muted)]">Models</span>
+                        <span className="min-w-0 font-mono text-[color:var(--text-default)]">
+                          {declaredModels.map((model) => model.label ?? model.id).join(' · ')}
+                        </span>
+                      </div>
                     ) : null}
+
+                    <div className="mt-2 divide-y divide-[color:var(--border-subtle)]">
+                      <SettingsRow
+                        label="Command override"
+                        help={
+                          <>
+                            Runs <span className="font-mono text-[color:var(--text-default)]">{plugin.binary}</span> when blank.
+                          </>
+                        }
+                        htmlFor={`cli-command-${plugin.id}`}
+                      >
+                        <input
+                          id={`cli-command-${plugin.id}`}
+                          // Per-plugin accessible name so screen readers don't announce an
+                          // identical "Command override" for every CLI.
+                          aria-label={`${plugin.displayName} command override`}
+                          value={override.command}
+                          onChange={(event) => setCliRuntime(plugin.id, { command: event.target.value, useWsl: override.useWsl })}
+                          placeholder={plugin.binary}
+                          className={`${ROW_INPUT_CLASS} w-60`}
+                        />
+                      </SettingsRow>
+
+                      {isWindows && (
+                        <CompoundSwitchRow
+                          label={`Run ${plugin.displayName} through WSL`}
+                          checked={override.useWsl}
+                          onChange={(enabled) => setCliRuntime(plugin.id, { command: override.command, useWsl: enabled })}
+                        />
+                      )}
+
+                      {allowCustomModels ? (
+                        <PluginModelSettings
+                          displayName={plugin.displayName}
+                          userModels={userModels}
+                          onUserModelsChange={(models) => setCliRuntime(plugin.id, { models })}
+                        />
+                      ) : null}
+                    </div>
                   </div>
-                </section>
-              )
-            })
+                )
+              })()}
+            </>
           )}
         </div>
       ) : null}

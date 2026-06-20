@@ -36,8 +36,6 @@ import {
 import { SPECIALIST_ACTIONS } from '../../specialists/specialistActions'
 import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
-import { moduleProfile, profileOverrides, type ModuleProfileId } from '../../../../shared/modules/profiles'
-import { OPTIONAL_MODULE_IDS } from '../../modules'
 import { collapseDuplicateKeybindings } from '../../commands/keybindings'
 
 export const MAX_RECENT_WORKSPACE_FOLDERS = 50
@@ -860,7 +858,6 @@ export interface SettingsSliceActions {
    * so values survive a disable/enable cycle.
    */
   setModuleSettingValue: (moduleId: string, key: string, value: unknown) => void
-  applyModuleProfile: (profileId: ModuleProfileId) => void
   setModulesChosen: (chosen: boolean) => void
   /** Set the onboarding step explicitly. */
   setOnboardingStep: (step: OnboardingStep) => void
@@ -1262,13 +1259,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
           entry[settingKey] = value
         }
         state.appSettings.moduleSettings = { ...current, [namespace]: entry }
-      }),
-
-    applyModuleProfile: (profileId) =>
-      set((state) => {
-        const profile = moduleProfile(profileId)
-        if (!profile) return
-        state.appSettings.modules = profileOverrides(profile, OPTIONAL_MODULE_IDS)
       }),
 
     setModulesChosen: (chosen) =>

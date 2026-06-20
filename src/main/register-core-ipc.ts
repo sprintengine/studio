@@ -41,6 +41,7 @@ import { openDiagnosticsLogsFolder, writeDiagnosticLog } from './diagnostics-ser
 import { readMultiloopPrompt, readSpecialistSoul } from './souls-service'
 
 export type CoreIpcOptions = {
+  includeDevModules?: boolean
   applyModuleEnablementLive?: ModuleEnablementLiveApplier
 }
 
@@ -63,7 +64,11 @@ export function registerCoreIpc(
   registerWorkspaceBackupIpc(ipcMain, services.workspaceBackupService)
   registerClipboardIpc(ipcMain)
   registerCliRuntimeIpc(ipcMain)
-  registerVoiceIpc(ipcMain)
+  // Voice dictation is a dev-only capability (the `voice-dictation` module). Its
+  // main IPC is not yet a capability module, so gate it on the build channel
+  // here so `voice:transcribe` is genuinely absent in a packaged build, not just
+  // orphaned behind a hidden renderer surface.
+  if (options.includeDevModules ?? true) registerVoiceIpc(ipcMain)
   registerAuthIpc(ipcMain, services.multicodeAuth)
   registerBuiltinSkillsIpc(ipcMain, services.builtinSkillManager)
   registerMcpIpc(ipcMain, services.mcpConfigService)

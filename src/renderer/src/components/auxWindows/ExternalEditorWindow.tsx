@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import MonacoEditor from '@monaco-editor/react'
 import { detectLanguage } from '../../utils/files'
 import { MONO_FONT_STACK } from '../../utils/fonts'
+import { renderMarkdown } from '../../utils/markdown'
+import { IconButton, Tooltip } from '../ui'
 import {
   createExternalFileLoadingBuffer,
   createExternalFileTab,
@@ -10,6 +12,11 @@ import {
   type ExternalFileBuffer,
   type ExternalFileTab,
 } from './externalEditorFile'
+
+// Match EditorPanel: above this size the rendered preview is disabled and the
+// file falls back to the Monaco source view so a huge document can't hang the
+// markdown renderer.
+const MARKDOWN_PREVIEW_MAX_CHARS = 2 * 1024 * 1024
 
 // One open file in the external editor window. Content is read off disk and
 // edited in place; `saved` is the on-disk baseline used to derive the dirty dot.
@@ -38,6 +45,9 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
   const [tabs, setTabs] = useState<FileTab[]>([])
   const [activePath, setActivePath] = useState<string | null>(null)
   const [buffers, setBuffers] = useState<Record<string, FileBuffer>>({})
+  // Markdown files default to the rendered preview; the toggle drops to the
+  // Monaco source view for editing, mirroring the in-app EditorPanel.
+  const [markdownMode, setMarkdownMode] = useState<'preview' | 'source'>('preview')
   const tabsRef = useRef<FileTab[]>([])
   tabsRef.current = tabs
   const buffersRef = useRef<Record<string, FileBuffer>>({})
@@ -65,6 +75,18 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
 
   const activeTab = tabs.find((tab) => tab.path === activePath) ?? null
   const activeBuffer = activePath ? buffers[activePath] : undefined
+  const activeTextBuffer =
+    activeBuffer && !activeBuffer.loading && activeBuffer.kind === 'text' ? activeBuffer : null
+  const isMarkdown = activeTab ? detectLanguage(activeTab.name) === 'markdown' : false
+  const markdownPreviewTooLarge =
+    isMarkdown && !!activeTextBuffer && activeTextBuffer.value.length > MARKDOWN_PREVIEW_MAX_CHARS
+  const showPreview = isMarkdown && !!activeTextBuffer && markdownMode === 'preview' && !markdownPreviewTooLarge
+
+  // Land on the rendered preview each time a markdown file becomes active, so
+  // opening one shows the formatted document rather than the last source view.
+  useEffect(() => {
+    if (isMarkdown) setMarkdownMode('preview')
+  }, [activePath, isMarkdown])
 
   const closeTab = useCallback(
     (path: string) => {
@@ -129,12 +151,21 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
     closeTab(activeTab.path)
   }, [activeTab, closeTab, saveBuffer])
 
-  // Cmd/Ctrl+S saves the active file; the editor itself is the focus target.
+  // Cmd/Ctrl+S saves the active file; Escape dismisses the window. Escape is
+  // guarded by the same no-silent-discard rule the tab close affordance uses:
+  // with unsaved edits in any tab it does nothing, so the file is saved or
+  // docked first rather than lost to a single keypress.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
         event.preventDefault()
         saveActive()
+        return
+      }
+      if (event.key === 'Escape') {
+        if (tabsRef.current.some((tab) => isDirty(buffersRef.current[tab.path]))) return
+        event.preventDefault()
+        void window.api.windowClose()
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -208,7 +239,40 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
       </div>
 
       <div className="relative min-h-0 flex-1">
-        {renderBody(activeTab, activeBuffer, activePath, setBuffers)}
+        {isMarkdown && activeTextBuffer ? (
+          <div className="absolute right-3 top-3 z-10">
+            <Tooltip
+              content={
+                markdownPreviewTooLarge
+                  ? 'Markdown preview disabled for large files'
+                  : showPreview
+                    ? 'Edit Markdown source'
+                    : 'Preview Markdown'
+              }
+              placement="bottom"
+            >
+              <IconButton
+                aria-label={showPreview ? 'Edit Markdown source' : 'Preview Markdown'}
+                onClick={() => setMarkdownMode((mode) => (mode === 'preview' ? 'source' : 'preview'))}
+                disabled={markdownPreviewTooLarge}
+                className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]"
+              >
+                {showPreview ? (
+                  <svg viewBox="0 0 16 16" className="icon-sm" fill="none" aria-hidden="true">
+                    <path d="M2.5 11.75L2.5 13.5h1.75L12 5.75 10.25 4 2.5 11.75z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+                    <path d="M9.25 5L11 6.75" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 16 16" className="icon-sm" fill="none" aria-hidden="true">
+                    <path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4S1.5 8 1.5 8z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+                    <circle cx="8" cy="8" r="1.75" stroke="currentColor" strokeWidth="1.4" />
+                  </svg>
+                )}
+              </IconButton>
+            </Tooltip>
+          </div>
+        ) : null}
+        {renderBody(activeTab, activeBuffer, activePath, setBuffers, showPreview)}
       </div>
     </div>
   )
@@ -218,7 +282,8 @@ function renderBody(
   activeTab: FileTab | null,
   buffer: FileBuffer | undefined,
   activePath: string | null,
-  setBuffers: React.Dispatch<React.SetStateAction<Record<string, FileBuffer>>>
+  setBuffers: React.Dispatch<React.SetStateAction<Record<string, FileBuffer>>>,
+  showPreview: boolean
 ): React.ReactNode {
   if (!activeTab || !activePath) {
     return (
@@ -259,6 +324,13 @@ function renderBody(
             draggable={false}
           />
         </div>
+      </div>
+    )
+  }
+  if (showPreview) {
+    return (
+      <div className="h-full overflow-y-auto bg-[color:var(--bg-app)] px-8 pb-8 pt-14">
+        <div className="mx-auto max-w-4xl">{renderMarkdown(buffer.value)}</div>
       </div>
     )
   }

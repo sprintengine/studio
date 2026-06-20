@@ -51,8 +51,8 @@ const expectedTemplates: Record<string, LayoutTemplate> = {
   },
   'guided-brief': {
     id: 'guided-brief-mode',
-    name: 'Guided Brief',
-    description: 'Product brief, mockups, and build handoff before implementation.',
+    name: 'Design Wizard',
+    description: 'Plan, mockups, and build handoff before implementation.',
     previewSlots: [
       { label: 'Brief', x: 4, y: 4, w: 140, h: 102, type: 'editor' },
       { label: 'Strategist', x: 148, y: 4, w: 148, h: 48, type: 'agent' },
@@ -69,7 +69,7 @@ const expectedTemplates: Record<string, LayoutTemplate> = {
             weight: 100,
             enableTabStrip: false,
             children: [
-              { type: 'tab', name: 'Guided Brief', component: 'guided-brief', enableClose: false },
+              { type: 'tab', name: 'Design Wizard', component: 'guided-brief', enableClose: false },
             ],
           },
         ],
@@ -240,8 +240,8 @@ assert.deepEqual(
     {
       id: 'guided-brief',
       moduleId: 'sprint-engine',
-      label: 'Guided brief',
-      description: 'Answer questions. We produce a brief, screens, and a build handoff before any code starts.',
+      label: 'Design Wizard',
+      description: 'Describe your idea in plain words. We turn it into a plan, screens, and a build — no setup needed.',
       accentToken: '--accent-primary',
       creationStepsId: 'guided-brief',
     },
