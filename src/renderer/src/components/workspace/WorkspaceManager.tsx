@@ -712,12 +712,17 @@ export default function WorkspaceManager() {
   }
 
   useEffect(() => {
-    if (tipModalDecidedRef.current) return
-    // Defer the startup tips while first-run onboarding is active so the tip
-    // modal never overlays/intercepts the onboarding overlay (fresh launch or a
-    // mid-onboarding reload). Once onboarding reaches 'complete' this re-runs and
+    // Startup tips must never overlay first-run onboarding. While onboarding is
+    // active (fresh launch or a mid-onboarding reload), keep the tip modal
+    // actively closed — clearing it rather than just deferring guarantees no
+    // lingering open state can sit behind the render gate. The one-shot decision
+    // is also held back, so once onboarding reaches 'complete' this re-runs and
     // shows the tips once, as it does for existing installs that skip onboarding.
-    if (onboardingStep !== 'complete') return
+    if (onboardingStep !== 'complete') {
+      setTipModalOpen(false)
+      return
+    }
+    if (tipModalDecidedRef.current) return
     tipModalDecidedRef.current = true
     if (!showTipsOnStartup) return
     setTipModalOpen(true)
