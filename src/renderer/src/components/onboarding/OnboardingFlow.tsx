@@ -5,14 +5,17 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { GhostButton, PrimaryButton } from '../ui'
 import { ModuleToggleList } from '../settings/ModuleControls'
 import { CliInstallControl } from '../settings/CliInstallControl'
+import { AppThemePicker } from '../settings/AppThemePicker'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 
 // First-run onboarding (Phase 9). A guided, branded sequence for a fresh install:
-//   welcome → modules (choose plugins) → workspace (NewWorkspacePanel)
-// This component owns the welcome + modules steps as a centered overlay; the
-// workspace step is the existing NewWorkspacePanel, revealed by WorkspaceManager
-// once the step advances. There is nothing usable behind it on a fresh install,
-// so the only way forward is the primary button — no Escape/backdrop dismiss.
+//   welcome → theme → essentials → modules → workspace → first-run → complete
+// This component owns the overlay steps (welcome, theme, essentials, modules,
+// first-run) as a centered dialog; the workspace step is the existing
+// NewWorkspacePanel, revealed by WorkspaceManager once the step advances. The
+// first-run step renders AFTER workspace creation as the activation payoff. There
+// is nothing usable behind the overlay on a fresh install, so the only way
+// forward is the primary button — no Escape/backdrop dismiss.
 //
 // Built to knowledge/brand: ink-scale surface, one accent (the primary CTA),
 // hairlines (no cards), sentence-case copy, the brand wordmark on welcome.
@@ -25,9 +28,14 @@ export default function OnboardingFlow() {
   const titleId = useId()
   const surfaceRef = useRef<HTMLDivElement>(null)
 
-  // This component renders the welcome, modules, and cli steps as an overlay;
-  // the workspace step is the existing NewWorkspacePanel.
-  const visible = step === 'welcome' || step === 'modules' || step === 'cli'
+  // This component renders every onboarding step as an overlay EXCEPT workspace,
+  // which is the existing NewWorkspacePanel revealed by WorkspaceManager.
+  const visible =
+    step === 'welcome' ||
+    step === 'theme' ||
+    step === 'essentials' ||
+    step === 'modules' ||
+    step === 'first-run'
 
   useEffect(() => {
     if (!visible) return undefined
@@ -56,6 +64,10 @@ export default function OnboardingFlow() {
       >
         {step === 'welcome' ? (
           <WelcomeStep titleId={titleId} onContinue={advanceOnboarding} />
+        ) : step === 'theme' ? (
+          <ThemeStep titleId={titleId} onContinue={advanceOnboarding} />
+        ) : step === 'essentials' ? (
+          <EssentialsStep titleId={titleId} onContinue={advanceOnboarding} />
         ) : step === 'modules' ? (
           <ModulesStep
             titleId={titleId}
@@ -64,7 +76,7 @@ export default function OnboardingFlow() {
             onContinue={advanceOnboarding}
           />
         ) : (
-          <CliStep titleId={titleId} onContinue={advanceOnboarding} />
+          <FirstRunStep titleId={titleId} onContinue={advanceOnboarding} />
         )}
       </div>
     </div>
@@ -91,31 +103,28 @@ function WelcomeStep({ titleId, onContinue }: { titleId: string; onContinue: () 
   )
 }
 
-function ModulesStep({
-  titleId,
-  overrides,
-  onToggle,
-  onContinue,
-}: {
-  titleId: string
-  overrides: Parameters<typeof ModuleToggleList>[0]['overrides']
-  onToggle: Parameters<typeof ModuleToggleList>[0]['onToggle']
-  onContinue: () => void
-}) {
+// Theme step — reuses AppThemePicker verbatim against the existing
+// appSettings.appearance.theme / setAppearanceTheme action. Switching is live
+// (useAppTheme drives <html data-theme> from the same store value), so the
+// surface behind/around the picker updates immediately.
+function ThemeStep({ titleId, onContinue }: { titleId: string; onContinue: () => void }) {
+  const theme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
+  const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
+
   return (
     <>
       <div className="border-b border-[color:var(--border-subtle)] px-6 py-5">
         <h2 id={titleId} className="text-[15px] font-semibold text-[color:var(--text-strong)]">
-          What’s included
+          Pick a theme
         </h2>
         <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Everything’s switched on to start. Turn off anything you don’t need, or just continue —
-          you can change this anytime in Settings.
+          Choose how Multicode looks. It applies right away, and you can change it anytime in
+          Settings → Appearance.
         </p>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
-        <ModuleToggleList overrides={overrides} onToggle={onToggle} />
+        <AppThemePicker value={theme} onChange={setAppearanceTheme} />
       </div>
 
       <div className="flex justify-end border-t border-[color:var(--border-subtle)] px-6 py-4">
@@ -127,7 +136,11 @@ function ModulesStep({
   )
 }
 
-function CliStep({ titleId, onContinue }: { titleId: string; onContinue: () => void }) {
+// Essentials step — the agent-CLI setup that used to be its own `cli` step.
+// This step is the home for first-run tooling: T3 adds an "adopt existing agent
+// config" affordance and T4 adds an extensions teaser, each as a sibling section
+// in the scrollable body below. Keep those additions inside this body region.
+function EssentialsStep({ titleId, onContinue }: { titleId: string; onContinue: () => void }) {
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
@@ -148,6 +161,8 @@ function CliStep({ titleId, onContinue }: { titleId: string; onContinue: () => v
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-3">
+        {/* Section: agent CLIs. T3 (adopt existing config) and T4 (extensions
+            teaser) add their own sibling sections within this body region. */}
         {rows.length === 0 ? (
           <p className="py-6 text-center text-[12px] text-[color:var(--text-muted)]">
             No agent CLIs are available to install.
@@ -194,6 +209,72 @@ function CliStep({ titleId, onContinue }: { titleId: string; onContinue: () => v
             Continue
           </PrimaryButton>
         </div>
+      </div>
+    </>
+  )
+}
+
+function ModulesStep({
+  titleId,
+  overrides,
+  onToggle,
+  onContinue,
+}: {
+  titleId: string
+  overrides: Parameters<typeof ModuleToggleList>[0]['overrides']
+  onToggle: Parameters<typeof ModuleToggleList>[0]['onToggle']
+  onContinue: () => void
+}) {
+  return (
+    <>
+      <div className="border-b border-[color:var(--border-subtle)] px-6 py-5">
+        <h2 id={titleId} className="text-[15px] font-semibold text-[color:var(--text-strong)]">
+          What’s included
+        </h2>
+        <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+          Everything’s switched on to start. Turn off anything you don’t need, or just continue —
+          you can change this anytime in Settings.
+        </p>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        <ModuleToggleList overrides={overrides} onToggle={onToggle} />
+      </div>
+
+      <div className="flex justify-end border-t border-[color:var(--border-subtle)] px-6 py-4">
+        <PrimaryButton size="md" onClick={onContinue}>
+          Continue
+        </PrimaryButton>
+      </div>
+    </>
+  )
+}
+
+// First-run step — the activation payoff, rendered as an overlay AFTER the first
+// workspace is created (WorkspaceManager advances onboardingStep to 'first-run'
+// on creation). T6 fills the body with the real first-agent-run / command-palette
+// payoff; until then this scaffold confirms the workspace is ready and lets the
+// user finish onboarding. Keep T6's payoff inside the body region below.
+function FirstRunStep({ titleId, onContinue }: { titleId: string; onContinue: () => void }) {
+  return (
+    <>
+      <div className="border-b border-[color:var(--border-subtle)] px-6 py-5">
+        <h2 id={titleId} className="text-[15px] font-semibold text-[color:var(--text-strong)]">
+          Your workspace is ready
+        </h2>
+        <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+          That’s the setup done. Open your workspace to run your first agent.
+        </p>
+      </div>
+
+      {/* Slot: T6 plugs the real first-run activation payoff (first agent run /
+          command palette) into this body region. */}
+      <div className="flex-1 overflow-y-auto px-6 py-5" />
+
+      <div className="flex justify-end border-t border-[color:var(--border-subtle)] px-6 py-4">
+        <PrimaryButton size="md" onClick={onContinue}>
+          Open workspace
+        </PrimaryButton>
       </div>
     </>
   )

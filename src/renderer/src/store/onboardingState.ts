@@ -1,30 +1,42 @@
 // Phase 9 first-run onboarding — the pure state machine.
 //
-// A fresh install walks welcome → modules (choose plugins) → cli (detect/install
-// an agent CLI) → workspace (create the first one) → complete. The step is
-// persisted in AppSettings so a reload mid-onboarding resumes where it left off.
-// Kept pure (no React/store) so it's unit-testable; the OnboardingFlow component
-// and store wiring consume it.
+// A fresh install walks welcome → theme (pick an app theme) → essentials
+// (set up an agent CLI + adopt/extend) → modules (choose plugins) → workspace
+// (create the first one) → first-run (the activation payoff) → complete. The
+// step is persisted in AppSettings so a reload mid-onboarding resumes where it
+// left off. Kept pure (no React/store) so it's unit-testable; the OnboardingFlow
+// component and store wiring consume it.
 //
 // Built to the brand system — see OnboardingFlow for the UI.
 
-export type OnboardingStep = 'welcome' | 'modules' | 'cli' | 'workspace' | 'complete'
+export type OnboardingStep =
+  | 'welcome'
+  | 'theme'
+  | 'essentials'
+  | 'modules'
+  | 'workspace'
+  | 'first-run'
+  | 'complete'
 
 // Ordered; advancing walks this sequence and clamps at 'complete'.
 export const ONBOARDING_SEQUENCE: readonly OnboardingStep[] = [
   'welcome',
+  'theme',
+  'essentials',
   'modules',
-  'cli',
   'workspace',
+  'first-run',
   'complete',
 ]
 
 export function isOnboardingStep(value: unknown): value is OnboardingStep {
   return (
     value === 'welcome' ||
+    value === 'theme' ||
+    value === 'essentials' ||
     value === 'modules' ||
-    value === 'cli' ||
     value === 'workspace' ||
+    value === 'first-run' ||
     value === 'complete'
   )
 }

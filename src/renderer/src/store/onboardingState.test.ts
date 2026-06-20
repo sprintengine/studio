@@ -8,25 +8,33 @@ import {
 } from './onboardingState'
 
 function testAdvanceWalksSequenceAndClamps(): void {
-  assert.equal(advanceOnboardingStep('welcome'), 'modules')
-  assert.equal(advanceOnboardingStep('modules'), 'cli')
-  assert.equal(advanceOnboardingStep('cli'), 'workspace')
-  assert.equal(advanceOnboardingStep('workspace'), 'complete')
+  assert.equal(advanceOnboardingStep('welcome'), 'theme')
+  assert.equal(advanceOnboardingStep('theme'), 'essentials')
+  assert.equal(advanceOnboardingStep('essentials'), 'modules')
+  assert.equal(advanceOnboardingStep('modules'), 'workspace')
+  assert.equal(advanceOnboardingStep('workspace'), 'first-run')
+  assert.equal(advanceOnboardingStep('first-run'), 'complete')
   assert.equal(advanceOnboardingStep('complete'), 'complete', 'complete is terminal')
 }
 
 function testActiveUntilComplete(): void {
   assert.equal(isOnboardingActive('welcome'), true)
+  assert.equal(isOnboardingActive('theme'), true)
+  assert.equal(isOnboardingActive('essentials'), true)
   assert.equal(isOnboardingActive('modules'), true)
-  assert.equal(isOnboardingActive('cli'), true)
   assert.equal(isOnboardingActive('workspace'), true)
+  assert.equal(isOnboardingActive('first-run'), true)
   assert.equal(isOnboardingActive('complete'), false)
 }
 
 function testGuard(): void {
   assert.equal(isOnboardingStep('welcome'), true)
-  assert.equal(isOnboardingStep('cli'), true)
+  assert.equal(isOnboardingStep('theme'), true)
+  assert.equal(isOnboardingStep('essentials'), true)
+  assert.equal(isOnboardingStep('first-run'), true)
   assert.equal(isOnboardingStep('complete'), true)
+  // 'cli' was replaced by 'essentials' and is no longer a valid step.
+  assert.equal(isOnboardingStep('cli'), false)
   assert.equal(isOnboardingStep('nope'), false)
   assert.equal(isOnboardingStep(undefined), false)
   assert.equal(isOnboardingStep(2), false)
