@@ -53,6 +53,23 @@ export function advanceOnboardingStep(step: OnboardingStep): OnboardingStep {
   return ONBOARDING_SEQUENCE[Math.min(index + 1, ONBOARDING_SEQUENCE.length - 1)]
 }
 
+// Whether the one-shot startup tip should open when onboarding settles at its
+// terminal 'complete' step. A fresh install that walked through onboarding this
+// session suppresses the tip: the guided flow already delivered the activation
+// payoff, and stacking the (focus-untrapped) tip modal on the moment of
+// completion both doubles modals and leaks keyboard focus to the workspace
+// behind it. Existing installs reach 'complete' on the first render — never
+// active this session — so they still get the tip, gated only by the user's
+// show-on-startup preference. The suppression is per-session: the tip returns on
+// the next launch, where onboarding is 'complete' from the first render.
+export function shouldOpenStartupTipOnComplete(input: {
+  onboardingActiveThisSession: boolean
+  showTipsOnStartup: boolean
+}): boolean {
+  if (input.onboardingActiveThisSession) return false
+  return input.showTipsOnStartup
+}
+
 // Resolve the starting step at hydration. A persisted, valid step wins (resume).
 // Otherwise: existing installs — those that already have workspaces or already
 // made a first-run module choice — are treated as 'complete' so an upgrade never

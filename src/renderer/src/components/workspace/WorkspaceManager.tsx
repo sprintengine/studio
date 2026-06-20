@@ -11,6 +11,7 @@ import SettingsOverlay from '../settings/SettingsOverlay'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { shouldOpenStartupTipOnComplete } from '../../store/onboardingState'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import { resolveAvailableAgentCli, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
@@ -358,6 +359,14 @@ export default function WorkspaceManager() {
   const [newWorkspacePanelInitialState, setNewWorkspacePanelInitialState] = useState<NewWorkspacePanelInitialState | null>(null)
   const [tipModalOpen, setTipModalOpen] = useState(false)
   const tipModalDecidedRef = useRef(false)
+  // True once onboarding has been observed active (any non-complete step) this
+  // session. A user who just walked through first-run onboarding should not be
+  // hit with the one-shot startup tip on top of the activation payoff — it both
+  // piles a second modal on the moment of completion and (because the tip Modal
+  // has no focus trap) lets Tab/Shift+Tab leak to the workspace terminal behind
+  // it. The tip returns to normal on the next launch, where onboardingStep is
+  // already 'complete' from the first render and this ref stays false.
+  const onboardingWasActiveRef = useRef(false)
   const showTipsOnStartup = useWorkspaceStore((s) => s.appSettings.learning?.showTipsOnStartup ?? true)
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const [showPalette, setShowPalette] = useState(false)
@@ -722,16 +731,25 @@ export default function WorkspaceManager() {
     // Startup tips must never overlay first-run onboarding. While onboarding is
     // active (fresh launch or a mid-onboarding reload), keep the tip modal
     // actively closed — clearing it rather than just deferring guarantees no
-    // lingering open state can sit behind the render gate. The one-shot decision
-    // is also held back, so once onboarding reaches 'complete' this re-runs and
-    // shows the tips once, as it does for existing installs that skip onboarding.
+    // lingering open state can sit behind the render gate.
     if (onboardingStep !== 'complete') {
+      onboardingWasActiveRef.current = true
       setTipModalOpen(false)
       return
     }
     if (tipModalDecidedRef.current) return
     tipModalDecidedRef.current = true
-    if (!showTipsOnStartup) return
+    // A fresh onboarding that just reached 'complete' this session skips the
+    // one-shot tip; existing installs (complete on the first render) still get
+    // it. See shouldOpenStartupTipOnComplete for the rationale.
+    if (
+      !shouldOpenStartupTipOnComplete({
+        onboardingActiveThisSession: onboardingWasActiveRef.current,
+        showTipsOnStartup,
+      })
+    ) {
+      return
+    }
     setTipModalOpen(true)
   }, [showTipsOnStartup, onboardingStep])
 
@@ -2242,12 +2260,9 @@ export default function WorkspaceManager() {
           onLaunchFirstAgent={() => createNewChat(activeWorkspace?.folderPath ?? undefined)}
           onOpenCommandPalette={() => {
             // The no-CLI payoff sends the user into the command palette as the
-            // learn-by-doing beat, then finishes onboarding. Completing onboarding
-            // would otherwise trigger the one-shot startup tip and cover the
-            // palette, so mark the tip decided (skip) for this transition. It is
-            // per-session, so the tip returns to normal on the next launch.
-            tipModalDecidedRef.current = true
-            setTipModalOpen(false)
+            // learn-by-doing beat, then finishes onboarding. The startup-tip
+            // effect already skips its one-shot for any onboarding completed this
+            // session (onboardingWasActiveRef), so the palette is never covered.
             runCommand('commandPalette.open')
           }}
         />

@@ -5,6 +5,7 @@ import {
   isOnboardingActive,
   isOnboardingStep,
   resolveInitialOnboardingStep,
+  shouldOpenStartupTipOnComplete,
 } from './onboardingState'
 
 function testAdvanceWalksSequenceAndClamps(): void {
@@ -67,9 +68,36 @@ function testInitialFreshVsExisting(): void {
   assert.equal(resolveInitialOnboardingStep({ persisted: 'garbage', hasWorkspaces: false }), 'welcome')
 }
 
+function testStartupTipGate(): void {
+  // Fresh install that walked through onboarding this session → suppress the
+  // tip even when the preference is on (it would stack a focus-untrapped modal
+  // on the activation payoff and leak focus to the workspace behind it).
+  assert.equal(
+    shouldOpenStartupTipOnComplete({ onboardingActiveThisSession: true, showTipsOnStartup: true }),
+    false,
+    'just-onboarded session suppresses the tip'
+  )
+  assert.equal(
+    shouldOpenStartupTipOnComplete({ onboardingActiveThisSession: true, showTipsOnStartup: false }),
+    false
+  )
+  // Existing install (never active this session) → tip follows the preference.
+  assert.equal(
+    shouldOpenStartupTipOnComplete({ onboardingActiveThisSession: false, showTipsOnStartup: true }),
+    true,
+    'existing install shows the tip when enabled'
+  )
+  assert.equal(
+    shouldOpenStartupTipOnComplete({ onboardingActiveThisSession: false, showTipsOnStartup: false }),
+    false,
+    'existing install respects show-on-startup off'
+  )
+}
+
 testAdvanceWalksSequenceAndClamps()
 testActiveUntilComplete()
 testGuard()
 testInitialResume()
 testInitialFreshVsExisting()
+testStartupTipGate()
 console.log('onboarding-state tests passed')
