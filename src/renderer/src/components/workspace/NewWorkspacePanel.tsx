@@ -72,7 +72,7 @@ import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { folderHintAutoSelectMode } from './newWorkspace/folderHintMode'
 import { CliPermissionPresetRow, PathRadio, RosterAndRunSettings } from './newWorkspace/WizardControls'
-import { pruneSprintEngineRoleCliDefaults, sprintEngineRosterMatchesTeam } from './newWorkspace/savedTeams'
+import { pruneSprintEngineRoleCliDefaults, resolveInitialSprintEngineRoster, sprintEngineRosterMatchesTeam } from './newWorkspace/savedTeams'
 import {
   resolveAvailableAgentCli,
   selectAgentCliCatalog,
@@ -218,12 +218,6 @@ const initialSprintEngineRoleCliDefaults: Required<SprintEngineRoleCliDefaults> 
 
 function cloneSprintEngineRoleCounts(roleCounts: SprintEngineRoleCounts): SprintEngineRoleCounts {
   return { ...roleCounts }
-}
-
-function sprintEngineRoleCountsFromSavedRoster(savedRoster: SprintEngineSavedRoster | null | undefined): SprintEngineRoleCounts {
-  return savedRoster?.roleCounts
-    ? cloneSprintEngineRoleCounts(savedRoster.roleCounts)
-    : cloneSprintEngineRoleCounts(initialSprintEngineRoleCounts)
 }
 
 function sprintEngineRoleCliDefaultsFromSavedRoster(
@@ -398,12 +392,15 @@ export default function NewWorkspacePanel({
   const sprintEngineTeams = sprintEngineRoleSettings.savedTeams ?? []
   const savedSprintEngineRoster = sprintEngineRoleSettings.savedRoster ?? null
   // Seed the wizard from the most recently selected team when one exists, else
-  // fall back to the legacy single saved roster.
-  const initialSprintEngineTeam =
-    sprintEngineTeams.find((team) => team.id === sprintEngineRoleSettings.lastSelectedTeamId) ?? null
-  const initialSprintEngineRoster: SprintEngineSavedRoster | null = initialSprintEngineTeam
-    ? { roleCounts: initialSprintEngineTeam.roleCounts, roleCliDefaults: initialSprintEngineTeam.roleCliDefaults }
-    : savedSprintEngineRoster
+  // the legacy single saved roster, else the built-in default — so the roster
+  // step opens pre-selected on a runnable team and is a single Continue.
+  const initialSprintEngineRoster = resolveInitialSprintEngineRoster({
+    savedTeams: sprintEngineTeams,
+    lastSelectedTeamId: sprintEngineRoleSettings.lastSelectedTeamId,
+    savedRoster: savedSprintEngineRoster,
+    defaultRoleCounts: initialSprintEngineRoleCounts,
+    defaultRoleCliDefaults: initialSprintEngineRoleCliDefaults,
+  })
 
   const initialFuturePlan = initialState?.futurePlanSource ?? null
   const initialMode: CreationMode =
@@ -473,14 +470,14 @@ export default function NewWorkspacePanel({
   const [seTeamNameTouched, setSeTeamNameTouched] = useState(Boolean(initialFuturePlan))
   const [seGoal, setSeGoal] = useState(initialFuturePlan?.goal ?? '')
   const [seRoleCounts, setSeRoleCounts] = useState<SprintEngineRoleCounts>(
-    () => sprintEngineRoleCountsFromSavedRoster(initialSprintEngineRoster),
+    () => cloneSprintEngineRoleCounts(initialSprintEngineRoster.roleCounts),
   )
   const [seRoleCliDefaults, setSeRoleCliDefaults] = useState<Required<SprintEngineRoleCliDefaults>>(
-    () => sprintEngineRoleCliDefaultsFromSavedRoster(initialSprintEngineRoster),
+    () => ({ ...initialSprintEngineRoster.roleCliDefaults }),
   )
   // Which saved team is currently loaded; null means a hand-tuned ("Custom") roster.
   const [seSelectedTeamId, setSeSelectedTeamId] = useState<string | null>(
-    () => initialSprintEngineTeam?.id ?? null,
+    () => initialSprintEngineRoster.selectedTeamId,
   )
   const [seAgentCliOverrides, setSeAgentCliOverrides] = useState<Record<AgentId, AgentCli>>({})
   // Explicit per-role launch model (string = explicit id, null = explicit CLI
