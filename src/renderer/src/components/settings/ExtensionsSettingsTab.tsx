@@ -169,10 +169,6 @@ export function ExtensionsSettingsTab({
 type ExtensionsSubTab = 'installed' | 'browse'
 const EXTENSIONS_SUBTAB_PREFIX = 'extensions-views'
 
-// Settings-overlay `initialTab` value that opens the Extensions tab on its Browse
-// sub-tab. SettingsPanel maps it to tab 'extensions' + initialSubTab 'browse'.
-export const EXTENSIONS_BROWSE_DEEPLINK = 'extensions:browse'
-
 function NoticeList({ notices }: { notices: SourceNotice[] }) {
   return (
     <div className="space-y-2">

@@ -2,37 +2,25 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { GhostButton, Spinner, StatusDot } from '../ui'
-import { mcpMonogram } from '../settings/McpCatalog'
-import { EXTENSIONS_BROWSE_DEEPLINK } from '../settings/ExtensionsSettingsTab'
-import {
-  type BrowseLoad,
-  type BrowseView,
-  componentKindLabels,
-  deriveBrowseView,
-} from '../settings/storefrontView'
+import { mcpMonogram } from '../settings/mcpMonogram'
+import { EXTENSIONS_BROWSE_DEEPLINK } from '../settings/extensionsRoute'
+import { componentKindLabels, deriveBrowseView, type BrowseLoad } from '../settings/storefrontView'
+import { deriveTeaserView } from './extensionsTeaserView'
 import type { MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
 
 // Essentials-step extensions teaser (T4). A lightweight discovery beat — not the
 // full Browse surface. It reuses the storefront view-model
 // (`readMarketplaceRegistry` → `deriveBrowseView`) so the entries shown are the
-// REAL registry's leading plugins, never sample/placeholder data, and it inherits
-// the same honest loading / offline / error / empty states. Its one-tap CTA opens
-// the real Settings → Extensions → Browse surface, where the existing verified
+// REAL registry's leading plugins, never sample/placeholder data, and inherits
+// its honest loading / offline / error / empty states. Its one-tap CTA opens the
+// real Settings → Extensions → Browse surface, where the existing verified
 // `installFlow` pipeline lives — the teaser never forks an install path of its
 // own. OnboardingFlow yields while that overlay is open, then returns to this step.
-
-// How many leading registry entries the teaser previews. Small on purpose: this
-// is a taste of what's available, not a catalog.
-const TEASER_LIMIT = 3
-
-// The leading entries to preview, pulled from a `ready` browse view. Featured
-// leads when present; otherwise the first categorized entries. Pure + exported
-// so the "real entries only" selection is unit-testable.
-export function selectTeaserPlugins(view: BrowseView, limit = TEASER_LIMIT): MarketplacePluginEntry[] {
-  if (view.status !== 'ready') return []
-  const lead = [...view.featured, ...view.groups.flatMap((group) => group.plugins)]
-  return lead.slice(0, limit)
-}
+//
+// Kept structurally lightweight: shared deep-link id + monogram + the teaser
+// state machine live in pure component-free modules (extensionsRoute /
+// mcpMonogram / extensionsTeaserView), so onboarding never pulls the lazy
+// Settings/Browse component graph into its bundle.
 
 export function ExtensionsTeaser() {
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
@@ -69,13 +57,11 @@ export function ExtensionsTeaser() {
     openSettingsOverlay({ initialTab: EXTENSIONS_BROWSE_DEEPLINK })
   }, [openSettingsOverlay])
 
-  const view = deriveBrowseView(load, '')
+  const view = deriveTeaserView(deriveBrowseView(load, ''))
 
-  // An old build with no registry IPC has nothing to tease — omit the section
-  // rather than show a dead control.
-  if (view.status === 'unsupported') return null
+  if (view.kind === 'hidden') return null
 
-  if (view.status === 'loading') {
+  if (view.kind === 'loading') {
     return (
       <TeaserSection>
         <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
@@ -86,7 +72,7 @@ export function ExtensionsTeaser() {
     )
   }
 
-  if (view.status === 'error') {
+  if (view.kind === 'error') {
     return (
       <TeaserSection>
         <p className="text-[12px] text-[color:var(--text-muted)]">
@@ -96,7 +82,7 @@ export function ExtensionsTeaser() {
     )
   }
 
-  if (view.status === 'offline') {
+  if (view.kind === 'offline') {
     return (
       <TeaserSection>
         <p className="text-[12px] text-[color:var(--text-muted)]">
@@ -106,16 +92,14 @@ export function ExtensionsTeaser() {
     )
   }
 
-  if (view.status === 'empty') {
+  if (view.kind === 'empty') {
     return (
       <TeaserSection>
+        {view.staleNotice ? <StaleNotice message={view.staleNotice} /> : null}
         <p className="text-[12px] text-[color:var(--text-muted)]">No extensions published yet.</p>
       </TeaserSection>
     )
   }
-
-  const plugins = selectTeaserPlugins(view)
-  if (plugins.length === 0) return null
 
   return (
     <TeaserSection labelledBy="extensions-teaser-heading">
@@ -133,12 +117,25 @@ export function ExtensionsTeaser() {
         </GhostButton>
       </div>
 
+      {view.staleNotice ? <div className="mt-2"><StaleNotice message={view.staleNotice} /></div> : null}
+
       <ul className="mt-2.5 divide-y divide-[color:var(--border-subtle)]">
-        {plugins.map((plugin) => (
+        {view.plugins.map((plugin) => (
           <TeaserRow key={plugin.id} plugin={plugin} />
         ))}
       </ul>
     </TeaserSection>
+  )
+}
+
+// Honest disclosure that the previewed list is a cached/seed fallback, not the
+// live registry — shape-coded (dot + text), never colour-only.
+function StaleNotice({ message }: { message: string }) {
+  return (
+    <p className="flex items-start gap-1.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+      <StatusDot tone="neutral" className="mt-1 shrink-0" />
+      <span>{message}</span>
+    </p>
   )
 }
 

@@ -44,7 +44,8 @@ import { KeyboardShortcutsTab } from './KeyboardShortcutsTab'
 import MobileSettingsTab from './MobileSettingsTab'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
-import { EXTENSIONS_BROWSE_DEEPLINK, ExtensionsSettingsTab } from './ExtensionsSettingsTab'
+import { ExtensionsSettingsTab } from './ExtensionsSettingsTab'
+import { EXTENSIONS_BROWSE_DEEPLINK } from './extensionsRoute'
 import {
   McpBrandIcon,
   McpCatalogBrowser,
