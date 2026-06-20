@@ -713,10 +713,15 @@ export default function WorkspaceManager() {
 
   useEffect(() => {
     if (tipModalDecidedRef.current) return
+    // Defer the startup tips while first-run onboarding is active so the tip
+    // modal never overlays/intercepts the onboarding overlay (fresh launch or a
+    // mid-onboarding reload). Once onboarding reaches 'complete' this re-runs and
+    // shows the tips once, as it does for existing installs that skip onboarding.
+    if (onboardingStep !== 'complete') return
     tipModalDecidedRef.current = true
     if (!showTipsOnStartup) return
     setTipModalOpen(true)
-  }, [showTipsOnStartup])
+  }, [showTipsOnStartup, onboardingStep])
 
   useEffect(() => {
     registerWorkspaceWindow(
@@ -2194,7 +2199,7 @@ export default function WorkspaceManager() {
       )}
 
       <TipStartupModal
-        open={tipModalOpen}
+        open={tipModalOpen && onboardingStep === 'complete'}
         context={learningContext}
         onClose={() => setTipModalOpen(false)}
         onOpenLearnCenter={() => {
