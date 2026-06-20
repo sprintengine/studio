@@ -2864,7 +2864,7 @@ function GuidedIdeaStep({
           <div role="radiogroup" aria-label="App surface" className="grid grid-cols-2 gap-2.5">
             <GuidedChoiceCard
               active={hasUi === 'yes'}
-              title="Yes, it has a UI"
+              title="Yes, it has a screen"
               body="App, dashboard, mobile screen, internal tool."
               onSelect={() => onChangeHasUi('yes')}
             />
@@ -2886,7 +2886,7 @@ function GuidedIdeaStep({
               checked
               locked
               title="Frontend engineer"
-              body="Designs UI direction and reviewable mockups."
+              body="Designs the screens and reviewable mockups."
               cli={roleCliDefaults.frontend}
               cliOptions={cliOptions}
               onChangeCli={(cli) => onSetRoleCli('frontend', cli)}
@@ -2916,7 +2916,7 @@ function GuidedIdeaStep({
                 checked={hasUi === 'yes' && wantsFrontendDiscussion}
                 disabled={hasUi !== 'yes'}
                 title="Frontend engineer"
-                body={hasUi === 'yes' ? 'Designs UI direction and reviewable mockups.' : 'Available only for visual apps.'}
+                body={hasUi === 'yes' ? 'Designs the screens and reviewable mockups.' : 'Available only for visual apps.'}
                 cli={roleCliDefaults.frontend}
                 cliOptions={cliOptions}
                 onChangeCli={(cli) => onSetRoleCli('frontend', cli)}
@@ -3646,7 +3646,7 @@ function guidedBriefStartBuildErrorMessage(error: GuidedBriefStartBuildError): s
     case 'missing-architecture-plan':
       return 'Accept the architecture plan before starting the build.'
     case 'missing-ui-direction-or-mockups':
-      return 'Accept the UI direction and mockups before starting the build.'
+      return 'Accept the screen design and mockups before starting the build.'
     case 'team-exists':
       return 'A Sprint Engine team with this name already exists.'
     case 'unknown':
@@ -3788,7 +3788,7 @@ function getStepBlockingMessage(args: {
       return 'Ready to create.'
     case 'guided-idea':
       if (!guidedIdea.trim()) return 'Describe the idea in a sentence or two.'
-      if (guidedHasUi == null) return 'Pick whether the app has a UI.'
+      if (guidedHasUi == null) return 'Pick whether the app has a screen.'
       return 'Ready to capture the idea.'
   }
 }
