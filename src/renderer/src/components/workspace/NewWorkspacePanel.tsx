@@ -1795,27 +1795,12 @@ export default function NewWorkspacePanel({
           ) : null}
 
           {step === 'mode' ? (
-            <div className="flex flex-col gap-6">
-              <ModeStep
-                mode={mode}
-                onSelect={handleSelectMode}
-                folderPath={folderPath}
-                folderHint={folderPath ? folderHints.get(folderPath) ?? null : null}
-              />
-              <AdvancedSetupDisclosure
-                mcpCatalog={integrationsMcpCatalog}
-                mcpSettings={mcpSettings ?? null}
-                onToggleMcp={toggleMcpInWizard}
-                skillPackCatalog={integrationsSkillPackCatalog}
-                selectedSkillPackIds={selectedSkillPackIds}
-                onToggleSkillPack={toggleSkillPackInWizard}
-                integrationsMessage={integrationsMessage}
-                knowledgeProjectRoot={folderPath && knowledgeStepEligible ? folderPath : null}
-                committedKnowledgeRoot={committedKnowledgeRoot}
-                onCommitKnowledge={handleCommitKnowledgeRoot}
-                knowledgeAutoAppliedRef={knowledgeAutoAppliedRef}
-              />
-            </div>
+            <ModeStep
+              mode={mode}
+              onSelect={handleSelectMode}
+              folderPath={folderPath}
+              folderHint={folderPath ? folderHints.get(folderPath) ?? null : null}
+            />
           ) : null}
 
           {step === 'standard-layout' ? (
@@ -1974,6 +1959,22 @@ export default function NewWorkspacePanel({
               onUpdateTeam={handleUpdateSprintEngineTeam}
               onRenameTeam={handleRenameSprintEngineTeam}
               onDeleteTeam={handleDeleteSprintEngineTeam}
+            />
+          ) : null}
+
+          {isLastStep ? (
+            <AdvancedSetupDisclosure
+              mcpCatalog={integrationsMcpCatalog}
+              mcpSettings={mcpSettings ?? null}
+              onToggleMcp={toggleMcpInWizard}
+              skillPackCatalog={integrationsSkillPackCatalog}
+              selectedSkillPackIds={selectedSkillPackIds}
+              onToggleSkillPack={toggleSkillPackInWizard}
+              integrationsMessage={integrationsMessage}
+              knowledgeProjectRoot={folderPath && knowledgeStepEligible ? folderPath : null}
+              committedKnowledgeRoot={committedKnowledgeRoot}
+              onCommitKnowledge={handleCommitKnowledgeRoot}
+              knowledgeAutoAppliedRef={knowledgeAutoAppliedRef}
             />
           ) : null}
 
