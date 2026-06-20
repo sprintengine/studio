@@ -577,10 +577,14 @@ export default function NewWorkspacePanel({
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
   const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
+  const upsertSkillPack = useWorkspaceStore((s) => s.upsertSkillPack)
   const [integrationsMcpCatalog, setIntegrationsMcpCatalog] = useState<McpCatalogServer[]>([])
   const [integrationsSkillPackCatalog, setIntegrationsSkillPackCatalog] = useState<SkillPackCatalogEntry[]>([])
   const [integrationsMessage] = useState<string | null>(null)
   const [selectedSkillPackIds, setSelectedSkillPackIds] = useState<Set<string>>(new Set())
+  // Surfaced when create-time Advanced setup persistence (MCP sync / skill-pack
+  // install) fails, so the wizard reports the failure instead of closing as success.
+  const [advancedSetupError, setAdvancedSetupError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -669,21 +673,76 @@ export default function NewWorkspacePanel({
     })
   }
 
-  const triggerSelectedSkillPackInstalls = (workspaceRoot: string | null) => {
-    if (!workspaceRoot) return
-    if (typeof window.api.skillPackInstall !== 'function') return
-    const picks = integrationsSkillPackCatalog.filter((pack) => selectedSkillPackIds.has(pack.id))
-    for (const pack of picks) {
-      void window.api
-        .skillPackInstall({
-          workspaceRoot,
-          slug: pack.slug,
-          harnesses: pack.harnesses,
-          installedDirName: pack.installedDirName,
-        })
-        .catch(() => {})
-    }
-  }
+  // Persist the optional Advanced setup selections to the real project on disk:
+  // write the MCP agent config through the same mcp:sync path Settings uses, then
+  // install each selected skill pack, awaiting every result so a failure surfaces
+  // an actionable error instead of a silent fire-and-forget. Returns the failure
+  // message (and sets advancedSetupError) when any selection failed, or null on
+  // success, so callers avoid reporting a half-configured create as success.
+  const persistAdvancedSetup = useCallback(
+    async (workspaceRoot: string | null): Promise<string | null> => {
+      if (!workspaceRoot) return null
+      const failures: string[] = []
+
+      const hasEnabledMcp = Boolean(
+        mcpSettings && Object.values(mcpSettings.servers).some((server) => server.enabled),
+      )
+      if (hasEnabledMcp && mcpSettings && typeof window.api.mcpSync === 'function') {
+        try {
+          const result = await window.api.mcpSync({ workspaceRoot, settings: mcpSettings })
+          if (!result.ok) {
+            failures.push(`MCP setup failed: ${result.message}`)
+          } else {
+            const blocking = result.issues.find((issue) => issue.level === 'error')
+            if (blocking) failures.push(`MCP setup failed: ${blocking.message}`)
+          }
+        } catch (error) {
+          failures.push(`MCP setup failed: ${error instanceof Error ? error.message : 'sync error'}`)
+        }
+      }
+
+      if (selectedSkillPackIds.size > 0 && typeof window.api.skillPackInstall === 'function') {
+        const picks = integrationsSkillPackCatalog.filter((pack) => selectedSkillPackIds.has(pack.id))
+        for (const pack of picks) {
+          try {
+            const result = await window.api.skillPackInstall({
+              workspaceRoot,
+              slug: pack.slug,
+              harnesses: pack.harnesses,
+              installedDirName: pack.installedDirName,
+            })
+            if (result.ok) {
+              upsertSkillPack({
+                ...result.installed,
+                id: pack.id,
+                name: pack.name,
+                category: pack.category,
+                description: pack.description,
+                version: pack.version,
+                sourceUrl: pack.sourceUrl,
+                installedDirName: pack.installedDirName ?? result.installed.installedDirName,
+              })
+            } else {
+              failures.push(`Skill pack ${pack.name} failed: ${result.message}`)
+            }
+          } catch (error) {
+            failures.push(
+              `Skill pack ${pack.name} failed: ${error instanceof Error ? error.message : 'install error'}`,
+            )
+          }
+        }
+      }
+
+      if (failures.length > 0) {
+        const message = failures.join(' ')
+        setAdvancedSetupError(message)
+        return message
+      }
+      setAdvancedSetupError(null)
+      return null
+    },
+    [mcpSettings, selectedSkillPackIds, integrationsSkillPackCatalog, upsertSkillPack],
+  )
 
   const [isCreating, setIsCreating] = useState(false)
 
@@ -1283,6 +1342,7 @@ export default function NewWorkspacePanel({
       setIsCreating(true)
       setGuidedError(null)
       try {
+        if (await persistAdvancedSetup(folderPath)) return
         const { runtimeState } = await runGuidedBriefScaffold(
           {
             folderPath,
@@ -1311,7 +1371,6 @@ export default function NewWorkspacePanel({
             },
           },
         )
-        triggerSelectedSkillPackInstalls(folderPath)
         onCreate({
           template: createGuidedBriefTemplate(),
           name: runtimeState.workspaceName,
@@ -1340,6 +1399,7 @@ export default function NewWorkspacePanel({
       setIsCreating(true)
       setMlError(null)
       try {
+        if (await persistAdvancedSetup(folderPath)) return
         await runMultiloopCreation(
           {
             folderPath,
@@ -1356,7 +1416,6 @@ export default function NewWorkspacePanel({
             createMultiloopTemplate,
           },
         )
-        triggerSelectedSkillPackInstalls(folderPath)
         persistLastPermissionPreset()
         onClose()
       } catch (error) {
@@ -1373,19 +1432,27 @@ export default function NewWorkspacePanel({
 
     if (mode === 'switchboard') {
       if (!folderPath) return
-      const args = buildSwitchboardCreation({ name, folderPath })
-      triggerSelectedSkillPackInstalls(folderPath)
-      onCreate(args)
-      onClose()
+      setIsCreating(true)
+      try {
+        if (await persistAdvancedSetup(folderPath)) return
+        onCreate(buildSwitchboardCreation({ name, folderPath }))
+        onClose()
+      } finally {
+        setIsCreating(false)
+      }
       return
     }
 
     if (mode === 'automations') {
       if (!folderPath) return
-      const args = buildAutomationsCreation({ name, folderPath })
-      triggerSelectedSkillPackInstalls(folderPath)
-      onCreate(args)
-      onClose()
+      setIsCreating(true)
+      try {
+        if (await persistAdvancedSetup(folderPath)) return
+        onCreate(buildAutomationsCreation({ name, folderPath }))
+        onClose()
+      } finally {
+        setIsCreating(false)
+      }
       return
     }
 
@@ -1409,9 +1476,14 @@ export default function NewWorkspacePanel({
           autoApproveArtifacts: seAutoApproveArtifacts,
           cliPermissionPreset,
         })
-        triggerSelectedSkillPackInstalls(folderPath)
-        onCreate(args)
-        persistLastPermissionPreset()
+        setIsCreating(true)
+        try {
+          if (await persistAdvancedSetup(folderPath)) return
+          onCreate(args)
+          persistLastPermissionPreset()
+        } finally {
+          setIsCreating(false)
+        }
         return
       }
 
@@ -1440,6 +1512,7 @@ export default function NewWorkspacePanel({
         }
         setIsCreating(true)
         try {
+          if (await persistAdvancedSetup(folderPath)) return
           await runSprintEnginePlanSourcedCreation(
             {
               folderPath,
@@ -1486,7 +1559,6 @@ export default function NewWorkspacePanel({
               },
             },
           )
-          triggerSelectedSkillPackInstalls(folderPath)
           persistLastPermissionPreset()
           onClose()
         } catch (error) {
@@ -1505,6 +1577,7 @@ export default function NewWorkspacePanel({
 
       setIsCreating(true)
       try {
+        if (await persistAdvancedSetup(folderPath)) return
         const args = await runSprintEngineNewTeamCreation(
           {
             folderPath,
@@ -1526,7 +1599,6 @@ export default function NewWorkspacePanel({
             initializeSprintEngineState: window.api.initializeSprintEngineState,
           },
         )
-        triggerSelectedSkillPackInstalls(folderPath)
         onCreate(args)
         persistLastPermissionPreset()
       } catch (error) {
@@ -1545,8 +1617,13 @@ export default function NewWorkspacePanel({
 
     // Standard
     const args = buildStandardCreation({ layoutId, name, folderPath, userTemplates: userLayoutTemplates })
-    triggerSelectedSkillPackInstalls(folderPath)
-    onCreate(args)
+    setIsCreating(true)
+    try {
+      if (await persistAdvancedSetup(folderPath)) return
+      onCreate(args)
+    } finally {
+      setIsCreating(false)
+    }
   }
 
   const goNext = () => {
@@ -1645,7 +1722,8 @@ export default function NewWorkspacePanel({
       }
       throw error instanceof Error ? error : new Error('Could not create the Sprint Engine workspace.')
     }
-    triggerSelectedSkillPackInstalls(runtimeState.workspaceRoot)
+    const setupError = await persistAdvancedSetup(runtimeState.workspaceRoot)
+    if (setupError) throw new Error(setupError)
     persistLastPermissionPreset()
     onClose()
   }
@@ -1973,6 +2051,15 @@ export default function NewWorkspacePanel({
               onCommitKnowledge={handleCommitKnowledgeRoot}
               knowledgeAutoAppliedRef={knowledgeAutoAppliedRef}
             />
+          ) : null}
+
+          {advancedSetupError ? (
+            <div
+              role="alert"
+              className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]"
+            >
+              {advancedSetupError}
+            </div>
           ) : null}
 
           <div className="flex items-center justify-between gap-3 pt-1">
