@@ -1724,6 +1724,10 @@ export default function NewWorkspacePanel({
             writeFile: window.api.writefile,
           },
           pathExists: window.api.pathExists,
+          // Fail-closed Advanced setup preflight: the controller awaits this
+          // before writing the handoff or creating the run, so an MCP/skill
+          // failure aborts without leaving a partial Sprint Engine workspace.
+          persistAdvancedSetup,
           readArchitecturePlan: (workspaceRoot, path) =>
             window.api.readfile(joinGuidedWorkspacePath(workspaceRoot, path)),
           readBuildHandoff: (workspaceRoot, path) =>
@@ -1736,8 +1740,6 @@ export default function NewWorkspacePanel({
       }
       throw error instanceof Error ? error : new Error('Could not create the Sprint Engine workspace.')
     }
-    const setupError = await persistAdvancedSetup(runtimeState.workspaceRoot)
-    if (setupError) throw new Error(setupError)
     persistLastPermissionPreset()
     onClose()
   }
@@ -3647,6 +3649,11 @@ function guidedBriefStartBuildErrorMessage(error: GuidedBriefStartBuildError): s
       return 'Accept the architecture plan before starting the build.'
     case 'missing-ui-direction-or-mockups':
       return 'Accept the screen design and mockups before starting the build.'
+    case 'advanced-setup-failed':
+      // Carries the actionable persistAdvancedSetup message verbatim.
+      return error.message && error.message !== error.code
+        ? error.message
+        : 'Advanced setup could not be applied. No workspace was created.'
     case 'team-exists':
       return 'A Sprint Engine team with this name already exists.'
     case 'unknown':
