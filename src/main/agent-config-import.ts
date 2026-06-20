@@ -431,9 +431,10 @@ function readCodexMcpServers(raw: string): RawMcpServer[] {
 function parseCodexMcpToml(raw: string): Record<string, Record<string, unknown>> {
   const sections: Record<string, Record<string, unknown>> = {}
   let current: Record<string, unknown> | null = null
+  const lines = raw.split(/\r?\n/)
 
-  for (const rawLine of raw.split(/\r?\n/)) {
-    const line = stripTomlComment(rawLine).trim()
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = stripTomlComment(lines[lineIndex]!).trim()
     if (!line) continue
 
     const section = line.match(/^\[\s*mcp_servers\s*\.\s*(.+?)\s*\]$/)
@@ -448,7 +449,16 @@ function parseCodexMcpToml(raw: string): Record<string, Record<string, unknown>>
     if (separator <= 0) continue
     const key = parseTomlKey(line.slice(0, separator).trim())
     if (!key) continue
-    current[key] = parseTomlValue(line.slice(separator + 1).trim())
+    let value = line.slice(separator + 1).trim()
+    while (value && !isCompleteTomlValue(value)) {
+      lineIndex += 1
+      if (lineIndex >= lines.length) {
+        throw new Error(`Unterminated TOML value for key "${key}".`)
+      }
+      const continuation = stripTomlComment(lines[lineIndex]!).trim()
+      if (continuation) value = `${value} ${continuation}`
+    }
+    current[key] = parseTomlValue(value)
   }
 
   return sections
@@ -456,13 +466,16 @@ function parseCodexMcpToml(raw: string): Record<string, Record<string, unknown>>
 
 function parseTomlValue(value: string): unknown {
   if (!value) return ''
+  if (!isCompleteTomlValue(value)) throw new Error('Unbalanced TOML value.')
   if (value === 'true') return true
   if (value === 'false') return false
   if (value.startsWith('"') || value.startsWith("'")) return parseTomlString(value)
-  if (value.startsWith('[') && value.endsWith(']')) {
+  if (value.startsWith('[')) {
+    if (!value.endsWith(']')) throw new Error('Invalid TOML array value.')
     return splitTopLevel(value.slice(1, -1)).map((part) => parseTomlValue(part.trim()))
   }
-  if (value.startsWith('{') && value.endsWith('}')) {
+  if (value.startsWith('{')) {
+    if (!value.endsWith('}')) throw new Error('Invalid TOML inline table value.')
     const record: Record<string, unknown> = {}
     for (const part of splitTopLevel(value.slice(1, -1))) {
       const separator = findTopLevelEquals(part)
@@ -474,6 +487,30 @@ function parseTomlValue(value: string): unknown {
     return record
   }
   return value
+}
+
+function isCompleteTomlValue(value: string): boolean {
+  let quote: '"' | "'" | null = null
+  let escaped = false
+  let bracketDepth = 0
+  let braceDepth = 0
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index]
+    if (quote === '"' && char === '\\' && !escaped) {
+      escaped = true
+      continue
+    }
+    if (!escaped && (char === '"' || char === "'")) {
+      quote = quote === char ? null : quote ?? char
+    } else if (!quote) {
+      if (char === '[') bracketDepth += 1
+      if (char === ']') bracketDepth -= 1
+      if (char === '{') braceDepth += 1
+      if (char === '}') braceDepth -= 1
+    }
+    escaped = false
+  }
+  return quote === null && bracketDepth === 0 && braceDepth === 0
 }
 
 function parseTomlKey(value: string): string {

@@ -35,17 +35,21 @@ function createService(input: {
 }
 
 async function writeCodexMcp(homeRoot: string): Promise<void> {
+  await writeCodexConfig(homeRoot, [
+    '[mcp_servers.context7]',
+    'command = "node"',
+    'args = ["server.js", "--token", "SECRET_ARG"]',
+    'env = { "CONTEXT7_TOKEN" = "SECRET_ENV_VALUE" }',
+    'env_vars = ["CONTEXT7_TOKEN"]',
+    '',
+  ])
+}
+
+async function writeCodexConfig(homeRoot: string, lines: string[]): Promise<void> {
   await mkdir(join(homeRoot, '.codex'), { recursive: true })
   await writeFile(
     join(homeRoot, '.codex', 'config.toml'),
-    [
-      '[mcp_servers.context7]',
-      'command = "node"',
-      'args = ["server.js", "--token", "SECRET_ARG"]',
-      'env = { "CONTEXT7_TOKEN" = "SECRET_ENV_VALUE" }',
-      'env_vars = ["CONTEXT7_TOKEN"]',
-      '',
-    ].join('\n'),
+    lines.join('\n'),
     'utf-8',
   )
 }
@@ -152,11 +156,121 @@ async function testAdoptUsesExistingSyncPaths(): Promise<void> {
   assert.equal(JSON.stringify(result).includes('SECRET'), false, 'adopt result must not echo token-like values')
 }
 
+async function testCodexMultilineMcpValues(): Promise<void> {
+  const temp = await mkdtemp(join(tmpdir(), 'multicode-agent-config-codex-multiline-'))
+  const homeRoot = join(temp, 'home')
+  const workspaceRoot = join(temp, 'workspace')
+  const syncCalls: McpSyncInput[] = []
+  await mkdir(workspaceRoot, { recursive: true })
+  await writeCodexConfig(homeRoot, [
+    '[mcp_servers.context7]',
+    'command = "node"',
+    'args = [',
+    '  "server.js",',
+    '  "--token",',
+    '  "SECRET_ARG",',
+    ']',
+    'env = { "CONTEXT7_TOKEN" = "SECRET_ENV_VALUE" }',
+    'env_vars = [',
+    '  "CONTEXT7_TOKEN",',
+    ']',
+    '',
+  ])
+  const service = createService({
+    homeRoot,
+    sourceRoot: join(temp, 'source'),
+    syncCalls,
+  })
+  const detected = await service.detect({ sources: ['codex'] })
+  assert.equal(detected.ok, true)
+  assert.deepEqual(detected.ok && detected.mcpServers.map((server) => server.id), ['context7'])
+
+  const result = await service.adopt({
+    workspaceRoot,
+    mcpServerKeys: detected.ok ? detected.mcpServers.map((server) => server.key) : [],
+    skillKeys: [],
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(syncCalls.length, 1)
+  assert.deepEqual(syncCalls[0]!.settings.servers.context7?.args, ['server.js', '--token', 'SECRET_ARG'])
+  assert.deepEqual(syncCalls[0]!.settings.servers.context7?.envVarNames, ['CONTEXT7_TOKEN'])
+  assert.equal(syncCalls[0]!.settings.servers.context7?.env?.CONTEXT7_TOKEN, 'SECRET_ENV_VALUE')
+  assert.equal(JSON.stringify(result).includes('SECRET'), false, 'multiline adopt result must stay sanitized')
+}
+
+async function testCodexQuotedIdsHeadersAndDisabledServers(): Promise<void> {
+  const temp = await mkdtemp(join(tmpdir(), 'multicode-agent-config-codex-quoted-'))
+  const homeRoot = join(temp, 'home')
+  const workspaceRoot = join(temp, 'workspace')
+  const syncCalls: McpSyncInput[] = []
+  await mkdir(workspaceRoot, { recursive: true })
+  await writeCodexConfig(homeRoot, [
+    '[mcp_servers."sentry http"]',
+    'url = "https://mcp.sentry.example/mcp"',
+    'http_headers = { "Authorization" = "Bearer SECRET_HEADER_VALUE", "X-Team" = "workspace" }',
+    'enabled = false',
+    '',
+  ])
+  const service = createService({
+    homeRoot,
+    sourceRoot: join(temp, 'source'),
+    syncCalls,
+  })
+  const detected = await service.detect({ sources: ['codex'] })
+  assert.equal(detected.ok, true)
+  assert.deepEqual(detected.ok && detected.mcpServers.map((server) => server.id), ['sentry-http'])
+  assert.equal(detected.ok && detected.mcpServers[0]?.enabled, false)
+  assert.equal(detected.ok && detected.mcpServers[0]?.hasSecretValues, true)
+
+  const result = await service.adopt({
+    workspaceRoot,
+    mcpServerKeys: detected.ok ? detected.mcpServers.map((server) => server.key) : [],
+    skillKeys: [],
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(syncCalls.length, 1)
+  assert.equal(syncCalls[0]!.settings.servers['sentry-http']?.enabled, false)
+  assert.equal(syncCalls[0]!.settings.servers['sentry-http']?.headers?.Authorization, 'Bearer SECRET_HEADER_VALUE')
+  assert.equal(syncCalls[0]!.settings.servers['sentry-http']?.headers?.['X-Team'], 'workspace')
+  assert.equal(JSON.stringify(result).includes('SECRET'), false, 'quoted/http detect result must stay sanitized')
+}
+
+async function testMalformedCodexValuesWarnAndSkip(): Promise<void> {
+  const temp = await mkdtemp(join(tmpdir(), 'multicode-agent-config-codex-malformed-'))
+  const homeRoot = join(temp, 'home')
+  await writeCodexConfig(homeRoot, [
+    '[mcp_servers.context7]',
+    'command = "node"',
+    'args = [',
+    '  "server.js",',
+    '  "--token",',
+    '  "SECRET_ARG"',
+    '',
+  ])
+  const service = createService({
+    homeRoot,
+    sourceRoot: join(temp, 'source'),
+  })
+
+  const result = await service.detect({ sources: ['codex'] })
+
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.ok && result.mcpServers, [])
+  assert.equal(result.ok && result.warnings.length, 1)
+  assert.match(result.ok ? result.warnings[0]! : '', /Unterminated TOML value for key "args"/)
+  assert.equal(JSON.stringify(result).includes('SECRET'), false, 'malformed warning must stay sanitized')
+}
+
 async function main(): Promise<void> {
   await testNothingPresent()
   await testPartialMcpOnly()
   await testFullConfig()
   await testAdoptUsesExistingSyncPaths()
+  await testCodexMultilineMcpValues()
+  await testCodexQuotedIdsHeadersAndDisabledServers()
+  await testMalformedCodexValuesWarnAndSkip()
 }
 
 main().catch((error) => {
