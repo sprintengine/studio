@@ -5,12 +5,14 @@ import { registerAppLifecycle } from './app-lifecycle'
 import { createAppServices } from './app-services'
 import { ensureExtensionFolders } from './extension-folders'
 import { readTrustedMarketplacePublisherFingerprintsSync } from './marketplace/trusted-publishers'
+import type { ModuleEnablementLiveApplier } from './ipc/module-enablement-ipc'
 import { activeForChannel } from '../shared/modules/dev-only'
 import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
 import { createAgentRuntimeModule } from './modules/agent-runtime-module'
-import { BUNDLED_MAIN_MODULES } from './modules'
-import type { ModuleTrustContext } from './modules/module-signature'
+import { createBundledMainModules } from './modules'
+import { isFirstPartyAutomationProviderModule, type AutomationProviderPermissionChecker } from './automations/provider-registry'
+import { isLoadEligible, type ModuleTrustContext } from './modules/module-signature'
 import { readTrustedModulesSync } from './modules/trust-store'
 import { planThirdPartyMainModules, recordThirdPartyMainLaunchReport } from './modules/third-party-main-loader'
 import { registerThirdPartyRendererEntryIpc } from './modules/third-party-renderer-entries'
@@ -27,6 +29,7 @@ const extensionFolders = ensureExtensionFolders()
 
 const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
 const services = createAppServices(MULTICODE_DIAGNOSTICS)
+let applyModuleEnablementLive: ModuleEnablementLiveApplier | undefined
 
 // Dev-only capability surfaces (Voice, Switchboard/Watchtower, Multiloop, Mobile
 // Relay) ship only in from-source dev builds. A packaged/installed build is the
@@ -34,7 +37,10 @@ const services = createAppServices(MULTICODE_DIAGNOSTICS)
 // src/shared/modules/dev-only.ts.
 const includeDevModules = !app.isPackaged
 
-registerCoreIpc(ipcMain, services, MULTICODE_DIAGNOSTICS, includeDevModules)
+registerCoreIpc(ipcMain, services, MULTICODE_DIAGNOSTICS, {
+  includeDevModules,
+  applyModuleEnablementLive: (overrides) => applyModuleEnablementLive?.(overrides),
+})
 registerWorkflowIpc(ipcMain, services)
 
 // Capability modules register their own IPC/services/sidecars through the host
@@ -50,7 +56,9 @@ const thirdPartyMainLoad = planThirdPartyMainModules(
   discoverUserModulesSync(defaultUserModuleRoot(), readModuleTrustContext())
 )
 const activeMainModules = activeForChannel(
-  BUNDLED_MAIN_MODULES,
+  createBundledMainModules({
+    automations: { checkProviderPermission: checkAutomationProviderPermission },
+  }),
   (module) => module.manifest.id,
   includeDevModules
 )
@@ -67,6 +75,12 @@ const moduleLoad = loadMainModules({
     }
   },
 })
+applyModuleEnablementLive = async (overrides) => {
+  const report = await moduleLoad.applyEnablement(overrides, { liveModuleIds: ['automations'] })
+  const automationsError = report.errors.find((error) => error.id === 'automations')
+  if (automationsError) return { ok: false, message: automationsError.message }
+  return { ok: true }
+}
 recordThirdPartyMainLaunchReport(
   thirdPartyMainLoad.modules.map((module) => module.manifest.id),
   moduleLoad.report
@@ -109,6 +123,32 @@ function readModuleTrustContext(): ModuleTrustContext {
     trustedModules: readTrustedModulesSync(app.getPath('userData')),
     trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync(),
   }
+}
+
+function checkAutomationProviderPermission(
+  registration: Parameters<AutomationProviderPermissionChecker>[0]
+): ReturnType<AutomationProviderPermissionChecker> {
+  if (isFirstPartyAutomationProviderModule(registration.moduleId)) return { ok: true }
+
+  const { modules } = discoverUserModulesSync(defaultUserModuleRoot(), readModuleTrustContext())
+  const installed = modules.find((module) => module.manifest.id === registration.moduleId)
+  if (!installed) {
+    return { ok: false, reason: `Module "${registration.moduleId}" is not installed.` }
+  }
+  if (!isLoadEligible(installed.trust.status)) {
+    if (installed.trust.status === 'invalid') {
+      return { ok: false, reason: `Module "${registration.moduleId}" has an invalid signature.` }
+    }
+    return { ok: false, reason: `Module "${registration.moduleId}" is not trusted in Settings -> Modules.` }
+  }
+
+  const overrides = readModuleEnablementOverrides()
+  const enabled = overrides[registration.moduleId] ?? installed.manifest.defaultEnabled
+  if (!enabled) {
+    return { ok: false, reason: `Module "${registration.moduleId}" is disabled in Settings -> Modules.` }
+  }
+
+  return { ok: true }
 }
 
 function configureDevUserData(): void {

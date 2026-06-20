@@ -1,5 +1,5 @@
 import { registerSprintEngineIpc } from '../ipc/sprintengine-ipc'
-import { SprintEngineArtifactsToken, SprintEngineMcpHubToken } from '../module-host/service-tokens'
+import { SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineMcpHubToken } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
 import type { SidecarRunState } from '../module-host/main-host'
 import type { SprintEngineMcpHubStatus } from '../sprintengine-mcp-hub'
@@ -30,6 +30,11 @@ export const sprintEngineModule: CapabilityModule = {
   registerMain(host) {
     const artifacts = host.requireService(SprintEngineArtifactsToken)
     const mcpHub = host.requireService(SprintEngineMcpHubToken)
+
+    host.provideService(SprintEngineAutomationFrontDoorsToken, () => ({
+      setRunnerMode: artifacts.setRunnerMode,
+      replenishRoster: artifacts.replenishRoster,
+    }))
 
     mcpHub.claimOwnership({
       onSpawnFailure: (message) =>

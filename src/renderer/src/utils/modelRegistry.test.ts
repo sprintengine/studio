@@ -4,6 +4,7 @@ import { Model, type IJsonModel } from 'flexlayout-react'
 import {
   focusOrAddFileTab,
   registerModel,
+  revealAgentTab,
   unregisterModel,
   togglePanelRailComponent,
   revealNavRailComponent,
@@ -35,7 +36,7 @@ function freshModel(): Model {
 }
 
 type TabsetJson = { type?: string; component?: string; enableTabStrip?: boolean; children?: TabsetJson[] }
-type TabJson = TabsetJson & { enableClose?: boolean; config?: { filePath?: string } }
+type TabJson = TabsetJson & { name?: string; enableClose?: boolean; config?: { agentId?: string; filePath?: string } }
 
 function tabsets(model: Model): TabsetJson[] {
   const out: TabsetJson[] = []
@@ -72,6 +73,10 @@ function allTabs(model: Model): TabJson[] {
   }
   walk((model.toJson() as unknown as { layout: TabJson }).layout)
   return out
+}
+
+function tabNames(model: Model): string[] {
+  return allTabs(model).map((tab) => tab.name ?? '')
 }
 
 function navTabsets(model: Model): TabsetJson[] {
@@ -155,6 +160,60 @@ function navTabsets(model: Model): TabsetJson[] {
 // app-level right aside (SprintEnginesAside), outside any workspace layout.
 {
   assert.equal(NAV_RAIL_COMPONENTS.has('sprint-engines'), false)
+}
+
+// Agent reveal activates the target workspace and focuses the concrete agent
+// tab when the workspace's live FlexLayout model is mounted.
+{
+  const model = freshModel()
+  const active: string[] = []
+  let updatedLayout: IJsonModel | null = null
+  registerModel(WS, model)
+  assert.equal(revealAgentTab({
+    workspaceId: WS,
+    agentId: 'a-1',
+  }, {
+    getWorkspace: () => ({
+      id: WS,
+      layoutModel: model.toJson(),
+      agents: { 'a-1': { name: 'Review agent' } },
+    }),
+    setActiveWorkspace: (workspaceId) => active.push(workspaceId),
+    updateLayout: (_workspaceId, layoutModel) => { updatedLayout = layoutModel },
+  }), true)
+  assert.deepEqual(active, [WS])
+  assert.equal(updatedLayout, null)
+  assert.deepEqual(tabNames(model), ['Review agent'])
+  unregisterModel(WS)
+}
+
+// If activation has not mounted the live model yet, reveal mutates the
+// persisted layout so the concrete agent tab appears and is selected on mount.
+{
+  const base = freshModel()
+  const active: string[] = []
+  let updatedLayout: IJsonModel | null = null
+  unregisterModel(WS)
+  assert.equal(revealAgentTab({
+    workspaceId: WS,
+    agentId: 'a-2',
+  }, {
+    getWorkspace: () => ({
+      id: WS,
+      layoutModel: base.toJson(),
+      agents: { 'a-2': { name: 'Spawned agent' } },
+    }),
+    setActiveWorkspace: (workspaceId) => active.push(workspaceId),
+    updateLayout: (_workspaceId, layoutModel) => { updatedLayout = layoutModel },
+  }), true)
+  assert.deepEqual(active, [WS])
+  assert.ok(updatedLayout)
+  const updatedModel = Model.fromJson(updatedLayout)
+  assert.deepEqual(
+    allTabs(updatedModel).filter((tab) => tab.component === 'agent').map((tab) => tab.config?.agentId),
+    ['a-1', 'a-2']
+  )
+  assert.deepEqual(tabNames(updatedModel), ['Agent', 'Spawned agent'])
 }
 
 // The Editor is not a strip-less nav switch: its tabset keeps a tab strip so

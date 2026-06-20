@@ -569,6 +569,7 @@ class SwitchboardCliTests(unittest.TestCase):
                 "externalId": external_id,
                 "externalKey": f"{run_id}:watchtower-code-review",
                 "externalUrl": None,
+                "externalUpdatedAt": None,
             },
         }
 
@@ -582,6 +583,26 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertEqual(task["title"], payload["title"])
         self.assertEqual(task["labels"], ["watchtower", "backend"])
         self.assertEqual(task["source"], payload["source"])
+
+    def test_create_task_cannot_forge_source_external_updated_at(self) -> None:
+        payload = {
+            "title": "Forged GitHub issue",
+            "description": "Manual create should not write import metadata.",
+            "source": {
+                "type": "github",
+                "externalId": "I_kwDO123",
+                "externalKey": "owner/repo#12",
+                "externalUrl": "https://github.com/owner/repo/issues/12",
+                "externalUpdatedAt": "2099-01-01T00:00:00.000Z",
+            },
+        }
+
+        created_task = stdout_json(
+            self.run_cli(["create", *self.workspace_args(), "--input-json", json.dumps(payload)])
+        )
+
+        task = json.loads(self.task_file("todo", created_task["id"]).read_text(encoding="utf-8"))
+        self.assertIsNone(task["source"]["externalUpdatedAt"])
 
     def test_watchtower_start_review_launches_runtime_execution(self) -> None:
         command = f"{sys.executable} -c \"import sys; data=sys.stdin.read(); print('watchtower runtime'); print(data[:120])\""
@@ -903,6 +924,158 @@ class SwitchboardCliTests(unittest.TestCase):
         self.assertTrue(duplicate["skipped"])
         inbox = stdout_json(self.run_cli(["list", *self.workspace_args(), "--status", "inbox"]))["tasks"]
         self.assertEqual(len(inbox), 1)
+
+    def test_import_task_records_new_external_updated_at_for_duplicate_source(self) -> None:
+        item = {
+            "provider": "github",
+            "externalId": "I_kwDO123",
+            "externalKey": "owner/repo#12",
+            "externalUrl": "https://github.com/owner/repo/issues/12",
+            "identifier": "repo#12",
+            "title": "GitHub issue",
+            "updatedAt": "2026-05-09T12:00:00Z",
+        }
+
+        imported = stdout_json(self.run_cli(["import-task", *self.workspace_args(), "--input-json", json.dumps(item)]))
+        updated = stdout_json(self.run_cli([
+            "import-task",
+            *self.workspace_args(),
+            "--input-json",
+            json.dumps({**item, "updatedAt": "2026-05-09T13:00:00Z"}),
+        ]))
+        duplicate = stdout_json(self.run_cli([
+            "import-task",
+            *self.workspace_args(),
+            "--input-json",
+            json.dumps({**item, "updatedAt": "2026-05-09T13:00:00Z"}),
+        ]))
+        older_duplicate = stdout_json(self.run_cli([
+            "import-task",
+            *self.workspace_args(),
+            "--input-json",
+            json.dumps({**item, "updatedAt": "2026-05-09T12:30:00Z"}),
+        ]))
+
+        self.assertTrue(imported["created"])
+        self.assertEqual(updated["status"], "updated")
+        self.assertFalse(updated["created"])
+        self.assertFalse(updated["skipped"])
+        self.assertFalse(duplicate["created"])
+        self.assertTrue(duplicate["skipped"])
+        self.assertFalse(older_duplicate["created"])
+        self.assertTrue(older_duplicate["skipped"])
+
+        task = json.loads(self.task_file("inbox", imported["id"]).read_text(encoding="utf-8"))
+        import_comments = [comment for comment in task["comments"] if comment["kind"] == "import"]
+        self.assertEqual(len(import_comments), 1)
+        self.assertEqual(import_comments[0]["body"], "Imported from github.")
+        self.assertEqual(task["source"]["externalUpdatedAt"], "2026-05-09T13:00:00.000Z")
+
+    def test_import_task_compares_against_legacy_external_updated_at_comment(self) -> None:
+        item = {
+            "provider": "github",
+            "externalId": "I_kwDO123",
+            "externalKey": "owner/repo#12",
+            "externalUrl": "https://github.com/owner/repo/issues/12",
+            "identifier": "repo#12",
+            "title": "GitHub issue",
+            "updatedAt": "2026-05-09T13:00:00Z",
+        }
+
+        imported = stdout_json(self.run_cli(["import-task", *self.workspace_args(), "--input-json", json.dumps(item)]))
+        legacy_path = self.task_file("inbox", imported["id"])
+        legacy_task = json.loads(legacy_path.read_text(encoding="utf-8"))
+        legacy_task["source"].pop("externalUpdatedAt", None)
+        legacy_task["comments"][0]["body"] = "Imported from github. External updated at: 2026-05-09T13:00:00Z."
+        legacy_path.write_text(json.dumps(legacy_task, indent=2) + "\n", encoding="utf-8")
+
+        unchanged_duplicate = stdout_json(self.run_cli([
+            "import-task",
+            *self.workspace_args(),
+            "--input-json",
+            json.dumps(item),
+        ]))
+        older_duplicate = stdout_json(self.run_cli([
+            "import-task",
+            *self.workspace_args(),
+            "--input-json",
+            json.dumps({**item, "updatedAt": "2026-05-09T12:30:00Z"}),
+        ]))
+        newer_duplicate = stdout_json(self.run_cli([
+            "import-task",
+            *self.workspace_args(),
+            "--input-json",
+            json.dumps({**item, "updatedAt": "2026-05-09T14:00:00Z"}),
+        ]))
+
+        self.assertFalse(unchanged_duplicate["created"])
+        self.assertTrue(unchanged_duplicate["skipped"])
+        self.assertFalse(older_duplicate["created"])
+        self.assertTrue(older_duplicate["skipped"])
+        self.assertEqual(newer_duplicate["status"], "updated")
+
+        task = json.loads(legacy_path.read_text(encoding="utf-8"))
+        import_comments = [comment for comment in task["comments"] if comment["kind"] == "import"]
+        self.assertEqual(len(import_comments), 1)
+        self.assertEqual(task["source"]["externalUpdatedAt"], "2026-05-09T14:00:00.000Z")
+
+    def test_import_task_ignores_unparseable_external_updated_at(self) -> None:
+        item = {
+            "provider": "github",
+            "externalId": "I_kwDO123",
+            "externalKey": "owner/repo#12",
+            "externalUrl": "https://github.com/owner/repo/issues/12",
+            "identifier": "repo#12",
+            "title": "GitHub issue",
+            "updatedAt": "2026-05-09T12:00:00Z",
+        }
+
+        imported = stdout_json(self.run_cli(["import-task", *self.workspace_args(), "--input-json", json.dumps(item)]))
+        invalid_duplicate = stdout_json(self.run_cli([
+            "import-task",
+            *self.workspace_args(),
+            "--input-json",
+            json.dumps({**item, "updatedAt": "not-a-date"}),
+        ]))
+
+        self.assertTrue(imported["created"])
+        self.assertFalse(invalid_duplicate["created"])
+        self.assertTrue(invalid_duplicate["skipped"])
+
+        task = json.loads(self.task_file("inbox", imported["id"]).read_text(encoding="utf-8"))
+        import_comments = [comment for comment in task["comments"] if comment["kind"] == "import"]
+        self.assertEqual(len(import_comments), 1)
+        self.assertEqual(task["source"]["externalUpdatedAt"], "2026-05-09T12:00:00.000Z")
+
+    def test_update_task_cannot_forge_source_external_updated_at(self) -> None:
+        item = {
+            "provider": "github",
+            "externalId": "I_kwDO123",
+            "externalKey": "owner/repo#12",
+            "externalUrl": "https://github.com/owner/repo/issues/12",
+            "identifier": "repo#12",
+            "title": "GitHub issue",
+        }
+
+        imported = stdout_json(self.run_cli(["import-task", *self.workspace_args(), "--input-json", json.dumps(item)]))
+        forged_source = {
+            "type": "github",
+            "externalId": "I_kwDO123",
+            "externalKey": "owner/repo#12",
+            "externalUrl": "https://github.com/owner/repo/issues/12",
+            "externalUpdatedAt": "2099-01-01T00:00:00.000Z",
+        }
+        updated = stdout_json(self.run_cli([
+            "update",
+            *self.workspace_args(),
+            imported["id"],
+            "--updates-json",
+            json.dumps({"source": forged_source}),
+        ]))
+
+        self.assertTrue(updated["ok"])
+        task = json.loads(self.task_file("inbox", imported["id"]).read_text(encoding="utf-8"))
+        self.assertIsNone(task["source"]["externalUpdatedAt"])
 
     def test_import_task_uses_url_identity_when_external_id_is_missing(self) -> None:
         first = {

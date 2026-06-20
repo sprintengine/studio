@@ -5,6 +5,20 @@ import type {
   AutomationServerStatus,
 } from './automation'
 import type {
+  AutomationsCreateInput,
+  AutomationsDefinitionInput,
+  AutomationsDefinitionResult,
+  AutomationsDeleteResult,
+  AutomationsListResult,
+  AutomationsProvidersResult,
+  AutomationsRunEvent,
+  AutomationsRunNowResult,
+  AutomationsRunsListInput,
+  AutomationsRunsListResult,
+  AutomationsUpdateInput,
+  AutomationsWorkspaceInput,
+} from './automations/contracts'
+import type {
   SwitchboardAddCommentInput,
   SwitchboardCancelTaskInput,
   SwitchboardClaimTaskInput,
@@ -1114,7 +1128,16 @@ export type GitConflictFileContent = {
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
-export type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'update' | 'voice' | 'workspace'
+export type DiagnosticSource = 'auth' | 'automations' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'update' | 'voice' | 'workspace'
+
+// Serializable deep-focus target for a notification's Open action. Mirrors the
+// renderer `NotificationNavigationTarget` (src/renderer/src/types/workspace.ts);
+// declared here so a diagnostic's navigation target is an explicit part of the
+// logDiagnostic IPC contract rather than an undeclared passthrough.
+export type NotificationNavigationTarget = {
+  kind: string
+  ref: string
+}
 
 export type DiagnosticLogInput = {
   level: DiagnosticLevel
@@ -1127,6 +1150,7 @@ export type DiagnosticLogInput = {
   agentId?: string
   taskId?: string
   sessionId?: string
+  navigationTarget?: NotificationNavigationTarget
 }
 
 export type DiagnosticLogEntry = DiagnosticLogInput & {
@@ -1800,6 +1824,17 @@ export type ElectronApi = {
   automationSetEnabled: (enabled: boolean) => Promise<AutomationServerStatus>
   onAutomationRequest: (cb: (requestId: string, request: AutomationRendererRequest) => void) => () => void
   automationRespond: (requestId: string, response: AutomationRendererResponse) => Promise<void>
+  // Automations platform (per-project scheduled agent automations). The renderer
+  // reads/writes only through these channels; the engine owns the on-disk store.
+  listAutomations: (input: AutomationsWorkspaceInput) => Promise<AutomationsListResult>
+  getAutomation: (input: AutomationsDefinitionInput) => Promise<AutomationsDefinitionResult>
+  createAutomation: (input: AutomationsCreateInput) => Promise<AutomationsDefinitionResult>
+  updateAutomation: (input: AutomationsUpdateInput) => Promise<AutomationsDefinitionResult>
+  deleteAutomation: (input: AutomationsDefinitionInput) => Promise<AutomationsDeleteResult>
+  runAutomationNow: (input: AutomationsDefinitionInput) => Promise<AutomationsRunNowResult>
+  listAutomationRuns: (input: AutomationsRunsListInput) => Promise<AutomationsRunsListResult>
+  listAutomationProviders: () => Promise<AutomationsProvidersResult>
+  onAutomationRunEvent: (cb: (event: AutomationsRunEvent) => void) => () => void
   authGetState: () => Promise<MulticodeAuthState>
   authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
   authLogout: () => Promise<{ loggedOut: true }>

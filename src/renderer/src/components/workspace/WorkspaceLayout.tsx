@@ -146,8 +146,21 @@ const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBo
 const SprintEngineRunSummaryPanel = React.lazy(() => import('../panels/SprintEngineRunSummaryPanel'))
 const SprintEnginePlanReaderPanel = React.lazy(() => import('../panels/SprintEnginePlanReaderPanel'))
 const GuidedBriefWorkspacePanel = React.lazy(() => import('./guidedBrief/GuidedBriefWorkspacePanel'))
-// Shown for a disabled module's panel or an unknown/stale layout component.
-const EMPTY_SURFACE = <div className="h-full bg-[color:var(--bg-app)]" />
+// Shown when a host panel can't render because its owning module is disabled or
+// the layout tab is stale/unknown. An explicit, labeled unavailable state —
+// never a silently blank surface — applied to every gated/stale arm below.
+const DISABLED_SURFACE = (
+  <div
+    role="note"
+    aria-label="Panel unavailable"
+    className="flex h-full flex-col items-center justify-center gap-1 bg-[color:var(--bg-app)] px-6 text-center"
+  >
+    <p className="text-[12px] font-medium text-[color:var(--text-strong)]">Panel unavailable</p>
+    <p className="max-w-xs text-[11px] leading-5 text-[color:var(--text-muted)]">
+      This view isn’t available right now. Its feature may be disabled, or the tab may be out of date.
+    </p>
+  </div>
+)
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const loadedPanelComponents = new Set<string>()
 const SPRINTENGINE_ROLES: SprintEngineRole[] = [
@@ -438,8 +451,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
   // Capability-module gate. Host-registered panels (editor, git, sprintengine,
   // switchboard, multiloop, memory-graph, …) are gated generically in the
   // factory's default case by their owning module's enablement, so a disabled
-  // module's panel falls back to an empty surface and PanelRail hides its
-  // button. Only the panels with bespoke props (file-editor, explorer, the
+  // module's panel falls back to the explicit DISABLED_SURFACE and PanelRail
+  // hides its button. Only the panels with bespoke props (file-editor, explorer, the
   // sprintengine fixed-view/summary fallbacks, guided-brief, git-conflict) need
   // an explicit gated arm below; those read enablement from this single
   // overrides object.
@@ -499,11 +512,11 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
         case 'file-editor':
           return devToolsEnabled && config?.filePath
             ? timedPanel('EditorPanel', <EditorPanel workspaceId={workspaceId} filePath={config.filePath} />)
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         case 'explorer':
           return devToolsEnabled
             ? timedPanel('FileExplorer', <FileExplorer workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />)
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         case 'git-conflict':
           return gitEnabled && config?.repoRoot && config.filePath
             ? timedPanel('GitConflictResolverPanel', (
@@ -513,7 +526,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
                 filePath={config.filePath}
               />
             ))
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         case 'terminal':
           return wrapWithHighlight(timedPanel('PlainTerminalPanel', (
             <PlainTerminalPanel
@@ -528,25 +541,26 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
         case 'sprintengine-inbox':
           return sprintEngineEnabled
             ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="inbox" />)
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         case 'sprintengine-roster':
           return sprintEngineEnabled
             ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="roster" />)
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         case 'sprintengine-tasks':
           return sprintEngineEnabled
             ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="tasks" />)
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         case 'guided-brief':
           // Guided Brief hands its build off to a Sprint Engine run, so it
           // follows sprint-engine enablement: a stale guided-brief workspace
-          // blanks when Sprint Engine is disabled, matching the other modes.
+          // shows the explicit unavailable surface when Sprint Engine is
+          // disabled, matching the other modes.
           return sprintEngineEnabled
             ? timedPanel(
               'GuidedBriefWorkspacePanel',
               <GuidedBriefWorkspacePanel workspaceId={workspaceId} />
             )
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         case 'sprintengine-run-summary':
           return sprintEngineEnabled
             ? timedPanel('SprintEngineRunSummaryPanel', (
@@ -557,7 +571,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
                 }}
               />
             ))
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         case 'sprintengine-plan-reader':
           return sprintEngineEnabled
             ? timedPanel('SprintEnginePlanReaderPanel', (
@@ -568,16 +582,16 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
                 }}
               />
             ))
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         default: {
           // Host-registered panels: render the registered component gated by its
           // owning module's enablement. A disabled module (or an unknown/stale
-          // component) falls back to an empty surface.
+          // component) falls back to the explicit unavailable surface.
           const host = getRendererHost()
           const Panel = component ? host.getPanel(component) : undefined
-          if (!Panel) return EMPTY_SURFACE
+          if (!Panel) return DISABLED_SURFACE
           const moduleId = host.getPanelModule(component!)
-          if (moduleId && !selectModuleEnabled(moduleOverrides, moduleId)) return EMPTY_SURFACE
+          if (moduleId && !selectModuleEnabled(moduleOverrides, moduleId)) return DISABLED_SURFACE
           return timedPanel(component!, <Panel workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />)
         }
       }

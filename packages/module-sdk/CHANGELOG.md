@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- New Automations provider authoring surface:
+  `registerAutomationTrigger`, `registerAutomationAction`, provider/context
+  types for trusted modules that declare `dependsOn: ['automations']`.
+- `BUNDLED_MODULE_IDS` now includes `automations`, matching the app reserved-id
+  set.
+- `BacklogItemLink.type` now includes `agent`, matching the app's
+  lifecycle-neutral working-agent links.
+
 ## 0.3.0 — 2026-06-15
 
 BYO-CLI plugin authoring and programmatic workspace creation.

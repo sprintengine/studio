@@ -123,6 +123,29 @@ assert.deepEqual(
   [],
   'ready status with no installed plugins returns an empty catalog instead of inventing fallbacks',
 )
+// A persisted `generic-shell` runtime key must not leak the hidden id into the
+// loading/error fallback catalog — both catalog paths apply the picker hidden
+// set, so the automation editor's fail-closed cli check never sees it as valid.
+assert.deepEqual(
+  selectAgentCliCatalog('loading', plugins, { 'generic-shell': { command: 'sh', useWsl: false } })
+    .map((option) => option.value),
+  ['codex', 'claude-code'],
+  'loading fallback drops a configured generic-shell runtime key (hidden id)',
+)
+assert.deepEqual(
+  selectAgentCliCatalog('error', null, { 'generic-shell': { command: 'sh', useWsl: false } })
+    .map((option) => option.value),
+  ['codex', 'claude-code'],
+  'error fallback drops a configured generic-shell runtime key (hidden id)',
+)
+assert.equal(
+  isAgentCliAvailable(
+    'generic-shell',
+    selectAgentCliCatalog('error', null, { 'generic-shell': { command: 'sh', useWsl: false } }),
+  ),
+  false,
+  'generic-shell is unavailable in the fallback catalog even when configured as a runtime',
+)
 
 // orderInstalledPlugins: bundled-first, deduped, full entries preserved.
 assert.deepEqual(

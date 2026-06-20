@@ -1567,6 +1567,7 @@ export type GuidedBriefRuntimeState = {
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
 export type DiagnosticSource =
   | 'auth'
+  | 'automations'
   | 'filesystem'
   | 'git'
   | 'sprintengine'

@@ -212,6 +212,7 @@ export default function WorkspaceManager() {
   const moduleEnablement = useWorkspaceStore((s) => s.appSettings.modules)
   const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
+  const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
   const voiceDictationEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'voice-dictation'))
   const voiceDictation = useVoiceDictation()
   const onboardingStep = useWorkspaceStore((s) => s.appSettings.onboardingStep)
@@ -935,9 +936,10 @@ export default function WorkspaceManager() {
   }, [mountedWorkspaceIds, terminalSessions, visibleWorkspaces, windowActiveWorkspaceId, workspaceLayoutRetentionTick])
 
   useEffect(() => {
+    if (!mobileRelayEnabled) return
     const roots = mobileWorkspaceRootKey.split('\n').filter(Boolean)
     void window.api.mobileBridgeUpdateWorkspaceRoots(roots).catch(() => {})
-  }, [mobileWorkspaceRootKey])
+  }, [mobileRelayEnabled, mobileWorkspaceRootKey])
 
   useEffect(() => {
     // Auto-open the new-workspace panel when there are no workspaces — but during

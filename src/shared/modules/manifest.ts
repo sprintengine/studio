@@ -26,6 +26,7 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'switchboard',
   'multiloop',
   'sprint-engine',
+  'automations',
   'mobile-relay',
   'voice-dictation',
 ]

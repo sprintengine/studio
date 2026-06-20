@@ -2,6 +2,7 @@ import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../sha
 import { activeForChannel } from '../../../shared/modules/dev-only'
 import { resolveModuleEnablement } from '../../../shared/modules/resolve'
 import { agentRuntimeRendererModule } from './agent-runtime-module'
+import { automationsRendererModule } from './automations-module'
 import { backlogRendererModule } from './backlog-module'
 import { devToolsRendererModule } from './dev-tools-module'
 import { gitRendererModule } from './git-module'
@@ -25,6 +26,7 @@ export const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   switchboardRendererModule,
   multiloopRendererModule,
   sprintEngineRendererModule,
+  automationsRendererModule,
   mobileRelayRendererModule,
   voiceDictationRendererModule,
 ]

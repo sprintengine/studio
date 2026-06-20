@@ -5,6 +5,10 @@
 
 import {
   createServiceToken,
+  registerAutomationAction,
+  registerAutomationTrigger,
+  type AutomationActionProvider,
+  type AutomationTriggerProvider,
   type BacklogItemAction,
   type CapabilityManifest,
   type ModuleCommandDefinition,
@@ -24,6 +28,7 @@ export const manifest: CapabilityManifest = {
   defaultEnabled: true,
   source: 'third-party',
   permissions: ['network', 'ipc:workspace-read'],
+  dependsOn: ['automations'],
   entry: {
     main: 'dist/main.cjs',
     renderer: 'dist/renderer.mjs',
@@ -32,10 +37,41 @@ export const manifest: CapabilityManifest = {
 
 const forecastService = createServiceToken<{ refresh(): Promise<void> }>('weather-deck.forecast')
 
+const forecastTrigger: AutomationTriggerProvider = {
+  kind: 'weather-deck.forecast-ready',
+  configSchema: {
+    type: 'object',
+    properties: {
+      city: { type: 'string' },
+    },
+  },
+  subscribe: () => () => undefined,
+  poll: async () => ({
+    ok: true,
+    events: [],
+  }),
+}
+
+const forecastAction: AutomationActionProvider = {
+  kind: 'weather-deck.refresh-forecast',
+  configSchema: {
+    type: 'object',
+    properties: {
+      city: { type: 'string' },
+    },
+  },
+  run: async (_config, context) => {
+    context.reportProgress({ summary: 'Forecast refresh started.' })
+    return { status: 'completed', summary: 'Forecast refreshed.' }
+  },
+}
+
 export const registerMain: RegisterMain = (host) => {
   host.provideService(forecastService, () => ({
     refresh: async () => undefined,
   }))
+  registerAutomationTrigger(host, forecastTrigger)
+  registerAutomationAction(host, forecastAction)
   host.registerIpc('weather-deck:forecast', async (_event, city: unknown) => {
     if (typeof city !== 'string' || city.trim().length === 0) {
       throw new Error('weather-deck:forecast requires a city name.')
