@@ -691,13 +691,13 @@ export default function NewWorkspacePanel({
         try {
           const result = await window.api.mcpSync({ workspaceRoot, settings: mcpSettings })
           if (!result.ok) {
-            failures.push(`MCP setup failed: ${result.message}`)
+            failures.push(`Tool integration setup failed: ${result.message}`)
           } else {
             const blocking = result.issues.find((issue) => issue.level === 'error')
-            if (blocking) failures.push(`MCP setup failed: ${blocking.message}`)
+            if (blocking) failures.push(`Tool integration setup failed: ${blocking.message}`)
           }
         } catch (error) {
-          failures.push(`MCP setup failed: ${error instanceof Error ? error.message : 'sync error'}`)
+          failures.push(`Tool integration setup failed: ${error instanceof Error ? error.message : 'sync error'}`)
         }
       }
 
@@ -2871,7 +2871,7 @@ function GuidedIdeaStep({
             <GuidedChoiceCard
               active={hasUi === 'no'}
               title="No, script or service"
-              body="CLI, API, automation — runs in the background."
+              body="Command-line tool, data service, or scheduled job — runs in the background."
               onSelect={() => onChangeHasUi('no')}
             />
           </div>
@@ -2986,7 +2986,7 @@ function GuidedRoleToggle({
       </span>
       <span className="flex shrink-0 items-center gap-2">
         <AgentCliPicker
-          ariaLabel={`${title} CLI`}
+          ariaLabel={`${title} agent`}
           value={cli}
           onChange={onChangeCli}
           disabled={disabled || !effectiveChecked}
@@ -3761,7 +3761,7 @@ function getStepBlockingMessage(args: {
     case 'mode':
       return `Continue with ${labelFor(mode)}, or pick another.`
     case 'mcp-servers':
-      return 'Pick MCP servers, or skip to add them later from Settings.'
+      return 'Pick tool integrations, or skip to add them later from Settings.'
     case 'skill-packs':
       return 'Pick skill packs, or skip to add them later from Settings.'
     case 'knowledge':
