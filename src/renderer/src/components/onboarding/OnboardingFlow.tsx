@@ -8,7 +8,7 @@ import { CliInstallControl } from '../settings/CliInstallControl'
 import { AppThemePicker } from '../settings/AppThemePicker'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { AdoptConfigCard } from './AdoptConfigCard'
-import { AgentConfigAdoptionStatus } from './agentConfigAdoption'
+import { FirstRunPayoff } from './FirstRunPayoff'
 
 // First-run onboarding (Phase 9). A guided, branded sequence for a fresh install:
 //   welcome → theme → essentials → modules → workspace → first-run → complete
@@ -21,7 +21,19 @@ import { AgentConfigAdoptionStatus } from './agentConfigAdoption'
 //
 // Built to knowledge/brand: ink-scale surface, one accent (the primary CTA),
 // hairlines (no cards), sentence-case copy, the brand wordmark on welcome.
-export default function OnboardingFlow() {
+// The first-run activation payoff (T6) needs real app actions that live in
+// WorkspaceManager — launching a real agent run and opening the real command
+// palette — so WorkspaceManager supplies them here. Kept as props (not store
+// reads) so OnboardingFlow never reaches into WorkspaceManager-local state.
+export default function OnboardingFlow({
+  hasConfiguredCli,
+  onLaunchFirstAgent,
+  onOpenCommandPalette,
+}: {
+  hasConfiguredCli: boolean
+  onLaunchFirstAgent: () => void
+  onOpenCommandPalette: () => void
+}) {
   const step = useWorkspaceStore((s) => s.appSettings.onboardingStep)
   const advanceOnboarding = useWorkspaceStore((s) => s.advanceOnboarding)
   const overrides = useWorkspaceStore((s) => s.appSettings.modules)
@@ -78,7 +90,13 @@ export default function OnboardingFlow() {
             onContinue={advanceOnboarding}
           />
         ) : (
-          <FirstRunStep titleId={titleId} onContinue={advanceOnboarding} />
+          <FirstRunStep
+            titleId={titleId}
+            onContinue={advanceOnboarding}
+            hasConfiguredCli={hasConfiguredCli}
+            onLaunchFirstAgent={onLaunchFirstAgent}
+            onOpenCommandPalette={onOpenCommandPalette}
+          />
         )}
       </div>
     </div>
@@ -272,11 +290,21 @@ function ModulesStep({
 // on creation). T6 fills the body with the real first-agent-run / command-palette
 // payoff; until then this scaffold confirms the workspace is ready and lets the
 // user finish onboarding. Keep T6's payoff inside the body region below.
-function FirstRunStep({ titleId, onContinue }: { titleId: string; onContinue: () => void }) {
+function FirstRunStep({
+  titleId,
+  onContinue,
+  hasConfiguredCli,
+  onLaunchFirstAgent,
+  onOpenCommandPalette,
+}: {
+  titleId: string
+  onContinue: () => void
+  hasConfiguredCli: boolean
+  onLaunchFirstAgent: () => void
+  onOpenCommandPalette: () => void
+}) {
+  // The deferred config-adoption outcome (T3) is surfaced inside the payoff body.
   const adoption = useWorkspaceStore((s) => s.agentConfigAdoptionResult)
-  // Hold the user on the payoff until any in-flight config adoption resolves, so
-  // its success/failure is never hidden by dismissing the overlay early.
-  const adopting = adoption?.status === 'adopting'
   return (
     <>
       <div className="border-b border-[color:var(--border-subtle)] px-6 py-5">
@@ -284,23 +312,19 @@ function FirstRunStep({ titleId, onContinue }: { titleId: string; onContinue: ()
           Your workspace is ready
         </h2>
         <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
-          That’s the setup done. Open your workspace to run your first agent.
+          That’s the setup done. Start your first agent, or just open your workspace.
         </p>
       </div>
 
-      {/* Slot: T6 plugs the real first-run activation payoff (first agent run /
-          command palette) into this body region. T3 surfaces the deferred
-          config-adoption outcome here — the honest result of the real
-          adoptAgentConfig run against the new workspace. */}
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        <AgentConfigAdoptionStatus adoption={adoption} />
-      </div>
-
-      <div className="flex justify-end border-t border-[color:var(--border-subtle)] px-6 py-4">
-        <PrimaryButton size="md" onClick={onContinue} disabled={adopting}>
-          {adopting ? 'Finishing setup…' : 'Open workspace'}
-        </PrimaryButton>
-      </div>
+      {/* T6: the real first-run activation payoff — launches a real agent run
+          when a CLI is configured, otherwise opens the real command palette. */}
+      <FirstRunPayoff
+        hasConfiguredCli={hasConfiguredCli}
+        onLaunchFirstAgent={onLaunchFirstAgent}
+        onOpenCommandPalette={onOpenCommandPalette}
+        onDone={onContinue}
+        adoption={adoption}
+      />
     </>
   )
 }

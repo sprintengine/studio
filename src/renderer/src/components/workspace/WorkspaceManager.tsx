@@ -2233,7 +2233,15 @@ export default function WorkspaceManager() {
           )}
         </div>
         <SettingsOverlay />
-        <OnboardingFlow />
+        {/* T6 first-run payoff: supply the real app actions it needs. A CLI is
+            "configured" when at least one catalog entry is confirmed installed;
+            the run reuses createNewChat against the just-created workspace
+            folder, and the no-CLI fallback opens the real command palette. */}
+        <OnboardingFlow
+          hasConfiguredCli={agentCliCatalog.some((option) => option.installed === true)}
+          onLaunchFirstAgent={() => createNewChat(activeWorkspace?.folderPath ?? undefined)}
+          onOpenCommandPalette={() => runCommand('commandPalette.open')}
+        />
       </div>
       </div>
       {showSprintEnginesAside ? (
