@@ -8,7 +8,7 @@ import {
   type MultiloopRoleDescriptor,
   type SpecialistAction,
 } from '../../specialists/specialistActions'
-import { resolveEnabledSpecialists } from '../../specialists/specialistPacks'
+import { listSpecialistPacks, resolveEnabledSpecialists } from '../../specialists/specialistPacks'
 import type {
   AgentCli,
   AgentCliModelSelection,
@@ -190,6 +190,7 @@ export default function SpawnAgentMenu({
   const disabledSpecialistPacks = useWorkspaceStore(
     (s) => s.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED_PACKS,
   )
+  const sprintEngineRoleRegistry = useWorkspaceStore((s) => s.sprintEngineRoleRegistry)
   const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
@@ -202,8 +203,12 @@ export default function SpawnAgentMenu({
   // order. With every pack disabled this is empty and the menu still shows its
   // Terminal / General / Conversation quick rows.
   const specialistActions = React.useMemo(
-    () => orderSpecialistActions(specialistOrder, resolveEnabledSpecialists(disabledSpecialistPacks)),
-    [specialistOrder, disabledSpecialistPacks],
+    () =>
+      orderSpecialistActions(
+        specialistOrder,
+        resolveEnabledSpecialists(disabledSpecialistPacks, listSpecialistPacks(sprintEngineRoleRegistry)),
+      ),
+    [specialistOrder, disabledSpecialistPacks, sprintEngineRoleRegistry],
   )
   const agentCliOptions = React.useMemo(
     () =>

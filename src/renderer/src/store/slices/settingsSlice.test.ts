@@ -640,9 +640,9 @@ assert.equal(afterDelete.lastSelectedTeamId, null, 'deleting the selected team c
 // Normalization keeps only known specialist ids, drops duplicates, and ignores
 // junk so a stale or hand-edited settings file is always safe to load.
 assert.deepEqual(
-  normalizeSpecialistOrder(['developer', 'architect', 'developer', 'not-a-real-id', 42, '']),
-  ['developer', 'architect'],
-  'normalizeSpecialistOrder keeps known unique ids in order',
+  normalizeSpecialistOrder(['developer', 'architect', 'developer', 'marketer', 42, '']),
+  ['developer', 'architect', 'marketer'],
+  'normalizeSpecialistOrder keeps unique non-empty ids (incl. registry-discovered) in order, dropping dupes and non-strings',
 )
 assert.deepEqual(normalizeSpecialistOrder(undefined), [], 'missing order normalizes to empty')
 
@@ -685,11 +685,13 @@ assert.ok(
   )
 }
 
-// The persisted setter normalizes whatever the drag handler hands it.
-store.setSpecialistOrder(['developer', 'developer', 'frontend-design-review', 'bogus' as never])
+// The persisted setter normalizes whatever the drag handler hands it: dupes and
+// non-strings are dropped, but registry-discovered ids (unknown at this layer)
+// are kept so a dropped-in specialist pack's order survives.
+store.setSpecialistOrder(['developer', 'developer', 'frontend-design-review', 'marketer'])
 assert.deepEqual(
   useWorkspaceStore.getState().appSettings.specialistOrder,
-  ['developer', 'frontend-design-review'],
+  ['developer', 'frontend-design-review', 'marketer'],
   'setSpecialistOrder persists a normalized id sequence',
 )
 

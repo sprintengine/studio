@@ -139,7 +139,10 @@ async function runSoulsCli(args: string[]): Promise<SoulsCliResult> {
 }
 
 export async function readSpecialistSoul(specialistId: SpecialistActionId): Promise<SoulPromptResult> {
-  const role = specialistSoulRoles[specialistId]
+  // Bundled ids map through specialistSoulRoles; any other id is a registry role
+  // id from a dropped-in specialist pack, used directly. `souls get` reports a
+  // clean error if the role does not resolve.
+  const role = specialistSoulRoles[specialistId as keyof typeof specialistSoulRoles] ?? specialistId
   if (!role) {
     return {
       ok: false,

@@ -34,6 +34,7 @@ import type {
   VoiceDictationSettings,
   CliRuntimeSettings,
   SpecialistActionId,
+  SprintEngineRoleRegistry,
   MultiloopRole,
   AgentExecution,
   WorkspaceWorktreeState,
@@ -144,6 +145,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   authState: MulticodeAuthState
   sidebarCollapsed: boolean
   setSidebarCollapsed: (collapsed: boolean) => void
+  sprintEngineRoleRegistry: SprintEngineRoleRegistry | null
+  setSprintEngineRoleRegistry: (registry: SprintEngineRoleRegistry | null) => void
   sprintEnginesAsideOpen: boolean
   setSprintEnginesAsideOpen: (open: boolean) => void
   openFilesInExternalWindow: boolean

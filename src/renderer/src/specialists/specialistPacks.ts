@@ -1,4 +1,12 @@
-import { SPECIALIST_ACTIONS, type SpecialistAction } from './specialistActions'
+import type {
+  SprintEngineRoleRegistry,
+  SprintEngineRoleRegistryMetadata,
+} from '../types/workspace'
+import {
+  SPECIALIST_ACTIONS,
+  type SpecialistAction,
+  type SpecialistIcon,
+} from './specialistActions'
 
 // A specialist pack is a named, toggleable group of specialist agents. The
 // built-in roster ships as the "Multicode Specialists" pack; deselecting it
@@ -34,9 +42,80 @@ export function getBundledSpecialistPack(): SpecialistPack {
   }
 }
 
-/** All packs Multicode knows about. Today this is the single bundled pack. */
-export function listSpecialistPacks(): SpecialistPack[] {
-  return [getBundledSpecialistPack()]
+const SPECIALIST_ICONS: ReadonlySet<SpecialistIcon> = new Set<SpecialistIcon>([
+  'architecture', 'code', 'design', 'design_review', 'review', 'spaghetti', 'nuclear',
+  'shield', 'test', 'infra', 'product', 'performance', 'production_readiness',
+  'cross_platform', 'writing',
+])
+
+function iconForRegistryRole(icon: string | null | undefined): SpecialistIcon {
+  return icon && SPECIALIST_ICONS.has(icon as SpecialistIcon) ? (icon as SpecialistIcon) : 'code'
+}
+
+function specialistFromRegistryRole(role: SprintEngineRoleRegistryMetadata): SpecialistAction {
+  // A discovered role's id is its registry role id, so its soul renders via
+  // `souls get <id>`. Display comes from the manifest's label/summary/icon.
+  return {
+    id: role.id,
+    label: role.label,
+    shortLabel: role.label,
+    description: role.summary ?? '',
+    icon: iconForRegistryRole(role.icon),
+    soulRole: role.id,
+  }
+}
+
+const REGISTRY_PACK_ID_PREFIX = 'registry:'
+
+function registryPackLabel(layer: string): string {
+  if (layer === 'workspace') return 'Workspace specialists'
+  if (layer === 'user') return 'User specialists'
+  if (layer.startsWith('plugin:')) return `Plugin specialists — ${layer.slice('plugin:'.length)}`
+  if (layer === 'plugin') return 'Plugin specialists'
+  return `${layer} specialists`
+}
+
+/**
+ * Specialist packs discovered from the role registry: every non-bundled-layer
+ * role (workspace / user / plugin), grouped into a pack per source layer. Roles
+ * whose id overlaps a bundled specialist's soul role are skipped — the bundled
+ * pack already represents them (a higher-precedence override still renders
+ * through `souls get` at spawn time).
+ */
+export function discoveredSpecialistPacks(
+  registry: SprintEngineRoleRegistry | null | undefined,
+): SpecialistPack[] {
+  if (!registry) return []
+  const bundledSoulRoles = new Set(SPECIALIST_ACTIONS.map((action) => action.soulRole))
+  const byLayer = new Map<string, SpecialistAction[]>()
+  for (const role of Object.values(registry.roles)) {
+    const layer = role.source?.layer
+    if (!layer || layer === 'bundled') continue
+    if (bundledSoulRoles.has(role.id)) continue
+    const list = byLayer.get(layer) ?? []
+    list.push(specialistFromRegistryRole(role))
+    byLayer.set(layer, list)
+  }
+  return [...byLayer.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([layer, specialists]) => ({
+      id: `${REGISTRY_PACK_ID_PREFIX}${layer}`,
+      name: registryPackLabel(layer),
+      description: 'Specialist agents discovered from a plugged-in role registry layer.',
+      builtin: false,
+      specialists: specialists.sort((a, b) => a.label.localeCompare(b.label)),
+    }))
+}
+
+/**
+ * All packs: the bundled pack plus any registry-discovered packs. Pass the
+ * loaded role registry to surface dropped-in specialist packs; omit it for the
+ * bundled-only roster.
+ */
+export function listSpecialistPacks(
+  registry?: SprintEngineRoleRegistry | null,
+): SpecialistPack[] {
+  return [getBundledSpecialistPack(), ...discoveredSpecialistPacks(registry)]
 }
 
 // A pack is enabled unless its id is explicitly recorded as disabled, so a new

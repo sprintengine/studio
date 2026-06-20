@@ -1,13 +1,37 @@
 import assert from 'node:assert/strict'
 
+import type { SprintEngineRoleRegistry } from '../types/workspace'
 import { SPECIALIST_ACTIONS, orderSpecialistActions } from './specialistActions'
 import {
   BUNDLED_SPECIALIST_PACK_ID,
+  discoveredSpecialistPacks,
   getBundledSpecialistPack,
   isSpecialistPackEnabled,
   listSpecialistPacks,
   resolveEnabledSpecialists,
 } from './specialistPacks'
+
+function registry(
+  roles: Array<{ id: string; label: string; layer: string; summary?: string; icon?: string }>,
+): SprintEngineRoleRegistry {
+  return {
+    roles: Object.fromEntries(
+      roles.map((r) => [
+        r.id,
+        {
+          id: r.id,
+          label: r.label,
+          aliases: [],
+          summary: r.summary ?? null,
+          icon: r.icon ?? null,
+          source: { layer: r.layer },
+        },
+      ]),
+    ),
+    aliases: {},
+    warnings: [],
+  }
+}
 
 function main(): void {
   // The bundled pack wraps the full specialist roster.
@@ -44,6 +68,42 @@ function main(): void {
 
   // Ordering an empty roster yields an empty list, not the full catalog.
   assert.deepEqual(orderSpecialistActions(['developer'], []), [])
+
+  // --- registry-discovered packs ---
+  const reg = registry([
+    // A truly new role on the workspace layer → its own discovered pack.
+    { id: 'marketer', label: 'Marketer', layer: 'workspace', summary: 'Growth.' },
+    // A new role on a plugin layer → a separate discovered pack.
+    { id: 'translator', label: 'Translator', layer: 'plugin:lang' },
+    // A bundled-layer role is represented by the bundled pack, not rediscovered.
+    { id: 'developer', label: 'Developer', layer: 'bundled' },
+    // An override of a bundled soul role (same id, higher layer) is skipped —
+    // the bundled pack already represents it.
+    { id: 'architect', label: 'My Architect', layer: 'user' },
+  ])
+
+  const discovered = discoveredSpecialistPacks(reg)
+  const discoveredIds = discovered.map((p) => p.id).sort()
+  assert.deepEqual(discoveredIds, ['registry:plugin:lang', 'registry:workspace'])
+  for (const pack of discovered) assert.equal(pack.builtin, false)
+
+  const marketer = discovered.find((p) => p.id === 'registry:workspace')!.specialists
+  assert.equal(marketer.length, 1)
+  assert.equal(marketer[0].id, 'marketer')
+  assert.equal(marketer[0].soulRole, 'marketer', 'discovered soulRole is the registry role id')
+
+  // No registry → bundled only; with registry → bundled + discovered.
+  assert.equal(listSpecialistPacks().length, 1)
+  assert.equal(listSpecialistPacks(reg).length, 3)
+
+  // Enabled roster merges bundled + discovered; disabling a discovered pack
+  // drops only its agents.
+  const all = resolveEnabledSpecialists([], listSpecialistPacks(reg))
+  assert.ok(all.some((s) => s.id === 'marketer'))
+  assert.ok(all.some((s) => s.id === 'translator'))
+  const withoutWorkspace = resolveEnabledSpecialists(['registry:workspace'], listSpecialistPacks(reg))
+  assert.ok(!withoutWorkspace.some((s) => s.id === 'marketer'))
+  assert.ok(withoutWorkspace.some((s) => s.id === 'translator'))
 
   console.log('specialistPacks.test.ts passed')
 }

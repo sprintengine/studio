@@ -1131,7 +1131,8 @@ export type MultiloopRole =
 export type AgentKind = 'general' | 'specialist' | 'watchtower' | 'sprintengine' | 'multiloop'
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
 export type WorktreeEntryStatus = 'available' | 'assigned' | 'missing' | 'removing' | 'error'
-export type SpecialistActionId =
+// Ids of the built-in specialist actions shipped in SPECIALIST_ACTIONS.
+export type BundledSpecialistActionId =
   | 'architect'
   | 'product-strategist'
   | 'developer'
@@ -1147,6 +1148,12 @@ export type SpecialistActionId =
   | 'code-review'
   | 'nuclear-review'
   | 'spec-review'
+
+// A specialist id is either a bundled action id or a registry-discovered role id
+// (from a workspace / user / plugin specialist pack). The `(string & {})` arm
+// keeps editor autocomplete for the bundled ids while accepting any registry
+// role id, so dropped-in specialist packs round-trip through prefs and spawns.
+export type SpecialistActionId = BundledSpecialistActionId | (string & {})
 
 export type CliRuntimeSettings = {
   command: string

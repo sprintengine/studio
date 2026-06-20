@@ -172,8 +172,27 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
   },
 ]
 
+// Synthesize a specialist action for a registry-discovered role id (one not in
+// the bundled roster). The id is the registry role id, so its soul is rendered
+// by `souls get <id>`; label/icon fall back to the id until the dropdown joins
+// it with registry metadata for display.
+export function synthesizeSpecialistAction(id: string): SpecialistAction {
+  return {
+    id,
+    label: id,
+    shortLabel: id,
+    description: '',
+    icon: 'code',
+    soulRole: id,
+  }
+}
+
+// Resolve a specialist id to its action. Bundled ids return their curated entry;
+// any other id is treated as a registry role id so dropped-in specialist packs
+// spawn correctly. Returns the first bundled action only for empty input.
 export function getSpecialistAction(id: SpecialistActionId | string | null | undefined): SpecialistAction {
-  return SPECIALIST_ACTIONS.find((action) => action.id === id) ?? SPECIALIST_ACTIONS[0]
+  if (!id) return SPECIALIST_ACTIONS[0]
+  return SPECIALIST_ACTIONS.find((action) => action.id === id) ?? synthesizeSpecialistAction(id)
 }
 
 /**

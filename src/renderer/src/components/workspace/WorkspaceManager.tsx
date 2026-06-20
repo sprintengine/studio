@@ -108,7 +108,7 @@ import { getCommandDefinition } from '../../commands/commandRegistry'
 import { getElectronAccelerator } from '../../commands/effectiveKeybindings'
 import type { CommandAvailabilityContext } from '../../commands/availability'
 import type { CommandScope } from '../../commands/types'
-import { buildSprintEngineAgentRosterForState, computeSprintEngineFocusAgentAvailability } from '../../utils/sprintengine'
+import { buildSprintEngineAgentRosterForState, buildSprintEngineRoleRegistry, computeSprintEngineFocusAgentAvailability } from '../../utils/sprintengine'
 import { isGlobalShortcutSuppressedTarget } from '../../utils/keyboard'
 
 // Lazy so the (large) new-workspace wizard — and everything it pulls in
@@ -228,6 +228,7 @@ export default function WorkspaceManager() {
   const setSidebarCollapsed = useWorkspaceStore((s) => s.setSidebarCollapsed)
   const sprintEnginesAsideOpen = useWorkspaceStore((s) => s.sprintEnginesAsideOpen)
   const setSprintEnginesAsideOpen = useWorkspaceStore((s) => s.setSprintEnginesAsideOpen)
+  const setSprintEngineRoleRegistry = useWorkspaceStore((s) => s.setSprintEngineRoleRegistry)
   const settingsOverlayOpen = useWorkspaceStore((s) => s.settingsOverlay.open)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const closeSettingsOverlay = useWorkspaceStore((s) => s.closeSettingsOverlay)
@@ -339,6 +340,26 @@ export default function WorkspaceManager() {
       ? currentWorkspaceWindow.activeWorkspaceId
       : visibleWorkspaces[0]?.id ?? null
   const activeWorkspace = visibleWorkspaces.find((workspace) => workspace.id === windowActiveWorkspaceId) ?? null
+  // Load the Sprint Engine role registry for the active workspace so the spawn
+  // dropdown and Specialist packs settings tab can surface registry-discovered
+  // specialist packs (workspace / user / plugin layers) alongside the bundled
+  // pack. In-memory only; re-fetched when the active workspace folder changes.
+  const activeWorkspaceFolderPath = activeWorkspace?.folderPath ?? null
+  useEffect(() => {
+    let cancelled = false
+    void window.api
+      .readSprintEngineRegistryRoles({ workspaceRoot: activeWorkspaceFolderPath ?? '', includeShadowed: false })
+      .then((result) => {
+        if (cancelled) return
+        setSprintEngineRoleRegistry(result.ok ? buildSprintEngineRoleRegistry(result.data) : null)
+      })
+      .catch(() => {
+        if (!cancelled) setSprintEngineRoleRegistry(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeWorkspaceFolderPath, setSprintEngineRoleRegistry])
   const mobileWorkspaceRootKey = workspaces
     .map((workspace) => workspace.folderPath)
     .filter((folderPath): folderPath is string => Boolean(folderPath?.trim()))

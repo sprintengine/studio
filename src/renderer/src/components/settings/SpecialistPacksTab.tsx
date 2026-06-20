@@ -20,7 +20,8 @@ const EMPTY_DISABLED: string[] = []
 export default function SpecialistPacksTab() {
   const disabled = useWorkspaceStore((s) => s.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED)
   const setSpecialistPackEnabled = useWorkspaceStore((s) => s.setSpecialistPackEnabled)
-  const packs = React.useMemo(() => listSpecialistPacks(), [])
+  const sprintEngineRoleRegistry = useWorkspaceStore((s) => s.sprintEngineRoleRegistry)
+  const packs = React.useMemo(() => listSpecialistPacks(sprintEngineRoleRegistry), [sprintEngineRoleRegistry])
 
   return (
     <div

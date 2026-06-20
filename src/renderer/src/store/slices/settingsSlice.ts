@@ -23,6 +23,7 @@ import type {
   SkillPackSettings,
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
+  SprintEngineRoleRegistry,
   UsageTelemetrySettings,
   VoiceDictationModel,
   VoiceDictationSettings,
@@ -33,7 +34,6 @@ import {
   resolveInitialOnboardingStep,
   type OnboardingStep,
 } from '../onboardingState'
-import { SPECIALIST_ACTIONS } from '../../specialists/specialistActions'
 import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
 import { collapseDuplicateKeybindings } from '../../commands/keybindings'
@@ -519,13 +519,15 @@ export function normalizeConversationModel(
 // incomplete or stale list is safe to store.
 export function normalizeSpecialistOrder(input: unknown): SpecialistActionId[] {
   if (!Array.isArray(input)) return []
-  const valid = new Set(SPECIALIST_ACTIONS.map((action) => action.id))
-  const seen = new Set<SpecialistActionId>()
+  // Keep any non-empty id (bundled or registry-discovered role id), de-duped.
+  // The roster resolves order against the live specialist list at render time,
+  // so an id whose pack is absent is simply skipped there.
+  const seen = new Set<string>()
   const result: SpecialistActionId[] = []
   for (const entry of input) {
     if (typeof entry !== 'string') continue
-    const id = entry.trim() as SpecialistActionId
-    if (valid.has(id) && !seen.has(id)) {
+    const id = entry.trim()
+    if (id && !seen.has(id)) {
       seen.add(id)
       result.push(id)
     }
@@ -821,10 +823,16 @@ export interface SettingsSliceState {
   // Set by user action — popping a tab out turns it on, docking a file back
   // turns it off — and remembered so the next file reuses the last surface.
   openFilesInExternalWindow: boolean
+  // Discovered Sprint Engine role registry for the active workspace (bundled +
+  // workspace/user/plugin layers). In-memory only (re-fetched per workspace,
+  // never persisted); powers the registry-discovered specialist packs in the
+  // spawn dropdown and the Specialist packs settings tab. Null until loaded.
+  sprintEngineRoleRegistry: SprintEngineRoleRegistry | null
 }
 
 export interface SettingsSliceActions {
   setSidebarCollapsed: (collapsed: boolean) => void
+  setSprintEngineRoleRegistry: (registry: SprintEngineRoleRegistry | null) => void
   setSprintEnginesAsideOpen: (open: boolean) => void
   setOpenFilesInExternalWindow: (enabled: boolean) => void
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
@@ -908,6 +916,12 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     sidebarCollapsed: false,
     sprintEnginesAsideOpen: false,
     openFilesInExternalWindow: DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW,
+    sprintEngineRoleRegistry: null,
+
+    setSprintEngineRoleRegistry: (registry) =>
+      set((state) => {
+        state.sprintEngineRoleRegistry = registry
+      }),
 
     setSidebarCollapsed: (collapsed) =>
       set((state) => {
