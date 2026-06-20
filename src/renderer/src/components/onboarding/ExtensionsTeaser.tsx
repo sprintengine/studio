@@ -112,7 +112,13 @@ export function ExtensionsTeaser() {
             MCP servers, skill packs, and more from the extensions registry.
           </p>
         </div>
-        <GhostButton size="sm" onClick={openBrowse} className="shrink-0 border border-[color:var(--border-default)]">
+        {/* Ghost spec (knowledge/brand/BRAND-APP.md): hairline border on hover
+            only. Transparent border holds the layout so hover doesn't shift it. */}
+        <GhostButton
+          size="sm"
+          onClick={openBrowse}
+          className="shrink-0 border border-transparent hover:border-[color:var(--border-subtle)]"
+        >
           Browse extensions
         </GhostButton>
       </div>

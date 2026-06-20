@@ -230,6 +230,25 @@ expectIncludes(rendererCss, '--shadow-drawer:', 'Canonical drawer elevation toke
 expectIncludes(rendererCss, '.drawer-panel', 'Canonical .drawer-panel slide/elevation class is defined in index.css')
 expectIncludes(rendererCss, 'box-shadow: var(--shadow-drawer)', '.drawer-panel applies the canonical drawer elevation')
 
+// OnboardingFlow — first-run overlay. Hand-rolls the dialog (not the Modal/Drawer
+// primitive) because it renders steps over a real workspace, but it must enforce
+// the same keyboard focus trap so a sighted keyboard user cannot Tab into the
+// obscured workspace on the first-run step (WCAG 2.4.3). The intentional
+// no-Escape / no-backdrop-dismiss behaviour stays: the primary button is the
+// only way forward on a fresh install.
+const onboardingFlow = read('src/renderer/src/components/onboarding/OnboardingFlow.tsx')
+expectIncludes(onboardingFlow, 'role="dialog"', 'OnboardingFlow exposes the dialog role')
+expectIncludes(onboardingFlow, 'aria-modal="true"', 'OnboardingFlow marks the overlay modal')
+expectIncludes(onboardingFlow, 'aria-labelledby={titleId}', 'OnboardingFlow wires aria-labelledby to its step title')
+expectIncludes(onboardingFlow, 'data-focus-sentinel="true"', 'OnboardingFlow installs focus sentinels to trap focus')
+expectIncludes(onboardingFlow, 'trapFocus', 'OnboardingFlow wires the focus-trap helper')
+expectIncludes(onboardingFlow, "onFocus={trapFocus('start')}", 'OnboardingFlow wraps focus to the last control from the leading sentinel')
+expectIncludes(onboardingFlow, "onFocus={trapFocus('end')}", 'OnboardingFlow wraps focus to the first control from the trailing sentinel')
+assert.ok(
+  !/event\.key === 'Escape'/.test(onboardingFlow),
+  'OnboardingFlow keeps the intentional no-Escape behaviour (no Escape dismiss handler)',
+)
+
 // Toast — tone-driven live region. Polite/assertive split keys off StatusDot tones.
 expectMatches(toast, /neutral:\s*'status'/, 'Toast routes neutral tone to role="status"')
 expectMatches(toast, /good:\s*'status'/, 'Toast routes good tone to role="status"')

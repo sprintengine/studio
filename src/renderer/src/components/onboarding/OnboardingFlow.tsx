@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef } from 'react'
 
 import MulticodeWordmark from '../brand/MulticodeWordmark'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -10,6 +10,10 @@ import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWork
 import { AdoptConfigCard } from './AdoptConfigCard'
 import { ExtensionsTeaser } from './ExtensionsTeaser'
 import { FirstRunPayoff } from './FirstRunPayoff'
+
+// Same focusable set the canonical Drawer focus trap uses, minus the sentinels.
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 // First-run onboarding (Phase 9). A guided, branded sequence for a fresh install:
 //   welcome → theme → essentials → modules → workspace → first-run → complete
@@ -69,6 +73,28 @@ export default function OnboardingFlow({
     }
   }, [visible, step])
 
+  // Keyboard focus trap (WCAG 2.4.3), matching the canonical Drawer/Modal
+  // primitives: sentinel tab stops bracket the surface so Tab/Shift+Tab wrap
+  // within the dialog and never reach the real workspace behind the overlay on
+  // the first-run step. No Escape/backdrop dismiss — the primary button is the
+  // only way forward on a fresh install (see header note).
+  const trapFocus = useCallback(
+    (position: 'start' | 'end') => () => {
+      const root = surfaceRef.current
+      if (!root) return
+      const focusables = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+        (el) => !el.hasAttribute('data-focus-sentinel'),
+      )
+      if (focusables.length === 0) {
+        root.focus()
+        return
+      }
+      if (position === 'start') focusables[focusables.length - 1].focus()
+      else focusables[0].focus()
+    },
+    [],
+  )
+
   if (!visible) return null
 
   return (
@@ -78,6 +104,8 @@ export default function OnboardingFlow({
       aria-labelledby={titleId}
       className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay-backdrop)] p-4 sm:p-8"
     >
+      <div data-focus-sentinel="true" tabIndex={0} onFocus={trapFocus('start')} className="sr-only" />
+
       <div
         ref={surfaceRef}
         tabIndex={-1}
@@ -106,6 +134,8 @@ export default function OnboardingFlow({
           />
         )}
       </div>
+
+      <div data-focus-sentinel="true" tabIndex={0} onFocus={trapFocus('end')} className="sr-only" />
     </div>
   )
 }
@@ -242,10 +272,13 @@ function EssentialsStep({ titleId, onContinue }: { titleId: string; onContinue: 
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-[color:var(--border-subtle)] px-6 py-4">
-        <span className="text-[11px] text-[color:var(--text-subtle)]">
+        <span
+          title="You can change this anytime in Settings → Agents."
+          className="min-w-0 truncate text-[11px] text-[color:var(--text-subtle)]"
+        >
           You can change this anytime in Settings → Agents.
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <GhostButton
             size="md"
             onClick={handleSkip}
