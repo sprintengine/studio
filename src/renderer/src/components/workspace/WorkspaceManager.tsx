@@ -6,6 +6,7 @@ import CommandPalette from '../CommandPalette'
 import DiagnosticsOverlay from '../diagnostics/DiagnosticsOverlay'
 import { TipStartupModal } from '../learn/TipStartupModal'
 import OnboardingFlow from '../onboarding/OnboardingFlow'
+import { planDeferredAdoption } from '../onboarding/agentConfigAdoption'
 import SettingsOverlay from '../settings/SettingsOverlay'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
@@ -1092,18 +1093,28 @@ export default function WorkspaceManager() {
   // success/failure is surfaced honestly on the first-run overlay.
   const runDeferredAgentConfigAdoption = useCallback(
     (workspaceRoot: string | null) => {
-      if (onboardingStep === 'complete') return
-      const selection = pendingAgentConfigAdoption
-      if (!selection || (selection.mcpServerKeys.length === 0 && selection.skillKeys.length === 0)) return
-      if (!workspaceRoot || !workspaceRoot.trim()) return
+      const plan = planDeferredAdoption({
+        onboardingStep,
+        selection: pendingAgentConfigAdoption,
+        workspaceRoot,
+      })
+      // skip covers onboarding-complete and the no-selection case — including a
+      // user who hit "Skip for now" (their selection was cleared), so adoption
+      // never runs for a skip.
+      if (plan.kind === 'skip') return
+      // Consume the selection up front so a later create can't double-adopt.
       setPendingAgentConfigAdoption(null)
+      if (plan.kind === 'missing-root') {
+        setAgentConfigAdoptionResult(plan.result)
+        return
+      }
       setAgentConfigAdoptionResult({ status: 'adopting' })
       void (async () => {
         try {
           const result = await window.api.adoptAgentConfig({
-            workspaceRoot,
-            mcpServerKeys: selection.mcpServerKeys,
-            skillKeys: selection.skillKeys,
+            workspaceRoot: plan.workspaceRoot,
+            mcpServerKeys: plan.mcpServerKeys,
+            skillKeys: plan.skillKeys,
           })
           if (result.ok) {
             setAgentConfigAdoptionResult({
