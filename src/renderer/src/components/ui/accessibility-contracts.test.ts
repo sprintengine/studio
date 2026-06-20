@@ -244,6 +244,12 @@ expectIncludes(onboardingFlow, 'data-focus-sentinel="true"', 'OnboardingFlow ins
 expectIncludes(onboardingFlow, 'trapFocus', 'OnboardingFlow wires the focus-trap helper')
 expectIncludes(onboardingFlow, "onFocus={trapFocus('start')}", 'OnboardingFlow wraps focus to the last control from the leading sentinel')
 expectIncludes(onboardingFlow, "onFocus={trapFocus('end')}", 'OnboardingFlow wraps focus to the first control from the trailing sentinel')
+// The first-run step renders over a real workspace whose terminal autofocuses
+// AFTER the dialog mounts, so sentinels alone cannot keep focus inside. A
+// document focusin guard recovers focus into the dialog when it escapes behind
+// the overlay (WCAG 2.4.3).
+expectIncludes(onboardingFlow, "addEventListener('focusin'", 'OnboardingFlow installs a document focusin guard to recover focus into the dialog')
+expectIncludes(onboardingFlow, 'dialog.contains(target)', 'OnboardingFlow focusin guard only recovers focus when it escapes the dialog')
 assert.ok(
   !/event\.key === 'Escape'/.test(onboardingFlow),
   'OnboardingFlow keeps the intentional no-Escape behaviour (no Escape dismiss handler)',

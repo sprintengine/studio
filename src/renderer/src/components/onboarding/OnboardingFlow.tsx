@@ -50,6 +50,7 @@ export default function OnboardingFlow({
   const settingsOpen = useWorkspaceStore((s) => s.settingsOverlay.open)
 
   const titleId = useId()
+  const dialogRef = useRef<HTMLDivElement>(null)
   const surfaceRef = useRef<HTMLDivElement>(null)
 
   // This component renders every onboarding step as an overlay EXCEPT workspace,
@@ -72,6 +73,28 @@ export default function OnboardingFlow({
       window.cancelAnimationFrame(frame)
     }
   }, [visible, step])
+
+  // Runtime focus recovery (WCAG 2.4.3). The first-run step renders AFTER the
+  // real workspace mounts behind the overlay, and the workspace terminal
+  // autofocuses its textarea on mount — which fires after our initial focus
+  // rAF above and lands focus behind the dialog. The boundary sentinels only
+  // wrap Tab once focus is already inside the dialog, so they cannot catch that
+  // steal. This document focusin guard pulls focus back into the dialog whenever
+  // it escapes to the obscured workspace, for as long as the overlay is visible.
+  useEffect(() => {
+    if (!visible) return undefined
+    const recoverFocus = (event: FocusEvent) => {
+      const dialog = dialogRef.current
+      if (!dialog) return
+      const target = event.target
+      if (target instanceof Node && dialog.contains(target)) return
+      // Focus left the dialog entirely (e.g. terminal autofocus behind the
+      // overlay). Return it to the surface; Tab from there re-enters the trap.
+      surfaceRef.current?.focus()
+    }
+    document.addEventListener('focusin', recoverFocus)
+    return () => document.removeEventListener('focusin', recoverFocus)
+  }, [visible])
 
   // Keyboard focus trap (WCAG 2.4.3), matching the canonical Drawer/Modal
   // primitives: sentinel tab stops bracket the surface so Tab/Shift+Tab wrap
@@ -99,6 +122,7 @@ export default function OnboardingFlow({
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
