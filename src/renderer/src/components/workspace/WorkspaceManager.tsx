@@ -2240,7 +2240,16 @@ export default function WorkspaceManager() {
         <OnboardingFlow
           hasConfiguredCli={agentCliCatalog.some((option) => option.installed === true)}
           onLaunchFirstAgent={() => createNewChat(activeWorkspace?.folderPath ?? undefined)}
-          onOpenCommandPalette={() => runCommand('commandPalette.open')}
+          onOpenCommandPalette={() => {
+            // The no-CLI payoff sends the user into the command palette as the
+            // learn-by-doing beat, then finishes onboarding. Completing onboarding
+            // would otherwise trigger the one-shot startup tip and cover the
+            // palette, so mark the tip decided (skip) for this transition. It is
+            // per-session, so the tip returns to normal on the next launch.
+            tipModalDecidedRef.current = true
+            setTipModalOpen(false)
+            runCommand('commandPalette.open')
+          }}
         />
       </div>
       </div>
