@@ -23,10 +23,11 @@ export type WizardProgressProps = {
    */
   stepLabels?: string[]
   /**
-   * Optional back-jump handler. When set, every already-completed dash (before
-   * `active`) becomes a focusable button that calls this with the target step
-   * index, so users can jump back to a finished step. Upcoming and current steps
-   * stay non-interactive.
+   * Optional back-jump handler. When set, every already-completed step becomes a
+   * focusable jump control that calls this with the target step index, so users
+   * can return to a finished step. The jump controls live in a sibling group
+   * layered over the dashes — the progressbar element itself stays a
+   * non-interactive status indicator. Upcoming and current steps stay inert.
    */
   onStepSelect?: (index: number) => void
 }
@@ -49,7 +50,14 @@ export function WizardProgress({
   const step = Math.min(total, active + 1)
   const baseLabel = ariaLabel ?? `Step ${step} of ${total}`
   const fullLabel = currentStepLabel ? `${baseLabel} · ${currentStepLabel}` : baseLabel
-  return (
+  // One descriptor per dash. `isDone` is the single source of truth for both the
+  // completed-dash fill and (when enabled) which steps can be jumped back to.
+  const stepStates = Array.from({ length: total }).map((_, idx) => {
+    const isCurrent = idx === active
+    return { idx, isCurrent, isDone: idx < doneCount && !isCurrent }
+  })
+
+  const progressbar = (
     <div
       role="progressbar"
       aria-valuemin={1}
@@ -58,20 +66,39 @@ export function WizardProgress({
       aria-label={fullLabel}
       className="flex min-w-0 flex-1 items-center gap-1.5"
     >
-      {Array.from({ length: total }).map((_, idx) => {
-        const isCurrent = idx === active
-        const isDone = idx < doneCount && !isCurrent
-        const dashClass = `h-[3px] flex-1 rounded-full transition-colors duration-300 ${
-          isCurrent
-            ? 'bg-[color:var(--text-strong)]'
-            : isDone
-              ? 'bg-[color:var(--text-disabled)]'
-              : 'bg-[color:var(--border-default)]'
-        }`
-        // A completed step becomes a back-jump button when onStepSelect is set.
-        // The button keeps the hairline dash visual but expands the hit area
-        // vertically (py/-my) so it is an easy, accessible target.
-        if (onStepSelect && idx < active) {
+      {stepStates.map(({ idx, isCurrent, isDone }) => (
+        <span
+          key={idx}
+          aria-hidden="true"
+          className={`h-[3px] flex-1 rounded-full transition-colors duration-300 ${
+            isCurrent
+              ? 'bg-[color:var(--text-strong)]'
+              : isDone
+                ? 'bg-[color:var(--text-disabled)]'
+                : 'bg-[color:var(--border-default)]'
+          }`}
+        />
+      ))}
+    </div>
+  )
+
+  // Without a back-jump handler the progressbar is the whole control.
+  if (!onStepSelect) return progressbar
+
+  // Back-jump enabled: keep the progressbar non-interactive and lay a sibling
+  // group of jump controls over it. Each cell is flex-1 with the same gap as the
+  // dashes, so the completed-step buttons align exactly over their dashes; the
+  // group extends past the dashes vertically (-inset-y-2) for an easy hit area.
+  return (
+    <div className="relative flex min-w-0 flex-1 items-center">
+      {progressbar}
+      <div
+        role="group"
+        aria-label="Jump to a completed step"
+        className="absolute inset-x-0 -inset-y-2 flex items-center gap-1.5"
+      >
+        {stepStates.map(({ idx, isDone }) => {
+          if (!isDone) return <span key={idx} aria-hidden="true" className="flex-1" />
           const stepLabel = stepLabels?.[idx]
           return (
             <button
@@ -83,17 +110,11 @@ export function WizardProgress({
                   ? `Go back to step ${idx + 1}: ${stepLabel}`
                   : `Go back to step ${idx + 1}`
               }
-              className="group -my-2 flex flex-1 items-center rounded-full py-2 outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
-            >
-              <span
-                aria-hidden="true"
-                className={`${dashClass} group-hover:bg-[color:var(--text-muted)]`}
-              />
-            </button>
+              className="h-full flex-1 rounded-full outline-none transition-colors hover:bg-[color:var(--bg-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+            />
           )
-        }
-        return <span key={idx} aria-hidden="true" className={dashClass} />
-      })}
+        })}
+      </div>
     </div>
   )
 }
