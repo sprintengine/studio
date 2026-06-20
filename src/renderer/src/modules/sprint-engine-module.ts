@@ -135,7 +135,7 @@ export const sprintEngineRendererModule: RendererModule = {
     publisher: 'multicode',
     category: 'orchestration',
     summary:
-      'Autonomous multi-agent sprint board with quality gates. Disabling hides the board, the Sprint Engine and Guided Brief workspace modes, and stops the auto-run supervisor.',
+      'Autonomous multi-agent sprint board with quality gates. Disabling hides the board, the Sprint Engine and Design Wizard workspace modes, and stops the auto-run supervisor.',
     defaultEnabled: true,
     dependsOn: ['agent-runtime'],
   },

@@ -314,7 +314,7 @@ export async function startGuidedBriefSpecialistSession(
 
   if (!input.cli) {
     dispose()
-    const message = 'Guided brief specialist session is missing its CLI selection.'
+    const message = 'Design Wizard specialist session is missing its CLI selection.'
     options.onLifecycle?.('error')
     options.onError?.(message)
     return { ok: false, sessionId, message }
@@ -342,7 +342,7 @@ export async function startGuidedBriefSpecialistSession(
   ).catch((error): TerminalSpawnResult => ({
     ok: false,
     sessionId,
-    message: error instanceof Error ? error.message : 'Failed to start Guided brief specialist session.',
+    message: error instanceof Error ? error.message : 'Failed to start Design Wizard specialist session.',
     exitCode: 1,
   }))
 

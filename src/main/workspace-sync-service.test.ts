@@ -368,6 +368,62 @@ async function main(): Promise<void> {
     ['ws-two'],
   )
 
+  // Routing snapshot carries display names so a workspace restored but never
+  // re-hydrated this session shows its real name instead of the raw id.
+  const namedRoutingSnapshot: WorkspaceSyncRoutingSnapshot = {
+    sequence: 30,
+    primaryWorkspaceWindowId: 'primary',
+    workspaceWindows: [
+      {
+        id: 'primary',
+        kind: 'primary',
+        workspaceIds: ['ws-keep'],
+        activeWorkspaceId: 'ws-keep',
+        bounds: null,
+        isMaximized: false,
+        displayId: null,
+        createdAt: 1,
+        lastFocusedAt: 1,
+      },
+    ],
+    workspaceNames: { 'ws-keep': 'Keep Me' },
+  }
+  const namedPersisted: WorkspaceSyncRoutingSnapshot[] = []
+  const namedService = createWorkspaceSyncService({
+    initialRoutingSnapshot: namedRoutingSnapshot,
+    persistDebounceMs: 60_000,
+    persistRoutingSnapshot: (persisted) => {
+      namedPersisted.push(persisted)
+    },
+    now: () => 3000,
+  })
+  assert.equal(
+    namedService.getSnapshot().state.workspaces.find((ws) => ws.id === 'ws-keep')?.name,
+    'Keep Me',
+    'routing snapshot names hydrate onto the restored placeholder workspace',
+  )
+
+  const createNamed = namedService.dispatch({
+    sourceWindowId: 'primary',
+    command: {
+      type: 'workspace.created',
+      payload: {
+        workspace: { ...workspace('ws-new'), name: 'Brand New' },
+        windowId: 'primary',
+        insert: { kind: 'folder_head', folderPath: null },
+      },
+    },
+  })
+  assert.equal(createNamed.ok, true)
+  await namedService.flushRoutingSnapshot()
+  const namedSnapshot = namedPersisted.at(-1)
+  assert.ok(namedSnapshot)
+  assert.deepEqual(
+    namedSnapshot.workspaceNames,
+    { 'ws-keep': 'Keep Me', 'ws-new': 'Brand New' },
+    'persisted routing snapshot carries real display names by id',
+  )
+
   console.log('workspace-sync-service.test.ts: ok')
 }
 

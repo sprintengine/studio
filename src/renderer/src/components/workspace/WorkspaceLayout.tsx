@@ -24,7 +24,6 @@ import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import {
   isSessionFailed,
-  isSessionWorking,
   pickAgentTabRecency,
   pickTerminalTabRecency,
   tabRecencyLabel,
@@ -40,7 +39,7 @@ import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineS
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
 import { NewChatIcon, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import { panelTabAccentClass } from './panelTabAccent'
-import { StatusDot, type Tone } from '../ui'
+import { LifecycleGlyph, type LifecycleState, StatusDot, type Tone } from '../ui'
 import MulticodeSpinner from '../brand/MulticodeSpinner'
 import AgentPanel from '../panels/AgentPanel'
 
@@ -147,11 +146,23 @@ const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBo
 const SprintEngineRunSummaryPanel = React.lazy(() => import('../panels/SprintEngineRunSummaryPanel'))
 const SprintEnginePlanReaderPanel = React.lazy(() => import('../panels/SprintEnginePlanReaderPanel'))
 const GuidedBriefWorkspacePanel = React.lazy(() => import('./guidedBrief/GuidedBriefWorkspacePanel'))
-// Shown for a disabled module's panel or an unknown/stale layout component.
-const EMPTY_SURFACE = <div className="h-full bg-[color:var(--bg-app)]" />
+// Shown when a host panel can't render because its owning module is disabled or
+// the layout tab is stale/unknown. An explicit, labeled unavailable state —
+// never a silently blank surface — applied to every gated/stale arm below.
+const DISABLED_SURFACE = (
+  <div
+    role="note"
+    aria-label="Panel unavailable"
+    className="flex h-full flex-col items-center justify-center gap-1 bg-[color:var(--bg-app)] px-6 text-center"
+  >
+    <p className="text-[12px] font-medium text-[color:var(--text-strong)]">Panel unavailable</p>
+    <p className="max-w-xs text-[11px] leading-5 text-[color:var(--text-muted)]">
+      This view isn’t available right now. Its feature may be disabled, or the tab may be out of date.
+    </p>
+  </div>
+)
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const loadedPanelComponents = new Set<string>()
-type AgentTabActivity = 'needs-input' | 'working' | 'failed' | 'idle'
 const SPRINTENGINE_ROLES: SprintEngineRole[] = [
   'architect',
   'product',
@@ -177,39 +188,49 @@ type AgentTabActivityDot = {
   label: string
 }
 
-function agentTabActivity(
+// The tab status dot, driven by repaint-immune signals. Priority: needs-input
+// (authoritative SprintEngine run state) > live (processAlive — NOT the
+// output-derived 'working', which flips on a reveal repaint) > failed. A live
+// agent shows a steady green dot; revealing a workspace can never flip it.
+function agentTabStatusDot(
   session: TerminalSessionSnapshot | undefined,
-  runtimeStatus: SprintEngineRuntimeAgentStatus | undefined
-): AgentTabActivity {
-  if (runtimeStatus === 'needs_input') return 'needs-input'
-  if (isSessionWorking(session)) return 'working'
-  if (isSessionFailed(session)) return 'failed'
-  return 'idle'
-}
-
-function agentTabActivityDot(
-  activity: AgentTabActivity,
+  runtimeStatus: SprintEngineRuntimeAgentStatus | undefined,
   currentTaskId: string | null | undefined
 ): AgentTabActivityDot | null {
-  switch (activity) {
-    case 'needs-input':
-      return {
-        tone: 'warn',
-        pulse: true,
-        label: currentTaskId ? `Needs input on ${currentTaskId}` : 'Needs input',
-      }
-    case 'working':
-      return {
-        tone: 'good',
-        pulse: true,
-        label: 'Working',
-      }
-    case 'failed':
-      return {
-        tone: 'error',
-        pulse: false,
-        label: 'Failed',
-      }
+  if (runtimeStatus === 'needs_input') {
+    return {
+      tone: 'warn',
+      pulse: true,
+      label: currentTaskId ? `Needs input on ${currentTaskId}` : 'Needs input',
+    }
+  }
+  if (session?.processAlive) {
+    return { tone: 'good', pulse: false, label: 'Live' }
+  }
+  if (isSessionFailed(session)) {
+    return { tone: 'error', pulse: false, label: 'Failed' }
+  }
+  return null
+}
+
+// Sprint Engine agents are supervised by a run, so their tab shows persistent
+// run status (in progress / blocked / complete) — NOT terminal recency, which is
+// meaningless for a managed agent. Maps the runtime status to a LifecycleGlyph
+// state; `live` animates the spinner only while genuinely running.
+function sprintEngineTabLifecycle(
+  status: SprintEngineRuntimeAgentStatus | undefined
+): { state: LifecycleState; live: boolean; label: string } | null {
+  switch (status) {
+    case 'running':
+      return { state: 'in_progress', live: true, label: 'In progress' }
+    case 'needs_input':
+      return { state: 'needs_input', live: false, label: 'Blocked — needs input' }
+    case 'done':
+      return { state: 'done', live: false, label: 'Complete' }
+    case 'retired':
+      return { state: 'done', live: false, label: 'Finished' }
+    case 'idle':
+      return { state: 'in_progress', live: false, label: 'Idle — waiting for work' }
     default:
       return null
   }
@@ -269,8 +290,11 @@ function renderTerminalRecencyIndicator(
   now: number
 ): React.ReactNode {
   if (!session) return null
-  if (isSessionWorking(session)) {
-    return <StatusDot tone="good" pulse label="Working" className="ml-0.5" />
+  // Liveness (processAlive) drives the green dot — repaint-immune, unlike the
+  // output-derived 'working' activity which flips on a reveal repaint. Recency
+  // shows only when NOT live (a dead process can't bump lastOutputAt).
+  if (session.processAlive) {
+    return <StatusDot tone="good" label="Live" className="ml-0.5" />
   }
   if (isSessionFailed(session)) {
     return <StatusDot tone="error" label="Failed" className="ml-0.5" />
@@ -427,8 +451,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
   // Capability-module gate. Host-registered panels (editor, git, sprintengine,
   // switchboard, multiloop, memory-graph, …) are gated generically in the
   // factory's default case by their owning module's enablement, so a disabled
-  // module's panel falls back to an empty surface and PanelRail hides its
-  // button. Only the panels with bespoke props (file-editor, explorer, the
+  // module's panel falls back to the explicit DISABLED_SURFACE and PanelRail
+  // hides its button. Only the panels with bespoke props (file-editor, explorer, the
   // sprintengine fixed-view/summary fallbacks, guided-brief, git-conflict) need
   // an explicit gated arm below; those read enablement from this single
   // overrides object.
@@ -488,11 +512,11 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
         case 'file-editor':
           return devToolsEnabled && config?.filePath
             ? timedPanel('EditorPanel', <EditorPanel workspaceId={workspaceId} filePath={config.filePath} />)
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         case 'explorer':
           return devToolsEnabled
             ? timedPanel('FileExplorer', <FileExplorer workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />)
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         case 'git-conflict':
           return gitEnabled && config?.repoRoot && config.filePath
             ? timedPanel('GitConflictResolverPanel', (
@@ -502,7 +526,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
                 filePath={config.filePath}
               />
             ))
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         case 'terminal':
           return wrapWithHighlight(timedPanel('PlainTerminalPanel', (
             <PlainTerminalPanel
@@ -517,25 +541,26 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
         case 'sprintengine-inbox':
           return sprintEngineEnabled
             ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="inbox" />)
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         case 'sprintengine-roster':
           return sprintEngineEnabled
             ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="roster" />)
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         case 'sprintengine-tasks':
           return sprintEngineEnabled
             ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="tasks" />)
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         case 'guided-brief':
           // Guided Brief hands its build off to a Sprint Engine run, so it
           // follows sprint-engine enablement: a stale guided-brief workspace
-          // blanks when Sprint Engine is disabled, matching the other modes.
+          // shows the explicit unavailable surface when Sprint Engine is
+          // disabled, matching the other modes.
           return sprintEngineEnabled
             ? timedPanel(
               'GuidedBriefWorkspacePanel',
               <GuidedBriefWorkspacePanel workspaceId={workspaceId} />
             )
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         case 'sprintengine-run-summary':
           return sprintEngineEnabled
             ? timedPanel('SprintEngineRunSummaryPanel', (
@@ -546,7 +571,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
                 }}
               />
             ))
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         case 'sprintengine-plan-reader':
           return sprintEngineEnabled
             ? timedPanel('SprintEnginePlanReaderPanel', (
@@ -557,16 +582,16 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
                 }}
               />
             ))
-            : EMPTY_SURFACE
+            : DISABLED_SURFACE
         default: {
           // Host-registered panels: render the registered component gated by its
           // owning module's enablement. A disabled module (or an unknown/stale
-          // component) falls back to an empty surface.
+          // component) falls back to the explicit unavailable surface.
           const host = getRendererHost()
           const Panel = component ? host.getPanel(component) : undefined
-          if (!Panel) return EMPTY_SURFACE
+          if (!Panel) return DISABLED_SURFACE
           const moduleId = host.getPanelModule(component!)
-          if (moduleId && !selectModuleEnabled(moduleOverrides, moduleId)) return EMPTY_SURFACE
+          if (moduleId && !selectModuleEnabled(moduleOverrides, moduleId)) return DISABLED_SURFACE
           return timedPanel(component!, <Panel workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />)
         }
       }
@@ -1013,9 +1038,18 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
       const agentSession = agentSessionId
         ? terminalSessions.find((s) => s.sessionId === agentSessionId)
         : undefined
-      const activity = agentTabActivity(agentSession, runtimeAgent?.status)
       const currentTaskId = runtimeAgent?.currentTaskId
-      const activityDot = agentTabActivityDot(activity, currentTaskId)
+      const isLive = Boolean(agentSession?.processAlive)
+      // Sprint Engine agents show their run lifecycle (in progress / blocked /
+      // complete), never a live dot or recency. Everyone else uses the
+      // processAlive-driven dot with recency-when-not-live.
+      const isSprintEngineRun = agent?.kind === 'sprintengine'
+      const sprintEngineLifecycle = isSprintEngineRun
+        ? sprintEngineTabLifecycle(runtimeAgent?.status)
+        : null
+      const activityDot = isSprintEngineRun
+        ? null
+        : agentTabStatusDot(agentSession, runtimeAgent?.status, currentTaskId)
       const specialist = (agent?.kind === 'specialist' || agent?.kind === 'watchtower') && agent.specialistId
         ? getSpecialistAction(agent.specialistId)
         : null
@@ -1058,7 +1092,10 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
         renderValues.leading = null
       }
 
-      const agentRecency = activity === 'working'
+      // Recency only when NOT live and NOT a Sprint Engine run: a dead/suspended
+      // process emits nothing, so its lastOutputAt is frozen and honest. Live
+      // agents show the green dot; Sprint Engine agents show run lifecycle.
+      const agentRecency = isLive || isSprintEngineRun
         ? null
         : pickAgentTabRecency(
             agentSession,
@@ -1077,7 +1114,19 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
           )
         : null
 
-      if (activityDot) {
+      if (sprintEngineLifecycle) {
+        renderValues.content = (
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            {tabContent}
+            <LifecycleGlyph
+              state={sprintEngineLifecycle.state}
+              live={sprintEngineLifecycle.live}
+              label={sprintEngineLifecycle.label}
+              className="translate-y-px"
+            />
+          </span>
+        )
+      } else if (activityDot) {
         renderValues.content = (
           <span className="inline-flex min-w-0 items-center gap-1.5">
             {tabContent}

@@ -3,7 +3,7 @@
 // 1. The package builds standalone and `npm pack` produces a tarball.
 // 2. The packed d.ts public surface contains no `any`.
 // 3. The committed external fixture project compiles against the tarball
-//    types only (its sole dependency is the freshly packed tarball).
+//    types only, including public provider-registration exports.
 
 import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -33,6 +33,11 @@ const publicTypes = readFileSync(join(sdkDir, 'dist', 'index.d.ts'), 'utf8')
 const anyUses = publicTypes.match(/\bany\b/g) ?? []
 if (anyUses.length > 0) {
   throw new Error(`SDK public surface contains ${anyUses.length} use(s) of \`any\`.`)
+}
+for (const forbiddenExport of ['AutomationsProviderRegistryToken', 'AutomationsProviderRegistry']) {
+  if (publicTypes.includes(forbiddenExport)) {
+    throw new Error(`SDK public surface exposes forbidden raw Automations registry contract: ${forbiddenExport}.`)
+  }
 }
 console.log('public surface contains no `any`')
 

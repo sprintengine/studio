@@ -690,6 +690,12 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         ws.sprintEngineAutoState = next
         if (previousMode === 'manual') return
         if (!shouldAuditSprintEngineLifecycleState(next.runtimeState)) return
+        // `complete` is terminal in `transitionSprintEngineAutomation`: runner
+        // events on an already-complete run are no-ops. Don't emit a diagnostic
+        // for that — otherwise every agent terminal closed during end-of-run
+        // teardown would log a misleading `complete → complete` "terminal was
+        // closed" entry.
+        if (previousRuntimeState === 'complete' && next.runtimeState === 'complete') return
         auditSprintEngineLifecycleTransition({
           level: next.runtimeState === 'failed' ? 'error' : 'info',
           workspaceId,

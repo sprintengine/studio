@@ -88,6 +88,16 @@ export type TerminalSession = {
   lastInputAt: number | null
   lastVisibleAt: number | null
   pendingResize?: TerminalSize
+  // Last dimensions actually applied to the pty. A reveal/tab-switch re-fits to
+  // the SAME size; resizing the pty then makes the alt-screen TUI repaint, and
+  // that repaint counts as spurious output/activity. Skip the resize when these
+  // match so "last output" stays honest (real output, not repaints).
+  appliedCols?: number
+  appliedRows?: number
+  // Output arriving before this time is treated as a host-triggered repaint (the
+  // TUI redrawing after a resize), not agent activity: buffered but not counted
+  // toward lastOutputAt / "working". Set in safeResizeTerminal.
+  repaintGraceUntil?: number
   startupScriptPath?: string
 }
 
@@ -260,14 +270,25 @@ export function createFailedTerminalSession(input: FailedTerminalSessionInput): 
   }
 }
 
-export function appendTerminalOutput(session: TerminalSession, data: string, at = Date.now()): void {
+// `markAsRealOutput` lets the caller append bytes to the scrollback WITHOUT
+// advancing `lastOutputAt`. Host-triggered repaints (an alt-screen TUI redrawing
+// after a resize on mount/reveal) are real bytes but NOT agent activity, so they
+// must keep the painted buffer complete while never bumping recency/liveness —
+// otherwise opening a workspace makes its agents look "active" and reorders the
+// sidebar. The repaint window is set in `safeResizeTerminal`.
+export function appendTerminalOutput(
+  session: TerminalSession,
+  data: string,
+  at = Date.now(),
+  markAsRealOutput = true
+): void {
   const replayLimitBytes = getTerminalReplayLimitBytes({ ...session, lastOutputAt: at }, at)
   const chunk = trimTerminalChunkToReplayLimit(data, replayLimitBytes)
   session.outputChunks.push(chunk.data)
   session.outputChunkBytes.push(chunk.bytes)
   session.outputBytes += chunk.bytes
   session.outputLength += chunk.data.length
-  session.lastOutputAt = at
+  if (markAsRealOutput) session.lastOutputAt = at
 
   while (
     session.outputBytes > replayLimitBytes

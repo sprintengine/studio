@@ -88,12 +88,21 @@ export async function importSwitchboardItem(
       message: result.message || 'Unable to import task.',
     }
   }
-  if (result.payload.created === true) {
+  if (result.payload.created === true || result.payload.status === 'created') {
     return {
       provider: item.provider,
       externalKey: item.externalKey,
       externalUrl: item.externalUrl,
       status: 'created',
+      taskId: typeof result.payload.id === 'string' ? result.payload.id : null,
+    }
+  }
+  if (result.payload.status === 'updated') {
+    return {
+      provider: item.provider,
+      externalKey: item.externalKey,
+      externalUrl: item.externalUrl,
+      status: 'updated',
       taskId: typeof result.payload.id === 'string' ? result.payload.id : null,
     }
   }

@@ -93,6 +93,15 @@ function StopIcon({ className }: { className?: string }) {
   )
 }
 
+function PauseIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="4.5" y="3.75" width="2.2" height="8.5" rx="0.9" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="9.3" y="3.75" width="2.2" height="8.5" rx="0.9" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  )
+}
+
 function SessionsIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -142,12 +151,14 @@ function SessionsPopover({
   items,
   workspaceOrder,
   onOpen,
+  onPause,
   onStop,
   onStopWorkspace,
 }: {
   items: SessionItem[]
   workspaceOrder: Map<string, number>
   onOpen: (item: SessionItem) => void | Promise<void>
+  onPause: (item: SessionItem) => void
   onStop: (item: SessionItem) => void
   onStopWorkspace: (workspace: Workspace, items: SessionItem[]) => void | Promise<void>
 }) {
@@ -239,7 +250,7 @@ function SessionsPopover({
                     return (
                       <div
                         key={`${item.workspace.id}:${item.agentId ?? item.terminalId ?? item.sessionId}`}
-                        className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded px-2.5 py-2 text-[13px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)]"
+                        className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-2.5 py-2 text-[13px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)]"
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <span
@@ -263,6 +274,7 @@ function SessionsPopover({
                           </span>
                         </div>
 
+                        <div className="flex shrink-0 items-center gap-2">
                         <button
                           type="button"
                           onClick={() => void onOpen(item)}
@@ -270,6 +282,19 @@ function SessionsPopover({
                         >
                           Open
                         </button>
+
+                        {item.kind === 'agent' ? (
+                          <Tooltip content="Pause — suspends the agent to free memory; reopen resumes it">
+                            <button
+                              type="button"
+                              onClick={() => onPause(item)}
+                              className="flex h-7 w-7 items-center justify-center rounded border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)]"
+                              aria-label={`Pause ${item.label}`}
+                            >
+                              <PauseIcon className="icon-sm" />
+                            </button>
+                          </Tooltip>
+                        ) : null}
 
                         <Tooltip content="Stop">
                           <button
@@ -281,6 +306,7 @@ function SessionsPopover({
                             <StopIcon className="icon-sm" />
                           </button>
                         </Tooltip>
+                        </div>
                       </div>
                     )
                   })}
@@ -412,6 +438,7 @@ export type WorkspaceTopBarProps = {
   sessionsOpen: boolean
   setSessionsOpen: React.Dispatch<React.SetStateAction<boolean>>
   openSession: (item: SessionItem) => void | Promise<void>
+  pauseSession: (item: SessionItem) => void
   stopSession: (item: SessionItem) => void
   stopWorkspaceSessions: (workspace: Workspace, items: SessionItem[]) => void | Promise<void>
 
@@ -499,6 +526,7 @@ export default function WorkspaceTopBar({
   sessionsOpen,
   setSessionsOpen,
   openSession,
+  pauseSession,
   stopSession,
   stopWorkspaceSessions,
   viewMenuOpen,
@@ -671,6 +699,7 @@ export default function WorkspaceTopBar({
                   items={sessions}
                   workspaceOrder={sidebarWorkspaceOrder}
                   onOpen={openSession}
+                  onPause={pauseSession}
                   onStop={stopSession}
                   onStopWorkspace={stopWorkspaceSessions}
                 />

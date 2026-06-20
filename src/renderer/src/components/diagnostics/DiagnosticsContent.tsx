@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react'
-import type { ProcessMetricKind, ProcessMetricsSnapshot, WorkspaceMemorySample } from '../../../../shared/electron-api'
+import type { ProcessMetricKind, ProcessMetricsSnapshot, TerminalReapEvent, WorkspaceMemorySample } from '../../../../shared/electron-api'
 import { Select } from '../ui/Select'
 import { Tabs, TabPanel, type TabItem } from '../ui/Tabs'
 import { useTerminalSessions } from '../../hooks/useTerminalSessions'
@@ -105,6 +105,21 @@ const SORT_OPTIONS: { key: TerminalDiagnosticsSortKey; label: string }[] = [
   { key: 'lastOutput', label: 'Last output' },
   { key: 'workspace', label: 'Workspace' },
 ]
+
+const REAP_REASON_LABEL: Record<TerminalReapEvent['reason'], string> = {
+  'idle-suspend': 'idle suspend',
+  'stale-dispose': 'stale dispose',
+}
+
+// Coarse human duration for the idle/unseen window that triggered a reap.
+function formatDurationMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '—'
+  const totalMinutes = Math.round(ms / 60_000)
+  if (totalMinutes < 60) return `${totalMinutes}m`
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
+}
 
 type SyncContext = {
   workspaceNames: Map<string, string>
@@ -919,6 +934,60 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             </table>
           ) : (
             <p className="text-[color:var(--text-muted)]">No terminal sessions.</p>
+          )}
+        </section>
+
+        {/* Reaped terminals — audit trail of what the main-process reaper
+            suspended/disposed this session, and from which workspace. */}
+        <section>
+          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
+            Reaped terminals ({metrics?.reapEvents?.length ?? 0})
+          </h2>
+          <p className="mb-2 text-[10px] text-[color:var(--text-subtle)]">
+            Idle agents the reaper suspended (outside the hot set, past the idle threshold) or the 24h
+            stale backstop disposed. Most recent first; bounded ring buffer, cleared on app restart. A
+            reaped agent keeps its resume flags and relaunches with --resume on reopen.
+          </p>
+          {metrics?.reapEvents && metrics.reapEvents.length > 0 ? (
+            <table className="w-full border-collapse">
+              <thead>
+                <tr>
+                  <Th numeric>Reaped</Th>
+                  <Th>Workspace</Th>
+                  <Th>Agent / term</Th>
+                  <Th>Kind</Th>
+                  <Th>Reason</Th>
+                  <Th numeric>Idle / unseen</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {metrics.reapEvents.map((event: TerminalReapEvent) => (
+                  <tr
+                    key={`${event.sessionId}-${event.reapedAt}`}
+                    className="border-b border-[color:var(--border-subtle)]"
+                  >
+                    <Td numeric>{formatRelativeMsAgo(event.reapedAt, now) || 'just now'}</Td>
+                    <Td title={event.workspaceId ?? undefined}>
+                      {(event.workspaceId ? workspaceNames.get(event.workspaceId) : null) ??
+                        event.workspaceId ??
+                        '—'}
+                    </Td>
+                    <Td title={event.sessionId}>{event.agentId ?? event.terminalId ?? event.sessionId}</Td>
+                    <Td>{event.cli ? `${event.kind}·${event.cli}` : event.kind}</Td>
+                    <Td>{REAP_REASON_LABEL[event.reason]}</Td>
+                    <Td numeric>
+                      {event.idleMs !== undefined
+                        ? formatDurationMs(event.idleMs)
+                        : event.unseenMs !== undefined
+                          ? formatDurationMs(event.unseenMs)
+                          : '—'}
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-[color:var(--text-muted)]">Nothing reaped yet this session.</p>
           )}
         </section>
 

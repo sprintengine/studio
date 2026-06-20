@@ -664,6 +664,24 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
         summary_data = parse_json_object_arg(getattr(args, "summary_data_json", None), "--summary-data-json")
         refresh_task_diff_evidence(state, args.state, task, str(actor), args.path or [])
+        # Guard BEFORE the backstop commit: an orphan is owned by no task, so this
+        # task's commit never stages it and the orphan set is identical either way.
+        # Checking first means a blocked publish commits nothing and aborts cleanly
+        # (a raised SystemExit discards the state write in with_locked_state, so a
+        # commit made here would otherwise persist in git but go unrecorded in the
+        # run store).
+        from sprintengine_core.tool.shell import get_run_vcs, task_scoped_orphaned_dirty_paths
+        if get_run_vcs(state):
+            orphaned = task_scoped_orphaned_dirty_paths(state, args.state, task)
+            if orphaned:
+                raise SystemExit(
+                    "Cannot publish: "
+                    f"{len(orphaned)} changed path(s) in this task's working directories are uncommitted and owned by no task: "
+                    f"{', '.join(orphaned)}. A clean checkout of the published commit would be missing these files. "
+                    "If they belong to this task, add them to its ownedPaths (`sprintengine plan update-task`) or commit "
+                    "them with `sprintengine vcs commit --task-id "
+                    f"{args.task_id} --id {actor} --path <file>`, then publish again."
+                )
         commit_sha = commit_task_changes_if_needed(state, args.state, task, str(actor))
         set_implementer_actual_difficulty(
             task,

@@ -689,10 +689,34 @@ def test_task_publish_skips_missing_phase_gates_and_can_complete(tmp_path) -> No
     assert get_task(final_state, "T1")["completedAt"]
 
 
-def test_rework_publish_records_response_and_resets_required_gates(tmp_path) -> None:
+def test_rework_publish_reopens_only_changes_requested_gates(tmp_path) -> None:
+    # A rework publish must re-open only the gate that requested changes. A gate
+    # that already approved stays approved (the reviewer is done and is not
+    # re-run, which is what stops one change request from cascading into a full
+    # re-review), and a review still in flight is never cancelled mid-flight.
     record = gated_task("changes_requested", owner="developer-fixture")
     record["qualityGates"][0]["status"] = "changes_requested"
     record["qualityGates"][1]["status"] = "approved"
+    record["qualityGates"].append(
+        {
+            "id": "nuclear-review",
+            "phase": "review",
+            "role": "nuclear_reviewer",
+            "status": "in_progress",
+            "required": True,
+            "allowSelfReview": False,
+            "focus": "Deep review.",
+            "attempts": [
+                {
+                    "id": "GA-001",
+                    "status": "in_progress",
+                    "role": "nuclear_reviewer",
+                    "claimedBy": "nuclear-reviewer",
+                    "startedAt": "2026-05-17T00:00:00Z",
+                }
+            ],
+        }
+    )
     record["comments"] = [
         {
             "id": "C1",
@@ -726,6 +750,46 @@ def test_rework_publish_records_response_and_resets_required_gates(tmp_path) -> 
     task_record = get_task(state, "T1")
     assert task_record["ownerAgentId"] is None
     assert task_record["lastImplementedByAgentId"] == "developer-fixture"
+    gates_by_id = {gate["id"]: gate for gate in task_record["qualityGates"]}
+    # changes_requested → reopened; approved → untouched; in_progress → left running.
+    assert gates_by_id["code-review"]["status"] == "pending"
+    assert gates_by_id["test"]["status"] == "approved"
+    assert gates_by_id["nuclear-review"]["status"] == "in_progress"
+    # The in-flight attempt is not superseded by the rework publish.
+    assert gates_by_id["nuclear-review"]["attempts"][0]["status"] == "in_progress"
+    assert "completedAt" not in gates_by_id["nuclear-review"]["attempts"][0]
+
+
+def test_rework_publish_with_no_gate_verdict_reopens_approved_gates(tmp_path) -> None:
+    # A task-level request_changes reopens the task (status changes_requested,
+    # open feedback) without setting any gate to changes_requested. Publishing
+    # from changes_requested must still re-review — otherwise the rework would
+    # route straight to done with the feedback unreviewed. Both gates approved.
+    record = gated_task("changes_requested", owner=None)
+    record["qualityGates"][0]["status"] = "approved"
+    record["qualityGates"][1]["status"] = "approved"
+    record["comments"] = [
+        {
+            "id": "C1",
+            "type": "review_feedback",
+            "actor": "user",
+            "authorAgentId": "user",
+            "source": "user",
+            "body": "Tweak the copy.",
+            "createdAt": "2026-05-17T00:00:00Z",
+            "data": {"status": "open", "reason": "Tweak the copy."},
+        }
+    ]
+    fixture = create_team(tmp_path, "publish-rework-no-gate-verdict", [record])
+
+    payload = fixture.cli.run(
+        "task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Tweaked the copy."
+    )
+
+    assert payload["nextStatus"] == "review"
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert task_record["status"] == "review"
     assert [gate["status"] for gate in task_record["qualityGates"]] == ["pending", "pending"]
 
 
@@ -780,7 +844,7 @@ def test_rework_publish_refreshes_latest_diff_snapshot(tmp_path) -> None:
     assert not any("stale" in line["content"] for line in lines)
 
 
-def test_republish_after_blocked_needs_input_resets_prior_gate_verdicts(tmp_path) -> None:
+def test_republish_after_blocked_needs_input_reopens_only_the_blocked_gate(tmp_path) -> None:
     record = gated_task("in_progress", owner="developer-fixture")
     record["qualityGates"][0]["status"] = "approved"
     record["qualityGates"][0]["attempts"] = [
@@ -840,7 +904,10 @@ def test_republish_after_blocked_needs_input_resets_prior_gate_verdicts(tmp_path
     assert payload["comment"]["data"]["feedbackCommentIds"] == ["C1"]
     state = read_state(fixture.state_path)
     task_record = get_task(state, "T1")
-    assert [gate["status"] for gate in task_record["qualityGates"]] == ["pending", "pending"]
+    # The blocked gate reopens for re-review; the gate that approved earlier stays
+    # approved and is not re-run (approvers are done — accepted residual risk that
+    # a later scope change is not re-seen by an earlier approver).
+    assert [gate["status"] for gate in task_record["qualityGates"]] == ["approved", "pending"]
     assert_task_status(state, "T1", "review")
 
 

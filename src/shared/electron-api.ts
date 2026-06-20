@@ -5,6 +5,20 @@ import type {
   AutomationServerStatus,
 } from './automation'
 import type {
+  AutomationsCreateInput,
+  AutomationsDefinitionInput,
+  AutomationsDefinitionResult,
+  AutomationsDeleteResult,
+  AutomationsListResult,
+  AutomationsProvidersResult,
+  AutomationsRunEvent,
+  AutomationsRunNowResult,
+  AutomationsRunsListInput,
+  AutomationsRunsListResult,
+  AutomationsUpdateInput,
+  AutomationsWorkspaceInput,
+} from './automations/contracts'
+import type {
   SwitchboardAddCommentInput,
   SwitchboardCancelTaskInput,
   SwitchboardClaimTaskInput,
@@ -288,6 +302,32 @@ export type BuiltinSkillInstallResult =
 export type PluginRegistryListResult =
   | { ok: true; plugins: PluginRegistryListEntry[] }
   | { ok: false; message: string }
+
+// Whether a single agent CLI's binary is actually installed/runnable on this
+// machine, distinct from whether its plugin manifest is registered. Bundled
+// manifests (e.g. `codex`, `claude-code`) are always registered; this says
+// which of them the user can really deploy.
+export type CliAvailability = {
+  cli: AgentCli
+  installed: boolean
+  resolvedPath: string | null
+  version: string | null
+}
+
+// Detected availability for every registered agent CLI, keyed by plugin id.
+export type AgentCliAvailabilityMap = Record<AgentCli, CliAvailability>
+
+export type PluginAvailabilityResult =
+  | { ok: true; availability: AgentCliAvailabilityMap }
+  | { ok: false; message: string }
+
+// Per-CLI runtime overrides the renderer forwards into a batch availability
+// probe so detection runs against the same command/WSL mode each CLI launches
+// with. `force` bypasses the main-process TTL cache (used after an install).
+export type PluginDetectAvailabilityInput = {
+  cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
+  force?: boolean
+}
 
 export type PluginInstallResult =
   | { ok: true; id: string; kind: 'cli' | 'provider'; displayName: string }
@@ -820,6 +860,29 @@ export type WorkspaceMemorySample = {
   terminals: WorkspaceTerminalMemorySample[]
 }
 
+// One terminal the main-process reaper acted on, kept in a bounded ring buffer
+// so the diagnostics panel can show an audit trail of what was reaped and from
+// which workspace. `idle-suspend` is the memory-bounded sweep
+// (`runIdleAgentReapSweep`) suspending an idle agent outside the hot set;
+// `stale-dispose` is the 24h backstop (`reapStaleTerminals`). Both preserve the
+// agent's resume flags, so a reaped agent relaunches with `--resume` on reopen.
+export type TerminalReapReason = 'idle-suspend' | 'stale-dispose'
+
+export type TerminalReapEvent = {
+  reapedAt: number
+  reason: TerminalReapReason
+  sessionId: string
+  workspaceId: string | null
+  agentId: string | null
+  terminalId: string | null
+  cli: string | null
+  kind: string
+  // Idle window (ms since last real interaction) that triggered an idle-suspend.
+  idleMs?: number
+  // Unseen window (ms since last seen) that triggered a stale-dispose.
+  unseenMs?: number
+}
+
 export type ProcessMetricsSnapshot = {
   sampledAt: number
   // Best-effort: empty when app.getAppMetrics() is unavailable in the current
@@ -829,6 +892,9 @@ export type ProcessMetricsSnapshot = {
   systemMemory?: SystemMemorySample
   // Best-effort: per-workspace RSS attribution; omitted until the first sample.
   workspaceMemory?: WorkspaceMemorySample[]
+  // Most-recent-first audit trail of terminals the reaper suspended/disposed
+  // this session (bounded). Omitted when nothing has been reaped yet.
+  reapEvents?: TerminalReapEvent[]
 }
 
 // Per-api-method IPC accounting, accumulated in the preload (see preload/ipcStats).
@@ -1062,7 +1128,16 @@ export type GitConflictFileContent = {
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
-export type DiagnosticSource = 'auth' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'update' | 'voice' | 'workspace'
+export type DiagnosticSource = 'auth' | 'automations' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'update' | 'voice' | 'workspace'
+
+// Serializable deep-focus target for a notification's Open action. Mirrors the
+// renderer `NotificationNavigationTarget` (src/renderer/src/types/workspace.ts);
+// declared here so a diagnostic's navigation target is an explicit part of the
+// logDiagnostic IPC contract rather than an undeclared passthrough.
+export type NotificationNavigationTarget = {
+  kind: string
+  ref: string
+}
 
 export type DiagnosticLogInput = {
   level: DiagnosticLevel
@@ -1075,6 +1150,7 @@ export type DiagnosticLogInput = {
   agentId?: string
   taskId?: string
   sessionId?: string
+  navigationTarget?: NotificationNavigationTarget
 }
 
 export type DiagnosticLogEntry = DiagnosticLogInput & {
@@ -1748,6 +1824,17 @@ export type ElectronApi = {
   automationSetEnabled: (enabled: boolean) => Promise<AutomationServerStatus>
   onAutomationRequest: (cb: (requestId: string, request: AutomationRendererRequest) => void) => () => void
   automationRespond: (requestId: string, response: AutomationRendererResponse) => Promise<void>
+  // Automations platform (per-project scheduled agent automations). The renderer
+  // reads/writes only through these channels; the engine owns the on-disk store.
+  listAutomations: (input: AutomationsWorkspaceInput) => Promise<AutomationsListResult>
+  getAutomation: (input: AutomationsDefinitionInput) => Promise<AutomationsDefinitionResult>
+  createAutomation: (input: AutomationsCreateInput) => Promise<AutomationsDefinitionResult>
+  updateAutomation: (input: AutomationsUpdateInput) => Promise<AutomationsDefinitionResult>
+  deleteAutomation: (input: AutomationsDefinitionInput) => Promise<AutomationsDeleteResult>
+  runAutomationNow: (input: AutomationsDefinitionInput) => Promise<AutomationsRunNowResult>
+  listAutomationRuns: (input: AutomationsRunsListInput) => Promise<AutomationsRunsListResult>
+  listAutomationProviders: () => Promise<AutomationsProvidersResult>
+  onAutomationRunEvent: (cb: (event: AutomationsRunEvent) => void) => () => void
   authGetState: () => Promise<MulticodeAuthState>
   authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
   authLogout: () => Promise<{ loggedOut: true }>
@@ -1822,6 +1909,7 @@ export type ElectronApi = {
     input: { workspaceRoot: string | null; skillId: string }
   ) => Promise<BuiltinSkillInstallResult>
   pluginsList: () => Promise<PluginRegistryListResult>
+  pluginsDetectAvailability: (input?: PluginDetectAvailabilityInput) => Promise<PluginAvailabilityResult>
   readMarketplaceRegistry: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceRegistryReadResult>
   installPluginFolder: (srcDir: string) => Promise<PluginInstallResult>
   verifyMarketplacePlugin: (entry: MarketplacePluginEntry) => Promise<MarketplacePluginVerifyResult>

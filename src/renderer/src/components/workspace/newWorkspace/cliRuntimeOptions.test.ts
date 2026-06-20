@@ -4,6 +4,7 @@ import {
   buildAgentCliCatalog,
   buildCliRuntimeOptions,
   cliRuntimeForPlugin,
+  filterCatalogByAvailability,
   isAgentCliAvailable,
   isAgentCliMissing,
   orderInstalledPlugins,
@@ -13,7 +14,15 @@ import {
   resolveTemplateAgentCli,
   selectAgentCliCatalog,
 } from './cliRuntimeOptions'
-import type { PluginCatalogEntry } from '../../../types/workspace'
+import type { AgentCliAvailabilityMap, PluginCatalogEntry } from '../../../types/workspace'
+
+function availabilityMap(map: Record<string, boolean>): AgentCliAvailabilityMap {
+  const out: AgentCliAvailabilityMap = {}
+  for (const [cli, installed] of Object.entries(map)) {
+    out[cli] = { cli, installed, resolvedPath: installed ? `/bin/${cli}` : null, version: installed ? '1' : null }
+  }
+  return out
+}
 
 const plugins: PluginCatalogEntry[] = [
   { id: 'opencode', displayName: 'OpenCode', source: 'user', version: 1, binary: 'opencode' },
@@ -113,6 +122,29 @@ assert.deepEqual(
   selectAgentCliCatalog('ready', []),
   [],
   'ready status with no installed plugins returns an empty catalog instead of inventing fallbacks',
+)
+// A persisted `generic-shell` runtime key must not leak the hidden id into the
+// loading/error fallback catalog — both catalog paths apply the picker hidden
+// set, so the automation editor's fail-closed cli check never sees it as valid.
+assert.deepEqual(
+  selectAgentCliCatalog('loading', plugins, { 'generic-shell': { command: 'sh', useWsl: false } })
+    .map((option) => option.value),
+  ['codex', 'claude-code'],
+  'loading fallback drops a configured generic-shell runtime key (hidden id)',
+)
+assert.deepEqual(
+  selectAgentCliCatalog('error', null, { 'generic-shell': { command: 'sh', useWsl: false } })
+    .map((option) => option.value),
+  ['codex', 'claude-code'],
+  'error fallback drops a configured generic-shell runtime key (hidden id)',
+)
+assert.equal(
+  isAgentCliAvailable(
+    'generic-shell',
+    selectAgentCliCatalog('error', null, { 'generic-shell': { command: 'sh', useWsl: false } }),
+  ),
+  false,
+  'generic-shell is unavailable in the fallback catalog even when configured as a runtime',
 )
 
 // orderInstalledPlugins: bundled-first, deduped, full entries preserved.
@@ -217,5 +249,66 @@ assert.equal(
 )
 assert.equal(resolveCliModel('codex', undefined), undefined, 'no selection means the CLI default')
 assert.equal(resolveCliModel('codex', null), undefined, 'null selections mean the CLI default')
+
+// --- availability filtering (deployment gating) --------------------------
+const availCatalog = buildAgentCliCatalog(plugins) // codex, claude-code, opencode
+// Only codex installed -> claude-code + opencode hidden; codex annotated.
+assert.deepEqual(
+  filterCatalogByAvailability(availCatalog, availabilityMap({ codex: true, 'claude-code': false, opencode: false }), 'ready')
+    .map((option) => option.value),
+  ['codex'],
+  'ready availability hides CLIs whose binary is not installed',
+)
+assert.equal(
+  filterCatalogByAvailability(availCatalog, availabilityMap({ codex: true, 'claude-code': false, opencode: false }), 'ready')
+    .find((option) => option.value === 'codex')?.installed,
+  true,
+  'surviving options are annotated with installed state',
+)
+// Loading status must not filter (never-empty guard) even if map says nothing installed.
+assert.deepEqual(
+  filterCatalogByAvailability(availCatalog, availabilityMap({ codex: false, 'claude-code': false, opencode: false }), 'loading')
+    .map((option) => option.value),
+  ['codex', 'claude-code', 'opencode'],
+  'loading status shows all registered CLIs (never an empty picker)',
+)
+// Zero installed while ready -> fall back to unfiltered rather than empty.
+assert.deepEqual(
+  filterCatalogByAvailability(availCatalog, availabilityMap({ codex: false, 'claude-code': false, opencode: false }), 'ready')
+    .map((option) => option.value),
+  ['codex', 'claude-code', 'opencode'],
+  'zero detected installs falls back to the full catalog instead of hiding everything',
+)
+// An option with no availability entry stays visible (unknown != not-installed).
+assert.deepEqual(
+  filterCatalogByAvailability(availCatalog, availabilityMap({ codex: true }), 'ready')
+    .map((option) => option.value),
+  ['codex', 'claude-code', 'opencode'],
+  'options without a probe entry are not hidden',
+)
+// selectAgentCliCatalog applies the filter when availability is passed.
+assert.deepEqual(
+  selectAgentCliCatalog('ready', plugins, undefined, {
+    map: availabilityMap({ codex: true, 'claude-code': false, opencode: false }),
+    status: 'ready',
+  }).map((option) => option.value),
+  ['codex'],
+  'selectAgentCliCatalog hides uninstalled CLIs when availability is provided',
+)
+// resolveAvailableAgentCli over the filtered catalog auto-remaps a stale default.
+const codexOnly = selectAgentCliCatalog('ready', plugins, undefined, {
+  map: availabilityMap({ codex: true, 'claude-code': false, opencode: false }),
+  status: 'ready',
+})
+assert.equal(
+  resolveAvailableAgentCli('claude-code', codexOnly),
+  'codex',
+  'a stale claude-code default remaps to the only installed CLI (codex)',
+)
+assert.equal(
+  resolveTemplateAgentCli(null, 'claude-code', codexOnly),
+  'codex',
+  'a remembered claude-code lastSelectedCli remaps to codex on a codex-only machine',
+)
 
 console.log('cliRuntimeOptions.test.ts: ok')

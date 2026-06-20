@@ -77,6 +77,13 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
     if (!projectionResult.ok) throw new Error(projectionResult.message)
 
     if (projectionResult.unchanged) {
+      // The projection bytes are unchanged, but the automation lifecycle may
+      // still be out of sync with a run that already finished — e.g. a run that
+      // completed and was then demoted to `paused` by an end-of-run agent
+      // terminal close. `runner_complete` otherwise only fires on a changed
+      // poll, so a stably-finished run would never self-heal. Reconcile from the
+      // already-parsed stored state on every tick instead.
+      reconcileCompletedRunLifecycle(workspace, workspace.sprintEngineState, ports)
       logPerfEvent('SprintEngineProjection', 'refresh', {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
@@ -99,12 +106,7 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
     if (projectionResult.token) tokens.set(workspace.id, projectionResult.token)
     else tokens.delete(workspace.id)
     ports.setSprintEngineState(workspace.id, parsedState)
-    if (projectionRunIsComplete(projectionResult.data)) {
-      ports.applySprintEngineAutomationEvent?.(workspace.id, {
-        type: 'runner_complete',
-        message: 'All tasks are complete.',
-      })
-    }
+    reconcileCompletedRunLifecycle(workspace, parsedState, ports)
     await refreshBacklogSprintEngineRunLinks({
       workspace,
       state: parsedState,
@@ -142,10 +144,42 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
   }
 }
 
-function projectionRunIsComplete(projection: unknown): boolean {
-  if (!projection || typeof projection !== 'object') return false
-  const run = (projection as { run?: unknown }).run
-  return Boolean(run && typeof run === 'object' && (run as { status?: unknown }).status === 'complete')
+// Bring the automation lifecycle in line with a run whose tasks are all done.
+// Task-completeness (not the raw projection `run.status`) is the canonical
+// "run finished" signal used by the auto-run supervisor and Backlog links, and
+// it is the only completion signal available on the parsed state for unchanged
+// polls. Re-firing on an already-`complete` run is a no-op in the reducer, so
+// the runtime-state gate keeps us from churning the store on every poll.
+function reconcileCompletedRunLifecycle(
+  workspace: Workspace,
+  state: SprintEngineState | null,
+  ports: SprintEngineProjectionRefreshPorts,
+): void {
+  if (!state || !isCompletedSprintEngineRun(state)) return
+  if (workspace.sprintEngineAutoState?.runtimeState === 'complete') return
+  ports.applySprintEngineAutomationEvent?.(workspace.id, {
+    type: 'runner_complete',
+    message: 'All tasks are complete.',
+  })
+}
+
+// Whether the projection poller can stop reading a workspace's projection.json.
+// A finished run is terminal — its projection won't change again — but two
+// conditions must both hold before we skip it:
+//   1. lifecycle `complete` (not raw task-completeness): a run that finished but
+//      is still stuck in `paused` must keep polling so `reconcileCompletedRun-
+//      Lifecycle` can self-heal it to `complete` first; the next tick skips it.
+//   2. `sprintEngineState` already hydrated: the projection is intentionally not
+//      persisted across sessions (`normalizeWorkspaceForPartialize` nulls it to
+//      avoid a localStorage write-storm), so a cold `complete` run after an app
+//      restart still needs one read to populate the board and run summary.
+//      Skipping before that read strands the board on "workspace data is
+//      missing". Re-selecting an automation mode leaves `complete` and re-arms.
+export function canStopPollingCompletedSprintEngineProjection(
+  workspace: Pick<Workspace, 'sprintEngineAutoState' | 'sprintEngineState'>,
+): boolean {
+  return workspace.sprintEngineAutoState?.runtimeState === 'complete'
+    && Boolean(workspace.sprintEngineState)
 }
 
 function normalizedPathKey(path: string): string {

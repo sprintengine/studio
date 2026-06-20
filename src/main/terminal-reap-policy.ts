@@ -1,31 +1,29 @@
-// Phase 1 of the memory-bounded agent lifecycle: decide which idle agent
-// terminals are safe to SUSPEND (kill the process, preserve resume) so a
-// long-running session doesn't accumulate dozens of idle agents holding GBs.
+// Memory-bounded agent lifecycle: decide which idle agent terminals are safe to
+// SUSPEND (kill the process, preserve resume) so a long session doesn't
+// accumulate dozens of idle agents holding GBs.
 //
-// This module is intentionally PURE and side-effect free: it takes a snapshot of
-// candidate sessions plus the few caller-supplied safety signals it cannot
-// derive itself, and returns the session ids that are safe to reap. The actual
-// kill goes through the existing `disposeTerminal` path (which already preserves
-// agent launch flags so reopening relaunches the CLI with --resume).
+// This module is PURE and side-effect free. It is deliberately driven only by
+// REPAINT-IMMUNE signals, because alt-screen TUIs (Claude/Codex) repaint on
+// resize/reveal and that repaint output would otherwise masquerade as agent
+// activity:
+//   * `lastInteractionAt` — real user input (keystrokes), which a repaint never
+//     generates. This is the idle clock. (NOT last *output*, which repaints bump.)
+//   * `visible` — whether the terminal is on screen right now.
+//   * `processAlive` — the pty lifecycle.
+//   * `inActiveRun` — caller-supplied; protects managed runs.
+// We deliberately do NOT gate on `activity === 'idle'` or a live-child probe:
+// both were output-/heuristic-derived and unreliable (the activity flag flips to
+// "working" on a repaint). A genuinely busy agent is caught by user input or the
+// run-active signal; the rare "streaming with zero input for hours" case is
+// (correctly) reapable and stays readable + resumable via freeze-the-view.
 //
-// The bar for reaping is deliberately high — suspending something we cannot
-// bring back, or that is doing work, is a correctness bug, not an optimization.
 // Every gate must pass; anything ambiguous keeps the terminal ALIVE.
 
 export const DEFAULT_HOT_WORKSPACE_LIMIT = 5
-// How long a cold (outside-the-hot-set) agent must sit fully idle before it's
-// suspended. The old 24h `STALE_TERMINAL_MAX_UNSEEN_MS` never fired in a real
-// session; this is the in-session reclaim. Conservative on purpose — only the
-// cold overflow is ever on this clock (hot workspaces + working/server/active
-// agents are exempt), and Phase 2's pressure-aware evictor reclaims sooner when
-// RAM is actually tight. Tunable.
+// How long an agent must sit without real user interaction before it's
+// suspended. Measured from the last keystroke (not output), so revealing a
+// workspace can't reset it. Tunable.
 export const DEFAULT_SUSPEND_IDLE_AFTER_MS = 2 * 60 * 60 * 1000
-
-// CLIs whose session resume is deterministic enough to suspend-and-restore.
-// Claude pre-seeds its own session id at launch (`--session-id`), so
-// `--resume <id>` is exact. Codex generates its own id we can't yet capture
-// (see Phase 3), so it is intentionally absent — never suspend a Codex agent.
-export const RESUMABLE_CLIS: readonly string[] = ['claude']
 
 export type ReapCandidate = {
   sessionId: string
@@ -33,39 +31,39 @@ export type ReapCandidate = {
   // 'agent' terminals are the only suspend targets. Plain shells are cheap and
   // may hold a foreground command, so they are never suspended here.
   kind: string
+  // Informational only (carried into the reap audit log). The policy no longer
+  // gates on the cli: any idle agent is reapable regardless of which CLI it runs.
+  // Reaping kills the PTY; reopen relaunches via the plugin's resume command
+  // where one is declared (exact for claude-code; codex reattaches its own
+  // latest session). A cli with no resume support would relaunch fresh.
   cli: string | null
-  // Session activity: only 'idle' is reapable. 'working' / 'needs-input' /
-  // 'failed' all keep the terminal alive.
-  activityKind: string
   visible: boolean
   processAlive: boolean
-  // Max of started/lastInput/lastOutput/lastVisible — "when anyone last touched
-  // or heard from this terminal".
-  lastSeenAt: number
-  // Caller-supplied safety signals the policy cannot derive on its own. Both
-  // default to the SAFE value (treat as present) when the caller is unsure.
-  inActiveRun: boolean // workspace has an active SprintEngine/automation run
-  hasLiveChildProcess: boolean // a server / foreground command / live child under the pty
+  // Max of started/lastInput — "when the user last interacted with this
+  // terminal". Repaint-immune (real keystrokes only); drives the idle clock.
+  lastInteractionAt: number
+  // Caller-supplied: the terminal belongs to an active managed run (e.g. a
+  // SprintEngine agent). Defaults to the SAFE value (true) when unsure.
+  inActiveRun: boolean
 }
 
 export type ReapPolicyOptions = {
   now?: number
   hotWorkspaceLimit?: number
   idleThresholdMs?: number
-  resumableClis?: readonly string[]
 }
 
 export type ReapDecision = {
-  // The most-recently-active workspaces kept fully resident (agents never
+  // The most-recently-interacted workspaces kept fully resident (never
   // suspended), ranked by their freshest session.
   hotWorkspaceIds: string[]
   // Sessions safe to suspend now.
   reapableSessionIds: string[]
 }
 
-// The N most-recently-seen workspaces, ranked by their freshest ALIVE session.
-// Only live sessions contribute, so a workspace whose agents already exited
-// doesn't hold a hot slot. Ties break by workspace id for determinism.
+// The N most-recently-interacted workspaces, ranked by their freshest ALIVE
+// session's last interaction. Only live sessions contribute. Ties break by
+// workspace id for determinism.
 export function computeHotWorkspaceIds(
   candidates: readonly ReapCandidate[],
   limit: number
@@ -76,8 +74,8 @@ export function computeHotWorkspaceIds(
     if (!candidate.processAlive) continue
     if (candidate.workspaceId === null) continue
     const current = freshestByWorkspace.get(candidate.workspaceId)
-    if (current === undefined || candidate.lastSeenAt > current) {
-      freshestByWorkspace.set(candidate.workspaceId, candidate.lastSeenAt)
+    if (current === undefined || candidate.lastInteractionAt > current) {
+      freshestByWorkspace.set(candidate.workspaceId, candidate.lastInteractionAt)
     }
   }
   return [...freshestByWorkspace.entries()]
@@ -86,27 +84,20 @@ export function computeHotWorkspaceIds(
     .map(([workspaceId]) => workspaceId)
 }
 
-function isResumable(cli: string | null, resumableClis: readonly string[]): boolean {
-  return cli !== null && resumableClis.includes(cli)
-}
-
 // True only when EVERY gate passes. Order is cheap-checks-first, but the result
 // is the conjunction either way.
 export function isSessionReapable(
   candidate: ReapCandidate,
   hotWorkspaceIds: ReadonlySet<string>,
-  options: { now: number; idleThresholdMs: number; resumableClis: readonly string[] }
+  options: { now: number; idleThresholdMs: number }
 ): boolean {
   if (!candidate.processAlive) return false
   if (candidate.kind !== 'agent') return false
-  if (!isResumable(candidate.cli, options.resumableClis)) return false
-  if (candidate.activityKind !== 'idle') return false
   if (candidate.visible) return false
   if (candidate.inActiveRun) return false
-  if (candidate.hasLiveChildProcess) return false
   if (candidate.workspaceId === null) return false
   if (hotWorkspaceIds.has(candidate.workspaceId)) return false
-  if (options.now - candidate.lastSeenAt <= options.idleThresholdMs) return false
+  if (options.now - candidate.lastInteractionAt <= options.idleThresholdMs) return false
   return true
 }
 
@@ -117,13 +108,12 @@ export function selectReapableSessions(
   const now = options.now ?? Date.now()
   const hotWorkspaceLimit = options.hotWorkspaceLimit ?? DEFAULT_HOT_WORKSPACE_LIMIT
   const idleThresholdMs = options.idleThresholdMs ?? DEFAULT_SUSPEND_IDLE_AFTER_MS
-  const resumableClis = options.resumableClis ?? RESUMABLE_CLIS
 
   const hotWorkspaceIds = computeHotWorkspaceIds(candidates, hotWorkspaceLimit)
   const hotSet = new Set(hotWorkspaceIds)
 
   const reapableSessionIds = candidates
-    .filter((candidate) => isSessionReapable(candidate, hotSet, { now, idleThresholdMs, resumableClis }))
+    .filter((candidate) => isSessionReapable(candidate, hotSet, { now, idleThresholdMs }))
     .map((candidate) => candidate.sessionId)
 
   return { hotWorkspaceIds, reapableSessionIds }

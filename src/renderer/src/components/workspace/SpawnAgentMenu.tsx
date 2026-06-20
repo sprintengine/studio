@@ -190,11 +190,17 @@ export default function SpawnAgentMenu({
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const pluginCatalogError = useWorkspaceStore((s) => s.pluginCatalogError)
+  const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
+  const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
 
   const specialistActions = React.useMemo(() => orderSpecialistActions(specialistOrder), [specialistOrder])
   const agentCliOptions = React.useMemo(
-    () => selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes),
-    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes],
+    () =>
+      selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, {
+        map: cliAvailability,
+        status: cliAvailabilityStatus,
+      }),
+    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus],
   )
   const generalCliOptions = React.useMemo(
     () => agentCliOptions.map(({ modelSelection, ...option }) => option),

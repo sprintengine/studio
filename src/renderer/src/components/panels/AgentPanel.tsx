@@ -3,6 +3,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useSession } from '../../hooks/useTerminalSessions'
 import type {
   AgentCli,
+  AgentCliAvailabilityMap,
   AgentRuntimeKind,
   AgentState,
   CliRuntimeSettings,
@@ -16,8 +17,9 @@ import { MULTICODE_DISABLE_SPRINTENGINE_TERMINALS, MULTICODE_SAFE_MODE } from '.
 import {
   isAgentCliMissing,
   selectAgentCliCatalog,
+  type CliAvailabilityFilterStatus,
 } from '../workspace/newWorkspace/cliRuntimeOptions'
-import { PrimaryButton, StatusDot, Tooltip } from '../ui'
+import { PrimaryButton, Tooltip } from '../ui'
 import { revealNavRailComponent } from '../../utils/modelRegistry'
 import { dispatchBacklogReveal } from '../../utils/backlogReveal'
 
@@ -36,9 +38,13 @@ export function isStoredAgentCliUnavailable(
   pluginCatalogStatus: PluginCatalogStatus,
   pluginCatalogEntries: PluginCatalogEntry[],
   cliRuntimes: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>> | undefined,
+  availability?: { map: AgentCliAvailabilityMap | null | undefined; status: CliAvailabilityFilterStatus },
 ): boolean {
   if (pluginCatalogStatus !== 'ready') return false
-  const catalog = selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes)
+  // Pass availability so an agent stored with a CLI whose binary is not
+  // installed (e.g. Claude Code on a Codex-only machine) is flagged unavailable
+  // and blocked from launching, not silently spawned against a missing binary.
+  const catalog = selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, availability)
   return isAgentCliMissing(cli, catalog)
 }
 
@@ -82,6 +88,8 @@ export default function AgentPanel({
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
+  const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
+  const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const label = agent?.name ?? agentId
   const isSprintEngineAgent = workspaceMode === 'sprintengine' && Boolean(sprintEngineRuntimeRole)
@@ -97,8 +105,11 @@ export default function AgentPanel({
     // conversation agents do not launch a CLI and must not inherit it.
     () =>
       !isConversationRuntime
-      && isStoredAgentCliUnavailable(cli, pluginCatalogStatus, pluginCatalogEntries, cliRuntimes),
-    [isConversationRuntime, cli, pluginCatalogStatus, pluginCatalogEntries, cliRuntimes],
+      && isStoredAgentCliUnavailable(cli, pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, {
+        map: cliAvailability,
+        status: cliAvailabilityStatus,
+      }),
+    [isConversationRuntime, cli, pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus],
   )
   const hasStarted =
     !agentCliUnavailable
@@ -203,21 +214,13 @@ export default function AgentPanel({
   return (
     <div className={`flex h-full flex-col bg-[color:var(--bg-surface)] font-mono text-[12px] text-[color:var(--text-default)] ${cliShellTone}`}>
       <div className={`group relative flex-1 overflow-hidden bg-[color:var(--bg-app)] ${needsInput ? 'shadow-[inset_0_1px_0_var(--tone-warn-soft)]' : ''}`}>
-        {hasStarted && (isTerminalLive || isTerminalSuspended || backlogItemRef) ? (
+        {hasStarted && (isTerminalSuspended || canSuspendTerminal || backlogItemRef) ? (
           // The positioning lives on this wrapper, not the buttons: Tooltip wraps
           // its child in a `position: relative` span, so an `absolute` child
           // would anchor to that zero-size span (off-screen) instead of the
-          // terminal surface. Glyphs sit inline in a single top-right row.
+          // terminal surface. Liveness shows on the workspace tab (single source
+          // of truth); here we keep only the resume/suspend actions + Backlog link.
           <div className="absolute right-2 top-2 z-30 flex items-center gap-1.5">
-            {isTerminalLive ? (
-              // Green "live" dot: the agent process is running. Absent once the
-              // terminal is suspended (where the play button takes over).
-              <Tooltip content="Agent is live" placement="bottom">
-                <span className="inline-flex h-7 items-center px-1">
-                  <StatusDot tone="good" size={8} label="Agent terminal live" />
-                </span>
-              </Tooltip>
-            ) : null}
             {isTerminalSuspended ? (
               // Suspended state is a distinct, accented PLAY button (not a muted
               // pause indicator) so the suspend→resume transition is obvious and

@@ -91,7 +91,25 @@ def normalize_confidence_pct(value: Any, field_name: str) -> int | None:
     return value
 
 
-def normalize_source(source: dict[str, Any] | None, fallback_type: str) -> dict[str, Any]:
+def normalize_external_updated_at(value: Any) -> str | None:
+    raw = value.strip() if isinstance(value, str) and value.strip() else None
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def normalize_source(
+    source: dict[str, Any] | None,
+    fallback_type: str,
+    *,
+    preserve_external_updated_at: bool = False,
+) -> dict[str, Any]:
     source = source or {}
     source_type = source.get("type") if source.get("type") in SOURCE_TYPES else fallback_type
     return {
@@ -99,6 +117,7 @@ def normalize_source(source: dict[str, Any] | None, fallback_type: str) -> dict[
         "externalId": source.get("externalId") if isinstance(source.get("externalId"), str) else None,
         "externalKey": source.get("externalKey") if isinstance(source.get("externalKey"), str) else None,
         "externalUrl": source.get("externalUrl") if isinstance(source.get("externalUrl"), str) else None,
+        "externalUpdatedAt": normalize_external_updated_at(source.get("externalUpdatedAt")) if preserve_external_updated_at else None,
     }
 
 
@@ -203,6 +222,8 @@ def validate_task_shape(payload: Any) -> list[str]:
         errors.append("source must be an object.")
     elif source.get("type") not in SOURCE_TYPES:
         errors.append("source.type must be valid.")
+    elif source.get("externalUpdatedAt") is not None and not isinstance(source.get("externalUpdatedAt"), str):
+        errors.append("source.externalUpdatedAt must be a string or null.")
     execution = payload.get("execution")
     if not isinstance(execution, dict):
         errors.append("execution must be an object.")
@@ -407,6 +428,112 @@ def source_matches_import_identity(source: dict[str, Any], source_type: str, ext
     return bool(not external_id and external_url and source.get("externalUrl") == external_url)
 
 
+def find_import_duplicate(
+    tasks: list[LocatedTask],
+    provider: str,
+    identity: str | None,
+    url_identity: str | None,
+) -> LocatedTask | None:
+    for located in tasks:
+        source = located.task.get("source") if isinstance(located.task.get("source"), dict) else {}
+        if source_matches_import_identity(source, provider, identity, url_identity):
+            return located
+    return None
+
+
+EXTERNAL_UPDATED_AT_LABEL = "External updated at:"
+
+
+def import_comment_body(provider: str) -> str:
+    return f"Imported from {provider}."
+
+
+def parse_legacy_import_external_updated_at(body: Any) -> str | None:
+    if not isinstance(body, str):
+        return None
+    label_index = body.find(EXTERNAL_UPDATED_AT_LABEL)
+    if label_index < 0:
+        return None
+    after_label = body[label_index + len(EXTERNAL_UPDATED_AT_LABEL):].strip()
+    raw = after_label.split(maxsplit=1)[0] if after_label else ""
+    return raw.rstrip(".)") or None
+
+
+def comparable_external_updated_at_is_newer(candidate: str, current: str | None) -> bool:
+    if not current:
+        return True
+    if candidate == current:
+        return False
+    try:
+        candidate_time = datetime.fromisoformat(candidate.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    try:
+        current_time = datetime.fromisoformat(current.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    return candidate_time > current_time
+
+
+def source_external_updated_at(task: dict[str, Any]) -> str | None:
+    source = task.get("source") if isinstance(task.get("source"), dict) else {}
+    return normalize_external_updated_at(source.get("externalUpdatedAt"))
+
+
+def legacy_import_external_updated_at(task: dict[str, Any], provider: str) -> str | None:
+    comments = task.get("comments") if isinstance(task.get("comments"), list) else []
+    for comment in reversed(comments):
+        if not isinstance(comment, dict):
+            continue
+        author = comment.get("author") if isinstance(comment.get("author"), dict) else {}
+        body = comment.get("body")
+        if comment.get("kind") != "import":
+            continue
+        if author.get("type") != "system" or author.get("id") != "switchboard-import":
+            continue
+        if not isinstance(body, str) or not body.startswith(import_comment_body(provider)):
+            continue
+        external_updated_at = parse_legacy_import_external_updated_at(body)
+        normalized = normalize_external_updated_at(external_updated_at)
+        if normalized:
+            return normalized
+    return None
+
+
+def current_import_external_updated_at(task: dict[str, Any], provider: str) -> str | None:
+    return source_external_updated_at(task) or legacy_import_external_updated_at(task, provider)
+
+
+def import_source_identity(source: dict[str, Any]) -> tuple[Any, Any, Any]:
+    return (source.get("type"), source.get("externalId"), source.get("externalUrl"))
+
+
+def write_import_update_metadata(located: LocatedTask, provider: str, updated_at: str | None) -> LocatedTask | None:
+    comparable_updated_at = normalize_external_updated_at(updated_at)
+    if comparable_updated_at is None:
+        return None
+    if not comparable_external_updated_at_is_newer(
+        comparable_updated_at,
+        current_import_external_updated_at(located.task, provider),
+    ):
+        return None
+    now = now_iso()
+    source = located.task.get("source") if isinstance(located.task.get("source"), dict) else {}
+    task = {
+        **located.task,
+        "source": {
+            **source,
+            "externalUpdatedAt": comparable_updated_at,
+        },
+        "updatedAt": now,
+    }
+    errors = validate_task_shape(task)
+    if errors:
+        raise SwitchboardError(" ".join(errors))
+    atomic_write_json(located.path, task)
+    return read_task_file(located.path, located.folder_status)
+
+
 def import_inbox_task(
     workspace: Path,
     *,
@@ -430,21 +557,35 @@ def import_inbox_task(
     if not title.strip():
         raise SwitchboardError("Imported task title is required.")
     now = now_iso()
-    with locked_folders(workspace, ["inbox"], owner="switchboard-import"):
-        tasks, _problems, _locks = read_all(workspace)
-        for located in tasks:
+    tasks, _problems, _locks = read_all(workspace)
+    duplicate = find_import_duplicate(tasks, provider, identity, url_identity)
+    if duplicate:
+        with locked_folders(workspace, [duplicate.folder_status], owner="switchboard-import"):
+            located = find_task(workspace, duplicate.task["id"])
+            if located.folder_status != duplicate.folder_status:
+                return None, "duplicate"
             source = located.task.get("source") if isinstance(located.task.get("source"), dict) else {}
             if source_matches_import_identity(source, provider, identity, url_identity):
-                return None, "duplicate"
+                synced = write_import_update_metadata(located, provider, updated_at)
+                return (synced, "updated") if synced else (None, "duplicate")
+
+    with locked_folders(workspace, ["inbox"], owner="switchboard-import"):
+        tasks, _problems, _locks = read_all(workspace)
+        duplicate = find_import_duplicate(tasks, provider, identity, url_identity)
+        if duplicate:
+            synced = (
+                write_import_update_metadata(duplicate, provider, updated_at)
+                if duplicate.folder_status == "inbox"
+                else None
+            )
+            return (synced, "updated") if synced else (None, "duplicate")
         source = {
             "type": provider,
             "externalId": identity,
             "externalKey": external_key.strip() if isinstance(external_key, str) and external_key.strip() else None,
             "externalUrl": url_identity,
         }
-        body_parts = [f"Imported from {provider}."]
-        if updated_at:
-            body_parts.append(f"External updated at: {updated_at}.")
+        external_updated_at = normalize_external_updated_at(updated_at)
         task = build_task(
             title=title,
             description=description,
@@ -458,11 +599,12 @@ def import_inbox_task(
                     "id": str(uuid.uuid4()),
                     "author": {"type": "system", "id": "switchboard-import", "name": "Switchboard Import"},
                     "kind": "import",
-                    "body": " ".join(body_parts),
+                    "body": import_comment_body(provider),
                     "createdAt": now,
                 }
             ],
         )
+        task["source"]["externalUpdatedAt"] = external_updated_at
         errors = validate_task_shape(task)
         if errors:
             raise SwitchboardError(" ".join(errors))
@@ -494,6 +636,21 @@ def update_task(workspace: Path, task_id: str, updates: dict[str, Any]) -> Locat
             task["labels"] = normalize_labels(updates["labels"])
         if "blockedBy" in updates:
             task["blockedBy"] = [str(item).strip() for item in updates["blockedBy"] if str(item).strip()] if isinstance(updates["blockedBy"], list) else []
+        if "source" in updates and isinstance(updates["source"], dict):
+            current_source = normalize_source(
+                located.task.get("source") if isinstance(located.task.get("source"), dict) else None,
+                "manual",
+                preserve_external_updated_at=True,
+            )
+            next_source = normalize_source(updates["source"], current_source["type"])
+            preserve_external_updated_at = (
+                next_source["type"] in {"github", "jira"}
+                and import_source_identity(next_source) == import_source_identity(current_source)
+            )
+            task["source"] = {
+                **next_source,
+                "externalUpdatedAt": current_source["externalUpdatedAt"] if preserve_external_updated_at else None,
+            }
         errors = validate_task_shape(task)
         if errors:
             raise SwitchboardError(" ".join(errors))
@@ -907,4 +1064,3 @@ def validate_publish(task: dict[str, Any], from_status: str, to_status: str, evi
             errors.append("approval comment or evidence entry is required before publishing.")
     if errors:
         raise SwitchboardError(" ".join(errors))
-

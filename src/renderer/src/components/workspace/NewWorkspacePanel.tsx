@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
 import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { userLayoutTemplateToTemplate } from '../../layouts/userTemplates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -73,7 +73,11 @@ import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { folderHintAutoSelectMode } from './newWorkspace/folderHintMode'
 import { CliPermissionPresetRow, PathRadio, RosterAndRunSettings } from './newWorkspace/WizardControls'
 import { pruneSprintEngineRoleCliDefaults, sprintEngineRosterMatchesTeam } from './newWorkspace/savedTeams'
-import { selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
+import {
+  resolveAvailableAgentCli,
+  selectAgentCliCatalog,
+  type AgentCliCatalogOption,
+} from './newWorkspace/cliRuntimeOptions'
 import {
   GuidedBriefScaffoldError,
   GuidedBriefStartBuildError,
@@ -82,6 +86,7 @@ import {
   SprintEnginePlanSourcedError,
   buildSprintEngineEffectiveSpawnAtStartRoles,
   buildSprintEngineExistingTeamCreation,
+  buildAutomationsCreation,
   buildStandardCreation,
   buildSwitchboardCreation,
   runGuidedBriefScaffold,
@@ -135,16 +140,16 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
     subtitle: 'What outcome should this loop reach?',
   },
   'sprintengine-team': {
-    title: 'Plan the team',
-    subtitle: 'Pick a starting point and configure the team.',
+    title: 'What should the team work on?',
+    subtitle: 'Start fresh, pick something from your backlog, or reopen a team.',
   },
   'sprintengine-roster': {
-    title: 'Pick specialists',
-    subtitle: 'Choose how many of each role and which CLI they default to.',
+    title: 'Your AI team',
+    subtitle: 'A balanced team is ready to go. Adjust it below, or just continue.',
   },
   'guided-idea': {
     title: 'Tell us about your idea',
-    subtitle: 'A sentence or two. The strategist will ask the rest.',
+    subtitle: 'A sentence or two, in plain words. We’ll ask the rest.',
   },
 }
 
@@ -176,13 +181,17 @@ const SOURCE_BUNDLE_KIND_OPTIONS: Array<{ value: SprintEngineSourceBundleKind; l
   { value: 'generic_context', label: SOURCE_BUNDLE_KIND_LABELS.generic_context },
 ]
 
+// Default first-run team for a from-scratch Sprint Engine: a runnable
+// plan -> build -> review loop, not just planners. A novice who lands on the
+// roster step can press Continue and get a team that actually implements and
+// reviews work. Saved teams override this; it only seeds when none exists.
 const initialSprintEngineRoleCounts: SprintEngineRoleCounts = {
   architect: 1,
   product: 1,
   frontend: 0,
   ui_ux_reviewer: 0,
-  developer: 0,
-  code_reviewer: 0,
+  developer: 1,
+  code_reviewer: 1,
   spec_reviewer: 0,
   performance: 0,
   production_readiness_reviewer: 0,
@@ -224,6 +233,30 @@ function sprintEngineRoleCliDefaultsFromSavedRoster(
     ...initialSprintEngineRoleCliDefaults,
     ...(savedRoster?.roleCliDefaults ?? {}),
   }
+}
+
+// Clamp every role's CLI default to an installed agent CLI. The catalog passed
+// in is already availability-filtered, so resolveAvailableAgentCli remaps any
+// role still pointing at an uninstalled CLI (e.g. a saved team's Claude Code on
+// a Codex-only machine) to an installed one. Returns the same object reference
+// when nothing changes so it is a no-op inside setState (no render thrash).
+function remapRoleCliDefaultsToAvailable<T extends Record<string, AgentCli | undefined>>(
+  defaults: T,
+  catalog: AgentCliCatalogOption[],
+): T {
+  if (catalog.length === 0) return defaults
+  let changed = false
+  const next = { ...defaults }
+  for (const role of Object.keys(defaults) as Array<keyof T>) {
+    const current = defaults[role]
+    if (current === undefined) continue
+    const resolved = resolveAvailableAgentCli(current, catalog, current) as T[keyof T]
+    if (resolved !== current) {
+      next[role] = resolved
+      changed = true
+    }
+  }
+  return changed ? next : defaults
 }
 
 const guidedBriefSprintEngineRoleCounts: SprintEngineRoleCounts = {
@@ -495,13 +528,35 @@ export default function NewWorkspacePanel({
   const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
+  const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
+  const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
   // Shared plugin-aware catalog (installed agents + configured runtimes) used by
   // both the Sprint Engine roster role pickers and the Guided Brief role pickers,
   // so opencode/custom agents are selectable everywhere new agents are configured.
+  // Filtered by detected availability so uninstalled agent CLIs are never offered
+  // or defaulted to (a Codex-only machine must not see/seed Claude Code).
   const sprintEngineCliOptions = useMemo(
-    () => selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes),
-    [pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes],
+    () =>
+      selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes, {
+        map: cliAvailability,
+        status: cliAvailabilityStatus,
+      }),
+    [pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes, cliAvailability, cliAvailabilityStatus],
   )
+  // Once detection is trustworthy, remap any role default seeded to an
+  // uninstalled CLI (e.g. the Claude Code seed, or a saved team's Claude Code on
+  // a Codex-only machine) to an installed agent so creation never deploys — or
+  // even offers as the selected value — a CLI the user does not have. No-op when
+  // the values are already installed (setState bails on the same reference).
+  // Depends on the current defaults too so loading a saved team (which sets new
+  // defaults without changing availability) is re-clamped. The remap is
+  // idempotent — it returns the same object reference when nothing needs
+  // changing, so setState bails and this converges without looping.
+  useEffect(() => {
+    if (cliAvailabilityStatus !== 'ready') return
+    setSeRoleCliDefaults((current) => remapRoleCliDefaultsToAvailable(current, sprintEngineCliOptions))
+    setGuidedRoleCliDefaults((current) => remapRoleCliDefaultsToAvailable(current, sprintEngineCliOptions))
+  }, [cliAvailabilityStatus, sprintEngineCliOptions, seRoleCliDefaults, guidedRoleCliDefaults])
   const sprintEngineModuleEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const multiloopModuleEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
   const sprintEngineDisabledRoleIds = useMemo(
@@ -884,10 +939,12 @@ export default function NewWorkspacePanel({
     if (next === 'standard' && !nameTouched) setName(basename(folderPath ?? '') || 'workspace')
     if (next === 'switchboard' && !nameTouched)
       setName(toTitleName(basename(folderPath ?? '')) || 'Switchboard')
+    if (next === 'automations' && !nameTouched)
+      setName(toTitleName(basename(folderPath ?? '')) || 'Automations')
     if (next === 'multiloop')
       setMlName(toTitleName(basename(folderPath ?? '')) || 'Product Loop')
     if (next === 'guided-brief' && !nameTouched)
-      setName(toTitleName(basename(folderPath ?? '')) || 'Guided brief')
+      setName(toTitleName(basename(folderPath ?? '')) || 'Design Wizard')
     if (next !== 'sprintengine') {
       setSeExistingTeam(null)
       setSeAgentCliOverrides({})
@@ -1049,7 +1106,10 @@ export default function NewWorkspacePanel({
     setSeAgentCliOverrides({})
     setSeRoleCliDefaults((current) => ({
       ...current,
-      [role]: current[role] ?? 'claude-code',
+      // Seed a newly surfaced role with an installed CLI rather than the raw
+      // Claude Code default, so bumping a role count never reintroduces an
+      // uninstalled agent on a machine that lacks it.
+      [role]: current[role] ?? resolveAvailableAgentCli('claude-code', sprintEngineCliOptions, 'claude-code'),
     }))
     setSeRoleCounts((current) => ({
       ...current,
@@ -1267,10 +1327,10 @@ export default function NewWorkspacePanel({
           error instanceof GuidedBriefScaffoldError && error.message !== error.code
             ? error.message
             : error instanceof GuidedBriefScaffoldError
-              ? `Could not scaffold the guided brief workspace (${error.code}).`
+              ? `Could not set up the Design Wizard workspace (${error.code}).`
               : error instanceof Error
                 ? error.message
-                : 'Could not scaffold the guided brief workspace.',
+                : 'Could not set up the Design Wizard workspace.',
         )
       } finally {
         setIsCreating(false)
@@ -1317,6 +1377,15 @@ export default function NewWorkspacePanel({
     if (mode === 'switchboard') {
       if (!folderPath) return
       const args = buildSwitchboardCreation({ name, folderPath })
+      triggerSelectedSkillPackInstalls(folderPath)
+      onCreate(args)
+      onClose()
+      return
+    }
+
+    if (mode === 'automations') {
+      if (!folderPath) return
+      const args = buildAutomationsCreation({ name, folderPath })
       triggerSelectedSkillPackInstalls(folderPath)
       onCreate(args)
       onClose()
@@ -1633,7 +1702,7 @@ export default function NewWorkspacePanel({
             New workspace
           </h2>
         </div>
-        <WizardProgress total={steps.length} active={stepIndex} />
+        <WizardProgress total={steps.length} active={stepIndex} currentStepLabel={stepHeading.title} />
         {allowClose ? (
           <CloseIconButton
             size="md"
@@ -1726,39 +1795,27 @@ export default function NewWorkspacePanel({
           ) : null}
 
           {step === 'mode' ? (
-            <ModeStep
-              mode={mode}
-              onSelect={handleSelectMode}
-              folderPath={folderPath}
-              folderHint={folderPath ? folderHints.get(folderPath) ?? null : null}
-            />
-          ) : null}
-
-          {step === 'mcp-servers' ? (
-            <McpServersStep
-              mcpCatalog={integrationsMcpCatalog}
-              mcpSettings={mcpSettings ?? null}
-              onToggleMcp={toggleMcpInWizard}
-              message={integrationsMessage}
-            />
-          ) : null}
-
-          {step === 'skill-packs' ? (
-            <SkillPacksStep
-              skillPackCatalog={integrationsSkillPackCatalog}
-              selectedSkillPackIds={selectedSkillPackIds}
-              onToggleSkillPack={toggleSkillPackInWizard}
-              message={integrationsMessage}
-            />
-          ) : null}
-
-          {step === 'knowledge' && folderPath ? (
-            <KnowledgeStep
-              projectRoot={folderPath}
-              committedRelativeRoot={committedKnowledgeRoot}
-              onCommit={handleCommitKnowledgeRoot}
-              autoApplyGuard={knowledgeAutoAppliedRef}
-            />
+            <div className="flex flex-col gap-6">
+              <ModeStep
+                mode={mode}
+                onSelect={handleSelectMode}
+                folderPath={folderPath}
+                folderHint={folderPath ? folderHints.get(folderPath) ?? null : null}
+              />
+              <AdvancedSetupDisclosure
+                mcpCatalog={integrationsMcpCatalog}
+                mcpSettings={mcpSettings ?? null}
+                onToggleMcp={toggleMcpInWizard}
+                skillPackCatalog={integrationsSkillPackCatalog}
+                selectedSkillPackIds={selectedSkillPackIds}
+                onToggleSkillPack={toggleSkillPackInWizard}
+                integrationsMessage={integrationsMessage}
+                knowledgeProjectRoot={folderPath && knowledgeStepEligible ? folderPath : null}
+                committedKnowledgeRoot={committedKnowledgeRoot}
+                onCommitKnowledge={handleCommitKnowledgeRoot}
+                knowledgeAutoAppliedRef={knowledgeAutoAppliedRef}
+              />
+            </div>
           ) : null}
 
           {step === 'standard-layout' ? (
@@ -2149,6 +2206,109 @@ function ModeStep({
           <ModeCard key={model.id} model={model} active={mode === model.id} onSelect={onSelect} />
         ))}
       </div>
+    </div>
+  )
+}
+
+// Opt-in advanced configuration for the mode step. The novice critical path no
+// longer gates on MCP servers / skill packs / knowledge (see creationStepFlows),
+// but power users keep one-place in-wizard access here without seeing the jargon
+// unless they ask for it. Collapsed by default; a selection count surfaces when
+// the user has chosen anything so a returning expander isn't a surprise. Each
+// section reuses the same component the standalone steps used, so behavior and
+// persistence are identical — selections still write to project settings.
+function AdvancedSetupDisclosure({
+  mcpCatalog,
+  mcpSettings,
+  onToggleMcp,
+  skillPackCatalog,
+  selectedSkillPackIds,
+  onToggleSkillPack,
+  integrationsMessage,
+  knowledgeProjectRoot,
+  committedKnowledgeRoot,
+  onCommitKnowledge,
+  knowledgeAutoAppliedRef,
+}: {
+  mcpCatalog: McpCatalogServer[]
+  mcpSettings: { servers: Record<string, { enabled: boolean }> } | null
+  onToggleMcp: (server: McpCatalogServer) => void
+  skillPackCatalog: SkillPackCatalogEntry[]
+  selectedSkillPackIds: Set<string>
+  onToggleSkillPack: (pack: SkillPackCatalogEntry) => void
+  integrationsMessage: string | null
+  knowledgeProjectRoot: string | null
+  committedKnowledgeRoot: string | null
+  onCommitKnowledge: (relativeRoot: string | null) => void
+  knowledgeAutoAppliedRef: MutableRefObject<Set<string>>
+}) {
+  const [open, setOpen] = useState(false)
+  const selectedCount =
+    mcpCatalog.reduce((count, server) => count + (mcpSettings?.servers[server.id]?.enabled ? 1 : 0), 0) +
+    skillPackCatalog.reduce((count, pack) => count + (selectedSkillPackIds.has(pack.id) ? 1 : 0), 0)
+
+  return (
+    <div className="border-t border-[color:var(--border-subtle)] pt-4">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="
+          flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left transition-colors
+          hover:bg-[color:var(--bg-surface-raised)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+        "
+      >
+        <svg
+          className={`icon-sm shrink-0 text-[color:var(--text-subtle)] transition-transform ${open ? 'rotate-90' : ''}`}
+          viewBox="0 0 12 12"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path d="M4.5 3L7.5 6L4.5 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span className="text-[13px] font-medium text-[color:var(--text-strong)]">Advanced setup</span>
+        <span className="min-w-0 truncate text-[12px] text-[color:var(--text-subtle)]">
+          Tool integrations and skill packs{knowledgeProjectRoot ? ', knowledge' : ''} — optional
+        </span>
+        {selectedCount > 0 ? (
+          <span className="ml-auto shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+            {selectedCount} selected
+          </span>
+        ) : null}
+      </button>
+      {open ? (
+        <div className="flex flex-col gap-6 px-1.5 pt-4">
+          <section className="flex flex-col gap-2">
+            <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Tool integrations</h4>
+            <McpServersStep
+              mcpCatalog={mcpCatalog}
+              mcpSettings={mcpSettings}
+              onToggleMcp={onToggleMcp}
+              message={integrationsMessage}
+            />
+          </section>
+          <section className="flex flex-col gap-2">
+            <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Skill packs</h4>
+            <SkillPacksStep
+              skillPackCatalog={skillPackCatalog}
+              selectedSkillPackIds={selectedSkillPackIds}
+              onToggleSkillPack={onToggleSkillPack}
+              message={integrationsMessage}
+            />
+          </section>
+          {knowledgeProjectRoot ? (
+            <section className="flex flex-col gap-2">
+              <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Knowledge graph</h4>
+              <KnowledgeStep
+                projectRoot={knowledgeProjectRoot}
+                committedRelativeRoot={committedKnowledgeRoot}
+                onCommit={onCommitKnowledge}
+                autoApplyGuard={knowledgeAutoAppliedRef}
+              />
+            </section>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -2552,17 +2712,17 @@ function GuidedIdeaStep({
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <FieldLabel>What are we making?</FieldLabel>
-        <div role="radiogroup" aria-label="Guided brief preset" className="grid grid-cols-2 gap-2.5">
+        <div role="radiogroup" aria-label="Design Wizard mode" className="grid grid-cols-2 gap-2.5">
           <GuidedChoiceCard
             active={!isDesignPreset}
-            title="Full guided brief"
-            body="Strategy, architecture, and design before the build."
+            title="Plan & design"
+            body="Think it through, then design it — strategy, plan, and screens before the build."
             onSelect={() => onChangePreset('full-brief')}
           />
           <GuidedChoiceCard
             active={isDesignPreset}
-            title="Multicode Design"
-            body="A design-only studio that goes straight to UI direction and mockups."
+            title="Design only"
+            body="Skip the planning and go straight to screens and mockups."
             onSelect={() => onChangePreset('frontend-design')}
           />
         </div>
@@ -2662,7 +2822,7 @@ function GuidedIdeaStep({
         </div>
         {isDesignPreset ? (
           <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            Multicode Design skips the product and architecture discussions and starts on the design studio.
+            Design only skips the strategy and planning discussions and starts straight in the design studio.
           </p>
         ) : null}
       </div>
@@ -3406,6 +3566,8 @@ function createLabelFor(mode: CreationMode, isCreating: boolean, hasExistingTeam
       return 'Create Sprint Engine'
     case 'switchboard':
       return 'Create Switchboard'
+    case 'automations':
+      return 'Create Automations'
     case 'multiloop':
       return 'Create Multiloop'
     case 'guided-brief':

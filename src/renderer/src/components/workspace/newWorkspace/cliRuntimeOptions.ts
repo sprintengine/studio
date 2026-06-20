@@ -1,5 +1,6 @@
 import type {
   AgentCli,
+  AgentCliAvailabilityMap,
   AgentCliModelSelection,
   CliRuntimeSettings,
   PluginCatalogEntry,
@@ -15,9 +16,34 @@ export type AgentCliCatalogOption = {
   // the user-added ids from `cliRuntimes[id].models`. Absent when the plugin
   // declares no modelSelection — such CLIs show no model UI at all.
   modelSelection?: PluginModelCatalog
+  // Detected install state, attached once availability is known. `undefined`
+  // means "not probed yet"; deployment surfaces hide only options that are
+  // explicitly `installed === false` (see filterCatalogByAvailability).
+  installed?: boolean
+  resolvedPath?: string | null
+}
+
+// Trust state of the detected-availability map. Mirrors the slice's
+// CliAvailabilityStatus without importing the store (keeps this util store-free).
+export type CliAvailabilityFilterStatus = 'loading' | 'ready' | 'error'
+
+export type CliAvailabilityFilter = {
+  map: AgentCliAvailabilityMap | null | undefined
+  status: CliAvailabilityFilterStatus
 }
 
 const CLAUDE_CODE_PLUGIN_ID = 'claude-code'
+
+// Plugin ids that exist in the main-process registry but must never appear as a
+// selectable agent CLI in spawn pickers. `generic-shell` is a bare `sh` pipe
+// with no tool use or resume — it duplicates the Terminal quick row and reads as
+// noise in the agent/specialist CLI lists, so it is hidden from the picker
+// catalog while staying available to the registry for direct terminal launch.
+// Both catalog paths — the plugin-registry path in `buildAgentCliCatalog` and
+// the bundled/legacy fallback in `legacyCliRuntimeOptions` — must apply this, or
+// a persisted `cliRuntimes` key could leak a hidden id into the loading/error
+// fallback catalog.
+const AGENT_PICKER_HIDDEN_CLI_IDS = new Set<AgentCli>(['generic-shell'])
 
 const BUNDLED_AGENT_MODEL_CATALOGS: Record<AgentCli, PluginModelCatalog> = {
   codex: {
@@ -62,7 +88,7 @@ function legacyCliRuntimeOptions(
   for (const id of ['codex', CLAUDE_CODE_PLUGIN_ID, ...Object.keys(cliRuntimes ?? {})]) {
     const trimmed = id.trim()
     const canonical = pluginRegistryIdForCli(trimmed)
-    if (!canonical || seen.has(canonical)) continue
+    if (!canonical || seen.has(canonical) || AGENT_PICKER_HIDDEN_CLI_IDS.has(canonical)) continue
     seen.add(canonical)
     orderedIds.push(canonical)
   }
@@ -154,13 +180,6 @@ export function resolveTemplateAgentCli(
   return resolveAvailableAgentCli(lastSelectedCli, catalog, catalog[0]?.value ?? lastSelectedCli)
 }
 
-// Plugin ids that exist in the main-process registry but must never appear as a
-// selectable agent CLI in spawn pickers. `generic-shell` is a bare `sh` pipe
-// with no tool use or resume — it duplicates the Terminal quick row and reads as
-// noise in the agent/specialist CLI lists, so it is hidden from the picker
-// catalog while staying available to the registry for direct terminal launch.
-const AGENT_PICKER_HIDDEN_CLI_IDS = new Set<AgentCli>(['generic-shell'])
-
 export function buildAgentCliCatalog(
   plugins: PluginCatalogEntry[] | null | undefined,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
@@ -245,6 +264,40 @@ export function selectAgentCliCatalog(
   status: PluginCatalogStatus,
   entries: PluginCatalogEntry[] | null | undefined,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
+  availability?: CliAvailabilityFilter,
 ): AgentCliCatalogOption[] {
-  return buildAgentCliCatalog(status === 'ready' ? entries ?? [] : null, cliRuntimes)
+  const catalog = buildAgentCliCatalog(status === 'ready' ? entries ?? [] : null, cliRuntimes)
+  if (!availability) return catalog
+  return filterCatalogByAvailability(catalog, availability.map, availability.status)
+}
+
+// Annotate each option with its detected install state and hide the agent CLIs
+// whose binary is not installed, so deployment pickers never offer (or default
+// to) an uninstalled agent. Guards against a worse failure than the one we are
+// fixing — an empty picker — by falling back to the unfiltered (annotated)
+// catalog whenever detection is not yet trustworthy:
+//   - status is not `ready` (still loading, or detection errored), OR
+//   - the map is absent, OR
+//   - zero CLIs are detected as installed (likely a flaky/blocked probe).
+// Only options explicitly detected as `installed === false` are removed; an
+// option with no availability entry (e.g. probed-after-add) stays visible.
+export function filterCatalogByAvailability(
+  catalog: AgentCliCatalogOption[],
+  availabilityMap: AgentCliAvailabilityMap | null | undefined,
+  status: CliAvailabilityFilterStatus,
+): AgentCliCatalogOption[] {
+  const annotated = catalog.map((option) => {
+    const entry = availabilityMap?.[option.value]
+    return entry
+      ? { ...option, installed: entry.installed, resolvedPath: entry.resolvedPath }
+      : option
+  })
+
+  if (status !== 'ready' || !availabilityMap) return annotated
+
+  const anyInstalled = Object.values(availabilityMap).some((entry) => entry.installed)
+  if (!anyInstalled) return annotated
+
+  const filtered = annotated.filter((option) => availabilityMap[option.value]?.installed !== false)
+  return filtered.length > 0 ? filtered : annotated
 }

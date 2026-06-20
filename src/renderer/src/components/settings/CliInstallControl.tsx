@@ -5,7 +5,7 @@ import type {
   CliInstallMethodInfo,
   CliInstallResult,
 } from '../../../../shared/electron-api'
-import { GhostButton, PrimaryButton, Select, Spinner, StatusDot, type SelectItem } from '../ui'
+import { GhostButton, LifecycleGlyph, PrimaryButton, Select, Spinner, type SelectItem } from '../ui'
 
 export type CliInstallControlProps = {
   cli: string
@@ -16,6 +16,12 @@ export type CliInstallControlProps = {
   // Called after a successful install so the parent can persist the resolved
   // binary path (e.g. into cliRuntimes) and refresh any catalogs.
   onInstalled?: (result: CliInstallResult) => void
+  // When false, the status text drops the CLI name (the surrounding row already
+  // names it). Onboarding leaves it true since the control is the only label.
+  showName?: boolean
+  // When true (and the CLI is not installed), open the install method picker on
+  // mount. Lets a parent's "Install" affordance jump straight into the flow.
+  autoOpenInstall?: boolean
 }
 
 // Detect-and-install control for a single agent CLI. Reused by the onboarding
@@ -29,6 +35,8 @@ export function CliInstallControl({
   command,
   useWsl,
   onInstalled,
+  showName = true,
+  autoOpenInstall = false,
 }: CliInstallControlProps) {
   const [detect, setDetect] = useState<CliDetectResult | null>(null)
   const [detecting, setDetecting] = useState(true)
@@ -76,6 +84,19 @@ export function CliInstallControl({
     setSelectedMethodId(preferred?.id ?? '')
   }, [cli, command, useWsl])
 
+  // Honor a parent's request to jump straight into the install flow once the
+  // probe confirms the CLI is missing. Runs once per arming.
+  const autoOpenedRef = useRef(false)
+  useEffect(() => {
+    if (!autoOpenInstall) {
+      autoOpenedRef.current = false
+      return
+    }
+    if (autoOpenedRef.current || detecting || detect?.installed) return
+    autoOpenedRef.current = true
+    void openInstall()
+  }, [autoOpenInstall, detecting, detect, openInstall])
+
   const runInstall = useCallback(async () => {
     if (!selectedMethodId) return
     setInstalling(true)
@@ -113,6 +134,20 @@ export function CliInstallControl({
   }, [cli, binary, command, useWsl, selectedMethodId, onInstalled])
 
   const installed = detect?.installed === true
+  const versionSuffix = detect?.version ? ` · ${detect.version}` : ''
+  // The surrounding row names the CLI when showName is false, so the status
+  // text stays terse ("Detected · 1.2.3") instead of repeating the name.
+  const statusText = detecting
+    ? showName
+      ? `Checking for ${binary}…`
+      : 'Detecting…'
+    : installed
+      ? showName
+        ? `${displayName} detected${versionSuffix}`
+        : `Detected${versionSuffix}`
+      : showName
+        ? `${displayName} not found`
+        : 'Not found'
   const methodItems: SelectItem[] = (methods ?? []).map((method) => ({
     value: method.id,
     label: method.available ? method.label : `${method.label} — ${method.unavailableReason ?? 'unavailable'}`,
@@ -127,14 +162,16 @@ export function CliInstallControl({
           {detecting ? (
             <Spinner className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
           ) : (
-            <StatusDot tone={installed ? 'good' : 'warn'} />
+            // Status reads by shape, not a bare dot: a quiet check when the CLI
+            // is present, the warn "!" when it is missing. The adjacent text
+            // names the state, so the glyph never carries meaning by colour alone.
+            <LifecycleGlyph
+              state={installed ? 'done' : 'needs_input'}
+              label={installed ? `${displayName} detected` : `${displayName} not found`}
+            />
           )}
           <span className="truncate text-[12px] text-[color:var(--text-default)]">
-            {detecting
-              ? `Checking for ${binary}…`
-              : installed
-                ? `${displayName} detected${detect?.version ? ` · ${detect.version}` : ''}`
-                : `${displayName} not found`}
+            {statusText}
           </span>
         </div>
         {!detecting && (

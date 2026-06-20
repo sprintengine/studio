@@ -66,6 +66,8 @@ def worker_execution_workspace_block(state: Dict[str, Any], state_path: Path) ->
         "## Committing Your Work",
         "- After you finish a task's code changes, commit them to the shared branch with `sprintengine vcs commit --task-id <id> --id <your-agent-id>` (add `--path <file>` for any file outside your owned paths).",
         "- That command takes the run's commit lock so only one agent stages the git index at a time, then stages and commits ONLY your task's files. It is safe to run while other agents work.",
+        "- NEW files and directories are only committed if they fall inside your task's ownedPaths. If you create a file outside them — for example splitting a panel into a new sibling directory — add that path to your task's ownedPaths (`sprintengine plan update-task`) or pass it with `--path <file>`, or it will be silently left out of the commit and a clean checkout will fail to build.",
+        "- `vcs commit` warns when changed paths fall outside every task's owned paths, and `task publish` refuses to publish while such orphaned changes are uncommitted. Do not ignore that warning — a green local build does not mean the committed tree builds.",
         "- Marking the task done also commits any still-uncommitted task-scoped changes as a backstop, so nothing is lost if you forget.",
         "- Other agents commit their own whole files independently; their commits on the shared branch are expected. Do not revert, amend, or worry about commits you did not make.",
         "- If git reports a conflict on a file you own, resolve it: stage the specific hunks you changed when that is clearly simple, otherwise commit the whole file. Then continue.",

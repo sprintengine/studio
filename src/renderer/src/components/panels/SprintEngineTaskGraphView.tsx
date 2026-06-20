@@ -405,42 +405,6 @@ export function SprintEngineTaskGraphView({
 
  const [legendOpen, setLegendOpen] = useState(true)
  const [minimapOpen, setMinimapOpen] = useState(true)
- const [viewportState, setViewportState] = useState({
- scrollLeft: 0,
- scrollTop: 0,
- clientWidth: 0,
- clientHeight: 0,
- })
-
- useEffect(() => {
- const scrollEl = graphScrollRef.current
- if (!scrollEl) return
-
- let frame: number | null = null
- const updateViewport = () => {
- if (frame !== null) return
- frame = window.requestAnimationFrame(() => {
- frame = null
- setViewportState({
- scrollLeft: scrollEl.scrollLeft,
- scrollTop: scrollEl.scrollTop,
- clientWidth: scrollEl.clientWidth,
- clientHeight: scrollEl.clientHeight,
- })
- })
- }
-
- updateViewport()
- scrollEl.addEventListener('scroll', updateViewport, { passive: true })
- const resizeObserver = new ResizeObserver(updateViewport)
- resizeObserver.observe(scrollEl)
-
- return () => {
- if (frame !== null) window.cancelAnimationFrame(frame)
- scrollEl.removeEventListener('scroll', updateViewport)
- resizeObserver.disconnect()
- }
- }, [graph.canvasWidth, graph.canvasHeight])
 
  const MINIMAP_MAX_WIDTH = 168
  const MINIMAP_MAX_HEIGHT = 112
@@ -449,16 +413,71 @@ export function SprintEngineTaskGraphView({
  : 1
  const minimapInnerWidth = Math.max(1, graph.canvasWidth * minimapScale)
  const minimapInnerHeight = Math.max(1, graph.canvasHeight * minimapScale)
- const viewportGraphLeft = viewportState.scrollLeft / graphZoom
- const viewportGraphTop = viewportState.scrollTop / graphZoom
- const viewportGraphWidth = viewportState.clientWidth / graphZoom
- const viewportGraphHeight = viewportState.clientHeight / graphZoom
- const minimapViewportRect = {
- x: Math.max(0, viewportGraphLeft * minimapScale),
- y: Math.max(0, viewportGraphTop * minimapScale),
- width: Math.max(4, Math.min(minimapInnerWidth, viewportGraphWidth * minimapScale)),
- height: Math.max(4, Math.min(minimapInnerHeight, viewportGraphHeight * minimapScale)),
+
+ // The minimap viewport rectangle is the only thing that tracks scroll position,
+ // so we position it imperatively: a passive scroll listener writes straight to
+ // this element's style. Routing it through React state instead would re-render
+ // the whole graph — every task node, edge, and minimap dot — on every pan
+ // frame, which is the source of the graph-mode jank on large runs.
+ const minimapViewportRef = useRef<HTMLDivElement | null>(null)
+ const minimapMetricsRef = useRef({
+ zoom: graphZoom,
+ scale: minimapScale,
+ innerWidth: minimapInnerWidth,
+ innerHeight: minimapInnerHeight,
+ })
+ minimapMetricsRef.current = {
+ zoom: graphZoom,
+ scale: minimapScale,
+ innerWidth: minimapInnerWidth,
+ innerHeight: minimapInnerHeight,
  }
+
+ const applyMinimapViewport = useCallback(() => {
+ const scrollEl = graphScrollRef.current
+ const rectEl = minimapViewportRef.current
+ if (!scrollEl || !rectEl) return
+ const { zoom, scale, innerWidth, innerHeight } = minimapMetricsRef.current
+ const graphLeft = scrollEl.scrollLeft / zoom
+ const graphTop = scrollEl.scrollTop / zoom
+ const graphWidth = scrollEl.clientWidth / zoom
+ const graphHeight = scrollEl.clientHeight / zoom
+ rectEl.style.left = `${Math.max(0, graphLeft * scale)}px`
+ rectEl.style.top = `${Math.max(0, graphTop * scale)}px`
+ rectEl.style.width = `${Math.max(4, Math.min(innerWidth, graphWidth * scale))}px`
+ rectEl.style.height = `${Math.max(4, Math.min(innerHeight, graphHeight * scale))}px`
+ }, [])
+
+ useEffect(() => {
+ const scrollEl = graphScrollRef.current
+ if (!scrollEl) return
+
+ let frame: number | null = null
+ const scheduleApply = () => {
+ if (frame !== null) return
+ frame = window.requestAnimationFrame(() => {
+ frame = null
+ applyMinimapViewport()
+ })
+ }
+
+ scheduleApply()
+ scrollEl.addEventListener('scroll', scheduleApply, { passive: true })
+ const resizeObserver = new ResizeObserver(scheduleApply)
+ resizeObserver.observe(scrollEl)
+
+ return () => {
+ if (frame !== null) window.cancelAnimationFrame(frame)
+ scrollEl.removeEventListener('scroll', scheduleApply)
+ resizeObserver.disconnect()
+ }
+ }, [applyMinimapViewport])
+
+ // Re-apply on zoom, layout, or visibility change — the rect element only mounts
+ // while the minimap disclosure is open, and zoom/scale shift its geometry.
+ useEffect(() => {
+ applyMinimapViewport()
+ }, [applyMinimapViewport, graphZoom, minimapScale, minimapInnerWidth, minimapInnerHeight, minimapOpen])
 
  const panFromMinimap = (clientX: number, clientY: number, element: HTMLElement) => {
  const scrollEl = graphScrollRef.current
@@ -768,7 +787,11 @@ export function SprintEngineTaskGraphView({
  const ownerLabel = ownerId ? ownerAgent?.label ?? ownerId : null
  const isFocused = task.id === focusTaskId
  const isSelected = task.id === selectedTaskId
- const boardColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
+ // Reuse the board-column map computed once per state change rather than
+ // re-deriving it per node (each derivation scans every task → O(n²) per
+ // render). The map always carries this task, so the fallback is inert.
+ const boardColumn = boardColumnByTaskId.get(task.id)
+ ?? getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
  const dependencyLabel = task.dependsOn.length > 0
  ? `${task.dependsOn.length} ${task.dependsOn.length === 1 ? 'dep' : 'deps'}`
  : 'root'
@@ -966,13 +989,9 @@ export function SprintEngineTaskGraphView({
  )
  })}
  <div
+ ref={minimapViewportRef}
  className="pointer-events-none absolute rounded-sm border border-[color:var(--accent-primary-soft)] bg-[color:var(--accent-primary-soft)]"
- style={{
- left: minimapViewportRect.x,
- top: minimapViewportRect.y,
- width: minimapViewportRect.width,
- height: minimapViewportRect.height,
- }}
+ style={{ left: 0, top: 0, width: 4, height: 4 }}
  />
  </div>
  </div>

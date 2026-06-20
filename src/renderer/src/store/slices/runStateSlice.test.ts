@@ -211,6 +211,20 @@ assert.equal(carrier.workspaces[0].sprintEngineAutoState?.desiredMode, 'run_agen
 assert.equal(carrier.workspaces[0].sprintEngineAutoState?.runtimeState, 'failed')
 assert.equal(carrier.workspaces[0].sprintEngineAutoState?.reason, 'spawn_failed')
 assert.equal(carrier.workspaces[0].sprintEngineAutoState?.reasonAgentId, 'frontend')
+// A completed run stays `complete` when the end-of-run agent terminal closes
+// fire `runner_paused{ terminal_closed }` after the completion transition.
+runStateSlice.applySprintEngineAutomationEvent('ws-direct-run-state', { type: 'runner_started' })
+runStateSlice.applySprintEngineAutomationEvent('ws-direct-run-state', { type: 'runner_complete' })
+assert.equal(carrier.workspaces[0].sprintEngineAutoState?.runtimeState, 'complete')
+runStateSlice.applySprintEngineAutomationEvent('ws-direct-run-state', {
+  type: 'runner_paused',
+  reason: 'terminal_closed',
+  message: 'An agent terminal was closed.',
+  agentId: 'frontend',
+})
+assert.equal(carrier.workspaces[0].sprintEngineAutoState?.runtimeState, 'complete')
+assert.equal(carrier.workspaces[0].sprintEngineAutoState?.reason, 'all_tasks_done')
+
 runStateSlice.markSprintEngineAgentNotificationDelivered('ws-direct-run-state', ' EVT-1 ')
 runStateSlice.markSprintEngineAgentNotificationDelivered('ws-direct-run-state', 'EVT-1')
 assert.deepEqual(carrier.workspaces[0].sprintEngineAutoState?.deliveredAgentNotificationEventKeys, ['EVT-1'])

@@ -275,6 +275,82 @@ def commit_task_changes_if_needed(state: Dict[str, Any], state_path: Path, task:
     return commit_run_worktree_paths(state, state_path, task, actor)
 
 
+def worktree_orphaned_dirty_paths(state: Dict[str, Any], state_path: Path) -> List[str]:
+    """Dirty paths in the shared run worktree that fall inside no task's ownedPaths.
+
+    Per-task commits stage only owned + declared paths (never ``git add -A``, which
+    would sweep another agent's work into this commit). A change that lands inside
+    *no* task's ``ownedPaths`` is therefore picked up by nobody's commit and would
+    be silently dropped from the run — for example a new directory an author
+    created but never added to their task's owned paths (the failure that made a
+    published commit import files absent from HEAD). Dirty paths that fall inside
+    some task's owned paths are expected concurrent work and are not returned here.
+
+    Returns sorted project-relative posix paths. Advisory: read without the commit
+    lock, so it reflects a point-in-time view of the shared worktree.
+    """
+    worktree = worktree_for_vcs(state, state_path)
+    if not worktree or not worktree.exists():
+        return []
+    status_out = run_git_checked(
+        worktree, ["status", "--porcelain", "-z", "--untracked-files=all"]
+    ).stdout
+    dirty = _parse_porcelain_z(status_out)
+    if not dirty:
+        return []
+    all_owned: List[str] = []
+    for task in state.get("tasks", []) or []:
+        if isinstance(task, dict):
+            all_owned.extend(str(path) for path in (task.get("ownedPaths") or []))
+    owned_pathspec = _normalize_commit_pathspec(worktree, all_owned)
+    return sorted(
+        {
+            record["path"]
+            for record in dirty
+            if record["path"] and not _path_in_scope(record["path"], owned_pathspec)
+        }
+    )
+
+
+def _owned_path_parent_dirs(worktree: Path, task: Dict[str, Any]) -> List[str]:
+    """Normalized parent directories of a task's owned paths (the dirs it works in)."""
+    owned = _normalize_commit_pathspec(worktree, [str(p) for p in (task.get("ownedPaths") or [])])
+    parents: List[str] = []
+    for path in owned:
+        parent = path.rsplit("/", 1)[0] if "/" in path else ""
+        if parent and parent not in parents:
+            parents.append(parent)
+    return parents
+
+
+def task_scoped_orphaned_dirty_paths(
+    state: Dict[str, Any], state_path: Path, task: Dict[str, Any]
+) -> List[str]:
+    """Orphaned dirty paths that sit in a directory this task already works in.
+
+    Narrows :func:`worktree_orphaned_dirty_paths` to the orphans that fall inside
+    the parent directory of one of this task's owned paths — the strong
+    missed-scope signal (e.g. an owned ``a/b/Panel.tsx`` shell next to a new,
+    unowned ``a/b/Panel/helper.ts``). Incidental untracked files elsewhere in the
+    shared worktree (scratch files, screenshots, another concern's noise) are not
+    returned, so they warn at commit time but never block this task's publish.
+    """
+    worktree = worktree_for_vcs(state, state_path)
+    if not worktree or not worktree.exists():
+        return []
+    orphaned = worktree_orphaned_dirty_paths(state, state_path)
+    if not orphaned:
+        return []
+    parents = _owned_path_parent_dirs(worktree, task)
+    if not parents:
+        return []
+    return [
+        path
+        for path in orphaned
+        if any(path == parent or path.startswith(parent + "/") for parent in parents)
+    ]
+
+
 def create_run_pull_request(
     state: Dict[str, Any],
     state_path: Path,
