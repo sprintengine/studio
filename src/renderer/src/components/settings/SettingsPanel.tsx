@@ -44,7 +44,7 @@ import { KeyboardShortcutsTab } from './KeyboardShortcutsTab'
 import MobileSettingsTab from './MobileSettingsTab'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
-import { ExtensionsSettingsTab } from './ExtensionsSettingsTab'
+import { EXTENSIONS_BROWSE_DEEPLINK, ExtensionsSettingsTab } from './ExtensionsSettingsTab'
 import {
   McpBrandIcon,
   McpCatalogBrowser,
@@ -733,18 +733,25 @@ export default function SettingsPanel({
   const [customMcpUrl, setCustomMcpUrl] = useState('')
   const [customMcpEnv, setCustomMcpEnv] = useState('')
   const [customMcpTransport, setCustomMcpTransport] = useState<'stdio' | 'http'>('stdio')
+  // The extensions teaser deep-links to the Extensions tab's Browse sub-tab via a
+  // compound id; resolve it to the real tab here and forward the sub-tab below.
+  const extensionsBrowseRequested = initialTab === EXTENSIONS_BROWSE_DEEPLINK
+  const resolvedInitialTab = extensionsBrowseRequested ? 'extensions' : initialTab
   // Built-in tab ids plus `module-section:<id>` for contributed sections. An
   // initialTab may name either; unknown values fall back to the default tab.
   const [activeSettingsTab, setActiveSettingsTab] = useState<string>(
-    isSettingsTabId(initialTab) ? initialTab : 'updates'
+    isSettingsTabId(resolvedInitialTab) ? resolvedInitialTab : 'updates'
   )
 
   useEffect(() => {
-    if (isSettingsTabId(initialTab) || (typeof initialTab === 'string' && initialTab.startsWith(MODULE_SECTION_TAB_PREFIX))) {
-      setActiveSettingsTab(initialTab)
-      window.requestAnimationFrame(() => tabRefs.current[initialTab]?.focus())
+    if (
+      isSettingsTabId(resolvedInitialTab) ||
+      (typeof resolvedInitialTab === 'string' && resolvedInitialTab.startsWith(MODULE_SECTION_TAB_PREFIX))
+    ) {
+      setActiveSettingsTab(resolvedInitialTab)
+      window.requestAnimationFrame(() => tabRefs.current[resolvedInitialTab]?.focus())
     }
-  }, [initialTab])
+  }, [resolvedInitialTab])
 
   // Refresh CLI detection when the Agents tab opens so each card shows current
   // status. Cache-respecting (no force), so it's a cheap no-op when fresh.
@@ -2597,6 +2604,7 @@ export default function SettingsPanel({
           moduleOverrides={moduleEnablement}
           workspaceRoot={activeProjectRoot}
           onUpsertMcpServer={upsertMcpServer}
+          initialSubTab={extensionsBrowseRequested ? 'browse' : undefined}
         />
       ) : null}
 

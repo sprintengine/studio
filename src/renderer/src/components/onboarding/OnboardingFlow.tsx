@@ -8,6 +8,7 @@ import { CliInstallControl } from '../settings/CliInstallControl'
 import { AppThemePicker } from '../settings/AppThemePicker'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { AdoptConfigCard } from './AdoptConfigCard'
+import { ExtensionsTeaser } from './ExtensionsTeaser'
 import { FirstRunPayoff } from './FirstRunPayoff'
 
 // First-run onboarding (Phase 9). A guided, branded sequence for a fresh install:
@@ -38,6 +39,11 @@ export default function OnboardingFlow({
   const advanceOnboarding = useWorkspaceStore((s) => s.advanceOnboarding)
   const overrides = useWorkspaceStore((s) => s.appSettings.modules)
   const setModuleEnabled = useWorkspaceStore((s) => s.setModuleEnabled)
+  // The essentials-step extensions teaser (T4) opens the real Settings →
+  // Extensions Browse surface. Both overlays share z-50 and this one renders
+  // last (on top), so step aside while Settings is open and return to the same
+  // step when it closes — onboarding progress is untouched.
+  const settingsOpen = useWorkspaceStore((s) => s.settingsOverlay.open)
 
   const titleId = useId()
   const surfaceRef = useRef<HTMLDivElement>(null)
@@ -45,11 +51,12 @@ export default function OnboardingFlow({
   // This component renders every onboarding step as an overlay EXCEPT workspace,
   // which is the existing NewWorkspacePanel revealed by WorkspaceManager.
   const visible =
-    step === 'welcome' ||
-    step === 'theme' ||
-    step === 'essentials' ||
-    step === 'modules' ||
-    step === 'first-run'
+    !settingsOpen &&
+    (step === 'welcome' ||
+      step === 'theme' ||
+      step === 'essentials' ||
+      step === 'modules' ||
+      step === 'first-run')
 
   useEffect(() => {
     if (!visible) return undefined
@@ -226,6 +233,12 @@ function EssentialsStep({ titleId, onContinue }: { titleId: string; onContinue: 
             bring into the first workspace; the real adoption runs at workspace
             creation. Self-manages its own honest empty/error/found states. */}
         <AdoptConfigCard />
+
+        {/* Section: extensions teaser (T4). A discovery beat over the real
+            extensions registry; its CTA opens the real Settings → Extensions
+            Browse surface (where the existing install flow lives). Self-manages
+            its own honest loading/offline/error/empty states. */}
+        <ExtensionsTeaser />
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-[color:var(--border-subtle)] px-6 py-4">
