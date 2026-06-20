@@ -62,7 +62,7 @@ export const agentRuntimeRendererModule: RendererModule = {
     publisher: 'multicode',
     category: 'core',
     summary:
-      'Terminals, the BYO-CLI launch path, and the agent session runtime every other capability builds on. Always on.',
+      'Terminals, agent launch, and the session runtime that every other capability builds on. Always on.',
     defaultEnabled: true,
     core: true,
   },
