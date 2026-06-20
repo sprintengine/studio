@@ -1428,6 +1428,12 @@ export type AppSettings = {
    * fall back to the canonical roster order. Empty means "use canonical order".
    */
   specialistOrder: SpecialistActionId[]
+  /**
+   * Specialist-pack enablement. Holds the ids of packs the user has switched
+   * off; a pack absent here is enabled. Deselecting the built-in pack removes
+   * its agents from the spawn dropdown (the quick rows always remain).
+   */
+  specialistPacks: { disabled: string[] }
   sprintEngineRoleSettings: SprintEngineRoleSettings
   /**
    * Local operator preferences for an existing Sprint Engine run, keyed by the

@@ -182,8 +182,11 @@ export function getSpecialistAction(id: SpecialistActionId | string | null | und
  * order — e.g. a newly shipped role — is appended in canonical order so the
  * list never loses an entry. Unknown ids in `order` are ignored.
  */
-export function orderSpecialistActions(order: readonly SpecialistActionId[]): SpecialistAction[] {
-  const byId = new Map(SPECIALIST_ACTIONS.map((action) => [action.id, action]))
+export function orderSpecialistActions(
+  order: readonly SpecialistActionId[],
+  actions: readonly SpecialistAction[] = SPECIALIST_ACTIONS,
+): SpecialistAction[] {
+  const byId = new Map(actions.map((action) => [action.id, action]))
   const seen = new Set<SpecialistActionId>()
   const ordered: SpecialistAction[] = []
   for (const id of order) {
@@ -193,7 +196,7 @@ export function orderSpecialistActions(order: readonly SpecialistActionId[]): Sp
       seen.add(id)
     }
   }
-  for (const action of SPECIALIST_ACTIONS) {
+  for (const action of actions) {
     if (!seen.has(action.id)) ordered.push(action)
   }
   return ordered

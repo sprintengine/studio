@@ -8,6 +8,7 @@ import {
   type MultiloopRoleDescriptor,
   type SpecialistAction,
 } from '../../specialists/specialistActions'
+import { resolveEnabledSpecialists } from '../../specialists/specialistPacks'
 import type {
   AgentCli,
   AgentCliModelSelection,
@@ -39,6 +40,7 @@ const EMPTY_MULTILOOP_ROLE_CLI_DEFAULTS: Partial<Record<MultiloopRole, AgentCli>
 const EMPTY_SPECIALIST_MODEL_DEFAULTS: Partial<Record<SpecialistActionId, AgentCliModelSelection>> = {}
 const EMPTY_MULTILOOP_ROLE_MODEL_DEFAULTS: Partial<Record<MultiloopRole, AgentCliModelSelection>> = {}
 const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
+const EMPTY_DISABLED_PACKS: string[] = []
 
 // Permission preset chips shown in the menu footer. Exported because the top
 // bar's split-button trigger tooltip names the active preset.
@@ -185,6 +187,9 @@ export default function SpawnAgentMenu({
   const setMultiloopRoleModelDefault = useWorkspaceStore((s) => s.setMultiloopRoleModelDefault)
   const specialistOrder = useWorkspaceStore((s) => s.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER)
   const setSpecialistOrder = useWorkspaceStore((s) => s.setSpecialistOrder)
+  const disabledSpecialistPacks = useWorkspaceStore(
+    (s) => s.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED_PACKS,
+  )
   const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
@@ -193,7 +198,13 @@ export default function SpawnAgentMenu({
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
 
-  const specialistActions = React.useMemo(() => orderSpecialistActions(specialistOrder), [specialistOrder])
+  // Roster is the specialists contributed by enabled packs, in the user's saved
+  // order. With every pack disabled this is empty and the menu still shows its
+  // Terminal / General / Conversation quick rows.
+  const specialistActions = React.useMemo(
+    () => orderSpecialistActions(specialistOrder, resolveEnabledSpecialists(disabledSpecialistPacks)),
+    [specialistOrder, disabledSpecialistPacks],
+  )
   const agentCliOptions = React.useMemo(
     () =>
       selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, {

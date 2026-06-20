@@ -533,6 +533,25 @@ export function normalizeSpecialistOrder(input: unknown): SpecialistActionId[] {
   return result
 }
 
+// Persisted specialist-pack enablement: the set of pack ids the user switched
+// off. Keeps only non-empty strings and drops duplicates; an unknown id is
+// harmless (it just has no pack to hide).
+export function normalizeSpecialistPacks(input: unknown): { disabled: string[] } {
+  const raw = (input as { disabled?: unknown } | undefined)?.disabled
+  if (!Array.isArray(raw)) return { disabled: [] }
+  const seen = new Set<string>()
+  const disabled: string[] = []
+  for (const entry of raw) {
+    if (typeof entry !== 'string') continue
+    const id = entry.trim()
+    if (id && !seen.has(id)) {
+      seen.add(id)
+      disabled.push(id)
+    }
+  }
+  return { disabled }
+}
+
 // Module-contributed settings sections persist their values in a `module:<id>`
 // namespace inside app settings (see AppSettings.moduleSettings). The prefix is
 // the collision guard between module keyspaces and shell settings keys.
@@ -720,6 +739,7 @@ export const defaultAppSettings = (): AppSettings => ({
   specialistModelDefaults: {},
   multiloopRoleModelDefaults: {},
   specialistOrder: [],
+  specialistPacks: { disabled: [] },
   sprintEngineRoleSettings: defaultSprintEngineRoleSettings(),
   sprintEngineRunSettings: {},
   searchExcludes: [],
@@ -753,6 +773,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     specialistModelDefaults: normalizeCliModelSelections(settings?.specialistModelDefaults),
     multiloopRoleModelDefaults: normalizeCliModelSelections(settings?.multiloopRoleModelDefaults),
     specialistOrder: normalizeSpecialistOrder(settings?.specialistOrder),
+    specialistPacks: normalizeSpecialistPacks(settings?.specialistPacks),
     sprintEngineRoleSettings: normalizeSprintEngineRoleSettings(settings?.sprintEngineRoleSettings),
     sprintEngineRunSettings: normalizeSprintEngineRunSettings(settings?.sprintEngineRunSettings),
     searchExcludes: normalizeSearchExcludes(settings?.searchExcludes),
@@ -827,6 +848,7 @@ export interface SettingsSliceActions {
   setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void
   setMultiloopRoleModelDefault: (role: MultiloopRole, selection: AgentCliModelSelection | null) => void
   setSpecialistOrder: (order: SpecialistActionId[]) => void
+  setSpecialistPackEnabled: (packId: string, enabled: boolean) => void
   // Command ids are open strings: shell registry ids plus namespaced module
   // command ids (`<moduleId>.<commandId>`). The Shortcuts tab only offers rows
   // the merged registry currently exposes.
@@ -1087,6 +1109,20 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setSpecialistOrder: (order) =>
       set((state) => {
         state.appSettings.specialistOrder = normalizeSpecialistOrder(order)
+      }),
+
+    setSpecialistPackEnabled: (packId, enabled) =>
+      set((state) => {
+        const id = packId.trim()
+        if (!id) return
+        const current = normalizeSpecialistPacks(state.appSettings.specialistPacks)
+        const disabled = new Set(current.disabled)
+        if (enabled) {
+          disabled.delete(id)
+        } else {
+          disabled.add(id)
+        }
+        state.appSettings.specialistPacks = { disabled: [...disabled] }
       }),
 
     // The setters accept any non-empty command id: the Shortcuts tab only
