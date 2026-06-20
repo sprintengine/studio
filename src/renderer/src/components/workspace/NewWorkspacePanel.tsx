@@ -66,7 +66,7 @@ import type { BacklogItem, BacklogScanResult } from '../../utils/backlog'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind, workspaceRelativePath } from './newWorkspace/helpers'
 import type { CreationMode, ExistingTeam, GuidedBriefHasUi, ModeCardModel, SprintEnginePath } from './newWorkspace/types'
-import { stepsForMode, type StepId } from './newWorkspace/creationStepFlows'
+import { isAdvancedSetupStep, stepsForMode, type StepId } from './newWorkspace/creationStepFlows'
 import { KnowledgeStep } from './newWorkspace/KnowledgeStep'
 import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
@@ -772,6 +772,10 @@ export default function NewWorkspacePanel({
   }, [mode, knowledgeStepEligible])
   const stepIndex = Math.max(0, steps.indexOf(step))
   const isLastStep = stepIndex >= steps.length - 1
+  // The optional Advanced setup disclosure rides the flow's final step but never
+  // the 'mode' pivot (see isAdvancedSetupStep): the zero-config quick flows end
+  // at 'mode', and config belongs off that decision screen.
+  const showAdvancedSetup = isAdvancedSetupStep(steps, step)
 
   // Knowledge folder currently stored for the chosen project (case-preserved key,
   // matching the project-keyed store), surfaced to the step and blocking copy.
@@ -2053,7 +2057,7 @@ export default function NewWorkspacePanel({
             />
           ) : null}
 
-          {isLastStep ? (
+          {showAdvancedSetup ? (
             <AdvancedSetupDisclosure
               mcpCatalog={integrationsMcpCatalog}
               mcpSettings={mcpSettings ?? null}
@@ -2311,9 +2315,10 @@ function ModeStep({
   )
 }
 
-// Opt-in advanced configuration for the mode step. The novice critical path no
-// longer gates on MCP servers / skill packs / knowledge (see creationStepFlows),
-// but power users keep one-place in-wizard access here without seeing the jargon
+// Opt-in advanced configuration on the wizard's final step (never the 'mode'
+// pivot — see showAdvancedSetup). The novice critical path no longer gates on
+// MCP servers / skill packs / knowledge (see creationStepFlows), but power users
+// keep one-place in-wizard access here without seeing the jargon
 // unless they ask for it. Collapsed by default; a selection count surfaces when
 // the user has chosen anything so a returning expander isn't a surprise. Each
 // section reuses the same component the standalone steps used, so behavior and
