@@ -32,9 +32,24 @@ export type MainModuleLoadReport = {
   sidecars: ReadonlyArray<SidecarSpec>
 }
 
+export type MainModuleLiveUpdateReport = {
+  loaded: string[]
+  disabled: string[]
+  errors: MainModuleLoadError[]
+}
+
+export type MainModuleLiveUpdateOptions = {
+  /** Modules whose tracked main-process registrations can be changed without restart. */
+  liveModuleIds: readonly string[]
+}
+
 export type LoadMainModulesResult = {
   report: MainModuleLoadReport
   kernel: MainKernel
+  applyEnablement(
+    overrides: ModuleEnablementOverrides,
+    options: MainModuleLiveUpdateOptions
+  ): Promise<MainModuleLiveUpdateReport>
 }
 
 // Resolve enablement, then register each enabled module through the kernel in
@@ -87,17 +102,21 @@ export function loadMainModules(options: {
       message: error.message,
     }))
   )
+  const activeMainModules = new Set<string>()
+  const activeManifestOnlyModules = new Set<string>()
 
   for (const id of resolution.order) {
     const module = byId.get(id)
     if (!module) continue
     if (!module.registerMain) {
       manifestOnly.push(id)
+      activeManifestOnlyModules.add(id)
       continue
     }
     try {
       module.registerMain(kernel.hostFor(id))
       loaded.push(id)
+      activeMainModules.add(id)
     } catch (err) {
       errors.push({ id, message: err instanceof Error ? err.message : String(err) })
     }
@@ -121,5 +140,58 @@ export function loadMainModules(options: {
   return {
     report: { loaded, manifestOnly, disabled: resolution.disabled, errors, sidecars: kernel.sidecars() },
     kernel,
+    async applyEnablement(
+      nextOverrides: ModuleEnablementOverrides,
+      liveOptions: MainModuleLiveUpdateOptions
+    ): Promise<MainModuleLiveUpdateReport> {
+      const liveModuleIds = new Set(liveOptions.liveModuleIds)
+      const liveErrors: MainModuleLoadError[] = []
+      const nextResolution = resolveModuleEnablement(
+        modules.map((module) => module.manifest),
+        nextOverrides,
+        { ineligible }
+      )
+      const nextEnabled = new Set(nextResolution.order)
+
+      for (const error of nextResolution.errors) {
+        if (liveModuleIds.has(error.id)) liveErrors.push({ id: error.id, message: error.message })
+      }
+
+      const currentLiveOrder = modules.map((module) => module.manifest.id).filter((id) => liveModuleIds.has(id))
+      for (const id of [...currentLiveOrder].reverse()) {
+        if (!activeMainModules.has(id) || nextEnabled.has(id)) continue
+        await kernel.unregisterModule(id)
+        activeMainModules.delete(id)
+      }
+      for (const id of [...activeManifestOnlyModules]) {
+        if (!liveModuleIds.has(id) || nextEnabled.has(id)) continue
+        activeManifestOnlyModules.delete(id)
+      }
+
+      for (const id of nextResolution.order) {
+        if (!liveModuleIds.has(id) || activeMainModules.has(id) || activeManifestOnlyModules.has(id)) continue
+        const module = byId.get(id)
+        if (!module) continue
+        if (!module.registerMain) {
+          activeManifestOnlyModules.add(id)
+          continue
+        }
+        try {
+          module.registerMain(kernel.hostFor(id))
+          activeMainModules.add(id)
+          if (kernel.isStarted()) await kernel.runStartupForModule(id)
+        } catch (err) {
+          await kernel.unregisterModule(id)
+          activeMainModules.delete(id)
+          liveErrors.push({ id, message: err instanceof Error ? err.message : String(err) })
+        }
+      }
+
+      return {
+        loaded: [...activeMainModules].filter((id) => liveModuleIds.has(id)).sort(),
+        disabled: [...liveModuleIds].filter((id) => !nextEnabled.has(id)).sort(),
+        errors: liveErrors,
+      }
+    },
   }
 }

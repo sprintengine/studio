@@ -87,6 +87,30 @@ export function MultiloopWorkspaceTypeIcon({ className }: IconProps) {
   )
 }
 
+// Automations identity glyph: a schedule dial (the schedule trigger) wrapped
+// around a lightning bolt (the fired action) — "on a schedule, do work". Reads
+// at 16px in the sidebar and stays distinct from Multiloop's concentric cycle.
+export function AutomationsWorkspaceTypeIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M19.5 12a7.5 7.5 0 1 1-3.4-6.28"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+      />
+      <path
+        d="M12.6 7.3 9 12.4h2.7l-.7 4 3.6-5.1h-2.7l.7-4z"
+        stroke="currentColor"
+        strokeWidth={iconStroke - 0.2}
+        strokeLinejoin="round"
+        fill="currentColor"
+        fillOpacity="0.18"
+      />
+    </svg>
+  )
+}
+
 // The Guided Brief identity glyph is the brief/conversation speech-bubble that
 // the new-workspace mode card has always shown. Kept here as the single
 // registry-owned icon so the mode picker and the top bar render the same mark.

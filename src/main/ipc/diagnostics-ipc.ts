@@ -12,6 +12,7 @@ import { collectProcessMetrics, type RawProcessMetric } from '../process-metrics
 import { sampleSystemMemory, SYSTEM_MEMORY_SAMPLE_THROTTLE_MS } from '../system-memory'
 import { sampleThreadCounts, THREAD_SAMPLE_THROTTLE_MS } from '../thread-counts'
 import { listTerminalRoots } from '../terminal-runtime'
+import { listRecentReapEvents } from '../terminal-reap-log'
 import { sampleWorkspaceMemory, WORKSPACE_MEMORY_SAMPLE_THROTTLE_MS } from '../workspace-memory'
 
 // Thread counts come from the OS (getAppMetrics has none), which on macOS means a
@@ -149,7 +150,13 @@ export function registerDiagnosticsIpc(
     maybeRefreshChildProcessMetrics(electronPids)
     maybeRefreshSystemMemory()
     maybeRefreshWorkspaceMemory()
-    return { ...snapshot, systemMemory: systemMemoryCache, workspaceMemory: workspaceMemoryCache }
+    const reapEvents = listRecentReapEvents()
+    return {
+      ...snapshot,
+      systemMemory: systemMemoryCache,
+      workspaceMemory: workspaceMemoryCache,
+      ...(reapEvents.length > 0 ? { reapEvents } : {}),
+    }
   })
 
   ipcMain.handle('diagnostics:open-window', () => {

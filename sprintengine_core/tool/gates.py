@@ -113,14 +113,35 @@ def gate_phase_order() -> List[str]:
     return ["review", "testing", "product"]
 
 def reset_required_gates_for_rework(task: Dict[str, Any]) -> None:
-    for gate in task_quality_gates(task):
-        if gate.get("required") is False or gate.get("status") == "skipped":
-            continue
-        gate["status"] = "pending"
-        for attempt in gate_attempts(gate):
-            if isinstance(attempt, dict) and attempt.get("status") == "in_progress":
-                attempt["status"] = "superseded"
-                attempt["completedAt"] = now_iso()
+    """Re-open the right gates on a rework publish.
+
+    When a gate carries a ``changes_requested``/``blocked`` verdict, only those
+    gates re-open: the reviewers who asked for changes re-review, while reviewers
+    who already approved are done and are not re-run. That is what keeps a single
+    change request from cascading into a full re-review of every gate. Gates still
+    ``pending`` stay claimable, and gates ``in_progress`` keep running — an
+    in-flight review is never cancelled mid-flight; it finishes and records its
+    own verdict against the new code.
+
+    Fallback: a rework publish with no gate-scoped verdict (e.g. a task-level
+    ``task.request_changes`` reopened the task while every gate was already
+    approved) is not tied to one reviewer's concern, so every approved gate
+    re-opens. Without this, such a task would route straight to ``done`` with the
+    rework unreviewed. In-flight gates are still left running.
+    """
+    required = [
+        gate
+        for gate in task_quality_gates(task)
+        if gate.get("required") is not False and gate.get("status") != "skipped"
+    ]
+    reworked = [gate for gate in required if gate.get("status") in {"changes_requested", "blocked"}]
+    if reworked:
+        for gate in reworked:
+            gate["status"] = "pending"
+        return
+    for gate in required:
+        if gate.get("status") == "approved":
+            gate["status"] = "pending"
 
 def task_has_prior_required_rework_verdict(task: Dict[str, Any]) -> bool:
     for gate in task_quality_gates(task):

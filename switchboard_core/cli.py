@@ -205,7 +205,7 @@ def cmd_import_task(args: argparse.Namespace) -> int:
         {
             **mutation_payload(action="import", previous=None, record=record_for_output(located)),
             "status": status,
-            "created": True,
+            "created": status == "created",
             "skipped": False,
         }
     )

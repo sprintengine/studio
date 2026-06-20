@@ -5,6 +5,7 @@ import { appMenuApi } from './api/app-menu'
 import { appearanceApi } from './api/appearance'
 import { authApi } from './api/auth'
 import { automationApi } from './api/automation'
+import { automationsApi } from './api/automations'
 import { backlogApi } from './api/backlog'
 import { builtinSkillsApi } from './api/builtinSkills'
 import { cliRuntimeApi } from './api/cli-runtime'
@@ -43,6 +44,7 @@ const api = {
   ...appearanceApi,
   ...authApi,
   ...automationApi,
+  ...automationsApi,
   ...backlogApi,
   ...builtinSkillsApi,
   ...clipboardApi,

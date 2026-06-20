@@ -45,6 +45,9 @@ electron.vite.config.*.mjs
 # Switchboard runtime state
 .multi-code/switchboard/
 
+# Automations runtime state
+.multi-code/automations/
+
 # Sprint Engine runtime state
 .multi-code/sprintengine/*
 !.multi-code/sprintengine/README.md

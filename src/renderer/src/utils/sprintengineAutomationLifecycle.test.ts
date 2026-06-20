@@ -70,6 +70,46 @@ assert.equal(complete.runtimeState, 'complete')
 assert.equal(complete.reason, 'all_tasks_done')
 assert.equal(sprintEngineAutomationShouldRun(complete), false)
 
+// `complete` is terminal: the async agent-terminal-close events that follow a
+// finished run must not demote it back to paused/failed.
+const completeThenTerminalClosed = transitionSprintEngineAutomation(
+  complete,
+  { type: 'runner_paused', reason: 'terminal_closed', message: 'An agent terminal was closed.', agentId: 'frontend' },
+  600,
+)
+assert.equal(completeThenTerminalClosed.runtimeState, 'complete')
+assert.equal(completeThenTerminalClosed.reason, 'all_tasks_done')
+assert.equal(completeThenTerminalClosed.changedAt, 500)
+assert.equal(sprintEngineAutomationShouldRun(completeThenTerminalClosed), false)
+
+const completeThenFailed = transitionSprintEngineAutomation(
+  complete,
+  { type: 'runner_failed', reason: 'spawn_failed', message: 'late spawn failure', agentId: 'backend' },
+  610,
+)
+assert.equal(completeThenFailed.runtimeState, 'complete')
+
+// Lifecycle-neutral pending-spawn bookkeeping still passes through `complete`
+// without moving the runtime state.
+const completeThenPendingSpawns = transitionSprintEngineAutomation(
+  complete,
+  { type: 'pending_spawns_changed', pendingSpawns: [{ taskId: 'T9', agentId: 'frontend' }] },
+  615,
+)
+assert.equal(completeThenPendingSpawns.runtimeState, 'complete')
+assert.deepEqual(completeThenPendingSpawns.pendingSpawns, [{ taskId: 'T9', agentId: 'frontend' }])
+
+// Re-selecting an automation mode is the explicit escape hatch out of complete.
+const completeThenResumed = transitionSprintEngineAutomation(
+  complete,
+  { type: 'user_set_mode', mode: 'run_agents' },
+  620,
+)
+assert.equal(completeThenResumed.runtimeState, 'running')
+assert.equal(completeThenResumed.desiredMode, 'run_agents')
+assert.equal(completeThenResumed.reason, undefined)
+assert.equal(sprintEngineAutomationShouldRun(completeThenResumed), true)
+
 const manual = transitionSprintEngineAutomation(
   { ...resumed, pendingSpawns: [{ taskId: 'T1', agentId: 'frontend' }] },
   { type: 'user_set_mode', mode: 'manual' },

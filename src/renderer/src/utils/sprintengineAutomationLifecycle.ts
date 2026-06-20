@@ -120,6 +120,22 @@ export function transitionSprintEngineAutomation(
     runtimeState,
   }
 
+  // `complete` is a terminal runtime state. When every task is done the run's
+  // agent terminals are torn down (see `closeSprintEngineRunAgentTerminals`),
+  // and those terminal-close events arrive asynchronously — after the
+  // completion transition — as `runner_paused{ reason: terminal_closed }`.
+  // Without this guard they would demote a finished run back to `paused` (the
+  // "An agent terminal was closed" pill seen on a 26/26 run). Only explicit
+  // user intent (re-selecting an automation mode) leaves `complete`;
+  // lifecycle-neutral pending-spawn bookkeeping still passes through.
+  if (
+    runtimeState === 'complete' &&
+    event.type !== 'user_set_mode' &&
+    event.type !== 'pending_spawns_changed'
+  ) {
+    return base
+  }
+
   const clearReason = {
     reason: undefined,
     reasonMessage: undefined,

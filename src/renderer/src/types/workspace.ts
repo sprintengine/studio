@@ -1156,6 +1156,18 @@ export type CliRuntimeSettings = {
   models?: string[]
 }
 
+// Whether an agent CLI's binary is actually installed/runnable on this machine,
+// distinct from whether its plugin manifest is registered. Mirrors the shared
+// electron-api type. Keyed by plugin id in AgentCliAvailabilityMap.
+export type CliAvailability = {
+  cli: AgentCli
+  installed: boolean
+  resolvedPath: string | null
+  version: string | null
+}
+
+export type AgentCliAvailabilityMap = Record<AgentCli, CliAvailability>
+
 export type McpClientTarget = AgentCli
 export type McpTransport = 'stdio' | 'http' | 'sse'
 export type McpScope = 'workspace' | 'user'
@@ -1549,6 +1561,7 @@ export type GuidedBriefRuntimeState = {
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
 export type DiagnosticSource =
   | 'auth'
+  | 'automations'
   | 'filesystem'
   | 'git'
   | 'sprintengine'

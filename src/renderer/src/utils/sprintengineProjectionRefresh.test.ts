@@ -7,6 +7,7 @@ import type {
 } from '../../../shared/electron-api'
 import type { SprintEngineAutomationEvent, SprintEngineState, Workspace } from '../types/workspace'
 import {
+  canStopPollingCompletedSprintEngineProjection,
   refreshSprintEngineWorkspaceProjection,
   type SprintEngineProjectionRefreshPorts,
 } from './sprintengineProjectionRefresh'
@@ -125,6 +126,63 @@ function portsFor(input: {
     },
     now: () => 1000,
   }
+}
+
+function completedWorkspace(runtimeState: 'paused' | 'complete'): Workspace {
+  const base = workspace()
+  return {
+    ...base,
+    sprintEngineState: {
+      ...base.sprintEngineState!,
+      tasks: [
+        { id: 'T1', title: 'Done task', role: 'developer', status: 'done' },
+      ],
+    },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState,
+      reason: runtimeState === 'paused' ? 'terminal_closed' : 'all_tasks_done',
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  } as unknown as Workspace
+}
+
+// A finished run that was demoted to `paused` (e.g. by an end-of-run terminal
+// close) must self-heal back to complete even when the projection bytes are
+// unchanged — otherwise it stays stuck because `runner_complete` only fires on
+// changed polls.
+async function testUnchangedHealsStuckCompletedRun(): Promise<void> {
+  const applied: SprintEngineState[] = []
+  const automationEvents: SprintEngineAutomationEvent[] = []
+  const tokens = new Map([['workspace-1', 'tok-1']])
+  const result = await refreshSprintEngineWorkspaceProjection({
+    workspace: completedWorkspace('paused'),
+    tokens,
+    cause: 'supervisor',
+    ports: portsFor({ token: 'tok-1', applied, automationEvents }),
+  })
+
+  assert.equal(result.status, 'unchanged')
+  assert.equal(applied.length, 0)
+  assert.deepEqual(automationEvents, [{ type: 'runner_complete', message: 'All tasks are complete.' }])
+}
+
+// An already-complete run must not re-fire the event on every unchanged poll —
+// that would churn the store and re-render on each tick.
+async function testUnchangedDoesNotRefireWhenAlreadyComplete(): Promise<void> {
+  const applied: SprintEngineState[] = []
+  const automationEvents: SprintEngineAutomationEvent[] = []
+  const tokens = new Map([['workspace-1', 'tok-1']])
+  const result = await refreshSprintEngineWorkspaceProjection({
+    workspace: completedWorkspace('complete'),
+    tokens,
+    cause: 'supervisor',
+    ports: portsFor({ token: 'tok-1', applied, automationEvents }),
+  })
+
+  assert.equal(result.status, 'unchanged')
+  assert.equal(automationEvents.length, 0)
 }
 
 async function testChangedRefresh(): Promise<void> {
@@ -371,6 +429,55 @@ async function testBacklogRefreshFailureWarnsAndLeavesItemUnchanged(): Promise<v
   assert.equal(backlogMutations.length, 0)
 }
 
+function testCanStopPollingCompletedProjection(): void {
+  const state = completedWorkspace('complete').sprintEngineState!
+  // Terminal + hydrated → safe to stop polling.
+  assert.equal(
+    canStopPollingCompletedSprintEngineProjection({
+      sprintEngineAutoState: { runtimeState: 'complete' },
+      sprintEngineState: state,
+    }),
+    true,
+  )
+  // Complete but not yet hydrated (cold run after restart) → keep polling so the
+  // first read can populate the board/run summary.
+  assert.equal(
+    canStopPollingCompletedSprintEngineProjection({
+      sprintEngineAutoState: { runtimeState: 'complete' },
+      sprintEngineState: null,
+    }),
+    false,
+  )
+  // Finished but still stuck in `paused` → keep polling so the self-heal can
+  // promote it to `complete` first.
+  assert.equal(
+    canStopPollingCompletedSprintEngineProjection({
+      sprintEngineAutoState: { runtimeState: 'paused' },
+      sprintEngineState: state,
+    }),
+    false,
+  )
+  // Active run → keep polling.
+  assert.equal(
+    canStopPollingCompletedSprintEngineProjection({
+      sprintEngineAutoState: { runtimeState: 'running' },
+      sprintEngineState: state,
+    }),
+    false,
+  )
+  // No automation lifecycle yet → keep polling.
+  assert.equal(
+    canStopPollingCompletedSprintEngineProjection({
+      sprintEngineAutoState: null,
+      sprintEngineState: state,
+    }),
+    false,
+  )
+}
+
+testCanStopPollingCompletedProjection()
+await testUnchangedHealsStuckCompletedRun()
+await testUnchangedDoesNotRefireWhenAlreadyComplete()
 await testChangedRefresh()
 await testColdStateRefreshWithContext()
 await testUnchangedDedupe()

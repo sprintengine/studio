@@ -110,6 +110,10 @@ DEFAULT_RUNNER_POLICY = {
     "idleBackoffSeconds": 30,
     "maxBackoffSeconds": 120,
     "stopWhenComplete": True,
+    # When a worktree-mode run completes, commit any still-uncommitted task-scoped
+    # changes and open a pull request for the run branch. Disable to leave the
+    # branch un-PR'd for manual handling.
+    "openPullRequestOnComplete": True,
 }
 GATE_PHASES = {"review", "testing", "product"}
 GATE_STATUSES = {"pending", "in_progress", "approved", "changes_requested", "blocked", "skipped", "released", "superseded"}
@@ -238,6 +242,9 @@ def normalize_runner_policy(raw: Any) -> dict[str, Any]:
         "idleBackoffSeconds": _positive_int(policy.get("idleBackoffSeconds"), int(DEFAULT_RUNNER_POLICY["idleBackoffSeconds"])),
         "maxBackoffSeconds": _positive_int(policy.get("maxBackoffSeconds"), int(DEFAULT_RUNNER_POLICY["maxBackoffSeconds"])),
         "stopWhenComplete": _bool_value(policy.get("stopWhenComplete"), bool(DEFAULT_RUNNER_POLICY["stopWhenComplete"])),
+        "openPullRequestOnComplete": _bool_value(
+            policy.get("openPullRequestOnComplete"), bool(DEFAULT_RUNNER_POLICY["openPullRequestOnComplete"])
+        ),
     }
 
 
