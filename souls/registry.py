@@ -82,10 +82,15 @@ def soul_path(role: str) -> Path:
     return soul.path
 
 
-def render_soul(role: str) -> str:
+def render_soul(role: str, *, extra_skills: tuple[str, ...] = ()) -> str:
     discovery = _default_discovery()
     try:
-        rendered = discovery.render_soul(role, workspace_root=Path.cwd(), run_id=os.environ.get("SPRINTENGINE_RUN_ID", ""))
+        rendered = discovery.render_soul(
+            role,
+            workspace_root=Path.cwd(),
+            run_id=os.environ.get("SPRINTENGINE_RUN_ID", ""),
+            extra_skills=extra_skills,
+        )
         return rendered.content.strip()
     except KeyError as exc:
         raise _unknown_soul_error(role, discovery) from exc

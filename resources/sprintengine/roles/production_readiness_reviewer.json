@@ -30,27 +30,6 @@
   "soul": [
     {
       "skill": "production_readiness_reviewer"
-    },
-    {
-      "skill": "multicode_backlog"
-    },
-    {
-      "skill": "project_relative_paths"
-    },
-    {
-      "skill": "production_reality_gate"
-    },
-    {
-      "skill": "fallback_discipline"
-    },
-    {
-      "skill": "evidence_quality_assessment"
-    },
-    {
-      "skill": "post_change_self_review"
-    },
-    {
-      "skill": "workspace_knowledge"
     }
   ]
 }

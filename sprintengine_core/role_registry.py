@@ -151,7 +151,18 @@ class RegistryDiscovery:
         *,
         workspace_root: Path | str,
         run_id: str = "",
+        extra_skills: Iterable[str] = (),
     ) -> RenderedSoul:
+        """Render a role's soul prompt.
+
+        The manifest ``soul`` list is the portable agent identity, composed
+        first. ``extra_skills`` are host-supplied layer skills (Multicode
+        product skills, Sprint Engine quality norms) appended after the soul so
+        a pack author never has to reference them. A missing manifest skill is a
+        hard render error (the soul is broken); a missing ``extra_skills`` entry
+        is a warning and is skipped, since host layers must degrade rather than
+        block a spawn.
+        """
         role = self.get_role(role_or_alias)
         warnings: list[RegistryWarning] = []
         content_parts: list[str] = []
@@ -173,6 +184,27 @@ class RegistryDiscovery:
                     skill_id=soul_entry.skill,
                 )
                 raise SoulRenderError(warning.message, (*self.warnings, warning))
+            body = entry.value.body.strip()
+            if body:
+                content_parts.append(_wrap_skill_envelope(skill_id, body))
+
+        seen_skill_ids = {normalize_role_id(soul_entry.skill) for soul_entry in role.soul}
+        for raw_skill in extra_skills:
+            skill_id = normalize_role_id(raw_skill)
+            if skill_id in seen_skill_ids:
+                continue
+            seen_skill_ids.add(skill_id)
+            entry = self.skills.get(skill_id)
+            if entry is None or not isinstance(entry.value, SkillDocument):
+                warnings.append(
+                    RegistryWarning(
+                        code="missing_layer_skill",
+                        message=f"Host layer skill {raw_skill!r} is missing or invalid; skipping.",
+                        role_id=role.id,
+                        skill_id=raw_skill,
+                    )
+                )
+                continue
             body = entry.value.body.strip()
             if body:
                 content_parts.append(_wrap_skill_envelope(skill_id, body))
