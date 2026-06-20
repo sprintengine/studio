@@ -346,9 +346,16 @@ export default function WorkspaceManager() {
   // pack. In-memory only; re-fetched when the active workspace folder changes.
   const activeWorkspaceFolderPath = activeWorkspace?.folderPath ?? null
   useEffect(() => {
+    // The registry read requires an absolute, existing workspace root, so skip
+    // the call (and clear any prior registry) when no folder-backed workspace is
+    // active — the dropdown then falls back to the bundled pack.
+    if (!activeWorkspaceFolderPath || typeof window.api.readSprintEngineRegistryRoles !== 'function') {
+      setSprintEngineRoleRegistry(null)
+      return
+    }
     let cancelled = false
     void window.api
-      .readSprintEngineRegistryRoles({ workspaceRoot: activeWorkspaceFolderPath ?? '', includeShadowed: false })
+      .readSprintEngineRegistryRoles({ workspaceRoot: activeWorkspaceFolderPath, includeShadowed: false })
       .then((result) => {
         if (cancelled) return
         setSprintEngineRoleRegistry(result.ok ? buildSprintEngineRoleRegistry(result.data) : null)

@@ -75,9 +75,11 @@ export default function SpecialistPacksTab() {
                     <div className="truncate text-[13px] font-medium text-[color:var(--text-strong)]">
                       {specialist.shortLabel}
                     </div>
-                    <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
-                      {specialist.description}
-                    </div>
+                    {specialist.description ? (
+                      <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                        {specialist.description}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ))}

@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 
 import type { SprintEngineRoleRegistry } from '../types/workspace'
-import { SPECIALIST_ACTIONS, orderSpecialistActions } from './specialistActions'
+import {
+  SPECIALIST_ACTIONS,
+  getSpecialistAction,
+  orderSpecialistActions,
+  synthesizeSpecialistAction,
+} from './specialistActions'
 import {
   BUNDLED_SPECIALIST_PACK_ID,
   discoveredSpecialistPacks,
@@ -104,6 +109,26 @@ function main(): void {
   const withoutWorkspace = resolveEnabledSpecialists(['registry:workspace'], listSpecialistPacks(reg))
   assert.ok(!withoutWorkspace.some((s) => s.id === 'marketer'))
   assert.ok(withoutWorkspace.some((s) => s.id === 'translator'))
+
+  // --- spawn resolution for discovered ids ---
+  // A bundled id resolves to its curated action; any other id is treated as a
+  // registry role id so `souls get <id>` renders its soul on spawn.
+  const bundledAction = getSpecialistAction('developer')
+  assert.equal(bundledAction.soulRole, 'developer')
+  const discoveredAction = getSpecialistAction('marketer')
+  assert.equal(discoveredAction.id, 'marketer')
+  assert.equal(discoveredAction.soulRole, 'marketer', 'discovered id spawns via souls get <id>')
+  assert.deepEqual(synthesizeSpecialistAction('translator'), {
+    id: 'translator',
+    label: 'translator',
+    shortLabel: 'translator',
+    description: '',
+    icon: 'code',
+    soulRole: 'translator',
+  })
+  // Empty input falls back to the first bundled action (never throws).
+  assert.equal(getSpecialistAction(null).id, SPECIALIST_ACTIONS[0].id)
+  assert.equal(getSpecialistAction(undefined).id, SPECIALIST_ACTIONS[0].id)
 
   console.log('specialistPacks.test.ts passed')
 }
