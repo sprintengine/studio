@@ -2,6 +2,23 @@ import type { AgentConfigAdoptionResult } from '../../types/workspace'
 import { GhostButton, PrimaryButton } from '../ui'
 import { AgentConfigAdoptionStatus } from './agentConfigAdoption'
 
+// The primary CTA always performs a REAL app action, then finishes onboarding so
+// the action's result is visible behind the dismissed overlay. Extracted as a
+// pure function so the "real action, never simulated" contract (AC1/AC2/AC3) is
+// directly testable without a DOM.
+export function runFirstRunPayoffAction(
+  hasConfiguredCli: boolean,
+  actions: {
+    onLaunchFirstAgent: () => void
+    onOpenCommandPalette: () => void
+    onDone: () => void
+  },
+): void {
+  if (hasConfiguredCli) actions.onLaunchFirstAgent()
+  else actions.onOpenCommandPalette()
+  actions.onDone()
+}
+
 // First-run activation payoff (T6). Rendered as the body + footer of the
 // first-run onboarding step, after the workspace is created. It performs a REAL
 // action, never a simulated one:
@@ -30,11 +47,8 @@ export function FirstRunPayoff({
   // its success/failure is never hidden by dismissing the overlay early.
   const adopting = adoption?.status === 'adopting'
 
-  const runPrimary = () => {
-    if (hasConfiguredCli) onLaunchFirstAgent()
-    else onOpenCommandPalette()
-    onDone()
-  }
+  const runPrimary = () =>
+    runFirstRunPayoffAction(hasConfiguredCli, { onLaunchFirstAgent, onOpenCommandPalette, onDone })
 
   return (
     <>
