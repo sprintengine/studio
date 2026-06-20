@@ -1466,7 +1466,32 @@ export type AppSettings = {
    * 'complete'. See store/onboardingState.ts.
    */
   onboardingStep: OnboardingStep
+  /**
+   * Deferred first-run config-adoption selection captured on the essentials
+   * onboarding step (Cursor-style "we found N — adopt them?"). Holds the keys of
+   * the detected MCP servers / skills the user opted into. Persisted so the
+   * choice survives a mid-onboarding reload, and consumed (cleared) when the
+   * first workspace is created and the real adoptAgentConfig IPC runs against
+   * its root. `null` means nothing selected / nothing detected. See
+   * components/onboarding/AdoptConfigCard.tsx.
+   */
+  pendingAgentConfigAdoption: PendingAgentConfigAdoption | null
 }
+
+export type PendingAgentConfigAdoption = {
+  mcpServerKeys: string[]
+  skillKeys: string[]
+}
+
+/**
+ * Live outcome of the deferred first-run config adoption, surfaced on the
+ * first-run overlay after the workspace is created. Transient app state (not
+ * persisted): set when adoption runs at workspace creation, never resumed.
+ */
+export type AgentConfigAdoptionResult =
+  | { status: 'adopting' }
+  | { status: 'adopted'; mcpServerCount: number; skillCount: number; warnings: string[] }
+  | { status: 'failed'; message: string }
 
 export type SprintEngineRunSettings = {
   keepDoneAgentTerminals?: boolean

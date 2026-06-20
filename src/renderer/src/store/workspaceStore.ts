@@ -28,8 +28,10 @@ import type {
   SprintEngineRoleModelOverrides,
   AgentCli,
   AgentCliModelSelection,
+  AgentConfigAdoptionResult,
   AgentConversationRuntime,
   AppSettings,
+  PendingAgentConfigAdoption,
   UsageTelemetrySettings,
   VoiceDictationSettings,
   CliRuntimeSettings,
@@ -226,6 +228,11 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setModulesChosen: (chosen: boolean) => void
   setOnboardingStep: (step: OnboardingStep) => void
   advanceOnboarding: () => void
+  // Transient outcome of the deferred first-run config adoption (T3), shown on
+  // the first-run overlay. Not persisted (see extractSettingsFields).
+  agentConfigAdoptionResult: AgentConfigAdoptionResult | null
+  setPendingAgentConfigAdoption: (selection: PendingAgentConfigAdoption | null) => void
+  setAgentConfigAdoptionResult: (result: AgentConfigAdoptionResult | null) => void
   setLearningShowTipsOnStartup: (enabled: boolean) => void
   markLearningTipSeen: (tipId: string) => void
   markLearningLessonCompleted: (lessonId: string, completed?: boolean) => void

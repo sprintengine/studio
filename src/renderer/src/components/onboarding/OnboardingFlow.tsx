@@ -2,11 +2,13 @@ import { useEffect, useId, useMemo, useRef } from 'react'
 
 import MulticodeWordmark from '../brand/MulticodeWordmark'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { GhostButton, PrimaryButton } from '../ui'
+import type { AgentConfigAdoptionResult } from '../../types/workspace'
+import { GhostButton, LifecycleGlyph, PrimaryButton, Spinner } from '../ui'
 import { ModuleToggleList } from '../settings/ModuleControls'
 import { CliInstallControl } from '../settings/CliInstallControl'
 import { AppThemePicker } from '../settings/AppThemePicker'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
+import { AdoptConfigCard } from './AdoptConfigCard'
 
 // First-run onboarding (Phase 9). A guided, branded sequence for a fresh install:
 //   welcome → theme → essentials → modules → workspace → first-run → complete
@@ -191,6 +193,12 @@ function EssentialsStep({ titleId, onContinue }: { titleId: string; onContinue: 
             })}
           </div>
         )}
+
+        {/* Section: adopt existing agent config (T3). Detects an existing Claude
+            Code / Codex setup and records which detected MCP servers / skills to
+            bring into the first workspace; the real adoption runs at workspace
+            creation. Self-manages its own honest empty/error/found states. */}
+        <AdoptConfigCard />
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-[color:var(--border-subtle)] px-6 py-4">
@@ -256,6 +264,7 @@ function ModulesStep({
 // payoff; until then this scaffold confirms the workspace is ready and lets the
 // user finish onboarding. Keep T6's payoff inside the body region below.
 function FirstRunStep({ titleId, onContinue }: { titleId: string; onContinue: () => void }) {
+  const adoption = useWorkspaceStore((s) => s.agentConfigAdoptionResult)
   return (
     <>
       <div className="border-b border-[color:var(--border-subtle)] px-6 py-5">
@@ -268,8 +277,12 @@ function FirstRunStep({ titleId, onContinue }: { titleId: string; onContinue: ()
       </div>
 
       {/* Slot: T6 plugs the real first-run activation payoff (first agent run /
-          command palette) into this body region. */}
-      <div className="flex-1 overflow-y-auto px-6 py-5" />
+          command palette) into this body region. T3 surfaces the deferred
+          config-adoption outcome here — the honest result of the real
+          adoptAgentConfig run against the new workspace. */}
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        <AgentConfigAdoptionStatus adoption={adoption} />
+      </div>
 
       <div className="flex justify-end border-t border-[color:var(--border-subtle)] px-6 py-4">
         <PrimaryButton size="md" onClick={onContinue}>
@@ -278,4 +291,66 @@ function FirstRunStep({ titleId, onContinue }: { titleId: string; onContinue: ()
       </div>
     </>
   )
+}
+
+// Honest read-out of the deferred config adoption (T3). Renders nothing unless an
+// adoption actually ran this session: an in-flight line while the real
+// adoptAgentConfig IPC writes, a shape-coded success summary with real counts, or
+// the real failure message. Never a fabricated success.
+function AgentConfigAdoptionStatus({ adoption }: { adoption: AgentConfigAdoptionResult | null }) {
+  if (!adoption) return null
+
+  if (adoption.status === 'adopting') {
+    return (
+      <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+        <Spinner className="icon-sm shrink-0" />
+        Bringing over your existing setup…
+      </div>
+    )
+  }
+
+  if (adoption.status === 'failed') {
+    return (
+      <div className="flex items-start gap-2">
+        <LifecycleGlyph state="failed" label="Adoption failed" live={false} className="mt-0.5 shrink-0" />
+        <div className="min-w-0">
+          <p className="text-[12px] text-[color:var(--text-default)]">Couldn’t bring over your existing setup.</p>
+          <p className="mt-0.5 text-[11px] leading-5 text-[color:var(--text-muted)]">{adoption.message}</p>
+          <p className="mt-0.5 text-[11px] leading-5 text-[color:var(--text-subtle)]">
+            You can add it later from Settings.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  const nothingAdopted = adoption.mcpServerCount === 0 && adoption.skillCount === 0
+  return (
+    <div className="flex items-start gap-2">
+      <LifecycleGlyph state="done" label="Adopted existing setup" live={false} className="mt-0.5 shrink-0" />
+      <div className="min-w-0">
+        <p className="text-[12px] text-[color:var(--text-default)]">
+          {nothingAdopted
+            ? 'Nothing to bring over from your existing setup.'
+            : `Brought over ${describeCount(adoption.mcpServerCount, 'MCP server')} and ${describeCount(
+                adoption.skillCount,
+                'skill',
+              )}.`}
+        </p>
+        {adoption.warnings.length > 0 ? (
+          <ul className="mt-1 space-y-0.5">
+            {adoption.warnings.map((warning, index) => (
+              <li key={`${index}:${warning}`} className="text-[11px] leading-5 text-[color:var(--text-muted)]">
+                {warning}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function describeCount(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`
 }

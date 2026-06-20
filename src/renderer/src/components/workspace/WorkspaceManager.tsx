@@ -217,6 +217,12 @@ export default function WorkspaceManager() {
   const voiceDictation = useVoiceDictation()
   const onboardingStep = useWorkspaceStore((s) => s.appSettings.onboardingStep)
   const setOnboardingStep = useWorkspaceStore((s) => s.setOnboardingStep)
+  // Deferred first-run config adoption (T3): the essentials step records which
+  // detected MCP servers / skills to adopt; the real adoptAgentConfig IPC runs
+  // here, once, against the newly-created workspace root.
+  const pendingAgentConfigAdoption = useWorkspaceStore((s) => s.appSettings.pendingAgentConfigAdoption)
+  const setPendingAgentConfigAdoption = useWorkspaceStore((s) => s.setPendingAgentConfigAdoption)
+  const setAgentConfigAdoptionResult = useWorkspaceStore((s) => s.setAgentConfigAdoptionResult)
   const setActiveWorkspaceForWindow = useWorkspaceStore((s) => s.setActiveWorkspaceForWindow)
   const registerWorkspaceWindow = useWorkspaceStore((s) => s.registerWorkspaceWindow)
   const updateWorkspaceWindowPlacement = useWorkspaceStore((s) => s.updateWorkspaceWindowPlacement)
@@ -1080,6 +1086,46 @@ export default function WorkspaceManager() {
     createNewChat()
   }, [createNewChat])
 
+  // Fire the deferred agent-config adoption against the just-created workspace
+  // root. Runs at most once per onboarding: the selection is consumed up front so
+  // a later create can't double-adopt, and the real adoptAgentConfig IPC's
+  // success/failure is surfaced honestly on the first-run overlay.
+  const runDeferredAgentConfigAdoption = useCallback(
+    (workspaceRoot: string | null) => {
+      if (onboardingStep === 'complete') return
+      const selection = pendingAgentConfigAdoption
+      if (!selection || (selection.mcpServerKeys.length === 0 && selection.skillKeys.length === 0)) return
+      if (!workspaceRoot || !workspaceRoot.trim()) return
+      setPendingAgentConfigAdoption(null)
+      setAgentConfigAdoptionResult({ status: 'adopting' })
+      void (async () => {
+        try {
+          const result = await window.api.adoptAgentConfig({
+            workspaceRoot,
+            mcpServerKeys: selection.mcpServerKeys,
+            skillKeys: selection.skillKeys,
+          })
+          if (result.ok) {
+            setAgentConfigAdoptionResult({
+              status: 'adopted',
+              mcpServerCount: result.adoptedMcpServers.length,
+              skillCount: result.adoptedSkills.length,
+              warnings: result.warnings,
+            })
+          } else {
+            setAgentConfigAdoptionResult({ status: 'failed', message: result.message })
+          }
+        } catch (error) {
+          setAgentConfigAdoptionResult({
+            status: 'failed',
+            message: error instanceof Error ? error.message : String(error),
+          })
+        }
+      })()
+    },
+    [onboardingStep, pendingAgentConfigAdoption, setPendingAgentConfigAdoption, setAgentConfigAdoptionResult],
+  )
+
   const handleCreate = ({
     template,
     name,
@@ -1113,7 +1159,12 @@ export default function WorkspaceManager() {
     // Creating the first workspace hands off to the first-run payoff overlay —
     // jump straight to 'first-run' (not a single advance) so it's correct
     // regardless of the current step. The payoff's CTA finishes to 'complete'.
-    if (onboardingStep !== 'complete') setOnboardingStep('first-run')
+    if (onboardingStep !== 'complete') {
+      setOnboardingStep('first-run')
+      // Now that a real workspace root exists, run any deferred config adoption
+      // the user opted into on the essentials step.
+      runDeferredAgentConfigAdoption(folderPath)
+    }
   }
 
   const deleteWorkspaceWithState = useCallback(
