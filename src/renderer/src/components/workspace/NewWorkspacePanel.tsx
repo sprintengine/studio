@@ -1642,6 +1642,16 @@ export default function NewWorkspacePanel({
     setStep(steps[stepIndex - 1])
   }
 
+  // Back-jump from the progress bar: only to an already-completed (earlier) step,
+  // and never mid-create. The step-change effect handles focus + scroll reset.
+  const jumpToStep = (index: number) => {
+    if (isCreating) return
+    if (index < 0 || index >= stepIndex) return
+    setDirection('backward')
+    setStep(steps[index])
+  }
+  const stepLabels = useMemo(() => steps.map((id) => STEP_HEADING[id].title), [steps])
+
   const handleSectionKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Enter' || event.isDefaultPrevented()) return
     const target = event.target as HTMLElement
@@ -1777,7 +1787,13 @@ export default function NewWorkspacePanel({
             New workspace
           </h2>
         </div>
-        <WizardProgress total={steps.length} active={stepIndex} currentStepLabel={stepHeading.title} />
+        <WizardProgress
+          total={steps.length}
+          active={stepIndex}
+          currentStepLabel={stepHeading.title}
+          stepLabels={stepLabels}
+          onStepSelect={jumpToStep}
+        />
         {allowClose ? (
           <CloseIconButton
             size="md"
