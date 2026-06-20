@@ -28,17 +28,17 @@ export const cliPermissionOptions: Array<{
   {
     value: 'default',
     label: 'Default permissions',
-    hint: 'Use the CLI default permission behavior. Agents will prompt before sensitive actions.',
+    hint: 'Use the agent’s default behavior. Agents ask before doing anything sensitive.',
   },
   {
     value: 'auto_workspace',
     label: 'Auto in workspace',
-    hint: 'Reduce prompts while keeping workspace-scoped guardrails where the CLI supports them.',
+    hint: 'Fewer prompts, while keeping workspace-scoped guardrails where the agent supports them.',
   },
   {
     value: 'bypass_all',
     label: 'Bypass permissions',
-    hint: 'Skip CLI permission prompts. Use only in repos and environments you trust.',
+    hint: 'Skip the agent’s permission prompts. Use only in projects and environments you trust.',
   },
 ]
 
@@ -57,11 +57,11 @@ export function CliPermissionPresetRow({
         <span className="min-w-0">
           <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Agent permissions</span>
           <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
-            How spawned agents handle CLI permission prompts.
+            How spawned agents handle permission prompts.
           </span>
         </span>
         <Select<SprintEngineCliPermissionPreset>
-          ariaLabel="CLI permission preset"
+          ariaLabel="Agent permission preset"
           items={cliPermissionOptions.map((option) => ({ value: option.value, label: option.label }))}
           value={preset}
           onChange={onChange}

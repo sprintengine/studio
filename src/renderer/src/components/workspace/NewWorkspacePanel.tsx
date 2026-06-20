@@ -120,8 +120,8 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
     subtitle: 'How will you use this workspace?',
   },
   'mcp-servers': {
-    title: 'Pick MCP servers',
-    subtitle: 'Agent tool integrations for this project. Optional — skip and add later from Settings.',
+    title: 'Pick tool integrations',
+    subtitle: 'Connect agent tools for this project. Optional — skip and add later from Settings.',
   },
   'skill-packs': {
     title: 'Pick skill packs',
@@ -2439,7 +2439,7 @@ function McpServersStep({
     <div className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
         <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Selected servers are saved to this project and synced to agent configs from Settings.
+          Selected tools are added to this project when you create it. Manage them anytime in Settings.
         </p>
         {mcpCatalog.length > 0 ? (
           <span className="shrink-0 pt-0.5 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
@@ -2448,7 +2448,7 @@ function McpServersStep({
         ) : null}
       </div>
       {mcpCatalog.length === 0 ? (
-        <p className="text-[11px] text-[color:var(--text-subtle)]">Catalog loading…</p>
+        <p className="text-[11px] text-[color:var(--text-subtle)]">Loading…</p>
       ) : (
         <ul className="grid grid-cols-1 gap-2 min-[760px]:grid-cols-2">
           {mcpCatalog.map((server) => {
@@ -2527,8 +2527,7 @@ function SkillPacksStep({
     <div className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
         <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Each selected pack runs <code className="font-mono">npx skills add</code> after creation,
-          writing into whichever harness directories already exist.
+          Each selected pack is added to this project when you create it, ready for your agents to use.
         </p>
         {skillPackCatalog.length > 0 ? (
           <span className="shrink-0 pt-0.5 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
@@ -2537,7 +2536,7 @@ function SkillPacksStep({
         ) : null}
       </div>
       {skillPackCatalog.length === 0 ? (
-        <p className="text-[11px] text-[color:var(--text-subtle)]">Catalog loading…</p>
+        <p className="text-[11px] text-[color:var(--text-subtle)]">Loading…</p>
       ) : (
         <ul className="grid grid-cols-1 gap-2 min-[760px]:grid-cols-2">
           {skillPackCatalog.map((pack) => {
@@ -3553,7 +3552,7 @@ function SprintEngineRosterStep(props: {
     <div className="flex flex-col gap-5">
       {hasExistingTeam ? (
         <p className="rounded-md border border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn-soft)] px-3 py-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
-          Loading <span className="font-semibold">{existingTeamName}</span> — roster size is read-only; CLI choices can be changed before launch.
+          Loading <span className="font-semibold">{existingTeamName}</span> — team size is read-only; the agent for each role can still be changed before launch.
         </p>
       ) : null}
 
