@@ -12,6 +12,8 @@ import type {
   AutomationsListResult,
   AutomationsProvidersResult,
   AutomationsRunEvent,
+  AutomationsRunFinalizeInput,
+  AutomationsRunFinalizeResult,
   AutomationsRunNowResult,
   AutomationsRunsListInput,
   AutomationsRunsListResult,
@@ -646,6 +648,73 @@ export type McpSyncInput = {
   requiredOnly?: boolean
   write?: boolean
 }
+
+export type AgentConfigImportSource = 'codex' | 'claude-code'
+
+export type AgentConfigDetectedMcpServer = {
+  key: string
+  id: string
+  name: string
+  source: AgentConfigImportSource
+  sourceLabel: string
+  transport: McpTransport
+  enabled: boolean
+  envVarNames: string[]
+  hasSecretValues: boolean
+}
+
+export type AgentConfigDetectedSkill = {
+  key: string
+  id: string
+  name: string
+  source: AgentConfigImportSource
+  sourceLabel: string
+  adoptable: boolean
+}
+
+export type AgentConfigDetectInput = {
+  sources?: AgentConfigImportSource[]
+}
+
+export type AgentConfigDetectResult =
+  | {
+      ok: true
+      mcpServers: AgentConfigDetectedMcpServer[]
+      skills: AgentConfigDetectedSkill[]
+      warnings: string[]
+    }
+  | { ok: false; message: string; warnings?: string[] }
+
+export type AgentConfigAdoptInput = {
+  workspaceRoot: string
+  mcpServerKeys?: string[]
+  skillKeys?: string[]
+}
+
+export type AgentConfigAdoptedMcpServer = {
+  id: string
+  clients: McpClientTarget[]
+}
+
+export type AgentConfigAdoptedSkill = {
+  id: string
+  status: 'installed' | 'updated'
+}
+
+export type AgentConfigAdoptResult =
+  | {
+      ok: true
+      adoptedMcpServers: AgentConfigAdoptedMcpServer[]
+      adoptedSkills: AgentConfigAdoptedSkill[]
+      warnings: string[]
+    }
+  | {
+      ok: false
+      message: string
+      adoptedMcpServers?: AgentConfigAdoptedMcpServer[]
+      adoptedSkills?: AgentConfigAdoptedSkill[]
+      warnings?: string[]
+    }
 
 export type SkillPackHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode' | 'agents'
 export type SkillPackSource = 'bundled' | 'custom'
@@ -1837,6 +1906,7 @@ export type ElectronApi = {
   deleteAutomation: (input: AutomationsDefinitionInput) => Promise<AutomationsDeleteResult>
   runAutomationNow: (input: AutomationsDefinitionInput) => Promise<AutomationsRunNowResult>
   listAutomationRuns: (input: AutomationsRunsListInput) => Promise<AutomationsRunsListResult>
+  finalizeAutomationRun: (input: AutomationsRunFinalizeInput) => Promise<AutomationsRunFinalizeResult>
   listAutomationProviders: () => Promise<AutomationsProvidersResult>
   onAutomationRunEvent: (cb: (event: AutomationsRunEvent) => void) => () => void
   authGetState: () => Promise<MulticodeAuthState>
@@ -2007,6 +2077,8 @@ export type ElectronApi = {
   getGitHubTokenStatus: () => Promise<GitHubTokenStatus>
   setGitHubToken: (token: string) => Promise<GitHubTokenStatus>
   clearGitHubToken: () => Promise<GitHubTokenStatus>
+  detectExistingAgentConfig: (input?: AgentConfigDetectInput) => Promise<AgentConfigDetectResult>
+  adoptAgentConfig: (input: AgentConfigAdoptInput) => Promise<AgentConfigAdoptResult>
   mcpListCatalog: () => Promise<McpCatalogResult>
   mcpPreviewSync: (input: McpSyncInput) => Promise<McpSyncPreview>
   mcpSync: (input: McpSyncInput) => Promise<McpSyncResult>
@@ -2102,7 +2174,7 @@ export type ElectronApi = {
   terminalWrite: (sessionId: string, data: string) => Promise<void>
   terminalWriteFast: (sessionId: string, data: string) => void
   terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
-  terminalStatus: (sessionId: string) => Promise<{ processAlive: boolean }>
+  terminalStatus: (sessionId: string) => Promise<{ processAlive: boolean; suspended: boolean }>
   terminalList: () => Promise<TerminalSessionSnapshot[]>
   terminalSetVisible: (sessionId: string, visible: boolean) => Promise<void>
   // Freeze-the-view: suspend kills the agent process but keeps the painted,

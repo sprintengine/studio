@@ -8,6 +8,8 @@ import type {
   AutomationsListResult,
   AutomationsProvidersResult,
   AutomationsRunEvent,
+  AutomationsRunFinalizeInput,
+  AutomationsRunFinalizeResult,
   AutomationsRunNowResult,
   AutomationsRunsListInput,
   AutomationsRunsListResult,
@@ -22,6 +24,7 @@ import {
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
   AUTOMATIONS_RUN_EVENT_CHANNEL,
   AUTOMATIONS_RUN_NOW_CHANNEL,
+  AUTOMATIONS_RUN_FINALIZE_CHANNEL,
   AUTOMATIONS_RUNS_LIST_CHANNEL,
   AUTOMATIONS_UPDATE_CHANNEL,
 } from '../../shared/automations/contracts'
@@ -44,6 +47,7 @@ export function createAutomationsApi(renderer: AutomationsIpcRenderer): Pick<
   | 'deleteAutomation'
   | 'runAutomationNow'
   | 'listAutomationRuns'
+  | 'finalizeAutomationRun'
   | 'listAutomationProviders'
   | 'onAutomationRunEvent'
 > {
@@ -62,6 +66,8 @@ export function createAutomationsApi(renderer: AutomationsIpcRenderer): Pick<
       renderer.invoke(AUTOMATIONS_RUN_NOW_CHANNEL, input) as Promise<AutomationsRunNowResult>,
     listAutomationRuns: (input: AutomationsRunsListInput): Promise<AutomationsRunsListResult> =>
       renderer.invoke(AUTOMATIONS_RUNS_LIST_CHANNEL, input) as Promise<AutomationsRunsListResult>,
+    finalizeAutomationRun: (input: AutomationsRunFinalizeInput): Promise<AutomationsRunFinalizeResult> =>
+      renderer.invoke(AUTOMATIONS_RUN_FINALIZE_CHANNEL, input) as Promise<AutomationsRunFinalizeResult>,
     listAutomationProviders: (): Promise<AutomationsProvidersResult> =>
       renderer.invoke(AUTOMATIONS_PROVIDERS_LIST_CHANNEL) as Promise<AutomationsProvidersResult>,
     onAutomationRunEvent: (cb: (event: AutomationsRunEvent) => void): (() => void) => {

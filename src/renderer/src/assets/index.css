@@ -65,25 +65,25 @@
   --border-subtle: rgba(252, 252, 252, 0.06);
   --border-default: rgba(252, 252, 252, 0.08);
   --border-strong: rgba(252, 252, 252, 0.12);
-  --border-focus: rgba(92, 124, 252, 0.6);
+  --border-focus: rgba(63, 148, 104, 0.6);
 
   /* One product accent for active selection and primary action across the
      four target panels. Tool color is limited to header identity dots.
-     Dark + Light keep brand blue; Dark Conifer overrides to amber (see the
-     `[data-theme="conifer"]` block below). */
-  --accent-primary: #5c7cfc;
-  --accent-primary-hover: #7090fc;
-  --accent-primary-soft: rgba(92, 124, 252, 0.14);
-  --accent-primary-soft-strong: rgba(92, 124, 252, 0.22);
+     Dark + Light are the green-signature defaults; alt themes override (e.g.
+     Dark Conifer amber, Slate/Caramel/Tokyo Night blue). */
+  --accent-primary: #3f9468;
+  --accent-primary-hover: #4daf7d;
+  --accent-primary-soft: rgba(63, 148, 104, 0.14);
+  --accent-primary-soft-strong: rgba(63, 148, 104, 0.22);
 
   /* Semantic tones for StatusDot and inline status copy. */
   --tone-neutral: #9c9ca4;
-  --tone-accent: #5c7cfc;
+  --tone-accent: #3f9468;
   --tone-good: #30d058;
   --tone-warn: #fcc030;
   --tone-error: #fc787c;
   --tone-neutral-soft: rgba(156, 156, 164, 0.18);
-  --tone-accent-soft: rgba(92, 124, 252, 0.16);
+  --tone-accent-soft: rgba(63, 148, 104, 0.16);
   --tone-good-soft: rgba(48, 208, 88, 0.18);
   --tone-warn-soft: rgba(252, 192, 48, 0.18);
   --tone-error-soft: rgba(252, 120, 124, 0.18);
@@ -137,7 +137,7 @@
      canvas. Scoped to MemoryGraphCanvas per knowledge/brand/aesthetic-north-star.md.
      Dark default here; the light theme overrides it below. */
   --memory-graph-atmosphere:
-    radial-gradient(circle at 50% 45%, rgba(92, 124, 255, 0.08), transparent 48%);
+    radial-gradient(circle at 50% 45%, rgba(63, 148, 104, 0.08), transparent 48%);
 
   /* Type scale. Body is 12 px to match existing flexlayout chrome. */
   --text-size-2xs: 10.5px;
@@ -221,19 +221,19 @@
   --border-subtle: rgba(32, 36, 40, 0.10);
   --border-default: rgba(32, 36, 40, 0.20);
   --border-strong: rgba(32, 36, 40, 0.30);
-  --border-focus: rgba(56, 92, 252, 0.55);
+  --border-focus: rgba(47, 106, 74, 0.55);
 
-  --accent-primary: #385cfc;
-  --accent-primary-hover: #284cfc;
-  --accent-primary-soft: rgba(56, 92, 252, 0.10);
-  --accent-primary-soft-strong: rgba(56, 92, 252, 0.18);
+  --accent-primary: #2f6a4a;
+  --accent-primary-hover: #275842;
+  --accent-primary-soft: rgba(47, 106, 74, 0.10);
+  --accent-primary-soft-strong: rgba(47, 106, 74, 0.18);
 
   /* Solid status tones overridden for light: the dark-theme hexes (#30d058,
      #fcc030, #fc787c) are luminous-on-dark and wash out on white — the git
      count badge rendered white-on-bright-amber at ~1.6:1. These darker tones
      read as status dots on light and carry white badge text (≥4:1). */
   --tone-neutral: #6b7280;
-  --tone-accent: #385cfc;
+  --tone-accent: #2f6a4a;
   /* #1a8f43 gave white-on-good and good-on-white both 4.16:1 — under AA (4.5)
      for the white-text git/status count badges. #157f37 clears it at 5.09:1
      both directions while staying recognisably emerald. */
@@ -245,7 +245,7 @@
   --tone-error-ink: #ffffff;
 
   --tone-neutral-soft: rgba(100, 108, 120, 0.14);
-  --tone-accent-soft: rgba(56, 92, 252, 0.14);
+  --tone-accent-soft: rgba(47, 106, 74, 0.14);
   --tone-good-soft: rgba(21, 127, 55, 0.20);
   --tone-warn-soft: rgba(204, 132, 0, 0.20);
   --tone-error-soft: rgba(220, 40, 40, 0.16);
@@ -265,7 +265,7 @@
   /* Light atmosphere: a barely-there cool tint on the near-white canvas so the
      graph still has depth without a blue vignette reading as a colour cast. */
   --memory-graph-atmosphere:
-    radial-gradient(circle at 50% 45%, rgba(56, 92, 252, 0.045), transparent 52%);
+    radial-gradient(circle at 50% 45%, rgba(47, 106, 74, 0.045), transparent 52%);
 
   /* Darken file-type badge labels toward ink so language hues clear AA on the
      near-white chip surface instead of washing out. */

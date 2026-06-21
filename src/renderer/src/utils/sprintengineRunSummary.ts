@@ -238,7 +238,7 @@ function buildFeedbackFindingSummary(tasks: SprintEngineTask[]): string[] {
     feedbackFindingAreaLabels
   )
   const details = findings.map(({ task, finding }) =>
-    `${task.id}: ${feedbackFindingSeverityLabels[finding.severity]} ${feedbackFindingKindLabels[finding.kind]} in ${feedbackFindingAreaLabels[finding.area]} - ${finding.title}`
+    `${task.id}: ${feedbackFindingSeverityLabels[finding.severity]} ${feedbackFindingKindLabels[finding.kind]} in ${feedbackFindingAreaLabels[finding.area]} - ${feedbackFindingTitle(finding)}`
   )
 
   return [
@@ -296,6 +296,7 @@ const agentRoleOrder: SprintEngineRoleId[] = [
 ]
 
 export type SprintEngineRunFinding = {
+  id: string
   taskId: string
   severity: SprintEngineTaskFeedbackFindingSeverity
   kind: SprintEngineTaskFeedbackFinding['kind']
@@ -454,6 +455,10 @@ function taskImplementerAgentId(task: SprintEngineTask): string | null {
   return task.lastImplementedByAgentId ?? task.ownerAgentId ?? null
 }
 
+function feedbackFindingTitle(finding: SprintEngineTaskFeedbackFinding): string {
+  return finding.title?.trim() || feedbackFindingKindLabels[finding.kind]
+}
+
 function collectRunFindings(tasks: SprintEngineTask[]): SprintEngineRunFinding[] {
   const findings: SprintEngineRunFinding[] = []
   const push = (
@@ -462,12 +467,13 @@ function collectRunFindings(tasks: SprintEngineTask[]): SprintEngineRunFinding[]
     fromReview: boolean
   ) => {
     findings.push({
+      id: finding.id,
       taskId: task.id,
       severity: finding.severity,
       kind: finding.kind,
       area: finding.area,
-      title: finding.title,
-      detail: finding.detail,
+      title: feedbackFindingTitle(finding),
+      detail: finding.detail ?? '',
       recommendation: finding.recommendation,
       file: finding.file,
       status: finding.status,

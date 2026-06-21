@@ -34,12 +34,17 @@ export function ExtensionsSettingsTab({
   moduleOverrides,
   workspaceRoot,
   onUpsertMcpServer,
+  initialSubTab = 'installed',
 }: {
   mcpServers: McpServerConfig[]
   mcpSettings: McpSettings
   moduleOverrides: ModuleEnablementOverrides
   workspaceRoot: string | null
   onUpsertMcpServer: (server: McpServerConfig) => void
+  // Which sub-tab to open on mount. Defaults to the canonical 'installed' view;
+  // the first-run extensions teaser deep-links to 'browse' (see
+  // EXTENSIONS_BROWSE_DEEPLINK) so its CTA lands directly on the storefront.
+  initialSubTab?: ExtensionsSubTab
 }) {
   const [modules, setModules] = useState<LoadedSource<ThirdPartyModuleListResult>>({ status: 'loading' })
   const [skillPacks, setSkillPacks] = useState<LoadedSource<SkillPackEntry[]>>({ status: 'loading' })
@@ -112,8 +117,9 @@ export function ExtensionsSettingsTab({
   }, [loadSkillPacks])
 
   // Installed is the default/selected sub-tab; Browse is the read-only
-  // storefront over the first-party registry.
-  const [subTab, setSubTab] = useState<ExtensionsSubTab>('installed')
+  // storefront over the first-party registry. A deep-link (the first-run
+  // extensions teaser) can request Browse on mount.
+  const [subTab, setSubTab] = useState<ExtensionsSubTab>(initialSubTab)
 
   const view = deriveInstalledExtensions({
     mcpServers,

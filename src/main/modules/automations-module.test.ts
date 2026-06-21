@@ -359,6 +359,7 @@ async function testEnabledModuleRegistersStartupSidecarAndIpc(): Promise<void> {
       'automations:list',
       'automations:providers:list',
       'automations:run-now',
+      'automations:run:finalize',
       'automations:runs:list',
       'automations:update',
     ]
@@ -490,7 +491,12 @@ async function testLiveEnablementToggleStopsUnregistersAndRestarts(): Promise<vo
   assert.equal(engines[1].stopCount, 1)
 }
 
-async function testModuleExecutorUsesRealDirtyCheckBeforeLaunch(): Promise<void> {
+async function testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch(): Promise<void> {
+  // The dirty-tree gate was removed: agent-backed runs execute in a per-run
+  // worktree, so a non-git / dirty checkout must not block before launch. The
+  // module executor should delegate the launch (here the fake delegate refuses,
+  // so the run fails at launch — but the point is it reached the launch, proving
+  // there is no pre-launch dirty/non-git block).
   const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-non-git-'))
   const launchRequests: AutomationRendererRequest[] = []
   let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null
@@ -522,9 +528,11 @@ async function testModuleExecutorUsesRealDirtyCheckBeforeLaunch(): Promise<void>
     triggerPayload: { kind: 'schedule' },
   })
 
-  assert.equal(result.status, 'blocked')
-  assert.match(result.blockedReason ?? '', /not inside a Git repository/)
-  assert.deepEqual(launchRequests, [])
+  assert.notEqual(result.status, 'blocked', 'a non-git checkout no longer blocks before launch')
+  assert.ok(
+    launchRequests.some((request) => request.kind === 'agent.launch'),
+    'the run delegates an agent launch instead of gating on the dirty tree',
+  )
 }
 
 async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
@@ -810,7 +818,7 @@ async function main(): Promise<void> {
   await testWebhookReceiverFailureIsVisibleInSidecarStatus()
   await testDisabledModuleRegistersNoSidecarOrIpc()
   await testLiveEnablementToggleStopsUnregistersAndRestarts()
-  await testModuleExecutorUsesRealDirtyCheckBeforeLaunch()
+  await testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch()
   await testModuleRegistersFirstPartyActionProviders()
   await testThirdPartyAutomationProviderRegistrationUsesLiveRegistry()
   await testThirdPartyAutomationProviderTrustGateBlocksListingAndExecution()

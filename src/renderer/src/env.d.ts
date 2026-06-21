@@ -2,6 +2,13 @@
 
 import type {
   AgentCli as SharedAgentCli,
+  AgentConfigAdoptInput as SharedAgentConfigAdoptInput,
+  AgentConfigAdoptResult as SharedAgentConfigAdoptResult,
+  AgentConfigDetectedMcpServer as SharedAgentConfigDetectedMcpServer,
+  AgentConfigDetectedSkill as SharedAgentConfigDetectedSkill,
+  AgentConfigDetectInput as SharedAgentConfigDetectInput,
+  AgentConfigDetectResult as SharedAgentConfigDetectResult,
+  AgentConfigImportSource as SharedAgentConfigImportSource,
   AgentExecutionMode as SharedAgentExecutionMode,
   AppUpdateChannel as SharedAppUpdateChannel,
   AppUpdateCheckResult as SharedAppUpdateCheckResult,
@@ -125,6 +132,13 @@ declare global {
   type BuiltinSkillStatus = SharedBuiltinSkillStatus
   type BuiltinSkillInstallResult = SharedBuiltinSkillInstallResult
   type AgentCli = SharedAgentCli
+  type AgentConfigImportSource = SharedAgentConfigImportSource
+  type AgentConfigDetectedMcpServer = SharedAgentConfigDetectedMcpServer
+  type AgentConfigDetectedSkill = SharedAgentConfigDetectedSkill
+  type AgentConfigDetectInput = SharedAgentConfigDetectInput
+  type AgentConfigDetectResult = SharedAgentConfigDetectResult
+  type AgentConfigAdoptInput = SharedAgentConfigAdoptInput
+  type AgentConfigAdoptResult = SharedAgentConfigAdoptResult
   type AgentExecutionMode = SharedAgentExecutionMode
   type AppUpdateStatus = SharedAppUpdateStatus
   type AppUpdateChannel = SharedAppUpdateChannel

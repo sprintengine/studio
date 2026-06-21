@@ -16,7 +16,7 @@ export type WorkspaceActivityKind = 'needs-input' | 'working' | 'failed' | 'idle
 
 export type WorkspaceRunGlyphProviderInput = Pick<
   Workspace,
-  'mode' | 'sprintEngineState' | 'sprintEngineContext' | 'sprintEngineAutoState' | 'sprintEngineCompletionSeenAt'
+  'mode' | 'sprintEngineState' | 'sprintEngineContext' | 'sprintEngineAutoState'
 >
 
 function isModuleEnabledForRunGlyph(moduleId: string): boolean {

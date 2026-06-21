@@ -164,8 +164,17 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   const remapOpenFiles = useWorkspaceStore((state) => state.remapOpenFiles)
   const removeOpenFilesForPath = useWorkspaceStore((state) => state.removeOpenFilesForPath)
   const moduleOverrides = useWorkspaceStore((state) => state.appSettings.modules)
+  const setBacklogViewState = useWorkspaceStore((state) => state.setBacklogViewState)
   const dialog = useConfirmDialog()
   const now = useRelativeNow()
+
+  // Snapshot the persisted Backlog view state once at mount so the lens/sort/
+  // search restore immediately; selection is keyed by relativePath and resolved
+  // against the scan below (the scan is usually not ready at mount).
+  const initialBacklogState = useMemo(
+    () => useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.backlogState ?? null,
+    [workspaceId],
+  )
 
   // Render-count diagnostics (gated by perfDiagnosticsEnabled, no-op in prod
   // unless diagnostics are on). Feeds the existing perf-event rollup so renders/
@@ -178,9 +187,9 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   })
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
-  const [view, setView] = useState<BacklogView>('all')
-  const [sort, setSort] = useState<BacklogSort>('recent')
+  const [search, setSearch] = useState(() => initialBacklogState?.search ?? '')
+  const [view, setView] = useState<BacklogView>(() => initialBacklogState?.view ?? 'all')
+  const [sort, setSort] = useState<BacklogSort>(() => initialBacklogState?.sort ?? 'recent')
   // Single-column (narrow) mode: which face is showing.
   const [showDetailInSingle, setShowDetailInSingle] = useState(false)
   // The structured "New item" capture dialog (title, description, type, size,
@@ -203,7 +212,9 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // share one result/refresh instead of each instance scanning the identical
   // folder. `runScan` keeps the name every mutation call site uses; it now
   // refreshes the shared entry, so a mutation in any panel updates every panel
-  // on that folder. Per-workspace view state (search/sort/selection) stays local.
+  // on that folder. Per-workspace view state (search/sort/selection) is persisted
+  // per workspace (see the restore + persist effects below) so a reload/restart
+  // returns to the same item and lens.
   const { scan, loading, refresh: runScan } = useSharedBacklogScan(folderPath)
 
   // The shared store returns scan=null for a missing folder; mirror the old
@@ -320,6 +331,79 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       setPendingReveal(null)
     }
   }, [pendingReveal, items])
+
+  // Restore the persisted selection once the scan resolves the relativePath to a
+  // live item id. Mirrors the pendingReveal latch: an empty scan keeps waiting; a
+  // loaded scan without the item gives up (deleted item -> no selection). An
+  // explicit reveal always wins over a restore.
+  const [restorePending, setRestorePending] = useState<string | null>(
+    () => initialBacklogState?.selectedRelativePath ?? null,
+  )
+  useEffect(() => {
+    if (restorePending == null) return
+    if (pendingReveal != null) {
+      setRestorePending(null)
+      return
+    }
+    const wanted = restorePending.replace(/\\/g, '/').toLowerCase()
+    const item = items.find(
+      (candidate) => candidate.relativePath.replace(/\\/g, '/').toLowerCase() === wanted,
+    )
+    if (item) {
+      setSelectedId(item.id)
+      setRestorePending(null)
+    } else if (items.length > 0) {
+      setRestorePending(null)
+    }
+  }, [restorePending, pendingReveal, items])
+
+  // Persist selection + lens + sort + search so a reload/restart restores them.
+  // Debounced (search changes per keystroke; every store write re-serializes the
+  // workspace registry) and gated on restorePending so we never overwrite the
+  // persisted selection before it has been restored. The unmount effect flushes
+  // the latest when the panel/workspace is closed; the debounce timer covers a
+  // Cmd-R reload (and still fires on a layer switch, which does not unmount).
+  const backlogPersistRef = useRef({
+    selectedRelativePath: null as string | null,
+    view,
+    sort,
+    search,
+    restorePending,
+  })
+  backlogPersistRef.current = {
+    selectedRelativePath: selected?.relativePath ?? null,
+    view,
+    sort,
+    search,
+    restorePending,
+  }
+  const persistBacklogViewState = useCallback(() => {
+    const snapshot = backlogPersistRef.current
+    if (snapshot.restorePending != null) return
+    // Don't create a default record just by opening the panel for an untouched
+    // workspace; only persist once there is something non-default to remember (or
+    // a record already exists).
+    const isDefault =
+      !snapshot.selectedRelativePath && snapshot.view === 'all' && snapshot.sort === 'recent' && snapshot.search === ''
+    const hasRecord = Boolean(
+      useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.backlogState,
+    )
+    if (isDefault && !hasRecord) return
+    setBacklogViewState(workspaceId, {
+      selectedRelativePath: snapshot.selectedRelativePath,
+      view: snapshot.view,
+      sort: snapshot.sort,
+      search: snapshot.search,
+    })
+  }, [workspaceId, setBacklogViewState])
+  useEffect(() => {
+    if (restorePending != null) return
+    const handle = window.setTimeout(persistBacklogViewState, 300)
+    return () => window.clearTimeout(handle)
+  }, [restorePending, selectedId, view, sort, search, persistBacklogViewState])
+  useEffect(() => {
+    return () => persistBacklogViewState()
+  }, [persistBacklogViewState])
 
   const selectAt = useCallback(
     (index: number) => {

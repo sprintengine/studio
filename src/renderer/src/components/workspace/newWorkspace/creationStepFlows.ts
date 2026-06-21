@@ -54,3 +54,15 @@ export function stepsForMode(mode: CreationMode): StepId[] {
   const stepsId = getRendererHost().getWorkspaceType(mode)?.creationStepsId
   return STEPS_BY_MODE[isCreationStepsId(stepsId) ? stepsId : 'standard']
 }
+
+// Whether the optional "Advanced setup" disclosure (MCP servers / skill packs /
+// knowledge) should ride the given step. It rides the flow's final step, but
+// never the 'mode' pivot: the zero-config quick flows (switchboard, automations)
+// end at 'mode', and hanging developer config under the mode-selection cards
+// puts it on a decision screen. Those flows defer the config to Settings, so the
+// disclosure simply does not appear in-wizard for them.
+export function isAdvancedSetupStep(steps: StepId[], step: StepId): boolean {
+  if (steps.length === 0) return false
+  if (step === 'mode') return false
+  return steps[steps.length - 1] === step
+}

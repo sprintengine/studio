@@ -1,3 +1,5 @@
+import type { SprintEngineCliPermissionPreset } from './electron-api'
+
 // Multicode app-automation surface: shared contracts between the main-process
 // MCP server, the preload bridge, and the renderer delegate.
 //
@@ -34,6 +36,14 @@ export type AutomationRendererRequest =
       cli?: string
       name?: string
       prompt?: string
+      /** Model id passed at launch when the CLI plugin declares modelSelection. */
+      cliModel?: string
+      /** CLI permission preset (default / auto_workspace / bypass_all). */
+      permissionPreset?: SprintEngineCliPermissionPreset
+      /** When set, the agent launches as a specialist rather than a general agent. */
+      specialistId?: string
+      /** Git worktree the agent should run in, instead of the workspace checkout. */
+      worktreePath?: string
     }
 
 export type AutomationRendererResponse =
