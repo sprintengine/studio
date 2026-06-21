@@ -55,7 +55,8 @@ function textResponse(value: string, init: ResponseInit = {}): Response {
 }
 
 function bytesResponse(value: Uint8Array, init: ResponseInit = {}): Response {
-  return new Response(value, { status: 200, ...init })
+  const body = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) as ArrayBuffer
+  return new Response(body, { status: 200, ...init })
 }
 
 function mcpComponentSource(): string {

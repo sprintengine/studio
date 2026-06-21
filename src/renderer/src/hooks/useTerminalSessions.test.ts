@@ -299,7 +299,8 @@ async function assertSharedStoreUsesOneUnderlyingSubscription(): Promise<void> {
 }
 
 async function assertSharedStoreDedupsSemanticUpdatesButKeepsLive(): Promise<void> {
-  let ipcListener: ((sessions: TerminalSessionSnapshot[]) => void) | null = null
+  let ipcListener: ((sessions: TerminalSessionSnapshot[]) => void) | null =
+    null as ((sessions: TerminalSessionSnapshot[]) => void) | null
   const store = createTerminalSessionsStore(() => ({
     terminalList: async () => [
       session({ sessionId: 'session_a', activity: { kind: 'idle', since: 1 }, lastOutputAt: 100 }),
@@ -351,7 +352,8 @@ async function assertSharedStoreDedupsSemanticUpdatesButKeepsLive(): Promise<voi
 }
 
 async function assertSharedStoreHandlesDuplicateSubscriberCallbacks(): Promise<void> {
-  let ipcListener: ((sessions: TerminalSessionSnapshot[]) => void) | null = null
+  let ipcListener: ((sessions: TerminalSessionSnapshot[]) => void) | null =
+    null as ((sessions: TerminalSessionSnapshot[]) => void) | null
   let unsubscribeCalls = 0
   const store = createTerminalSessionsStore(() => ({
     terminalList: async () => [],
@@ -409,7 +411,11 @@ async function assertSharedStoreIgnoresDisconnectedInitialRefresh(): Promise<voi
   const unsubscribeSecond = store.subscribeLiveSnapshot((sessions) => {
     liveSnapshots.push(sessions)
   })
-  assert.deepEqual(liveSnapshots, [], 'new subscriber must not receive stale disconnected snapshot')
+  assert.deepEqual(
+    liveSnapshots,
+    [] as TerminalSessionSnapshot[][],
+    'new subscriber must not receive stale disconnected snapshot',
+  )
 
   pendingTerminalLists[2]?.([session({ sessionId: 'session_fresh_after_reconnect' })])
   await flushPromises()
@@ -548,6 +554,7 @@ function session(
     workspaceId: input.workspaceId ?? 'workspace_1',
     agentId: input.agentId ?? 'developer-1',
     visible: input.visible ?? true,
+    suspended: input.suspended ?? false,
     startedAt: input.startedAt ?? 0,
     lastOutputAt: input.lastOutputAt ?? null,
     lastInputAt: input.lastInputAt ?? null,

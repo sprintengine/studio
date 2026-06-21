@@ -54,6 +54,7 @@ function terminalSession(input: Partial<TerminalSessionSnapshot> & { sessionId: 
     worktreePath: input.worktreePath,
     agentSession: input.agentSession,
     visible: input.visible ?? true,
+    suspended: input.suspended ?? false,
     startedAt: input.startedAt ?? 1,
     lastOutputAt: input.lastOutputAt ?? null,
     lastInputAt: input.lastInputAt ?? null,

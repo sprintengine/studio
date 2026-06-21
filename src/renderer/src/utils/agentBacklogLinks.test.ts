@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import type { BacklogItem, BacklogItemLink } from './backlog'
+import type { BacklogItem } from './backlog'
 import {
   AGENT_TERMINAL_TARGET_KIND,
   agentLinkForItem,

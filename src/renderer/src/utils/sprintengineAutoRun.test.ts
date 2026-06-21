@@ -39,6 +39,8 @@ import {
   sprintEngineRespawnLedgerKey,
   type AutoRunCandidate,
   type RoleContinuationGrace,
+  type SprintEngineDispatchAttempt,
+  type SprintEngineDispatchPath,
 } from './sprintengineAutoRun'
 import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode } from './agentPrompt'
 import { deriveSprintEngineAutomationMode } from './sprintengineAutomation'
@@ -2170,13 +2172,13 @@ function testActiveAssignmentRescueStopsAfterTwoPromptsWithDiagnostic(): void {
     now,
     runningAgentIds: new Set(['developer-1']),
     idleAgentIds: new Set<string>(),
-    dispatchLedger: new Map<string, { sentAt: number }>(),
-    paths: new Set(['active_assignment']),
+    dispatchLedger: new Map<string, SprintEngineDispatchAttempt>(),
+    paths: new Set<SprintEngineDispatchPath>(['active_assignment']),
   }
 
   const secondPrompt = planSprintEngineDispatch({
     ...commonInput,
-    continuationLedger: new Map([[key, { sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000, attempts: 1 }]]),
+    continuationLedger: new Map<string, SprintEngineDispatchAttempt>([[key, { sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000, attempts: 1 }]]),
   })
   assert.equal(secondPrompt.pastes.length, 1, 'the second continuation prompt is allowed after another inactive hour')
   assert.equal(secondPrompt.pastes[0].prompt, 'Continue.')
@@ -2184,7 +2186,7 @@ function testActiveAssignmentRescueStopsAfterTwoPromptsWithDiagnostic(): void {
 
   const exhausted = planSprintEngineDispatch({
     ...commonInput,
-    continuationLedger: new Map([[key, { sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000, attempts: AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS }]]),
+    continuationLedger: new Map<string, SprintEngineDispatchAttempt>([[key, { sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000, attempts: AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS }]]),
   })
   assert.equal(exhausted.pastes.length, 0, 'the prompt cap suppresses further continuation pastes')
   assert.equal(exhausted.diagnostics.length, 1, 'exhausting rescue budget surfaces operator attention')
@@ -2193,7 +2195,7 @@ function testActiveAssignmentRescueStopsAfterTwoPromptsWithDiagnostic(): void {
 
   const alreadyReported = planSprintEngineDispatch({
     ...commonInput,
-    continuationLedger: new Map([[key, {
+    continuationLedger: new Map<string, SprintEngineDispatchAttempt>([[key, {
       sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000,
       attempts: AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS,
       exhaustedAt: now - 1_000,
@@ -2233,7 +2235,7 @@ async function testActiveAssignmentExhaustionDiagnosticMarksLedger(): Promise<vo
     },
   })
   const key = sprintEngineActiveAssignmentLedgerKey(workspace, { taskId: 'T-active' }, 'developer-1')
-  const ledger = new Map([[key, {
+  const ledger = new Map<string, SprintEngineDispatchAttempt>([[key, {
     sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000,
     attempts: AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS,
   }]])
@@ -2245,7 +2247,7 @@ async function testActiveAssignmentExhaustionDiagnosticMarksLedger(): Promise<vo
     idleAgentIds: new Set(),
     continuationLedger: ledger,
     dispatchLedger: new Map(),
-    paths: new Set(['active_assignment']),
+    paths: new Set<SprintEngineDispatchPath>(['active_assignment']),
   })
 
   await supervisor.executeSprintEngineDispatchPlan(

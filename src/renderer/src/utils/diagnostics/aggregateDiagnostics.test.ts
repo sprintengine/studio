@@ -40,6 +40,7 @@ function session(overrides: Partial<TerminalSessionSnapshot> & { sessionId: stri
     worktreePath: overrides.worktreePath,
     agentSession: overrides.agentSession,
     visible: overrides.visible ?? false,
+    suspended: overrides.suspended ?? false,
     startedAt: overrides.startedAt ?? NOW,
     lastOutputAt: overrides.lastOutputAt ?? NOW,
     lastInputAt: overrides.lastInputAt ?? null,

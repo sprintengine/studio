@@ -242,7 +242,7 @@ function assertWorkspaceSnapshotFolderExtraction(): void {
         { id: 'ws-d', folderPath: '/repo/d' },
       ],
     },
-  } as WorkspaceSyncSnapshot
+  } as unknown as WorkspaceSyncSnapshot
 
   assert.deepEqual(projectFoldersFromWorkspaceSyncSnapshot(snapshot), [
     { workspaceId: 'ws-a', folderPath: '/repo/a' },
@@ -518,6 +518,15 @@ async function writeRunSignal(worktreePath: string, body: string): Promise<void>
   await writeFile(runSignalPath(worktreePath), body, 'utf8')
 }
 
+async function readRunStatus(
+  store: AutomationsStore,
+  automationId: string,
+  runId: string
+): Promise<AutomationRun['status'] | undefined> {
+  const result = await store.getRun(automationId, runId)
+  return result.ok ? result.value.status : undefined
+}
+
 async function assertSignalScanFinalizesCompletedRunSilently(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const { engine, workspaceRoot, store, events, removedWorktrees, counters, worktreePath } = await setupAgentRun(now)
@@ -568,22 +577,22 @@ async function assertMalformedOrMissingSignalLeavesRunPending(): Promise<void> {
 
   // Missing signal file: run stays pending.
   await engine.tick()
-  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'running')
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running')
   assert.equal(counters.prCalls, 0)
 
   // Malformed / unrecognized signal: still pending, never coerced.
   await writeRunSignal(worktreePath, '{ not json')
   await engine.tick()
-  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'running')
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running')
   await writeRunSignal(worktreePath, JSON.stringify({ status: 'queued' }))
   await engine.tick()
-  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'running')
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running')
   assert.equal(counters.prCalls, 0, 'no finalize on invalid signal')
 
   // A valid signal later finalizes it, proving the run was still tracked.
   await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
   await engine.tick()
-  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'completed')
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
   assert.equal(counters.prCalls, 1)
 }
 
@@ -596,7 +605,7 @@ async function assertSignalScanIsIdempotentOnRescan(): Promise<void> {
   await engine.tick()
   await engine.tick()
   await engine.tick()
-  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'completed')
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
   assert.equal(counters.prCalls, 1, 'finalize/PR happens exactly once across repeated scans')
 }
 
@@ -605,14 +614,14 @@ async function assertStartupRebuildsRegistryFromStore(): Promise<void> {
   // Engine A dispatches the run and records it as `running` in the store.
   const { engine: engineA, workspaceRoot, store, worktreePath } = await setupAgentRun(now)
   assert.equal((await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
-  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'running')
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running')
 
   // Engine B is a fresh instance (empty in-memory registry) simulating a restart.
   const { engine: engineB, counters: countersB } = agentEngine(workspaceRoot, now)
   await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
   // Startup seeds the registry from disk, then the scan finalizes the run.
   await engineB.handleStartup()
-  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'completed')
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
   assert.equal(countersB.prCalls, 1, 'restart-recovered run finalized via startup seed')
 }
 
@@ -636,7 +645,7 @@ async function assertManualFinalizeRemovesRunFromRegistry(): Promise<void> {
   // A subsequent signal scan must not re-finalize: the run left the registry.
   await writeRunSignal(worktreePath, JSON.stringify({ status: 'failed' }))
   await engine.tick()
-  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'completed')
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
   assert.equal(counters.prCalls, 1, 'scan does not touch a manually finalized run')
   assert.equal(events.length, 1, 'no extra event from the scan')
 }
@@ -724,7 +733,7 @@ async function assertConcurrentManualAndScanFinalizeOnce(): Promise<void> {
   assert.equal(removedWorktrees, 1, 'worktree torn down once')
   const terminalEvents = events.filter((event) => event.runId === 'run-agent')
   assert.equal(terminalEvents.length, 1, 'exactly one terminal run-event')
-  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'completed')
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
 }
 
 async function assertOversizeSignalStaysPending(): Promise<void> {
@@ -738,13 +747,13 @@ async function assertOversizeSignalStaysPending(): Promise<void> {
   assert.equal(oversize.length > 64 * 1024, true)
   await writeRunSignal(worktreePath, oversize)
   await engine.tick()
-  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'running', 'oversize signal ignored; run pending')
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running', 'oversize signal ignored; run pending')
   assert.equal(counters.prCalls, 0, 'oversize signal opens no PR')
 
   // A later in-bound signal still finalizes — proving the run was never dropped.
   await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
   await engine.tick()
-  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'completed')
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
   assert.equal(counters.prCalls, 1)
 }
 

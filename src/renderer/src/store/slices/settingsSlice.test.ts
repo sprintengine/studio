@@ -300,6 +300,7 @@ const carrier = {
   sidebarCollapsed: false,
   sprintEnginesAsideOpen: false,
   openFilesInExternalWindow: true,
+  agentConfigAdoptionResult: null,
 }
 const slice = createSettingsSlice((mutator) => mutator(carrier))
 slice.openSettingsOverlay({ initialTab: 'integrations', checkForUpdates: true })
@@ -360,6 +361,7 @@ const permissionCarrier = {
   sidebarCollapsed: false,
   sprintEnginesAsideOpen: false,
   openFilesInExternalWindow: true,
+  agentConfigAdoptionResult: null,
 }
 const permissionSlice = createSettingsSlice((mutator) => mutator(permissionCarrier))
 permissionSlice.setLastAgentSpawnPermissionPreset('bypass_all')
