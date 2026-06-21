@@ -29,6 +29,9 @@ export type AppTheme =
   | 'verdigris'
   | 'slate'
   | 'conifer'
+  | 'fernery'
+  | 'sage'
+  | 'greenhouse'
   | 'caramel'
   | 'lantern'
   | 'aubergine'
@@ -184,6 +187,45 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
       bgSurfaceRaised: '#20241c',
       accent: '#c8a458',
       textStrong: '#b4c0b0',
+    },
+  },
+  {
+    id: 'fernery',
+    label: 'Fernery',
+    resolved: 'fernery',
+    description: 'Mid green chrome, terracotta accent',
+    swatches: {
+      bgApp: '#142414',
+      bgSurface: '#1c2c1c',
+      bgSurfaceRaised: '#243424',
+      accent: '#cc5838',
+      textStrong: '#e8ecd8',
+    },
+  },
+  {
+    id: 'sage',
+    label: 'Sage',
+    resolved: 'sage',
+    description: 'Muted gray-green, terracotta accent',
+    swatches: {
+      bgApp: '#20241c',
+      bgSurface: '#282c20',
+      bgSurfaceRaised: '#303428',
+      accent: '#c85838',
+      textStrong: '#e8e8d4',
+    },
+  },
+  {
+    id: 'greenhouse',
+    label: 'Greenhouse',
+    resolved: 'greenhouse',
+    description: 'Cool sage room, warm cards, terracotta',
+    swatches: {
+      bgApp: '#1c2418',
+      bgSurface: '#2c281c',
+      bgSurfaceRaised: '#302c20',
+      accent: '#c85838',
+      textStrong: '#f0ead2',
     },
   },
   {

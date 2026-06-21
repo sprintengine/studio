@@ -971,6 +971,171 @@
     radial-gradient(circle at 50% 45%, rgba(192, 80, 56, 0.07), transparent 50%);
 }
 
+/* Fernery — mid-tone vivid green chrome with a terracotta spark. The whole
+   ramp is green-dominant (G > R = B) so app/surface/card read as fern, never
+   brown; the warm accent is the only heat in the room. A lifted, softened dark
+   (canvas luminance well above the default near-black) — "between dark and
+   light" without sacrificing cream-ink AA. Anti-dither baseline (channels are
+   multiples of 4). Shares the Vellum/Herbarium terracotta + emerald DNA but is
+   the only mid green of the family. */
+:root[data-theme="fernery"] {
+  --bg-app: #142414;
+  --bg-surface: #1c2c1c;
+  --bg-surface-raised: #243424;
+  --bg-hover: #2c402c;
+  --bg-active: #344c34;
+  --bg-selected: #38542c;
+  --surface-overlay-backdrop: rgba(8, 16, 8, 0.72);
+
+  --text-strong: #e8ecd8;
+  --text-default: #c4ccb4;
+  --text-muted: #98a488;
+  --text-subtle: #7c8868;
+  --text-disabled: #5c6850;
+  --text-on-accent: #ffffff;
+
+  --border-subtle: rgba(232, 236, 216, 0.07);
+  --border-default: rgba(232, 236, 216, 0.11);
+  --border-strong: rgba(232, 236, 216, 0.18);
+  --border-focus: rgba(204, 88, 56, 0.5);
+
+  --accent-primary: #cc5838;
+  --accent-primary-hover: #d86844;
+  --accent-primary-soft: rgba(204, 88, 56, 0.16);
+  --accent-primary-soft-strong: rgba(204, 88, 56, 0.24);
+
+  --tone-neutral: #7c9474;
+  --tone-accent: #cc5838;
+  --tone-good: #38b07c;
+  --tone-warn: #d4a838;
+  --tone-error: #dc5450;
+  --tone-error-ink: #ffffff;
+  --tone-neutral-soft: rgba(124, 148, 116, 0.16);
+  --tone-accent-soft: rgba(204, 88, 56, 0.16);
+  --tone-good-soft: rgba(56, 176, 124, 0.18);
+  --tone-warn-soft: rgba(212, 168, 56, 0.18);
+  --tone-error-soft: rgba(220, 84, 80, 0.16);
+
+  --scrollbar-thumb: #2c402c;
+  --scrollbar-thumb-hover: #384c38;
+  --skeleton-shimmer-low: rgba(232, 236, 216, 0.03);
+  --skeleton-shimmer-high: rgba(232, 236, 216, 0.07);
+
+  --terminal-bg: #0c180c;
+  --terminal-fg: #e8ecd8;
+
+  --memory-graph-atmosphere:
+    radial-gradient(circle at 50% 45%, rgba(56, 176, 124, 0.07), transparent 50%);
+}
+
+/* Sage — mid-tone muted gray-green ("slate, but green"). Desaturated relative
+   to Fernery so the chrome stays calm and recedes, with the terracotta accent
+   carrying the only saturation. Green tint preserved by keeping G >= R > B.
+   Anti-dither baseline. */
+:root[data-theme="sage"] {
+  --bg-app: #20241c;
+  --bg-surface: #282c20;
+  --bg-surface-raised: #303428;
+  --bg-hover: #3c4030;
+  --bg-active: #44483c;
+  --bg-selected: #444c30;
+  --surface-overlay-backdrop: rgba(12, 16, 8, 0.72);
+
+  --text-strong: #e8e8d4;
+  --text-default: #ccccb0;
+  --text-muted: #a0a084;
+  --text-subtle: #808060;
+  --text-disabled: #606048;
+  --text-on-accent: #ffffff;
+
+  --border-subtle: rgba(232, 232, 212, 0.07);
+  --border-default: rgba(232, 232, 212, 0.11);
+  --border-strong: rgba(232, 232, 212, 0.18);
+  --border-focus: rgba(200, 88, 56, 0.5);
+
+  --accent-primary: #c85838;
+  --accent-primary-hover: #d46844;
+  --accent-primary-soft: rgba(200, 88, 56, 0.16);
+  --accent-primary-soft-strong: rgba(200, 88, 56, 0.24);
+
+  --tone-neutral: #8c9470;
+  --tone-accent: #c85838;
+  --tone-good: #44a87c;
+  --tone-warn: #cc9c40;
+  --tone-error: #d85850;
+  --tone-error-ink: #ffffff;
+  --tone-neutral-soft: rgba(140, 148, 112, 0.16);
+  --tone-accent-soft: rgba(200, 88, 56, 0.16);
+  --tone-good-soft: rgba(68, 168, 124, 0.18);
+  --tone-warn-soft: rgba(204, 156, 64, 0.18);
+  --tone-error-soft: rgba(216, 88, 80, 0.16);
+
+  --scrollbar-thumb: #3c4030;
+  --scrollbar-thumb-hover: #484c3c;
+  --skeleton-shimmer-low: rgba(232, 232, 212, 0.03);
+  --skeleton-shimmer-high: rgba(232, 232, 212, 0.07);
+
+  --terminal-bg: #181c14;
+  --terminal-fg: #e8e8d4;
+
+  --memory-graph-atmosphere:
+    radial-gradient(circle at 50% 45%, rgba(68, 168, 124, 0.06), transparent 52%);
+}
+
+/* Greenhouse — mid-tone with the Herbarium warm/cool split carried into the
+   dark: a cool sage canvas (G > R > B) under warm olive panels (R > G > B), so
+   the room reads cool and the cards read warm. The warmest of the three mid
+   greens by design; terracotta accent, emerald good. Anti-dither baseline. */
+:root[data-theme="greenhouse"] {
+  --bg-app: #1c2418;
+  --bg-surface: #2c281c;
+  --bg-surface-raised: #302c20;
+  --bg-hover: #3c3828;
+  --bg-active: #44402c;
+  --bg-selected: #384424;
+  --surface-overlay-backdrop: rgba(12, 12, 8, 0.72);
+
+  --text-strong: #f0ead2;
+  --text-default: #d4ccb0;
+  --text-muted: #a8a07c;
+  --text-subtle: #888864;
+  --text-disabled: #686048;
+  --text-on-accent: #ffffff;
+
+  --border-subtle: rgba(240, 234, 210, 0.08);
+  --border-default: rgba(240, 234, 210, 0.12);
+  --border-strong: rgba(240, 234, 210, 0.18);
+  --border-focus: rgba(200, 88, 56, 0.5);
+
+  --accent-primary: #c85838;
+  --accent-primary-hover: #d46844;
+  --accent-primary-soft: rgba(200, 88, 56, 0.18);
+  --accent-primary-soft-strong: rgba(200, 88, 56, 0.24);
+
+  --tone-neutral: #909468;
+  --tone-accent: #c85838;
+  --tone-good: #3cac7c;
+  --tone-warn: #d4a038;
+  --tone-error: #dc5450;
+  --tone-error-ink: #ffffff;
+  --tone-neutral-soft: rgba(144, 148, 104, 0.16);
+  --tone-accent-soft: rgba(200, 88, 56, 0.16);
+  --tone-good-soft: rgba(60, 172, 124, 0.18);
+  --tone-warn-soft: rgba(212, 160, 56, 0.18);
+  --tone-error-soft: rgba(220, 84, 80, 0.16);
+
+  --scrollbar-thumb: #3c3828;
+  --scrollbar-thumb-hover: #484434;
+  --skeleton-shimmer-low: rgba(240, 234, 210, 0.03);
+  --skeleton-shimmer-high: rgba(240, 234, 210, 0.07);
+
+  --terminal-bg: #181410;
+  --terminal-fg: #f0ead2;
+
+  --memory-graph-atmosphere:
+    radial-gradient(circle at 50% 45%, rgba(60, 172, 124, 0.06), transparent 52%);
+}
+
 
 * {
   box-sizing: border-box;
