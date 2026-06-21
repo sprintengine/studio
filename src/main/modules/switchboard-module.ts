@@ -4,6 +4,10 @@ import type { CapabilityModule } from '../module-host/load-modules'
 import { importGitHubIssuesIntoWatchtower } from '../switchboard-github'
 import { importJiraIssuesIntoWatchtower } from '../switchboard-jira'
 import {
+  beginSwitchboardPythonRuntimeShutdown,
+  shutdownSwitchboardPythonRuntime,
+} from '../switchboard-runtime-service'
+import {
   addSwitchboardComment,
   cancelSwitchboardTask,
   claimSwitchboardTask,
@@ -84,6 +88,12 @@ export const switchboardModule: CapabilityModule = {
       module: 'switchboard_core',
       description: 'Spawned per command; never runs while this module is disabled.',
     })
+
+    // Shutdown runs in two phases via the kernel: begin (early) stops runner
+    // loops and flips the shutting-down flag so no new Python command spawns
+    // during core-shell teardown; drain (late) awaits in-flight Python.
+    host.onShutdownBegin(() => beginSwitchboardPythonRuntimeShutdown())
+    host.onShutdown(() => shutdownSwitchboardPythonRuntime())
 
     registerSwitchboardIpc(host.ipcMain, {
       initialize: initializeSwitchboard,
