@@ -37,6 +37,7 @@ export class GuidedBriefStartBuildError extends Error {
       | 'missing-product-brief'
       | 'missing-architecture-plan'
       | 'missing-ui-direction-or-mockups'
+      | 'advanced-setup-failed'
       | 'team-exists'
       | 'unknown',
   ) {
@@ -168,6 +169,18 @@ export async function runGuidedBriefStartBuild(
     && (!runtimeState.acceptedUiDirection || runtimeState.acceptedMockups.length === 0)
   ) {
     throw new GuidedBriefStartBuildError('missing-ui-direction-or-mockups')
+  }
+
+  // Fail-closed preflight: persist the Advanced setup selections (real MCP sync +
+  // skill-pack install) before any handoff write or run/workspace creation. If
+  // this fails, abort here so a partially-created Sprint Engine workspace is
+  // never left behind; the message surfaces on the existing advancedSetupError
+  // surface.
+  const advancedSetupError = await ports.persistAdvancedSetup(runtimeState.workspaceRoot)
+  if (advancedSetupError) {
+    const wrapped = new GuidedBriefStartBuildError('advanced-setup-failed')
+    wrapped.message = advancedSetupError
+    throw wrapped
   }
 
   await writeGuidedBriefBuildHandoff({

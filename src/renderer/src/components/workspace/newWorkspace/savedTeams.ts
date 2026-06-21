@@ -6,11 +6,48 @@ import type {
   SprintEngineRoleCounts,
   SprintEngineRoleId,
   SprintEngineRosterTeam,
+  SprintEngineSavedRoster,
 } from '../../../types/workspace'
 
 // Mirrors the wizard's CLI fallback (SprintEngineRosterTable / setRoleCount),
 // so divergence comparison resolves an absent default the same way the rows do.
 const DEFAULT_CLI: AgentCli = 'claude-code'
+
+export type ResolvedInitialSprintEngineRoster = {
+  selectedTeamId: string | null
+  roleCounts: SprintEngineRoleCounts
+  roleCliDefaults: Required<SprintEngineRoleCliDefaults>
+}
+
+// Resolve the roster the new-workspace wizard opens with, so the roster step is
+// a single Continue on a runnable team. Precedence:
+//   1. The most recently selected saved team (lastSelectedTeamId → savedTeams).
+//   2. The legacy single saved roster.
+//   3. The built-in default roster (a runnable implement-and-review team) when no
+//      saved roster exists — a fresh install still opens pre-selected.
+// CLI defaults always layer over the full default map, so every known role keeps
+// a valid CLI even when a saved team stored only a subset.
+export function resolveInitialSprintEngineRoster(input: {
+  savedTeams: SprintEngineRosterTeam[]
+  lastSelectedTeamId: string | null | undefined
+  savedRoster: SprintEngineSavedRoster | null
+  defaultRoleCounts: SprintEngineRoleCounts
+  defaultRoleCliDefaults: Required<SprintEngineRoleCliDefaults>
+}): ResolvedInitialSprintEngineRoster {
+  const selectedTeam =
+    input.savedTeams.find((team) => team.id === input.lastSelectedTeamId) ?? null
+  const sourceRoster: SprintEngineSavedRoster | null = selectedTeam
+    ? { roleCounts: selectedTeam.roleCounts, roleCliDefaults: selectedTeam.roleCliDefaults }
+    : input.savedRoster
+  const roleCounts = sourceRoster?.roleCounts
+    ? { ...sourceRoster.roleCounts }
+    : { ...input.defaultRoleCounts }
+  const roleCliDefaults: Required<SprintEngineRoleCliDefaults> = {
+    ...input.defaultRoleCliDefaults,
+    ...(sourceRoster?.roleCliDefaults ?? {}),
+  }
+  return { selectedTeamId: selectedTeam?.id ?? null, roleCounts, roleCliDefaults }
+}
 
 export function activeSprintEngineRoleIds(counts: SprintEngineRoleCounts): SprintEngineRoleId[] {
   return (Object.keys(counts) as SprintEngineRoleId[]).filter((role) => (counts[role] ?? 0) > 0)

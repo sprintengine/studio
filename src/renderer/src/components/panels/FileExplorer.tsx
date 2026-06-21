@@ -701,10 +701,15 @@ function ExplorerTree({
   const remapOpenFiles = useWorkspaceStore((s) => s.remapOpenFiles)
   const removeOpenFilesForPath = useWorkspaceStore((s) => s.removeOpenFilesForPath)
   const setFileExplorerExpandedPaths = useWorkspaceStore((s) => s.setFileExplorerExpandedPaths)
+  const setFileExplorerSelectedPath = useWorkspaceStore((s) => s.setFileExplorerSelectedPath)
   const dialog = useConfirmDialog()
   const readPersistedExpandedPaths = useCallback(() => (
     useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)?.fileExplorerState?.expandedPaths
     ?? EMPTY_EXPANDED_PATHS
+  ), [workspaceId])
+  const readPersistedSelectedPath = useCallback(() => (
+    useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)?.fileExplorerState?.selectedPath
+    ?? null
   ), [workspaceId])
   const initialExpandedPaths = useMemo(
     () => expandedPathRecordFromList(readPersistedExpandedPaths(), rootPath),
@@ -730,6 +735,7 @@ function ExplorerTree({
   const searchRequestSeqRef = useRef(0)
   const committingRenameRef = useRef(false)
   const latestExpandedPathsRef = useRef<Record<string, boolean>>(initialExpandedPaths)
+  const hasRestoredSelectionRef = useRef(false)
   const latestSearchQueryRef = useRef('')
   const latestSearchExcludesRef = useRef(searchExcludes)
   const latestGitStatusRef = useRef<GitStatusSnapshot | null>(gitStatus)
@@ -1684,6 +1690,10 @@ function ExplorerTree({
   useEffect(() => {
     let cancelled = false
     const restoredExpandedPaths = expandedPathRecordFromList(readPersistedExpandedPaths(), rootPath)
+    // Block selection persistence until the initial restore runs, so the
+    // pre-restore null below (or a slow tree load) cannot overwrite the saved
+    // selection before we read it.
+    hasRestoredSelectionRef.current = false
     setLoading(true)
     setRootEntries([])
     setChildrenByPath({})
@@ -1724,9 +1734,18 @@ function ExplorerTree({
         if (!result || cancelled) return
         const { entries, expandedDirectoryCount, loadedDirectoryCount } = result
         const firstPath = entries[0]?.path ?? null
-        setSelectedPath(firstPath)
-        setSelectedPaths(firstPath ? new Set([firstPath]) : new Set())
-        selectionAnchorPathRef.current = firstPath
+        // Restore the last-selected file once every expanded directory is loaded
+        // (so its row is flattened into the tree). If it is no longer under the
+        // root or its ancestors are collapsed/gone, the selection-validity effect
+        // below replaces it with the first row — graceful for deleted files.
+        const persistedSelectedPath = readPersistedSelectedPath()
+        const restorePath =
+          persistedSelectedPath && isPathOrChild(persistedSelectedPath, rootPath) ? persistedSelectedPath : firstPath
+        setSelectedPath(restorePath)
+        setSelectedPaths(restorePath ? new Set([restorePath]) : new Set())
+        selectionAnchorPathRef.current = restorePath
+        // The saved selection has now been read; later changes may persist.
+        hasRestoredSelectionRef.current = true
         logPerfEvent('FileExplorer', 'refresh-tree', {
           cause: 'initial',
           rootPath,
@@ -1742,7 +1761,7 @@ function ExplorerTree({
     return () => {
       cancelled = true
     }
-  }, [commitExpandedPaths, loadDirectory, readPersistedExpandedPaths, rootPath])
+  }, [commitExpandedPaths, loadDirectory, readPersistedExpandedPaths, readPersistedSelectedPath, rootPath])
 
   useEffect(() => {
     if (refreshToken === lastManualRefreshRef.current) return
@@ -1906,6 +1925,29 @@ function ExplorerTree({
       return next.size ? next : new Set([selectedPath])
     })
   }, [activeRows, loading, searching, selectedPath])
+
+  // Persist the focused selection so a reload/restart restores the highlighted
+  // file. Debounced because arrow-key navigation changes it rapidly and every
+  // store write re-serializes the whole workspace registry. The debounce timer
+  // is what survives a Cmd-R reload (React unmount cleanups do not run on a page
+  // reload) and still fires on a layer switch, which does not unmount; the
+  // separate unmount effect flushes the latest value when the panel/workspace is
+  // actually closed so a quick select-then-close is not lost.
+  const latestSelectedPathRef = useRef(selectedPath)
+  latestSelectedPathRef.current = selectedPath
+  useEffect(() => {
+    if (!hasRestoredSelectionRef.current) return
+    const handle = window.setTimeout(() => {
+      setFileExplorerSelectedPath(workspaceId, latestSelectedPathRef.current)
+    }, 300)
+    return () => window.clearTimeout(handle)
+  }, [selectedPath, workspaceId, setFileExplorerSelectedPath])
+  useEffect(() => {
+    return () => {
+      if (!hasRestoredSelectionRef.current) return
+      setFileExplorerSelectedPath(workspaceId, latestSelectedPathRef.current)
+    }
+  }, [workspaceId, setFileExplorerSelectedPath])
 
   const handleKeyDown = async (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (renameDraft) return

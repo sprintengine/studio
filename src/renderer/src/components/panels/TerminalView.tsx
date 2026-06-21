@@ -637,7 +637,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       const latestAgent = latestContext.agent
       const latestCli = latestContext.cli
       if (!latestAgent || !latestCli) return
-      const terminalStatus = await window.api.terminalStatus(sessionId).catch(() => ({ processAlive: false }))
+      const terminalStatus = await window.api.terminalStatus(sessionId).catch(() => ({ processAlive: false, suspended: false }))
       if (disposed) return
       const postStatusContext = currentContext()
       const postStatusAgent = postStatusContext.agent
@@ -648,6 +648,14 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       const resumeExistingPty = shouldResume && terminalStatus.processAlive
       const shouldResumeClaudeConversation = agentCliUsesStableSessionIdForResume(postStatusCli) && shouldResume
       const shouldResumeCli = resumeExistingPty || shouldResumeClaudeConversation || shouldResumeCodexConversation
+      // Reopening a suspended agent must NOT silently respawn it: the reaper
+      // suspended it to reclaim memory, the painted scrollback is still on the
+      // record, and the user opened the workspace just to read it. Replay the
+      // history below and leave it suspended — the existing top-right play button
+      // (AgentPanel, keyed off the same `suspended` flag) and type-to-resume are
+      // the controls. A live pty (background run) reports suspended=false and
+      // reattaches normally.
+      const pauseInsteadOfLaunch = !attachedSessionId && terminalStatus.suspended
       logPerfEvent('TerminalView', shouldResumeCli ? 'terminal-reattach-existing-session' : 'terminal-spawn-fresh', {
         sessionId,
         workspaceId,
@@ -763,6 +771,25 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           worktreePath?: string
         })
       )
+
+      if (pauseInsteadOfLaunch) {
+        // Arm the freeze-the-view resume path (resumeThunkRef is set above) so
+        // the existing top-right play button / type-to-resume relaunches it, and
+        // route the next keystroke through it. Reveal the session so main replays
+        // the retained scrollback into this fresh xterm — the painted history is
+        // readable while the agent process stays suspended.
+        suspendedRef.current = true
+        await window.api.terminalSetVisible(sessionId, true).catch(() => {})
+        logPerfEvent('TerminalView', 'terminal-paused-on-open', {
+          sessionId,
+          workspaceId,
+          agentId,
+          kind: 'agent',
+          resumeRequested: shouldResume,
+          attachedSessionId,
+        })
+        return
+      }
 
       replayGate.beginReplayWait()
       const spawnResult = await window.api.terminalSpawn(

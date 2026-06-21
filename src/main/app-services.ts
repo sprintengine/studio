@@ -1,4 +1,5 @@
 import { app, shell } from 'electron'
+import { createAgentConfigImportService } from './agent-config-import'
 import { createAutomationService } from './automation/automation-service'
 import { createAutomationTools } from './automation/automation-tools'
 import { createRendererAutomationDelegate } from './automation/renderer-delegate'
@@ -77,6 +78,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const builtinSkillManager = createBuiltinSkillManager({
     listPlugins: () => getPluginRegistry().loaded(),
   })
+  const agentConfigImportService = createAgentConfigImportService({
+    mcpConfigService,
+    builtinSkillManager,
+  })
   const githubTokenStore = new GitHubTokenStore()
 
   // The mobile relay bridge (construction + IPC + shutdown) and the Switchboard
@@ -129,6 +134,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   })
 
   return {
+    agentConfigImportService,
     automationDelegate,
     automationService,
     builtinSkillManager,

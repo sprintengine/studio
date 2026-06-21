@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from helpers import (
     assert_artifact_status,
     assert_board_column,
@@ -8,6 +10,7 @@ from helpers import (
     create_team,
     get_artifact,
     get_task,
+    read_feedback_records,
     read_state,
     task,
     write_state,
@@ -296,6 +299,94 @@ def test_gate_failed_verdict_creates_open_feedback_and_routes_to_changes_request
     assert_task_status(state, "T1", "changes_requested")
     assert get_task(state, "T1")["ownerAgentId"] is None
     assert get_task(state, "T1")["qualityGates"][0]["status"] == "changes_requested"
+
+
+def test_gate_verdict_best_effort_drops_invalid_telemetry_without_blocking(tmp_path) -> None:
+    # Decision 4: a malformed optional telemetry sub-field must not block the
+    # operational verdict; it is dropped with a warning instead of rejecting.
+    fixture = create_team(tmp_path, "gate-verdict-best-effort", [gated_review_task()])
+    claim_gate(fixture, "code_reviewer", "code-reviewer")
+
+    verdict = fixture.cli.run(
+        "task",
+        "gate",
+        "verdict",
+        "--task-id",
+        "T1",
+        "--gate-id",
+        "code-review",
+        "--role",
+        "code_reviewer",
+        "--id",
+        "code-reviewer",
+        "--verdict",
+        "changes_requested",
+        "--summary",
+        "Missing validation.",
+        "--required-action",
+        "Add validation before publish.",
+        "--correctness-pct",
+        "80",
+        "--confidence-pct",
+        "101",
+        "--finding-json",
+        json.dumps({"kind": "not-a-kind", "severity": "high", "area": "backend"}),
+    )
+
+    # Operational verdict still commits.
+    assert verdict["nextStatus"] == "changes_requested"
+    assert verdict["comment"]["data"]["requiredActions"] == ["Add validation before publish."]
+    # Invalid fields surface as warnings, not failures.
+    warnings = verdict.get("feedbackWarnings") or []
+    assert any("confidence-pct" in warning for warning in warnings)
+    assert any("finding.kind" in warning for warning in warnings)
+
+    records = read_feedback_records(fixture.team_dir)
+    assert len(records) == 1
+    record = records[0]
+    # Valid telemetry is kept; the invalid score and finding are dropped.
+    assert record["scores"].get("correctness_pct") == 80
+    assert "confidence_pct" not in record["scores"]
+    assert "findings" not in record
+
+
+def test_gate_verdict_accepts_categorical_only_finding(tmp_path) -> None:
+    # Decision 3: findingJson is categorical-only (kind/area/severity); no prose.
+    fixture = create_team(tmp_path, "gate-verdict-categorical-finding", [gated_review_task()])
+    claim_gate(fixture, "code_reviewer", "code-reviewer")
+
+    fixture.cli.run(
+        "task",
+        "gate",
+        "verdict",
+        "--task-id",
+        "T1",
+        "--gate-id",
+        "code-review",
+        "--role",
+        "code_reviewer",
+        "--id",
+        "code-reviewer",
+        "--verdict",
+        "changes_requested",
+        "--summary",
+        "1 a11y finding.",
+        "--required-action",
+        "OnboardingFlow.tsx — focus escapes dialog — recover focus into the dialog.",
+        "--finding-json",
+        json.dumps({"kind": "accessibility_issue", "severity": "high", "area": "frontend"}),
+    )
+
+    records = read_feedback_records(fixture.team_dir)
+    assert len(records) == 1
+    findings = records[0]["findings"]
+    assert len(findings) == 1
+    assert findings[0]["kind"] == "accessibility_issue"
+    assert findings[0]["area"] == "frontend"
+    assert findings[0]["severity"] == "high"
+    # No prose is solicited or required for a categorical-only finding.
+    assert findings[0].get("detail") is None
+    assert findings[0].get("recommendation") is None
 
 
 def test_gate_verdict_without_active_attempt_points_to_task_request_changes(tmp_path) -> None:

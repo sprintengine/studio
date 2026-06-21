@@ -1,8 +1,10 @@
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
-import type { ActionContext, AutomationActionProvider, AutomationRun } from '../../shared/automations/contracts'
+import type { ActionContext, AutomationActionProvider, AutomationCliPermissionPreset, AutomationRun } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
+import { join } from 'node:path'
+
 import type { Workspace } from '../../renderer/src/types/workspace'
-import { getGitRepoRoot, getGitStatus } from '../git'
+import { createGitWorktree, removeGitWorktree } from '../git'
 import { createWorkspaceConfirmed } from '../workspace-create'
 import type { AutomationRunExecutionInput, AutomationRunExecutor } from './engine'
 import { runSkillLoopAction } from './actions/run-skill-loop'
@@ -21,7 +23,6 @@ export type LocalAutomationExecutorOptions = {
   delegateToRenderer(request: AutomationRendererRequest): Promise<AutomationRendererResponse>
   getWorkspaceSyncSnapshot(): WorkspaceSyncSnapshot
   isIntegrationAvailable?: (id: string) => boolean | undefined
-  isWorkspaceDirty?: (input: { workspaceId?: string; folderPath: string; workspace: Workspace | null }) => Promise<WorkspaceDirtyResult>
   now?: () => number
   sleep?: (ms: number) => Promise<void>
   launchConfirmTimeoutMs?: number
@@ -31,11 +32,16 @@ export type LocalAutomationExecutorOptions = {
   actionProviderRegistrations?: RegisteredAutomationProvider<AutomationActionProvider>[]
   getActionProviderRegistrations?: () => RegisteredAutomationProvider<AutomationActionProvider>[]
   checkProviderPermission?: AutomationProviderPermissionChecker
+  // Per-run worktree isolation for agent-backed runs. `createRunWorktree`
+  // returns null when isolation is not possible (e.g. the folder is not a Git
+  // repo) so the run falls back to the workspace checkout instead of blocking.
+  createRunWorktree?: (input: { workspaceRoot: string; runId: string }) => Promise<RunWorktree | null>
+  removeRunWorktree?: (input: { workspaceRoot: string; worktreePath: string }) => Promise<void>
 }
 
-export type WorkspaceDirtyResult = {
-  dirty: boolean
-  reason?: string
+export type RunWorktree = {
+  worktreePath: string
+  branch: string
 }
 
 export class AutomationActionBlockedError extends Error {
@@ -101,24 +107,32 @@ export async function runLocalAutomationAction(
       definition: input.definition,
       runId: input.run.id,
       workspaceRoot: input.workspaceRoot,
+      // Launch target precedence: an explicit config workspaceId (legacy/MCP
+      // path) wins; otherwise own the agent in the run's automations control
+      // center (input.workspaceId) so no standard workspace is created and no
+      // second solo agent is spawned; otherwise fall back to a folder-matched
+      // standard workspace.
       resolveSpawnAgentTarget: (target: { workspaceId?: string; folderPath: string }) =>
-        Promise.resolve(resolveStandardLaunchTarget(target, options)),
-      spawnAgent: context.spawnAgent,
-      requireIntegration: context.requireIntegration,
-      isWorkspaceDirty: async (target: SpawnAgentResolvedTarget) => {
-        const workspace = target.workspaceId
-          ? findWorkspaceById(options.getWorkspaceSyncSnapshot(), target.workspaceId)
-          : null
-        if (target.workspaceId && !workspace) {
-          throw new AutomationActionBlockedError(`Unable to verify that target workspace "${target.workspaceId}" is clean because it is no longer known to the workspace-sync bus.`)
-        }
-        const resolvedFolderPath = workspace?.folderPath?.trim()
-        if (target.workspaceId && workspace && !resolvedFolderPath) {
-          throw new AutomationActionBlockedError(`Unable to verify that target workspace "${target.workspaceId}" is clean because it has no folder path.`)
-        }
-        const checker = options.isWorkspaceDirty ?? defaultWorkspaceDirtyCheck
-        return checker({ ...target, folderPath: resolvedFolderPath || target.folderPath, workspace })
+        Promise.resolve(
+          target.workspaceId
+            ? resolveStandardLaunchTarget(target, options)
+            : input.workspaceId
+              ? { workspaceId: input.workspaceId, folderPath: target.folderPath }
+              : resolveStandardLaunchTarget(target, options),
+        ),
+      // Agent-backed runs launch into a per-run worktree so the agent's work
+      // (and its PR) is isolated from the user's checkout. Isolation is
+      // best-effort: a non-Git folder or a worktree failure falls back to the
+      // workspace checkout rather than blocking the run.
+      spawnAgent: async (spawnInput) => {
+        const worktree = await ensureRunWorktree(input, options)
+        const launched = await spawnAgent(
+          { ...spawnInput, worktreePath: worktree?.worktreePath },
+          options,
+        )
+        return { ...launched, worktreePath: worktree?.worktreePath, branch: worktree?.branch }
       },
+      requireIntegration: context.requireIntegration,
     }
 
     const registration = registrations?.find((candidate) => candidate.kind === provider.kind)
@@ -174,6 +188,10 @@ async function spawnAgent(
     workspaceId?: string
     folderPath: string
     cli?: string
+    cliModel?: string
+    permissionPreset?: AutomationCliPermissionPreset
+    specialistId?: string
+    worktreePath?: string
     name?: string
     prompt: string
     resolvedTarget?: SpawnAgentResolvedTarget
@@ -190,6 +208,10 @@ async function spawnAgent(
     kind: 'agent.launch',
     workspaceId,
     cli: input.cli,
+    cliModel: input.cliModel,
+    permissionPreset: input.permissionPreset,
+    specialistId: input.specialistId,
+    worktreePath: input.worktreePath,
     name: input.name,
     prompt: input.prompt,
   })
@@ -215,6 +237,41 @@ async function spawnAgent(
   }
 
   return { workspaceId, agentId: confirmed }
+}
+
+async function ensureRunWorktree(
+  input: AutomationRunExecutionInput,
+  options: LocalAutomationExecutorOptions
+): Promise<RunWorktree | null> {
+  const creator = options.createRunWorktree ?? defaultCreateRunWorktree
+  try {
+    return await creator({ workspaceRoot: input.workspaceRoot, runId: input.run.id })
+  } catch {
+    // Worktree isolation is best-effort; fall back to the workspace checkout
+    // rather than blocking the run.
+    return null
+  }
+}
+
+export async function defaultCreateRunWorktree(
+  input: { workspaceRoot: string; runId: string }
+): Promise<RunWorktree | null> {
+  const branchName = `automations/${input.runId}`
+  const created = await createGitWorktree({
+    repoRoot: input.workspaceRoot,
+    containerPath: join(input.workspaceRoot, '.multi-code', 'automations', 'worktrees'),
+    destinationPath: input.runId,
+    branchName,
+    baseRef: 'HEAD',
+  })
+  if (!created.ok) return null
+  return { worktreePath: created.data.path, branch: created.data.branch ?? branchName }
+}
+
+export async function defaultRemoveRunWorktree(
+  input: { workspaceRoot: string; worktreePath: string }
+): Promise<void> {
+  await removeGitWorktree({ repoRoot: input.workspaceRoot, path: input.worktreePath, force: true })
 }
 
 function resolveStandardLaunchTarget(
@@ -277,38 +334,6 @@ async function createWorkspace(
     )
   }
   return created.workspaceId
-}
-
-export async function defaultWorkspaceDirtyCheck(input: {
-  folderPath: string
-  workspace: Workspace | null
-}): Promise<WorkspaceDirtyResult> {
-  if (input.workspace?.editorState.openFiles.some((file) => file.isDirty)) {
-    return { dirty: true, reason: 'Target workspace has unsaved editor changes.' }
-  }
-
-  const repoRoot = await getGitRepoRoot(input.folderPath)
-  if (!repoRoot) {
-    return {
-      dirty: true,
-      reason: 'Unable to verify a clean automation baseline because the target folder is not inside a Git repository.',
-    }
-  }
-
-  try {
-    const status = await getGitStatus(repoRoot)
-    const dirtyFiles = Object.keys(status.files)
-    return dirtyFiles.length > 0
-      ? { dirty: true, reason: `Target workspace has uncommitted Git changes (${dirtyFiles.length} file${dirtyFiles.length === 1 ? '' : 's'}).` }
-      : { dirty: false }
-  } catch (error) {
-    return {
-      dirty: true,
-      reason: error instanceof Error
-        ? `Unable to verify that the target workspace is clean: ${error.message}`
-        : 'Unable to verify that the target workspace is clean.',
-    }
-  }
 }
 
 function findWorkspaceById(snapshot: WorkspaceSyncSnapshot, workspaceId: string): Workspace | null {

@@ -3,6 +3,8 @@ import { useCallback, useMemo, useState } from 'react'
 import { Field, GhostButton, InlineNotice, PrimaryButton, Select, type SelectItem, Switch } from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { selectAgentCliCatalog } from '../../workspace/newWorkspace/cliRuntimeOptions'
+import { orderSpecialistActions } from '../../../specialists/specialistActions'
+import { AGENT_SPAWN_PERMISSION_OPTIONS } from '../../workspace/SpawnAgentMenu'
 import type {
   AutomationDefinition,
   AutomationDefinitionDraft,
@@ -32,8 +34,14 @@ type EditorFormState = {
   config: Record<string, string>
 }
 
-// Action config keys the engine owns internally — never exposed as form fields.
+// Action config keys the engine owns internally — never exposed as form fields
+// and never loaded into the editable form.
 const INTERNAL_CONFIG_KEYS = new Set(['workspaceId', 'folderPath', 'requiredIntegrations'])
+
+// Keys owned by the agent picker (specialist / model / permission). They are
+// loaded into the form and persisted, but rendered by the picker controls rather
+// than as generic free-text string fields.
+const PICKER_CONFIG_KEYS = new Set(['cliModel', 'permissionPreset', 'specialistId'])
 
 const CONFIG_FIELD_LABEL: Record<string, string> = {
   prompt: 'Prompt',
@@ -46,7 +54,7 @@ function schemaStringKeys(schema: AutomationsProviderView['configSchema']): stri
   const properties = (schema as { properties?: Record<string, unknown> }).properties
   if (!properties) return []
   return Object.keys(properties).filter((key) => {
-    if (INTERNAL_CONFIG_KEYS.has(key)) return false
+    if (INTERNAL_CONFIG_KEYS.has(key) || PICKER_CONFIG_KEYS.has(key)) return false
     const prop = properties[key]
     return Boolean(prop) && typeof prop === 'object' && (prop as { type?: unknown }).type === 'string'
   })
@@ -138,6 +146,22 @@ export function AutomationEditor({
   const configKeys = actionProvider ? schemaStringKeys(actionProvider.configSchema) : []
   const requiredKeys = actionProvider ? schemaRequiredKeys(actionProvider.configSchema) : new Set<string>()
 
+  // Agent picker options (same catalogs the live SpawnAgentMenu uses), persisted
+  // into the automation's action config so a scheduled run reproduces the choice.
+  const specialistItems = useMemo<SelectItem[]>(
+    () => [
+      { value: '', label: 'General agent' },
+      ...orderSpecialistActions([]).map((action) => ({ value: action.id as string, label: action.shortLabel ?? action.label ?? action.id })),
+    ],
+    [],
+  )
+  const modelItems = useMemo<SelectItem[]>(() => {
+    const entry = cliCatalog.find((option) => option.value === (form.config.cli || cliCatalog[0]?.value))
+    const options = entry?.modelSelection?.options ?? []
+    return [{ value: '', label: 'CLI default' }, ...options.map((model) => ({ value: model.id, label: model.label ?? model.id }))]
+  }, [cliCatalog, form.config.cli])
+  const showAgentPicker = !actionUnavailableReason && configKeys.includes('cli')
+
   const update = useCallback(<K extends keyof EditorFormState>(key: K, value: EditorFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }))
   }, [])
@@ -167,6 +191,14 @@ export function AutomationEditor({
     for (const key of configKeys) {
       const value = form.config[key]?.trim()
       if (value) config[key] = value
+    }
+    // Picker-owned fields (not in configKeys: they are not free-text inputs) are
+    // persisted into the action config so a scheduled run reproduces the choice.
+    if (showAgentPicker) {
+      for (const key of ['specialistId', 'cliModel', 'permissionPreset'] as const) {
+        const value = form.config[key]?.trim()
+        if (value) config[key] = value
+      }
     }
     const draft: AutomationDefinitionDraft = {
       name: form.name.trim(),
@@ -352,6 +384,55 @@ export function AutomationEditor({
             )
           })
         )}
+
+        {showAgentPicker ? (
+          <>
+            <Field label="Specialist" htmlFor="automation-config-specialistId" help="Run as a specialist agent, or a general agent.">
+              <Select
+                ariaLabel="Specialist"
+                value={form.config.specialistId ?? ''}
+                onChange={(value) => update('config', { ...form.config, specialistId: value })}
+                items={specialistItems}
+              />
+            </Field>
+            <Field label="Model" htmlFor="automation-config-cliModel" help="Model passed at launch; empty uses the CLI default.">
+              <Select
+                ariaLabel="Agent model"
+                value={form.config.cliModel ?? ''}
+                onChange={(value) => update('config', { ...form.config, cliModel: value })}
+                items={modelItems}
+              />
+            </Field>
+            <Field label="Permissions" htmlFor="automation-config-permissionPreset" help="Bypass skips CLI permission prompts — use only in trusted repos.">
+              <div className="flex flex-wrap gap-1" role="group" aria-label="Permission preset">
+                {AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
+                  const current = form.config.permissionPreset || 'default'
+                  const active = option.value === current
+                  const isBypass = option.value === 'bypass_all'
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      title={option.title}
+                      aria-pressed={active}
+                      onClick={() => update('config', { ...form.config, permissionPreset: option.value })}
+                      className={[
+                        'rounded px-2 py-1 text-[11px] font-medium transition-colors',
+                        active
+                          ? isBypass
+                            ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn)]'
+                            : 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                          : 'border border-[color:var(--border-strong)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]',
+                      ].join(' ')}
+                    >
+                      {option.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </Field>
+          </>
+        ) : null}
       </fieldset>
 
       <div className="flex items-center justify-between gap-3">

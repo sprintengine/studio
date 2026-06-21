@@ -235,16 +235,24 @@ def cmd_task_gate_verdict(args: argparse.Namespace) -> Dict[str, Any]:
                 artifact_title=args.artifact_title,
                 artifact_kind=args.artifact_kind,
             )
-            append_reviewer_difficulty_assessment(
-                task,
-                pct=getattr(args, "reviewed_difficulty_pct", None),
-                dimension=getattr(args, "reviewed_difficulty_dimension", "") or "",
-                reason=getattr(args, "reviewed_difficulty_reason", "") or "",
-                reviewer_agent_id=args.id,
-                reviewer_role=args.role,
-                gate_id=str(gate.get("id") or ""),
-                gate_attempt_id=str(result["attempt"].get("id") or ""),
-            )
+            feedback_warnings: List[str] = []
+            # Reviewed difficulty is optional telemetry: a bad pct/dimension must
+            # not block the operational verdict (Decision 4 — best-effort telemetry).
+            try:
+                append_reviewer_difficulty_assessment(
+                    task,
+                    pct=getattr(args, "reviewed_difficulty_pct", None),
+                    dimension=getattr(args, "reviewed_difficulty_dimension", "") or "",
+                    reason=getattr(args, "reviewed_difficulty_reason", "") or "",
+                    reviewer_agent_id=args.id,
+                    reviewer_role=args.role,
+                    gate_id=str(gate.get("id") or ""),
+                    gate_attempt_id=str(result["attempt"].get("id") or ""),
+                )
+            except SystemExit as exc:
+                feedback_warnings.append(
+                    str(exc.code) if exc.code not in (None, 0) else "reviewed difficulty dropped"
+                )
             feedback_payload = build_feedback_payload(
                 args,
                 state,
@@ -258,8 +266,10 @@ def cmd_task_gate_verdict(args: argparse.Namespace) -> Dict[str, Any]:
                     "verdict": args.verdict,
                     "role": args.role,
                 },
+                best_effort=True,
             )
             if feedback_payload:
+                feedback_warnings.extend(feedback_payload.get("warnings") or [])
                 attach_feedback_payload(state, feedback_payload, args.id)
             recompute_phase(state)
             event = append_event(state, "task_gate_verdict", args.id, f"{args.id} submitted {args.verdict} for gate {args.gate_id} on {args.task_id}.")
@@ -274,6 +284,7 @@ def cmd_task_gate_verdict(args: argparse.Namespace) -> Dict[str, Any]:
                 "nextStatus": result["nextStatus"],
                 "event": event,
                 **(continuation or {}),
+                **({"feedbackWarnings": feedback_warnings} if feedback_warnings else {}),
                 "_feedbackRecord": feedback_payload["record"] if feedback_payload else None,
             }
 

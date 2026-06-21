@@ -228,6 +228,11 @@ export type GuidedBriefStartBuildPorts = {
   pathExists: PathExists
   readArchitecturePlan: (workspaceRoot: string, path: string) => Promise<string>
   readBuildHandoff: (workspaceRoot: string, relativePath: string) => Promise<string>
+  // Advanced-setup preflight (MCP sync + skill-pack install). Runs before any
+  // handoff write or run/workspace creation so a failure fails closed: it
+  // returns the actionable error message, and the controller aborts before the
+  // first filesystem/run mutation. Returns null on success.
+  persistAdvancedSetup: (workspaceRoot: string) => Promise<string | null>
   createPlanSourcedSprintEngineWorkspace?: (
     args: PlanSourcedSprintEngineWorkspaceArgs
   ) => Promise<PlanSourcedSprintEngineWorkspaceResult>

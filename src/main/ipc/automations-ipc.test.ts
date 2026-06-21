@@ -219,6 +219,9 @@ async function testProviderList(): Promise<void> {
             folderPath: { type: 'string', minLength: 1 },
             workspaceId: { type: 'string', minLength: 1 },
             cli: { type: 'string', minLength: 1 },
+            cliModel: { type: 'string', minLength: 1 },
+            permissionPreset: { type: 'string', enum: ['default', 'auto_workspace', 'bypass_all'] },
+            specialistId: { type: 'string', minLength: 1 },
             name: { type: 'string', minLength: 1 },
             prompt: { type: 'string', minLength: 1 },
             requiredIntegrations: {
@@ -289,6 +292,10 @@ async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
     {
       engine: {
         runNow: async () => ({
+          ok: false as const,
+          problem: { code: 'not_used', message: 'not used' },
+        }),
+        finalizeRun: async () => ({
           ok: false as const,
           problem: { code: 'not_used', message: 'not used' },
         }),
@@ -599,6 +606,10 @@ async function testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow(): Promise<vo
             problem: { code: 'should_not_run', message: 'should not run' },
           }
         },
+        finalizeRun: async () => ({
+          ok: false as const,
+          problem: { code: 'should_not_run', message: 'should not run' },
+        }),
       },
       createStore: (workspaceRoot) => {
         storeCreated += 1

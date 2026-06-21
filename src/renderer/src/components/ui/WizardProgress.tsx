@@ -17,6 +17,19 @@ export type WizardProgressProps = {
   ariaLabel?: string
   /** Optional descriptive name for the current step, appended to the label. */
   currentStepLabel?: string
+  /**
+   * Optional per-step names, used to label the back-jump controls. Index-aligned
+   * with the dashes; only consulted when `onStepSelect` is set.
+   */
+  stepLabels?: string[]
+  /**
+   * Optional back-jump handler. When set, every already-completed step becomes a
+   * focusable jump control that calls this with the target step index, so users
+   * can return to a finished step. The jump controls live in a sibling group
+   * layered over the dashes — the progressbar element itself stays a
+   * non-interactive status indicator. Upcoming and current steps stay inert.
+   */
+  onStepSelect?: (index: number) => void
 }
 
 /**
@@ -30,12 +43,21 @@ export function WizardProgress({
   done,
   ariaLabel,
   currentStepLabel,
+  stepLabels,
+  onStepSelect,
 }: WizardProgressProps) {
   const doneCount = done ?? active
   const step = Math.min(total, active + 1)
   const baseLabel = ariaLabel ?? `Step ${step} of ${total}`
   const fullLabel = currentStepLabel ? `${baseLabel} · ${currentStepLabel}` : baseLabel
-  return (
+  // One descriptor per dash. `isDone` is the single source of truth for both the
+  // completed-dash fill and (when enabled) which steps can be jumped back to.
+  const stepStates = Array.from({ length: total }).map((_, idx) => {
+    const isCurrent = idx === active
+    return { idx, isCurrent, isDone: idx < doneCount && !isCurrent }
+  })
+
+  const progressbar = (
     <div
       role="progressbar"
       aria-valuemin={1}
@@ -44,23 +66,55 @@ export function WizardProgress({
       aria-label={fullLabel}
       className="flex min-w-0 flex-1 items-center gap-1.5"
     >
-      {Array.from({ length: total }).map((_, idx) => {
-        const isCurrent = idx === active
-        const isDone = idx < doneCount && !isCurrent
-        return (
-          <span
-            key={idx}
-            aria-hidden="true"
-            className={`h-[3px] flex-1 rounded-full transition-colors duration-300 ${
-              isCurrent
-                ? 'bg-[color:var(--text-strong)]'
-                : isDone
-                  ? 'bg-[color:var(--text-disabled)]'
-                  : 'bg-[color:var(--border-default)]'
-            }`}
-          />
-        )
-      })}
+      {stepStates.map(({ idx, isCurrent, isDone }) => (
+        <span
+          key={idx}
+          aria-hidden="true"
+          className={`h-[3px] flex-1 rounded-full transition-colors duration-300 ${
+            isCurrent
+              ? 'bg-[color:var(--text-strong)]'
+              : isDone
+                ? 'bg-[color:var(--text-disabled)]'
+                : 'bg-[color:var(--border-default)]'
+          }`}
+        />
+      ))}
+    </div>
+  )
+
+  // Without a back-jump handler the progressbar is the whole control.
+  if (!onStepSelect) return progressbar
+
+  // Back-jump enabled: keep the progressbar non-interactive and lay a sibling
+  // group of jump controls over it. Each cell is flex-1 with the same gap as the
+  // dashes, so the completed-step buttons align exactly over their dashes; the
+  // group extends past the dashes vertically (-inset-y-2) for an easy hit area.
+  return (
+    <div className="relative flex min-w-0 flex-1 items-center">
+      {progressbar}
+      <div
+        role="group"
+        aria-label="Jump to a completed step"
+        className="absolute inset-x-0 -inset-y-2 flex items-center gap-1.5"
+      >
+        {stepStates.map(({ idx, isDone }) => {
+          if (!isDone) return <span key={idx} aria-hidden="true" className="flex-1" />
+          const stepLabel = stepLabels?.[idx]
+          return (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => onStepSelect(idx)}
+              aria-label={
+                stepLabel
+                  ? `Go back to step ${idx + 1}: ${stepLabel}`
+                  : `Go back to step ${idx + 1}`
+              }
+              className="h-full flex-1 rounded-full outline-none transition-colors hover:bg-[color:var(--bg-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+            />
+          )
+        })}
+      </div>
     </div>
   )
 }

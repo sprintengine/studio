@@ -5,6 +5,7 @@ import type {
   BacklogItemStatus,
   BacklogType,
 } from './backlog'
+import type { BacklogView, BacklogSort } from '../types/workspace'
 
 // Triage view + sort logic for the Backlog panel, kept pure so the filtering
 // and ordering rules can be unit-tested without a DOM. The panel owns the
@@ -13,15 +14,10 @@ import type {
 // Named lenses. Quick wins / strategic bets / defer span difficulty *ranges*
 // (XS/S, L/XL) that a single-value filter can't express, which is why the panel
 // surfaces them as presets rather than independent size/priority dropdowns.
-export type BacklogView =
-  | 'all'
-  | 'quick_wins'
-  | 'strategic_bets'
-  | 'defer'
-  | 'unestimated'
-  | 'archived'
-
-export type BacklogSort = 'recent' | 'status' | 'priority' | 'largest' | 'smallest'
+// Canonical union definitions live in `types/workspace.ts` so the persisted
+// WorkspaceBacklogState can reference them; this module owns their behavior and
+// re-exports the types for the panel and its controls.
+export type { BacklogView, BacklogSort }
 
 export const DIFFICULTY_LABEL: Record<BacklogDifficulty, string> = {
   xs: 'XS',

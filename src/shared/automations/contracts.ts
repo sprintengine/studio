@@ -1,5 +1,10 @@
 export type JsonSchema = Record<string, unknown>
 
+// CLI permission preset for a spawned automation agent. Mirrors
+// SprintEngineCliPermissionPreset (src/shared/electron-api.ts) so the automations
+// contract stays self-contained; kept in sync as a closed union.
+export type AutomationCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
+
 export const AUTOMATIONS_LIST_CHANNEL = 'automations:list'
 export const AUTOMATIONS_GET_CHANNEL = 'automations:get'
 export const AUTOMATIONS_CREATE_CHANNEL = 'automations:create'
@@ -7,6 +12,7 @@ export const AUTOMATIONS_UPDATE_CHANNEL = 'automations:update'
 export const AUTOMATIONS_DELETE_CHANNEL = 'automations:delete'
 export const AUTOMATIONS_RUN_NOW_CHANNEL = 'automations:run-now'
 export const AUTOMATIONS_RUNS_LIST_CHANNEL = 'automations:runs:list'
+export const AUTOMATIONS_RUN_FINALIZE_CHANNEL = 'automations:run:finalize'
 export const AUTOMATIONS_PROVIDERS_LIST_CHANNEL = 'automations:providers:list'
 export const AUTOMATIONS_RUN_EVENT_CHANNEL = 'automations:run-event'
 
@@ -89,6 +95,10 @@ export type ActionContext = {
     workspaceId?: string
     folderPath: string
     cli?: string
+    cliModel?: string
+    permissionPreset?: AutomationCliPermissionPreset
+    specialistId?: string
+    worktreePath?: string
     name?: string
     prompt: string
   }): Promise<{ workspaceId: string; agentId: string }>
@@ -133,6 +143,12 @@ export type AutomationRun = {
   touchedFiles?: string[]
   commandsRan?: string[]
   summary?: string
+  /** Git worktree the agent-backed run executes in (per-run isolation). */
+  worktreePath?: string
+  /** Branch the run's worktree is checked out on. */
+  branch?: string
+  /** Pull request opened for the run's branch on completion, when available. */
+  pullRequestUrl?: string
 }
 
 export type AutomationDefinitionDraft = {
@@ -166,6 +182,12 @@ export type AutomationsUpdateInput = AutomationsDefinitionInput & {
 
 export type AutomationsRunsListInput = AutomationsDefinitionInput
 
+export type AutomationsRunFinalizeInput = AutomationsDefinitionInput & {
+  runId: string
+  outcome: 'completed' | 'failed'
+  summary?: string
+}
+
 export type AutomationsProviderView = {
   kind: string
   configSchema: JsonSchema
@@ -191,4 +213,5 @@ export type AutomationsRunNowResult = AutomationsResult<{
   run: AutomationRun
 }>
 export type AutomationsRunsListResult = AutomationsResult<AutomationRun[]>
+export type AutomationsRunFinalizeResult = AutomationsResult<AutomationRun>
 export type AutomationsProvidersResult = AutomationsResult<AutomationsProviders>
