@@ -98,7 +98,7 @@ type TerminalIpcHandlers = {
   spawnTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   writeTerminal(sessionId: string, data: string): void
   resizeTerminal(sessionId: string, cols: number, rows: number): void
-  getTerminalStatus(sessionId: string): { processAlive: boolean }
+  getTerminalStatus(sessionId: string): { processAlive: boolean; suspended: boolean }
   listTerminals(): TerminalSessionSnapshot[]
   setTerminalVisible(sessionId: string, visible: boolean): void
   suspendTerminal(sessionId: string): void
@@ -250,6 +250,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
         const session = terminals.get(sessionId)
         return {
           processAlive: Boolean(session && isTerminalProcessAlive(session)),
+          suspended: Boolean(session?.suspended),
         }
       },
       listTerminals() {
@@ -604,8 +605,16 @@ export function reapStaleTerminals(now = Date.now()): string[] {
 // (lastInputAt), visibility, and run-state — so revealing a workspace (which
 // makes its TUIs repaint) can't reset the idle clock or look like activity. The
 // decision lives in the pure policy (terminal-reap-policy); this maps live
-// sessions to candidates and disposes what it clears. disposeTerminal preserves
-// agent launch flags, so a reaped Claude relaunches with --resume on reopen.
+// sessions to candidates and SUSPENDS what it clears via `suspendTerminal`
+// (freeze-the-view): the pty is killed to reclaim its RAM but the session and
+// its painted scrollback are retained with `suspended = true`. Reopening the
+// workspace then replays the frozen history and resumes the agent (`--resume`
+// where the cli supports it) only on the first keystroke or the play button —
+// it never auto-respawns. Disposing instead (the old behavior) dropped the
+// session and scrollback, so reopen fell through to the renderer's resume-spawn
+// and the agent silently relaunched. The 24h `reapStaleTerminals` backstop still
+// disposes, reclaiming the retained buffer once the history is no longer worth
+// keeping.
 export function runIdleAgentReapSweep(now = Date.now()): string[] {
   const lastInteractionAt = (session: TerminalSession): number =>
     Math.max(session.startedAt, session.lastInputAt ?? 0)
@@ -649,7 +658,7 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
       kind: session.kind,
       idleMs,
     })
-    disposeTerminal(sessionId)
+    suspendTerminal(sessionId)
   }
   return decision.reapableSessionIds
 }

@@ -427,8 +427,11 @@ export type SprintEngineTaskFeedbackFinding = {
   kind: SprintEngineTaskFeedbackFindingKind
   severity: SprintEngineTaskFeedbackFindingSeverity
   area: SprintEngineTaskFeedbackFindingArea
-  title: string
-  detail: string
+  // `findingJson` is categorical-only (kind/area/severity); the actionable text
+  // lives in the verdict's requiredAction. `title`/`detail` are optional prose
+  // older records may still carry — render them only when present.
+  title?: string
+  detail?: string
   recommendation?: string
   requirementId?: string
   file?: string
@@ -1718,6 +1721,52 @@ export type EditorState = {
 
 export type WorkspaceFileExplorerState = {
   expandedPaths: string[]
+  // The file the user last clicked in the tree, restored as the highlighted row
+  // after a reload/restart. Only the focused/lead path is persisted, never the
+  // whole multi-select set. Best-effort: it highlights only when the row is
+  // visible, which works because expandedPaths restores its ancestor folders.
+  selectedPath?: string | null
+}
+
+// Backlog triage lens + sort. Canonically defined here (the shared workspace
+// types module, also visible to the main/preload tsconfig project) so the
+// persisted WorkspaceBacklogState can reference them without dragging the
+// renderer-only triage util into the node project. `utils/backlogTriage.ts`
+// re-exports these and owns their behavior (matchesBacklogView/compareBacklogItems).
+export type BacklogView =
+  | 'all'
+  | 'quick_wins'
+  | 'strategic_bets'
+  | 'defer'
+  | 'unestimated'
+  | 'archived'
+
+export type BacklogSort = 'recent' | 'status' | 'priority' | 'largest' | 'smallest'
+
+// The Backlog panel's per-workspace navigation/view state, persisted so a
+// reload/restart restores the item the user was reading plus the lens, sort, and
+// search they left it in. Selection is keyed by project-root-relative
+// `backlog/...` path (the durable identity) and resolved to the live scan's item
+// id on restore — a deleted item degrades to no selection via the panel's
+// existing scan-validity guard. The list/detail split is intentionally NOT
+// persisted: it is derived from panel width by a ResizeObserver, not a user
+// choice.
+export type WorkspaceBacklogState = {
+  selectedRelativePath: string | null
+  view: BacklogView
+  sort: BacklogSort
+  search: string
+}
+
+export type GitPanelView = 'changes' | 'worktrees' | 'log' | 'terminal'
+
+// The Git panel's per-workspace view state. Commit-message drafts are keyed by
+// scope id (per worktree/main checkout) so a half-written message can never
+// bleed across worktrees and is cleared once that scope commits.
+export type WorkspaceGitPanelState = {
+  activeView: GitPanelView
+  activeScopeId: string
+  commitDraftsByScopeId: Record<string, string>
 }
 
 export type Workspace = {
@@ -1735,8 +1784,9 @@ export type Workspace = {
   memory: WorkspaceMemoryConfig
   editorState: EditorState
   fileExplorerState?: WorkspaceFileExplorerState
+  backlogState?: WorkspaceBacklogState
+  gitPanelState?: WorkspaceGitPanelState
   sprintEngineState: SprintEngineState | null
-  sprintEngineCompletionSeenAt?: number | null
   multiloopState?: MultiloopState | null
   sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults
   // Roster agents the user explicitly asked to start when the workspace

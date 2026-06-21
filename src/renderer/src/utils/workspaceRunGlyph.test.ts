@@ -5,7 +5,7 @@ import type { SprintEngineTask, Workspace } from '../types/workspace'
 
 type WorkspaceLike = Pick<
   Workspace,
-  'mode' | 'sprintEngineState' | 'sprintEngineContext' | 'sprintEngineAutoState' | 'sprintEngineCompletionSeenAt'
+  'mode' | 'sprintEngineState' | 'sprintEngineContext' | 'sprintEngineAutoState'
 >
 
 function task(overrides: Partial<SprintEngineTask>): SprintEngineTask {
@@ -129,8 +129,8 @@ assert.equal(deriveWorkspaceRunGlyph(idleAuto, 'working')?.state, 'in_progress')
 assert.equal(deriveWorkspaceRunGlyph(idleAuto, 'failed')?.state, 'failed')
 assert.equal(deriveWorkspaceRunGlyph(idleAuto, 'idle'), null)
 
-// A completed run keeps the done glyph until the user views the workspace after
-// completion. Recency survives in the tooltip.
+// A completed run keeps the done glyph for good — viewing the workspace no
+// longer fades it back to recency text. Recency survives in the glyph tooltip.
 const completedAt = Date.parse('2026-06-08T10:00:00Z')
 function completedWorkspace(): WorkspaceLike {
   return sprintWorkspace({
@@ -151,16 +151,8 @@ assert.deepEqual(deriveWorkspaceRunGlyph(completedWorkspace(), 'idle'), {
   live: false,
   label: 'Run completed',
 })
-assert.equal(
-  deriveWorkspaceRunGlyph({ ...completedWorkspace(), sprintEngineCompletionSeenAt: completedAt }, 'idle'),
-  null,
-  'viewing the workspace after completion clears the done glyph',
-)
-assert.equal(
-  deriveWorkspaceRunGlyph({ ...completedWorkspace(), sprintEngineCompletionSeenAt: completedAt - 1 }, 'idle')?.state,
-  'done',
-  'an older view does not acknowledge a newer completion',
-)
+// needs_input still outranks a finished run — an actionable agent wins.
+assert.equal(deriveWorkspaceRunGlyph(completedWorkspace(), 'needs-input')?.state, 'needs_input')
 // A done workspace whose terminals are busy again still earns the spinner.
 assert.equal(deriveWorkspaceRunGlyph(completedWorkspace(), 'working')?.state, 'in_progress')
 
@@ -190,11 +182,6 @@ const manualDone = sprintWorkspace({
   },
 })
 assert.equal(deriveWorkspaceRunGlyph(manualDone, 'idle')?.state, 'done')
-assert.equal(
-  deriveWorkspaceRunGlyph({ ...manualDone, sprintEngineCompletionSeenAt: Date.parse('2026-06-08T10:00:00Z') }, 'idle'),
-  null,
-  'manual completion clears after the workspace is viewed',
-)
 // A run with an unfinished task is not a completed run.
 const manualInFlight: WorkspaceLike = {
   ...manualDone,

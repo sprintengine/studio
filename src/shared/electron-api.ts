@@ -12,6 +12,8 @@ import type {
   AutomationsListResult,
   AutomationsProvidersResult,
   AutomationsRunEvent,
+  AutomationsRunFinalizeInput,
+  AutomationsRunFinalizeResult,
   AutomationsRunNowResult,
   AutomationsRunsListInput,
   AutomationsRunsListResult,
@@ -1900,6 +1902,7 @@ export type ElectronApi = {
   deleteAutomation: (input: AutomationsDefinitionInput) => Promise<AutomationsDeleteResult>
   runAutomationNow: (input: AutomationsDefinitionInput) => Promise<AutomationsRunNowResult>
   listAutomationRuns: (input: AutomationsRunsListInput) => Promise<AutomationsRunsListResult>
+  finalizeAutomationRun: (input: AutomationsRunFinalizeInput) => Promise<AutomationsRunFinalizeResult>
   listAutomationProviders: () => Promise<AutomationsProvidersResult>
   onAutomationRunEvent: (cb: (event: AutomationsRunEvent) => void) => () => void
   authGetState: () => Promise<MulticodeAuthState>
@@ -2167,7 +2170,7 @@ export type ElectronApi = {
   terminalWrite: (sessionId: string, data: string) => Promise<void>
   terminalWriteFast: (sessionId: string, data: string) => void
   terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
-  terminalStatus: (sessionId: string) => Promise<{ processAlive: boolean }>
+  terminalStatus: (sessionId: string) => Promise<{ processAlive: boolean; suspended: boolean }>
   terminalList: () => Promise<TerminalSessionSnapshot[]>
   terminalSetVisible: (sessionId: string, visible: boolean) => Promise<void>
   // Freeze-the-view: suspend kills the agent process but keeps the painted,

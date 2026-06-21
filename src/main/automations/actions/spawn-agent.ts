@@ -1,11 +1,21 @@
 import { createHash } from 'node:crypto'
 
-import type { AutomationActionProvider, AutomationDefinition, AutomationRun } from '../../../shared/automations/contracts'
+import type {
+  AutomationActionProvider,
+  AutomationCliPermissionPreset,
+  AutomationDefinition,
+  AutomationRun,
+} from '../../../shared/automations/contracts'
+
+const PERMISSION_PRESETS: readonly AutomationCliPermissionPreset[] = ['default', 'auto_workspace', 'bypass_all']
 
 export type SpawnAgentConfig = {
   folderPath?: string
   workspaceId?: string
   cli?: string
+  cliModel?: string
+  permissionPreset?: AutomationCliPermissionPreset
+  specialistId?: string
   name?: string
   prompt: string
   requiredIntegrations?: string[]
@@ -21,11 +31,13 @@ export type SpawnAgentRuntime = {
     folderPath: string
     resolvedTarget?: SpawnAgentResolvedTarget
     cli?: string
+    cliModel?: string
+    permissionPreset?: AutomationCliPermissionPreset
+    specialistId?: string
     name?: string
     prompt: string
-  }): Promise<{ workspaceId: string; agentId: string }>
+  }): Promise<{ workspaceId: string; agentId: string; worktreePath?: string; branch?: string }>
   requireIntegration(id: string): void
-  isWorkspaceDirty(input: SpawnAgentResolvedTarget): Promise<{ dirty: boolean; reason?: string }>
 }
 
 export type SpawnAgentActionResult = Partial<AutomationRun>
@@ -44,6 +56,9 @@ export function createSpawnAgentActionProvider(): AutomationActionProvider {
         folderPath: { type: 'string', minLength: 1 },
         workspaceId: { type: 'string', minLength: 1 },
         cli: { type: 'string', minLength: 1 },
+        cliModel: { type: 'string', minLength: 1 },
+        permissionPreset: { type: 'string', enum: [...PERMISSION_PRESETS] },
+        specialistId: { type: 'string', minLength: 1 },
         name: { type: 'string', minLength: 1 },
         prompt: { type: 'string', minLength: 1 },
         requiredIntegrations: {
@@ -68,16 +83,9 @@ export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRu
   const folderPath = parsed.folderPath ?? runtime.workspaceRoot
   const target = await runtime.resolveSpawnAgentTarget({ workspaceId: parsed.workspaceId, folderPath })
   const autonomy = runtime.definition.autonomyDefault
-  if (autonomy === 'allow_changes' || autonomy === 'review_only') {
-    const dirty = await runtime.isWorkspaceDirty(target)
-    if (dirty.dirty) {
-      return {
-        status: 'blocked',
-        blockedReason: dirty.reason ?? 'Target workspace has uncommitted or unsaved changes.',
-        summary: `Automation blocked before launching because ${autonomy} requires a clean target workspace.`,
-      }
-    }
-  }
+  // Agent-backed runs execute in their own per-run worktree, so a dirty main
+  // checkout no longer blocks a launch — the worktree gives a clean baseline and
+  // keeps the run's diff (and PR) isolated from the user's uncommitted work.
 
   const prompt = composeSpawnAgentPrompt({
     userPrompt: parsed.prompt,
@@ -90,16 +98,24 @@ export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRu
     folderPath: target.folderPath,
     resolvedTarget: target,
     cli: parsed.cli,
+    cliModel: parsed.cliModel,
+    permissionPreset: parsed.permissionPreset,
+    specialistId: parsed.specialistId,
     name: parsed.name ?? runtime.definition.name,
     prompt,
   })
 
+  const isolation = launched.worktreePath ? ' in an isolated worktree' : ''
+  // The run stays in-progress: the agent is now working. finalizeRun records the
+  // terminal outcome (and links a PR) when the agent finishes.
   return {
-    status: 'completed',
+    status: 'running',
     workspaceId: launched.workspaceId,
     agentId: launched.agentId,
+    worktreePath: launched.worktreePath,
+    branch: launched.branch,
     promptFingerprint: fingerprintPrompt(prompt),
-    summary: `Launched ${autonomy === 'allow_changes' ? 'allow-changes' : 'review-only'} agent ${launched.agentId}.`,
+    summary: `Launched ${autonomy === 'allow_changes' ? 'allow-changes' : 'review-only'} agent ${launched.agentId}${isolation}; working…`,
   }
 }
 
@@ -116,10 +132,18 @@ export function parseSpawnAgentConfig(config: unknown): SpawnAgentConfig {
     throw new Error('spawn-agent requiredIntegrations must be non-empty strings.')
   }
 
+  const permissionPreset = optionalString(config.permissionPreset)
+  if (permissionPreset !== undefined && !PERMISSION_PRESETS.includes(permissionPreset as AutomationCliPermissionPreset)) {
+    throw new Error(`spawn-agent permissionPreset must be one of: ${PERMISSION_PRESETS.join(', ')}.`)
+  }
+
   return {
     folderPath: optionalString(config.folderPath),
     workspaceId: optionalString(config.workspaceId),
     cli: optionalString(config.cli),
+    cliModel: optionalString(config.cliModel),
+    permissionPreset: permissionPreset as AutomationCliPermissionPreset | undefined,
+    specialistId: optionalString(config.specialistId),
     name: optionalString(config.name),
     prompt,
     requiredIntegrations: Array.isArray(requiredIntegrations)

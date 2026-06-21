@@ -53,8 +53,11 @@ import type {
   SprintEngineRoleCliDefaults,
   SprintEngineRoleModelOverrides,
   SprintEngineWorkspaceContext,
+  GitPanelView,
   Workspace,
+  WorkspaceBacklogState,
   WorkspaceFileExplorerState,
+  WorkspaceGitPanelState,
   WorkspaceHighlight,
   WorkspaceId,
   WorkspaceWindowId,
@@ -98,17 +101,95 @@ export function normalizeWorkspaceMode(
 }
 
 export function defaultWorkspaceFileExplorerState(): WorkspaceFileExplorerState {
-  return { expandedPaths: [] }
+  return { expandedPaths: [], selectedPath: null }
 }
 
 export function normalizeWorkspaceFileExplorerState(input: unknown): WorkspaceFileExplorerState {
-  const rawExpandedPaths = input && typeof input === 'object'
-    ? (input as Partial<WorkspaceFileExplorerState>).expandedPaths
-    : null
+  const obj = input && typeof input === 'object' ? (input as Partial<WorkspaceFileExplorerState>) : null
+  const rawExpandedPaths = obj?.expandedPaths
   const expandedPaths = Array.isArray(rawExpandedPaths)
     ? Array.from(new Set(rawExpandedPaths.filter((path): path is string => typeof path === 'string' && path.trim().length > 0)))
     : []
-  return { expandedPaths }
+  const selectedPath =
+    typeof obj?.selectedPath === 'string' && obj.selectedPath.trim().length > 0 ? obj.selectedPath : null
+  return { expandedPaths, selectedPath }
+}
+
+export function defaultWorkspaceBacklogState(): WorkspaceBacklogState {
+  return { selectedRelativePath: null, view: 'all', sort: 'recent', search: '' }
+}
+
+// Runtime guards for the persisted enums, exhaustiveness-checked against the
+// source unions via `satisfies` so a new lens/sort fails to compile until it is
+// added here too.
+const BACKLOG_VIEW_VALUES = {
+  all: true,
+  quick_wins: true,
+  strategic_bets: true,
+  defer: true,
+  unestimated: true,
+  archived: true,
+} satisfies Record<WorkspaceBacklogState['view'], true>
+
+const BACKLOG_SORT_VALUES = {
+  recent: true,
+  status: true,
+  priority: true,
+  largest: true,
+  smallest: true,
+} satisfies Record<WorkspaceBacklogState['sort'], true>
+
+const MAX_BACKLOG_SEARCH_LENGTH = 200
+
+// Returns undefined for absent state so the persisted registry is not bloated
+// with a default record for every workspace; a present-but-malformed record is
+// coerced to safe defaults rather than dropped.
+export function normalizeWorkspaceBacklogState(input: unknown): WorkspaceBacklogState | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const raw = input as Partial<WorkspaceBacklogState>
+  const view =
+    typeof raw.view === 'string' && raw.view in BACKLOG_VIEW_VALUES ? (raw.view as WorkspaceBacklogState['view']) : 'all'
+  const sort =
+    typeof raw.sort === 'string' && raw.sort in BACKLOG_SORT_VALUES ? (raw.sort as WorkspaceBacklogState['sort']) : 'recent'
+  const selectedRelativePath =
+    typeof raw.selectedRelativePath === 'string' && raw.selectedRelativePath.trim().length > 0
+      ? raw.selectedRelativePath
+      : null
+  const search = typeof raw.search === 'string' ? raw.search.slice(0, MAX_BACKLOG_SEARCH_LENGTH) : ''
+  return { selectedRelativePath, view, sort, search }
+}
+
+export function defaultWorkspaceGitPanelState(): WorkspaceGitPanelState {
+  return { activeView: 'changes', activeScopeId: 'main', commitDraftsByScopeId: {} }
+}
+
+const GIT_PANEL_VIEW_VALUES = {
+  changes: true,
+  worktrees: true,
+  log: true,
+  terminal: true,
+} satisfies Record<GitPanelView, true>
+
+const MAX_COMMIT_DRAFT_LENGTH = 10000
+
+export function normalizeWorkspaceGitPanelState(input: unknown): WorkspaceGitPanelState | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const raw = input as Partial<WorkspaceGitPanelState>
+  const activeView =
+    typeof raw.activeView === 'string' && raw.activeView in GIT_PANEL_VIEW_VALUES
+      ? (raw.activeView as GitPanelView)
+      : 'changes'
+  const activeScopeId =
+    typeof raw.activeScopeId === 'string' && raw.activeScopeId.trim().length > 0 ? raw.activeScopeId : 'main'
+  const commitDraftsByScopeId: Record<string, string> = {}
+  if (raw.commitDraftsByScopeId && typeof raw.commitDraftsByScopeId === 'object') {
+    for (const [scopeId, text] of Object.entries(raw.commitDraftsByScopeId)) {
+      if (scopeId.length > 0 && typeof text === 'string' && text.trim().length > 0) {
+        commitDraftsByScopeId[scopeId] = text.slice(0, MAX_COMMIT_DRAFT_LENGTH)
+      }
+    }
+  }
+  return { activeView, activeScopeId, commitDraftsByScopeId }
 }
 
 export interface WorkspacesSliceState {
@@ -186,6 +267,11 @@ export interface WorkspacesSliceActions {
   setFolderPath: (id: WorkspaceId, folderPath: string | null) => void
   setFolderMissing: (id: WorkspaceId, folderMissing: boolean) => void
   setFileExplorerExpandedPaths: (id: WorkspaceId, expandedPaths: string[]) => void
+  setFileExplorerSelectedPath: (id: WorkspaceId, selectedPath: string | null) => void
+  setBacklogViewState: (id: WorkspaceId, patch: Partial<WorkspaceBacklogState>) => void
+  setGitPanelState: (id: WorkspaceId, patch: Partial<Omit<WorkspaceGitPanelState, 'commitDraftsByScopeId'>>) => void
+  setGitCommitDraft: (id: WorkspaceId, scopeId: string, text: string) => void
+  clearGitCommitDraft: (id: WorkspaceId, scopeId: string) => void
   importWorkspace: (ws: Workspace) => void
   moveAgentToWorkspace: (
     sourceWorkspaceId: WorkspaceId,
@@ -295,42 +381,6 @@ function normalizeBounds(
     width: Math.max(800, Math.round(width)),
     height: Math.max(600, Math.round(height)),
   }
-}
-
-function parseSprintEngineTaskCompletedAt(value: string | null | undefined): number | null {
-  if (!value) return null
-  const parsed = Date.parse(value)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
-function sprintEngineWorkspaceCompletionAt(workspace: Workspace): number | null {
-  if (
-    workspace.sprintEngineAutoState?.runtimeState === 'complete'
-    && typeof workspace.sprintEngineAutoState.changedAt === 'number'
-    && Number.isFinite(workspace.sprintEngineAutoState.changedAt)
-  ) {
-    return workspace.sprintEngineAutoState.changedAt
-  }
-
-  const tasks = workspace.sprintEngineState?.tasks ?? []
-  if (tasks.length === 0 || tasks.some((task) => task.status !== 'done')) return null
-  const completedAt = tasks
-    .map((task) => parseSprintEngineTaskCompletedAt(task.completedAt))
-    .filter((value): value is number => typeof value === 'number')
-  return completedAt.length > 0 ? Math.max(...completedAt) : 1
-}
-
-function markSprintEngineCompletionSeen(workspace: Workspace, seenAt: number): void {
-  const completionAt = sprintEngineWorkspaceCompletionAt(workspace)
-  if (completionAt === null) return
-  if (
-    typeof workspace.sprintEngineCompletionSeenAt === 'number'
-    && Number.isFinite(workspace.sprintEngineCompletionSeenAt)
-    && workspace.sprintEngineCompletionSeenAt >= completionAt
-  ) {
-    return
-  }
-  workspace.sprintEngineCompletionSeenAt = Math.max(seenAt, completionAt)
 }
 
 function normalizeWindowAssignments(state: WorkspacesSliceCarrier): void {
@@ -623,8 +673,6 @@ export function createWorkspacesSlice(
         windowState.activeWorkspaceId = workspaceId
         windowState.lastFocusedAt = Date.now()
         state.activeWorkspaceId = workspaceId
-        const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId)
-        if (workspace) markSprintEngineCompletionSeen(workspace, windowState.lastFocusedAt)
       })
       // Local state is the functional path (storage-event sync still mirrors it
       // to other windows as rollback). When the active selection actually
@@ -1096,8 +1144,6 @@ export function createWorkspacesSlice(
           windowState.activeWorkspaceId = id
           windowState.lastFocusedAt = seenAt
         }
-        const workspace = state.workspaces.find((candidate) => candidate.id === id)
-        if (workspace) markSprintEngineCompletionSeen(workspace, seenAt)
       }),
 
     setFolderPath: (id, folderPath) =>
@@ -1108,7 +1154,12 @@ export function createWorkspacesSlice(
           ws.folderPath = folderPath
           ws.folderMissing = false
           if (folderChanged) {
+            // The new folder invalidates folder/repo-scoped view state: the file
+            // selection, the Backlog item (keyed by folder-relative path), and the
+            // Git scope/commit drafts all belong to the previous folder.
             ws.fileExplorerState = defaultWorkspaceFileExplorerState()
+            ws.backlogState = undefined
+            ws.gitPanelState = undefined
           }
           if (folderPath) {
             state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
@@ -1139,7 +1190,58 @@ export function createWorkspacesSlice(
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
         if (!ws) return
-        ws.fileExplorerState = normalizeWorkspaceFileExplorerState({ expandedPaths })
+        // Preserve the persisted selection; only the expanded set is changing here.
+        ws.fileExplorerState = normalizeWorkspaceFileExplorerState({
+          expandedPaths,
+          selectedPath: ws.fileExplorerState?.selectedPath ?? null,
+        })
+      }),
+
+    setFileExplorerSelectedPath: (id, selectedPath) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        ws.fileExplorerState = normalizeWorkspaceFileExplorerState({
+          expandedPaths: ws.fileExplorerState?.expandedPaths ?? [],
+          selectedPath,
+        })
+      }),
+
+    setBacklogViewState: (id, patch) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        const current = ws.backlogState ?? defaultWorkspaceBacklogState()
+        ws.backlogState = normalizeWorkspaceBacklogState({ ...current, ...patch })
+      }),
+
+    setGitPanelState: (id, patch) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        const current = ws.gitPanelState ?? defaultWorkspaceGitPanelState()
+        ws.gitPanelState = normalizeWorkspaceGitPanelState({ ...current, ...patch })
+      }),
+
+    setGitCommitDraft: (id, scopeId, text) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws || scopeId.length === 0) return
+        const current = ws.gitPanelState ?? defaultWorkspaceGitPanelState()
+        const commitDraftsByScopeId = { ...current.commitDraftsByScopeId }
+        if (text.trim().length > 0) commitDraftsByScopeId[scopeId] = text
+        else delete commitDraftsByScopeId[scopeId]
+        ws.gitPanelState = normalizeWorkspaceGitPanelState({ ...current, commitDraftsByScopeId })
+      }),
+
+    clearGitCommitDraft: (id, scopeId) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws?.gitPanelState) return
+        if (!(scopeId in ws.gitPanelState.commitDraftsByScopeId)) return
+        const commitDraftsByScopeId = { ...ws.gitPanelState.commitDraftsByScopeId }
+        delete commitDraftsByScopeId[scopeId]
+        ws.gitPanelState = { ...ws.gitPanelState, commitDraftsByScopeId }
       }),
 
     importWorkspace: (ws) =>
@@ -1174,6 +1276,8 @@ export function createWorkspacesSlice(
           worktreeState: deps.normalizeWorkspaceWorktreeState(ws.worktreeState),
           editorState: ws.editorState ?? deps.defaultEditorState(),
           fileExplorerState: normalizeWorkspaceFileExplorerState(ws.fileExplorerState),
+          backlogState: normalizeWorkspaceBacklogState(ws.backlogState),
+          gitPanelState: normalizeWorkspaceGitPanelState(ws.gitPanelState),
           sprintEngineState,
           sprintEngineContext: deps.normalizeSprintEngineWorkspaceContext(ws.sprintEngineContext, ws.folderPath, sprintEngineState),
           multiloopState,
