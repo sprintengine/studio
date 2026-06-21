@@ -30,6 +30,7 @@ async function main(): Promise<void> {
   testDuplicateChannelIsReportedNotFatal()
   testLifecycleAndSidecarsCollected()
   await testRunStartupAndShutdownInvokeHooks()
+  await testRunShutdownBeginRunsBeginHooksInRegistrationOrderBeforeShutdown()
   await testTrustedThirdPartyMainRegistersThroughHost()
   await testUntrustedAndInvalidThirdPartyMainNeverImports()
   await testThirdPartyPathSafetyAndBadEntriesAreLaunchErrors()
@@ -219,6 +220,40 @@ async function testRunStartupAndShutdownInvokeHooks(): Promise<void> {
   // Startup ran; shutdown ran in reverse registration order and isolated the
   // throwing hook so the later-registered hook still ran.
   assert.deepEqual(order, ['start', 'stop'])
+}
+
+async function testRunShutdownBeginRunsBeginHooksInRegistrationOrderBeforeShutdown(): Promise<void> {
+  const order: string[] = []
+  const mod: CapabilityModule = {
+    manifest: { id: 'svc', displayName: 'Svc', version: 1, defaultEnabled: true },
+    registerMain: (host) => {
+      host.onShutdownBegin(() => {
+        order.push('begin-1')
+      })
+      host.onShutdownBegin(() => {
+        throw new Error('begin boom')
+      })
+      host.onShutdownBegin(async () => {
+        order.push('begin-3')
+      })
+      host.onShutdown(() => {
+        order.push('stop')
+      })
+    },
+  }
+
+  const { ipcMain } = createFakeIpcMain()
+  const { kernel } = loadMainModules({ ipcMain, modules: [mod] })
+
+  await kernel.runShutdownBegin()
+
+  // Begin hooks run in registration order (not reversed), the throwing hook is
+  // isolated so the later-registered begin hook still runs, and the begin phase
+  // does not fire onShutdown hooks — the late drain stays separate.
+  assert.deepEqual(order, ['begin-1', 'begin-3'])
+
+  await kernel.runShutdown()
+  assert.deepEqual(order, ['begin-1', 'begin-3', 'stop'])
 }
 
 async function testTrustedThirdPartyMainRegistersThroughHost(): Promise<void> {
